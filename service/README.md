@@ -18,7 +18,7 @@ Supported architectures: ([more info](https://github.com/docker-library/official
 amd64, arm64
 
 Source of this description:
-[Github link](https://github.com/powersync-ja/service/blob/main/service/README.md)
+[Github link](https://github.com/powersync-ja/powersync-service/blob/main/service/README.md)
 
 # How to use this image
 
@@ -44,7 +44,7 @@ PowerSync may collect telemetry data about your usage. Telemetry data allows us 
 
 This image is published under the [FSL-1.1-Apache-2.0](https://www.powersync.com/legal/fsl) license.
 
-View [license information](../LICENSE) for the software contained in this image.
+View [license information](https://github.com/powersync-ja/powersync-service/blob/main/service/LICENSE) for the software contained in this image.
 
 As with all Docker images, these likely also contain other software which may be under other licenses (such as Bash, etc from the base distribution, along with any direct or indirect dependencies of the primary software being contained).
 
