@@ -1,0 +1,51 @@
+{
+  "name": "powersync-open-service",
+  "version": "0.2.0",
+  "private": true,
+  "license": "FSL-1.1-Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "watch": "nodemon -e ts -x node --loader ts-node/esm src/entry.ts start",
+    "clean": "rm -rf ./lib && tsc -b --clean"
+  },
+  "dependencies": {
+    "@fastify/cors": "8.4.1",
+    "@journeyapps-platform/micro": "^17.0.1",
+    "@journeyapps-platform/micro-migrate": "^4.0.1",
+    "@powersync/service-types": "workspace:*",
+    "@powersync/service-jpgwire": "workspace:*",
+    "@powersync/service-jsonbig": "workspace:*",
+    "@powersync/service-sync-rules": "workspace:*",
+    "@powersync/service-rsocket-router": "workspace:*",
+    "@powersync/service-core": "workspace:*",
+    "@opentelemetry/api": "~1.6.0",
+    "@opentelemetry/exporter-prometheus": "^0.43.0",
+    "@opentelemetry/sdk-metrics": "^1.17.0",
+    "async-mutex": "^0.5.0",
+    "bson": "^6.6.0",
+    "commander": "^12.0.0",
+    "cors": "^2.8.5",
+    "fastify": "4.23.2",
+    "ipaddr.js": "^2.1.0",
+    "ix": "^5.0.0",
+    "jose": "^4.15.1",
+    "lru-cache": "^10.0.1",
+    "mongodb": "^6.5.0",
+    "node-fetch": "^3.3.2",
+    "pgwire": "github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87",
+    "ts-codec": "^1.2.2",
+    "uuid": "^9.0.1",
+    "yaml": "^2.3.2"
+  },
+  "devDependencies": {
+    "@journeyapps-platform/micro-dev": "^1.6.7",
+    "@types/uuid": "^9.0.4",
+    "copyfiles": "^2.4.1",
+    "nodemon": "^3.0.1",
+    "npm-check-updates": "^16.14.4",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.2.2",
+    "vitest": "^0.34.6"
+  }
+}

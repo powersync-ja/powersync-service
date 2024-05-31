@@ -1,0 +1,107 @@
+name: Build and Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - '**'
+    tags-ignore:
+      - '**'
+
+jobs:
+  test-service-container-build:
+    name: Build and Test Powersync Service
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          cache-from: type=registry,ref=stevenontong/${{vars.DOCKER_REGISTRY}}:cache
+          context: .
+          platforms: linux/amd64
+          push: false
+          file: ./service/Dockerfile
+          # TODO remove this when removing Journey Micro
+          build-args: |
+            GITHUB_TOKEN=${{secrets.RESTRICTED_PACKAGES_TOKEN}}
+
+  run-tests:
+    name: Test
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres-version: [11, 12, 13, 14, 15, 16]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start PostgreSQL
+        run: |
+          docker run \
+            --health-cmd pg_isready \
+            --health-interval 10s \
+            --health-timeout 5s \
+            --health-retries 5 \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=powersync_test \
+            -p 5432:5432 \
+            -d postgres:${{ matrix.postgres-version }} \
+            -c wal_level=logical
+
+      - name: Start MongoDB
+        uses: supercharge/mongodb-github-action@1.8.0
+        with:
+          mongodb-version: '6.0'
+          mongodb-replica-set: test-rs
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      # TODO remove this when no longer needed
+      - name: Temporary Package Credentials
+        run: |
+          echo //npm.pkg.github.com/:_authToken=\${{secrets.RESTRICTED_PACKAGES_TOKEN}} >> ~/.npmrc
+          echo "//npm.pkg.github.com/journeyapps-platform/:_authToken=${{secrets.RESTRICTED_PACKAGES_TOKEN}}" >> ~/.npmrc
+          echo "@journeyapps-platform:registry=https://npm.pkg.github.com/journeyapps-platform/" >> ~/.npmrc
+
+      - uses: pnpm/action-setup@v2
+        name: Install pnpm
+        with:
+          version: 9
+          run_install: false
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - uses: actions/cache@v3
+        name: Setup pnpm cache
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build
+        shell: bash
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test

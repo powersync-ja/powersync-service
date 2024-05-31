@@ -1,0 +1,16 @@
+{
+  "extends": "@journeyapps-platform/micro-dev/tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "declarationDir": "dist",
+    "rootDir": "src",
+    "esModuleInterop": true,
+    "typeRoots": ["./src/wkx.d.ts", "./node_modules/@types"]
+  },
+  "include": ["src"],
+  "references": [
+    {
+      "path": "../jsonbig"
+    }
+  ]
+}

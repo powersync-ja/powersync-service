@@ -1,0 +1,43 @@
+{
+  "name": "powersync-service",
+  "version": "0.0.0",
+  "preview": true,
+  "description": "PowerSync source available monorepo",
+  "license": "FSL-1.1-Apache-2.0",
+  "keywords": [],
+  "author": "JourneyApps Platform",
+  "scripts": {
+    "prepare": "journey-formatter install",
+    "check-updates": "ncu -u --deep",
+    "format": "journey-formatter format",
+    "build": "pnpm run -r build && pnpm run -r build:tests",
+    "build:packages": "pnpm run build",
+    "build:production": "NODE_ENV=production pnpm run -r build",
+    "build:ts": "tsc -b",
+    "clean": "pnpm run -r clean",
+    "release": "pnpm build:production && pnpm changeset publish",
+    "test": "pnpm run -r test"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.3",
+    "@journeyapps-platform/deploy-cli": "^4.4.6",
+    "@journeyapps-platform/deploy-config": "^3.1.0",
+    "@journeyapps-platform/deploy-transformers": "^1.2.32",
+    "@journeyapps-platform/formatter-cli": "^3.1.9",
+    "@journeyapps-platform/lerno": "^1.0.3",
+    "@journeyapps-platform/micro-cli": "^7.2.6",
+    "@journeyapps-platform/micro-dev": "^1.6.7",
+    "@types/node": "18.11.11",
+    "async": "^3.2.4",
+    "bson": "^6.6.0",
+    "inquirer": "^9.2.7",
+    "npm-check-updates": "^16.10.15",
+    "prettier": "^2.8.8",
+    "rsocket-core": "1.0.0-alpha.3",
+    "rsocket-websocket-client": "1.0.0-alpha.3",
+    "semver": "^7.5.4",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^4.9.5",
+    "ws": "^8.2.3"
+  }
+}

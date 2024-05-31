@@ -1,0 +1,55 @@
+{
+  "name": "@powersync/service-core",
+  "repository": "https://github.com/powersync-ja/powersync-service",
+  "types": "dist/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "license": "FSL-1.1-Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b && tsc-alias",
+    "build:tests": "tsc -b test/tsconfig.json && tsc-alias",
+    "test": "vitest --no-threads",
+    "clean": "rm -rf ./lib && tsc -b --clean"
+  },
+  "dependencies": {
+    "@journeyapps-platform/micro": "^17.0.1",
+    "@journeyapps-platform/micro-migrate": "^4.0.1",
+    "@opentelemetry/api": "~1.8.0",
+    "@opentelemetry/resources": "^1.24.1",
+    "@opentelemetry/exporter-prometheus": "^0.51.1",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.51.1",
+    "@opentelemetry/sdk-metrics": "1.24.1",
+    "@powersync/service-jpgwire": "workspace:*",
+    "@powersync/service-jsonbig": "workspace:*",
+    "@powersync/service-rsocket-router": "workspace:*",
+    "@powersync/service-types": "workspace:*",
+    "@powersync/service-sync-rules": "workspace:*",
+    "async-mutex": "^0.5.0",
+    "bson": "^6.6.0",
+    "commander": "^12.0.0",
+    "cors": "^2.8.5",
+    "fastify": "4.23.2",
+    "ipaddr.js": "^2.1.0",
+    "ix": "^5.0.0",
+    "jose": "^4.15.1",
+    "lru-cache": "^10.0.1",
+    "mongodb": "^6.5.0",
+    "node-fetch": "^3.3.2",
+    "pgwire": "github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87",
+    "ts-codec": "^1.2.2",
+    "uuid": "^9.0.1",
+    "yaml": "^2.3.2"
+  },
+  "devDependencies": {
+    "@journeyapps-platform/micro-dev": "^1.6.7",
+    "@types/uuid": "^9.0.4",
+    "tsc-alias": "^1.8.10",
+    "typescript": "^5.2.2",
+    "vite-tsconfig-paths": "^4.3.2",
+    "vitest": "^0.34.6"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "extends": "@journeyapps-platform/micro-dev/tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "noEmit": true,
+    "baseUrl": "./",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "paths": {
+      "@/*": ["../src/*"]
+    }
+  },
+  "include": ["src"],
+  "references": [
+    {
+      "path": "../"
+    }
+  ]
+}

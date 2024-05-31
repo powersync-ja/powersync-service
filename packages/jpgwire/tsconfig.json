@@ -1,0 +1,20 @@
+{
+  "extends": "@journeyapps-platform/micro-dev/tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "declarationDir": "dist",
+    "rootDir": "src",
+    "esModuleInterop": true,
+    "allowJs": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"],
+  "references": [
+    {
+      "path": "../types"
+    },
+    {
+      "path":  "../jsonbig"
+    }
+  ]
+}

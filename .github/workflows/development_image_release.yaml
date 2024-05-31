@@ -1,0 +1,91 @@
+# Action to publish development Docker images
+# Images are versioned as `0.0.0-{tag}-DATETIMESTAMP`
+name: Development Image Release
+
+on: workflow_dispatch
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  release-docker-image:
+    name: Build and Release powersync-service Docker Image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # check out full history
+          # Temporarily needed for changesets
+          fetch-depth: 0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Setup NodeJS
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - uses: pnpm/action-setup@v2
+        name: Install pnpm
+        with:
+          version: 9
+          run_install: false
+
+      - name: Add NPM auth
+        run: |
+          echo //npm.pkg.github.com/:_authToken=\${{secrets.RESTRICTED_PACKAGES_TOKEN}} >> ~/.npmrc
+          echo "//npm.pkg.github.com/journeyapps-platform/:_authToken=${{secrets.RESTRICTED_PACKAGES_TOKEN}}" >> ~/.npmrc
+          echo "@journeyapps-platform:registry=https://npm.pkg.github.com/journeyapps-platform/" >> ~/.npmrc
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - uses: actions/cache@v3
+        name: Setup pnpm cache
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Ensure Changesets
+        run: |
+          # If no changesets are available the status check will fail
+          # We should not continue if there are no changesets    
+          pnpm changeset status
+          pnpm changeset version --no-git-tag --snapshot dev
+
+        # This uses the service's package.json version for the Docker Image tag
+        # The changeset command above should change this to a dev package
+      - name: Get Service Version from package.json
+        id: get_version
+        run: echo "SERVICE_VERSION=$(node -p "require('./service/package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Build Image and Push
+        uses: docker/build-push-action@v5
+        with:
+          platforms: linux/arm64,linux/amd64
+          cache-from: type=registry,ref=${{vars.DOCKER_REGISTRY}}:latest
+          context: .
+          #   This should not be taged as latest
+          tags: ${{vars.DOCKER_REGISTRY}}:${{steps.get_version.outputs.SERVICE_VERSION}}
+          push: true
+          file: ./service/Dockerfile
+          # TODO remove this when removing Journey Micro
+          build-args: |
+            GITHUB_TOKEN=${{secrets.RESTRICTED_PACKAGES_TOKEN}}

@@ -1,0 +1,235 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`sync - mongodb > expired token 1`] = `
+[
+  {
+    "token_expires_in": 0,
+  },
+]
+`;
+
+exports[`sync - mongodb > expiring token 1`] = `
+[
+  {
+    "checkpoint": {
+      "buckets": [],
+      "last_op_id": "0",
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "0",
+    },
+  },
+]
+`;
+
+exports[`sync - mongodb > expiring token 2`] = `
+[
+  {
+    "token_expires_in": 0,
+  },
+]
+`;
+
+exports[`sync - mongodb > sync global data 1`] = `
+[
+  {
+    "checkpoint": {
+      "buckets": [
+        {
+          "bucket": "mybucket[]",
+          "checksum": -93886621,
+          "count": 2,
+        },
+      ],
+      "last_op_id": "2",
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "data": {
+      "after": "0",
+      "bucket": "mybucket[]",
+      "data": [
+        {
+          "checksum": 920318466n,
+          "data": "{\\"id\\":\\"t1\\",\\"description\\":\\"Test 1\\"}",
+          "object_id": "t1",
+          "object_type": "test",
+          "op": "PUT",
+          "op_id": "1",
+          "subkey": "6544e3899293153fa7b38331/117ab485-4b42-58a2-ab32-0053a22c3423",
+        },
+        {
+          "checksum": 3280762209n,
+          "data": "{\\"id\\":\\"t2\\",\\"description\\":\\"Test 2\\"}",
+          "object_id": "t2",
+          "object_type": "test",
+          "op": "PUT",
+          "op_id": "2",
+          "subkey": "6544e3899293153fa7b38331/ec27c691-b47a-5d92-927a-9944feb89eee",
+        },
+      ],
+      "has_more": false,
+      "next_after": "2",
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "2",
+    },
+  },
+]
+`;
+
+exports[`sync - mongodb > sync legacy non-raw data 1`] = `
+[
+  {
+    "checkpoint": {
+      "buckets": [
+        {
+          "bucket": "mybucket[]",
+          "checksum": -852817836,
+          "count": 1,
+        },
+      ],
+      "last_op_id": "1",
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "data": {
+      "after": "0",
+      "bucket": "mybucket[]",
+      "data": [
+        {
+          "checksum": 3442149460n,
+          "data": {
+            "description": "Test
+\\"string\\"",
+            "id": "t1",
+            "large_num": 12345678901234567890n,
+          },
+          "object_id": "t1",
+          "object_type": "test",
+          "op": "PUT",
+          "op_id": "1",
+          "subkey": "6544e3899293153fa7b38331/117ab485-4b42-58a2-ab32-0053a22c3423",
+        },
+      ],
+      "has_more": false,
+      "next_after": "1",
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "1",
+    },
+  },
+]
+`;
+
+exports[`sync - mongodb > sync updates to global data 1`] = `
+[
+  {
+    "checkpoint": {
+      "buckets": [],
+      "last_op_id": "0",
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "0",
+    },
+  },
+]
+`;
+
+exports[`sync - mongodb > sync updates to global data 2`] = `
+[
+  {
+    "checkpoint_diff": {
+      "last_op_id": "1",
+      "removed_buckets": [],
+      "updated_buckets": [
+        {
+          "bucket": "mybucket[]",
+          "checksum": 920318466,
+          "count": 1,
+        },
+      ],
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "data": {
+      "after": "0",
+      "bucket": "mybucket[]",
+      "data": [
+        {
+          "checksum": 920318466n,
+          "data": "{\\"id\\":\\"t1\\",\\"description\\":\\"Test 1\\"}",
+          "object_id": "t1",
+          "object_type": "test",
+          "op": "PUT",
+          "op_id": "1",
+          "subkey": "6544e3899293153fa7b38331/117ab485-4b42-58a2-ab32-0053a22c3423",
+        },
+      ],
+      "has_more": false,
+      "next_after": "1",
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "1",
+    },
+  },
+]
+`;
+
+exports[`sync - mongodb > sync updates to global data 3`] = `
+[
+  {
+    "checkpoint_diff": {
+      "last_op_id": "2",
+      "removed_buckets": [],
+      "updated_buckets": [
+        {
+          "bucket": "mybucket[]",
+          "checksum": -93886621,
+          "count": 2,
+        },
+      ],
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "data": {
+      "after": "1",
+      "bucket": "mybucket[]",
+      "data": [
+        {
+          "checksum": 3280762209n,
+          "data": "{\\"id\\":\\"t2\\",\\"description\\":\\"Test 2\\"}",
+          "object_id": "t2",
+          "object_type": "test",
+          "op": "PUT",
+          "op_id": "2",
+          "subkey": "6544e3899293153fa7b38331/ec27c691-b47a-5d92-927a-9944feb89eee",
+        },
+      ],
+      "has_more": false,
+      "next_after": "2",
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "2",
+    },
+  },
+]
+`;

@@ -1,0 +1,23 @@
+{
+  "name": "@powersync/service-jsonbig",
+  "repository": "https://github.com/powersync-ja/powersync-service",
+  "version": "0.17.10",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "FSL-1.1-Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist/**/*"
+  ],
+  "type": "module",
+  "scripts": {
+    "clean": "rm -r ./dist && tsc -b --clean",
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "lossless-json": "^2.0.8"
+  },
+  "devDependencies": {}
+}

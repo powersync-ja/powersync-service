@@ -1,0 +1,32 @@
+{
+  "extends": "@journeyapps-platform/micro-dev/tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "baseUrl": ".",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src"],
+  "references": [
+    {
+      "path": "../types"
+    },
+    {
+      "path": "../rsocket-router"
+    },
+    {
+      "path": "../jsonbig"
+    },
+    {
+      "path": "../jpgwire"
+    },
+    {
+      "path": "../sync-rules"
+    }
+  ]
+}

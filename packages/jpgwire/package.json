@@ -1,0 +1,25 @@
+{
+  "name": "@powersync/service-jpgwire",
+  "repository": "https://github.com/powersync-ja/powersync-service",
+  "types": "dist/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "version": "0.17.11",
+  "main": "dist/index.js",
+  "license": "FSL-1.1-Apache-2.0",
+  "files": [
+    "dist/**/*",
+    "ca/*.pem"
+  ],
+  "type": "module",
+  "scripts": {
+    "clean": "rm -r ./dist && tsc -b --clean",
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "pgwire": "github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87",
+    "@powersync/service-types": "workspace:^",
+    "@powersync/service-jsonbig": "workspace:^"
+  }
+}
