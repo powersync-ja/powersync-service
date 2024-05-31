@@ -8,6 +8,8 @@
 
 `powersync-service` is the monorepo for the core PowerSync service.
 
+The service can be started using the public Docker image. See the image [notes](./service/README.md)
+
 ## Monorepo Structure: Packages
 
 - [packages/service-core](./packages/service-core/README.md)
@@ -41,4 +43,3 @@ The PowerSync service code is located in the `service` folder. This project is u
 
 This mono repo currently relies on `restricted` packages. Currently this repo can only be built in CI. These dependencies will be removed soon.
 
-The service can be started using the public Docker image. See image [notes](./service/README.md)
