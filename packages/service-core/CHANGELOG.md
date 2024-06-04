@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 0.1.1
+
+### Patch Changes
+
+- 006fb8d: Updated `lru-cache` dependency minimum version to prevent downstream consumers of package using broken version.
+
 ## 0.1.0
 
 ### Minor Changes
