@@ -36,7 +36,7 @@
     "ipaddr.js": "^2.1.0",
     "ix": "^5.0.0",
     "jose": "^4.15.1",
-    "lru-cache": "^10.0.1",
+    "lru-cache": "^10.2.2",
     "mongodb": "^6.5.0",
     "node-fetch": "^3.3.2",
     "pgwire": "github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87",
