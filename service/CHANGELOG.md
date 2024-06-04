@@ -1,5 +1,12 @@
 # powersync-open-service
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [006fb8d]
+  - @powersync/service-core@0.1.1
+
 ## 0.2.0
 
 ### Minor Changes

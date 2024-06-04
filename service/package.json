@@ -1,6 +1,6 @@
 {
   "name": "powersync-open-service",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "license": "FSL-1.1-Apache-2.0",
   "type": "module",
