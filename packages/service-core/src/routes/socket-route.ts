@@ -13,7 +13,7 @@ export const sync_stream_reactive: SocketRouteGenerator = (router) =>
     authorize: ({ context }) => {
       return {
         authorized: !!context.token_payload,
-        errors: ['Authentication required']
+        errors: ['Authentication required'].concat(context.token_errors ?? [])
       };
     },
     validator: micro.schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),

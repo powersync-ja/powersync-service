@@ -43,6 +43,16 @@ export class ReactiveSocketRouter<C> {
 
     server.on('upgrade', (request, socket, head) => {
       wss.handleUpgrade(request, socket as any, head, (ws) => {
+        const originalSend = ws.send.bind(ws);
+        ws.send = (...args) => {
+          // Work around for this issue
+          // https://github.com/websockets/ws/issues/1515
+          if (ws.readyState == ws.CLOSING || ws.readyState == ws.CLOSED) {
+            return;
+          }
+          // @ts-expect-error the overloaded function causes type issues which should be fine in this case
+          return originalSend(...args);
+        };
         wss.emit('connection', ws, request);
       });
     });

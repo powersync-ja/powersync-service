@@ -8,6 +8,7 @@ export type Context = {
   system: CorePowerSyncSystem;
 
   token_payload?: auth.JwtPayload;
+  token_errors?: string[];
 };
 
 /**
