@@ -89,7 +89,12 @@ export const StreamingSyncRequest = t.object({
   /**
    * Data is received in a serialized BSON Buffer
    */
-  binary_data: t.boolean.optional()
+  binary_data: t.boolean.optional(),
+
+  /**
+   * Client parameters to be passed to the sync rules.
+   */
+  parameters: t.record(t.string).optional()
 });
 
 export type StreamingSyncRequest = t.Decoded<typeof StreamingSyncRequest>;
