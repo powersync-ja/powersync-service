@@ -49,7 +49,7 @@ function defineBatchTests(factory: StorageFactory) {
       const checkpoint = await context.getCheckpoint({ timeout: 100_000 });
       const duration = Date.now() - start;
       const used = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
-      const checksum = await context.storage!.getChecksums(checkpoint, ['global[]']);
+      const checksum = await context.storage!.getChecksums(checkpoint, null, ['global[]']);
       expect(checksum[0].count).toEqual(operation_count);
       const perSecond = Math.round((operation_count / duration) * 1000);
       console.log(`${operation_count} ops in ${duration}ms ${perSecond} ops/s. ${used}MB heap`);
@@ -100,7 +100,7 @@ function defineBatchTests(factory: StorageFactory) {
 
         const checkpoint = await context.getCheckpoint({ timeout: 100_000 });
         const duration = Date.now() - start;
-        const checksum = await context.storage!.getChecksums(checkpoint, ['global[]']);
+        const checksum = await context.storage!.getChecksums(checkpoint, null, ['global[]']);
         expect(checksum[0].count).toEqual(operation_count);
         const perSecond = Math.round((operation_count / duration) * 1000);
         console.log(`${operation_count} ops in ${duration}ms ${perSecond} ops/s.`);
@@ -156,7 +156,7 @@ function defineBatchTests(factory: StorageFactory) {
       const checkpoint = await context.getCheckpoint({ timeout: 50_000 });
       const duration = Date.now() - start;
       const used = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
-      const checksum = await context.storage!.getChecksums(checkpoint, ['global[]']);
+      const checksum = await context.storage!.getChecksums(checkpoint, null, ['global[]']);
       expect(checksum[0].count).toEqual(operationCount);
       const perSecond = Math.round((operationCount / duration) * 1000);
       // This number depends on the test machine, so we keep the test significantly
@@ -173,7 +173,7 @@ function defineBatchTests(factory: StorageFactory) {
       const checkpoint2 = await context.getCheckpoint({ timeout: 20_000 });
       const truncateDuration = Date.now() - truncateStart;
 
-      const checksum2 = await context.storage!.getChecksums(checkpoint2, ['global[]']);
+      const checksum2 = await context.storage!.getChecksums(checkpoint2, null, ['global[]']);
       const truncateCount = checksum2[0].count - checksum[0].count;
       expect(truncateCount).toEqual(numTransactions * perTransaction);
       const truncatePerSecond = Math.round((truncateCount / truncateDuration) * 1000);
