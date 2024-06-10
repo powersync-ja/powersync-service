@@ -12,7 +12,8 @@ export class DefaultErrorRateLimiter implements ErrorRateLimiter {
 
   async waitUntilAllowed(options?: { signal?: AbortSignal | undefined } | undefined): Promise<void> {
     const delay = Math.max(0, this.nextAllowed - Date.now());
-    this.setDelay(5_000);
+    // Minimum delay between connections, even without errors
+    this.setDelay(500);
     await setTimeout(delay, undefined, { signal: options?.signal });
   }
 

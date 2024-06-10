@@ -1,4 +1,4 @@
-import {router as micro_router} from '@journeyapps-platform/micro';
+import { router as micro_router } from '@journeyapps-platform/micro';
 import * as t from 'ts-codec';
 import { OnExtensionSubscriber, OnNextSubscriber, OnTerminalSubscriber } from 'rsocket-core';
 import { SocketRouterObserver } from './SocketRouterListener.js';

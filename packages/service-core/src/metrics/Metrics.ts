@@ -146,14 +146,16 @@ export class Metrics {
     }
     micro.logger.info('Configuring telemetry.');
 
-    micro.logger.info(`
+    micro.logger.info(
+      `
 Attention:
 PowerSync collects completely anonymous telemetry regarding usage.
 This information is used to shape our roadmap to better serve our customers.
 You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
 https://docs.powersync.com/self-hosting/telemetry
 Anonymous telemetry is currently: ${options.disable_telemetry_sharing ? 'disabled' : 'enabled'}
-    `.trim());
+    `.trim()
+    );
 
     const configuredExporters: MetricReader[] = [];
 
@@ -167,7 +169,7 @@ Anonymous telemetry is currently: ${options.disable_telemetry_sharing ? 'disable
         exporter: new OTLPMetricExporter({
           url: options.internal_metrics_endpoint
         }),
-        exportIntervalMillis: 1000 * 60 * 5  // 5 minutes
+        exportIntervalMillis: 1000 * 60 * 5 // 5 minutes
       });
 
       configuredExporters.push(periodicExporter);
