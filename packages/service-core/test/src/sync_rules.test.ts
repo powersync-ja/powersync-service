@@ -100,27 +100,29 @@ bucket_definitions:
     const rules = SqlSyncRules.fromYaml(`
 bucket_definitions:
   mybucket:
-    parameters: SELECT token_parameters.user_id
+    parameters: SELECT token_parameters.user_id, user_parameters.device_id
     data:
-      - SELECT id, description FROM assets WHERE assets.user_id = bucket.user_id AND NOT assets.archived
+      - SELECT id, description FROM assets WHERE assets.user_id = bucket.user_id AND assets.device_id = bucket.device_id AND NOT assets.archived
     `);
     const bucket = rules.bucket_descriptors[0];
-    expect(bucket.bucket_parameters).toEqual(['user_id']);
+    expect(bucket.bucket_parameters).toEqual(['user_id', 'device_id']);
     const param_query = bucket.global_parameter_queries[0];
-    expect(param_query.bucket_parameters).toEqual(['user_id']);
-    expect(rules.getStaticBucketIds(normalizeTokenParameters({ user_id: 'user1' }))).toEqual(['mybucket["user1"]']);
+    expect(param_query.bucket_parameters).toEqual(['user_id', 'device_id']);
+    expect(rules.getStaticBucketIds(normalizeTokenParameters({ user_id: 'user1' }, { device_id: 'device1' }))).toEqual([
+      'mybucket["user1","device1"]'
+    ]);
 
     const data_query = bucket.data_queries[0];
-    expect(data_query.bucket_parameters).toEqual(['user_id']);
+    expect(data_query.bucket_parameters).toEqual(['user_id', 'device_id']);
     expect(
       rules.evaluateRow({
         sourceTable: ASSETS,
-        record: { id: 'asset1', description: 'test', user_id: 'user1' }
+        record: { id: 'asset1', description: 'test', user_id: 'user1', device_id: 'device1' }
       })
     ).toEqual([
       {
         ruleId: '1',
-        bucket: 'mybucket["user1"]',
+        bucket: 'mybucket["user1","device1"]',
         id: 'asset1',
         data: {
           id: 'asset1',
@@ -132,7 +134,7 @@ bucket_definitions:
     expect(
       rules.evaluateRow({
         sourceTable: ASSETS,
-        record: { id: 'asset1', description: 'test', user_id: 'user1', archived: 1 }
+        record: { id: 'asset1', description: 'test', user_id: 'user1', archived: 1, device_id: 'device1' }
       })
     ).toEqual([]);
   });
