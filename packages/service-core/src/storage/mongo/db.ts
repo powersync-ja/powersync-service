@@ -45,9 +45,6 @@ export class PowerSyncMongo {
     this.client = client;
 
     const db = client.db(options?.database, {
-      // Note this issue with useBigInt64: https://jira.mongodb.org/browse/NODE-6165
-      // Unfortunately there is no workaround if we want to continue using bigint.
-      // We selectively disable this in individual queries where we don't need that.
       ...BSON_DESERIALIZE_OPTIONS
     });
     this.db = db;
