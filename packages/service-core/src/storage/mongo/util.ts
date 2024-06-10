@@ -83,6 +83,6 @@ export async function readSingleBatch<T>(cursor: mongo.FindCursor<T>): Promise<{
 }
 
 export const BSON_DESERIALIZE_OPTIONS: bson.DeserializeOptions = {
-  // use bigint instead of long
+  // use bigint instead of Long
   useBigInt64: true
 };

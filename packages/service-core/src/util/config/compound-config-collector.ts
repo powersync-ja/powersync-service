@@ -121,7 +121,8 @@ export class CompoundConfigCollector {
       migrations: baseConfig.migrations,
       telemetry: {
         disable_telemetry_sharing: baseConfig.telemetry?.disable_telemetry_sharing ?? false,
-        internal_service_endpoint: baseConfig.telemetry?.internal_service_endpoint ?? 'https://pulse.journeyapps.com/v1/metrics'
+        internal_service_endpoint:
+          baseConfig.telemetry?.internal_service_endpoint ?? 'https://pulse.journeyapps.com/v1/metrics'
       },
       slot_name_prefix: connections[0]?.slot_name_prefix ?? 'powersync_'
     };

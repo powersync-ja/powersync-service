@@ -190,8 +190,8 @@ importers:
         specifier: ^10.2.2
         version: 10.2.2
       mongodb:
-        specifier: ^6.5.0
-        version: 6.6.2(socks@2.8.3)
+        specifier: ^6.7.0
+        version: 6.7.0(socks@2.8.3)
       node-fetch:
         specifier: ^3.3.2
         version: 3.3.2
@@ -324,8 +324,8 @@ importers:
         specifier: ^10.0.1
         version: 10.2.2
       mongodb:
-        specifier: ^6.5.0
-        version: 6.6.2(socks@2.8.3)
+        specifier: ^6.7.0
+        version: 6.7.0(socks@2.8.3)
       node-fetch:
         specifier: ^3.3.2
         version: 3.3.2
@@ -3158,8 +3158,8 @@ packages:
   mongodb-connection-string-url@3.0.1:
     resolution: {integrity: sha512-XqMGwRX0Lgn05TDB4PyG2h2kKO/FfWJyCzYQbIhXUxz7ETt0I/FqHjUeqj37irJ+Dl1ZtU82uYyj14u2XsZKfg==}
 
-  mongodb@6.6.2:
-    resolution: {integrity: sha512-ZF9Ugo2JCG/GfR7DEb4ypfyJJyiKbg5qBYKRintebj8+DNS33CyGMkWbrS9lara+u+h+yEOGSRiLhFO/g1s1aw==}
+  mongodb@6.7.0:
+    resolution: {integrity: sha512-TMKyHdtMcO0fYBNORiYdmM25ijsHs+Njs963r4Tro4OQZzqYigAzYQouwWRg4OIaiLRUEGUh/1UAcH5lxdSLIA==}
     engines: {node: '>=16.20.1'}
     peerDependencies:
       '@aws-sdk/credential-providers': ^3.188.0
@@ -5162,7 +5162,7 @@ snapshots:
       bson: 6.7.0
       kafkajs: 2.2.4
       lodash: 4.17.21
-      mongodb: 6.6.2(socks@2.8.3)
+      mongodb: 6.7.0(socks@2.8.3)
     transitivePeerDependencies:
       - '@aws-sdk/credential-providers'
       - '@mongodb-js/zstd'
@@ -5189,7 +5189,7 @@ snapshots:
   '@journeyapps-platform/micro-locks@2.0.1(socks@2.8.3)':
     dependencies:
       bson: 6.7.0
-      mongodb: 6.6.2(socks@2.8.3)
+      mongodb: 6.7.0(socks@2.8.3)
     transitivePeerDependencies:
       - '@aws-sdk/credential-providers'
       - '@mongodb-js/zstd'
@@ -5230,7 +5230,7 @@ snapshots:
     dependencies:
       '@journeyapps-platform/micro-db': 3.0.2
       bson: 6.7.0
-      mongodb: 6.6.2(socks@2.8.3)
+      mongodb: 6.7.0(socks@2.8.3)
     transitivePeerDependencies:
       - '@aws-sdk/credential-providers'
       - '@mongodb-js/zstd'
@@ -8135,7 +8135,7 @@ snapshots:
       '@types/whatwg-url': 11.0.5
       whatwg-url: 13.0.0
 
-  mongodb@6.6.2(socks@2.8.3):
+  mongodb@6.7.0(socks@2.8.3):
     dependencies:
       '@mongodb-js/saslprep': 1.1.7
       bson: 6.7.0

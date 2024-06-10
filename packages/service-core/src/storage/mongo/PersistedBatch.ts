@@ -2,6 +2,7 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import * as mongo from 'mongodb';
+import * as micro from '@journeyapps-platform/micro';
 
 import * as util from '@/util/util-index.js';
 import { SourceTable } from '../SourceTable.js';
@@ -43,6 +44,11 @@ export class PersistedBatch {
   currentData: mongo.AnyBulkWriteOperation<CurrentDataDocument>[] = [];
 
   /**
+   * For debug logging only.
+   */
+  debugLastOpId: bigint | null = null;
+
+  /**
    * Very rough estimate of transaction size.
    */
   currentSize = 0;
@@ -75,13 +81,16 @@ export class PersistedBatch {
       const checksum = util.hashData(k.table, k.id, recordData);
       this.currentSize += recordData.length + 200;
 
+      const op_id = options.op_seq.next();
+      this.debugLastOpId = op_id;
+
       this.bucketData.push({
         insertOne: {
           document: {
             _id: {
               g: this.group_id,
               b: k.bucket,
-              o: options.op_seq.next()
+              o: op_id
             },
             op: 'PUT',
             source_table: options.table.id,
@@ -97,13 +106,17 @@ export class PersistedBatch {
 
     for (let bd of remaining_buckets.values()) {
       // REMOVE
+
+      const op_id = options.op_seq.next();
+      this.debugLastOpId = op_id;
+
       this.bucketData.push({
         insertOne: {
           document: {
             _id: {
               g: this.group_id,
               b: bd.bucket,
-              o: options.op_seq.next()
+              o: op_id
             },
             op: 'REMOVE',
             source_table: options.table.id,
@@ -145,7 +158,9 @@ export class PersistedBatch {
       const binLookup = serializeLookup(result.lookup);
       const hex = binLookup.toString('base64');
       remaining_lookups.delete(hex);
+
       const op_id = data.op_seq.next();
+      this.debugLastOpId = op_id;
       this.bucketParameters.push({
         insertOne: {
           document: {
@@ -167,6 +182,7 @@ export class PersistedBatch {
     // 2. "REMOVE" entries for any lookup not touched.
     for (let lookup of remaining_lookups.values()) {
       const op_id = data.op_seq.next();
+      this.debugLastOpId = op_id;
       this.bucketParameters.push({
         insertOne: {
           document: {
@@ -237,9 +253,16 @@ export class PersistedBatch {
       });
     }
 
+    micro.logger.info(
+      `powersync_${this.group_id} Flushed ${this.bucketData.length} + ${this.bucketParameters.length} + ${
+        this.currentData.length
+      } updates, ${Math.round(this.currentSize / 1024)}kb. Last op_id: ${this.debugLastOpId}`
+    );
+
     this.bucketData = [];
     this.bucketParameters = [];
     this.currentData = [];
     this.currentSize = 0;
+    this.debugLastOpId = null;
   }
 }
