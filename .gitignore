@@ -14,6 +14,8 @@ dist
 npm-error.log
 .pnpm-debug.log
 .local-dev
+.probes
+
 
 packages/*/manifest.json
 
