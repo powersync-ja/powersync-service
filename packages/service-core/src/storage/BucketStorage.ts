@@ -230,7 +230,16 @@ export interface SyncRulesBucketStorage {
     options?: BucketDataBatchOptions
   ): AsyncIterable<util.SyncBucketData>;
 
-  getChecksums(checkpoint: util.OpId, buckets: string[]): Promise<util.BucketChecksum[]>;
+  /**
+   * Compute checksums for a given list of buckets.
+   *
+   * If fromCheckpoint is specified, the result is a diff. Otherwise, it is the full checksum.
+   */
+  getChecksums(
+    checkpoint: util.OpId,
+    fromCheckpoint: util.OpId | null,
+    buckets: string[]
+  ): Promise<util.BucketChecksum[]>;
 
   /**
    * Terminate the sync rules.

@@ -316,10 +316,21 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     }
   }
 
-  async getChecksums(checkpoint: util.OpId, buckets: string[]): Promise<util.BucketChecksum[]> {
+  async getChecksums(
+    checkpoint: util.OpId,
+    fromCheckpoint: util.OpId | null,
+    buckets: string[]
+  ): Promise<util.BucketChecksum[]> {
     if (buckets.length == 0) {
       return [];
     }
+
+    if (fromCheckpoint == checkpoint) {
+      return [];
+    }
+
+    const start = fromCheckpoint ? BigInt(fromCheckpoint) : new bson.MinKey();
+
     const filters: any[] = [];
     for (let name of buckets) {
       filters.push({
@@ -327,7 +338,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
           $gt: {
             g: this.group_id,
             b: name,
-            o: new bson.MinKey()
+            o: start
           },
           $lte: {
             g: this.group_id,
@@ -358,7 +369,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
       return {
         bucket: doc._id,
         count: doc.count,
-        checksum: Number(BigInt(doc.checksum_total) & 0xffffffffn) & 4294967295
+        checksum: Number(BigInt(doc.checksum_total) & 0xffffffffn) & 0xffffffff
       };
     });
   }

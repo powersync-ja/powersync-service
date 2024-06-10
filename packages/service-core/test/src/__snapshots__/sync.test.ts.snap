@@ -12,7 +12,13 @@ exports[`sync - mongodb > expiring token 1`] = `
 [
   {
     "checkpoint": {
-      "buckets": [],
+      "buckets": [
+        {
+          "bucket": "mybucket[]",
+          "checksum": 0,
+          "count": 0,
+        },
+      ],
       "last_op_id": "0",
       "write_checkpoint": undefined,
     },
@@ -135,7 +141,13 @@ exports[`sync - mongodb > sync updates to global data 1`] = `
 [
   {
     "checkpoint": {
-      "buckets": [],
+      "buckets": [
+        {
+          "bucket": "mybucket[]",
+          "checksum": 0,
+          "count": 0,
+        },
+      ],
       "last_op_id": "0",
       "write_checkpoint": undefined,
     },

@@ -252,7 +252,7 @@ bucket_definitions:
       { op: 'REMOVE', object_id: 'test1', checksum: c2 }
     ]);
 
-    const checksums = await storage.getChecksums(checkpoint, ['global[]']);
+    const checksums = await storage.getChecksums(checkpoint, null, ['global[]']);
     expect(checksums).toEqual([
       {
         bucket: 'global[]',
@@ -599,7 +599,7 @@ bucket_definitions:
       { op: 'REMOVE', object_id: 'test1', checksum: c2 }
     ]);
 
-    const checksums = await storage.getChecksums(checkpoint, ['global[]']);
+    const checksums = await storage.getChecksums(checkpoint, null, ['global[]']);
     expect(checksums).toEqual([
       {
         bucket: 'global[]',
@@ -713,7 +713,7 @@ bucket_definitions:
       { op: 'REMOVE', object_id: 'test1', checksum: c2 }
     ]);
 
-    const checksums = await storage.getChecksums(checkpoint, ['global[]']);
+    const checksums = await storage.getChecksums(checkpoint, null, ['global[]']);
     expect(checksums).toEqual([
       {
         bucket: 'global[]',

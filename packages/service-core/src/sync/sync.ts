@@ -78,8 +78,8 @@ async function* streamResponseInner(
   // This starts with the state from the client. May contain buckets that the user do not have access to (anymore).
   let dataBuckets = new Map<string, string>();
 
-  let last_checksums: util.BucketChecksum[] | null = null;
-  let last_write_checkpoint: bigint | null = null;
+  let lastChecksums: { checkpoint: util.OpId; checksums: Map<string, util.BucketChecksum> } | null = null;
+  let lastWriteCheckpoint: bigint | null = null;
 
   const { raw_data, binary_data } = params;
 
@@ -113,23 +113,22 @@ async function* streamResponseInner(
       throw new Error(`Too many buckets: ${allBuckets.length}`);
     }
 
-    let checksums: util.BucketChecksum[] | undefined = undefined;
-
     let dataBucketsNew = new Map<string, string>();
     for (let bucket of allBuckets) {
       dataBucketsNew.set(bucket, dataBuckets.get(bucket) ?? '0');
     }
     dataBuckets = dataBucketsNew;
 
-    checksums = await storage.getChecksums(checkpoint, [...dataBuckets.keys()]);
+    const bucketList = [...dataBuckets.keys()];
+    const checksumDiff = await storage.getChecksums(checkpoint, lastChecksums?.checkpoint ?? null, bucketList);
 
-    if (last_checksums) {
-      const diff = util.checksumsDiff(last_checksums, checksums);
+    if (lastChecksums) {
+      const diff = util.checksumsDiff(lastChecksums.checksums, bucketList, checksumDiff);
 
       if (
-        last_write_checkpoint == writeCheckpoint &&
-        diff.removed_buckets.length == 0 &&
-        diff.updated_buckets.length == 0
+        lastWriteCheckpoint == writeCheckpoint &&
+        diff.removedBuckets.length == 0 &&
+        diff.updatedBuckets.length == 0
       ) {
         // No changes - don't send anything to the client
         continue;
@@ -137,20 +136,32 @@ async function* streamResponseInner(
 
       let message = `Updated checkpoint: ${checkpoint} | write: ${writeCheckpoint} | `;
       message += `buckets: ${allBuckets.length} | `;
-      message += `updated: ${limitedBuckets(diff.updated_buckets, 20)} | `;
-      message += `removed: ${limitedBuckets(diff.removed_buckets, 20)} | `;
+      message += `updated: ${limitedBuckets(diff.updatedBuckets, 20)} | `;
+      message += `removed: ${limitedBuckets(diff.removedBuckets, 20)} | `;
       micro.logger.info(message);
 
       const checksum_line: util.StreamingSyncCheckpointDiff = {
         checkpoint_diff: {
           last_op_id: checkpoint,
           write_checkpoint: writeCheckpoint ? String(writeCheckpoint) : undefined,
-          ...diff
+          removed_buckets: diff.removedBuckets,
+          updated_buckets: diff.updatedBuckets
         }
       };
 
       yield checksum_line;
+
+      lastChecksums = {
+        checkpoint,
+        checksums: diff.nextBuckets
+      };
     } else {
+      const nextBuckets = util.fillEmptyChecksums(bucketList, checksumDiff);
+      lastChecksums = {
+        checkpoint,
+        checksums: nextBuckets
+      };
+
       let message = `New checkpoint: ${checkpoint} | write: ${writeCheckpoint} | `;
       message += `buckets: ${allBuckets.length} ${limitedBuckets(allBuckets, 20)}`;
       micro.logger.info(message);
@@ -158,14 +169,13 @@ async function* streamResponseInner(
         checkpoint: {
           last_op_id: checkpoint,
           write_checkpoint: writeCheckpoint ? String(writeCheckpoint) : undefined,
-          buckets: checksums
+          buckets: [...nextBuckets.values()]
         }
       };
       yield checksum_line;
     }
 
-    last_checksums = checksums;
-    last_write_checkpoint = writeCheckpoint;
+    lastWriteCheckpoint = writeCheckpoint;
 
     yield* bucketDataInBatches(storage, checkpoint, dataBuckets, raw_data, binary_data, signal);
 
