@@ -6,7 +6,6 @@
 import * as micro from '@journeyapps-platform/micro';
 import * as http from 'http';
 import { Payload, RSocketServer } from 'rsocket-core';
-import { WebsocketServerTransport } from 'rsocket-websocket-server';
 import * as ws from 'ws';
 import { SocketRouterObserver } from './SocketRouterListener.js';
 import {
@@ -17,6 +16,7 @@ import {
   ReactiveSocketRouterOptions,
   SocketResponder
 } from './types.js';
+import { WebsocketServerTransport } from './transport/WebSocketServerTransport.js';
 
 export class ReactiveSocketRouter<C> {
   constructor(protected options?: ReactiveSocketRouterOptions<C>) {}
@@ -43,16 +43,6 @@ export class ReactiveSocketRouter<C> {
 
     server.on('upgrade', (request, socket, head) => {
       wss.handleUpgrade(request, socket as any, head, (ws) => {
-        const originalSend = ws.send.bind(ws);
-        ws.send = (...args) => {
-          // Work around for this issue
-          // https://github.com/websockets/ws/issues/1515
-          if (ws.readyState == ws.CLOSING || ws.readyState == ws.CLOSED) {
-            return;
-          }
-          // @ts-expect-error the overloaded function causes type issues which should be fine in this case
-          return originalSend(...args);
-        };
         wss.emit('connection', ws, request);
       });
     });

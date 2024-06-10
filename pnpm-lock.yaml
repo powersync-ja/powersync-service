@@ -105,8 +105,8 @@ importers:
         specifier: ^9.0.1
         version: 9.0.1
       ws:
-        specifier: ~8.2.3
-        version: 8.2.3
+        specifier: ^8.17.0
+        version: 8.17.0
     devDependencies:
       '@types/uuid':
         specifier: ^9.0.4
@@ -117,6 +117,9 @@ importers:
       bson:
         specifier: ^6.6.0
         version: 6.7.0
+      rsocket-websocket-client:
+        specifier: 1.0.0-alpha.3
+        version: 1.0.0-alpha.3
       typescript:
         specifier: ^5.2.2
         version: 5.4.5
