@@ -82,13 +82,14 @@ export class WebsocketDuplexConnection extends Deferred implements DuplexConnect
         return;
       }
 
-      this.websocketDuplex.write(buffer, (error: Error | null | undefined) => {
-        /**
-         * This callback will fire during the first write that the raw socket changes to the closing state.
-         * If any subsequent write calls are made, it will not fire. This will be caught above.
-         *  */
-        this.close(new Error(error?.message || `Could not write to WebSocket duplex connection: ${error}`));
-        return true;
+      this.websocketDuplex.write(buffer, undefined, (error: Error | null | undefined) => {
+        if (error) {
+          /**
+           * This callback will fire during the first write that the raw socket changes to the closing state.
+           * If any subsequent write calls are made, it will not fire. This will be caught above.
+           *  */
+          this.close(new Error(error?.message || `Could not write to WebSocket duplex connection: ${error}`));
+        }
       });
     } catch (ex) {
       this.close(new Error(ex.reason || `Could not write to WebSocket duplex connection: ${ex}`));
