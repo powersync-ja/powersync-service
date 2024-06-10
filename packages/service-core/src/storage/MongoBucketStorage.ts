@@ -350,12 +350,12 @@ export class MongoBucketStorage implements BucketStorageFactory {
 
     if (!instance) {
       const manager = locks.createMongoLockManager(this.db.locks, {
-          name: `instance-id-insertion-lock`
+        name: `instance-id-insertion-lock`
       });
 
       await manager.lock(async () => {
         await this.db.instance.insertOne({
-          _id: uuid(),
+          _id: uuid()
         });
       });
 
