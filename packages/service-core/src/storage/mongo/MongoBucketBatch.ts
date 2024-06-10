@@ -463,10 +463,8 @@ export class MongoBucketBatch implements BucketStorageBatch {
 
     await this.withTransaction(async () => {
       flushTry += 1;
-      if (flushTry == 1) {
-        micro.logger.info(`${this.slot_name} ${description}`);
-      } else if (flushTry % 10 == 0) {
-        micro.logger.info(`${this.slot_name} ${description} ops - try ${flushTry}`);
+      if (flushTry % 10 == 0) {
+        micro.logger.info(`${this.slot_name} ${description} - try ${flushTry}`);
       }
       if (flushTry > 20 && Date.now() > lastTry) {
         throw new Error('Max transaction tries exceeded');
