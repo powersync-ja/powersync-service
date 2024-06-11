@@ -374,10 +374,12 @@ WHERE  oid = $1::regclass`,
     micro.logger.info(`${this.slot_name} Replicating ${table.qualifiedName}`);
     const estimatedCount = await this.estimatedCount(db, table);
     let at = 0;
+    let lastLogIndex = 0;
     const cursor = await db.stream({ statement: `SELECT * FROM ${table.escapedIdentifier}` });
     let columns: { i: number; name: string }[] = [];
     // pgwire streams rows in chunks.
     // These chunks can be quite small (as little as 16KB), so we don't flush chunks automatically.
+
     for await (let chunk of cursor) {
       if (chunk.tag == 'RowDescription') {
         let i = 0;
@@ -394,8 +396,9 @@ WHERE  oid = $1::regclass`,
         }
         return q;
       });
-      if (at % 5000 == 0 && rows.length > 0) {
+      if (rows.length > 0 && at - lastLogIndex >= 5000) {
         micro.logger.info(`${this.slot_name} Replicating ${table.qualifiedName} ${at}/${estimatedCount}`);
+        lastLogIndex = at;
       }
       if (this.abort_signal.aborted) {
         throw new Error(`Aborted initial replication of ${this.slot_name}`);
