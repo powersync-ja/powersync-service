@@ -1,5 +1,13 @@
 # @powersync/service-core
 
+## 0.1.2
+
+### Patch Changes
+
+- b5f4ebf: Fix missing authentication errors for websocket sync stream requests
+- Updated dependencies [b5f4ebf]
+  - @powersync/service-rsocket-router@0.0.7
+
 ## 0.1.1
 
 ### Patch Changes

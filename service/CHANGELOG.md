@@ -1,5 +1,14 @@
 # powersync-open-service
 
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies [b5f4ebf]
+- Updated dependencies [b5f4ebf]
+  - @powersync/service-core@0.1.2
+  - @powersync/service-rsocket-router@0.0.7
+
 ## 0.2.1
 
 ### Patch Changes
