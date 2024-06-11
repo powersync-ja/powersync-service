@@ -1,5 +1,13 @@
 # @powersync/service-core
 
+## 0.1.3
+
+### Patch Changes
+
+- 5f5163f: Fix performance issues and improve logging for initial snapshot replication.
+- Updated dependencies [5f5163f]
+  - @powersync/service-jpgwire@0.17.12
+
 ## 0.1.2
 
 ### Patch Changes
