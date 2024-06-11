@@ -82,15 +82,7 @@ export class WebsocketDuplexConnection extends Deferred implements DuplexConnect
         return;
       }
 
-      this.websocketDuplex.write(buffer, undefined, (error: Error | null | undefined) => {
-        if (error) {
-          /**
-           * This callback will fire during the first write that the raw socket changes to the closing state.
-           * If any subsequent write calls are made, it will not fire. This will be caught above.
-           *  */
-          this.close(new Error(error?.message || `Could not write to WebSocket duplex connection: ${error}`));
-        }
-      });
+      this.websocketDuplex.write(buffer);
     } catch (ex) {
       this.close(new Error(ex.reason || `Could not write to WebSocket duplex connection: ${ex}`));
     }
@@ -123,19 +115,7 @@ export class WebsocketDuplexConnection extends Deferred implements DuplexConnect
     ) => Multiplexer & Demultiplexer & FrameHandler,
     rawSocket: WebSocket.WebSocket
   ): void {
-    /**
-     * Closes the Duplex socket stream and raw socket
-     */
-    const closeSocket = () => {
-      rawSocket.close();
-      socket.end();
-    };
     socket.once('data', async (buffer) => {
-      if (!buffer || !Buffer.isBuffer(buffer)) {
-        micro.logger.info(`Received invalid initial frame buffer. Skipping connection request.`);
-        return closeSocket();
-      }
-
       let frame: Frame | undefined = undefined;
       try {
         frame = deserializeFrame(buffer);
@@ -145,7 +125,7 @@ export class WebsocketDuplexConnection extends Deferred implements DuplexConnect
       } catch (ex) {
         micro.logger.info(`Received error deserializing initial frame buffer. Skipping connection request.`, ex);
         // The initial frame should always be parsable
-        return closeSocket();
+        return socket.end();
       }
 
       const connection = new WebsocketDuplexConnection(socket, frame, multiplexerDemultiplexerFactory, rawSocket);
