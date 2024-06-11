@@ -376,6 +376,8 @@ WHERE  oid = $1::regclass`,
     let at = 0;
     const cursor = await db.stream({ statement: `SELECT * FROM ${table.escapedIdentifier}` });
     let columns: { i: number; name: string }[] = [];
+    // pgwire streams rows in chunks.
+    // These chunks can be quite small (as little as 16KB), so we don't flush chunks automatically.
     for await (let chunk of cursor) {
       if (chunk.tag == 'RowDescription') {
         let i = 0;
@@ -400,14 +402,12 @@ WHERE  oid = $1::regclass`,
       }
 
       for (let record of WalStream.getQueryData(rows)) {
+        // This auto-flushes when the batch reaches its size limit
         await batch.save({ tag: 'insert', sourceTable: table, before: undefined, after: record });
       }
       at += rows.length;
       Metrics.getInstance().rows_replicated_total.add(rows.length);
 
-      // pgwire streaming uses reasonable chunk sizes, so we flush at the end
-      // of each chunk.
-      await batch.flush();
       await touch();
     }
 
