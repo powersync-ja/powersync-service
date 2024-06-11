@@ -12,7 +12,7 @@ const MAX_BATCH_COUNT = 2000;
 /**
  * Maximum size of operations in the batch (estimated).
  */
-const MAX_RECORD_BATCH_SIZE = 14_000_000;
+const MAX_RECORD_BATCH_SIZE = 5_000_000;
 
 /**
  * Maximum size of size of current_data documents we lookup at a time.
