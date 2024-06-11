@@ -274,7 +274,7 @@ WHERE  oid = $1::regclass`,
       params: [{ value: table.qualifiedName, type: 'varchar' }]
     });
     const row = results.rows[0];
-    if (row?.[0] ?? -1n == -1n) {
+    if ((row?.[0] ?? -1n) == -1n) {
       return '?';
     } else {
       return `~${row[0]}`;
