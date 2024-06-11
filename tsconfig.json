@@ -1,0 +1,26 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/jpgwire"
+    },
+    {
+      "path": "./packages/jsonbig"
+    },
+    {
+      "path": "./packages/rsocket-router"
+    },
+    {
+      "path": "./packages/service-core"
+    },
+    {
+      "path": "./packages/sync-rules"
+    },
+    {
+      "path": "./packages/types"
+    },
+    {
+      "path": "./service"
+    }
+  ]
+}

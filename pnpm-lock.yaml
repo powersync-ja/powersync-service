@@ -13,13 +13,13 @@ importers:
         version: 2.27.3
       '@journeyapps-platform/deploy-cli':
         specifier: ^4.4.6
-        version: 4.4.7(@octokit/core@4.2.4(encoding@0.1.13))(@types/node@18.11.11)(encoding@0.1.13)(typescript@4.9.5)
+        version: 4.4.7(@octokit/core@4.2.4(encoding@0.1.13))(@types/node@18.11.11)(encoding@0.1.13)(typescript@5.2.2)
       '@journeyapps-platform/deploy-config':
         specifier: ^3.1.0
         version: 3.1.0
       '@journeyapps-platform/deploy-transformers':
         specifier: ^1.2.32
-        version: 1.2.33(@octokit/core@4.2.4(encoding@0.1.13))(@types/node@18.11.11)(encoding@0.1.13)(typescript@4.9.5)
+        version: 1.2.33(@octokit/core@4.2.4(encoding@0.1.13))(@types/node@18.11.11)(encoding@0.1.13)(typescript@5.2.2)
       '@journeyapps-platform/formatter-cli':
         specifier: ^3.1.9
         version: 3.1.9
@@ -28,7 +28,7 @@ importers:
         version: 1.0.3
       '@journeyapps-platform/micro-cli':
         specifier: ^7.2.6
-        version: 7.2.9(@types/node@18.11.11)(typescript@4.9.5)
+        version: 7.2.9(@types/node@18.11.11)(typescript@5.2.2)
       '@journeyapps-platform/micro-dev':
         specifier: ^1.6.7
         version: 1.6.7
@@ -41,6 +41,9 @@ importers:
       bson:
         specifier: ^6.6.0
         version: 6.7.0
+      concurrently:
+        specifier: ^8.2.2
+        version: 8.2.2
       inquirer:
         specifier: ^9.2.7
         version: 9.2.22
@@ -61,10 +64,10 @@ importers:
         version: 7.6.2
       ts-node-dev:
         specifier: ^2.0.0
-        version: 2.0.0(@types/node@18.11.11)(typescript@4.9.5)
+        version: 2.0.0(@types/node@18.11.11)(typescript@5.2.2)
       typescript:
-        specifier: ^4.9.5
-        version: 4.9.5
+        specifier: ~5.2.2
+        version: 5.2.2
       ws:
         specifier: ^8.2.3
         version: 8.2.3
@@ -118,8 +121,8 @@ importers:
         specifier: 1.0.0-alpha.3
         version: 1.0.0-alpha.3
       typescript:
-        specifier: ^5.2.2
-        version: 5.4.5
+        specifier: ~5.2.2
+        version: 5.2.2
       vitest:
         specifier: ^0.34.6
         version: 0.34.6
@@ -359,10 +362,10 @@ importers:
         version: 16.14.20
       ts-node:
         specifier: ^10.9.1
-        version: 10.9.2(@types/node@18.11.11)(typescript@5.4.5)
+        version: 10.9.2(@types/node@18.11.11)(typescript@5.2.2)
       typescript:
-        specifier: ^5.2.2
-        version: 5.4.5
+        specifier: ~5.2.2
+        version: 5.2.2
       vitest:
         specifier: ^0.34.6
         version: 0.34.6
@@ -1940,6 +1943,11 @@ packages:
   concat-map@0.0.1:
     resolution: {integrity: sha512-/Srv4dswyQNBfohGpz9o6Yb3Gz3SrUDqBH5rTuhGR7ahtlbYKnVxw2bCFMRljaA7EXHaXZ8wsHdodFvbkhKmqg==}
 
+  concurrently@8.2.2:
+    resolution: {integrity: sha512-1dP4gpXFhei8IOtlXRE/T/4H88ElHgTiUzh71YUmtjTEHMSRS2Z/fgOxHSxxusGHogsRfxNq1vyAwxSC+EVyDg==}
+    engines: {node: ^14.13.0 || >=16.0.0}
+    hasBin: true
+
   confbox@0.1.7:
     resolution: {integrity: sha512-uJcB/FKZtBMCJpK8MQji6bJHgu1tixKPxRLeGkNzBoOZzpnZUJm0jm2/sBDWcuBx1dYgxV4JU+g5hmNxCyAmdA==}
 
@@ -2025,6 +2033,10 @@ packages:
   data-view-byte-offset@1.0.0:
     resolution: {integrity: sha512-t/Ygsytq+R995EJ5PZlD4Cu56sWa8InXySaViRzw9apusqsOO2bQP+SbYzAhR0pFKoB+43lYy8rWban9JSuXnA==}
     engines: {node: '>= 0.4'}
+
+  date-fns@2.30.0:
+    resolution: {integrity: sha512-fnULvOpxnC5/Vg3NCiWelDsLiUc9bRwAPs/+LfTLNvetFCtCTN+yQz15C/fs4AwX1R9K5GLtLfn8QW+dWisaAw==}
+    engines: {node: '>=0.11'}
 
   debug@2.6.9:
     resolution: {integrity: sha512-bC7ElrdJaJnPbAP+1EotYvqZsb3ecl5wi6Bfi6BJTUcNowp6cvspg0jXznRTKDjm/E7AdgFBVeAPVMNcKGsHMA==}
@@ -4000,6 +4012,9 @@ packages:
   sparse-bitfield@3.0.3:
     resolution: {integrity: sha512-kvzhi7vqKTfkh0PZU+2D2PIllw2ymqJKujUcyPMd9Y75Nv4nPbGJZXNhxsgdQab2BmlDct1YnfQCguEvHr7VsQ==}
 
+  spawn-command@0.0.2:
+    resolution: {integrity: sha512-zC8zGoGkmc8J9ndvml8Xksr1Amk9qBujgbF0JAIWO7kXr43w0h/0GJNM/Vustixu+YE8N/MTrQ7N31FvHUACxQ==}
+
   spawn-please@2.0.2:
     resolution: {integrity: sha512-KM8coezO6ISQ89c1BzyWNtcn2V2kAVtwIXd3cN/V5a0xPYc1F/vydrRc01wsKFEQ/p+V1a4sw4z2yMITIXrgGw==}
     engines: {node: '>=14'}
@@ -4126,6 +4141,10 @@ packages:
   supports-color@7.2.0:
     resolution: {integrity: sha512-qpCAvRl9stuOHveKsn7HncJRvv501qIacKzQlO/+Lwxc9+0q2wLyv4Dfvt80/DPn2pqOBsJdDiogXGR9+OvwRw==}
     engines: {node: '>=8'}
+
+  supports-color@8.1.1:
+    resolution: {integrity: sha512-MpUEN2OodtUzxvKQl72cUF7RQ5EiHsGvSsVG0ia9c5RbWGL2CI4C7EpPS8UTBIplnlzZiNuV56w+FuNxy3ty2Q==}
+    engines: {node: '>=10'}
 
   supports-preserve-symlinks-flag@1.0.0:
     resolution: {integrity: sha512-ot0WnXS9fgdkgIcePe6RHNk1WA8+muPa6cSjeR3V8K27q9BB1rTE3R1p7Hv0z1ZyAc8s6Vvv8DIyWf681MAt0w==}
@@ -4321,9 +4340,9 @@ packages:
     engines: {node: '>=4.2.0'}
     hasBin: true
 
-  typescript@4.9.5:
-    resolution: {integrity: sha512-1FXk9E2Hm+QzZQ7z+McJiHL4NW1F2EzMu9Nq9i3zAaGqibafqYwCVU6WyWAuyQRRzOlxou8xZSyXLEN8oKj24g==}
-    engines: {node: '>=4.2.0'}
+  typescript@5.2.2:
+    resolution: {integrity: sha512-mI4WrpHsbCIcwT9cF4FZvr80QUeKvsUsUvKDoR+X/7XHQH98xYD8YHZg7ANtz2GtZt/CBq2QJ0thkGJMHfqc1w==}
+    engines: {node: '>=14.17'}
     hasBin: true
 
   typescript@5.4.5:
@@ -5010,7 +5029,7 @@ snapshots:
     dependencies:
       chalk: 4.1.2
 
-  '@journeyapps-platform/deploy-cli@4.4.7(@octokit/core@4.2.4(encoding@0.1.13))(@types/node@18.11.11)(encoding@0.1.13)(typescript@4.9.5)':
+  '@journeyapps-platform/deploy-cli@4.4.7(@octokit/core@4.2.4(encoding@0.1.13))(@types/node@18.11.11)(encoding@0.1.13)(typescript@5.2.2)':
     dependencies:
       '@journeyapps-platform/ci-tools': 3.0.7(@octokit/core@4.2.4(encoding@0.1.13))(encoding@0.1.13)
       '@journeyapps-platform/cli-logger': 2.14.8
@@ -5020,7 +5039,7 @@ snapshots:
       '@journeyapps-platform/shell-tools': 3.0.1
       inquirer: 8.2.6
       lodash: 4.17.21
-      ts-node: 10.9.2(@types/node@18.11.11)(typescript@4.9.5)
+      ts-node: 10.9.2(@types/node@18.11.11)(typescript@5.2.2)
     transitivePeerDependencies:
       - '@octokit/core'
       - '@swc/core'
@@ -5036,9 +5055,9 @@ snapshots:
       js-yaml: 4.1.0
       lodash: 4.17.21
 
-  '@journeyapps-platform/deploy-transformers@1.2.33(@octokit/core@4.2.4(encoding@0.1.13))(@types/node@18.11.11)(encoding@0.1.13)(typescript@4.9.5)':
+  '@journeyapps-platform/deploy-transformers@1.2.33(@octokit/core@4.2.4(encoding@0.1.13))(@types/node@18.11.11)(encoding@0.1.13)(typescript@5.2.2)':
     dependencies:
-      '@journeyapps-platform/deploy-cli': 4.4.7(@octokit/core@4.2.4(encoding@0.1.13))(@types/node@18.11.11)(encoding@0.1.13)(typescript@4.9.5)
+      '@journeyapps-platform/deploy-cli': 4.4.7(@octokit/core@4.2.4(encoding@0.1.13))(@types/node@18.11.11)(encoding@0.1.13)(typescript@5.2.2)
       inquirer: 8.2.6
     transitivePeerDependencies:
       - '@octokit/core'
@@ -5106,7 +5125,7 @@ snapshots:
     transitivePeerDependencies:
       - encoding
 
-  '@journeyapps-platform/micro-cli@7.2.9(@types/node@18.11.11)(typescript@4.9.5)':
+  '@journeyapps-platform/micro-cli@7.2.9(@types/node@18.11.11)(typescript@5.2.2)':
     dependencies:
       '@journeyapps-platform/cli-logger': 2.14.8
       '@journeyapps-platform/deploy-config': 3.1.0
@@ -5117,7 +5136,7 @@ snapshots:
       inquirer: 8.2.6
       js-yaml: 4.1.0
       lodash: 4.17.21
-      ts-node: 10.9.2(@types/node@18.11.11)(typescript@4.9.5)
+      ts-node: 10.9.2(@types/node@18.11.11)(typescript@5.2.2)
       uuid: 9.0.1
       yargs: 17.7.2
     transitivePeerDependencies:
@@ -6771,6 +6790,18 @@ snapshots:
 
   concat-map@0.0.1: {}
 
+  concurrently@8.2.2:
+    dependencies:
+      chalk: 4.1.2
+      date-fns: 2.30.0
+      lodash: 4.17.21
+      rxjs: 7.8.1
+      shell-quote: 1.8.1
+      spawn-command: 0.0.2
+      supports-color: 8.1.1
+      tree-kill: 1.2.2
+      yargs: 17.7.2
+
   confbox@0.1.7: {}
 
   config-chain@1.1.13:
@@ -6867,6 +6898,10 @@ snapshots:
       call-bind: 1.0.7
       es-errors: 1.3.0
       is-data-view: 1.0.1
+
+  date-fns@2.30.0:
+    dependencies:
+      '@babel/runtime': 7.24.6
 
   debug@2.6.9:
     dependencies:
@@ -9102,6 +9137,8 @@ snapshots:
     dependencies:
       memory-pager: 1.5.0
 
+  spawn-command@0.0.2: {}
+
   spawn-please@2.0.2:
     dependencies:
       cross-spawn: 7.0.3
@@ -9232,6 +9269,10 @@ snapshots:
     dependencies:
       has-flag: 4.0.0
 
+  supports-color@8.1.1:
+    dependencies:
+      has-flag: 4.0.0
+
   supports-preserve-symlinks-flag@1.0.0: {}
 
   tar@6.2.1:
@@ -9294,7 +9335,7 @@ snapshots:
 
   ts-codec@1.2.2: {}
 
-  ts-node-dev@2.0.0(@types/node@18.11.11)(typescript@4.9.5):
+  ts-node-dev@2.0.0(@types/node@18.11.11)(typescript@5.2.2):
     dependencies:
       chokidar: 3.6.0
       dynamic-dedupe: 0.3.0
@@ -9304,15 +9345,15 @@ snapshots:
       rimraf: 2.7.1
       source-map-support: 0.5.21
       tree-kill: 1.2.2
-      ts-node: 10.9.2(@types/node@18.11.11)(typescript@4.9.5)
+      ts-node: 10.9.2(@types/node@18.11.11)(typescript@5.2.2)
       tsconfig: 7.0.0
-      typescript: 4.9.5
+      typescript: 5.2.2
     transitivePeerDependencies:
       - '@swc/core'
       - '@swc/wasm'
       - '@types/node'
 
-  ts-node@10.9.2(@types/node@18.11.11)(typescript@4.9.5):
+  ts-node@10.9.2(@types/node@18.11.11)(typescript@5.2.2):
     dependencies:
       '@cspotcode/source-map-support': 0.8.1
       '@tsconfig/node10': 1.0.11
@@ -9326,25 +9367,7 @@ snapshots:
       create-require: 1.1.1
       diff: 4.0.2
       make-error: 1.3.6
-      typescript: 4.9.5
-      v8-compile-cache-lib: 3.0.1
-      yn: 3.1.1
-
-  ts-node@10.9.2(@types/node@18.11.11)(typescript@5.4.5):
-    dependencies:
-      '@cspotcode/source-map-support': 0.8.1
-      '@tsconfig/node10': 1.0.11
-      '@tsconfig/node12': 1.0.11
-      '@tsconfig/node14': 1.0.3
-      '@tsconfig/node16': 1.0.4
-      '@types/node': 18.11.11
-      acorn: 8.11.3
-      acorn-walk: 8.3.2
-      arg: 4.1.3
-      create-require: 1.1.1
-      diff: 4.0.2
-      make-error: 1.3.6
-      typescript: 5.4.5
+      typescript: 5.2.2
       v8-compile-cache-lib: 3.0.1
       yn: 3.1.1
 
@@ -9458,7 +9481,7 @@ snapshots:
 
   typescript@3.8.3: {}
 
-  typescript@4.9.5: {}
+  typescript@5.2.2: {}
 
   typescript@5.4.5: {}
 
