@@ -1,4 +1,5 @@
-import { expect, it, vi } from 'vitest';
+import '@journeyapps-platform/micro/register';
+import { describe, expect, it, vi } from 'vitest';
 import { createMockObserver, createMockResponder } from './utils/mock-responder.js';
 import { handleReactiveStream } from '../../src/router/ReactiveSocketRouter.js';
 import { deserialize, serialize } from 'bson';
@@ -32,101 +33,103 @@ async function handleRoute(path: string, endpoints: ReactiveEndpoint[], responde
   );
 }
 
-it('should get successful response from route', async () => {
-  const responder = createMockResponder();
-  const spy = vi.spyOn(responder, 'onNext');
+describe('Requests', () => {
+  it('should get successful response from route', async () => {
+    const responder = createMockResponder();
+    const spy = vi.spyOn(responder, 'onNext');
 
-  const path = '/test-route';
+    const path = '/test-route';
 
-  await handleRoute(
-    path,
-    [
-      {
-        path,
-        type: RS_ENDPOINT_TYPE.STREAM,
-        handler: async (p) => {
-          // Send data to client
-          p.responder.onNext({ data: Buffer.from(serialize({})) }, true);
+    await handleRoute(
+      path,
+      [
+        {
+          path,
+          type: RS_ENDPOINT_TYPE.STREAM,
+          handler: async (p) => {
+            // Send data to client
+            p.responder.onNext({ data: Buffer.from(serialize({})) }, true);
+          }
         }
-      }
-    ],
-    responder
-  );
+      ],
+      responder
+    );
 
-  // The onNext() method should have been called to send data to client
-  expect(spy).toHaveBeenCalledTimes(1);
-});
+    // The onNext() method should have been called to send data to client
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
 
-it('should get validation error response from route', async () => {
-  const responder = createMockResponder();
-  const spy = vi.spyOn(responder, 'onError');
+  it('should get validation error response from route', async () => {
+    const responder = createMockResponder();
+    const spy = vi.spyOn(responder, 'onError');
 
-  const path = '/test-route';
+    const path = '/test-route';
 
-  const validationError = 'Test validation error';
+    const validationError = 'Test validation error';
 
-  await handleRoute(
-    path,
-    [
-      {
-        path,
-        type: RS_ENDPOINT_TYPE.STREAM,
-        handler: async () => {},
-        // This will always return an invalid error
-        validator: {
-          validate: () => {
+    await handleRoute(
+      path,
+      [
+        {
+          path,
+          type: RS_ENDPOINT_TYPE.STREAM,
+          handler: async () => {},
+          // This will always return an invalid error
+          validator: {
+            validate: () => {
+              return {
+                valid: false,
+                errors: [validationError]
+              };
+            }
+          }
+        }
+      ],
+      responder
+    );
+
+    // Should be a validation error
+    expect(JSON.stringify(spy.mock.calls[0])).includes(validationError);
+  });
+
+  it('should get authorization error response from route', async () => {
+    const responder = createMockResponder();
+    const spy = vi.spyOn(responder, 'onError');
+
+    const path = '/test-route';
+
+    await handleRoute(
+      path,
+      [
+        {
+          path,
+          type: RS_ENDPOINT_TYPE.STREAM,
+          handler: async () => {},
+          // This will always return unauthorized
+          authorize: async () => {
             return {
-              valid: false,
-              errors: [validationError]
+              authorized: false
             };
           }
         }
-      }
-    ],
-    responder
-  );
+      ],
+      responder
+    );
 
-  // Should be a validation error
-  expect(JSON.stringify(spy.mock.calls[0])).includes(validationError);
-});
+    // Should be a validation error
+    expect(JSON.stringify(spy.mock.calls[0])).includes('AUTHORIZATION');
+  });
 
-it('should get authorization error response from route', async () => {
-  const responder = createMockResponder();
-  const spy = vi.spyOn(responder, 'onError');
+  it('should get invalid route error', async () => {
+    const responder = createMockResponder();
+    const spy = vi.spyOn(responder, 'onError');
 
-  const path = '/test-route';
+    const path = '/test-route';
 
-  await handleRoute(
-    path,
-    [
-      {
-        path,
-        type: RS_ENDPOINT_TYPE.STREAM,
-        handler: async () => {},
-        // This will always return unauthorized
-        authorize: async () => {
-          return {
-            authorized: false
-          };
-        }
-      }
-    ],
-    responder
-  );
+    // Providing no endpoints means there won't be any matching route
+    await handleRoute(path, [], responder);
 
-  // Should be a validation error
-  expect(JSON.stringify(spy.mock.calls[0])).includes('AUTHORIZATION');
-});
-
-it('should get invalid route error', async () => {
-  const responder = createMockResponder();
-  const spy = vi.spyOn(responder, 'onError');
-
-  const path = '/test-route';
-
-  // Providing no endpoints means there won't be any matching route
-  await handleRoute(path, [], responder);
-
-  // Should be a validation error
-  expect(JSON.stringify(spy.mock.calls[0])).includes('No route');
+    // Should be a validation error
+    expect(JSON.stringify(spy.mock.calls[0])).includes('No route');
+  });
 });
