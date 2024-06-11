@@ -72,11 +72,7 @@ export function checksumsDiff(
       nextBuckets.set(cdiff.bucket, cdiff);
     } else {
       // Updated
-      const checksum: BucketChecksum = {
-        bucket: cdiff.bucket,
-        count: p.count + cdiff.count,
-        checksum: (p.checksum + cdiff.checksum) & 0xffffffff
-      };
+      const checksum: BucketChecksum = addBucketChecksums(p, cdiff);
       updatedBuckets.set(checksum.bucket, checksum);
       nextBuckets.set(checksum.bucket, checksum);
       previousBuckets.delete(cdiff.bucket);
@@ -110,6 +106,22 @@ export function checksumsDiff(
     removedBuckets,
     nextBuckets
   };
+}
+
+export function addChecksums(a: number, b: number) {
+  return (a + b) & 0xffffffff;
+}
+
+export function addBucketChecksums(a: BucketChecksum, b: BucketChecksum | null): BucketChecksum {
+  if (b == null) {
+    return a;
+  } else {
+    return {
+      bucket: a.bucket,
+      count: a.count + b.count,
+      checksum: addChecksums(a.checksum, b.checksum)
+    };
+  }
 }
 
 export async function getClientCheckpoint(
