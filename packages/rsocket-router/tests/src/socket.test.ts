@@ -175,7 +175,7 @@ describe('Sockets', () => {
 
       const connection = await connector.connect();
       connection.requestStream({ data: null }, 1, {
-        onNext(payload, isComplete) {},
+        onNext() {},
         onComplete: () => {},
         onExtension: () => {},
         onError: () => {}
