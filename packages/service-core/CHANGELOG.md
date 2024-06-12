@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 0.2.0
+
+### Minor Changes
+
+- 526a41a: Added support for user parameters when making a StreamingSyncRequest.
+
 ## 0.1.3
 
 ### Patch Changes
