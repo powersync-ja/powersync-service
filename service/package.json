@@ -39,7 +39,6 @@
     "yaml": "^2.3.2"
   },
   "devDependencies": {
-    "@journeyapps-platform/micro-dev": "^1.6.7",
     "@types/uuid": "^9.0.4",
     "copyfiles": "^2.4.1",
     "nodemon": "^3.0.1",
