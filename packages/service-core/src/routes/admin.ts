@@ -2,8 +2,8 @@ import * as micro from '@journeyapps-platform/micro';
 import { SqlSyncRules, SqliteValue, StaticSchema, isJsonValue, toSyncRulesValue } from '@powersync/service-sync-rules';
 import { internal_routes } from '@powersync/service-types';
 
-import * as api from '@/api/api-index.js';
-import * as util from '@/util/util-index.js';
+import * as api from '../api/api-index.js';
+import * as util from '../util/util-index.js';
 
 import { RouteGenerator } from './router.js';
 import { PersistedSyncRulesContent } from '../storage/BucketStorage.js';

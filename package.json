@@ -15,8 +15,8 @@
     "build:production": "NODE_ENV=production pnpm run -r build",
     "build:ts": "tsc -b",
     "watch:ts": "pnpm build:ts -w",
-    "watch:server": "concurrently --kill-others --passthrough-arguments \"pnpm watch:ts\" \" pnpm start:server {@}\" -- ",
-    "start:server": "pnpm --filter powersync-open-service watch",
+    "watch:service": "concurrently --passthrough-arguments \"pnpm watch:ts\" \" pnpm start:service {@}\" -- ",
+    "start:service": "pnpm --filter powersync-open-service watch",
     "clean": "pnpm run -r clean",
     "release": "pnpm build:production && pnpm changeset publish",
     "test": "pnpm run -r test"
@@ -40,6 +40,7 @@
     "rsocket-core": "1.0.0-alpha.3",
     "rsocket-websocket-client": "1.0.0-alpha.3",
     "semver": "^7.5.4",
+    "tsc-watch": "^6.2.0",
     "ts-node-dev": "^2.0.0",
     "typescript": "~5.2.2",
     "ws": "^8.2.3"

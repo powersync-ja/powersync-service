@@ -1,9 +1,9 @@
 import * as pgwire from '@powersync/service-jpgwire';
 import * as micro from '@journeyapps-platform/micro';
 
-import * as auth from '@/auth/auth-index.js';
-import * as storage from '@/storage/storage-index.js';
-import * as utils from '@/util/util-index.js';
+import * as auth from '../auth/auth-index.js';
+import * as storage from '../storage/storage-index.js';
+import * as utils from '../util/util-index.js';
 
 export abstract class CorePowerSyncSystem extends micro.system.MicroSystem {
   abstract storage: storage.BucketStorageFactory;

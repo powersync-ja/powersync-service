@@ -1,5 +1,5 @@
 import * as micro_migrate from '@journeyapps-platform/micro-migrate';
-import * as utils from '@/util/util-index.js';
+import * as utils from '../../util/util-index.js';
 
 const config = await utils.loadConfig();
 

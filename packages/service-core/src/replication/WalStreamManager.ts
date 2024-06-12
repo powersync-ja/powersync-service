@@ -2,8 +2,8 @@ import * as pgwire from '@powersync/service-jpgwire';
 import * as micro from '@journeyapps-platform/micro';
 import { hrtime } from 'node:process';
 
-import * as storage from '@/storage/storage-index.js';
-import * as util from '@/util/util-index.js';
+import * as storage from '../storage/storage-index.js';
+import * as util from '../util/util-index.js';
 
 import { DefaultErrorRateLimiter } from './ErrorRateLimiter.js';
 import { touch } from './WalStream.js';

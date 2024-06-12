@@ -3,7 +3,7 @@ import * as pgwire from '@powersync/service-jpgwire';
 import { pgwireRows } from '@powersync/service-jpgwire';
 import * as micro from '@journeyapps-platform/micro';
 
-import * as storage from '@/storage/storage-index.js';
+import * as storage from '../storage/storage-index.js';
 import { BucketChecksum, OpId } from './protocol-types.js';
 import { retriedQuery } from './pgwire_utils.js';
 

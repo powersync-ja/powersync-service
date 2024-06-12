@@ -4,7 +4,7 @@ import * as bson from 'bson';
 import * as mongo from 'mongodb';
 import * as micro from '@journeyapps-platform/micro';
 
-import * as util from '@/util/util-index.js';
+import * as util from '../../util/util-index.js';
 import { SourceTable } from '../SourceTable.js';
 import { currentBucketKey } from './MongoBucketBatch.js';
 import { MongoIdSequence } from './MongoIdSequence.js';

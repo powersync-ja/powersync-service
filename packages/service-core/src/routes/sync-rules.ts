@@ -4,7 +4,7 @@ import * as micro from '@journeyapps-platform/micro';
 import * as pgwire from '@powersync/service-jpgwire';
 import { SqlSyncRules, SyncRulesErrors } from '@powersync/service-sync-rules';
 
-import * as replication from '@/replication/replication-index.js';
+import * as replication from '../replication/replication-index.js';
 import { authApi } from './auth.js';
 import { RouteGenerator } from './router.js';
 

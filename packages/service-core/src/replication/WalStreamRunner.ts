@@ -1,8 +1,8 @@
 import * as pgwire from '@powersync/service-jpgwire';
 import * as micro from '@journeyapps-platform/micro';
 
-import * as storage from '@/storage/storage-index.js';
-import * as util from '@/util/util-index.js';
+import * as storage from '../storage/storage-index.js';
+import * as util from '../util/util-index.js';
 
 import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 import { MissingReplicationSlotError, WalStream } from './WalStream.js';

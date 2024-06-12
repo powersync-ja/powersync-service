@@ -2,8 +2,8 @@ import * as micro from '@journeyapps-platform/micro';
 import { FastifyRequest } from 'fastify';
 import * as jose from 'jose';
 
-import * as auth from '@/auth/auth-index.js';
-import * as util from '@/util/util-index.js';
+import * as auth from '../auth/auth-index.js';
+import * as util from '../util/util-index.js';
 import { Context } from './router.js';
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
 

@@ -4,13 +4,13 @@ import * as micro from '@journeyapps-platform/micro';
 import { logger } from '@journeyapps-platform/micro';
 import { SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
 
-import * as storage from '@/storage/storage-index.js';
-import * as util from '@/util/util-index.js';
+import * as storage from '../storage/storage-index.js';
+import * as util from '../util/util-index.js';
 
 import { getPgOutputRelation, getRelId, PgRelation } from './PgRelation.js';
 import { getReplicationIdentityColumns } from './util.js';
 import { WalConnection } from './WalConnection.js';
-import { Metrics } from '@/metrics/Metrics.js';
+import { Metrics } from '../metrics/Metrics.js';
 
 export const ZERO_LSN = '00000000/00000000';
 

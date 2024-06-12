@@ -2,12 +2,12 @@ import { Readable } from 'stream';
 import * as micro from '@journeyapps-platform/micro';
 import { SyncParameters, normalizeTokenParameters } from '@powersync/service-sync-rules';
 
-import * as sync from '@/sync/sync-index.js';
-import * as util from '@/util/util-index.js';
+import * as sync from '../sync/sync-index.js';
+import * as util from '../util/util-index.js';
 
 import { authUser } from './auth.js';
 import { RouteGenerator } from './router.js';
-import { Metrics } from '@/metrics/Metrics.js';
+import { Metrics } from '../metrics/Metrics.js';
 
 export enum SyncRoutes {
   STREAM = '/sync/stream'

@@ -1,5 +1,5 @@
-import * as storage from '@/storage/storage-index.js';
-import * as utils from '@/util/util-index.js';
+import * as storage from '../../../storage/storage-index.js';
+import * as utils from '../../../util/util-index.js';
 
 export const up = async (context?: utils.MigrationContext) => {
   const config = await utils.loadConfig(context?.runner_config);

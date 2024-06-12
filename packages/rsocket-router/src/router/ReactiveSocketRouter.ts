@@ -40,13 +40,11 @@ export class ReactiveSocketRouter<C> {
      * web sockets router.
      */
     const wss = new ws.WebSocketServer({ noServer: true });
-
     server.on('upgrade', (request, socket, head) => {
       wss.handleUpgrade(request, socket as any, head, (ws) => {
         wss.emit('connection', ws, request);
       });
     });
-
     server.on('close', () => wss.close());
 
     const transport = new WebsocketServerTransport({

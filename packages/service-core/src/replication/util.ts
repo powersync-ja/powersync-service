@@ -1,6 +1,6 @@
 import * as pgwire from '@powersync/service-jpgwire';
 
-import * as util from '@/util/util-index.js';
+import * as util from '../util/util-index.js';
 import { ReplicationColumn, ReplicationIdentity } from './PgRelation.js';
 
 export interface ReplicaIdentityResult {

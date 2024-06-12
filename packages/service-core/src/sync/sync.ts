@@ -4,13 +4,13 @@ import { SyncParameters } from '@powersync/service-sync-rules';
 import { Semaphore } from 'async-mutex';
 import { AbortError } from 'ix/aborterror.js';
 
-import * as auth from '@/auth/auth-index.js';
-import * as storage from '@/storage/storage-index.js';
-import * as util from '@/util/util-index.js';
+import * as auth from '../auth/auth-index.js';
+import * as storage from '../storage/storage-index.js';
+import * as util from '../util/util-index.js';
 
 import { mergeAsyncIterables } from './merge.js';
 import { TokenStreamOptions, tokenStream } from './util.js';
-import { Metrics } from '@/metrics/Metrics.js';
+import { Metrics } from '../metrics/Metrics.js';
 
 /**
  * Maximum number of connections actively fetching data.

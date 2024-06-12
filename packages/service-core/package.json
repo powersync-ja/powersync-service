@@ -10,8 +10,8 @@
   "license": "FSL-1.1-Apache-2.0",
   "type": "module",
   "scripts": {
-    "build": "tsc -b && tsc-alias",
-    "build:tests": "tsc -b test/tsconfig.json && tsc-alias",
+    "build": "tsc -b",
+    "build:tests": "tsc -b test/tsconfig.json",
     "test": "vitest --no-threads",
     "clean": "rm -rf ./lib && tsc -b --clean"
   },
@@ -47,7 +47,6 @@
   "devDependencies": {
     "@journeyapps-platform/micro-dev": "^1.6.7",
     "@types/uuid": "^9.0.4",
-    "tsc-alias": "^1.8.10",
     "typescript": "^5.2.2",
     "vite-tsconfig-paths": "^4.3.2",
     "vitest": "^0.34.6"

@@ -5,8 +5,8 @@ import { fileURLToPath } from 'url';
 
 import { Direction, createMongoMigrationStore, execute, writeLogsToStore } from '@journeyapps-platform/micro-migrate';
 
-import * as db from '@/db/db-index.js';
-import * as util from '@/util/util-index.js';
+import * as db from '../db/db-index.js';
+import * as util from '../util/util-index.js';
 
 const DEFAULT_MONGO_LOCK_COLLECTION = 'locks';
 const MONGO_LOCK_PROCESS = 'migrations';

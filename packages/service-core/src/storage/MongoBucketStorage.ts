@@ -5,9 +5,9 @@ import * as micro from '@journeyapps-platform/micro';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 
-import * as replication from '@/replication/replication-index.js';
-import * as sync from '@/sync/sync-index.js';
-import * as util from '@/util/util-index.js';
+import * as replication from '../replication/replication-index.js';
+import * as sync from '../sync/sync-index.js';
+import * as util from '../util/util-index.js';
 
 import {
   ActiveCheckpoint,

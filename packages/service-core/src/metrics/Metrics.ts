@@ -4,8 +4,8 @@ import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
 import { MeterProvider, MetricReader, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import * as jpgwire from '@powersync/service-jpgwire';
-import * as util from '@/util/util-index.js';
-import * as storage from '@/storage/storage-index.js';
+import * as util from '../util/util-index.js';
+import * as storage from '../storage/storage-index.js';
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
 import { Resource } from '@opentelemetry/resources';
 

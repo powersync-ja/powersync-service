@@ -6,7 +6,7 @@ import * as pgwire from '@powersync/service-jpgwire';
 import { SqliteJsonValue, SqliteRow, ToastableSqliteRow, toSyncRulesRow } from '@powersync/service-sync-rules';
 import * as micro from '@journeyapps-platform/micro';
 
-import * as replication from '@/replication/replication-index.js';
+import * as replication from '../replication/replication-index.js';
 
 /**
  * pgwire message -> SQLite row.

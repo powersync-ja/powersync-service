@@ -2,7 +2,7 @@ import * as micro from '@journeyapps-platform/micro';
 import { configFile, normalizeConnection } from '@powersync/service-types';
 import { ConfigCollector } from './collectors/config-collector.js';
 import { ResolvedConnection, ResolvedPowerSyncConfig, RunnerConfig, SyncRulesConfig } from './types.js';
-import * as auth from '@/auth/auth-index.js';
+import * as auth from '../../auth/auth-index.js';
 import { SyncRulesCollector } from './sync-rules/sync-collector.js';
 import { Base64ConfigCollector } from './collectors/impl/base64-config-collector.js';
 import { FileSystemConfigCollector } from './collectors/impl/filesystem-config-collector.js';

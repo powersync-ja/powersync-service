@@ -1,7 +1,7 @@
 import * as mongo from 'mongodb';
 import * as micro from '@journeyapps-platform/micro';
 
-import * as db from '@/db/db-index.js';
+import * as db from '../../db/db-index.js';
 
 import {
   BucketDataDocument,

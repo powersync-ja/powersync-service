@@ -2,7 +2,7 @@ import { Command } from 'commander';
 
 import * as micro from '@journeyapps-platform/micro';
 
-import * as utils from '@/util/util-index.js';
+import * as utils from '../util/util-index.js';
 import { registerMigrationAction } from './commands/migrate-action.js';
 import { registerTearDownAction } from './commands/teardown-action.js';
 import { registerStartAction } from './entry-index.js';

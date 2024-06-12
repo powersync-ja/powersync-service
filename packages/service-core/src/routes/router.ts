@@ -1,6 +1,6 @@
 import * as micro from '@journeyapps-platform/micro';
 
-import * as auth from '@/auth/auth-index.js';
+import * as auth from '../auth/auth-index.js';
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
 
 export type Context = {
