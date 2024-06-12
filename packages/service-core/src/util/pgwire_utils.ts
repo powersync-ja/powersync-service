@@ -4,9 +4,9 @@ import * as bson from 'bson';
 import * as uuid from 'uuid';
 import * as pgwire from '@powersync/service-jpgwire';
 import { SqliteJsonValue, SqliteRow, ToastableSqliteRow, toSyncRulesRow } from '@powersync/service-sync-rules';
-import * as micro from '@journeyapps-platform/micro';
 
 import * as replication from '../replication/replication-index.js';
+import { logger } from '../system/Logger.js';
 
 /**
  * pgwire message -> SQLite row.
@@ -133,7 +133,7 @@ export async function retriedQuery(db: pgwire.PgClient, ...args: any[]) {
       if (tries == 1) {
         throw e;
       }
-      micro.logger.warn('Query error, retrying', e);
+      logger.warn('Query error, retrying', e);
     }
   }
 }

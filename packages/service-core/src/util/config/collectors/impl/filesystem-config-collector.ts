@@ -1,8 +1,8 @@
 import * as fs from 'fs/promises';
-import * as micro from '@journeyapps-platform/micro';
 
 import { ConfigCollector, ConfigFileFormat } from '../config-collector.js';
 import { RunnerConfig } from '../../types.js';
+import { logger } from '../../../../system/Logger.js';
 
 export class FileSystemConfigCollector extends ConfigCollector {
   get name(): string {
@@ -22,7 +22,7 @@ export class FileSystemConfigCollector extends ConfigCollector {
       throw new Error(`Config file path ${config_path} was specified, but the file does not exist.`);
     }
 
-    micro.logger.info(`Collecting PowerSync configuration from File: ${config_path}`);
+    logger.info(`Collecting PowerSync configuration from File: ${config_path}`);
 
     const content = await fs.readFile(config_path, 'utf-8');
 

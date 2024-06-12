@@ -1,4 +1,3 @@
-import * as micro from '@journeyapps-platform/micro';
 import { configFile, normalizeConnection } from '@powersync/service-types';
 import { ConfigCollector } from './collectors/config-collector.js';
 import { ResolvedConnection, ResolvedPowerSyncConfig, RunnerConfig, SyncRulesConfig } from './types.js';
@@ -10,6 +9,7 @@ import { Base64SyncRulesCollector } from './sync-rules/impl/base64-sync-rules-co
 import { InlineSyncRulesCollector } from './sync-rules/impl/inline-sync-rules-collector.js';
 import { FileSystemSyncRulesCollector } from './sync-rules/impl/filesystem-sync-rules-collector.js';
 import { FallbackConfigCollector } from './collectors/impl/fallback-config-collector.js';
+import { logger } from '../../system/Logger.js';
 
 const POWERSYNC_DEV_KID = 'powersync-dev';
 
@@ -140,7 +140,7 @@ export class CompoundConfigCollector {
         if (baseConfig) {
           return baseConfig;
         }
-        micro.logger.debug(
+        logger.debug(
           `Could not collect PowerSync config with ${collector.name} method. Moving on to next method if available.`
         );
       } catch (ex) {
@@ -161,7 +161,7 @@ export class CompoundConfigCollector {
         if (config) {
           return config;
         }
-        micro.logger.debug(
+        logger.debug(
           `Could not collect sync rules with ${collector.name} method. Moving on to next method if available.`
         );
       } catch (ex) {

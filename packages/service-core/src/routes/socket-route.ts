@@ -7,6 +7,7 @@ import { streamResponse } from '../sync/sync.js';
 import { SyncRoutes } from './sync-stream.js';
 import { SocketRouteGenerator } from './router-socket.js';
 import { Metrics } from '../metrics/Metrics.js';
+import { logger } from '../system/Logger.js';
 
 export const sync_stream_reactive: SocketRouteGenerator = (router) =>
   router.reactiveStream<util.StreamingSyncRequest, any>(SyncRoutes.STREAM, {
@@ -119,7 +120,7 @@ export const sync_stream_reactive: SocketRouteGenerator = (router) =>
         // Convert to our standard form before responding.
         // This ensures the error can be serialized.
         const error = new micro.errors.InternalServerError(ex);
-        micro.logger.error('Sync stream error', error);
+        logger.error('Sync stream error', error);
         responder.onError(error);
       } finally {
         responder.onComplete();

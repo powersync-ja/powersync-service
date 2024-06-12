@@ -1,11 +1,11 @@
 import crypto from 'crypto';
 import * as pgwire from '@powersync/service-jpgwire';
 import { pgwireRows } from '@powersync/service-jpgwire';
-import * as micro from '@journeyapps-platform/micro';
 
 import * as storage from '../storage/storage-index.js';
 import { BucketChecksum, OpId } from './protocol-types.js';
 import { retriedQuery } from './pgwire_utils.js';
+import { logger } from '../system/Logger.js';
 
 export function hashData(type: string, id: string, data: string): number {
   const hash = crypto.createHash('sha256');
@@ -70,14 +70,14 @@ export async function getClientCheckpoint(
 
   const timeout = options?.timeout ?? 50_000;
 
-  micro.logger.info(`Waiting for LSN checkpoint: ${lsn}`);
+  logger.info(`Waiting for LSN checkpoint: ${lsn}`);
   while (Date.now() - start < timeout) {
     const cp = await bucketStorage.getActiveCheckpoint();
     if (!cp.hasSyncRules()) {
       throw new Error('No sync rules available');
     }
     if (cp.lsn >= lsn) {
-      micro.logger.info(`Got write checkpoint: ${lsn} : ${cp.checkpoint}`);
+      logger.info(`Got write checkpoint: ${lsn} : ${cp.checkpoint}`);
       return cp.checkpoint;
     }
 
@@ -97,6 +97,6 @@ export async function createWriteCheckpoint(
   );
 
   const id = await bucketStorage.createWriteCheckpoint(user_id, { '1': lsn });
-  micro.logger.info(`Write checkpoint 2: ${JSON.stringify({ lsn, id: String(id) })}`);
+  logger.info(`Write checkpoint 2: ${JSON.stringify({ lsn, id: String(id) })}`);
   return id;
 }

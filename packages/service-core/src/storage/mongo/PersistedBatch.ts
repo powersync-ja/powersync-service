@@ -2,7 +2,6 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import * as mongo from 'mongodb';
-import * as micro from '@journeyapps-platform/micro';
 
 import * as util from '../../util/util-index.js';
 import { SourceTable } from '../SourceTable.js';
@@ -17,6 +16,7 @@ import {
   SourceKey
 } from './models.js';
 import { serializeLookup } from './util.js';
+import { logger } from '../../system/Logger.js';
 
 /**
  * Maximum size of operations we write in a single transaction.
@@ -253,7 +253,7 @@ export class PersistedBatch {
       });
     }
 
-    micro.logger.info(
+    logger.info(
       `powersync_${this.group_id} Flushed ${this.bucketData.length} + ${this.bucketParameters.length} + ${
         this.currentData.length
       } updates, ${Math.round(this.currentSize / 1024)}kb. Last op_id: ${this.debugLastOpId}`

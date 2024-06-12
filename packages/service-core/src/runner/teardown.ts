@@ -3,13 +3,13 @@
 // 1. The replication slots on the source postgres instance (if available).
 // 2. The mongo database.
 
-import * as micro from '@journeyapps-platform/micro';
 import * as timers from 'timers/promises';
 
 import * as db from '../db/db-index.js';
 import * as storage from '../storage/storage-index.js';
 import * as utils from '../util/util-index.js';
 import * as replication from '../replication/replication-index.js';
+import { logger } from '../system/Logger.js';
 
 /**
  * Attempt to terminate a single sync rules instance.
@@ -63,7 +63,7 @@ async function terminateReplicators(
       } catch (e) {
         retry = true;
         console.error(e);
-        micro.logger.warn(`Failed to terminate ${syncRules.slot_name}`, e);
+        logger.warn(`Failed to terminate ${syncRules.slot_name}`, e);
       }
     }
     if (!retry) {

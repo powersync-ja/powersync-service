@@ -8,6 +8,7 @@ import * as util from '../util/util-index.js';
 import { authUser } from './auth.js';
 import { RouteGenerator } from './router.js';
 import { Metrics } from '../metrics/Metrics.js';
+import { logger } from '../system/Logger.js';
 
 export enum SyncRoutes {
   STREAM = '/sync/stream'
@@ -78,7 +79,7 @@ export const syncStreamed: RouteGenerator = (router) =>
           controller.abort();
           // Note: This appears as a 200 response in the logs.
           if (error.message != 'Shutting down system') {
-            micro.logger.error('Streaming sync request failed', error);
+            logger.error('Streaming sync request failed', error);
           }
         });
         await res.send(stream);

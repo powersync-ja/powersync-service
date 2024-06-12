@@ -7,7 +7,6 @@
   "keywords": [],
   "author": "JourneyApps Platform",
   "scripts": {
-    "prepare": "journey-formatter install",
     "check-updates": "ncu -u --deep",
     "format": "journey-formatter format",
     "build": "pnpm run -r build && pnpm run -r build:tests",

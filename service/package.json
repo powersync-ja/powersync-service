@@ -36,6 +36,7 @@
     "pgwire": "github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87",
     "ts-codec": "^1.2.2",
     "uuid": "^9.0.1",
+    "winston": "^3.13.0",
     "yaml": "^2.3.2"
   },
   "devDependencies": {

@@ -31,7 +31,8 @@ export * from './sync/sync-index.js';
 export * as sync from './sync/sync-index.js';
 
 export * from './system/CorePowerSyncSystem.js';
-export * as system from './system/CorePowerSyncSystem.js';
+export * from './system/Logger.js';
+export * as system from './system/system-index.js';
 
 export * from './util/util-index.js';
 export * as utils from './util/util-index.js';

@@ -1,7 +1,6 @@
 import * as fs from 'fs/promises';
 import * as pgwire from '@powersync/service-jpgwire';
 import * as micro from '@journeyapps-platform/micro';
-import { logger } from '@journeyapps-platform/micro';
 import { SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
 
 import * as storage from '../storage/storage-index.js';
@@ -11,6 +10,7 @@ import { getPgOutputRelation, getRelId, PgRelation } from './PgRelation.js';
 import { getReplicationIdentityColumns } from './util.js';
 import { WalConnection } from './WalConnection.js';
 import { Metrics } from '../metrics/Metrics.js';
+import { logger } from '../system/Logger.js';
 
 export const ZERO_LSN = '00000000/00000000';
 
@@ -160,7 +160,7 @@ export class WalStream {
         ]
       });
       if (rs.rows.length == 0) {
-        micro.logger.info(`Skipping ${tablePattern.schema}.${name} - not part of ${this.publication_name} publication`);
+        logger.info(`Skipping ${tablePattern.schema}.${name} - not part of ${this.publication_name} publication`);
         continue;
       }
 
@@ -190,7 +190,7 @@ export class WalStream {
 
     const status = await this.storage.getStatus();
     if (status.snapshot_done && status.checkpoint_lsn) {
-      micro.logger.info(`${slotName} Initial replication already done`);
+      logger.info(`${slotName} Initial replication already done`);
 
       let last_error = null;
 
@@ -222,11 +222,11 @@ export class WalStream {
             ]
           });
           // Success
-          micro.logger.info(`Slot ${slotName} appears healthy`);
+          logger.info(`Slot ${slotName} appears healthy`);
           return { needsInitialSync: false };
         } catch (e) {
           last_error = e;
-          micro.logger.warn(`${slotName} Replication slot error`, e);
+          logger.warn(`${slotName} Replication slot error`, e);
 
           if (this.stopped) {
             throw e;
@@ -253,7 +253,7 @@ export class WalStream {
             // Sample: publication "powersync" does not exist
             //   Happens when publication deleted or never created.
             //   Slot must be re-created in this case.
-            micro.logger.info(`${slotName} does not exist anymore, will create new slot`);
+            logger.info(`${slotName} does not exist anymore, will create new slot`);
 
             throw new MissingReplicationSlotError(`Replication slot ${slotName} does not exist anymore`);
           }
@@ -316,7 +316,7 @@ WHERE  oid = $1::regclass`,
     // with streaming replication.
     const lsn = pgwire.lsnMakeComparable(row[1]);
     const snapshot = row[2];
-    micro.logger.info(`Created replication slot ${slotName} at ${lsn} with snapshot ${snapshot}`);
+    logger.info(`Created replication slot ${slotName} at ${lsn} with snapshot ${snapshot}`);
 
     // https://stackoverflow.com/questions/70160769/postgres-logical-replication-starting-from-given-lsn
     await db.query('BEGIN');
@@ -338,9 +338,9 @@ WHERE  oid = $1::regclass`,
       // On Supabase, the default is 2 minutes.
       await db.query(`set local statement_timeout = 0`);
 
-      micro.logger.info(`${slotName} Starting initial replication`);
+      logger.info(`${slotName} Starting initial replication`);
       await this.initialReplication(db, lsn);
-      micro.logger.info(`${slotName} Initial replication done`);
+      logger.info(`${slotName} Initial replication done`);
       await db.query('COMMIT');
     } catch (e) {
       await db.query('ROLLBACK');
@@ -371,7 +371,7 @@ WHERE  oid = $1::regclass`,
   }
 
   private async snapshotTable(batch: storage.BucketStorageBatch, db: pgwire.PgConnection, table: storage.SourceTable) {
-    micro.logger.info(`${this.slot_name} Replicating ${table.qualifiedName}`);
+    logger.info(`${this.slot_name} Replicating ${table.qualifiedName}`);
     const estimatedCount = await this.estimatedCount(db, table);
     let at = 0;
     const cursor = await db.stream({ statement: `SELECT * FROM ${table.escapedIdentifier}` });
@@ -393,7 +393,7 @@ WHERE  oid = $1::regclass`,
         return q;
       });
       if (at % 5000 == 0 && rows.length > 0) {
-        micro.logger.info(`${this.slot_name} Replicating ${table.qualifiedName} ${at}/${estimatedCount}`);
+        logger.info(`${this.slot_name} Replicating ${table.qualifiedName} ${at}/${estimatedCount}`);
       }
       if (this.abort_signal.aborted) {
         throw new Error(`Aborted initial replication of ${this.slot_name}`);
@@ -583,7 +583,7 @@ WHERE  oid = $1::regclass`,
             await this.ack(msg.lsn!, replicationStream);
           } else {
             if (count % 100 == 0) {
-              micro.logger.info(`${this.slot_name} replicating op ${count} ${msg.lsn}`);
+              logger.info(`${this.slot_name} replicating op ${count} ${msg.lsn}`);
             }
 
             count += 1;

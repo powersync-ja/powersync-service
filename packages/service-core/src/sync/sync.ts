@@ -1,4 +1,3 @@
-import * as micro from '@journeyapps-platform/micro';
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import { SyncParameters } from '@powersync/service-sync-rules';
 import { Semaphore } from 'async-mutex';
@@ -11,6 +10,7 @@ import * as util from '../util/util-index.js';
 import { mergeAsyncIterables } from './merge.js';
 import { TokenStreamOptions, tokenStream } from './util.js';
 import { Metrics } from '../metrics/Metrics.js';
+import { logger } from '../system/Logger.js';
 
 /**
  * Maximum number of connections actively fetching data.
@@ -139,7 +139,7 @@ async function* streamResponseInner(
       message += `buckets: ${allBuckets.length} | `;
       message += `updated: ${limitedBuckets(diff.updated_buckets, 20)} | `;
       message += `removed: ${limitedBuckets(diff.removed_buckets, 20)} | `;
-      micro.logger.info(message);
+      logger.info(message);
 
       const checksum_line: util.StreamingSyncCheckpointDiff = {
         checkpoint_diff: {
@@ -153,7 +153,7 @@ async function* streamResponseInner(
     } else {
       let message = `New checkpoint: ${checkpoint} | write: ${writeCheckpoint} | `;
       message += `buckets: ${allBuckets.length} ${limitedBuckets(allBuckets, 20)}`;
-      micro.logger.info(message);
+      logger.info(message);
       const checksum_line: util.StreamingSyncCheckpoint = {
         checkpoint: {
           last_op_id: checkpoint,
@@ -239,7 +239,7 @@ async function* bucketDataBatch(
       if (r.data.length == 0) {
         continue;
       }
-      micro.logger.debug(`Sending data for ${r.bucket}`);
+      logger.debug(`Sending data for ${r.bucket}`);
 
       let send_data: any;
       if (binary_data) {
