@@ -9,7 +9,7 @@ RUN echo //npm.pkg.github.com/:_authToken=\${GITHUB_TOKEN} >> ~/.npmrc && \
     echo //npm.pkg.github.com/journeyapps-platform/:_authToken=\${GITHUB_TOKEN} >> ~/.npmrc && \
     echo @journeyapps-platform:registry=https://npm.pkg.github.com/journeyapps-platform/ >> ~/.npmrc
 
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
 COPY service/package.json service/tsconfig.json service/
 
 COPY packages/jpgwire/package.json packages/jpgwire/tsconfig.json packages/jpgwire/

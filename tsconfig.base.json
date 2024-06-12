@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "lib": ["ES2021"],
+    "target": "ES2020",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "composite": true,
+    "declaration": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "useUnknownInCatchVariables": false
+  }
+}
