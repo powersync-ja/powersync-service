@@ -9,7 +9,7 @@ import { Base64SyncRulesCollector } from './sync-rules/impl/base64-sync-rules-co
 import { InlineSyncRulesCollector } from './sync-rules/impl/inline-sync-rules-collector.js';
 import { FileSystemSyncRulesCollector } from './sync-rules/impl/filesystem-sync-rules-collector.js';
 import { FallbackConfigCollector } from './collectors/impl/fallback-config-collector.js';
-import { logger } from '../../system/Logger.js';
+import { logger } from '@powersync/service-framework';
 
 const POWERSYNC_DEV_KID = 'powersync-dev';
 

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import * as micro from '@journeyapps-platform/micro';
+import { logger } from '@powersync/service-framework';
 import {
   Closeable,
   Deferred,
@@ -93,7 +93,7 @@ export class WebsocketDuplexConnection extends Deferred implements DuplexConnect
   };
 
   private handleError = (e: WebSocket.ErrorEvent): void => {
-    micro.logger.error(`Error in WebSocket duplex connection: ${e}`);
+    logger.error(`Error in WebSocket duplex connection: ${e}`);
     this.close(e.error);
   };
 
@@ -123,7 +123,7 @@ export class WebsocketDuplexConnection extends Deferred implements DuplexConnect
           throw new Error(`Unable to deserialize frame`);
         }
       } catch (ex) {
-        micro.logger.info(`Received error deserializing initial frame buffer. Skipping connection request.`, ex);
+        logger.info(`Received error deserializing initial frame buffer. Skipping connection request.`, ex);
         // The initial frame should always be parsable
         return socket.end();
       }
@@ -137,7 +137,7 @@ export class WebsocketDuplexConnection extends Deferred implements DuplexConnect
         await connectionAcceptor(frame, connection);
         socket.resume();
       } catch (error) {
-        micro.logger.info(`Error accepting connection:`, error);
+        logger.info(`Error accepting connection:`, error);
         connection.close(error);
       }
     });

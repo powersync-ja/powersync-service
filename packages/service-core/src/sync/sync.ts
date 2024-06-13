@@ -10,7 +10,7 @@ import * as util from '../util/util-index.js';
 import { mergeAsyncIterables } from './merge.js';
 import { TokenStreamOptions, tokenStream } from './util.js';
 import { Metrics } from '../metrics/Metrics.js';
-import { logger } from '../system/Logger.js';
+import { logger } from '@powersync/service-framework';
 
 /**
  * Maximum number of connections actively fetching data.

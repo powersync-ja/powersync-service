@@ -16,7 +16,7 @@ import {
   SourceKey
 } from './models.js';
 import { serializeLookup } from './util.js';
-import { logger } from '../../system/Logger.js';
+import { logger } from '@powersync/service-framework';
 
 /**
  * Maximum size of operations we write in a single transaction.

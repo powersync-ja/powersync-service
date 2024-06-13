@@ -8,7 +8,7 @@ import * as util from '../util/util-index.js';
 import { authUser } from './auth.js';
 import { RouteGenerator } from './router.js';
 import { Metrics } from '../metrics/Metrics.js';
-import { logger } from '../system/Logger.js';
+import { logger } from '@powersync/service-framework';
 
 export enum SyncRoutes {
   STREAM = '/sync/stream'

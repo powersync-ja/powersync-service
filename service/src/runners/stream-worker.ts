@@ -1,5 +1,6 @@
 import { Direction } from '@journeyapps-platform/micro-migrate';
-import { migrations, replication, utils, Metrics, logger } from '@powersync/service-core';
+import { migrations, replication, utils, Metrics } from '@powersync/service-core';
+import { logger } from '@powersync/service-framework';
 
 import { PowerSyncSystem } from '../system/PowerSyncSystem.js';
 

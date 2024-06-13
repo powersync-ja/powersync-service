@@ -9,8 +9,7 @@ import * as db from '../db/db-index.js';
 import * as storage from '../storage/storage-index.js';
 import * as utils from '../util/util-index.js';
 import * as replication from '../replication/replication-index.js';
-import { logger } from '../system/Logger.js';
-import { createFSProbe } from '../system/system-index.js';
+import { logger, createFSProbe } from '@powersync/service-framework';
 
 /**
  * Attempt to terminate a single sync rules instance.

@@ -3,7 +3,7 @@ import secs from '../util/secs.js';
 import { KeyOptions, KeySpec, SUPPORTED_ALGORITHMS } from './KeySpec.js';
 import { KeyCollector } from './KeyCollector.js';
 import { JwtPayload } from './JwtPayload.js';
-import { logger } from '../system/Logger.js';
+import { logger } from '@powersync/service-framework';
 
 /**
  * KeyStore to get keys and verify tokens.

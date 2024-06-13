@@ -7,7 +7,7 @@ import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
-import { logger } from '../system/Logger.js';
+import { logger } from '@powersync/service-framework';
 
 export async function getConnectionStatus(system: CorePowerSyncSystem): Promise<ConnectionStatus | null> {
   if (system.pgwire_pool == null) {

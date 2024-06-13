@@ -9,14 +9,12 @@ import { getPgOutputRelation, getRelId, PgRelation } from './PgRelation.js';
 import { getReplicationIdentityColumns } from './util.js';
 import { WalConnection } from './WalConnection.js';
 import { Metrics } from '../metrics/Metrics.js';
-import { logger } from '../system/Logger.js';
-import { ProbeModule } from '../system/system-index.js';
+import { logger, ProbeModule } from '@powersync/service-framework';
 
 export const ZERO_LSN = '00000000/00000000';
 
 export interface WalStreamOptions {
   connections: util.PgManager;
-
   factory: storage.BucketStorageFactory;
   storage: storage.SyncRulesBucketStorage;
   abort_signal: AbortSignal;
@@ -620,6 +618,9 @@ WHERE  oid = $1::regclass`,
   }
 
   async touch() {
+    // FIXME: The hosted Kubernetes probe does not actually check the timestamp on this.
+    // FIXME: We need a timeout of around 5+ minutes in Kubernetes if we do start checking the timestamp,
+    // or reduce PING_INTERVAL here.
     return this.probe.touch();
   }
 }

@@ -24,7 +24,7 @@ import { SyncRuleDocument, SyncRuleState } from './mongo/models.js';
 import { generateSlotName } from './mongo/util.js';
 import { locks } from '@journeyapps-platform/micro';
 import { v4 as uuid } from 'uuid';
-import { logger } from '../system/Logger.js';
+import { logger } from '@powersync/service-framework';
 
 export interface MongoBucketStorageOptions extends PowerSyncMongoOptions {}
 

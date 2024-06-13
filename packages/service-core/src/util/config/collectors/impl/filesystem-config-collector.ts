@@ -1,9 +1,9 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
+import { logger } from '@powersync/service-framework';
 import { ConfigCollector, ConfigFileFormat } from '../config-collector.js';
 import { RunnerConfig } from '../../types.js';
-import { logger } from '../../../../system/Logger.js';
 
 export class FileSystemConfigCollector extends ConfigCollector {
   get name(): string {

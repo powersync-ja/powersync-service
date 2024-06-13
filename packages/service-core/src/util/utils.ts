@@ -5,7 +5,7 @@ import { pgwireRows } from '@powersync/service-jpgwire';
 import * as storage from '../storage/storage-index.js';
 import { BucketChecksum, OpId } from './protocol-types.js';
 import { retriedQuery } from './pgwire_utils.js';
-import { logger } from '../system/Logger.js';
+import { logger } from '@powersync/service-framework';
 
 export function hashData(type: string, id: string, data: string): number {
   const hash = crypto.createHash('sha256');

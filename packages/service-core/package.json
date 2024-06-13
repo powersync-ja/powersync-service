@@ -25,6 +25,7 @@
     "@opentelemetry/sdk-metrics": "1.24.1",
     "@powersync/service-jpgwire": "workspace:*",
     "@powersync/service-jsonbig": "workspace:*",
+    "@powersync/service-framework": "workspace:*",
     "@powersync/service-rsocket-router": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",
     "@powersync/service-types": "workspace:*",

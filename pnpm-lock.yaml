@@ -74,9 +74,9 @@ importers:
 
   packages/rsocket-router:
     dependencies:
-      '@journeyapps-platform/micro':
-        specifier: ^17.0.1
-        version: 17.0.1(encoding@0.1.13)(socks@2.8.3)
+      '@powersync/service-framework':
+        specifier: workspace:*
+        version: link:../service-framework
       rsocket-core:
         specifier: 1.0.0-alpha.3
         version: 1.0.0-alpha.3
@@ -86,9 +86,6 @@ importers:
       uuid:
         specifier: ^9.0.1
         version: 9.0.1
-      winston:
-        specifier: ^3.13.0
-        version: 3.13.0
       ws:
         specifier: ^8.17.0
         version: 8.17.0
@@ -135,6 +132,9 @@ importers:
       '@opentelemetry/sdk-metrics':
         specifier: 1.24.1
         version: 1.24.1(@opentelemetry/api@1.8.0)
+      '@powersync/service-framework':
+        specifier: workspace:*
+        version: link:../service-framework
       '@powersync/service-jpgwire':
         specifier: workspace:*
         version: link:../jpgwire
@@ -218,6 +218,19 @@ importers:
         specifier: ^0.34.6
         version: 0.34.6
 
+  packages/service-framework:
+    dependencies:
+      lodash:
+        specifier: ^4.17.21
+        version: 4.17.21
+      winston:
+        specifier: ^3.13.0
+        version: 3.13.0
+    devDependencies:
+      '@types/lodash':
+        specifier: ^4.17.5
+        version: 4.17.5
+
   packages/sync-rules:
     dependencies:
       '@powersync/service-jsonbig':
@@ -272,6 +285,9 @@ importers:
       '@powersync/service-core':
         specifier: workspace:*
         version: link:../packages/service-core
+      '@powersync/service-framework':
+        specifier: workspace:*
+        version: link:../packages/service-framework
       '@powersync/service-jpgwire':
         specifier: workspace:*
         version: link:../packages/jpgwire

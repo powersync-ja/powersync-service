@@ -1,4 +1,4 @@
-import { logger } from '../system/Logger.js';
+import { logger } from '@powersync/service-framework';
 
 /**
  * Track and log memory usage.

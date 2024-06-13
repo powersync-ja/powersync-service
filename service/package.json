@@ -17,6 +17,7 @@
     "@opentelemetry/exporter-prometheus": "^0.43.0",
     "@opentelemetry/sdk-metrics": "^1.17.0",
     "@powersync/service-core": "workspace:*",
+    "@powersync/service-framework": "workspace:*",
     "@powersync/service-jpgwire": "workspace:*",
     "@powersync/service-jsonbig": "workspace:*",
     "@powersync/service-rsocket-router": "workspace:*",

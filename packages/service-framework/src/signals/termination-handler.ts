@@ -1,5 +1,5 @@
 import _ from 'lodash';
-import { logger } from '../Logger.js';
+import { logger } from '../logger/Logger';
 
 export enum Signal {
   SIGTERM = 'SIGTERM',

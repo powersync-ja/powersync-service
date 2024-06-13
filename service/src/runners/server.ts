@@ -3,7 +3,8 @@ import fastify from 'fastify';
 import cors from '@fastify/cors';
 import * as micro from '@journeyapps-platform/micro';
 import { RSocketRequestMeta } from '@powersync/service-rsocket-router';
-import { Metrics, logger, routes, utils } from '@powersync/service-core';
+import { Metrics, routes, utils } from '@powersync/service-core';
+import { logger } from '@powersync/service-framework';
 
 import { PowerSyncSystem } from '../system/PowerSyncSystem.js';
 import { Router, SocketRouter, StreamingRouter } from '../routes/router.js';

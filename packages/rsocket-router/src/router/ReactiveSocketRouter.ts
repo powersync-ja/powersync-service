@@ -3,7 +3,6 @@
  * to expose reactive websocket stream in an interface similar to
  * other journey micro routers.
  */
-import * as micro from '@journeyapps-platform/micro';
 import * as http from 'http';
 import { Payload, RSocketServer } from 'rsocket-core';
 import * as ws from 'ws';
@@ -17,6 +16,7 @@ import {
   SocketResponder
 } from './types.js';
 import { WebsocketServerTransport } from './transport/WebSocketServerTransport.js';
+import { logger } from '@powersync/service-framework';
 
 export class ReactiveSocketRouter<C> {
   constructor(protected options?: ReactiveSocketRouterOptions<C>) {}
@@ -69,7 +69,7 @@ export class ReactiveSocketRouter<C> {
               const observer = new SocketRouterObserver();
 
               handleReactiveStream(context, { payload, initialN, responder }, observer, params).catch((ex) => {
-                micro.logger.error(ex);
+                logger.error(ex);
                 responder.onError(ex);
                 responder.onComplete();
               });
@@ -154,7 +154,7 @@ export async function handleReactiveStream<Context>(
       initialN
     });
   } catch (ex) {
-    micro.logger.error(ex);
+    logger.error(ex);
     responder.onError(ex);
     responder.onComplete();
   }

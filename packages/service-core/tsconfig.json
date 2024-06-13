@@ -23,6 +23,9 @@
     },
     {
       "path": "../sync-rules"
+    },
+    {
+      "path": "../service-framework"
     }
   ]
 }

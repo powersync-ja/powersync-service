@@ -2,7 +2,7 @@ import crypto from 'crypto';
 
 import { PersistedSyncRulesContent, ReplicationLock } from '../BucketStorage.js';
 import { PowerSyncMongo } from './db.js';
-import { logger } from '../../system/Logger.js';
+import { logger } from '@powersync/service-framework';
 
 /**
  * Manages a lock on a sync rules document, so that only one process

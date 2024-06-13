@@ -13,7 +13,7 @@ import { MongoIdSequence } from './MongoIdSequence.js';
 import { cacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
 import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, serializeLookup } from './util.js';
-import { logger } from '../../system/Logger.js';
+import { logger } from '@powersync/service-framework';
 
 /**
  * 15MB

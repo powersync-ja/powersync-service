@@ -17,6 +17,9 @@
       "path": "./packages/sync-rules"
     },
     {
+      "path": "./packages/service-framework"
+    },
+    {
       "path": "./packages/types"
     },
     {

@@ -1,9 +1,8 @@
 import * as pgwire from '@powersync/service-jpgwire';
+import { LifeCycledSystem, LifeCycledSystemOptions, logger } from '@powersync/service-framework';
 
 import * as storage from '../storage/storage-index.js';
 import * as utils from '../util/util-index.js';
-import { LifeCycledSystem, LifeCycledSystemOptions } from './LifeCycledSystem.js';
-import { logger } from './Logger.js';
 
 export abstract class CorePowerSyncSystem extends LifeCycledSystem {
   abstract storage: storage.BucketStorageFactory;
