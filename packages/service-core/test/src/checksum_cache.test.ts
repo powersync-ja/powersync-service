@@ -324,6 +324,39 @@ function defineChecksumCacheTests(factory: CachsumCacheFactory) {
       ]
     ]);
   });
+
+  it('should handle missing checksums (a)', async function () {
+    let lookups: FetchPartialBucketChecksum[][] = [];
+    const cache = factory(async (batch) => {
+      lookups.push(batch);
+      return fetchTestChecksums(batch.filter((b) => b.bucket != 'test'));
+    });
+
+    expect(await cache.getChecksums('123', ['test'])).toEqual([{ bucket: 'test', checksum: 0, count: 0 }]);
+    expect(await cache.getChecksums('123', ['test', 'test2'])).toEqual([
+      { bucket: 'test', checksum: 0, count: 0 },
+      TEST2_123
+    ]);
+  });
+
+  it('should handle missing checksums (b)', async function () {
+    let lookups: FetchPartialBucketChecksum[][] = [];
+    const cache = factory(async (batch) => {
+      lookups.push(batch);
+      return fetchTestChecksums(batch.filter((b) => b.bucket != 'test' || b.end != '123'));
+    });
+
+    expect(await cache.getChecksums('123', ['test'])).toEqual([{ bucket: 'test', checksum: 0, count: 0 }]);
+    expect(await cache.getChecksums('1234', ['test'])).toEqual([
+      {
+        bucket: 'test',
+        checksum: 1597020602,
+        count: 1111
+      }
+    ]);
+
+    expect(lookups).toEqual([[{ bucket: 'test', end: '123' }], [{ bucket: 'test', start: '123', end: '1234' }]]);
+  });
 }
 
 describe('cache limit tests', function () {
