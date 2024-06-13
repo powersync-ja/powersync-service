@@ -3,7 +3,7 @@ import fastify from 'fastify';
 import cors from '@fastify/cors';
 import * as micro from '@journeyapps-platform/micro';
 import { RSocketRequestMeta } from '@powersync/service-rsocket-router';
-import { Metrics, routes, utils } from '@powersync/service-core';
+import { Metrics, logger, routes, utils } from '@powersync/service-core';
 
 import { PowerSyncSystem } from '../system/PowerSyncSystem.js';
 import { Router, SocketRouter, StreamingRouter } from '../routes/router.js';
@@ -11,7 +11,7 @@ import { Router, SocketRouter, StreamingRouter } from '../routes/router.js';
  * Starts an API server
  */
 export async function startServer(runnerConfig: utils.RunnerConfig) {
-  micro.logger.info('Booting');
+  logger.info('Booting');
 
   const config = await utils.loadConfig(runnerConfig);
   const system = new PowerSyncSystem(config);
@@ -69,7 +69,7 @@ export async function startServer(runnerConfig: utils.RunnerConfig) {
           };
         }
       } catch (ex) {
-        micro.logger.error(ex);
+        logger.error(ex);
       }
 
       return {
@@ -84,9 +84,9 @@ export async function startServer(runnerConfig: utils.RunnerConfig) {
     payloadDecoder: async (rawData?: Buffer) => rawData && deserialize(rawData)
   });
 
-  micro.logger.info('Starting system');
+  logger.info('Starting system');
   await system.start();
-  micro.logger.info('System started');
+  logger.info('System started');
 
   Metrics.getInstance().configureApiMetrics();
 
@@ -96,7 +96,7 @@ export async function startServer(runnerConfig: utils.RunnerConfig) {
   // This is so that the handler is run before the server's handler, allowing streams to be interrupted on exit
   system.addTerminationHandler();
 
-  micro.logger.info(`Running on port ${system.config.port}`);
+  logger.info(`Running on port ${system.config.port}`);
   await micro.signals.getSystemProbe().ready();
 
   // Enable in development to track memory usage:

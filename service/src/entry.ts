@@ -2,13 +2,10 @@ import '@journeyapps-platform/micro/register';
 import './util/register-alerting.js';
 
 import winston from 'winston';
-import { entry, utils, system } from '@powersync/service-core';
+import { entry, utils, system, Logger } from '@powersync/service-core';
 // Configure logging to console
 system.logger.configure({
-  format:
-    utils.env.NODE_ENV == 'production'
-      ? winston.format.combine(winston.format.json())
-      : winston.format.combine(winston.format.simple()),
+  format: utils.env.NODE_ENV == 'production' ? Logger.production_format : Logger.development_format,
   transports: [new winston.transports.Console()]
 });
 

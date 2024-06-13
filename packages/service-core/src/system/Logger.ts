@@ -6,3 +6,12 @@ import winston from 'winston';
  * core package.
  */
 export const logger = winston.createLogger();
+
+export namespace Logger {
+  export const instance = logger;
+  export const development_format = winston.format.combine(
+    winston.format.colorize({ level: true }),
+    winston.format.simple()
+  );
+  export const production_format = winston.format.combine(winston.format.timestamp(), winston.format.json());
+}
