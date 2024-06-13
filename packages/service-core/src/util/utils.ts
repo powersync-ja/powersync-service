@@ -7,6 +7,8 @@ import * as storage from '@/storage/storage-index.js';
 import { BucketChecksum, OpId } from './protocol-types.js';
 import { retriedQuery } from './pgwire_utils.js';
 
+export type ChecksumMap = Map<string, BucketChecksum>;
+
 export function hashData(type: string, id: string, data: string): number {
   const hash = crypto.createHash('sha256');
   hash.update(`put.${type}.${id}.${data}`);
@@ -30,30 +32,48 @@ export function timestampToOpId(ts: bigint): OpId {
   return ts.toString(10);
 }
 
-export function checksumsDiff(previous: BucketChecksum[], current: BucketChecksum[]) {
-  const updated_buckets: BucketChecksum[] = [];
+export function checksumsDiff(previous: ChecksumMap, current: ChecksumMap) {
+  // All changed ones
+  const updatedBuckets = new Map<string, BucketChecksum>();
 
-  const previousBuckets = new Map<string, BucketChecksum>();
-  for (let checksum of previous) {
-    previousBuckets.set(checksum.bucket, checksum);
-  }
-  for (let checksum of current) {
-    if (!previousBuckets.has(checksum.bucket)) {
-      updated_buckets.push(checksum);
+  const toRemove = new Set<string>(previous.keys());
+
+  for (let checksum of current.values()) {
+    const p = previous.get(checksum.bucket);
+    if (p == null) {
+      // Added
+      updatedBuckets.set(checksum.bucket, checksum);
     } else {
-      const p = previousBuckets.get(checksum.bucket);
-      if (p?.checksum != checksum.checksum || p?.count != checksum.count) {
-        updated_buckets.push(checksum);
+      toRemove.delete(checksum.bucket);
+      if (checksum.checksum != p.checksum || checksum.count != p.count) {
+        // Updated
+        updatedBuckets.set(checksum.bucket, checksum);
+      } else {
+        // No change
       }
-      previousBuckets.delete(checksum.bucket);
     }
   }
 
-  const removed_buckets: string[] = [...previousBuckets.keys()];
   return {
-    updated_buckets,
-    removed_buckets
+    updatedBuckets: [...updatedBuckets.values()],
+    removedBuckets: [...toRemove]
   };
+}
+
+export function addChecksums(a: number, b: number) {
+  return (a + b) & 0xffffffff;
+}
+
+export function addBucketChecksums(a: BucketChecksum, b: BucketChecksum | null): BucketChecksum {
+  if (b == null) {
+    return a;
+  } else {
+    return {
+      bucket: a.bucket,
+      count: a.count + b.count,
+      checksum: addChecksums(a.checksum, b.checksum)
+    };
+  }
 }
 
 export async function getClientCheckpoint(
