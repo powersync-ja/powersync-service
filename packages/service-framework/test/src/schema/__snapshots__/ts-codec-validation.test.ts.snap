@@ -1,0 +1,17 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ts-codec validation > fails validation for runtime codec 1`] = `
+{
+  "errors": [
+    " must have required property 'surname'",
+    "/name: type must be string",
+    "/other/b: const must be equal to constant",
+    "/tuple/0: type must be string",
+    "/or: type must be number",
+    "/or: type must be string",
+    "/or: anyOf must match a schema in anyOf",
+    "/complex must have required property 'c'",
+  ],
+  "valid": false,
+}
+`;

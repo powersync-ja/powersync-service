@@ -1,0 +1,73 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`schema-tools > it should correctly prune unused definitions 1`] = `
+{
+  "definitions": {
+    "b": {
+      "properties": {
+        "prop": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "prop",
+      ],
+      "type": "object",
+    },
+    "b1": {
+      "properties": {
+        "prop": {
+          "$ref": "#/definitions/b",
+        },
+      },
+      "required": [
+        "prop",
+      ],
+      "type": "object",
+    },
+    "c": {
+      "properties": {
+        "prop": {
+          "$ref": "#/definitions/c",
+        },
+      },
+      "required": [
+        "prop",
+      ],
+      "type": "object",
+    },
+  },
+  "properties": {
+    "a": {
+      "properties": {
+        "a": {
+          "$ref": "#/definitions/b1",
+        },
+        "b": {
+          "enum": [
+            "A",
+          ],
+        },
+      },
+      "type": "object",
+    },
+    "b": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "a": {
+              "$ref": "#/definitions/c",
+            },
+          },
+          "required": [
+            "a",
+          ],
+          "type": "object",
+        },
+      ],
+    },
+  },
+  "type": "object",
+}
+`;

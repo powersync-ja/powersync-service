@@ -1,4 +1,4 @@
-import { utils } from '@journeyapps-platform/micro';
+import { utils } from '@powersync/service-framework';
 
 import { ServiceRunner } from './config/types.js';
 

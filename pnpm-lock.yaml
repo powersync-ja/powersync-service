@@ -232,6 +232,9 @@ importers:
       bson:
         specifier: ^6.6.0
         version: 6.7.0
+      dotenv:
+        specifier: ^16.4.5
+        version: 16.4.5
       lodash:
         specifier: ^4.17.21
         version: 4.17.21
@@ -241,6 +244,9 @@ importers:
       winston:
         specifier: ^3.13.0
         version: 3.13.0
+      zod:
+        specifier: ^3.23.8
+        version: 3.23.8
     devDependencies:
       '@types/lodash':
         specifier: ^4.17.5
