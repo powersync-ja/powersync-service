@@ -141,10 +141,13 @@ export class ChecksumCache {
       checkpoint: BigInt(checkpoint)
     };
 
-    // Individual cache fetch promises
-    let cacheFetchPromises: Promise<void>[] = [];
+    // One promise to await to ensure all fetch requests completed.
+    let settledPromise: Promise<PromiseSettledResult<void>[]> | null = null;
 
     try {
+      // Individual cache fetch promises
+      let cacheFetchPromises: Promise<void>[] = [];
+
       for (let bucket of buckets) {
         const cacheKey = makeCacheKey(checkpoint, bucket);
         let status: LRUCache.Status<BucketChecksum> = {};
@@ -165,6 +168,9 @@ export class ChecksumCache {
           toFetch.add(bucket);
         }
       }
+      // We do this directly after creating the promises, otherwise
+      // we could end up with weird uncaught rejection errors.
+      settledPromise = Promise.allSettled(cacheFetchPromises);
 
       if (toFetch.size == 0) {
         // Nothing to fetch, but resolve in case
@@ -251,12 +257,21 @@ export class ChecksumCache {
       rejectFetch(e);
 
       // Wait for the above rejection to propagate, otherwise we end up with "uncaught" errors.
-      await Promise.all(cacheFetchPromises).catch((_e) => {});
+      // This promise never throws.
+      await settledPromise;
 
       throw e;
     }
 
-    await Promise.all(cacheFetchPromises);
+    // Wait for all cache fetch reqeusts to complete
+    const settledResults = (await settledPromise) ?? [];
+    // Check if any of them failed
+    for (let result of settledResults) {
+      if (result.status == 'rejected') {
+        throw result.reason;
+      }
+    }
+
     if (finalResults.size != buckets.length) {
       // Should not happen
       throw new Error(`Bucket results mismatch: ${finalResults.size} != ${buckets.length}`);
