@@ -95,9 +95,6 @@ importers:
       rsocket-core:
         specifier: 1.0.0-alpha.3
         version: 1.0.0-alpha.3
-      rsocket-websocket-server:
-        specifier: 1.0.0-alpha.3
-        version: 1.0.0-alpha.3
       ts-codec:
         specifier: ^1.2.2
         version: 1.2.2
@@ -105,8 +102,8 @@ importers:
         specifier: ^9.0.1
         version: 9.0.1
       ws:
-        specifier: ~8.2.3
-        version: 8.2.3
+        specifier: ^8.17.0
+        version: 8.17.0
     devDependencies:
       '@types/uuid':
         specifier: ^9.0.4
@@ -117,6 +114,9 @@ importers:
       bson:
         specifier: ^6.6.0
         version: 6.7.0
+      rsocket-websocket-client:
+        specifier: 1.0.0-alpha.3
+        version: 1.0.0-alpha.3
       typescript:
         specifier: ^5.2.2
         version: 5.4.5
@@ -3826,9 +3826,6 @@ packages:
 
   rsocket-websocket-client@1.0.0-alpha.3:
     resolution: {integrity: sha512-CwTwTNMGa8BKvrWde/kM3q8IHuzO8RCIfzuj25BsVe9y8eehDQHt4fXk0g1i/wpsxTm+RY6DxE6Vr5snozKVOg==}
-
-  rsocket-websocket-server@1.0.0-alpha.3:
-    resolution: {integrity: sha512-x1Z4lZTEO+Fjt3xDfEDLPrP76Lmw2AW50UZynHEsB9PX1uDhTG5QDzPATiGbNoT7ihJVtb7YQftRIGUG8cC1aQ==}
 
   run-async@2.4.1:
     resolution: {integrity: sha512-tvVnVv01b8c1RrA6Ep7JkStj85Guv/YrMcwqYQnwjsAS2cTmmPGBBjAjpCW7RrSodNSoE2/qg9O4bceNvUuDgQ==}
@@ -8913,14 +8910,6 @@ snapshots:
   rsocket-websocket-client@1.0.0-alpha.3:
     dependencies:
       rsocket-core: 1.0.0-alpha.3
-
-  rsocket-websocket-server@1.0.0-alpha.3:
-    dependencies:
-      rsocket-core: 1.0.0-alpha.3
-      ws: 8.2.3
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
 
   run-async@2.4.1: {}
 

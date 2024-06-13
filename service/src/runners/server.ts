@@ -60,10 +60,11 @@ export async function startServer(runnerConfig: utils.RunnerConfig) {
       try {
         const extracted_token = routes.auth.getTokenFromHeader(token);
         if (extracted_token != null) {
-          const { context } = await routes.auth.generateContext(system, extracted_token);
+          const { context, errors } = await routes.auth.generateContext(system, extracted_token);
           return {
             token,
             ...context,
+            token_errors: errors,
             system
           };
         }

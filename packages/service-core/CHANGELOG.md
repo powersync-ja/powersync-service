@@ -1,5 +1,27 @@
 # @powersync/service-core
 
+## 0.2.0
+
+### Minor Changes
+
+- 526a41a: Added support for user parameters when making a StreamingSyncRequest.
+
+## 0.1.3
+
+### Patch Changes
+
+- 5f5163f: Fix performance issues and improve logging for initial snapshot replication.
+- Updated dependencies [5f5163f]
+  - @powersync/service-jpgwire@0.17.12
+
+## 0.1.2
+
+### Patch Changes
+
+- b5f4ebf: Fix missing authentication errors for websocket sync stream requests
+- Updated dependencies [b5f4ebf]
+  - @powersync/service-rsocket-router@0.0.7
+
 ## 0.1.1
 
 ### Patch Changes

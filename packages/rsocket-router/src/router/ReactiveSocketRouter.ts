@@ -6,7 +6,6 @@
 import * as micro from '@journeyapps-platform/micro';
 import * as http from 'http';
 import { Payload, RSocketServer } from 'rsocket-core';
-import { WebsocketServerTransport } from 'rsocket-websocket-server';
 import * as ws from 'ws';
 import { SocketRouterObserver } from './SocketRouterListener.js';
 import {
@@ -17,6 +16,7 @@ import {
   ReactiveSocketRouterOptions,
   SocketResponder
 } from './types.js';
+import { WebsocketServerTransport } from './transport/WebSocketServerTransport.js';
 
 export class ReactiveSocketRouter<C> {
   constructor(protected options?: ReactiveSocketRouterOptions<C>) {}

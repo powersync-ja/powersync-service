@@ -86,6 +86,7 @@ class SocketAdapter {
     this._readPauseAsync = (resolve) => (this._readResume = resolve);
     this._writePauseAsync = (resolve) => (this._writeResume = resolve);
     this._error = null;
+    /** @type {net.Socket} */
     this._socket = socket;
     this._socket.on('readable', (_) => this._readResume());
     this._socket.on('end', (_) => this._readResume());
@@ -126,16 +127,17 @@ class SocketAdapter {
     for (;;) {
       if (this._error) throw this._error; // TODO callstack
       if (this._socket.readableEnded) return null;
-      buf = this._socket.read();
+      // POWERSYNC FIX: Read only as much data as available, instead of reading everything and
+      // unshifting back onto the socket
+      const toRead = Math.min(out.length, this._socket.readableLength);
+      buf = this._socket.read(toRead);
+
       if (buf?.length) break;
       if (!buf) await new Promise(this._readPauseAsync);
     }
+
     if (buf.length > out.length) {
-      out.set(buf.subarray(0, out.length));
-      this._socket.unshift(buf.subarray(out.length));
-      // POWERSYNC: Add metrics
-      recordBytesRead(out.length);
-      return out.length;
+      throw new Error('Read more data than expected');
     }
     out.set(buf);
     // POWERSYNC: Add metrics

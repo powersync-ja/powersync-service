@@ -30,7 +30,10 @@ export const syncStreamed: RouteGenerator = (router) =>
       }
 
       const params: util.StreamingSyncRequest = payload.params;
-      const syncParams: SyncParameters = normalizeTokenParameters(payload.context.token_payload!.parameters ?? {});
+      const syncParams: SyncParameters = normalizeTokenParameters(
+        payload.context.token_payload!.parameters ?? {},
+        payload.params.parameters ?? {}
+      );
 
       const storage = system.storage;
       // Sanity check before we start the stream
