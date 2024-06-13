@@ -89,7 +89,11 @@ export class ChecksumCache {
         }
       },
 
-      noDisposeOnSet: true
+      noDisposeOnSet: true,
+
+      // When we have more fetches than the cache size, complete the fetches instead
+      // of failing with Error('evicted').
+      ignoreFetchAbort: true
     });
   }
 

@@ -397,4 +397,40 @@ describe('checksum cache', function () {
       [{ bucket: 'test', end: '123' }]
     ]);
   });
+
+  it('should handle concurrent requests greater than cache size', async function () {
+    // This will not be cached efficiently, but we test that we don't get errors at least.
+    let lookups: FetchPartialBucketChecksum[][] = [];
+    const cache = new ChecksumCache({
+      fetchChecksums: async (batch) => {
+        lookups.push(batch);
+        return fetchTestChecksums(batch);
+      },
+      maxSize: 2
+    });
+
+    const p3 = cache.getChecksums('123', ['test3']);
+    const p4 = cache.getChecksums('123', ['test4']);
+    const p1 = cache.getChecksums('123', ['test']);
+    const p2 = cache.getChecksums('123', ['test2']);
+
+    expect(await p1).toEqual([TEST_123]);
+    expect(await p2).toEqual([TEST2_123]);
+    expect(await p3).toEqual([TEST3_123]);
+    expect(await p4).toEqual([
+      {
+        bucket: 'test4',
+        checksum: 1004797863,
+        count: 123
+      }
+    ]);
+
+    // The lookup should be deduplicated, even though it's in progress
+    expect(lookups).toEqual([
+      [{ bucket: 'test3', end: '123' }],
+      [{ bucket: 'test4', end: '123' }],
+      [{ bucket: 'test', end: '123' }],
+      [{ bucket: 'test2', end: '123' }]
+    ]);
+  });
 });
