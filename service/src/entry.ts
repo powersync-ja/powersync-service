@@ -1,6 +1,3 @@
-import '@journeyapps-platform/micro/register';
-import './util/register-alerting.js';
-
 import winston from 'winston';
 import { entry, utils } from '@powersync/service-core';
 import * as framework from '@powersync/service-framework';

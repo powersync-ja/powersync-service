@@ -6,7 +6,7 @@ import * as util from '../util/util-index.js';
 import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 import { MissingReplicationSlotError, WalStream } from './WalStream.js';
 import { ResolvedConnection } from '../util/config/types.js';
-import { logger, ProbeModule } from '@powersync/service-framework';
+import { ErrorReporter, logger, ProbeModule } from '@powersync/service-framework';
 
 export interface WalStreamRunnerOptions {
   factory: storage.BucketStorageFactory;
@@ -15,6 +15,7 @@ export interface WalStreamRunnerOptions {
   lock: storage.ReplicationLock;
   rateLimiter?: ErrorRateLimiter;
   probe: ProbeModule;
+  errorReporter: ErrorReporter;
 }
 
 export class WalStreamRunner {
@@ -47,7 +48,7 @@ export class WalStreamRunner {
       await this.replicateLoop();
     } catch (e) {
       // Fatal exception
-      util.captureException(e, {
+      this.options.errorReporter.captureException(e, {
         metadata: {
           replication_slot: this.slot_name
         }
@@ -94,7 +95,8 @@ export class WalStreamRunner {
         factory: this.options.factory,
         storage: this.options.storage,
         connections,
-        probe: this.options.probe
+        probe: this.options.probe,
+        errorReporter: this.options.errorReporter
       });
       await stream.replicate();
     } catch (e) {
@@ -126,7 +128,7 @@ export class WalStreamRunner {
         throw e;
       } else {
         // Report the error if relevant, before retrying
-        util.captureException(e, {
+        this.options.errorReporter.captureException(e, {
           metadata: {
             replication_slot: this.slot_name
           }

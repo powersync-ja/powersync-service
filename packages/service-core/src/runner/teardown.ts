@@ -9,7 +9,7 @@ import * as db from '../db/db-index.js';
 import * as storage from '../storage/storage-index.js';
 import * as utils from '../util/util-index.js';
 import * as replication from '../replication/replication-index.js';
-import { logger, createFSProbe } from '@powersync/service-framework';
+import { logger, createFSProbe, ErrorReporter, NoOpReporter } from '@powersync/service-framework';
 
 /**
  * Attempt to terminate a single sync rules instance.
@@ -19,7 +19,8 @@ import { logger, createFSProbe } from '@powersync/service-framework';
 async function terminateReplicator(
   storageFactory: storage.BucketStorageFactory,
   connection: utils.ResolvedConnection,
-  syncRules: storage.PersistedSyncRulesContent
+  syncRules: storage.PersistedSyncRulesContent,
+  errorReporter: ErrorReporter
 ) {
   // The lock may still be active if the current replication instance
   // hasn't stopped yet.
@@ -32,7 +33,8 @@ async function terminateReplicator(
       storage: storage,
       source_db: connection,
       lock,
-      probe: createFSProbe()
+      probe: createFSProbe(),
+      errorReporter
     });
     console.log('terminating', stream.slot_name);
     await stream.terminate();
@@ -52,7 +54,8 @@ async function terminateReplicator(
  */
 async function terminateReplicators(
   storageFactory: storage.BucketStorageFactory,
-  connection: utils.ResolvedConnection
+  connection: utils.ResolvedConnection,
+  errorReporter: ErrorReporter
 ) {
   const start = Date.now();
   while (Date.now() - start < 12_000) {
@@ -60,7 +63,7 @@ async function terminateReplicators(
     const replicationRules = await storageFactory.getReplicatingSyncRules();
     for (let syncRules of replicationRules) {
       try {
-        await terminateReplicator(storageFactory, connection, syncRules);
+        await terminateReplicator(storageFactory, connection, syncRules, errorReporter);
       } catch (e) {
         retry = true;
         console.error(e);
@@ -74,16 +77,23 @@ async function terminateReplicators(
   }
 }
 
-export async function teardown(runnerConfig: utils.RunnerConfig) {
+// TODO should there be a global context for things like alerting?
+
+export async function teardown(runnerConfig: utils.RunnerConfig, errorReporter?: ErrorReporter) {
   const config = await utils.loadConfig(runnerConfig);
   const mongoDB = storage.createPowerSyncMongo(config.storage);
   await db.mongo.waitForAuth(mongoDB.db);
 
-  const bucketStorage = new storage.MongoBucketStorage(mongoDB, { slot_name_prefix: config.slot_name_prefix });
+  const resolvedAlerting = errorReporter ?? NoOpReporter;
+
+  const bucketStorage = new storage.MongoBucketStorage(mongoDB, {
+    slot_name_prefix: config.slot_name_prefix,
+    errorReporter: resolvedAlerting
+  });
   const connection = config.connection;
 
   if (connection) {
-    await terminateReplicators(bucketStorage, connection);
+    await terminateReplicators(bucketStorage, connection, resolvedAlerting);
   }
 
   const database = mongoDB.db;

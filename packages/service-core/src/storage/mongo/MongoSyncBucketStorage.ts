@@ -22,6 +22,7 @@ import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, SourceKey, SyncRuleState } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, readSingleBatch, serializeLookup } from './util.js';
+import { ErrorReporter } from '@powersync/service-framework';
 
 export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
   private readonly db: PowerSyncMongo;
@@ -30,7 +31,8 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     public readonly factory: MongoBucketStorage,
     public readonly group_id: number,
     public readonly sync_rules: SqlSyncRules,
-    public readonly slot_name: string
+    public readonly slot_name: string,
+    protected errorReporter: ErrorReporter
   ) {
     this.db = factory.db;
   }
@@ -63,7 +65,8 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
       this.group_id,
       this.slot_name,
       checkpoint_lsn,
-      doc?.no_checkpoint_before ?? null
+      doc?.no_checkpoint_before ?? null,
+      this.errorReporter
     );
     try {
       await callback(batch);

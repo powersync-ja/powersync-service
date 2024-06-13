@@ -24,7 +24,7 @@ import { SyncRuleDocument, SyncRuleState } from './mongo/models.js';
 import { generateSlotName } from './mongo/util.js';
 import { locks } from '@journeyapps-platform/micro';
 import { v4 as uuid } from 'uuid';
-import { logger } from '@powersync/service-framework';
+import { ErrorReporter, logger } from '@powersync/service-framework';
 
 export interface MongoBucketStorageOptions extends PowerSyncMongoOptions {}
 
@@ -32,6 +32,7 @@ export class MongoBucketStorage implements BucketStorageFactory {
   private readonly client: mongo.MongoClient;
   private readonly session: mongo.ClientSession;
   public readonly slot_name_prefix: string;
+  protected errorReporter: ErrorReporter;
 
   private readonly storageCache = new LRUCache<number, MongoSyncBucketStorage>({
     max: 3,
@@ -54,10 +55,11 @@ export class MongoBucketStorage implements BucketStorageFactory {
 
   public readonly db: PowerSyncMongo;
 
-  constructor(db: PowerSyncMongo, options: { slot_name_prefix: string }) {
+  constructor(db: PowerSyncMongo, options: { slot_name_prefix: string; errorReporter: ErrorReporter }) {
     this.client = db.client;
     this.db = db;
     this.session = this.client.startSession();
+    this.errorReporter = options.errorReporter;
     this.slot_name_prefix = options.slot_name_prefix;
   }
 
@@ -66,7 +68,7 @@ export class MongoBucketStorage implements BucketStorageFactory {
     if ((typeof id as any) == 'bigint') {
       id = Number(id);
     }
-    return new MongoSyncBucketStorage(this, id, sync_rules, slot_name);
+    return new MongoSyncBucketStorage(this, id, sync_rules, slot_name, this.errorReporter);
   }
 
   async configureSyncRules(sync_rules: string, options?: { lock?: boolean }) {

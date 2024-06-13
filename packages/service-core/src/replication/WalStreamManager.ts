@@ -37,7 +37,7 @@ export class WalStreamManager {
   start() {
     this.runLoop().catch((e) => {
       logger.error(`Fatal WalStream error`, e);
-      util.captureException(e);
+      this.system.errorReporter.captureException(e);
       setTimeout(() => {
         process.exit(1);
       }, 1000);
@@ -159,7 +159,8 @@ export class WalStreamManager {
             source_db: this.system.config.connection!,
             lock,
             rateLimiter: this.rateLimiter,
-            probe: this.system.probe
+            probe: this.system.probe,
+            errorReporter: this.system.errorReporter
           });
           newStreams.set(syncRules.id, stream);
           stream.start();
@@ -201,7 +202,8 @@ export class WalStreamManager {
             storage: storage,
             source_db: this.system.config.connection!,
             lock,
-            probe: this.system.probe
+            probe: this.system.probe,
+            errorReporter: this.system.errorReporter
           });
           await stream.terminate();
         } finally {

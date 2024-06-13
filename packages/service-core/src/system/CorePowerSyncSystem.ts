@@ -1,19 +1,30 @@
 import * as pgwire from '@powersync/service-jpgwire';
-import { LifeCycledSystem, LifeCycledSystemOptions, logger } from '@powersync/service-framework';
+import {
+  ErrorReporter,
+  LifeCycledSystem,
+  LifeCycledSystemOptions,
+  logger,
+  NoOpReporter
+} from '@powersync/service-framework';
 
 import * as storage from '../storage/storage-index.js';
 import * as utils from '../util/util-index.js';
 
+export interface CorePowerSyncSystemOptions extends LifeCycledSystemOptions {
+  errorReporter?: ErrorReporter;
+}
+
 export abstract class CorePowerSyncSystem extends LifeCycledSystem {
   abstract storage: storage.BucketStorageFactory;
   abstract pgwire_pool?: pgwire.PgClient;
+  errorReporter: ErrorReporter;
+  closed: boolean;
 
   protected stopHandlers: Set<() => void> = new Set();
 
-  closed: boolean;
-
-  constructor(public config: utils.ResolvedPowerSyncConfig, options?: LifeCycledSystemOptions) {
+  constructor(public config: utils.ResolvedPowerSyncConfig, options?: CorePowerSyncSystemOptions) {
     super(options);
+    this.errorReporter = options?.errorReporter ?? NoOpReporter;
     this.closed = false;
   }
 

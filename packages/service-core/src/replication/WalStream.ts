@@ -19,6 +19,7 @@ export interface WalStreamOptions {
   storage: storage.SyncRulesBucketStorage;
   abort_signal: AbortSignal;
   probe: ProbeModule;
+  errorReporter: framework.ErrorReporter;
 }
 
 interface InitResult {
@@ -51,6 +52,7 @@ export class WalStream {
   private startedStreaming = false;
 
   private probe: ProbeModule;
+  private errorReporter: framework.ErrorReporter;
 
   constructor(options: WalStreamOptions) {
     this.storage = options.storage;
@@ -59,6 +61,7 @@ export class WalStream {
     this.slot_name = options.storage.slot_name;
     this.connections = options.connections;
     this.probe = options.probe;
+    this.errorReporter = options.errorReporter;
 
     this.wal_connection = new WalConnection({ db: this.connections.pool, sync_rules: this.sync_rules });
     this.abort_signal = options.abort_signal;
@@ -201,7 +204,7 @@ export class WalStream {
         await this.touch();
 
         if (i == 0) {
-          util.captureException(last_error, {
+          this.errorReporter.captureException(last_error, {
             level: framework.errors.ErrorSeverity.ERROR,
             metadata: {
               replication_slot: slotName
@@ -242,7 +245,7 @@ export class WalStream {
             /replication slot.*does not exist/.test(e.message) ||
             /publication.*does not exist/.test(e.message)
           ) {
-            util.captureException(e, {
+            this.errorReporter.captureException(e, {
               level: framework.errors.ErrorSeverity.WARNING,
               metadata: {
                 try_index: i,

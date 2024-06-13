@@ -1,3 +1,6 @@
+export * from './alerts/alerts-index';
+export * as alerts from './alerts/alerts-index';
+
 export * from './codec/codec-index';
 export * as codecs from './codec/codec-index';
 

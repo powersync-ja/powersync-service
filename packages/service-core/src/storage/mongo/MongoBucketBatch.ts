@@ -1,4 +1,3 @@
-import * as micro from '@journeyapps-platform/micro';
 import { SqliteRow, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import * as mongo from 'mongodb';
@@ -62,7 +61,8 @@ export class MongoBucketBatch implements BucketStorageBatch {
     group_id: number,
     slot_name: string,
     last_checkpoint_lsn: string | null,
-    no_checkpoint_before_lsn: string | null
+    no_checkpoint_before_lsn: string | null,
+    protected errorReporter: framework.ErrorReporter
   ) {
     this.db = db;
     this.client = db.client;
@@ -279,7 +279,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
         );
         afterData = new bson.Binary(bson.serialize(after!));
 
-        micro.alerts.captureMessage(
+        this.errorReporter.captureMessage(
           `Data too big on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${e.message}`,
           {
             level: framework.errors.ErrorSeverity.WARNING,
@@ -336,7 +336,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
         });
 
         for (let error of errors) {
-          micro.alerts.captureMessage(
+          this.errorReporter.captureMessage(
             `Failed to evaluate data query on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${error.error}`,
             {
               level: framework.errors.ErrorSeverity.WARNING,
@@ -376,7 +376,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
         );
 
         for (let error of paramErrors) {
-          micro.alerts.captureMessage(
+          this.errorReporter.captureMessage(
             `Failed to evaluate parameter query on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${error.error}`,
             {
               level: framework.errors.ErrorSeverity.WARNING,
