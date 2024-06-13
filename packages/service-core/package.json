@@ -36,6 +36,7 @@
     "ipaddr.js": "^2.1.0",
     "ix": "^5.0.0",
     "jose": "^4.15.1",
+    "lodash": "^4.17.21",
     "lru-cache": "^10.2.2",
     "mongodb": "^6.7.0",
     "node-fetch": "^3.3.2",
@@ -46,6 +47,7 @@
     "yaml": "^2.3.2"
   },
   "devDependencies": {
+    "@types/lodash": "^4.17.5",
     "@types/uuid": "^9.0.4",
     "typescript": "^5.2.2",
     "vite-tsconfig-paths": "^4.3.2",

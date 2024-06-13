@@ -1,4 +1,5 @@
 import * as fs from 'fs/promises';
+import * as path from 'path';
 
 import { ConfigCollector, ConfigFileFormat } from '../config-collector.js';
 import { RunnerConfig } from '../../types.js';
@@ -15,16 +16,17 @@ export class FileSystemConfigCollector extends ConfigCollector {
       return null;
     }
 
+    const resolvedPath = path.resolve(process.cwd(), config_path);
+
     // Check if file exists
     try {
-      await fs.access(config_path, fs.constants.F_OK);
+      await fs.access(resolvedPath, fs.constants.F_OK);
     } catch (ex) {
-      throw new Error(`Config file path ${config_path} was specified, but the file does not exist.`);
+      throw new Error(`Config file path ${resolvedPath} was specified, but the file does not exist.`);
     }
 
-    logger.info(`Collecting PowerSync configuration from File: ${config_path}`);
-
-    const content = await fs.readFile(config_path, 'utf-8');
+    logger.info(`Collecting PowerSync configuration from File: ${resolvedPath}`);
+    const content = await fs.readFile(resolvedPath, 'utf-8');
 
     let contentType: ConfigFileFormat | undefined;
     switch (true) {

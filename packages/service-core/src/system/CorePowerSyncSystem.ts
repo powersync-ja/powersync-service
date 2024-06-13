@@ -1,26 +1,51 @@
 import * as pgwire from '@powersync/service-jpgwire';
-import * as micro from '@journeyapps-platform/micro';
 
-import * as auth from '../auth/auth-index.js';
 import * as storage from '../storage/storage-index.js';
 import * as utils from '../util/util-index.js';
+import { LifeCycledSystem, LifeCycledSystemOptions } from './LifeCycledSystem.js';
+import { logger } from './Logger.js';
 
-export abstract class CorePowerSyncSystem extends micro.system.MicroSystem {
+export abstract class CorePowerSyncSystem extends LifeCycledSystem {
   abstract storage: storage.BucketStorageFactory;
-  abstract client_keystore: auth.KeyStore;
-  abstract dev_client_keystore: auth.KeyStore;
   abstract pgwire_pool?: pgwire.PgClient;
 
   protected stopHandlers: Set<() => void> = new Set();
 
   closed: boolean;
 
-  constructor(public config: utils.ResolvedPowerSyncConfig) {
-    super();
+  constructor(public config: utils.ResolvedPowerSyncConfig, options?: LifeCycledSystemOptions) {
+    super(options);
     this.closed = false;
   }
 
-  abstract addTerminationHandler(): void;
+  get client_keystore() {
+    return this.config.client_keystore;
+  }
+
+  get dev_client_keystore() {
+    return this.config.dev_client_keystore;
+  }
+
+  /**
+   * Adds a termination handler which will call handlers registered via
+   * [addStopHandler].
+   * This should be called after the server is started and it's termination handler is added.
+   * This is so that the handler is run before the server's handler, allowing streams to be interrupted on exit
+   *
+   * TODO this could be improved once router terminations are handled
+   */
+  addTerminationHandler() {
+    this.terminationHandler.handleTerminationSignal(async () => {
+      // Close open streams, so that they don't block the server from closing.
+      // Note: This does not work well when streaming requests are queued. In that case, the server still doesn't
+      // close in the 30-second timeout.
+      this.closed = true;
+      logger.info(`Closing ${this.stopHandlers.size} streams`);
+      for (let handler of this.stopHandlers) {
+        handler();
+      }
+    });
+  }
 
   addStopHandler(handler: () => void): () => void {
     if (this.closed) {
