@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BucketChecksum, ChecksumMap, OpId } from '@/util/protocol-types.js';
+import { BucketChecksum, OpId } from '@/util/protocol-types.js';
 import * as crypto from 'node:crypto';
 import { addBucketChecksums } from '@/util/util-index.js';
 import { ChecksumCache, FetchChecksums, FetchPartialBucketChecksum } from '@/storage/ChecksumCache.js';

@@ -4,8 +4,10 @@ import { pgwireRows } from '@powersync/service-jpgwire';
 import * as micro from '@journeyapps-platform/micro';
 
 import * as storage from '@/storage/storage-index.js';
-import { BucketChecksum, ChecksumMap, OpId } from './protocol-types.js';
+import { BucketChecksum, OpId } from './protocol-types.js';
 import { retriedQuery } from './pgwire_utils.js';
+
+export type ChecksumMap = Map<string, BucketChecksum>;
 
 export function hashData(type: string, id: string, data: string): number {
   const hash = crypto.createHash('sha256');
