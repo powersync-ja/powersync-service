@@ -121,6 +121,8 @@ async function* streamResponseInner(
 
     const bucketList = [...dataBuckets.keys()];
     const checksumMap = await storage.getChecksums(checkpoint, bucketList);
+    // Subset of buckets for which there may be new data in this batch.
+    let bucketsToFetch: string[];
 
     if (lastChecksums) {
       const diff = util.checksumsDiff(lastChecksums, checksumMap);
@@ -133,6 +135,7 @@ async function* streamResponseInner(
         // No changes - don't send anything to the client
         continue;
       }
+      bucketsToFetch = diff.updatedBuckets.map((c) => c.bucket);
 
       let message = `Updated checkpoint: ${checkpoint} | write: ${writeCheckpoint} | `;
       message += `buckets: ${allBuckets.length} | `;
@@ -154,6 +157,7 @@ async function* streamResponseInner(
       let message = `New checkpoint: ${checkpoint} | write: ${writeCheckpoint} | `;
       message += `buckets: ${allBuckets.length} ${limitedBuckets(allBuckets, 20)}`;
       micro.logger.info(message);
+      bucketsToFetch = allBuckets;
       const checksum_line: util.StreamingSyncCheckpoint = {
         checkpoint: {
           last_op_id: checkpoint,
@@ -166,22 +170,28 @@ async function* streamResponseInner(
     lastChecksums = checksumMap;
     lastWriteCheckpoint = writeCheckpoint;
 
-    yield* bucketDataInBatches(storage, checkpoint, dataBuckets, raw_data, binary_data, signal);
+    // This incrementally updates dataBuckets with each individual bucket position.
+    // At the end of this, we can be sure that all buckets have data up to the checkpoint.
+    yield* bucketDataInBatches({ storage, checkpoint, bucketsToFetch, dataBuckets, raw_data, binary_data, signal });
 
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
 
-async function* bucketDataInBatches(
-  storage: storage.SyncRulesBucketStorage,
-  checkpoint: string,
-  dataBuckets: Map<string, string>,
-  raw_data: boolean | undefined,
-  binary_data: boolean | undefined,
-  signal: AbortSignal
-) {
+interface BucketDataRequest {
+  storage: storage.SyncRulesBucketStorage;
+  checkpoint: string;
+  bucketsToFetch: string[];
+  /** Bucket data position, modified by the request.  */
+  dataBuckets: Map<string, string>;
+  raw_data: boolean | undefined;
+  binary_data: boolean | undefined;
+  signal: AbortSignal;
+}
+
+async function* bucketDataInBatches(request: BucketDataRequest) {
   let isDone = false;
-  while (!signal.aborted && !isDone) {
+  while (!request.signal.aborted && !isDone) {
     // The code below is functionally the same as this for-await loop below.
     // However, the for-await loop appears to have a memory leak, so we avoid it.
     // for await (const { done, data } of bucketDataBatch(storage, checkpoint, dataBuckets, raw_data, signal)) {
@@ -191,7 +201,7 @@ async function* bucketDataInBatches(
     //   }
     //   break;
     // }
-    const iter = bucketDataBatch(storage, checkpoint, dataBuckets, raw_data, binary_data, signal);
+    const iter = bucketDataBatch(request);
     try {
       while (true) {
         const { value, done: iterDone } = await iter.next();
@@ -214,17 +224,15 @@ async function* bucketDataInBatches(
 /**
  * Extracted as a separate internal function just to avoid memory leaks.
  */
-async function* bucketDataBatch(
-  storage: storage.SyncRulesBucketStorage,
-  checkpoint: string,
-  dataBuckets: Map<string, string>,
-  raw_data: boolean | undefined,
-  binary_data: boolean | undefined,
-  signal: AbortSignal
-) {
+async function* bucketDataBatch(request: BucketDataRequest) {
+  const { storage, checkpoint, bucketsToFetch, dataBuckets, raw_data, binary_data, signal } = request;
+
   const [_, release] = await syncSemaphore.acquire();
   try {
-    const data = storage.getBucketDataBatch(checkpoint, dataBuckets);
+    // Optimization: Only fetch buckets for which the checksums have changed since the last checkpoint
+    // For the first batch, this will be all buckets.
+    const filteredBuckets = new Map(bucketsToFetch.map((bucket) => [bucket, dataBuckets.get(bucket)!]));
+    const data = storage.getBucketDataBatch(checkpoint, filteredBuckets);
 
     let has_more = false;
 
