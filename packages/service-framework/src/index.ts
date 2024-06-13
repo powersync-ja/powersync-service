@@ -1,8 +1,10 @@
+export * from './errors/errors-index';
+export * as errors from './errors/errors-index';
+
 export * from './logger/Logger';
 
-export * from './signals/probes/fs-probes';
-export * from './signals/probes/memory-probes';
-export * from './signals/probes/probes';
-export * from './signals/termination-handler';
-
 export * from './system/LifeCycledSystem';
+export * as system from './system/system-index';
+
+export * from './signals/signals-index';
+export * as signals from './signals/signals-index';

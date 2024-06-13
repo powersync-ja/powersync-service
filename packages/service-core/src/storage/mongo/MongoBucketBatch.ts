@@ -3,6 +3,7 @@ import { SqliteRow, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import * as mongo from 'mongodb';
 
+import * as framework from '@powersync/service-framework';
 import * as util from '../../util/util-index.js';
 import * as replication from '../../replication/replication-index.js';
 import { BucketStorageBatch, FlushedResult, mergeToast, SaveOptions } from '../BucketStorage.js';
@@ -13,7 +14,6 @@ import { MongoIdSequence } from './MongoIdSequence.js';
 import { cacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
 import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, serializeLookup } from './util.js';
-import { logger } from '@powersync/service-framework';
 
 /**
  * 15MB
@@ -282,7 +282,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
         micro.alerts.captureMessage(
           `Data too big on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${e.message}`,
           {
-            level: micro.errors.ErrorSeverity.WARNING,
+            level: framework.errors.ErrorSeverity.WARNING,
             metadata: {
               replication_slot: this.slot_name,
               table: record.sourceTable.qualifiedName
@@ -339,14 +339,14 @@ export class MongoBucketBatch implements BucketStorageBatch {
           micro.alerts.captureMessage(
             `Failed to evaluate data query on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${error.error}`,
             {
-              level: micro.errors.ErrorSeverity.WARNING,
+              level: framework.errors.ErrorSeverity.WARNING,
               metadata: {
                 replication_slot: this.slot_name,
                 table: record.sourceTable.qualifiedName
               }
             }
           );
-          logger.error(
+          framework.logger.error(
             `Failed to evaluate data query on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${error.error}`
           );
         }
@@ -379,14 +379,14 @@ export class MongoBucketBatch implements BucketStorageBatch {
           micro.alerts.captureMessage(
             `Failed to evaluate parameter query on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${error.error}`,
             {
-              level: micro.errors.ErrorSeverity.WARNING,
+              level: framework.errors.ErrorSeverity.WARNING,
               metadata: {
                 replication_slot: this.slot_name,
                 table: record.sourceTable.qualifiedName
               }
             }
           );
-          logger.error(
+          framework.logger.error(
             `Failed to evaluate parameter query on ${record.sourceTable.qualifiedName}.${after.id}: ${error.error}`
           );
         }
@@ -440,7 +440,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
             if (e instanceof mongo.MongoError && e.hasErrorLabel('TransientTransactionError')) {
               // Likely write conflict caused by concurrent write stream replicating
             } else {
-              logger.warn('Transaction error', e as Error);
+              framework.logger.warn('Transaction error', e as Error);
             }
             await new Promise((resolve) => setTimeout(resolve, Math.random() * 50));
             throw e;
@@ -465,7 +465,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
     await this.withTransaction(async () => {
       flushTry += 1;
       if (flushTry % 10 == 0) {
-        logger.info(`${this.slot_name} ${description} - try ${flushTry}`);
+        framework.logger.info(`${this.slot_name} ${description} - try ${flushTry}`);
       }
       if (flushTry > 20 && Date.now() > lastTry) {
         throw new Error('Max transaction tries exceeded');
@@ -530,11 +530,13 @@ export class MongoBucketBatch implements BucketStorageBatch {
     if (this.last_checkpoint_lsn != null && lsn <= this.last_checkpoint_lsn) {
       // When re-applying transactions, don't create a new checkpoint until
       // we are past the last transaction.
-      logger.info(`Re-applied transaction ${lsn} - skipping checkpoint`);
+      framework.logger.info(`Re-applied transaction ${lsn} - skipping checkpoint`);
       return false;
     }
     if (lsn < this.no_checkpoint_before_lsn) {
-      logger.info(`Waiting until ${this.no_checkpoint_before_lsn} before creating checkpoint, currently at ${lsn}`);
+      framework.logger.info(
+        `Waiting until ${this.no_checkpoint_before_lsn} before creating checkpoint, currently at ${lsn}`
+      );
       return false;
     }
 
@@ -598,7 +600,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
   }
 
   async save(record: SaveOptions): Promise<FlushedResult | null> {
-    logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
+    framework.logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
 
     this.batch ??= new OperationBatch();
     this.batch.push(new RecordOperation(record));

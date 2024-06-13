@@ -1,6 +1,7 @@
 import { serialize } from 'bson';
 import { SyncParameters, normalizeTokenParameters } from '@powersync/service-sync-rules';
 import * as micro from '@journeyapps-platform/micro';
+import * as framework from '@powersync/service-framework';
 
 import * as util from '../util/util-index.js';
 import { streamResponse } from '../sync/sync.js';
@@ -23,7 +24,7 @@ export const sync_stream_reactive: SocketRouteGenerator = (router) =>
 
       if (system.closed) {
         responder.onError(
-          new micro.errors.JourneyError({
+          new framework.errors.JourneyError({
             status: 503,
             code: 'SERVICE_UNAVAILABLE',
             description: 'Service temporarily unavailable'
@@ -41,7 +42,7 @@ export const sync_stream_reactive: SocketRouteGenerator = (router) =>
       const cp = await storage.getActiveCheckpoint();
       if (!cp.hasSyncRules()) {
         responder.onError(
-          new micro.errors.JourneyError({
+          new framework.errors.JourneyError({
             status: 500,
             code: 'NO_SYNC_RULES',
             description: 'No sync rules available'
@@ -119,7 +120,7 @@ export const sync_stream_reactive: SocketRouteGenerator = (router) =>
       } catch (ex) {
         // Convert to our standard form before responding.
         // This ensures the error can be serialized.
-        const error = new micro.errors.InternalServerError(ex);
+        const error = new framework.errors.InternalServerError(ex);
         logger.error('Sync stream error', error);
         responder.onError(error);
       } finally {

@@ -2,9 +2,9 @@ import { deserialize } from 'bson';
 import fastify from 'fastify';
 import cors from '@fastify/cors';
 import * as micro from '@journeyapps-platform/micro';
+import * as framework from '@powersync/service-framework';
 import { RSocketRequestMeta } from '@powersync/service-rsocket-router';
 import { Metrics, routes, utils } from '@powersync/service-core';
-import { logger } from '@powersync/service-framework';
 
 import { PowerSyncSystem } from '../system/PowerSyncSystem.js';
 import { Router, SocketRouter, StreamingRouter } from '../routes/router.js';
@@ -12,7 +12,7 @@ import { Router, SocketRouter, StreamingRouter } from '../routes/router.js';
  * Starts an API server
  */
 export async function startServer(runnerConfig: utils.RunnerConfig) {
-  logger.info('Booting');
+  framework.logger.info('Booting');
 
   const config = await utils.loadConfig(runnerConfig);
   const system = new PowerSyncSystem(config);
@@ -55,7 +55,7 @@ export async function startServer(runnerConfig: utils.RunnerConfig) {
       const { token } = routes.RSocketContextMeta.decode(deserialize(data) as any);
 
       if (!token) {
-        throw new micro.errors.ValidationError('No token provided in context');
+        throw new framework.errors.ValidationError('No token provided in context');
       }
 
       try {
@@ -70,7 +70,7 @@ export async function startServer(runnerConfig: utils.RunnerConfig) {
           };
         }
       } catch (ex) {
-        logger.error(ex);
+        framework.logger.error(ex);
       }
 
       return {
@@ -85,9 +85,9 @@ export async function startServer(runnerConfig: utils.RunnerConfig) {
     payloadDecoder: async (rawData?: Buffer) => rawData && deserialize(rawData)
   });
 
-  logger.info('Starting system');
+  framework.logger.info('Starting system');
   await system.start();
-  logger.info('System started');
+  framework.logger.info('System started');
 
   Metrics.getInstance().configureApiMetrics();
 
@@ -97,7 +97,7 @@ export async function startServer(runnerConfig: utils.RunnerConfig) {
   // This is so that the handler is run before the server's handler, allowing streams to be interrupted on exit
   system.addTerminationHandler();
 
-  logger.info(`Running on port ${system.config.port}`);
+  framework.logger.info(`Running on port ${system.config.port}`);
   await system.probe.ready();
 
   // Enable in development to track memory usage:

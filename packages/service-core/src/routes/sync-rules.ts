@@ -1,6 +1,7 @@
 import * as t from 'ts-codec';
 import { FastifyPluginAsync, FastifyReply } from 'fastify';
 import * as micro from '@journeyapps-platform/micro';
+import * as framework from '@powersync/service-framework';
 import * as pgwire from '@powersync/service-jpgwire';
 import { SqlSyncRules, SyncRulesErrors } from '@powersync/service-sync-rules';
 
@@ -29,7 +30,7 @@ export const deploySyncRules: RouteGenerator = (router) =>
     handler: async (payload) => {
       if (payload.context.system.config.sync_rules.present) {
         // If sync rules are configured via the config, disable deploy via the API.
-        throw new micro.errors.JourneyError({
+        throw new framework.errors.JourneyError({
           status: 422,
           code: 'API_DISABLED',
           description: 'Sync rules API disabled',
@@ -41,7 +42,7 @@ export const deploySyncRules: RouteGenerator = (router) =>
       try {
         SqlSyncRules.fromYaml(payload.params.content);
       } catch (e) {
-        throw new micro.errors.JourneyError({
+        throw new framework.errors.JourneyError({
           status: 422,
           code: 'INVALID_SYNC_RULES',
           description: 'Sync rules parsing failed',
@@ -85,7 +86,7 @@ export const currentSyncRules: RouteGenerator = (router) =>
       const storage = payload.context.system.storage;
       const sync_rules = await storage.getActiveSyncRulesContent();
       if (!sync_rules) {
-        throw new micro.errors.JourneyError({
+        throw new framework.errors.JourneyError({
           status: 422,
           code: 'NO_SYNC_RULES',
           description: 'No active sync rules'
@@ -127,7 +128,7 @@ export const reprocessSyncRules: RouteGenerator = (router) =>
       const storage = payload.context.system.storage;
       const sync_rules = await storage.getActiveSyncRules();
       if (sync_rules == null) {
-        throw new micro.errors.JourneyError({
+        throw new framework.errors.JourneyError({
           status: 422,
           code: 'NO_SYNC_RULES',
           description: 'No active sync rules'

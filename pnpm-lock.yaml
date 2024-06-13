@@ -74,6 +74,9 @@ importers:
 
   packages/rsocket-router:
     dependencies:
+      '@journeyapps-platform/micro':
+        specifier: ^17.0.1
+        version: 17.0.1(encoding@0.1.13)(socks@2.8.3)
       '@powersync/service-framework':
         specifier: workspace:*
         version: link:../service-framework
@@ -230,6 +233,9 @@ importers:
       '@types/lodash':
         specifier: ^4.17.5
         version: 4.17.5
+      vitest:
+        specifier: ^0.34.6
+        version: 0.34.6
 
   packages/sync-rules:
     dependencies:

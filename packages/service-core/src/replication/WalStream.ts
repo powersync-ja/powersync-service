@@ -1,5 +1,5 @@
 import * as pgwire from '@powersync/service-jpgwire';
-import * as micro from '@journeyapps-platform/micro';
+import * as framework from '@powersync/service-framework';
 import { SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
 
 import * as storage from '../storage/storage-index.js';
@@ -202,7 +202,7 @@ export class WalStream {
 
         if (i == 0) {
           util.captureException(last_error, {
-            level: micro.errors.ErrorSeverity.ERROR,
+            level: framework.errors.ErrorSeverity.ERROR,
             metadata: {
               replication_slot: slotName
             }
@@ -243,7 +243,7 @@ export class WalStream {
             /publication.*does not exist/.test(e.message)
           ) {
             util.captureException(e, {
-              level: micro.errors.ErrorSeverity.WARNING,
+              level: framework.errors.ErrorSeverity.WARNING,
               metadata: {
                 try_index: i,
                 replication_slot: slotName

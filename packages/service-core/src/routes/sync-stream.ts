@@ -8,7 +8,7 @@ import * as util from '../util/util-index.js';
 import { authUser } from './auth.js';
 import { RouteGenerator } from './router.js';
 import { Metrics } from '../metrics/Metrics.js';
-import { logger } from '@powersync/service-framework';
+import * as framework from '@powersync/service-framework';
 
 export enum SyncRoutes {
   STREAM = '/sync/stream'
@@ -23,7 +23,7 @@ export const syncStreamed: RouteGenerator = (router) =>
       const system = payload.context.system;
 
       if (system.closed) {
-        throw new micro.errors.JourneyError({
+        throw new framework.errors.JourneyError({
           status: 503,
           code: 'SERVICE_UNAVAILABLE',
           description: 'Service temporarily unavailable'
@@ -37,7 +37,7 @@ export const syncStreamed: RouteGenerator = (router) =>
       // Sanity check before we start the stream
       const cp = await storage.getActiveCheckpoint();
       if (!cp.hasSyncRules()) {
-        throw new micro.errors.JourneyError({
+        throw new framework.errors.JourneyError({
           status: 500,
           code: 'NO_SYNC_RULES',
           description: 'No sync rules available'
@@ -79,7 +79,7 @@ export const syncStreamed: RouteGenerator = (router) =>
           controller.abort();
           // Note: This appears as a 200 response in the logs.
           if (error.message != 'Shutting down system') {
-            logger.error('Streaming sync request failed', error);
+            framework.logger.error('Streaming sync request failed', error);
           }
         });
         await res.send(stream);

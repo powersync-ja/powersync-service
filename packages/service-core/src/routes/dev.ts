@@ -1,5 +1,6 @@
 import * as t from 'ts-codec';
 import * as micro from '@journeyapps-platform/micro';
+import * as framework from '@powersync/service-framework';
 import * as pgwire from '@powersync/service-jpgwire';
 
 import * as util from '../util/util-index.js';
@@ -20,14 +21,14 @@ export const auth: RouteGenerator = (router) =>
       const config = payload.context.system.config;
 
       if (config.dev.demo_auth == false || config.dev.demo_password == null) {
-        throw new micro.errors.AuthorizationError(['Demo auth disabled']);
+        throw new framework.errors.AuthorizationError(['Demo auth disabled']);
       }
 
       if (password == config.dev.demo_password) {
         const token = await issueLegacyDevToken(payload.request, user, payload.context.system.config);
         return { token, user_id: user, endpoint: endpoint(payload.request) };
       } else {
-        throw new micro.errors.AuthorizationError(['Authentication failed']);
+        throw new framework.errors.AuthorizationError(['Authentication failed']);
       }
     }
   });
@@ -40,14 +41,14 @@ export const auth2: RouteGenerator = (router) =>
       const config = payload.context.system.config;
 
       if (config.dev.demo_auth == false || config.dev.demo_password == null) {
-        throw new micro.errors.AuthorizationError(['Demo auth disabled']);
+        throw new framework.errors.AuthorizationError(['Demo auth disabled']);
       }
 
       if (password == config.dev.demo_password) {
         const token = await issueDevToken(payload.request, user, payload.context.system.config);
         return { token, user_id: user };
       } else {
-        throw new micro.errors.AuthorizationError(['Authentication failed']);
+        throw new framework.errors.AuthorizationError(['Authentication failed']);
       }
     }
   });

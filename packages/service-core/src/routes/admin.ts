@@ -1,4 +1,5 @@
 import * as micro from '@journeyapps-platform/micro';
+import * as framework from '@powersync/service-framework';
 import { SqlSyncRules, SqliteValue, StaticSchema, isJsonValue, toSyncRulesValue } from '@powersync/service-sync-rules';
 import { internal_routes } from '@powersync/service-types';
 
@@ -142,7 +143,7 @@ export const reprocess: RouteGenerator = (router) =>
 
       const active = await storage.getActiveSyncRules();
       if (active == null) {
-        throw new micro.errors.JourneyError({
+        throw new framework.errors.JourneyError({
           status: 422,
           code: 'NO_SYNC_RULES',
           description: 'No active sync rules'

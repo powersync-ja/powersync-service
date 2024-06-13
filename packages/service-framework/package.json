@@ -14,6 +14,7 @@
   "scripts": {
     "clean": "rm -r ./dist && tsc -b --clean",
     "build": "tsc -b",
+    "build:tests": "tsc -b test/tsconfig.json",
     "test": "vitest"
   },
   "keywords": [],
@@ -22,6 +23,7 @@
     "winston": "^3.13.0"
   },
   "devDependencies": {
-    "@types/lodash": "^4.17.5"
+    "@types/lodash": "^4.17.5",
+    "vitest": "^0.34.6"
   }
 }

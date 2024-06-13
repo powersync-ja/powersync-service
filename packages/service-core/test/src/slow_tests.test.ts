@@ -10,6 +10,7 @@ import * as pgwire from '@powersync/service-jpgwire';
 import { SqliteRow } from '@powersync/service-sync-rules';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
 import { PgManager } from '../../src/util/PgManager.js';
+import { createInMemoryProbe } from '@powersync/service-framework';
 
 describe('slow tests - mongodb', function () {
   // These are slow, inconsistent tests.
@@ -71,7 +72,8 @@ bucket_definitions:
         abort_signal: abortController.signal,
         connections,
         storage: storage,
-        factory: f
+        factory: f,
+        probe: createInMemoryProbe()
       };
       walStream = new WalStream(options);
 
@@ -186,7 +188,8 @@ bucket_definitions:
           abort_signal: abortController.signal,
           connections,
           storage: storage,
-          factory: f
+          factory: f,
+          probe: createInMemoryProbe()
         };
         walStream = new WalStream(options);
 
