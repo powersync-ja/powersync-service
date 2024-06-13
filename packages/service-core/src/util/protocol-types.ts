@@ -186,6 +186,8 @@ export interface BucketChecksum {
   count: number;
 }
 
+export type ChecksumMap = Map<string, BucketChecksum>;
+
 export function isContinueCheckpointRequest(request: SyncRequest): request is ContinueCheckpointRequest {
   return (
     Array.isArray((request as ContinueCheckpointRequest).buckets) &&

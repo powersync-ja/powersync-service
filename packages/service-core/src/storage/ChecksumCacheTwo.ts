@@ -1,4 +1,4 @@
-import { BucketChecksum, OpId } from '@/util/protocol-types.js';
+import { BucketChecksum, ChecksumMap, OpId } from '@/util/protocol-types.js';
 import { addBucketChecksums } from '@/util/utils.js';
 import { LRUCache } from 'lru-cache/min';
 import { OrderedSet } from '@js-sdsl/ordered-set';
@@ -15,7 +15,7 @@ export interface FetchPartialBucketChecksum {
   end: OpId;
 }
 
-export type FetchChecksums = (batch: FetchPartialBucketChecksum[]) => Promise<Map<string, BucketChecksum>>;
+export type FetchChecksums = (batch: FetchPartialBucketChecksum[]) => Promise<ChecksumMap>;
 
 export interface ChecksumCacheOptions {
   fetchChecksums: FetchChecksums;
@@ -79,6 +79,12 @@ export class ChecksumCache implements ChecksumCacheInterface {
   }
 
   async getChecksums(checkpoint: OpId, buckets: string[]): Promise<BucketChecksum[]> {
+    const checksums = await this.getChecksumMap(checkpoint, buckets);
+    // Return results in the same order as the request
+    return buckets.map((bucket) => checksums.get(bucket)!);
+  }
+
+  async getChecksumMap(checkpoint: OpId, buckets: string[]): Promise<Map<string, BucketChecksum>> {
     let toFetch = new Set<string>();
     let fetchResults = new Map<string, BucketChecksum>();
     let resolveFetch!: () => void;
@@ -209,7 +215,7 @@ export class ChecksumCache implements ChecksumCacheInterface {
     if (finalResults.size != buckets.length) {
       throw new Error(`Bucket results mismatch: ${finalResults.size} != ${buckets.length}`);
     }
-    return buckets.map((bucket) => finalResults.get(bucket)!);
+    return finalResults;
   }
 }
 

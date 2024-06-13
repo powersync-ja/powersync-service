@@ -4,7 +4,7 @@ import { pgwireRows } from '@powersync/service-jpgwire';
 import * as micro from '@journeyapps-platform/micro';
 
 import * as storage from '@/storage/storage-index.js';
-import { BucketChecksum, OpId } from './protocol-types.js';
+import { BucketChecksum, ChecksumMap, OpId } from './protocol-types.js';
 import { retriedQuery } from './pgwire_utils.js';
 
 export function hashData(type: string, id: string, data: string): number {
@@ -30,81 +30,31 @@ export function timestampToOpId(ts: bigint): OpId {
   return ts.toString(10);
 }
 
-export function fillEmptyChecksums(currentBuckets: string[], checksums: BucketChecksum[]) {
-  // All current values
-  const nextBuckets = new Map<string, BucketChecksum>();
-
-  for (let checksum of checksums) {
-    // Added checksum
-    nextBuckets.set(checksum.bucket, checksum);
-  }
-
-  for (let bucket of currentBuckets) {
-    if (!nextBuckets.has(bucket)) {
-      // Empty diff - empty bucket
-      const checksum: BucketChecksum = {
-        bucket,
-        checksum: 0,
-        count: 0
-      };
-      nextBuckets.set(bucket, checksum);
-    }
-  }
-
-  return nextBuckets;
-}
-
-export function checksumsDiff(
-  previousBuckets: Map<string, BucketChecksum>,
-  currentBuckets: string[],
-  checksumDiff: BucketChecksum[]
-) {
+export function checksumsDiff(previous: ChecksumMap, current: ChecksumMap) {
   // All changed ones
   const updatedBuckets = new Map<string, BucketChecksum>();
-  // All current values
-  const nextBuckets = new Map<string, BucketChecksum>();
 
-  for (let cdiff of checksumDiff) {
-    const p = previousBuckets.get(cdiff.bucket);
+  const toRemove = new Set<string>(previous.keys());
+
+  for (let checksum of current.values()) {
+    const p = previous.get(checksum.bucket);
     if (p == null) {
       // Added
-      updatedBuckets.set(cdiff.bucket, cdiff);
-      nextBuckets.set(cdiff.bucket, cdiff);
-    } else {
-      // Updated
-      const checksum: BucketChecksum = addBucketChecksums(p, cdiff);
       updatedBuckets.set(checksum.bucket, checksum);
-      nextBuckets.set(checksum.bucket, checksum);
-      previousBuckets.delete(cdiff.bucket);
-    }
-  }
-
-  for (let bucket of currentBuckets) {
-    if (!updatedBuckets.has(bucket)) {
-      // Empty diff - either empty bucket, or unchanged
-      const p = previousBuckets.get(bucket);
-      if (p == null) {
-        // Emtpy bucket
-        const checksum: BucketChecksum = {
-          bucket,
-          checksum: 0,
-          count: 0
-        };
-        updatedBuckets.set(bucket, checksum);
-        nextBuckets.set(bucket, checksum);
+    } else {
+      toRemove.delete(checksum.bucket);
+      if (checksum.checksum != p.checksum || checksum.count != p.count) {
+        // Updated
+        updatedBuckets.set(checksum.bucket, checksum);
       } else {
-        // Unchanged bucket
-        nextBuckets.set(bucket, p);
-        previousBuckets.delete(bucket);
+        // No change
       }
     }
   }
 
-  const removedBuckets: string[] = [...previousBuckets.keys()];
   return {
     updatedBuckets: [...updatedBuckets.values()],
-    removedBuckets,
-    nextBuckets
+    removedBuckets: [...toRemove]
   };
 }
 

@@ -233,13 +233,9 @@ export interface SyncRulesBucketStorage {
   /**
    * Compute checksums for a given list of buckets.
    *
-   * If fromCheckpoint is specified, the result is a diff. Otherwise, it is the full checksum.
+   * Returns zero checksums for any buckets not found.
    */
-  getChecksums(
-    checkpoint: util.OpId,
-    fromCheckpoint: util.OpId | null,
-    buckets: string[]
-  ): Promise<util.BucketChecksum[]>;
+  getChecksums(checkpoint: util.OpId, buckets: string[]): Promise<util.ChecksumMap>;
 
   /**
    * Terminate the sync rules.

@@ -78,7 +78,7 @@ async function* streamResponseInner(
   // This starts with the state from the client. May contain buckets that the user do not have access to (anymore).
   let dataBuckets = new Map<string, string>();
 
-  let lastChecksums: { checkpoint: util.OpId; checksums: Map<string, util.BucketChecksum> } | null = null;
+  let lastChecksums: util.ChecksumMap | null = null;
   let lastWriteCheckpoint: bigint | null = null;
 
   const { raw_data, binary_data } = params;
@@ -120,10 +120,10 @@ async function* streamResponseInner(
     dataBuckets = dataBucketsNew;
 
     const bucketList = [...dataBuckets.keys()];
-    const checksumDiff = await storage.getChecksums(checkpoint, lastChecksums?.checkpoint ?? null, bucketList);
+    const checksumMap = await storage.getChecksums(checkpoint, bucketList);
 
     if (lastChecksums) {
-      const diff = util.checksumsDiff(lastChecksums.checksums, bucketList, checksumDiff);
+      const diff = util.checksumsDiff(lastChecksums, checksumMap);
 
       if (
         lastWriteCheckpoint == writeCheckpoint &&
@@ -150,18 +150,7 @@ async function* streamResponseInner(
       };
 
       yield checksum_line;
-
-      lastChecksums = {
-        checkpoint,
-        checksums: diff.nextBuckets
-      };
     } else {
-      const nextBuckets = util.fillEmptyChecksums(bucketList, checksumDiff);
-      lastChecksums = {
-        checkpoint,
-        checksums: nextBuckets
-      };
-
       let message = `New checkpoint: ${checkpoint} | write: ${writeCheckpoint} | `;
       message += `buckets: ${allBuckets.length} ${limitedBuckets(allBuckets, 20)}`;
       micro.logger.info(message);
@@ -169,12 +158,12 @@ async function* streamResponseInner(
         checkpoint: {
           last_op_id: checkpoint,
           write_checkpoint: writeCheckpoint ? String(writeCheckpoint) : undefined,
-          buckets: [...nextBuckets.values()]
+          buckets: [...checksumMap.values()]
         }
       };
       yield checksum_line;
     }
-
+    lastChecksums = checksumMap;
     lastWriteCheckpoint = writeCheckpoint;
 
     yield* bucketDataInBatches(storage, checkpoint, dataBuckets, raw_data, binary_data, signal);
