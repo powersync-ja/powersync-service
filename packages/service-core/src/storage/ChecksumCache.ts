@@ -94,7 +94,7 @@ export class ChecksumCache implements ChecksumCacheInterface {
       this.checkpoints.set(checkpoint, entry);
     }
 
-    let finalResults: BucketChecksum[] = [];
+    let finalResults = new Map<string, BucketChecksum>();
 
     const context: ChecksumFetchContext = {
       async fetch(bucket) {
@@ -119,7 +119,7 @@ export class ChecksumCache implements ChecksumCacheInterface {
           if (checksums == null) {
             throw new Error(`Failed to get checksums for ${bucket}`);
           }
-          finalResults.push(checksums);
+          finalResults.set(bucket, checksums);
         });
         promises.push(p);
         if (status.fetch == 'hit' || status.fetch == 'inflight') {
@@ -197,13 +197,18 @@ export class ChecksumCache implements ChecksumCacheInterface {
       }
     } catch (e) {
       rejectFetch(e);
+
+      // Wait for the above rejection to propagate, otherwise we end up with "uncaught" errors.
+      await Promise.all(promises).catch((_e) => {});
+
       throw e;
     }
 
     await Promise.all(promises);
-    if (finalResults.length != buckets.length) {
-      throw new Error(`Bucket results mismatch: ${finalResults.length} != ${buckets.length}`);
+    if (finalResults.size != buckets.length) {
+      throw new Error(`Bucket results mismatch: ${finalResults.size} != ${buckets.length}`);
     }
-    return finalResults;
+    // Return results in the same order as the request
+    return buckets.map((bucket) => finalResults.get(bucket)!);
   }
 }

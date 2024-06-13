@@ -284,6 +284,46 @@ function defineChecksumCacheTests(factory: CachsumCacheFactory) {
       [{ bucket: 'test', start: '123', end: '124' }]
     ]);
   });
+
+  it('should handle errors', async function () {
+    let lookups: FetchPartialBucketChecksum[][] = [];
+    const TEST_ERROR = new Error('Simulated error');
+    const cache = factory(async (batch) => {
+      lookups.push(batch);
+      if (lookups.length == 1) {
+        throw new Error('Simulated error');
+      }
+      return fetchTestChecksums(batch);
+    });
+
+    const a = cache.getChecksums('123', ['test', 'test2']);
+    const b = cache.getChecksums('123', ['test2', 'test3']);
+
+    await expect(a).rejects.toEqual(TEST_ERROR);
+    await expect(b).rejects.toEqual(TEST_ERROR);
+
+    const a2 = cache.getChecksums('123', ['test', 'test2']);
+    const b2 = cache.getChecksums('123', ['test2', 'test3']);
+
+    expect(await a2).toEqual([TEST_123, TEST2_123]);
+    expect(await b2).toEqual([TEST2_123, TEST3_123]);
+
+    expect(lookups).toEqual([
+      // Request A (fails)
+      [
+        { bucket: 'test', end: '123' },
+        { bucket: 'test2', end: '123' }
+      ],
+      // Request B (re-uses the checksum for test2 from request a)
+      // Even thought the full request fails, this batch succeeds
+      [{ bucket: 'test3', end: '123' }],
+      // Retry request A
+      [
+        { bucket: 'test', end: '123' },
+        { bucket: 'test2', end: '123' }
+      ]
+    ]);
+  });
 }
 
 describe('cache limit tests', function () {
