@@ -1,4 +1,3 @@
-import * as micro from '@journeyapps-platform/micro';
 import * as framework from '@powersync/service-framework';
 import { SqlSyncRules, SqliteValue, StaticSchema, isJsonValue, toSyncRulesValue } from '@powersync/service-sync-rules';
 import { internal_routes } from '@powersync/service-types';
@@ -13,7 +12,9 @@ import { authApi } from './auth.js';
 const demoCredentials: RouteGenerator = (router) =>
   router.post('/api/admin/v1/demo-credentials', {
     authorize: authApi,
-    validator: micro.schema.createTsCodecValidator(internal_routes.DemoCredentialsRequest, { allowAdditional: true }),
+    validator: framework.schema.createTsCodecValidator(internal_routes.DemoCredentialsRequest, {
+      allowAdditional: true
+    }),
     handler: async (payload) => {
       const connection = payload.context.system.config.connection;
       if (connection == null || !connection.demo_database) {
@@ -32,7 +33,7 @@ const demoCredentials: RouteGenerator = (router) =>
 export const executeSql: RouteGenerator = (router) =>
   router.post('/api/admin/v1/execute-sql', {
     authorize: authApi,
-    validator: micro.schema.createTsCodecValidator(internal_routes.ExecuteSqlRequest, { allowAdditional: true }),
+    validator: framework.schema.createTsCodecValidator(internal_routes.ExecuteSqlRequest, { allowAdditional: true }),
     handler: async (payload) => {
       const connection = payload.context.system.config.connection;
       if (connection == null || !connection.debug_api) {
@@ -81,7 +82,7 @@ export const executeSql: RouteGenerator = (router) =>
 export const diagnostics: RouteGenerator = (router) =>
   router.post('/api/admin/v1/diagnostics', {
     authorize: authApi,
-    validator: micro.schema.createTsCodecValidator(internal_routes.DiagnosticsRequest, { allowAdditional: true }),
+    validator: framework.schema.createTsCodecValidator(internal_routes.DiagnosticsRequest, { allowAdditional: true }),
     handler: async (payload) => {
       const include_content = payload.params.sync_rules_content ?? false;
       const system = payload.context.system;
@@ -120,7 +121,7 @@ export const diagnostics: RouteGenerator = (router) =>
 export const getSchema: RouteGenerator = (router) =>
   router.post('/api/admin/v1/schema', {
     authorize: authApi,
-    validator: micro.schema.createTsCodecValidator(internal_routes.GetSchemaRequest, { allowAdditional: true }),
+    validator: framework.schema.createTsCodecValidator(internal_routes.GetSchemaRequest, { allowAdditional: true }),
     handler: async (payload) => {
       const system = payload.context.system;
 
@@ -131,7 +132,7 @@ export const getSchema: RouteGenerator = (router) =>
 export const reprocess: RouteGenerator = (router) =>
   router.post('/api/admin/v1/reprocess', {
     authorize: authApi,
-    validator: micro.schema.createTsCodecValidator(internal_routes.ReprocessRequest, { allowAdditional: true }),
+    validator: framework.schema.createTsCodecValidator(internal_routes.ReprocessRequest, { allowAdditional: true }),
     handler: async (payload) => {
       const system = payload.context.system;
 
@@ -169,7 +170,7 @@ export const reprocess: RouteGenerator = (router) =>
 export const validate: RouteGenerator = (router) =>
   router.post('/api/admin/v1/validate', {
     authorize: authApi,
-    validator: micro.schema.createTsCodecValidator(internal_routes.ValidateRequest, { allowAdditional: true }),
+    validator: framework.schema.createTsCodecValidator(internal_routes.ValidateRequest, { allowAdditional: true }),
     handler: async (payload) => {
       const system = payload.context.system;
 

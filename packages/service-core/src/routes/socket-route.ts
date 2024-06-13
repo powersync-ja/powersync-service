@@ -1,6 +1,5 @@
 import { serialize } from 'bson';
 import { SyncParameters, normalizeTokenParameters } from '@powersync/service-sync-rules';
-import * as micro from '@journeyapps-platform/micro';
 import * as framework from '@powersync/service-framework';
 
 import * as util from '../util/util-index.js';
@@ -18,7 +17,7 @@ export const sync_stream_reactive: SocketRouteGenerator = (router) =>
         errors: ['Authentication required'].concat(context.token_errors ?? [])
       };
     },
-    validator: micro.schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
+    validator: framework.schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
     handler: async ({ context, params, responder, observer, initialN }) => {
       const { system } = context;
 

@@ -26,7 +26,7 @@ export const deploySyncRules: RouteGenerator = (router) =>
     authorize: authApi,
     parse: true,
     plugins: [yamlPlugin],
-    validator: micro.schema.createTsCodecValidator(DeploySyncRulesRequest, { allowAdditional: true }),
+    validator: framework.schema.createTsCodecValidator(DeploySyncRulesRequest, { allowAdditional: true }),
     handler: async (payload) => {
       if (payload.context.system.config.sync_rules.present) {
         // If sync rules are configured via the config, disable deploy via the API.
@@ -69,7 +69,7 @@ export const validateSyncRules: RouteGenerator = (router) =>
     authorize: authApi,
     parse: true,
     plugins: [yamlPlugin],
-    validator: micro.schema.createTsCodecValidator(ValidateSyncRulesRequest, { allowAdditional: true }),
+    validator: framework.schema.createTsCodecValidator(ValidateSyncRulesRequest, { allowAdditional: true }),
     handler: async (payload) => {
       const content = payload.params.content;
 
@@ -123,7 +123,7 @@ const ReprocessSyncRulesRequest = t.object({});
 export const reprocessSyncRules: RouteGenerator = (router) =>
   router.post('/api/sync-rules/v1/reprocess', {
     authorize: authApi,
-    validator: micro.schema.createTsCodecValidator(ReprocessSyncRulesRequest),
+    validator: framework.schema.createTsCodecValidator(ReprocessSyncRulesRequest),
     handler: async (payload) => {
       const storage = payload.context.system.storage;
       const sync_rules = await storage.getActiveSyncRules();

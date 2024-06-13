@@ -1,5 +1,4 @@
 import { Readable } from 'stream';
-import * as micro from '@journeyapps-platform/micro';
 import { SyncParameters, normalizeTokenParameters } from '@powersync/service-sync-rules';
 
 import * as sync from '../sync/sync-index.js';
@@ -17,7 +16,7 @@ export enum SyncRoutes {
 export const syncStreamed: RouteGenerator = (router) =>
   router.post(SyncRoutes.STREAM, {
     authorize: authUser,
-    validator: micro.schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
+    validator: framework.schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
     handler: async (payload) => {
       const userId = payload.context.user_id!;
       const system = payload.context.system;

@@ -1,5 +1,4 @@
 import * as t from 'ts-codec';
-import * as micro from '@journeyapps-platform/micro';
 import * as framework from '@powersync/service-framework';
 import * as pgwire from '@powersync/service-jpgwire';
 
@@ -15,7 +14,7 @@ const AuthParams = t.object({
 // For legacy web client only. Remove soon.
 export const auth: RouteGenerator = (router) =>
   router.post('/auth.json', {
-    validator: micro.schema.createTsCodecValidator(AuthParams, { allowAdditional: true }),
+    validator: framework.schema.createTsCodecValidator(AuthParams, { allowAdditional: true }),
     handler: async (payload) => {
       const { user, password } = payload.params;
       const config = payload.context.system.config;
@@ -35,7 +34,7 @@ export const auth: RouteGenerator = (router) =>
 
 export const auth2: RouteGenerator = (router) =>
   router.post('/dev/auth.json', {
-    validator: micro.schema.createTsCodecValidator(AuthParams, { allowAdditional: true }),
+    validator: framework.schema.createTsCodecValidator(AuthParams, { allowAdditional: true }),
     handler: async (payload) => {
       const { user, password } = payload.params;
       const config = payload.context.system.config;
@@ -57,7 +56,7 @@ const TokenParams = t.object({});
 
 export const token: RouteGenerator = (router) =>
   router.post('/dev/token.json', {
-    validator: micro.schema.createTsCodecValidator(TokenParams, { allowAdditional: true }),
+    validator: framework.schema.createTsCodecValidator(TokenParams, { allowAdditional: true }),
     authorize: authDevUser,
     handler: async (payload) => {
       const { user_id } = payload.context;
@@ -86,7 +85,7 @@ const CrudRequest = t.object({
 });
 export const crud: RouteGenerator = (router) =>
   router.post('/crud.json', {
-    validator: micro.schema.createTsCodecValidator(CrudRequest, { allowAdditional: true }),
+    validator: framework.schema.createTsCodecValidator(CrudRequest, { allowAdditional: true }),
     authorize: authUser,
 
     handler: async (payload) => {

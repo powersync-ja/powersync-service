@@ -1,8 +1,10 @@
 import * as t from 'ts-codec';
-import { configFile } from '@powersync/service-types';
-import * as micro from '@journeyapps-platform/micro';
-import { RunnerConfig } from '../types.js';
 import * as yaml from 'yaml';
+
+import { configFile } from '@powersync/service-types';
+import * as framework from '@powersync/service-framework';
+
+import { RunnerConfig } from '../types.js';
 
 export enum ConfigFileFormat {
   YAML = 'yaml',
@@ -22,7 +24,7 @@ export enum ConfigFileFormat {
 const YAML_ENV_PREFIX = 'PS_';
 
 // ts-codec itself doesn't give great validation errors, so we use json schema for that
-const configSchemaValidator = micro.schema
+const configSchemaValidator = framework.schema
   .parseJSONSchema(
     t.generateJSONSchema(configFile.powerSyncConfig, { allowAdditional: true, parsers: [configFile.portParser] })
   )
