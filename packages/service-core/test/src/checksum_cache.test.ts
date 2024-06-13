@@ -1,23 +1,18 @@
 import { describe, expect, it } from 'vitest';
+import { BucketChecksum, OpId } from '@/util/protocol-types.js';
+import * as crypto from 'node:crypto';
+import { addBucketChecksums } from '@/util/util-index.js';
 import {
   ChecksumCache,
   ChecksumCacheInterface,
   FetchChecksums,
   FetchPartialBucketChecksum
-} from '../../src/storage/ChecksumCache.js';
-import { ChecksumCache as ChecksumCacheTwo } from '../../src/storage/ChecksumCacheTwo.js';
-import { BucketChecksum, OpId } from '@/util/protocol-types.js';
-import * as crypto from 'node:crypto';
-import { addBucketChecksums } from '@/util/util-index.js';
+} from '@/storage/ChecksumCache.js';
 
 type CachsumCacheFactory = (fetch: FetchChecksums) => ChecksumCacheInterface;
 
-describe('checksum cache 1', function () {
+describe('checksum cache', function () {
   defineChecksumCacheTests((f) => new ChecksumCache({ fetchChecksums: f }));
-});
-
-describe('checksum cache 2', function () {
-  defineChecksumCacheTests((f) => new ChecksumCacheTwo({ fetchChecksums: f }));
 });
 
 /**
@@ -362,7 +357,7 @@ function defineChecksumCacheTests(factory: CachsumCacheFactory) {
 describe('cache limit tests', function () {
   it('should use maxSize', async function () {
     let lookups: FetchPartialBucketChecksum[][] = [];
-    const cache = new ChecksumCacheTwo({
+    const cache = new ChecksumCache({
       fetchChecksums: async (batch) => {
         lookups.push(batch);
         return fetchTestChecksums(batch);

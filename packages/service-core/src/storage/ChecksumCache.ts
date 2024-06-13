@@ -1,14 +1,11 @@
 import { BucketChecksum, ChecksumMap, OpId } from '@/util/protocol-types.js';
 import { addBucketChecksums } from '@/util/utils.js';
 import { LRUCache } from 'lru-cache/min';
-
-interface CheckpointEntry {
-  refs: Set<number>;
-  cache: LRUCache<string, BucketChecksum, ChecksumFetchContext>;
-}
+import { OrderedSet } from '@js-sdsl/ordered-set';
 
 interface ChecksumFetchContext {
   fetch(bucket: string): Promise<BucketChecksum>;
+  checkpoint: bigint;
 }
 
 export interface FetchPartialBucketChecksum {
@@ -28,44 +25,60 @@ export interface ChecksumCacheInterface {
   getChecksums(checkpoint: OpId, buckets: string[]): Promise<BucketChecksum[]>;
 }
 
+// Approximately 5MB of memory, if we assume 50 bytes per entry
+const DEFAULT_MAX_SIZE = 100_000;
+
+/**
+ * Implement a LRU cache for checksum requests. Each (bucket, checkpoint) request is cached separately,
+ * while the lookups occur in batches.
+ *
+ * For each bucket, we keep a separate OrderedSet of cached checkpoints.
+ * This allows us to do incrementally update checksums by using the last cached checksum for the same bucket.
+ *
+ * We use the LRUCache fetchMethod to deduplicate in-progress requests.
+ */
 export class ChecksumCache implements ChecksumCacheInterface {
-  private nextRefId = 1;
-  private checkpoints = new Map<OpId, CheckpointEntry>();
+  /**
+   * The primary checksum cache, with key of `${checkpoint}/${bucket}`.
+   */
+  private cache: LRUCache<string, BucketChecksum, ChecksumFetchContext>;
+
+  private bucketCheckpoints = new Map<string, OrderedSet<bigint>>();
   private fetchChecksums: FetchChecksums;
 
   constructor(options: ChecksumCacheOptions) {
     this.fetchChecksums = options.fetchChecksums;
-  }
 
-  async lock(checkpoint: OpId) {
-    const ref = this.nextRefId++;
+    this.cache = new LRUCache<string, BucketChecksum, ChecksumFetchContext>({
+      max: options.maxSize ?? DEFAULT_MAX_SIZE,
+      fetchMethod: async (cacheKey, _staleValue, options) => {
+        const { bucket } = parseCacheKey(cacheKey);
+        const result = await options.context.fetch(bucket);
 
-    const existing = this.checkpoints.get(checkpoint);
-    if (existing != null) {
-      existing.refs.add(ref);
-    } else {
-      const entry: CheckpointEntry = {
-        refs: new Set([ref]),
-        cache: new LRUCache({
-          max: 10_000,
-          fetchMethod: async (bucket, staleValue, options) => {
-            return options.context.fetch(bucket);
-          }
-        })
-      };
-      this.checkpoints.set(checkpoint, entry);
-    }
+        let checkpointSet = this.bucketCheckpoints.get(bucket);
+        if (checkpointSet == null) {
+          checkpointSet = new OrderedSet();
+          this.bucketCheckpoints.set(bucket, checkpointSet);
+        }
+        checkpointSet.insert(options.context.checkpoint);
+        return result;
+      },
 
-    return () => {
-      const entry = this.checkpoints.get(checkpoint);
-      if (entry == null) {
-        return;
-      }
-      entry.refs.delete(ref);
-      if (entry.refs.size == 0) {
-        this.checkpoints.delete(checkpoint);
-      }
-    };
+      dispose: (value, key) => {
+        const { checkpointString } = parseCacheKey(key);
+        const checkpoint = BigInt(checkpointString);
+        const checkpointSet = this.bucketCheckpoints.get(value.bucket);
+        if (checkpointSet == null) {
+          return;
+        }
+        checkpointSet.eraseElementByKey(checkpoint);
+        if (checkpointSet.length == 0) {
+          this.bucketCheckpoints.delete(value.bucket);
+        }
+      },
+
+      noDisposeOnSet: true
+    });
   }
 
   async getChecksums(checkpoint: OpId, buckets: string[]): Promise<BucketChecksum[]> {
@@ -74,7 +87,7 @@ export class ChecksumCache implements ChecksumCacheInterface {
     return buckets.map((bucket) => checksums.get(bucket)!);
   }
 
-  async getChecksumMap(checkpoint: OpId, buckets: string[]): Promise<ChecksumMap> {
+  async getChecksumMap(checkpoint: OpId, buckets: string[]): Promise<Map<string, BucketChecksum>> {
     let toFetch = new Set<string>();
     let fetchResults = new Map<string, BucketChecksum>();
     let resolveFetch!: () => void;
@@ -84,46 +97,35 @@ export class ChecksumCache implements ChecksumCacheInterface {
       rejectFetch = reject;
     });
 
-    let entry = this.checkpoints.get(checkpoint);
-    if (entry == null) {
-      // TODO: throw new Error(`No checkpoint cache for ${checkpoint}`);
-      // Temporary: auto-create cache
-      entry = {
-        refs: new Set([]),
-        cache: new LRUCache({
-          max: 10_000,
-          fetchMethod: async (bucket, staleValue, options) => {
-            return options.context.fetch(bucket);
-          }
-        })
-      };
-      this.checkpoints.set(checkpoint, entry);
-    }
-
     let finalResults = new Map<string, BucketChecksum>();
 
     const context: ChecksumFetchContext = {
       async fetch(bucket) {
         await fetchPromise;
         if (!toFetch.has(bucket)) {
+          // Should never happen
           throw new Error(`Expected to fetch ${bucket}`);
         }
         const checksum = fetchResults.get(bucket);
         if (checksum == null) {
+          // Should never happen
           throw new Error(`Failed to fetch checksum for bucket ${bucket}`);
         }
         return checksum;
-      }
+      },
+      checkpoint: BigInt(checkpoint)
     };
 
     let promises: Promise<void>[] = [];
 
     try {
       for (let bucket of buckets) {
+        const cacheKey = makeCacheKey(checkpoint, bucket);
         let status: LRUCache.Status<BucketChecksum> = {};
-        const p = entry.cache.fetch(bucket, { context: context, status: status }).then((checksums) => {
+        const p = this.cache.fetch(cacheKey, { context: context, status: status }).then((checksums) => {
           if (checksums == null) {
-            throw new Error(`Failed to get checksums for ${bucket}`);
+            // Should never happen
+            throw new Error(`Failed to get checksums for ${cacheKey}`);
           }
           finalResults.set(bucket, checksums);
         });
@@ -140,38 +142,39 @@ export class ChecksumCache implements ChecksumCacheInterface {
         resolveFetch();
       } else {
         // Find smaller checkpoints, sorted in descending order
-        const checkpoints = [...this.checkpoints.keys()]
-          .filter((other) => BigInt(other) < BigInt(checkpoint))
-          .sort((a, b) => {
-            if (a == b) {
-              return 0;
-            } else if (BigInt(a) < BigInt(b)) {
-              return 1;
-            } else {
-              return -1;
-            }
-          });
 
         let bucketRequests: FetchPartialBucketChecksum[] = [];
         let add = new Map<string, BucketChecksum>();
 
         for (let bucket of toFetch) {
           let bucketRequest: FetchPartialBucketChecksum | null = null;
-          for (let cp of checkpoints) {
-            const entry = this.checkpoints.get(cp);
-            if (entry == null) {
-              throw new Error(`Cannot find cached checkpoint ${cp}`);
-            }
+          const checkpointSet = this.bucketCheckpoints.get(bucket);
+          if (checkpointSet != null) {
+            let iter = checkpointSet.reverseUpperBound(context.checkpoint);
+            const begin = checkpointSet.begin();
+            while (iter.isAccessible()) {
+              const cp = iter.pointer;
+              const cacheKey = makeCacheKey(cp, bucket);
+              // peek to avoid refreshing the key
+              const cached = this.cache.peek(cacheKey);
+              // As long as dispose() works correctly, the checkpointset should
+              // match up with the cache, and `cached` should also have a value here.
+              // However, we handle caces where it's not present either way.
+              // Test by disabling the `dispose()` callback.
+              if (cached != null) {
+                bucketRequest = {
+                  bucket,
+                  start: cp.toString(),
+                  end: checkpoint
+                };
+                add.set(bucket, cached);
+                break;
+              }
 
-            const cached = entry.cache.peek(bucket);
-            if (cached != null) {
-              bucketRequest = {
-                bucket,
-                start: cp,
-                end: checkpoint
-              };
-              add.set(bucket, cached);
-              break;
+              if (iter.equals(begin)) {
+                break;
+              }
+              iter = iter.pre();
             }
           }
 
@@ -194,6 +197,7 @@ export class ChecksumCache implements ChecksumCacheInterface {
           const result = results.get(bucket);
           const toAdd = add.get(bucket);
           if (toAdd == null) {
+            // Should never happen
             throw new Error(`toAdd null for ${bucket}`);
           }
           const added = addBucketChecksums(toAdd, result ?? null);
@@ -216,4 +220,13 @@ export class ChecksumCache implements ChecksumCacheInterface {
     }
     return finalResults;
   }
+}
+
+function makeCacheKey(checkpoint: bigint | string, bucket: string) {
+  return `${checkpoint}/${bucket}`;
+}
+
+function parseCacheKey(key: string) {
+  const index = key.indexOf('/');
+  return { checkpointString: key.substring(0, index), bucket: key.substring(index + 1) };
 }

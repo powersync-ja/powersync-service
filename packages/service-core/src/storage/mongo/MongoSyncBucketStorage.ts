@@ -22,7 +22,7 @@ import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, SourceKey, SyncRuleState } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, readSingleBatch, serializeLookup } from './util.js';
-import { ChecksumCache, FetchPartialBucketChecksum } from '../ChecksumCacheTwo.js';
+import { ChecksumCache, FetchPartialBucketChecksum } from '../ChecksumCache.js';
 
 export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
   private readonly db: PowerSyncMongo;
