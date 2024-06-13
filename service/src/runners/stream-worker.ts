@@ -1,4 +1,3 @@
-import * as micro from '@journeyapps-platform/micro';
 import { Direction } from '@journeyapps-platform/micro-migrate';
 import { migrations, replication, utils, Metrics, logger } from '@powersync/service-core';
 
@@ -36,5 +35,5 @@ export async function startStreamWorker(runnerConfig: utils.RunnerConfig) {
     await mngr.stop();
   });
 
-  await micro.signals.getSystemProbe().ready();
+  await system.probe.ready();
 }

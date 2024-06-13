@@ -97,7 +97,7 @@ export async function startServer(runnerConfig: utils.RunnerConfig) {
   system.addTerminationHandler();
 
   logger.info(`Running on port ${system.config.port}`);
-  await micro.signals.getSystemProbe().ready();
+  await system.probe.ready();
 
   // Enable in development to track memory usage:
   // trackMemoryUsage();

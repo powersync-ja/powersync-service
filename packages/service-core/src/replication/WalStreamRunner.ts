@@ -7,6 +7,7 @@ import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 import { MissingReplicationSlotError, WalStream } from './WalStream.js';
 import { ResolvedConnection } from '../util/config/types.js';
 import { logger } from '../system/Logger.js';
+import { ProbeModule } from '../system/system-index.js';
 
 export interface WalStreamRunnerOptions {
   factory: storage.BucketStorageFactory;
@@ -14,6 +15,7 @@ export interface WalStreamRunnerOptions {
   source_db: ResolvedConnection;
   lock: storage.ReplicationLock;
   rateLimiter?: ErrorRateLimiter;
+  probe: ProbeModule;
 }
 
 export class WalStreamRunner {
@@ -92,7 +94,8 @@ export class WalStreamRunner {
         abort_signal: this.abortController.signal,
         factory: this.options.factory,
         storage: this.options.storage,
-        connections
+        connections,
+        probe: this.options.probe
       });
       await stream.replicate();
     } catch (e) {

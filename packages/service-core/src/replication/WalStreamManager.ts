@@ -5,7 +5,6 @@ import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
 import { DefaultErrorRateLimiter } from './ErrorRateLimiter.js';
-import { touch } from './WalStream.js';
 import { WalStreamRunner } from './WalStreamRunner.js';
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
 import { logger } from '../system/Logger.js';
@@ -76,7 +75,7 @@ export class WalStreamManager {
       logger.info('No sync rules configured - configure via API');
     }
     while (!this.stopped) {
-      await touch();
+      await this.system.probe.touch();
       try {
         const pool = this.system.pgwire_pool;
         if (pool) {
@@ -159,7 +158,8 @@ export class WalStreamManager {
             storage: storage,
             source_db: this.system.config.connection!,
             lock,
-            rateLimiter: this.rateLimiter
+            rateLimiter: this.rateLimiter,
+            probe: this.system.probe
           });
           newStreams.set(syncRules.id, stream);
           stream.start();
@@ -200,7 +200,8 @@ export class WalStreamManager {
             factory: this.storage,
             storage: storage,
             source_db: this.system.config.connection!,
-            lock
+            lock,
+            probe: this.system.probe
           });
           await stream.terminate();
         } finally {

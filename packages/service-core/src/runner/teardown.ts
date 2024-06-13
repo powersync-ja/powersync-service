@@ -10,6 +10,7 @@ import * as storage from '../storage/storage-index.js';
 import * as utils from '../util/util-index.js';
 import * as replication from '../replication/replication-index.js';
 import { logger } from '../system/Logger.js';
+import { createFSProbe } from '../system/system-index.js';
 
 /**
  * Attempt to terminate a single sync rules instance.
@@ -31,7 +32,8 @@ async function terminateReplicator(
       factory: storageFactory,
       storage: storage,
       source_db: connection,
-      lock
+      lock,
+      probe: createFSProbe()
     });
     console.log('terminating', stream.slot_name);
     await stream.terminate();

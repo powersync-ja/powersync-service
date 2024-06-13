@@ -1,4 +1,3 @@
-import * as fs from 'fs/promises';
 import * as pgwire from '@powersync/service-jpgwire';
 import * as micro from '@journeyapps-platform/micro';
 import { SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
@@ -11,6 +10,7 @@ import { getReplicationIdentityColumns } from './util.js';
 import { WalConnection } from './WalConnection.js';
 import { Metrics } from '../metrics/Metrics.js';
 import { logger } from '../system/Logger.js';
+import { ProbeModule } from '../system/system-index.js';
 
 export const ZERO_LSN = '00000000/00000000';
 
@@ -20,6 +20,7 @@ export interface WalStreamOptions {
   factory: storage.BucketStorageFactory;
   storage: storage.SyncRulesBucketStorage;
   abort_signal: AbortSignal;
+  probe: ProbeModule;
 }
 
 interface InitResult {
@@ -51,12 +52,15 @@ export class WalStream {
 
   private startedStreaming = false;
 
+  private probe: ProbeModule;
+
   constructor(options: WalStreamOptions) {
     this.storage = options.storage;
     this.sync_rules = options.storage.sync_rules;
     this.group_id = options.storage.group_id;
     this.slot_name = options.storage.slot_name;
     this.connections = options.connections;
+    this.probe = options.probe;
 
     this.wal_connection = new WalConnection({ db: this.connections.pool, sync_rules: this.sync_rules });
     this.abort_signal = options.abort_signal;
@@ -196,7 +200,7 @@ export class WalStream {
 
       // Check that replication slot exists
       for (let i = 120; i >= 0; i--) {
-        await touch();
+        await this.touch();
 
         if (i == 0) {
           util.captureException(last_error, {
@@ -357,7 +361,7 @@ WHERE  oid = $1::regclass`,
           await this.snapshotTable(batch, db, table);
           await batch.markSnapshotDone([table], lsn);
 
-          await touch();
+          await this.touch();
         }
       }
       await batch.commit(lsn);
@@ -408,7 +412,7 @@ WHERE  oid = $1::regclass`,
       // pgwire streaming uses reasonable chunk sizes, so we flush at the end
       // of each chunk.
       await batch.flush();
-      await touch();
+      await this.touch();
     }
 
     await batch.flush();
@@ -561,7 +565,7 @@ WHERE  oid = $1::regclass`,
       let count = 0;
 
       for await (const chunk of replicationStream.pgoutputDecode()) {
-        await touch();
+        await this.touch();
 
         if (this.abort_signal.aborted) {
           break;
@@ -614,13 +618,8 @@ WHERE  oid = $1::regclass`,
 
     replicationStream.ack(lsn);
   }
-}
 
-export async function touch() {
-  // FIXME: The probe does not actually check the timestamp on this.
-  // FIXME: We need a timeout of around 5+ minutes if we do start checking the timestamp,
-  // or reduce PING_INTERVAL.
-  await micro.signals.getSystemProbe().touch();
-  // FIXME: The above probe touches the wrong file
-  await fs.writeFile('.probes/poll', `${Date.now()}`);
+  async touch() {
+    return this.probe.touch();
+  }
 }
