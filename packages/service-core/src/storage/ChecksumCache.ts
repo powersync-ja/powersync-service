@@ -17,12 +17,17 @@ export interface FetchPartialBucketChecksum {
 export type FetchChecksums = (batch: FetchPartialBucketChecksum[]) => Promise<ChecksumMap>;
 
 export interface ChecksumCacheOptions {
+  /**
+   * Upstream checksum implementation.
+   *
+   * This fetches a batch of either entire bucket checksums, or a partial range.
+   */
   fetchChecksums: FetchChecksums;
-  maxSize?: number;
-}
 
-export interface ChecksumCacheInterface {
-  getChecksums(checkpoint: OpId, buckets: string[]): Promise<BucketChecksum[]>;
+  /**
+   * Maximum number of cached checksums.
+   */
+  maxSize?: number;
 }
 
 // Approximately 5MB of memory, if we assume 50 bytes per entry
@@ -37,13 +42,16 @@ const DEFAULT_MAX_SIZE = 100_000;
  *
  * We use the LRUCache fetchMethod to deduplicate in-progress requests.
  */
-export class ChecksumCache implements ChecksumCacheInterface {
+export class ChecksumCache {
   /**
    * The primary checksum cache, with key of `${checkpoint}/${bucket}`.
    */
   private cache: LRUCache<string, BucketChecksum, ChecksumFetchContext>;
-
+  /**
+   * For each bucket, an ordered set of cached checkpoints.
+   */
   private bucketCheckpoints = new Map<string, OrderedSet<bigint>>();
+
   private fetchChecksums: FetchChecksums;
 
   constructor(options: ChecksumCacheOptions) {
@@ -52,9 +60,12 @@ export class ChecksumCache implements ChecksumCacheInterface {
     this.cache = new LRUCache<string, BucketChecksum, ChecksumFetchContext>({
       max: options.maxSize ?? DEFAULT_MAX_SIZE,
       fetchMethod: async (cacheKey, _staleValue, options) => {
+        // Called when this checksum hasn't been cached yet.
+        // Pass the call back to the request, which implements batch fetching.
         const { bucket } = parseCacheKey(cacheKey);
         const result = await options.context.fetch(bucket);
 
+        // Add to the set of cached checkpoints for the bucket.
         let checkpointSet = this.bucketCheckpoints.get(bucket);
         if (checkpointSet == null) {
           checkpointSet = new OrderedSet();
@@ -65,6 +76,7 @@ export class ChecksumCache implements ChecksumCacheInterface {
       },
 
       dispose: (value, key) => {
+        // Remove from the set of cached checkpoints for the bucket
         const { checkpointString } = parseCacheKey(key);
         const checkpoint = BigInt(checkpointString);
         const checkpointSet = this.bucketCheckpoints.get(value.bucket);
@@ -87,9 +99,21 @@ export class ChecksumCache implements ChecksumCacheInterface {
     return buckets.map((bucket) => checksums.get(bucket)!);
   }
 
-  async getChecksumMap(checkpoint: OpId, buckets: string[]): Promise<Map<string, BucketChecksum>> {
+  /**
+   * Get bucket checksums for a checkpoint.
+   *
+   * Any checksums not found upstream are returned as zero checksums.
+   *
+   * @returns a Map with exactly one entry for each bucket requested
+   */
+  async getChecksumMap(checkpoint: OpId, buckets: string[]): Promise<ChecksumMap> {
+    // Buckets that don't have a cached checksum for this checkpoint yet
     let toFetch = new Set<string>();
+
+    // Newly fetched results
     let fetchResults = new Map<string, BucketChecksum>();
+
+    // Promise for the bactch new fetch requests
     let resolveFetch!: () => void;
     let rejectFetch!: (err: any) => void;
     let fetchPromise = new Promise<void>((resolve, reject) => {
@@ -97,6 +121,7 @@ export class ChecksumCache implements ChecksumCacheInterface {
       rejectFetch = reject;
     });
 
+    // Accumulated results - both from cached checksums, and fetched checksums
     let finalResults = new Map<string, BucketChecksum>();
 
     const context: ChecksumFetchContext = {
@@ -116,7 +141,8 @@ export class ChecksumCache implements ChecksumCacheInterface {
       checkpoint: BigInt(checkpoint)
     };
 
-    let promises: Promise<void>[] = [];
+    // Individual cache fetch promises
+    let cacheFetchPromises: Promise<void>[] = [];
 
     try {
       for (let bucket of buckets) {
@@ -129,10 +155,13 @@ export class ChecksumCache implements ChecksumCacheInterface {
           }
           finalResults.set(bucket, checksums);
         });
-        promises.push(p);
+        cacheFetchPromises.push(p);
         if (status.fetch == 'hit' || status.fetch == 'inflight') {
-          // No need to fetch now
+          // The checksums is either cached already (hit), or another request is busy
+          // fetching (inflight).
+          // In either case, we don't need to fetch a new checksum.
         } else {
+          // We need a new request for this checksum.
           toFetch.add(bucket);
         }
       }
@@ -141,15 +170,15 @@ export class ChecksumCache implements ChecksumCacheInterface {
         // Nothing to fetch, but resolve in case
         resolveFetch();
       } else {
-        // Find smaller checkpoints, sorted in descending order
-
         let bucketRequests: FetchPartialBucketChecksum[] = [];
+        // Partial checksum (previously cached) to add to the partial fetch
         let add = new Map<string, BucketChecksum>();
 
         for (let bucket of toFetch) {
           let bucketRequest: FetchPartialBucketChecksum | null = null;
           const checkpointSet = this.bucketCheckpoints.get(bucket);
           if (checkpointSet != null) {
+            // Find smaller checkpoints, sorted in descending order
             let iter = checkpointSet.reverseUpperBound(context.checkpoint);
             const begin = checkpointSet.begin();
             while (iter.isAccessible()) {
@@ -162,6 +191,7 @@ export class ChecksumCache implements ChecksumCacheInterface {
               // However, we handle caces where it's not present either way.
               // Test by disabling the `dispose()` callback.
               if (cached != null) {
+                // Partial checksum found - make a partial checksum request
                 bucketRequest = {
                   bucket,
                   start: cp.toString(),
@@ -172,13 +202,16 @@ export class ChecksumCache implements ChecksumCacheInterface {
               }
 
               if (iter.equals(begin)) {
+                // Cannot iterate further
                 break;
               }
+              // Iterate backwards
               iter = iter.pre();
             }
           }
 
           if (bucketRequest == null) {
+            // No partial checksum found - make a new full checksum request
             bucketRequest = {
               bucket,
               end: checkpoint
@@ -192,7 +225,9 @@ export class ChecksumCache implements ChecksumCacheInterface {
           bucketRequests.push(bucketRequest);
         }
 
+        // Fetch partial checksums from upstream
         const results = await this.fetchChecksums(bucketRequests);
+
         for (let bucket of toFetch) {
           const result = results.get(bucket);
           const toAdd = add.get(bucket);
@@ -200,22 +235,30 @@ export class ChecksumCache implements ChecksumCacheInterface {
             // Should never happen
             throw new Error(`toAdd null for ${bucket}`);
           }
+          // Compute the full checksum from the two partials.
+          // No results returned are treated the same as a zero result.
           const added = addBucketChecksums(toAdd, result ?? null);
           fetchResults.set(bucket, added);
         }
+
+        // fetchResults is fully populated, so we resolve the Promise
         resolveFetch();
       }
     } catch (e) {
+      // Failure when fetching checksums - reject the Promise.
+      // This will reject all individual cache fetch requests, and each will be retried
+      // on the next request.
       rejectFetch(e);
 
       // Wait for the above rejection to propagate, otherwise we end up with "uncaught" errors.
-      await Promise.all(promises).catch((_e) => {});
+      await Promise.all(cacheFetchPromises).catch((_e) => {});
 
       throw e;
     }
 
-    await Promise.all(promises);
+    await Promise.all(cacheFetchPromises);
     if (finalResults.size != buckets.length) {
+      // Should not happen
       throw new Error(`Bucket results mismatch: ${finalResults.size} != ${buckets.length}`);
     }
     return finalResults;

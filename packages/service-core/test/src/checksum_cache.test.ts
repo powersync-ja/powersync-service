@@ -1,19 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { BucketChecksum, OpId } from '@/util/protocol-types.js';
+import { BucketChecksum, ChecksumMap, OpId } from '@/util/protocol-types.js';
 import * as crypto from 'node:crypto';
 import { addBucketChecksums } from '@/util/util-index.js';
-import {
-  ChecksumCache,
-  ChecksumCacheInterface,
-  FetchChecksums,
-  FetchPartialBucketChecksum
-} from '@/storage/ChecksumCache.js';
-
-type CachsumCacheFactory = (fetch: FetchChecksums) => ChecksumCacheInterface;
-
-describe('checksum cache', function () {
-  defineChecksumCacheTests((f) => new ChecksumCache({ fetchChecksums: f }));
-});
+import { ChecksumCache, FetchChecksums, FetchPartialBucketChecksum } from '@/storage/ChecksumCache.js';
 
 /**
  * Create a deterministic BucketChecksum based on the bucket name and checkpoint for testing purposes.
@@ -82,7 +71,11 @@ function fetchTestChecksums(batch: FetchPartialBucketChecksum[]) {
   );
 }
 
-function defineChecksumCacheTests(factory: CachsumCacheFactory) {
+describe('checksum cache', function () {
+  const factory = (fetch: FetchChecksums) => {
+    return new ChecksumCache({ fetchChecksums: fetch });
+  };
+
   it('should handle a sequential lookups (a)', async function () {
     let lookups: FetchPartialBucketChecksum[][] = [];
     const cache = factory(async (batch) => {
@@ -352,9 +345,7 @@ function defineChecksumCacheTests(factory: CachsumCacheFactory) {
 
     expect(lookups).toEqual([[{ bucket: 'test', end: '123' }], [{ bucket: 'test', start: '123', end: '1234' }]]);
   });
-}
 
-describe('cache limit tests', function () {
   it('should use maxSize', async function () {
     let lookups: FetchPartialBucketChecksum[][] = [];
     const cache = new ChecksumCache({
