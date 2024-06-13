@@ -49,9 +49,7 @@ export class ChecksumCache implements ChecksumCacheInterface {
     this.cache = new LRUCache<string, BucketChecksum, ChecksumFetchContext>({
       max: options.maxSize ?? DEFAULT_MAX_SIZE,
       fetchMethod: async (cacheKey, _staleValue, options) => {
-        const split = cacheKey.indexOf('/');
-        const bucket = cacheKey.substring(split + 1);
-
+        const { bucket } = parseCacheKey(cacheKey);
         const result = await options.context.fetch(bucket);
 
         let checkpointSet = this.bucketCheckpoints.get(bucket);
@@ -63,9 +61,8 @@ export class ChecksumCache implements ChecksumCacheInterface {
         return result;
       },
 
-      disposeAfter: (value, key) => {
-        const split = key.indexOf('/');
-        const checkpointString = key.substring(0, split);
+      dispose: (value, key) => {
+        const { checkpointString } = parseCacheKey(key);
         const checkpoint = BigInt(checkpointString);
         const checkpointSet = this.bucketCheckpoints.get(value.bucket);
         if (checkpointSet == null) {
@@ -114,7 +111,7 @@ export class ChecksumCache implements ChecksumCacheInterface {
 
     try {
       for (let bucket of buckets) {
-        const cacheKey = `${checkpoint}/${bucket}`;
+        const cacheKey = makeCacheKey(checkpoint, bucket);
         let status: LRUCache.Status<BucketChecksum> = {};
         const p = this.cache.fetch(cacheKey, { context: context, status: status }).then((checksums) => {
           if (checksums == null) {
@@ -144,12 +141,17 @@ export class ChecksumCache implements ChecksumCacheInterface {
           let bucketRequest: FetchPartialBucketChecksum | null = null;
           const checkpointSet = this.bucketCheckpoints.get(bucket);
           if (checkpointSet != null) {
-            const iter = checkpointSet.reverseUpperBound(context.checkpoint - 1n);
+            let iter = checkpointSet.reverseUpperBound(context.checkpoint);
+            const begin = checkpointSet.begin();
             while (iter.isAccessible()) {
               const cp = iter.pointer;
-              const cacheKey = `${cp}/${bucket}`;
+              const cacheKey = makeCacheKey(cp, bucket);
               // peek to avoid refreshing the key
               const cached = this.cache.peek(cacheKey);
+              // As long as dispose() works correctly, the checkpointset should
+              // match up with the cache, and `cached` should also have a value here.
+              // However, we handle caces where it's not present either way.
+              // Test by disabling the `dispose()` callback.
               if (cached != null) {
                 bucketRequest = {
                   bucket,
@@ -160,7 +162,10 @@ export class ChecksumCache implements ChecksumCacheInterface {
                 break;
               }
 
-              iter.next();
+              if (iter.equals(begin)) {
+                break;
+              }
+              iter = iter.pre();
             }
           }
 
@@ -202,4 +207,13 @@ export class ChecksumCache implements ChecksumCacheInterface {
     }
     return finalResults;
   }
+}
+
+function makeCacheKey(checkpoint: bigint | string, bucket: string) {
+  return `${checkpoint}/${bucket}`;
+}
+
+function parseCacheKey(key: string) {
+  const index = key.indexOf('/');
+  return { checkpointString: key.substring(0, index), bucket: key.substring(index + 1) };
 }

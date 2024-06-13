@@ -244,13 +244,98 @@ function defineChecksumCacheTests(factory: CachsumCacheFactory) {
     expect(await b).toEqual([TEST2_123, TEST3_123]);
 
     expect(lookups).toEqual([
-      // Request a
+      // Request A
       [
         { bucket: 'test', end: '123' },
         { bucket: 'test2', end: '123' }
       ],
-      // Request b (re-uses the checksum for test2 from request a)
+      // Request B (re-uses the checksum for test2 from request a)
       [{ bucket: 'test3', end: '123' }]
     ]);
   });
+
+  it('should handle out-of-order requests', async function () {
+    let lookups: FetchPartialBucketChecksum[][] = [];
+    const cache = factory(async (batch) => {
+      lookups.push(batch);
+      return fetchTestChecksums(batch);
+    });
+
+    expect(await cache.getChecksums('123', ['test'])).toEqual([TEST_123]);
+
+    expect(await cache.getChecksums('125', ['test'])).toEqual([
+      {
+        bucket: 'test',
+        checksum: -1865121912,
+        count: 125
+      }
+    ]);
+
+    expect(await cache.getChecksums('124', ['test'])).toEqual([
+      {
+        bucket: 'test',
+        checksum: 1887460431,
+        count: 124
+      }
+    ]);
+    expect(lookups).toEqual([
+      [{ bucket: 'test', end: '123' }],
+      [{ bucket: 'test', start: '123', end: '125' }],
+      [{ bucket: 'test', start: '123', end: '124' }]
+    ]);
+  });
 }
+
+describe('cache limit tests', function () {
+  it('should use maxSize', async function () {
+    let lookups: FetchPartialBucketChecksum[][] = [];
+    const cache = new ChecksumCacheTwo({
+      fetchChecksums: async (batch) => {
+        lookups.push(batch);
+        return fetchTestChecksums(batch);
+      },
+      maxSize: 2
+    });
+
+    expect(await cache.getChecksums('123', ['test'])).toEqual([TEST_123]);
+    expect(await cache.getChecksums('124', ['test'])).toEqual([
+      {
+        bucket: 'test',
+        checksum: 1887460431,
+        count: 124
+      }
+    ]);
+
+    expect(await cache.getChecksums('125', ['test'])).toEqual([
+      {
+        bucket: 'test',
+        checksum: -1865121912,
+        count: 125
+      }
+    ]);
+    expect(await cache.getChecksums('126', ['test'])).toEqual([
+      {
+        bucket: 'test',
+        checksum: -1720007310,
+        count: 126
+      }
+    ]);
+    expect(await cache.getChecksums('124', ['test'])).toEqual([
+      {
+        bucket: 'test',
+        checksum: 1887460431,
+        count: 124
+      }
+    ]);
+    expect(await cache.getChecksums('123', ['test'])).toEqual([TEST_123]);
+
+    expect(lookups).toEqual([
+      [{ bucket: 'test', end: '123' }],
+      [{ bucket: 'test', start: '123', end: '124' }],
+      [{ bucket: 'test', start: '124', end: '125' }],
+      [{ bucket: 'test', start: '125', end: '126' }],
+      [{ bucket: 'test', end: '124' }],
+      [{ bucket: 'test', end: '123' }]
+    ]);
+  });
+});
