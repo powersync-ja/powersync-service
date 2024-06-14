@@ -101,7 +101,7 @@ export async function teardown(runnerConfig: utils.RunnerConfig) {
     // We do not consider those errors a teardown failure.
     process.exit(0);
   } catch (e) {
-    micro.logger.error(`Teardown failure`);
+    micro.logger.error(`Teardown failure`, e);
     await mongoDB.client.close();
     process.exit(1);
   }
