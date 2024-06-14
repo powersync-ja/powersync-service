@@ -200,6 +200,8 @@ VALUES(10, ARRAY['null']::TEXT[]);
 
     expect(transformed[8]).toMatchObject({
       id: 9n,
+      // 10022-02-03 12:13:14+03 - out of range of both our date parsing logic, and sqlite's date functions
+      // We can consider just preserving the source string as an alternative if this causes issues.
       timestamptz: null
     });
   }
