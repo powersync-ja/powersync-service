@@ -1,5 +1,14 @@
 # powersync-open-service
 
+## 0.2.6
+
+### Patch Changes
+
+- Updated dependencies [8245912]
+- Updated dependencies [7587a74]
+  - @powersync/service-core@0.2.2
+  - @powersync/service-jpgwire@0.17.13
+
 ## 0.2.5
 
 ### Patch Changes

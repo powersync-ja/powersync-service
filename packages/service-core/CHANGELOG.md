@@ -1,5 +1,14 @@
 # @powersync/service-core
 
+## 0.2.2
+
+### Patch Changes
+
+- 8245912: Fix teardown command not terminating after some errors.
+- 7587a74: Fix date parsing in replication for dates further back than 100 AD.
+- Updated dependencies [7587a74]
+  - @powersync/service-jpgwire@0.17.13
+
 ## 0.2.1
 
 ### Patch Changes
