@@ -3,6 +3,7 @@ import * as tls from 'tls';
 import { DEFAULT_CERTS } from './certs.js';
 import * as pgwire from './pgwire.js';
 import { PgType } from './pgwire_types.js';
+import * as datefns from 'date-fns';
 
 type Mutable<T> = {
   -readonly [P in keyof T]: T[P];
@@ -205,7 +206,14 @@ export function timestamptzToSqlite(source?: string) {
     }
   }
   const [_, date, time, precision, timezone] = match as any;
-  const parsed = new Date(`${date} ${time}${timezone}`);
+  // datefns.parseISO() supports some dates that new Date() doesn't, e.g. '0022-09-08 21:19:28+00'
+  const parsed = datefns.parseISO(`${date}T${time}${timezone}`);
+  // Some dates are outside the range of JS and/or SQLite, e.g. 10022-09-08 21:19:28+00.
+  // Just fallback to null for now.
+  // We may consider preserving the source value in these cases.
+  if (isNaN(parsed.getTime())) {
+    return null;
+  }
   const text = parsed.toISOString().replace('T', ' ').replace('.000', '').replace('Z', '');
 
   return `${text}${precision ?? ''}Z`;
