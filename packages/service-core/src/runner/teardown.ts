@@ -33,9 +33,10 @@ async function terminateReplicator(
       source_db: connection,
       lock
     });
-    console.log('terminating', stream.slot_name);
+
+    micro.logger.info(`Terminating replication slot ${stream.slot_name}`);
     await stream.terminate();
-    console.log('terminated', stream.slot_name);
+    micro.logger.info(`Terminated replication slot ${stream.slot_name}`);
   } finally {
     await lock.release();
   }
@@ -76,16 +77,32 @@ async function terminateReplicators(
 export async function teardown(runnerConfig: utils.RunnerConfig) {
   const config = await utils.loadConfig(runnerConfig);
   const mongoDB = storage.createPowerSyncMongo(config.storage);
-  await db.mongo.waitForAuth(mongoDB.db);
+  try {
+    micro.logger.info(`Waiting for auth`);
+    await db.mongo.waitForAuth(mongoDB.db);
 
-  const bucketStorage = new storage.MongoBucketStorage(mongoDB, { slot_name_prefix: config.slot_name_prefix });
-  const connection = config.connection;
+    const bucketStorage = new storage.MongoBucketStorage(mongoDB, { slot_name_prefix: config.slot_name_prefix });
+    const connection = config.connection;
 
-  if (connection) {
-    await terminateReplicators(bucketStorage, connection);
+    micro.logger.info(`Terminating replication slots`);
+
+    if (connection) {
+      await terminateReplicators(bucketStorage, connection);
+    }
+
+    const database = mongoDB.db;
+    micro.logger.info(`Dropping database ${database.namespace}`);
+    await database.dropDatabase();
+    micro.logger.info(`Done`);
+    await mongoDB.client.close();
+
+    // If there was an error connecting to postgress, the process may stay open indefinitely.
+    // This forces an exit.
+    // We do not consider those errors a teardown failure.
+    process.exit(0);
+  } catch (e) {
+    micro.logger.error(`Teardown failure`, e);
+    await mongoDB.client.close();
+    process.exit(1);
   }
-
-  const database = mongoDB.db;
-  await database.dropDatabase();
-  await mongoDB.client.close();
 }
