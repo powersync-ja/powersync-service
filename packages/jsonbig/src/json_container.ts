@@ -2,6 +2,8 @@ import { JSONBig } from './json.js';
 
 /**
  * Store a JSON text value. Used to mark the value as JSON-sourced, but only parse if really needed.
+ *
+ * Unlike JSON.rawJSON, this can be used for arrays and objects.
  */
 export class JsonContainer {
   readonly data: string;

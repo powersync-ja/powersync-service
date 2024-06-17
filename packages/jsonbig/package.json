@@ -19,5 +19,7 @@
   "dependencies": {
     "lossless-json": "^2.0.8"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "benchmark": "^2.1.4"
+  }
 }
