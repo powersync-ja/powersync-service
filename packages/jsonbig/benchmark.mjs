@@ -15,9 +15,9 @@ assert.deepStrictEqual(JSON.parse(JSONBig.stringify(losslessJSON)), json);
 
 const suite = new Benchmark.Suite('parse and stringify benchmark');
 suite
-  .add('        JSON.parse    ', () => JSON.parse(text))
+  .add('   JSON.parse    ', () => JSON.parse(text))
   .add('JSONBig.parse    ', () => JSONBig.parse(text))
-  .add('        JSON.stringify', () => JSON.stringify(json))
+  .add('   JSON.stringify', () => JSON.stringify(json))
   .add('JSONBig.stringify', () => JSONBig.stringify(losslessJSON))
   .on('cycle', function (event) {
     console.log(String(event.target));

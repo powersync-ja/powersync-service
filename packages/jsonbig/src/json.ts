@@ -1,11 +1,6 @@
-import * as json from 'lossless-json';
-import { isInteger, NumberParser, Replacer, Reviver, JavaScriptValue } from 'lossless-json';
+import { isInteger, Replacer, JavaScriptValue } from 'lossless-json';
 import { JsonContainer } from './json_container.js';
 import { stringify } from './json_stringify.js';
-
-const numberParser: NumberParser = (value) => {
-  return isInteger(value) ? BigInt(value) : parseFloat(value);
-};
 
 const numberStringifier = {
   test: (value: any) => typeof value == 'number',
@@ -31,8 +26,15 @@ const jsonContainerStringifier = {
 const stringifiers = [numberStringifier, jsonContainerStringifier];
 
 export const JSONBig = {
-  parse(text: string, reviver?: Reviver): JavaScriptValue {
-    return json.parse(text, reviver, numberParser);
+  parse(text: string): JavaScriptValue {
+    return JSON.parse(text, (_key: string, value: any, context?: any) => {
+      if (typeof value == 'number') {
+        // The context arg requires Node v22+
+        const rawValue: string = context!.source;
+        return isInteger(rawValue) ? BigInt(rawValue) : value;
+      }
+      return value;
+    });
   },
   stringify(value: any, replacer?: Replacer, space?: string | number): string {
     return stringify(value, replacer, space, stringifiers)!;

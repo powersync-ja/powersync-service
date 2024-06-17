@@ -27,7 +27,7 @@
     "@journeyapps-platform/lerno": "^1.0.3",
     "@journeyapps-platform/micro-cli": "^7.2.6",
     "@journeyapps-platform/micro-dev": "^1.6.7",
-    "@types/node": "18.11.11",
+    "@types/node": "20.14.2",
     "async": "^3.2.4",
     "bson": "^6.6.0",
     "inquirer": "^9.2.7",
