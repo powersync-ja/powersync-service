@@ -24,7 +24,7 @@ The service can be started using the public Docker image. See the image [notes](
 
   - Custom JSON and BigInt parser
 
-- [packages/rsocket-router](./packages/rsocker-router/README.md)
+- [packages/rsocket-router](./packages/rsocket-router/README.md)
 
   - Router for reactive streams using [RSocket](https://rsocket.io/)
 
