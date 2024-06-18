@@ -1,2 +1,2 @@
-export * from './codecs';
-export * from './parsers';
+export * from './codecs.js';
+export * from './parsers.js';

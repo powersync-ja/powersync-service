@@ -30,6 +30,10 @@ export async function startServer(runnerConfig: utils.RunnerConfig) {
     })
   );
 
+  server.route({
+    method: fastify.
+  })
+
   server.register(cors, {
     origin: '*',
     allowedHeaders: ['Content-Type', 'Authorization'],

@@ -1,4 +1,4 @@
-import * as errors from '../errors/errors-index';
+import * as errors from '../errors/errors-index.js';
 
 export type Primitive = string | number | boolean;
 

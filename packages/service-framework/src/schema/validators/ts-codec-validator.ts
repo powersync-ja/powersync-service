@@ -1,8 +1,8 @@
 import * as t from 'ts-codec';
 
-import * as schema_validator from './schema-validator';
-import * as defs from '../definitions';
-import * as codecs from '../../codec/codec-index';
+import * as schema_validator from './schema-validator.js';
+import * as defs from '../definitions.js';
+import * as codecs from '../../codec/codec-index.js';
 
 export type TsCodecValidator<
   C extends t.AnyCodec,

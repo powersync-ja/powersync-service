@@ -1,22 +1,22 @@
-export * from './alerts/alerts-index';
-export * as alerts from './alerts/alerts-index';
+export * from './alerts/alerts-index.js';
+export * as alerts from './alerts/alerts-index.js';
 
-export * from './codec/codec-index';
-export * as codecs from './codec/codec-index';
+export * from './codec/codec-index.js';
+export * as codecs from './codec/codec-index.js';
 
-export * from './errors/errors-index';
-export * as errors from './errors/errors-index';
+export * from './errors/errors-index.js';
+export * as errors from './errors/errors-index.js';
 
-export * from './logger/Logger';
+export * from './logger/Logger.js';
 
-export * from './schema/schema-index';
-export * as schema from './schema/schema-index';
+export * from './schema/schema-index.js';
+export * as schema from './schema/schema-index.js';
 
-export * from './signals/signals-index';
-export * as signals from './signals/signals-index';
+export * from './signals/signals-index.js';
+export * as signals from './signals/signals-index.js';
 
-export * from './system/LifeCycledSystem';
-export * as system from './system/system-index';
+export * from './system/LifeCycledSystem.js';
+export * as system from './system/system-index.js';
 
-export * from './utils/utils-index';
-export * as utils from './utils/utils-index';
+export * from './utils/utils-index.js';
+export * as utils from './utils/utils-index.js';

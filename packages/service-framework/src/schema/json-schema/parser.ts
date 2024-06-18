@@ -1,5 +1,5 @@
-import * as schema_validator from '../validators/schema-validator';
-import * as defs from '../definitions';
+import * as schema_validator from '../validators/schema-validator.js';
+import * as defs from '../definitions.js';
 
 /**
  * Recursively walk a given schema resolving a list of refs that are actively used in some way by the

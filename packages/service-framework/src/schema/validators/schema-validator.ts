@@ -1,10 +1,10 @@
 // @ts-ignore
 import AjvErrorFormatter from 'better-ajv-errors';
-import AJV, * as ajv from 'ajv';
+import AJV from 'ajv';
 
-import * as defs from '../definitions';
-import * as utils from '../utils';
-import * as keywords from '../json-schema/keywords';
+import * as defs from '../definitions.js';
+import * as utils from '../utils.js';
+import * as keywords from '../json-schema/keywords.js';
 
 export class SchemaValidatorError extends Error {
   constructor(message: string) {
@@ -17,7 +17,7 @@ export class SchemaValidatorError extends Error {
 export type SchemaValidator<T> = defs.MicroValidator<T>;
 
 export type CreateSchemaValidatorParams = {
-  ajv?: ajv.Options;
+  ajv?: AJV.Options;
 
   /**
    * Allow making the given schema loosely typed to allow accepting additional properties. This
@@ -38,7 +38,7 @@ export const createSchemaValidator = <T = any>(
   params: CreateSchemaValidatorParams = {}
 ): SchemaValidator<T> => {
   try {
-    const ajv = new AJV({
+    const ajv = new AJV.Ajv({
       allErrors: !(params.fail_fast ?? false),
       keywords: [keywords.BufferNodeType],
       ...(params.ajv || {})

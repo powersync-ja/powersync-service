@@ -1,5 +1,5 @@
-import * as codecs from './codecs';
 import * as t from 'ts-codec';
+import * as codecs from './codecs.js';
 
 export const ObjectIdParser = t.createParser<typeof codecs.ObjectId>(codecs.ObjectId._tag, (_, { target }) => {
   switch (target) {

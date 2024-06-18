@@ -1,4 +1,4 @@
-import { ErrorData, JourneyError } from './framework-errors';
+import { ErrorData, JourneyError } from './framework-errors.js';
 
 export const isJourneyError = (err: any): err is JourneyError => {
   const matches = err instanceof JourneyError || err.is_journey_error;

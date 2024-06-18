@@ -1,2 +1,2 @@
-export * from './definitions';
-export * from './no-op-reporter';
+export * from './definitions.js';
+export * from './no-op-reporter.js';

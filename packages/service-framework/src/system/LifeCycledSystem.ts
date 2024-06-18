@@ -6,9 +6,9 @@
  * A System can contain anything but should offer a `start` and `stop` operation
  */
 
-import { createFSProbe } from '../signals/probes/fs-probes';
-import { ProbeModule } from '../signals/probes/probes';
-import { TerminationHandler, createTerminationHandler } from '../signals/termination-handler';
+import { createFSProbe } from '../signals/probes/fs-probes.js';
+import { ProbeModule } from '../signals/probes/probes.js';
+import { TerminationHandler, createTerminationHandler } from '../signals/termination-handler.js';
 
 export type LifecycleCallback<T> = (singleton: T) => Promise<void> | void;
 

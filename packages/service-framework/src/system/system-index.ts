@@ -1,1 +1,1 @@
-export * from './LifeCycledSystem';
+export * from './LifeCycledSystem.js';
