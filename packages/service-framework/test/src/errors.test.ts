@@ -1,8 +1,8 @@
 import { describe, test, expect } from 'vitest';
 
-import * as micro_errors from '../../src/errors/errors-index';
+import * as errors from '../../src/errors/errors-index.js';
 
-class CustomJourneyError extends micro_errors.JourneyError {
+class CustomJourneyError extends errors.JourneyError {
   constructor() {
     super({
       code: 'CUSTOM_JOURNEY_ERROR',
@@ -17,7 +17,7 @@ describe('errors', () => {
     const error = new CustomJourneyError();
 
     expect(error instanceof Error).toBe(true);
-    expect(error instanceof micro_errors.JourneyError).toBe(true);
+    expect(error instanceof errors.JourneyError).toBe(true);
     expect(error.name).toBe('CustomJourneyError');
   });
 
@@ -37,13 +37,13 @@ describe('errors', () => {
     const standard_error = new Error('non-journey error');
     const error = new CustomJourneyError();
 
-    expect(micro_errors.isJourneyError(standard_error)).toBe(false);
-    expect(micro_errors.isJourneyError(error)).toBe(true);
+    expect(errors.isJourneyError(standard_error)).toBe(false);
+    expect(errors.isJourneyError(error)).toBe(true);
 
-    expect(micro_errors.matchesErrorCode(error, 'CUSTOM_JOURNEY_ERROR')).toBe(true);
-    expect(micro_errors.matchesErrorCode(standard_error, 'CUSTOM_JOURNEY_ERROR')).toBe(false);
+    expect(errors.matchesErrorCode(error, 'CUSTOM_JOURNEY_ERROR')).toBe(true);
+    expect(errors.matchesErrorCode(standard_error, 'CUSTOM_JOURNEY_ERROR')).toBe(false);
 
-    expect(micro_errors.getErrorData(error)).toMatchSnapshot();
-    expect(micro_errors.getErrorData(standard_error)).toBe(undefined);
+    expect(errors.getErrorData(error)).toMatchSnapshot();
+    expect(errors.getErrorData(standard_error)).toBe(undefined);
   });
 });

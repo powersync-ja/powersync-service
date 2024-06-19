@@ -1,5 +1,5 @@
 import _ from 'lodash';
-import { logger } from '../logger/Logger';
+import { logger } from '../logger/Logger.js';
 
 export enum Signal {
   SIGTERM = 'SIGTERM',
@@ -24,8 +24,8 @@ type TerminationHandlerParams = {
 };
 
 /**
- * Utility function to handle external termination signals. Calls an async handler
- * and then kills the application.
+ * Utility function to handle external termination signals.
+ * Calls an async handler and then kills the application.
  */
 export const createTerminationHandler = (params?: TerminationHandlerParams) => {
   const { signals = Object.values(Signal), timeout_ms = 30000 } = params || {};

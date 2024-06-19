@@ -1,38 +1,71 @@
 import { deserialize } from 'bson';
 import fastify from 'fastify';
 import cors from '@fastify/cors';
-import * as micro from '@journeyapps-platform/micro';
 import * as framework from '@powersync/service-framework';
+import * as core from '@powersync/service-core';
 import { RSocketRequestMeta } from '@powersync/service-rsocket-router';
-import { Metrics, routes, utils } from '@powersync/service-core';
 
 import { PowerSyncSystem } from '../system/PowerSyncSystem.js';
-import { Router, SocketRouter, StreamingRouter } from '../routes/router.js';
+import { SocketRouter } from '../routes/router.js';
 /**
  * Starts an API server
  */
-export async function startServer(runnerConfig: utils.RunnerConfig) {
+export async function startServer(runnerConfig: core.utils.RunnerConfig) {
   framework.logger.info('Booting');
 
-  const config = await utils.loadConfig(runnerConfig);
+  const config = await core.utils.loadConfig(runnerConfig);
   const system = new PowerSyncSystem(config);
 
   const server = fastify.fastify();
-  server.register(
-    Router.plugin({
-      routes: [...routes.generateHTTPRoutes(Router), ...micro.router.createProbeRoutes()],
-      contextProvider: (payload) => {
+
+  // Create a separate context for concurrency queueing
+  server.register(async function (childContext) {
+    core.routes.registerFastifyRoutes(
+      childContext,
+      async () => {
         return {
           user_id: undefined,
           system: system
         };
-      }
-    })
-  );
+      },
+      [
+        ...core.routes.endpoints.ADMIN_ROUTES,
+        ...core.routes.endpoints.CHECKPOINT_ROUTES,
+        ...core.routes.endpoints.DEV_ROUTES,
+        ...core.routes.endpoints.SYNC_RULES_ROUTES
+      ]
+    );
+    // Limit the active concurrent requests
+    childContext.addHook(
+      'onRequest',
+      core.routes.hooks.createRequestQueueHook({
+        max_queue_depth: 20,
+        concurrency: 10
+      })
+    );
+  });
 
-  server.route({
-    method: fastify.
-  })
+  // Create a separate context for concurrency queueing
+  server.register(async function (childContext) {
+    core.routes.registerFastifyRoutes(
+      childContext,
+      async () => {
+        return {
+          user_id: undefined,
+          system: system
+        };
+      },
+      [...core.routes.endpoints.SYNC_STREAM_ROUTES]
+    );
+    // Limit the active concurrent requests
+    childContext.addHook(
+      'onRequest',
+      core.routes.hooks.createRequestQueueHook({
+        max_queue_depth: 0,
+        concurrency: 200
+      })
+    );
+  });
 
   server.register(cors, {
     origin: '*',
@@ -42,30 +75,18 @@ export async function startServer(runnerConfig: utils.RunnerConfig) {
     maxAge: 3600
   });
 
-  server.register(
-    StreamingRouter.plugin({
-      routes: routes.generateHTTPStreamRoutes(StreamingRouter),
-      contextProvider: (payload) => {
-        return {
-          user_id: undefined,
-          system: system
-        };
-      }
-    })
-  );
-
   SocketRouter.applyWebSocketEndpoints(server.server, {
     contextProvider: async (data: Buffer) => {
-      const { token } = routes.RSocketContextMeta.decode(deserialize(data) as any);
+      const { token } = core.routes.RSocketContextMeta.decode(deserialize(data) as any);
 
       if (!token) {
         throw new framework.errors.ValidationError('No token provided in context');
       }
 
       try {
-        const extracted_token = routes.auth.getTokenFromHeader(token);
+        const extracted_token = core.routes.auth.getTokenFromHeader(token);
         if (extracted_token != null) {
-          const { context, errors } = await routes.auth.generateContext(system, extracted_token);
+          const { context, errors } = await core.routes.auth.generateContext(system, extracted_token);
           return {
             token,
             ...context,
@@ -82,7 +103,7 @@ export async function startServer(runnerConfig: utils.RunnerConfig) {
         system
       };
     },
-    endpoints: routes.generateSocketRoutes(SocketRouter),
+    endpoints: [core.routes.endpoints.syncStreamReactive(SocketRouter)],
     metaDecoder: async (meta: Buffer) => {
       return RSocketRequestMeta.decode(deserialize(meta) as any);
     },
@@ -93,11 +114,19 @@ export async function startServer(runnerConfig: utils.RunnerConfig) {
   await system.start();
   framework.logger.info('System started');
 
-  Metrics.getInstance().configureApiMetrics();
+  core.Metrics.getInstance().configureApiMetrics();
 
-  await micro.fastify.startServer(server, system.config.port);
+  await server.listen({
+    port: system.config.port
+  });
 
-  // MUST be after startServer.
+  system.terminationHandler.handleTerminationSignal(async () => {
+    framework.logger.info('Shutting down HTTP server...');
+    await server.close();
+    framework.logger.info('HTTP server stopped');
+  });
+
+  // MUST be after adding the termination handler above.
   // This is so that the handler is run before the server's handler, allowing streams to be interrupted on exit
   system.addTerminationHandler();
 

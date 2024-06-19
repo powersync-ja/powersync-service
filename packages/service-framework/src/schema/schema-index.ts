@@ -1,6 +1,6 @@
-export * from './definitions';
+export * from './definitions.js';
 
-export * from './json-schema/keywords';
-export * from './json-schema/parser';
-export * from './validators/schema-validator';
-export * from './validators/ts-codec-validator';
+export * from './json-schema/keywords.js';
+export * from './json-schema/parser.js';
+export * from './validators/schema-validator.js';
+export * from './validators/ts-codec-validator.js';

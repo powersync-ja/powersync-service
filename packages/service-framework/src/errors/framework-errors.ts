@@ -1,17 +1,3 @@
-/**
- * This error class is designed to give consumers of Journey Micro
- * a consistent way of "throwing" errors. Specifically, these errors
- * will give clients to Journey Micro implementations two things:
- *
- * 1. An consistent, static error code by which to easily classify errors
- * 2. An error message intended for humans
- *
- * Errors will usually assume that there is some client side error and default to 400 for
- * a rest-like response. This can be changed however to more accurately, in restful terms,
- * indicate what went wrong.
- *
- */
-
 export enum ErrorSeverity {
   INFO = 'info',
   WARNING = 'warning',
@@ -39,6 +25,10 @@ export class JourneyError extends Error {
   is_journey_error = true;
 
   errorData: ErrorData;
+
+  static isJourneyError(input: any): input is JourneyError {
+    return input instanceof JourneyError || input?.is_journey_error == true;
+  }
 
   constructor(data: ErrorData) {
     super(`[${data.code}] ${data.description}\n  ${data.details}`);

@@ -1,5 +1,5 @@
-import * as errors from '../errors/errors-index';
-import * as defs from './definitions';
+import * as errors from '../errors/errors-index.js';
+import * as defs from './definitions.js';
 
 export type Schema = {
   additionalProperties?: boolean | Schema;

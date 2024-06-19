@@ -26,9 +26,7 @@ const boolean = t
 
 const list = t.string().transform((value) => value.split(','));
 
-export const DefaultSchema = t.object({
-  DEV_MODE_DO_NOT_ENABLE_IN_PRODUCTION_OR_YOU_WILL_BE_FIRED: boolean.default('false')
-});
+export const DefaultSchema = t.object({});
 export type DefaultSchema = t.infer<typeof DefaultSchema>;
 
 export const collectEnvironmentVariablesFromSchema = <T extends t.ZodType>(

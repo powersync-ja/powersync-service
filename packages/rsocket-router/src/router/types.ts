@@ -1,6 +1,8 @@
-import { router as micro_router } from '@journeyapps-platform/micro';
 import * as t from 'ts-codec';
+import * as framework from '@powersync/service-framework';
+
 import { OnExtensionSubscriber, OnNextSubscriber, OnTerminalSubscriber } from 'rsocket-core';
+
 import { SocketRouterObserver } from './SocketRouterListener.js';
 
 export enum RS_ENDPOINT_TYPE {
@@ -14,7 +16,9 @@ export const RSocketRequestMeta = t.object({
 
 export type RequestMeta = t.Decoded<typeof RSocketRequestMeta>;
 
-export type ReactiveSocketRouterOptions<C> = {};
+export type ReactiveSocketRouterOptions<C> = {
+  max_concurrent_connections?: number;
+};
 
 export type SocketResponder = OnTerminalSubscriber & OnNextSubscriber & OnExtensionSubscriber;
 
@@ -27,12 +31,18 @@ export type ReactiveStreamPayload<O> = CommonStreamPayload & {
   initialN: number;
 };
 
-export type IReactiveStream<I = any, O = any, C = any> = micro_router.Endpoint<
-  I,
-  O,
-  C,
-  micro_router.EndpointHandlerPayload<I, C> & CommonStreamPayload,
-  micro_router.EndpointHandler<micro_router.EndpointHandlerPayload<I, C> & ReactiveStreamPayload<O>, undefined>
+export type IReactiveStream<I = any, O = any, C = any> = Omit<
+  framework.router.Endpoint<
+    I,
+    O,
+    C,
+    framework.router.EndpointHandlerPayload<I, C> & CommonStreamPayload,
+    framework.router.EndpointHandler<
+      framework.router.EndpointHandlerPayload<I, C> & ReactiveStreamPayload<O>,
+      undefined
+    >
+  >,
+  'method'
 > & {
   type: RS_ENDPOINT_TYPE.STREAM;
   /**
@@ -42,7 +52,7 @@ export type IReactiveStream<I = any, O = any, C = any> = micro_router.Endpoint<
   decoder?: (rawData?: Buffer) => Promise<I>;
 };
 
-export type IReactiveStreamInput<I, O, C> = Omit<IReactiveStream<I, O, C>, 'path' | 'type'>;
+export type IReactiveStreamInput<I, O, C> = Omit<IReactiveStream<I, O, C>, 'path' | 'type' | 'method'>;
 
 export type ReactiveEndpoint = IReactiveStream;
 

@@ -15,6 +15,9 @@ export * as schema from './schema/schema-index.js';
 export * from './signals/signals-index.js';
 export * as signals from './signals/signals-index.js';
 
+export * from './router/router-index.js';
+export * as router from './router/router-index.js';
+
 export * from './system/LifeCycledSystem.js';
 export * as system from './system/system-index.js';
 

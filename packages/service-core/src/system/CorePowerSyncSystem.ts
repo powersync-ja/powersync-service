@@ -41,8 +41,6 @@ export abstract class CorePowerSyncSystem extends LifeCycledSystem {
    * [addStopHandler].
    * This should be called after the server is started and it's termination handler is added.
    * This is so that the handler is run before the server's handler, allowing streams to be interrupted on exit
-   *
-   * TODO this could be improved once router terminations are handled
    */
   addTerminationHandler() {
     this.terminationHandler.handleTerminationSignal(async () => {

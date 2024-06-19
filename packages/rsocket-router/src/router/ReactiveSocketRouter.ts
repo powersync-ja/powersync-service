@@ -19,7 +19,11 @@ import { WebsocketServerTransport } from './transport/WebSocketServerTransport.j
 import * as framework from '@powersync/service-framework';
 
 export class ReactiveSocketRouter<C> {
-  constructor(protected options?: ReactiveSocketRouterOptions<C>) {}
+  protected activeConnections: number;
+
+  constructor(protected options?: ReactiveSocketRouterOptions<C>) {
+    this.activeConnections = 0;
+  }
 
   reactiveStream<I, O>(path: string, stream: IReactiveStreamInput<I, O, C>): IReactiveStream<I, O, C> {
     return {
@@ -55,6 +59,14 @@ export class ReactiveSocketRouter<C> {
       transport,
       acceptor: {
         accept: async (payload) => {
+          const { max_concurrent_connections } = this.options ?? {};
+          if (max_concurrent_connections && this.activeConnections >= max_concurrent_connections) {
+            throw new framework.errors.JourneyError({
+              code: '429',
+              description: `Maximum active concurrent connections limit has been reached`
+            });
+          }
+
           // Throwing an exception in this context will be returned to the client side request
           if (!payload.metadata) {
             // Meta data is required for endpoint handler path matching
@@ -74,8 +86,10 @@ export class ReactiveSocketRouter<C> {
                 responder.onComplete();
               });
 
+              this.activeConnections++;
               return {
                 cancel: () => {
+                  this.activeConnections--;
                   observer.triggerCancel();
                 },
                 onExtension: () => observer.triggerExtension(),
