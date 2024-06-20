@@ -48,10 +48,6 @@ export const collectEnvironmentVariablesFromSchema = <T extends t.ZodType>(
     throw new Error('Invalid or missing environment variables');
   }
 
-  if (result.data.DEV_MODE_DO_NOT_ENABLE_IN_PRODUCTION_OR_YOU_WILL_BE_FIRED) {
-    console.log('DEV MODE. DO NOT ENABLE IN PRODUCTION');
-  }
-
   return result.data;
 };
 

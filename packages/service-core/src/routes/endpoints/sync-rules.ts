@@ -1,5 +1,5 @@
 import * as t from 'ts-codec';
-import { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import * as pgwire from '@powersync/service-jpgwire';
 import { errors, router, schema } from '@powersync/lib-services-framework';
 import { SqlSyncRules, SyncRulesErrors } from '@powersync/service-sync-rules';

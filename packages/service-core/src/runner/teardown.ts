@@ -74,8 +74,6 @@ async function terminateReplicators(
   }
 }
 
-// TODO should there be a global context for things like alerting?
-
 export async function teardown(runnerConfig: utils.RunnerConfig) {
   const config = await utils.loadConfig(runnerConfig);
   const mongoDB = storage.createPowerSyncMongo(config.storage);
