@@ -3,7 +3,7 @@
 # See https://github.com/powersync-ja/powersync-service/blob/c6140e883a4a2ac9c8c2e46b7c31ad38e1c6d28a/packages/types/src/config/PowerSyncConfig.ts#L95
 
 migrations:
-  disable_auto_migrate: true
+  disable_auto_migration: false
 
 replication:
   connections:
