@@ -6,7 +6,7 @@ import * as util from '../util/util-index.js';
 import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 import { MissingReplicationSlotError, WalStream } from './WalStream.js';
 import { ResolvedConnection } from '../util/config/types.js';
-import { ErrorReporter, logger, ProbeModule } from '@powersync/service-framework';
+import { container } from '@powersync/service-framework';
 
 export interface WalStreamRunnerOptions {
   factory: storage.BucketStorageFactory;
@@ -14,8 +14,6 @@ export interface WalStreamRunnerOptions {
   source_db: ResolvedConnection;
   lock: storage.ReplicationLock;
   rateLimiter?: ErrorRateLimiter;
-  probe: ProbeModule;
-  errorReporter: ErrorReporter;
 }
 
 export class WalStreamRunner {
@@ -48,12 +46,12 @@ export class WalStreamRunner {
       await this.replicateLoop();
     } catch (e) {
       // Fatal exception
-      this.options.errorReporter.captureException(e, {
+      container.reporter.captureException(e, {
         metadata: {
           replication_slot: this.slot_name
         }
       });
-      logger.error(`Replication failed on ${this.slot_name}`, e);
+      container.logger.error(`Replication failed on ${this.slot_name}`, e);
 
       if (e instanceof MissingReplicationSlotError) {
         // This stops replication on this slot, and creates a new slot
@@ -94,13 +92,11 @@ export class WalStreamRunner {
         abort_signal: this.abortController.signal,
         factory: this.options.factory,
         storage: this.options.storage,
-        connections,
-        probe: this.options.probe,
-        errorReporter: this.options.errorReporter
+        connections
       });
       await stream.replicate();
     } catch (e) {
-      logger.error(`Replication error`, e);
+      container.logger.error(`Replication error`, e);
       if (e.cause != null) {
         // Example:
         // PgError.conn_ended: Unable to do postgres query on ended connection
@@ -122,13 +118,13 @@ export class WalStreamRunner {
         //   [Symbol(pg.ErrorResponse)]: undefined
         // }
         // Without this additional log, the cause would not be visible in the logs.
-        logger.error(`cause`, e.cause);
+        container.logger.error(`cause`, e.cause);
       }
       if (e instanceof MissingReplicationSlotError) {
         throw e;
       } else {
         // Report the error if relevant, before retrying
-        this.options.errorReporter.captureException(e, {
+        container.reporter.captureException(e, {
           metadata: {
             replication_slot: this.slot_name
           }
@@ -148,7 +144,7 @@ export class WalStreamRunner {
    * This will also release the lock if start() was called earlier.
    */
   async stop(options?: { force?: boolean }) {
-    logger.info(`${this.slot_name} Stopping replication`);
+    container.logger.info(`${this.slot_name} Stopping replication`);
     // End gracefully
     this.abortController.abort();
 
@@ -165,7 +161,7 @@ export class WalStreamRunner {
    * Stops replication if needed.
    */
   async terminate(options?: { force?: boolean }) {
-    logger.info(`${this.slot_name} Terminating replication`);
+    container.logger.info(`${this.slot_name} Terminating replication`);
     await this.stop(options);
 
     const slotName = this.slot_name;

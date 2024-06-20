@@ -1,7 +1,7 @@
 import * as sentry_types from '@sentry/types';
 import * as sentry from '@sentry/node';
 import { utils } from '@powersync/service-core';
-import * as framework from '@powersync/service-framework';
+import { container, ErrorReporter } from '@powersync/service-framework';
 
 // Generally ignore errors that are due to configuration issues, rather than
 // service bugs.
@@ -21,7 +21,7 @@ const IGNORE_MESSAGES: RegExp[] = [
 
 export const createSentryReporter = (opts?: {
   beforeSend?: (event: sentry_types.Event, hint: sentry_types.EventHint) => any;
-}): framework.ErrorReporter => {
+}): ErrorReporter => {
   if (process.env.SENTRY_DSN) {
     sentry.init({
       dsn: process.env.SENTRY_DSN,
@@ -31,7 +31,7 @@ export const createSentryReporter = (opts?: {
       beforeSend: opts?.beforeSend ? opts.beforeSend : undefined
     });
   } else {
-    framework.logger.debug(
+    container.logger.debug(
       'Alerts configured with sentry reporter but no SENTRY_DSN environment variable has been set'
     );
   }

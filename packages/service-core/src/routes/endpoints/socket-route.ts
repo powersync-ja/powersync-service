@@ -1,6 +1,6 @@
 import { serialize } from 'bson';
 import { SyncParameters, normalizeTokenParameters } from '@powersync/service-sync-rules';
-import * as framework from '@powersync/service-framework';
+import { container, errors, schema } from '@powersync/service-framework';
 
 import * as util from '../../util/util-index.js';
 import { streamResponse } from '../../sync/sync.js';
@@ -16,13 +16,13 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         errors: ['Authentication required'].concat(context.token_errors ?? [])
       };
     },
-    validator: framework.schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
+    validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
     handler: async ({ context, params, responder, observer, initialN }) => {
       const { system } = context;
 
       if (system.closed) {
         responder.onError(
-          new framework.errors.JourneyError({
+          new errors.JourneyError({
             status: 503,
             code: 'SERVICE_UNAVAILABLE',
             description: 'Service temporarily unavailable'
@@ -44,7 +44,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       const cp = await storage.getActiveCheckpoint();
       if (!cp.hasSyncRules()) {
         responder.onError(
-          new framework.errors.JourneyError({
+          new errors.JourneyError({
             status: 500,
             code: 'NO_SYNC_RULES',
             description: 'No sync rules available'
@@ -122,8 +122,8 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       } catch (ex) {
         // Convert to our standard form before responding.
         // This ensures the error can be serialized.
-        const error = new framework.errors.InternalServerError(ex);
-        framework.logger.error('Sync stream error', error);
+        const error = new errors.InternalServerError(ex);
+        container.logger.error('Sync stream error', error);
         responder.onError(error);
       } finally {
         responder.onComplete();

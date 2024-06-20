@@ -2,7 +2,7 @@ import crypto from 'crypto';
 
 import { PersistedSyncRulesContent, ReplicationLock } from '../BucketStorage.js';
 import { PowerSyncMongo } from './db.js';
-import { logger } from '@powersync/service-framework';
+import { container } from '@powersync/service-framework';
 
 /**
  * Manages a lock on a sync rules document, so that only one process
@@ -40,7 +40,7 @@ export class MongoSyncRulesLock implements ReplicationLock {
       try {
         await this.refresh();
       } catch (e) {
-        logger.error('Failed to refresh lock', e);
+        container.logger.error('Failed to refresh lock', e);
         clearInterval(this.refreshInterval);
       }
     }, 30_130);
@@ -59,7 +59,7 @@ export class MongoSyncRulesLock implements ReplicationLock {
     );
     if (result.modifiedCount == 0) {
       // Log and ignore
-      logger.warn(`Lock already released: ${this.sync_rules_id}/${this.lock_id}`);
+      container.logger.warn(`Lock already released: ${this.sync_rules_id}/${this.lock_id}`);
     }
   }
 

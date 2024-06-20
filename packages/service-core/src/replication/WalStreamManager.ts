@@ -7,7 +7,7 @@ import * as util from '../util/util-index.js';
 import { DefaultErrorRateLimiter } from './ErrorRateLimiter.js';
 import { WalStreamRunner } from './WalStreamRunner.js';
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
-import { logger } from '@powersync/service-framework';
+import { container } from '@powersync/service-framework';
 
 // 5 minutes
 const PING_INTERVAL = 1_000_000_000n * 300n;
@@ -36,8 +36,8 @@ export class WalStreamManager {
 
   start() {
     this.runLoop().catch((e) => {
-      logger.error(`Fatal WalStream error`, e);
-      this.system.errorReporter.captureException(e);
+      container.logger.error(`Fatal WalStream error`, e);
+      container.reporter.captureException(e);
       setTimeout(() => {
         process.exit(1);
       }, 1000);
@@ -57,7 +57,7 @@ export class WalStreamManager {
     const configured_sync_rules = await util.loadSyncRules(this.system.config);
     let configured_lock: storage.ReplicationLock | undefined = undefined;
     if (configured_sync_rules != null) {
-      logger.info('Loading sync rules from configuration');
+      container.logger.info('Loading sync rules from configuration');
       try {
         // Configure new sync rules, if it has changed.
         // In that case, also immediately take out a lock, so that another process doesn't start replication on it.
@@ -69,13 +69,13 @@ export class WalStreamManager {
         }
       } catch (e) {
         // Log, but continue with previous sync rules
-        logger.error(`Failed to load sync rules from configuration`, e);
+        container.logger.error(`Failed to load sync rules from configuration`, e);
       }
     } else {
-      logger.info('No sync rules configured - configure via API');
+      container.logger.info('No sync rules configured - configure via API');
     }
     while (!this.stopped) {
-      await this.system.probe.touch();
+      await container.probes.touch();
       try {
         const pool = this.system.pgwire_pool;
         if (pool) {
@@ -92,7 +92,7 @@ export class WalStreamManager {
           }
         }
       } catch (e) {
-        logger.error(`Failed to refresh wal streams`, e);
+        container.logger.error(`Failed to refresh wal streams`, e);
       }
       await new Promise((resolve) => setTimeout(resolve, 5000));
     }
@@ -116,7 +116,7 @@ export class WalStreamManager {
       try {
         await db.query(`SELECT * FROM pg_logical_emit_message(false, 'powersync', 'ping')`);
       } catch (e) {
-        logger.warn(`Failed to ping`, e);
+        container.logger.warn(`Failed to ping`, e);
       }
       this.lastPing = now;
     }
@@ -158,9 +158,7 @@ export class WalStreamManager {
             storage: storage,
             source_db: this.system.config.connection!,
             lock,
-            rateLimiter: this.rateLimiter,
-            probe: this.system.probe,
-            errorReporter: this.system.errorReporter
+            rateLimiter: this.rateLimiter
           });
           newStreams.set(syncRules.id, stream);
           stream.start();
@@ -169,7 +167,7 @@ export class WalStreamManager {
           // for example from stricter validation that was added.
           // This will be retried every couple of seconds.
           // When new (valid) sync rules are deployed and processed, this one be disabled.
-          logger.error(`Failed to start replication for ${syncRules.slot_name}`, e);
+          container.logger.error(`Failed to start replication for ${syncRules.slot_name}`, e);
         }
       }
     }
@@ -185,7 +183,7 @@ export class WalStreamManager {
         await stream.terminate();
       } catch (e) {
         // This will be retried
-        logger.warn(`Failed to terminate ${stream.slot_name}`, e);
+        container.logger.warn(`Failed to terminate ${stream.slot_name}`, e);
       }
     }
 
@@ -201,16 +199,14 @@ export class WalStreamManager {
             factory: this.storage,
             storage: storage,
             source_db: this.system.config.connection!,
-            lock,
-            probe: this.system.probe,
-            errorReporter: this.system.errorReporter
+            lock
           });
           await stream.terminate();
         } finally {
           await lock.release();
         }
       } catch (e) {
-        logger.warn(`Failed to terminate ${syncRules.slot_name}`, e);
+        container.logger.warn(`Failed to terminate ${syncRules.slot_name}`, e);
       }
     }
   }

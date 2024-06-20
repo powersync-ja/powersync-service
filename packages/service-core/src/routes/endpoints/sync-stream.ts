@@ -1,6 +1,6 @@
 import { Readable } from 'stream';
 import { SyncParameters, normalizeTokenParameters } from '@powersync/service-sync-rules';
-import * as framework from '@powersync/service-framework';
+import { container, errors, router, schema } from '@powersync/service-framework';
 
 import * as sync from '../../sync/sync-index.js';
 import * as util from '../../util/util-index.js';
@@ -15,14 +15,14 @@ export enum SyncRoutes {
 
 export const syncStreamed = routeDefinition({
   path: SyncRoutes.STREAM,
-  method: framework.router.HTTPMethod.POST,
+  method: router.HTTPMethod.POST,
   authorize: authUser,
-  validator: framework.schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
+  validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
   handler: async (payload) => {
     const system = payload.context.system;
 
     if (system.closed) {
-      throw new framework.errors.JourneyError({
+      throw new errors.JourneyError({
         status: 503,
         code: 'SERVICE_UNAVAILABLE',
         description: 'Service temporarily unavailable'
@@ -39,7 +39,7 @@ export const syncStreamed = routeDefinition({
     // Sanity check before we start the stream
     const cp = await storage.getActiveCheckpoint();
     if (!cp.hasSyncRules()) {
-      throw new framework.errors.JourneyError({
+      throw new errors.JourneyError({
         status: 500,
         code: 'NO_SYNC_RULES',
         description: 'No sync rules available'
@@ -76,11 +76,11 @@ export const syncStreamed = routeDefinition({
         controller.abort();
         // Note: This appears as a 200 response in the logs.
         if (error.message != 'Shutting down system') {
-          framework.logger.error('Streaming sync request failed', error);
+          container.logger.error('Streaming sync request failed', error);
         }
       });
 
-      return new framework.router.RouterResponse({
+      return new router.RouterResponse({
         status: 200,
         headers: {
           'Content-Type': 'application/x-ndjson'

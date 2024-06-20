@@ -1,6 +1,6 @@
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import { SyncParameters } from '@powersync/service-sync-rules';
-import { logger } from '@powersync/service-framework';
+import { container } from '@powersync/service-framework';
 import { Semaphore } from 'async-mutex';
 import { AbortError } from 'ix/aborterror.js';
 
@@ -141,7 +141,7 @@ async function* streamResponseInner(
       message += `buckets: ${allBuckets.length} | `;
       message += `updated: ${limitedBuckets(diff.updatedBuckets, 20)} | `;
       message += `removed: ${limitedBuckets(diff.removedBuckets, 20)} | `;
-      logger.info(message);
+      container.logger.info(message);
 
       const checksum_line: util.StreamingSyncCheckpointDiff = {
         checkpoint_diff: {
@@ -156,7 +156,7 @@ async function* streamResponseInner(
     } else {
       let message = `New checkpoint: ${checkpoint} | write: ${writeCheckpoint} | `;
       message += `buckets: ${allBuckets.length} ${limitedBuckets(allBuckets, 20)}`;
-      logger.info(message);
+      container.logger.info(message);
       bucketsToFetch = allBuckets;
       const checksum_line: util.StreamingSyncCheckpoint = {
         checkpoint: {
@@ -246,7 +246,7 @@ async function* bucketDataBatch(request: BucketDataRequest) {
       if (r.data.length == 0) {
         continue;
       }
-      logger.debug(`Sending data for ${r.bucket}`);
+      container.logger.debug(`Sending data for ${r.bucket}`);
 
       let send_data: any;
       if (binary_data) {

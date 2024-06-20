@@ -2,7 +2,7 @@ import * as t from 'ts-codec';
 import * as yaml from 'yaml';
 
 import { configFile } from '@powersync/service-types';
-import * as framework from '@powersync/service-framework';
+import { schema } from '@powersync/service-framework';
 
 import { RunnerConfig } from '../types.js';
 
@@ -24,7 +24,7 @@ export enum ConfigFileFormat {
 const YAML_ENV_PREFIX = 'PS_';
 
 // ts-codec itself doesn't give great validation errors, so we use json schema for that
-const configSchemaValidator = framework.schema
+const configSchemaValidator = schema
   .parseJSONSchema(
     t.generateJSONSchema(configFile.powerSyncConfig, { allowAdditional: true, parsers: [configFile.portParser] })
   )

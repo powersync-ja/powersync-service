@@ -7,7 +7,7 @@ import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
-import { logger } from '@powersync/service-framework';
+import { container } from '@powersync/service-framework';
 
 export async function getConnectionStatus(system: CorePowerSyncSystem): Promise<ConnectionStatus | null> {
   if (system.pgwire_pool == null) {
@@ -134,7 +134,7 @@ export async function getSyncRulesStatus(
         }
       } catch (e) {
         // Ignore
-        logger.warn(`Unable to get replication lag`, e);
+        container.logger.warn(`Unable to get replication lag`, e);
       }
     }
   } else {

@@ -4,6 +4,8 @@ export * as alerts from './alerts/alerts-index.js';
 export * from './codec/codec-index.js';
 export * as codecs from './codec/codec-index.js';
 
+export * from './container.js';
+
 export * from './errors/errors-index.js';
 export * as errors from './errors/errors-index.js';
 

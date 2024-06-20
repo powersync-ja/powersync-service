@@ -1,30 +1,18 @@
 import * as pgwire from '@powersync/service-jpgwire';
-import {
-  ErrorReporter,
-  LifeCycledSystem,
-  LifeCycledSystemOptions,
-  logger,
-  NoOpReporter
-} from '@powersync/service-framework';
+import { LifeCycledSystem, container } from '@powersync/service-framework';
 
 import * as storage from '../storage/storage-index.js';
 import * as utils from '../util/util-index.js';
 
-export interface CorePowerSyncSystemOptions extends LifeCycledSystemOptions {
-  errorReporter?: ErrorReporter;
-}
-
 export abstract class CorePowerSyncSystem extends LifeCycledSystem {
   abstract storage: storage.BucketStorageFactory;
   abstract pgwire_pool?: pgwire.PgClient;
-  errorReporter: ErrorReporter;
   closed: boolean;
 
   protected stopHandlers: Set<() => void> = new Set();
 
-  constructor(public config: utils.ResolvedPowerSyncConfig, options?: CorePowerSyncSystemOptions) {
-    super(options);
-    this.errorReporter = options?.errorReporter ?? NoOpReporter;
+  constructor(public config: utils.ResolvedPowerSyncConfig) {
+    super();
     this.closed = false;
   }
 
@@ -43,12 +31,12 @@ export abstract class CorePowerSyncSystem extends LifeCycledSystem {
    * This is so that the handler is run before the server's handler, allowing streams to be interrupted on exit
    */
   addTerminationHandler() {
-    this.terminationHandler.handleTerminationSignal(async () => {
+    container.terminationHandler.handleTerminationSignal(async () => {
       // Close open streams, so that they don't block the server from closing.
       // Note: This does not work well when streaming requests are queued. In that case, the server still doesn't
       // close in the 30-second timeout.
       this.closed = true;
-      logger.info(`Closing ${this.stopHandlers.size} streams`);
+      container.logger.info(`Closing ${this.stopHandlers.size} streams`);
       for (let handler of this.stopHandlers) {
         handler();
       }

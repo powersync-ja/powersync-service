@@ -16,7 +16,7 @@ import {
   SourceKey
 } from './models.js';
 import { serializeLookup } from './util.js';
-import { logger } from '@powersync/service-framework';
+import { container } from '@powersync/service-framework';
 
 /**
  * Maximum size of operations we write in a single transaction.
@@ -253,7 +253,7 @@ export class PersistedBatch {
       });
     }
 
-    logger.info(
+    container.logger.info(
       `powersync_${this.group_id} Flushed ${this.bucketData.length} + ${this.bucketParameters.length} + ${
         this.currentData.length
       } updates, ${Math.round(this.currentSize / 1024)}kb. Last op_id: ${this.debugLastOpId}`

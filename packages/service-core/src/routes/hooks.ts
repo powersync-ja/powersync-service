@@ -1,7 +1,7 @@
 import type fastify from 'fastify';
 import a from 'async';
 
-import * as framework from '@powersync/service-framework';
+import { container } from '@powersync/service-framework';
 
 export type CreateRequestQueueParams = {
   max_queue_depth: number;
@@ -22,7 +22,7 @@ export const createRequestQueueHook = (params: CreateRequestQueueParams): fastif
       (params.max_queue_depth == 0 && request_queue.running() == params.concurrency) ||
       (params.max_queue_depth > 0 && request_queue.length() >= params.max_queue_depth)
     ) {
-      framework.logger.warn(`${request.method} ${request.url}`, {
+      container.logger.warn(`${request.method} ${request.url}`, {
         status: 429,
         method: request.method,
         path: request.url,

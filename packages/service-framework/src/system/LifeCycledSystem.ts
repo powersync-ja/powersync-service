@@ -6,9 +6,7 @@
  * A System can contain anything but should offer a `start` and `stop` operation
  */
 
-import { createFSProbe } from '../signals/probes/fs-probes.js';
-import { ProbeModule } from '../signals/probes/probes.js';
-import { TerminationHandler, createTerminationHandler } from '../signals/termination-handler.js';
+import { container } from '../container.js';
 
 export type LifecycleCallback<T> = (singleton: T) => Promise<void> | void;
 
@@ -22,29 +20,11 @@ export type ComponentLifecycle<T> = PartialLifecycle<T> & {
 };
 export type LifecycleHandler<T> = () => ComponentLifecycle<T>;
 
-export type LifeCycledSystemOptions = {
-  /**
-   * Optional termination handler. Defaults to a NodeJS process listener handler
-   * if not provided.
-   */
-  terminationHandler?: TerminationHandler;
-
-  /**
-   * Probe handler for system readiness and liveliness state management.
-   * Defaults to a FileSystem based probe if not provided.
-   */
-  probe?: ProbeModule;
-};
-
 export abstract class LifeCycledSystem {
   components: ComponentLifecycle<any>[] = [];
-  terminationHandler: TerminationHandler;
-  probe: ProbeModule;
 
-  constructor(options?: LifeCycledSystemOptions) {
-    this.terminationHandler = options?.terminationHandler ?? createTerminationHandler();
-    this.terminationHandler.handleTerminationSignal(() => this.stop());
-    this.probe = options?.probe ?? createFSProbe();
+  constructor() {
+    container.terminationHandler.handleTerminationSignal(() => this.stop());
   }
 
   withLifecycle = <T>(component: T, lifecycle: PartialLifecycle<T>): T => {

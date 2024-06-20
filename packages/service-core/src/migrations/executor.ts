@@ -1,6 +1,6 @@
-import * as framework from '@powersync/service-framework';
 import * as defs from './definitions.js';
 import { MigrationStore } from './store/migration-store.js';
+import { container } from '@powersync/service-framework';
 
 type ExecuteParams = {
   migrations: defs.Migration[];
@@ -42,7 +42,7 @@ export async function* execute(params: ExecuteParams): AsyncGenerator<defs.Execu
       return;
     }
 
-    framework.logger.info(`Executing ${migration.name} (${params.direction})`);
+    container.logger.info(`Executing ${migration.name} (${params.direction})`);
     try {
       switch (params.direction) {
         case defs.Direction.Up: {
@@ -54,9 +54,9 @@ export async function* execute(params: ExecuteParams): AsyncGenerator<defs.Execu
           break;
         }
       }
-      framework.logger.debug(`Success`);
+      container.logger.debug(`Success`);
     } catch (err) {
-      framework.logger.error(`Failed`, err);
+      container.logger.error(`Failed`, err);
       process.exit(1);
     }
 

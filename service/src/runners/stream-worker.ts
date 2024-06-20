@@ -1,9 +1,11 @@
 import { migrations, replication, utils, Metrics } from '@powersync/service-core';
-import { logger } from '@powersync/service-framework';
+import { container } from '@powersync/service-framework';
 
 import { PowerSyncSystem } from '../system/PowerSyncSystem.js';
 
 export async function startStreamWorker(runnerConfig: utils.RunnerConfig) {
+  const { logger } = container;
+
   logger.info('Booting');
 
   const config = await utils.loadConfig(runnerConfig);
@@ -31,9 +33,9 @@ export async function startStreamWorker(runnerConfig: utils.RunnerConfig) {
   // This is so that the handler is run before the server's handler, allowing streams to be interrupted on exit
   system.addTerminationHandler();
 
-  system.terminationHandler.handleTerminationSignal(async () => {
+  container.terminationHandler.handleTerminationSignal(async () => {
     await mngr.stop();
   });
 
-  await system.probe.ready();
+  await container.probes.ready();
 }

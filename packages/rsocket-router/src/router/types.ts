@@ -1,5 +1,5 @@
 import * as t from 'ts-codec';
-import * as framework from '@powersync/service-framework';
+import { router } from '@powersync/service-framework';
 
 import { OnExtensionSubscriber, OnNextSubscriber, OnTerminalSubscriber } from 'rsocket-core';
 
@@ -32,15 +32,12 @@ export type ReactiveStreamPayload<O> = CommonStreamPayload & {
 };
 
 export type IReactiveStream<I = any, O = any, C = any> = Omit<
-  framework.router.Endpoint<
+  router.Endpoint<
     I,
     O,
     C,
-    framework.router.EndpointHandlerPayload<I, C> & CommonStreamPayload,
-    framework.router.EndpointHandler<
-      framework.router.EndpointHandlerPayload<I, C> & ReactiveStreamPayload<O>,
-      undefined
-    >
+    router.EndpointHandlerPayload<I, C> & CommonStreamPayload,
+    router.EndpointHandler<router.EndpointHandlerPayload<I, C> & ReactiveStreamPayload<O>, undefined>
   >,
   'method'
 > & {

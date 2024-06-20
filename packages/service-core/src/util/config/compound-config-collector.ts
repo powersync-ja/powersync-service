@@ -9,7 +9,7 @@ import { Base64SyncRulesCollector } from './sync-rules/impl/base64-sync-rules-co
 import { InlineSyncRulesCollector } from './sync-rules/impl/inline-sync-rules-collector.js';
 import { FileSystemSyncRulesCollector } from './sync-rules/impl/filesystem-sync-rules-collector.js';
 import { FallbackConfigCollector } from './collectors/impl/fallback-config-collector.js';
-import { logger } from '@powersync/service-framework';
+import { container } from '@powersync/service-framework';
 
 const POWERSYNC_DEV_KID = 'powersync-dev';
 
@@ -140,7 +140,7 @@ export class CompoundConfigCollector {
         if (baseConfig) {
           return baseConfig;
         }
-        logger.debug(
+        container.logger.debug(
           `Could not collect PowerSync config with ${collector.name} method. Moving on to next method if available.`
         );
       } catch (ex) {
@@ -161,7 +161,7 @@ export class CompoundConfigCollector {
         if (config) {
           return config;
         }
-        logger.debug(
+        container.logger.debug(
           `Could not collect sync rules with ${collector.name} method. Moving on to next method if available.`
         );
       } catch (ex) {

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import * as framework from '@powersync/service-framework';
+import { container } from '@powersync/service-framework';
 import {
   Closeable,
   Deferred,
@@ -93,7 +93,7 @@ export class WebsocketDuplexConnection extends Deferred implements DuplexConnect
   };
 
   private handleError = (e: WebSocket.ErrorEvent): void => {
-    framework.logger.error(`Error in WebSocket duplex connection: ${e}`);
+    container.logger.error(`Error in WebSocket duplex connection: ${e}`);
     this.close(e.error);
   };
 
@@ -123,7 +123,7 @@ export class WebsocketDuplexConnection extends Deferred implements DuplexConnect
           throw new Error(`Unable to deserialize frame`);
         }
       } catch (ex) {
-        framework.logger.info(`Received error deserializing initial frame buffer. Skipping connection request.`, ex);
+        container.logger.info(`Received error deserializing initial frame buffer. Skipping connection request.`, ex);
         // The initial frame should always be parsable
         return socket.end();
       }
@@ -137,7 +137,7 @@ export class WebsocketDuplexConnection extends Deferred implements DuplexConnect
         await connectionAcceptor(frame, connection);
         socket.resume();
       } catch (error) {
-        framework.logger.info(`Error accepting connection:`, error);
+        container.logger.info(`Error accepting connection:`, error);
         connection.close(error);
       }
     });

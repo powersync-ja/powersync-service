@@ -24,7 +24,7 @@ import { PowerSyncMongo, PowerSyncMongoOptions } from './mongo/db.js';
 import { SyncRuleDocument, SyncRuleState } from './mongo/models.js';
 import { generateSlotName } from './mongo/util.js';
 import { v4 as uuid } from 'uuid';
-import { ErrorReporter, logger } from '@powersync/service-framework';
+import { container } from '@powersync/service-framework';
 
 export interface MongoBucketStorageOptions extends PowerSyncMongoOptions {}
 
@@ -32,7 +32,6 @@ export class MongoBucketStorage implements BucketStorageFactory {
   private readonly client: mongo.MongoClient;
   private readonly session: mongo.ClientSession;
   public readonly slot_name_prefix: string;
-  protected errorReporter: ErrorReporter;
 
   private readonly storageCache = new LRUCache<number, MongoSyncBucketStorage>({
     max: 3,
@@ -55,11 +54,10 @@ export class MongoBucketStorage implements BucketStorageFactory {
 
   public readonly db: PowerSyncMongo;
 
-  constructor(db: PowerSyncMongo, options: { slot_name_prefix: string; errorReporter: ErrorReporter }) {
+  constructor(db: PowerSyncMongo, options: { slot_name_prefix: string }) {
     this.client = db.client;
     this.db = db;
     this.session = this.client.startSession();
-    this.errorReporter = options.errorReporter;
     this.slot_name_prefix = options.slot_name_prefix;
   }
 
@@ -68,7 +66,7 @@ export class MongoBucketStorage implements BucketStorageFactory {
     if ((typeof id as any) == 'bigint') {
       id = Number(id);
     }
-    return new MongoSyncBucketStorage(this, id, sync_rules, slot_name, this.errorReporter);
+    return new MongoSyncBucketStorage(this, id, sync_rules, slot_name);
   }
 
   async configureSyncRules(sync_rules: string, options?: { lock?: boolean }) {
@@ -76,13 +74,13 @@ export class MongoBucketStorage implements BucketStorageFactory {
     const active = await this.getActiveSyncRulesContent();
 
     if (next?.sync_rules_content == sync_rules) {
-      logger.info('Sync rules from configuration unchanged');
+      container.logger.info('Sync rules from configuration unchanged');
       return { updated: false };
     } else if (next == null && active?.sync_rules_content == sync_rules) {
-      logger.info('Sync rules from configuration unchanged');
+      container.logger.info('Sync rules from configuration unchanged');
       return { updated: false };
     } else {
-      logger.info('Sync rules updated from configuration');
+      container.logger.info('Sync rules updated from configuration');
       const persisted_sync_rules = await this.updateSyncRules({
         content: sync_rules,
         lock: options?.lock

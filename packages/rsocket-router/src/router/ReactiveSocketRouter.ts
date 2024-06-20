@@ -16,7 +16,7 @@ import {
   SocketResponder
 } from './types.js';
 import { WebsocketServerTransport } from './transport/WebSocketServerTransport.js';
-import * as framework from '@powersync/service-framework';
+import { container, errors } from '@powersync/service-framework';
 
 export class ReactiveSocketRouter<C> {
   protected activeConnections: number;
@@ -55,13 +55,15 @@ export class ReactiveSocketRouter<C> {
       wsCreator: () => wss
     });
 
+    const { logger } = container;
+
     const rSocketServer = new RSocketServer({
       transport,
       acceptor: {
         accept: async (payload) => {
           const { max_concurrent_connections } = this.options ?? {};
           if (max_concurrent_connections && this.activeConnections >= max_concurrent_connections) {
-            throw new framework.errors.JourneyError({
+            throw new errors.JourneyError({
               code: '429',
               description: `Maximum active concurrent connections limit has been reached`
             });
@@ -70,7 +72,7 @@ export class ReactiveSocketRouter<C> {
           // Throwing an exception in this context will be returned to the client side request
           if (!payload.metadata) {
             // Meta data is required for endpoint handler path matching
-            throw new framework.errors.AuthorizationError('No context meta data provided');
+            throw new errors.AuthorizationError('No context meta data provided');
           }
 
           const context = await params.contextProvider(payload.metadata!);
@@ -81,7 +83,7 @@ export class ReactiveSocketRouter<C> {
               const observer = new SocketRouterObserver();
 
               handleReactiveStream(context, { payload, initialN, responder }, observer, params).catch((ex) => {
-                framework.logger.error(ex);
+                logger.error(ex);
                 responder.onError(ex);
                 responder.onComplete();
               });
@@ -122,6 +124,7 @@ export async function handleReactiveStream<Context>(
 ) {
   const { payload, responder, initialN } = request;
   const { metadata } = payload;
+  const { logger } = container;
 
   const exitWithError = (error: any) => {
     responder.onError(error);
@@ -129,7 +132,7 @@ export async function handleReactiveStream<Context>(
   };
 
   if (!metadata) {
-    return exitWithError(new framework.errors.ValidationError('Metadata is not provided'));
+    return exitWithError(new errors.ValidationError('Metadata is not provided'));
   }
 
   const meta = await params.metaDecoder(metadata);
@@ -139,7 +142,7 @@ export async function handleReactiveStream<Context>(
   const route = params.endpoints.find((e) => e.path == path && e.type == RS_ENDPOINT_TYPE.STREAM);
 
   if (!route) {
-    return exitWithError(new framework.errors.ResourceNotFound('route', `No route for ${path} is configured`));
+    return exitWithError(new errors.ResourceNotFound('route', `No route for ${path} is configured`));
   }
 
   const { handler, authorize, validator, decoder = params.payloadDecoder } = route;
@@ -148,14 +151,14 @@ export async function handleReactiveStream<Context>(
   if (validator) {
     const isValid = validator.validate(requestPayload);
     if (!isValid.valid) {
-      return exitWithError(new framework.errors.ValidationError(isValid.errors));
+      return exitWithError(new errors.ValidationError(isValid.errors));
     }
   }
 
   if (authorize) {
     const isAuthorized = await authorize({ params: requestPayload, context, observer, responder });
     if (!isAuthorized.authorized) {
-      return exitWithError(new framework.errors.AuthorizationError(isAuthorized.errors));
+      return exitWithError(new errors.AuthorizationError(isAuthorized.errors));
     }
   }
 
@@ -168,7 +171,7 @@ export async function handleReactiveStream<Context>(
       initialN
     });
   } catch (ex) {
-    framework.logger.error(ex);
+    logger.error(ex);
     responder.onError(ex);
     responder.onComplete();
   }

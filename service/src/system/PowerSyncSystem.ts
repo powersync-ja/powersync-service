@@ -1,14 +1,12 @@
 import { db, system, utils, storage, Metrics } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 
-import { sentryErrorReporter } from '../util/alerting.js';
-
 export class PowerSyncSystem extends system.CorePowerSyncSystem {
   storage: storage.BucketStorageFactory;
   pgwire_pool?: pgwire.PgClient;
 
   constructor(public config: utils.ResolvedPowerSyncConfig) {
-    super(config, { errorReporter: sentryErrorReporter });
+    super(config);
 
     utils.setTags(config.metadata);
 
@@ -34,8 +32,7 @@ export class PowerSyncSystem extends system.CorePowerSyncSystem {
       });
       const database = new storage.PowerSyncMongo(client, { database: config.storage.database });
       this.storage = new storage.MongoBucketStorage(database, {
-        slot_name_prefix: config.slot_name_prefix,
-        errorReporter: this.errorReporter
+        slot_name_prefix: config.slot_name_prefix
       });
     } else {
       throw new Error('No storage configured');

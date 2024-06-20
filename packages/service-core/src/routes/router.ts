@@ -1,4 +1,4 @@
-import * as framework from '@powersync/service-framework';
+import { router } from '@powersync/service-framework';
 import * as auth from '../auth/auth-index.js';
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
 
@@ -26,13 +26,13 @@ export type RequestEndpoint<
   O,
   C = Context,
   Payload = RequestEndpointHandlerPayload<I, C, BasicRouterRequest>
-> = framework.router.Endpoint<I, O, C, Payload> & {};
+> = router.Endpoint<I, O, C, Payload> & {};
 
 export type RequestEndpointHandlerPayload<
   I = any,
   C = Context,
   Request = BasicRouterRequest
-> = framework.router.EndpointHandlerPayload<I, C> & {
+> = router.EndpointHandlerPayload<I, C> & {
   request: Request;
 };
 

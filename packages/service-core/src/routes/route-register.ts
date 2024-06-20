@@ -1,6 +1,6 @@
 import fastify from 'fastify';
 
-import * as framework from '@powersync/service-framework';
+import { container, errors, router, HTTPMethod } from '@powersync/service-framework';
 import { Context, ContextProvider, RequestEndpoint, RequestEndpointHandlerPayload } from './router.js';
 
 export type FastifyEndpoint<I, O, C> = RequestEndpoint<I, O, C> & {
@@ -21,10 +21,10 @@ export function registerFastifyRoutes(
     app.register(async function (fastify) {
       fastify.route({
         url: e.path,
-        method: e.method as framework.HTTPMethod,
+        method: e.method as HTTPMethod,
         handler: async (request, reply) => {
           const startTime = new Date();
-          let response: framework.router.RouterResponse;
+          let response: router.RouterResponse;
           try {
             const context = await contextProvider(request);
 
@@ -46,27 +46,25 @@ export function registerFastifyRoutes(
               request
             };
 
-            const endpointResponse = await framework.router.executeEndpoint(e, payload);
+            const endpointResponse = await router.executeEndpoint(e, payload);
 
-            if (framework.RouterResponse.isRouterResponse(endpointResponse)) {
+            if (router.RouterResponse.isRouterResponse(endpointResponse)) {
               response = endpointResponse;
-            } else if (framework.router.isAsyncIterable(endpointResponse) || Buffer.isBuffer(endpointResponse)) {
-              response = new framework.router.RouterResponse({
+            } else if (router.isAsyncIterable(endpointResponse) || Buffer.isBuffer(endpointResponse)) {
+              response = new router.RouterResponse({
                 status: 200,
                 data: endpointResponse
               });
             } else {
-              response = new framework.router.RouterResponse({
+              response = new router.RouterResponse({
                 status: 200,
                 data: { data: endpointResponse }
               });
             }
           } catch (ex) {
-            const journeyError = framework.errors.JourneyError.isJourneyError(ex)
-              ? ex
-              : new framework.errors.InternalServerError(ex);
+            const journeyError = errors.JourneyError.isJourneyError(ex) ? ex : new errors.InternalServerError(ex);
 
-            response = new framework.RouterResponse({
+            response = new router.RouterResponse({
               status: journeyError.errorData.status || 500,
               headers: {
                 'Content-Type': 'application/json'
@@ -85,7 +83,7 @@ export function registerFastifyRoutes(
             await reply.send(response.data);
           } finally {
             await response.afterSend?.();
-            framework.logger.info(`${e.method} ${request.url}`, {
+            container.logger.info(`${e.method} ${request.url}`, {
               duration_ms: Math.round(new Date().valueOf() - startTime.valueOf() + Number.EPSILON),
               status: response.status,
               method: e.method,

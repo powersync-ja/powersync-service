@@ -7,7 +7,7 @@ import * as util from '../util/util-index.js';
 import * as storage from '../storage/storage-index.js';
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
 import { Resource } from '@opentelemetry/resources';
-import { logger } from '@powersync/service-framework';
+import { container } from '@powersync/service-framework';
 
 export interface MetricsOptions {
   disable_telemetry_sharing: boolean;
@@ -144,9 +144,9 @@ export class Metrics {
     if (Metrics.instance) {
       return;
     }
-    logger.info('Configuring telemetry.');
+    container.logger.info('Configuring telemetry.');
 
-    logger.info(
+    container.logger.info(
       `
 Attention:
 PowerSync collects completely anonymous telemetry regarding usage.
@@ -164,7 +164,7 @@ Anonymous telemetry is currently: ${options.disable_telemetry_sharing ? 'disable
     configuredExporters.push(prometheusExporter);
 
     if (!options.disable_telemetry_sharing) {
-      logger.info('Sharing anonymous telemetry');
+      container.logger.info('Sharing anonymous telemetry');
       const periodicExporter = new PeriodicExportingMetricReader({
         exporter: new OTLPMetricExporter({
           url: options.internal_metrics_endpoint
@@ -189,7 +189,7 @@ Anonymous telemetry is currently: ${options.disable_telemetry_sharing ? 'disable
 
     Metrics.instance = new Metrics(meterProvider, prometheusExporter);
 
-    logger.info('Telemetry configuration complete.');
+    container.logger.info('Telemetry configuration complete.');
   }
 
   public async shutdown(): Promise<void> {
@@ -212,7 +212,7 @@ Anonymous telemetry is currently: ${options.disable_telemetry_sharing ? 'disable
     function getMetrics() {
       if (cachedRequest == null || Date.now() - cacheTimestamp > MINIMUM_INTERVAL) {
         cachedRequest = system.storage.getStorageMetrics().catch((e) => {
-          logger.error(`Failed to get storage metrics`, e);
+          container.logger.error(`Failed to get storage metrics`, e);
           return null;
         });
         cacheTimestamp = Date.now();

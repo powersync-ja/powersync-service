@@ -1,4 +1,4 @@
-import * as framework from '@powersync/service-framework';
+import { errors, router, schema } from '@powersync/service-framework';
 import { SqlSyncRules, SqliteValue, StaticSchema, isJsonValue, toSyncRulesValue } from '@powersync/service-sync-rules';
 import { internal_routes } from '@powersync/service-types';
 
@@ -11,9 +11,9 @@ import { authApi } from '../auth.js';
 
 const demoCredentials = routeDefinition({
   path: '/api/admin/v1/demo-credentials',
-  method: framework.router.HTTPMethod.POST,
+  method: router.HTTPMethod.POST,
   authorize: authApi,
-  validator: framework.schema.createTsCodecValidator(internal_routes.DemoCredentialsRequest, {
+  validator: schema.createTsCodecValidator(internal_routes.DemoCredentialsRequest, {
     allowAdditional: true
   }),
   handler: async (payload) => {
@@ -33,9 +33,9 @@ const demoCredentials = routeDefinition({
 
 export const executeSql = routeDefinition({
   path: '/api/admin/v1/execute-sql',
-  method: framework.router.HTTPMethod.POST,
+  method: router.HTTPMethod.POST,
   authorize: authApi,
-  validator: framework.schema.createTsCodecValidator(internal_routes.ExecuteSqlRequest, { allowAdditional: true }),
+  validator: schema.createTsCodecValidator(internal_routes.ExecuteSqlRequest, { allowAdditional: true }),
   handler: async (payload) => {
     const connection = payload.context.system.config.connection;
     if (connection == null || !connection.debug_api) {
@@ -83,9 +83,9 @@ export const executeSql = routeDefinition({
 
 export const diagnostics = routeDefinition({
   path: '/api/admin/v1/diagnostics',
-  method: framework.HTTPMethod.POST,
+  method: router.HTTPMethod.POST,
   authorize: authApi,
-  validator: framework.schema.createTsCodecValidator(internal_routes.DiagnosticsRequest, { allowAdditional: true }),
+  validator: schema.createTsCodecValidator(internal_routes.DiagnosticsRequest, { allowAdditional: true }),
   handler: async (payload) => {
     const include_content = payload.params.sync_rules_content ?? false;
     const system = payload.context.system;
@@ -123,9 +123,9 @@ export const diagnostics = routeDefinition({
 
 export const getSchema = routeDefinition({
   path: '/api/admin/v1/schema',
-  method: framework.router.HTTPMethod.POST,
+  method: router.HTTPMethod.POST,
   authorize: authApi,
-  validator: framework.schema.createTsCodecValidator(internal_routes.GetSchemaRequest, { allowAdditional: true }),
+  validator: schema.createTsCodecValidator(internal_routes.GetSchemaRequest, { allowAdditional: true }),
   handler: async (payload) => {
     const system = payload.context.system;
 
@@ -135,9 +135,9 @@ export const getSchema = routeDefinition({
 
 export const reprocess = routeDefinition({
   path: '/api/admin/v1/reprocess',
-  method: framework.router.HTTPMethod.POST,
+  method: router.HTTPMethod.POST,
   authorize: authApi,
-  validator: framework.schema.createTsCodecValidator(internal_routes.ReprocessRequest, { allowAdditional: true }),
+  validator: schema.createTsCodecValidator(internal_routes.ReprocessRequest, { allowAdditional: true }),
   handler: async (payload) => {
     const system = payload.context.system;
 
@@ -149,7 +149,7 @@ export const reprocess = routeDefinition({
 
     const active = await storage.getActiveSyncRules();
     if (active == null) {
-      throw new framework.errors.JourneyError({
+      throw new errors.JourneyError({
         status: 422,
         code: 'NO_SYNC_RULES',
         description: 'No active sync rules'
@@ -174,9 +174,9 @@ export const reprocess = routeDefinition({
 
 export const validate = routeDefinition({
   path: '/api/admin/v1/validate',
-  method: framework.router.HTTPMethod.POST,
+  method: router.HTTPMethod.POST,
   authorize: authApi,
-  validator: framework.schema.createTsCodecValidator(internal_routes.ValidateRequest, { allowAdditional: true }),
+  validator: schema.createTsCodecValidator(internal_routes.ValidateRequest, { allowAdditional: true }),
   handler: async (payload) => {
     const system = payload.context.system;
 

@@ -1,8 +1,8 @@
 import { deserialize } from 'bson';
 import fastify from 'fastify';
 import cors from '@fastify/cors';
-import * as framework from '@powersync/service-framework';
 import * as core from '@powersync/service-core';
+import { container, errors } from '@powersync/service-framework';
 import { RSocketRequestMeta } from '@powersync/service-rsocket-router';
 
 import { PowerSyncSystem } from '../system/PowerSyncSystem.js';
@@ -11,10 +11,12 @@ import { SocketRouter } from '../routes/router.js';
  * Starts an API server
  */
 export async function startServer(runnerConfig: core.utils.RunnerConfig) {
-  framework.logger.info('Booting');
+  container.logger.info('Booting');
 
   const config = await core.utils.loadConfig(runnerConfig);
   const system = new PowerSyncSystem(config);
+
+  const { logger } = container;
 
   const server = fastify.fastify();
 
@@ -80,7 +82,7 @@ export async function startServer(runnerConfig: core.utils.RunnerConfig) {
       const { token } = core.routes.RSocketContextMeta.decode(deserialize(data) as any);
 
       if (!token) {
-        throw new framework.errors.ValidationError('No token provided in context');
+        throw new errors.ValidationError('No token provided in context');
       }
 
       try {
@@ -95,7 +97,7 @@ export async function startServer(runnerConfig: core.utils.RunnerConfig) {
           };
         }
       } catch (ex) {
-        framework.logger.error(ex);
+        container.logger.error(ex);
       }
 
       return {
@@ -110,9 +112,9 @@ export async function startServer(runnerConfig: core.utils.RunnerConfig) {
     payloadDecoder: async (rawData?: Buffer) => rawData && deserialize(rawData)
   });
 
-  framework.logger.info('Starting system');
+  logger.info('Starting system');
   await system.start();
-  framework.logger.info('System started');
+  logger.info('System started');
 
   core.Metrics.getInstance().configureApiMetrics();
 
@@ -120,18 +122,18 @@ export async function startServer(runnerConfig: core.utils.RunnerConfig) {
     port: system.config.port
   });
 
-  system.terminationHandler.handleTerminationSignal(async () => {
-    framework.logger.info('Shutting down HTTP server...');
+  container.terminationHandler.handleTerminationSignal(async () => {
+    logger.info('Shutting down HTTP server...');
     await server.close();
-    framework.logger.info('HTTP server stopped');
+    logger.info('HTTP server stopped');
   });
 
   // MUST be after adding the termination handler above.
   // This is so that the handler is run before the server's handler, allowing streams to be interrupted on exit
   system.addTerminationHandler();
 
-  framework.logger.info(`Running on port ${system.config.port}`);
-  await system.probe.ready();
+  logger.info(`Running on port ${system.config.port}`);
+  await container.probes.ready();
 
   // Enable in development to track memory usage:
   // trackMemoryUsage();

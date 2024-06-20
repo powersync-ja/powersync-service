@@ -1,6 +1,6 @@
 import * as t from 'ts-codec';
-import * as framework from '@powersync/service-framework';
 import * as pgwire from '@powersync/service-jpgwire';
+import { errors, router, schema } from '@powersync/service-framework';
 
 import * as util from '../../util/util-index.js';
 import { authDevUser, authUser, endpoint, issueDevToken, issueLegacyDevToken, issuePowerSyncToken } from '../auth.js';
@@ -14,42 +14,42 @@ const AuthParams = t.object({
 // For legacy web client only. Remove soon.
 export const auth = routeDefinition({
   path: '/auth.json',
-  method: framework.router.HTTPMethod.POST,
-  validator: framework.schema.createTsCodecValidator(AuthParams, { allowAdditional: true }),
+  method: router.HTTPMethod.POST,
+  validator: schema.createTsCodecValidator(AuthParams, { allowAdditional: true }),
   handler: async (payload) => {
     const { user, password } = payload.params;
     const config = payload.context.system.config;
 
     if (config.dev.demo_auth == false || config.dev.demo_password == null) {
-      throw new framework.errors.AuthorizationError(['Demo auth disabled']);
+      throw new errors.AuthorizationError(['Demo auth disabled']);
     }
 
     if (password == config.dev.demo_password) {
       const token = await issueLegacyDevToken(payload.request, user, payload.context.system.config);
       return { token, user_id: user, endpoint: endpoint(payload.request) };
     } else {
-      throw new framework.errors.AuthorizationError(['Authentication failed']);
+      throw new errors.AuthorizationError(['Authentication failed']);
     }
   }
 });
 
 export const auth2 = routeDefinition({
   path: '/dev/auth.json',
-  method: framework.router.HTTPMethod.POST,
-  validator: framework.schema.createTsCodecValidator(AuthParams, { allowAdditional: true }),
+  method: router.HTTPMethod.POST,
+  validator: schema.createTsCodecValidator(AuthParams, { allowAdditional: true }),
   handler: async (payload) => {
     const { user, password } = payload.params;
     const config = payload.context.system.config;
 
     if (config.dev.demo_auth == false || config.dev.demo_password == null) {
-      throw new framework.errors.AuthorizationError(['Demo auth disabled']);
+      throw new errors.AuthorizationError(['Demo auth disabled']);
     }
 
     if (password == config.dev.demo_password) {
       const token = await issueDevToken(payload.request, user, payload.context.system.config);
       return { token, user_id: user };
     } else {
-      throw new framework.errors.AuthorizationError(['Authentication failed']);
+      throw new errors.AuthorizationError(['Authentication failed']);
     }
   }
 });
@@ -58,8 +58,8 @@ const TokenParams = t.object({});
 
 export const token = routeDefinition({
   path: '/dev/token.json',
-  method: framework.router.HTTPMethod.POST,
-  validator: framework.schema.createTsCodecValidator(TokenParams, { allowAdditional: true }),
+  method: router.HTTPMethod.POST,
+  validator: schema.createTsCodecValidator(TokenParams, { allowAdditional: true }),
   authorize: authDevUser,
   handler: async (payload) => {
     const { user_id } = payload.context;
@@ -89,8 +89,8 @@ const CrudRequest = t.object({
 
 export const crud = routeDefinition({
   path: '/crud.json',
-  method: framework.router.HTTPMethod.POST,
-  validator: framework.schema.createTsCodecValidator(CrudRequest, { allowAdditional: true }),
+  method: router.HTTPMethod.POST,
+  validator: schema.createTsCodecValidator(CrudRequest, { allowAdditional: true }),
   authorize: authUser,
 
   handler: async (payload) => {

@@ -1,7 +1,7 @@
 import * as t from 'ts-codec';
 import { FastifyPluginAsync } from 'fastify';
-import * as framework from '@powersync/service-framework';
 import * as pgwire from '@powersync/service-jpgwire';
+import { errors, router, schema } from '@powersync/service-framework';
 import { SqlSyncRules, SyncRulesErrors } from '@powersync/service-sync-rules';
 
 import * as replication from '../../replication/replication-index.js';
@@ -33,15 +33,15 @@ yamlPlugin[Symbol.for('skip-override')] = true;
 
 export const deploySyncRules = routeDefinition({
   path: '/api/sync-rules/v1/deploy',
-  method: framework.router.HTTPMethod.POST,
+  method: router.HTTPMethod.POST,
   authorize: authApi,
   parse: true,
   plugins: [yamlPlugin],
-  validator: framework.schema.createTsCodecValidator(DeploySyncRulesRequest, { allowAdditional: true }),
+  validator: schema.createTsCodecValidator(DeploySyncRulesRequest, { allowAdditional: true }),
   handler: async (payload) => {
     if (payload.context.system.config.sync_rules.present) {
       // If sync rules are configured via the config, disable deploy via the API.
-      throw new framework.errors.JourneyError({
+      throw new errors.JourneyError({
         status: 422,
         code: 'API_DISABLED',
         description: 'Sync rules API disabled',
@@ -53,7 +53,7 @@ export const deploySyncRules = routeDefinition({
     try {
       SqlSyncRules.fromYaml(payload.params.content);
     } catch (e) {
-      throw new framework.errors.JourneyError({
+      throw new errors.JourneyError({
         status: 422,
         code: 'INVALID_SYNC_RULES',
         description: 'Sync rules parsing failed',
@@ -77,11 +77,11 @@ const ValidateSyncRulesRequest = t.object({
 
 export const validateSyncRules = routeDefinition({
   path: '/api/sync-rules/v1/validate',
-  method: framework.router.HTTPMethod.POST,
+  method: router.HTTPMethod.POST,
   authorize: authApi,
   parse: true,
   plugins: [yamlPlugin],
-  validator: framework.schema.createTsCodecValidator(ValidateSyncRulesRequest, { allowAdditional: true }),
+  validator: schema.createTsCodecValidator(ValidateSyncRulesRequest, { allowAdditional: true }),
   handler: async (payload) => {
     const content = payload.params.content;
 
@@ -93,13 +93,13 @@ export const validateSyncRules = routeDefinition({
 
 export const currentSyncRules = routeDefinition({
   path: '/api/sync-rules/v1/current',
-  method: framework.router.HTTPMethod.GET,
+  method: router.HTTPMethod.GET,
   authorize: authApi,
   handler: async (payload) => {
     const storage = payload.context.system.storage;
     const sync_rules = await storage.getActiveSyncRulesContent();
     if (!sync_rules) {
-      throw new framework.errors.JourneyError({
+      throw new errors.JourneyError({
         status: 422,
         code: 'NO_SYNC_RULES',
         description: 'No active sync rules'
@@ -136,14 +136,14 @@ const ReprocessSyncRulesRequest = t.object({});
 
 export const reprocessSyncRules = routeDefinition({
   path: '/api/sync-rules/v1/reprocess',
-  method: framework.router.HTTPMethod.POST,
+  method: router.HTTPMethod.POST,
   authorize: authApi,
-  validator: framework.schema.createTsCodecValidator(ReprocessSyncRulesRequest),
+  validator: schema.createTsCodecValidator(ReprocessSyncRulesRequest),
   handler: async (payload) => {
     const storage = payload.context.system.storage;
     const sync_rules = await storage.getActiveSyncRules();
     if (sync_rules == null) {
-      throw new framework.errors.JourneyError({
+      throw new errors.JourneyError({
         status: 422,
         code: 'NO_SYNC_RULES',
         description: 'No active sync rules'
@@ -162,7 +162,7 @@ export const reprocessSyncRules = routeDefinition({
 export const SYNC_RULES_ROUTES = [validateSyncRules, deploySyncRules, reprocessSyncRules, currentSyncRules];
 
 function replyPrettyJson(payload: any) {
-  return new framework.router.RouterResponse({
+  return new router.RouterResponse({
     status: 200,
     data: JSON.stringify(payload, null, 2) + '\n',
     headers: { 'Content-Type': 'application/json' }

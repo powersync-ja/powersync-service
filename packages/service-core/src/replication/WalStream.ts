@@ -1,5 +1,5 @@
 import * as pgwire from '@powersync/service-jpgwire';
-import * as framework from '@powersync/service-framework';
+import { container, errors } from '@powersync/service-framework';
 import { SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
 
 import * as storage from '../storage/storage-index.js';
@@ -9,7 +9,6 @@ import { getPgOutputRelation, getRelId, PgRelation } from './PgRelation.js';
 import { getReplicationIdentityColumns } from './util.js';
 import { WalConnection } from './WalConnection.js';
 import { Metrics } from '../metrics/Metrics.js';
-import { logger, ProbeModule } from '@powersync/service-framework';
 
 export const ZERO_LSN = '00000000/00000000';
 
@@ -18,8 +17,6 @@ export interface WalStreamOptions {
   factory: storage.BucketStorageFactory;
   storage: storage.SyncRulesBucketStorage;
   abort_signal: AbortSignal;
-  probe: ProbeModule;
-  errorReporter: framework.ErrorReporter;
 }
 
 interface InitResult {
@@ -51,17 +48,12 @@ export class WalStream {
 
   private startedStreaming = false;
 
-  private probe: ProbeModule;
-  private errorReporter: framework.ErrorReporter;
-
   constructor(options: WalStreamOptions) {
     this.storage = options.storage;
     this.sync_rules = options.storage.sync_rules;
     this.group_id = options.storage.group_id;
     this.slot_name = options.storage.slot_name;
     this.connections = options.connections;
-    this.probe = options.probe;
-    this.errorReporter = options.errorReporter;
 
     this.wal_connection = new WalConnection({ db: this.connections.pool, sync_rules: this.sync_rules });
     this.abort_signal = options.abort_signal;
@@ -78,7 +70,7 @@ export class WalStream {
           );
           promise.catch((e) => {
             // Failures here are okay - this only speeds up stopping the process.
-            logger.warn('Failed to ping connection', e);
+            container.logger.warn('Failed to ping connection', e);
           });
         } else {
           // If we haven't started streaming yet, it could be due to something like
@@ -165,7 +157,9 @@ export class WalStream {
         ]
       });
       if (rs.rows.length == 0) {
-        logger.info(`Skipping ${tablePattern.schema}.${name} - not part of ${this.publication_name} publication`);
+        container.logger.info(
+          `Skipping ${tablePattern.schema}.${name} - not part of ${this.publication_name} publication`
+        );
         continue;
       }
 
@@ -195,17 +189,17 @@ export class WalStream {
 
     const status = await this.storage.getStatus();
     if (status.snapshot_done && status.checkpoint_lsn) {
-      logger.info(`${slotName} Initial replication already done`);
+      container.logger.info(`${slotName} Initial replication already done`);
 
       let last_error = null;
 
       // Check that replication slot exists
       for (let i = 120; i >= 0; i--) {
-        await this.touch();
+        await touch();
 
         if (i == 0) {
-          this.errorReporter.captureException(last_error, {
-            level: framework.errors.ErrorSeverity.ERROR,
+          container.reporter.captureException(last_error, {
+            level: errors.ErrorSeverity.ERROR,
             metadata: {
               replication_slot: slotName
             }
@@ -227,11 +221,11 @@ export class WalStream {
             ]
           });
           // Success
-          logger.info(`Slot ${slotName} appears healthy`);
+          container.logger.info(`Slot ${slotName} appears healthy`);
           return { needsInitialSync: false };
         } catch (e) {
           last_error = e;
-          logger.warn(`${slotName} Replication slot error`, e);
+          container.logger.warn(`${slotName} Replication slot error`, e);
 
           if (this.stopped) {
             throw e;
@@ -245,8 +239,8 @@ export class WalStream {
             /replication slot.*does not exist/.test(e.message) ||
             /publication.*does not exist/.test(e.message)
           ) {
-            this.errorReporter.captureException(e, {
-              level: framework.errors.ErrorSeverity.WARNING,
+            container.reporter.captureException(e, {
+              level: errors.ErrorSeverity.WARNING,
               metadata: {
                 try_index: i,
                 replication_slot: slotName
@@ -258,7 +252,7 @@ export class WalStream {
             // Sample: publication "powersync" does not exist
             //   Happens when publication deleted or never created.
             //   Slot must be re-created in this case.
-            logger.info(`${slotName} does not exist anymore, will create new slot`);
+            container.logger.info(`${slotName} does not exist anymore, will create new slot`);
 
             throw new MissingReplicationSlotError(`Replication slot ${slotName} does not exist anymore`);
           }
@@ -321,7 +315,7 @@ WHERE  oid = $1::regclass`,
     // with streaming replication.
     const lsn = pgwire.lsnMakeComparable(row[1]);
     const snapshot = row[2];
-    logger.info(`Created replication slot ${slotName} at ${lsn} with snapshot ${snapshot}`);
+    container.logger.info(`Created replication slot ${slotName} at ${lsn} with snapshot ${snapshot}`);
 
     // https://stackoverflow.com/questions/70160769/postgres-logical-replication-starting-from-given-lsn
     await db.query('BEGIN');
@@ -343,9 +337,9 @@ WHERE  oid = $1::regclass`,
       // On Supabase, the default is 2 minutes.
       await db.query(`set local statement_timeout = 0`);
 
-      logger.info(`${slotName} Starting initial replication`);
+      container.logger.info(`${slotName} Starting initial replication`);
       await this.initialReplication(db, lsn);
-      logger.info(`${slotName} Initial replication done`);
+      container.logger.info(`${slotName} Initial replication done`);
       await db.query('COMMIT');
     } catch (e) {
       await db.query('ROLLBACK');
@@ -362,7 +356,7 @@ WHERE  oid = $1::regclass`,
           await this.snapshotTable(batch, db, table);
           await batch.markSnapshotDone([table], lsn);
 
-          await this.touch();
+          await touch();
         }
       }
       await batch.commit(lsn);
@@ -376,7 +370,7 @@ WHERE  oid = $1::regclass`,
   }
 
   private async snapshotTable(batch: storage.BucketStorageBatch, db: pgwire.PgConnection, table: storage.SourceTable) {
-    logger.info(`${this.slot_name} Replicating ${table.qualifiedName}`);
+    container.logger.info(`${this.slot_name} Replicating ${table.qualifiedName}`);
     const estimatedCount = await this.estimatedCount(db, table);
     let at = 0;
     let lastLogIndex = 0;
@@ -402,7 +396,7 @@ WHERE  oid = $1::regclass`,
         return q;
       });
       if (rows.length > 0 && at - lastLogIndex >= 5000) {
-        logger.info(`${this.slot_name} Replicating ${table.qualifiedName} ${at}/${estimatedCount}`);
+        container.logger.info(`${this.slot_name} Replicating ${table.qualifiedName} ${at}/${estimatedCount}`);
         lastLogIndex = at;
       }
       if (this.abort_signal.aborted) {
@@ -416,7 +410,7 @@ WHERE  oid = $1::regclass`,
       at += rows.length;
       Metrics.getInstance().rows_replicated_total.add(rows.length);
 
-      await this.touch();
+      await touch();
     }
 
     await batch.flush();
@@ -496,7 +490,7 @@ WHERE  oid = $1::regclass`,
     if (msg.tag == 'insert' || msg.tag == 'update' || msg.tag == 'delete') {
       const table = this.getTable(getRelId(msg.relation));
       if (!table.syncAny) {
-        logger.debug(`Table ${table.qualifiedName} not used in sync rules - skipping`);
+        container.logger.debug(`Table ${table.qualifiedName} not used in sync rules - skipping`);
         return null;
       }
 
@@ -569,7 +563,7 @@ WHERE  oid = $1::regclass`,
       let count = 0;
 
       for await (const chunk of replicationStream.pgoutputDecode()) {
-        await this.touch();
+        await touch();
 
         if (this.abort_signal.aborted) {
           break;
@@ -591,7 +585,7 @@ WHERE  oid = $1::regclass`,
             await this.ack(msg.lsn!, replicationStream);
           } else {
             if (count % 100 == 0) {
-              logger.info(`${this.slot_name} replicating op ${count} ${msg.lsn}`);
+              container.logger.info(`${this.slot_name} replicating op ${count} ${msg.lsn}`);
             }
 
             count += 1;
@@ -622,11 +616,11 @@ WHERE  oid = $1::regclass`,
 
     replicationStream.ack(lsn);
   }
+}
 
-  async touch() {
-    // FIXME: The hosted Kubernetes probe does not actually check the timestamp on this.
-    // FIXME: We need a timeout of around 5+ minutes in Kubernetes if we do start checking the timestamp,
-    // or reduce PING_INTERVAL here.
-    return this.probe.touch();
-  }
+async function touch() {
+  // FIXME: The hosted Kubernetes probe does not actually check the timestamp on this.
+  // FIXME: We need a timeout of around 5+ minutes in Kubernetes if we do start checking the timestamp,
+  // or reduce PING_INTERVAL here.
+  return container.probes.touch();
 }
