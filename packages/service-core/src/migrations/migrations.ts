@@ -95,7 +95,7 @@ export const migrate = async (options: MigrationOptions) => {
     const migrations = await loadMigrations(MIGRATIONS_DIR, runner_config);
 
     // Use the provided config to connect to Mongo
-    const store = createMongoMigrationStore(client);
+    const store = createMongoMigrationStore(clientDB);
 
     const state = await store.load();
 

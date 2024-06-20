@@ -1,4 +1,4 @@
-import Mongo from 'mongodb';
+import { Db } from 'mongodb';
 import * as path from 'path';
 import * as defs from '../definitions.js';
 
@@ -11,8 +11,8 @@ export type MigrationStore = {
  * A custom store for node-migrate which is used to save and load migrations that have
  * been operated on to mongo.
  */
-export const createMongoMigrationStore = (client: Mongo.MongoClient): MigrationStore => {
-  const collection = client.db().collection<defs.MigrationState>('migrations');
+export const createMongoMigrationStore = (db: Db): MigrationStore => {
+  const collection = db.collection<defs.MigrationState>('migrations');
 
   return {
     load: async () => {
