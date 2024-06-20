@@ -7,7 +7,6 @@ import { PowerSyncMongo } from '../../src/storage/mongo/db.js';
 import { escapeIdentifier } from '../../src/util/pgwire_utils.js';
 import { env } from './env.js';
 import { Metrics } from '@/metrics/Metrics.js';
-import { NoOpReporter } from '@powersync/lib-services-framework';
 
 // The metrics need to be initialised before they can be used
 await Metrics.initialise({
@@ -24,7 +23,7 @@ export type StorageFactory = () => Promise<BucketStorageFactory>;
 export const MONGO_STORAGE_FACTORY: StorageFactory = async () => {
   const db = await connectMongo();
   await db.clear();
-  return new MongoBucketStorage(db, { slot_name_prefix: 'test_', errorReporter: NoOpReporter });
+  return new MongoBucketStorage(db, { slot_name_prefix: 'test_' });
 };
 
 export async function clearTestDb(db: pgwire.PgClient) {
