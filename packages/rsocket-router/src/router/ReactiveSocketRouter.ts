@@ -1,7 +1,7 @@
 /**
  * This is a small Router wrapper which uses the RSocket lib
  * to expose reactive websocket stream in an interface similar to
- * other journey micro routers.
+ * other Journey micro routers.
  */
 import * as http from 'http';
 import { Payload, RSocketServer } from 'rsocket-core';

@@ -32,7 +32,7 @@ export const createSentryReporter = (opts?: {
     });
   } else {
     framework.logger.debug(
-      'micro-alerts configured with sentry reporter but no SENTRY_DSN environment variable has been set'
+      'Alerts configured with sentry reporter but no SENTRY_DSN environment variable has been set'
     );
   }
 
