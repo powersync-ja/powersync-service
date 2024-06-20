@@ -67,6 +67,14 @@ or by copying the `.env.template` file and using a loader such as [Direnv](https
 cp .env.template .env
 ```
 
+## Postgres Configuration
+
+The default `PG_TEST_URL` points to a `powersync_test` database. Ensure this is created by executing the following SQL on your connection.
+
+```SQL
+CREATE DATABASE powersync_test;
+```
+
 # Releases
 
 This repository uses Changesets. Add changesets to changed packages before merging PRs.
