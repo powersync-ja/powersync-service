@@ -1,6 +1,6 @@
 import { Readable } from 'stream';
 import { SyncParameters, normalizeTokenParameters } from '@powersync/service-sync-rules';
-import { container, errors, router, schema } from '@powersync/service-framework';
+import { container, errors, router, schema } from '@powersync/lib-services-framework';
 
 import * as sync from '../../sync/sync-index.js';
 import * as util from '../../util/util-index.js';

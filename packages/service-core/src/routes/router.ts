@@ -1,4 +1,4 @@
-import { router } from '@powersync/service-framework';
+import { router } from '@powersync/lib-services-framework';
 import * as auth from '../auth/auth-index.js';
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
 

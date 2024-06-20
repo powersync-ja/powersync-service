@@ -5,7 +5,7 @@
 
 import * as timers from 'timers/promises';
 
-import { container } from '@powersync/service-framework';
+import { container } from '@powersync/lib-services-framework';
 
 import * as db from '../db/db-index.js';
 import * as storage from '../storage/storage-index.js';

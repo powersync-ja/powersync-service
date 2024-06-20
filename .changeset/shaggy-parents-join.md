@@ -2,4 +2,4 @@
 '@powersync/service-core': minor
 ---
 
-Updated router definitions
+Removed dependency for restricted packages

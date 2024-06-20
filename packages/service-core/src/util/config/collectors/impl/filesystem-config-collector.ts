@@ -1,7 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
-import { container } from '@powersync/service-framework';
+import { container } from '@powersync/lib-services-framework';
 import { ConfigCollector, ConfigFileFormat } from '../config-collector.js';
 import { RunnerConfig } from '../../types.js';
 

@@ -6,7 +6,7 @@ import * as util from '../util/util-index.js';
 import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 import { MissingReplicationSlotError, WalStream } from './WalStream.js';
 import { ResolvedConnection } from '../util/config/types.js';
-import { container } from '@powersync/service-framework';
+import { container } from '@powersync/lib-services-framework';
 
 export interface WalStreamRunnerOptions {
   factory: storage.BucketStorageFactory;

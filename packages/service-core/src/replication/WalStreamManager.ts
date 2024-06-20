@@ -7,7 +7,7 @@ import * as util from '../util/util-index.js';
 import { DefaultErrorRateLimiter } from './ErrorRateLimiter.js';
 import { WalStreamRunner } from './WalStreamRunner.js';
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
-import { container } from '@powersync/service-framework';
+import { container } from '@powersync/lib-services-framework';
 
 // 5 minutes
 const PING_INTERVAL = 1_000_000_000n * 300n;

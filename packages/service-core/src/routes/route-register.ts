@@ -1,6 +1,6 @@
 import fastify from 'fastify';
 
-import { container, errors, router, HTTPMethod } from '@powersync/service-framework';
+import { container, errors, router, HTTPMethod } from '@powersync/lib-services-framework';
 import { Context, ContextProvider, RequestEndpoint, RequestEndpointHandlerPayload } from './router.js';
 
 export type FastifyEndpoint<I, O, C> = RequestEndpoint<I, O, C> & {

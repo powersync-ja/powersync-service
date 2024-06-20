@@ -1,7 +1,7 @@
 import type fastify from 'fastify';
 import a from 'async';
 
-import { container } from '@powersync/service-framework';
+import { container } from '@powersync/lib-services-framework';
 
 export type CreateRequestQueueParams = {
   max_queue_depth: number;

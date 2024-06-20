@@ -24,7 +24,7 @@ import { PowerSyncMongo, PowerSyncMongoOptions } from './mongo/db.js';
 import { SyncRuleDocument, SyncRuleState } from './mongo/models.js';
 import { generateSlotName } from './mongo/util.js';
 import { v4 as uuid } from 'uuid';
-import { container } from '@powersync/service-framework';
+import { container } from '@powersync/lib-services-framework';
 
 export interface MongoBucketStorageOptions extends PowerSyncMongoOptions {}
 

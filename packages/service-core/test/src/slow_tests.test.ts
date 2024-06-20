@@ -10,7 +10,7 @@ import * as pgwire from '@powersync/service-jpgwire';
 import { SqliteRow } from '@powersync/service-sync-rules';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
 import { PgManager } from '../../src/util/PgManager.js';
-import { NoOpReporter, createInMemoryProbe } from '@powersync/service-framework';
+import { NoOpReporter, createInMemoryProbe } from '@powersync/lib-services-framework';
 
 describe('slow tests - mongodb', function () {
   // These are slow, inconsistent tests.

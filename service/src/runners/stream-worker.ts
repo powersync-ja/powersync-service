@@ -1,5 +1,5 @@
 import { migrations, replication, utils, Metrics } from '@powersync/service-core';
-import { container } from '@powersync/service-framework';
+import { container } from '@powersync/lib-services-framework';
 
 import { PowerSyncSystem } from '../system/PowerSyncSystem.js';
 

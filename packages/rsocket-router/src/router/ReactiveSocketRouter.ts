@@ -16,7 +16,7 @@ import {
   SocketResponder
 } from './types.js';
 import { WebsocketServerTransport } from './transport/WebSocketServerTransport.js';
-import { container, errors } from '@powersync/service-framework';
+import { container, errors } from '@powersync/lib-services-framework';
 
 export class ReactiveSocketRouter<C> {
   protected activeConnections: number;

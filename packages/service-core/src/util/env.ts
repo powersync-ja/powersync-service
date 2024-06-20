@@ -1,4 +1,4 @@
-import { utils } from '@powersync/service-framework';
+import { utils } from '@powersync/lib-services-framework';
 
 import { ServiceRunner } from './config/types.js';
 

@@ -2,7 +2,7 @@ import { deserialize } from 'bson';
 import fastify from 'fastify';
 import cors from '@fastify/cors';
 import * as core from '@powersync/service-core';
-import { container, errors } from '@powersync/service-framework';
+import { container, errors } from '@powersync/lib-services-framework';
 import { RSocketRequestMeta } from '@powersync/service-rsocket-router';
 
 import { PowerSyncSystem } from '../system/PowerSyncSystem.js';

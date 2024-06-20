@@ -8,7 +8,7 @@
   "include": ["src"],
   "references": [
     {
-      "path": "../service-framework"
+      "path": "../../libs/lib-services"
     }
   ]
 }

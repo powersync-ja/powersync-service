@@ -22,7 +22,7 @@
       "path": "../packages/service-core"
     },
     {
-      "path": "../packages/service-framework"
+      "path": "../libs/lib-services"
     },
     {
       "path": "../packages/sync-rules"

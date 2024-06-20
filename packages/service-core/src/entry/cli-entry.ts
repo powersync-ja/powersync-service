@@ -4,7 +4,7 @@ import * as utils from '../util/util-index.js';
 import { registerMigrationAction } from './commands/migrate-action.js';
 import { registerTearDownAction } from './commands/teardown-action.js';
 import { registerStartAction } from './entry-index.js';
-import { container } from '@powersync/service-framework';
+import { container } from '@powersync/lib-services-framework';
 
 /**
  * Generates a Commander program which serves as the entry point

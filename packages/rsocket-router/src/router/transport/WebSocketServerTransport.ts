@@ -28,7 +28,7 @@ import {
 } from 'rsocket-core';
 import * as WebSocket from 'ws';
 import { WebsocketDuplexConnection } from './WebsocketDuplexConnection.js';
-import { container } from '@powersync/service-framework';
+import { container } from '@powersync/lib-services-framework';
 
 export type SocketFactory = (options: SocketOptions) => WebSocket.WebSocketServer;
 

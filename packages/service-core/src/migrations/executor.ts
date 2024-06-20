@@ -1,6 +1,6 @@
 import * as defs from './definitions.js';
 import { MigrationStore } from './store/migration-store.js';
-import { container } from '@powersync/service-framework';
+import { container } from '@powersync/lib-services-framework';
 
 type ExecuteParams = {
   migrations: defs.Migration[];

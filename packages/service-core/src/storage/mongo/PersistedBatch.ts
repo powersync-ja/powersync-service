@@ -16,7 +16,7 @@ import {
   SourceKey
 } from './models.js';
 import { serializeLookup } from './util.js';
-import { container } from '@powersync/service-framework';
+import { container } from '@powersync/lib-services-framework';
 
 /**
  * Maximum size of operations we write in a single transaction.

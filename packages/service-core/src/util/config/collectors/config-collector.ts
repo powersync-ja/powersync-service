@@ -2,7 +2,7 @@ import * as t from 'ts-codec';
 import * as yaml from 'yaml';
 
 import { configFile } from '@powersync/service-types';
-import { schema } from '@powersync/service-framework';
+import { schema } from '@powersync/lib-services-framework';
 
 import { RunnerConfig } from '../types.js';
 

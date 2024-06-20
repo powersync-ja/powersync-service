@@ -1,6 +1,6 @@
 import { serialize } from 'bson';
 import { SyncParameters, normalizeTokenParameters } from '@powersync/service-sync-rules';
-import { container, errors, schema } from '@powersync/service-framework';
+import { container, errors, schema } from '@powersync/lib-services-framework';
 
 import * as util from '../../util/util-index.js';
 import { streamResponse } from '../../sync/sync.js';

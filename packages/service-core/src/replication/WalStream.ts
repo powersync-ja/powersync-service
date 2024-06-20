@@ -1,5 +1,5 @@
 import * as pgwire from '@powersync/service-jpgwire';
-import { container, errors } from '@powersync/service-framework';
+import { container, errors } from '@powersync/lib-services-framework';
 import { SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
 
 import * as storage from '../storage/storage-index.js';

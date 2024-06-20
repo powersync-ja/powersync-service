@@ -4,7 +4,7 @@ import * as mongo from 'mongodb';
 
 import * as util from '../../util/util-index.js';
 import * as replication from '../../replication/replication-index.js';
-import { container, errors } from '@powersync/service-framework';
+import { container, errors } from '@powersync/lib-services-framework';
 import { BucketStorageBatch, FlushedResult, mergeToast, SaveOptions } from '../BucketStorage.js';
 import { SourceTable } from '../SourceTable.js';
 import { PowerSyncMongo } from './db.js';

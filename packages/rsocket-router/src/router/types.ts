@@ -1,5 +1,5 @@
 import * as t from 'ts-codec';
-import { router } from '@powersync/service-framework';
+import { router } from '@powersync/lib-services-framework';
 
 import { OnExtensionSubscriber, OnNextSubscriber, OnTerminalSubscriber } from 'rsocket-core';
 

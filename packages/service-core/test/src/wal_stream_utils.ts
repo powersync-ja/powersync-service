@@ -6,7 +6,7 @@ import { getClientCheckpoint } from '../../src/util/utils.js';
 import { TEST_CONNECTION_OPTIONS, clearTestDb } from './util.js';
 import { PgManager } from '../../src/util/PgManager.js';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { NoOpReporter, createInMemoryProbe } from '@powersync/service-framework';
+import { NoOpReporter, createInMemoryProbe } from '@powersync/lib-services-framework';
 
 /**
  * Tests operating on the wal stream need to configure the stream and manage asynchronous

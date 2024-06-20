@@ -1,5 +1,5 @@
 import * as t from 'ts-codec';
-import { router, schema } from '@powersync/service-framework';
+import { router, schema } from '@powersync/lib-services-framework';
 
 import * as util from '../../util/util-index.js';
 import { authUser } from '../auth.js';

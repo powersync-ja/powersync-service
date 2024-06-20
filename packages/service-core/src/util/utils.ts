@@ -5,7 +5,7 @@ import { pgwireRows } from '@powersync/service-jpgwire';
 import * as storage from '../storage/storage-index.js';
 import { BucketChecksum, OpId } from './protocol-types.js';
 import { retriedQuery } from './pgwire_utils.js';
-import { container } from '@powersync/service-framework';
+import { container } from '@powersync/lib-services-framework';
 
 export type ChecksumMap = Map<string, BucketChecksum>;
 

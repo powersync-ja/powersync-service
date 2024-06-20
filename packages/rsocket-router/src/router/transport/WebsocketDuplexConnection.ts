@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { container } from '@powersync/service-framework';
+import { container } from '@powersync/lib-services-framework';
 import {
   Closeable,
   Deferred,

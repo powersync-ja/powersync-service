@@ -1,4 +1,4 @@
-import { container } from '@powersync/service-framework';
+import { container } from '@powersync/lib-services-framework';
 
 /**
  * Track and log memory usage.

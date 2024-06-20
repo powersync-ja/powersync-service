@@ -1,4 +1,4 @@
-import { errors, router, schema } from '@powersync/service-framework';
+import { errors, router, schema } from '@powersync/lib-services-framework';
 import { SqlSyncRules, SqliteValue, StaticSchema, isJsonValue, toSyncRulesValue } from '@powersync/service-sync-rules';
 import { internal_routes } from '@powersync/service-types';
 

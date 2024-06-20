@@ -6,7 +6,7 @@ import * as pgwire from '@powersync/service-jpgwire';
 import { SqliteJsonValue, SqliteRow, ToastableSqliteRow, toSyncRulesRow } from '@powersync/service-sync-rules';
 
 import * as replication from '../replication/replication-index.js';
-import { container } from '@powersync/service-framework';
+import { container } from '@powersync/lib-services-framework';
 
 /**
  * pgwire message -> SQLite row.

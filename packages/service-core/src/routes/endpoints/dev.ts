@@ -1,6 +1,6 @@
 import * as t from 'ts-codec';
 import * as pgwire from '@powersync/service-jpgwire';
-import { errors, router, schema } from '@powersync/service-framework';
+import { errors, router, schema } from '@powersync/lib-services-framework';
 
 import * as util from '../../util/util-index.js';
 import { authDevUser, authUser, endpoint, issueDevToken, issueLegacyDevToken, issuePowerSyncToken } from '../auth.js';

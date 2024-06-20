@@ -7,7 +7,7 @@ import * as util from '../util/util-index.js';
 import * as storage from '../storage/storage-index.js';
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
 import { Resource } from '@opentelemetry/resources';
-import { container } from '@powersync/service-framework';
+import { container } from '@powersync/lib-services-framework';
 
 export interface MetricsOptions {
   disable_telemetry_sharing: boolean;

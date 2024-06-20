@@ -1,5 +1,5 @@
 import * as pgwire from '@powersync/service-jpgwire';
-import { LifeCycledSystem, container } from '@powersync/service-framework';
+import { LifeCycledSystem, container } from '@powersync/lib-services-framework';
 
 import * as storage from '../storage/storage-index.js';
 import * as utils from '../util/util-index.js';

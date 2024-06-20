@@ -1,6 +1,6 @@
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import { SyncParameters } from '@powersync/service-sync-rules';
-import { container } from '@powersync/service-framework';
+import { container } from '@powersync/lib-services-framework';
 import { Semaphore } from 'async-mutex';
 import { AbortError } from 'ix/aborterror.js';
 

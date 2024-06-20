@@ -1,6 +1,6 @@
 import winston from 'winston';
 import { entry, utils } from '@powersync/service-core';
-import { container, Logger } from '@powersync/service-framework';
+import { container, Logger } from '@powersync/lib-services-framework';
 
 // Configure logging to console
 container.logger.configure({

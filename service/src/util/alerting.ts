@@ -1,7 +1,7 @@
 import * as sentry_types from '@sentry/types';
 import * as sentry from '@sentry/node';
 import { utils } from '@powersync/service-core';
-import { container, ErrorReporter } from '@powersync/service-framework';
+import { container, ErrorReporter } from '@powersync/lib-services-framework';
 
 // Generally ignore errors that are due to configuration issues, rather than
 // service bugs.
