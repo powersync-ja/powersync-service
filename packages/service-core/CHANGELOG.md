@@ -1,5 +1,44 @@
 # @powersync/service-core
 
+## 0.2.2
+
+### Patch Changes
+
+- 8245912: Fix teardown command not terminating after some errors.
+- 7587a74: Fix date parsing in replication for dates further back than 100 AD.
+- Updated dependencies [7587a74]
+  - @powersync/service-jpgwire@0.17.13
+
+## 0.2.1
+
+### Patch Changes
+
+- 4a57787:
+  - Use a LRU cache for checksum computations, improving performance and reducing MongoDB database load.
+  - Return zero checksums to the client instead of omitting, to help with debugging sync issues.
+
+## 0.2.0
+
+### Minor Changes
+
+- 526a41a: Added support for user parameters when making a StreamingSyncRequest.
+
+## 0.1.3
+
+### Patch Changes
+
+- 5f5163f: Fix performance issues and improve logging for initial snapshot replication.
+- Updated dependencies [5f5163f]
+  - @powersync/service-jpgwire@0.17.12
+
+## 0.1.2
+
+### Patch Changes
+
+- b5f4ebf: Fix missing authentication errors for websocket sync stream requests
+- Updated dependencies [b5f4ebf]
+  - @powersync/service-rsocket-router@0.0.7
+
 ## 0.1.1
 
 ### Patch Changes

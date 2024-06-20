@@ -9,7 +9,7 @@ import * as db from '../db/db-index.js';
 import * as storage from '../storage/storage-index.js';
 import * as utils from '../util/util-index.js';
 import * as replication from '../replication/replication-index.js';
-import { logger, createFSProbe, ErrorReporter, NoOpReporter } from '@powersync/service-framework';
+import { logger, createFSProbe, ErrorReporter } from '@powersync/service-framework';
 
 /**
  * Attempt to terminate a single sync rules instance.
@@ -36,9 +36,10 @@ async function terminateReplicator(
       probe: createFSProbe(),
       errorReporter
     });
-    console.log('terminating', stream.slot_name);
+
+    logger.info(`Terminating replication slot ${stream.slot_name}`);
     await stream.terminate();
-    console.log('terminated', stream.slot_name);
+    logger.info(`Terminated replication slot ${stream.slot_name}`);
   } finally {
     await lock.release();
   }
@@ -82,21 +83,32 @@ async function terminateReplicators(
 export async function teardown(runnerConfig: utils.RunnerConfig, errorReporter?: ErrorReporter) {
   const config = await utils.loadConfig(runnerConfig);
   const mongoDB = storage.createPowerSyncMongo(config.storage);
-  await db.mongo.waitForAuth(mongoDB.db);
+  try {
+    logger.info(`Waiting for auth`);
+    await db.mongo.waitForAuth(mongoDB.db);
 
-  const resolvedAlerting = errorReporter ?? NoOpReporter;
+    const bucketStorage = new storage.MongoBucketStorage(mongoDB, { slot_name_prefix: config.slot_name_prefix });
+    const connection = config.connection;
 
-  const bucketStorage = new storage.MongoBucketStorage(mongoDB, {
-    slot_name_prefix: config.slot_name_prefix,
-    errorReporter: resolvedAlerting
-  });
-  const connection = config.connection;
+    logger.info(`Terminating replication slots`);
 
-  if (connection) {
-    await terminateReplicators(bucketStorage, connection, resolvedAlerting);
+    if (connection) {
+      await terminateReplicators(bucketStorage, connection);
+    }
+
+    const database = mongoDB.db;
+    logger.info(`Dropping database ${database.namespace}`);
+    await database.dropDatabase();
+    logger.info(`Done`);
+    await mongoDB.client.close();
+
+    // If there was an error connecting to postgress, the process may stay open indefinitely.
+    // This forces an exit.
+    // We do not consider those errors a teardown failure.
+    process.exit(0);
+  } catch (e) {
+    logger.error(`Teardown failure`, e);
+    await mongoDB.client.close();
+    process.exit(1);
   }
-
-  const database = mongoDB.db;
-  await database.dropDatabase();
-  await mongoDB.client.close();
 }

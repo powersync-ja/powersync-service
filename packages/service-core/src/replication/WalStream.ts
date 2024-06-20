@@ -279,7 +279,7 @@ WHERE  oid = $1::regclass`,
       params: [{ value: table.qualifiedName, type: 'varchar' }]
     });
     const row = results.rows[0];
-    if (row?.[0] ?? -1n == -1n) {
+    if ((row?.[0] ?? -1n) == -1n) {
       return '?';
     } else {
       return `~${row[0]}`;
@@ -379,8 +379,12 @@ WHERE  oid = $1::regclass`,
     logger.info(`${this.slot_name} Replicating ${table.qualifiedName}`);
     const estimatedCount = await this.estimatedCount(db, table);
     let at = 0;
+    let lastLogIndex = 0;
     const cursor = await db.stream({ statement: `SELECT * FROM ${table.escapedIdentifier}` });
     let columns: { i: number; name: string }[] = [];
+    // pgwire streams rows in chunks.
+    // These chunks can be quite small (as little as 16KB), so we don't flush chunks automatically.
+
     for await (let chunk of cursor) {
       if (chunk.tag == 'RowDescription') {
         let i = 0;
@@ -397,22 +401,21 @@ WHERE  oid = $1::regclass`,
         }
         return q;
       });
-      if (at % 5000 == 0 && rows.length > 0) {
+      if (rows.length > 0 && at - lastLogIndex >= 5000) {
         logger.info(`${this.slot_name} Replicating ${table.qualifiedName} ${at}/${estimatedCount}`);
+        lastLogIndex = at;
       }
       if (this.abort_signal.aborted) {
         throw new Error(`Aborted initial replication of ${this.slot_name}`);
       }
 
       for (let record of WalStream.getQueryData(rows)) {
+        // This auto-flushes when the batch reaches its size limit
         await batch.save({ tag: 'insert', sourceTable: table, before: undefined, after: record });
       }
       at += rows.length;
       Metrics.getInstance().rows_replicated_total.add(rows.length);
 
-      // pgwire streaming uses reasonable chunk sizes, so we flush at the end
-      // of each chunk.
-      await batch.flush();
       await this.touch();
     }
 

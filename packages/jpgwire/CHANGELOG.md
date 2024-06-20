@@ -1,5 +1,17 @@
 # @powersync/service-jpgwire
 
+## 0.17.13
+
+### Patch Changes
+
+- 7587a74: Fix date parsing in replication for dates further back than 100 AD.
+
+## 0.17.12
+
+### Patch Changes
+
+- 5f5163f: Fix performance issue when reading a lot of data from a socket.
+
 ## 0.17.11
 
 ### Patch Changes

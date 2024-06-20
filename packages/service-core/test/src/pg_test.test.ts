@@ -86,6 +86,12 @@ VALUES(6, 'epoch'::timestamp, 'epoch'::timestamptz);
 
 INSERT INTO test_data(id, timestamp, timestamptz)
 VALUES(7, 'infinity'::timestamp, 'infinity'::timestamptz);
+
+INSERT INTO test_data(id, timestamptz)
+VALUES(8, '0022-02-03 12:13:14+03'::timestamptz);
+
+INSERT INTO test_data(id, timestamptz)
+VALUES(9, '10022-02-03 12:13:14+03'::timestamptz);
     `);
   }
 
@@ -185,6 +191,18 @@ VALUES(10, ARRAY['null']::TEXT[]);
       id: 7n,
       timestamp: '9999-12-31 23:59:59',
       timestamptz: '9999-12-31 23:59:59Z'
+    });
+
+    expect(transformed[7]).toMatchObject({
+      id: 8n,
+      timestamptz: '0022-02-03 09:13:14Z'
+    });
+
+    expect(transformed[8]).toMatchObject({
+      id: 9n,
+      // 10022-02-03 12:13:14+03 - out of range of both our date parsing logic, and sqlite's date functions
+      // We can consider just preserving the source string as an alternative if this causes issues.
+      timestamptz: null
     });
   }
 

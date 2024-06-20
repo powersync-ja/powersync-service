@@ -23,9 +23,15 @@ import { BucketDataDocument, BucketDataKey, SourceKey, SyncRuleState } from './m
 import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, readSingleBatch, serializeLookup } from './util.js';
 import { ErrorReporter } from '@powersync/service-framework';
+import { ChecksumCache, FetchPartialBucketChecksum } from '../ChecksumCache.js';
 
 export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
   private readonly db: PowerSyncMongo;
+  private checksumCache = new ChecksumCache({
+    fetchChecksums: (batch) => {
+      return this.getChecksumsInternal(batch);
+    }
+  });
 
   constructor(
     public readonly factory: MongoBucketStorage,
@@ -319,23 +325,28 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     }
   }
 
-  async getChecksums(checkpoint: util.OpId, buckets: string[]): Promise<util.BucketChecksum[]> {
-    if (buckets.length == 0) {
-      return [];
+  async getChecksums(checkpoint: util.OpId, buckets: string[]): Promise<util.ChecksumMap> {
+    return this.checksumCache.getChecksumMap(checkpoint, buckets);
+  }
+
+  private async getChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<util.ChecksumMap> {
+    if (batch.length == 0) {
+      return new Map();
     }
+
     const filters: any[] = [];
-    for (let name of buckets) {
+    for (let request of batch) {
       filters.push({
         _id: {
           $gt: {
             g: this.group_id,
-            b: name,
-            o: new bson.MinKey()
+            b: request.bucket,
+            o: request.start ? BigInt(request.start) : new bson.MinKey()
           },
           $lte: {
             g: this.group_id,
-            b: name,
-            o: BigInt(checkpoint)
+            b: request.bucket,
+            o: BigInt(request.end)
           }
         }
       });
@@ -357,13 +368,18 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
       )
       .toArray();
 
-    return aggregate.map((doc) => {
-      return {
-        bucket: doc._id,
-        count: doc.count,
-        checksum: Number(BigInt(doc.checksum_total) & 0xffffffffn) & 4294967295
-      };
-    });
+    return new Map<string, util.BucketChecksum>(
+      aggregate.map((doc) => {
+        return [
+          doc._id,
+          {
+            bucket: doc._id,
+            count: doc.count,
+            checksum: Number(BigInt(doc.checksum_total) & 0xffffffffn) & 0xffffffff
+          } satisfies util.BucketChecksum
+        ];
+      })
+    );
   }
 
   async terminate() {

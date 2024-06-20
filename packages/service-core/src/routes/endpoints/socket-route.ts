@@ -34,7 +34,11 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
 
       const controller = new AbortController();
 
-      const syncParams: SyncParameters = normalizeTokenParameters(context.token_payload?.parameters ?? {});
+      const syncParams: SyncParameters = normalizeTokenParameters(
+        context.token_payload?.parameters ?? {},
+        params.parameters ?? {}
+      );
+
       const storage = system.storage;
       // Sanity check before we start the stream
       const cp = await storage.getActiveCheckpoint();
