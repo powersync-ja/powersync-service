@@ -12,6 +12,9 @@ export * as db from './db/db-index.js';
 export * from './entry/entry-index.js';
 export * as entry from './entry/entry-index.js';
 
+// Re-export framework for easy use of Container API
+export * as framework from '@powersync/lib-services-framework';
+
 export * from './metrics/Metrics.js';
 export * as metrics from './metrics/Metrics.js';
 

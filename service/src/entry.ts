@@ -4,6 +4,7 @@ import { startStreamWorker } from './runners/stream-worker.js';
 import { container, ContainerImplementation } from '@powersync/lib-services-framework';
 import { createSentryReporter } from './util/alerting.js';
 
+container.registerDefaults();
 container.register(ContainerImplementation.REPORTER, createSentryReporter());
 
 // Generate Commander CLI entry point program
