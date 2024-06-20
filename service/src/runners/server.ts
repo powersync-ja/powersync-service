@@ -119,6 +119,7 @@ export async function startServer(runnerConfig: core.utils.RunnerConfig) {
   core.Metrics.getInstance().configureApiMetrics();
 
   await server.listen({
+    host: '0.0.0.0',
     port: system.config.port
   });
 

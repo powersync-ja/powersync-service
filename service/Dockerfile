@@ -15,6 +15,8 @@ COPY packages/service-core/package.json packages/service-core/tsconfig.json pack
 COPY packages/sync-rules/package.json packages/sync-rules/tsconfig.json packages/sync-rules/
 COPY packages/types/package.json packages/types/tsconfig.json packages/types/
 
+COPY libs/lib-services/package.json libs/lib-services/tsconfig.json libs/lib-services/
+
 RUN pnpm install --frozen-lockfile
 
 COPY service/src service/src/
@@ -26,6 +28,8 @@ COPY packages/jsonbig/src packages/jsonbig/src/
 COPY packages/sync-rules/src packages/sync-rules/src/
 COPY packages/rsocket-router/src packages/rsocket-router/src/
 COPY packages/types/src packages/types/src/
+
+COPY libs/lib-services/src libs/lib-services/src/
 
 RUN pnpm build:production && \
     rm -rf node_modules **/node_modules && \
