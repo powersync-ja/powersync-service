@@ -9,6 +9,9 @@
   "files": [
     "dist/**/*"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "clean": "rm -r ./dist && tsc -b --clean",
     "build": "tsc -b",
