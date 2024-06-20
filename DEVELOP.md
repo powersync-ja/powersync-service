@@ -85,4 +85,6 @@ This repository uses Changesets. Add changesets to changed packages before mergi
 changeset add
 ```
 
-Merging a PR with changeset files will automatically create a release PR. Merging the release PR will bump versions, tag and publish packages and the Docker image. The Docker image version is extracted from the `./service/package.json` `version` field.
+Merging a PR with changeset files will automatically create a release PR. Merging the release PR will bump versions, tag and publish packages.
+
+The Docker image is published by manually triggering the `Docker Image Release` Github Action. The Docker image version is extracted from the `./service/package.json` `version` field.
