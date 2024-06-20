@@ -4,7 +4,7 @@ import * as utils from '../util/util-index.js';
 import { registerMigrationAction } from './commands/migrate-action.js';
 import { registerTearDownAction } from './commands/teardown-action.js';
 import { registerStartAction } from './entry-index.js';
-import { container } from '@powersync/lib-services-framework';
+import { logger } from '@powersync/lib-services-framework';
 
 /**
  * Generates a Commander program which serves as the entry point
@@ -32,7 +32,7 @@ export function generateEntryProgram(startHandlers?: Record<utils.ServiceRunner,
       try {
         await entryProgram.parseAsync();
       } catch (e) {
-        container.logger.error('Fatal error', e);
+        logger.error('Fatal error', e);
         process.exit(1);
       }
     }

@@ -2,7 +2,7 @@ import { deserialize } from 'bson';
 import fastify from 'fastify';
 import cors from '@fastify/cors';
 import * as core from '@powersync/service-core';
-import { container, errors } from '@powersync/lib-services-framework';
+import { container, errors, logger } from '@powersync/lib-services-framework';
 import { RSocketRequestMeta } from '@powersync/service-rsocket-router';
 
 import { PowerSyncSystem } from '../system/PowerSyncSystem.js';
@@ -11,12 +11,10 @@ import { SocketRouter } from '../routes/router.js';
  * Starts an API server
  */
 export async function startServer(runnerConfig: core.utils.RunnerConfig) {
-  container.logger.info('Booting');
+  logger.info('Booting');
 
   const config = await core.utils.loadConfig(runnerConfig);
   const system = new PowerSyncSystem(config);
-
-  const { logger } = container;
 
   const server = fastify.fastify();
 
@@ -97,7 +95,7 @@ export async function startServer(runnerConfig: core.utils.RunnerConfig) {
           };
         }
       } catch (ex) {
-        container.logger.error(ex);
+        logger.error(ex);
       }
 
       return {

@@ -6,7 +6,7 @@ import * as util from '../util/util-index.js';
 import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 import { MissingReplicationSlotError, WalStream } from './WalStream.js';
 import { ResolvedConnection } from '../util/config/types.js';
-import { container } from '@powersync/lib-services-framework';
+import { container, logger } from '@powersync/lib-services-framework';
 
 export interface WalStreamRunnerOptions {
   factory: storage.BucketStorageFactory;
@@ -51,7 +51,7 @@ export class WalStreamRunner {
           replication_slot: this.slot_name
         }
       });
-      container.logger.error(`Replication failed on ${this.slot_name}`, e);
+      logger.error(`Replication failed on ${this.slot_name}`, e);
 
       if (e instanceof MissingReplicationSlotError) {
         // This stops replication on this slot, and creates a new slot
@@ -96,7 +96,7 @@ export class WalStreamRunner {
       });
       await stream.replicate();
     } catch (e) {
-      container.logger.error(`Replication error`, e);
+      logger.error(`Replication error`, e);
       if (e.cause != null) {
         // Example:
         // PgError.conn_ended: Unable to do postgres query on ended connection
@@ -118,7 +118,7 @@ export class WalStreamRunner {
         //   [Symbol(pg.ErrorResponse)]: undefined
         // }
         // Without this additional log, the cause would not be visible in the logs.
-        container.logger.error(`cause`, e.cause);
+        logger.error(`cause`, e.cause);
       }
       if (e instanceof MissingReplicationSlotError) {
         throw e;
@@ -144,7 +144,7 @@ export class WalStreamRunner {
    * This will also release the lock if start() was called earlier.
    */
   async stop(options?: { force?: boolean }) {
-    container.logger.info(`${this.slot_name} Stopping replication`);
+    logger.info(`${this.slot_name} Stopping replication`);
     // End gracefully
     this.abortController.abort();
 
@@ -161,7 +161,7 @@ export class WalStreamRunner {
    * Stops replication if needed.
    */
   async terminate(options?: { force?: boolean }) {
-    container.logger.info(`${this.slot_name} Terminating replication`);
+    logger.info(`${this.slot_name} Terminating replication`);
     await this.stop(options);
 
     const slotName = this.slot_name;

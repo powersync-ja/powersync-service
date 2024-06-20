@@ -1,6 +1,6 @@
 import { serialize } from 'bson';
 import { SyncParameters, normalizeTokenParameters } from '@powersync/service-sync-rules';
-import { container, errors, schema } from '@powersync/lib-services-framework';
+import { errors, logger, schema } from '@powersync/lib-services-framework';
 
 import * as util from '../../util/util-index.js';
 import { streamResponse } from '../../sync/sync.js';
@@ -123,7 +123,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         // Convert to our standard form before responding.
         // This ensures the error can be serialized.
         const error = new errors.InternalServerError(ex);
-        container.logger.error('Sync stream error', error);
+        logger.error('Sync stream error', error);
         responder.onError(error);
       } finally {
         responder.onComplete();

@@ -1,4 +1,4 @@
-import { container } from '@powersync/lib-services-framework';
+import { logger } from '@powersync/lib-services-framework';
 
 /**
  * Track and log memory usage.
@@ -57,7 +57,7 @@ export function trackMemoryUsage() {
         )
       )`.replaceAll(/\s+/g, ' ');
 
-      container.logger.info(output);
+      logger.info(output);
     }
   }, 50);
 }

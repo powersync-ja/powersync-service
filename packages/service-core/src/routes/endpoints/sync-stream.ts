@@ -1,6 +1,6 @@
 import { Readable } from 'stream';
 import { SyncParameters, normalizeTokenParameters } from '@powersync/service-sync-rules';
-import { container, errors, router, schema } from '@powersync/lib-services-framework';
+import { errors, logger, router, schema } from '@powersync/lib-services-framework';
 
 import * as sync from '../../sync/sync-index.js';
 import * as util from '../../util/util-index.js';
@@ -76,7 +76,7 @@ export const syncStreamed = routeDefinition({
         controller.abort();
         // Note: This appears as a 200 response in the logs.
         if (error.message != 'Shutting down system') {
-          container.logger.error('Streaming sync request failed', error);
+          logger.error('Streaming sync request failed', error);
         }
       });
 

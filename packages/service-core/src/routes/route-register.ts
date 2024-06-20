@@ -1,6 +1,6 @@
 import fastify from 'fastify';
 
-import { container, errors, router, HTTPMethod } from '@powersync/lib-services-framework';
+import { errors, router, HTTPMethod, logger } from '@powersync/lib-services-framework';
 import { Context, ContextProvider, RequestEndpoint, RequestEndpointHandlerPayload } from './router.js';
 
 export type FastifyEndpoint<I, O, C> = RequestEndpoint<I, O, C> & {
@@ -83,7 +83,7 @@ export function registerFastifyRoutes(
             await reply.send(response.data);
           } finally {
             await response.afterSend?.();
-            container.logger.info(`${e.method} ${request.url}`, {
+            logger.info(`${e.method} ${request.url}`, {
               duration_ms: Math.round(new Date().valueOf() - startTime.valueOf() + Number.EPSILON),
               status: response.status,
               method: e.method,

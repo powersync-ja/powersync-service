@@ -16,7 +16,7 @@ import {
   SocketResponder
 } from './types.js';
 import { WebsocketServerTransport } from './transport/WebSocketServerTransport.js';
-import { container, errors } from '@powersync/lib-services-framework';
+import { errors, logger } from '@powersync/lib-services-framework';
 
 export class ReactiveSocketRouter<C> {
   protected activeConnections: number;
@@ -54,8 +54,6 @@ export class ReactiveSocketRouter<C> {
     const transport = new WebsocketServerTransport({
       wsCreator: () => wss
     });
-
-    const { logger } = container;
 
     const rSocketServer = new RSocketServer({
       transport,
@@ -124,7 +122,6 @@ export async function handleReactiveStream<Context>(
 ) {
   const { payload, responder, initialN } = request;
   const { metadata } = payload;
-  const { logger } = container;
 
   const exitWithError = (error: any) => {
     responder.onError(error);

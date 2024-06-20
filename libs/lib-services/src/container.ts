@@ -1,18 +1,14 @@
-import winston, { Logger } from 'winston';
-
 import { ErrorReporter } from './alerts/definitions.js';
 import { NoOpReporter } from './alerts/no-op-reporter.js';
 import { ProbeModule, TerminationHandler, createFSProbe, createTerminationHandler } from './signals/signals-index.js';
 
 export enum ContainerImplementation {
-  LOGGER = 'logger',
   REPORTER = 'reporter',
   PROBES = 'probes',
   TERMINATION_HANDLER = 'termination-handler'
 }
 
 export type ContainerImplementationTypes = {
-  [ContainerImplementation.LOGGER]: Logger;
   [ContainerImplementation.REPORTER]: ErrorReporter;
   [ContainerImplementation.PROBES]: ProbeModule;
   [ContainerImplementation.TERMINATION_HANDLER]: TerminationHandler;
@@ -20,13 +16,6 @@ export type ContainerImplementationTypes = {
 
 export class Container {
   protected implementations: ContainerImplementationTypes;
-
-  /**
-   * Logger which can be used throughout the entire project
-   */
-  get logger() {
-    return this.implementations[ContainerImplementation.LOGGER];
-  }
 
   /**
    * Manager for system health probes
@@ -51,7 +40,6 @@ export class Container {
 
   constructor() {
     this.implementations = {
-      [ContainerImplementation.LOGGER]: winston.createLogger(),
       [ContainerImplementation.REPORTER]: NoOpReporter,
       [ContainerImplementation.PROBES]: createFSProbe(),
       [ContainerImplementation.TERMINATION_HANDLER]: createTerminationHandler()

@@ -28,7 +28,7 @@ import {
 } from 'rsocket-core';
 import * as WebSocket from 'ws';
 import { WebsocketDuplexConnection } from './WebsocketDuplexConnection.js';
-import { container } from '@powersync/lib-services-framework';
+import { logger } from '@powersync/lib-services-framework';
 
 export type SocketFactory = (options: SocketOptions) => WebSocket.WebSocketServer;
 
@@ -76,7 +76,7 @@ export class WebsocketServerTransport implements ServerTransport {
         const duplex = WebSocket.createWebSocketStream(websocket);
         WebsocketDuplexConnection.create(duplex, connectionAcceptor, multiplexerDemultiplexerFactory, websocket);
       } catch (ex) {
-        container.logger.error(`Could not create duplex connection`, ex);
+        logger.error(`Could not create duplex connection`, ex);
         if (websocket.readyState == websocket.OPEN) {
           websocket.close();
         }

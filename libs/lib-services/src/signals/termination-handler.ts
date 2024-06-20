@@ -1,5 +1,5 @@
 import _ from 'lodash';
-import { container } from '../container.js';
+import { logger } from '../logger/Logger.js';
 
 export enum Signal {
   SIGTERM = 'SIGTERM',
@@ -35,14 +35,14 @@ export const createTerminationHandler = (params?: TerminationHandlerParams) => {
   let signal_received = false;
   const signalHandler = (signal: Signal) => {
     if (signal === Signal.SIGINT) {
-      container.logger.info('Send ^C again to force exit');
+      logger.info('Send ^C again to force exit');
     }
 
     if (signal_received) {
       // The SIGINT signal is sent on ctrl-c - if the user presses ctrl-c twice then we
       // hard exit
       if (signal === Signal.SIGINT) {
-        container.logger.info('Received second ^C. Exiting');
+        logger.info('Received second ^C. Exiting');
         process.exit(1);
       }
       return;
@@ -51,24 +51,24 @@ export const createTerminationHandler = (params?: TerminationHandlerParams) => {
     signal_received = true;
 
     new Promise<void>(async (resolve) => {
-      container.logger.info('Terminating gracefully ...');
+      logger.info('Terminating gracefully ...');
 
       for (const handler of handlers) {
         try {
           await handler(signal);
         } catch (err) {
-          container.logger.error('Failed to execute termination handler', err);
+          logger.error('Failed to execute termination handler', err);
         }
       }
 
-      container.logger.info('Exiting');
+      logger.info('Exiting');
       resolve();
     }).then(() => {
       process.exit(0);
     });
 
     setTimeout(() => {
-      container.logger.error('Timed out waiting for program to exit. Force exiting');
+      logger.error('Timed out waiting for program to exit. Force exiting');
       process.exit(1);
     }, timeout_ms);
   };

@@ -1,7 +1,7 @@
 import * as sentry_types from '@sentry/types';
 import * as sentry from '@sentry/node';
 import { utils } from '@powersync/service-core';
-import { container, ErrorReporter } from '@powersync/lib-services-framework';
+import { ErrorReporter, logger } from '@powersync/lib-services-framework';
 
 // Generally ignore errors that are due to configuration issues, rather than
 // service bugs.
@@ -31,9 +31,7 @@ export const createSentryReporter = (opts?: {
       beforeSend: opts?.beforeSend ? opts.beforeSend : undefined
     });
   } else {
-    container.logger.debug(
-      'Alerts configured with sentry reporter but no SENTRY_DSN environment variable has been set'
-    );
+    logger.debug('Alerts configured with sentry reporter but no SENTRY_DSN environment variable has been set');
   }
 
   return {

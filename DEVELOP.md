@@ -28,6 +28,8 @@ A quick method for running all required services with a handy backend and fronte
 docker compose up --scale powersync=0
 ```
 
+Note: The `mongo` hostname specified in the MongoDB replica set needs to be accessible by your host machine if using the Mongo service above.
+
 This will start all the services defined in the Self hosting demo except for the PowerSync service - which will be started from this repository.
 
 ## Local Configuration

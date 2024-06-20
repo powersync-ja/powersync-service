@@ -1,9 +1,9 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
-import { container } from '@powersync/lib-services-framework';
 import { ConfigCollector, ConfigFileFormat } from '../config-collector.js';
 import { RunnerConfig } from '../../types.js';
+import { logger } from '@powersync/lib-services-framework';
 
 export class FileSystemConfigCollector extends ConfigCollector {
   get name(): string {
@@ -25,7 +25,7 @@ export class FileSystemConfigCollector extends ConfigCollector {
       throw new Error(`Config file path ${resolvedPath} was specified, but the file does not exist.`);
     }
 
-    container.logger.info(`Collecting PowerSync configuration from File: ${resolvedPath}`);
+    logger.info(`Collecting PowerSync configuration from File: ${resolvedPath}`);
     const content = await fs.readFile(resolvedPath, 'utf-8');
 
     let contentType: ConfigFileFormat | undefined;

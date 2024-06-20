@@ -1,11 +1,9 @@
 import { migrations, replication, utils, Metrics } from '@powersync/service-core';
-import { container } from '@powersync/lib-services-framework';
+import { container, logger } from '@powersync/lib-services-framework';
 
 import { PowerSyncSystem } from '../system/PowerSyncSystem.js';
 
 export async function startStreamWorker(runnerConfig: utils.RunnerConfig) {
-  const { logger } = container;
-
   logger.info('Booting');
 
   const config = await utils.loadConfig(runnerConfig);

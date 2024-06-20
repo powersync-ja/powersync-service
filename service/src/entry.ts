@@ -1,13 +1,4 @@
-import winston from 'winston';
 import { entry, utils } from '@powersync/service-core';
-import { container, Logger } from '@powersync/lib-services-framework';
-
-// Configure logging to console
-container.logger.configure({
-  format: utils.env.NODE_ENV == 'production' ? Logger.production_format : Logger.development_format,
-  transports: [new winston.transports.Console()]
-});
-
 import { startServer } from './runners/server.js';
 import { startStreamWorker } from './runners/stream-worker.js';
 

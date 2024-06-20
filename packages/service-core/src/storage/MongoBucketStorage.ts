@@ -24,7 +24,7 @@ import { PowerSyncMongo, PowerSyncMongoOptions } from './mongo/db.js';
 import { SyncRuleDocument, SyncRuleState } from './mongo/models.js';
 import { generateSlotName } from './mongo/util.js';
 import { v4 as uuid } from 'uuid';
-import { container } from '@powersync/lib-services-framework';
+import { logger } from '@powersync/lib-services-framework';
 
 export interface MongoBucketStorageOptions extends PowerSyncMongoOptions {}
 
@@ -74,13 +74,13 @@ export class MongoBucketStorage implements BucketStorageFactory {
     const active = await this.getActiveSyncRulesContent();
 
     if (next?.sync_rules_content == sync_rules) {
-      container.logger.info('Sync rules from configuration unchanged');
+      logger.info('Sync rules from configuration unchanged');
       return { updated: false };
     } else if (next == null && active?.sync_rules_content == sync_rules) {
-      container.logger.info('Sync rules from configuration unchanged');
+      logger.info('Sync rules from configuration unchanged');
       return { updated: false };
     } else {
-      container.logger.info('Sync rules updated from configuration');
+      logger.info('Sync rules updated from configuration');
       const persisted_sync_rules = await this.updateSyncRules({
         content: sync_rules,
         lock: options?.lock

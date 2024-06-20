@@ -3,7 +3,7 @@ import secs from '../util/secs.js';
 import { KeyOptions, KeySpec, SUPPORTED_ALGORITHMS } from './KeySpec.js';
 import { KeyCollector } from './KeyCollector.js';
 import { JwtPayload } from './JwtPayload.js';
-import { container } from '@powersync/lib-services-framework';
+import { logger } from '@powersync/lib-services-framework';
 
 /**
  * KeyStore to get keys and verify tokens.
@@ -145,7 +145,7 @@ export class KeyStore {
       this.collector.noKeyFound?.().catch((e) => {
         // Typically this error would be stored on the collector.
         // This is just a last resort error handling.
-        container.logger.error(`Failed to refresh keys`, e);
+        logger.error(`Failed to refresh keys`, e);
       });
 
       throw new jose.errors.JOSEError(

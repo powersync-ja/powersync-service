@@ -5,7 +5,7 @@ import { pgwireRows } from '@powersync/service-jpgwire';
 import * as storage from '../storage/storage-index.js';
 import { BucketChecksum, OpId } from './protocol-types.js';
 import { retriedQuery } from './pgwire_utils.js';
-import { container } from '@powersync/lib-services-framework';
+import { logger } from '@powersync/lib-services-framework';
 
 export type ChecksumMap = Map<string, BucketChecksum>;
 
@@ -90,14 +90,14 @@ export async function getClientCheckpoint(
 
   const timeout = options?.timeout ?? 50_000;
 
-  container.logger.info(`Waiting for LSN checkpoint: ${lsn}`);
+  logger.info(`Waiting for LSN checkpoint: ${lsn}`);
   while (Date.now() - start < timeout) {
     const cp = await bucketStorage.getActiveCheckpoint();
     if (!cp.hasSyncRules()) {
       throw new Error('No sync rules available');
     }
     if (cp.lsn >= lsn) {
-      container.logger.info(`Got write checkpoint: ${lsn} : ${cp.checkpoint}`);
+      logger.info(`Got write checkpoint: ${lsn} : ${cp.checkpoint}`);
       return cp.checkpoint;
     }
 
@@ -117,6 +117,6 @@ export async function createWriteCheckpoint(
   );
 
   const id = await bucketStorage.createWriteCheckpoint(user_id, { '1': lsn });
-  container.logger.info(`Write checkpoint 2: ${JSON.stringify({ lsn, id: String(id) })}`);
+  logger.info(`Write checkpoint 2: ${JSON.stringify({ lsn, id: String(id) })}`);
   return id;
 }

@@ -6,7 +6,7 @@ import * as pgwire from '@powersync/service-jpgwire';
 import { SqliteJsonValue, SqliteRow, ToastableSqliteRow, toSyncRulesRow } from '@powersync/service-sync-rules';
 
 import * as replication from '../replication/replication-index.js';
-import { container } from '@powersync/lib-services-framework';
+import { logger } from '@powersync/lib-services-framework';
 
 /**
  * pgwire message -> SQLite row.
@@ -133,7 +133,7 @@ export async function retriedQuery(db: pgwire.PgClient, ...args: any[]) {
       if (tries == 1) {
         throw e;
       }
-      container.logger.warn('Query error, retrying', e);
+      logger.warn('Query error, retrying', e);
     }
   }
 }

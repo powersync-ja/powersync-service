@@ -1,6 +1,6 @@
+import { logger } from '@powersync/lib-services-framework';
 import * as defs from './definitions.js';
 import { MigrationStore } from './store/migration-store.js';
-import { container } from '@powersync/lib-services-framework';
 
 type ExecuteParams = {
   migrations: defs.Migration[];
@@ -42,7 +42,7 @@ export async function* execute(params: ExecuteParams): AsyncGenerator<defs.Execu
       return;
     }
 
-    container.logger.info(`Executing ${migration.name} (${params.direction})`);
+    logger.info(`Executing ${migration.name} (${params.direction})`);
     try {
       switch (params.direction) {
         case defs.Direction.Up: {
@@ -54,9 +54,9 @@ export async function* execute(params: ExecuteParams): AsyncGenerator<defs.Execu
           break;
         }
       }
-      container.logger.debug(`Success`);
+      logger.debug(`Success`);
     } catch (err) {
-      container.logger.error(`Failed`, err);
+      logger.error(`Failed`, err);
       process.exit(1);
     }
 

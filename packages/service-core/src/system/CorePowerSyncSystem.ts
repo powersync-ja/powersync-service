@@ -1,5 +1,5 @@
 import * as pgwire from '@powersync/service-jpgwire';
-import { LifeCycledSystem, container } from '@powersync/lib-services-framework';
+import { LifeCycledSystem, container, logger } from '@powersync/lib-services-framework';
 
 import * as storage from '../storage/storage-index.js';
 import * as utils from '../util/util-index.js';
@@ -36,7 +36,7 @@ export abstract class CorePowerSyncSystem extends LifeCycledSystem {
       // Note: This does not work well when streaming requests are queued. In that case, the server still doesn't
       // close in the 30-second timeout.
       this.closed = true;
-      container.logger.info(`Closing ${this.stopHandlers.size} streams`);
+      logger.info(`Closing ${this.stopHandlers.size} streams`);
       for (let handler of this.stopHandlers) {
         handler();
       }
