@@ -7,6 +7,7 @@ import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 import * as replication from '../replication/replication-index.js';
 import * as sync from '../sync/sync-index.js';
 import * as util from '../util/util-index.js';
+import * as locks from '../locks/locks-index.js';
 
 import {
   ActiveCheckpoint,
@@ -22,7 +23,6 @@ import { MongoSyncBucketStorage } from './mongo/MongoSyncBucketStorage.js';
 import { PowerSyncMongo, PowerSyncMongoOptions } from './mongo/db.js';
 import { SyncRuleDocument, SyncRuleState } from './mongo/models.js';
 import { generateSlotName } from './mongo/util.js';
-import { locks } from '@journeyapps-platform/micro';
 import { v4 as uuid } from 'uuid';
 import { ErrorReporter, logger } from '@powersync/service-framework';
 

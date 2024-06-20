@@ -1,8 +1,8 @@
 import { Command } from 'commander';
-import { Direction } from '@journeyapps-platform/micro-migrate';
 
 import { extractRunnerOptions, wrapConfigCommand } from './config-command.js';
 import { migrate } from '../../migrations/migrations.js';
+import { Direction } from '../../migrations/definitions.js';
 
 const COMMAND_NAME = 'migrate';
 

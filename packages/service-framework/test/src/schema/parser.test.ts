@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 
-import * as framework_schema from '../../../src/schema/schema-index';
+import * as framework_schema from '../../../src/schema/schema-index.js';
 
 describe('schema-tools', () => {
   test('it should correctly prune unused definitions', () => {

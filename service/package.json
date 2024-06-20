@@ -11,8 +11,6 @@
   },
   "dependencies": {
     "@fastify/cors": "8.4.1",
-    "@journeyapps-platform/micro": "^17.0.1",
-    "@journeyapps-platform/micro-migrate": "^4.0.1",
     "@opentelemetry/api": "~1.6.0",
     "@opentelemetry/exporter-prometheus": "^0.43.0",
     "@opentelemetry/sdk-metrics": "^1.17.0",

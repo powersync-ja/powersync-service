@@ -1,7 +1,7 @@
 import { describe, test, it, expect } from 'vitest';
 
-import base_schema from '../fixtures/schema';
-import * as framework_schema from '../../../src/schema/schema-index';
+import base_schema from '../fixtures/schema.js';
+import * as framework_schema from '../../../src/schema/schema-index.js';
 
 const base_validator = framework_schema.createSchemaValidator(base_schema);
 

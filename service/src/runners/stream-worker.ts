@@ -1,4 +1,3 @@
-import { Direction } from '@journeyapps-platform/micro-migrate';
 import { migrations, replication, utils, Metrics } from '@powersync/service-core';
 import { logger } from '@powersync/service-framework';
 
@@ -12,7 +11,7 @@ export async function startStreamWorker(runnerConfig: utils.RunnerConfig) {
   // Self hosted version allows for automatic migrations
   if (!config.migrations?.disable_auto_migration) {
     await migrations.migrate({
-      direction: Direction.Up,
+      direction: migrations.Direction.Up,
       runner_config: runnerConfig
     });
   }

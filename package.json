@@ -13,7 +13,7 @@
     "build:packages": "pnpm run build",
     "build:production": "NODE_ENV=production pnpm run -r build",
     "build:ts": "tsc -b",
-    "watch:ts": "pnpm build:ts -w",
+    "watch:ts": "pnpm build:ts -w --preserveWatchOutput",
     "watch:service": "concurrently --passthrough-arguments \"pnpm watch:ts\" \" pnpm start:service {@}\" -- ",
     "start:service": "pnpm --filter powersync-open-service watch",
     "clean": "pnpm run -r clean",

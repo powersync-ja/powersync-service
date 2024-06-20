@@ -16,7 +16,7 @@ export * from './metrics/Metrics.js';
 export * as metrics from './metrics/Metrics.js';
 
 export * from './migrations/migrations.js';
-export * as migrations from './migrations/migrations.js';
+export * as migrations from './migrations/migrations-index.js';
 
 export * from './replication/replication-index.js';
 export * as replication from './replication/replication-index.js';

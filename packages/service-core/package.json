@@ -16,8 +16,6 @@
     "clean": "rm -rf ./lib && tsc -b --clean"
   },
   "dependencies": {
-    "@journeyapps-platform/micro": "^17.0.1",
-    "@journeyapps-platform/micro-migrate": "^4.0.1",
     "@opentelemetry/api": "~1.8.0",
     "@opentelemetry/exporter-metrics-otlp-http": "^0.51.1",
     "@opentelemetry/exporter-prometheus": "^0.51.1",

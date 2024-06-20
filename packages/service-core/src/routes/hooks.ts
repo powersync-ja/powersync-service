@@ -20,7 +20,7 @@ export const createRequestQueueHook = (params: CreateRequestQueueParams): fastif
   return (request, reply, next) => {
     if (
       (params.max_queue_depth == 0 && request_queue.running() == params.concurrency) ||
-      request_queue.length() >= params.max_queue_depth
+      (params.max_queue_depth > 0 && request_queue.length() >= params.max_queue_depth)
     ) {
       framework.logger.warn(`${request.method} ${request.url}`, {
         status: 429,
