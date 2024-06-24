@@ -50,7 +50,8 @@ export class PowerSyncSystem extends system.CorePowerSyncSystem {
         await Metrics.initialise({
           powersync_instance_id: instanceId,
           disable_telemetry_sharing: config.telemetry.disable_telemetry_sharing,
-          internal_metrics_endpoint: config.telemetry.internal_service_endpoint
+          internal_metrics_endpoint: config.telemetry.internal_service_endpoint,
+          additional_metric_endpoints: config.telemetry.additional_client_endpoints
         });
       },
       async stop() {

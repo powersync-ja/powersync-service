@@ -145,7 +145,8 @@ export const powerSyncConfig = t.object({
   telemetry: t
     .object({
       disable_telemetry_sharing: t.boolean,
-      internal_service_endpoint: t.string.optional()
+      internal_service_endpoint: t.string.optional(),
+      client_endpoints: t.array(t.string).optional()
     })
     .optional()
 });

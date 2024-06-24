@@ -12,7 +12,8 @@ import { Metrics } from '@/metrics/Metrics.js';
 await Metrics.initialise({
   disable_telemetry_sharing: true,
   powersync_instance_id: 'test',
-  internal_metrics_endpoint: 'unused.for.tests.com'
+  internal_metrics_endpoint: 'unused.for.tests.com',
+  additional_metric_endpoints: []
 });
 Metrics.getInstance().resetCounters();
 

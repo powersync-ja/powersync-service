@@ -79,9 +79,12 @@ export class WalStream {
           // If we haven't started streaming yet, it could be due to something like
           // and invalid password. In that case, don't attempt to ping.
         }
+        this.clearGauges();
       },
       { once: true }
     );
+
+    this.initialiseGauges();
   }
 
   get publication_name() {
@@ -345,6 +348,8 @@ WHERE  oid = $1::regclass`,
     } catch (e) {
       await db.query('ROLLBACK');
       throw e;
+    } finally {
+      Metrics.getInstance().initial_syncs.add(1);
     }
   }
 
@@ -362,6 +367,8 @@ WHERE  oid = $1::regclass`,
       }
       await batch.commit(lsn);
     });
+
+
   }
 
   static *getQueryData(results: Iterable<pgwire.DatabaseInputRow>): Generator<SqliteRow> {
@@ -616,6 +623,26 @@ WHERE  oid = $1::regclass`,
     }
 
     replicationStream.ack(lsn);
+  }
+
+  private initialiseGauges() {
+    Metrics.getInstance().sync_rule_distinct_table_count.addCallback((result) => {
+      result.observe(this.sync_rules.getSourceTables().length);
+    });
+
+    Metrics.getInstance().sync_rule_bucket_definition_count.addCallback((result) => {
+      result.observe(this.sync_rules.bucket_descriptors.length);
+    });
+  }
+
+  private clearGauges() {
+    Metrics.getInstance().sync_rule_distinct_table_count.removeCallback((result) => {
+      result.observe(this.sync_rules.getSourceTables().length);
+    });
+
+    Metrics.getInstance().sync_rule_bucket_definition_count.removeCallback((result) => {
+      result.observe(this.sync_rules.bucket_descriptors.length);
+    });
   }
 }
 

@@ -59,6 +59,10 @@ export type ResolvedPowerSyncConfig = {
   telemetry: {
     disable_telemetry_sharing: boolean;
     internal_service_endpoint: string;
+    /**
+     *  Additional OTLP collector endpoints to send metrics to.
+     */
+    additional_client_endpoints: string[];
   };
 
   /** Prefix for postgres replication slot names. May eventually be connection-specific. */

@@ -1,18 +1,23 @@
 import * as micro from '@journeyapps-platform/micro';
 import { Attributes, Counter, ObservableGauge, UpDownCounter, ValueType } from '@opentelemetry/api';
 import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
-import { MeterProvider, MetricReader, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
+import {
+  MeterProvider,
+  MetricReader,
+  PeriodicExportingMetricReader
+} from '@opentelemetry/sdk-metrics';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import * as jpgwire from '@powersync/service-jpgwire';
 import * as util from '@/util/util-index.js';
 import * as storage from '@/storage/storage-index.js';
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
-import { Resource } from '@opentelemetry/resources';
+import { IResource, Resource } from '@opentelemetry/resources';
 
 export interface MetricsOptions {
   disable_telemetry_sharing: boolean;
   powersync_instance_id: string;
   internal_metrics_endpoint: string;
+  additional_metric_endpoints: string[];
 }
 
 export class Metrics {
@@ -47,18 +52,29 @@ export class Metrics {
 
   // 3. Data hosted on PowerSync sync service
 
-  // Record on replication pod
+  // Replication and Sync Rules
   // 3a. Replication storage -> raw data as received from Postgres.
   public replication_storage_size_bytes: ObservableGauge<Attributes>;
   // 3b. Operations storage -> transformed history, as will be synced to clients
   public operation_storage_size_bytes: ObservableGauge<Attributes>;
   // 3c. Parameter storage -> used for parameter queries
   public parameter_storage_size_bytes: ObservableGauge<Attributes>;
+  // 3d. Initial syncs
+  public initial_syncs: Counter<Attributes>;
+  // 3e. Unique number of tables discovered in the sync rules
+  public sync_rule_distinct_table_count: ObservableGauge<Attributes>;
+  // 3f. Number of sync rule bucket definitions
+  public sync_rule_bucket_definition_count: ObservableGauge<Attributes>;
 
   // 4. Peak concurrent connections
 
   // Record on API pod
   public concurrent_connections: UpDownCounter<Attributes>;
+
+  // 5. Replication and Sync Rules
+
+  // 5a. Initial syncs
+
 
   private constructor(meterProvider: MeterProvider, prometheusExporter: PrometheusExporter) {
     this.meterProvider = meterProvider;
@@ -115,6 +131,21 @@ export class Metrics {
       valueType: ValueType.INT
     });
 
+    this.initial_syncs = meter.createCounter('powersync_initial_syncs_total', {
+      description: 'The number of times an initial sync of the DB => Powersync has been performed',
+      valueType: ValueType.INT
+    });
+
+    this.sync_rule_distinct_table_count = meter.createObservableGauge('powersync_sync_rule_distinct_table_count', {
+      description: 'The number of unique tables recorded in the sync rules',
+      valueType: ValueType.INT
+    });
+
+    this.sync_rule_bucket_definition_count = meter.createObservableGauge('powersync_sync_rule_bucket_definition_count', {
+      description: 'The number buckets defined in the sync rules',
+      valueType: ValueType.INT
+    });
+
     this.concurrent_connections = meter.createUpDownCounter('powersync_concurrent_connections', {
       description: 'Number of concurrent sync connections',
       valueType: ValueType.INT
@@ -157,6 +188,11 @@ Anonymous telemetry is currently: ${options.disable_telemetry_sharing ? 'disable
     `.trim()
     );
 
+    const resource = new Resource({
+      ['service']: 'PowerSync',
+      ['instance_id']: options.powersync_instance_id
+    });
+
     const configuredExporters: MetricReader[] = [];
 
     const port: number = util.env.METRICS_PORT ?? 0;
@@ -173,13 +209,25 @@ Anonymous telemetry is currently: ${options.disable_telemetry_sharing ? 'disable
       });
 
       configuredExporters.push(periodicExporter);
+    } else {
+      await Metrics.sendOneTimeRecord(resource, options.internal_metrics_endpoint);
+    }
+
+    // Create extra exporters for any additionally configured metric endpoints
+    for (const endpoint of options.additional_metric_endpoints) {
+      micro.logger.info(`Exporting metrics to endpoint: ${endpoint}`);
+      const additionalEndpointExporter = new PeriodicExportingMetricReader({
+        exporter: new OTLPMetricExporter({
+          url: endpoint
+        }),
+        exportIntervalMillis: 1000 * 60 * 5 // 5 minutes
+      });
+
+      configuredExporters.push(additionalEndpointExporter);
     }
 
     const meterProvider = new MeterProvider({
-      resource: new Resource({
-        ['service']: 'PowerSync',
-        ['instance_id']: options.powersync_instance_id
-      }),
+      resource: resource,
       readers: configuredExporters
     });
 
@@ -261,5 +309,30 @@ Anonymous telemetry is currently: ${options.disable_telemetry_sharing ? 'disable
     }
     const point = metric.dataPoints[metric.dataPoints.length - 1];
     return point?.value as number;
+  }
+
+  private static async sendOneTimeRecord(resource: IResource, endpoint: string): Promise<void> {
+    const onceOfExporter = new PeriodicExportingMetricReader({
+      exporter: new OTLPMetricExporter({
+        url: endpoint
+      }),
+      exportIntervalMillis: 1000 * 60 * 10 // 10 minutes - but not really relevant since we will force a send and a shutdown
+    });
+
+    const meterProvider = new MeterProvider({
+      resource: resource,
+      readers: [onceOfExporter]
+    });
+
+    const meter = meterProvider.getMeter('powersync');
+
+    const counter = meter.createCounter('powersync_metrics_opted_out', {
+      description: 'One time message registering that metrics were opted out of'
+    });
+
+    counter.add(1);
+
+    await meterProvider.forceFlush();
+    await meterProvider.shutdown();
   }
 }
