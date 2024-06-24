@@ -18,7 +18,12 @@ export async function startServer(runnerConfig: core.utils.RunnerConfig) {
 
   const server = fastify.fastify();
 
-  // Create a separate context for concurrency queueing
+  /**
+   * Fastify creates an encapsulated context for each `.register` call.
+   * Creating a separate context here to separate the concurrency limits for Admin APIs
+   * and Sync Streaming routes.
+   * https://github.com/fastify/fastify/blob/main/docs/Reference/Encapsulation.md
+   */
   server.register(async function (childContext) {
     core.routes.registerFastifyRoutes(
       childContext,
