@@ -25,7 +25,6 @@ export const createRequestQueueHook = (params: CreateRequestQueueParams): fastif
         status: 429,
         method: request.method,
         path: request.url,
-        route: request.routerPath,
         queue_overflow: true
       });
       return reply.status(429).send();
