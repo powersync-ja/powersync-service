@@ -122,6 +122,7 @@ export async function handleReactiveStream<Context>(
 ) {
   const { payload, responder, initialN } = request;
   const { metadata } = payload;
+  const startTime = new Date();
 
   const exitWithError = (error: any) => {
     responder.onError(error);
@@ -171,5 +172,9 @@ export async function handleReactiveStream<Context>(
     logger.error(ex);
     responder.onError(ex);
     responder.onComplete();
+  } finally {
+    logger.info(`STREAM ${path}`, {
+      duration_ms: Math.round(new Date().valueOf() - startTime.valueOf() + Number.EPSILON)
+    });
   }
 }
