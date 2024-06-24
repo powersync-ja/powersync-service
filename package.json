@@ -8,7 +8,7 @@
   "author": "JourneyApps Platform",
   "scripts": {
     "check-updates": "ncu -u --deep",
-    "format": "journey-formatter format",
+    "format": "prettier --write .",
     "build": "pnpm run -r build && pnpm run -r build:tests",
     "build:packages": "pnpm run build",
     "build:production": "NODE_ENV=production pnpm run -r build",
