@@ -3,8 +3,6 @@ export * from './env.js';
 export * from './memory-tracking.js';
 export * from './migration_lib.js';
 export * from './Mutex.js';
-export * from './PgManager.js';
-export * from './pgwire_utils.js';
 export * from './populate_test_data.js';
 export * from './protocol-types.js';
 export * from './secs.js';

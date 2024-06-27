@@ -1,0 +1,31 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "sourceMap": true
+  },
+  "include": ["src"],
+  "references": [
+    {
+      "path": "../types"
+    },
+    {
+      "path": "../jsonbig"
+    },
+    {
+      "path": "../jpgwire"
+    },
+    {
+      "path": "../sync-rules"
+    },
+    {
+      "path": "../../libs/lib-services"
+    },
+    {
+      "path": "../service-core"
+    }
+  ]
+}

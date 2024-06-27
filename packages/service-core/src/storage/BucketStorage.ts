@@ -277,7 +277,7 @@ export interface ResolveTableOptions {
   group_id: number;
   connection_id: number;
   connection_tag: string;
-  relation: replication.PgRelation;
+  relation: replication.Relation;
 
   sync_rules: SqlSyncRules;
 }

@@ -1,7 +1,8 @@
 import * as bson from 'bson';
 import { ToastableSqliteRow } from '@powersync/service-sync-rules';
 
-import * as util from '../../util/util-index.js';
+import * as storage_utils from './mongo-storage-utils.js';
+
 import { SaveOptions } from '../BucketStorage.js';
 
 /**
@@ -71,9 +72,11 @@ export class RecordOperation {
 
   constructor(public readonly record: SaveOptions) {
     const after = record.after;
-    const afterId = after ? util.getUuidReplicaIdentityBson(after, record.sourceTable.replicaIdColumns!) : null;
+    const afterId = after
+      ? storage_utils.getUuidReplicaIdentityBson(after, record.sourceTable.replicaIdColumns!)
+      : null;
     const beforeId = record.before
-      ? util.getUuidReplicaIdentityBson(record.before, record.sourceTable.replicaIdColumns!)
+      ? storage_utils.getUuidReplicaIdentityBson(record.before, record.sourceTable.replicaIdColumns!)
       : afterId!;
     this.afterId = afterId;
     this.beforeId = beforeId;

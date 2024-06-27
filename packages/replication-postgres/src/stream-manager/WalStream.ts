@@ -1,19 +1,17 @@
 import * as pgwire from '@powersync/service-jpgwire';
 import { container, errors, logger } from '@powersync/lib-services-framework';
 import { SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
+import { Metrics, replication, storage } from '@powersync/service-core';
 
-import * as storage from '../storage/storage-index.js';
-import * as util from '../util/util-index.js';
-
-import { getPgOutputRelation, getRelId, PgRelation } from './PgRelation.js';
-import { getReplicationIdentityColumns } from './util.js';
 import { WalConnection } from './WalConnection.js';
-import { Metrics } from '../metrics/Metrics.js';
+import { PgManager } from '../utils/PgManager.js';
+import { constructAfterRecord, constructBeforeRecord, retriedQuery } from '../utils/pgwire_utils.js';
+import { getPgOutputRelation, getRelId, getReplicationIdentityColumns } from '../utils/util.js';
 
 export const ZERO_LSN = '00000000/00000000';
 
 export interface WalStreamOptions {
-  connections: util.PgManager;
+  connections: PgManager;
   factory: storage.BucketStorageFactory;
   storage: storage.SyncRulesBucketStorage;
   abort_signal: AbortSignal;
@@ -40,7 +38,7 @@ export class WalStream {
 
   private slot_name: string;
 
-  private connections: util.PgManager;
+  private connections: PgManager;
 
   private abort_signal: AbortSignal;
 
@@ -64,7 +62,7 @@ export class WalStream {
           // Ping to speed up cancellation of streaming replication
           // We're not using pg_snapshot here, since it could be in the middle of
           // an initial replication transaction.
-          const promise = util.retriedQuery(
+          const promise = retriedQuery(
             this.connections.pool,
             `SELECT * FROM pg_logical_emit_message(false, 'powersync', 'ping')`
           );
@@ -414,7 +412,7 @@ WHERE  oid = $1::regclass`,
     await batch.flush();
   }
 
-  async handleRelation(batch: storage.BucketStorageBatch, relation: PgRelation, snapshot: boolean) {
+  async handleRelation(batch: storage.BucketStorageBatch, relation: replication.Relation, snapshot: boolean) {
     if (relation.relationId == null || typeof relation.relationId != 'number') {
       throw new Error('relationId expected');
     }
@@ -494,18 +492,18 @@ WHERE  oid = $1::regclass`,
 
       if (msg.tag == 'insert') {
         Metrics.getInstance().rows_replicated_total.add(1);
-        const baseRecord = util.constructAfterRecord(msg);
+        const baseRecord = constructAfterRecord(msg);
         return await batch.save({ tag: 'insert', sourceTable: table, before: undefined, after: baseRecord });
       } else if (msg.tag == 'update') {
         Metrics.getInstance().rows_replicated_total.add(1);
         // "before" may be null if the replica id columns are unchanged
         // It's fine to treat that the same as an insert.
-        const before = util.constructBeforeRecord(msg);
-        const after = util.constructAfterRecord(msg);
+        const before = constructBeforeRecord(msg);
+        const after = constructAfterRecord(msg);
         return await batch.save({ tag: 'update', sourceTable: table, before: before, after: after });
       } else if (msg.tag == 'delete') {
         Metrics.getInstance().rows_replicated_total.add(1);
-        const before = util.constructBeforeRecord(msg)!;
+        const before = constructBeforeRecord(msg)!;
 
         return await batch.save({ tag: 'delete', sourceTable: table, before: before, after: undefined });
       }

@@ -109,6 +109,43 @@ importers:
         specifier: ^2.0.8
         version: 2.0.11
 
+  packages/replication-postgres:
+    dependencies:
+      '@powersync/lib-services-framework':
+        specifier: workspace:*
+        version: link:../../libs/lib-services
+      '@powersync/service-core':
+        specifier: workspace:*
+        version: link:../service-core
+      '@powersync/service-jpgwire':
+        specifier: workspace:*
+        version: link:../jpgwire
+      '@powersync/service-jsonbig':
+        specifier: workspace:*
+        version: link:../jsonbig
+      '@powersync/service-sync-rules':
+        specifier: workspace:*
+        version: link:../sync-rules
+      '@powersync/service-types':
+        specifier: workspace:*
+        version: link:../types
+      pgwire:
+        specifier: github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
+        version: https://codeload.github.com/kagis/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
+      uuid:
+        specifier: ^9.0.1
+        version: 9.0.1
+    devDependencies:
+      '@types/uuid':
+        specifier: ^9.0.4
+        version: 9.0.8
+      typescript:
+        specifier: ^5.2.2
+        version: 5.2.2
+      vitest:
+        specifier: ^0.34.6
+        version: 0.34.6
+
   packages/rsocket-router:
     dependencies:
       '@powersync/lib-services-framework':
@@ -4955,7 +4992,7 @@ snapshots:
       '@opentelemetry/semantic-conventions': 1.25.0
       '@prisma/instrumentation': 5.15.0
       '@sentry/core': 8.9.2
-      '@sentry/opentelemetry': 8.9.2(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.0(@opentelemetry/api@1.9.0))(@opentelemetry/instrumentation@0.52.0(@opentelemetry/api@1.6.0))(@opentelemetry/sdk-trace-base@1.25.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.25.0)
+      '@sentry/opentelemetry': 8.9.2(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.0(@opentelemetry/api@1.6.0))(@opentelemetry/instrumentation@0.52.0(@opentelemetry/api@1.6.0))(@opentelemetry/sdk-trace-base@1.25.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.25.0)
       '@sentry/types': 8.9.2
       '@sentry/utils': 8.9.2
     optionalDependencies:
@@ -4963,7 +5000,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@sentry/opentelemetry@8.9.2(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.0(@opentelemetry/api@1.9.0))(@opentelemetry/instrumentation@0.52.0(@opentelemetry/api@1.6.0))(@opentelemetry/sdk-trace-base@1.25.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.25.0)':
+  '@sentry/opentelemetry@8.9.2(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.0(@opentelemetry/api@1.6.0))(@opentelemetry/instrumentation@0.52.0(@opentelemetry/api@1.6.0))(@opentelemetry/sdk-trace-base@1.25.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.25.0)':
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/core': 1.25.0(@opentelemetry/api@1.9.0)

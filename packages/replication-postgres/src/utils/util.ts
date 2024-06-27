@@ -1,20 +1,43 @@
 import * as pgwire from '@powersync/service-jpgwire';
+import { replication } from '@powersync/service-core';
 
-import * as util from '../util/util-index.js';
-import { ReplicationColumn, ReplicationIdentity } from './PgRelation.js';
+import { ReplicaIdentityResult } from '../types.js';
+import { retriedQuery } from './pgwire_utils.js';
 
-export interface ReplicaIdentityResult {
-  columns: ReplicationColumn[];
-  replicationIdentity: ReplicationIdentity;
+export function getReplicaIdColumns(relation: pgwire.PgoutputRelation): replication.ReplicationColumn[] {
+  if (relation.replicaIdentity == 'nothing') {
+    return [];
+  } else {
+    return relation.columns.filter((c) => (c.flags & 0b1) != 0).map((c) => ({ name: c.name, typeOid: c.typeOid }));
+  }
+}
+
+export function getRelId(source: pgwire.PgoutputRelation): number {
+  // Source types are wrong here
+  const relId = (source as any).relationOid as number;
+  if (relId == null || typeof relId != 'number') {
+    throw new Error(`No relation id!`);
+  }
+  return relId;
+}
+
+export function getPgOutputRelation(source: pgwire.PgoutputRelation): replication.Relation {
+  return {
+    name: source.name,
+    schema: source.schema,
+    relationId: getRelId(source),
+    replicaIdentity: source.replicaIdentity,
+    replicationColumns: getReplicaIdColumns(source)
+  };
 }
 
 export async function getPrimaryKeyColumns(
   db: pgwire.PgClient,
   relationId: number,
   mode: 'primary' | 'replident'
-): Promise<ReplicationColumn[]> {
+): Promise<replication.ReplicationColumn[]> {
   const indexFlag = mode == 'primary' ? `i.indisprimary` : `i.indisreplident`;
-  const attrRows = await util.retriedQuery(db, {
+  const attrRows = await retriedQuery(db, {
     statement: `SELECT a.attname as name, a.atttypid as typeid, a.attnum as attnum
                                     FROM pg_index i
                                              JOIN pg_attribute a
@@ -32,8 +55,8 @@ export async function getPrimaryKeyColumns(
   });
 }
 
-export async function getAllColumns(db: pgwire.PgClient, relationId: number): Promise<ReplicationColumn[]> {
-  const attrRows = await util.retriedQuery(db, {
+export async function getAllColumns(db: pgwire.PgClient, relationId: number): Promise<replication.ReplicationColumn[]> {
+  const attrRows = await retriedQuery(db, {
     statement: `SELECT a.attname as name, a.atttypid as typeid, a.attnum as attnum
                                     FROM pg_attribute a
                                     WHERE a.attrelid = $1::oid
@@ -50,7 +73,7 @@ export async function getReplicationIdentityColumns(
   db: pgwire.PgClient,
   relationId: number
 ): Promise<ReplicaIdentityResult> {
-  const rows = await util.retriedQuery(db, {
+  const rows = await retriedQuery(db, {
     statement: `SELECT CASE relreplident
         WHEN 'd' THEN 'default'
         WHEN 'n' THEN 'nothing'

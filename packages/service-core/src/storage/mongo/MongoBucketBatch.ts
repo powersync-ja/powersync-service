@@ -1,10 +1,12 @@
-import { SqliteRow, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import * as mongo from 'mongodb';
 
-import * as util from '../../util/util-index.js';
-import * as replication from '../../replication/replication-index.js';
+import { SqliteRow, SqlSyncRules } from '@powersync/service-sync-rules';
 import { container, errors, logger } from '@powersync/lib-services-framework';
+
+import * as util from '../../util/util-index.js';
+import * as storage_utils from './mongo-storage-utils.js';
+
 import { BucketStorageBatch, FlushedResult, mergeToast, SaveOptions } from '../BucketStorage.js';
 import { SourceTable } from '../SourceTable.js';
 import { PowerSyncMongo } from './db.js';
@@ -12,7 +14,6 @@ import { CurrentBucket, CurrentDataDocument, SourceKey } from './models.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { cacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
-import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, serializeLookup } from './util.js';
 
 /**
  * 15MB
@@ -70,7 +71,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
     this.slot_name = slot_name;
     this.session = this.client.startSession();
     this.last_checkpoint_lsn = last_checkpoint_lsn;
-    this.no_checkpoint_before_lsn = no_checkpoint_before_lsn ?? replication.ZERO_LSN;
+    this.no_checkpoint_before_lsn = no_checkpoint_before_lsn ?? storage_utils.ZERO_LSN;
   }
 
   async flush(): Promise<FlushedResult | null> {
@@ -243,7 +244,10 @@ export class MongoBucketBatch implements BucketStorageBatch {
         existing_buckets = [];
         existing_lookups = [];
       } else {
-        const data = bson.deserialize((result.data as mongo.Binary).buffer, BSON_DESERIALIZE_OPTIONS) as SqliteRow;
+        const data = bson.deserialize(
+          (result.data as mongo.Binary).buffer,
+          storage_utils.BSON_DESERIALIZE_OPTIONS
+        ) as SqliteRow;
         existing_buckets = result.buckets;
         existing_lookups = result.lookups;
         after = mergeToast(after!, data);
@@ -326,7 +330,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
     // However, it will be valid by the end of the transaction.
     //
     // In this case, we don't save the op, but we do save the current data.
-    if (afterId && after && util.isCompleteRow(after)) {
+    if (afterId && after && storage_utils.isCompleteRow(after)) {
       // Insert or update
       if (sourceTable.syncData) {
         const { results: evaluated, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
@@ -398,7 +402,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
           existing_lookups
         });
         new_lookups = paramEvaluated.map((p) => {
-          return serializeLookup(p.lookup);
+          return storage_utils.serializeLookup(p.lookup);
         });
       }
     }
@@ -655,7 +659,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
     while (lastBatchCount == BATCH_LIMIT) {
       await this.withReplicationTransaction(`Truncate ${sourceTable.qualifiedName}`, async (session, opSeq) => {
         const current_data_filter: mongo.Filter<CurrentDataDocument> = {
-          _id: idPrefixFilter<SourceKey>({ g: this.group_id, t: sourceTable.id }, ['k'])
+          _id: storage_utils.idPrefixFilter<SourceKey>({ g: this.group_id, t: sourceTable.id }, ['k'])
         };
 
         const cursor = this.db.current_data.find(current_data_filter, {

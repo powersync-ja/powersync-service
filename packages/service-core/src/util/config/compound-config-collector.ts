@@ -69,9 +69,10 @@ export class CompoundConfigCollector {
 
     collectors.add(staticCollector);
 
-    if (baseConfig.client_auth?.supabase && mapped.length > 0) {
-      collectors.add(new auth.CachedKeyCollector(new auth.SupabaseKeyCollector(mapped[0])));
-    }
+    // TODO
+    // if (baseConfig.client_auth?.supabase && mapped.length > 0) {
+    //   collectors.add(new auth.CachedKeyCollector(new auth.SupabaseKeyCollector(mapped[0])));
+    // }
 
     let jwks_uris = baseConfig.client_auth?.jwks_uri ?? [];
     if (typeof jwks_uris == 'string') {

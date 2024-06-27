@@ -2,11 +2,12 @@ import * as pgwire from '@powersync/service-jpgwire';
 import { pgwireRows } from '@powersync/service-jpgwire';
 import { DEFAULT_TAG, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import { ReplicationError, TableInfo } from '@powersync/service-types';
+import { storage } from '@powersync/service-core';
 
-import * as storage from '../storage/storage-index.js';
-import * as util from '../util/util-index.js';
+import { ReplicaIdentityResult } from '../types.js';
+import { getReplicationIdentityColumns } from '../utils/util.js';
+import { retriedQuery } from '../utils/pgwire_utils.js';
 
-import { ReplicaIdentityResult, getReplicationIdentityColumns } from './util.js';
 /**
  * Connection that _manages_ WAL, but does not do streaming.
  */
@@ -75,14 +76,14 @@ export class WalConnection {
 
     let selectError = null;
     try {
-      await util.retriedQuery(this.db, `SELECT * FROM ${sourceTable.escapedIdentifier} LIMIT 1`);
+      await retriedQuery(this.db, `SELECT * FROM ${sourceTable.escapedIdentifier} LIMIT 1`);
     } catch (e) {
       selectError = { level: 'fatal', message: e.message };
     }
 
     let replicateError = null;
 
-    const publications = await util.retriedQuery(this.db, {
+    const publications = await retriedQuery(this.db, {
       statement: `SELECT tablename FROM pg_publication_tables WHERE pubname = $1 AND schemaname = $2 AND tablename = $3`,
       params: [
         { type: 'varchar', value: this.publication_name },
@@ -124,7 +125,7 @@ export class WalConnection {
       if (tablePattern.isWildcard) {
         patternResult.tables = [];
         const prefix = tablePattern.tablePrefix;
-        const results = await util.retriedQuery(this.db, {
+        const results = await retriedQuery(this.db, {
           statement: `SELECT c.oid AS relid, c.relname AS table_name
         FROM pg_class c
         JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -147,7 +148,7 @@ export class WalConnection {
           patternResult.tables.push(details);
         }
       } else {
-        const results = await util.retriedQuery(this.db, {
+        const results = await retriedQuery(this.db, {
           statement: `SELECT c.oid AS relid, c.relname AS table_name
         FROM pg_class c
         JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -188,7 +189,7 @@ export async function checkSourceConfiguration(db: pgwire.PgClient) {
   const publication_name = 'powersync';
 
   // Check basic config
-  await util.retriedQuery(
+  await retriedQuery(
     db,
     `DO $$
 BEGIN
@@ -206,7 +207,7 @@ $$ LANGUAGE plpgsql;`
   );
 
   // Check that publication exists
-  const rs = await util.retriedQuery(db, {
+  const rs = await retriedQuery(db, {
     statement: `SELECT * FROM pg_publication WHERE pubname = $1`,
     params: [{ type: 'varchar', value: publication_name }]
   });

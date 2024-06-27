@@ -7,4 +7,3 @@ export * from './KeyStore.js';
 export * from './LeakyBucket.js';
 export * from './RemoteJWKSCollector.js';
 export * from './StaticKeyCollector.js';
-export * from './SupabaseKeyCollector.js';

@@ -1,37 +1,48 @@
-import * as pgwire from '@powersync/service-jpgwire';
 import { hrtime } from 'node:process';
 
 import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
-import { DefaultErrorRateLimiter } from './ErrorRateLimiter.js';
-import { WalStreamRunner } from './WalStreamRunner.js';
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
 import { container, logger } from '@powersync/lib-services-framework';
+import { DefaultErrorRateLimiter, ErrorRateLimiter } from './ErrorRateLimiter.js';
+import { AbstractStreamRunner, StreamRunnerOptions } from './StreamRunner.js';
+
+export interface StreamRunnerFactory<ConnectionConfig extends {} = {}> {
+  readonly type: string;
+  generate(options: StreamRunnerOptions<ConnectionConfig>): Promise<AbstractStreamRunner>;
+}
 
 // 5 minutes
 const PING_INTERVAL = 1_000_000_000n * 300n;
 
 export class WalStreamManager {
-  private streams = new Map<number, WalStreamRunner>();
+  private streams: Map<number, AbstractStreamRunner>;
+  private runnerFactories: Map<string, StreamRunnerFactory>;
 
-  private system: CorePowerSyncSystem;
-
-  private stopped = false;
+  private stopped: boolean;
 
   // First ping is only after 5 minutes, not when starting
-  private lastPing = hrtime.bigint();
+  private lastPing: bigint;
 
   private storage: storage.BucketStorageFactory;
 
   /**
    * This limits the effect of retries when there is a persistent issue.
    */
-  private rateLimiter = new DefaultErrorRateLimiter();
+  private rateLimiter: ErrorRateLimiter;
 
-  constructor(system: CorePowerSyncSystem) {
-    this.system = system;
+  constructor(protected system: CorePowerSyncSystem) {
     this.storage = system.storage;
+    this.rateLimiter = new DefaultErrorRateLimiter();
+    this.streams = new Map();
+    this.runnerFactories = new Map();
+    this.stopped = false;
+    this.lastPing = hrtime.bigint();
+  }
+
+  registerRunnerFactory(factory: StreamRunnerFactory) {
+    this.runnerFactories.set(factory.type, factory);
   }
 
   start() {
@@ -77,48 +88,13 @@ export class WalStreamManager {
     while (!this.stopped) {
       await container.probes.touch();
       try {
-        const pool = this.system.pgwire_pool;
-        if (pool) {
-          await this.refresh({ configured_lock });
-          // The lock is only valid on the first refresh.
-          configured_lock = undefined;
-
-          // TODO: Ping on all connections when we have multiple
-          // Perhaps WalStreamRunner would be a better place to do pings?
-          // We don't ping while in error retry back-off, to avoid having too
-          // many authentication failures.
-          if (this.rateLimiter.mayPing()) {
-            await this.ping(pool);
-          }
-        }
+        await this.refresh({ configured_lock });
+        // The lock is only valid on the first refresh.
+        configured_lock = undefined;
       } catch (e) {
         logger.error(`Failed to refresh wal streams`, e);
       }
       await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
-  }
-
-  /**
-   * Postgres on RDS writes performs a WAL checkpoint every 5 minutes by default, which creates a new 64MB file.
-   *
-   * The old WAL files are only deleted once no replication slot still references it.
-   *
-   * Unfortunately, when there are no changes to the db, the database creates new WAL files without the replication slot
-   * advancing**.
-   *
-   * As a workaround, we write a new message every couple of minutes, to make sure that the replication slot advances.
-   *
-   * **This may be a bug in pgwire or how we're using it.
-   */
-  private async ping(db: pgwire.PgClient) {
-    const now = hrtime.bigint();
-    if (now - this.lastPing >= PING_INTERVAL) {
-      try {
-        await db.query(`SELECT * FROM pg_logical_emit_message(false, 'powersync', 'ping')`);
-      } catch (e) {
-        logger.warn(`Failed to ping`, e);
-      }
-      this.lastPing = now;
     }
   }
 
@@ -129,9 +105,9 @@ export class WalStreamManager {
 
     let configured_lock = options?.configured_lock;
 
-    const existingStreams = new Map<number, WalStreamRunner>(this.streams.entries());
+    const existingStreams = new Map<number, AbstractStreamRunner>(this.streams.entries());
     const replicating = await this.storage.getReplicatingSyncRules();
-    const newStreams = new Map<number, WalStreamRunner>();
+    const newStreams = new Map<number, AbstractStreamRunner>();
     for (let syncRules of replicating) {
       const existing = existingStreams.get(syncRules.id);
       if (existing && !existing.stopped) {
@@ -153,13 +129,23 @@ export class WalStreamManager {
           }
           const parsed = syncRules.parsed();
           const storage = this.storage.getInstance(parsed);
-          const stream = new WalStreamRunner({
+          // TODO multiple connections
+          const {
+            config: { connection }
+          } = this.system;
+          const { type } = connection!;
+          const factory = this.runnerFactories.get(type);
+          if (!factory) {
+            throw new Error(`No replication implementation for connection type: ${type}`);
+          }
+          const stream = await factory.generate({
+            config: connection!,
             factory: this.storage,
-            storage: storage,
-            source_db: this.system.config.connection!,
+            storage,
             lock,
             rateLimiter: this.rateLimiter
           });
+
           newStreams.set(syncRules.id, stream);
           stream.start();
         } catch (e) {
@@ -195,11 +181,20 @@ export class WalStreamManager {
         try {
           const parsed = syncRules.parsed();
           const storage = this.storage.getInstance(parsed);
-          const stream = new WalStreamRunner({
+          const {
+            config: { connection }
+          } = this.system;
+          const { type } = connection!;
+          const factory = this.runnerFactories.get(type);
+          if (!factory) {
+            throw new Error(`No replication implementation for connection type: ${type}`);
+          }
+          const stream = await factory.generate({
+            config: connection!,
             factory: this.storage,
-            storage: storage,
-            source_db: this.system.config.connection!,
-            lock
+            storage,
+            lock,
+            rateLimiter: this.rateLimiter
           });
           await stream.terminate();
         } finally {

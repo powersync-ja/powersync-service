@@ -1,75 +1,60 @@
 import * as pgwire from '@powersync/service-jpgwire';
-
-import * as storage from '../storage/storage-index.js';
-import * as util from '../util/util-index.js';
-
-import { ErrorRateLimiter } from './ErrorRateLimiter.js';
-import { MissingReplicationSlotError, WalStream } from './WalStream.js';
-import { ResolvedConnection } from '../util/config/types.js';
 import { container, logger } from '@powersync/lib-services-framework';
+import { replication, utils } from '@powersync/service-core';
 
-export interface WalStreamRunnerOptions {
-  factory: storage.BucketStorageFactory;
-  storage: storage.SyncRulesBucketStorage;
-  source_db: ResolvedConnection;
-  lock: storage.ReplicationLock;
-  rateLimiter?: ErrorRateLimiter;
-}
+import { MissingReplicationSlotError, WalStream } from './WalStream.js';
+import { PgManager } from '../utils/PgManager.js';
 
-export class WalStreamRunner {
-  private abortController = new AbortController();
+export class WalStreamRunner extends replication.AbstractStreamRunner<utils.ResolvedConnection> {
+  private connections: PgManager | null = null;
 
-  private runPromise?: Promise<void>;
-
-  private connections: util.PgManager | null = null;
-
-  private rateLimiter?: ErrorRateLimiter;
-
-  constructor(public options: WalStreamRunnerOptions) {
-    this.rateLimiter = options.rateLimiter;
+  constructor(options: replication.StreamRunnerOptions<utils.ResolvedConnection>) {
+    super(options);
   }
 
-  start() {
-    this.runPromise = this.run();
-  }
-
-  get slot_name() {
-    return this.options.storage.slot_name;
-  }
-
-  get stopped() {
-    return this.abortController.signal.aborted;
-  }
-
-  async run() {
-    try {
-      await this.replicateLoop();
-    } catch (e) {
-      // Fatal exception
-      container.reporter.captureException(e, {
-        metadata: {
-          replication_slot: this.slot_name
-        }
-      });
-      logger.error(`Replication failed on ${this.slot_name}`, e);
-
-      if (e instanceof MissingReplicationSlotError) {
-        // This stops replication on this slot, and creates a new slot
-        await this.options.storage.factory.slotRemoved(this.slot_name);
-      }
-    } finally {
-      this.abortController.abort();
+  protected async handleReplicationLoopError(ex: any) {
+    if (ex instanceof MissingReplicationSlotError) {
+      // This stops replication on this slot, and creates a new slot
+      await this.options.storage.factory.slotRemoved(this.slot_name);
     }
-    await this.options.lock.release();
   }
 
-  async replicateLoop() {
-    while (!this.stopped) {
-      await this.replicateOnce();
+  /**
+   * Postgres on RDS writes performs a WAL checkpoint every 5 minutes by default, which creates a new 64MB file.
+   *
+   * The old WAL files are only deleted once no replication slot still references it.
+   *
+   * Unfortunately, when there are no changes to the db, the database creates new WAL files without the replication slot
+   * advancing**.
+   *
+   * As a workaround, we write a new message every couple of minutes, to make sure that the replication slot advances.
+   *
+   * **This may be a bug in pgwire or how we're using it.
+   */
+  protected async _ping() {
+    if (!this.connections) {
+      return;
+    }
+    try {
+      await this.connections.pool.query(`SELECT * FROM pg_logical_emit_message(false, 'powersync', 'ping')`);
+    } catch (e) {
+      logger.warn(`Failed to ping`, e);
+    }
+  }
+  protected async _forceStop(): Promise<void> {
+    await this.connections?.destroy();
+  }
 
-      if (!this.stopped) {
-        await new Promise((resolve) => setTimeout(resolve, 5000));
-      }
+  protected async _terminate(options?: { force?: boolean | undefined } | undefined): Promise<void> {
+    const slotName = this.slot_name;
+    const db = await pgwire.connectPgWire(this.options.config, { type: 'standard' });
+    try {
+      await db.query({
+        statement: 'SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1',
+        params: [{ type: 'varchar', value: slotName }]
+      });
+    } finally {
+      await db.end();
     }
   }
 
@@ -77,7 +62,7 @@ export class WalStreamRunner {
     // New connections on every iteration (every error with retry),
     // otherwise we risk repeating errors related to the connection,
     // such as caused by cached PG schemas.
-    let connections = new util.PgManager(this.options.source_db, {
+    let connections = new PgManager(this.options.config, {
       // Pool connections are only used intermittently.
       idleTimeout: 30_000,
       maxSize: 2
@@ -130,7 +115,7 @@ export class WalStreamRunner {
           }
         });
         // This sets the retry delay
-        this.rateLimiter?.reportError(e);
+        this.reportError(e);
       }
     } finally {
       this.connections = null;
@@ -155,26 +140,27 @@ export class WalStreamRunner {
     await this.runPromise;
   }
 
-  /**
-   * Terminate this replication stream. This drops the replication slot and deletes the replication data.
-   *
-   * Stops replication if needed.
-   */
-  async terminate(options?: { force?: boolean }) {
-    logger.info(`${this.slot_name} Terminating replication`);
-    await this.stop(options);
-
-    const slotName = this.slot_name;
-    const db = await pgwire.connectPgWire(this.options.source_db, { type: 'standard' });
-    try {
-      await db.query({
-        statement: 'SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1',
-        params: [{ type: 'varchar', value: slotName }]
-      });
-    } finally {
-      await db.end();
+  protected reportError(e: any): void {
+    const message = (e.message as string) ?? '';
+    if (message.includes('password authentication failed')) {
+      // Wait 15 minutes, to avoid triggering Supabase's fail2ban
+      this.rateLimiter.reportErrorType(replication.ErrorType.AUTH);
+    } else if (message.includes('ENOTFOUND')) {
+      // DNS lookup issue - incorrect URI or deleted instance
+      this.rateLimiter.reportErrorType(replication.ErrorType.NOT_FOUND);
+    } else if (message.includes('ECONNREFUSED')) {
+      // Could be fail2ban or similar
+      this.rateLimiter.reportErrorType(replication.ErrorType.CONNECTION_REFUSED);
+    } else if (
+      message.includes('Unable to do postgres query on ended pool') ||
+      message.includes('Postgres unexpectedly closed connection')
+    ) {
+      // Connection timed out - ignore / immediately retry
+      // We don't explicitly set the delay to 0, since there could have been another error that
+      // we need to respect.
+    } else {
+      // General error with standard delay
+      this.rateLimiter.reportErrorType();
     }
-
-    await this.options.storage.terminate();
   }
 }

@@ -4,6 +4,8 @@ import * as bson from 'bson';
 import * as mongo from 'mongodb';
 
 import * as util from '../../util/util-index.js';
+import * as storage_utils from './mongo-storage-utils.js';
+
 import { SourceTable } from '../SourceTable.js';
 import { currentBucketKey } from './MongoBucketBatch.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
@@ -15,7 +17,6 @@ import {
   CurrentDataDocument,
   SourceKey
 } from './models.js';
-import { serializeLookup } from './util.js';
 import { logger } from '@powersync/lib-services-framework';
 
 /**
@@ -155,7 +156,7 @@ export class PersistedBatch {
 
     // 1. Insert new entries
     for (let result of evaluated) {
-      const binLookup = serializeLookup(result.lookup);
+      const binLookup = storage_utils.serializeLookup(result.lookup);
       const hex = binLookup.toString('base64');
       remaining_lookups.delete(hex);
 

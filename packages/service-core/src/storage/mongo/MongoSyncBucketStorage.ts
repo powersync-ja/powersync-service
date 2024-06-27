@@ -3,8 +3,9 @@ import * as bson from 'bson';
 import * as mongo from 'mongodb';
 
 import * as db from '../../db/db-index.js';
-import * as replication from '../../replication/WalStream.js';
 import * as util from '../../util/util-index.js';
+import * as storage_utils from './mongo-storage-utils.js';
+
 import {
   BucketDataBatchOptions,
   BucketStorageBatch,
@@ -21,7 +22,6 @@ import { SourceTable } from '../SourceTable.js';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, SourceKey, SyncRuleState } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
-import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, readSingleBatch, serializeLookup } from './util.js';
 import { ChecksumCache, FetchPartialBucketChecksum } from '../ChecksumCache.js';
 
 export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
@@ -50,7 +50,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     );
     return {
       checkpoint: util.timestampToOpId(doc?.last_checkpoint ?? 0n),
-      lsn: doc?.last_checkpoint_lsn ?? replication.ZERO_LSN
+      lsn: doc?.last_checkpoint_lsn ?? storage_utils.ZERO_LSN
     };
   }
 
@@ -165,7 +165,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
 
   async getParameterSets(checkpoint: util.OpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]> {
     const lookupFilter = lookups.map((lookup) => {
-      return serializeLookup(lookup);
+      return storage_utils.serializeLookup(lookup);
     });
     const rows = await this.db.bucket_parameters
       .aggregate([
@@ -259,7 +259,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     // to the lower of the batch count and size limits.
     // This is similar to using `singleBatch: true` in the find options, but allows
     // detecting "hasMore".
-    let { data, hasMore } = await readSingleBatch(cursor);
+    let { data, hasMore } = await storage_utils.readSingleBatch(cursor);
     if (data.length == limit) {
       // Limit reached - could have more data, despite the cursor being drained.
       hasMore = true;
@@ -270,7 +270,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
 
     // Ordered by _id, meaning buckets are grouped together
     for (let rawData of data) {
-      const row = bson.deserialize(rawData, BSON_DESERIALIZE_OPTIONS) as BucketDataDocument;
+      const row = bson.deserialize(rawData, storage_utils.BSON_DESERIALIZE_OPTIONS) as BucketDataDocument;
       const bucket = row._id.b;
 
       if (currentBatch == null || currentBatch.bucket != bucket || batchSize >= sizeLimit) {
@@ -442,20 +442,20 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     );
     await this.db.bucket_data.deleteMany(
       {
-        _id: idPrefixFilter<BucketDataKey>({ g: this.group_id }, ['b', 'o'])
+        _id: storage_utils.idPrefixFilter<BucketDataKey>({ g: this.group_id }, ['b', 'o'])
       },
       { maxTimeMS: db.mongo.MONGO_OPERATION_TIMEOUT_MS }
     );
     await this.db.bucket_parameters.deleteMany(
       {
-        key: idPrefixFilter<SourceKey>({ g: this.group_id }, ['t', 'k'])
+        key: storage_utils.idPrefixFilter<SourceKey>({ g: this.group_id }, ['t', 'k'])
       },
       { maxTimeMS: db.mongo.MONGO_OPERATION_TIMEOUT_MS }
     );
 
     await this.db.current_data.deleteMany(
       {
-        _id: idPrefixFilter<SourceKey>({ g: this.group_id }, ['t', 'k'])
+        _id: storage_utils.idPrefixFilter<SourceKey>({ g: this.group_id }, ['t', 'k'])
       },
       { maxTimeMS: db.mongo.MONGO_OPERATION_TIMEOUT_MS }
     );

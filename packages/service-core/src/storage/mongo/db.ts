@@ -2,6 +2,8 @@ import * as mongo from 'mongodb';
 
 import * as db from '../../db/db-index.js';
 import * as locks from '../../locks/locks-index.js';
+import * as storage_utils from './mongo-storage-utils.js';
+
 import {
   BucketDataDocument,
   BucketParameterDocument,
@@ -12,7 +14,6 @@ import {
   SyncRuleDocument,
   WriteCheckpointDocument
 } from './models.js';
-import { BSON_DESERIALIZE_OPTIONS } from './util.js';
 import { configFile } from '@powersync/service-types';
 
 export interface PowerSyncMongoOptions {
@@ -44,7 +45,7 @@ export class PowerSyncMongo {
     this.client = client;
 
     const db = client.db(options?.database, {
-      ...BSON_DESERIALIZE_OPTIONS
+      ...storage_utils.BSON_DESERIALIZE_OPTIONS
     });
     this.db = db;
 
