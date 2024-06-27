@@ -1,10 +1,8 @@
 import * as jose from 'jose';
 import * as pgwire from '@powersync/service-jpgwire';
-import { connectPgWirePool, pgwireRows } from '@powersync/service-jpgwire';
-import { KeyCollector } from './KeyCollector.js';
-import { KeyOptions, KeySpec } from './KeySpec.js';
-import { retriedQuery } from '../util/pgwire_utils.js';
-import { ResolvedConnection } from '../util/config/types.js';
+import { auth, utils } from '@powersync/service-core';
+
+import { retriedQuery } from '../utils/pgwire_utils.js';
 
 /**
  * Fetches key from the Supabase database.
@@ -12,16 +10,16 @@ import { ResolvedConnection } from '../util/config/types.js';
  * Unfortunately, despite the JWTs containing a kid, we have no way to lookup that kid
  * before receiving a valid token.
  */
-export class SupabaseKeyCollector implements KeyCollector {
+export class SupabaseKeyCollector implements auth.KeyCollector {
   private pool: pgwire.PgClient;
 
-  private keyOptions: KeyOptions = {
+  private keyOptions: auth.KeyOptions = {
     requiresAudience: ['authenticated'],
     maxLifetimeSeconds: 86400 * 7 + 1200 // 1 week + 20 minutes margin
   };
 
-  constructor(connection: ResolvedConnection) {
-    this.pool = connectPgWirePool(connection, {
+  constructor(connection: utils.ResolvedConnection) {
+    this.pool = pgwire.connectPgWirePool(connection, {
       // To avoid overloading the source database with open connections,
       // limit to a single connection, and close the connection shortly
       // after using it.
@@ -33,7 +31,7 @@ export class SupabaseKeyCollector implements KeyCollector {
   async getKeys() {
     let row: { jwt_secret: string };
     try {
-      const rows = pgwireRows(
+      const rows = pgwire.pgwireRows(
         await retriedQuery(this.pool, `SELECT current_setting('app.settings.jwt_secret') as jwt_secret`)
       );
       row = rows[0] as any;
@@ -57,7 +55,7 @@ export class SupabaseKeyCollector implements KeyCollector {
         // While the secret is valid base64, the base64-encoded form is the secret value.
         k: Buffer.from(secret, 'utf8').toString('base64url')
       };
-      const imported = await KeySpec.importKey(key, this.keyOptions);
+      const imported = await auth.KeySpec.importKey(key, this.keyOptions);
       return {
         keys: [imported],
         errors: []

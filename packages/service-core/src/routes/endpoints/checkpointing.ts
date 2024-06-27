@@ -1,7 +1,6 @@
 import * as t from 'ts-codec';
 import { router, schema } from '@powersync/lib-services-framework';
 
-import * as util from '../../util/util-index.js';
 import { authUser } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
@@ -14,12 +13,14 @@ export const writeCheckpoint = routeDefinition({
   validator: schema.createTsCodecValidator(WriteCheckpointRequest, { allowAdditional: true }),
   handler: async (payload) => {
     const system = payload.context.system;
-    const storage = system.storage;
+    const storage = system.storageFactory;
 
-    const checkpoint = await util.getClientCheckpoint(system.requirePgPool(), storage);
-    return {
-      checkpoint
-    };
+    // TODO checkpoint api
+    // const checkpoint = await util.getClientCheckpoint(system.requirePgPool(), storage);
+    // return {
+    //   checkpoint
+    // };
+    return {};
   }
 });
 
@@ -30,11 +31,15 @@ export const writeCheckpoint2 = routeDefinition({
   validator: schema.createTsCodecValidator(WriteCheckpointRequest, { allowAdditional: true }),
   handler: async (payload) => {
     const { user_id, system } = payload.context;
-    const storage = system.storage;
-    const write_checkpoint = await util.createWriteCheckpoint(system.requirePgPool(), storage, user_id!);
+    const storage = system.storageFactory;
+    //
     return {
-      write_checkpoint: String(write_checkpoint)
+      write_checkpoint: '9'
     };
+    // const write_checkpoint = await util.createWriteCheckpoint(system.requirePgPool(), storage, user_id!);
+    // return {
+    //   write_checkpoint: String(write_checkpoint)
+    // };
   }
 });
 

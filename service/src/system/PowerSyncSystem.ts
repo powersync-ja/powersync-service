@@ -1,9 +1,10 @@
-import { db, system, utils, storage, Metrics } from '@powersync/service-core';
+import { db, system, utils, storage, Metrics, StreamManager } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 
 export class PowerSyncSystem extends system.CorePowerSyncSystem {
-  storage: storage.BucketStorageFactory;
+  storageFactory: storage.BucketStorageFactory;
   pgwire_pool?: pgwire.PgClient;
+  streamManager: StreamManager;
 
   constructor(public config: utils.ResolvedPowerSyncConfig) {
     super(config);
@@ -31,14 +32,18 @@ export class PowerSyncSystem extends system.CorePowerSyncSystem {
         }
       });
       const database = new storage.PowerSyncMongo(client, { database: config.storage.database });
-      this.storage = new storage.MongoBucketStorage(database, {
+      this.storageFactory = new storage.MongoBucketStorage(database, {
         slot_name_prefix: config.slot_name_prefix
+      });
+      this.streamManager = new StreamManager({
+        config,
+        storage_factory: this.storageFactory
       });
     } else {
       throw new Error('No storage configured');
     }
 
-    this.withLifecycle(this.storage, {
+    this.withLifecycle(this.storageFactory, {
       async start(storage) {
         const instanceId = await storage.getPowerSyncInstanceId();
         await Metrics.initialise({

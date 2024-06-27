@@ -1,12 +1,12 @@
-import * as pgwire from '@powersync/service-jpgwire';
 import { LifeCycledSystem, container, logger } from '@powersync/lib-services-framework';
 
 import * as storage from '../storage/storage-index.js';
 import * as utils from '../util/util-index.js';
+import * as replication from '../replication/replication-index.js';
 
 export abstract class CorePowerSyncSystem extends LifeCycledSystem {
-  abstract storage: storage.BucketStorageFactory;
-  abstract pgwire_pool?: pgwire.PgClient;
+  abstract get storageFactory(): storage.BucketStorageFactory;
+  abstract get streamManager(): replication.StreamManager;
   closed: boolean;
 
   protected stopHandlers: Set<() => void> = new Set();
@@ -52,13 +52,5 @@ export abstract class CorePowerSyncSystem extends LifeCycledSystem {
     return () => {
       this.stopHandlers.delete(handler);
     };
-  }
-
-  requirePgPool() {
-    if (this.pgwire_pool == null) {
-      throw new Error('No source connection configured');
-    } else {
-      return this.pgwire_pool!;
-    }
   }
 }

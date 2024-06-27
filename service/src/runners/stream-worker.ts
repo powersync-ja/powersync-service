@@ -1,4 +1,4 @@
-import { migrations, replication, utils, Metrics } from '@powersync/service-core';
+import { migrations, utils, Metrics } from '@powersync/service-core';
 import { container, logger } from '@powersync/lib-services-framework';
 
 import { PowerSyncSystem } from '../system/PowerSyncSystem.js';
@@ -24,7 +24,7 @@ export async function startStreamWorker(runnerConfig: utils.RunnerConfig) {
 
   Metrics.getInstance().configureReplicationMetrics(system);
 
-  const mngr = new replication.WalStreamManager(system);
+  const mngr = system.streamManager;
   mngr.start();
 
   // MUST be after startServer.

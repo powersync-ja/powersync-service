@@ -7,6 +7,7 @@ import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 import * as sync from '../sync/sync-index.js';
 import * as util from '../util/util-index.js';
 import * as locks from '../locks/locks-index.js';
+import * as db from '../db/db-index.js';
 import * as storage_utils from './mongo/mongo-storage-utils.js';
 
 import {
@@ -513,6 +514,22 @@ export class MongoBucketStorage implements BucketStorageFactory {
       lastCheckpoint = checkpoint;
 
       yield { base: cp, writeCheckpoint: currentWriteCheckpoint };
+    }
+  }
+
+  async teardown(beforeDrop: () => Promise<void>): Promise<void> {
+    const database = this.db.db;
+    try {
+      logger.info(`Waiting for auth`);
+      await db.mongo.waitForAuth(database);
+      await beforeDrop();
+      logger.info(`Dropping database ${database.namespace}`);
+      await database.dropDatabase();
+      await this.db.client.close(true);
+      logger.info(`Done`);
+    } catch (ex) {
+      this.db.client.close(true);
+      throw ex;
     }
   }
 }

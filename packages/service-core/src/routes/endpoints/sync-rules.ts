@@ -1,10 +1,9 @@
 import * as t from 'ts-codec';
 import type { FastifyPluginAsync } from 'fastify';
-import * as pgwire from '@powersync/service-jpgwire';
+// import * as pgwire from '@powersync/service-jpgwire';
 import { errors, router, schema } from '@powersync/lib-services-framework';
-import { SqlSyncRules, SyncRulesErrors } from '@powersync/service-sync-rules';
+import { SqlSyncRules } from '@powersync/service-sync-rules';
 
-import * as replication from '../../replication/replication-index.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
@@ -61,7 +60,7 @@ export const deploySyncRules = routeDefinition({
       });
     }
 
-    const sync_rules = await payload.context.system.storage.updateSyncRules({
+    const sync_rules = await payload.context.system.storageFactory.updateSyncRules({
       content: content
     });
 
@@ -83,11 +82,10 @@ export const validateSyncRules = routeDefinition({
   plugins: [yamlPlugin],
   validator: schema.createTsCodecValidator(ValidateSyncRulesRequest, { allowAdditional: true }),
   handler: async (payload) => {
-    const content = payload.params.content;
-
-    const info = await debugSyncRules(payload.context.system.requirePgPool(), content);
-
-    return replyPrettyJson(info);
+    //  TODO
+    // const content = payload.params.content;
+    // const info = await debugSyncRules(payload.context.system.requirePgPool(), content);
+    // return replyPrettyJson(info);
   }
 });
 
@@ -96,39 +94,37 @@ export const currentSyncRules = routeDefinition({
   method: router.HTTPMethod.GET,
   authorize: authApi,
   handler: async (payload) => {
-    const storage = payload.context.system.storage;
-    const sync_rules = await storage.getActiveSyncRulesContent();
-    if (!sync_rules) {
-      throw new errors.JourneyError({
-        status: 422,
-        code: 'NO_SYNC_RULES',
-        description: 'No active sync rules'
-      });
-    }
-    const info = await debugSyncRules(payload.context.system.requirePgPool(), sync_rules.sync_rules_content);
-    const next = await storage.getNextSyncRulesContent();
-
-    const next_info = next
-      ? await debugSyncRules(payload.context.system.requirePgPool(), next.sync_rules_content)
-      : null;
-
-    const response = {
-      current: {
-        slot_name: sync_rules.slot_name,
-        content: sync_rules.sync_rules_content,
-        ...info
-      },
-      next:
-        next == null
-          ? null
-          : {
-              slot_name: next.slot_name,
-              content: next.sync_rules_content,
-              ...next_info
-            }
-    };
-
-    return replyPrettyJson({ data: response });
+    // TODO
+    //   const storage = payload.context.system.storage;
+    //   const sync_rules = await storage.getActiveSyncRulesContent();
+    //   if (!sync_rules) {
+    //     throw new errors.JourneyError({
+    //       status: 422,
+    //       code: 'NO_SYNC_RULES',
+    //       description: 'No active sync rules'
+    //     });
+    //   }
+    //   const info = await debugSyncRules(payload.context.system.requirePgPool(), sync_rules.sync_rules_content);
+    //   const next = await storage.getNextSyncRulesContent();
+    //   const next_info = next
+    //     ? await debugSyncRules(payload.context.system.requirePgPool(), next.sync_rules_content)
+    //     : null;
+    //   const response = {
+    //     current: {
+    //       slot_name: sync_rules.slot_name,
+    //       content: sync_rules.sync_rules_content,
+    //       ...info
+    //     },
+    //     next:
+    //       next == null
+    //         ? null
+    //         : {
+    //             slot_name: next.slot_name,
+    //             content: next.sync_rules_content,
+    //             ...next_info
+    //           }
+    //   };
+    //   return replyPrettyJson({ data: response });
   }
 });
 
@@ -140,7 +136,7 @@ export const reprocessSyncRules = routeDefinition({
   authorize: authApi,
   validator: schema.createTsCodecValidator(ReprocessSyncRulesRequest),
   handler: async (payload) => {
-    const storage = payload.context.system.storage;
+    const storage = payload.context.system.storageFactory;
     const sync_rules = await storage.getActiveSyncRules();
     if (sync_rules == null) {
       throw new errors.JourneyError({
@@ -169,59 +165,59 @@ function replyPrettyJson(payload: any) {
   });
 }
 
-async function debugSyncRules(db: pgwire.PgClient, sync_rules: string) {
-  try {
-    const rules = SqlSyncRules.fromYaml(sync_rules);
-    const source_table_patterns = rules.getSourceTables();
-    const wc = new replication.WalConnection({
-      db: db,
-      sync_rules: rules
-    });
-    const resolved_tables = await wc.getDebugTablesInfo(source_table_patterns);
+// async function debugSyncRules(db: pgwire.PgClient, sync_rules: string) {
+//   try {
+//     const rules = SqlSyncRules.fromYaml(sync_rules);
+//     const source_table_patterns = rules.getSourceTables();
+//     const wc = new replication.WalConnection({
+//       db: db,
+//       sync_rules: rules
+//     });
+//     const resolved_tables = await wc.getDebugTablesInfo(source_table_patterns);
 
-    return {
-      valid: true,
-      bucket_definitions: rules.bucket_descriptors.map((d) => {
-        let all_parameter_queries = [...d.parameter_queries.values()].flat();
-        let all_data_queries = [...d.data_queries.values()].flat();
-        return {
-          name: d.name,
-          bucket_parameters: d.bucket_parameters,
-          global_parameter_queries: d.global_parameter_queries.map((q) => {
-            return {
-              sql: q.sql
-            };
-          }),
-          parameter_queries: all_parameter_queries.map((q) => {
-            return {
-              sql: q.sql,
-              table: q.sourceTable,
-              input_parameters: q.input_parameters
-            };
-          }),
+//     return {
+//       valid: true,
+//       bucket_definitions: rules.bucket_descriptors.map((d) => {
+//         let all_parameter_queries = [...d.parameter_queries.values()].flat();
+//         let all_data_queries = [...d.data_queries.values()].flat();
+//         return {
+//           name: d.name,
+//           bucket_parameters: d.bucket_parameters,
+//           global_parameter_queries: d.global_parameter_queries.map((q) => {
+//             return {
+//               sql: q.sql
+//             };
+//           }),
+//           parameter_queries: all_parameter_queries.map((q) => {
+//             return {
+//               sql: q.sql,
+//               table: q.sourceTable,
+//               input_parameters: q.input_parameters
+//             };
+//           }),
 
-          data_queries: all_data_queries.map((q) => {
-            return {
-              sql: q.sql,
-              table: q.sourceTable,
-              columns: q.columnOutputNames()
-            };
-          })
-        };
-      }),
-      source_tables: resolved_tables,
-      data_tables: rules.debugGetOutputTables()
-    };
-  } catch (e) {
-    if (e instanceof SyncRulesErrors) {
-      return {
-        valid: false,
-        errors: e.errors.map((e) => e.message)
-      };
-    }
-    return {
-      valid: false,
-      errors: [e.message]
-    };
-  }
-}
+//           data_queries: all_data_queries.map((q) => {
+//             return {
+//               sql: q.sql,
+//               table: q.sourceTable,
+//               columns: q.columnOutputNames()
+//             };
+//           })
+//         };
+//       }),
+//       source_tables: resolved_tables,
+//       data_tables: rules.debugGetOutputTables()
+//     };
+//   } catch (e) {
+//     if (e instanceof SyncRulesErrors) {
+//       return {
+//         valid: false,
+//         errors: e.errors.map((e) => e.message)
+//       };
+//     }
+//     return {
+//       valid: false,
+//       errors: [e.message]
+//     };
+//   }
+// }

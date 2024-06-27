@@ -2,7 +2,7 @@ import { Attributes, Counter, ObservableGauge, UpDownCounter, ValueType } from '
 import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
 import { MeterProvider, MetricReader, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
-import * as jpgwire from '@powersync/service-jpgwire';
+// import * as jpgwire from '@powersync/service-jpgwire';
 import * as util from '../util/util-index.js';
 import * as storage from '../storage/storage-index.js';
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
@@ -211,7 +211,7 @@ Anonymous telemetry is currently: ${options.disable_telemetry_sharing ? 'disable
 
     function getMetrics() {
       if (cachedRequest == null || Date.now() - cacheTimestamp > MINIMUM_INTERVAL) {
-        cachedRequest = system.storage.getStorageMetrics().catch((e) => {
+        cachedRequest = system.storageFactory.getStorageMetrics().catch((e) => {
           logger.error(`Failed to get storage metrics`, e);
           return null;
         });
@@ -243,11 +243,12 @@ Anonymous telemetry is currently: ${options.disable_telemetry_sharing ? 'disable
 
     const class_scoped_data_replicated_bytes = this.data_replicated_bytes;
     // Record replicated bytes using global jpgwire metrics.
-    jpgwire.setMetricsRecorder({
-      addBytesRead(bytes) {
-        class_scoped_data_replicated_bytes.add(bytes);
-      }
-    });
+    // TODO metrics
+    // jpgwire.setMetricsRecorder({
+    //   addBytesRead(bytes) {
+    //     class_scoped_data_replicated_bytes.add(bytes);
+    //   }
+    // });
   }
 
   public async getMetricValueForTests(name: string): Promise<number | undefined> {

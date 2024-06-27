@@ -1,10 +1,10 @@
 import { hrtime } from 'node:process';
 
+import { container, logger } from '@powersync/lib-services-framework';
+
 import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
-import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
-import { container, logger } from '@powersync/lib-services-framework';
 import { DefaultErrorRateLimiter, ErrorRateLimiter } from './ErrorRateLimiter.js';
 import { AbstractStreamRunner, StreamRunnerOptions } from './StreamRunner.js';
 
@@ -16,33 +16,47 @@ export interface StreamRunnerFactory<ConnectionConfig extends {} = {}> {
 // 5 minutes
 const PING_INTERVAL = 1_000_000_000n * 300n;
 
-export class WalStreamManager {
+export type StreamManagerOptions = {
+  config: util.ResolvedPowerSyncConfig;
+  storage_factory: storage.BucketStorageFactory;
+};
+
+export class StreamManager {
   private streams: Map<number, AbstractStreamRunner>;
-  private runnerFactories: Map<string, StreamRunnerFactory>;
+  private streamFactories: Map<string, StreamRunnerFactory>;
 
   private stopped: boolean;
 
   // First ping is only after 5 minutes, not when starting
   private lastPing: bigint;
 
-  private storage: storage.BucketStorageFactory;
-
   /**
    * This limits the effect of retries when there is a persistent issue.
    */
   private rateLimiter: ErrorRateLimiter;
 
-  constructor(protected system: CorePowerSyncSystem) {
-    this.storage = system.storage;
+  constructor(protected options: StreamManagerOptions) {
     this.rateLimiter = new DefaultErrorRateLimiter();
     this.streams = new Map();
-    this.runnerFactories = new Map();
+    this.streamFactories = new Map();
     this.stopped = false;
     this.lastPing = hrtime.bigint();
   }
 
-  registerRunnerFactory(factory: StreamRunnerFactory) {
-    this.runnerFactories.set(factory.type, factory);
+  private get storageFactory() {
+    return this.options.storage_factory;
+  }
+
+  private get config() {
+    return this.options.config;
+  }
+
+  registerStreamRunnerFactory(factory: StreamRunnerFactory) {
+    this.streamFactories.set(factory.type, factory);
+  }
+
+  getStreamRunnerFactory(type: string) {
+    return this.streamFactories.get(type);
   }
 
   start() {
@@ -65,16 +79,19 @@ export class WalStreamManager {
   }
 
   private async runLoop() {
-    const configured_sync_rules = await util.loadSyncRules(this.system.config);
+    const configured_sync_rules = await util.loadSyncRules(this.config);
     let configured_lock: storage.ReplicationLock | undefined = undefined;
     if (configured_sync_rules != null) {
       logger.info('Loading sync rules from configuration');
       try {
         // Configure new sync rules, if it has changed.
         // In that case, also immediately take out a lock, so that another process doesn't start replication on it.
-        const { updated, persisted_sync_rules, lock } = await this.storage.configureSyncRules(configured_sync_rules!, {
-          lock: true
-        });
+        const { updated, persisted_sync_rules, lock } = await this.storageFactory.configureSyncRules(
+          configured_sync_rules!,
+          {
+            lock: true
+          }
+        );
         if (lock) {
           configured_lock = lock;
         }
@@ -106,7 +123,7 @@ export class WalStreamManager {
     let configured_lock = options?.configured_lock;
 
     const existingStreams = new Map<number, AbstractStreamRunner>(this.streams.entries());
-    const replicating = await this.storage.getReplicatingSyncRules();
+    const replicating = await this.storageFactory.getReplicatingSyncRules();
     const newStreams = new Map<number, AbstractStreamRunner>();
     for (let syncRules of replicating) {
       const existing = existingStreams.get(syncRules.id);
@@ -128,22 +145,20 @@ export class WalStreamManager {
             lock = await syncRules.lock();
           }
           const parsed = syncRules.parsed();
-          const storage = this.storage.getInstance(parsed);
+          const storage = this.storageFactory.getInstance(parsed);
           // TODO multiple connections
-          const {
-            config: { connection }
-          } = this.system;
+          const { connection } = this.config;
           const { type } = connection!;
-          const factory = this.runnerFactories.get(type);
+          const factory = this.streamFactories.get(type);
           if (!factory) {
             throw new Error(`No replication implementation for connection type: ${type}`);
           }
           const stream = await factory.generate({
             config: connection!,
-            factory: this.storage,
+            storage_factory: this.storageFactory,
             storage,
             lock,
-            rateLimiter: this.rateLimiter
+            rate_limiter: this.rateLimiter
           });
 
           newStreams.set(syncRules.id, stream);
@@ -174,27 +189,25 @@ export class WalStreamManager {
     }
 
     // Sync rules stopped previously or by a different process.
-    const stopped = await this.storage.getStoppedSyncRules();
+    const stopped = await this.storageFactory.getStoppedSyncRules();
     for (let syncRules of stopped) {
       try {
         const lock = await syncRules.lock();
         try {
           const parsed = syncRules.parsed();
-          const storage = this.storage.getInstance(parsed);
-          const {
-            config: { connection }
-          } = this.system;
+          const storage = this.storageFactory.getInstance(parsed);
+          const { connection } = this.config;
           const { type } = connection!;
-          const factory = this.runnerFactories.get(type);
+          const factory = this.streamFactories.get(type);
           if (!factory) {
             throw new Error(`No replication implementation for connection type: ${type}`);
           }
           const stream = await factory.generate({
             config: connection!,
-            factory: this.storage,
+            storage_factory: this.storageFactory,
             storage,
             lock,
-            rateLimiter: this.rateLimiter
+            rate_limiter: this.rateLimiter
           });
           await stream.terminate();
         } finally {

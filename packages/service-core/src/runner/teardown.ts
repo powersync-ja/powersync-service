@@ -5,33 +5,37 @@
 
 import * as timers from 'timers/promises';
 
-import * as db from '../db/db-index.js';
-import * as storage from '../storage/storage-index.js';
-import * as utils from '../util/util-index.js';
-import * as replication from '../replication/replication-index.js';
 import { logger } from '@powersync/lib-services-framework';
+
+import * as storage from '../storage/storage-index.js';
+import * as replication from '../replication/replication-index.js';
+import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
 
 /**
  * Attempt to terminate a single sync rules instance.
  *
  * This may fail with a lock error.
  */
-async function terminateReplicator(
-  storageFactory: storage.BucketStorageFactory,
-  connection: utils.ResolvedConnection,
-  syncRules: storage.PersistedSyncRulesContent
-) {
+async function terminateReplicator(system: CorePowerSyncSystem, syncRules: storage.PersistedSyncRulesContent) {
   // The lock may still be active if the current replication instance
   // hasn't stopped yet.
   const lock = await syncRules.lock();
   try {
     const parsed = syncRules.parsed();
-    const storage = storageFactory.getInstance(parsed);
-    const stream = new replication.WalStreamRunner({
-      factory: storageFactory,
-      storage: storage,
-      source_db: connection,
-      lock
+    const storage = system.storageFactory.getInstance(parsed);
+
+    const connectionConfig = system.config.connection!;
+    const factory = system.streamManager.getStreamRunnerFactory(connectionConfig.type);
+    if (!factory) {
+      throw new Error(`Could not find factory for connection type: ${connectionConfig.type}`);
+    }
+
+    const stream = await factory!.generate({
+      config: connectionConfig,
+      storage_factory: system.storageFactory,
+      lock,
+      storage,
+      rate_limiter: new replication.DefaultErrorRateLimiter()
     });
 
     logger.info(`Terminating replication slot ${stream.slot_name}`);
@@ -50,17 +54,14 @@ async function terminateReplicator(
  * This is a best-effot attempt. In some cases it may not be possible to delete the replication
  * slot, such as when the postgres instance is unreachable.
  */
-async function terminateReplicators(
-  storageFactory: storage.BucketStorageFactory,
-  connection: utils.ResolvedConnection
-) {
+async function terminateReplicators(system: CorePowerSyncSystem) {
   const start = Date.now();
   while (Date.now() - start < 12_000) {
     let retry = false;
-    const replicationRules = await storageFactory.getReplicatingSyncRules();
+    const replicationRules = await system.storageFactory.getReplicatingSyncRules();
     for (let syncRules of replicationRules) {
       try {
-        await terminateReplicator(storageFactory, connection, syncRules);
+        await terminateReplicator(system, syncRules);
       } catch (e) {
         retry = true;
         console.error(e);
@@ -74,35 +75,19 @@ async function terminateReplicators(
   }
 }
 
-export async function teardown(runnerConfig: utils.RunnerConfig) {
-  const config = await utils.loadConfig(runnerConfig);
-  const mongoDB = storage.createPowerSyncMongo(config.storage);
+export async function teardown(system: CorePowerSyncSystem) {
   try {
-    logger.info(`Waiting for auth`);
-    await db.mongo.waitForAuth(mongoDB.db);
-
-    const bucketStorage = new storage.MongoBucketStorage(mongoDB, { slot_name_prefix: config.slot_name_prefix });
-    const connection = config.connection;
-
-    logger.info(`Terminating replication slots`);
-
-    if (connection) {
-      await terminateReplicators(bucketStorage, connection);
-    }
-
-    const database = mongoDB.db;
-    logger.info(`Dropping database ${database.namespace}`);
-    await database.dropDatabase();
-    logger.info(`Done`);
-    await mongoDB.client.close();
-
+    await system.storageFactory.teardown(async () => {
+      if (system.config.connection) {
+        await terminateReplicators(system);
+      }
+    });
     // If there was an error connecting to postgress, the process may stay open indefinitely.
     // This forces an exit.
     // We do not consider those errors a teardown failure.
     process.exit(0);
   } catch (e) {
     logger.error(`Teardown failure`, e);
-    await mongoDB.client.close();
     process.exit(1);
   }
 }

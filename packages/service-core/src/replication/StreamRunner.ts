@@ -4,10 +4,10 @@ import * as storage from '../storage/storage-index.js';
 import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 
 export interface StreamRunnerOptions<ConnectionConfig extends {} = {}> {
-  factory: storage.BucketStorageFactory;
+  storage_factory: storage.BucketStorageFactory;
   storage: storage.SyncRulesBucketStorage;
   lock: storage.ReplicationLock;
-  rateLimiter: ErrorRateLimiter;
+  rate_limiter: ErrorRateLimiter;
   config: ConnectionConfig;
 }
 
@@ -19,7 +19,7 @@ export abstract class AbstractStreamRunner<ConnectionConfig extends {} = {}> {
   protected rateLimiter: ErrorRateLimiter;
 
   constructor(public options: StreamRunnerOptions<ConnectionConfig>) {
-    this.rateLimiter = options.rateLimiter;
+    this.rateLimiter = options.rate_limiter;
   }
 
   start() {

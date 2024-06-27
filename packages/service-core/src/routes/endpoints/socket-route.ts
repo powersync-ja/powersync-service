@@ -39,7 +39,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         params.parameters ?? {}
       );
 
-      const storage = system.storage;
+      const storage = system.storageFactory;
       // Sanity check before we start the stream
       const cp = await storage.getActiveCheckpoint();
       if (!cp.hasSyncRules()) {

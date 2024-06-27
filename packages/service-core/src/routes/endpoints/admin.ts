@@ -1,5 +1,5 @@
 import { errors, router, schema } from '@powersync/lib-services-framework';
-import { SqlSyncRules, SqliteValue, StaticSchema, isJsonValue, toSyncRulesValue } from '@powersync/service-sync-rules';
+import { SqlSyncRules, SqliteValue, StaticSchema, isJsonValue } from '@powersync/service-sync-rules';
 import { internal_routes } from '@powersync/service-types';
 
 import * as api from '../../api/api-index.js';
@@ -49,35 +49,36 @@ export const executeSql = routeDefinition({
       });
     }
 
-    const pool = payload.context.system.requirePgPool();
+    // TODO admin API
+    //   const pool = payload.context.system.requirePgPool();
 
-    const { query, args } = payload.params.sql;
+    //   const { query, args } = payload.params.sql;
 
-    try {
-      const result = await pool.query({
-        statement: query,
-        params: args.map(util.autoParameter)
-      });
+    //   try {
+    //     const result = await pool.query({
+    //       statement: query,
+    //       params: args.map(util.autoParameter)
+    //     });
 
-      return internal_routes.ExecuteSqlResponse.encode({
-        success: true,
-        results: {
-          columns: result.columns.map((c) => c.name),
-          rows: result.rows.map((row) => {
-            return row.map((value) => mapColumnValue(toSyncRulesValue(value)));
-          })
-        }
-      });
-    } catch (e) {
-      return internal_routes.ExecuteSqlResponse.encode({
-        results: {
-          columns: [],
-          rows: []
-        },
-        success: false,
-        error: e.message
-      });
-    }
+    //     return internal_routes.ExecuteSqlResponse.encode({
+    //       success: true,
+    //       results: {
+    //         columns: result.columns.map((c) => c.name),
+    //         rows: result.rows.map((row) => {
+    //           return row.map((value) => mapColumnValue(toSyncRulesValue(value)));
+    //         })
+    //       }
+    //     });
+    //   } catch (e) {
+    //     return internal_routes.ExecuteSqlResponse.encode({
+    //       results: {
+    //         columns: [],
+    //         rows: []
+    //       },
+    //       success: false,
+    //       error: e.message
+    //     });
+    //   }
   }
 });
 
@@ -97,9 +98,9 @@ export const diagnostics = routeDefinition({
       });
     }
 
-    const { storage } = system;
-    const active = await storage.getActiveSyncRulesContent();
-    const next = await storage.getNextSyncRulesContent();
+    const { storageFactory } = system;
+    const active = await storageFactory.getActiveSyncRulesContent();
+    const next = await storageFactory.getNextSyncRulesContent();
 
     const active_status = await api.getSyncRulesStatus(active, system, {
       include_content,
@@ -141,7 +142,7 @@ export const reprocess = routeDefinition({
   handler: async (payload) => {
     const system = payload.context.system;
 
-    const storage = system.storage;
+    const storage = system.storageFactory;
     const next = await storage.getNextSyncRules();
     if (next != null) {
       throw new Error(`Busy processing sync rules - cannot reprocess`);

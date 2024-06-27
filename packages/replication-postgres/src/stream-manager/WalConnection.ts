@@ -1,5 +1,4 @@
 import * as pgwire from '@powersync/service-jpgwire';
-import { pgwireRows } from '@powersync/service-jpgwire';
 import { DEFAULT_TAG, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import { ReplicationError, TableInfo } from '@powersync/service-types';
 import { storage } from '@powersync/service-core';
@@ -138,7 +137,7 @@ export class WalConnection {
           ]
         });
 
-        for (let row of pgwireRows(results)) {
+        for (let row of pgwire.pgwireRows(results)) {
           const name = row.table_name as string;
           const relationId = row.relid as number;
           if (!name.startsWith(prefix)) {
@@ -165,7 +164,7 @@ export class WalConnection {
           const details = await this.getDebugTableInfo(tablePattern, tablePattern.name, null);
           patternResult.table = details;
         } else {
-          const row = pgwireRows(results)[0];
+          const row = pgwire.pgwireRows(results)[0];
           const name = row.table_name as string;
           const relationId = row.relid as number;
           patternResult.table = await this.getDebugTableInfo(tablePattern, name, relationId);
@@ -211,7 +210,7 @@ $$ LANGUAGE plpgsql;`
     statement: `SELECT * FROM pg_publication WHERE pubname = $1`,
     params: [{ type: 'varchar', value: publication_name }]
   });
-  const row = pgwireRows(rs)[0];
+  const row = pgwire.pgwireRows(rs)[0];
   if (row == null) {
     throw new Error(
       `Publication '${publication_name}' does not exist. Run: \`CREATE PUBLICATION ${publication_name} FOR ALL TABLES\`, or read the documentation for details.`

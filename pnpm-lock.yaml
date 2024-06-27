@@ -129,6 +129,9 @@ importers:
       '@powersync/service-types':
         specifier: workspace:*
         version: link:../types
+      jose:
+        specifier: ^4.15.1
+        version: 4.15.5
       pgwire:
         specifier: github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
         version: https://codeload.github.com/kagis/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
@@ -206,9 +209,6 @@ importers:
       '@powersync/lib-services-framework':
         specifier: workspace:*
         version: link:../../libs/lib-services
-      '@powersync/service-jpgwire':
-        specifier: workspace:*
-        version: link:../jpgwire
       '@powersync/service-jsonbig':
         specifier: workspace:*
         version: link:../jsonbig
@@ -257,9 +257,6 @@ importers:
       node-fetch:
         specifier: ^3.3.2
         version: 3.3.2
-      pgwire:
-        specifier: github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
-        version: https://codeload.github.com/kagis/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
       ts-codec:
         specifier: ^1.2.2
         version: 1.2.2

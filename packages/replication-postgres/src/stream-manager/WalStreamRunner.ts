@@ -75,7 +75,7 @@ export class WalStreamRunner extends replication.AbstractStreamRunner<utils.Reso
       }
       const stream = new WalStream({
         abort_signal: this.abortController.signal,
-        factory: this.options.factory,
+        factory: this.options.storage_factory,
         storage: this.options.storage,
         connections
       });

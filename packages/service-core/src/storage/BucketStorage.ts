@@ -96,6 +96,8 @@ export interface BucketStorageFactory {
    * Get the unique identifier for this instance of Powersync
    */
   getPowerSyncInstanceId(): Promise<string>;
+
+  teardown(callback: () => Promise<void>): Promise<void>;
 }
 
 export interface WriteCheckpoint {

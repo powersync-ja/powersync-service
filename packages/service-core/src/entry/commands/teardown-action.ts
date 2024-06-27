@@ -1,11 +1,12 @@
 import { Command } from 'commander';
 
-import { extractRunnerOptions, wrapConfigCommand } from './config-command.js';
+import { wrapConfigCommand } from './config-command.js';
 import { teardown } from '../../runner/teardown.js';
+import { CorePowerSyncSystem } from '../../system/CorePowerSyncSystem.js';
 
 const COMMAND_NAME = 'teardown';
 
-export function registerTearDownAction(program: Command) {
+export function registerTearDownAction(program: Command, systemProvider: () => Promise<CorePowerSyncSystem>) {
   const teardownCommand = program.command(COMMAND_NAME);
 
   wrapConfigCommand(teardownCommand);
@@ -18,6 +19,6 @@ export function registerTearDownAction(program: Command) {
         throw new Error('TEARDOWN was not acknowledged.');
       }
 
-      await teardown(extractRunnerOptions(options));
+      await teardown(await systemProvider());
     });
 }
