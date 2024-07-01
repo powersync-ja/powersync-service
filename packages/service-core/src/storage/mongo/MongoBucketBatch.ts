@@ -244,7 +244,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
         existing_buckets = [];
         existing_lookups = [];
         // Log to help with debugging if there was a consistency issue
-        micro.logger.warn(
+        logger.warn(
           `Cannot find previous record for update on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
         );
       } else {
@@ -260,7 +260,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
         existing_buckets = [];
         existing_lookups = [];
         // Log to help with debugging if there was a consistency issue
-        micro.logger.warn(
+        logger.warn(
           `Cannot find previous record for delete on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
         );
       } else {
