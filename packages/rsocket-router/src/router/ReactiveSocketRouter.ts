@@ -1,9 +1,8 @@
 /**
  * This is a small Router wrapper which uses the RSocket lib
  * to expose reactive websocket stream in an interface similar to
- * other journey micro routers.
+ * other Journey micro routers.
  */
-import * as micro from '@journeyapps-platform/micro';
 import * as http from 'http';
 import { Payload, RSocketServer } from 'rsocket-core';
 import * as ws from 'ws';
@@ -17,9 +16,14 @@ import {
   SocketResponder
 } from './types.js';
 import { WebsocketServerTransport } from './transport/WebSocketServerTransport.js';
+import { errors, logger } from '@powersync/lib-services-framework';
 
 export class ReactiveSocketRouter<C> {
-  constructor(protected options?: ReactiveSocketRouterOptions<C>) {}
+  protected activeConnections: number;
+
+  constructor(protected options?: ReactiveSocketRouterOptions<C>) {
+    this.activeConnections = 0;
+  }
 
   reactiveStream<I, O>(path: string, stream: IReactiveStreamInput<I, O, C>): IReactiveStream<I, O, C> {
     return {
@@ -40,13 +44,11 @@ export class ReactiveSocketRouter<C> {
      * web sockets router.
      */
     const wss = new ws.WebSocketServer({ noServer: true });
-
     server.on('upgrade', (request, socket, head) => {
       wss.handleUpgrade(request, socket as any, head, (ws) => {
         wss.emit('connection', ws, request);
       });
     });
-
     server.on('close', () => wss.close());
 
     const transport = new WebsocketServerTransport({
@@ -57,10 +59,18 @@ export class ReactiveSocketRouter<C> {
       transport,
       acceptor: {
         accept: async (payload) => {
+          const { max_concurrent_connections } = this.options ?? {};
+          if (max_concurrent_connections && this.activeConnections >= max_concurrent_connections) {
+            throw new errors.JourneyError({
+              code: '429',
+              description: `Maximum active concurrent connections limit has been reached`
+            });
+          }
+
           // Throwing an exception in this context will be returned to the client side request
           if (!payload.metadata) {
             // Meta data is required for endpoint handler path matching
-            throw new micro.errors.AuthorizationError('No context meta data provided');
+            throw new errors.AuthorizationError('No context meta data provided');
           }
 
           const context = await params.contextProvider(payload.metadata!);
@@ -71,13 +81,15 @@ export class ReactiveSocketRouter<C> {
               const observer = new SocketRouterObserver();
 
               handleReactiveStream(context, { payload, initialN, responder }, observer, params).catch((ex) => {
-                micro.logger.error(ex);
+                logger.error(ex);
                 responder.onError(ex);
                 responder.onComplete();
               });
 
+              this.activeConnections++;
               return {
                 cancel: () => {
+                  this.activeConnections--;
                   observer.triggerCancel();
                 },
                 onExtension: () => observer.triggerExtension(),
@@ -110,6 +122,7 @@ export async function handleReactiveStream<Context>(
 ) {
   const { payload, responder, initialN } = request;
   const { metadata } = payload;
+  const startTime = new Date();
 
   const exitWithError = (error: any) => {
     responder.onError(error);
@@ -117,7 +130,7 @@ export async function handleReactiveStream<Context>(
   };
 
   if (!metadata) {
-    return exitWithError(new micro.errors.ValidationError('Metadata is not provided'));
+    return exitWithError(new errors.ValidationError('Metadata is not provided'));
   }
 
   const meta = await params.metaDecoder(metadata);
@@ -127,7 +140,7 @@ export async function handleReactiveStream<Context>(
   const route = params.endpoints.find((e) => e.path == path && e.type == RS_ENDPOINT_TYPE.STREAM);
 
   if (!route) {
-    return exitWithError(new micro.errors.ResourceNotFound('route', `No route for ${path} is configured`));
+    return exitWithError(new errors.ResourceNotFound('route', `No route for ${path} is configured`));
   }
 
   const { handler, authorize, validator, decoder = params.payloadDecoder } = route;
@@ -136,14 +149,14 @@ export async function handleReactiveStream<Context>(
   if (validator) {
     const isValid = validator.validate(requestPayload);
     if (!isValid.valid) {
-      return exitWithError(new micro.errors.ValidationError(isValid.errors));
+      return exitWithError(new errors.ValidationError(isValid.errors));
     }
   }
 
   if (authorize) {
     const isAuthorized = await authorize({ params: requestPayload, context, observer, responder });
     if (!isAuthorized.authorized) {
-      return exitWithError(new micro.errors.AuthorizationError(isAuthorized.errors));
+      return exitWithError(new errors.AuthorizationError(isAuthorized.errors));
     }
   }
 
@@ -156,8 +169,12 @@ export async function handleReactiveStream<Context>(
       initialN
     });
   } catch (ex) {
-    micro.logger.error(ex);
+    logger.error(ex);
     responder.onError(ex);
     responder.onComplete();
+  } finally {
+    logger.info(`STREAM ${path}`, {
+      duration_ms: Math.round(new Date().valueOf() - startTime.valueOf() + Number.EPSILON)
+    });
   }
 }

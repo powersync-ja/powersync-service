@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 
-import * as util from '@/util/util-index.js';
+import * as util from '../../util/util-index.js';
 
 /**
  * Wraps a Command with the standard config options

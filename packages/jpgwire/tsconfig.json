@@ -1,5 +1,5 @@
 {
-  "extends": "@journeyapps-platform/micro-dev/tsconfig.base.json",
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
     "declarationDir": "dist",
@@ -14,7 +14,7 @@
       "path": "../types"
     },
     {
-      "path":  "../jsonbig"
+      "path": "../jsonbig"
     }
   ]
 }

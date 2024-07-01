@@ -1,13 +1,13 @@
-import * as micro from '@journeyapps-platform/micro';
 import { DEFAULT_TAG, SourceTableInterface, SqlSyncRules } from '@powersync/service-sync-rules';
 import { pgwireRows } from '@powersync/service-jpgwire';
 import { ConnectionStatus, SyncRulesStatus, TableInfo, baseUri } from '@powersync/service-types';
 
-import * as replication from '@/replication/replication-index.js';
-import * as storage from '@/storage/storage-index.js';
-import * as util from '@/util/util-index.js';
+import * as replication from '../replication/replication-index.js';
+import * as storage from '../storage/storage-index.js';
+import * as util from '../util/util-index.js';
 
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
+import { logger } from '@powersync/lib-services-framework';
 
 export async function getConnectionStatus(system: CorePowerSyncSystem): Promise<ConnectionStatus | null> {
   if (system.pgwire_pool == null) {
@@ -134,7 +134,7 @@ export async function getSyncRulesStatus(
         }
       } catch (e) {
         // Ignore
-        micro.logger.warn(`Unable to get replication lag`, e);
+        logger.warn(`Unable to get replication lag`, e);
       }
     }
   } else {

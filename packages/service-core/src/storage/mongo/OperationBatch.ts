@@ -1,7 +1,7 @@
 import * as bson from 'bson';
 import { ToastableSqliteRow } from '@powersync/service-sync-rules';
 
-import * as util from '@/util/util-index.js';
+import * as util from '../../util/util-index.js';
 import { SaveOptions } from '../BucketStorage.js';
 
 /**

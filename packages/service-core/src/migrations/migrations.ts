@@ -1,12 +1,13 @@
-import { locks } from '@journeyapps-platform/micro';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
-import { Direction, createMongoMigrationStore, execute, writeLogsToStore } from '@journeyapps-platform/micro-migrate';
-
-import * as db from '@/db/db-index.js';
-import * as util from '@/util/util-index.js';
+import * as db from '../db/db-index.js';
+import * as util from '../util/util-index.js';
+import * as locks from '../locks/locks-index.js';
+import { Direction } from './definitions.js';
+import { createMongoMigrationStore } from './store/migration-store.js';
+import { execute, writeLogsToStore } from './executor.js';
 
 const DEFAULT_MONGO_LOCK_COLLECTION = 'locks';
 const MONGO_LOCK_PROCESS = 'migrations';
@@ -94,12 +95,7 @@ export const migrate = async (options: MigrationOptions) => {
     const migrations = await loadMigrations(MIGRATIONS_DIR, runner_config);
 
     // Use the provided config to connect to Mongo
-    const store = createMongoMigrationStore({
-      uri: storage.uri,
-      database: storage.database,
-      username: storage.username,
-      password: storage.password
-    });
+    const store = createMongoMigrationStore(clientDB);
 
     const state = await store.load();
 

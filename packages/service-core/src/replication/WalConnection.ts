@@ -3,8 +3,8 @@ import { pgwireRows } from '@powersync/service-jpgwire';
 import { DEFAULT_TAG, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import { ReplicationError, TableInfo } from '@powersync/service-types';
 
-import * as storage from '@/storage/storage-index.js';
-import * as util from '@/util/util-index.js';
+import * as storage from '../storage/storage-index.js';
+import * as util from '../util/util-index.js';
 
 import { ReplicaIdentityResult, getReplicationIdentityColumns } from './util.js';
 /**

@@ -1,4 +1,3 @@
-import '@journeyapps-platform/micro/register';
 import { describe, expect, it, vi } from 'vitest';
 import { createMockObserver, createMockResponder } from './utils/mock-responder.js';
 import { handleReactiveStream } from '../../src/router/ReactiveSocketRouter.js';

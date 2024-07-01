@@ -39,12 +39,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pnpm-store-
 
-      # TODO remove this when no longer needed
-      - name: Temporary Package Credentials
+      - name: Add NPM auth
         run: |
-          echo //npm.pkg.github.com/:_authToken=\${{secrets.RESTRICTED_PACKAGES_TOKEN}} >> ~/.npmrc
-          echo "//npm.pkg.github.com/journeyapps-platform/:_authToken=${{secrets.RESTRICTED_PACKAGES_TOKEN}}" >> ~/.npmrc
-          echo "@journeyapps-platform:registry=https://npm.pkg.github.com/journeyapps-platform/" >> ~/.npmrc
+          echo "//registry.npmjs.org/:_authToken=${{secrets.NPM_TOKEN}}" >> ~/.npmrc
 
       - name: Install dependencies
         run: pnpm install

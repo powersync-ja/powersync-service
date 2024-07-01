@@ -70,13 +70,6 @@ jobs:
         with:
           node-version-file: '.nvmrc'
 
-      # TODO remove this when no longer needed
-      - name: Temporary Package Credentials
-        run: |
-          echo //npm.pkg.github.com/:_authToken=\${{secrets.RESTRICTED_PACKAGES_TOKEN}} >> ~/.npmrc
-          echo "//npm.pkg.github.com/journeyapps-platform/:_authToken=${{secrets.RESTRICTED_PACKAGES_TOKEN}}" >> ~/.npmrc
-          echo "@journeyapps-platform:registry=https://npm.pkg.github.com/journeyapps-platform/" >> ~/.npmrc
-
       - uses: pnpm/action-setup@v2
         name: Install pnpm
         with:
