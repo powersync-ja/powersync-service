@@ -1,5 +1,18 @@
 # @powersync/service-core
 
+## 0.3.0
+
+### Minor Changes
+
+- cbf2683: Removed dependency for restricted packages
+
+### Patch Changes
+
+- 731c8bc: Fix replication issue with REPLICA IDENTITY FULL (#27).
+- Updated dependencies [cbf2683]
+  - @powersync/lib-services-framework@0.1.0
+  - @powersync/service-rsocket-router@0.0.8
+
 ## 0.2.2
 
 ### Patch Changes
