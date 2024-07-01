@@ -367,7 +367,12 @@ export interface SaveInsert {
 export interface SaveUpdate {
   tag: 'update';
   sourceTable: SourceTable;
+
+  /**
+   * This is only present when the id has changed, and will only contain replica identity columns.
+   */
   before?: SqliteRow;
+
   /**
    * A null value means null column.
    *

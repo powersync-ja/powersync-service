@@ -897,6 +897,183 @@ bucket_definitions:
     ]);
   });
 
+  test('changed data with replica identity full', async () => {
+    const sync_rules = SqlSyncRules.fromYaml(`
+bucket_definitions:
+  global:
+    data:
+      - SELECT id, description FROM "test"
+`);
+    const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
+
+    const sourceTable = makeTestTable('test', ['id', 'description']);
+
+    // Pre-setup
+    const result1 = await storage.startBatch({}, async (batch) => {
+      await batch.save({
+        sourceTable,
+        tag: 'insert',
+        after: {
+          id: 'test1',
+          description: 'test1a'
+        }
+      });
+    });
+
+    const checkpoint1 = result1?.flushed_op ?? '0';
+
+    const result2 = await storage.startBatch({}, async (batch) => {
+      // Unchanged, but has a before id
+      await batch.save({
+        sourceTable,
+        tag: 'update',
+        before: {
+          id: 'test1',
+          description: 'test1a'
+        },
+        after: {
+          id: 'test1',
+          description: 'test1b'
+        }
+      });
+    });
+
+    const result3 = await storage.startBatch({}, async (batch) => {
+      // Delete
+      await batch.save({
+        sourceTable,
+        tag: 'delete',
+        before: {
+          id: 'test1',
+          description: 'test1b'
+        },
+        after: undefined
+      });
+    });
+
+    const checkpoint3 = result3!.flushed_op;
+
+    const batch = await fromAsync(storage.getBucketDataBatch(checkpoint3, new Map([['global[]', checkpoint1]])));
+    const data = batch[0].data.map((d) => {
+      return {
+        op: d.op,
+        object_id: d.object_id,
+        data: d.data,
+        subkey: d.subkey
+      };
+    });
+
+    // Operations must be in this order
+    expect(data).toEqual([
+      // 2
+      // The REMOVE is expected because the subkey changes
+      {
+        op: 'REMOVE',
+        object_id: 'test1',
+        data: null,
+        subkey: '6544e3899293153fa7b38331/740ba9f2-8b0f-53e3-bb17-5f38a9616f0e'
+      },
+      {
+        op: 'PUT',
+        object_id: 'test1',
+        data: JSON.stringify({ id: 'test1', description: 'test1b' }),
+        subkey: '6544e3899293153fa7b38331/500e9b68-a2fd-51ff-9c00-313e2fb9f562'
+      },
+      // 3
+      {
+        op: 'REMOVE',
+        object_id: 'test1',
+        data: null,
+        subkey: '6544e3899293153fa7b38331/500e9b68-a2fd-51ff-9c00-313e2fb9f562'
+      }
+    ]);
+  });
+
+  test('unchanged data with replica identity full', async () => {
+    const sync_rules = SqlSyncRules.fromYaml(`
+bucket_definitions:
+  global:
+    data:
+      - SELECT id, description FROM "test"
+`);
+    const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
+
+    const sourceTable = makeTestTable('test', ['id', 'description']);
+
+    // Pre-setup
+    const result1 = await storage.startBatch({}, async (batch) => {
+      await batch.save({
+        sourceTable,
+        tag: 'insert',
+        after: {
+          id: 'test1',
+          description: 'test1a'
+        }
+      });
+    });
+
+    const checkpoint1 = result1?.flushed_op ?? '0';
+
+    const result2 = await storage.startBatch({}, async (batch) => {
+      // Unchanged, but has a before id
+      await batch.save({
+        sourceTable,
+        tag: 'update',
+        before: {
+          id: 'test1',
+          description: 'test1a'
+        },
+        after: {
+          id: 'test1',
+          description: 'test1a'
+        }
+      });
+    });
+
+    const result3 = await storage.startBatch({}, async (batch) => {
+      // Delete
+      await batch.save({
+        sourceTable,
+        tag: 'delete',
+        before: {
+          id: 'test1',
+          description: 'test1a'
+        },
+        after: undefined
+      });
+    });
+
+    const checkpoint3 = result3!.flushed_op;
+
+    const batch = await fromAsync(storage.getBucketDataBatch(checkpoint3, new Map([['global[]', checkpoint1]])));
+    const data = batch[0].data.map((d) => {
+      return {
+        op: d.op,
+        object_id: d.object_id,
+        data: d.data,
+        subkey: d.subkey
+      };
+    });
+
+    // Operations must be in this order
+    expect(data).toEqual([
+      // 2
+      {
+        op: 'PUT',
+        object_id: 'test1',
+        data: JSON.stringify({ id: 'test1', description: 'test1a' }),
+        subkey: '6544e3899293153fa7b38331/740ba9f2-8b0f-53e3-bb17-5f38a9616f0e'
+      },
+      // 3
+      {
+        op: 'REMOVE',
+        object_id: 'test1',
+        data: null,
+        subkey: '6544e3899293153fa7b38331/740ba9f2-8b0f-53e3-bb17-5f38a9616f0e'
+      }
+    ]);
+  });
+
   test('large batch', async () => {
     // Test syncing a batch of data that is small in count,
     // but large enough in size to be split over multiple returned batches.

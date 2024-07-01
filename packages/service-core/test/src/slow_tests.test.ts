@@ -62,7 +62,7 @@ function defineSlowTests(factory: StorageFactory) {
 bucket_definitions:
   global:
     data:
-      - SELECT id, description FROM "test_data"
+      - SELECT * FROM "test_data"
 `;
       const syncRules = await f.updateSyncRules({ content: syncRuleContent });
       const storage = f.getInstance(syncRules.parsed());
@@ -76,7 +76,10 @@ bucket_definitions:
       walStream = new WalStream(options);
 
       await pool.query(`DROP TABLE IF EXISTS test_data`);
-      await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);
+      await pool.query(
+        `CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text, num decimal)`
+      );
+      await pool.query(`ALTER TABLE test_data REPLICA IDENTITY FULL`);
 
       await walStream.initReplication(replicationConnection);
       await storage.autoActivate();
@@ -88,14 +91,17 @@ bucket_definitions:
 
       while (!abort && Date.now() - start < TEST_DURATION_MS) {
         const bg = async () => {
-          for (let j = 0; j < 5 && !abort; j++) {
-            const n = Math.floor(Math.random() * 50);
+          for (let j = 0; j < 1 && !abort; j++) {
+            const n = 1;
             let statements: pgwire.Statement[] = [];
             for (let i = 0; i < n; i++) {
               const description = `test${i}`;
               statements.push({
-                statement: `INSERT INTO test_data(description) VALUES($1) returning id as test_id`,
-                params: [{ type: 'varchar', value: description }]
+                statement: `INSERT INTO test_data(description, num) VALUES($1, $2) returning id as test_id`,
+                params: [
+                  { type: 'varchar', value: description },
+                  { type: 'float8', value: Math.random() }
+                ]
               });
             }
             const results = await pool.query(...statements);
@@ -103,6 +109,24 @@ bucket_definitions:
               return sub.rows[0][0] as string;
             });
             await new Promise((resolve) => setTimeout(resolve, Math.random() * 30));
+
+            if (Math.random() > 0.5) {
+              const updateStatements: pgwire.Statement[] = ids.map((id) => {
+                return {
+                  statement: `UPDATE test_data SET num = $2 WHERE id = $1`,
+                  params: [
+                    { type: 'uuid', value: id },
+                    { type: 'float8', value: Math.random() }
+                  ]
+                };
+              });
+
+              await pool.query(...updateStatements);
+              if (Math.random() > 0.5) {
+                // Special case - an update that doesn't change data
+                await pool.query(...updateStatements);
+              }
+            }
 
             const deleteStatements: pgwire.Statement[] = ids.map((id) => {
               return {
@@ -129,6 +153,21 @@ bucket_definitions:
           return bson.deserialize((doc.data as mongo.Binary).buffer) as SqliteRow;
         });
         expect(transformed).toEqual([]);
+
+        // Check that each PUT has a REMOVE
+        const ops = await f.db.bucket_data.find().sort({ _id: 1 }).toArray();
+        let active = new Set<string>();
+        for (let op of ops) {
+          const key = op.source_key.toHexString();
+          if (op.op == 'PUT') {
+            active.add(key);
+          } else if (op.op == 'REMOVE') {
+            active.delete(key);
+          }
+        }
+        if (active.size > 0) {
+          throw new Error(`${active.size} rows not removed`);
+        }
       }
 
       abortController.abort();

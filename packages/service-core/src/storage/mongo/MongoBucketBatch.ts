@@ -187,6 +187,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
         }
         const currentData = current_data_lookup.get(op.internalBeforeKey) ?? null;
         if (currentData != null) {
+          // If it will be used again later, it will be set again using nextData below
           current_data_lookup.delete(op.internalBeforeKey);
         }
         const nextData = this.saveOperation(persistedBatch!, op, currentData, op_seq);
@@ -242,6 +243,10 @@ export class MongoBucketBatch implements BucketStorageBatch {
         // Not an error if we re-apply a transaction
         existing_buckets = [];
         existing_lookups = [];
+        // Log to help with debugging if there was a consistency issue
+        logger.warn(
+          `Cannot find previous record for update on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
+        );
       } else {
         const data = bson.deserialize((result.data as mongo.Binary).buffer, BSON_DESERIALIZE_OPTIONS) as SqliteRow;
         existing_buckets = result.buckets;
@@ -254,6 +259,10 @@ export class MongoBucketBatch implements BucketStorageBatch {
         // Not an error if we re-apply a transaction
         existing_buckets = [];
         existing_lookups = [];
+        // Log to help with debugging if there was a consistency issue
+        logger.warn(
+          `Cannot find previous record for delete on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
+        );
       } else {
         existing_buckets = result.buckets;
         existing_lookups = result.lookups;
@@ -292,7 +301,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
     }
 
     // 2. Save bucket data
-    if (beforeId != null && beforeId != afterId) {
+    if (beforeId != null && (afterId == null || !beforeId.equals(afterId))) {
       // Source ID updated
       if (sourceTable.syncData) {
         // Delete old record
@@ -422,7 +431,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
       };
     }
 
-    if (beforeId != afterId) {
+    if (afterId == null || !beforeId.equals(afterId)) {
       // Either a delete (afterId == null), or replaced the old replication id
       batch.deleteCurrentData(before_key);
     }
