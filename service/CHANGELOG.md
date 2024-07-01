@@ -1,5 +1,17 @@
 # powersync-open-service
 
+## 0.2.7
+
+### Patch Changes
+
+- 731c8bc: Fix replication issue with REPLICA IDENTITY FULL (#27).
+- Updated dependencies [731c8bc]
+- Updated dependencies [cbf2683]
+- Updated dependencies [cbf2683]
+  - @powersync/service-core@0.3.0
+  - @powersync/lib-services-framework@0.1.0
+  - @powersync/service-rsocket-router@0.0.8
+
 ## 0.2.6
 
 ### Patch Changes
