@@ -1,14 +1,14 @@
 import { serialize } from 'bson';
 import { SyncParameters, normalizeTokenParameters } from '@powersync/service-sync-rules';
-import * as micro from '@journeyapps-platform/micro';
+import { errors, logger, schema } from '@powersync/lib-services-framework';
 
-import * as util from '@/util/util-index.js';
-import { streamResponse } from '../sync/sync.js';
+import * as util from '../../util/util-index.js';
+import { streamResponse } from '../../sync/sync.js';
 import { SyncRoutes } from './sync-stream.js';
-import { SocketRouteGenerator } from './router-socket.js';
-import { Metrics } from '@/metrics/Metrics.js';
+import { SocketRouteGenerator } from '../router-socket.js';
+import { Metrics } from '../../metrics/Metrics.js';
 
-export const sync_stream_reactive: SocketRouteGenerator = (router) =>
+export const syncStreamReactive: SocketRouteGenerator = (router) =>
   router.reactiveStream<util.StreamingSyncRequest, any>(SyncRoutes.STREAM, {
     authorize: ({ context }) => {
       return {
@@ -16,13 +16,13 @@ export const sync_stream_reactive: SocketRouteGenerator = (router) =>
         errors: ['Authentication required'].concat(context.token_errors ?? [])
       };
     },
-    validator: micro.schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
+    validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
     handler: async ({ context, params, responder, observer, initialN }) => {
       const { system } = context;
 
       if (system.closed) {
         responder.onError(
-          new micro.errors.JourneyError({
+          new errors.JourneyError({
             status: 503,
             code: 'SERVICE_UNAVAILABLE',
             description: 'Service temporarily unavailable'
@@ -44,7 +44,7 @@ export const sync_stream_reactive: SocketRouteGenerator = (router) =>
       const cp = await storage.getActiveCheckpoint();
       if (!cp.hasSyncRules()) {
         responder.onError(
-          new micro.errors.JourneyError({
+          new errors.JourneyError({
             status: 500,
             code: 'NO_SYNC_RULES',
             description: 'No sync rules available'
@@ -122,8 +122,8 @@ export const sync_stream_reactive: SocketRouteGenerator = (router) =>
       } catch (ex) {
         // Convert to our standard form before responding.
         // This ensures the error can be serialized.
-        const error = new micro.errors.InternalServerError(ex);
-        micro.logger.error('Sync stream error', error);
+        const error = new errors.InternalServerError(ex);
+        logger.error('Sync stream error', error);
         responder.onError(error);
       } finally {
         responder.onComplete();

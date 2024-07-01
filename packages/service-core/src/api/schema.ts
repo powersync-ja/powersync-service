@@ -2,7 +2,7 @@ import type * as pgwire from '@powersync/service-jpgwire';
 import { pgwireRows } from '@powersync/service-jpgwire';
 import { DatabaseSchema, internal_routes } from '@powersync/service-types';
 
-import * as util from '@/util/util-index.js';
+import * as util from '../util/util-index.js';
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
 
 export async function getConnectionsSchema(system: CorePowerSyncSystem): Promise<internal_routes.GetSchemaResponse> {

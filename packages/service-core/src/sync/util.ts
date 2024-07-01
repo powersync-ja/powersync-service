@@ -1,7 +1,7 @@
 import * as timers from 'timers/promises';
 
-import * as util from '@/util/util-index.js';
-import { Metrics } from '@/metrics/Metrics.js';
+import * as util from '../util/util-index.js';
+import { Metrics } from '../metrics/Metrics.js';
 
 export type TokenStreamOptions = {
   /**

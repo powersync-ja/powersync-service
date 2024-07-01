@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 
-import * as utils from '@/util/util-index.js';
+import * as utils from '../../util/util-index.js';
 import { extractRunnerOptions, wrapConfigCommand } from './config-command.js';
 
 const COMMAND_NAME = 'start';

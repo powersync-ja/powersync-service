@@ -1,4 +1,4 @@
-import { utils } from '@journeyapps-platform/micro';
+import { utils } from '@powersync/lib-services-framework';
 
 import { ServiceRunner } from './config/types.js';
 
@@ -22,7 +22,9 @@ export const env = utils.collectEnvironmentVariables({
   /**
    * Port for metrics
    */
-  METRICS_PORT: utils.type.number.optional()
+  METRICS_PORT: utils.type.number.optional(),
+
+  NODE_ENV: utils.type.string.optional()
 });
 
 export type Env = typeof env;

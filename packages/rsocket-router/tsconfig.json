@@ -1,10 +1,14 @@
 {
-  "extends": "@journeyapps-platform/micro-dev/tsconfig.base.json",
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
     "declarationDir": "dist",
     "rootDir": "src"
   },
   "include": ["src"],
-  "references": []
+  "references": [
+    {
+      "path": "../../libs/lib-services"
+    }
+  ]
 }

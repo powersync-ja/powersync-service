@@ -1,0 +1,33 @@
+# powersync.yaml
+# Very similar to the config on Collide, but a little more low-level
+# See https://github.com/powersync-ja/powersync-service/blob/c6140e883a4a2ac9c8c2e46b7c31ad38e1c6d28a/packages/types/src/config/PowerSyncConfig.ts#L95
+
+migrations:
+  disable_auto_migration: false
+
+replication:
+  connections:
+    - type: postgresql
+      uri: postgres://postgres:mypassword@localhost:5432/postgres
+      sslmode: disable # okay for local/private network, not for public network
+
+storage:
+  type: mongodb
+  uri: mongodb://localhost:27017/powersync_demo
+
+port: 8080
+
+sync_rules:
+  # This path is relative to the `powersync.yaml` file
+  path: sync-rules.yaml
+
+# Client (application end user) authentication settings
+client_auth:
+  # Enable this if using Supabase Auth
+  # supabase: true
+
+  # JWKS URIs can be specified here
+  jwks_uri: http://localhost:6060/api/auth/keys
+
+  # JWKS audience
+  audience: ['powersync-dev', 'powersync']

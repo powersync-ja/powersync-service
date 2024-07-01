@@ -1,4 +1,4 @@
-import * as micro from '@journeyapps-platform/micro';
+import { logger } from '@powersync/lib-services-framework';
 
 /**
  * Track and log memory usage.
@@ -57,7 +57,7 @@ export function trackMemoryUsage() {
         )
       )`.replaceAll(/\s+/g, ' ');
 
-      micro.logger.info(output);
+      logger.info(output);
     }
   }, 50);
 }

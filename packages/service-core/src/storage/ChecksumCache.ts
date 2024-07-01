@@ -1,5 +1,5 @@
-import { BucketChecksum, OpId } from '@/util/protocol-types.js';
-import { ChecksumMap, addBucketChecksums } from '@/util/utils.js';
+import { BucketChecksum, OpId } from '../util/protocol-types.js';
+import { ChecksumMap, addBucketChecksums } from '../util/utils.js';
 import { LRUCache } from 'lru-cache/min';
 import { OrderedSet } from '@js-sdsl/ordered-set';
 

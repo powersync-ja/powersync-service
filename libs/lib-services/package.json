@@ -1,0 +1,36 @@
+{
+  "name": "@powersync/lib-services-framework",
+  "repository": "https://github.com/powersync-ja/powersync-service",
+  "version": "0.0.1",
+  "main": "dist/index.js",
+  "type": "module",
+  "types": "dist/index.d.ts",
+  "license": "FSL-1.1-Apache-2.0",
+  "files": [
+    "dist/**/*"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "clean": "rm -r ./dist && tsc -b --clean",
+    "build": "tsc -b",
+    "build:tests": "tsc -b test/tsconfig.json",
+    "test": "vitest"
+  },
+  "keywords": [],
+  "dependencies": {
+    "ajv": "^8.12.0",
+    "better-ajv-errors": "^1.2.0",
+    "bson": "^6.6.0",
+    "dotenv": "^16.4.5",
+    "lodash": "^4.17.21",
+    "ts-codec": "^1.2.2",
+    "winston": "^3.13.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/lodash": "^4.17.5",
+    "vitest": "^0.34.6"
+  }
+}

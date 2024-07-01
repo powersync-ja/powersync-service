@@ -1,6 +1,6 @@
-import * as mongo from '@/db/mongo.js';
-import * as storage from '@/storage/storage-index.js';
-import * as utils from '@/util/util-index.js';
+import * as mongo from '../../../db/mongo.js';
+import * as storage from '../../../storage/storage-index.js';
+import * as utils from '../../../util/util-index.js';
 
 interface LegacySyncRulesDocument extends storage.SyncRuleDocument {
   /**

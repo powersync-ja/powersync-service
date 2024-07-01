@@ -1,8 +1,10 @@
-import * as micro from '@journeyapps-platform/micro';
-
-import * as auth from '@/auth/auth-index.js';
+import { router } from '@powersync/lib-services-framework';
+import * as auth from '../auth/auth-index.js';
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
 
+/**
+ * Common context for routes
+ */
 export type Context = {
   user_id?: string;
   system: CorePowerSyncSystem;
@@ -11,8 +13,34 @@ export type Context = {
   token_errors?: string[];
 };
 
+export type BasicRouterRequest = {
+  headers: Record<string, string | string[] | undefined>;
+  protocol: string;
+  hostname: string;
+};
+
+export type ContextProvider = (request: BasicRouterRequest) => Promise<Context>;
+
+export type RequestEndpoint<
+  I,
+  O,
+  C = Context,
+  Payload = RequestEndpointHandlerPayload<I, C, BasicRouterRequest>
+> = router.Endpoint<I, O, C, Payload> & {};
+
+export type RequestEndpointHandlerPayload<
+  I = any,
+  C = Context,
+  Request = BasicRouterRequest
+> = router.EndpointHandlerPayload<I, C> & {
+  request: Request;
+};
+
 /**
- * Creates a route handler given a router instance
- * TODO move away from Fastify specific types
+ * Helper function for making generics work well when defining routes
  */
-export type RouteGenerator = (router: micro.fastify.FastifyRouter<Context>) => micro.router.Route;
+export function routeDefinition<I, O, C = Context, Extension = {}>(
+  params: RequestEndpoint<I, O, C> & Extension
+): RequestEndpoint<I, O, C> & Extension {
+  return params;
+}

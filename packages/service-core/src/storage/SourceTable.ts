@@ -1,7 +1,7 @@
 import { DEFAULT_SCHEMA, DEFAULT_TAG } from '@powersync/service-sync-rules';
 
-import * as replication from '@/replication/replication-index.js';
-import * as util from '@/util/util-index.js';
+import * as replication from '../replication/replication-index.js';
+import * as util from '../util/util-index.js';
 
 export class SourceTable {
   static readonly DEFAULT_SCHEMA = DEFAULT_SCHEMA;
