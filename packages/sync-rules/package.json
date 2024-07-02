@@ -14,7 +14,9 @@
   "type": "module",
   "scripts": {
     "clean": "rm -r ./dist && tsc -b --clean",
-    "build": "tsc -b"
+    "build": "tsc -b",
+    "build:tests": "tsc -b test/tsconfig.json",
+    "test": "vitest"
   },
   "dependencies": {
     "@powersync/service-jsonbig": "workspace:^",
@@ -24,6 +26,7 @@
     "yaml": "^2.3.1"
   },
   "devDependencies": {
-    "@types/node": "18.11.11"
+    "@types/node": "18.11.11",
+    "vitest": "^0.34.6"
   }
 }

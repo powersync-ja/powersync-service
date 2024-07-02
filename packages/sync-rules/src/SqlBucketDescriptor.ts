@@ -57,7 +57,7 @@ export class SqlBucketDescriptor {
     };
   }
 
-  addParameterQuery(sql: string, schema?: SourceSchema): QueryParseResult {
+  addParameterQuery(sql: string, schema: SourceSchema | undefined): QueryParseResult {
     const parameterQuery = SqlParameterQuery.fromSql(this.name, sql, schema);
     if (this.bucket_parameters == null) {
       this.bucket_parameters = parameterQuery.bucket_parameters;

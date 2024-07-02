@@ -10,9 +10,8 @@ import {
   SqlSyncRules,
   StaticSchema,
   normalizeTokenParameters
-} from '@powersync/service-sync-rules';
+} from '../../src/index.js';
 import { describe, expect, test } from 'vitest';
-import { SourceTable } from '../../src/storage/SourceTable.js';
 
 class TestSourceTable implements SourceTableInterface {
   readonly connectionTag = DEFAULT_TAG;
@@ -23,6 +22,28 @@ class TestSourceTable implements SourceTableInterface {
 
 const ASSETS = new TestSourceTable('assets');
 const USERS = new TestSourceTable('users');
+
+const BASIC_SCHEMA = new StaticSchema([
+  {
+    tag: DEFAULT_TAG,
+    schemas: [
+      {
+        name: DEFAULT_SCHEMA,
+        tables: [
+          {
+            name: 'assets',
+            columns: [
+              { name: 'id', pg_type: 'uuid' },
+              { name: 'name', pg_type: 'text' },
+              { name: 'count', pg_type: 'int4' },
+              { name: 'owner_id', pg_type: 'uuid' }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]);
 
 describe('sync rules', () => {
   test('parse empty sync rules', () => {
@@ -855,27 +876,7 @@ bucket_definitions:
   });
 
   test('types', () => {
-    const schema = new StaticSchema([
-      {
-        tag: SourceTable.DEFAULT_TAG,
-        schemas: [
-          {
-            name: SourceTable.DEFAULT_SCHEMA,
-            tables: [
-              {
-                name: 'assets',
-                columns: [
-                  { name: 'id', pg_type: 'uuid' },
-                  { name: 'name', pg_type: 'text' },
-                  { name: 'count', pg_type: 'int4' },
-                  { name: 'owner_id', pg_type: 'uuid' }
-                ]
-              }
-            ]
-          }
-        ]
-      }
-    ]);
+    const schema = BASIC_SCHEMA;
 
     const q1 = SqlDataQuery.fromSql('q1', ['user_id'], `SELECT * FROM assets WHERE owner_id = bucket.user_id`);
     expect(q1.getColumnOutputs(schema)).toEqual([
@@ -922,27 +923,7 @@ bucket_definitions:
   });
 
   test('validate columns', () => {
-    const schema = new StaticSchema([
-      {
-        tag: SourceTable.DEFAULT_TAG,
-        schemas: [
-          {
-            name: SourceTable.DEFAULT_SCHEMA,
-            tables: [
-              {
-                name: 'assets',
-                columns: [
-                  { name: 'id', pg_type: 'uuid' },
-                  { name: 'name', pg_type: 'text' },
-                  { name: 'count', pg_type: 'int4' },
-                  { name: 'owner_id', pg_type: 'uuid' }
-                ]
-              }
-            ]
-          }
-        ]
-      }
-    ]);
+    const schema = BASIC_SCHEMA;
     const q1 = SqlDataQuery.fromSql(
       'q1',
       ['user_id'],
@@ -980,15 +961,54 @@ bucket_definitions:
         type: 'warning'
       }
     ]);
+
+    const q4 = SqlParameterQuery.fromSql(
+      'q4',
+      'SELECT id FROM assets WHERE owner_id = token_parameters.user_id',
+      schema
+    );
+    expect(q4.errors).toMatchObject([]);
+
+    const q5 = SqlParameterQuery.fromSql(
+      'q5',
+      'SELECT id as asset_id FROM assets WHERE other_id = token_parameters.user_id',
+      schema
+    );
+
+    expect(q5.errors).toMatchObject([
+      {
+        message: 'Column not found: other_id',
+        type: 'warning'
+      }
+    ]);
+  });
+
+  test('progate parameter schema errors', () => {
+    const rules = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    parameters: SELECT id FROM assets WHERE other_id = token_parameters.user_id
+    data: []
+    `,
+      { schema: BASIC_SCHEMA }
+    );
+
+    expect(rules.errors).toMatchObject([
+      {
+        message: 'Column not found: other_id',
+        type: 'warning'
+      }
+    ]);
   });
 
   test('schema generation', () => {
     const schema = new StaticSchema([
       {
-        tag: SourceTable.DEFAULT_TAG,
+        tag: DEFAULT_TAG,
         schemas: [
           {
-            name: SourceTable.DEFAULT_SCHEMA,
+            name: DEFAULT_SCHEMA,
             tables: [
               {
                 name: 'assets',

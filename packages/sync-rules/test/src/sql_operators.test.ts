@@ -1,4 +1,4 @@
-import { evaluateOperator } from '@powersync/service-sync-rules';
+import { evaluateOperator } from '../../src/index.js';
 import { describe, expect, test } from 'vitest';
 
 describe('SQL operators', () => {
