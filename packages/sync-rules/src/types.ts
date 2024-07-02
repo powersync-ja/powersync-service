@@ -120,6 +120,10 @@ export type QueryParameters = { [table: string]: SqliteRow };
  * A single set of parameters that would make a WHERE filter true.
  *
  * Each parameter is prefixed with a table name, e.g. 'bucket.param'.
+ *
+ * Data queries: this is converted into a bucket id, given named bucket parameters.
+ *
+ * Parameter queries: this is converted into a lookup array.
  */
 export type FilterParameters = { [parameter: string]: SqliteJsonValue };
 
