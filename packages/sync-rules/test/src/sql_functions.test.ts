@@ -1,4 +1,4 @@
-import { SQL_FUNCTIONS_CALL, cast, jsonExtract } from '@powersync/service-sync-rules';
+import { SQL_FUNCTIONS_CALL, cast, jsonExtract } from '../../src/index.js';
 import { describe, expect, test } from 'vitest';
 
 const fn = SQL_FUNCTIONS_CALL;

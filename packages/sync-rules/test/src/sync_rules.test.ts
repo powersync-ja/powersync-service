@@ -10,9 +10,8 @@ import {
   SqlSyncRules,
   StaticSchema,
   normalizeTokenParameters
-} from '@powersync/service-sync-rules';
+} from '../../src/index.js';
 import { describe, expect, test } from 'vitest';
-import { SourceTable } from '../../src/storage/SourceTable.js';
 
 class TestSourceTable implements SourceTableInterface {
   readonly connectionTag = DEFAULT_TAG;
@@ -857,10 +856,10 @@ bucket_definitions:
   test('types', () => {
     const schema = new StaticSchema([
       {
-        tag: SourceTable.DEFAULT_TAG,
+        tag: DEFAULT_TAG,
         schemas: [
           {
-            name: SourceTable.DEFAULT_SCHEMA,
+            name: DEFAULT_SCHEMA,
             tables: [
               {
                 name: 'assets',
@@ -924,10 +923,10 @@ bucket_definitions:
   test('validate columns', () => {
     const schema = new StaticSchema([
       {
-        tag: SourceTable.DEFAULT_TAG,
+        tag: DEFAULT_TAG,
         schemas: [
           {
-            name: SourceTable.DEFAULT_SCHEMA,
+            name: DEFAULT_SCHEMA,
             tables: [
               {
                 name: 'assets',
@@ -985,10 +984,10 @@ bucket_definitions:
   test('schema generation', () => {
     const schema = new StaticSchema([
       {
-        tag: SourceTable.DEFAULT_TAG,
+        tag: DEFAULT_TAG,
         schemas: [
           {
-            name: SourceTable.DEFAULT_SCHEMA,
+            name: DEFAULT_SCHEMA,
             tables: [
               {
                 name: 'assets',
