@@ -983,7 +983,7 @@ bucket_definitions:
     ]);
   });
 
-  test.only('progate parameter schema errors', () => {
+  test('progate parameter schema errors', () => {
     const rules = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
