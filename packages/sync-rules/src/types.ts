@@ -154,10 +154,13 @@ export interface ParameterMatchClause {
   /**
    * Given a data row, give a set of filter parameters that would make the filter be true.
    *
+   * For StaticSqlParameterQuery, the tables are token_parameters and user_parameters.
+   * For others, it is the table of the data or parameter query.
+   *
    * @param tables - {table => row}
    * @return The filter parameters
    */
-  filter(tables: QueryParameters): TrueIfParametersMatch;
+  filterRow(tables: QueryParameters): TrueIfParametersMatch;
 }
 
 /**

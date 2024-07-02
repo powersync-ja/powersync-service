@@ -139,7 +139,7 @@ export class SqlTools {
         getType() {
           return ExpressionType.INTEGER;
         }
-      };
+      } satisfies StaticRowValueClause;
     } else if (isStatic(expr)) {
       const value = staticValue(expr);
       return {
@@ -147,7 +147,7 @@ export class SqlTools {
         getType() {
           return ExpressionType.fromTypeText(sqliteTypeOf(value));
         }
-      };
+      } satisfies StaticRowValueClause;
     } else if (expr.type == 'ref') {
       const column = expr.name;
       if (column == '*') {
@@ -169,7 +169,7 @@ export class SqlTools {
           getType(schema) {
             return schema.getType(table, column);
           }
-        };
+        } satisfies StaticRowValueClause;
       } else {
         const ref = [(expr as ExprRef).table?.schema, (expr as ExprRef).table?.name, (expr as ExprRef).name]
           .filter((e) => e != null)
@@ -226,7 +226,7 @@ export class SqlTools {
             error: false,
             bucketParameters: [otherFilter.bucketParameter],
             unbounded: false,
-            filter(tables: QueryParameters): TrueIfParametersMatch {
+            filterRow(tables: QueryParameters): TrueIfParametersMatch {
               const value = staticFilter.evaluate(tables);
               if (value == null) {
                 // null never matches on =
@@ -239,7 +239,7 @@ export class SqlTools {
               }
               return [{ [otherFilter.bucketParameter]: value }];
             }
-          };
+          } satisfies ParameterMatchClause;
         } else if (isParameterMatchClause(otherFilter)) {
           // 3. static, parameterMatch
           // (bucket.param = 'something') = staticValue
@@ -265,7 +265,7 @@ export class SqlTools {
             error: false,
             bucketParameters: [param],
             unbounded: true,
-            filter(tables: QueryParameters): TrueIfParametersMatch {
+            filterRow(tables: QueryParameters): TrueIfParametersMatch {
               const aValue = rightFilter.evaluate(tables);
               if (aValue == null) {
                 return MATCH_CONST_FALSE;
@@ -278,7 +278,7 @@ export class SqlTools {
                 return { [param]: value };
               });
             }
-          };
+          } satisfies ParameterMatchClause;
         } else if (
           this.supports_expanding_parameters &&
           isStaticRowValueClause(leftFilter) &&
@@ -289,7 +289,7 @@ export class SqlTools {
             error: false,
             bucketParameters: [param],
             unbounded: false,
-            filter(tables: QueryParameters): TrueIfParametersMatch {
+            filterRow(tables: QueryParameters): TrueIfParametersMatch {
               const value = leftFilter.evaluate(tables);
               if (!isJsonValue(value)) {
                 // Cannot persist, e.g. BLOB
@@ -297,7 +297,7 @@ export class SqlTools {
               }
               return [{ [param]: value }];
             }
-          };
+          } satisfies ParameterMatchClause;
         } else {
           return this.error(`Unsupported usage of IN operator`, expr);
         }
@@ -326,7 +326,7 @@ export class SqlTools {
           getType() {
             return ExpressionType.INTEGER;
           }
-        };
+        } satisfies StaticRowValueClause;
       } else if (expr.op == 'IS NULL') {
         const leftFilter = this.compileClause(expr.operand);
         if (isClauseError(leftFilter)) {
@@ -338,7 +338,7 @@ export class SqlTools {
             getType() {
               return ExpressionType.INTEGER;
             }
-          };
+          } satisfies StaticRowValueClause;
           return compileStaticOperator('IS', leftFilter, nullValue);
         } else if (isParameterValueClause(leftFilter)) {
           //  2. param IS NULL
@@ -346,10 +346,10 @@ export class SqlTools {
             error: false,
             bucketParameters: [leftFilter.bucketParameter],
             unbounded: false,
-            filter(tables: QueryParameters): TrueIfParametersMatch {
+            filterRow(tables: QueryParameters): TrueIfParametersMatch {
               return [{ [leftFilter.bucketParameter]: null }];
             }
-          };
+          } satisfies ParameterMatchClause;
         } else {
           return this.error(`Cannot use IS NULL here`, expr);
         }
@@ -364,7 +364,7 @@ export class SqlTools {
             getType() {
               return ExpressionType.INTEGER;
             }
-          };
+          } satisfies StaticRowValueClause;
           return compileStaticOperator('IS NOT', leftFilter, nullValue);
         } else {
           return this.error(`Cannot use IS NOT NULL here`, expr);
@@ -405,7 +405,7 @@ export class SqlTools {
           const argTypes = argExtractors.map((e) => e.getType(schema));
           return fnImpl.getReturnType(argTypes);
         }
-      };
+      } satisfies StaticRowValueClause;
     } else if (expr.type == 'member') {
       const operand = this.compileClause(expr.operand);
       if (isClauseError(operand)) {
@@ -423,7 +423,7 @@ export class SqlTools {
           getType() {
             return ExpressionType.ANY_JSON;
           }
-        };
+        } satisfies StaticRowValueClause;
       } else {
         return this.error(`Unsupported member operation ${expr.op}`, expr);
       }
@@ -447,7 +447,7 @@ export class SqlTools {
           getType() {
             return ExpressionType.fromTypeText(to as SqliteType);
           }
-        };
+        } satisfies StaticRowValueClause;
       } else {
         return this.error(`CAST not supported for '${to}'`, expr);
       }

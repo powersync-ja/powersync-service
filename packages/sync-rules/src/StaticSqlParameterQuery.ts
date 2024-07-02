@@ -64,7 +64,7 @@ export class StaticSqlParameterQuery {
 
   getStaticBucketIds(parameters: SyncParameters): string[] {
     const tables = { token_parameters: parameters.token_parameters, user_parameters: parameters.user_parameters };
-    const filtered = this.filter!.filter(tables);
+    const filtered = this.filter!.filterRow(tables);
     if (filtered.length == 0) {
       return [];
     }

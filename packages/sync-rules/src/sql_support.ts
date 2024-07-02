@@ -104,9 +104,9 @@ export function andFilters(a: CompiledClause, b: CompiledClause): CompiledClause
     error: aFilter.error || bFilter.error,
     bucketParameters: [...combined],
     unbounded: aFilter.unbounded || bFilter.unbounded, // result count = a.count * b.count
-    filter: (tables) => {
-      const aResult = aFilter.filter(tables);
-      const bResult = bFilter.filter(tables);
+    filterRow: (tables) => {
+      const aResult = aFilter.filterRow(tables);
+      const bResult = bFilter.filterRow(tables);
 
       let results: FilterParameters[] = [];
       for (let result1 of aResult) {
@@ -126,7 +126,7 @@ export function andFilters(a: CompiledClause, b: CompiledClause): CompiledClause
       }
       return results;
     }
-  };
+  } satisfies ParameterMatchClause;
 }
 
 export function orFilters(a: CompiledClause, b: CompiledClause): CompiledClause {
@@ -141,7 +141,7 @@ export function orFilters(a: CompiledClause, b: CompiledClause): CompiledClause 
       getType() {
         return ExpressionType.INTEGER;
       }
-    };
+    } satisfies StaticRowValueClause;
   }
 
   const aFilter = toBooleanParameterSetClause(a);
@@ -173,14 +173,14 @@ export function orParameterSetClauses(a: ParameterMatchClause, b: ParameterMatch
     error: a.error || b.error,
     bucketParameters: parameters,
     unbounded, // result count = a.count + b.count
-    filter: (tables) => {
-      const aResult = a.filter(tables);
-      const bResult = b.filter(tables);
+    filterRow: (tables) => {
+      const aResult = a.filterRow(tables);
+      const bResult = b.filterRow(tables);
 
       let results: FilterParameters[] = [...aResult, ...bResult];
       return results;
     }
-  };
+  } satisfies ParameterMatchClause;
 }
 
 /**
@@ -196,20 +196,20 @@ export function toBooleanParameterSetClause(clause: CompiledClause): ParameterMa
       error: false,
       bucketParameters: [],
       unbounded: false,
-      filter(tables: QueryParameters): TrueIfParametersMatch {
+      filterRow(tables: QueryParameters): TrueIfParametersMatch {
         const value = sqliteBool(clause.evaluate(tables));
         return value ? MATCH_CONST_TRUE : MATCH_CONST_FALSE;
       }
-    };
+    } satisfies ParameterMatchClause;
   } else if (isClauseError(clause)) {
     return {
       error: true,
       bucketParameters: [],
       unbounded: false,
-      filter(tables: QueryParameters): TrueIfParametersMatch {
+      filterRow(tables: QueryParameters): TrueIfParametersMatch {
         throw new Error('invalid clause');
       }
-    };
+    } satisfies ParameterMatchClause;
   } else {
     // Equivalent to `bucket.param = true`
     const param = clause.bucketParameter;
@@ -217,10 +217,10 @@ export function toBooleanParameterSetClause(clause: CompiledClause): ParameterMa
       error: false,
       bucketParameters: [param],
       unbounded: false,
-      filter(tables: QueryParameters): TrueIfParametersMatch {
+      filterRow(tables: QueryParameters): TrueIfParametersMatch {
         return [{ [param]: SQLITE_TRUE }];
       }
-    };
+    } satisfies ParameterMatchClause;
   }
 }
 

@@ -90,8 +90,8 @@ bucket_definitions:
     expect(bucket.bucket_parameters).toEqual([]);
     const param_query = bucket.global_parameter_queries[0];
 
-    expect(param_query.filter!.filter({ token_parameters: { is_admin: 1n } })).toEqual([{}]);
-    expect(param_query.filter!.filter({ token_parameters: { is_admin: 0n } })).toEqual([]);
+    expect(param_query.filter!.filterRow({ token_parameters: { is_admin: 1n } })).toEqual([{}]);
+    expect(param_query.filter!.filterRow({ token_parameters: { is_admin: 0n } })).toEqual([]);
     expect(rules.getStaticBucketIds(normalizeTokenParameters({ is_admin: true }))).toEqual(['mybucket[]']);
     expect(rules.getStaticBucketIds(normalizeTokenParameters({ is_admin: false }))).toEqual([]);
     expect(rules.getStaticBucketIds(normalizeTokenParameters({}))).toEqual([]);
@@ -623,6 +623,28 @@ bucket_definitions:
     expect(query.resolveBucketIds([{ int1: 314n, float1: 3.14, float2: 314 }], normalizeTokenParameters({}))).toEqual([
       'mybucket[314,3.14,314]'
     ]);
+  });
+
+  test('bucket with function on token_parameters (1)', () => {
+    const rules = SqlSyncRules.fromYaml(`
+bucket_definitions:
+  mybucket:
+    parameters: SELECT upper(token_parameters.user_id) as upper
+    data: []
+    `);
+    expect(rules.errors).toEqual([]);
+    expect(rules.getStaticBucketIds(normalizeTokenParameters({ user_id: 'test' }))).toEqual(['mybucket["TEST"]']);
+  });
+
+  test.skip('bucket with function on token_parameters (2)', () => {
+    const rules = SqlSyncRules.fromYaml(`
+bucket_definitions:
+  mybucket:
+    parameters: SELECT id from users WHERE id_upper = upper(token_parameters.user_id)
+    data: []
+    `);
+    expect(rules.errors).toEqual([]);
+    expect(rules.getStaticBucketIds(normalizeTokenParameters({ user_id: 'test' }))).toEqual(['mybucket["TEST"]']);
   });
 
   test('parameter query with token filter (1)', () => {

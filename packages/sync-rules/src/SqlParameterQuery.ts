@@ -182,7 +182,7 @@ export class SqlParameterQuery {
       [this.table!]: row
     };
     try {
-      const filterParameters = this.filter!.filter(tables);
+      const filterParameters = this.filter!.filterRow(tables);
       let result: EvaluatedParametersResult[] = [];
       for (let filterParamSet of filterParameters) {
         let lookup: SqliteJsonValue[] = [this.descriptor_name!, this.id!];
