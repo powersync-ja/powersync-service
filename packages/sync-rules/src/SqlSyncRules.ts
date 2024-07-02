@@ -88,7 +88,7 @@ export class SqlSyncRules implements SyncRules {
 
       if (parameters instanceof Scalar) {
         rules.withScalar(parameters, (q) => {
-          return descriptor.addParameterQuery(q);
+          return descriptor.addParameterQuery(q, schema);
         });
       } else if (parameters instanceof YAMLSeq) {
         for (let item of parameters.items) {
