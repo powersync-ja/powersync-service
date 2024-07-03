@@ -127,6 +127,37 @@ export type QueryParameters = { [table: string]: SqliteRow };
  */
 export type FilterParameters = { [parameter: string]: SqliteJsonValue };
 
+export interface InputParameter {
+  /**
+   * An unique identifier per parameter in a query.
+   *
+   * This is used to identify the same parameters used in a query multiple times.
+   *
+   * The value itself does not necessarily have any specific meaning.
+   */
+  key: string;
+
+  /**
+   * True if the parameter expands to an array. This means parametersToLookupValue() can
+   * return a JSON array. This is different from `unbounded` on the clause.
+   */
+  expands: boolean;
+
+  /**
+   * Given FilterParameters from a data row, return the associated value.
+   *
+   * Only relevant for parameter queries.
+   */
+  filteredRowToLookupValue(filterParameters: FilterParameters): SqliteJsonValue;
+
+  /**
+   * Given SyncParamters, return the associated value to lookup.
+   *
+   * Only relevant for parameter queries.
+   */
+  parametersToLookupValue(parameters: SyncParameters): SqliteJsonValue;
+}
+
 export interface EvaluateRowOptions {
   sourceTable: SourceTableInterface;
   record: SqliteRow;
@@ -145,10 +176,11 @@ export interface ParameterMatchClause {
    *
    * These parameters are always matched by this clause, and no additional parameters are matched.
    */
-  bucketParameters: string[];
+  bucketParameters: InputParameter[];
 
   /**
-   * True if the filter depends on an unbounded array column.
+   * True if the filter depends on an unbounded array column. This means filterRow can return
+   * multiple items.
    *
    * We restrict filters to only allow a single unbounded column for bucket parameters, otherwise the number of
    * bucketParameter combinations could grow too much.
@@ -175,6 +207,13 @@ export interface ParameterValueClause {
    * The parameter fields used for this, e.g. 'bucket.region_id'
    */
   bucketParameter: string;
+
+  /**
+   * Given SyncParamters, return the associated value to lookup.
+   *
+   * Only relevant for parameter queries.
+   */
+  lookupParameterValue(parameters: SyncParameters): SqliteJsonValue;
 }
 
 export interface QuerySchema {

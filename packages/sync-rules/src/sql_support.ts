@@ -2,9 +2,11 @@ import {
   ClauseError,
   CompiledClause,
   FilterParameters,
+  InputParameter,
   ParameterMatchClause,
   ParameterValueClause,
   QueryParameters,
+  SqliteJsonRow,
   SqliteValue,
   StaticRowValueClause,
   TrueIfParametersMatch
@@ -98,11 +100,11 @@ export function andFilters(a: CompiledClause, b: CompiledClause): CompiledClause
     throw new Error('Cannot have multiple IN expressions on bucket parameters');
   }
 
-  const combined = new Set([...aParams, ...bParams]);
+  const combinedMap = new Map([...aParams, ...bParams].map((p) => [p.key, p]));
 
   return {
     error: aFilter.error || bFilter.error,
-    bucketParameters: [...combined],
+    bucketParameters: [...combinedMap.values()],
     unbounded: aFilter.unbounded || bFilter.unbounded, // result count = a.count * b.count
     filterRow: (tables) => {
       const aResult = aFilter.filterRow(tables);
@@ -154,8 +156,8 @@ export function orParameterSetClauses(a: ParameterMatchClause, b: ParameterMatch
   const bParams = b.bucketParameters;
 
   // This gives the guaranteed set of parameters matched against.
-  const allParams = new Set([...aParams, ...bParams]);
-  if (allParams.size != aParams.length || allParams.size != bParams.length) {
+  const combinedMap = new Map([...aParams, ...bParams].map((p) => [p.key, p]));
+  if (combinedMap.size != aParams.length || combinedMap.size != bParams.length) {
     throw new Error(
       `Left and right sides of OR must use the same parameters, or split into separate queries. ${JSON.stringify(
         aParams
@@ -163,7 +165,7 @@ export function orParameterSetClauses(a: ParameterMatchClause, b: ParameterMatch
     );
   }
 
-  const parameters = [...allParams];
+  const parameters = [...combinedMap.values()];
 
   // assets.region_id = bucket.region_id AND bucket.user_id IN assets.user_ids
   // OR bucket.region_id IN assets.region_ids AND bucket.user_id = assets.user_id
@@ -212,13 +214,27 @@ export function toBooleanParameterSetClause(clause: CompiledClause): ParameterMa
     } satisfies ParameterMatchClause;
   } else {
     // Equivalent to `bucket.param = true`
-    const param = clause.bucketParameter;
+    const paramName = clause.bucketParameter;
+    const [table, column] = clause.bucketParameter.split('.');
+
+    const inputParam: InputParameter = {
+      key: paramName,
+      expands: false,
+      filteredRowToLookupValue: (filterParameters) => {
+        return filterParameters[paramName];
+      },
+      parametersToLookupValue: (parameters) => {
+        const pt: SqliteJsonRow | undefined = (parameters as any)[table];
+        return pt?.[column] ?? null;
+      }
+    };
+
     return {
       error: false,
-      bucketParameters: [param],
+      bucketParameters: [inputParam],
       unbounded: false,
       filterRow(tables: QueryParameters): TrueIfParametersMatch {
-        return [{ [param]: SQLITE_TRUE }];
+        return [{ [paramName]: SQLITE_TRUE }];
       }
     } satisfies ParameterMatchClause;
   }

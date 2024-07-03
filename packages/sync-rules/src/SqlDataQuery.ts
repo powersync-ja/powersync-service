@@ -78,7 +78,10 @@ export class SqlDataQuery {
     });
     const filter = tools.compileWhereClause(where);
 
-    const allParams = new Set([...filter.bucketParameters!, ...bucket_parameters.map((p) => `bucket.${p}`)]);
+    const allParams = new Set([
+      ...filter.bucketParameters!.map((p) => p.key),
+      ...bucket_parameters.map((p) => `bucket.${p}`)
+    ]);
     if (
       (!filter.error && allParams.size != filter.bucketParameters!.length) ||
       allParams.size != bucket_parameters.length

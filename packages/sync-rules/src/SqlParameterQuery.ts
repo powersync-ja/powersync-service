@@ -3,6 +3,7 @@ import {
   EvaluatedParameters,
   EvaluatedParametersResult,
   FilterParameters,
+  InputParameter,
   ParameterMatchClause,
   QueryBucketIdOptions,
   QuerySchema,
@@ -21,20 +22,6 @@ import { TablePattern } from './TablePattern.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
 import { TableQuerySchema } from './TableQuerySchema.js';
-
-interface InputParameter {
-  expands: boolean;
-
-  /**
-   * Given FilterParameters from a data row, return the associated value.
-   */
-  filteredRowToLookupValue(filterParameters: FilterParameters): SqliteJsonValue;
-
-  /**
-   * Given SyncParamters, return the associated value to lookup.
-   */
-  parametersToLookupValue(parameters: SyncParameters): SqliteJsonValue;
-}
 
 /**
  * Represents a parameter query, such as:
@@ -116,36 +103,7 @@ export class SqlParameterQuery {
     rows.filter = filter;
     rows.descriptor_name = descriptor_name;
     rows.bucket_parameters = bucket_parameters;
-    rows.input_parameters = filter.bucketParameters!.map((parameterName) => {
-      if (!parameterName.endsWith('[*]')) {
-        const [table, column] = parameterName.split('.');
-
-        return {
-          filteredRowToLookupValue(filterParameters) {
-            return filterParameters[parameterName];
-          },
-          parametersToLookupValue(parameters) {
-            const pt: SqliteJsonRow | undefined = (parameters as any)[table];
-            return pt?.[column] ?? null;
-          },
-          expands: false
-        };
-      } else {
-        const shortName = parameterName.substring(0, parameterName.length - 3);
-        const [table, column] = shortName.split('.');
-
-        return {
-          filteredRowToLookupValue(filterParameters) {
-            return filterParameters[parameterName];
-          },
-          parametersToLookupValue(parameters) {
-            const pt: SqliteJsonRow | undefined = (parameters as any)[table];
-            return pt?.[column] ?? null;
-          },
-          expands: true
-        };
-      }
-    });
+    rows.input_parameters = filter.bucketParameters!;
     const expandedParams = rows.input_parameters!.filter((param) => param.expands);
     if (expandedParams.length > 1) {
       rows.errors.push(new SqlRuleError('Cannot have multiple array input parameters', sql));
