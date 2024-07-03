@@ -5,8 +5,9 @@ import { SqlRuleError } from './errors.js';
 import {
   BASIC_OPERATORS,
   CAST_TYPES,
-  JSON_EXTRACT_JSON_OPERATOR,
-  JSON_EXTRACT_SQL_OPERATOR,
+  OPERATOR_IS_NULL,
+  OPERATOR_JSON_EXTRACT_JSON,
+  OPERATOR_JSON_EXTRACT_SQL,
   SQL_FUNCTIONS,
   SqlFunction,
   cast,
@@ -238,17 +239,7 @@ export class SqlTools {
           return compileStaticOperator(op, leftFilter as StaticRowValueClause, rightFilter as StaticRowValueClause);
         } else if (isParameterValueClause(otherFilter)) {
           // 2. static = parameterValue
-          const paramName = otherFilter.bucketParameter;
-          const inputParam: InputParameter = {
-            key: paramName,
-            expands: false,
-            filteredRowToLookupValue: (filterParameters) => {
-              return filterParameters[paramName];
-            },
-            parametersToLookupValue: (parameters) => {
-              return otherFilter.lookupParameterValue(parameters);
-            }
-          };
+          const inputParam = basicInputParameter(otherFilter);
 
           return {
             error: false,
@@ -266,7 +257,7 @@ export class SqlTools {
                 return MATCH_CONST_FALSE;
               }
 
-              return [{ [otherFilter.bucketParameter]: value }];
+              return [{ [inputParam.key]: value }];
             }
           } satisfies ParameterMatchClause;
         } else if (isParameterMatchClause(otherFilter)) {
@@ -292,17 +283,7 @@ export class SqlTools {
         } else if (isParameterValueClause(leftFilter) && isStaticRowValueClause(rightFilter)) {
           // token_parameters.value IN table.some_array
           // bucket.param IN table.some_array
-          const paramName = leftFilter.bucketParameter;
-          const inputParam: InputParameter = {
-            key: paramName,
-            expands: false,
-            filteredRowToLookupValue: (filterParameters) => {
-              return filterParameters[paramName];
-            },
-            parametersToLookupValue: (parameters) => {
-              return leftFilter.lookupParameterValue(parameters);
-            }
-          };
+          const inputParam = basicInputParameter(leftFilter);
 
           return {
             error: false,
@@ -318,7 +299,7 @@ export class SqlTools {
                 throw new Error('Not an array');
               }
               return values.map((value) => {
-                return { [paramName]: value };
+                return { [inputParam.key]: value };
               });
             }
           } satisfies ParameterMatchClause;
@@ -353,7 +334,7 @@ export class SqlTools {
                 // Cannot persist, e.g. BLOB
                 return MATCH_CONST_FALSE;
               }
-              return [{ [paramName]: value }];
+              return [{ [inputParam.key]: value }];
             }
           } satisfies ParameterMatchClause;
         } else {
@@ -385,42 +366,7 @@ export class SqlTools {
         } satisfies StaticRowValueClause;
       } else if (expr.op == 'IS NULL') {
         const leftFilter = this.compileClause(expr.operand);
-        if (isClauseError(leftFilter)) {
-          return leftFilter;
-        } else if (isStaticRowValueClause(leftFilter)) {
-          //  1. static IS NULL
-          const nullValue: StaticRowValueClause = {
-            evaluate: () => null,
-            getType() {
-              return ExpressionType.INTEGER;
-            }
-          } satisfies StaticRowValueClause;
-          return compileStaticOperator('IS', leftFilter, nullValue);
-        } else if (isParameterValueClause(leftFilter)) {
-          //  2. param IS NULL
-          const paramName = leftFilter.bucketParameter;
-          const inputParam: InputParameter = {
-            key: paramName,
-            expands: false,
-            filteredRowToLookupValue: (filterParameters) => {
-              return filterParameters[paramName];
-            },
-            parametersToLookupValue: (parameters) => {
-              return leftFilter.lookupParameterValue(parameters);
-            }
-          };
-
-          return {
-            error: false,
-            bucketParameters: [inputParam],
-            unbounded: false,
-            filterRow(tables: QueryParameters): TrueIfParametersMatch {
-              return [{ [paramName]: null }];
-            }
-          } satisfies ParameterMatchClause;
-        } else {
-          return this.error(`Cannot use IS NULL here`, expr);
-        }
+        return this.composeFunction(OPERATOR_IS_NULL, [leftFilter], [expr.operand]);
       } else if (expr.op == 'IS NOT NULL') {
         const leftFilter = this.compileClause(expr.operand);
         if (isClauseError(leftFilter)) {
@@ -463,9 +409,9 @@ export class SqlTools {
       const debugArgs: Expr[] = [expr.operand, expr];
       const args: CompiledClause[] = [operand, staticValueClause(expr.member)];
       if (expr.op == '->') {
-        return this.composeFunction(JSON_EXTRACT_JSON_OPERATOR, args, debugArgs);
+        return this.composeFunction(OPERATOR_JSON_EXTRACT_JSON, args, debugArgs);
       } else {
-        return this.composeFunction(JSON_EXTRACT_SQL_OPERATOR, args, debugArgs);
+        return this.composeFunction(OPERATOR_JSON_EXTRACT_SQL, args, debugArgs);
       }
     } else if (expr.type == 'cast') {
       const operand = this.compileClause(expr.operand);
@@ -687,6 +633,19 @@ function staticValueClause(value: SqliteValue): StaticValueClause {
     evaluate: () => value,
     getType() {
       return ExpressionType.fromTypeText(sqliteTypeOf(value));
+    }
+  };
+}
+
+function basicInputParameter(clause: ParameterValueClause): InputParameter {
+  return {
+    key: clause.bucketParameter,
+    expands: false,
+    filteredRowToLookupValue: (filterParameters) => {
+      return filterParameters[clause.bucketParameter];
+    },
+    parametersToLookupValue: (parameters) => {
+      return clause.lookupParameterValue(parameters);
     }
   };
 }

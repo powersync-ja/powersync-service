@@ -160,34 +160,6 @@ const json_extract: SqlFunction = {
   }
 };
 
-export const JSON_EXTRACT_JSON_OPERATOR: SqlFunction = {
-  debugName: '->',
-  call(json: SqliteValue, path: SqliteValue) {
-    return jsonExtract(json, path, '->');
-  },
-  parameters: [
-    { name: 'json', type: ExpressionType.ANY, optional: false },
-    { name: 'path', type: ExpressionType.ANY, optional: false }
-  ],
-  getReturnType(args) {
-    return ExpressionType.ANY_JSON;
-  }
-};
-
-export const JSON_EXTRACT_SQL_OPERATOR: SqlFunction = {
-  debugName: '->>',
-  call(json: SqliteValue, path: SqliteValue) {
-    return jsonExtract(json, path, '->>');
-  },
-  parameters: [
-    { name: 'json', type: ExpressionType.ANY, optional: false },
-    { name: 'path', type: ExpressionType.ANY, optional: false }
-  ],
-  getReturnType(args) {
-    return ExpressionType.ANY_JSON;
-  }
-};
-
 const json_array_length: SqlFunction = {
   debugName: 'json_array_length',
   call(json: SqliteValue, path?: SqliteValue) {
@@ -740,6 +712,45 @@ export function jsonExtract(sourceValue: SqliteValue, path: SqliteValue, operato
     return jsonValueToSqlite(value as string | number | bigint | boolean | null);
   }
 }
+
+export const OPERATOR_JSON_EXTRACT_JSON: SqlFunction = {
+  debugName: 'operator->',
+  call(json: SqliteValue, path: SqliteValue) {
+    return jsonExtract(json, path, '->');
+  },
+  parameters: [
+    { name: 'json', type: ExpressionType.ANY, optional: false },
+    { name: 'path', type: ExpressionType.ANY, optional: false }
+  ],
+  getReturnType(args) {
+    return ExpressionType.ANY_JSON;
+  }
+};
+
+export const OPERATOR_JSON_EXTRACT_SQL: SqlFunction = {
+  debugName: 'operator->>',
+  call(json: SqliteValue, path: SqliteValue) {
+    return jsonExtract(json, path, '->>');
+  },
+  parameters: [
+    { name: 'json', type: ExpressionType.ANY, optional: false },
+    { name: 'path', type: ExpressionType.ANY, optional: false }
+  ],
+  getReturnType(_args) {
+    return ExpressionType.ANY_JSON;
+  }
+};
+
+export const OPERATOR_IS_NULL: SqlFunction = {
+  debugName: 'operator_is_null',
+  call(value: SqliteValue) {
+    return evaluateOperator('IS', value, null);
+  },
+  parameters: [{ name: 'value', type: ExpressionType.ANY, optional: false }],
+  getReturnType(_args) {
+    return ExpressionType.INTEGER;
+  }
+};
 
 export interface ParseDateFlags {
   /**

@@ -625,7 +625,7 @@ bucket_definitions:
     ]);
   });
 
-  test('bucket with function on token_parameters (1)', () => {
+  test('static parameter query with function on token_parameter', () => {
     const rules = SqlSyncRules.fromYaml(`
 bucket_definitions:
   mybucket:
@@ -636,7 +636,7 @@ bucket_definitions:
     expect(rules.getStaticBucketIds(normalizeTokenParameters({ user_id: 'test' }))).toEqual(['mybucket["TEST"]']);
   });
 
-  test('bucket with function on token_parameters (2 baseline)', () => {
+  test('parameter query with plain token_parameter (baseline)', () => {
     const sql = 'SELECT id from users WHERE filter_param = token_parameters.user_id';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
 
@@ -652,7 +652,7 @@ bucket_definitions:
     expect(query.getLookups(normalizeTokenParameters({ user_id: 'test' }))).toEqual([['mybucket', undefined, 'test']]);
   });
 
-  test('bucket with function on token_parameters (2)', () => {
+  test('parameter query with function on token_parameter', () => {
     const sql = 'SELECT id from users WHERE filter_param = upper(token_parameters.user_id)';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
 
@@ -668,7 +668,7 @@ bucket_definitions:
     expect(query.getLookups(normalizeTokenParameters({ user_id: 'test' }))).toEqual([['mybucket', undefined, 'TEST']]);
   });
 
-  test('bucket with function on token_parameters (3)', () => {
+  test('parameter query with token parameter member operator', () => {
     const sql = "SELECT id from users WHERE filter_param = token_parameters.some_param ->> 'description'";
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
 
@@ -686,13 +686,127 @@ bucket_definitions:
     ]);
   });
 
-  test('bucket with function on token_parameters (4)', () => {
+  test('parameter query with token parameter and binary operator', () => {
     const sql = 'SELECT id from users WHERE filter_param = token_parameters.some_param + 2';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
 
     expect(query.errors).toEqual([]);
 
     expect(query.getLookups(normalizeTokenParameters({ some_param: 3 }))).toEqual([['mybucket', undefined, 5n]]);
+  });
+
+  test('parameter query with token parameter IS NULL as filter', () => {
+    const sql = 'SELECT id from users WHERE filter_param = (token_parameters.some_param IS NULL)';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+
+    expect(query.errors).toEqual([]);
+
+    expect(query.getLookups(normalizeTokenParameters({ some_param: null }))).toEqual([['mybucket', undefined, 1n]]);
+    expect(query.getLookups(normalizeTokenParameters({ some_param: 'test' }))).toEqual([['mybucket', undefined, 0n]]);
+  });
+
+  test('parameter query with direct token parameter', () => {
+    const sql = 'SELECT FROM users WHERE token_parameters.some_param';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+
+    expect(query.errors).toEqual([]);
+
+    expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
+      {
+        lookup: ['mybucket', undefined, 1n],
+        bucket_parameters: [{}]
+      }
+    ]);
+
+    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: null }))).toEqual([
+      ['mybucket', undefined, 0n]
+    ]);
+    // Would not match any actual lookups
+    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: 123 }))).toEqual([
+      ['mybucket', undefined, 1n]
+    ]);
+  });
+
+  test('parameter query with token parameter IS NULL', () => {
+    const sql = 'SELECT FROM users WHERE token_parameters.some_param IS NULL';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+
+    expect(query.errors).toEqual([]);
+
+    expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
+      {
+        lookup: ['mybucket', undefined, 1n],
+        bucket_parameters: [{}]
+      }
+    ]);
+
+    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: null }))).toEqual([
+      ['mybucket', undefined, 1n]
+    ]);
+    // Would not match any actual lookups
+    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: 123 }))).toEqual([
+      ['mybucket', undefined, 0n]
+    ]);
+  });
+
+  test('parameter query with row filter and token parameter IS NULL', () => {
+    const sql = 'SELECT FROM users WHERE users.id = token_parameters.user_id AND token_parameters.some_param IS NULL';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+
+    expect(query.errors).toEqual([]);
+
+    expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
+      {
+        lookup: ['mybucket', undefined, 'user1', 1n],
+        bucket_parameters: [{}]
+      }
+    ]);
+
+    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: null }))).toEqual([
+      ['mybucket', undefined, 'user1', 1n]
+    ]);
+    // Would not match any actual lookups
+    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: 123 }))).toEqual([
+      ['mybucket', undefined, 'user1', 0n]
+    ]);
+  });
+
+  test('parameter query with row filter and direct token parameter', () => {
+    const sql = 'SELECT FROM users WHERE users.id = token_parameters.user_id AND token_parameters.some_param';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+
+    expect(query.errors).toEqual([]);
+
+    expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
+      {
+        lookup: ['mybucket', undefined, 'user1', 1n],
+        bucket_parameters: [{}]
+      }
+    ]);
+
+    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: 123 }))).toEqual([
+      ['mybucket', undefined, 'user1', 1n]
+    ]);
+    // Would not match any actual lookups
+    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: null }))).toEqual([
+      ['mybucket', undefined, 'user1', 0n]
+    ]);
+  });
+
+  test('parameter query with IS NULL row filter', () => {
+    const sql = 'SELECT id FROM users WHERE role IS NULL';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+
+    expect(query.errors).toEqual([]);
+
+    expect(query.evaluateParameterRow({ id: 'user1', role: null })).toEqual([
+      {
+        lookup: ['mybucket', undefined],
+        bucket_parameters: [{ id: 'user1' }]
+      }
+    ]);
+
+    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1' }))).toEqual([['mybucket', undefined]]);
   });
 
   test('parameter query with token filter (1)', () => {

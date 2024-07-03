@@ -236,7 +236,6 @@ export function toBooleanParameterSetClause(clause: CompiledClause): ParameterMa
   } else {
     // Equivalent to `bucket.param = true`
     const paramName = clause.bucketParameter;
-    const [table, column] = clause.bucketParameter.split('.');
 
     const inputParam: InputParameter = {
       key: paramName,
@@ -245,8 +244,8 @@ export function toBooleanParameterSetClause(clause: CompiledClause): ParameterMa
         return filterParameters[paramName];
       },
       parametersToLookupValue: (parameters) => {
-        const pt: SqliteJsonRow | undefined = (parameters as any)[table];
-        return pt?.[column] ?? null;
+        const inner = clause.lookupParameterValue(parameters);
+        return sqliteBool(inner);
       }
     };
 
