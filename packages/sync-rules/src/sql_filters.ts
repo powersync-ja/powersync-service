@@ -1,6 +1,31 @@
 import { Expr, ExprRef, NodeLocation, SelectedColumn } from 'pgsql-ast-parser';
+import { nil } from 'pgsql-ast-parser/src/utils.js';
+import { ExpressionType, SqliteType, TYPE_NONE } from './ExpressionType.js';
 import { SqlRuleError } from './errors.js';
-import { BASIC_OPERATORS, cast, CAST_TYPES, jsonExtract, SQL_FUNCTIONS, sqliteTypeOf } from './sql_functions.js';
+import {
+  BASIC_OPERATORS,
+  CAST_TYPES,
+  JSON_EXTRACT_JSON_OPERATOR,
+  JSON_EXTRACT_SQL_OPERATOR,
+  SQL_FUNCTIONS,
+  SqlFunction,
+  cast,
+  sqliteTypeOf
+} from './sql_functions.js';
+import {
+  SQLITE_FALSE,
+  SQLITE_TRUE,
+  andFilters,
+  compileStaticOperator,
+  isClauseError,
+  isParameterMatchClause,
+  isParameterValueClause,
+  isStaticRowValueClause,
+  isStaticValueClause,
+  orFilters,
+  sqliteNot,
+  toBooleanParameterSetClause
+} from './sql_support.js';
 import {
   ClauseError,
   CompiledClause,
@@ -12,24 +37,10 @@ import {
   SqliteJsonRow,
   SqliteValue,
   StaticRowValueClause,
+  StaticValueClause,
   TrueIfParametersMatch
 } from './types.js';
-import { nil } from 'pgsql-ast-parser/src/utils.js';
 import { isJsonValue } from './utils.js';
-import {
-  andFilters,
-  compileStaticOperator,
-  isClauseError,
-  isParameterMatchClause,
-  isParameterValueClause,
-  isStaticRowValueClause,
-  orFilters,
-  SQLITE_FALSE,
-  SQLITE_TRUE,
-  sqliteNot,
-  toBooleanParameterSetClause
-} from './sql_support.js';
-import { ExpressionType, SqliteType, TYPE_NONE } from './ExpressionType.js';
 
 export const MATCH_CONST_FALSE: TrueIfParametersMatch = [];
 export const MATCH_CONST_TRUE: TrueIfParametersMatch = [{}];
@@ -141,20 +152,10 @@ export class SqlTools {
    */
   compileClause(expr: Expr | nil): CompiledClause {
     if (expr == null) {
-      return {
-        evaluate: () => SQLITE_TRUE,
-        getType() {
-          return ExpressionType.INTEGER;
-        }
-      } satisfies StaticRowValueClause;
+      return staticValueClause(SQLITE_TRUE);
     } else if (isStatic(expr)) {
       const value = staticValue(expr);
-      return {
-        evaluate: () => value,
-        getType() {
-          return ExpressionType.fromTypeText(sqliteTypeOf(value));
-        }
-      } satisfies StaticRowValueClause;
+      return staticValueClause(value);
     } else if (expr.type == 'ref') {
       const column = expr.name;
       if (column == '*') {
@@ -447,66 +448,9 @@ export class SqlTools {
         return this.error(`Function '${fn}' is not defined`, expr);
       }
 
-      let argsType: 'static' | 'row' | 'param' | 'error' = 'static' as any;
-      // fn(param_value, param_value) => ok
-      // fn(table.value, table.value) => ok
-      // fn(param_value, table.value) => not ok
-      // fn(param_value, static_value) => TODO
-
-      const argExtractors = expr.args.map((arg) => {
-        const clause = this.compileClause(arg);
-
-        if (isClauseError(clause)) {
-          argsType = 'error';
-          return clause;
-        } else if (isParameterValueClause(clause)) {
-          if (argsType == 'static' || argsType == 'param') {
-            argsType = 'param';
-            return clause;
-          } else {
-            argsType = 'error';
-            return this.error(`Cannot combine table values and parameters in function call arguments`, arg);
-          }
-        } else if (isStaticRowValueClause(clause)) {
-          if (argsType == 'static' || argsType == 'row') {
-            argsType = 'row';
-            return clause;
-          } else {
-            argsType = 'error';
-            return this.error(`Cannot combine table values and parameters in function call arguments`, arg);
-          }
-        } else {
-          argsType = 'error';
-          return this.error(`Bucket parameters are not supported in function call arguments`, arg);
-        }
-      });
-
-      if (argsType == 'error') {
-        return { error: true };
-      } else if (argsType == 'row' || argsType == 'static') {
-        return {
-          evaluate: (tables) => {
-            const args = argExtractors.map((e) => (e as StaticRowValueClause).evaluate(tables));
-            return fnImpl.call(...args);
-          },
-          getType(schema) {
-            const argTypes = argExtractors.map((e) => (e as StaticRowValueClause).getType(schema));
-            return fnImpl.getReturnType(argTypes);
-          }
-        } satisfies StaticRowValueClause;
-      } else if (argsType == 'param') {
-        // TODO: check this
-        const name = `${fn}(${argExtractors.map((e) => (e as ParameterValueClause).bucketParameter).join(',')})`;
-        return {
-          bucketParameter: name,
-          lookupParameterValue: (parameters) => {
-            const args = argExtractors.map((e) => (e as ParameterValueClause).lookupParameterValue(parameters));
-            return fnImpl.call(...args);
-          }
-        } satisfies ParameterValueClause;
-      } else {
-        throw new Error('Unexpected');
-      }
+      const argClauses = expr.args.map((arg) => this.compileClause(arg));
+      const composed = this.composeFunction(fnImpl, argClauses, expr.args);
+      return composed;
     } else if (expr.type == 'member') {
       const operand = this.compileClause(expr.operand);
       if (isClauseError(operand)) {
@@ -517,27 +461,12 @@ export class SqlTools {
         return this.error(`Unsupported member operation ${expr.op}`, expr);
       }
 
-      if (isStaticRowValueClause(operand)) {
-        return {
-          evaluate: (tables) => {
-            const containerString = operand.evaluate(tables);
-            return jsonExtract(containerString, expr.member, expr.op);
-          },
-          getType() {
-            return ExpressionType.ANY_JSON;
-          }
-        } satisfies StaticRowValueClause;
-      } else if (isParameterValueClause(operand)) {
-        return {
-          // TODO: check this
-          bucketParameter: `${operand.bucketParameter} ${expr.op} ${expr.member}`,
-          lookupParameterValue: (parameters) => {
-            const containerString = operand.lookupParameterValue(parameters);
-            return jsonExtract(containerString, expr.member, expr.op);
-          }
-        } satisfies ParameterValueClause;
+      const debugArgs: Expr[] = [expr.operand, expr];
+      const args: CompiledClause[] = [operand, staticValueClause(expr.member)];
+      if (expr.op == '->') {
+        return this.composeFunction(JSON_EXTRACT_JSON_OPERATOR, args, debugArgs);
       } else {
-        return this.error(`Bucket parameters are not supported in member lookups`, expr.operand);
+        return this.composeFunction(JSON_EXTRACT_SQL_OPERATOR, args, debugArgs);
       }
     } else if (expr.type == 'cast') {
       const operand = this.compileClause(expr.operand);
@@ -660,6 +589,83 @@ export class SqlTools {
       throw new SqlRuleError(`Undefined table ${ref.table?.name}`, this.sql, ref);
     }
   }
+
+  composeFunction(fnImpl: SqlFunction, argClauses: CompiledClause[], debugArgExpressions: Expr[]): CompiledClause {
+    // fn(param_value, param_value) => ok
+    // fn(table.value, table.value) => ok
+    // fn(param_value, static_value) => ok
+    // fn(table.value, static_value) => ok
+    // fn(param_value, table.value) => not ok
+
+    let argsType: 'static' | 'row' | 'param' = 'static';
+    for (let i = 0; i < argClauses.length; i++) {
+      const debugArg = debugArgExpressions[i];
+      const clause = argClauses[i];
+      if (isClauseError(clause)) {
+        // Return immediately on error
+        return clause;
+      } else if (isStaticValueClause(clause)) {
+        // argsType unchanged
+      } else if (isParameterValueClause(clause)) {
+        if (argsType == 'static' || argsType == 'param') {
+          argsType = 'param';
+        } else {
+          return this.error(`Cannot combine table values and parameters in function call arguments`, debugArg);
+        }
+      } else if (isStaticRowValueClause(clause)) {
+        if (argsType == 'static' || argsType == 'row') {
+          argsType = 'row';
+        } else {
+          return this.error(`Cannot combine table values and parameters in function call arguments`, debugArg);
+        }
+      } else {
+        return this.error(`Bucket parameters are not supported in function call arguments`, debugArg);
+      }
+    }
+
+    if (argsType == 'row' || argsType == 'static') {
+      return {
+        evaluate: (tables) => {
+          const args = argClauses.map((e) => (e as StaticRowValueClause).evaluate(tables));
+          return fnImpl.call(...args);
+        },
+        getType(schema) {
+          const argTypes = argClauses.map((e) => (e as StaticRowValueClause).getType(schema));
+          return fnImpl.getReturnType(argTypes);
+        }
+      } satisfies StaticRowValueClause;
+    } else if (argsType == 'param') {
+      // TODO: check this
+      const name = `${fnImpl.debugName}(${argClauses
+        .map((e) => {
+          if (isParameterValueClause(e)) {
+            return e.bucketParameter;
+          } else if (isStaticValueClause(e)) {
+            return e.value;
+          } else {
+            throw new Error('unreachable condition');
+          }
+        })
+        .join(',')})`;
+      return {
+        bucketParameter: name,
+        lookupParameterValue: (parameters) => {
+          const args = argClauses.map((e) => {
+            if (isParameterValueClause(e)) {
+              return e.lookupParameterValue(parameters);
+            } else if (isStaticValueClause(e)) {
+              return e.value;
+            } else {
+              throw new Error('unreachable condition');
+            }
+          });
+          return fnImpl.call(...args);
+        }
+      } satisfies ParameterValueClause;
+    } else {
+      throw new Error('unreachable condition');
+    }
+  }
 }
 
 function isStatic(expr: Expr) {
@@ -674,4 +680,14 @@ function staticValue(expr: Expr): SqliteValue {
   } else {
     return (expr as any).value;
   }
+}
+
+function staticValueClause(value: SqliteValue): StaticValueClause {
+  return {
+    value: value,
+    evaluate: () => value,
+    getType() {
+      return ExpressionType.fromTypeText(sqliteTypeOf(value));
+    }
+  };
 }

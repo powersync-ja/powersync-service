@@ -33,12 +33,14 @@ export interface FunctionParameter {
 }
 
 export interface SqlFunction {
+  readonly debugName: string;
   parameters: FunctionParameter[];
   call: (...args: SqliteValue[]) => SqliteValue;
   getReturnType(args: ExpressionType[]): ExpressionType;
 }
 
 const upper: SqlFunction = {
+  debugName: 'upper',
   call(value: SqliteValue) {
     const text = castAsText(value);
     return text?.toUpperCase() ?? null;
@@ -50,6 +52,7 @@ const upper: SqlFunction = {
 };
 
 const lower: SqlFunction = {
+  debugName: 'lower',
   call(value: SqliteValue) {
     const text = castAsText(value);
     return text?.toLowerCase() ?? null;
@@ -61,6 +64,7 @@ const lower: SqlFunction = {
 };
 
 const hex: SqlFunction = {
+  debugName: 'hex',
   call(value: SqliteValue) {
     const binary = castAsBlob(value);
     if (binary == null) {
@@ -75,6 +79,7 @@ const hex: SqlFunction = {
 };
 
 const length: SqlFunction = {
+  debugName: 'length',
   call(value: SqliteValue) {
     if (value == null) {
       return null;
@@ -92,6 +97,7 @@ const length: SqlFunction = {
 };
 
 const base64: SqlFunction = {
+  debugName: 'base64',
   call(value: SqliteValue) {
     const binary = castAsBlob(value);
     if (binary == null) {
@@ -106,6 +112,7 @@ const base64: SqlFunction = {
 };
 
 const fn_typeof: SqlFunction = {
+  debugName: 'typeof',
   call(value: SqliteValue) {
     return sqliteTypeOf(value);
   },
@@ -116,6 +123,7 @@ const fn_typeof: SqlFunction = {
 };
 
 const ifnull: SqlFunction = {
+  debugName: 'ifnull',
   call(x: SqliteValue, y: SqliteValue) {
     if (x == null) {
       return y;
@@ -139,6 +147,7 @@ const ifnull: SqlFunction = {
 };
 
 const json_extract: SqlFunction = {
+  debugName: 'json_extract',
   call(json: SqliteValue, path: SqliteValue) {
     return jsonExtract(json, path, 'json_extract');
   },
@@ -151,7 +160,36 @@ const json_extract: SqlFunction = {
   }
 };
 
+export const JSON_EXTRACT_JSON_OPERATOR: SqlFunction = {
+  debugName: '->',
+  call(json: SqliteValue, path: SqliteValue) {
+    return jsonExtract(json, path, '->');
+  },
+  parameters: [
+    { name: 'json', type: ExpressionType.ANY, optional: false },
+    { name: 'path', type: ExpressionType.ANY, optional: false }
+  ],
+  getReturnType(args) {
+    return ExpressionType.ANY_JSON;
+  }
+};
+
+export const JSON_EXTRACT_SQL_OPERATOR: SqlFunction = {
+  debugName: '->>',
+  call(json: SqliteValue, path: SqliteValue) {
+    return jsonExtract(json, path, '->>');
+  },
+  parameters: [
+    { name: 'json', type: ExpressionType.ANY, optional: false },
+    { name: 'path', type: ExpressionType.ANY, optional: false }
+  ],
+  getReturnType(args) {
+    return ExpressionType.ANY_JSON;
+  }
+};
+
 const json_array_length: SqlFunction = {
+  debugName: 'json_array_length',
   call(json: SqliteValue, path?: SqliteValue) {
     if (path != null) {
       json = json_extract.call(json, path);
@@ -177,6 +215,7 @@ const json_array_length: SqlFunction = {
 };
 
 const json_valid: SqlFunction = {
+  debugName: 'json_valid',
   call(json: SqliteValue) {
     const jsonString = castAsText(json);
     if (jsonString == null) {
@@ -196,6 +235,7 @@ const json_valid: SqlFunction = {
 };
 
 const unixepoch: SqlFunction = {
+  debugName: 'unixepoch',
   call(value?: SqliteValue, specifier?: SqliteValue, specifier2?: SqliteValue) {
     if (value == null) {
       return null;
@@ -240,6 +280,7 @@ const unixepoch: SqlFunction = {
 };
 
 const datetime: SqlFunction = {
+  debugName: 'datetime',
   call(value?: SqliteValue, specifier?: SqliteValue, specifier2?: SqliteValue) {
     if (value == null) {
       return null;
@@ -285,6 +326,7 @@ const datetime: SqlFunction = {
 };
 
 const st_asgeojson: SqlFunction = {
+  debugName: 'st_asgeojson',
   call(geometry?: SqliteValue) {
     const geo = parseGeometry(geometry);
     if (geo == null) {
@@ -299,6 +341,7 @@ const st_asgeojson: SqlFunction = {
 };
 
 const st_astext: SqlFunction = {
+  debugName: 'st_astext',
   call(geometry?: SqliteValue) {
     const geo = parseGeometry(geometry);
     if (geo == null) {
@@ -312,6 +355,7 @@ const st_astext: SqlFunction = {
   }
 };
 const st_x: SqlFunction = {
+  debugName: 'st_x',
   call(geometry?: SqliteValue) {
     const geo = parseGeometry(geometry);
     if (geo == null) {
@@ -329,6 +373,7 @@ const st_x: SqlFunction = {
 };
 
 const st_y: SqlFunction = {
+  debugName: 'st_y',
   call(geometry?: SqliteValue) {
     const geo = parseGeometry(geometry);
     if (geo == null) {

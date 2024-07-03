@@ -229,6 +229,10 @@ export interface StaticRowValueClause {
   getType(schema: QuerySchema): ExpressionType;
 }
 
+export interface StaticValueClause extends StaticRowValueClause {
+  readonly value: SqliteValue;
+}
+
 export interface ClauseError {
   error: true;
 }

@@ -9,6 +9,7 @@ import {
   SqliteJsonRow,
   SqliteValue,
   StaticRowValueClause,
+  StaticValueClause,
   TrueIfParametersMatch
 } from './types.js';
 import { MATCH_CONST_FALSE, MATCH_CONST_TRUE } from './sql_filters.js';
@@ -23,6 +24,10 @@ export function isParameterMatchClause(clause: CompiledClause): clause is Parame
 
 export function isStaticRowValueClause(clause: CompiledClause): clause is StaticRowValueClause {
   return typeof (clause as StaticRowValueClause).evaluate == 'function';
+}
+
+export function isStaticValueClause(clause: CompiledClause): clause is StaticValueClause {
+  return isStaticRowValueClause(clause) && typeof (clause as StaticValueClause).value != 'undefined';
 }
 
 export function isParameterValueClause(clause: CompiledClause): clause is ParameterValueClause {
