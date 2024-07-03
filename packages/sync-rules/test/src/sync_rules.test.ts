@@ -686,6 +686,15 @@ bucket_definitions:
     ]);
   });
 
+  test('bucket with function on token_parameters (4)', () => {
+    const sql = 'SELECT id from users WHERE filter_param = token_parameters.some_param + 2';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+
+    expect(query.errors).toEqual([]);
+
+    expect(query.getLookups(normalizeTokenParameters({ some_param: 3 }))).toEqual([['mybucket', undefined, 5n]]);
+  });
+
   test('parameter query with token filter (1)', () => {
     // Also supported: token_parameters.is_admin = true
     // Not supported: token_parameters.is_admin != false

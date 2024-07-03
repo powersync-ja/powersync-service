@@ -17,6 +17,7 @@ import {
   SQLITE_TRUE,
   andFilters,
   compileStaticOperator,
+  getOperatorFunction,
   isClauseError,
   isParameterMatchClause,
   isParameterValueClause,
@@ -359,10 +360,8 @@ export class SqlTools {
           return this.error(`Unsupported usage of IN operator`, expr);
         }
       } else if (BASIC_OPERATORS.has(op)) {
-        if (!isStaticRowValueClause(leftFilter) || !isStaticRowValueClause(rightFilter)) {
-          return this.error(`Operator ${op} is not supported on bucket parameters`, expr);
-        }
-        return compileStaticOperator(op, leftFilter, rightFilter);
+        const fnImpl = getOperatorFunction(op);
+        return this.composeFunction(fnImpl, [leftFilter, rightFilter], [left, right]);
       } else {
         return this.error(`Operator not supported: ${op}`, expr);
       }
@@ -635,7 +634,7 @@ export class SqlTools {
         }
       } satisfies StaticRowValueClause;
     } else if (argsType == 'param') {
-      // TODO: check this
+      // TODO: make sure this is properly unique / predictable
       const name = `${fnImpl.debugName}(${argClauses
         .map((e) => {
           if (isParameterValueClause(e)) {

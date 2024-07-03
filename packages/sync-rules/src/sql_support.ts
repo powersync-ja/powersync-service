@@ -13,7 +13,7 @@ import {
   TrueIfParametersMatch
 } from './types.js';
 import { MATCH_CONST_FALSE, MATCH_CONST_TRUE } from './sql_filters.js';
-import { evaluateOperator, getOperatorReturnType } from './sql_functions.js';
+import { SqlFunction, evaluateOperator, getOperatorReturnType } from './sql_functions.js';
 import { SelectFromStatement } from 'pgsql-ast-parser';
 import { SqlRuleError } from './errors.js';
 import { ExpressionType } from './ExpressionType.js';
@@ -76,6 +76,22 @@ export function compileStaticOperator(
       const typeRight = right.getType(schema);
       return getOperatorReturnType(op, typeLeft, typeRight);
     }
+  };
+}
+
+export function getOperatorFunction(op: string): SqlFunction {
+  return {
+    debugName: `operator${op}`,
+    call(...args: SqliteValue[]) {
+      return evaluateOperator(op, args[0], args[1]);
+    },
+    getReturnType(args) {
+      return getOperatorReturnType(op, args[0], args[1]);
+    },
+    parameters: [
+      { name: 'left', type: ExpressionType.ANY, optional: false },
+      { name: 'right', type: ExpressionType.ANY, optional: false }
+    ]
   };
 }
 
