@@ -273,12 +273,23 @@ export class SqlParameterQuery {
     if (!this.expanded_input_parameter) {
       let lookup: SqliteJsonValue[] = [this.descriptor_name!, this.id!];
 
+      let valid = true;
       lookup.push(
         ...this.input_parameters!.map((param): SqliteJsonValue => {
           // Scalar value
-          return param.parametersToLookupValue(parameters);
+          const value = param.parametersToLookupValue(parameters);
+
+          if (isJsonValue(value)) {
+            return value;
+          } else {
+            valid = false;
+            return null;
+          }
         })
       );
+      if (!valid) {
+        return [];
+      }
       return [lookup];
     } else {
       const arrayString = this.expanded_input_parameter.parametersToLookupValue(parameters);
@@ -296,23 +307,35 @@ export class SqlParameterQuery {
         return [];
       }
 
-      return values.map((expandedValue): SqliteJsonValue[] => {
-        let lookup: SqliteJsonValue[] = [this.descriptor_name!, this.id!];
+      return values
+        .map((expandedValue) => {
+          let lookup: SqliteJsonValue[] = [this.descriptor_name!, this.id!];
+          let valid = true;
+          lookup.push(
+            ...this.input_parameters!.map((param): SqliteJsonValue => {
+              if (param == this.expanded_input_parameter) {
+                // Expand array value
+                return expandedValue;
+              } else {
+                // Scalar value
+                const value = param.parametersToLookupValue(parameters);
 
-        lookup.push(
-          ...this.input_parameters!.map((param): SqliteJsonValue => {
-            if (param == this.expanded_input_parameter) {
-              // Expand array value
-              return expandedValue;
-            } else {
-              // Scalar value
-              return param.parametersToLookupValue(parameters);
-            }
-          })
-        );
+                if (isJsonValue(value)) {
+                  return value;
+                } else {
+                  valid = false;
+                  return null;
+                }
+              }
+            })
+          );
+          if (!valid) {
+            return null;
+          }
 
-        return lookup;
-      });
+          return lookup;
+        })
+        .filter((lookup) => lookup != null) as SqliteJsonValue[][];
     }
   }
 

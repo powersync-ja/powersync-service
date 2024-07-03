@@ -636,15 +636,36 @@ bucket_definitions:
     expect(rules.getStaticBucketIds(normalizeTokenParameters({ user_id: 'test' }))).toEqual(['mybucket["TEST"]']);
   });
 
-  test.skip('bucket with function on token_parameters (2)', () => {
-    const rules = SqlSyncRules.fromYaml(`
-bucket_definitions:
-  mybucket:
-    parameters: SELECT id from users WHERE id_upper = upper(token_parameters.user_id)
-    data: []
-    `);
-    expect(rules.errors).toEqual([]);
-    expect(rules.getStaticBucketIds(normalizeTokenParameters({ user_id: 'test' }))).toEqual(['mybucket["TEST"]']);
+  test('bucket with function on token_parameters (2 baseline)', () => {
+    const sql = 'SELECT id from users WHERE filter_param = token_parameters.user_id';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+
+    expect(query.errors).toEqual([]);
+    expect(query.evaluateParameterRow({ id: 'test_id', filter_param: 'test_param' })).toEqual([
+      {
+        lookup: ['mybucket', undefined, 'test_param'],
+
+        bucket_parameters: [{ id: 'test_id' }]
+      }
+    ]);
+
+    expect(query.getLookups(normalizeTokenParameters({ user_id: 'test' }))).toEqual([['mybucket', undefined, 'test']]);
+  });
+
+  test('bucket with function on token_parameters (2)', () => {
+    const sql = 'SELECT id from users WHERE filter_param = upper(token_parameters.user_id)';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+
+    expect(query.errors).toEqual([]);
+    expect(query.evaluateParameterRow({ id: 'test_id', filter_param: 'test_param' })).toEqual([
+      {
+        lookup: ['mybucket', undefined, 'test_param'],
+
+        bucket_parameters: [{ id: 'test_id' }]
+      }
+    ]);
+
+    expect(query.getLookups(normalizeTokenParameters({ user_id: 'test' }))).toEqual([['mybucket', undefined, 'TEST']]);
   });
 
   test('parameter query with token filter (1)', () => {

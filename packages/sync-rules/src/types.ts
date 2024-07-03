@@ -155,7 +155,7 @@ export interface InputParameter {
    *
    * Only relevant for parameter queries.
    */
-  parametersToLookupValue(parameters: SyncParameters): SqliteJsonValue;
+  parametersToLookupValue(parameters: SyncParameters): SqliteValue;
 }
 
 export interface EvaluateRowOptions {
@@ -213,7 +213,7 @@ export interface ParameterValueClause {
    *
    * Only relevant for parameter queries.
    */
-  lookupParameterValue(parameters: SyncParameters): SqliteJsonValue;
+  lookupParameterValue(parameters: SyncParameters): SqliteValue;
 }
 
 export interface QuerySchema {

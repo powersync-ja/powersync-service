@@ -263,6 +263,7 @@ export class SqlTools {
                 // Cannot persist this, e.g. BLOB
                 return MATCH_CONST_FALSE;
               }
+
               return [{ [otherFilter.bucketParameter]: value }];
             }
           } satisfies ParameterMatchClause;
@@ -446,33 +447,65 @@ export class SqlTools {
         return this.error(`Function '${fn}' is not defined`, expr);
       }
 
-      let error = false;
+      let argsType: 'static' | 'row' | 'param' | 'error' = 'static' as any;
+      // fn(param_value, param_value) => ok
+      // fn(table.value, table.value) => ok
+      // fn(param_value, table.value) => not ok
+
       const argExtractors = expr.args.map((arg) => {
         const clause = this.compileClause(arg);
 
         if (isClauseError(clause)) {
-          error = true;
-        } else if (!isStaticRowValueClause(clause)) {
-          error = true;
+          argsType = 'error';
+          return clause;
+        } else if (isParameterValueClause(clause)) {
+          if (argsType == 'static' || argsType == 'param') {
+            argsType = 'param';
+            return clause;
+          } else {
+            argsType = 'error';
+            return this.error(`Cannot combine table values and parameters in function call arguments`, arg);
+          }
+        } else if (isStaticRowValueClause(clause)) {
+          if (argsType == 'static' || argsType == 'row') {
+            argsType = 'row';
+            return clause;
+          } else {
+            argsType = 'error';
+            return this.error(`Cannot combine table values and parameters in function call arguments`, arg);
+          }
+        } else {
+          argsType = 'error';
           return this.error(`Bucket parameters are not supported in function call arguments`, arg);
         }
-        return clause;
-      }) as StaticRowValueClause[];
+      });
 
-      if (error) {
+      if (argsType == 'error') {
         return { error: true };
+      } else if (argsType == 'row' || argsType == 'static') {
+        return {
+          evaluate: (tables) => {
+            const args = argExtractors.map((e) => (e as StaticRowValueClause).evaluate(tables));
+            return fnImpl.call(...args);
+          },
+          getType(schema) {
+            const argTypes = argExtractors.map((e) => (e as StaticRowValueClause).getType(schema));
+            return fnImpl.getReturnType(argTypes);
+          }
+        } satisfies StaticRowValueClause;
+      } else if (argsType == 'param') {
+        // TODO: check this
+        const name = `${fn}(${argExtractors.map((e) => (e as ParameterValueClause).bucketParameter).join(',')})`;
+        return {
+          bucketParameter: name,
+          lookupParameterValue: (parameters) => {
+            const args = argExtractors.map((e) => (e as ParameterValueClause).lookupParameterValue(parameters));
+            return fnImpl.call(...args);
+          }
+        } satisfies ParameterValueClause;
+      } else {
+        throw new Error('Unexpected');
       }
-
-      return {
-        evaluate: (tables) => {
-          const args = argExtractors.map((e) => e.evaluate(tables));
-          return fnImpl.call(...args);
-        },
-        getType(schema) {
-          const argTypes = argExtractors.map((e) => e.getType(schema));
-          return fnImpl.getReturnType(argTypes);
-        }
-      } satisfies StaticRowValueClause;
     } else if (expr.type == 'member') {
       const operand = this.compileClause(expr.operand);
       if (isClauseError(operand)) {
