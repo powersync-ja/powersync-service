@@ -451,6 +451,7 @@ export class SqlTools {
       // fn(param_value, param_value) => ok
       // fn(table.value, table.value) => ok
       // fn(param_value, table.value) => not ok
+      // fn(param_value, static_value) => TODO
 
       const argExtractors = expr.args.map((arg) => {
         const clause = this.compileClause(arg);
@@ -510,11 +511,13 @@ export class SqlTools {
       const operand = this.compileClause(expr.operand);
       if (isClauseError(operand)) {
         return operand;
-      } else if (!isStaticRowValueClause(operand)) {
-        return this.error(`Bucket parameters are not supported in member lookups`, expr.operand);
       }
 
-      if (typeof expr.member == 'string' && (expr.op == '->>' || expr.op == '->')) {
+      if (!(typeof expr.member == 'string' && (expr.op == '->>' || expr.op == '->'))) {
+        return this.error(`Unsupported member operation ${expr.op}`, expr);
+      }
+
+      if (isStaticRowValueClause(operand)) {
         return {
           evaluate: (tables) => {
             const containerString = operand.evaluate(tables);
@@ -524,8 +527,17 @@ export class SqlTools {
             return ExpressionType.ANY_JSON;
           }
         } satisfies StaticRowValueClause;
+      } else if (isParameterValueClause(operand)) {
+        return {
+          // TODO: check this
+          bucketParameter: `${operand.bucketParameter} ${expr.op} ${expr.member}`,
+          lookupParameterValue: (parameters) => {
+            const containerString = operand.lookupParameterValue(parameters);
+            return jsonExtract(containerString, expr.member, expr.op);
+          }
+        } satisfies ParameterValueClause;
       } else {
-        return this.error(`Unsupported member operation ${expr.op}`, expr);
+        return this.error(`Bucket parameters are not supported in member lookups`, expr.operand);
       }
     } else if (expr.type == 'cast') {
       const operand = this.compileClause(expr.operand);

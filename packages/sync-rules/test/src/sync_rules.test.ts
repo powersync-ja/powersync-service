@@ -668,6 +668,24 @@ bucket_definitions:
     expect(query.getLookups(normalizeTokenParameters({ user_id: 'test' }))).toEqual([['mybucket', undefined, 'TEST']]);
   });
 
+  test('bucket with function on token_parameters (3)', () => {
+    const sql = "SELECT id from users WHERE filter_param = token_parameters.some_param ->> 'description'";
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+
+    expect(query.errors).toEqual([]);
+    expect(query.evaluateParameterRow({ id: 'test_id', filter_param: 'test_param' })).toEqual([
+      {
+        lookup: ['mybucket', undefined, 'test_param'],
+
+        bucket_parameters: [{ id: 'test_id' }]
+      }
+    ]);
+
+    expect(query.getLookups(normalizeTokenParameters({ some_param: { description: 'test_description' } }))).toEqual([
+      ['mybucket', undefined, 'test_description']
+    ]);
+  });
+
   test('parameter query with token filter (1)', () => {
     // Also supported: token_parameters.is_admin = true
     // Not supported: token_parameters.is_admin != false
