@@ -406,11 +406,59 @@ describe('parameter queries', () => {
     expect(query.evaluateParameterRow({ id: 'workspace1', visibility: 'private' })).toEqual([]);
   });
 
+  test('multiple different functions on token_parameter with AND', () => {
+    // This is treated as two separate lookup index values
+    const sql =
+      'SELECT id from users WHERE filter_param = upper(token_parameters.user_id) AND filter_param = lower(token_parameters.user_id)';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
+
+    expect(query.evaluateParameterRow({ id: 'test_id', filter_param: 'test_param' })).toEqual([
+      {
+        lookup: ['mybucket', undefined, 'test_param', 'test_param'],
+
+        bucket_parameters: [{ id: 'test_id' }]
+      }
+    ]);
+
+    expect(query.getLookups(normalizeTokenParameters({ user_id: 'test' }))).toEqual([
+      ['mybucket', undefined, 'TEST', 'test']
+    ]);
+  });
+
+  test('multiple same functions on token_parameter with OR', () => {
+    // This is treated as the same index lookup value, can use OR with the two clauses
+    const sql =
+      'SELECT id from users WHERE filter_param1 = upper(token_parameters.user_id) OR filter_param2 = upper(token_parameters.user_id)';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
+
+    expect(query.evaluateParameterRow({ id: 'test_id', filter_param1: 'test1', filter_param2: 'test2' })).toEqual([
+      {
+        lookup: ['mybucket', undefined, 'test1'],
+        bucket_parameters: [{ id: 'test_id' }]
+      },
+      {
+        lookup: ['mybucket', undefined, 'test2'],
+        bucket_parameters: [{ id: 'test_id' }]
+      }
+    ]);
+
+    expect(query.getLookups(normalizeTokenParameters({ user_id: 'test' }))).toEqual([['mybucket', undefined, 'TEST']]);
+  });
+
   test('invalid OR in parameter queries', () => {
     // Supporting this case is more tricky. We can do this by effectively denormalizing the OR clause
     // into separate queries, but it's a significant change. For now, developers should do that manually.
     const sql =
       "SELECT workspaces.id AS workspace_id FROM workspaces WHERE workspaces.user_id = token_parameters.user_id OR visibility = 'public'";
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors[0].message).toMatch(/must use the same parameters/);
+  });
+
+  test('invalid OR in parameter queries (2)', () => {
+    const sql =
+      'SELECT id from users WHERE filter_param = upper(token_parameters.user_id) OR filter_param = lower(token_parameters.user_id)';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
     expect(query.errors[0].message).toMatch(/must use the same parameters/);
   });
