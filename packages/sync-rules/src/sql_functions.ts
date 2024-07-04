@@ -1,5 +1,5 @@
 import { JSONBig } from '@powersync/service-jsonbig';
-import { SQLITE_FALSE, SQLITE_TRUE, sqliteBool } from './sql_support.js';
+import { SQLITE_FALSE, SQLITE_TRUE, sqliteBool, sqliteNot } from './sql_support.js';
 import { SqliteValue } from './types.js';
 import { jsonValueToSqlite } from './utils.js';
 // Declares @syncpoint/wkx module
@@ -745,6 +745,28 @@ export const OPERATOR_IS_NULL: SqlFunction = {
   debugName: 'operator_is_null',
   call(value: SqliteValue) {
     return evaluateOperator('IS', value, null);
+  },
+  parameters: [{ name: 'value', type: ExpressionType.ANY, optional: false }],
+  getReturnType(_args) {
+    return ExpressionType.INTEGER;
+  }
+};
+
+export const OPERATOR_IS_NOT_NULL: SqlFunction = {
+  debugName: 'operator_is_not_null',
+  call(value: SqliteValue) {
+    return evaluateOperator('IS NOT', value, null);
+  },
+  parameters: [{ name: 'value', type: ExpressionType.ANY, optional: false }],
+  getReturnType(_args) {
+    return ExpressionType.INTEGER;
+  }
+};
+
+export const OPERATOR_NOT: SqlFunction = {
+  debugName: 'operator_not',
+  call(value: SqliteValue) {
+    return sqliteNot(value);
   },
   parameters: [{ name: 'value', type: ExpressionType.ANY, optional: false }],
   getReturnType(_args) {

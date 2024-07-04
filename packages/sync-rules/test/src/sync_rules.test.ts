@@ -721,7 +721,6 @@ bucket_definitions:
     expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: null }))).toEqual([
       ['mybucket', undefined, 0n]
     ]);
-    // Would not match any actual lookups
     expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: 123 }))).toEqual([
       ['mybucket', undefined, 1n]
     ]);
@@ -743,8 +742,49 @@ bucket_definitions:
     expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: null }))).toEqual([
       ['mybucket', undefined, 1n]
     ]);
-    // Would not match any actual lookups
     expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: 123 }))).toEqual([
+      ['mybucket', undefined, 0n]
+    ]);
+  });
+
+  test('parameter query with token parameter IS NOT NULL', () => {
+    const sql = 'SELECT FROM users WHERE token_parameters.some_param IS NOT NULL';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+
+    expect(query.errors).toEqual([]);
+
+    expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
+      {
+        lookup: ['mybucket', undefined, 1n],
+        bucket_parameters: [{}]
+      }
+    ]);
+
+    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: null }))).toEqual([
+      ['mybucket', undefined, 0n]
+    ]);
+    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: 123 }))).toEqual([
+      ['mybucket', undefined, 1n]
+    ]);
+  });
+
+  test('parameter query with token parameter NOT', () => {
+    const sql = 'SELECT FROM users WHERE NOT token_parameters.is_admin';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+
+    expect(query.errors).toEqual([]);
+
+    expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
+      {
+        lookup: ['mybucket', undefined, 1n],
+        bucket_parameters: [{}]
+      }
+    ]);
+
+    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', is_admin: false }))).toEqual([
+      ['mybucket', undefined, 1n]
+    ]);
+    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', is_admin: 123 }))).toEqual([
       ['mybucket', undefined, 0n]
     ]);
   });
@@ -765,7 +805,6 @@ bucket_definitions:
     expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: null }))).toEqual([
       ['mybucket', undefined, 'user1', 1n]
     ]);
-    // Would not match any actual lookups
     expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: 123 }))).toEqual([
       ['mybucket', undefined, 'user1', 0n]
     ]);
@@ -787,7 +826,6 @@ bucket_definitions:
     expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: 123 }))).toEqual([
       ['mybucket', undefined, 'user1', 1n]
     ]);
-    // Would not match any actual lookups
     expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: null }))).toEqual([
       ['mybucket', undefined, 'user1', 0n]
     ]);

@@ -5,9 +5,11 @@ import { SqlRuleError } from './errors.js';
 import {
   BASIC_OPERATORS,
   CAST_TYPES,
+  OPERATOR_IS_NOT_NULL,
   OPERATOR_IS_NULL,
   OPERATOR_JSON_EXTRACT_JSON,
   OPERATOR_JSON_EXTRACT_SQL,
+  OPERATOR_NOT,
   SQL_FUNCTIONS,
   SqlFunction,
   cast,
@@ -348,41 +350,14 @@ export class SqlTools {
       }
     } else if (expr.type == 'unary') {
       if (expr.op == 'NOT') {
-        const filter = this.compileClause(expr.operand);
-        if (isClauseError(filter)) {
-          return filter;
-        } else if (!isStaticRowValueClause(filter)) {
-          return this.error('Cannot use NOT on bucket parameter filters', expr);
-        }
-
-        return {
-          evaluate: (tables) => {
-            const value = filter.evaluate(tables);
-            return sqliteNot(value);
-          },
-          getType() {
-            return ExpressionType.INTEGER;
-          }
-        } satisfies StaticRowValueClause;
+        const clause = this.compileClause(expr.operand);
+        return this.composeFunction(OPERATOR_NOT, [clause], [expr.operand]);
       } else if (expr.op == 'IS NULL') {
-        const leftFilter = this.compileClause(expr.operand);
-        return this.composeFunction(OPERATOR_IS_NULL, [leftFilter], [expr.operand]);
+        const clause = this.compileClause(expr.operand);
+        return this.composeFunction(OPERATOR_IS_NULL, [clause], [expr.operand]);
       } else if (expr.op == 'IS NOT NULL') {
-        const leftFilter = this.compileClause(expr.operand);
-        if (isClauseError(leftFilter)) {
-          return leftFilter;
-        } else if (isStaticRowValueClause(leftFilter)) {
-          //  1. static IS NULL
-          const nullValue: StaticRowValueClause = {
-            evaluate: () => null,
-            getType() {
-              return ExpressionType.INTEGER;
-            }
-          } satisfies StaticRowValueClause;
-          return compileStaticOperator('IS NOT', leftFilter, nullValue);
-        } else {
-          return this.error(`Cannot use IS NOT NULL here`, expr);
-        }
+        const clause = this.compileClause(expr.operand);
+        return this.composeFunction(OPERATOR_IS_NOT_NULL, [clause], [expr.operand]);
       } else {
         return this.error(`Operator ${expr.op} is not supported`, expr);
       }
