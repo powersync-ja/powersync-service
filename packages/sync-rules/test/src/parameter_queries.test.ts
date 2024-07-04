@@ -488,6 +488,12 @@ describe('parameter queries', () => {
     expect(query.errors[0].message).toMatch(/Cannot use table values and parameters in the same clauses/);
   });
 
+  test('invalid function schema', () => {
+    const sql = 'SELECT FROM users WHERE something.length(users.id) = 0';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors[0].message).toMatch(/Function 'something.length' is not defined/);
+  });
+
   test('validate columns', () => {
     const schema = BASIC_SCHEMA;
 

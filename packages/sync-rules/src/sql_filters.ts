@@ -360,14 +360,18 @@ export class SqlTools {
       }
     } else if (expr.type == 'call' && expr.function?.name != null) {
       const fn = expr.function.name;
-      const fnImpl = SQL_FUNCTIONS[fn];
-      if (fnImpl == null) {
-        return this.error(`Function '${fn}' is not defined`, expr);
-      }
+      if (expr.function.schema == null) {
+        const fnImpl = SQL_FUNCTIONS[fn];
+        if (fnImpl == null) {
+          return this.error(`Function '${fn}' is not defined`, expr);
+        }
 
-      const argClauses = expr.args.map((arg) => this.compileClause(arg));
-      const composed = this.composeFunction(fnImpl, argClauses, expr.args);
-      return composed;
+        const argClauses = expr.args.map((arg) => this.compileClause(arg));
+        const composed = this.composeFunction(fnImpl, argClauses, expr.args);
+        return composed;
+      } else {
+        return this.error(`Function '${expr.function.schema}.${fn}' is not defined`, expr);
+      }
     } else if (expr.type == 'member') {
       const operand = this.compileClause(expr.operand);
 
