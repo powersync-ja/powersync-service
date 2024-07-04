@@ -6,7 +6,7 @@ import { jsonValueToSqlite } from './utils.js';
 // This allows for consumers of this lib to resolve types correctly
 /// <reference types="./wkx.d.ts" />
 import wkx from '@syncpoint/wkx';
-import { ExpressionType, TYPE_INTEGER } from './ExpressionType.js';
+import { ExpressionType, SqliteType, TYPE_INTEGER } from './ExpressionType.js';
 
 export const BASIC_OPERATORS = new Set<string>([
   '=',
@@ -773,6 +773,25 @@ export const OPERATOR_NOT: SqlFunction = {
     return ExpressionType.INTEGER;
   }
 };
+
+export function castOperator(castTo: string | undefined): SqlFunction | null {
+  if (castTo == null || !CAST_TYPES.has(castTo)) {
+    return null;
+  }
+  return {
+    debugName: `operator_cast_${castTo}`,
+    call(value: SqliteValue) {
+      if (value == null) {
+        return null;
+      }
+      return cast(value, castTo!);
+    },
+    parameters: [{ name: 'value', type: ExpressionType.ANY, optional: false }],
+    getReturnType(_args) {
+      return ExpressionType.fromTypeText(castTo as SqliteType);
+    }
+  };
+}
 
 export interface ParseDateFlags {
   /**

@@ -13,6 +13,7 @@ import {
   SQL_FUNCTIONS,
   SqlFunction,
   cast,
+  castOperator,
   sqliteTypeOf
 } from './sql_functions.js';
 import {
@@ -200,7 +201,7 @@ export class SqlTools {
       const leftFilter = this.compileClause(left);
       const rightFilter = this.compileClause(right);
       if (isClauseError(leftFilter) || isClauseError(rightFilter)) {
-        return { error: true } as ClauseError;
+        return { error: true } satisfies ClauseError;
       }
 
       if (op == 'AND') {
@@ -313,13 +314,13 @@ export class SqlTools {
           // table.some_value IN token_parameters.some_array
           // This expands into "table_some_value = <value>" for each value of the array.
           // We only support one such filter per query
-          const paramName = `${rightFilter.bucketParameter}[*]`;
+          const key = `${rightFilter.bucketParameter}[*]`;
 
           const inputParam: InputParameter = {
-            key: paramName,
+            key: key,
             expands: true,
             filteredRowToLookupValue: (filterParameters) => {
-              return filterParameters[paramName];
+              return filterParameters[key];
             },
             parametersToLookupValue: (parameters) => {
               return rightFilter.lookupParameterValue(parameters);
@@ -373,9 +374,6 @@ export class SqlTools {
       return composed;
     } else if (expr.type == 'member') {
       const operand = this.compileClause(expr.operand);
-      if (isClauseError(operand)) {
-        return operand;
-      }
 
       if (!(typeof expr.member == 'string' && (expr.op == '->>' || expr.op == '->'))) {
         return this.error(`Unsupported member operation ${expr.op}`, expr);
@@ -390,28 +388,12 @@ export class SqlTools {
       }
     } else if (expr.type == 'cast') {
       const operand = this.compileClause(expr.operand);
-      if (isClauseError(operand)) {
-        return operand;
-      } else if (!isStaticRowValueClause(operand)) {
-        return this.error(`Bucket parameters are not supported in cast expressions`, expr.operand);
-      }
       const to = (expr.to as any)?.name?.toLowerCase() as string | undefined;
-      if (CAST_TYPES.has(to!)) {
-        return {
-          evaluate: (tables) => {
-            const value = operand.evaluate(tables);
-            if (value == null) {
-              return null;
-            }
-            return cast(value, to!);
-          },
-          getType() {
-            return ExpressionType.fromTypeText(to as SqliteType);
-          }
-        } satisfies StaticRowValueClause;
-      } else {
+      const castFn = castOperator(to);
+      if (castFn == null) {
         return this.error(`CAST not supported for '${to}'`, expr);
       }
+      return this.composeFunction(castFn, [operand], [expr.operand]);
     } else {
       return this.error(`${expr.type} not supported here`, expr);
     }
@@ -510,13 +492,25 @@ export class SqlTools {
     }
   }
 
+  /**
+   * Given a function, compile a clause with the function over compiled arguments.
+   *
+   * For functions with multiple arguments, the following combinations are supported:
+   * fn(StaticValueClause, StaticValueClause) => StaticValueClause
+   * fn(ParameterValueClause, ParameterValueClause) => ParameterValueClause
+   * fn(StaticRowValueClause, StaticRowValueClause) => StaticRowValueClause
+   * fn(ParameterValueClause, StaticValueClause) => ParameterValueClause
+   * fn(StaticRowValueClause, StaticValueClause) => StaticRowValueClause
+   *
+   * This is not supported, and will likely never be supported:
+   * fn(ParameterValueClause, StaticRowValueClause) => error
+   *
+   * @param fnImpl The function or operator implementation
+   * @param argClauses The compiled argument clauses
+   * @param debugArgExpressions The original parsed expressions, for debug info only
+   * @returns a compiled function clause
+   */
   composeFunction(fnImpl: SqlFunction, argClauses: CompiledClause[], debugArgExpressions: Expr[]): CompiledClause {
-    // fn(param_value, param_value) => ok
-    // fn(table.value, table.value) => ok
-    // fn(param_value, static_value) => ok
-    // fn(table.value, static_value) => ok
-    // fn(param_value, table.value) => not ok
-
     let argsType: 'static' | 'row' | 'param' = 'static';
     for (let i = 0; i < argClauses.length; i++) {
       const debugArg = debugArgExpressions[i];
@@ -555,18 +549,17 @@ export class SqlTools {
         }
       } satisfies StaticRowValueClause;
     } else if (argsType == 'param') {
-      // TODO: make sure this is properly unique / predictable
-      const name = `${fnImpl.debugName}(${argClauses
-        .map((e) => {
-          if (isParameterValueClause(e)) {
-            return e.bucketParameter;
-          } else if (isStaticValueClause(e)) {
-            return e.value;
-          } else {
-            throw new Error('unreachable condition');
-          }
-        })
-        .join(',')})`;
+      // TODO: make sure this is properly unique & predictable
+      const argStrings = argClauses.map((e) => {
+        if (isParameterValueClause(e)) {
+          return e.bucketParameter;
+        } else if (isStaticValueClause(e)) {
+          return e.value;
+        } else {
+          throw new Error('unreachable condition');
+        }
+      });
+      const name = `${fnImpl.debugName}(${argStrings.join(',')})`;
       return {
         bucketParameter: name,
         lookupParameterValue: (parameters) => {

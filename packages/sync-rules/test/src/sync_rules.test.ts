@@ -831,6 +831,18 @@ bucket_definitions:
     ]);
   });
 
+  test('parameter query with cast', () => {
+    const sql = 'SELECT FROM users WHERE users.id = cast(token_parameters.user_id as text)';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+
+    expect(query.errors).toEqual([]);
+
+    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
+      ['mybucket', undefined, 'user1']
+    ]);
+    expect(query.getLookups(normalizeTokenParameters({ user_id: 123 }))).toEqual([['mybucket', undefined, '123']]);
+  });
+
   test('parameter query with IS NULL row filter', () => {
     const sql = 'SELECT id FROM users WHERE role IS NULL';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
