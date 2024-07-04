@@ -178,15 +178,7 @@ export class SqlTools {
         return this.error(`Schema is not supported in column references`, expr);
       }
       if (this.isParameterRef(expr)) {
-        const param = this.getParameterRef(expr)!;
-        const [table, column] = param.split('.');
-        return {
-          key: param,
-          lookupParameterValue: (parameters) => {
-            const pt: SqliteJsonRow | undefined = (parameters as any)[table];
-            return pt?.[column] ?? null;
-          }
-        } satisfies ParameterValueClause;
+        return this.getParameterRefClause(expr);
       } else if (this.isTableRef(expr)) {
         const table = this.getTableName(expr);
         this.checkRef(table, expr);
@@ -466,10 +458,16 @@ export class SqlTools {
     }
   }
 
-  getParameterRef(expr: Expr) {
-    if (this.isParameterRef(expr)) {
-      return `${expr.table!.name}.${expr.name}`;
-    }
+  getParameterRefClause(expr: ExprRef): ParameterValueClause {
+    const table = expr.table!.name;
+    const column = expr.name;
+    return {
+      key: `${table}.${column}`,
+      lookupParameterValue: (parameters) => {
+        const pt: SqliteJsonRow | undefined = (parameters as any)[table];
+        return pt?.[column] ?? null;
+      }
+    } satisfies ParameterValueClause;
   }
 
   refHasSchema(ref: ExprRef) {
