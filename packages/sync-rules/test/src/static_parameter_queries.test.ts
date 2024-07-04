@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
-import { SqlParameterQuery, normalizeTokenParameters } from '../../src/index.js';
+import { SqlParameterQuery } from '../../src/index.js';
 import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
+import { normalizeTokenParameters } from './util.js';
 
 describe('static parameter queries', () => {
   test('basic query', function () {

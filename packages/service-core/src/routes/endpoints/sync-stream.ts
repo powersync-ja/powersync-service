@@ -1,13 +1,13 @@
-import { Readable } from 'stream';
-import { SyncParameters, normalizeTokenParameters } from '@powersync/service-sync-rules';
 import { errors, logger, router, schema } from '@powersync/lib-services-framework';
+import { RequestParameters } from '@powersync/service-sync-rules';
+import { Readable } from 'stream';
 
 import * as sync from '../../sync/sync-index.js';
 import * as util from '../../util/util-index.js';
 
+import { Metrics } from '../../metrics/Metrics.js';
 import { authUser } from '../auth.js';
 import { routeDefinition } from '../router.js';
-import { Metrics } from '../../metrics/Metrics.js';
 
 export enum SyncRoutes {
   STREAM = '/sync/stream'
@@ -30,10 +30,7 @@ export const syncStreamed = routeDefinition({
     }
 
     const params: util.StreamingSyncRequest = payload.params;
-    const syncParams: SyncParameters = normalizeTokenParameters(
-      payload.context.token_payload!.parameters ?? {},
-      payload.params.parameters ?? {}
-    );
+    const syncParams = new RequestParameters(payload.context.token_payload!, payload.params.parameters ?? {});
 
     const storage = system.storage;
     // Sanity check before we start the stream

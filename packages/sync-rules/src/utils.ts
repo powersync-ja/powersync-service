@@ -1,5 +1,13 @@
 import { Statement, SelectFromStatement } from 'pgsql-ast-parser';
-import { DatabaseInputRow, SqliteRow, SqliteJsonRow, SqliteJsonValue, SqliteValue, SyncParameters } from './types.js';
+import {
+  DatabaseInputRow,
+  SqliteRow,
+  SqliteJsonRow,
+  SqliteJsonValue,
+  SqliteValue,
+  RequestParameters,
+  RequestJwtPayload
+} from './types.js';
 import { SQLITE_FALSE, SQLITE_TRUE } from './sql_support.js';
 import { JsonContainer } from '@powersync/service-jsonbig';
 import { JSONBig, stringifyRaw, Replacer } from '@powersync/service-jsonbig';
@@ -150,18 +158,6 @@ export function toSyncRulesValue(data: any, autoBigNum?: boolean, keepUndefined?
   } else {
     return null;
   }
-}
-
-export function normalizeTokenParameters(
-  token_parameters: Record<string, any>,
-  user_parameters?: Record<string, any>
-): SyncParameters {
-  const raw_user_parameters = JSONBig.stringify(user_parameters ?? {});
-  return {
-    token_parameters: toSyncRulesParameters(token_parameters),
-    user_parameters: toSyncRulesParameters(user_parameters ?? {}),
-    raw_user_parameters
-  };
 }
 
 /**

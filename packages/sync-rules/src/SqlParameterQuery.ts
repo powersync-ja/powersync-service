@@ -1,28 +1,27 @@
 import { parse, SelectedColumn } from 'pgsql-ast-parser';
+import { SqlRuleError } from './errors.js';
+import { SourceTableInterface } from './SourceTableInterface.js';
+import { SqlTools } from './sql_filters.js';
+import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
+import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
+import { TablePattern } from './TablePattern.js';
+import { TableQuerySchema } from './TableQuerySchema.js';
 import {
   EvaluatedParameters,
   EvaluatedParametersResult,
-  FilterParameters,
   InputParameter,
   ParameterMatchClause,
+  ParameterValueClause,
   QueryBucketIdOptions,
   QuerySchema,
+  RequestParameters,
+  RowValueClause,
   SourceSchema,
   SqliteJsonRow,
   SqliteJsonValue,
-  SqliteRow,
-  RowValueClause,
-  SyncParameters,
-  ParameterValueClause
+  SqliteRow
 } from './types.js';
-import { SqlRuleError } from './errors.js';
-import { SqlTools } from './sql_filters.js';
-import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
 import { filterJsonRow, getBucketId, isJsonValue, isSelectStatement } from './utils.js';
-import { TablePattern } from './TablePattern.js';
-import { SourceTableInterface } from './SourceTableInterface.js';
-import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
-import { TableQuerySchema } from './TableQuerySchema.js';
 
 /**
  * Represents a parameter query, such as:
@@ -226,7 +225,7 @@ export class SqlParameterQuery {
   /**
    * Given partial parameter rows, turn into bucket ids.
    */
-  resolveBucketIds(bucketParameters: SqliteJsonRow[], parameters: SyncParameters): string[] {
+  resolveBucketIds(bucketParameters: SqliteJsonRow[], parameters: RequestParameters): string[] {
     // Filters have already been applied and gotten us the set of bucketParameters - don't attempt to filter again.
     // We _do_ need to evaluate the output columns here, using a combination of precomputed bucketParameters,
     // and values from token parameters.
@@ -259,7 +258,7 @@ export class SqlParameterQuery {
    *
    * Each lookup is [bucket definition name, parameter query index, ...lookup values]
    */
-  getLookups(parameters: SyncParameters): SqliteJsonValue[][] {
+  getLookups(parameters: RequestParameters): SqliteJsonValue[][] {
     if (!this.expanded_input_parameter) {
       let lookup: SqliteJsonValue[] = [this.descriptor_name!, this.id!];
 

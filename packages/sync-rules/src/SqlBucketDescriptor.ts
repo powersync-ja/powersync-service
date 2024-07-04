@@ -6,13 +6,13 @@ import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
 import { TablePattern } from './TablePattern.js';
 import { SqlRuleError } from './errors.js';
 import {
-  EvaluatedParametersResult,
   EvaluateRowOptions,
+  EvaluatedParametersResult,
   EvaluationResult,
   QueryBucketIdOptions,
+  RequestParameters,
   SourceSchema,
-  SqliteRow,
-  SyncParameters
+  SqliteRow
 } from './types.js';
 
 export interface QueryParseResult {
@@ -103,7 +103,7 @@ export class SqlBucketDescriptor {
     return results;
   }
 
-  getStaticBucketIds(parameters: SyncParameters) {
+  getStaticBucketIds(parameters: RequestParameters) {
     let results: string[] = [];
     for (let query of this.global_parameter_queries) {
       results.push(...query.getStaticBucketIds(parameters));

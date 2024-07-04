@@ -16,9 +16,9 @@ import {
   isEvaluatedRow,
   isEvaluationError,
   QueryBucketIdOptions,
+  RequestParameters,
   SourceSchema,
   SqliteRow,
-  SyncParameters,
   SyncRules
 } from './types.js';
 
@@ -237,7 +237,7 @@ export class SqlSyncRules implements SyncRules {
   /**
    * @deprecated For testing only.
    */
-  getStaticBucketIds(parameters: SyncParameters) {
+  getStaticBucketIds(parameters: RequestParameters) {
     let results: string[] = [];
     for (let bucket of this.bucket_descriptors) {
       results.push(...bucket.getStaticBucketIds(parameters));

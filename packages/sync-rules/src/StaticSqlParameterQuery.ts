@@ -1,16 +1,9 @@
 import { SelectedColumn, SelectFromStatement } from 'pgsql-ast-parser';
-import {
-  ParameterMatchClause,
-  SqliteJsonValue,
-  RowValueClause,
-  SyncParameters,
-  ParameterValueClause,
-  StaticValueClause
-} from './types.js';
-import { SqlTools } from './sql_filters.js';
-import { getBucketId, isJsonValue } from './utils.js';
 import { SqlRuleError } from './errors.js';
-import { checkUnsupportedFeatures, isClauseError, isStaticValueClause, sqliteBool } from './sql_support.js';
+import { SqlTools } from './sql_filters.js';
+import { checkUnsupportedFeatures, isClauseError, sqliteBool } from './sql_support.js';
+import { ParameterValueClause, RequestParameters, SqliteJsonValue } from './types.js';
+import { getBucketId, isJsonValue } from './utils.js';
 
 /**
  * Represents a bucket parameter query without any tables, e.g.:
@@ -72,8 +65,7 @@ export class StaticSqlParameterQuery {
 
   errors: SqlRuleError[] = [];
 
-  getStaticBucketIds(parameters: SyncParameters): string[] {
-    const tables = { token_parameters: parameters.token_parameters, user_parameters: parameters.user_parameters };
+  getStaticBucketIds(parameters: RequestParameters): string[] {
     if (this.filter == null) {
       // Error in filter clause
       return [];

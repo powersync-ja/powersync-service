@@ -5,10 +5,9 @@ import {
   DartSchemaGenerator,
   JsSchemaGenerator,
   SqlSyncRules,
-  StaticSchema,
-  normalizeTokenParameters
+  StaticSchema
 } from '../../src/index.js';
-import { ASSETS, BASIC_SCHEMA, TestSourceTable, USERS } from './util.js';
+import { ASSETS, BASIC_SCHEMA, TestSourceTable, USERS, normalizeTokenParameters } from './util.js';
 
 describe('sync rules', () => {
   test('parse empty sync rules', () => {

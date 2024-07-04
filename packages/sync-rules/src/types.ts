@@ -1,7 +1,8 @@
-import { JsonContainer } from '@powersync/service-jsonbig';
+import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { ColumnDefinition, ExpressionType } from './ExpressionType.js';
 import { TablePattern } from './TablePattern.js';
+import { toSyncRulesParameters } from './utils.js';
 
 export interface SyncRules {
   evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
@@ -58,10 +59,48 @@ export function isEvaluatedParameters(e: EvaluatedParametersResult): e is Evalua
 
 export type EvaluationResult = EvaluatedRow | EvaluationError;
 
-export interface SyncParameters {
+export interface RequestJwtPayload {
+  /**
+   * user_id
+   */
+  sub: string;
+
+  [key: string]: any;
+}
+
+export class RequestParameters {
   token_parameters: SqliteJsonRow;
   user_parameters: SqliteJsonRow;
+
+  /**
+   * JSON string of raw request parameters.
+   */
   raw_user_parameters: string;
+
+  /**
+   * JSON string of raw request parameters.
+   */
+  token_payload: string;
+
+  user_id: string;
+
+  constructor(tokenPayload: RequestJwtPayload, clientParameters: Record<string, any>) {
+    // This type is verified when we verify the token
+    const legacyParameters = tokenPayload.parameters as Record<string, any> | undefined;
+
+    const token_parameters = {
+      ...legacyParameters,
+      // sub takes presedence over any embedded parameters
+      user_id: tokenPayload.sub
+    };
+
+    this.token_parameters = toSyncRulesParameters(token_parameters);
+    this.user_id = tokenPayload.sub;
+    this.token_payload = JSONBig.stringify(tokenPayload);
+
+    this.raw_user_parameters = JSONBig.stringify(clientParameters);
+    this.user_parameters = toSyncRulesParameters(clientParameters);
+  }
 }
 
 /**
@@ -152,11 +191,11 @@ export interface InputParameter {
   filteredRowToLookupValue(filterParameters: FilterParameters): SqliteJsonValue;
 
   /**
-   * Given SyncParamters, return the associated value to lookup.
+   * Given RequestParameters, return the associated value to lookup.
    *
    * Only relevant for parameter queries.
    */
-  parametersToLookupValue(parameters: SyncParameters): SqliteValue;
+  parametersToLookupValue(parameters: RequestParameters): SqliteValue;
 }
 
 export interface EvaluateRowOptions {
@@ -218,11 +257,11 @@ export interface ParameterValueClause {
   key: string;
 
   /**
-   * Given SyncParamters, return the associated value to lookup.
+   * Given RequestParameters, return the associated value to lookup.
    *
    * Only relevant for parameter queries.
    */
-  lookupParameterValue(parameters: SyncParameters): SqliteValue;
+  lookupParameterValue(parameters: RequestParameters): SqliteValue;
 }
 
 export interface QuerySchema {
@@ -263,7 +302,7 @@ export type TrueIfParametersMatch = FilterParameters[];
 
 export interface QueryBucketIdOptions {
   getParameterSets: (lookups: SqliteJsonValue[][]) => Promise<SqliteJsonRow[]>;
-  parameters: SyncParameters;
+  parameters: RequestParameters;
 }
 
 export interface SourceSchemaTable {

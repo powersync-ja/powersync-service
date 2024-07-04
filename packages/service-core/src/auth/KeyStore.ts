@@ -83,13 +83,7 @@ export class KeyStore {
       throw new jose.errors.JWTInvalid('parameters must be an object');
     }
 
-    return {
-      ...(tokenPayload as any),
-      parameters: {
-        user_id: tokenPayload.sub,
-        ...parameters
-      }
-    };
+    return tokenPayload as JwtPayload;
   }
 
   private async verifyInternal(token: string, options: jose.JWTVerifyOptions) {
