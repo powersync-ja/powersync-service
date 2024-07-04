@@ -89,6 +89,11 @@ export interface SqlToolsOptions {
    */
   supports_expanding_parameters?: boolean;
 
+  /**
+   * true if expressions on parameters are supported, e.g. upper(token_parameters.user_id)
+   */
+  supports_parameter_expressions?: boolean;
+
   schema?: QuerySchema;
 }
 
@@ -104,6 +109,8 @@ export class SqlTools {
   errors: SqlRuleError[] = [];
 
   supports_expanding_parameters: boolean;
+  supports_parameter_expressions: boolean;
+
   schema?: QuerySchema;
 
   constructor(options: SqlToolsOptions) {
@@ -120,6 +127,7 @@ export class SqlTools {
     this.parameter_tables = options.parameter_tables ?? [];
     this.sql = options.sql;
     this.supports_expanding_parameters = options.supports_expanding_parameters ?? false;
+    this.supports_parameter_expressions = options.supports_parameter_expressions ?? false;
   }
 
   error(message: string, expr: NodeLocation | Expr | undefined): ClauseError {
@@ -517,6 +525,9 @@ export class SqlTools {
       } else if (isStaticValueClause(clause)) {
         // argsType unchanged
       } else if (isParameterValueClause(clause)) {
+        if (!this.supports_parameter_expressions) {
+          return this.error(`Cannot use bucket parameters in expressions`, debugArg);
+        }
         if (argsType == 'static' || argsType == 'param') {
           argsType = 'param';
         } else {

@@ -91,6 +91,7 @@ export class SqlParameterQuery {
       parameter_tables: ['token_parameters', 'user_parameters'],
       sql,
       supports_expanding_parameters: true,
+      supports_parameter_expressions: true,
       schema: querySchema
     });
     const where = q.where;

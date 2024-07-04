@@ -143,4 +143,38 @@ describe('data queries', () => {
       }
     ]);
   });
+
+  test('invalid query - invalid IN', function () {
+    const sql = 'SELECT * FROM assets WHERE assets.category IN bucket.categories';
+    const query = SqlDataQuery.fromSql('mybucket', ['categories'], sql);
+    expect(query.errors).toMatchObject([{ type: 'fatal', message: 'Unsupported usage of IN operator' }]);
+  });
+
+  test('invalid query - not all parameters used', function () {
+    const sql = 'SELECT * FROM assets WHERE 1';
+    const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql);
+    expect(query.errors).toMatchObject([
+      { type: 'fatal', message: 'Query must cover all bucket parameters. Expected: ["bucket.org_id"] Got: []' }
+    ]);
+  });
+
+  test('invalid query - parameter not defined', function () {
+    const sql = 'SELECT * FROM assets WHERE assets.org_id = bucket.org_id';
+    const query = SqlDataQuery.fromSql('mybucket', [], sql);
+    expect(query.errors).toMatchObject([
+      { type: 'fatal', message: 'Query must cover all bucket parameters. Expected: [] Got: ["bucket.org_id"]' }
+    ]);
+  });
+
+  test('invalid query - function on parameter (1)', function () {
+    const sql = 'SELECT * FROM assets WHERE assets.org_id = upper(bucket.org_id)';
+    const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql);
+    expect(query.errors).toMatchObject([{ type: 'fatal', message: 'Cannot use bucket parameters in expressions' }]);
+  });
+
+  test('invalid query - function on parameter (2)', function () {
+    const sql = 'SELECT * FROM assets WHERE assets.org_id = upper(bucket.org_id)';
+    const query = SqlDataQuery.fromSql('mybucket', [], sql);
+    expect(query.errors).toMatchObject([{ type: 'fatal', message: 'Cannot use bucket parameters in expressions' }]);
+  });
 });
