@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { SqlParameterQuery, normalizeTokenParameters } from '../../src/index.js';
+import { BASIC_SCHEMA } from './util.js';
 
 describe('parameter queries', () => {
   test('token_parameters IN query', function () {
@@ -439,5 +440,29 @@ describe('parameter queries', () => {
     const sql = 'SELECT FROM users WHERE json_extract(users.description, token_parameters.path)';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
     expect(query.errors[0].message).toMatch(/Cannot use table values and parameters in the same clauses/);
+  });
+
+  test('validate columns', () => {
+    const schema = BASIC_SCHEMA;
+
+    const q1 = SqlParameterQuery.fromSql(
+      'q4',
+      'SELECT id FROM assets WHERE owner_id = token_parameters.user_id',
+      schema
+    );
+    expect(q1.errors).toMatchObject([]);
+
+    const q2 = SqlParameterQuery.fromSql(
+      'q5',
+      'SELECT id as asset_id FROM assets WHERE other_id = token_parameters.user_id',
+      schema
+    );
+
+    expect(q2.errors).toMatchObject([
+      {
+        message: 'Column not found: other_id',
+        type: 'warning'
+      }
+    ]);
   });
 });
