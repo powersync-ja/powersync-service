@@ -1,12 +1,12 @@
 import { JSONBig } from '@powersync/service-jsonbig';
-import { SQLITE_FALSE, SQLITE_TRUE, sqliteBool } from './sql_support.js';
+import { SQLITE_FALSE, SQLITE_TRUE, sqliteBool, sqliteNot } from './sql_support.js';
 import { SqliteValue } from './types.js';
 import { jsonValueToSqlite } from './utils.js';
 // Declares @syncpoint/wkx module
 // This allows for consumers of this lib to resolve types correctly
 /// <reference types="./wkx.d.ts" />
 import wkx from '@syncpoint/wkx';
-import { ExpressionType, TYPE_INTEGER } from './ExpressionType.js';
+import { ExpressionType, SqliteType, TYPE_INTEGER } from './ExpressionType.js';
 
 export const BASIC_OPERATORS = new Set<string>([
   '=',
@@ -33,12 +33,14 @@ export interface FunctionParameter {
 }
 
 export interface SqlFunction {
+  readonly debugName: string;
   parameters: FunctionParameter[];
   call: (...args: SqliteValue[]) => SqliteValue;
   getReturnType(args: ExpressionType[]): ExpressionType;
 }
 
 const upper: SqlFunction = {
+  debugName: 'upper',
   call(value: SqliteValue) {
     const text = castAsText(value);
     return text?.toUpperCase() ?? null;
@@ -50,6 +52,7 @@ const upper: SqlFunction = {
 };
 
 const lower: SqlFunction = {
+  debugName: 'lower',
   call(value: SqliteValue) {
     const text = castAsText(value);
     return text?.toLowerCase() ?? null;
@@ -61,6 +64,7 @@ const lower: SqlFunction = {
 };
 
 const hex: SqlFunction = {
+  debugName: 'hex',
   call(value: SqliteValue) {
     const binary = castAsBlob(value);
     if (binary == null) {
@@ -75,6 +79,7 @@ const hex: SqlFunction = {
 };
 
 const length: SqlFunction = {
+  debugName: 'length',
   call(value: SqliteValue) {
     if (value == null) {
       return null;
@@ -92,6 +97,7 @@ const length: SqlFunction = {
 };
 
 const base64: SqlFunction = {
+  debugName: 'base64',
   call(value: SqliteValue) {
     const binary = castAsBlob(value);
     if (binary == null) {
@@ -106,6 +112,7 @@ const base64: SqlFunction = {
 };
 
 const fn_typeof: SqlFunction = {
+  debugName: 'typeof',
   call(value: SqliteValue) {
     return sqliteTypeOf(value);
   },
@@ -116,6 +123,7 @@ const fn_typeof: SqlFunction = {
 };
 
 const ifnull: SqlFunction = {
+  debugName: 'ifnull',
   call(x: SqliteValue, y: SqliteValue) {
     if (x == null) {
       return y;
@@ -139,6 +147,7 @@ const ifnull: SqlFunction = {
 };
 
 const json_extract: SqlFunction = {
+  debugName: 'json_extract',
   call(json: SqliteValue, path: SqliteValue) {
     return jsonExtract(json, path, 'json_extract');
   },
@@ -152,6 +161,7 @@ const json_extract: SqlFunction = {
 };
 
 const json_array_length: SqlFunction = {
+  debugName: 'json_array_length',
   call(json: SqliteValue, path?: SqliteValue) {
     if (path != null) {
       json = json_extract.call(json, path);
@@ -177,6 +187,7 @@ const json_array_length: SqlFunction = {
 };
 
 const json_valid: SqlFunction = {
+  debugName: 'json_valid',
   call(json: SqliteValue) {
     const jsonString = castAsText(json);
     if (jsonString == null) {
@@ -196,6 +207,7 @@ const json_valid: SqlFunction = {
 };
 
 const unixepoch: SqlFunction = {
+  debugName: 'unixepoch',
   call(value?: SqliteValue, specifier?: SqliteValue, specifier2?: SqliteValue) {
     if (value == null) {
       return null;
@@ -240,6 +252,7 @@ const unixepoch: SqlFunction = {
 };
 
 const datetime: SqlFunction = {
+  debugName: 'datetime',
   call(value?: SqliteValue, specifier?: SqliteValue, specifier2?: SqliteValue) {
     if (value == null) {
       return null;
@@ -285,6 +298,7 @@ const datetime: SqlFunction = {
 };
 
 const st_asgeojson: SqlFunction = {
+  debugName: 'st_asgeojson',
   call(geometry?: SqliteValue) {
     const geo = parseGeometry(geometry);
     if (geo == null) {
@@ -299,6 +313,7 @@ const st_asgeojson: SqlFunction = {
 };
 
 const st_astext: SqlFunction = {
+  debugName: 'st_astext',
   call(geometry?: SqliteValue) {
     const geo = parseGeometry(geometry);
     if (geo == null) {
@@ -312,6 +327,7 @@ const st_astext: SqlFunction = {
   }
 };
 const st_x: SqlFunction = {
+  debugName: 'st_x',
   call(geometry?: SqliteValue) {
     const geo = parseGeometry(geometry);
     if (geo == null) {
@@ -329,6 +345,7 @@ const st_x: SqlFunction = {
 };
 
 const st_y: SqlFunction = {
+  debugName: 'st_y',
   call(geometry?: SqliteValue) {
     const geo = parseGeometry(geometry);
     if (geo == null) {
@@ -694,6 +711,86 @@ export function jsonExtract(sourceValue: SqliteValue, path: SqliteValue, operato
     // Plain scalar value - simple conversion.
     return jsonValueToSqlite(value as string | number | bigint | boolean | null);
   }
+}
+
+export const OPERATOR_JSON_EXTRACT_JSON: SqlFunction = {
+  debugName: 'operator->',
+  call(json: SqliteValue, path: SqliteValue) {
+    return jsonExtract(json, path, '->');
+  },
+  parameters: [
+    { name: 'json', type: ExpressionType.ANY, optional: false },
+    { name: 'path', type: ExpressionType.ANY, optional: false }
+  ],
+  getReturnType(args) {
+    return ExpressionType.ANY_JSON;
+  }
+};
+
+export const OPERATOR_JSON_EXTRACT_SQL: SqlFunction = {
+  debugName: 'operator->>',
+  call(json: SqliteValue, path: SqliteValue) {
+    return jsonExtract(json, path, '->>');
+  },
+  parameters: [
+    { name: 'json', type: ExpressionType.ANY, optional: false },
+    { name: 'path', type: ExpressionType.ANY, optional: false }
+  ],
+  getReturnType(_args) {
+    return ExpressionType.ANY_JSON;
+  }
+};
+
+export const OPERATOR_IS_NULL: SqlFunction = {
+  debugName: 'operator_is_null',
+  call(value: SqliteValue) {
+    return evaluateOperator('IS', value, null);
+  },
+  parameters: [{ name: 'value', type: ExpressionType.ANY, optional: false }],
+  getReturnType(_args) {
+    return ExpressionType.INTEGER;
+  }
+};
+
+export const OPERATOR_IS_NOT_NULL: SqlFunction = {
+  debugName: 'operator_is_not_null',
+  call(value: SqliteValue) {
+    return evaluateOperator('IS NOT', value, null);
+  },
+  parameters: [{ name: 'value', type: ExpressionType.ANY, optional: false }],
+  getReturnType(_args) {
+    return ExpressionType.INTEGER;
+  }
+};
+
+export const OPERATOR_NOT: SqlFunction = {
+  debugName: 'operator_not',
+  call(value: SqliteValue) {
+    return sqliteNot(value);
+  },
+  parameters: [{ name: 'value', type: ExpressionType.ANY, optional: false }],
+  getReturnType(_args) {
+    return ExpressionType.INTEGER;
+  }
+};
+
+export function castOperator(castTo: string | undefined): SqlFunction | null {
+  if (castTo == null || !CAST_TYPES.has(castTo)) {
+    return null;
+  }
+  return {
+    debugName: `operator_cast_${castTo}`,
+    call(value: SqliteValue) {
+      if (value == null) {
+        return null;
+      }
+      return cast(value, castTo!);
+    },
+    parameters: [{ name: 'value', type: ExpressionType.ANY, optional: false }],
+    getReturnType(_args) {
+      return ExpressionType.fromTypeText(castTo as SqliteType);
+    }
+  };
 }
 
 export interface ParseDateFlags {

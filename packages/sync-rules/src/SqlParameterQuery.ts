@@ -2,6 +2,8 @@ import { parse, SelectedColumn } from 'pgsql-ast-parser';
 import {
   EvaluatedParameters,
   EvaluatedParametersResult,
+  FilterParameters,
+  InputParameter,
   ParameterMatchClause,
   QueryBucketIdOptions,
   QuerySchema,
@@ -9,7 +11,7 @@ import {
   SqliteJsonRow,
   SqliteJsonValue,
   SqliteRow,
-  StaticRowValueClause,
+  RowValueClause,
   SyncParameters
 } from './types.js';
 import { SqlRuleError } from './errors.js';
@@ -89,6 +91,7 @@ export class SqlParameterQuery {
       parameter_tables: ['token_parameters', 'user_parameters'],
       sql,
       supports_expanding_parameters: true,
+      supports_parameter_expressions: true,
       schema: querySchema
     });
     const where = q.where;
@@ -101,8 +104,8 @@ export class SqlParameterQuery {
     rows.filter = filter;
     rows.descriptor_name = descriptor_name;
     rows.bucket_parameters = bucket_parameters;
-    rows.input_parameters = filter.bucketParameters!;
-    const expandedParams = rows.input_parameters.filter((param) => param.endsWith('[*]'));
+    rows.input_parameters = filter.inputParameters!;
+    const expandedParams = rows.input_parameters!.filter((param) => param.expands);
     if (expandedParams.length > 1) {
       rows.errors.push(new SqlRuleError('Cannot have multiple array input parameters', sql));
     }
@@ -152,17 +155,30 @@ export class SqlParameterQuery {
   lookup_columns?: SelectedColumn[];
   static_columns?: SelectedColumn[];
 
-  lookup_extractors: Record<string, StaticRowValueClause> = {};
-  static_extractors: Record<string, StaticRowValueClause> = {};
+  /**
+   * Example: SELECT *user.id* FROM users WHERE ...
+   */
+  lookup_extractors: Record<string, RowValueClause> = {};
+
+  /**
+   * Example: SELECT *token_parameters.user_id*
+   */
+  static_extractors: Record<string, RowValueClause> = {};
 
   filter?: ParameterMatchClause;
   descriptor_name?: string;
+
   /** _Input_ token / user parameters */
-  input_parameters?: string[];
+  input_parameters?: InputParameter[];
 
-  expanded_input_parameter?: string;
+  /** If specified, an input parameter that expands to an array. */
+  expanded_input_parameter?: InputParameter;
 
-  /** _Output_ bucket parameters */
+  /**
+   * _Output_ bucket parameters.
+   *
+   * Each one of these will be present in either lookup_extractors or static_extractors.
+   */
   bucket_parameters?: string[];
 
   id?: string;
@@ -182,13 +198,13 @@ export class SqlParameterQuery {
       [this.table!]: row
     };
     try {
-      const filterParameters = this.filter!.filter(tables);
+      const filterParameters = this.filter!.filterRow(tables);
       let result: EvaluatedParametersResult[] = [];
       for (let filterParamSet of filterParameters) {
         let lookup: SqliteJsonValue[] = [this.descriptor_name!, this.id!];
         lookup.push(
           ...this.input_parameters!.map((param) => {
-            return filterParamSet[param];
+            return param.filteredRowToLookupValue(filterParamSet);
           })
         );
 
@@ -216,6 +232,9 @@ export class SqlParameterQuery {
     return [result];
   }
 
+  /**
+   * Given partial parameter rows, turn into bucket ids.
+   */
   resolveBucketIds(bucketParameters: SqliteJsonRow[], parameters: SyncParameters): string[] {
     const tables = { token_parameters: parameters.token_parameters, user_parameters: parameters.user_parameters };
 
@@ -246,28 +265,36 @@ export class SqlParameterQuery {
       .filter((lookup) => lookup != null) as string[];
   }
 
-  lookupParam(param: string, parameters: SyncParameters) {
-    const [table, column] = param.split('.');
-    const pt: SqliteJsonRow | undefined = (parameters as any)[table];
-    return pt?.[column] ?? null;
-  }
-
+  /**
+   * Given sync parameters, get lookups we need to perform on the database.
+   *
+   * Each lookup is [bucket definition name, parameter query index, ...lookup values]
+   */
   getLookups(parameters: SyncParameters): SqliteJsonValue[][] {
     if (!this.expanded_input_parameter) {
       let lookup: SqliteJsonValue[] = [this.descriptor_name!, this.id!];
 
+      let valid = true;
       lookup.push(
         ...this.input_parameters!.map((param): SqliteJsonValue => {
           // Scalar value
-          return this.lookupParam(param, parameters);
+          const value = param.parametersToLookupValue(parameters);
+
+          if (isJsonValue(value)) {
+            return value;
+          } else {
+            valid = false;
+            return null;
+          }
         })
       );
+      if (!valid) {
+        return [];
+      }
       return [lookup];
     } else {
-      const arrayString = this.lookupParam(
-        this.expanded_input_parameter.substring(0, this.expanded_input_parameter.length - 3),
-        parameters
-      );
+      const arrayString = this.expanded_input_parameter.parametersToLookupValue(parameters);
+
       if (arrayString == null || typeof arrayString != 'string') {
         return [];
       }
@@ -281,26 +308,46 @@ export class SqlParameterQuery {
         return [];
       }
 
-      return values.map((expandedValue): SqliteJsonValue[] => {
-        let lookup: SqliteJsonValue[] = [this.descriptor_name!, this.id!];
+      return values
+        .map((expandedValue) => {
+          let lookup: SqliteJsonValue[] = [this.descriptor_name!, this.id!];
+          let valid = true;
+          lookup.push(
+            ...this.input_parameters!.map((param): SqliteJsonValue => {
+              if (param == this.expanded_input_parameter) {
+                // Expand array value
+                return expandedValue;
+              } else {
+                // Scalar value
+                const value = param.parametersToLookupValue(parameters);
 
-        lookup.push(
-          ...this.input_parameters!.map((param): SqliteJsonValue => {
-            if (param == this.expanded_input_parameter) {
-              // Expand array value
-              return expandedValue;
-            } else {
-              // Scalar value
-              return this.lookupParam(param, parameters);
-            }
-          })
-        );
+                if (isJsonValue(value)) {
+                  return value;
+                } else {
+                  valid = false;
+                  return null;
+                }
+              }
+            })
+          );
+          if (!valid) {
+            return null;
+          }
 
-        return lookup;
-      });
+          return lookup;
+        })
+        .filter((lookup) => lookup != null) as SqliteJsonValue[][];
     }
   }
 
+  /**
+   * Given sync parameters (token and user parameters), return bucket ids.
+   *
+   * This is done in three steps:
+   * 1. Given the parameters, get lookups we need to perform on the database.
+   * 2. Perform the lookups, returning parameter sets (partial rows).
+   * 3. Given the parameter sets, resolve bucket ids.
+   */
   async queryBucketIds(options: QueryBucketIdOptions): Promise<string[]> {
     let lookups = this.getLookups(options.parameters);
     if (lookups.length == 0) {
