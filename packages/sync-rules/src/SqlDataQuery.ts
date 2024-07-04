@@ -109,7 +109,7 @@ export class SqlDataQuery {
     for (let column of q.columns ?? []) {
       const name = tools.getOutputName(column);
       if (name != '*') {
-        const clause = tools.compileStaticExtractor(column.expr);
+        const clause = tools.compileRowValueExtractor(column.expr);
         if (isClauseError(clause)) {
           // Error logged already
           continue;

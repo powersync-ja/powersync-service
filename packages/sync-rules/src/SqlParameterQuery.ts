@@ -126,7 +126,7 @@ export class SqlParameterQuery {
       const name = tools.getSpecificOutputName(column);
       if (tools.isTableRef(column.expr)) {
         rows.lookup_columns.push(column);
-        const extractor = tools.compileStaticExtractor(column.expr);
+        const extractor = tools.compileRowValueExtractor(column.expr);
         if (isClauseError(extractor)) {
           // Error logged already
           continue;
@@ -134,7 +134,7 @@ export class SqlParameterQuery {
         rows.lookup_extractors[name] = extractor;
       } else {
         rows.static_columns.push(column);
-        const extractor = rows.static_tools.compileStaticExtractor(column.expr);
+        const extractor = rows.static_tools.compileRowValueExtractor(column.expr);
         if (isClauseError(extractor)) {
           // Error logged already
           continue;

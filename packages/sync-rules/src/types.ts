@@ -244,9 +244,9 @@ export interface RowValueClause {
 /**
  * Completely static value.
  *
- * Extends RowValueClause to simplify code in some places.
+ * Extends RowValueClause and ParameterValueClause to simplify code in some places.
  */
-export interface StaticValueClause extends RowValueClause {
+export interface StaticValueClause extends RowValueClause, ParameterValueClause {
   readonly value: SqliteValue;
 }
 

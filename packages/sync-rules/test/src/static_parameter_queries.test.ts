@@ -53,7 +53,7 @@ describe('static parameter queries', () => {
     expect(query.getStaticBucketIds(normalizeTokenParameters({ id1: 't1', id2: 't2' }))).toEqual([]);
   });
 
-  test.skip('request.parameters()', function () {
+  test('request.parameters()', function () {
     // Not implemented in StaticSqlParameterQuery yet
     const sql = "SELECT request.parameters() ->> 'org_id' as org_id";
     const query = SqlParameterQuery.fromSql('mybucket', sql) as StaticSqlParameterQuery;
