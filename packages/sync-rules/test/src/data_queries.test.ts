@@ -177,4 +177,10 @@ describe('data queries', () => {
     const query = SqlDataQuery.fromSql('mybucket', [], sql);
     expect(query.errors).toMatchObject([{ type: 'fatal', message: 'Cannot use bucket parameters in expressions' }]);
   });
+
+  test('invalid query - match clause in select', () => {
+    const sql = 'SELECT id, (bucket.org_id = assets.org_id) as org_matches FROM assets where org_id = bucket.org_id';
+    const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql);
+    expect(query.errors[0].message).toMatch(/Parameter match expression is not allowed here/);
+  });
 });

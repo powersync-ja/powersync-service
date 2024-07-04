@@ -156,7 +156,7 @@ export class SqlTools {
   compileRowValueExtractor(expr: Expr | nil): RowValueClause | ClauseError {
     const clause = this.compileClause(expr);
     if (!isRowValueClause(clause) && !isClauseError(clause)) {
-      throw new SqlRuleError('Bucket parameters are not allowed here', this.sql, expr ?? undefined);
+      return this.error('Parameter match expression is not allowed here', expr ?? undefined);
     }
     return clause;
   }
@@ -168,8 +168,7 @@ export class SqlTools {
       return clause;
     }
 
-    // TODO: better message?
-    throw new SqlRuleError('This expression not allowed here', this.sql, expr ?? undefined);
+    return this.error('Parameter match expression is not allowed here', expr ?? undefined);
   }
 
   /**

@@ -12,7 +12,8 @@ import {
   SqliteJsonValue,
   SqliteRow,
   RowValueClause,
-  SyncParameters
+  SyncParameters,
+  ParameterValueClause
 } from './types.js';
 import { SqlRuleError } from './errors.js';
 import { SqlTools } from './sql_filters.js';
@@ -113,14 +114,6 @@ export class SqlParameterQuery {
     rows.columns = q.columns ?? [];
     rows.static_columns = [];
     rows.lookup_columns = [];
-    rows.static_tools = new SqlTools({
-      // This is used for values not on the parameter query table - these operate directly on
-      // token_parameters or user_parameters.
-      table: undefined,
-      value_tables: ['token_parameters', 'user_parameters'],
-      parameter_tables: [],
-      sql
-    });
 
     for (let column of q.columns ?? []) {
       const name = tools.getSpecificOutputName(column);
@@ -134,17 +127,16 @@ export class SqlParameterQuery {
         rows.lookup_extractors[name] = extractor;
       } else {
         rows.static_columns.push(column);
-        const extractor = rows.static_tools.compileRowValueExtractor(column.expr);
+        const extractor = tools.compileParameterValueExtractor(column.expr);
         if (isClauseError(extractor)) {
           // Error logged already
           continue;
         }
-        rows.static_extractors[name] = extractor;
+        rows.parameter_extractors[name] = extractor;
       }
     }
     rows.tools = tools;
     rows.errors.push(...tools.errors);
-    rows.errors.push(...rows.static_tools.errors);
     return rows;
   }
 
@@ -163,7 +155,7 @@ export class SqlParameterQuery {
   /**
    * Example: SELECT *token_parameters.user_id*
    */
-  static_extractors: Record<string, RowValueClause> = {};
+  parameter_extractors: Record<string, ParameterValueClause> = {};
 
   filter?: ParameterMatchClause;
   descriptor_name?: string;
@@ -183,7 +175,6 @@ export class SqlParameterQuery {
 
   id?: string;
   tools?: SqlTools;
-  static_tools?: SqlTools;
 
   errors: SqlRuleError[] = [];
 
@@ -236,8 +227,6 @@ export class SqlParameterQuery {
    * Given partial parameter rows, turn into bucket ids.
    */
   resolveBucketIds(bucketParameters: SqliteJsonRow[], parameters: SyncParameters): string[] {
-    const tables = { token_parameters: parameters.token_parameters, user_parameters: parameters.user_parameters };
-
     // Filters have already been applied and gotten us the set of bucketParameters - don't attempt to filter again.
     // We _do_ need to evaluate the output columns here, using a combination of precomputed bucketParameters,
     // and values from token parameters.
@@ -249,7 +238,7 @@ export class SqlParameterQuery {
           if (name in this.lookup_extractors) {
             result[`bucket.${name}`] = lookup[name];
           } else {
-            const value = this.static_extractors[name].evaluate(tables);
+            const value = this.parameter_extractors[name].lookupParameterValue(parameters);
             if (!isJsonValue(value)) {
               // Not valid - exclude.
               // Should we error instead?

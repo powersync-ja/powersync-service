@@ -512,6 +512,37 @@ describe('parameter queries', () => {
     ]);
   });
 
+  test('user_parameters in SELECT', function () {
+    const sql = 'SELECT id, user_parameters.other_id as other_id FROM users WHERE id = token_parameters.user_id';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    query.id = '1';
+    expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
+      {
+        lookup: ['mybucket', '1', 'user1'],
+        bucket_parameters: [{ id: 'user1' }]
+      }
+    ]);
+    const requestParams = normalizeTokenParameters({ user_id: 'user1' }, { other_id: 'red' });
+    expect(query.getLookups(requestParams)).toEqual([['mybucket', '1', 'user1']]);
+  });
+
+  test('request.parameters() in SELECT', function () {
+    const sql =
+      "SELECT id, request.parameters() ->> 'other_id' as other_id FROM users WHERE id = token_parameters.user_id";
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    query.id = '1';
+    expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
+      {
+        lookup: ['mybucket', '1', 'user1'],
+        bucket_parameters: [{ id: 'user1' }]
+      }
+    ]);
+    const requestParams = normalizeTokenParameters({ user_id: 'user1' }, { other_id: 'red' });
+    expect(query.getLookups(requestParams)).toEqual([['mybucket', '1', 'user1']]);
+  });
+
   test('invalid OR in parameter queries', () => {
     // Supporting this case is more tricky. We can do this by effectively denormalizing the OR clause
     // into separate queries, but it's a significant change. For now, developers should do that manually.
@@ -551,6 +582,12 @@ describe('parameter queries', () => {
     const sql = 'SELECT FROM users WHERE json_extract(users.description, token_parameters.path)';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
     expect(query.errors[0].message).toMatch(/Cannot use table values and parameters in the same clauses/);
+  });
+
+  test('invalid parameter match clause (5)', () => {
+    const sql = 'SELECT (user_parameters.role = posts.roles) as r FROM posts';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors[0].message).toMatch(/Parameter match expression is not allowed here/);
   });
 
   test('invalid function schema', () => {
