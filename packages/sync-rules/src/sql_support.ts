@@ -102,7 +102,7 @@ export function andFilters(a: CompiledClause, b: CompiledClause): CompiledClause
       getType() {
         return ExpressionType.INTEGER;
       }
-    };
+    } satisfies RowValueClause;
   }
 
   const aFilter = toBooleanParameterSetClause(a);
