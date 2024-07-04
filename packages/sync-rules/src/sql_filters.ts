@@ -267,11 +267,7 @@ export class SqlTools {
           // 3. static, parameterMatch
           // (bucket.param = 'something') = staticValue
           // To implement this, we need to ensure the static value here can only be true.
-          return this.error(
-            `Bucket parameter clauses cannot currently be combined with other operators`,
-
-            expr
-          );
+          return this.error(`Parameter match clauses cannot be used here`, expr);
         } else {
           throw new Error('Unexpected');
         }
@@ -524,16 +520,16 @@ export class SqlTools {
         if (argsType == 'static' || argsType == 'param') {
           argsType = 'param';
         } else {
-          return this.error(`Cannot combine table values and parameters in function call arguments`, debugArg);
+          return this.error(`Cannot use table values and parameters in the same clauses`, debugArg);
         }
       } else if (isRowValueClause(clause)) {
         if (argsType == 'static' || argsType == 'row') {
           argsType = 'row';
         } else {
-          return this.error(`Cannot combine table values and parameters in function call arguments`, debugArg);
+          return this.error(`Cannot use table values and parameters in the same clauses`, debugArg);
         }
       } else {
-        return this.error(`Bucket parameters are not supported in function call arguments`, debugArg);
+        return this.error(`Parameter match clauses cannot be used here`, debugArg);
       }
     }
 

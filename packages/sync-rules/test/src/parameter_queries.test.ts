@@ -415,4 +415,29 @@ describe('parameter queries', () => {
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
     expect(query.errors[0].message).toMatch(/must use the same parameters/);
   });
+
+  test('invalid parameter match clause (1)', () => {
+    const sql = 'SELECT FROM users WHERE (id = token_parameters.user_id) = false';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors[0].message).toMatch(/Parameter match clauses cannot be used here/);
+  });
+
+  test('invalid parameter match clause (2)', () => {
+    const sql = 'SELECT FROM users WHERE NOT (id = token_parameters.user_id)';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors[0].message).toMatch(/Parameter match clauses cannot be used here/);
+  });
+
+  test('invalid parameter match clause (3)', () => {
+    // May be supported in the future
+    const sql = 'SELECT FROM users WHERE token_parameters.start_at < users.created_at';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors[0].message).toMatch(/Cannot use table values and parameters in the same clauses/);
+  });
+
+  test('invalid parameter match clause (4)', () => {
+    const sql = 'SELECT FROM users WHERE json_extract(users.description, token_parameters.path)';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors[0].message).toMatch(/Cannot use table values and parameters in the same clauses/);
+  });
 });
