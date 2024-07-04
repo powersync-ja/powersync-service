@@ -25,7 +25,7 @@ import {
   isClauseError,
   isParameterMatchClause,
   isParameterValueClause,
-  isStaticRowValueClause,
+  isRowValueClause,
   isStaticValueClause,
   orFilters,
   sqliteNot,
@@ -41,7 +41,7 @@ import {
   QuerySchema,
   SqliteJsonRow,
   SqliteValue,
-  StaticRowValueClause,
+  RowValueClause,
   StaticValueClause,
   TrueIfParametersMatch
 } from './types.js';
@@ -144,9 +144,9 @@ export class SqlTools {
     return toBooleanParameterSetClause(base);
   }
 
-  compileStaticExtractor(expr: Expr | nil): StaticRowValueClause | ClauseError {
+  compileStaticExtractor(expr: Expr | nil): RowValueClause | ClauseError {
     const clause = this.compileClause(expr);
-    if (!isStaticRowValueClause(clause) && !isClauseError(clause)) {
+    if (!isRowValueClause(clause) && !isClauseError(clause)) {
       throw new SqlRuleError('Bucket parameters are not allowed here', this.sql, expr ?? undefined);
     }
     return clause;
@@ -173,7 +173,7 @@ export class SqlTools {
         const param = this.getParameterRef(expr)!;
         const [table, column] = param.split('.');
         return {
-          bucketParameter: param,
+          key: param,
           lookupParameterValue: (parameters) => {
             const pt: SqliteJsonRow | undefined = (parameters as any)[table];
             return pt?.[column] ?? null;
@@ -189,7 +189,7 @@ export class SqlTools {
           getType(schema) {
             return schema.getType(table, column);
           }
-        } satisfies StaticRowValueClause;
+        } satisfies RowValueClause;
       } else {
         const ref = [(expr as ExprRef).table?.schema, (expr as ExprRef).table?.name, (expr as ExprRef).name]
           .filter((e) => e != null)
@@ -222,31 +222,31 @@ export class SqlTools {
         //  2. static, parameterValue
         //  3. static true, parameterMatch - not supported yet
 
-        let staticFilter1: StaticRowValueClause;
+        let staticFilter1: RowValueClause;
         let otherFilter1: CompiledClause;
 
-        if (!isStaticRowValueClause(leftFilter) && !isStaticRowValueClause(rightFilter)) {
+        if (!isRowValueClause(leftFilter) && !isRowValueClause(rightFilter)) {
           return this.error(`Cannot have bucket parameters on both sides of = operator`, expr);
-        } else if (isStaticRowValueClause(leftFilter)) {
+        } else if (isRowValueClause(leftFilter)) {
           staticFilter1 = leftFilter;
           otherFilter1 = rightFilter;
         } else {
-          staticFilter1 = rightFilter as StaticRowValueClause;
+          staticFilter1 = rightFilter as RowValueClause;
           otherFilter1 = leftFilter;
         }
         const staticFilter = staticFilter1;
         const otherFilter = otherFilter1;
 
-        if (isStaticRowValueClause(otherFilter)) {
+        if (isRowValueClause(otherFilter)) {
           // 1. static = static
-          return compileStaticOperator(op, leftFilter as StaticRowValueClause, rightFilter as StaticRowValueClause);
+          return compileStaticOperator(op, leftFilter as RowValueClause, rightFilter as RowValueClause);
         } else if (isParameterValueClause(otherFilter)) {
           // 2. static = parameterValue
           const inputParam = basicInputParameter(otherFilter);
 
           return {
             error: false,
-            bucketParameters: [inputParam],
+            inputParameters: [inputParam],
             unbounded: false,
             filterRow(tables: QueryParameters): TrueIfParametersMatch {
               const value = staticFilter.evaluate(tables);
@@ -280,17 +280,17 @@ export class SqlTools {
         //  static IN static
         //  parameterValue IN static
 
-        if (isStaticRowValueClause(leftFilter) && isStaticRowValueClause(rightFilter)) {
+        if (isRowValueClause(leftFilter) && isRowValueClause(rightFilter)) {
           // static1 IN static2
           return compileStaticOperator(op, leftFilter, rightFilter);
-        } else if (isParameterValueClause(leftFilter) && isStaticRowValueClause(rightFilter)) {
+        } else if (isParameterValueClause(leftFilter) && isRowValueClause(rightFilter)) {
           // token_parameters.value IN table.some_array
           // bucket.param IN table.some_array
           const inputParam = basicInputParameter(leftFilter);
 
           return {
             error: false,
-            bucketParameters: [inputParam],
+            inputParameters: [inputParam],
             unbounded: true,
             filterRow(tables: QueryParameters): TrueIfParametersMatch {
               const aValue = rightFilter.evaluate(tables);
@@ -308,13 +308,13 @@ export class SqlTools {
           } satisfies ParameterMatchClause;
         } else if (
           this.supports_expanding_parameters &&
-          isStaticRowValueClause(leftFilter) &&
+          isRowValueClause(leftFilter) &&
           isParameterValueClause(rightFilter)
         ) {
           // table.some_value IN token_parameters.some_array
           // This expands into "table_some_value = <value>" for each value of the array.
           // We only support one such filter per query
-          const key = `${rightFilter.bucketParameter}[*]`;
+          const key = `${rightFilter.key}[*]`;
 
           const inputParam: InputParameter = {
             key: key,
@@ -329,7 +329,7 @@ export class SqlTools {
 
           return {
             error: false,
-            bucketParameters: [inputParam],
+            inputParameters: [inputParam],
             unbounded: false,
             filterRow(tables: QueryParameters): TrueIfParametersMatch {
               const value = leftFilter.evaluate(tables);
@@ -498,12 +498,12 @@ export class SqlTools {
    * For functions with multiple arguments, the following combinations are supported:
    * fn(StaticValueClause, StaticValueClause) => StaticValueClause
    * fn(ParameterValueClause, ParameterValueClause) => ParameterValueClause
-   * fn(StaticRowValueClause, StaticRowValueClause) => StaticRowValueClause
+   * fn(RowValueClause, RowValueClause) => RowValueClause
    * fn(ParameterValueClause, StaticValueClause) => ParameterValueClause
-   * fn(StaticRowValueClause, StaticValueClause) => StaticRowValueClause
+   * fn(RowValueClause, StaticValueClause) => RowValueClause
    *
    * This is not supported, and will likely never be supported:
-   * fn(ParameterValueClause, StaticRowValueClause) => error
+   * fn(ParameterValueClause, RowValueClause) => error
    *
    * @param fnImpl The function or operator implementation
    * @param argClauses The compiled argument clauses
@@ -526,7 +526,7 @@ export class SqlTools {
         } else {
           return this.error(`Cannot combine table values and parameters in function call arguments`, debugArg);
         }
-      } else if (isStaticRowValueClause(clause)) {
+      } else if (isRowValueClause(clause)) {
         if (argsType == 'static' || argsType == 'row') {
           argsType = 'row';
         } else {
@@ -540,19 +540,19 @@ export class SqlTools {
     if (argsType == 'row' || argsType == 'static') {
       return {
         evaluate: (tables) => {
-          const args = argClauses.map((e) => (e as StaticRowValueClause).evaluate(tables));
+          const args = argClauses.map((e) => (e as RowValueClause).evaluate(tables));
           return fnImpl.call(...args);
         },
         getType(schema) {
-          const argTypes = argClauses.map((e) => (e as StaticRowValueClause).getType(schema));
+          const argTypes = argClauses.map((e) => (e as RowValueClause).getType(schema));
           return fnImpl.getReturnType(argTypes);
         }
-      } satisfies StaticRowValueClause;
+      } satisfies RowValueClause;
     } else if (argsType == 'param') {
       // TODO: make sure this is properly unique & predictable
       const argStrings = argClauses.map((e) => {
         if (isParameterValueClause(e)) {
-          return e.bucketParameter;
+          return e.key;
         } else if (isStaticValueClause(e)) {
           return e.value;
         } else {
@@ -561,7 +561,7 @@ export class SqlTools {
       });
       const name = `${fnImpl.debugName}(${argStrings.join(',')})`;
       return {
-        bucketParameter: name,
+        key: name,
         lookupParameterValue: (parameters) => {
           const args = argClauses.map((e) => {
             if (isParameterValueClause(e)) {
@@ -607,10 +607,10 @@ function staticValueClause(value: SqliteValue): StaticValueClause {
 
 function basicInputParameter(clause: ParameterValueClause): InputParameter {
   return {
-    key: clause.bucketParameter,
+    key: clause.key,
     expands: false,
     filteredRowToLookupValue: (filterParameters) => {
-      return filterParameters[clause.bucketParameter];
+      return filterParameters[clause.key];
     },
     parametersToLookupValue: (parameters) => {
       return clause.lookupParameterValue(parameters);

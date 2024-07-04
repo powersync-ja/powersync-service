@@ -164,7 +164,12 @@ export interface EvaluateRowOptions {
 }
 
 /**
- * Given a row, produces a set of parameters that would make the clause evaluate to true.
+ * This is a clause that matches row and parameter values.
+ *
+ * Example:
+ * [WHERE] users.org_id = bucket.org_id
+ *
+ * For a given a row, this produces a set of parameters that would make the clause evaluate to true.
  */
 export interface ParameterMatchClause {
   error: boolean;
@@ -176,7 +181,7 @@ export interface ParameterMatchClause {
    *
    * These parameters are always matched by this clause, and no additional parameters are matched.
    */
-  bucketParameters: InputParameter[];
+  inputParameters: InputParameter[];
 
   /**
    * True if the filter depends on an unbounded array column. This means filterRow can return
@@ -200,13 +205,16 @@ export interface ParameterMatchClause {
 }
 
 /**
- * Given a row, produces a set of parameters that would make the clause evaluate to true.
+ * This is a clause that operates on request or bucket parameters.
  */
 export interface ParameterValueClause {
   /**
-   * The parameter fields used for this, e.g. 'bucket.region_id'
+   * An unique key for the clause.
+   *
+   * For bucket parameters, this is `bucket.${name}`.
+   * For expressions, the exact format is undefined.
    */
-  bucketParameter: string;
+  key: string;
 
   /**
    * Given SyncParamters, return the associated value to lookup.
@@ -222,14 +230,22 @@ export interface QuerySchema {
 }
 
 /**
- * Only needs row values as input, producing a static value as output.
+ * A clause that uses row values as input.
+ *
+ * For parameter queries, that is the parameter table being queried.
+ * For data queries, that is the data table being queried.
  */
-export interface StaticRowValueClause {
+export interface RowValueClause {
   evaluate(tables: QueryParameters): SqliteValue;
   getType(schema: QuerySchema): ExpressionType;
 }
 
-export interface StaticValueClause extends StaticRowValueClause {
+/**
+ * Completely static value.
+ *
+ * Extends RowValueClause to simplify code in some places.
+ */
+export interface StaticValueClause extends RowValueClause {
   readonly value: SqliteValue;
 }
 
@@ -237,7 +253,7 @@ export interface ClauseError {
   error: true;
 }
 
-export type CompiledClause = StaticRowValueClause | ParameterMatchClause | ParameterValueClause | ClauseError;
+export type CompiledClause = RowValueClause | ParameterMatchClause | ParameterValueClause | ClauseError;
 
 /**
  * true if any of the filter parameter sets match

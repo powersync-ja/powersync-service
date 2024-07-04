@@ -6,9 +6,8 @@ import {
   ParameterMatchClause,
   ParameterValueClause,
   QueryParameters,
-  SqliteJsonRow,
   SqliteValue,
-  StaticRowValueClause,
+  RowValueClause,
   StaticValueClause,
   TrueIfParametersMatch
 } from './types.js';
@@ -19,20 +18,20 @@ import { SqlRuleError } from './errors.js';
 import { ExpressionType } from './ExpressionType.js';
 
 export function isParameterMatchClause(clause: CompiledClause): clause is ParameterMatchClause {
-  return Array.isArray((clause as ParameterMatchClause).bucketParameters);
+  return Array.isArray((clause as ParameterMatchClause).inputParameters);
 }
 
-export function isStaticRowValueClause(clause: CompiledClause): clause is StaticRowValueClause {
-  return typeof (clause as StaticRowValueClause).evaluate == 'function';
+export function isRowValueClause(clause: CompiledClause): clause is RowValueClause {
+  return typeof (clause as RowValueClause).evaluate == 'function';
 }
 
 export function isStaticValueClause(clause: CompiledClause): clause is StaticValueClause {
-  return isStaticRowValueClause(clause) && typeof (clause as StaticValueClause).value != 'undefined';
+  return isRowValueClause(clause) && typeof (clause as StaticValueClause).value != 'undefined';
 }
 
 export function isParameterValueClause(clause: CompiledClause): clause is ParameterValueClause {
   // noinspection SuspiciousTypeOfGuard
-  return typeof (clause as ParameterValueClause).bucketParameter == 'string';
+  return typeof (clause as ParameterValueClause).key == 'string';
 }
 
 export function isClauseError(clause: CompiledClause): clause is ClauseError {
@@ -60,11 +59,7 @@ export function sqliteNot(value: SqliteValue | boolean) {
   return sqliteBool(!sqliteBool(value));
 }
 
-export function compileStaticOperator(
-  op: string,
-  left: StaticRowValueClause,
-  right: StaticRowValueClause
-): StaticRowValueClause {
+export function compileStaticOperator(op: string, left: RowValueClause, right: RowValueClause): RowValueClause {
   return {
     evaluate: (tables) => {
       const leftValue = left.evaluate(tables);
@@ -96,7 +91,7 @@ export function getOperatorFunction(op: string): SqlFunction {
 }
 
 export function andFilters(a: CompiledClause, b: CompiledClause): CompiledClause {
-  if (isStaticRowValueClause(a) && isStaticRowValueClause(b)) {
+  if (isRowValueClause(a) && isRowValueClause(b)) {
     // Optimization
     return {
       evaluate(tables: QueryParameters): SqliteValue {
@@ -113,8 +108,8 @@ export function andFilters(a: CompiledClause, b: CompiledClause): CompiledClause
   const aFilter = toBooleanParameterSetClause(a);
   const bFilter = toBooleanParameterSetClause(b);
 
-  const aParams = aFilter.bucketParameters;
-  const bParams = bFilter.bucketParameters;
+  const aParams = aFilter.inputParameters;
+  const bParams = bFilter.inputParameters;
 
   if (aFilter.unbounded && bFilter.unbounded) {
     // This could explode the number of buckets for the row
@@ -125,7 +120,7 @@ export function andFilters(a: CompiledClause, b: CompiledClause): CompiledClause
 
   return {
     error: aFilter.error || bFilter.error,
-    bucketParameters: [...combinedMap.values()],
+    inputParameters: [...combinedMap.values()],
     unbounded: aFilter.unbounded || bFilter.unbounded, // result count = a.count * b.count
     filterRow: (tables) => {
       const aResult = aFilter.filterRow(tables);
@@ -153,7 +148,7 @@ export function andFilters(a: CompiledClause, b: CompiledClause): CompiledClause
 }
 
 export function orFilters(a: CompiledClause, b: CompiledClause): CompiledClause {
-  if (isStaticRowValueClause(a) && isStaticRowValueClause(b)) {
+  if (isRowValueClause(a) && isRowValueClause(b)) {
     // Optimization
     return {
       evaluate(tables: QueryParameters): SqliteValue {
@@ -164,7 +159,7 @@ export function orFilters(a: CompiledClause, b: CompiledClause): CompiledClause 
       getType() {
         return ExpressionType.INTEGER;
       }
-    } satisfies StaticRowValueClause;
+    } satisfies RowValueClause;
   }
 
   const aFilter = toBooleanParameterSetClause(a);
@@ -173,8 +168,8 @@ export function orFilters(a: CompiledClause, b: CompiledClause): CompiledClause 
 }
 
 export function orParameterSetClauses(a: ParameterMatchClause, b: ParameterMatchClause): ParameterMatchClause {
-  const aParams = a.bucketParameters;
-  const bParams = b.bucketParameters;
+  const aParams = a.inputParameters;
+  const bParams = b.inputParameters;
 
   // This gives the guaranteed set of parameters matched against.
   const combinedMap = new Map([...aParams, ...bParams].map((p) => [p.key, p]));
@@ -194,7 +189,7 @@ export function orParameterSetClauses(a: ParameterMatchClause, b: ParameterMatch
   const unbounded = a.unbounded || b.unbounded;
   return {
     error: a.error || b.error,
-    bucketParameters: parameters,
+    inputParameters: parameters,
     unbounded, // result count = a.count + b.count
     filterRow: (tables) => {
       const aResult = a.filterRow(tables);
@@ -214,10 +209,10 @@ export function orParameterSetClauses(a: ParameterMatchClause, b: ParameterMatch
 export function toBooleanParameterSetClause(clause: CompiledClause): ParameterMatchClause {
   if (isParameterMatchClause(clause)) {
     return clause;
-  } else if (isStaticRowValueClause(clause)) {
+  } else if (isRowValueClause(clause)) {
     return {
       error: false,
-      bucketParameters: [],
+      inputParameters: [],
       unbounded: false,
       filterRow(tables: QueryParameters): TrueIfParametersMatch {
         const value = sqliteBool(clause.evaluate(tables));
@@ -227,7 +222,7 @@ export function toBooleanParameterSetClause(clause: CompiledClause): ParameterMa
   } else if (isClauseError(clause)) {
     return {
       error: true,
-      bucketParameters: [],
+      inputParameters: [],
       unbounded: false,
       filterRow(tables: QueryParameters): TrueIfParametersMatch {
         throw new Error('invalid clause');
@@ -235,13 +230,13 @@ export function toBooleanParameterSetClause(clause: CompiledClause): ParameterMa
     } satisfies ParameterMatchClause;
   } else {
     // Equivalent to `bucket.param = true`
-    const paramName = clause.bucketParameter;
+    const key = clause.key;
 
     const inputParam: InputParameter = {
-      key: paramName,
+      key: key,
       expands: false,
       filteredRowToLookupValue: (filterParameters) => {
-        return filterParameters[paramName];
+        return filterParameters[key];
       },
       parametersToLookupValue: (parameters) => {
         const inner = clause.lookupParameterValue(parameters);
@@ -251,10 +246,10 @@ export function toBooleanParameterSetClause(clause: CompiledClause): ParameterMa
 
     return {
       error: false,
-      bucketParameters: [inputParam],
+      inputParameters: [inputParam],
       unbounded: false,
       filterRow(tables: QueryParameters): TrueIfParametersMatch {
-        return [{ [paramName]: SQLITE_TRUE }];
+        return [{ [key]: SQLITE_TRUE }];
       }
     } satisfies ParameterMatchClause;
   }

@@ -1,5 +1,5 @@
 import { SelectedColumn, SelectFromStatement } from 'pgsql-ast-parser';
-import { ParameterMatchClause, SqliteJsonValue, StaticRowValueClause, SyncParameters } from './types.js';
+import { ParameterMatchClause, SqliteJsonValue, RowValueClause, SyncParameters } from './types.js';
 import { SqlTools } from './sql_filters.js';
 import { getBucketId, isJsonValue } from './utils.js';
 import { SqlRuleError } from './errors.js';
@@ -51,7 +51,7 @@ export class StaticSqlParameterQuery {
 
   sql?: string;
   columns?: SelectedColumn[];
-  static_extractors: Record<string, StaticRowValueClause> = {};
+  static_extractors: Record<string, RowValueClause> = {};
   descriptor_name?: string;
   /** _Output_ bucket parameters */
   bucket_parameters?: string[];

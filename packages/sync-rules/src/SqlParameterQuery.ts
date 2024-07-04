@@ -11,7 +11,7 @@ import {
   SqliteJsonRow,
   SqliteJsonValue,
   SqliteRow,
-  StaticRowValueClause,
+  RowValueClause,
   SyncParameters
 } from './types.js';
 import { SqlRuleError } from './errors.js';
@@ -103,7 +103,7 @@ export class SqlParameterQuery {
     rows.filter = filter;
     rows.descriptor_name = descriptor_name;
     rows.bucket_parameters = bucket_parameters;
-    rows.input_parameters = filter.bucketParameters!;
+    rows.input_parameters = filter.inputParameters!;
     const expandedParams = rows.input_parameters!.filter((param) => param.expands);
     if (expandedParams.length > 1) {
       rows.errors.push(new SqlRuleError('Cannot have multiple array input parameters', sql));
@@ -157,12 +157,12 @@ export class SqlParameterQuery {
   /**
    * Example: SELECT *user.id* FROM users WHERE ...
    */
-  lookup_extractors: Record<string, StaticRowValueClause> = {};
+  lookup_extractors: Record<string, RowValueClause> = {};
 
   /**
    * Example: SELECT *token_parameters.user_id*
    */
-  static_extractors: Record<string, StaticRowValueClause> = {};
+  static_extractors: Record<string, RowValueClause> = {};
 
   filter?: ParameterMatchClause;
   descriptor_name?: string;

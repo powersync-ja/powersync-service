@@ -78,18 +78,18 @@ export class SqlDataQuery {
     });
     const filter = tools.compileWhereClause(where);
 
-    const allParams = new Set([
-      ...filter.bucketParameters!.map((p) => p.key),
+    const allParams = new Set<string>([
+      ...filter.inputParameters!.map((p) => p.key),
       ...bucket_parameters.map((p) => `bucket.${p}`)
     ]);
     if (
-      (!filter.error && allParams.size != filter.bucketParameters!.length) ||
+      (!filter.error && allParams.size != filter.inputParameters!.length) ||
       allParams.size != bucket_parameters.length
     ) {
       rows.errors.push(
         new SqlRuleError(
           `Query must cover all bucket parameters: ${JSONBig.stringify(bucket_parameters)} != ${JSONBig.stringify(
-            filter.bucketParameters
+            filter.inputParameters
           )}`,
           sql,
           q._location
