@@ -6,6 +6,7 @@ describe('parameter queries', () => {
   test('token_parameters IN query', function () {
     const sql = 'SELECT id as group_id FROM groups WHERE token_parameters.user_id IN groups.user_ids';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
     query.id = '1';
     expect(query.evaluateParameterRow({ id: 'group1', user_ids: JSON.stringify(['user1', 'user2']) })).toEqual([
       {
@@ -37,6 +38,7 @@ describe('parameter queries', () => {
   test('IN token_parameters query', function () {
     const sql = 'SELECT id as region_id FROM regions WHERE name IN token_parameters.region_names';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
     query.id = '1';
     expect(query.evaluateParameterRow({ id: 'region1', name: 'colorado' })).toEqual([
       {
@@ -64,6 +66,7 @@ describe('parameter queries', () => {
     const sql =
       'SELECT users.int1, users.float1, users.float2 FROM users WHERE users.int1 = token_parameters.int1 AND users.float1 = token_parameters.float1 AND users.float2 = token_parameters.float2';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
     query.id = '1';
     // Note: We don't need to worry about numeric vs decimal types in the lookup - JSONB handles normalization for us.
     expect(query.evaluateParameterRow({ int1: 314n, float1: 3.14, float2: 314 })).toEqual([
@@ -93,8 +96,8 @@ describe('parameter queries', () => {
   test('plain token_parameter (baseline)', () => {
     const sql = 'SELECT id from users WHERE filter_param = token_parameters.user_id';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
-
     expect(query.errors).toEqual([]);
+
     expect(query.evaluateParameterRow({ id: 'test_id', filter_param: 'test_param' })).toEqual([
       {
         lookup: ['mybucket', undefined, 'test_param'],
@@ -109,8 +112,8 @@ describe('parameter queries', () => {
   test('function on token_parameter', () => {
     const sql = 'SELECT id from users WHERE filter_param = upper(token_parameters.user_id)';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
-
     expect(query.errors).toEqual([]);
+
     expect(query.evaluateParameterRow({ id: 'test_id', filter_param: 'test_param' })).toEqual([
       {
         lookup: ['mybucket', undefined, 'test_param'],
@@ -125,8 +128,8 @@ describe('parameter queries', () => {
   test('token parameter member operator', () => {
     const sql = "SELECT id from users WHERE filter_param = token_parameters.some_param ->> 'description'";
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
-
     expect(query.errors).toEqual([]);
+
     expect(query.evaluateParameterRow({ id: 'test_id', filter_param: 'test_param' })).toEqual([
       {
         lookup: ['mybucket', undefined, 'test_param'],
@@ -143,7 +146,6 @@ describe('parameter queries', () => {
   test('token parameter and binary operator', () => {
     const sql = 'SELECT id from users WHERE filter_param = token_parameters.some_param + 2';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
-
     expect(query.errors).toEqual([]);
 
     expect(query.getLookups(normalizeTokenParameters({ some_param: 3 }))).toEqual([['mybucket', undefined, 5n]]);
@@ -152,7 +154,6 @@ describe('parameter queries', () => {
   test('token parameter IS NULL as filter', () => {
     const sql = 'SELECT id from users WHERE filter_param = (token_parameters.some_param IS NULL)';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
-
     expect(query.errors).toEqual([]);
 
     expect(query.getLookups(normalizeTokenParameters({ some_param: null }))).toEqual([['mybucket', undefined, 1n]]);
@@ -162,7 +163,6 @@ describe('parameter queries', () => {
   test('direct token parameter', () => {
     const sql = 'SELECT FROM users WHERE token_parameters.some_param';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
-
     expect(query.errors).toEqual([]);
 
     expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
@@ -183,7 +183,6 @@ describe('parameter queries', () => {
   test('token parameter IS NULL', () => {
     const sql = 'SELECT FROM users WHERE token_parameters.some_param IS NULL';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
-
     expect(query.errors).toEqual([]);
 
     expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
@@ -204,7 +203,6 @@ describe('parameter queries', () => {
   test('token parameter IS NOT NULL', () => {
     const sql = 'SELECT FROM users WHERE token_parameters.some_param IS NOT NULL';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
-
     expect(query.errors).toEqual([]);
 
     expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
@@ -225,7 +223,6 @@ describe('parameter queries', () => {
   test('token parameter NOT', () => {
     const sql = 'SELECT FROM users WHERE NOT token_parameters.is_admin';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
-
     expect(query.errors).toEqual([]);
 
     expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
@@ -246,7 +243,6 @@ describe('parameter queries', () => {
   test('row filter and token parameter IS NULL', () => {
     const sql = 'SELECT FROM users WHERE users.id = token_parameters.user_id AND token_parameters.some_param IS NULL';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
-
     expect(query.errors).toEqual([]);
 
     expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
@@ -267,7 +263,6 @@ describe('parameter queries', () => {
   test('row filter and direct token parameter', () => {
     const sql = 'SELECT FROM users WHERE users.id = token_parameters.user_id AND token_parameters.some_param';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
-
     expect(query.errors).toEqual([]);
 
     expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
@@ -288,7 +283,6 @@ describe('parameter queries', () => {
   test('cast', () => {
     const sql = 'SELECT FROM users WHERE users.id = cast(token_parameters.user_id as text)';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
-
     expect(query.errors).toEqual([]);
 
     expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
@@ -300,7 +294,6 @@ describe('parameter queries', () => {
   test('IS NULL row filter', () => {
     const sql = 'SELECT id FROM users WHERE role IS NULL';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
-
     expect(query.errors).toEqual([]);
 
     expect(query.evaluateParameterRow({ id: 'user1', role: null })).toEqual([
@@ -319,6 +312,7 @@ describe('parameter queries', () => {
     // Support could be added later.
     const sql = 'SELECT FROM users WHERE users.id = token_parameters.user_id AND token_parameters.is_admin';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
     query.id = '1';
 
     expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
@@ -341,6 +335,7 @@ describe('parameter queries', () => {
     const sql =
       'SELECT users.id AS user_id, token_parameters.is_admin as is_admin FROM users WHERE users.id = token_parameters.user_id AND token_parameters.is_admin';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
     query.id = '1';
 
     expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
@@ -363,6 +358,7 @@ describe('parameter queries', () => {
   test('case-sensitive parameter queries (1)', () => {
     const sql = 'SELECT users."userId" AS user_id FROM users WHERE users."userId" = token_parameters.user_id';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
     query.id = '1';
 
     expect(query.evaluateParameterRow({ userId: 'user1' })).toEqual([
@@ -380,6 +376,7 @@ describe('parameter queries', () => {
     // Postgres and/or SQLite.
     const sql = 'SELECT users.userId AS user_id FROM users WHERE users.userId = token_parameters.user_id';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
     query.id = '1';
 
     expect(query.evaluateParameterRow({ userId: 'user1' })).toEqual([]);
@@ -395,6 +392,7 @@ describe('parameter queries', () => {
   test('dynamic global parameter query', () => {
     const sql = "SELECT workspaces.id AS workspace_id FROM workspaces WHERE visibility = 'public'";
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
     query.id = '1';
 
     expect(query.evaluateParameterRow({ id: 'workspace1', visibility: 'public' })).toEqual([

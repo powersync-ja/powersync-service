@@ -1,8 +1,61 @@
 import { describe, expect, test } from 'vitest';
 import { ExpressionType, SqlDataQuery } from '../../src/index.js';
-import { BASIC_SCHEMA } from './util.js';
+import { ASSETS, BASIC_SCHEMA } from './util.js';
 
 describe('data queries', () => {
+  test('bucket parameters = query', function () {
+    const sql = 'SELECT * FROM assets WHERE assets.org_id = bucket.org_id';
+    const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql);
+    expect(query.errors).toEqual([]);
+
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: 'org1' })).toEqual([
+      {
+        bucket: 'mybucket["org1"]',
+        table: 'assets',
+        id: 'asset1',
+        data: { id: 'asset1', org_id: 'org1' }
+      }
+    ]);
+
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: null })).toEqual([]);
+  });
+
+  test('bucket parameters IN query', function () {
+    const sql = 'SELECT * FROM assets WHERE bucket.category IN assets.categories';
+    const query = SqlDataQuery.fromSql('mybucket', ['category'], sql);
+    expect(query.errors).toEqual([]);
+
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', categories: JSON.stringify(['red', 'green']) })).toMatchObject([
+      {
+        bucket: 'mybucket["red"]',
+        table: 'assets',
+        id: 'asset1'
+      },
+      {
+        bucket: 'mybucket["green"]',
+        table: 'assets',
+        id: 'asset1'
+      }
+    ]);
+
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: null })).toEqual([]);
+  });
+
+  test('table alias', function () {
+    const sql = 'SELECT * FROM assets as others WHERE others.org_id = bucket.org_id';
+    const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql);
+    expect(query.errors).toEqual([]);
+
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: 'org1' })).toEqual([
+      {
+        bucket: 'mybucket["org1"]',
+        table: 'others',
+        id: 'asset1',
+        data: { id: 'asset1', org_id: 'org1' }
+      }
+    ]);
+  });
+
   test('types', () => {
     const schema = BASIC_SCHEMA;
 
