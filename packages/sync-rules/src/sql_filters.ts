@@ -554,7 +554,6 @@ export class SqlTools {
         }
       } satisfies RowValueClause;
     } else if (argsType == 'param') {
-      // TODO: make sure this is properly unique & predictable
       const argStrings = argClauses.map((e) => {
         if (isParameterValueClause(e)) {
           return e.key;

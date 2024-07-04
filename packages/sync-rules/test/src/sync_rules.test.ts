@@ -407,7 +407,6 @@ bucket_definitions:
       }
     ]);
 
-    // TODO: Deduplicate somewhere
     expect(
       rules.evaluateRow({ sourceTable: ASSETS, record: { id: 'asset2', description: 'test', role: 'normal' } })
     ).toEqual([
