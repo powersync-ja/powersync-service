@@ -52,4 +52,13 @@ describe('static parameter queries', () => {
     expect(query.getStaticBucketIds(normalizeTokenParameters({ id1: 't1', id2: 't1' }))).toEqual(['mybucket[]']);
     expect(query.getStaticBucketIds(normalizeTokenParameters({ id1: 't1', id2: 't2' }))).toEqual([]);
   });
+
+  test.skip('request.parameters()', function () {
+    // Not implemented in StaticSqlParameterQuery yet
+    const sql = "SELECT request.parameters() ->> 'org_id' as org_id";
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as StaticSqlParameterQuery;
+    expect(query.errors).toEqual([]);
+
+    expect(query.getStaticBucketIds(normalizeTokenParameters({}, { org_id: 'test' }))).toEqual(['mybucket["test"]']);
+  });
 });

@@ -1,10 +1,9 @@
 import { Expr, ExprRef, NodeLocation, SelectedColumn } from 'pgsql-ast-parser';
 import { nil } from 'pgsql-ast-parser/src/utils.js';
-import { ExpressionType, SqliteType, TYPE_NONE } from './ExpressionType.js';
+import { ExpressionType, TYPE_NONE } from './ExpressionType.js';
 import { SqlRuleError } from './errors.js';
 import {
   BASIC_OPERATORS,
-  CAST_TYPES,
   OPERATOR_IS_NOT_NULL,
   OPERATOR_IS_NULL,
   OPERATOR_JSON_EXTRACT_JSON,
@@ -12,7 +11,6 @@ import {
   OPERATOR_NOT,
   SQL_FUNCTIONS,
   SqlFunction,
-  cast,
   castOperator,
   sqliteTypeOf
 } from './sql_functions.js';
@@ -28,7 +26,6 @@ import {
   isRowValueClause,
   isStaticValueClause,
   orFilters,
-  sqliteNot,
   toBooleanParameterSetClause
 } from './sql_support.js';
 import {
@@ -39,9 +36,9 @@ import {
   ParameterValueClause,
   QueryParameters,
   QuerySchema,
+  RowValueClause,
   SqliteJsonRow,
   SqliteValue,
-  RowValueClause,
   StaticValueClause,
   TrueIfParametersMatch
 } from './types.js';
@@ -359,8 +356,10 @@ export class SqlTools {
         return this.error(`Operator ${expr.op} is not supported`, expr);
       }
     } else if (expr.type == 'call' && expr.function?.name != null) {
+      const schema = expr.function.schema; // schema.function()
       const fn = expr.function.name;
-      if (expr.function.schema == null) {
+      if (schema == null) {
+        // Just fn()
         const fnImpl = SQL_FUNCTIONS[fn];
         if (fnImpl == null) {
           return this.error(`Function '${fn}' is not defined`, expr);
@@ -369,8 +368,25 @@ export class SqlTools {
         const argClauses = expr.args.map((arg) => this.compileClause(arg));
         const composed = this.composeFunction(fnImpl, argClauses, expr.args);
         return composed;
+      } else if (schema == 'request' && fn == 'parameters') {
+        // Special function
+        if (!this.supports_parameter_expressions) {
+          return this.error(`Function '${schema}.${fn}' is not available in data queries`, expr);
+        }
+
+        if (expr.args.length > 0) {
+          return this.error(`Function '${schema}.${fn}' does not take arguments`, expr);
+        }
+
+        return {
+          key: 'request.parameters()',
+          lookupParameterValue(parameters) {
+            return parameters.raw_user_parameters;
+          }
+        } satisfies ParameterValueClause;
       } else {
-        return this.error(`Function '${expr.function.schema}.${fn}' is not defined`, expr);
+        // Unknown function with schema
+        return this.error(`Function '${schema}.${fn}' is not defined`, expr);
       }
     } else if (expr.type == 'member') {
       const operand = this.compileClause(expr.operand);

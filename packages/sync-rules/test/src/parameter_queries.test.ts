@@ -447,6 +447,71 @@ describe('parameter queries', () => {
     expect(query.getLookups(normalizeTokenParameters({ user_id: 'test' }))).toEqual([['mybucket', undefined, 'TEST']]);
   });
 
+  test('request.parameters()', function () {
+    const sql = "SELECT FROM posts WHERE category = request.parameters() ->> 'category_id'";
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    query.id = '1';
+    expect(query.evaluateParameterRow({ id: 'group1', category: 'red' })).toEqual([
+      {
+        lookup: ['mybucket', '1', 'red'],
+        bucket_parameters: [{}]
+      }
+    ]);
+    expect(query.getLookups(normalizeTokenParameters({}, { category_id: 'red' }))).toEqual([['mybucket', '1', 'red']]);
+  });
+
+  test('nested request.parameters() (1)', function () {
+    const sql = "SELECT FROM posts WHERE category = request.parameters() -> 'details' ->> 'category'";
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    query.id = '1';
+    expect(query.getLookups(normalizeTokenParameters({}, { details: { category: 'red' } }))).toEqual([
+      ['mybucket', '1', 'red']
+    ]);
+  });
+
+  test('nested request.parameters() (2)', function () {
+    const sql = "SELECT FROM posts WHERE category = request.parameters() ->> 'details.category'";
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    query.id = '1';
+    expect(query.getLookups(normalizeTokenParameters({}, { details: { category: 'red' } }))).toEqual([
+      ['mybucket', '1', 'red']
+    ]);
+  });
+
+  test('IN request.parameters()', function () {
+    // Can use -> or ->> here
+    const sql = "SELECT id as region_id FROM regions WHERE name IN request.parameters() -> 'region_names'";
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    query.id = '1';
+    expect(query.evaluateParameterRow({ id: 'region1', name: 'colorado' })).toEqual([
+      {
+        lookup: ['mybucket', '1', 'colorado'],
+        bucket_parameters: [
+          {
+            region_id: 'region1'
+          }
+        ]
+      }
+    ]);
+    expect(
+      query.getLookups(
+        normalizeTokenParameters(
+          {},
+          {
+            region_names: ['colorado', 'texas']
+          }
+        )
+      )
+    ).toEqual([
+      ['mybucket', '1', 'colorado'],
+      ['mybucket', '1', 'texas']
+    ]);
+  });
+
   test('invalid OR in parameter queries', () => {
     // Supporting this case is more tricky. We can do this by effectively denormalizing the OR clause
     // into separate queries, but it's a significant change. For now, developers should do that manually.

@@ -61,6 +61,7 @@ export type EvaluationResult = EvaluatedRow | EvaluationError;
 export interface SyncParameters {
   token_parameters: SqliteJsonRow;
   user_parameters: SqliteJsonRow;
+  raw_user_parameters: string;
 }
 
 /**

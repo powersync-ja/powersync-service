@@ -156,9 +156,11 @@ export function normalizeTokenParameters(
   token_parameters: Record<string, any>,
   user_parameters?: Record<string, any>
 ): SyncParameters {
+  const raw_user_parameters = JSONBig.stringify(user_parameters ?? {});
   return {
     token_parameters: toSyncRulesParameters(token_parameters),
-    user_parameters: toSyncRulesParameters(user_parameters ?? {})
+    user_parameters: toSyncRulesParameters(user_parameters ?? {}),
+    raw_user_parameters
   };
 }
 
