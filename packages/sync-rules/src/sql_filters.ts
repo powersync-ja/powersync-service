@@ -413,6 +413,22 @@ export class SqlTools {
             return parameters.raw_user_parameters;
           }
         } satisfies ParameterValueClause;
+      } else if (schema == 'request' && fn == 'jwt') {
+        // Special function
+        if (!this.supports_parameter_expressions) {
+          return this.error(`Function '${schema}.${fn}' is not available in data queries`, expr);
+        }
+
+        if (expr.args.length > 0) {
+          return this.error(`Function '${schema}.${fn}' does not take arguments`, expr);
+        }
+
+        return {
+          key: 'request.jwt()',
+          lookupParameterValue(parameters) {
+            return parameters.raw_token_payload;
+          }
+        } satisfies ParameterValueClause;
       } else {
         // Unknown function with schema
         return this.error(`Function '${schema}.${fn}' is not defined`, expr);

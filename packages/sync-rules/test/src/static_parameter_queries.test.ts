@@ -55,11 +55,19 @@ describe('static parameter queries', () => {
   });
 
   test('request.parameters()', function () {
-    // Not implemented in StaticSqlParameterQuery yet
     const sql = "SELECT request.parameters() ->> 'org_id' as org_id";
     const query = SqlParameterQuery.fromSql('mybucket', sql) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
 
     expect(query.getStaticBucketIds(normalizeTokenParameters({}, { org_id: 'test' }))).toEqual(['mybucket["test"]']);
+  });
+
+  test('request.jwt()', function () {
+    const sql = "SELECT request.jwt() ->> 'sub' as user_id";
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as StaticSqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    expect(query.bucket_parameters).toEqual(['user_id']);
+
+    expect(query.getStaticBucketIds(normalizeTokenParameters({ user_id: 'user1' }))).toEqual(['mybucket["user1"]']);
   });
 });

@@ -80,7 +80,7 @@ export class RequestParameters {
   /**
    * JSON string of raw request parameters.
    */
-  token_payload: string;
+  raw_token_payload: string;
 
   user_id: string;
 
@@ -96,7 +96,7 @@ export class RequestParameters {
 
     this.token_parameters = toSyncRulesParameters(token_parameters);
     this.user_id = tokenPayload.sub;
-    this.token_payload = JSONBig.stringify(tokenPayload);
+    this.raw_token_payload = JSONBig.stringify(tokenPayload);
 
     this.raw_user_parameters = JSONBig.stringify(clientParameters);
     this.user_parameters = toSyncRulesParameters(clientParameters);
