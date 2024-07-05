@@ -47,4 +47,4 @@ The PowerSync service code is located in the `service` folder. This project is u
 
 # Developing
 
-See the [Notes](./DEVELOP.md) for local development instructions.
+See the [notes](./DEVELOP.md) for local development instructions.
