@@ -45,6 +45,6 @@ The service can be started using the public Docker image. See the image [notes](
 
 The PowerSync service code is located in the `service` folder. This project is used to build the `journeyapps/powersync-service` Docker image.
 
-# Notes
+# Developing
 
-This mono repo currently relies on `restricted` packages. Currently this repo can only be built in CI. These dependencies will be removed soon.
+See the [Notes](./DEVELOP.md) for local development instructions.
