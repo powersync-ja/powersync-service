@@ -79,4 +79,33 @@ describe('static parameter queries', () => {
 
     expect(query.getStaticBucketIds(normalizeTokenParameters({ user_id: 'user1' }))).toEqual(['mybucket["user1"]']);
   });
+
+  describe('[un]authenticatedRequestParameters', function () {
+    function makeTest(
+      sql: string,
+      usesAuthenticatedRequestParameters: boolean,
+      usesUnauthenticatedRequestParameters: boolean
+    ) {
+      test(sql, function () {
+        const query = SqlParameterQuery.fromSql('mybucket', sql) as StaticSqlParameterQuery;
+        expect(query.errors).toEqual([]);
+        expect(query.hasAuthenticatedBucketParameters).toEqual(usesAuthenticatedRequestParameters);
+        expect(query.usesUnauthenticatedRequestParameters).toEqual(usesUnauthenticatedRequestParameters);
+      });
+    }
+
+    makeTest('select request.user_id() as user_id', true, false);
+    makeTest("select request.parameters() ->> 'project_id' as project_id", false, true);
+    makeTest("select request.user_id() as user_id, request.parameters() ->> 'project_id' as project_id", true, true);
+    makeTest("select where request.parameters() ->> 'include_comments'", false, true);
+    makeTest("select where request.jwt() ->> 'role' = 'authenticated'", false, false);
+    makeTest("select request.user_id() as user_id where request.jwt() ->> 'role' = 'authenticated'", true, false);
+    // Does use token parameters, but is still considered dangerous
+    // Any authenticated user can select an arbitrary project_id
+    makeTest(
+      "select request.parameters() ->> 'project_id' as project_id where request.jwt() ->> 'role' = 'authenticated'",
+      false,
+      true
+    );
+  });
 });

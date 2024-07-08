@@ -242,12 +242,22 @@ export interface ParameterMatchClause {
    * @return The filter parameters
    */
   filterRow(tables: QueryParameters): TrueIfParametersMatch;
+
+  /** request.user_id(), request.jwt(), token_parameters.* */
+  usesAuthenticatedRequestParameters: boolean;
+  /** request.parameters(), user_parameters.* */
+  usesUnauthenticatedRequestParameters: boolean;
 }
 
 /**
  * This is a clause that operates on request or bucket parameters.
  */
 export interface ParameterValueClause {
+  /** request.user_id(), request.jwt(), token_parameters.* */
+  usesAuthenticatedRequestParameters: boolean;
+  /** request.parameters(), user_parameters.* */
+  usesUnauthenticatedRequestParameters: boolean;
+
   /**
    * An unique key for the clause.
    *

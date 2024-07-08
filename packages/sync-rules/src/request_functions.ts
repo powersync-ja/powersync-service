@@ -5,6 +5,10 @@ export interface SqlParameterFunction {
   readonly debugName: string;
   call: (parameters: RequestParameters) => SqliteValue;
   getReturnType(): ExpressionType;
+  /** request.user_id(), request.jwt(), token_parameters.* */
+  usesAuthenticatedRequestParameters: boolean;
+  /** request.parameters(), user_parameters.* */
+  usesUnauthenticatedRequestParameters: boolean;
 }
 
 const request_parameters: SqlParameterFunction = {
@@ -14,7 +18,9 @@ const request_parameters: SqlParameterFunction = {
   },
   getReturnType() {
     return ExpressionType.TEXT;
-  }
+  },
+  usesAuthenticatedRequestParameters: false,
+  usesUnauthenticatedRequestParameters: true
 };
 
 const request_jwt: SqlParameterFunction = {
@@ -24,7 +30,9 @@ const request_jwt: SqlParameterFunction = {
   },
   getReturnType() {
     return ExpressionType.TEXT;
-  }
+  },
+  usesAuthenticatedRequestParameters: true,
+  usesUnauthenticatedRequestParameters: false
 };
 
 const request_user_id: SqlParameterFunction = {
@@ -34,7 +42,9 @@ const request_user_id: SqlParameterFunction = {
   },
   getReturnType() {
     return ExpressionType.TEXT;
-  }
+  },
+  usesAuthenticatedRequestParameters: true,
+  usesUnauthenticatedRequestParameters: false
 };
 
 export const REQUEST_FUNCTIONS_NAMED = {

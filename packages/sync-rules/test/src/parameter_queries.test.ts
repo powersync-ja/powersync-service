@@ -637,4 +637,40 @@ describe('parameter queries', () => {
       }
     ]);
   });
+
+  describe('dangerous queries', function () {
+    function testDangerousQuery(sql: string) {
+      test(sql, function () {
+        const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+        expect(query.errors).toEqual([]);
+        expect(query.usesDangerousRequestParameters).toEqual(true);
+      });
+    }
+    function testSafeQuery(sql: string) {
+      test(sql, function () {
+        const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+        expect(query.errors).toEqual([]);
+        expect(query.usesDangerousRequestParameters).toEqual(false);
+      });
+    }
+
+    testSafeQuery('SELECT id as user_id FROM users WHERE users.user_id = request.user_id()');
+    testSafeQuery(
+      "SELECT request.jwt() ->> 'org_id' as org_id, id as project_id FROM projects WHERE id = request.parameters() ->> 'project_id'"
+    );
+    testSafeQuery(
+      "SELECT id as project_id FROM projects WHERE org_id = request.jwt() ->> 'org_id' AND id = request.parameters() ->> 'project_id'"
+    );
+    testSafeQuery('SELECT id as category_id FROM categories');
+    // Can be considered dangerous, but tricky to implement with the current parsing structure
+    testSafeQuery(
+      "SELECT id as project_id FROM projects WHERE id = request.parameters() ->> 'project_id' AND request.jwt() ->> 'role' = 'authenticated'"
+    );
+
+    testDangerousQuery("SELECT id as project_id FROM projects WHERE id = request.parameters() ->> 'project_id'");
+
+    testDangerousQuery("SELECT id as category_id, request.parameters() ->> 'project_id' as project_id FROM categories");
+    // Can be safe, but better to opt in
+    testDangerousQuery("SELECT id as category_id FROM categories WHERE request.parameters() ->> 'include_categories'");
+  });
 });

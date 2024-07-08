@@ -288,7 +288,9 @@ export class SqlTools {
               }
 
               return [{ [inputParam.key]: value }];
-            }
+            },
+            usesAuthenticatedRequestParameters: otherFilter.usesAuthenticatedRequestParameters,
+            usesUnauthenticatedRequestParameters: otherFilter.usesUnauthenticatedRequestParameters
           } satisfies ParameterMatchClause;
         } else if (isParameterMatchClause(otherFilter)) {
           // 3. row value = parameterMatch
@@ -327,7 +329,9 @@ export class SqlTools {
               return values.map((value) => {
                 return { [inputParam.key]: value };
               });
-            }
+            },
+            usesAuthenticatedRequestParameters: leftFilter.usesAuthenticatedRequestParameters,
+            usesUnauthenticatedRequestParameters: leftFilter.usesUnauthenticatedRequestParameters
           } satisfies ParameterMatchClause;
         } else if (
           this.supports_expanding_parameters &&
@@ -361,7 +365,9 @@ export class SqlTools {
                 return MATCH_CONST_FALSE;
               }
               return [{ [inputParam.key]: value }];
-            }
+            },
+            usesAuthenticatedRequestParameters: rightFilter.usesAuthenticatedRequestParameters,
+            usesUnauthenticatedRequestParameters: rightFilter.usesUnauthenticatedRequestParameters
           } satisfies ParameterMatchClause;
         } else {
           return this.error(`Unsupported usage of IN operator`, expr);
@@ -409,11 +415,14 @@ export class SqlTools {
         }
 
         if (fn in REQUEST_FUNCTIONS) {
+          const fnImpl = REQUEST_FUNCTIONS[fn];
           return {
             key: 'request.parameters()',
             lookupParameterValue(parameters) {
-              return REQUEST_FUNCTIONS[fn].call(parameters);
-            }
+              return fnImpl.call(parameters);
+            },
+            usesAuthenticatedRequestParameters: fnImpl.usesAuthenticatedRequestParameters,
+            usesUnauthenticatedRequestParameters: fnImpl.usesUnauthenticatedRequestParameters
           } satisfies ParameterValueClause;
         } else {
           return this.error(`Function '${schema}.${fn}' is not defined`, expr);
@@ -520,7 +529,9 @@ export class SqlTools {
       lookupParameterValue: (parameters) => {
         const pt: SqliteJsonRow | undefined = (parameters as any)[table];
         return pt?.[column] ?? null;
-      }
+      },
+      usesAuthenticatedRequestParameters: table == 'token_parameters',
+      usesUnauthenticatedRequestParameters: table == 'user_parameters'
     } satisfies ParameterValueClause;
   }
 
@@ -610,6 +621,12 @@ export class SqlTools {
     } else if (argsType == 'param') {
       const argStrings = argClauses.map((e) => (e as ParameterValueClause).key);
       const name = `${fnImpl.debugName}(${argStrings.join(',')})`;
+      const usesAuthenticatedRequestParameters =
+        argClauses.find((clause) => isParameterValueClause(clause) && clause.usesAuthenticatedRequestParameters) !=
+        null;
+      const usesUnauthenticatedRequestParameters =
+        argClauses.find((clause) => isParameterValueClause(clause) && clause.usesUnauthenticatedRequestParameters) !=
+        null;
       return {
         key: name,
         lookupParameterValue: (parameters) => {
@@ -623,7 +640,9 @@ export class SqlTools {
             }
           });
           return fnImpl.call(...args);
-        }
+        },
+        usesAuthenticatedRequestParameters,
+        usesUnauthenticatedRequestParameters
       } satisfies ParameterValueClause;
     } else {
       throw new Error('unreachable condition');
@@ -659,7 +678,9 @@ function staticValueClause(value: SqliteValue): StaticValueClause {
     key: JSONBig.stringify(value),
     lookupParameterValue(_parameters) {
       return value;
-    }
+    },
+    usesAuthenticatedRequestParameters: false,
+    usesUnauthenticatedRequestParameters: false
   };
 }
 

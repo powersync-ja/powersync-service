@@ -2,7 +2,7 @@ import { parse, SelectedColumn } from 'pgsql-ast-parser';
 import { SqlRuleError } from './errors.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SqlTools } from './sql_filters.js';
-import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
+import { checkUnsupportedFeatures, isClauseError, isParameterValueClause } from './sql_support.js';
 import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
 import { TablePattern } from './TablePattern.js';
 import { TableQuerySchema } from './TableQuerySchema.js';
@@ -344,5 +344,55 @@ export class SqlParameterQuery {
 
     const parameters = await options.getParameterSets(lookups);
     return this.resolveBucketIds(parameters, options.parameters);
+  }
+
+  get hasAuthenticatedBucketParameters(): boolean {
+    // select request.user_id() as user_id where ...
+    const authenticatedExtractor =
+      Object.values(this.parameter_extractors).find(
+        (clause) => isParameterValueClause(clause) && clause.usesAuthenticatedRequestParameters
+      ) != null;
+    return authenticatedExtractor;
+  }
+
+  get hasAuthenticatedMatchClause(): boolean {
+    // select ... where user_id = request.user_id()
+    this.filter?.inputParameters.find;
+    const authenticatedInputParameter = this.filter!.usesAuthenticatedRequestParameters;
+    return authenticatedInputParameter;
+  }
+
+  get usesUnauthenticatedRequestParameters(): boolean {
+    // select ... where request.parameters() ->> 'include_comments'
+    const unauthenticatedInputParameter = this.filter!.usesUnauthenticatedRequestParameters;
+
+    // select request.parameters() ->> 'project_id'
+    const unauthenticatedExtractor =
+      Object.values(this.parameter_extractors).find(
+        (clause) => isParameterValueClause(clause) && clause.usesUnauthenticatedRequestParameters
+      ) != null;
+
+    return unauthenticatedInputParameter || unauthenticatedExtractor;
+  }
+
+  /**
+   * Safe:
+   * SELECT id as user_id FROM users WHERE users.user_id = request.user_id()
+   * SELECT request.jwt() ->> 'org_id' as org_id, id as project_id FROM projects WHERE id = request.parameters() ->> 'project_id'
+   * SELECT id as project_id FROM projects WHERE org_id = request.jwt() ->> 'org_id' AND id = request.parameters() ->> 'project_id'
+   * SELECT id as category_id FROM categories
+   *
+   * Dangerous:
+   * SELECT id as project_id FROM projects WHERE id = request.parameters() ->> 'project_id'
+   * SELECT id as project_id FROM projects WHERE id = request.parameters() ->> 'project_id' AND request.jwt() ->> 'role' = 'authenticated'
+   * SELECT id as category_id, request.parameters() ->> 'project_id' as project_id FROM categories
+   * SELECT id as category_id FROM categories WHERE request.parameters() ->> 'include_categories'
+   */
+  get usesDangerousRequestParameters() {
+    return (
+      this.usesUnauthenticatedRequestParameters &&
+      !this.hasAuthenticatedBucketParameters &&
+      !this.hasAuthenticatedMatchClause
+    );
   }
 }

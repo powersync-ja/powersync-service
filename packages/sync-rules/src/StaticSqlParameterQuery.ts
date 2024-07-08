@@ -1,7 +1,7 @@
 import { SelectedColumn, SelectFromStatement } from 'pgsql-ast-parser';
 import { SqlRuleError } from './errors.js';
 import { SqlTools } from './sql_filters.js';
-import { checkUnsupportedFeatures, isClauseError, sqliteBool } from './sql_support.js';
+import { checkUnsupportedFeatures, isClauseError, isParameterValueClause, sqliteBool } from './sql_support.js';
 import { ParameterValueClause, RequestParameters, SqliteJsonValue } from './types.js';
 import { getBucketId, isJsonValue } from './utils.js';
 
@@ -88,5 +88,35 @@ export class StaticSqlParameterQuery {
     }
 
     return [getBucketId(this.descriptor_name!, this.bucket_parameters!, result)];
+  }
+
+  get hasAuthenticatedBucketParameters(): boolean {
+    // select where request.jwt() ->> 'role' == 'authorized'
+    // we do not count this as a sufficient check
+    // const authenticatedFilter = this.filter!.usesAuthenticatedRequestParameters;
+
+    // select request.user_id() as user_id
+    const authenticatedExtractor =
+      Object.values(this.parameter_extractors).find(
+        (clause) => isParameterValueClause(clause) && clause.usesAuthenticatedRequestParameters
+      ) != null;
+    return authenticatedExtractor;
+  }
+
+  get usesUnauthenticatedRequestParameters(): boolean {
+    // select where request.parameters() ->> 'include_comments'
+    const unauthenticatedFilter = this.filter!.usesUnauthenticatedRequestParameters;
+
+    // select request.parameters() ->> 'project_id'
+    const unauthenticatedExtractor =
+      Object.values(this.parameter_extractors).find(
+        (clause) => isParameterValueClause(clause) && clause.usesUnauthenticatedRequestParameters
+      ) != null;
+
+    return unauthenticatedFilter || unauthenticatedExtractor;
+  }
+
+  get usesDangerousRequestParameters() {
+    return this.usesUnauthenticatedRequestParameters && !this.hasAuthenticatedBucketParameters;
   }
 }
