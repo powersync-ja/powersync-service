@@ -82,11 +82,7 @@ export function getOperatorFunction(op: string): SqlFunction {
     },
     getReturnType(args) {
       return getOperatorReturnType(op, args[0], args[1]);
-    },
-    parameters: [
-      { name: 'left', type: ExpressionType.ANY, optional: false },
-      { name: 'right', type: ExpressionType.ANY, optional: false }
-    ]
+    }
   };
 }
 

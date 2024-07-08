@@ -9,6 +9,8 @@ export interface SqlParameterFunction {
   usesAuthenticatedRequestParameters: boolean;
   /** request.parameters(), user_parameters.* */
   usesUnauthenticatedRequestParameters: boolean;
+  detail: string;
+  documentation: string;
 }
 
 const request_parameters: SqlParameterFunction = {
@@ -19,6 +21,9 @@ const request_parameters: SqlParameterFunction = {
   getReturnType() {
     return ExpressionType.TEXT;
   },
+  detail: 'Unauthenticated request parameters as JSON',
+  documentation:
+    'Returns parameters passed by the client as a JSON string. These parameters are not authenticated - any value can be passed in by the client.',
   usesAuthenticatedRequestParameters: false,
   usesUnauthenticatedRequestParameters: true
 };
@@ -31,6 +36,8 @@ const request_jwt: SqlParameterFunction = {
   getReturnType() {
     return ExpressionType.TEXT;
   },
+  detail: 'JWT payload as JSON',
+  documentation: 'The JWT payload as a JSON string. This is always validated against trusted keys.',
   usesAuthenticatedRequestParameters: true,
   usesUnauthenticatedRequestParameters: false
 };
@@ -43,6 +50,8 @@ const request_user_id: SqlParameterFunction = {
   getReturnType() {
     return ExpressionType.TEXT;
   },
+  detail: 'Authenticated user id',
+  documentation: "The id of the authenticated user.\nSame as `request.jwt() ->> 'sub'`.",
   usesAuthenticatedRequestParameters: true,
   usesUnauthenticatedRequestParameters: false
 };
