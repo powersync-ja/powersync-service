@@ -140,7 +140,10 @@ export class SqlParameterQuery {
     rows.errors.push(...tools.errors);
 
     if (rows.usesDangerousRequestParameters && !options?.accept_potentially_dangerous_queries) {
-      let err = new SqlRuleError('Pontially dangerous query based on unauthenticated client parameters', sql);
+      let err = new SqlRuleError(
+        "Potentially dangerous query based on parameters set by the client. The client can send any value for these parameters so it's not a good place to do authorization.",
+        sql
+      );
       err.type = 'warning';
       rows.errors.push(err);
     }
