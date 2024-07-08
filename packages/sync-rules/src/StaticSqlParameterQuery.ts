@@ -2,7 +2,7 @@ import { SelectedColumn, SelectFromStatement } from 'pgsql-ast-parser';
 import { SqlRuleError } from './errors.js';
 import { SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, isParameterValueClause, sqliteBool } from './sql_support.js';
-import { ParameterValueClause, RequestParameters, SqliteJsonValue } from './types.js';
+import { ParameterValueClause, QueryParseOptions, RequestParameters, SqliteJsonValue } from './types.js';
 import { getBucketId, isJsonValue } from './utils.js';
 
 /**
@@ -12,7 +12,7 @@ import { getBucketId, isJsonValue } from './utils.js';
  *    SELECT token_parameters.user_id as user_id WHERE token_parameters.is_admin
  */
 export class StaticSqlParameterQuery {
-  static fromSql(descriptor_name: string, sql: string, q: SelectFromStatement) {
+  static fromSql(descriptor_name: string, sql: string, q: SelectFromStatement, options?: QueryParseOptions) {
     const query = new StaticSqlParameterQuery();
 
     query.errors.push(...checkUnsupportedFeatures(sql, q));
@@ -50,8 +50,10 @@ export class StaticSqlParameterQuery {
 
     query.errors.push(...tools.errors);
 
-    if (query.usesDangerousRequestParameters) {
-      query.errors.push(new SqlRuleError('Pontially dangerous query based on unauthenticated client parameters', sql));
+    if (query.usesDangerousRequestParameters && !options?.accept_potentially_dangerous_queries) {
+      let err = new SqlRuleError('Pontially dangerous query based on unauthenticated client parameters', sql);
+      err.type = 'warning';
+      query.errors.push(err);
     }
     return query;
   }

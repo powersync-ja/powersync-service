@@ -10,6 +10,10 @@ export interface SyncRules {
   evaluateParameterRow(table: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[];
 }
 
+export interface QueryParseOptions {
+  accept_potentially_dangerous_queries?: boolean;
+}
+
 export interface EvaluatedParameters {
   lookup: SqliteJsonValue[];
 

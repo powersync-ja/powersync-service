@@ -449,7 +449,9 @@ describe('parameter queries', () => {
 
   test('request.parameters()', function () {
     const sql = "SELECT FROM posts WHERE category = request.parameters() ->> 'category_id'";
-    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    const query = SqlParameterQuery.fromSql('mybucket', sql, undefined, {
+      accept_potentially_dangerous_queries: true
+    }) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
     query.id = '1';
     expect(query.evaluateParameterRow({ id: 'group1', category: 'red' })).toEqual([
@@ -463,7 +465,9 @@ describe('parameter queries', () => {
 
   test('nested request.parameters() (1)', function () {
     const sql = "SELECT FROM posts WHERE category = request.parameters() -> 'details' ->> 'category'";
-    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    const query = SqlParameterQuery.fromSql('mybucket', sql, undefined, {
+      accept_potentially_dangerous_queries: true
+    }) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
     query.id = '1';
     expect(query.getLookups(normalizeTokenParameters({}, { details: { category: 'red' } }))).toEqual([
@@ -473,7 +477,9 @@ describe('parameter queries', () => {
 
   test('nested request.parameters() (2)', function () {
     const sql = "SELECT FROM posts WHERE category = request.parameters() ->> 'details.category'";
-    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    const query = SqlParameterQuery.fromSql('mybucket', sql, undefined, {
+      accept_potentially_dangerous_queries: true
+    }) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
     query.id = '1';
     expect(query.getLookups(normalizeTokenParameters({}, { details: { category: 'red' } }))).toEqual([
@@ -484,7 +490,9 @@ describe('parameter queries', () => {
   test('IN request.parameters()', function () {
     // Can use -> or ->> here
     const sql = "SELECT id as region_id FROM regions WHERE name IN request.parameters() -> 'region_names'";
-    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    const query = SqlParameterQuery.fromSql('mybucket', sql, undefined, {
+      accept_potentially_dangerous_queries: true
+    }) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
     query.id = '1';
     expect(query.evaluateParameterRow({ id: 'region1', name: 'colorado' })).toEqual([

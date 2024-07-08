@@ -10,6 +10,7 @@ import {
   EvaluatedParametersResult,
   EvaluationResult,
   QueryBucketIdOptions,
+  QueryParseOptions,
   RequestParameters,
   SourceSchema,
   SqliteRow
@@ -57,8 +58,8 @@ export class SqlBucketDescriptor {
     };
   }
 
-  addParameterQuery(sql: string, schema: SourceSchema | undefined): QueryParseResult {
-    const parameterQuery = SqlParameterQuery.fromSql(this.name, sql, schema);
+  addParameterQuery(sql: string, schema: SourceSchema | undefined, options: QueryParseOptions): QueryParseResult {
+    const parameterQuery = SqlParameterQuery.fromSql(this.name, sql, schema, options);
     if (this.bucket_parameters == null) {
       this.bucket_parameters = parameterQuery.bucket_parameters;
     } else {

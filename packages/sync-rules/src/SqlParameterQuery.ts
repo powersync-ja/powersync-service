@@ -13,6 +13,7 @@ import {
   ParameterMatchClause,
   ParameterValueClause,
   QueryBucketIdOptions,
+  QueryParseOptions,
   QuerySchema,
   RequestParameters,
   RowValueClause,
@@ -33,7 +34,8 @@ export class SqlParameterQuery {
   static fromSql(
     descriptor_name: string,
     sql: string,
-    schema?: SourceSchema
+    schema?: SourceSchema,
+    options?: QueryParseOptions
   ): SqlParameterQuery | StaticSqlParameterQuery {
     const parsed = parse(sql, { locationTracking: true });
     const rows = new SqlParameterQuery();
@@ -49,7 +51,7 @@ export class SqlParameterQuery {
 
     if (q.from == null) {
       // E.g. SELECT token_parameters.user_id as user_id WHERE token_parameters.is_admin
-      return StaticSqlParameterQuery.fromSql(descriptor_name, sql, q);
+      return StaticSqlParameterQuery.fromSql(descriptor_name, sql, q, options);
     }
 
     rows.errors.push(...checkUnsupportedFeatures(sql, q));
@@ -137,8 +139,10 @@ export class SqlParameterQuery {
     rows.tools = tools;
     rows.errors.push(...tools.errors);
 
-    if (rows.usesDangerousRequestParameters) {
-      rows.errors.push(new SqlRuleError('Pontially dangerous query based on unauthenticated client parameters', sql));
+    if (rows.usesDangerousRequestParameters && !options?.accept_potentially_dangerous_queries) {
+      let err = new SqlRuleError('Pontially dangerous query based on unauthenticated client parameters', sql);
+      err.type = 'warning';
+      rows.errors.push(err);
     }
     return rows;
   }

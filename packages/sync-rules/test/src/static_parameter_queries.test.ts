@@ -56,7 +56,9 @@ describe('static parameter queries', () => {
 
   test('request.parameters()', function () {
     const sql = "SELECT request.parameters() ->> 'org_id' as org_id";
-    const query = SqlParameterQuery.fromSql('mybucket', sql) as StaticSqlParameterQuery;
+    const query = SqlParameterQuery.fromSql('mybucket', sql, undefined, {
+      accept_potentially_dangerous_queries: true
+    }) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
 
     expect(query.getStaticBucketIds(normalizeTokenParameters({}, { org_id: 'test' }))).toEqual(['mybucket["test"]']);

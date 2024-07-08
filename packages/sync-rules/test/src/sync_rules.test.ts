@@ -679,6 +679,40 @@ bucket_definitions:
     ]);
   });
 
+  test('dangerous query errors', () => {
+    const rules = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    parameters: SELECT request.parameters() ->> 'project_id' as project_id
+    data: []
+    `,
+      { schema: BASIC_SCHEMA }
+    );
+
+    expect(rules.errors).toMatchObject([
+      {
+        message: 'Pontially dangerous query based on unauthenticated client parameters',
+        type: 'warning'
+      }
+    ]);
+  });
+
+  test('dangerous query errors - ignored', () => {
+    const rules = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    accept_potentially_dangerous_queries: true
+    parameters: SELECT request.parameters() ->> 'project_id' as project_id
+    data: []
+    `,
+      { schema: BASIC_SCHEMA }
+    );
+
+    expect(rules.errors).toEqual([]);
+  });
+
   test('schema generation', () => {
     const schema = new StaticSchema([
       {
