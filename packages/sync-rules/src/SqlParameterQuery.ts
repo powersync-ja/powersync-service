@@ -136,6 +136,10 @@ export class SqlParameterQuery {
     }
     rows.tools = tools;
     rows.errors.push(...tools.errors);
+
+    if (rows.usesDangerousRequestParameters) {
+      rows.errors.push(new SqlRuleError('Pontially dangerous query based on unauthenticated client parameters', sql));
+    }
     return rows;
   }
 

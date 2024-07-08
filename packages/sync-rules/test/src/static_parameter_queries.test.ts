@@ -80,32 +80,36 @@ describe('static parameter queries', () => {
     expect(query.getStaticBucketIds(normalizeTokenParameters({ user_id: 'user1' }))).toEqual(['mybucket["user1"]']);
   });
 
-  describe('[un]authenticatedRequestParameters', function () {
-    function makeTest(
-      sql: string,
-      usesAuthenticatedRequestParameters: boolean,
-      usesUnauthenticatedRequestParameters: boolean
-    ) {
+  describe('dangerous queries', function () {
+    function testDangerousQuery(sql: string) {
       test(sql, function () {
-        const query = SqlParameterQuery.fromSql('mybucket', sql) as StaticSqlParameterQuery;
+        const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+        expect(query.errors).toMatchObject([
+          {
+            message: 'Pontially dangerous query based on unauthenticated client parameters'
+          }
+        ]);
+        expect(query.usesDangerousRequestParameters).toEqual(true);
+      });
+    }
+    function testSafeQuery(sql: string) {
+      test(sql, function () {
+        const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
         expect(query.errors).toEqual([]);
-        expect(query.hasAuthenticatedBucketParameters).toEqual(usesAuthenticatedRequestParameters);
-        expect(query.usesUnauthenticatedRequestParameters).toEqual(usesUnauthenticatedRequestParameters);
+        expect(query.usesDangerousRequestParameters).toEqual(false);
       });
     }
 
-    makeTest('select request.user_id() as user_id', true, false);
-    makeTest("select request.parameters() ->> 'project_id' as project_id", false, true);
-    makeTest("select request.user_id() as user_id, request.parameters() ->> 'project_id' as project_id", true, true);
-    makeTest("select where request.parameters() ->> 'include_comments'", false, true);
-    makeTest("select where request.jwt() ->> 'role' = 'authenticated'", false, false);
-    makeTest("select request.user_id() as user_id where request.jwt() ->> 'role' = 'authenticated'", true, false);
+    testSafeQuery('select request.user_id() as user_id');
+    testDangerousQuery("select request.parameters() ->> 'project_id' as project_id");
+    testSafeQuery("select request.user_id() as user_id, request.parameters() ->> 'project_id' as project_id");
+    testDangerousQuery("select where request.parameters() ->> 'include_comments'");
+    testSafeQuery("select where request.jwt() ->> 'role' = 'authenticated'");
+    testSafeQuery("select request.user_id() as user_id where request.jwt() ->> 'role' = 'authenticated'");
     // Does use token parameters, but is still considered dangerous
     // Any authenticated user can select an arbitrary project_id
-    makeTest(
-      "select request.parameters() ->> 'project_id' as project_id where request.jwt() ->> 'role' = 'authenticated'",
-      false,
-      true
+    testDangerousQuery(
+      "select request.parameters() ->> 'project_id' as project_id where request.jwt() ->> 'role' = 'authenticated'"
     );
   });
 });

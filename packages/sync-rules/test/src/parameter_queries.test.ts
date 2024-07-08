@@ -642,7 +642,11 @@ describe('parameter queries', () => {
     function testDangerousQuery(sql: string) {
       test(sql, function () {
         const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
-        expect(query.errors).toEqual([]);
+        expect(query.errors).toMatchObject([
+          {
+            message: 'Pontially dangerous query based on unauthenticated client parameters'
+          }
+        ]);
         expect(query.usesDangerousRequestParameters).toEqual(true);
       });
     }
