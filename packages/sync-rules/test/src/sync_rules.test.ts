@@ -692,7 +692,8 @@ bucket_definitions:
 
     expect(rules.errors).toMatchObject([
       {
-        message: 'Pontially dangerous query based on unauthenticated client parameters',
+        message:
+          "Potentially dangerous query based on parameters set by the client. The client can send any value for these parameters so it's not a good place to do authorization.",
         type: 'warning'
       }
     ]);
