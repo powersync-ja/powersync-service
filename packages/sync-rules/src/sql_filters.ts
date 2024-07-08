@@ -44,6 +44,7 @@ import {
 } from './types.js';
 import { isJsonValue } from './utils.js';
 import { JSONBig } from '@powersync/service-jsonbig';
+import { REQUEST_FUNCTIONS } from './request_functions.js';
 
 export const MATCH_CONST_FALSE: TrueIfParametersMatch = [];
 export const MATCH_CONST_TRUE: TrueIfParametersMatch = [{}];
@@ -397,38 +398,26 @@ export class SqlTools {
         const argClauses = expr.args.map((arg) => this.compileClause(arg));
         const composed = this.composeFunction(fnImpl, argClauses, expr.args);
         return composed;
-      } else if (schema == 'request' && fn == 'parameters') {
+      } else if (schema == 'request') {
         // Special function
         if (!this.supports_parameter_expressions) {
-          return this.error(`Function '${schema}.${fn}' is not available in data queries`, expr);
+          return this.error(`${schema} schema is not available in data queries`, expr);
         }
 
         if (expr.args.length > 0) {
           return this.error(`Function '${schema}.${fn}' does not take arguments`, expr);
         }
 
-        return {
-          key: 'request.parameters()',
-          lookupParameterValue(parameters) {
-            return parameters.raw_user_parameters;
-          }
-        } satisfies ParameterValueClause;
-      } else if (schema == 'request' && fn == 'jwt') {
-        // Special function
-        if (!this.supports_parameter_expressions) {
-          return this.error(`Function '${schema}.${fn}' is not available in data queries`, expr);
+        if (fn in REQUEST_FUNCTIONS) {
+          return {
+            key: 'request.parameters()',
+            lookupParameterValue(parameters) {
+              return REQUEST_FUNCTIONS[fn].call(parameters);
+            }
+          } satisfies ParameterValueClause;
+        } else {
+          return this.error(`Function '${schema}.${fn}' is not defined`, expr);
         }
-
-        if (expr.args.length > 0) {
-          return this.error(`Function '${schema}.${fn}' does not take arguments`, expr);
-        }
-
-        return {
-          key: 'request.jwt()',
-          lookupParameterValue(parameters) {
-            return parameters.raw_token_payload;
-          }
-        } satisfies ParameterValueClause;
       } else {
         // Unknown function with schema
         return this.error(`Function '${schema}.${fn}' is not defined`, expr);
@@ -640,6 +629,8 @@ export class SqlTools {
       throw new Error('unreachable condition');
     }
   }
+
+  parameterFunction() {}
 }
 
 function isStatic(expr: Expr) {

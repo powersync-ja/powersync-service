@@ -70,4 +70,13 @@ describe('static parameter queries', () => {
 
     expect(query.getStaticBucketIds(normalizeTokenParameters({ user_id: 'user1' }))).toEqual(['mybucket["user1"]']);
   });
+
+  test('request.user_id()', function () {
+    const sql = 'SELECT request.user_id() as user_id';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as StaticSqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    expect(query.bucket_parameters).toEqual(['user_id']);
+
+    expect(query.getStaticBucketIds(normalizeTokenParameters({ user_id: 'user1' }))).toEqual(['mybucket["user1"]']);
+  });
 });

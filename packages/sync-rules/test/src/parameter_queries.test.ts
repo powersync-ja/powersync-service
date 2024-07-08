@@ -552,6 +552,15 @@ describe('parameter queries', () => {
     expect(query.getLookups(requestParams)).toEqual([['mybucket', undefined, 'user1']]);
   });
 
+  test('request.user_id()', function () {
+    const sql = 'SELECT FROM users WHERE id = request.user_id()';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
+
+    const requestParams = normalizeTokenParameters({ user_id: 'user1' });
+    expect(query.getLookups(requestParams)).toEqual([['mybucket', undefined, 'user1']]);
+  });
+
   test('invalid OR in parameter queries', () => {
     // Supporting this case is more tricky. We can do this by effectively denormalizing the OR clause
     // into separate queries, but it's a significant change. For now, developers should do that manually.
