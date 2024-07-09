@@ -1,10 +1,9 @@
 import { Expr, ExprRef, NodeLocation, SelectedColumn } from 'pgsql-ast-parser';
 import { nil } from 'pgsql-ast-parser/src/utils.js';
-import { ExpressionType, SqliteType, TYPE_NONE } from './ExpressionType.js';
+import { ExpressionType, TYPE_NONE } from './ExpressionType.js';
 import { SqlRuleError } from './errors.js';
 import {
   BASIC_OPERATORS,
-  CAST_TYPES,
   OPERATOR_IS_NOT_NULL,
   OPERATOR_IS_NULL,
   OPERATOR_JSON_EXTRACT_JSON,
@@ -12,7 +11,6 @@ import {
   OPERATOR_NOT,
   SQL_FUNCTIONS,
   SqlFunction,
-  cast,
   castOperator,
   sqliteTypeOf
 } from './sql_functions.js';
@@ -28,7 +26,6 @@ import {
   isRowValueClause,
   isStaticValueClause,
   orFilters,
-  sqliteNot,
   toBooleanParameterSetClause
 } from './sql_support.js';
 import {
@@ -39,13 +36,15 @@ import {
   ParameterValueClause,
   QueryParameters,
   QuerySchema,
+  RowValueClause,
   SqliteJsonRow,
   SqliteValue,
-  RowValueClause,
   StaticValueClause,
   TrueIfParametersMatch
 } from './types.js';
 import { isJsonValue } from './utils.js';
+import { JSONBig } from '@powersync/service-jsonbig';
+import { REQUEST_FUNCTIONS } from './request_functions.js';
 
 export const MATCH_CONST_FALSE: TrueIfParametersMatch = [];
 export const MATCH_CONST_TRUE: TrueIfParametersMatch = [{}];
@@ -94,6 +93,9 @@ export interface SqlToolsOptions {
    */
   supports_parameter_expressions?: boolean;
 
+  /**
+   * Schema for validations.
+   */
   schema?: QuerySchema;
 }
 
@@ -152,12 +154,22 @@ export class SqlTools {
     return toBooleanParameterSetClause(base);
   }
 
-  compileStaticExtractor(expr: Expr | nil): RowValueClause | ClauseError {
+  compileRowValueExtractor(expr: Expr | nil): RowValueClause | ClauseError {
     const clause = this.compileClause(expr);
     if (!isRowValueClause(clause) && !isClauseError(clause)) {
-      throw new SqlRuleError('Bucket parameters are not allowed here', this.sql, expr ?? undefined);
+      return this.error('Parameter match expression is not allowed here', expr ?? undefined);
     }
     return clause;
+  }
+
+  compileParameterValueExtractor(expr: Expr | nil): ParameterValueClause | StaticValueClause | ClauseError {
+    const clause = this.compileClause(expr);
+
+    if (isClauseError(clause) || isStaticValueClause(clause) || isParameterValueClause(clause)) {
+      return clause;
+    }
+
+    return this.error('Parameter match expression is not allowed here', expr ?? undefined);
   }
 
   /**
@@ -218,12 +230,27 @@ export class SqlTools {
         }
       } else if (op == '=') {
         // Options:
-        //  1. static, static
-        //  2. static, parameterValue
+        //  1. row value, row value
+        //  2. row value, parameter value
         //  3. static true, parameterMatch - not supported yet
+        //  4. parameter value, parameter value
 
         let staticFilter1: RowValueClause;
         let otherFilter1: CompiledClause;
+
+        if (
+          this.supports_parameter_expressions &&
+          isParameterValueClause(leftFilter) &&
+          isParameterValueClause(rightFilter)
+        ) {
+          // 4. parameterValue, parameterValue
+          // This includes (static value, parameter value)
+          // Not applicable to data queries (composeFunction will error).
+          // Some of those cases can still be handled with case (2),
+          // so we filter for supports_parameter_expressions above.
+          const fnImpl = getOperatorFunction('=');
+          return this.composeFunction(fnImpl, [leftFilter, rightFilter], [left, right]);
+        }
 
         if (!isRowValueClause(leftFilter) && !isRowValueClause(rightFilter)) {
           return this.error(`Cannot have bucket parameters on both sides of = operator`, expr);
@@ -238,10 +265,10 @@ export class SqlTools {
         const otherFilter = otherFilter1;
 
         if (isRowValueClause(otherFilter)) {
-          // 1. static = static
+          // 1. row value = row value
           return compileStaticOperator(op, leftFilter as RowValueClause, rightFilter as RowValueClause);
         } else if (isParameterValueClause(otherFilter)) {
-          // 2. static = parameterValue
+          // 2. row value = parameter value
           const inputParam = basicInputParameter(otherFilter);
 
           return {
@@ -261,10 +288,12 @@ export class SqlTools {
               }
 
               return [{ [inputParam.key]: value }];
-            }
+            },
+            usesAuthenticatedRequestParameters: otherFilter.usesAuthenticatedRequestParameters,
+            usesUnauthenticatedRequestParameters: otherFilter.usesUnauthenticatedRequestParameters
           } satisfies ParameterMatchClause;
         } else if (isParameterMatchClause(otherFilter)) {
-          // 3. static, parameterMatch
+          // 3. row value = parameterMatch
           // (bucket.param = 'something') = staticValue
           // To implement this, we need to ensure the static value here can only be true.
           return this.error(`Parameter match clauses cannot be used here`, expr);
@@ -300,7 +329,9 @@ export class SqlTools {
               return values.map((value) => {
                 return { [inputParam.key]: value };
               });
-            }
+            },
+            usesAuthenticatedRequestParameters: leftFilter.usesAuthenticatedRequestParameters,
+            usesUnauthenticatedRequestParameters: leftFilter.usesUnauthenticatedRequestParameters
           } satisfies ParameterMatchClause;
         } else if (
           this.supports_expanding_parameters &&
@@ -334,7 +365,9 @@ export class SqlTools {
                 return MATCH_CONST_FALSE;
               }
               return [{ [inputParam.key]: value }];
-            }
+            },
+            usesAuthenticatedRequestParameters: rightFilter.usesAuthenticatedRequestParameters,
+            usesUnauthenticatedRequestParameters: rightFilter.usesUnauthenticatedRequestParameters
           } satisfies ParameterMatchClause;
         } else {
           return this.error(`Unsupported usage of IN operator`, expr);
@@ -359,8 +392,10 @@ export class SqlTools {
         return this.error(`Operator ${expr.op} is not supported`, expr);
       }
     } else if (expr.type == 'call' && expr.function?.name != null) {
+      const schema = expr.function.schema; // schema.function()
       const fn = expr.function.name;
-      if (expr.function.schema == null) {
+      if (schema == null) {
+        // Just fn()
         const fnImpl = SQL_FUNCTIONS[fn];
         if (fnImpl == null) {
           return this.error(`Function '${fn}' is not defined`, expr);
@@ -369,8 +404,32 @@ export class SqlTools {
         const argClauses = expr.args.map((arg) => this.compileClause(arg));
         const composed = this.composeFunction(fnImpl, argClauses, expr.args);
         return composed;
+      } else if (schema == 'request') {
+        // Special function
+        if (!this.supports_parameter_expressions) {
+          return this.error(`${schema} schema is not available in data queries`, expr);
+        }
+
+        if (expr.args.length > 0) {
+          return this.error(`Function '${schema}.${fn}' does not take arguments`, expr);
+        }
+
+        if (fn in REQUEST_FUNCTIONS) {
+          const fnImpl = REQUEST_FUNCTIONS[fn];
+          return {
+            key: 'request.parameters()',
+            lookupParameterValue(parameters) {
+              return fnImpl.call(parameters);
+            },
+            usesAuthenticatedRequestParameters: fnImpl.usesAuthenticatedRequestParameters,
+            usesUnauthenticatedRequestParameters: fnImpl.usesUnauthenticatedRequestParameters
+          } satisfies ParameterValueClause;
+        } else {
+          return this.error(`Function '${schema}.${fn}' is not defined`, expr);
+        }
       } else {
-        return this.error(`Function '${expr.function.schema}.${fn}' is not defined`, expr);
+        // Unknown function with schema
+        return this.error(`Function '${schema}.${fn}' is not defined`, expr);
       }
     } else if (expr.type == 'member') {
       const operand = this.compileClause(expr.operand);
@@ -470,7 +529,9 @@ export class SqlTools {
       lookupParameterValue: (parameters) => {
         const pt: SqliteJsonRow | undefined = (parameters as any)[table];
         return pt?.[column] ?? null;
-      }
+      },
+      usesAuthenticatedRequestParameters: table == 'token_parameters',
+      usesUnauthenticatedRequestParameters: table == 'user_parameters'
     } satisfies ParameterValueClause;
   }
 
@@ -558,16 +619,14 @@ export class SqlTools {
         }
       } satisfies RowValueClause;
     } else if (argsType == 'param') {
-      const argStrings = argClauses.map((e) => {
-        if (isParameterValueClause(e)) {
-          return e.key;
-        } else if (isStaticValueClause(e)) {
-          return e.value;
-        } else {
-          throw new Error('unreachable condition');
-        }
-      });
+      const argStrings = argClauses.map((e) => (e as ParameterValueClause).key);
       const name = `${fnImpl.debugName}(${argStrings.join(',')})`;
+      const usesAuthenticatedRequestParameters =
+        argClauses.find((clause) => isParameterValueClause(clause) && clause.usesAuthenticatedRequestParameters) !=
+        null;
+      const usesUnauthenticatedRequestParameters =
+        argClauses.find((clause) => isParameterValueClause(clause) && clause.usesUnauthenticatedRequestParameters) !=
+        null;
       return {
         key: name,
         lookupParameterValue: (parameters) => {
@@ -581,12 +640,16 @@ export class SqlTools {
             }
           });
           return fnImpl.call(...args);
-        }
+        },
+        usesAuthenticatedRequestParameters,
+        usesUnauthenticatedRequestParameters
       } satisfies ParameterValueClause;
     } else {
       throw new Error('unreachable condition');
     }
   }
+
+  parameterFunction() {}
 }
 
 function isStatic(expr: Expr) {
@@ -606,10 +669,18 @@ function staticValue(expr: Expr): SqliteValue {
 function staticValueClause(value: SqliteValue): StaticValueClause {
   return {
     value: value,
+    // RowValueClause compatibility
     evaluate: () => value,
     getType() {
       return ExpressionType.fromTypeText(sqliteTypeOf(value));
-    }
+    },
+    // ParamterValueClause compatibility
+    key: JSONBig.stringify(value),
+    lookupParameterValue(_parameters) {
+      return value;
+    },
+    usesAuthenticatedRequestParameters: false,
+    usesUnauthenticatedRequestParameters: false
   };
 }
 

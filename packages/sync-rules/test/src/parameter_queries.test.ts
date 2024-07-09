@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { SqlParameterQuery, normalizeTokenParameters } from '../../src/index.js';
-import { BASIC_SCHEMA } from './util.js';
+import { SqlParameterQuery } from '../../src/index.js';
+import { BASIC_SCHEMA, normalizeTokenParameters } from './util.js';
 
 describe('parameter queries', () => {
   test('token_parameters IN query', function () {
@@ -447,6 +447,128 @@ describe('parameter queries', () => {
     expect(query.getLookups(normalizeTokenParameters({ user_id: 'test' }))).toEqual([['mybucket', undefined, 'TEST']]);
   });
 
+  test('request.parameters()', function () {
+    const sql = "SELECT FROM posts WHERE category = request.parameters() ->> 'category_id'";
+    const query = SqlParameterQuery.fromSql('mybucket', sql, undefined, {
+      accept_potentially_dangerous_queries: true
+    }) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    query.id = '1';
+    expect(query.evaluateParameterRow({ id: 'group1', category: 'red' })).toEqual([
+      {
+        lookup: ['mybucket', '1', 'red'],
+        bucket_parameters: [{}]
+      }
+    ]);
+    expect(query.getLookups(normalizeTokenParameters({}, { category_id: 'red' }))).toEqual([['mybucket', '1', 'red']]);
+  });
+
+  test('nested request.parameters() (1)', function () {
+    const sql = "SELECT FROM posts WHERE category = request.parameters() -> 'details' ->> 'category'";
+    const query = SqlParameterQuery.fromSql('mybucket', sql, undefined, {
+      accept_potentially_dangerous_queries: true
+    }) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    query.id = '1';
+    expect(query.getLookups(normalizeTokenParameters({}, { details: { category: 'red' } }))).toEqual([
+      ['mybucket', '1', 'red']
+    ]);
+  });
+
+  test('nested request.parameters() (2)', function () {
+    const sql = "SELECT FROM posts WHERE category = request.parameters() ->> 'details.category'";
+    const query = SqlParameterQuery.fromSql('mybucket', sql, undefined, {
+      accept_potentially_dangerous_queries: true
+    }) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    query.id = '1';
+    expect(query.getLookups(normalizeTokenParameters({}, { details: { category: 'red' } }))).toEqual([
+      ['mybucket', '1', 'red']
+    ]);
+  });
+
+  test('IN request.parameters()', function () {
+    // Can use -> or ->> here
+    const sql = "SELECT id as region_id FROM regions WHERE name IN request.parameters() -> 'region_names'";
+    const query = SqlParameterQuery.fromSql('mybucket', sql, undefined, {
+      accept_potentially_dangerous_queries: true
+    }) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    query.id = '1';
+    expect(query.evaluateParameterRow({ id: 'region1', name: 'colorado' })).toEqual([
+      {
+        lookup: ['mybucket', '1', 'colorado'],
+        bucket_parameters: [
+          {
+            region_id: 'region1'
+          }
+        ]
+      }
+    ]);
+    expect(
+      query.getLookups(
+        normalizeTokenParameters(
+          {},
+          {
+            region_names: ['colorado', 'texas']
+          }
+        )
+      )
+    ).toEqual([
+      ['mybucket', '1', 'colorado'],
+      ['mybucket', '1', 'texas']
+    ]);
+  });
+
+  test('user_parameters in SELECT', function () {
+    const sql = 'SELECT id, user_parameters.other_id as other_id FROM users WHERE id = token_parameters.user_id';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    query.id = '1';
+    expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
+      {
+        lookup: ['mybucket', '1', 'user1'],
+        bucket_parameters: [{ id: 'user1' }]
+      }
+    ]);
+    const requestParams = normalizeTokenParameters({ user_id: 'user1' }, { other_id: 'red' });
+    expect(query.getLookups(requestParams)).toEqual([['mybucket', '1', 'user1']]);
+  });
+
+  test('request.parameters() in SELECT', function () {
+    const sql =
+      "SELECT id, request.parameters() ->> 'other_id' as other_id FROM users WHERE id = token_parameters.user_id";
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    query.id = '1';
+    expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
+      {
+        lookup: ['mybucket', '1', 'user1'],
+        bucket_parameters: [{ id: 'user1' }]
+      }
+    ]);
+    const requestParams = normalizeTokenParameters({ user_id: 'user1' }, { other_id: 'red' });
+    expect(query.getLookups(requestParams)).toEqual([['mybucket', '1', 'user1']]);
+  });
+
+  test('request.jwt()', function () {
+    const sql = "SELECT FROM users WHERE id = request.jwt() ->> 'sub'";
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
+
+    const requestParams = normalizeTokenParameters({ user_id: 'user1' });
+    expect(query.getLookups(requestParams)).toEqual([['mybucket', undefined, 'user1']]);
+  });
+
+  test('request.user_id()', function () {
+    const sql = 'SELECT FROM users WHERE id = request.user_id()';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors).toEqual([]);
+
+    const requestParams = normalizeTokenParameters({ user_id: 'user1' });
+    expect(query.getLookups(requestParams)).toEqual([['mybucket', undefined, 'user1']]);
+  });
+
   test('invalid OR in parameter queries', () => {
     // Supporting this case is more tricky. We can do this by effectively denormalizing the OR clause
     // into separate queries, but it's a significant change. For now, developers should do that manually.
@@ -488,6 +610,12 @@ describe('parameter queries', () => {
     expect(query.errors[0].message).toMatch(/Cannot use table values and parameters in the same clauses/);
   });
 
+  test('invalid parameter match clause (5)', () => {
+    const sql = 'SELECT (user_parameters.role = posts.roles) as r FROM posts';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors[0].message).toMatch(/Parameter match expression is not allowed here/);
+  });
+
   test('invalid function schema', () => {
     const sql = 'SELECT FROM users WHERE something.length(users.id) = 0';
     const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
@@ -516,5 +644,46 @@ describe('parameter queries', () => {
         type: 'warning'
       }
     ]);
+  });
+
+  describe('dangerous queries', function () {
+    function testDangerousQuery(sql: string) {
+      test(sql, function () {
+        const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+        expect(query.errors).toMatchObject([
+          {
+            message:
+              "Potentially dangerous query based on parameters set by the client. The client can send any value for these parameters so it's not a good place to do authorization."
+          }
+        ]);
+        expect(query.usesDangerousRequestParameters).toEqual(true);
+      });
+    }
+    function testSafeQuery(sql: string) {
+      test(sql, function () {
+        const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+        expect(query.errors).toEqual([]);
+        expect(query.usesDangerousRequestParameters).toEqual(false);
+      });
+    }
+
+    testSafeQuery('SELECT id as user_id FROM users WHERE users.user_id = request.user_id()');
+    testSafeQuery(
+      "SELECT request.jwt() ->> 'org_id' as org_id, id as project_id FROM projects WHERE id = request.parameters() ->> 'project_id'"
+    );
+    testSafeQuery(
+      "SELECT id as project_id FROM projects WHERE org_id = request.jwt() ->> 'org_id' AND id = request.parameters() ->> 'project_id'"
+    );
+    testSafeQuery('SELECT id as category_id FROM categories');
+    // Can be considered dangerous, but tricky to implement with the current parsing structure
+    testSafeQuery(
+      "SELECT id as project_id FROM projects WHERE id = request.parameters() ->> 'project_id' AND request.jwt() ->> 'role' = 'authenticated'"
+    );
+
+    testDangerousQuery("SELECT id as project_id FROM projects WHERE id = request.parameters() ->> 'project_id'");
+
+    testDangerousQuery("SELECT id as category_id, request.parameters() ->> 'project_id' as project_id FROM categories");
+    // Can be safe, but better to opt in
+    testDangerousQuery("SELECT id as category_id FROM categories WHERE request.parameters() ->> 'include_categories'");
   });
 });

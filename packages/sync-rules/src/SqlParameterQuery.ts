@@ -1,27 +1,28 @@
 import { parse, SelectedColumn } from 'pgsql-ast-parser';
+import { SqlRuleError } from './errors.js';
+import { SourceTableInterface } from './SourceTableInterface.js';
+import { SqlTools } from './sql_filters.js';
+import { checkUnsupportedFeatures, isClauseError, isParameterValueClause } from './sql_support.js';
+import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
+import { TablePattern } from './TablePattern.js';
+import { TableQuerySchema } from './TableQuerySchema.js';
 import {
   EvaluatedParameters,
   EvaluatedParametersResult,
-  FilterParameters,
   InputParameter,
   ParameterMatchClause,
+  ParameterValueClause,
   QueryBucketIdOptions,
+  QueryParseOptions,
   QuerySchema,
+  RequestParameters,
+  RowValueClause,
   SourceSchema,
   SqliteJsonRow,
   SqliteJsonValue,
-  SqliteRow,
-  RowValueClause,
-  SyncParameters
+  SqliteRow
 } from './types.js';
-import { SqlRuleError } from './errors.js';
-import { SqlTools } from './sql_filters.js';
-import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
 import { filterJsonRow, getBucketId, isJsonValue, isSelectStatement } from './utils.js';
-import { TablePattern } from './TablePattern.js';
-import { SourceTableInterface } from './SourceTableInterface.js';
-import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
-import { TableQuerySchema } from './TableQuerySchema.js';
 
 /**
  * Represents a parameter query, such as:
@@ -33,7 +34,8 @@ export class SqlParameterQuery {
   static fromSql(
     descriptor_name: string,
     sql: string,
-    schema?: SourceSchema
+    schema?: SourceSchema,
+    options?: QueryParseOptions
   ): SqlParameterQuery | StaticSqlParameterQuery {
     const parsed = parse(sql, { locationTracking: true });
     const rows = new SqlParameterQuery();
@@ -49,7 +51,7 @@ export class SqlParameterQuery {
 
     if (q.from == null) {
       // E.g. SELECT token_parameters.user_id as user_id WHERE token_parameters.is_admin
-      return StaticSqlParameterQuery.fromSql(descriptor_name, sql, q);
+      return StaticSqlParameterQuery.fromSql(descriptor_name, sql, q, options);
     }
 
     rows.errors.push(...checkUnsupportedFeatures(sql, q));
@@ -113,20 +115,12 @@ export class SqlParameterQuery {
     rows.columns = q.columns ?? [];
     rows.static_columns = [];
     rows.lookup_columns = [];
-    rows.static_tools = new SqlTools({
-      // This is used for values not on the parameter query table - these operate directly on
-      // token_parameters or user_parameters.
-      table: undefined,
-      value_tables: ['token_parameters', 'user_parameters'],
-      parameter_tables: [],
-      sql
-    });
 
     for (let column of q.columns ?? []) {
       const name = tools.getSpecificOutputName(column);
       if (tools.isTableRef(column.expr)) {
         rows.lookup_columns.push(column);
-        const extractor = tools.compileStaticExtractor(column.expr);
+        const extractor = tools.compileRowValueExtractor(column.expr);
         if (isClauseError(extractor)) {
           // Error logged already
           continue;
@@ -134,17 +128,25 @@ export class SqlParameterQuery {
         rows.lookup_extractors[name] = extractor;
       } else {
         rows.static_columns.push(column);
-        const extractor = rows.static_tools.compileStaticExtractor(column.expr);
+        const extractor = tools.compileParameterValueExtractor(column.expr);
         if (isClauseError(extractor)) {
           // Error logged already
           continue;
         }
-        rows.static_extractors[name] = extractor;
+        rows.parameter_extractors[name] = extractor;
       }
     }
     rows.tools = tools;
     rows.errors.push(...tools.errors);
-    rows.errors.push(...rows.static_tools.errors);
+
+    if (rows.usesDangerousRequestParameters && !options?.accept_potentially_dangerous_queries) {
+      let err = new SqlRuleError(
+        "Potentially dangerous query based on parameters set by the client. The client can send any value for these parameters so it's not a good place to do authorization.",
+        sql
+      );
+      err.type = 'warning';
+      rows.errors.push(err);
+    }
     return rows;
   }
 
@@ -163,7 +165,7 @@ export class SqlParameterQuery {
   /**
    * Example: SELECT *token_parameters.user_id*
    */
-  static_extractors: Record<string, RowValueClause> = {};
+  parameter_extractors: Record<string, ParameterValueClause> = {};
 
   filter?: ParameterMatchClause;
   descriptor_name?: string;
@@ -183,7 +185,6 @@ export class SqlParameterQuery {
 
   id?: string;
   tools?: SqlTools;
-  static_tools?: SqlTools;
 
   errors: SqlRuleError[] = [];
 
@@ -235,9 +236,7 @@ export class SqlParameterQuery {
   /**
    * Given partial parameter rows, turn into bucket ids.
    */
-  resolveBucketIds(bucketParameters: SqliteJsonRow[], parameters: SyncParameters): string[] {
-    const tables = { token_parameters: parameters.token_parameters, user_parameters: parameters.user_parameters };
-
+  resolveBucketIds(bucketParameters: SqliteJsonRow[], parameters: RequestParameters): string[] {
     // Filters have already been applied and gotten us the set of bucketParameters - don't attempt to filter again.
     // We _do_ need to evaluate the output columns here, using a combination of precomputed bucketParameters,
     // and values from token parameters.
@@ -249,7 +248,7 @@ export class SqlParameterQuery {
           if (name in this.lookup_extractors) {
             result[`bucket.${name}`] = lookup[name];
           } else {
-            const value = this.static_extractors[name].evaluate(tables);
+            const value = this.parameter_extractors[name].lookupParameterValue(parameters);
             if (!isJsonValue(value)) {
               // Not valid - exclude.
               // Should we error instead?
@@ -270,7 +269,7 @@ export class SqlParameterQuery {
    *
    * Each lookup is [bucket definition name, parameter query index, ...lookup values]
    */
-  getLookups(parameters: SyncParameters): SqliteJsonValue[][] {
+  getLookups(parameters: RequestParameters): SqliteJsonValue[][] {
     if (!this.expanded_input_parameter) {
       let lookup: SqliteJsonValue[] = [this.descriptor_name!, this.id!];
 
@@ -356,5 +355,55 @@ export class SqlParameterQuery {
 
     const parameters = await options.getParameterSets(lookups);
     return this.resolveBucketIds(parameters, options.parameters);
+  }
+
+  get hasAuthenticatedBucketParameters(): boolean {
+    // select request.user_id() as user_id where ...
+    const authenticatedExtractor =
+      Object.values(this.parameter_extractors).find(
+        (clause) => isParameterValueClause(clause) && clause.usesAuthenticatedRequestParameters
+      ) != null;
+    return authenticatedExtractor;
+  }
+
+  get hasAuthenticatedMatchClause(): boolean {
+    // select ... where user_id = request.user_id()
+    this.filter?.inputParameters.find;
+    const authenticatedInputParameter = this.filter!.usesAuthenticatedRequestParameters;
+    return authenticatedInputParameter;
+  }
+
+  get usesUnauthenticatedRequestParameters(): boolean {
+    // select ... where request.parameters() ->> 'include_comments'
+    const unauthenticatedInputParameter = this.filter!.usesUnauthenticatedRequestParameters;
+
+    // select request.parameters() ->> 'project_id'
+    const unauthenticatedExtractor =
+      Object.values(this.parameter_extractors).find(
+        (clause) => isParameterValueClause(clause) && clause.usesUnauthenticatedRequestParameters
+      ) != null;
+
+    return unauthenticatedInputParameter || unauthenticatedExtractor;
+  }
+
+  /**
+   * Safe:
+   * SELECT id as user_id FROM users WHERE users.user_id = request.user_id()
+   * SELECT request.jwt() ->> 'org_id' as org_id, id as project_id FROM projects WHERE id = request.parameters() ->> 'project_id'
+   * SELECT id as project_id FROM projects WHERE org_id = request.jwt() ->> 'org_id' AND id = request.parameters() ->> 'project_id'
+   * SELECT id as category_id FROM categories
+   *
+   * Dangerous:
+   * SELECT id as project_id FROM projects WHERE id = request.parameters() ->> 'project_id'
+   * SELECT id as project_id FROM projects WHERE id = request.parameters() ->> 'project_id' AND request.jwt() ->> 'role' = 'authenticated'
+   * SELECT id as category_id, request.parameters() ->> 'project_id' as project_id FROM categories
+   * SELECT id as category_id FROM categories WHERE request.parameters() ->> 'include_categories'
+   */
+  get usesDangerousRequestParameters() {
+    return (
+      this.usesUnauthenticatedRequestParameters &&
+      !this.hasAuthenticatedBucketParameters &&
+      !this.hasAuthenticatedMatchClause
+    );
   }
 }

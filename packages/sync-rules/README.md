@@ -78,18 +78,17 @@ There are two types of parameter queries:
 
 These are effecitively just a function of `(request) => Array[{bucket}]`. These queries can select values from request parameters, and apply filters from request parameters.
 
-The WHERE filter is a ParameterMatchClause that operates on the request parameters.
-The bucket parameters are each a RowValueClause that operates on the request parameters.
+The WHERE filter is a ParameterValueClause that operates on the request parameters.
+The bucket parameters are each a ParameterValueClause that operates on the request parameters.
 
 Compiled expression clauses are structured as follows:
 
 ```SQL
 'literal' -- StaticValueClause
-token_parameters.param -- RowValueClause
-fn(token_parameters.param) -- RowValueClause. This includes most operators.
+token_parameters.param -- ParameterValueClause
+request.parameters() -- ParameterValueClause
+fn(token_parameters.param) -- ParameterValueClause. This includes most operators.
 ```
-
-The implementation may be refactored to be more consistent with `SqlParameterQuery` in the future - using `RowValueClause` for request parameters is not ideal.
 
 ### SqlParameterQuery
 
@@ -107,7 +106,7 @@ The compiled query is based on the following:
 
 1. WHERE clause compiled into a `ParameterMatchClause`. This computes the lookup index.
 2. `lookup_extractors`: Set of `RowValueClause`. Each of these represent a SELECT clause based on a row value, e.g. `SELECT users.org_id`. These are evaluated during the `evaluateParameterRow` call.
-3. `static_extractors`. Set of `RowValueClause`. Each of these represent a SELECT clause based on a request parameter, e.g. `SELECT token_parameters.user_id`. These are evaluated during the `queryBucketIds` call.
+3. `parameter_extractors`. Set of `ParameterValueClause`. Each of these represent a SELECT clause based on a request parameter, e.g. `SELECT token_parameters.user_id`. These are evaluated during the `queryBucketIds` call.
 
 Compiled expression clauses are structured as follows:
 
@@ -116,6 +115,7 @@ Compiled expression clauses are structured as follows:
 mytable.column -- RowValueClause
 fn(mytable.column) -- RowValueClause. This includes most operators.
 token_parameters.param -- ParameterValueClause
+request.parameters() -- ParameterValueClause
 fn(token_parameters.param) -- ParameterValueClause
 fn(mytable.column, token_parameters.param) -- Error: not allowed
 

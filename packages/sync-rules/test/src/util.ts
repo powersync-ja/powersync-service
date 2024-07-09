@@ -1,4 +1,11 @@
-import { DEFAULT_SCHEMA, DEFAULT_TAG, SourceTableInterface, StaticSchema } from '../../src/index.js';
+import {
+  DEFAULT_SCHEMA,
+  DEFAULT_TAG,
+  RequestJwtPayload,
+  RequestParameters,
+  SourceTableInterface,
+  StaticSchema
+} from '../../src/index.js';
 
 export class TestSourceTable implements SourceTableInterface {
   readonly connectionTag = DEFAULT_TAG;
@@ -31,3 +38,18 @@ export const BASIC_SCHEMA = new StaticSchema([
     ]
   }
 ]);
+
+/**
+ * For backwards-compatiblity in tests only.
+ */
+export function normalizeTokenParameters(
+  token_parameters: Record<string, any>,
+  user_parameters?: Record<string, any>
+): RequestParameters {
+  const tokenPayload = {
+    sub: token_parameters.user_id ?? '',
+    parameters: { ...token_parameters }
+  } satisfies RequestJwtPayload;
+  delete tokenPayload.parameters.user_id;
+  return new RequestParameters(tokenPayload, user_parameters ?? {});
+}

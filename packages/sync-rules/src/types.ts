@@ -1,12 +1,17 @@
-import { JsonContainer } from '@powersync/service-jsonbig';
+import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { ColumnDefinition, ExpressionType } from './ExpressionType.js';
 import { TablePattern } from './TablePattern.js';
+import { toSyncRulesParameters } from './utils.js';
 
 export interface SyncRules {
   evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
 
   evaluateParameterRow(table: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[];
+}
+
+export interface QueryParseOptions {
+  accept_potentially_dangerous_queries?: boolean;
 }
 
 export interface EvaluatedParameters {
@@ -58,9 +63,48 @@ export function isEvaluatedParameters(e: EvaluatedParametersResult): e is Evalua
 
 export type EvaluationResult = EvaluatedRow | EvaluationError;
 
-export interface SyncParameters {
+export interface RequestJwtPayload {
+  /**
+   * user_id
+   */
+  sub: string;
+
+  [key: string]: any;
+}
+
+export class RequestParameters {
   token_parameters: SqliteJsonRow;
   user_parameters: SqliteJsonRow;
+
+  /**
+   * JSON string of raw request parameters.
+   */
+  raw_user_parameters: string;
+
+  /**
+   * JSON string of raw request parameters.
+   */
+  raw_token_payload: string;
+
+  user_id: string;
+
+  constructor(tokenPayload: RequestJwtPayload, clientParameters: Record<string, any>) {
+    // This type is verified when we verify the token
+    const legacyParameters = tokenPayload.parameters as Record<string, any> | undefined;
+
+    const token_parameters = {
+      ...legacyParameters,
+      // sub takes presedence over any embedded parameters
+      user_id: tokenPayload.sub
+    };
+
+    this.token_parameters = toSyncRulesParameters(token_parameters);
+    this.user_id = tokenPayload.sub;
+    this.raw_token_payload = JSONBig.stringify(tokenPayload);
+
+    this.raw_user_parameters = JSONBig.stringify(clientParameters);
+    this.user_parameters = toSyncRulesParameters(clientParameters);
+  }
 }
 
 /**
@@ -151,11 +195,11 @@ export interface InputParameter {
   filteredRowToLookupValue(filterParameters: FilterParameters): SqliteJsonValue;
 
   /**
-   * Given SyncParamters, return the associated value to lookup.
+   * Given RequestParameters, return the associated value to lookup.
    *
    * Only relevant for parameter queries.
    */
-  parametersToLookupValue(parameters: SyncParameters): SqliteValue;
+  parametersToLookupValue(parameters: RequestParameters): SqliteValue;
 }
 
 export interface EvaluateRowOptions {
@@ -202,12 +246,22 @@ export interface ParameterMatchClause {
    * @return The filter parameters
    */
   filterRow(tables: QueryParameters): TrueIfParametersMatch;
+
+  /** request.user_id(), request.jwt(), token_parameters.* */
+  usesAuthenticatedRequestParameters: boolean;
+  /** request.parameters(), user_parameters.* */
+  usesUnauthenticatedRequestParameters: boolean;
 }
 
 /**
  * This is a clause that operates on request or bucket parameters.
  */
 export interface ParameterValueClause {
+  /** request.user_id(), request.jwt(), token_parameters.* */
+  usesAuthenticatedRequestParameters: boolean;
+  /** request.parameters(), user_parameters.* */
+  usesUnauthenticatedRequestParameters: boolean;
+
   /**
    * An unique key for the clause.
    *
@@ -217,11 +271,11 @@ export interface ParameterValueClause {
   key: string;
 
   /**
-   * Given SyncParamters, return the associated value to lookup.
+   * Given RequestParameters, return the associated value to lookup.
    *
    * Only relevant for parameter queries.
    */
-  lookupParameterValue(parameters: SyncParameters): SqliteValue;
+  lookupParameterValue(parameters: RequestParameters): SqliteValue;
 }
 
 export interface QuerySchema {
@@ -243,9 +297,9 @@ export interface RowValueClause {
 /**
  * Completely static value.
  *
- * Extends RowValueClause to simplify code in some places.
+ * Extends RowValueClause and ParameterValueClause to simplify code in some places.
  */
-export interface StaticValueClause extends RowValueClause {
+export interface StaticValueClause extends RowValueClause, ParameterValueClause {
   readonly value: SqliteValue;
 }
 
@@ -262,7 +316,7 @@ export type TrueIfParametersMatch = FilterParameters[];
 
 export interface QueryBucketIdOptions {
   getParameterSets: (lookups: SqliteJsonValue[][]) => Promise<SqliteJsonRow[]>;
-  parameters: SyncParameters;
+  parameters: RequestParameters;
 }
 
 export interface SourceSchemaTable {

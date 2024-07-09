@@ -16,3 +16,4 @@ export * from './DartSchemaGenerator.js';
 export * from './JsSchemaGenerator.js';
 export * from './generators.js';
 export * from './SqlDataQuery.js';
+export * from './request_functions.js';

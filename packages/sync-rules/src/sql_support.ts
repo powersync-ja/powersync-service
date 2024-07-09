@@ -82,11 +82,7 @@ export function getOperatorFunction(op: string): SqlFunction {
     },
     getReturnType(args) {
       return getOperatorReturnType(op, args[0], args[1]);
-    },
-    parameters: [
-      { name: 'left', type: ExpressionType.ANY, optional: false },
-      { name: 'right', type: ExpressionType.ANY, optional: false }
-    ]
+    }
   };
 }
 
@@ -143,7 +139,11 @@ export function andFilters(a: CompiledClause, b: CompiledClause): CompiledClause
         }
       }
       return results;
-    }
+    },
+    usesAuthenticatedRequestParameters:
+      aFilter.usesAuthenticatedRequestParameters || bFilter.usesAuthenticatedRequestParameters,
+    usesUnauthenticatedRequestParameters:
+      aFilter.usesUnauthenticatedRequestParameters || bFilter.usesUnauthenticatedRequestParameters
   } satisfies ParameterMatchClause;
 }
 
@@ -197,7 +197,12 @@ export function orParameterSetClauses(a: ParameterMatchClause, b: ParameterMatch
 
       let results: FilterParameters[] = [...aResult, ...bResult];
       return results;
-    }
+    },
+    // Pessimistic check
+    usesAuthenticatedRequestParameters: a.usesAuthenticatedRequestParameters && b.usesAuthenticatedRequestParameters,
+    // Optimistic check
+    usesUnauthenticatedRequestParameters:
+      a.usesUnauthenticatedRequestParameters || b.usesUnauthenticatedRequestParameters
   } satisfies ParameterMatchClause;
 }
 
@@ -217,7 +222,9 @@ export function toBooleanParameterSetClause(clause: CompiledClause): ParameterMa
       filterRow(tables: QueryParameters): TrueIfParametersMatch {
         const value = sqliteBool(clause.evaluate(tables));
         return value ? MATCH_CONST_TRUE : MATCH_CONST_FALSE;
-      }
+      },
+      usesAuthenticatedRequestParameters: false,
+      usesUnauthenticatedRequestParameters: false
     } satisfies ParameterMatchClause;
   } else if (isClauseError(clause)) {
     return {
@@ -226,7 +233,9 @@ export function toBooleanParameterSetClause(clause: CompiledClause): ParameterMa
       unbounded: false,
       filterRow(tables: QueryParameters): TrueIfParametersMatch {
         throw new Error('invalid clause');
-      }
+      },
+      usesAuthenticatedRequestParameters: false,
+      usesUnauthenticatedRequestParameters: false
     } satisfies ParameterMatchClause;
   } else {
     // Equivalent to `bucket.param = true`
@@ -250,7 +259,9 @@ export function toBooleanParameterSetClause(clause: CompiledClause): ParameterMa
       unbounded: false,
       filterRow(tables: QueryParameters): TrueIfParametersMatch {
         return [{ [key]: SQLITE_TRUE }];
-      }
+      },
+      usesAuthenticatedRequestParameters: clause.usesAuthenticatedRequestParameters,
+      usesUnauthenticatedRequestParameters: clause.usesUnauthenticatedRequestParameters
     } satisfies ParameterMatchClause;
   }
 }

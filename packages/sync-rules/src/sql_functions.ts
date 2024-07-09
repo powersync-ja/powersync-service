@@ -34,12 +34,17 @@ export interface FunctionParameter {
 
 export interface SqlFunction {
   readonly debugName: string;
-  parameters: FunctionParameter[];
   call: (...args: SqliteValue[]) => SqliteValue;
   getReturnType(args: ExpressionType[]): ExpressionType;
 }
 
-const upper: SqlFunction = {
+export interface DocumentedSqlFunction extends SqlFunction {
+  parameters: FunctionParameter[];
+  detail: string;
+  documentation?: string;
+}
+
+const upper: DocumentedSqlFunction = {
   debugName: 'upper',
   call(value: SqliteValue) {
     const text = castAsText(value);
@@ -48,10 +53,11 @@ const upper: SqlFunction = {
   parameters: [{ name: 'value', type: ExpressionType.ANY, optional: false }],
   getReturnType(args) {
     return ExpressionType.TEXT;
-  }
+  },
+  detail: 'Convert text to upper case'
 };
 
-const lower: SqlFunction = {
+const lower: DocumentedSqlFunction = {
   debugName: 'lower',
   call(value: SqliteValue) {
     const text = castAsText(value);
@@ -60,10 +66,11 @@ const lower: SqlFunction = {
   parameters: [{ name: 'value', type: ExpressionType.ANY, optional: false }],
   getReturnType(args) {
     return ExpressionType.TEXT;
-  }
+  },
+  detail: 'Convert text to lower case'
 };
 
-const hex: SqlFunction = {
+const hex: DocumentedSqlFunction = {
   debugName: 'hex',
   call(value: SqliteValue) {
     const binary = castAsBlob(value);
@@ -75,10 +82,11 @@ const hex: SqlFunction = {
   parameters: [{ name: 'value', type: ExpressionType.ANY, optional: false }],
   getReturnType(args) {
     return ExpressionType.TEXT;
-  }
+  },
+  detail: 'Convert a blob to hex text'
 };
 
-const length: SqlFunction = {
+const length: DocumentedSqlFunction = {
   debugName: 'length',
   call(value: SqliteValue) {
     if (value == null) {
@@ -93,10 +101,11 @@ const length: SqlFunction = {
   parameters: [{ name: 'value', type: ExpressionType.ANY, optional: false }],
   getReturnType(args) {
     return ExpressionType.INTEGER;
-  }
+  },
+  detail: 'Returns the length of a text or blob value'
 };
 
-const base64: SqlFunction = {
+const base64: DocumentedSqlFunction = {
   debugName: 'base64',
   call(value: SqliteValue) {
     const binary = castAsBlob(value);
@@ -108,10 +117,11 @@ const base64: SqlFunction = {
   parameters: [{ name: 'value', type: ExpressionType.ANY, optional: false }],
   getReturnType(args) {
     return ExpressionType.TEXT;
-  }
+  },
+  detail: 'Convert a blob to base64 text'
 };
 
-const fn_typeof: SqlFunction = {
+const fn_typeof: DocumentedSqlFunction = {
   debugName: 'typeof',
   call(value: SqliteValue) {
     return sqliteTypeOf(value);
@@ -119,10 +129,12 @@ const fn_typeof: SqlFunction = {
   parameters: [{ name: 'value', type: ExpressionType.ANY, optional: false }],
   getReturnType(args) {
     return ExpressionType.TEXT;
-  }
+  },
+  detail: 'Returns the SQLite type of a value',
+  documentation: `Returns 'null', 'text', 'integer', 'real' or 'blob'.`
 };
 
-const ifnull: SqlFunction = {
+const ifnull: DocumentedSqlFunction = {
   debugName: 'ifnull',
   call(x: SqliteValue, y: SqliteValue) {
     if (x == null) {
@@ -143,10 +155,11 @@ const ifnull: SqlFunction = {
     } else {
       return args[0].or(args[1]);
     }
-  }
+  },
+  detail: 'Returns the first non-null parameter'
 };
 
-const json_extract: SqlFunction = {
+const json_extract: DocumentedSqlFunction = {
   debugName: 'json_extract',
   call(json: SqliteValue, path: SqliteValue) {
     return jsonExtract(json, path, 'json_extract');
@@ -157,10 +170,11 @@ const json_extract: SqlFunction = {
   ],
   getReturnType(args) {
     return ExpressionType.ANY_JSON;
-  }
+  },
+  detail: 'Extract a JSON property'
 };
 
-const json_array_length: SqlFunction = {
+const json_array_length: DocumentedSqlFunction = {
   debugName: 'json_array_length',
   call(json: SqliteValue, path?: SqliteValue) {
     if (path != null) {
@@ -183,10 +197,11 @@ const json_array_length: SqlFunction = {
   ],
   getReturnType(args) {
     return ExpressionType.INTEGER;
-  }
+  },
+  detail: 'Returns the length of a JSON array'
 };
 
-const json_valid: SqlFunction = {
+const json_valid: DocumentedSqlFunction = {
   debugName: 'json_valid',
   call(json: SqliteValue) {
     const jsonString = castAsText(json);
@@ -203,10 +218,12 @@ const json_valid: SqlFunction = {
   parameters: [{ name: 'json', type: ExpressionType.ANY, optional: false }],
   getReturnType(args) {
     return ExpressionType.INTEGER;
-  }
+  },
+  detail: 'Checks whether JSON text is valid',
+  documentation: 'Returns 1 if valid, 0 if invalid'
 };
 
-const unixepoch: SqlFunction = {
+const unixepoch: DocumentedSqlFunction = {
   debugName: 'unixepoch',
   call(value?: SqliteValue, specifier?: SqliteValue, specifier2?: SqliteValue) {
     if (value == null) {
@@ -248,10 +265,11 @@ const unixepoch: SqlFunction = {
   ],
   getReturnType(args) {
     return ExpressionType.INTEGER.or(ExpressionType.REAL);
-  }
+  },
+  detail: 'Convert a date to unix epoch'
 };
 
-const datetime: SqlFunction = {
+const datetime: DocumentedSqlFunction = {
   debugName: 'datetime',
   call(value?: SqliteValue, specifier?: SqliteValue, specifier2?: SqliteValue) {
     if (value == null) {
@@ -294,10 +312,11 @@ const datetime: SqlFunction = {
   ],
   getReturnType(args) {
     return ExpressionType.TEXT;
-  }
+  },
+  detail: 'Convert a date string or unix epoch to a consistent date string'
 };
 
-const st_asgeojson: SqlFunction = {
+const st_asgeojson: DocumentedSqlFunction = {
   debugName: 'st_asgeojson',
   call(geometry?: SqliteValue) {
     const geo = parseGeometry(geometry);
@@ -309,10 +328,11 @@ const st_asgeojson: SqlFunction = {
   parameters: [{ name: 'geometry', type: ExpressionType.ANY, optional: false }],
   getReturnType(args) {
     return ExpressionType.TEXT;
-  }
+  },
+  detail: 'Covert PostGIS geometry to GeoJSON text'
 };
 
-const st_astext: SqlFunction = {
+const st_astext: DocumentedSqlFunction = {
   debugName: 'st_astext',
   call(geometry?: SqliteValue) {
     const geo = parseGeometry(geometry);
@@ -324,9 +344,11 @@ const st_astext: SqlFunction = {
   parameters: [{ name: 'geometry', type: ExpressionType.ANY, optional: false }],
   getReturnType(args) {
     return ExpressionType.TEXT;
-  }
+  },
+  detail: 'Covert PostGIS geometry to WKT text'
 };
-const st_x: SqlFunction = {
+
+const st_x: DocumentedSqlFunction = {
   debugName: 'st_x',
   call(geometry?: SqliteValue) {
     const geo = parseGeometry(geometry);
@@ -341,10 +363,11 @@ const st_x: SqlFunction = {
   parameters: [{ name: 'geometry', type: ExpressionType.ANY, optional: false }],
   getReturnType(args) {
     return ExpressionType.REAL;
-  }
+  },
+  detail: 'Get the X value of a PostGIS point'
 };
 
-const st_y: SqlFunction = {
+const st_y: DocumentedSqlFunction = {
   debugName: 'st_y',
   call(geometry?: SqliteValue) {
     const geo = parseGeometry(geometry);
@@ -359,7 +382,8 @@ const st_y: SqlFunction = {
   parameters: [{ name: 'geometry', type: ExpressionType.ANY, optional: false }],
   getReturnType(args) {
     return ExpressionType.REAL;
-  }
+  },
+  detail: 'Get the Y value of a PostGIS point'
 };
 
 export const SQL_FUNCTIONS_NAMED = {
@@ -387,7 +411,7 @@ export const SQL_FUNCTIONS_CALL = Object.fromEntries(
   Object.entries(SQL_FUNCTIONS_NAMED).map(([name, fn]) => [name, fn.call])
 ) as Record<FunctionName, SqlFunction['call']>;
 
-export const SQL_FUNCTIONS: Record<string, SqlFunction> = SQL_FUNCTIONS_NAMED;
+export const SQL_FUNCTIONS: Record<string, DocumentedSqlFunction> = SQL_FUNCTIONS_NAMED;
 
 export const CAST_TYPES = new Set<String>(['text', 'numeric', 'integer', 'real', 'blob']);
 
@@ -718,10 +742,6 @@ export const OPERATOR_JSON_EXTRACT_JSON: SqlFunction = {
   call(json: SqliteValue, path: SqliteValue) {
     return jsonExtract(json, path, '->');
   },
-  parameters: [
-    { name: 'json', type: ExpressionType.ANY, optional: false },
-    { name: 'path', type: ExpressionType.ANY, optional: false }
-  ],
   getReturnType(args) {
     return ExpressionType.ANY_JSON;
   }
@@ -732,10 +752,6 @@ export const OPERATOR_JSON_EXTRACT_SQL: SqlFunction = {
   call(json: SqliteValue, path: SqliteValue) {
     return jsonExtract(json, path, '->>');
   },
-  parameters: [
-    { name: 'json', type: ExpressionType.ANY, optional: false },
-    { name: 'path', type: ExpressionType.ANY, optional: false }
-  ],
   getReturnType(_args) {
     return ExpressionType.ANY_JSON;
   }
@@ -746,7 +762,6 @@ export const OPERATOR_IS_NULL: SqlFunction = {
   call(value: SqliteValue) {
     return evaluateOperator('IS', value, null);
   },
-  parameters: [{ name: 'value', type: ExpressionType.ANY, optional: false }],
   getReturnType(_args) {
     return ExpressionType.INTEGER;
   }
@@ -757,7 +772,6 @@ export const OPERATOR_IS_NOT_NULL: SqlFunction = {
   call(value: SqliteValue) {
     return evaluateOperator('IS NOT', value, null);
   },
-  parameters: [{ name: 'value', type: ExpressionType.ANY, optional: false }],
   getReturnType(_args) {
     return ExpressionType.INTEGER;
   }
@@ -768,7 +782,6 @@ export const OPERATOR_NOT: SqlFunction = {
   call(value: SqliteValue) {
     return sqliteNot(value);
   },
-  parameters: [{ name: 'value', type: ExpressionType.ANY, optional: false }],
   getReturnType(_args) {
     return ExpressionType.INTEGER;
   }
@@ -786,7 +799,6 @@ export function castOperator(castTo: string | undefined): SqlFunction | null {
       }
       return cast(value, castTo!);
     },
-    parameters: [{ name: 'value', type: ExpressionType.ANY, optional: false }],
     getReturnType(_args) {
       return ExpressionType.fromTypeText(castTo as SqliteType);
     }

@@ -5,10 +5,9 @@ import {
   DartSchemaGenerator,
   JsSchemaGenerator,
   SqlSyncRules,
-  StaticSchema,
-  normalizeTokenParameters
+  StaticSchema
 } from '../../src/index.js';
-import { ASSETS, BASIC_SCHEMA, TestSourceTable, USERS } from './util.js';
+import { ASSETS, BASIC_SCHEMA, TestSourceTable, USERS, normalizeTokenParameters } from './util.js';
 
 describe('sync rules', () => {
   test('parse empty sync rules', () => {
@@ -41,7 +40,7 @@ bucket_definitions:
         bucket: 'mybucket[]'
       }
     ]);
-    expect(rules.getStaticBucketIds({ token_parameters: {}, user_parameters: {} })).toEqual(['mybucket[]']);
+    expect(rules.getStaticBucketIds(normalizeTokenParameters({}))).toEqual(['mybucket[]']);
   });
 
   test('parse global sync rules with filter', () => {
@@ -55,8 +54,10 @@ bucket_definitions:
     expect(bucket.bucket_parameters).toEqual([]);
     const param_query = bucket.global_parameter_queries[0];
 
-    expect(param_query.filter!.filterRow({ token_parameters: { is_admin: 1n } })).toEqual([{}]);
-    expect(param_query.filter!.filterRow({ token_parameters: { is_admin: 0n } })).toEqual([]);
+    // Internal API, subject to change
+    expect(param_query.filter!.lookupParameterValue(normalizeTokenParameters({ is_admin: 1n }))).toEqual(1n);
+    expect(param_query.filter!.lookupParameterValue(normalizeTokenParameters({ is_admin: 0n }))).toEqual(0n);
+
     expect(rules.getStaticBucketIds(normalizeTokenParameters({ is_admin: true }))).toEqual(['mybucket[]']);
     expect(rules.getStaticBucketIds(normalizeTokenParameters({ is_admin: false }))).toEqual([]);
     expect(rules.getStaticBucketIds(normalizeTokenParameters({}))).toEqual([]);
@@ -676,6 +677,41 @@ bucket_definitions:
         type: 'warning'
       }
     ]);
+  });
+
+  test('dangerous query errors', () => {
+    const rules = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    parameters: SELECT request.parameters() ->> 'project_id' as project_id
+    data: []
+    `,
+      { schema: BASIC_SCHEMA }
+    );
+
+    expect(rules.errors).toMatchObject([
+      {
+        message:
+          "Potentially dangerous query based on parameters set by the client. The client can send any value for these parameters so it's not a good place to do authorization.",
+        type: 'warning'
+      }
+    ]);
+  });
+
+  test('dangerous query errors - ignored', () => {
+    const rules = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    accept_potentially_dangerous_queries: true
+    parameters: SELECT request.parameters() ->> 'project_id' as project_id
+    data: []
+    `,
+      { schema: BASIC_SCHEMA }
+    );
+
+    expect(rules.errors).toEqual([]);
   });
 
   test('schema generation', () => {
