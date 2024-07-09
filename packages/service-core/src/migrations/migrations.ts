@@ -8,6 +8,7 @@ import * as locks from '../locks/locks-index.js';
 import { Direction } from './definitions.js';
 import { createMongoMigrationStore } from './store/migration-store.js';
 import { execute, writeLogsToStore } from './executor.js';
+import { logger } from '@powersync/lib-services-framework';
 
 const DEFAULT_MONGO_LOCK_COLLECTION = 'locks';
 const MONGO_LOCK_PROCESS = 'migrations';
@@ -63,6 +64,7 @@ export const migrate = async (options: MigrationOptions) => {
   const { storage } = config;
 
   const client = db.mongo.createMongoClient(storage);
+  logger.info('Connecting to MongoDB');
   await client.connect();
 
   const clientDB = client.db(storage.database);
@@ -73,6 +75,7 @@ export const migrate = async (options: MigrationOptions) => {
   });
 
   // Only one process should execute this at a time.
+  logger.info('Acquiring lock');
   const lockId = await manager.acquire();
 
   if (!lockId) {
@@ -92,6 +95,7 @@ export const migrate = async (options: MigrationOptions) => {
   process.addListener('beforeExit', releaseLock);
 
   try {
+    logger.info('Loading migrations');
     const migrations = await loadMigrations(MIGRATIONS_DIR, runner_config);
 
     // Use the provided config to connect to Mongo
@@ -99,6 +103,7 @@ export const migrate = async (options: MigrationOptions) => {
 
     const state = await store.load();
 
+    logger.info('Running migrations');
     const logStream = execute({
       direction: direction,
       migrations,
@@ -111,8 +116,11 @@ export const migrate = async (options: MigrationOptions) => {
       state
     });
   } finally {
+    logger.info('Releasing lock');
     await releaseLock();
+    logger.info('Closing database');
     await client.close(true);
     process.removeListener('beforeExit', releaseLock);
+    logger.info('Done with migrations');
   }
 };
