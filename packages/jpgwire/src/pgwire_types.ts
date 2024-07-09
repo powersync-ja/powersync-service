@@ -3,6 +3,7 @@
 import type { PgoutputRelation } from 'pgwire/mod.js';
 import { dateToSqlite, lsnMakeComparable, timestampToSqlite, timestamptzToSqlite } from './util.js';
 import { JsonContainer } from '@powersync/service-jsonbig';
+import { DatabaseInputRow } from '@powersync/service-sync-rules';
 
 export class PgType {
   static decode(text: string, typeOid: number) {
@@ -253,23 +254,3 @@ export function decodeTuple(relation: PgoutputRelation, tupleRaw: Record<string,
   }
   return result;
 }
-
-/**
- * A value as received from the database.
- */
-export type DatabaseInputValue =
-  | SqliteValue
-  | boolean
-  | DatabaseInputValue[]
-  | JsonContainer
-  | { [key: string]: DatabaseInputValue };
-
-/**
- * A value supported by the SQLite type system.
- */
-export type SqliteValue = number | string | null | bigint | Uint8Array;
-
-/**
- * Database input row. Can contain nested arrays and objects.
- */
-export type DatabaseInputRow = { [column: string]: DatabaseInputValue };

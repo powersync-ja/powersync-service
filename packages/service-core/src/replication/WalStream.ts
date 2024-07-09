@@ -1,6 +1,6 @@
 import * as pgwire from '@powersync/service-jpgwire';
 import { container, errors, logger } from '@powersync/lib-services-framework';
-import { SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
+import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
 
 import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
@@ -361,7 +361,7 @@ WHERE  oid = $1::regclass`,
     });
   }
 
-  static *getQueryData(results: Iterable<pgwire.DatabaseInputRow>): Generator<SqliteRow> {
+  static *getQueryData(results: Iterable<DatabaseInputRow>): Generator<SqliteRow> {
     for (let row of results) {
       yield toSyncRulesRow(row);
     }
@@ -387,7 +387,7 @@ WHERE  oid = $1::regclass`,
       }
 
       const rows = chunk.rows.map((row) => {
-        let q: pgwire.DatabaseInputRow = {};
+        let q: DatabaseInputRow = {};
         for (let c of columns) {
           q[c.name] = row[c.i];
         }
