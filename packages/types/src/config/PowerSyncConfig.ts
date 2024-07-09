@@ -19,7 +19,16 @@ export const portParser = {
   })
 };
 
-export const postgresConnection = t.object({
+export const dataSourceConfig = t.object({
+  // Unique string identifier for the data source
+  type: t.string,
+  /** Unique identifier for the connection - optional when a single connection is present. */
+  id: t.string.optional(),
+});
+
+export type DataSourceConfig = t.Decoded<typeof dataSourceConfig>;
+
+export const postgresConnection = dataSourceConfig.and(t.object({
   type: t.literal('postgresql'),
   /** Unique identifier for the connection - optional when a single connection is present. */
   id: t.string.optional(),
@@ -49,7 +58,7 @@ export const postgresConnection = t.object({
    * Prefix for the slot name. Defaults to "powersync_"
    */
   slot_name_prefix: t.string.optional()
-});
+}));
 
 export type PostgresConnection = t.Decoded<typeof postgresConnection>;
 
@@ -95,7 +104,8 @@ export type StorageConfig = t.Decoded<typeof storageConfig>;
 export const powerSyncConfig = t.object({
   replication: t
     .object({
-      connections: t.array(postgresConnection).optional()
+      connections: t.array(postgresConnection).optional(),
+      data_sources: t.array(dataSourceConfig).optional()
     })
     .optional(),
 
