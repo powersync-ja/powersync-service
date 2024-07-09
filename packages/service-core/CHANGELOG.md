@@ -1,5 +1,23 @@
 # @powersync/service-core
 
+## 0.4.0
+
+### Minor Changes
+
+- 0a250e3: Support `request.parameters()`, `request.jwt()` and `request.user_id()`.
+  Warn on potentially dangerous queries using request parameters.
+
+### Patch Changes
+
+- 299becf: Support expressions on request parameters in parameter queries.
+- 2a0d2de: Add logging and hard exit to migration script
+- 0c2e2f5: Fix schema validation for parameter queries.
+- Updated dependencies [0a250e3]
+- Updated dependencies [299becf]
+- Updated dependencies [0c2e2f5]
+- Updated dependencies [0a250e3]
+  - @powersync/service-sync-rules@0.18.0
+
 ## 0.3.0
 
 ### Minor Changes
