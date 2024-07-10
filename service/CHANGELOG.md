@@ -1,5 +1,16 @@
 # powersync-open-service
 
+## 0.3.1
+
+### Patch Changes
+
+- 909f71a: Fix concurrent connection limiting for websockets
+- Updated dependencies [909f71a]
+- Updated dependencies [1066f86]
+  - @powersync/service-rsocket-router@0.0.9
+  - @powersync/lib-services-framework@0.1.1
+  - @powersync/service-core@0.4.1
+
 ## 0.3.0
 
 ### Minor Changes
