@@ -530,4 +530,82 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
       }
     );
   }
+
+  async compact(options: CompactOptions) {
+    if (options.memoryLimitMB ?? 512 < 256) {
+      throw new Error('Minimum of 256MB memory required');
+    }
+    const idLimitBytes = ((options.memoryLimitMB ?? 512) - 128) * 1024 * 1024;
+
+    const stream = this.db.bucket_data
+      .find(
+        {
+          _id: idPrefixFilter<BucketDataKey>({ g: this.group_id }, ['b', 'o'])
+        },
+        {
+          projection: {
+            _id: 1,
+            op: 1,
+            table: 1,
+            row_id: 1,
+            source_table: 1,
+            source_key: 1
+          }
+        }
+      )
+      .sort({ _id: -1 })
+      .stream();
+
+    let currentBucket: string | null = null;
+    let seen = new Set<string>();
+    let trackingSize = 0;
+
+    let updates: mongo.AnyBulkWriteOperation<BucketDataDocument>[] = [];
+    for await (let doc of stream) {
+      if (doc._id.b != currentBucket) {
+        currentBucket = doc._id.b;
+        seen = new Set();
+        trackingSize = 0;
+      }
+
+      if (doc.op == 'REMOVE' || doc.op == 'PUT') {
+        const key = `${doc.table}/${doc.row_id}/${doc.source_table}/${doc.source_key.toHexString()}`;
+        if (seen.has(key)) {
+          updates.push({
+            updateOne: {
+              filter: {
+                _id: doc._id
+              },
+              update: {
+                $set: {
+                  op: 'MOVE',
+                  data: JSON.stringify({ target: `${doc._id.o}` })
+                }
+              }
+            }
+          });
+
+          if (updates.length >= 1000) {
+            await this.db.bucket_data.bulkWrite(updates);
+            updates = [];
+          }
+        } else {
+          if (trackingSize > idLimitBytes) {
+            seen = new Set();
+            trackingSize = 0;
+          }
+          seen.add(key);
+          trackingSize += key.length + 10;
+        }
+      }
+    }
+    if (updates.length > 0) {
+      await this.db.bucket_data.bulkWrite(updates);
+      updates = [];
+    }
+  }
+}
+
+export interface CompactOptions {
+  memoryLimitMB?: number;
 }
