@@ -8,6 +8,7 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import { streamResponse } from '../../src/sync/sync.js';
 import * as timers from 'timers/promises';
 import { lsnMakeComparable } from '@powersync/service-jpgwire';
+import { RequestParameters } from '@powersync/service-sync-rules';
 
 describe('sync - mongodb', function () {
   defineTests(MONGO_STORAGE_FACTORY);
@@ -77,7 +78,7 @@ function defineTests(factory: StorageFactory) {
         include_checksum: true,
         raw_data: true
       },
-      syncParams: { token_parameters: {}, user_parameters: {} },
+      syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
     });
 
@@ -117,7 +118,7 @@ function defineTests(factory: StorageFactory) {
         include_checksum: true,
         raw_data: false
       },
-      syncParams: { token_parameters: {}, user_parameters: {} },
+      syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
     });
 
@@ -145,7 +146,7 @@ function defineTests(factory: StorageFactory) {
         include_checksum: true,
         raw_data: true
       },
-      syncParams: { token_parameters: {}, user_parameters: {} },
+      syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: 0 } as any
     });
 
@@ -171,7 +172,7 @@ function defineTests(factory: StorageFactory) {
         include_checksum: true,
         raw_data: true
       },
-      syncParams: { token_parameters: {}, user_parameters: {} },
+      syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
     });
     const iter = stream[Symbol.asyncIterator]();
@@ -231,7 +232,7 @@ function defineTests(factory: StorageFactory) {
         include_checksum: true,
         raw_data: true
       },
-      syncParams: { token_parameters: {}, user_parameters: {} },
+      syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: exp } as any
     });
     const iter = stream[Symbol.asyncIterator]();

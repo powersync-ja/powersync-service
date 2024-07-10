@@ -20,15 +20,21 @@ pnpm build
 
 The PowerSync service requires Postgres and MongoDB server connections. These configuration details can be specified in a `powersync.yaml` (or JSON) configuration file.
 
-See the [Self hosting demo](https://github.com/powersync-ja/self-host-demo) for examples of starting these services.
+See the [Self hosting demo](https://github.com/powersync-ja/self-host-demo) for demos of starting these services.
 
 A quick method for running all required services with a handy backend and frontend is to run the following in a checked-out `self-host-demo` folder.
 
 ```bash
-docker compose up --scale powersync=0
+docker compose -f demos/nodejs/docker-compose.yaml up --scale powersync=0
 ```
 
 Note: The `mongo` hostname specified in the MongoDB replica set needs to be accessible by your host machine if using the Mongo service above.
+
+One method to obtain access is to add the following to `/etc/hosts` (on Unix-like operating systems)
+
+```
+127.0.0.1 mongo
+```
 
 This will start all the services defined in the Self hosting demo except for the PowerSync service - which will be started from this repository.
 

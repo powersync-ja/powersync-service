@@ -1,4 +1,4 @@
-import { SqlSyncRules } from '@powersync/service-sync-rules';
+import { RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
 import { SourceTable } from '../../src/storage/SourceTable.js';
@@ -289,12 +289,7 @@ bucket_definitions:
 
     const checkpoint = result!.flushed_op;
 
-    const parameters = {
-      token_parameters: {
-        user_id: 'u1'
-      },
-      user_parameters: {}
-    };
+    const parameters = new RequestParameters({ sub: 'u1' }, {});
 
     const q1 = sync_rules.bucket_descriptors[0].parameter_queries[0];
 
@@ -358,12 +353,7 @@ bucket_definitions:
 
     const checkpoint = result!.flushed_op;
 
-    const parameters = {
-      token_parameters: {
-        user_id: 'unknown'
-      },
-      user_parameters: {}
-    };
+    const parameters = new RequestParameters({ sub: 'unknown' }, {});
 
     const q1 = sync_rules.bucket_descriptors[0].parameter_queries[0];
 
@@ -442,12 +432,7 @@ bucket_definitions:
 
     const checkpoint = result!.flushed_op;
 
-    const parameters = {
-      token_parameters: {
-        user_id: 'u1'
-      },
-      user_parameters: {}
-    };
+    const parameters = new RequestParameters({ sub: 'u1' }, {});
 
     // Test intermediate values - could be moved to sync_rules.test.ts
     const q1 = sync_rules.bucket_descriptors[0].parameter_queries[0];

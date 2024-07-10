@@ -78,16 +78,18 @@ export class SqlDataQuery {
     });
     const filter = tools.compileWhereClause(where);
 
-    const allParams = new Set([...filter.bucketParameters!, ...bucket_parameters.map((p) => `bucket.${p}`)]);
+    const inputParameterNames = filter.inputParameters!.map((p) => p.key);
+    const bucketParameterNames = bucket_parameters.map((p) => `bucket.${p}`);
+    const allParams = new Set<string>([...inputParameterNames, ...bucketParameterNames]);
     if (
-      (!filter.error && allParams.size != filter.bucketParameters!.length) ||
+      (!filter.error && allParams.size != filter.inputParameters!.length) ||
       allParams.size != bucket_parameters.length
     ) {
       rows.errors.push(
         new SqlRuleError(
-          `Query must cover all bucket parameters: ${JSONBig.stringify(bucket_parameters)} != ${JSONBig.stringify(
-            filter.bucketParameters
-          )}`,
+          `Query must cover all bucket parameters. Expected: ${JSONBig.stringify(
+            bucketParameterNames
+          )} Got: ${JSONBig.stringify(inputParameterNames)}`,
           sql,
           q._location
         )
@@ -107,7 +109,7 @@ export class SqlDataQuery {
     for (let column of q.columns ?? []) {
       const name = tools.getOutputName(column);
       if (name != '*') {
-        const clause = tools.compileStaticExtractor(column.expr);
+        const clause = tools.compileRowValueExtractor(column.expr);
         if (isClauseError(clause)) {
           // Error logged already
           continue;
@@ -196,7 +198,7 @@ export class SqlDataQuery {
   evaluateRow(table: SourceTableInterface, row: SqliteRow): EvaluationResult[] {
     try {
       const tables = { [this.table!]: this.addSpecialParameters(table, row) };
-      const bucketParameters = this.filter!.filter(tables);
+      const bucketParameters = this.filter!.filterRow(tables);
       const bucketIds = bucketParameters.map((params) =>
         getBucketId(this.descriptor_name!, this.bucket_parameters!, params)
       );

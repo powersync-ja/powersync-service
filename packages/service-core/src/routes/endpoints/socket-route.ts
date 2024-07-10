@@ -1,12 +1,12 @@
-import { serialize } from 'bson';
-import { SyncParameters, normalizeTokenParameters } from '@powersync/service-sync-rules';
 import { errors, logger, schema } from '@powersync/lib-services-framework';
+import { RequestParameters } from '@powersync/service-sync-rules';
+import { serialize } from 'bson';
 
-import * as util from '../../util/util-index.js';
-import { streamResponse } from '../../sync/sync.js';
-import { SyncRoutes } from './sync-stream.js';
-import { SocketRouteGenerator } from '../router-socket.js';
 import { Metrics } from '../../metrics/Metrics.js';
+import { streamResponse } from '../../sync/sync.js';
+import * as util from '../../util/util-index.js';
+import { SocketRouteGenerator } from '../router-socket.js';
+import { SyncRoutes } from './sync-stream.js';
 
 export const syncStreamReactive: SocketRouteGenerator = (router) =>
   router.reactiveStream<util.StreamingSyncRequest, any>(SyncRoutes.STREAM, {
@@ -34,10 +34,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
 
       const controller = new AbortController();
 
-      const syncParams: SyncParameters = normalizeTokenParameters(
-        context.token_payload?.parameters ?? {},
-        params.parameters ?? {}
-      );
+      const syncParams = new RequestParameters(context.token_payload!, params.parameters ?? {});
 
       const storage = system.storage;
       // Sanity check before we start the stream

@@ -63,6 +63,7 @@ export function registerFastifyRoutes(
             }
           } catch (ex) {
             const journeyError = errors.JourneyError.isJourneyError(ex) ? ex : new errors.InternalServerError(ex);
+            logger.error(`Request failed`, journeyError);
 
             response = new router.RouterResponse({
               status: journeyError.errorData.status || 500,

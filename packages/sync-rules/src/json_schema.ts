@@ -16,6 +16,10 @@ export const syncRulesSchema: ajvModule.Schema = {
           required: ['data'],
           examples: [{ data: ['select * from mytable'] }],
           properties: {
+            accept_potentially_dangerous_queries: {
+              description: 'If true, disables warnings on potentially dangerous queries',
+              type: 'boolean'
+            },
             parameters: {
               description: 'Parameter query(ies)',
               anyOf: [

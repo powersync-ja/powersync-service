@@ -1,5 +1,5 @@
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
-import { SyncParameters } from '@powersync/service-sync-rules';
+import { RequestParameters } from '@powersync/service-sync-rules';
 import { Semaphore } from 'async-mutex';
 import { AbortError } from 'ix/aborterror.js';
 
@@ -7,10 +7,10 @@ import * as auth from '../auth/auth-index.js';
 import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
+import { logger } from '@powersync/lib-services-framework';
+import { Metrics } from '../metrics/Metrics.js';
 import { mergeAsyncIterables } from './merge.js';
 import { TokenStreamOptions, tokenStream } from './util.js';
-import { Metrics } from '../metrics/Metrics.js';
-import { logger } from '@powersync/lib-services-framework';
 
 /**
  * Maximum number of connections actively fetching data.
@@ -21,7 +21,7 @@ const syncSemaphore = new Semaphore(MAX_ACTIVE_CONNECTIONS);
 export interface SyncStreamParameters {
   storage: storage.BucketStorageFactory;
   params: util.StreamingSyncRequest;
-  syncParams: SyncParameters;
+  syncParams: RequestParameters;
   token: auth.JwtPayload;
   /**
    * If this signal is aborted, the stream response ends as soon as possible, without error.
@@ -71,7 +71,7 @@ export async function* streamResponse(
 async function* streamResponseInner(
   storage: storage.BucketStorageFactory,
   params: util.StreamingSyncRequest,
-  syncParams: SyncParameters,
+  syncParams: RequestParameters,
   signal: AbortSignal
 ): AsyncGenerator<util.StreamingSyncLine | string | null> {
   // Bucket state of bucket id -> op_id.
