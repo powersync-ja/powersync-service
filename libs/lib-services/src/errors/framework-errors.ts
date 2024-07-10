@@ -30,8 +30,16 @@ export class JourneyError extends Error {
     return input instanceof JourneyError || input?.is_journey_error == true;
   }
 
+  private static errorMessage(data: ErrorData) {
+    let message = `[${data.code}] ${data.description}`;
+    if (data.details) {
+      message += `\n  ${data.details}`;
+    }
+    return message;
+  }
+
   constructor(data: ErrorData) {
-    super(`[${data.code}] ${data.description}\n  ${data.details}`);
+    super(JourneyError.errorMessage(data));
 
     this.errorData = data;
     if (data.stack) {
