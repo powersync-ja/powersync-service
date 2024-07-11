@@ -9,6 +9,8 @@ export interface CompactOptions {
   memoryLimitMB?: number;
 }
 
+const CLEAR_BATCH_LIMIT = 5000;
+
 export class MongoCompactor {
   private updates: AnyBulkWriteOperation<BucketDataDocument>[] = [];
 
@@ -132,11 +134,6 @@ export class MongoCompactor {
   }
 
   private async clearBucket(bucket: string, op: bigint) {
-    const clearOpId = {
-      g: this.group_id,
-      b: bucket,
-      o: op
-    };
     const opFilter = {
       _id: {
         $gte: {
@@ -144,40 +141,82 @@ export class MongoCompactor {
           b: bucket,
           o: new MinKey() as any
         },
-        $lte: clearOpId
+        $lte: {
+          g: this.group_id,
+          b: bucket,
+          o: op
+        }
       }
     };
 
     const session = this.db.client.startSession();
     try {
-      await session.withTransaction(
-        async () => {
-          const query = this.db.bucket_data.find(opFilter, { session });
-          let checksum = 0;
-          for await (let op of query.stream()) {
-            if (op.op == 'MOVE' || op.op == 'REMOVE' || op.op == 'CLEAR') {
-              checksum = addChecksums(checksum, op.checksum);
-            } else {
-              throw new Error(`Unexpected ${op.op} operation at ${op._id.g}:${op._id.b}:${op._id.o}`);
+      let done = false;
+      while (!done) {
+        // Do the CLEAR operation in batches, with each batch a separate transaction.
+        // The state after each batch is fully consistent.
+        await session.withTransaction(
+          async () => {
+            const query = this.db.bucket_data.find(opFilter, {
+              session,
+              sort: { _id: 1 },
+              projection: {
+                _id: 1,
+                op: 1,
+                checksum: 1
+              },
+              limit: CLEAR_BATCH_LIMIT
+            });
+            let checksum = 0;
+            let lastOpId: BucketDataKey | null = null;
+            let gotAnOp = false;
+            for await (let op of query.stream()) {
+              if (op.op == 'MOVE' || op.op == 'REMOVE' || op.op == 'CLEAR') {
+                checksum = addChecksums(checksum, op.checksum);
+                lastOpId = op._id;
+                if (op.op != 'CLEAR') {
+                  gotAnOp = true;
+                }
+              } else {
+                throw new Error(`Unexpected ${op.op} operation at ${op._id.g}:${op._id.b}:${op._id.o}`);
+              }
             }
-          }
+            if (!gotAnOp) {
+              done = true;
+              return;
+            }
 
-          await this.db.bucket_data.deleteMany(opFilter, { session });
-          await this.db.bucket_data.insertOne(
-            {
-              _id: clearOpId,
-              op: 'CLEAR',
-              checksum: checksum,
-              data: null
-            },
-            { session }
-          );
-        },
-        {
-          writeConcern: { w: 'majority' },
-          readConcern: { level: 'snapshot' }
-        }
-      );
+            logger.info(`Flushing CLEAR at ${lastOpId?.o}`);
+            await this.db.bucket_data.deleteMany(
+              {
+                _id: {
+                  $gte: {
+                    g: this.group_id,
+                    b: bucket,
+                    o: new MinKey() as any
+                  },
+                  $lte: lastOpId!
+                }
+              },
+              { session }
+            );
+
+            await this.db.bucket_data.insertOne(
+              {
+                _id: lastOpId!,
+                op: 'CLEAR',
+                checksum: checksum,
+                data: null
+              },
+              { session }
+            );
+          },
+          {
+            writeConcern: { w: 'majority' },
+            readConcern: { level: 'snapshot' }
+          }
+        );
+      }
     } finally {
       await session.endSession();
     }
