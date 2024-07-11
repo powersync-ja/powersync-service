@@ -301,15 +301,27 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
         };
       }
 
-      const entry: util.OplogEntry = {
-        op_id: util.timestampToOpId(row._id.o),
-        op: row.op,
-        object_type: row.table,
-        object_id: row.row_id,
-        checksum: Number(row.checksum),
-        subkey: `${row.source_table}/${row.source_key.toHexString()}`,
-        data: row.data
-      };
+      let entry: util.OplogEntry;
+
+      if (row.op == 'PUT' || row.op == 'REMOVE') {
+        entry = {
+          op_id: util.timestampToOpId(row._id.o),
+          op: row.op,
+          object_type: row.table,
+          object_id: row.row_id,
+          checksum: Number(row.checksum),
+          subkey: `${row.source_table}/${row.source_key!.toHexString()}`,
+          data: row.data
+        };
+      } else {
+        // MOVE, CLEAR
+        entry = {
+          op_id: util.timestampToOpId(row._id.o),
+          op: row.op,
+          checksum: Number(row.checksum),
+          data: row.data
+        };
+      }
       currentBatch.data.push(entry);
       currentBatch.next_after = entry.op_id;
 

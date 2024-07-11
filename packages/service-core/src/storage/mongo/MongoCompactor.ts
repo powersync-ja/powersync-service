@@ -2,6 +2,7 @@ import { AnyBulkWriteOperation } from 'mongodb';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey } from './models.js';
 import { idPrefixFilter } from './util.js';
+import { logger } from '@powersync/lib-services-framework';
 
 export interface CompactOptions {
   memoryLimitMB?: number;
@@ -38,19 +39,20 @@ export class MongoCompactor {
       .stream();
 
     let currentBucket: string | null = null;
-    let seen = new Set<string>();
+    let seen = new Map<string, bigint>();
     let trackingSize = 0;
 
     for await (let doc of stream) {
       if (doc._id.b != currentBucket) {
         currentBucket = doc._id.b;
-        seen = new Set();
+        seen = new Map();
         trackingSize = 0;
       }
 
       if (doc.op == 'REMOVE' || doc.op == 'PUT') {
-        const key = `${doc.table}/${doc.row_id}/${doc.source_table}/${doc.source_key.toHexString()}`;
-        if (seen.has(key)) {
+        const key = `${doc.table}/${doc.row_id}/${doc.source_table}/${doc.source_key?.toHexString()}`;
+        const targetOp = seen.get(key);
+        if (targetOp) {
           this.updates.push({
             updateOne: {
               filter: {
@@ -59,29 +61,37 @@ export class MongoCompactor {
               update: {
                 $set: {
                   op: 'MOVE',
-                  data: JSON.stringify({ target: `${doc._id.o}` })
+                  data: JSON.stringify({ target: `${targetOp}` })
+                },
+                $unset: {
+                  source_table: 1,
+                  source_key: 1,
+                  table: 1,
+                  row_id: 1
                 }
               }
             }
           });
-
-          if (this.updates.length >= 1000) {
-            await this.flush();
-          }
         } else {
           if (trackingSize > idLimitBytes) {
-            seen = new Set();
+            seen = new Map();
             trackingSize = 0;
           }
-          seen.add(key);
-          trackingSize += key.length + 10;
+          seen.set(key, doc._id.o);
+          trackingSize += key.length + 16;
         }
       }
+
+      if (this.updates.length >= 1000) {
+        await this.flush();
+      }
     }
+    await this.flush();
   }
 
   private async flush() {
     if (this.updates.length > 0) {
+      logger.info(`Compacting ${this.updates.length} ops`);
       await this.db.bucket_data.bulkWrite(this.updates, {
         // Order is not important.
         // These operations can happen in any order,

@@ -42,10 +42,10 @@ export interface BucketParameterDocument {
 export interface BucketDataDocument {
   _id: BucketDataKey;
   op: OpType;
-  source_table: bson.ObjectId;
-  source_key: bson.UUID;
-  table: string;
-  row_id: string;
+  source_table?: bson.ObjectId;
+  source_key?: bson.UUID;
+  table?: string;
+  row_id?: string;
   checksum: number;
   data: string | null;
 }
