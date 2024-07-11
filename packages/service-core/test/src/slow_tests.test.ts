@@ -158,11 +158,11 @@ bucket_definitions:
         const ops = await f.db.bucket_data.find().sort({ _id: 1 }).toArray();
         let active = new Set<string>();
         for (let op of ops) {
-          const key = op.source_key.toHexString();
+          const key = op.source_key?.toHexString();
           if (op.op == 'PUT') {
-            active.add(key);
+            active.add(key!);
           } else if (op.op == 'REMOVE') {
-            active.delete(key);
+            active.delete(key!);
           }
         }
         if (active.size > 0) {
