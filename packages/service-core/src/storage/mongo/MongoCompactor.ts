@@ -1,8 +1,9 @@
-import { AnyBulkWriteOperation } from 'mongodb';
+import { AnyBulkWriteOperation, MinKey } from 'mongodb';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey } from './models.js';
 import { idPrefixFilter } from './util.js';
 import { logger } from '@powersync/lib-services-framework';
+import { addChecksums } from '../../util/utils.js';
 
 export interface CompactOptions {
   memoryLimitMB?: number;
@@ -41,12 +42,34 @@ export class MongoCompactor {
     let currentBucket: string | null = null;
     let seen = new Map<string, bigint>();
     let trackingSize = 0;
+    let lastNotPut: bigint | null = null;
+    let opsSincePut = 0;
 
     for await (let doc of stream) {
       if (doc._id.b != currentBucket) {
+        if (currentBucket != null && lastNotPut != null && opsSincePut >= 1) {
+          await this.flush();
+          logger.info(
+            `Inserting CLEAR at ${this.group_id}:${currentBucket}:${lastNotPut} to remove ${opsSincePut} operations`
+          );
+          await this.clearBucket(currentBucket, lastNotPut);
+        }
         currentBucket = doc._id.b;
         seen = new Map();
         trackingSize = 0;
+
+        lastNotPut = null;
+        opsSincePut = 0;
+      }
+
+      if (doc.op == 'PUT') {
+        lastNotPut = null;
+        opsSincePut = 0;
+      } else if (doc.op != 'CLEAR') {
+        if (lastNotPut == null) {
+          lastNotPut = doc._id.o;
+        }
+        opsSincePut += 1;
       }
 
       if (doc.op == 'REMOVE' || doc.op == 'PUT') {
@@ -87,6 +110,12 @@ export class MongoCompactor {
       }
     }
     await this.flush();
+    if (currentBucket != null && lastNotPut != null && opsSincePut >= 1) {
+      logger.info(
+        `Inserting CLEAR at ${this.group_id}:${currentBucket}:${lastNotPut} to remove ${opsSincePut} operations`
+      );
+      await this.clearBucket(currentBucket, lastNotPut);
+    }
   }
 
   private async flush() {
@@ -99,6 +128,58 @@ export class MongoCompactor {
         ordered: false
       });
       this.updates = [];
+    }
+  }
+
+  private async clearBucket(bucket: string, op: bigint) {
+    const clearOpId = {
+      g: this.group_id,
+      b: bucket,
+      o: op
+    };
+    const opFilter = {
+      _id: {
+        $gte: {
+          g: this.group_id,
+          b: bucket,
+          o: new MinKey() as any
+        },
+        $lte: clearOpId
+      }
+    };
+
+    const session = this.db.client.startSession();
+    try {
+      await session.withTransaction(
+        async () => {
+          const query = this.db.bucket_data.find(opFilter, { session });
+          let checksum = 0;
+          for await (let op of query.stream()) {
+            if (op.op == 'MOVE' || op.op == 'REMOVE' || op.op == 'CLEAR') {
+              checksum = addChecksums(checksum, op.checksum);
+            } else {
+              throw new Error(`Unexpected ${op.op} operation at ${op._id.g}:${op._id.b}:${op._id.o}`);
+            }
+          }
+
+          await this.db.bucket_data.deleteMany(opFilter, { session });
+          await this.db.bucket_data.insertOne(
+            {
+              _id: clearOpId,
+              op: 'CLEAR',
+              checksum: checksum,
+              data: null
+            },
+            { session }
+          );
+        },
+        {
+          writeConcern: { w: 'majority' },
+          readConcern: { level: 'snapshot' }
+        }
+      );
+    } finally {
+      await session.endSession();
     }
   }
 }
