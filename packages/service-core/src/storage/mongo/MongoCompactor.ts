@@ -64,20 +64,13 @@ export class MongoCompactor {
         opsSincePut = 0;
       }
 
-      if (doc.op == 'PUT') {
-        lastNotPut = null;
-        opsSincePut = 0;
-      } else if (doc.op != 'CLEAR') {
-        if (lastNotPut == null) {
-          lastNotPut = doc._id.o;
-        }
-        opsSincePut += 1;
-      }
+      let isPersistentPut = doc.op == 'PUT';
 
       if (doc.op == 'REMOVE' || doc.op == 'PUT') {
         const key = `${doc.table}/${doc.row_id}/${doc.source_table}/${doc.source_key?.toHexString()}`;
         const targetOp = seen.get(key);
         if (targetOp) {
+          isPersistentPut = false;
           this.updates.push({
             updateOne: {
               filter: {
@@ -105,6 +98,16 @@ export class MongoCompactor {
           seen.set(key, doc._id.o);
           trackingSize += key.length + 16;
         }
+      }
+
+      if (isPersistentPut) {
+        lastNotPut = null;
+        opsSincePut = 0;
+      } else if (doc.op != 'CLEAR') {
+        if (lastNotPut == null) {
+          lastNotPut = doc._id.o;
+        }
+        opsSincePut += 1;
       }
 
       if (this.updates.length >= 1000) {
