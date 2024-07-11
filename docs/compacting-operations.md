@@ -66,7 +66,7 @@ The process iterates through all operations in reverse order. This effectively p
 
 We track each row we've seen in a bucket, along with the last PUT/REMOVE operation we've seen for the row. Whenever we see the same row again, we replace that operation with a MOVE operation, using the PUT/REMOVE op_id as the target.
 
-To avoid indefinite memory growth for this process, we place a limit on the memory usage for the set of rows we're tracking. Once we reach this limit, we avoid adding tracking any additional rows for the bucket. We should be able to effectively compact buckets in the order of 10M rows using 1GB of memory, and only lose some compacting gains for larger buckets.
+To avoid indefinite memory growth for this process, we place a limit on the memory usage for the set of rows we're tracking. Once we reach this limit, we avoid adding tracking any additional rows for the bucket. We should be able to effectively compact buckets in the order of 4M unique rows using 1GB of memory, and only lose some compacting gains for larger buckets.
 
 The second part is compacting to CLEAR operations. For each bucket, we keep track of the last PUT operation we've seen (last meaning the smallest op_id since we're iterating in reverse). We then replace all the operations before that with a single CLEAR operation.
 
