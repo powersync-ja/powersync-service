@@ -30,6 +30,7 @@ export type SyncRulesConfig = {
 
 export type ResolvedPowerSyncConfig = {
   connection?: ResolvedConnection;
+  data_sources?: configFile.DataSourceConfig[];
   storage: configFile.StorageConfig;
   dev: {
     demo_auth: boolean;
