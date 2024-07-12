@@ -99,6 +99,7 @@ export class CompoundConfigCollector {
 
     let config: ResolvedPowerSyncConfig = {
       connection: mapped[0],
+      data_sources: baseConfig.replication?.data_sources || [],
       storage: baseConfig.storage,
       client_keystore: keyStore,
       // Dev tokens only use the static keys, no external key sources
