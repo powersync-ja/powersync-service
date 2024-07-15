@@ -27,17 +27,17 @@ export abstract class ReplicationModule extends AbstractModule {
    *  Create the API adapter for the DataSource required by the sync API
    *  endpoints.
    */
-  protected abstract createSyncAPIAdapter(): SyncAPI;
+  protected abstract createSyncAPIAdapter(config: DataSourceConfig): SyncAPI;
 
   /**
    *  Create the ReplicationAdapter to be used by PowerSync replicator.
    */
-  protected abstract createReplicationAdapter(): ReplicationAdapter<any>;
+  protected abstract createReplicationAdapter(config: DataSourceConfig): ReplicationAdapter<any>;
 
   /**
    *  Return the TS codec schema describing the required configuration values for this module.
    */
-  protected abstract configSchema(): t.ObjectCodec<any>;
+  protected abstract configSchema(): t.AnyCodec;
 
   /**
    *  Register this module's replication adapters and sync API providers if the required configuration is present.
@@ -58,10 +58,12 @@ export abstract class ReplicationModule extends AbstractModule {
     }
 
     try {
+      const baseMatchingConfig = matchingConfig[0];
+      const decodedConfig = this.configSchema().decode(baseMatchingConfig);
       // If validation fails, log the error and continue, no replication will happen for this data source
       this.validateConfig(matchingConfig[0]);
-      context.replicationEngine.register(this.createReplicationAdapter());
-      context.syncAPIProvider.register(this.createSyncAPIAdapter());
+      context.replicationEngine.register(this.createReplicationAdapter(decodedConfig));
+      context.syncAPIProvider.register(this.createSyncAPIAdapter(decodedConfig));
     } catch (e) {
       logger.error(e);
     }

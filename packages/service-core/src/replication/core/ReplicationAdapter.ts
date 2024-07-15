@@ -6,7 +6,7 @@ import { SaveOptions } from '../../storage/BucketStorage.js';
  *  Manage the creation and termination of connections for a datasource.
  *  For some data sources there will be no difference between snapshot and replication connections
  */
-interface ConnectionManager<TConnection> {
+export interface ConnectionManager<TConnection> {
   /**
    *  Create a connection to use for replication.
    */
