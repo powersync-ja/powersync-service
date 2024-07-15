@@ -22,9 +22,9 @@ Any operation on a row may be converted into a MOVE operation if there is anothe
 
 Two rows are considered the same if the combination of `(object_type, object_id, subkey)` is the same.
 
-A MOVE operation may contain data of `{target: '<op_id>'}`. This indicates that the operation was "moved" to the target, and no checksum before that op_id will be valid. This is optional - the server may omit this data if the checkpoint being synced is greater than or equal to the target op_id.
+A MOVE operation may contain internal metadata of `{target_op: op_id}`. This indicates that the operation was "moved" to the target, and no checkpoint before that op_id will be valid. A previous protocol revision included this in the operation data, and let clients invalidate the checkpoint. Now, this is used purely server-side, and the server omits the `CheckpointComplete` message if the current checkpoint has been invalidated by such an operation. The same applies to CLEAR operations below.
 
-When converting an operation to a MOVE operation, the bucket, op_id and checksum remain the same. The data, object_type, object_id and subkey fields may be cleared, reducing the size of the operation.
+When converting an operation to a MOVE operation, the bucket, op_id and checksum remain the same. The data, object_type, object_id and subkey fields must be cleared, reducing the size of the operation.
 
 By itself, converting operations into MOVE operations does not reduce the number of operations synced, but may reduce the total size of the operations synced. It has no effect on clients that are already up-to-date.
 

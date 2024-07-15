@@ -151,6 +151,8 @@ Format:
 }
 ```
 
+A previous iteration of the protocol included an optional `data: '{"target": OpId}'` field. This was to indicate a checkpoint is not valid unless its op_id is greater than or equal to the target. Now, the server is responsible for invalidating checkpoints in those cases, by not sending a `CheckpointComplete` in that case.
+
 ## CLEAR
 
 Indicates a "reset point" of a bucket. All operations prior to this bucket must be removed.
