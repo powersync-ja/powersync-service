@@ -1,7 +1,11 @@
 import * as pgwire from '@powersync/service-jpgwire';
-import { NormalizedPostgresConnection } from '@powersync/service-types';
 
-export class PgManager {
+import { replication } from '@powersync/service-core';
+import { NormalizedPostgresConnectionConfig } from '../types/types.js';
+
+export type PostgresConnection = pgwire.PgClient;
+
+export class PostgresConnectionManager implements replication.ConnectionManager<PostgresConnection> {
   /**
    * Do not use this for any transactions.
    */
@@ -9,15 +13,15 @@ export class PgManager {
 
   private connectionPromises: Promise<pgwire.PgConnection>[] = [];
 
-  constructor(public options: NormalizedPostgresConnection, public poolOptions: pgwire.PgPoolOptions) {
+  constructor(public options: NormalizedPostgresConnectionConfig) {
     // The pool is lazy - no connections are opened until a query is performed.
-    this.pool = pgwire.connectPgWirePool(this.options, poolOptions);
+    this.pool = pgwire.connectPgWirePool(this.options, {});
   }
 
   /**
    * Create a new replication connection.
    */
-  async replicationConnection(): Promise<pgwire.PgConnection> {
+  async createReplicationConnection(): Promise<pgwire.PgConnection> {
     const p = pgwire.connectPgWire(this.options, { type: 'replication' });
     this.connectionPromises.push(p);
     return await p;
@@ -28,11 +32,19 @@ export class PgManager {
    *
    * This connection must not be shared between multiple async contexts.
    */
-  async snapshotConnection(): Promise<pgwire.PgConnection> {
+  async createConnection(): Promise<pgwire.PgConnection> {
     const p = pgwire.connectPgWire(this.options, { type: 'standard' });
     this.connectionPromises.push(p);
     return await p;
   }
+
+  mapError(error: Error): replication.ConnectionError {
+    throw new Error('Method not implemented.');
+  }
+
+  // TODO need some way to end connections
+  //  The generics don't cater for this
+  //  Can't register an automatic termination callback without service context
 
   async end() {
     for (let result of await Promise.allSettled([

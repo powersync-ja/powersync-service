@@ -1,17 +1,26 @@
 import { replication, storage } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
+
 import { PostgresConnection, PostgresConnectionManager } from '../connection/PostgresConnectionManager.js';
-import { PostgresConnectionConfig } from '../types/types.js';
+import {
+  normalizeConnectionConfig,
+  NormalizedPostgresConnectionConfig,
+  PostgresConnectionConfig
+} from '../types/types.js';
 
 export class PostgresReplicationAdapter implements replication.ReplicationAdapter<PostgresConnection> {
-  constructor(protected config: PostgresConnectionConfig) {}
+  protected normalizedConfig: NormalizedPostgresConnectionConfig;
+
+  constructor(config: PostgresConnectionConfig) {
+    this.normalizedConfig = normalizeConnectionConfig(config);
+  }
 
   name(): string {
     return 'postgres';
   }
 
   createConnectionManager(): PostgresConnectionManager {
-    return new PostgresConnectionManager(this.config);
+    return new PostgresConnectionManager(this.normalizedConfig);
   }
 
   validateConfiguration(connection: PostgresConnection): void {

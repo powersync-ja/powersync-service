@@ -23,7 +23,8 @@
     "@powersync/service-sync-rules": "workspace:*",
     "@powersync/service-types": "workspace:*",
     "pgwire": "github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87",
-    "ts-codec": "^1.2.2"
+    "ts-codec": "^1.2.2",
+    "uri-js": "^4.4.1"
   },
   "devDependencies": {
     "typescript": "^5.2.2",
