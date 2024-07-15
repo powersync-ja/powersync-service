@@ -48,6 +48,7 @@ export interface BucketDataDocument {
   row_id?: string;
   checksum: number;
   data: string | null;
+  target_op?: bigint | null;
 }
 
 export type OpType = 'PUT' | 'REMOVE' | 'MOVE' | 'CLEAR';

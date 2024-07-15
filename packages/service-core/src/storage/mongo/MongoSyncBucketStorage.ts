@@ -13,6 +13,7 @@ import {
   FlushedResult,
   ResolveTableOptions,
   ResolveTableResult,
+  SyncBucketDataBatch,
   SyncRulesBucketStorage,
   SyncRuleStatus
 } from '../BucketStorage.js';
@@ -202,7 +203,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     checkpoint: util.OpId,
     dataBuckets: Map<string, string>,
     options?: BucketDataBatchOptions
-  ): AsyncIterable<util.SyncBucketData> {
+  ): AsyncIterable<SyncBucketDataBatch> {
     if (dataBuckets.size == 0) {
       return;
     }
@@ -267,7 +268,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     }
 
     let batchSize = 0;
-    let currentBatch: util.SyncBucketData | null = null;
+    let currentBatch: SyncBucketDataBatch | null = null;
 
     // Ordered by _id, meaning buckets are grouped together
     for (let rawData of data) {
@@ -297,7 +298,8 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
           after: start,
           has_more: hasMore,
           data: [],
-          next_after: start
+          next_after: start,
+          targetOp: null
         };
       }
 
@@ -315,11 +317,16 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
         };
       } else {
         // MOVE, CLEAR
+        if (row.target_op != null) {
+          if (currentBatch.targetOp == null || row.target_op > currentBatch.targetOp) {
+            currentBatch.targetOp = row.target_op;
+          }
+        }
+
         entry = {
           op_id: util.timestampToOpId(row._id.o),
           op: row.op,
-          checksum: Number(row.checksum),
-          data: row.data
+          checksum: Number(row.checksum)
         };
       }
       currentBatch.data.push(entry);

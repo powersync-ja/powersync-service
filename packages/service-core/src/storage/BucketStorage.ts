@@ -228,7 +228,7 @@ export interface SyncRulesBucketStorage {
     checkpoint: util.OpId,
     dataBuckets: Map<string, string>,
     options?: BucketDataBatchOptions
-  ): AsyncIterable<util.SyncBucketData>;
+  ): AsyncIterable<SyncBucketDataBatch>;
 
   /**
    * Compute checksums for a given list of buckets.
@@ -386,6 +386,10 @@ export interface SaveDelete {
   sourceTable: SourceTable;
   before: SqliteRow;
   after?: undefined;
+}
+
+export interface SyncBucketDataBatch extends util.SyncBucketData {
+  targetOp: bigint | null;
 }
 
 export function mergeToast(record: ToastableSqliteRow, persisted: ToastableSqliteRow): ToastableSqliteRow {

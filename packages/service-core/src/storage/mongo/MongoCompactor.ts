@@ -56,12 +56,14 @@ export class MongoCompactor {
 
     let currentState: CurrentBucketState | null = null;
 
+    // Constant lower bound
     const lowerBound: BucketDataKey = {
       g: this.group_id,
       b: new MinKey() as any,
       o: new MinKey() as any
     };
 
+    // Upper bound is adjusted for each batch
     let upperBound: BucketDataKey = {
       g: this.group_id,
       b: new MaxKey() as any,
@@ -142,13 +144,14 @@ export class MongoCompactor {
                 update: {
                   $set: {
                     op: 'MOVE',
-                    data: JSON.stringify({ target: `${targetOp}` })
+                    target_op: targetOp
                   },
                   $unset: {
                     source_table: 1,
                     source_key: 1,
                     table: 1,
-                    row_id: 1
+                    row_id: 1,
+                    data: 1
                   }
                 }
               }
@@ -185,7 +188,6 @@ export class MongoCompactor {
       }
     }
 
-    console.log('size', currentState?.trackingSize, idLimitBytes, currentState?.seen.size);
     await this.flush();
     currentState?.seen.clear();
     if (currentState?.lastNotPut != null && currentState?.opsSincePut > 1) {
@@ -207,6 +209,7 @@ export class MongoCompactor {
         // Order is not important.
         // Since checksums are not affected, these operations can happen in any order,
         // and it's fine if the operations are partially applied.
+        // Each individual operation is atomic.
         ordered: false
       });
       this.updates = [];
@@ -256,6 +259,7 @@ export class MongoCompactor {
             });
             let checksum = 0;
             let lastOpId: BucketDataKey | null = null;
+            let targetOp: bigint | null = null;
             let gotAnOp = false;
             for await (let op of query.stream()) {
               if (op.op == 'MOVE' || op.op == 'REMOVE' || op.op == 'CLEAR') {
@@ -263,6 +267,11 @@ export class MongoCompactor {
                 lastOpId = op._id;
                 if (op.op != 'CLEAR') {
                   gotAnOp = true;
+                }
+                if (op.target_op != null) {
+                  if (targetOp == null || op.target_op > targetOp) {
+                    targetOp = op.target_op;
+                  }
                 }
               } else {
                 throw new Error(`Unexpected ${op.op} operation at ${op._id.g}:${op._id.b}:${op._id.o}`);
@@ -293,7 +302,8 @@ export class MongoCompactor {
                 _id: lastOpId!,
                 op: 'CLEAR',
                 checksum: checksum,
-                data: null
+                data: null,
+                target_op: targetOp
               },
               { session }
             );
