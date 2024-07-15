@@ -2,10 +2,18 @@ import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { makeTestTable, MONGO_STORAGE_FACTORY } from './util.js';
 import { oneFromAsync } from './wal_stream_utils.js';
+import { MongoCompactOptions } from '@/storage/mongo/MongoCompactor.js';
 
 const TEST_TABLE = makeTestTable('test', ['id']);
 
-describe('compacting buckets', function () {
+// Test with the default options - large batch sizes
+describe('compacting buckets - default options', () => compactTests({}));
+
+// Also test with the miniumum batch sizes, forcing usage of multiple batches internally
+describe('compacting buckets - batched', () =>
+  compactTests({ clearBatchLimit: 2, moveBatchLimit: 1, moveBatchQueryLimit: 1 }));
+
+function compactTests(compactOptions: MongoCompactOptions) {
   const factory = MONGO_STORAGE_FACTORY;
 
   test('compacting (1)', async () => {
@@ -69,7 +77,7 @@ bucket_definitions:
       }
     ]);
 
-    await storage.compact();
+    await storage.compact(compactOptions);
 
     const batchAfter = await oneFromAsync(storage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
     const dataAfter = batchAfter.batch.data;
@@ -171,7 +179,7 @@ bucket_definitions:
       }
     ]);
 
-    await storage.compact();
+    await storage.compact(compactOptions);
 
     const batchAfter = await oneFromAsync(storage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
     const dataAfter = batchAfter.batch.data;
@@ -191,4 +199,4 @@ bucket_definitions:
       }
     ]);
   });
-});
+}

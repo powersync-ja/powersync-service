@@ -555,7 +555,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     );
   }
 
-  async compact(options: CompactOptions) {
-    return new MongoCompactor(this.db, this.group_id).compact(options);
+  async compact(options?: CompactOptions) {
+    return new MongoCompactor(this.db, this.group_id, options).compact();
   }
 }

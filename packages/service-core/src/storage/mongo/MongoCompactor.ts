@@ -28,9 +28,21 @@ interface CurrentBucketState {
   opsSincePut: number;
 }
 
-const CLEAR_BATCH_LIMIT = 5000;
-const MOVE_BATCH_LIMIT = 2000;
-const MOVE_BATCH_QUERY_LIMIT = 10_000;
+/**
+ * Additional options, primarily for testing.
+ */
+export interface MongoCompactOptions extends CompactOptions {
+  /** Minimum of 2 */
+  clearBatchLimit?: number;
+  /** Minimum of 1 */
+  moveBatchLimit?: number;
+  /** Minimum of 1 */
+  moveBatchQueryLimit?: number;
+}
+
+const DEFAULT_CLEAR_BATCH_LIMIT = 5000;
+const DEFAULT_MOVE_BATCH_LIMIT = 2000;
+const DEFAULT_MOVE_BATCH_QUERY_LIMIT = 10_000;
 
 /** This default is primarily for tests. */
 const DEFAULT_MEMORY_LIMIT_MB = 64;
@@ -38,15 +50,25 @@ const DEFAULT_MEMORY_LIMIT_MB = 64;
 export class MongoCompactor {
   private updates: AnyBulkWriteOperation<BucketDataDocument>[] = [];
 
-  constructor(private db: PowerSyncMongo, private group_id: number) {}
+  private idLimitBytes: number;
+  private moveBatchLimit: number;
+  private moveBatchQueryLimit: number;
+  private clearBatchLimit: number;
+
+  constructor(private db: PowerSyncMongo, private group_id: number, options?: MongoCompactOptions) {
+    this.idLimitBytes = (options?.memoryLimitMB ?? DEFAULT_MEMORY_LIMIT_MB) * 1024 * 1024;
+    this.moveBatchLimit = options?.moveBatchLimit ?? DEFAULT_MOVE_BATCH_LIMIT;
+    this.moveBatchQueryLimit = options?.moveBatchQueryLimit ?? DEFAULT_MOVE_BATCH_QUERY_LIMIT;
+    this.clearBatchLimit = options?.clearBatchLimit ?? DEFAULT_CLEAR_BATCH_LIMIT;
+  }
 
   /**
    * Compact buckets by converting operatoins into MOVE and/or CLEAR operations.
    *
    * See /docs/compacting-operations.md for details.
    */
-  async compact(options?: CompactOptions) {
-    const idLimitBytes = (options?.memoryLimitMB ?? DEFAULT_MEMORY_LIMIT_MB) * 1024 * 1024;
+  async compact() {
+    const idLimitBytes = this.idLimitBytes;
 
     let currentState: CurrentBucketState | null = null;
 
@@ -83,7 +105,7 @@ export class MongoCompactor {
               source_table: 1,
               source_key: 1
             },
-            limit: MOVE_BATCH_QUERY_LIMIT,
+            limit: this.moveBatchQueryLimit,
             sort: { _id: -1 },
             singleBatch: true
           }
@@ -94,6 +116,7 @@ export class MongoCompactor {
         // We've reached the end
         break;
       }
+
       // Set upperBound for the next batch
       upperBound = batch[batch.length - 1]._id;
 
@@ -151,7 +174,7 @@ export class MongoCompactor {
               }
             });
           } else {
-            if (currentState.trackingSize > idLimitBytes) {
+            if (currentState.trackingSize >= idLimitBytes) {
               // Reached memory limit.
               // Keep the highest seen values in this case.
             } else {
@@ -176,7 +199,7 @@ export class MongoCompactor {
           currentState.opsSincePut += 1;
         }
 
-        if (this.updates.length >= MOVE_BATCH_LIMIT) {
+        if (this.updates.length >= this.moveBatchLimit) {
           await this.flush();
         }
       }
@@ -250,7 +273,7 @@ export class MongoCompactor {
                 checksum: 1,
                 target_op: 1
               },
-              limit: CLEAR_BATCH_LIMIT
+              limit: this.clearBatchLimit
             });
             let checksum = 0;
             let lastOpId: BucketDataKey | null = null;
