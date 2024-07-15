@@ -5,7 +5,7 @@ name: Docker Image Release
 on:
   push:
     tags:
-      - 'powersync-open-service*'
+      - '@powersync/service-image*'
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
