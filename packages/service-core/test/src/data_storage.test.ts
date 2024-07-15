@@ -1,26 +1,8 @@
 import { RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
-import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
-import { SourceTable } from '../../src/storage/SourceTable.js';
-import { hashData } from '../../src/util/utils.js';
-import { MONGO_STORAGE_FACTORY, StorageFactory } from './util.js';
-import { SyncBucketData } from '../../src/util/protocol-types.js';
-import { BucketDataBatchOptions, SyncBucketDataBatch } from '../../src/storage/BucketStorage.js';
-import { fromAsync } from './wal_stream_utils.js';
-
-function makeTestTable(name: string, columns?: string[] | undefined) {
-  const relId = hashData('table', name, (columns ?? ['id']).join(','));
-  const id = new bson.ObjectId('6544e3899293153fa7b38331');
-  return new SourceTable(
-    id,
-    SourceTable.DEFAULT_TAG,
-    relId,
-    SourceTable.DEFAULT_SCHEMA,
-    name,
-    (columns ?? ['id']).map((column) => ({ name: column, typeOid: 25 })),
-    true
-  );
-}
+import { BucketDataBatchOptions } from '../../src/storage/BucketStorage.js';
+import { getBatchData, getBatchMeta, makeTestTable, MONGO_STORAGE_FACTORY, StorageFactory } from './util.js';
+import { fromAsync, oneFromAsync } from './wal_stream_utils.js';
 
 const TEST_TABLE = makeTestTable('test', ['id']);
 
@@ -1270,7 +1252,9 @@ bucket_definitions:
 
     const checkpoint = result!.flushed_op;
 
-    const batch1 = await fromAsync(storage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]), { limit: 4 }));
+    const batch1 = await oneFromAsync(
+      storage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]), { limit: 4 })
+    );
 
     expect(getBatchData(batch1)).toEqual([
       { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 },
@@ -1285,8 +1269,8 @@ bucket_definitions:
       next_after: '4'
     });
 
-    const batch2 = await fromAsync(
-      storage.getBucketDataBatch(checkpoint, new Map([['global[]', batch1[0].batch.next_after]]), {
+    const batch2 = await oneFromAsync(
+      storage.getBucketDataBatch(checkpoint, new Map([['global[]', batch1.batch.next_after]]), {
         limit: 4
       })
     );
@@ -1302,7 +1286,7 @@ bucket_definitions:
     });
 
     const batch3 = await fromAsync(
-      storage.getBucketDataBatch(checkpoint, new Map([['global[]', batch2[0].batch.next_after]]), {
+      storage.getBucketDataBatch(checkpoint, new Map([['global[]', batch2.batch.next_after]]), {
         limit: 4
       })
     );
@@ -1310,43 +1294,4 @@ bucket_definitions:
 
     expect(getBatchMeta(batch3)).toEqual(null);
   });
-}
-
-function getBatchData(batch: SyncBucketData[] | SyncBucketDataBatch[]) {
-  const first = getFirst(batch);
-  if (first == null) {
-    return [];
-  }
-  return first.data.map((d) => {
-    return {
-      op_id: d.op_id,
-      op: d.op,
-      object_id: d.object_id,
-      checksum: d.checksum
-    };
-  });
-}
-
-function getBatchMeta(batch: SyncBucketData[] | SyncBucketDataBatch[]) {
-  const first = getFirst(batch);
-  if (first == null) {
-    return null;
-  }
-  return {
-    has_more: first.has_more,
-    after: first.after,
-    next_after: first.next_after
-  };
-}
-
-function getFirst(batch: SyncBucketData[] | SyncBucketDataBatch[]): SyncBucketData | null {
-  if (batch.length == 0) {
-    return null;
-  }
-  let first = batch[0];
-  if ((first as SyncBucketDataBatch).batch != null) {
-    return (first as SyncBucketDataBatch).batch;
-  } else {
-    return first as SyncBucketData;
-  }
 }

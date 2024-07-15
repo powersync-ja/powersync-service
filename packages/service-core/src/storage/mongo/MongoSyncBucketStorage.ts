@@ -8,6 +8,7 @@ import * as util from '../../util/util-index.js';
 import {
   BucketDataBatchOptions,
   BucketStorageBatch,
+  CompactOptions,
   DEFAULT_DOCUMENT_BATCH_LIMIT,
   DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES,
   FlushedResult,
@@ -17,14 +18,14 @@ import {
   SyncRulesBucketStorage,
   SyncRuleStatus
 } from '../BucketStorage.js';
+import { ChecksumCache, FetchPartialBucketChecksum } from '../ChecksumCache.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { SourceTable } from '../SourceTable.js';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, SourceKey, SyncRuleState } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
+import { MongoCompactor } from './MongoCompactor.js';
 import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, readSingleBatch, serializeLookup } from './util.js';
-import { ChecksumCache, FetchPartialBucketChecksum } from '../ChecksumCache.js';
-import { CompactOptions, MongoCompactor } from './MongoCompactor.js';
 
 export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
   private readonly db: PowerSyncMongo;
@@ -340,7 +341,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     if (currentBatch != null) {
       const yieldBatch = currentBatch;
       currentBatch = null;
-      yield { batch: yieldBatch, targetOp: null };
+      yield { batch: yieldBatch, targetOp: targetOp };
       targetOp = null;
     }
   }

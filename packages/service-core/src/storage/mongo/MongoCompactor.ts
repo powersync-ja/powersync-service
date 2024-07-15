@@ -3,16 +3,7 @@ import { AnyBulkWriteOperation, MaxKey, MinKey } from 'mongodb';
 import { addChecksums } from '../../util/utils.js';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey } from './models.js';
-
-export interface CompactOptions {
-  /**
-   * Heap memory limit for the compact process.
-   *
-   * Add around 64MB to this to determine the "--max-old-space-size" argument.
-   * Add another 80MB to get RSS usage / memory limits.
-   */
-  memoryLimitMB: number;
-}
+import { CompactOptions } from '../BucketStorage.js';
 
 interface CurrentBucketState {
   /** Bucket name */
@@ -253,7 +244,8 @@ export class MongoCompactor {
               projection: {
                 _id: 1,
                 op: 1,
-                checksum: 1
+                checksum: 1,
+                target_op: 1
               },
               limit: CLEAR_BATCH_LIMIT
             });

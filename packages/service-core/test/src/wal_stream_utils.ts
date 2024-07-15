@@ -145,3 +145,14 @@ export async function fromAsync<T>(source: Iterable<T> | AsyncIterable<T>): Prom
   }
   return items;
 }
+
+export async function oneFromAsync<T>(source: Iterable<T> | AsyncIterable<T>): Promise<T> {
+  const items: T[] = [];
+  for await (const item of source) {
+    items.push(item);
+  }
+  if (items.length != 1) {
+    throw new Error(`One item expected, got: ${items.length}`);
+  }
+  return items[0];
+}
