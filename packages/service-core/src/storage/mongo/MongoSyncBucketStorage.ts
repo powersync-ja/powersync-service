@@ -268,7 +268,8 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     }
 
     let batchSize = 0;
-    let currentBatch: SyncBucketDataBatch | null = null;
+    let currentBatch: util.SyncBucketData | null = null;
+    let targetOp: bigint | null = null;
 
     // Ordered by _id, meaning buckets are grouped together
     for (let rawData of data) {
@@ -286,7 +287,8 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
           start = currentBatch.after;
           currentBatch = null;
           batchSize = 0;
-          yield yieldBatch;
+          yield { batch: yieldBatch, targetOp: targetOp };
+          targetOp = null;
         }
 
         start ??= dataBuckets.get(bucket);
@@ -298,9 +300,9 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
           after: start,
           has_more: hasMore,
           data: [],
-          next_after: start,
-          targetOp: null
+          next_after: start
         };
+        targetOp = null;
       }
 
       let entry: util.OplogEntry;
@@ -318,8 +320,8 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
       } else {
         // MOVE, CLEAR
         if (row.target_op != null) {
-          if (currentBatch.targetOp == null || row.target_op > currentBatch.targetOp) {
-            currentBatch.targetOp = row.target_op;
+          if (targetOp == null || row.target_op > targetOp) {
+            targetOp = row.target_op;
           }
         }
 
@@ -338,7 +340,8 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     if (currentBatch != null) {
       const yieldBatch = currentBatch;
       currentBatch = null;
-      yield yieldBatch;
+      yield { batch: yieldBatch, targetOp: null };
+      targetOp = null;
     }
   }
 

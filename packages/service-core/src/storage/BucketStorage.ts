@@ -388,7 +388,8 @@ export interface SaveDelete {
   after?: undefined;
 }
 
-export interface SyncBucketDataBatch extends util.SyncBucketData {
+export interface SyncBucketDataBatch {
+  batch: util.SyncBucketData;
   targetOp: bigint | null;
 }
 

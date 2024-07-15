@@ -239,14 +239,14 @@ async function* bucketDataBatch(request: BucketDataRequest) {
 
     let has_more = false;
 
-    for await (let r of data) {
+    for await (let { batch: r, targetOp } of data) {
       if (signal.aborted) {
         return;
       }
       if (r.has_more) {
         has_more = true;
       }
-      if (r.targetOp != null && r.targetOp > checkpointOp) {
+      if (targetOp != null && targetOp > checkpointOp) {
         checkpointInvalidated = true;
       }
       if (r.data.length == 0) {
