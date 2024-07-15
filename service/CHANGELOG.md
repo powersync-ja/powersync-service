@@ -1,4 +1,4 @@
-# powersync-open-service
+# @powersync/service-image
 
 ## 0.3.1
 

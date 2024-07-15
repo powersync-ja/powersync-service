@@ -1,7 +1,11 @@
 #  Publishes the Docker image to DockerHub
+#  This is triggered whenever the `service` is versioned and tagged
 name: Docker Image Release
 
-on: workflow_dispatch
+on:
+  push:
+    tags:
+      - '@powersync/service-image*'
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
