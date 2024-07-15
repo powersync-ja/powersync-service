@@ -69,7 +69,7 @@ bucket_definitions:
       }
     ]);
 
-    await storage.compact({ memoryLimitMB: 100 });
+    await storage.compact();
 
     const batchAfter = await oneFromAsync(storage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
     const dataAfter = batchAfter.batch.data;
@@ -171,7 +171,7 @@ bucket_definitions:
       }
     ]);
 
-    await storage.compact({ memoryLimitMB: 100 });
+    await storage.compact();
 
     const batchAfter = await oneFromAsync(storage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
     const dataAfter = batchAfter.batch.data;

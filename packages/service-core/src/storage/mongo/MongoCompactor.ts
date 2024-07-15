@@ -32,6 +32,9 @@ const CLEAR_BATCH_LIMIT = 5000;
 const MOVE_BATCH_LIMIT = 2000;
 const MOVE_BATCH_QUERY_LIMIT = 10_000;
 
+/** This default is primarily for tests. */
+const DEFAULT_MEMORY_LIMIT_MB = 64;
+
 export class MongoCompactor {
   private updates: AnyBulkWriteOperation<BucketDataDocument>[] = [];
 
@@ -42,8 +45,8 @@ export class MongoCompactor {
    *
    * See /docs/compacting-operations.md for details.
    */
-  async compact(options: CompactOptions) {
-    const idLimitBytes = options.memoryLimitMB * 1024 * 1024;
+  async compact(options?: CompactOptions) {
+    const idLimitBytes = (options?.memoryLimitMB ?? DEFAULT_MEMORY_LIMIT_MB) * 1024 * 1024;
 
     let currentState: CurrentBucketState | null = null;
 

@@ -267,7 +267,7 @@ export interface SyncRulesBucketStorage {
    */
   reportError(e: any): Promise<void>;
 
-  compact(options: CompactOptions): Promise<void>;
+  compact(options?: CompactOptions): Promise<void>;
 }
 
 export interface SyncRuleStatus {
@@ -414,5 +414,5 @@ export interface CompactOptions {
    * Add around 64MB to this to determine the "--max-old-space-size" argument.
    * Add another 80MB to get RSS usage / memory limits.
    */
-  memoryLimitMB: number;
+  memoryLimitMB?: number;
 }
