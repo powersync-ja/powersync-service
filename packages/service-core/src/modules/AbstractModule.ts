@@ -1,10 +1,16 @@
 import { ServiceContext } from '../system/ServiceContext.js';
 
+export interface AbstractModuleOptions {
+  name: string;
+}
+
 export abstract class AbstractModule {
   public name: string;
+  protected options: AbstractModuleOptions;
 
-  protected constructor(name: string) {
-    this.name = name;
+  protected constructor(options: AbstractModuleOptions) {
+    this.options = options;
+    this.name = options.name;
   }
 
   /**
