@@ -3,8 +3,12 @@ import * as t from 'ts-codec';
 import { logger, schema } from '@powersync/lib-services-framework';
 import { ReplicationAdapter } from './ReplicationAdapter.js';
 import { SyncAPI } from '../../api/SyncAPI.js';
-import { AbstractModule } from '../../modules/AbstractModule.js';
+import { AbstractModule, AbstractModuleOptions } from '../../modules/AbstractModule.js';
 import { ServiceContext } from '../../system/ServiceContext.js';
+
+export interface ReplicationModuleOptions extends AbstractModuleOptions {
+  type: string;
+}
 
 /**
  *  A replication module describes all the functionality that PowerSync requires to
@@ -14,13 +18,12 @@ export abstract class ReplicationModule extends AbstractModule {
   protected type: string;
 
   /**
-   * @param name
-   * @param type The type of the data source
    * @protected
+   * @param options
    */
-  protected constructor(name: string, type: string) {
-    super(name);
-    this.type = type;
+  protected constructor(options: ReplicationModuleOptions) {
+    super(options);
+    this.type = options.type;
   }
 
   /**
