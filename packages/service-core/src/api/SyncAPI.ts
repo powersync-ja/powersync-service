@@ -3,17 +3,13 @@ import * as types from '@powersync/service-types';
 
 /**
  *  Describes all the methods currently required to service the sync API endpoints.
- *  TODO: This interface needs to be cleaned up and made more generic. It describes the current functionality required by our API routes
  */
 export interface SyncAPI {
   /**
-   * Performs diagnostics on the "connection"
+   * Checks the current connection status of the datasource.
    * This is usually some test query to verify the source can be reached.
    */
-  getDiagnostics(): Promise<{
-    connected: boolean;
-    errors?: Array<{ level: string; message: string }>;
-  }>;
+  getConnectionStatus(): Promise<StatusResponse>;
 
   /**
    * Generates replication table information from a given pattern of tables.
@@ -49,10 +45,10 @@ export interface SyncAPI {
   getConnectionSchema(): Promise<types.DatabaseSchema[]>;
 
   /**
-   * Executes a SQL statement and returns the result. This is currently used in the
+   * Executes a query and return the result from the data source. This is currently used in the
    * admin API which is exposed in Collide.
    */
-  executeSQL(sql: string, params: any[]): Promise<types.internal_routes.ExecuteSqlResponse>;
+  executeQuery(query: string, params: any[]): Promise<QueryResults>;
 
   //CRUD API : I don't think this is used besides maybe niche dev use cases
 }
@@ -64,4 +60,18 @@ interface PatternResult {
   wildcard: boolean;
   tables?: types.TableInfo[];
   table?: types.TableInfo;
+}
+
+interface ErrorDescription {
+  level: string;
+  message: string;
+}
+interface StatusResponse {
+  connected: boolean;
+  errors?: ErrorDescription[];
+}
+
+interface QueryResults {
+  columns: string[];
+  rows: (string | number | boolean | null)[][];
 }
