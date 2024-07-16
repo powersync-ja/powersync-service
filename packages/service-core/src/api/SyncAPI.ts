@@ -1,6 +1,5 @@
 import { TablePattern } from '@powersync/service-sync-rules';
 import * as types from '@powersync/service-types';
-import * as t from 'ts-codec';
 
 /**
  *  Describes all the methods currently required to service the sync API endpoints.

@@ -1,4 +1,3 @@
-import { SourceTable } from '../../storage/SourceTable.js';
 import { SqliteRow } from '@powersync/service-sync-rules';
 
 /**
@@ -58,8 +57,8 @@ export abstract class ReplicationEntity<T extends ReplicationEntityDescriptor> {
   }
 
   /**
-    *  Get the number of entries for this Entity
-    *  @param connection
+   *  Get the number of entries for this Entity
+   *  @param connection
    */
   public abstract count<TConnection>(connection: TConnection): Promise<number>;
 
@@ -70,5 +69,8 @@ export abstract class ReplicationEntity<T extends ReplicationEntityDescriptor> {
    *  @param connection
    *  @param entryConsumer
    */
-  public abstract getSnapshot<TConnection>(connection: TConnection, entryConsumer: (batch: SqliteRow[]) => {}): Promise<string>;
+  public abstract getSnapshot<TConnection>(
+    connection: TConnection,
+    entryConsumer: (batch: SqliteRow[]) => {}
+  ): Promise<string>;
 }
