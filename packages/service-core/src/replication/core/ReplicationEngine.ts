@@ -24,7 +24,7 @@ export class ReplicationEngine {
     if (this.replicators.has(adapter)) {
       throw new Error(`Replicator for type ${adapter.name} already registered`);
     }
-    this.replicators.set(adapter, new Replicator(adapter, this.options.storage));
+    this.replicators.set(adapter, new Replicator({ adapter: adapter, storage: this.options.storage }));
   }
 
   /**
