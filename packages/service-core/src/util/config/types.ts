@@ -1,4 +1,4 @@
-import { NormalizedPostgresConnection, configFile } from '@powersync/service-types';
+import { configFile } from '@powersync/service-types';
 import { KeySpec } from '../../auth/KeySpec.js';
 import { KeyStore } from '../../auth/KeyStore.js';
 
@@ -20,8 +20,6 @@ export type MigrationContext = {
 
 export type Runner = (config: RunnerConfig) => Promise<void>;
 
-export type ResolvedConnection = configFile.PostgresConnection & NormalizedPostgresConnection;
-
 export type SyncRulesConfig = {
   present: boolean;
   content?: string;
@@ -29,7 +27,6 @@ export type SyncRulesConfig = {
 };
 
 export type ResolvedPowerSyncConfig = {
-  connection?: ResolvedConnection;
   data_sources?: configFile.DataSourceConfig[];
   storage: configFile.StorageConfig;
   dev: {

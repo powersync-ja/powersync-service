@@ -5,8 +5,8 @@ import * as uuid from 'uuid';
 import * as pgwire from '@powersync/service-jpgwire';
 import { SqliteJsonValue, SqliteRow, ToastableSqliteRow, toSyncRulesRow } from '@powersync/service-sync-rules';
 
-import * as replication from '../replication/replication-index.js';
 import { logger } from '@powersync/lib-services-framework';
+import { replication } from '@powersync/service-core';
 
 /**
  * pgwire message -> SQLite row.

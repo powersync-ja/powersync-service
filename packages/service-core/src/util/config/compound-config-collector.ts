@@ -1,6 +1,6 @@
-import { configFile, normalizeConnection } from '@powersync/service-types';
+import { configFile } from '@powersync/service-types';
 import { ConfigCollector } from './collectors/config-collector.js';
-import { ResolvedConnection, ResolvedPowerSyncConfig, RunnerConfig, SyncRulesConfig } from './types.js';
+import { ResolvedPowerSyncConfig, RunnerConfig, SyncRulesConfig } from './types.js';
 import * as auth from '../../auth/auth-index.js';
 import { SyncRulesCollector } from './sync-rules/sync-collector.js';
 import { Base64ConfigCollector } from './collectors/impl/base64-config-collector.js';
@@ -46,20 +46,10 @@ export class CompoundConfigCollector {
   async collectConfig(runner_config: RunnerConfig = {}): Promise<ResolvedPowerSyncConfig> {
     const baseConfig = await this.collectBaseConfig(runner_config);
 
-    const connections = baseConfig.replication?.connections ?? [];
-    if (connections.length > 1) {
-      throw new Error('Only a single replication connection is supported currently');
+    const dataSources = baseConfig.replication?.data_sources ?? [];
+    if (dataSources.length > 1) {
+      throw new Error('Only a single replication data source is supported currently');
     }
-
-    const mapped = connections.map((c) => {
-      const conf: ResolvedConnection = {
-        type: 'postgresql' as const,
-        ...normalizeConnection(c),
-        debug_api: c.debug_api ?? false
-      };
-
-      return conf;
-    });
 
     const collectors = new auth.CompoundKeyCollector();
     const keyStore = new auth.KeyStore(collectors);
@@ -68,10 +58,6 @@ export class CompoundConfigCollector {
     const staticCollector = await auth.StaticKeyCollector.importKeys(inputKeys);
 
     collectors.add(staticCollector);
-
-    if (baseConfig.client_auth?.supabase && mapped.length > 0) {
-      collectors.add(new auth.CachedKeyCollector(new auth.SupabaseKeyCollector(mapped[0])));
-    }
 
     let jwks_uris = baseConfig.client_auth?.jwks_uri ?? [];
     if (typeof jwks_uris == 'string') {
@@ -98,7 +84,6 @@ export class CompoundConfigCollector {
     let jwt_audiences: string[] = baseConfig.client_auth?.audience ?? [];
 
     let config: ResolvedPowerSyncConfig = {
-      connection: mapped[0],
       data_sources: baseConfig.replication?.data_sources || [],
       storage: baseConfig.storage,
       client_keystore: keyStore,
@@ -125,7 +110,9 @@ export class CompoundConfigCollector {
         internal_service_endpoint:
           baseConfig.telemetry?.internal_service_endpoint ?? 'https://pulse.journeyapps.com/v1/metrics'
       },
-      slot_name_prefix: connections[0]?.slot_name_prefix ?? 'powersync_'
+      // TODO maybe move this out of the connection or something
+      // slot_name_prefix: connections[0]?.slot_name_prefix ?? 'powersync_'
+      slot_name_prefix: 'powersync_'
     };
     return config;
   }

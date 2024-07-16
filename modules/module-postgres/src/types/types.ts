@@ -54,7 +54,15 @@ export const PostgresConnectionConfig = service_types.configFile.dataSourceConfi
   })
 );
 
+/**
+ * Config input specified when starting services
+ */
 export type PostgresConnectionConfig = t.Decoded<typeof PostgresConnectionConfig>;
+
+/**
+ * Resolved version of {@link PostgresConnectionConfig}
+ */
+export type ResolvedConnectionConfig = PostgresConnectionConfig & NormalizedPostgresConnectionConfig;
 
 /**
  * Validate and normalize connection options.

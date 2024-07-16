@@ -1,13 +1,12 @@
 import * as crypto from 'crypto';
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 
-import { connectPgWire } from '@powersync/service-jpgwire';
-import { NormalizedPostgresConnection } from '@powersync/service-types';
+import * as pgwire from '@powersync/service-jpgwire';
 
 // This util is actually for tests only, but we need it compiled to JS for the service to work, so it's placed in the service.
 
 export interface PopulateDataOptions {
-  connection: NormalizedPostgresConnection;
+  connection: pgwire.NormalizedConnectionConfig;
   num_transactions: number;
   per_transaction: number;
   size: number;
@@ -32,7 +31,7 @@ if (isMainThread || parentPort == null) {
 
 async function populateDataInner(options: PopulateDataOptions) {
   // Dedicated connection so we can release the memory easily
-  const initialDb = await connectPgWire(options.connection, { type: 'standard' });
+  const initialDb = await pgwire.connectPgWire(options.connection, { type: 'standard' });
   const largeDescription = crypto.randomBytes(options.size / 2).toString('hex');
   let operation_count = 0;
   for (let i = 0; i < options.num_transactions; i++) {
