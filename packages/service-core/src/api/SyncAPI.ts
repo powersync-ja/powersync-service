@@ -50,7 +50,17 @@ export interface SyncAPI {
    */
   executeQuery(query: string, params: any[]): Promise<QueryResults>;
 
+  /**
+   * The management service and SDK expose a demo credentials endpoint.
+   * Not sure if this is actually used.
+   */
+  getDemoCredentials(): Promise<DemoCredentials>;
+
   //CRUD API : I don't think this is used besides maybe niche dev use cases
+}
+
+export interface DemoCredentials {
+  url: string;
 }
 
 // TODO: Export this when the existing definition in WALConnection is removed

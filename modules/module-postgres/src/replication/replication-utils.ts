@@ -1,6 +1,7 @@
 import * as pgwire from '@powersync/service-jpgwire';
 
-import * as util from '../util/util-index.js';
+import * as pgwire_utils from '../utils/pgwire_utils.js';
+
 import { ReplicationColumn, ReplicationIdentity } from './PgRelation.js';
 
 export interface ReplicaIdentityResult {
@@ -14,7 +15,7 @@ export async function getPrimaryKeyColumns(
   mode: 'primary' | 'replident'
 ): Promise<ReplicationColumn[]> {
   const indexFlag = mode == 'primary' ? `i.indisprimary` : `i.indisreplident`;
-  const attrRows = await util.retriedQuery(db, {
+  const attrRows = await pgwire_utils.retriedQuery(db, {
     statement: `SELECT a.attname as name, a.atttypid as typeid, a.attnum as attnum
                                     FROM pg_index i
                                              JOIN pg_attribute a
@@ -33,7 +34,7 @@ export async function getPrimaryKeyColumns(
 }
 
 export async function getAllColumns(db: pgwire.PgClient, relationId: number): Promise<ReplicationColumn[]> {
-  const attrRows = await util.retriedQuery(db, {
+  const attrRows = await pgwire_utils.retriedQuery(db, {
     statement: `SELECT a.attname as name, a.atttypid as typeid, a.attnum as attnum
                                     FROM pg_attribute a
                                     WHERE a.attrelid = $1::oid
@@ -50,7 +51,7 @@ export async function getReplicationIdentityColumns(
   db: pgwire.PgClient,
   relationId: number
 ): Promise<ReplicaIdentityResult> {
-  const rows = await util.retriedQuery(db, {
+  const rows = await pgwire_utils.retriedQuery(db, {
     statement: `SELECT CASE relreplident
         WHEN 'd' THEN 'default'
         WHEN 'n' THEN 'nothing'
