@@ -23,7 +23,9 @@ export const dataSourceConfig = t.object({
   // Unique string identifier for the data source
   type: t.string,
   /** Unique identifier for the connection - optional when a single connection is present. */
-  id: t.string.optional()
+  id: t.string.optional(),
+  /** Additional meta tag for connection */
+  tag: t.string.optional()
 });
 
 export type DataSourceConfig = t.Decoded<typeof dataSourceConfig>;

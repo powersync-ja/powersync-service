@@ -1,5 +1,5 @@
 import { errors, router, schema } from '@powersync/lib-services-framework';
-import { SqlSyncRules, SqliteValue, StaticSchema, isJsonValue, toSyncRulesValue } from '@powersync/service-sync-rules';
+import { SqlSyncRules, SqliteValue, StaticSchema, isJsonValue } from '@powersync/service-sync-rules';
 import { internal_routes } from '@powersync/service-types';
 
 import * as api from '../../api/api-index.js';
@@ -37,47 +37,15 @@ export const executeSql = routeDefinition({
   authorize: authApi,
   validator: schema.createTsCodecValidator(internal_routes.ExecuteSqlRequest, { allowAdditional: true }),
   handler: async (payload) => {
-    const connection = payload.context.system.config.connection;
-    if (connection == null || !connection.debug_api) {
-      return internal_routes.ExecuteSqlResponse.encode({
-        results: {
-          columns: [],
-          rows: []
-        },
-        success: false,
-        error: 'SQL querying is not enabled'
-      });
-    }
-
-    const pool = payload.context.system.requirePgPool();
-
-    const { query, args } = payload.params.sql;
-
-    try {
-      const result = await pool.query({
-        statement: query,
-        params: args.map(util.autoParameter)
-      });
-
-      return internal_routes.ExecuteSqlResponse.encode({
-        success: true,
-        results: {
-          columns: result.columns.map((c) => c.name),
-          rows: result.rows.map((row) => {
-            return row.map((value) => mapColumnValue(toSyncRulesValue(value)));
-          })
-        }
-      });
-    } catch (e) {
-      return internal_routes.ExecuteSqlResponse.encode({
-        results: {
-          columns: [],
-          rows: []
-        },
-        success: false,
-        error: e.message
-      });
-    }
+    const {
+      params: {
+        sql: { query, args }
+      }
+    } = payload;
+    return internal_routes.ExecuteSqlResponse.encode(
+      // TODO handle case where no sync API is registered
+      await payload.context.service_context.syncAPIProvider.getSyncAPI().executeQuery(query, args)
+    );
   }
 });
 
@@ -87,17 +55,20 @@ export const diagnostics = routeDefinition({
   authorize: authApi,
   validator: schema.createTsCodecValidator(internal_routes.DiagnosticsRequest, { allowAdditional: true }),
   handler: async (payload) => {
+    const { context } = payload;
+    const { service_context } = context;
     const include_content = payload.params.sync_rules_content ?? false;
-    const system = payload.context.system;
 
-    const status = await api.getConnectionStatus(system);
+    const syncAPI = service_context.syncAPIProvider.getSyncAPI();
+
+    const status = await syncAPI.getConnectionStatus();
     if (status == null) {
       return internal_routes.DiagnosticsResponse.encode({
         connections: []
       });
     }
 
-    const { storage } = system;
+    const { storage } = service_context;
     const active = await storage.getActiveSyncRulesContent();
     const next = await storage.getNextSyncRulesContent();
 

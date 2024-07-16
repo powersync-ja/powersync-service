@@ -1,51 +1,9 @@
 import { DEFAULT_TAG, SourceTableInterface, SqlSyncRules } from '@powersync/service-sync-rules';
-import { pgwireRows } from '@powersync/service-jpgwire';
-import { ConnectionStatus, SyncRulesStatus, TableInfo, baseUri } from '@powersync/service-types';
+import { SyncRulesStatus, TableInfo } from '@powersync/service-types';
 
-import * as replication from '../replication/replication-index.js';
-import * as storage from '../storage/storage-index.js';
-import * as util from '../util/util-index.js';
-
-import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
 import { logger } from '@powersync/lib-services-framework';
-
-export async function getConnectionStatus(system: CorePowerSyncSystem): Promise<ConnectionStatus | null> {
-  if (system.pgwire_pool == null) {
-    return null;
-  }
-
-  const pool = system.requirePgPool();
-
-  const base = {
-    id: system.config.connection!.id,
-    postgres_uri: baseUri(system.config.connection!)
-  };
-  try {
-    await util.retriedQuery(pool, `SELECT 'PowerSync connection test'`);
-  } catch (e) {
-    return {
-      ...base,
-      connected: false,
-      errors: [{ level: 'fatal', message: e.message }]
-    };
-  }
-
-  try {
-    await replication.checkSourceConfiguration(pool);
-  } catch (e) {
-    return {
-      ...base,
-      connected: true,
-      errors: [{ level: 'fatal', message: e.message }]
-    };
-  }
-
-  return {
-    ...base,
-    connected: true,
-    errors: []
-  };
-}
+import { ServiceContext } from '../system/ServiceContext.js';
+import * as storage from '../storage/storage-index.js';
 
 export interface DiagnosticsOptions {
   /**
@@ -66,9 +24,11 @@ export interface DiagnosticsOptions {
   check_connection: boolean;
 }
 
+export const DEFAULT_DATASOURCE_ID = 'default';
+
 export async function getSyncRulesStatus(
   sync_rules: storage.PersistedSyncRulesContent | null,
-  system: CorePowerSyncSystem,
+  service_context: ServiceContext,
   options: DiagnosticsOptions
 ): Promise<SyncRulesStatus | undefined> {
   if (sync_rules == null) {
@@ -92,21 +52,21 @@ export async function getSyncRulesStatus(
     };
   }
 
-  const systemStorage = live_status ? await system.storage.getInstance(persisted) : undefined;
+  const { storage } = service_context;
+  const syncAPI = service_context.syncAPIProvider.getSyncAPI();
+
+  const systemStorage = live_status ? await storage.getInstance(persisted) : undefined;
   const status = await systemStorage?.getStatus();
   let replication_lag_bytes: number | undefined = undefined;
 
   let tables_flat: TableInfo[] = [];
 
-  if (check_connection) {
-    const pool = system.requirePgPool();
+  const sourceConfig = await syncAPI.getSourceConfig();
+  const tag = sourceConfig.tag ?? DEFAULT_TAG;
 
+  if (check_connection) {
     const source_table_patterns = rules.getSourceTables();
-    const wc = new replication.WalConnection({
-      db: pool,
-      sync_rules: rules
-    });
-    const resolved_tables = await wc.getDebugTablesInfo(source_table_patterns);
+    const resolved_tables = await syncAPI.getDebugTablesInfo(source_table_patterns);
     tables_flat = resolved_tables.flatMap((info) => {
       if (info.table) {
         return [info.table];
@@ -119,19 +79,7 @@ export async function getSyncRulesStatus(
 
     if (systemStorage) {
       try {
-        const results = await util.retriedQuery(pool, {
-          statement: `SELECT
-      slot_name,
-      confirmed_flush_lsn, 
-      pg_current_wal_lsn(), 
-      (pg_current_wal_lsn() - confirmed_flush_lsn) AS lsn_distance
-    FROM pg_replication_slots WHERE slot_name = $1 LIMIT 1;`,
-          params: [{ type: 'varchar', value: systemStorage!.slot_name }]
-        });
-        const [row] = pgwireRows(results);
-        if (row) {
-          replication_lag_bytes = Number(row.lsn_distance);
-        }
+        replication_lag_bytes = await syncAPI.getReplicationLag(systemStorage.slot_name);
       } catch (e) {
         // Ignore
         logger.warn(`Unable to get replication lag`, e);
@@ -139,7 +87,6 @@ export async function getSyncRulesStatus(
     }
   } else {
     const source_table_patterns = rules.getSourceTables();
-    const tag = system.config.connection!.tag ?? DEFAULT_TAG;
 
     tables_flat = source_table_patterns.map((pattern): TableInfo => {
       if (pattern.isWildcard) {
@@ -186,12 +133,13 @@ export async function getSyncRulesStatus(
     })
   );
 
+
   return {
     content: include_content ? sync_rules.sync_rules_content : undefined,
     connections: [
       {
-        id: system.config.connection!.id,
-        tag: system.config.connection!.tag ?? DEFAULT_TAG,
+        id: sourceConfig.id ?? DEFAULT_DATASOURCE_ID,
+        tag: sourceConfig.tag ?? DEFAULT_TAG,
         slot_name: sync_rules.slot_name,
         initial_replication_done: status?.snapshot_done ?? false,
         // TODO: Rename?

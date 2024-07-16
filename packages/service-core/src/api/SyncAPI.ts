@@ -6,10 +6,15 @@ import * as types from '@powersync/service-types';
  */
 export interface SyncAPI {
   /**
+   * @returns basic identification of the connection
+   */
+  getSourceConfig(): Promise<types.configFile.DataSourceConfig>;
+
+  /**
    * Checks the current connection status of the datasource.
    * This is usually some test query to verify the source can be reached.
    */
-  getConnectionStatus(): Promise<StatusResponse>;
+  getConnectionStatus(): Promise<ConnectionStatusResponse>;
 
   /**
    * Generates replication table information from a given pattern of tables.
@@ -28,7 +33,7 @@ export interface SyncAPI {
    * @returns The replication lag: that is the amount of data which has not been
    *          replicated yet, in bytes.
    */
-  getReplicationLag(): Promise<number>;
+  getReplicationLag(slotName: string): Promise<number>;
 
   /**
    * Get the current LSN or equivalent replication position identifier
@@ -48,7 +53,7 @@ export interface SyncAPI {
    * Executes a query and return the result from the data source. This is currently used in the
    * admin API which is exposed in Collide.
    */
-  executeQuery(query: string, params: any[]): Promise<QueryResults>;
+  executeQuery(query: string, params: any[]): Promise<types.internal_routes.ExecuteSqlResponse>;
 
   /**
    * The management service and SDK expose a demo credentials endpoint.
@@ -76,12 +81,12 @@ interface ErrorDescription {
   level: string;
   message: string;
 }
-interface StatusResponse {
+export interface ConnectionStatusResponse {
   connected: boolean;
   errors?: ErrorDescription[];
 }
 
-interface QueryResults {
+export interface QueryResults {
   columns: string[];
   rows: (string | number | boolean | null)[][];
 }

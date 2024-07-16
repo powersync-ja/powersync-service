@@ -6,7 +6,8 @@ import * as pgwire from '@powersync/service-jpgwire';
 import { SqliteJsonValue, SqliteRow, ToastableSqliteRow, toSyncRulesRow } from '@powersync/service-sync-rules';
 
 import { logger } from '@powersync/lib-services-framework';
-import { replication } from '@powersync/service-core';
+
+export const ID_NAMESPACE = 'a396dd91-09fc-4017-a28d-3df722f651e9';
 
 /**
  * pgwire message -> SQLite row.
@@ -43,48 +44,6 @@ export function constructBeforeRecord(message: pgwire.PgoutputDelete | pgwire.Pg
   }
   const record = pgwire.decodeTuple(message.relation, rawData);
   return toSyncRulesRow(record);
-}
-
-function getRawReplicaIdentity(
-  tuple: ToastableSqliteRow,
-  columns: replication.ReplicationColumn[]
-): Record<string, any> {
-  let result: Record<string, any> = {};
-  for (let column of columns) {
-    const name = column.name;
-    result[name] = tuple[name];
-  }
-  return result;
-}
-const ID_NAMESPACE = 'a396dd91-09fc-4017-a28d-3df722f651e9';
-
-export function getUuidReplicaIdentityString(
-  tuple: ToastableSqliteRow,
-  columns: replication.ReplicationColumn[]
-): string {
-  const rawIdentity = getRawReplicaIdentity(tuple, columns);
-
-  return uuidForRow(rawIdentity);
-}
-
-export function uuidForRow(row: SqliteRow): string {
-  // Important: This must not change, since it will affect how ids are generated.
-  // Use BSON so that it's a well-defined format without encoding ambiguities.
-  const repr = bson.serialize(row);
-  return uuid.v5(repr, ID_NAMESPACE);
-}
-
-export function getUuidReplicaIdentityBson(
-  tuple: ToastableSqliteRow,
-  columns: replication.ReplicationColumn[]
-): bson.UUID {
-  if (columns.length == 0) {
-    // REPLICA IDENTITY NOTHING - generate random id
-    return new bson.UUID(uuid.v4());
-  }
-  const rawIdentity = getRawReplicaIdentity(tuple, columns);
-
-  return uuidForRowBson(rawIdentity);
 }
 
 export function uuidForRowBson(row: SqliteRow): bson.UUID {

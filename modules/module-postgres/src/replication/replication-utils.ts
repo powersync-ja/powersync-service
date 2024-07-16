@@ -1,4 +1,9 @@
+import bson from 'bson';
+import * as uuid from 'uuid';
+
 import * as pgwire from '@powersync/service-jpgwire';
+
+import * as sync_rules from '@powersync/service-sync-rules';
 
 import * as pgwire_utils from '../utils/pgwire_utils.js';
 
@@ -74,4 +79,88 @@ WHERE oid = $1::oid LIMIT 1`,
   } else {
     return { replicationIdentity: 'nothing', columns: [] };
   }
+}
+
+export async function checkSourceConfiguration(db: pgwire.PgClient) {
+  // TODO: configurable
+  const publication_name = 'powersync';
+
+  // Check basic config
+  await pgwire_utils.retriedQuery(
+    db,
+    `DO $$
+BEGIN
+if current_setting('wal_level') is distinct from 'logical' then
+raise exception 'wal_level must be set to ''logical'', your database has it set to ''%''. Please edit your config file and restart PostgreSQL.', current_setting('wal_level');
+end if;
+if (current_setting('max_replication_slots')::int >= 1) is not true then
+raise exception 'Your max_replication_slots setting is too low, it must be greater than 1. Please edit your config file and restart PostgreSQL.';
+end if;
+if (current_setting('max_wal_senders')::int >= 1) is not true then
+raise exception 'Your max_wal_senders setting is too low, it must be greater than 1. Please edit your config file and restart PostgreSQL.';
+end if;
+end;
+$$ LANGUAGE plpgsql;`
+  );
+
+  // Check that publication exists
+  const rs = await pgwire_utils.retriedQuery(db, {
+    statement: `SELECT * FROM pg_publication WHERE pubname = $1`,
+    params: [{ type: 'varchar', value: publication_name }]
+  });
+  const row = pgwire.pgwireRows(rs)[0];
+  if (row == null) {
+    throw new Error(
+      `Publication '${publication_name}' does not exist. Run: \`CREATE PUBLICATION ${publication_name} FOR ALL TABLES\`, or read the documentation for details.`
+    );
+  }
+  if (row.pubinsert == false || row.pubupdate == false || row.pubdelete == false || row.pubtruncate == false) {
+    throw new Error(
+      `Publication '${publication_name}' does not publish all changes. Create a publication using \`WITH (publish = "insert, update, delete, truncate")\` (the default).`
+    );
+  }
+  if (row.pubviaroot) {
+    throw new Error(`'${publication_name}' uses publish_via_partition_root, which is not supported.`);
+  }
+}
+
+function getRawReplicaIdentity(
+  tuple: sync_rules.ToastableSqliteRow,
+  columns: ReplicationColumn[]
+): Record<string, any> {
+  let result: Record<string, any> = {};
+  for (let column of columns) {
+    const name = column.name;
+    result[name] = tuple[name];
+  }
+  return result;
+}
+
+export function getUuidReplicaIdentityString(
+  tuple: sync_rules.ToastableSqliteRow,
+  columns: ReplicationColumn[]
+): string {
+  const rawIdentity = getRawReplicaIdentity(tuple, columns);
+
+  return uuidForRow(rawIdentity);
+}
+
+export function uuidForRow(row: sync_rules.SqliteRow): string {
+  // Important: This must not change, since it will affect how ids are generated.
+  // Use BSON so that it's a well-defined format without encoding ambiguities.
+  const repr = bson.serialize(row);
+  return uuid.v5(repr, pgwire_utils.ID_NAMESPACE);
+}
+
+export function getUuidReplicaIdentityBson(
+  tuple: sync_rules.ToastableSqliteRow,
+  columns: ReplicationColumn[]
+): bson.UUID {
+  if (columns.length == 0) {
+    // REPLICA IDENTITY NOTHING - generate random id
+    return new bson.UUID(uuid.v4());
+  }
+  const rawIdentity = getRawReplicaIdentity(tuple, columns);
+
+  return pgwire_utils.uuidForRowBson(rawIdentity);
 }

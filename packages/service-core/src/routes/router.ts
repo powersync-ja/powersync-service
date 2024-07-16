@@ -1,6 +1,7 @@
 import { router } from '@powersync/lib-services-framework';
 import * as auth from '../auth/auth-index.js';
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
+import { ServiceContext } from '../system/ServiceContext.js';
 
 /**
  * Common context for routes
@@ -8,6 +9,7 @@ import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
 export type Context = {
   user_id?: string;
   system: CorePowerSyncSystem;
+  service_context: ServiceContext;
 
   token_payload?: auth.JwtPayload;
   token_errors?: string[];
