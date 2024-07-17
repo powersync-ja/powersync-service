@@ -59,6 +59,7 @@ export type ResolvedPowerSyncConfig = {
   telemetry: {
     disable_telemetry_sharing: boolean;
     internal_service_endpoint: string;
+    additional_endpoints?: configFile.AdditionalMetricEndpoint[];
   };
 
   /** Prefix for postgres replication slot names. May eventually be connection-specific. */

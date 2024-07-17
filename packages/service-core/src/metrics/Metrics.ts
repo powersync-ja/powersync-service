@@ -8,11 +8,13 @@ import * as storage from '../storage/storage-index.js';
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
 import { Resource } from '@opentelemetry/resources';
 import { logger } from '@powersync/lib-services-framework';
+import { configFile } from '@powersync/service-types';
 
 export interface MetricsOptions {
   disable_telemetry_sharing: boolean;
   powersync_instance_id: string;
   internal_metrics_endpoint: string;
+  additional_endpoints?: configFile.AdditionalMetricEndpoint[];
 }
 
 export class Metrics {
@@ -173,6 +175,19 @@ Anonymous telemetry is currently: ${options.disable_telemetry_sharing ? 'disable
       });
 
       configuredExporters.push(periodicExporter);
+    }
+
+    // Create extra exporters for any additionally configured metric endpoints
+    for (const endpoint of options.additional_endpoints ?? []) {
+      logger.info(`Exporting metrics to endpoint: ${endpoint}`);
+      const additionalEndpointExporter = new PeriodicExportingMetricReader({
+        exporter: new OTLPMetricExporter({
+          url: endpoint.url
+        }),
+        exportIntervalMillis: endpoint.export_interval_ms ?? 1000 * 60 * 5 // 5 Minutes
+      });
+
+      configuredExporters.push(additionalEndpointExporter);
     }
 
     const meterProvider = new MeterProvider({

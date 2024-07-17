@@ -92,6 +92,16 @@ export const storageConfig = t.object({
 
 export type StorageConfig = t.Decoded<typeof storageConfig>;
 
+/**
+ * An additional OTLP metrics endpoint
+ */
+export const AdditionalMetricEndpoint = t.object({
+  url: t.string,
+  export_interval_ms: t.number.optional()
+});
+
+export type AdditionalMetricEndpoint = t.Decoded<typeof AdditionalMetricEndpoint>;
+
 export const powerSyncConfig = t.object({
   replication: t
     .object({
@@ -145,7 +155,8 @@ export const powerSyncConfig = t.object({
   telemetry: t
     .object({
       disable_telemetry_sharing: t.boolean,
-      internal_service_endpoint: t.string.optional()
+      internal_service_endpoint: t.string.optional(),
+      additional_endpoints: t.array(AdditionalMetricEndpoint).optional()
     })
     .optional()
 });
