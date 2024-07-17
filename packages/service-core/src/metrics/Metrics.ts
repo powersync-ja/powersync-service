@@ -14,7 +14,7 @@ export interface MetricsOptions {
   disable_telemetry_sharing: boolean;
   powersync_instance_id: string;
   internal_metrics_endpoint: string;
-  additional_endpoints?: configFile.AdditionalMetricEndpoint[];
+  additional_endpoints?: configFile.AdditionalMetricsEndpoint[];
 }
 
 export class Metrics {
