@@ -1,16 +1,12 @@
 import { Attributes, Counter, ObservableGauge, UpDownCounter, ValueType } from '@opentelemetry/api';
 import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
-import {
-  MeterProvider,
-  MetricReader,
-  PeriodicExportingMetricReader
-} from '@opentelemetry/sdk-metrics';
+import { MeterProvider, MetricReader, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import * as jpgwire from '@powersync/service-jpgwire';
 import * as util from '../util/util-index.js';
 import * as storage from '../storage/storage-index.js';
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
-import { Resource } from '@opentelemetry/resources';
+import { IResource, Resource } from '@opentelemetry/resources';
 import { logger } from '@powersync/lib-services-framework';
 
 export interface MetricsOptions {
@@ -74,7 +70,6 @@ export class Metrics {
   // 5. Replication and Sync Rules
 
   // 5a. Initial syncs
-
 
   private constructor(meterProvider: MeterProvider, prometheusExporter: PrometheusExporter) {
     this.meterProvider = meterProvider;
@@ -141,10 +136,13 @@ export class Metrics {
       valueType: ValueType.INT
     });
 
-    this.sync_rule_bucket_definition_count = meter.createObservableGauge('powersync_sync_rule_bucket_definition_count', {
-      description: 'The number buckets defined in the sync rules',
-      valueType: ValueType.INT
-    });
+    this.sync_rule_bucket_definition_count = meter.createObservableGauge(
+      'powersync_sync_rule_bucket_definition_count',
+      {
+        description: 'The number buckets defined in the sync rules',
+        valueType: ValueType.INT
+      }
+    );
 
     this.concurrent_connections = meter.createUpDownCounter('powersync_concurrent_connections', {
       description: 'Number of concurrent sync connections',
@@ -215,7 +213,7 @@ Anonymous telemetry is currently: ${options.disable_telemetry_sharing ? 'disable
 
     // Create extra exporters for any additionally configured metric endpoints
     for (const endpoint of options.additional_metric_endpoints) {
-      micro.logger.info(`Exporting metrics to endpoint: ${endpoint}`);
+      logger.info(`Exporting metrics to endpoint: ${endpoint}`);
       const additionalEndpointExporter = new PeriodicExportingMetricReader({
         exporter: new OTLPMetricExporter({
           url: endpoint
