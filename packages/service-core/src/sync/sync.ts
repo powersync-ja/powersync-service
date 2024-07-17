@@ -113,6 +113,11 @@ async function* streamResponseInner(
     });
 
     if (allBuckets.length > 1000) {
+      logger.error(`Too many buckets`, {
+        checkpoint,
+        user_id: syncParams.user_id,
+        buckets: allBuckets.length
+      });
       // TODO: Limit number of buckets even before we get to this point
       throw new Error(`Too many buckets: ${allBuckets.length}`);
     }
@@ -141,13 +146,18 @@ async function* streamResponseInner(
       }
       bucketsToFetch = diff.updatedBuckets.map((c) => c.bucket);
 
-      let message = `Updated checkpoint | user: ${syncParams.user_id} | `;
-      message += `op: ${checkpoint} | `;
+      let message = `Updated checkpoint: ${checkpoint} | `;
       message += `write: ${writeCheckpoint} | `;
       message += `buckets: ${allBuckets.length} | `;
       message += `updated: ${limitedBuckets(diff.updatedBuckets, 20)} | `;
       message += `removed: ${limitedBuckets(diff.removedBuckets, 20)}`;
-      logger.info(message);
+      logger.info(message, {
+        checkpoint,
+        user_id: syncParams.user_id,
+        buckets: allBuckets.length,
+        updated: diff.updatedBuckets.length,
+        removed: diff.removedBuckets.length
+      });
 
       const checksum_line: util.StreamingSyncCheckpointDiff = {
         checkpoint_diff: {
@@ -162,7 +172,7 @@ async function* streamResponseInner(
     } else {
       let message = `New checkpoint: ${checkpoint} | write: ${writeCheckpoint} | `;
       message += `buckets: ${allBuckets.length} ${limitedBuckets(allBuckets, 20)}`;
-      logger.info(message);
+      logger.info(message, { checkpoint, user_id: syncParams.user_id, buckets: allBuckets.length });
       bucketsToFetch = allBuckets;
       const checksum_line: util.StreamingSyncCheckpoint = {
         checkpoint: {
