@@ -1,4 +1,3 @@
-import '@journeyapps-platform/micro/register';
 import * as WebSocket from 'ws';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RSocketConnector, RSocketServer } from 'rsocket-core';
@@ -161,7 +160,7 @@ describe('Sockets', () => {
       const connector = new RSocketConnector({
         transport: new WebsocketClientTransport({
           url: WS_ADDRESS,
-          wsCreator: (url) => testSocket
+          wsCreator: (url) => testSocket as any
         }),
 
         setup: {

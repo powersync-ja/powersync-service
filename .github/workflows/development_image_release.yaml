@@ -35,17 +35,11 @@ jobs:
         with:
           node-version-file: '.nvmrc'
 
-      - uses: pnpm/action-setup@v2
+      - uses: pnpm/action-setup@v4
         name: Install pnpm
         with:
           version: 9
           run_install: false
-
-      - name: Add NPM auth
-        run: |
-          echo //npm.pkg.github.com/:_authToken=\${{secrets.RESTRICTED_PACKAGES_TOKEN}} >> ~/.npmrc
-          echo "//npm.pkg.github.com/journeyapps-platform/:_authToken=${{secrets.RESTRICTED_PACKAGES_TOKEN}}" >> ~/.npmrc
-          echo "@journeyapps-platform:registry=https://npm.pkg.github.com/journeyapps-platform/" >> ~/.npmrc
 
       - name: Get pnpm store directory
         shell: bash
@@ -86,6 +80,3 @@ jobs:
           tags: ${{vars.DOCKER_REGISTRY}}:${{steps.get_version.outputs.SERVICE_VERSION}}
           push: true
           file: ./service/Dockerfile
-          # TODO remove this when removing Journey Micro
-          build-args: |
-            GITHUB_TOKEN=${{secrets.RESTRICTED_PACKAGES_TOKEN}}

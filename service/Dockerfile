@@ -5,11 +5,7 @@ RUN npm i -g pnpm@9
 
 ARG GITHUB_TOKEN
 
-RUN echo //npm.pkg.github.com/:_authToken=\${GITHUB_TOKEN} >> ~/.npmrc && \
-    echo //npm.pkg.github.com/journeyapps-platform/:_authToken=\${GITHUB_TOKEN} >> ~/.npmrc && \
-    echo @journeyapps-platform:registry=https://npm.pkg.github.com/journeyapps-platform/ >> ~/.npmrc
-
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
 COPY service/package.json service/tsconfig.json service/
 
 COPY packages/jpgwire/package.json packages/jpgwire/tsconfig.json packages/jpgwire/
@@ -18,6 +14,8 @@ COPY packages/rsocket-router/package.json packages/rsocket-router/tsconfig.json 
 COPY packages/service-core/package.json packages/service-core/tsconfig.json packages/service-core/
 COPY packages/sync-rules/package.json packages/sync-rules/tsconfig.json packages/sync-rules/
 COPY packages/types/package.json packages/types/tsconfig.json packages/types/
+
+COPY libs/lib-services/package.json libs/lib-services/tsconfig.json libs/lib-services/
 
 RUN pnpm install --frozen-lockfile
 
@@ -31,6 +29,8 @@ COPY packages/sync-rules/src packages/sync-rules/src/
 COPY packages/rsocket-router/src packages/rsocket-router/src/
 COPY packages/types/src packages/types/src/
 
+COPY libs/lib-services/src libs/lib-services/src/
+
 RUN pnpm build:production && \
     rm -rf node_modules **/node_modules && \
     pnpm install --frozen-lockfile --prod --ignore-scripts
@@ -43,11 +43,10 @@ WORKDIR /app
 ARG GITHUB_TOKEN
 
 COPY --from=builder /app/ ./
-COPY --from=builder /root/.npmrc /root/.npmrc
 
 RUN npm i -g pnpm@9
 
-RUN pnpm install --frozen-lockfile && rm /root/.npmrc
+RUN pnpm install --frozen-lockfile
 
 
 CMD pnpm test

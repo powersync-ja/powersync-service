@@ -1,4 +1,3 @@
-import * as micro from '@journeyapps-platform/micro';
 import { Attributes, Counter, ObservableGauge, UpDownCounter, ValueType } from '@opentelemetry/api';
 import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
 import {
@@ -8,10 +7,11 @@ import {
 } from '@opentelemetry/sdk-metrics';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import * as jpgwire from '@powersync/service-jpgwire';
-import * as util from '@/util/util-index.js';
-import * as storage from '@/storage/storage-index.js';
+import * as util from '../util/util-index.js';
+import * as storage from '../storage/storage-index.js';
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
-import { IResource, Resource } from '@opentelemetry/resources';
+import { Resource } from '@opentelemetry/resources';
+import { logger } from '@powersync/lib-services-framework';
 
 export interface MetricsOptions {
   disable_telemetry_sharing: boolean;
@@ -175,9 +175,9 @@ export class Metrics {
     if (Metrics.instance) {
       return;
     }
-    micro.logger.info('Configuring telemetry.');
+    logger.info('Configuring telemetry.');
 
-    micro.logger.info(
+    logger.info(
       `
 Attention:
 PowerSync collects completely anonymous telemetry regarding usage.
@@ -200,7 +200,7 @@ Anonymous telemetry is currently: ${options.disable_telemetry_sharing ? 'disable
     configuredExporters.push(prometheusExporter);
 
     if (!options.disable_telemetry_sharing) {
-      micro.logger.info('Sharing anonymous telemetry');
+      logger.info('Sharing anonymous telemetry');
       const periodicExporter = new PeriodicExportingMetricReader({
         exporter: new OTLPMetricExporter({
           url: options.internal_metrics_endpoint
@@ -237,7 +237,7 @@ Anonymous telemetry is currently: ${options.disable_telemetry_sharing ? 'disable
 
     Metrics.instance = new Metrics(meterProvider, prometheusExporter);
 
-    micro.logger.info('Telemetry configuration complete.');
+    logger.info('Telemetry configuration complete.');
   }
 
   public async shutdown(): Promise<void> {
@@ -260,7 +260,7 @@ Anonymous telemetry is currently: ${options.disable_telemetry_sharing ? 'disable
     function getMetrics() {
       if (cachedRequest == null || Date.now() - cacheTimestamp > MINIMUM_INTERVAL) {
         cachedRequest = system.storage.getStorageMetrics().catch((e) => {
-          micro.logger.error(`Failed to get storage metrics`, e);
+          logger.error(`Failed to get storage metrics`, e);
           return null;
         });
         cacheTimestamp = Date.now();

@@ -8,8 +8,8 @@ import {
   ToastableSqliteRow
 } from '@powersync/service-sync-rules';
 
-import * as replication from '@/replication/replication-index.js';
-import * as util from '@/util/util-index.js';
+import * as replication from '../replication/replication-index.js';
+import * as util from '../util/util-index.js';
 import { SourceTable } from './SourceTable.js';
 
 export interface BucketStorageFactory {
@@ -367,7 +367,12 @@ export interface SaveInsert {
 export interface SaveUpdate {
   tag: 'update';
   sourceTable: SourceTable;
+
+  /**
+   * This is only present when the id has changed, and will only contain replica identity columns.
+   */
   before?: SqliteRow;
+
   /**
    * A null value means null column.
    *

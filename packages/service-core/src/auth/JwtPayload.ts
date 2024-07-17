@@ -1,9 +1,13 @@
+/**
+ * Payload from a JWT, always signed.
+ *
+ * May have arbitrary additional parameters.
+ */
 export interface JwtPayload {
   /**
-   * user_id
+   * token_parameters.user_id
    */
   sub: string;
-  parameters: Record<string, any>;
 
   iss?: string | undefined;
   exp: number;

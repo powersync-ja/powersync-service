@@ -1,5 +1,5 @@
 {
-  "extends": "@journeyapps-platform/micro-dev/tsconfig.base.json",
+  "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "lib",
@@ -20,6 +20,9 @@
     },
     {
       "path": "../packages/service-core"
+    },
+    {
+      "path": "../libs/lib-services"
     },
     {
       "path": "../packages/sync-rules"

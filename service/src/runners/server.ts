@@ -1,33 +1,76 @@
 import { deserialize } from 'bson';
 import fastify from 'fastify';
 import cors from '@fastify/cors';
-import * as micro from '@journeyapps-platform/micro';
+import * as core from '@powersync/service-core';
+import { container, errors, logger } from '@powersync/lib-services-framework';
 import { RSocketRequestMeta } from '@powersync/service-rsocket-router';
-import { Metrics, routes, utils } from '@powersync/service-core';
 
 import { PowerSyncSystem } from '../system/PowerSyncSystem.js';
-import { Router, SocketRouter, StreamingRouter } from '../routes/router.js';
+import { SocketRouter } from '../routes/router.js';
 /**
  * Starts an API server
  */
-export async function startServer(runnerConfig: utils.RunnerConfig) {
-  micro.logger.info('Booting');
+export async function startServer(runnerConfig: core.utils.RunnerConfig) {
+  logger.info('Booting');
 
-  const config = await utils.loadConfig(runnerConfig);
+  const config = await core.utils.loadConfig(runnerConfig);
   const system = new PowerSyncSystem(config);
 
   const server = fastify.fastify();
-  server.register(
-    Router.plugin({
-      routes: [...routes.generateHTTPRoutes(Router), ...micro.router.createProbeRoutes()],
-      contextProvider: (payload) => {
+
+  /**
+   * Fastify creates an encapsulated context for each `.register` call.
+   * Creating a separate context here to separate the concurrency limits for Admin APIs
+   * and Sync Streaming routes.
+   * https://github.com/fastify/fastify/blob/main/docs/Reference/Encapsulation.md
+   */
+  server.register(async function (childContext) {
+    core.routes.registerFastifyRoutes(
+      childContext,
+      async () => {
         return {
           user_id: undefined,
           system: system
         };
-      }
-    })
-  );
+      },
+      [
+        ...core.routes.endpoints.ADMIN_ROUTES,
+        ...core.routes.endpoints.CHECKPOINT_ROUTES,
+        ...core.routes.endpoints.DEV_ROUTES,
+        ...core.routes.endpoints.SYNC_RULES_ROUTES
+      ]
+    );
+    // Limit the active concurrent requests
+    childContext.addHook(
+      'onRequest',
+      core.routes.hooks.createRequestQueueHook({
+        max_queue_depth: 20,
+        concurrency: 10
+      })
+    );
+  });
+
+  // Create a separate context for concurrency queueing
+  server.register(async function (childContext) {
+    core.routes.registerFastifyRoutes(
+      childContext,
+      async () => {
+        return {
+          user_id: undefined,
+          system: system
+        };
+      },
+      [...core.routes.endpoints.SYNC_STREAM_ROUTES]
+    );
+    // Limit the active concurrent requests
+    childContext.addHook(
+      'onRequest',
+      core.routes.hooks.createRequestQueueHook({
+        max_queue_depth: 0,
+        concurrency: 200
+      })
+    );
+  });
 
   server.register(cors, {
     origin: '*',
@@ -37,30 +80,18 @@ export async function startServer(runnerConfig: utils.RunnerConfig) {
     maxAge: 3600
   });
 
-  server.register(
-    StreamingRouter.plugin({
-      routes: routes.generateHTTPStreamRoutes(StreamingRouter),
-      contextProvider: (payload) => {
-        return {
-          user_id: undefined,
-          system: system
-        };
-      }
-    })
-  );
-
   SocketRouter.applyWebSocketEndpoints(server.server, {
     contextProvider: async (data: Buffer) => {
-      const { token } = routes.RSocketContextMeta.decode(deserialize(data) as any);
+      const { token } = core.routes.RSocketContextMeta.decode(deserialize(data) as any);
 
       if (!token) {
-        throw new micro.errors.ValidationError('No token provided in context');
+        throw new errors.ValidationError('No token provided in context');
       }
 
       try {
-        const extracted_token = routes.auth.getTokenFromHeader(token);
+        const extracted_token = core.routes.auth.getTokenFromHeader(token);
         if (extracted_token != null) {
-          const { context, errors } = await routes.auth.generateContext(system, extracted_token);
+          const { context, errors } = await core.routes.auth.generateContext(system, extracted_token);
           return {
             token,
             ...context,
@@ -69,7 +100,7 @@ export async function startServer(runnerConfig: utils.RunnerConfig) {
           };
         }
       } catch (ex) {
-        micro.logger.error(ex);
+        logger.error(ex);
       }
 
       return {
@@ -77,27 +108,36 @@ export async function startServer(runnerConfig: utils.RunnerConfig) {
         system
       };
     },
-    endpoints: routes.generateSocketRoutes(SocketRouter),
+    endpoints: [core.routes.endpoints.syncStreamReactive(SocketRouter)],
     metaDecoder: async (meta: Buffer) => {
       return RSocketRequestMeta.decode(deserialize(meta) as any);
     },
     payloadDecoder: async (rawData?: Buffer) => rawData && deserialize(rawData)
   });
 
-  micro.logger.info('Starting system');
+  logger.info('Starting system');
   await system.start();
-  micro.logger.info('System started');
+  logger.info('System started');
 
-  Metrics.getInstance().configureApiMetrics();
+  core.Metrics.getInstance().configureApiMetrics();
 
-  await micro.fastify.startServer(server, system.config.port);
+  await server.listen({
+    host: '0.0.0.0',
+    port: system.config.port
+  });
 
-  // MUST be after startServer.
+  container.terminationHandler.handleTerminationSignal(async () => {
+    logger.info('Shutting down HTTP server...');
+    await server.close();
+    logger.info('HTTP server stopped');
+  });
+
+  // MUST be after adding the termination handler above.
   // This is so that the handler is run before the server's handler, allowing streams to be interrupted on exit
   system.addTerminationHandler();
 
-  micro.logger.info(`Running on port ${system.config.port}`);
-  await micro.signals.getSystemProbe().ready();
+  logger.info(`Running on port ${system.config.port}`);
+  await container.probes.ready();
 
   // Enable in development to track memory usage:
   // trackMemoryUsage();

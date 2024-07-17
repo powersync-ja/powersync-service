@@ -1,13 +1,13 @@
 import * as mongo from 'mongodb';
 import * as timers from 'timers/promises';
 import { LRUCache } from 'lru-cache/min';
-import * as micro from '@journeyapps-platform/micro';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 
-import * as replication from '@/replication/replication-index.js';
-import * as sync from '@/sync/sync-index.js';
-import * as util from '@/util/util-index.js';
+import * as replication from '../replication/replication-index.js';
+import * as sync from '../sync/sync-index.js';
+import * as util from '../util/util-index.js';
+import * as locks from '../locks/locks-index.js';
 
 import {
   ActiveCheckpoint,
@@ -23,8 +23,8 @@ import { MongoSyncBucketStorage } from './mongo/MongoSyncBucketStorage.js';
 import { PowerSyncMongo, PowerSyncMongoOptions } from './mongo/db.js';
 import { SyncRuleDocument, SyncRuleState } from './mongo/models.js';
 import { generateSlotName } from './mongo/util.js';
-import { locks } from '@journeyapps-platform/micro';
 import { v4 as uuid } from 'uuid';
+import { logger } from '@powersync/lib-services-framework';
 
 export interface MongoBucketStorageOptions extends PowerSyncMongoOptions {}
 
@@ -74,13 +74,13 @@ export class MongoBucketStorage implements BucketStorageFactory {
     const active = await this.getActiveSyncRulesContent();
 
     if (next?.sync_rules_content == sync_rules) {
-      micro.logger.info('Sync rules from configuration unchanged');
+      logger.info('Sync rules from configuration unchanged');
       return { updated: false };
     } else if (next == null && active?.sync_rules_content == sync_rules) {
-      micro.logger.info('Sync rules from configuration unchanged');
+      logger.info('Sync rules from configuration unchanged');
       return { updated: false };
     } else {
-      micro.logger.info('Sync rules updated from configuration');
+      logger.info('Sync rules updated from configuration');
       const persisted_sync_rules = await this.updateSyncRules({
         content: sync_rules,
         lock: options?.lock

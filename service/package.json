@@ -1,27 +1,27 @@
 {
   "name": "powersync-open-service",
-  "version": "0.2.6",
+  "version": "0.3.1",
   "private": true,
   "license": "FSL-1.1-Apache-2.0",
   "type": "module",
   "scripts": {
     "build": "tsc -b",
-    "watch": "nodemon -e ts -x node --loader ts-node/esm src/entry.ts start",
+    "watch": "nodemon -w ../ -e ts -e js --delay 1 -x node --loader ts-node/esm src/entry.ts start",
     "clean": "rm -rf ./lib && tsc -b --clean"
   },
   "dependencies": {
     "@fastify/cors": "8.4.1",
-    "@journeyapps-platform/micro": "^17.0.1",
-    "@journeyapps-platform/micro-migrate": "^4.0.1",
     "@opentelemetry/api": "~1.6.0",
     "@opentelemetry/exporter-prometheus": "^0.43.0",
     "@opentelemetry/sdk-metrics": "^1.17.0",
     "@powersync/service-core": "workspace:*",
+    "@powersync/lib-services-framework": "workspace:*",
     "@powersync/service-jpgwire": "workspace:*",
     "@powersync/service-jsonbig": "workspace:*",
     "@powersync/service-rsocket-router": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",
     "@powersync/service-types": "workspace:*",
+    "@sentry/node": "^8.9.2",
     "async-mutex": "^0.5.0",
     "bson": "^6.6.0",
     "commander": "^12.0.0",
@@ -36,16 +36,17 @@
     "pgwire": "github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87",
     "ts-codec": "^1.2.2",
     "uuid": "^9.0.1",
+    "winston": "^3.13.0",
     "yaml": "^2.3.2"
   },
   "devDependencies": {
-    "@journeyapps-platform/micro-dev": "^1.6.7",
+    "@sentry/types": "^8.9.2",
     "@types/uuid": "^9.0.4",
     "copyfiles": "^2.4.1",
     "nodemon": "^3.0.1",
     "npm-check-updates": "^16.14.4",
     "ts-node": "^10.9.1",
-    "typescript": "^5.2.2",
+    "typescript": "~5.2.2",
     "vitest": "^0.34.6"
   }
 }

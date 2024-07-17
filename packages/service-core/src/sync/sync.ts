@@ -1,16 +1,16 @@
-import * as micro from '@journeyapps-platform/micro';
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
-import { SyncParameters } from '@powersync/service-sync-rules';
+import { RequestParameters } from '@powersync/service-sync-rules';
 import { Semaphore } from 'async-mutex';
 import { AbortError } from 'ix/aborterror.js';
 
-import * as auth from '@/auth/auth-index.js';
-import * as storage from '@/storage/storage-index.js';
-import * as util from '@/util/util-index.js';
+import * as auth from '../auth/auth-index.js';
+import * as storage from '../storage/storage-index.js';
+import * as util from '../util/util-index.js';
 
+import { logger } from '@powersync/lib-services-framework';
+import { Metrics } from '../metrics/Metrics.js';
 import { mergeAsyncIterables } from './merge.js';
 import { TokenStreamOptions, tokenStream } from './util.js';
-import { Metrics } from '@/metrics/Metrics.js';
 
 /**
  * Maximum number of connections actively fetching data.
@@ -21,7 +21,7 @@ const syncSemaphore = new Semaphore(MAX_ACTIVE_CONNECTIONS);
 export interface SyncStreamParameters {
   storage: storage.BucketStorageFactory;
   params: util.StreamingSyncRequest;
-  syncParams: SyncParameters;
+  syncParams: RequestParameters;
   token: auth.JwtPayload;
   /**
    * If this signal is aborted, the stream response ends as soon as possible, without error.
@@ -71,7 +71,7 @@ export async function* streamResponse(
 async function* streamResponseInner(
   storage: storage.BucketStorageFactory,
   params: util.StreamingSyncRequest,
-  syncParams: SyncParameters,
+  syncParams: RequestParameters,
   signal: AbortSignal
 ): AsyncGenerator<util.StreamingSyncLine | string | null> {
   // Bucket state of bucket id -> op_id.
@@ -141,7 +141,7 @@ async function* streamResponseInner(
       message += `buckets: ${allBuckets.length} | `;
       message += `updated: ${limitedBuckets(diff.updatedBuckets, 20)} | `;
       message += `removed: ${limitedBuckets(diff.removedBuckets, 20)} | `;
-      micro.logger.info(message);
+      logger.info(message);
 
       const checksum_line: util.StreamingSyncCheckpointDiff = {
         checkpoint_diff: {
@@ -156,7 +156,7 @@ async function* streamResponseInner(
     } else {
       let message = `New checkpoint: ${checkpoint} | write: ${writeCheckpoint} | `;
       message += `buckets: ${allBuckets.length} ${limitedBuckets(allBuckets, 20)}`;
-      micro.logger.info(message);
+      logger.info(message);
       bucketsToFetch = allBuckets;
       const checksum_line: util.StreamingSyncCheckpoint = {
         checkpoint: {
@@ -246,7 +246,7 @@ async function* bucketDataBatch(request: BucketDataRequest) {
       if (r.data.length == 0) {
         continue;
       }
-      micro.logger.debug(`Sending data for ${r.bucket}`);
+      logger.debug(`Sending data for ${r.bucket}`);
 
       let send_data: any;
       if (binary_data) {

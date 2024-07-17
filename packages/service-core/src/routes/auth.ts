@@ -1,19 +1,17 @@
-import * as micro from '@journeyapps-platform/micro';
-import { FastifyRequest } from 'fastify';
 import * as jose from 'jose';
 
-import * as auth from '@/auth/auth-index.js';
-import * as util from '@/util/util-index.js';
-import { Context } from './router.js';
+import * as auth from '../auth/auth-index.js';
+import * as util from '../util/util-index.js';
+import { BasicRouterRequest, Context, RequestEndpointHandlerPayload } from './router.js';
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
 
-export function endpoint(req: FastifyRequest) {
+export function endpoint(req: BasicRouterRequest) {
   const protocol = req.headers['x-forwarded-proto'] ?? req.protocol;
   const host = req.hostname;
   return `${protocol}://${host}`;
 }
 
-function devAudience(req: FastifyRequest): string {
+function devAudience(req: BasicRouterRequest): string {
   return `${endpoint(req)}/dev`;
 }
 
@@ -22,7 +20,7 @@ function devAudience(req: FastifyRequest): string {
  *
  * Will be replaced by temporary tokens issued by PowerSync Management service.
  */
-export async function issueDevToken(req: FastifyRequest, user_id: string, config: util.ResolvedPowerSyncConfig) {
+export async function issueDevToken(req: BasicRouterRequest, user_id: string, config: util.ResolvedPowerSyncConfig) {
   const iss = devAudience(req);
   const aud = devAudience(req);
 
@@ -42,7 +40,11 @@ export async function issueDevToken(req: FastifyRequest, user_id: string, config
 }
 
 /** @deprecated */
-export async function issueLegacyDevToken(req: FastifyRequest, user_id: string, config: util.ResolvedPowerSyncConfig) {
+export async function issueLegacyDevToken(
+  req: BasicRouterRequest,
+  user_id: string,
+  config: util.ResolvedPowerSyncConfig
+) {
   const iss = devAudience(req);
   const aud = config.jwt_audiences[0];
 
@@ -61,7 +63,11 @@ export async function issueLegacyDevToken(req: FastifyRequest, user_id: string, 
     .sign(key.key);
 }
 
-export async function issuePowerSyncToken(req: FastifyRequest, user_id: string, config: util.ResolvedPowerSyncConfig) {
+export async function issuePowerSyncToken(
+  req: BasicRouterRequest,
+  user_id: string,
+  config: util.ResolvedPowerSyncConfig
+) {
   const iss = devAudience(req);
   const aud = config.jwt_audiences[0];
   const key = config.dev.dev_key;
@@ -89,8 +95,8 @@ export function getTokenFromHeader(authHeader: string = ''): string | null {
   return token ?? null;
 }
 
-export const authUser = async (payload: micro.fastify.FastifyHandlerPayload<any, Context>) => {
-  return authorizeUser(payload.context, payload.request.headers.authorization);
+export const authUser = async (payload: RequestEndpointHandlerPayload) => {
+  return authorizeUser(payload.context, payload.request.headers.authorization as string);
 };
 
 export async function authorizeUser(context: Context, authHeader: string = '') {
@@ -142,9 +148,9 @@ export async function generateContext(system: CorePowerSyncSystem, token: string
 /**
  * @deprecated
  */
-export const authDevUser = async (payload: micro.fastify.FastifyHandlerPayload<any, Context>) => {
+export const authDevUser = async (payload: RequestEndpointHandlerPayload) => {
   const context = payload.context;
-  const token = getTokenFromHeader(payload.request.headers.authorization);
+  const token = getTokenFromHeader(payload.request.headers.authorization as string);
   if (!context.system.config.dev.demo_auth) {
     return {
       authorized: false,
@@ -179,7 +185,7 @@ export const authDevUser = async (payload: micro.fastify.FastifyHandlerPayload<a
   return { authorized: true };
 };
 
-export const authApi = (payload: micro.fastify.FastifyHandlerPayload<any, Context>) => {
+export const authApi = (payload: RequestEndpointHandlerPayload) => {
   const context = payload.context;
   const api_keys = context.system.config.api_tokens;
   if (api_keys.length == 0) {
@@ -188,7 +194,7 @@ export const authApi = (payload: micro.fastify.FastifyHandlerPayload<any, Contex
       errors: ['Authentication disabled']
     };
   }
-  const auth = payload.request.headers.authorization ?? '';
+  const auth = (payload.request.headers.authorization as string) ?? '';
 
   const tokenMatch = /^(Token|Bearer) (\S+)$/.exec(auth);
   if (!tokenMatch) {

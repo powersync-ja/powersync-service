@@ -2,8 +2,8 @@ import * as jose from 'jose';
 import secs from '../util/secs.js';
 import { KeyOptions, KeySpec, SUPPORTED_ALGORITHMS } from './KeySpec.js';
 import { KeyCollector } from './KeyCollector.js';
-import * as micro from '@journeyapps-platform/micro';
 import { JwtPayload } from './JwtPayload.js';
+import { logger } from '@powersync/lib-services-framework';
 
 /**
  * KeyStore to get keys and verify tokens.
@@ -83,13 +83,7 @@ export class KeyStore {
       throw new jose.errors.JWTInvalid('parameters must be an object');
     }
 
-    return {
-      ...(tokenPayload as any),
-      parameters: {
-        user_id: tokenPayload.sub,
-        ...parameters
-      }
-    };
+    return tokenPayload as JwtPayload;
   }
 
   private async verifyInternal(token: string, options: jose.JWTVerifyOptions) {
@@ -145,7 +139,7 @@ export class KeyStore {
       this.collector.noKeyFound?.().catch((e) => {
         // Typically this error would be stored on the collector.
         // This is just a last resort error handling.
-        micro.logger.error(`Failed to refresh keys`, e);
+        logger.error(`Failed to refresh keys`, e);
       });
 
       throw new jose.errors.JOSEError(

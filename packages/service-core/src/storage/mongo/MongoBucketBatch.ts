@@ -1,10 +1,10 @@
-import * as micro from '@journeyapps-platform/micro';
 import { SqliteRow, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import * as mongo from 'mongodb';
 
-import * as util from '@/util/util-index.js';
-import * as replication from '@/replication/replication-index.js';
+import * as util from '../../util/util-index.js';
+import * as replication from '../../replication/replication-index.js';
+import { container, errors, logger } from '@powersync/lib-services-framework';
 import { BucketStorageBatch, FlushedResult, mergeToast, SaveOptions } from '../BucketStorage.js';
 import { SourceTable } from '../SourceTable.js';
 import { PowerSyncMongo } from './db.js';
@@ -187,6 +187,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
         }
         const currentData = current_data_lookup.get(op.internalBeforeKey) ?? null;
         if (currentData != null) {
+          // If it will be used again later, it will be set again using nextData below
           current_data_lookup.delete(op.internalBeforeKey);
         }
         const nextData = this.saveOperation(persistedBatch!, op, currentData, op_seq);
@@ -242,6 +243,10 @@ export class MongoBucketBatch implements BucketStorageBatch {
         // Not an error if we re-apply a transaction
         existing_buckets = [];
         existing_lookups = [];
+        // Log to help with debugging if there was a consistency issue
+        logger.warn(
+          `Cannot find previous record for update on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
+        );
       } else {
         const data = bson.deserialize((result.data as mongo.Binary).buffer, BSON_DESERIALIZE_OPTIONS) as SqliteRow;
         existing_buckets = result.buckets;
@@ -254,6 +259,10 @@ export class MongoBucketBatch implements BucketStorageBatch {
         // Not an error if we re-apply a transaction
         existing_buckets = [];
         existing_lookups = [];
+        // Log to help with debugging if there was a consistency issue
+        logger.warn(
+          `Cannot find previous record for delete on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
+        );
       } else {
         existing_buckets = result.buckets;
         existing_lookups = result.lookups;
@@ -278,10 +287,10 @@ export class MongoBucketBatch implements BucketStorageBatch {
         );
         afterData = new bson.Binary(bson.serialize(after!));
 
-        micro.alerts.captureMessage(
+        container.reporter.captureMessage(
           `Data too big on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${e.message}`,
           {
-            level: micro.errors.ErrorSeverity.WARNING,
+            level: errors.ErrorSeverity.WARNING,
             metadata: {
               replication_slot: this.slot_name,
               table: record.sourceTable.qualifiedName
@@ -292,7 +301,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
     }
 
     // 2. Save bucket data
-    if (beforeId != null && beforeId != afterId) {
+    if (beforeId != null && (afterId == null || !beforeId.equals(afterId))) {
       // Source ID updated
       if (sourceTable.syncData) {
         // Delete old record
@@ -329,23 +338,23 @@ export class MongoBucketBatch implements BucketStorageBatch {
     if (afterId && after && util.isCompleteRow(after)) {
       // Insert or update
       if (sourceTable.syncData) {
-        const { results: evaluated, errors } = this.sync_rules.evaluateRowWithErrors({
+        const { results: evaluated, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
           record: after,
           sourceTable
         });
 
-        for (let error of errors) {
-          micro.alerts.captureMessage(
+        for (let error of syncErrors) {
+          container.reporter.captureMessage(
             `Failed to evaluate data query on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${error.error}`,
             {
-              level: micro.errors.ErrorSeverity.WARNING,
+              level: errors.ErrorSeverity.WARNING,
               metadata: {
                 replication_slot: this.slot_name,
                 table: record.sourceTable.qualifiedName
               }
             }
           );
-          micro.logger.error(
+          logger.error(
             `Failed to evaluate data query on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${error.error}`
           );
         }
@@ -375,17 +384,17 @@ export class MongoBucketBatch implements BucketStorageBatch {
         );
 
         for (let error of paramErrors) {
-          micro.alerts.captureMessage(
+          container.reporter.captureMessage(
             `Failed to evaluate parameter query on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${error.error}`,
             {
-              level: micro.errors.ErrorSeverity.WARNING,
+              level: errors.ErrorSeverity.WARNING,
               metadata: {
                 replication_slot: this.slot_name,
                 table: record.sourceTable.qualifiedName
               }
             }
           );
-          micro.logger.error(
+          logger.error(
             `Failed to evaluate parameter query on ${record.sourceTable.qualifiedName}.${after.id}: ${error.error}`
           );
         }
@@ -422,7 +431,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
       };
     }
 
-    if (beforeId != afterId) {
+    if (afterId == null || !beforeId.equals(afterId)) {
       // Either a delete (afterId == null), or replaced the old replication id
       batch.deleteCurrentData(before_key);
     }
@@ -439,7 +448,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
             if (e instanceof mongo.MongoError && e.hasErrorLabel('TransientTransactionError')) {
               // Likely write conflict caused by concurrent write stream replicating
             } else {
-              micro.logger.warn('Transaction error', e as Error);
+              logger.warn('Transaction error', e as Error);
             }
             await new Promise((resolve) => setTimeout(resolve, Math.random() * 50));
             throw e;
@@ -464,7 +473,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
     await this.withTransaction(async () => {
       flushTry += 1;
       if (flushTry % 10 == 0) {
-        micro.logger.info(`${this.slot_name} ${description} - try ${flushTry}`);
+        logger.info(`${this.slot_name} ${description} - try ${flushTry}`);
       }
       if (flushTry > 20 && Date.now() > lastTry) {
         throw new Error('Max transaction tries exceeded');
@@ -529,13 +538,11 @@ export class MongoBucketBatch implements BucketStorageBatch {
     if (this.last_checkpoint_lsn != null && lsn <= this.last_checkpoint_lsn) {
       // When re-applying transactions, don't create a new checkpoint until
       // we are past the last transaction.
-      micro.logger.info(`Re-applied transaction ${lsn} - skipping checkpoint`);
+      logger.info(`Re-applied transaction ${lsn} - skipping checkpoint`);
       return false;
     }
     if (lsn < this.no_checkpoint_before_lsn) {
-      micro.logger.info(
-        `Waiting until ${this.no_checkpoint_before_lsn} before creating checkpoint, currently at ${lsn}`
-      );
+      logger.info(`Waiting until ${this.no_checkpoint_before_lsn} before creating checkpoint, currently at ${lsn}`);
       return false;
     }
 
@@ -599,7 +606,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
   }
 
   async save(record: SaveOptions): Promise<FlushedResult | null> {
-    micro.logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
+    logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
 
     this.batch ??= new OperationBatch();
     this.batch.push(new RecordOperation(record));

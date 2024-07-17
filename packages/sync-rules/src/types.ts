@@ -1,12 +1,17 @@
-import { JsonContainer } from '@powersync/service-jsonbig';
+import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { ColumnDefinition, ExpressionType } from './ExpressionType.js';
 import { TablePattern } from './TablePattern.js';
+import { toSyncRulesParameters } from './utils.js';
 
 export interface SyncRules {
   evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
 
   evaluateParameterRow(table: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[];
+}
+
+export interface QueryParseOptions {
+  accept_potentially_dangerous_queries?: boolean;
 }
 
 export interface EvaluatedParameters {
@@ -58,9 +63,48 @@ export function isEvaluatedParameters(e: EvaluatedParametersResult): e is Evalua
 
 export type EvaluationResult = EvaluatedRow | EvaluationError;
 
-export interface SyncParameters {
+export interface RequestJwtPayload {
+  /**
+   * user_id
+   */
+  sub: string;
+
+  [key: string]: any;
+}
+
+export class RequestParameters {
   token_parameters: SqliteJsonRow;
   user_parameters: SqliteJsonRow;
+
+  /**
+   * JSON string of raw request parameters.
+   */
+  raw_user_parameters: string;
+
+  /**
+   * JSON string of raw request parameters.
+   */
+  raw_token_payload: string;
+
+  user_id: string;
+
+  constructor(tokenPayload: RequestJwtPayload, clientParameters: Record<string, any>) {
+    // This type is verified when we verify the token
+    const legacyParameters = tokenPayload.parameters as Record<string, any> | undefined;
+
+    const token_parameters = {
+      ...legacyParameters,
+      // sub takes presedence over any embedded parameters
+      user_id: tokenPayload.sub
+    };
+
+    this.token_parameters = toSyncRulesParameters(token_parameters);
+    this.user_id = tokenPayload.sub;
+    this.raw_token_payload = JSONBig.stringify(tokenPayload);
+
+    this.raw_user_parameters = JSONBig.stringify(clientParameters);
+    this.user_parameters = toSyncRulesParameters(clientParameters);
+  }
 }
 
 /**
@@ -120,8 +164,43 @@ export type QueryParameters = { [table: string]: SqliteRow };
  * A single set of parameters that would make a WHERE filter true.
  *
  * Each parameter is prefixed with a table name, e.g. 'bucket.param'.
+ *
+ * Data queries: this is converted into a bucket id, given named bucket parameters.
+ *
+ * Parameter queries: this is converted into a lookup array.
  */
 export type FilterParameters = { [parameter: string]: SqliteJsonValue };
+
+export interface InputParameter {
+  /**
+   * An unique identifier per parameter in a query.
+   *
+   * This is used to identify the same parameters used in a query multiple times.
+   *
+   * The value itself does not necessarily have any specific meaning.
+   */
+  key: string;
+
+  /**
+   * True if the parameter expands to an array. This means parametersToLookupValue() can
+   * return a JSON array. This is different from `unbounded` on the clause.
+   */
+  expands: boolean;
+
+  /**
+   * Given FilterParameters from a data row, return the associated value.
+   *
+   * Only relevant for parameter queries.
+   */
+  filteredRowToLookupValue(filterParameters: FilterParameters): SqliteJsonValue;
+
+  /**
+   * Given RequestParameters, return the associated value to lookup.
+   *
+   * Only relevant for parameter queries.
+   */
+  parametersToLookupValue(parameters: RequestParameters): SqliteValue;
+}
 
 export interface EvaluateRowOptions {
   sourceTable: SourceTableInterface;
@@ -129,7 +208,12 @@ export interface EvaluateRowOptions {
 }
 
 /**
- * Given a row, produces a set of parameters that would make the clause evaluate to true.
+ * This is a clause that matches row and parameter values.
+ *
+ * Example:
+ * [WHERE] users.org_id = bucket.org_id
+ *
+ * For a given a row, this produces a set of parameters that would make the clause evaluate to true.
  */
 export interface ParameterMatchClause {
   error: boolean;
@@ -141,10 +225,11 @@ export interface ParameterMatchClause {
    *
    * These parameters are always matched by this clause, and no additional parameters are matched.
    */
-  bucketParameters: string[];
+  inputParameters: InputParameter[];
 
   /**
-   * True if the filter depends on an unbounded array column.
+   * True if the filter depends on an unbounded array column. This means filterRow can return
+   * multiple items.
    *
    * We restrict filters to only allow a single unbounded column for bucket parameters, otherwise the number of
    * bucketParameter combinations could grow too much.
@@ -154,20 +239,43 @@ export interface ParameterMatchClause {
   /**
    * Given a data row, give a set of filter parameters that would make the filter be true.
    *
+   * For StaticSqlParameterQuery, the tables are token_parameters and user_parameters.
+   * For others, it is the table of the data or parameter query.
+   *
    * @param tables - {table => row}
    * @return The filter parameters
    */
-  filter(tables: QueryParameters): TrueIfParametersMatch;
+  filterRow(tables: QueryParameters): TrueIfParametersMatch;
+
+  /** request.user_id(), request.jwt(), token_parameters.* */
+  usesAuthenticatedRequestParameters: boolean;
+  /** request.parameters(), user_parameters.* */
+  usesUnauthenticatedRequestParameters: boolean;
 }
 
 /**
- * Given a row, produces a set of parameters that would make the clause evaluate to true.
+ * This is a clause that operates on request or bucket parameters.
  */
 export interface ParameterValueClause {
+  /** request.user_id(), request.jwt(), token_parameters.* */
+  usesAuthenticatedRequestParameters: boolean;
+  /** request.parameters(), user_parameters.* */
+  usesUnauthenticatedRequestParameters: boolean;
+
   /**
-   * The parameter fields used for this, e.g. 'bucket.region_id'
+   * An unique key for the clause.
+   *
+   * For bucket parameters, this is `bucket.${name}`.
+   * For expressions, the exact format is undefined.
    */
-  bucketParameter: string;
+  key: string;
+
+  /**
+   * Given RequestParameters, return the associated value to lookup.
+   *
+   * Only relevant for parameter queries.
+   */
+  lookupParameterValue(parameters: RequestParameters): SqliteValue;
 }
 
 export interface QuerySchema {
@@ -176,18 +284,30 @@ export interface QuerySchema {
 }
 
 /**
- * Only needs row values as input, producing a static value as output.
+ * A clause that uses row values as input.
+ *
+ * For parameter queries, that is the parameter table being queried.
+ * For data queries, that is the data table being queried.
  */
-export interface StaticRowValueClause {
+export interface RowValueClause {
   evaluate(tables: QueryParameters): SqliteValue;
   getType(schema: QuerySchema): ExpressionType;
+}
+
+/**
+ * Completely static value.
+ *
+ * Extends RowValueClause and ParameterValueClause to simplify code in some places.
+ */
+export interface StaticValueClause extends RowValueClause, ParameterValueClause {
+  readonly value: SqliteValue;
 }
 
 export interface ClauseError {
   error: true;
 }
 
-export type CompiledClause = StaticRowValueClause | ParameterMatchClause | ParameterValueClause | ClauseError;
+export type CompiledClause = RowValueClause | ParameterMatchClause | ParameterValueClause | ClauseError;
 
 /**
  * true if any of the filter parameter sets match
@@ -196,7 +316,7 @@ export type TrueIfParametersMatch = FilterParameters[];
 
 export interface QueryBucketIdOptions {
   getParameterSets: (lookups: SqliteJsonValue[][]) => Promise<SqliteJsonRow[]>;
-  parameters: SyncParameters;
+  parameters: RequestParameters;
 }
 
 export interface SourceSchemaTable {

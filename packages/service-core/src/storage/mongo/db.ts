@@ -1,8 +1,7 @@
 import * as mongo from 'mongodb';
-import * as micro from '@journeyapps-platform/micro';
 
-import * as db from '@/db/db-index.js';
-
+import * as db from '../../db/db-index.js';
+import * as locks from '../../locks/locks-index.js';
 import {
   BucketDataDocument,
   BucketParameterDocument,
@@ -36,7 +35,7 @@ export class PowerSyncMongo {
   readonly source_tables: mongo.Collection<SourceTableDocument>;
   readonly write_checkpoints: mongo.Collection<WriteCheckpointDocument>;
   readonly instance: mongo.Collection<InstanceDocument>;
-  readonly locks: mongo.Collection<micro.locks.Lock>;
+  readonly locks: mongo.Collection<locks.Lock>;
 
   readonly client: mongo.MongoClient;
   readonly db: mongo.Db;

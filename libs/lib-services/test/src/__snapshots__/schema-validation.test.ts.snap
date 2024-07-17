@@ -1,0 +1,66 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`json-schema-validation > fails validation for json-schema 1`] = `
+{
+  "errors": [
+    "/name/b must be equal to one of the allowed values: A",
+  ],
+  "valid": false,
+}
+`;
+
+exports[`json-schema-validation > fails validation for json-schema 2`] = `
+{
+  "errors": [
+    "/name must have required property 'a'",
+    "/b: oneOf must match exactly one schema in oneOf",
+    "/b/a: type must be number",
+  ],
+  "valid": false,
+}
+`;
+
+exports[`json-schema-validation > fails validation for json-schema due to additional properties 1`] = `
+{
+  "errors": [
+    "/name Property c is not expected to be here",
+  ],
+  "valid": false,
+}
+`;
+
+exports[`json-schema-validation > it correctly validates node types 1`] = `
+{
+  "errors": [
+    "/a: nodeType should be a buffer",
+  ],
+  "valid": false,
+}
+`;
+
+exports[`json-schema-validation > it should correctly validate subschemas 1`] = `
+{
+  "errors": [
+    "/b: type must be string",
+  ],
+  "valid": false,
+}
+`;
+
+exports[`json-schema-validation > passes json-schema validation with additional properties when allowed 1`] = `
+{
+  "valid": true,
+}
+`;
+
+exports[`json-schema-validation > passes validation for json-schema 1`] = `
+{
+  "valid": true,
+}
+`;
+
+exports[`json-schema-validation > passes validation with refs 1`] = `
+{
+  "valid": true,
+}
+`;

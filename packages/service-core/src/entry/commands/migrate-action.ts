@@ -1,8 +1,9 @@
 import { Command } from 'commander';
-import { Direction } from '@journeyapps-platform/micro-migrate';
 
 import { extractRunnerOptions, wrapConfigCommand } from './config-command.js';
-import { migrate } from '@/migrations/migrations.js';
+import { migrate } from '../../migrations/migrations.js';
+import { Direction } from '../../migrations/definitions.js';
+import { logger } from '@powersync/lib-services-framework';
 
 const COMMAND_NAME = 'migrate';
 
@@ -17,9 +18,16 @@ export function registerMigrationAction(program: Command) {
     .action(async (direction: Direction, options) => {
       const runnerConfig = extractRunnerOptions(options);
 
-      await migrate({
-        direction,
-        runner_config: runnerConfig
-      });
+      try {
+        await migrate({
+          direction,
+          runner_config: runnerConfig
+        });
+
+        process.exit(0);
+      } catch (e) {
+        logger.error(`Migration failure`, e);
+        process.exit(1);
+      }
     });
 }

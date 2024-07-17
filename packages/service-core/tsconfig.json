@@ -1,15 +1,11 @@
 {
-  "extends": "@journeyapps-platform/micro-dev/tsconfig.base.json",
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "dist",
-    "baseUrl": ".",
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "sourceMap": true,
-    "paths": {
-      "@/*": ["./src/*"]
-    }
+    "sourceMap": true
   },
   "include": ["src"],
   "references": [
@@ -27,6 +23,9 @@
     },
     {
       "path": "../sync-rules"
+    },
+    {
+      "path": "../../libs/lib-services"
     }
   ]
 }

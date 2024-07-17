@@ -1,0 +1,10 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`errors > utilities should properly match a journey error 1`] = `
+{
+  "code": "CUSTOM_JOURNEY_ERROR",
+  "description": "This is a custom error",
+  "details": "this is some more detailed information",
+  "name": "CustomJourneyError",
+}
+`;

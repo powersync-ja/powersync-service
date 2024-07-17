@@ -3,13 +3,13 @@
 // 1. The replication slots on the source postgres instance (if available).
 // 2. The mongo database.
 
-import * as micro from '@journeyapps-platform/micro';
 import * as timers from 'timers/promises';
 
 import * as db from '../db/db-index.js';
 import * as storage from '../storage/storage-index.js';
 import * as utils from '../util/util-index.js';
 import * as replication from '../replication/replication-index.js';
+import { logger } from '@powersync/lib-services-framework';
 
 /**
  * Attempt to terminate a single sync rules instance.
@@ -34,9 +34,9 @@ async function terminateReplicator(
       lock
     });
 
-    micro.logger.info(`Terminating replication slot ${stream.slot_name}`);
+    logger.info(`Terminating replication slot ${stream.slot_name}`);
     await stream.terminate();
-    micro.logger.info(`Terminated replication slot ${stream.slot_name}`);
+    logger.info(`Terminated replication slot ${stream.slot_name}`);
   } finally {
     await lock.release();
   }
@@ -64,7 +64,7 @@ async function terminateReplicators(
       } catch (e) {
         retry = true;
         console.error(e);
-        micro.logger.warn(`Failed to terminate ${syncRules.slot_name}`, e);
+        logger.warn(`Failed to terminate ${syncRules.slot_name}`, e);
       }
     }
     if (!retry) {
@@ -78,22 +78,22 @@ export async function teardown(runnerConfig: utils.RunnerConfig) {
   const config = await utils.loadConfig(runnerConfig);
   const mongoDB = storage.createPowerSyncMongo(config.storage);
   try {
-    micro.logger.info(`Waiting for auth`);
+    logger.info(`Waiting for auth`);
     await db.mongo.waitForAuth(mongoDB.db);
 
     const bucketStorage = new storage.MongoBucketStorage(mongoDB, { slot_name_prefix: config.slot_name_prefix });
     const connection = config.connection;
 
-    micro.logger.info(`Terminating replication slots`);
+    logger.info(`Terminating replication slots`);
 
     if (connection) {
       await terminateReplicators(bucketStorage, connection);
     }
 
     const database = mongoDB.db;
-    micro.logger.info(`Dropping database ${database.namespace}`);
+    logger.info(`Dropping database ${database.namespace}`);
     await database.dropDatabase();
-    micro.logger.info(`Done`);
+    logger.info(`Done`);
     await mongoDB.client.close();
 
     // If there was an error connecting to postgress, the process may stay open indefinitely.
@@ -101,7 +101,7 @@ export async function teardown(runnerConfig: utils.RunnerConfig) {
     // We do not consider those errors a teardown failure.
     process.exit(0);
   } catch (e) {
-    micro.logger.error(`Teardown failure`, e);
+    logger.error(`Teardown failure`, e);
     await mongoDB.client.close();
     process.exit(1);
   }

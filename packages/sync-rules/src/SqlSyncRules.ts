@@ -16,11 +16,14 @@ import {
   isEvaluatedRow,
   isEvaluationError,
   QueryBucketIdOptions,
+  QueryParseOptions,
+  RequestParameters,
   SourceSchema,
   SqliteRow,
-  SyncParameters,
   SyncRules
 } from './types.js';
+
+const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
 export class SqlSyncRules implements SyncRules {
   bucket_descriptors: SqlBucketDescriptor[] = [];
@@ -50,7 +53,19 @@ export class SqlSyncRules implements SyncRules {
     const schema = options?.schema;
 
     const lineCounter = new LineCounter();
-    const parsed = parseDocument(yaml, { schema: 'core', keepSourceTokens: true, lineCounter });
+    const parsed = parseDocument(yaml, {
+      schema: 'core',
+      keepSourceTokens: true,
+      lineCounter,
+      customTags: [
+        {
+          tag: '!accept_potentially_dangerous_queries',
+          resolve(_text: string, _onError: (error: string) => void) {
+            return ACCEPT_POTENTIALLY_DANGEROUS_QUERIES;
+          }
+        }
+      ]
+    });
 
     const rules = new SqlSyncRules(yaml);
 
@@ -81,6 +96,11 @@ export class SqlSyncRules implements SyncRules {
       const { key: keyScalar, value } = entry as { key: Scalar; value: YAMLMap };
       const key = keyScalar.toString();
 
+      const accept_potentially_dangerous_queries =
+        value.get('accept_potentially_dangerous_queries', true)?.value == true;
+      const options: QueryParseOptions = {
+        accept_potentially_dangerous_queries
+      };
       const parameters = value.get('parameters', true) as unknown;
       const dataQueries = value.get('data', true) as unknown;
 
@@ -88,16 +108,16 @@ export class SqlSyncRules implements SyncRules {
 
       if (parameters instanceof Scalar) {
         rules.withScalar(parameters, (q) => {
-          return descriptor.addParameterQuery(q);
+          return descriptor.addParameterQuery(q, schema, options);
         });
       } else if (parameters instanceof YAMLSeq) {
         for (let item of parameters.items) {
           rules.withScalar(item, (q) => {
-            return descriptor.addParameterQuery(q, schema);
+            return descriptor.addParameterQuery(q, schema, options);
           });
         }
       } else {
-        descriptor.addParameterQuery('SELECT', schema);
+        descriptor.addParameterQuery('SELECT', schema, options);
       }
 
       if (!(dataQueries instanceof YAMLSeq)) {
@@ -237,7 +257,7 @@ export class SqlSyncRules implements SyncRules {
   /**
    * @deprecated For testing only.
    */
-  getStaticBucketIds(parameters: SyncParameters) {
+  getStaticBucketIds(parameters: RequestParameters) {
     let results: string[] = [];
     for (let bucket of this.bucket_descriptors) {
       results.push(...bucket.getStaticBucketIds(parameters));
