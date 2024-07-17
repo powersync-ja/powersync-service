@@ -22,7 +22,7 @@ export async function startStreamWorker(runnerConfig: utils.RunnerConfig) {
   await system.start();
   logger.info('System started');
 
-  Metrics.getInstance().configureReplicationMetrics(system);
+  container.getImplementation(Metrics).configureReplicationMetrics(system);
 
   const mngr = new replication.WalStreamManager(system);
   mngr.start();

@@ -1,4 +1,4 @@
-import { errors, logger, schema } from '@powersync/lib-services-framework';
+import { container, errors, logger, schema } from '@powersync/lib-services-framework';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import { serialize } from 'bson';
 
@@ -65,7 +65,9 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         observer.triggerCancel();
       });
 
-      Metrics.getInstance().concurrent_connections.add(1);
+      const metrics = container.getImplementation(Metrics);
+
+      metrics.concurrent_connections.add(1);
       try {
         for await (const data of streamResponse({
           storage,
@@ -94,7 +96,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
             const serialized = serialize(data) as Buffer;
             responder.onNext({ data: serialized }, false);
             requestedN--;
-            Metrics.getInstance().data_synced_bytes.add(serialized.length);
+            metrics.data_synced_bytes.add(serialized.length);
           }
 
           if (requestedN <= 0) {
@@ -126,7 +128,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         responder.onComplete();
         removeStopHandler();
         disposer();
-        Metrics.getInstance().concurrent_connections.add(-1);
+        metrics.concurrent_connections.add(-1);
       }
     }
   });

@@ -2,6 +2,7 @@ import * as timers from 'timers/promises';
 
 import * as util from '../util/util-index.js';
 import { Metrics } from '../metrics/Metrics.js';
+import { container } from '@powersync/lib-services-framework';
 
 export type TokenStreamOptions = {
   /**
@@ -92,7 +93,7 @@ export async function* ndjson(iterator: AsyncIterable<string | null | Record<str
 export async function* transformToBytesTracked(iterator: AsyncIterable<string>): AsyncGenerator<Buffer> {
   for await (let data of iterator) {
     const encoded = Buffer.from(data, 'utf8');
-    Metrics.getInstance().data_synced_bytes.add(encoded.length);
+    container.getImplementation(Metrics).data_synced_bytes.add(encoded.length);
     yield encoded;
   }
 }

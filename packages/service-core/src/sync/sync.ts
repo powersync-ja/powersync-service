@@ -7,7 +7,7 @@ import * as auth from '../auth/auth-index.js';
 import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
-import { logger } from '@powersync/lib-services-framework';
+import { container, logger } from '@powersync/lib-services-framework';
 import { Metrics } from '../metrics/Metrics.js';
 import { mergeAsyncIterables } from './merge.js';
 import { TokenStreamOptions, tokenStream } from './util.js';
@@ -272,7 +272,7 @@ async function* bucketDataBatch(request: BucketDataRequest) {
         // iterator memory in case if large data sent.
         yield { data: null, done: false };
       }
-      Metrics.getInstance().operations_synced_total.add(r.data.length);
+      container.getImplementation(Metrics).operations_synced_total.add(r.data.length);
 
       dataBuckets.set(r.bucket, r.next_after);
     }

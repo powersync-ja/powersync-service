@@ -16,8 +16,6 @@ export interface MetricsOptions {
 }
 
 export class Metrics {
-  private static instance: Metrics;
-
   private prometheusExporter: PrometheusExporter;
   private meterProvider: MeterProvider;
 
@@ -60,7 +58,7 @@ export class Metrics {
   // Record on API pod
   public concurrent_connections: UpDownCounter<Attributes>;
 
-  private constructor(meterProvider: MeterProvider, prometheusExporter: PrometheusExporter) {
+  constructor(meterProvider: MeterProvider, prometheusExporter: PrometheusExporter) {
     this.meterProvider = meterProvider;
     this.prometheusExporter = prometheusExporter;
     const meter = meterProvider.getMeter('powersync');
@@ -132,18 +130,7 @@ export class Metrics {
     this.concurrent_connections.add(0);
   }
 
-  public static getInstance(): Metrics {
-    if (!Metrics.instance) {
-      throw new Error('Metrics have not been initialised');
-    }
-
-    return Metrics.instance;
-  }
-
-  public static async initialise(options: MetricsOptions): Promise<void> {
-    if (Metrics.instance) {
-      return;
-    }
+  public static async initialise(options: MetricsOptions): Promise<Metrics> {
     logger.info('Configuring telemetry.');
 
     logger.info(
@@ -187,9 +174,8 @@ Anonymous telemetry is currently: ${options.disable_telemetry_sharing ? 'disable
       await prometheusExporter.startServer();
     }
 
-    Metrics.instance = new Metrics(meterProvider, prometheusExporter);
-
     logger.info('Telemetry configuration complete.');
+    return new Metrics(meterProvider, prometheusExporter);
   }
 
   public async shutdown(): Promise<void> {

@@ -119,7 +119,7 @@ export async function startServer(runnerConfig: core.utils.RunnerConfig) {
   await system.start();
   logger.info('System started');
 
-  core.Metrics.getInstance().configureApiMetrics();
+  container.getImplementation(core.Metrics).configureApiMetrics();
 
   await server.listen({
     host: '0.0.0.0',

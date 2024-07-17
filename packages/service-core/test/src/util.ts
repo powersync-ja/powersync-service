@@ -7,14 +7,14 @@ import { PowerSyncMongo } from '../../src/storage/mongo/db.js';
 import { escapeIdentifier } from '../../src/util/pgwire_utils.js';
 import { env } from './env.js';
 import { Metrics } from '@/metrics/Metrics.js';
+import { container } from '@powersync/lib-services-framework';
+import { MeterProvider } from '@opentelemetry/sdk-metrics';
+import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
 
 // The metrics need to be initialised before they can be used
-await Metrics.initialise({
-  disable_telemetry_sharing: true,
-  powersync_instance_id: 'test',
-  internal_metrics_endpoint: 'unused.for.tests.com'
-});
-Metrics.getInstance().resetCounters();
+const metrics = new Metrics(new MeterProvider(), new PrometheusExporter());
+container.register(Metrics, metrics);
+metrics.resetCounters();
 
 export const TEST_URI = env.PG_TEST_URL;
 
