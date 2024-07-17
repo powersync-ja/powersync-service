@@ -8,6 +8,7 @@ import * as util from '../../util/util-index.js';
 import { Metrics } from '../../metrics/Metrics.js';
 import { authUser } from '../auth.js';
 import { routeDefinition } from '../router.js';
+import { RequestTracker } from '../../sync/RequestTracker.js';
 
 export enum SyncRoutes {
   STREAM = '/sync/stream'
@@ -43,6 +44,7 @@ export const syncStreamed = routeDefinition({
       });
     }
     const controller = new AbortController();
+    const tracker = new RequestTracker();
     try {
       Metrics.getInstance().concurrent_connections.add(1);
       const stream = Readable.from(
@@ -53,9 +55,11 @@ export const syncStreamed = routeDefinition({
               params,
               syncParams,
               token: payload.context.token_payload!,
+              tracker,
               signal: controller.signal
             })
-          )
+          ),
+          tracker
         ),
         { objectMode: false, highWaterMark: 16 * 1024 }
       );
@@ -86,6 +90,11 @@ export const syncStreamed = routeDefinition({
         afterSend: async () => {
           controller.abort();
           Metrics.getInstance().concurrent_connections.add(-1);
+          logger.info(`Sync stream complete`, {
+            user_id: syncParams.user_id,
+            operations_synced: tracker.operationsSynced,
+            data_synced_bytes: tracker.dataSyncedBytes
+          });
         }
       });
     } catch (ex) {
