@@ -364,8 +364,6 @@ WHERE  oid = $1::regclass`,
       }
       await batch.commit(lsn);
     });
-
-
   }
 
   static *getQueryData(results: Iterable<pgwire.DatabaseInputRow>): Generator<SqliteRow> {
