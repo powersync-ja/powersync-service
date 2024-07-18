@@ -106,6 +106,8 @@ export class SqlDataQuery {
     rows.tools = tools;
 
     let hasId = false;
+    let hasWildcard = false;
+
     for (let column of q.columns ?? []) {
       const name = tools.getOutputName(column);
       if (name != '*') {
@@ -140,12 +142,28 @@ export class SqlDataQuery {
           }
         });
       }
-      if (name == 'id' || name == '*') {
+      if (name == 'id') {
         hasId = true;
+      } else if (name == '*') {
+        hasWildcard = true;
+        if (querySchema == null) {
+          // Not performing schema-based validation - assume there is an id
+          hasId = true;
+        } else {
+          const idType = querySchema.getType(alias, 'id');
+          if (!idType.isNone()) {
+            hasId = true;
+          }
+        }
       }
     }
     if (!hasId) {
-      rows.errors.push(new SqlRuleError(`Query must return an "id" column`, sql, q.columns?.[0]._location));
+      const error = new SqlRuleError(`Query must return an "id" column`, sql, q.columns?.[0]._location);
+      if (hasWildcard) {
+        // Schema-based validations are always warnings
+        error.type = 'warning';
+      }
+      rows.errors.push(error);
     }
     rows.errors.push(...tools.errors);
     return rows;

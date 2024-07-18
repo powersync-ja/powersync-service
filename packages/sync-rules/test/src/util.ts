@@ -32,6 +32,10 @@ export const BASIC_SCHEMA = new StaticSchema([
               { name: 'count', pg_type: 'int4' },
               { name: 'owner_id', pg_type: 'uuid' }
             ]
+          },
+          {
+            name: 'other',
+            columns: [{ name: 'other_id', pg_type: 'uuid' }]
           }
         ]
       }
