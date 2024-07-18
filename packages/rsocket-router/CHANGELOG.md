@@ -1,5 +1,11 @@
 # @powersync/service-rsocket-router
 
+## 0.0.10
+
+### Patch Changes
+
+- 9bff878: Fix issue where WebSocket close events would not immediately propagate to router handlers.
+
 ## 0.0.9
 
 ### Patch Changes
