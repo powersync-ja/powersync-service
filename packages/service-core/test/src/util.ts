@@ -12,7 +12,13 @@ import { MeterProvider } from '@opentelemetry/sdk-metrics';
 import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
 
 // The metrics need to be initialised before they can be used
-const metrics = new Metrics(new MeterProvider(), new PrometheusExporter());
+const prometheus = new PrometheusExporter();
+const metrics = new Metrics(
+  new MeterProvider({
+    readers: [prometheus]
+  }),
+  prometheus
+);
 container.register(Metrics, metrics);
 metrics.resetCounters();
 
