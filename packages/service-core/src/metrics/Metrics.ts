@@ -1,12 +1,9 @@
 import { Attributes, Counter, ObservableGauge, UpDownCounter, ValueType } from '@opentelemetry/api';
 import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
-import { MeterProvider, MetricReader, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
-import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
+import { MeterProvider } from '@opentelemetry/sdk-metrics';
 import * as jpgwire from '@powersync/service-jpgwire';
-import * as util from '../util/util-index.js';
 import * as storage from '../storage/storage-index.js';
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
-import { Resource } from '@opentelemetry/resources';
 import { logger } from '@powersync/lib-services-framework';
 
 export interface MetricsOptions {
@@ -128,54 +125,6 @@ export class Metrics {
     this.chunks_replicated_total.add(0);
     this.operations_synced_total.add(0);
     this.concurrent_connections.add(0);
-  }
-
-  public static async initialise(options: MetricsOptions): Promise<Metrics> {
-    logger.info('Configuring telemetry.');
-
-    logger.info(
-      `
-Attention:
-PowerSync collects completely anonymous telemetry regarding usage.
-This information is used to shape our roadmap to better serve our customers.
-You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
-https://docs.powersync.com/self-hosting/telemetry
-Anonymous telemetry is currently: ${options.disable_telemetry_sharing ? 'disabled' : 'enabled'}
-    `.trim()
-    );
-
-    const configuredExporters: MetricReader[] = [];
-
-    const port: number = util.env.METRICS_PORT ?? 0;
-    const prometheusExporter = new PrometheusExporter({ port: port, preventServerStart: true });
-    configuredExporters.push(prometheusExporter);
-
-    if (!options.disable_telemetry_sharing) {
-      logger.info('Sharing anonymous telemetry');
-      const periodicExporter = new PeriodicExportingMetricReader({
-        exporter: new OTLPMetricExporter({
-          url: options.internal_metrics_endpoint
-        }),
-        exportIntervalMillis: 1000 * 60 * 5 // 5 minutes
-      });
-
-      configuredExporters.push(periodicExporter);
-    }
-
-    const meterProvider = new MeterProvider({
-      resource: new Resource({
-        ['service']: 'PowerSync',
-        ['instance_id']: options.powersync_instance_id
-      }),
-      readers: configuredExporters
-    });
-
-    if (port > 0) {
-      await prometheusExporter.startServer();
-    }
-
-    logger.info('Telemetry configuration complete.');
-    return new Metrics(meterProvider, prometheusExporter);
   }
 
   public async shutdown(): Promise<void> {

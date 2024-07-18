@@ -1,6 +1,7 @@
 import { container } from '@powersync/lib-services-framework';
 import { db, system, utils, storage, Metrics } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
+import { initializeMetrics } from '../telemetry/metrics.js';
 
 export class PowerSyncSystem extends system.CorePowerSyncSystem {
   storage: storage.BucketStorageFactory;
@@ -47,7 +48,7 @@ export class PowerSyncSystem extends system.CorePowerSyncSystem {
         if (!existingMetrics) {
           container.register(
             Metrics,
-            await Metrics.initialise({
+            await initializeMetrics({
               powersync_instance_id: instanceId,
               disable_telemetry_sharing: config.telemetry.disable_telemetry_sharing,
               internal_metrics_endpoint: config.telemetry.internal_service_endpoint
