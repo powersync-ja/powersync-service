@@ -1,7 +1,7 @@
 import { container } from '@powersync/lib-services-framework';
 import { db, system, utils, storage, Metrics } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
-import { initializeMetrics } from '../telemetry/metrics.js';
+import { createMetrics } from '../telemetry/metrics.js';
 
 export class PowerSyncSystem extends system.CorePowerSyncSystem {
   storage: storage.BucketStorageFactory;
@@ -43,12 +43,17 @@ export class PowerSyncSystem extends system.CorePowerSyncSystem {
     this.withLifecycle(this.storage, {
       async start(storage) {
         const instanceId = await storage.getPowerSyncInstanceId();
-        // There should not be multiple metrics if the `start` process of the system is awaited
+        /**
+         * There should only ever be one instance of Metrics.
+         * In the unified runner there are two instances of System.
+         * This check should be sufficient if the runner functions and
+         * System.start functions are awaited correctly.
+         */
         const existingMetrics = container.getOptional(Metrics);
         if (!existingMetrics) {
           container.register(
             Metrics,
-            await initializeMetrics({
+            await createMetrics({
               powersync_instance_id: instanceId,
               disable_telemetry_sharing: config.telemetry.disable_telemetry_sharing,
               internal_metrics_endpoint: config.telemetry.internal_service_endpoint

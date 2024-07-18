@@ -1,11 +1,16 @@
 import { logger } from '@powersync/lib-services-framework';
-import { metrics, utils } from '@powersync/service-core';
+import { metrics } from '@powersync/service-core';
 import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
 import { MeterProvider, MetricReader, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { Resource } from '@opentelemetry/resources';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 
-export async function initializeMetrics(options: metrics.MetricsOptions) {
+/**
+ * Creates a {@link Metrics} implementation.
+ * This version will conditionally enable anonymous telemetry.
+ * An Prometheus exporter is created for internal use - its server is not started or exposed.
+ */
+export async function createMetrics(options: metrics.MetricsOptions) {
   logger.info('Configuring telemetry.');
 
   logger.info(
@@ -21,8 +26,8 @@ export async function initializeMetrics(options: metrics.MetricsOptions) {
 
   const configuredExporters: MetricReader[] = [];
 
-  const port: number = utils.env.METRICS_PORT ?? 0;
-  const prometheusExporter = new PrometheusExporter({ port: port, preventServerStart: true });
+  // This is used internally for tests
+  const prometheusExporter = new PrometheusExporter({ preventServerStart: true });
   configuredExporters.push(prometheusExporter);
 
   if (!options.disable_telemetry_sharing) {
@@ -44,10 +49,6 @@ export async function initializeMetrics(options: metrics.MetricsOptions) {
     }),
     readers: configuredExporters
   });
-
-  if (port > 0) {
-    await prometheusExporter.startServer();
-  }
 
   logger.info('Telemetry configuration complete.');
   return new metrics.Metrics(meterProvider, prometheusExporter);
