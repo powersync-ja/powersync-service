@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.18.1
+
+### Patch Changes
+
+- 876f4a0: Warn when id column is not present in "select \* from ..."
+
 ## 0.18.0
 
 ### Minor Changes
