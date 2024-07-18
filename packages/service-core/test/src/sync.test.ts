@@ -9,6 +9,7 @@ import { streamResponse } from '../../src/sync/sync.js';
 import * as timers from 'timers/promises';
 import { lsnMakeComparable } from '@powersync/service-jpgwire';
 import { RequestParameters } from '@powersync/service-sync-rules';
+import { RequestTracker } from '@/sync/RequestTracker.js';
 
 describe('sync - mongodb', function () {
   defineTests(MONGO_STORAGE_FACTORY);
@@ -38,6 +39,8 @@ bucket_definitions:
     `;
 
 function defineTests(factory: StorageFactory) {
+  const tracker = new RequestTracker();
+
   test('sync global data', async () => {
     const f = await factory();
 
@@ -78,6 +81,7 @@ function defineTests(factory: StorageFactory) {
         include_checksum: true,
         raw_data: true
       },
+      tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
     });
@@ -118,6 +122,7 @@ function defineTests(factory: StorageFactory) {
         include_checksum: true,
         raw_data: false
       },
+      tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
     });
@@ -146,6 +151,7 @@ function defineTests(factory: StorageFactory) {
         include_checksum: true,
         raw_data: true
       },
+      tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: 0 } as any
     });
@@ -172,6 +178,7 @@ function defineTests(factory: StorageFactory) {
         include_checksum: true,
         raw_data: true
       },
+      tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
     });
@@ -232,6 +239,7 @@ function defineTests(factory: StorageFactory) {
         include_checksum: true,
         raw_data: true
       },
+      tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: exp } as any
     });

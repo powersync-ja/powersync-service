@@ -7,6 +7,7 @@ import { streamResponse } from '../../sync/sync.js';
 import * as util from '../../util/util-index.js';
 import { SocketRouteGenerator } from '../router-socket.js';
 import { SyncRoutes } from './sync-stream.js';
+import { RequestTracker } from '../../sync/RequestTracker.js';
 
 export const syncStreamReactive: SocketRouteGenerator = (router) =>
   router.reactiveStream<util.StreamingSyncRequest, any>(SyncRoutes.STREAM, {
@@ -66,6 +67,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       });
 
       Metrics.getInstance().concurrent_connections.add(1);
+      const tracker = new RequestTracker();
       try {
         for await (const data of streamResponse({
           storage,
@@ -79,6 +81,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
             // RSocket handles keepalive events by default
             keep_alive: false
           },
+          tracker,
           signal: controller.signal
         })) {
           if (data == null) {
@@ -94,7 +97,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
             const serialized = serialize(data) as Buffer;
             responder.onNext({ data: serialized }, false);
             requestedN--;
-            Metrics.getInstance().data_synced_bytes.add(serialized.length);
+            tracker.addDataSynced(serialized.length);
           }
 
           if (requestedN <= 0) {
@@ -126,6 +129,11 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         responder.onComplete();
         removeStopHandler();
         disposer();
+        logger.info(`Sync stream complete`, {
+          user_id: syncParams.user_id,
+          operations_synced: tracker.operationsSynced,
+          data_synced_bytes: tracker.dataSyncedBytes
+        });
         Metrics.getInstance().concurrent_connections.add(-1);
       }
     }
