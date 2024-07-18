@@ -1,5 +1,17 @@
 # @powersync/service-image
 
+## 0.3.2
+
+### Patch Changes
+
+- bdbf95c: Log user_id and sync stats for each connection
+- Updated dependencies [876f4a0]
+- Updated dependencies [9bff878]
+- Updated dependencies [bdbf95c]
+  - @powersync/service-sync-rules@0.18.1
+  - @powersync/service-rsocket-router@0.0.10
+  - @powersync/service-core@0.4.2
+
 ## 0.3.1
 
 ### Patch Changes
