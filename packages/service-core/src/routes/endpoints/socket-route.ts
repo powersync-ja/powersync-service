@@ -1,4 +1,4 @@
-import { errors, logger, schema } from '@powersync/lib-services-framework';
+import { container, errors, logger, schema } from '@powersync/lib-services-framework';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import { serialize } from 'bson';
 
@@ -66,7 +66,9 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         observer.triggerCancel();
       });
 
-      Metrics.getInstance().concurrent_connections.add(1);
+      const metrics = container.getImplementation(Metrics);
+
+      metrics.concurrent_connections.add(1);
       const tracker = new RequestTracker();
       try {
         for await (const data of streamResponse({
@@ -134,7 +136,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
           operations_synced: tracker.operationsSynced,
           data_synced_bytes: tracker.dataSyncedBytes
         });
-        Metrics.getInstance().concurrent_connections.add(-1);
+        metrics.concurrent_connections.add(-1);
       }
     }
   });

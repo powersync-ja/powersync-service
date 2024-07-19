@@ -1,8 +1,6 @@
-import * as t from 'ts-codec';
 import * as yaml from 'yaml';
 
 import { configFile } from '@powersync/service-types';
-import { schema } from '@powersync/lib-services-framework';
 
 import { RunnerConfig } from '../types.js';
 
@@ -23,13 +21,6 @@ export enum ConfigFileFormat {
  */
 const YAML_ENV_PREFIX = 'PS_';
 
-// ts-codec itself doesn't give great validation errors, so we use json schema for that
-const configSchemaValidator = schema
-  .parseJSONSchema(
-    t.generateJSONSchema(configFile.powerSyncConfig, { allowAdditional: true, parsers: [configFile.portParser] })
-  )
-  .validator();
-
 export abstract class ConfigCollector {
   abstract get name(): string;
 
@@ -38,45 +29,6 @@ export abstract class ConfigCollector {
    * @returns null if this collector cannot provide a config
    */
   abstract collectSerialized(runnerConfig: RunnerConfig): Promise<configFile.SerializedPowerSyncConfig | null>;
-
-  /**
-   * Collects the PowerSyncConfig settings.
-   * Validates and decodes the config.
-   * @returns null if this collector cannot provide a config
-   */
-  async collect(runner_config: RunnerConfig): Promise<configFile.PowerSyncConfig | null> {
-    const serialized = await this.collectSerialized(runner_config);
-    if (!serialized) {
-      return null;
-    }
-
-    /**
-     * After this point a serialized config has been found. Any failures to decode or validate
-     * will result in a hard stop.
-     */
-    const decoded = this.decode(serialized);
-    this.validate(decoded);
-    return decoded;
-  }
-
-  /**
-   * Validates input config
-   * ts-codec itself doesn't give great validation errors, so we use json schema for that
-   */
-  validate(config: configFile.PowerSyncConfig) {
-    const valid = configSchemaValidator.validate(config);
-    if (!valid.valid) {
-      throw new Error(`Failed to validate PowerSync config: ${valid.errors.join(', ')}`);
-    }
-  }
-
-  decode(encoded: configFile.SerializedPowerSyncConfig): configFile.PowerSyncConfig {
-    try {
-      return configFile.powerSyncConfig.decode(encoded);
-    } catch (ex) {
-      throw new Error(`Failed to decode PowerSync config: ${ex}`);
-    }
-  }
 
   protected parseContent(content: string, contentType?: ConfigFileFormat) {
     switch (contentType) {

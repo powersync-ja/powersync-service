@@ -1,3 +1,4 @@
+import { container } from '@powersync/lib-services-framework';
 import { Metrics } from '../metrics/Metrics.js';
 
 /**
@@ -9,13 +10,12 @@ export class RequestTracker {
 
   addOperationsSynced(operations: number) {
     this.operationsSynced += operations;
-
-    Metrics.getInstance().operations_synced_total.add(operations);
+    container.getImplementation(Metrics).operations_synced_total.add(operations);
   }
 
   addDataSynced(bytes: number) {
     this.dataSyncedBytes += bytes;
 
-    Metrics.getInstance().data_synced_bytes.add(bytes);
+    container.getImplementation(Metrics).data_synced_bytes.add(bytes);
   }
 }

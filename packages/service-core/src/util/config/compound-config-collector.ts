@@ -1,3 +1,4 @@
+import * as t from 'ts-codec';
 import { configFile, normalizeConnection } from '@powersync/service-types';
 import { ConfigCollector } from './collectors/config-collector.js';
 import { ResolvedConnection, ResolvedPowerSyncConfig, RunnerConfig, SyncRulesConfig } from './types.js';
@@ -9,7 +10,7 @@ import { Base64SyncRulesCollector } from './sync-rules/impl/base64-sync-rules-co
 import { InlineSyncRulesCollector } from './sync-rules/impl/inline-sync-rules-collector.js';
 import { FileSystemSyncRulesCollector } from './sync-rules/impl/filesystem-sync-rules-collector.js';
 import { FallbackConfigCollector } from './collectors/impl/fallback-config-collector.js';
-import { logger } from '@powersync/lib-services-framework';
+import { logger, schema } from '@powersync/lib-services-framework';
 
 const POWERSYNC_DEV_KID = 'powersync-dev';
 
@@ -28,6 +29,12 @@ export type CompoundConfigCollectorOptions = {
   syncRulesCollectors: SyncRulesCollector[];
 };
 
+export type ConfigCollectorGenerics = {
+  SERIALIZED: configFile.SerializedPowerSyncConfig;
+  DESERIALIZED: configFile.PowerSyncConfig;
+  RESOLVED: ResolvedPowerSyncConfig;
+};
+
 const DEFAULT_COLLECTOR_OPTIONS: CompoundConfigCollectorOptions = {
   configCollectors: [new Base64ConfigCollector(), new FileSystemConfigCollector(), new FallbackConfigCollector()],
   syncRulesCollectors: [
@@ -37,15 +44,56 @@ const DEFAULT_COLLECTOR_OPTIONS: CompoundConfigCollectorOptions = {
   ]
 };
 
-export class CompoundConfigCollector {
+export class CompoundConfigCollector<Generics extends ConfigCollectorGenerics = ConfigCollectorGenerics> {
   constructor(protected options: CompoundConfigCollectorOptions = DEFAULT_COLLECTOR_OPTIONS) {}
+
+  /**
+   * The default ts-codec for validations and decoding
+   */
+  get codec(): t.AnyCodec {
+    return configFile.powerSyncConfig;
+  }
 
   /**
    * Collects and resolves base config
    */
-  async collectConfig(runner_config: RunnerConfig = {}): Promise<ResolvedPowerSyncConfig> {
-    const baseConfig = await this.collectBaseConfig(runner_config);
+  async collectConfig(runnerConfig: RunnerConfig = {}): Promise<Generics['RESOLVED']> {
+    const baseConfig = await this.collectBaseConfig(runnerConfig);
+    const baseResolvedConfig = await this.resolveBaseConfig(baseConfig, runnerConfig);
+    return this.resolveConfig(baseConfig, baseResolvedConfig, runnerConfig);
+  }
 
+  /**
+   * Collects the base PowerSyncConfig from various registered collectors.
+   * @throws if no collector could return a configuration.
+   */
+  protected async collectBaseConfig(runner_config: RunnerConfig): Promise<Generics['DESERIALIZED']> {
+    for (const collector of this.options.configCollectors) {
+      try {
+        const baseConfig = await collector.collectSerialized(runner_config);
+        if (baseConfig) {
+          const decoded = this.decode(baseConfig);
+          this.validate(decoded);
+          return decoded;
+        }
+        logger.debug(
+          `Could not collect PowerSync config with ${collector.name} method. Moving on to next method if available.`
+        );
+      } catch (ex) {
+        // An error in a collector is a hard stop
+        throw new Error(`Could not collect config using ${collector.name} method. Caught exception: ${ex}`);
+      }
+    }
+    throw new Error('PowerSyncConfig could not be collected using any of the registered config collectors.');
+  }
+
+  /**
+   * Performs the resolving of the common (shared) base configuration
+   */
+  protected async resolveBaseConfig(
+    baseConfig: Generics['DESERIALIZED'],
+    runnerConfig: RunnerConfig = {}
+  ): Promise<ResolvedPowerSyncConfig> {
     const connections = baseConfig.replication?.connections ?? [];
     if (connections.length > 1) {
       throw new Error('Only a single replication connection is supported currently');
@@ -93,7 +141,7 @@ export class CompoundConfigCollector {
       devKey = await auth.KeySpec.importKey(baseDevKey);
     }
 
-    const sync_rules = await this.collectSyncRules(baseConfig, runner_config);
+    const sync_rules = await this.collectSyncRules(baseConfig, runnerConfig);
 
     let jwt_audiences: string[] = baseConfig.client_auth?.audience ?? [];
 
@@ -130,25 +178,17 @@ export class CompoundConfigCollector {
   }
 
   /**
-   * Collects the base PowerSyncConfig from various registered collectors.
-   * @throws if no collector could return a configuration.
+   * Perform any additional resolving from {@link ResolvedPowerSyncConfig}
+   * to the extended {@link Generics['RESOLVED']}
+   *
    */
-  protected async collectBaseConfig(runner_config: RunnerConfig): Promise<configFile.PowerSyncConfig> {
-    for (const collector of this.options.configCollectors) {
-      try {
-        const baseConfig = await collector.collect(runner_config);
-        if (baseConfig) {
-          return baseConfig;
-        }
-        logger.debug(
-          `Could not collect PowerSync config with ${collector.name} method. Moving on to next method if available.`
-        );
-      } catch (ex) {
-        // An error in a collector is a hard stop
-        throw new Error(`Could not collect config using ${collector.name} method. Caught exception: ${ex}`);
-      }
-    }
-    throw new Error('PowerSyncConfig could not be collected using any of the registered config collectors.');
+  protected async resolveConfig(
+    baseConfig: Generics['DESERIALIZED'],
+    resolvedBaseConfig: ResolvedPowerSyncConfig,
+    runnerConfig: RunnerConfig = {}
+  ): Promise<Generics['RESOLVED']> {
+    // The base version has ResolvedPowerSyncConfig == Generics['RESOLVED']
+    return resolvedBaseConfig;
   }
 
   protected async collectSyncRules(
@@ -172,5 +212,29 @@ export class CompoundConfigCollector {
     return {
       present: false
     };
+  }
+
+  /**
+   * Validates input config
+   * ts-codec itself doesn't give great validation errors, so we use json schema for that
+   */
+  protected validate(config: Generics['DESERIALIZED']) {
+    // ts-codec itself doesn't give great validation errors, so we use json schema for that
+    const validator = schema
+      .parseJSONSchema(t.generateJSONSchema(this.codec, { allowAdditional: true, parsers: [configFile.portParser] }))
+      .validator();
+
+    const valid = validator.validate(config);
+    if (!valid.valid) {
+      throw new Error(`Failed to validate PowerSync config: ${valid.errors.join(', ')}`);
+    }
+  }
+
+  protected decode(encoded: Generics['SERIALIZED']): Generics['DESERIALIZED'] {
+    try {
+      return this.codec.decode(encoded);
+    } catch (ex) {
+      throw new Error(`Failed to decode PowerSync config: ${ex}`);
+    }
   }
 }

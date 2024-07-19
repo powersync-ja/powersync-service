@@ -1,4 +1,4 @@
-import { errors, logger, router, schema } from '@powersync/lib-services-framework';
+import { container, errors, logger, router, schema } from '@powersync/lib-services-framework';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import { Readable } from 'stream';
 
@@ -43,10 +43,11 @@ export const syncStreamed = routeDefinition({
         description: 'No sync rules available'
       });
     }
+    const metrics = container.getImplementation(Metrics);
     const controller = new AbortController();
     const tracker = new RequestTracker();
     try {
-      Metrics.getInstance().concurrent_connections.add(1);
+      metrics.concurrent_connections.add(1);
       const stream = Readable.from(
         sync.transformToBytesTracked(
           sync.ndjson(
@@ -89,7 +90,7 @@ export const syncStreamed = routeDefinition({
         data: stream,
         afterSend: async () => {
           controller.abort();
-          Metrics.getInstance().concurrent_connections.add(-1);
+          metrics.concurrent_connections.add(-1);
           logger.info(`Sync stream complete`, {
             user_id: syncParams.user_id,
             operations_synced: tracker.operationsSynced,
@@ -99,7 +100,7 @@ export const syncStreamed = routeDefinition({
       });
     } catch (ex) {
       controller.abort();
-      Metrics.getInstance().concurrent_connections.add(-1);
+      metrics.concurrent_connections.add(-1);
     }
   }
 });

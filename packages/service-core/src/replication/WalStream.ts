@@ -406,7 +406,7 @@ WHERE  oid = $1::regclass`,
         await batch.save({ tag: 'insert', sourceTable: table, before: undefined, after: record });
       }
       at += rows.length;
-      Metrics.getInstance().rows_replicated_total.add(rows.length);
+      container.getImplementation(Metrics).rows_replicated_total.add(rows.length);
 
       await touch();
     }
@@ -492,19 +492,21 @@ WHERE  oid = $1::regclass`,
         return null;
       }
 
+      const metrics = container.getImplementation(Metrics);
+
       if (msg.tag == 'insert') {
-        Metrics.getInstance().rows_replicated_total.add(1);
+        metrics.rows_replicated_total.add(1);
         const baseRecord = util.constructAfterRecord(msg);
         return await batch.save({ tag: 'insert', sourceTable: table, before: undefined, after: baseRecord });
       } else if (msg.tag == 'update') {
-        Metrics.getInstance().rows_replicated_total.add(1);
+        metrics.rows_replicated_total.add(1);
         // "before" may be null if the replica id columns are unchanged
         // It's fine to treat that the same as an insert.
         const before = util.constructBeforeRecord(msg);
         const after = util.constructAfterRecord(msg);
         return await batch.save({ tag: 'update', sourceTable: table, before: before, after: after });
       } else if (msg.tag == 'delete') {
-        Metrics.getInstance().rows_replicated_total.add(1);
+        metrics.rows_replicated_total.add(1);
         const before = util.constructBeforeRecord(msg)!;
 
         return await batch.save({ tag: 'delete', sourceTable: table, before: before, after: undefined });
@@ -555,6 +557,8 @@ WHERE  oid = $1::regclass`,
     // Auto-activate as soon as initial replication is done
     await this.storage.autoActivate();
 
+    const metrics = container.getImplementation(Metrics);
+
     await this.storage.startBatch({}, async (batch) => {
       // Replication never starts in the middle of a transaction
       let inTx = false;
@@ -577,7 +581,7 @@ WHERE  oid = $1::regclass`,
           } else if (msg.tag == 'begin') {
             inTx = true;
           } else if (msg.tag == 'commit') {
-            Metrics.getInstance().transactions_replicated_total.add(1);
+            metrics.transactions_replicated_total.add(1);
             inTx = false;
             await batch.commit(msg.lsn!);
             await this.ack(msg.lsn!, replicationStream);
@@ -602,7 +606,7 @@ WHERE  oid = $1::regclass`,
           }
         }
 
-        Metrics.getInstance().chunks_replicated_total.add(1);
+        metrics.chunks_replicated_total.add(1);
       }
     });
   }

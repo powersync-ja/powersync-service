@@ -5,6 +5,7 @@ import { MONGO_STORAGE_FACTORY } from './util.js';
 import { putOp, removeOp, walStreamTest } from './wal_stream_utils.js';
 import { pgwireRows } from '@powersync/service-jpgwire';
 import { Metrics } from '@/metrics/Metrics.js';
+import { container } from '@powersync/lib-services-framework';
 
 type StorageFactory = () => Promise<BucketStorageFactory>;
 
@@ -41,10 +42,9 @@ bucket_definitions:
 
       await context.replicateSnapshot();
 
-      const startRowCount =
-        (await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
-      const startTxCount =
-        (await Metrics.getInstance().getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
+      const metrics = container.getImplementation(Metrics);
+      const startRowCount = (await metrics.getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
+      const startTxCount = (await metrics.getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
 
       context.startStreaming();
 
@@ -59,9 +59,8 @@ bucket_definitions:
       expect(data).toMatchObject([
         putOp('test_data', { id: test_id, description: 'test1', num: 1152921504606846976n })
       ]);
-      const endRowCount = (await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
-      const endTxCount =
-        (await Metrics.getInstance().getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
+      const endRowCount = (await metrics.getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
+      const endTxCount = (await metrics.getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
       expect(endRowCount - startRowCount).toEqual(1);
       expect(endTxCount - startTxCount).toEqual(1);
     })
@@ -83,10 +82,9 @@ bucket_definitions:
 
       await context.replicateSnapshot();
 
-      const startRowCount =
-        (await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
-      const startTxCount =
-        (await Metrics.getInstance().getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
+      const metrics = container.getImplementation(Metrics);
+      const startRowCount = (await metrics.getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
+      const startTxCount = (await metrics.getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
 
       context.startStreaming();
 
@@ -97,9 +95,8 @@ bucket_definitions:
       const data = await context.getBucketData('global[]');
 
       expect(data).toMatchObject([putOp('test_DATA', { id: test_id, description: 'test1' })]);
-      const endRowCount = (await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
-      const endTxCount =
-        (await Metrics.getInstance().getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
+      const endRowCount = (await metrics.getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
+      const endTxCount = (await metrics.getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
       expect(endRowCount - startRowCount).toEqual(1);
       expect(endTxCount - startTxCount).toEqual(1);
     })
@@ -293,10 +290,9 @@ bucket_definitions:
 
       await context.replicateSnapshot();
 
-      const startRowCount =
-        (await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
-      const startTxCount =
-        (await Metrics.getInstance().getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
+      const metrics = container.getImplementation(Metrics);
+      const startRowCount = (await metrics.getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
+      const startTxCount = (await metrics.getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
 
       context.startStreaming();
 
@@ -307,9 +303,8 @@ bucket_definitions:
       const data = await context.getBucketData('global[]');
 
       expect(data).toMatchObject([]);
-      const endRowCount = (await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
-      const endTxCount =
-        (await Metrics.getInstance().getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
+      const endRowCount = (await metrics.getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
+      const endTxCount = (await metrics.getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
 
       // There was a transaction, but we should not replicate any actual data
       expect(endRowCount - startRowCount).toEqual(0);
