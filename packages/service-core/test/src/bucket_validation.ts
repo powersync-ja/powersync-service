@@ -81,9 +81,9 @@ export function validateCompactedBucket(bucket: OplogEntry[], compacted: OplogEn
   for (let i = 0; i < bucket.length; i++) {
     // r(B_{[..c_i]})
     const r2 = reduceBucket(bucket.slice(0, i + 1));
-    const c_i = bucket[i].op_id;
+    const c_i = BigInt(bucket[i].op_id);
     // B'_{[c_i+1..c]}
-    const b3 = compacted.filter((op) => op.op_id > c_i);
+    const b3 = compacted.filter((op) => BigInt(op.op_id) > c_i);
     // r(B_{[..c_i]}) \cup B'_{[c_i+1..c]}
     const r3 = r2.concat(b3);
     // r(r(B_{[..c_i]}) \cup B'_{[c_i+1..c]})

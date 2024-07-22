@@ -54,12 +54,14 @@ export class MongoCompactor {
   private moveBatchLimit: number;
   private moveBatchQueryLimit: number;
   private clearBatchLimit: number;
+  private maxOpId: bigint | undefined;
 
   constructor(private db: PowerSyncMongo, private group_id: number, options?: MongoCompactOptions) {
     this.idLimitBytes = (options?.memoryLimitMB ?? DEFAULT_MEMORY_LIMIT_MB) * 1024 * 1024;
     this.moveBatchLimit = options?.moveBatchLimit ?? DEFAULT_MOVE_BATCH_LIMIT;
     this.moveBatchQueryLimit = options?.moveBatchQueryLimit ?? DEFAULT_MOVE_BATCH_QUERY_LIMIT;
     this.clearBatchLimit = options?.clearBatchLimit ?? DEFAULT_CLEAR_BATCH_LIMIT;
+    this.maxOpId = options?.maxOpId;
   }
 
   /**
@@ -142,6 +144,10 @@ export class MongoCompactor {
             lastNotPut: null,
             opsSincePut: 0
           };
+        }
+
+        if (this.maxOpId != null && doc._id.o > this.maxOpId) {
+          continue;
         }
 
         let isPersistentPut = doc.op == 'PUT';

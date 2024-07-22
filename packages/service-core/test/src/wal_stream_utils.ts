@@ -20,9 +20,7 @@ export function walStreamTest(
   return async () => {
     const f = await factory();
     const connections = new PgManager(TEST_CONNECTION_OPTIONS, {});
-    await connections.pool.query(
-      'select pg_drop_replication_slot(slot_name) from pg_replication_slots where active = false'
-    );
+
     await clearTestDb(connections.pool);
     const context = new WalStreamTestContext(f, connections);
     try {

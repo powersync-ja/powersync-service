@@ -31,6 +31,10 @@ export const MONGO_STORAGE_FACTORY: StorageFactory = async () => {
 };
 
 export async function clearTestDb(db: pgwire.PgClient) {
+  await db.query(
+    "select pg_drop_replication_slot(slot_name) from pg_replication_slots where active = false and slot_name like 'test_%'"
+  );
+
   await db.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
   try {
     await db.query(`DROP PUBLICATION powersync`);

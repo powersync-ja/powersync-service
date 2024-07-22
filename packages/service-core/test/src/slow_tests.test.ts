@@ -4,12 +4,15 @@ import { afterEach, describe, expect, test } from 'vitest';
 import { WalStream, WalStreamOptions } from '../../src/replication/WalStream.js';
 import { getClientCheckpoint } from '../../src/util/utils.js';
 import { env } from './env.js';
-import { MONGO_STORAGE_FACTORY, StorageFactory, TEST_CONNECTION_OPTIONS, connectPgPool } from './util.js';
+import { MONGO_STORAGE_FACTORY, StorageFactory, TEST_CONNECTION_OPTIONS, clearTestDb, connectPgPool } from './util.js';
 
 import * as pgwire from '@powersync/service-jpgwire';
 import { SqliteRow } from '@powersync/service-sync-rules';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
 import { PgManager } from '../../src/util/PgManager.js';
+import { mapOpEntry } from '@/storage/storage-index.js';
+import { reduceBucket, validateCompactedBucket, validateReducedSets } from './bucket_validation.js';
+import * as timers from 'node:timers/promises';
 
 describe('slow tests - mongodb', function () {
   // These are slow, inconsistent tests.
@@ -51,130 +54,169 @@ function defineSlowTests(factory: StorageFactory) {
   // * Skipping LSNs after a keepalive message
   // * Skipping LSNs when source transactions overlap
   test(
-    'repeated replication',
+    'repeated replication - basic',
     async () => {
-      const connections = new PgManager(TEST_CONNECTION_OPTIONS, {});
-      const replicationConnection = await connections.replicationConnection();
-      const pool = connections.pool;
-      const f = (await factory()) as MongoBucketStorage;
+      await testRepeatedReplication({ compact: false, maxBatchSize: 50, numBatches: 5 });
+    },
+    { timeout: TEST_DURATION_MS + TIMEOUT_MARGIN_MS }
+  );
 
-      const syncRuleContent = `
+  test(
+    'repeated replication - compacted',
+    async () => {
+      await testRepeatedReplication({ compact: true, maxBatchSize: 100, numBatches: 2 });
+    },
+    { timeout: TEST_DURATION_MS + TIMEOUT_MARGIN_MS }
+  );
+
+  async function testRepeatedReplication(testOptions: { compact: boolean; maxBatchSize: number; numBatches: number }) {
+    const connections = new PgManager(TEST_CONNECTION_OPTIONS, {});
+    const replicationConnection = await connections.replicationConnection();
+    const pool = connections.pool;
+    await clearTestDb(pool);
+    const f = (await factory()) as MongoBucketStorage;
+
+    const syncRuleContent = `
 bucket_definitions:
   global:
     data:
       - SELECT * FROM "test_data"
 `;
-      const syncRules = await f.updateSyncRules({ content: syncRuleContent });
-      const storage = f.getInstance(syncRules.parsed());
-      abortController = new AbortController();
-      const options: WalStreamOptions = {
-        abort_signal: abortController.signal,
-        connections,
-        storage: storage,
-        factory: f
-      };
-      walStream = new WalStream(options);
+    const syncRules = await f.updateSyncRules({ content: syncRuleContent });
+    const storage = f.getInstance(syncRules.parsed());
+    abortController = new AbortController();
+    const options: WalStreamOptions = {
+      abort_signal: abortController.signal,
+      connections,
+      storage: storage,
+      factory: f
+    };
+    walStream = new WalStream(options);
 
-      await pool.query(`DROP TABLE IF EXISTS test_data`);
-      await pool.query(
-        `CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text, num decimal)`
-      );
-      await pool.query(`ALTER TABLE test_data REPLICA IDENTITY FULL`);
+    await pool.query(
+      `CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text, num decimal)`
+    );
+    await pool.query(`ALTER TABLE test_data REPLICA IDENTITY FULL`);
 
-      await walStream.initReplication(replicationConnection);
-      await storage.autoActivate();
-      let abort = false;
-      streamPromise = walStream.streamChanges(replicationConnection).finally(() => {
-        abort = true;
-      });
-      const start = Date.now();
+    await walStream.initReplication(replicationConnection);
+    await storage.autoActivate();
+    let abort = false;
+    streamPromise = walStream.streamChanges(replicationConnection).finally(() => {
+      abort = true;
+    });
+    const start = Date.now();
 
-      while (!abort && Date.now() - start < TEST_DURATION_MS) {
-        const bg = async () => {
-          for (let j = 0; j < 1 && !abort; j++) {
-            const n = 1;
-            let statements: pgwire.Statement[] = [];
-            for (let i = 0; i < n; i++) {
-              const description = `test${i}`;
-              statements.push({
-                statement: `INSERT INTO test_data(description, num) VALUES($1, $2) returning id as test_id`,
+    while (!abort && Date.now() - start < TEST_DURATION_MS) {
+      const bg = async () => {
+        for (let j = 0; j < testOptions.numBatches && !abort; j++) {
+          const n = Math.max(1, Math.floor(Math.random() * testOptions.maxBatchSize));
+          let statements: pgwire.Statement[] = [];
+          for (let i = 0; i < n; i++) {
+            const description = `test${i}`;
+            statements.push({
+              statement: `INSERT INTO test_data(description, num) VALUES($1, $2) returning id as test_id`,
+              params: [
+                { type: 'varchar', value: description },
+                { type: 'float8', value: Math.random() }
+              ]
+            });
+          }
+          const results = await pool.query(...statements);
+          const ids = results.results.map((sub) => {
+            return sub.rows[0][0] as string;
+          });
+          await new Promise((resolve) => setTimeout(resolve, Math.random() * 30));
+
+          if (Math.random() > 0.5) {
+            const updateStatements: pgwire.Statement[] = ids.map((id) => {
+              return {
+                statement: `UPDATE test_data SET num = $2 WHERE id = $1`,
                 params: [
-                  { type: 'varchar', value: description },
+                  { type: 'uuid', value: id },
                   { type: 'float8', value: Math.random() }
                 ]
-              });
-            }
-            const results = await pool.query(...statements);
-            const ids = results.results.map((sub) => {
-              return sub.rows[0][0] as string;
-            });
-            await new Promise((resolve) => setTimeout(resolve, Math.random() * 30));
-
-            if (Math.random() > 0.5) {
-              const updateStatements: pgwire.Statement[] = ids.map((id) => {
-                return {
-                  statement: `UPDATE test_data SET num = $2 WHERE id = $1`,
-                  params: [
-                    { type: 'uuid', value: id },
-                    { type: 'float8', value: Math.random() }
-                  ]
-                };
-              });
-
-              await pool.query(...updateStatements);
-              if (Math.random() > 0.5) {
-                // Special case - an update that doesn't change data
-                await pool.query(...updateStatements);
-              }
-            }
-
-            const deleteStatements: pgwire.Statement[] = ids.map((id) => {
-              return {
-                statement: `DELETE FROM test_data WHERE id = $1`,
-                params: [{ type: 'uuid', value: id }]
               };
             });
-            await pool.query(...deleteStatements);
 
-            await new Promise((resolve) => setTimeout(resolve, Math.random() * 10));
+            await pool.query(...updateStatements);
+            if (Math.random() > 0.5) {
+              // Special case - an update that doesn't change data
+              await pool.query(...updateStatements);
+            }
           }
-        };
 
-        // Call the above loop multiple times concurrently
-        let promises = [1, 2, 3].map((i) => bg());
-        await Promise.all(promises);
+          const deleteStatements: pgwire.Statement[] = ids.map((id) => {
+            return {
+              statement: `DELETE FROM test_data WHERE id = $1`,
+              params: [{ type: 'uuid', value: id }]
+            };
+          });
+          await pool.query(...deleteStatements);
 
-        // Wait for replication to finish
-        let checkpoint = await getClientCheckpoint(pool, storage.factory, { timeout: TIMEOUT_MARGIN_MS });
+          await new Promise((resolve) => setTimeout(resolve, Math.random() * 10));
+        }
+      };
 
-        // Check that all inserts have been deleted again
-        const docs = await f.db.current_data.find().toArray();
-        const transformed = docs.map((doc) => {
-          return bson.deserialize((doc.data as mongo.Binary).buffer) as SqliteRow;
-        });
-        expect(transformed).toEqual([]);
+      let compactController = new AbortController();
 
-        // Check that each PUT has a REMOVE
-        const ops = await f.db.bucket_data.find().sort({ _id: 1 }).toArray();
-        let active = new Set<string>();
-        for (let op of ops) {
-          const key = op.source_key?.toHexString();
-          if (op.op == 'PUT') {
-            active.add(key!);
-          } else if (op.op == 'REMOVE') {
-            active.delete(key!);
+      const bgCompact = async () => {
+        // Repeatedly compact, and check that the compact conditions hold
+        while (!compactController.signal.aborted) {
+          const delay = Math.random() * 50;
+          try {
+            await timers.setTimeout(delay, undefined, { signal: compactController.signal });
+          } catch (e) {
+            break;
           }
-        }
-        if (active.size > 0) {
-          throw new Error(`${active.size} rows not removed`);
-        }
-      }
 
-      abortController.abort();
-      await streamPromise;
-    },
-    { timeout: TEST_DURATION_MS + TIMEOUT_MARGIN_MS }
-  );
+          const checkpoint = BigInt((await storage.getCheckpoint()).checkpoint);
+          const opsBefore = (await f.db.bucket_data.find().sort({ _id: 1 }).toArray())
+            .filter((row) => row._id.o <= checkpoint)
+            .map(mapOpEntry);
+          await storage.compact({ maxOpId: checkpoint });
+          const opsAfter = (await f.db.bucket_data.find().sort({ _id: 1 }).toArray())
+            .filter((row) => row._id.o <= checkpoint)
+            .map(mapOpEntry);
+
+          validateCompactedBucket(opsBefore, opsAfter);
+        }
+      };
+
+      // Call the above loop multiple times concurrently
+      const promises = [1, 2, 3].map((i) => bg());
+      const compactPromise = testOptions.compact ? bgCompact() : null;
+      await Promise.all(promises);
+      compactController.abort();
+      await compactPromise;
+
+      // Wait for replication to finish
+      let checkpoint = await getClientCheckpoint(pool, storage.factory, { timeout: TIMEOUT_MARGIN_MS });
+
+      // Check that all inserts have been deleted again
+      const docs = await f.db.current_data.find().toArray();
+      const transformed = docs.map((doc) => {
+        return bson.deserialize((doc.data as mongo.Binary).buffer) as SqliteRow;
+      });
+      expect(transformed).toEqual([]);
+
+      // Check that each PUT has a REMOVE
+      const ops = await f.db.bucket_data.find().sort({ _id: 1 }).toArray();
+
+      // All a single bucket in this test
+      const bucket = ops.map((op) => mapOpEntry(op));
+      const reduced = reduceBucket(bucket);
+      expect(reduced).toMatchObject([
+        {
+          op_id: '0',
+          op: 'CLEAR'
+        }
+        // Should contain no additional data
+      ]);
+    }
+
+    abortController.abort();
+    await streamPromise;
+  }
 
   // Test repeatedly performing initial replication.
   //
@@ -184,6 +226,7 @@ bucket_definitions:
     'repeated initial replication',
     async () => {
       const pool = await connectPgPool();
+      await clearTestDb(pool);
       const f = await factory();
 
       const syncRuleContent = `
@@ -196,7 +239,6 @@ bucket_definitions:
       const storage = f.getInstance(syncRules.parsed());
 
       // 1. Setup some base data that will be replicated in initial replication
-      await pool.query(`DROP TABLE IF EXISTS test_data`);
       await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);
 
       let statements: pgwire.Statement[] = [];

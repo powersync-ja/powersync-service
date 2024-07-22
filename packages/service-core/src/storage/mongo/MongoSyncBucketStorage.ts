@@ -25,7 +25,7 @@ import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, SourceKey, SyncRuleState } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
-import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, readSingleBatch, serializeLookup } from './util.js';
+import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, mapOpEntry, readSingleBatch, serializeLookup } from './util.js';
 
 export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
   private readonly db: PowerSyncMongo;
@@ -306,32 +306,15 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
         targetOp = null;
       }
 
-      let entry: util.OplogEntry;
+      const entry = mapOpEntry(row);
 
-      if (row.op == 'PUT' || row.op == 'REMOVE') {
-        entry = {
-          op_id: util.timestampToOpId(row._id.o),
-          op: row.op,
-          object_type: row.table,
-          object_id: row.row_id,
-          checksum: Number(row.checksum),
-          subkey: `${row.source_table}/${row.source_key!.toHexString()}`,
-          data: row.data
-        };
-      } else {
+      if (row.target_op != null) {
         // MOVE, CLEAR
-        if (row.target_op != null) {
-          if (targetOp == null || row.target_op > targetOp) {
-            targetOp = row.target_op;
-          }
+        if (targetOp == null || row.target_op > targetOp) {
+          targetOp = row.target_op;
         }
-
-        entry = {
-          op_id: util.timestampToOpId(row._id.o),
-          op: row.op,
-          checksum: Number(row.checksum)
-        };
       }
+
       currentBatch.data.push(entry);
       currentBatch.next_after = entry.op_id;
 

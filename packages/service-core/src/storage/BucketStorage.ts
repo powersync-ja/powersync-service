@@ -415,4 +415,15 @@ export interface CompactOptions {
    * Add another 80MB to get RSS usage / memory limits.
    */
   memoryLimitMB?: number;
+
+  /**
+   * If specified, ignore any operations newer than this when compacting.
+   *
+   * This is primarily for tests, where we want to test compacting at a specific
+   * point.
+   *
+   * This can also be used to create a "safe buffer" of recent operations that should
+   * not be compacted, to avoid invalidating checkpoints in use.
+   */
+  maxOpId?: bigint;
 }
