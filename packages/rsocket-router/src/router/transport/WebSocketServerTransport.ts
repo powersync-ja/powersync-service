@@ -74,6 +74,9 @@ export class WebsocketServerTransport implements ServerTransport {
       try {
         websocket.binaryType = 'nodebuffer';
         const duplex = WebSocket.createWebSocketStream(websocket);
+        websocket.on('close', (e) => {
+          duplex.emit('close', e);
+        });
         WebsocketDuplexConnection.create(duplex, connectionAcceptor, multiplexerDemultiplexerFactory, websocket);
       } catch (ex) {
         logger.error(`Could not create duplex connection`, ex);

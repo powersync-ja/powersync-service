@@ -15,7 +15,7 @@
     "build:ts": "tsc -b",
     "watch:ts": "pnpm build:ts -w --preserveWatchOutput",
     "watch:service": "concurrently --passthrough-arguments \"pnpm watch:ts\" \" pnpm start:service {@}\" -- ",
-    "start:service": "pnpm --filter powersync-open-service watch",
+    "start:service": "pnpm --filter @powersync/service-image watch",
     "clean": "pnpm run -r clean",
     "release": "pnpm build:production && pnpm changeset publish",
     "test": "pnpm run -r test"

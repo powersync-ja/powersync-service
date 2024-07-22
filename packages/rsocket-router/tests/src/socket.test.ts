@@ -124,6 +124,9 @@ describe('Sockets', () => {
       wsCreator: () => server
     });
 
+    const onCancelWrapper = (callback: () => void) => callback();
+    const serverCancelSpy = vi.fn(onCancelWrapper);
+
     // Create a simple server which will spam a lot of data to any connection
     const rSocketServer = new RSocketServer({
       transport,
@@ -143,7 +146,9 @@ describe('Sockets', () => {
                 request: () => {},
                 onExtension: () => {},
                 cancel: () => {
-                  stop = true;
+                  serverCancelSpy(() => {
+                    stop = true;
+                  });
                 }
               };
             }
@@ -154,7 +159,8 @@ describe('Sockets', () => {
     rSocketServer.bind();
 
     // Try and connect 100 times, closing the socket as soon as it is available
-    for (let i = 0; i < 100; i++) {
+    const testCount = 100;
+    const promises = new Array(testCount).fill(null).map(async () => {
       const testSocket = new WebSocket.WebSocket(WS_ADDRESS);
 
       const connector = new RSocketConnector({
@@ -166,6 +172,10 @@ describe('Sockets', () => {
         setup: {
           dataMimeType: 'application/bson',
           metadataMimeType: 'application/bson',
+
+          keepAlive: 20000,
+          lifetime: 30000,
+
           payload: {
             data: null
           }
@@ -173,6 +183,7 @@ describe('Sockets', () => {
       });
 
       const connection = await connector.connect();
+
       connection.requestStream({ data: null }, 1, {
         onNext() {},
         onComplete: () => {},
@@ -182,6 +193,9 @@ describe('Sockets', () => {
 
       // The socket closing here should not throw any unhandled errors
       testSocket.close();
-    }
+    });
+
+    await Promise.all(promises);
+    await vi.waitFor(() => expect(serverCancelSpy.mock.calls.length).equals(testCount), { timeout: 2000 });
   });
 });

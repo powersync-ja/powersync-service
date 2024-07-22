@@ -67,4 +67,8 @@ export class ExpressionType {
   isNumericOnly() {
     return this.typeFlags != TYPE_NONE && (this.typeFlags & (TYPE_INTEGER | TYPE_REAL)) == this.typeFlags;
   }
+
+  isNone() {
+    return this.typeFlags == TYPE_NONE;
+  }
 }

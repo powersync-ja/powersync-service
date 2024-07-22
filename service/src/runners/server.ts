@@ -85,28 +85,29 @@ export async function startServer(runnerConfig: core.utils.RunnerConfig) {
       const { token } = core.routes.RSocketContextMeta.decode(deserialize(data) as any);
 
       if (!token) {
-        throw new errors.ValidationError('No token provided in context');
+        throw new errors.AuthorizationError('No token provided');
       }
 
       try {
         const extracted_token = core.routes.auth.getTokenFromHeader(token);
         if (extracted_token != null) {
-          const { context, errors } = await core.routes.auth.generateContext(system, extracted_token);
+          const { context, errors: token_errors } = await core.routes.auth.generateContext(system, extracted_token);
+          if (context?.token_payload == null) {
+            throw new errors.AuthorizationError(token_errors ?? 'Authentication required');
+          }
           return {
             token,
             ...context,
-            token_errors: errors,
+            token_errors: token_errors,
             system
           };
+        } else {
+          throw new errors.AuthorizationError('No token provided');
         }
       } catch (ex) {
         logger.error(ex);
+        throw ex;
       }
-
-      return {
-        token,
-        system
-      };
     },
     endpoints: [core.routes.endpoints.syncStreamReactive(SocketRouter)],
     metaDecoder: async (meta: Buffer) => {

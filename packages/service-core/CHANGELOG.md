@@ -1,5 +1,24 @@
 # @powersync/service-core
 
+## 0.4.2
+
+### Patch Changes
+
+- bdbf95c: Log user_id and sync stats for each connection
+- Updated dependencies [876f4a0]
+- Updated dependencies [9bff878]
+  - @powersync/service-sync-rules@0.18.1
+  - @powersync/service-rsocket-router@0.0.10
+
+## 0.4.1
+
+### Patch Changes
+
+- 1066f86: Fixed missing route error logs
+- Updated dependencies [909f71a]
+  - @powersync/service-rsocket-router@0.0.9
+  - @powersync/lib-services-framework@0.1.1
+
 ## 0.4.0
 
 ### Minor Changes

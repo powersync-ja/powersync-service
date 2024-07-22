@@ -11,6 +11,7 @@ import { logger } from '@powersync/lib-services-framework';
 import { Metrics } from '../metrics/Metrics.js';
 import { mergeAsyncIterables } from './merge.js';
 import { TokenStreamOptions, tokenStream } from './util.js';
+import { RequestTracker } from './RequestTracker.js';
 
 /**
  * Maximum number of connections actively fetching data.
@@ -28,12 +29,14 @@ export interface SyncStreamParameters {
    */
   signal?: AbortSignal;
   tokenStreamOptions?: Partial<TokenStreamOptions>;
+
+  tracker: RequestTracker;
 }
 
 export async function* streamResponse(
   options: SyncStreamParameters
 ): AsyncIterable<util.StreamingSyncLine | string | null> {
-  const { storage, params, syncParams, token, tokenStreamOptions, signal } = options;
+  const { storage, params, syncParams, token, tokenStreamOptions, tracker, signal } = options;
   // We also need to be able to abort, so we create our own controller.
   const controller = new AbortController();
   if (signal) {
@@ -49,7 +52,7 @@ export async function* streamResponse(
     }
   }
   const ki = tokenStream(token, controller.signal, tokenStreamOptions);
-  const stream = streamResponseInner(storage, params, syncParams, controller.signal);
+  const stream = streamResponseInner(storage, params, syncParams, tracker, controller.signal);
   // Merge the two streams, and abort as soon as one of the streams end.
   const merged = mergeAsyncIterables([stream, ki], controller.signal);
 
@@ -72,6 +75,7 @@ async function* streamResponseInner(
   storage: storage.BucketStorageFactory,
   params: util.StreamingSyncRequest,
   syncParams: RequestParameters,
+  tracker: RequestTracker,
   signal: AbortSignal
 ): AsyncGenerator<util.StreamingSyncLine | string | null> {
   // Bucket state of bucket id -> op_id.
@@ -109,6 +113,11 @@ async function* streamResponseInner(
     });
 
     if (allBuckets.length > 1000) {
+      logger.error(`Too many buckets`, {
+        checkpoint,
+        user_id: syncParams.user_id,
+        buckets: allBuckets.length
+      });
       // TODO: Limit number of buckets even before we get to this point
       throw new Error(`Too many buckets: ${allBuckets.length}`);
     }
@@ -137,11 +146,18 @@ async function* streamResponseInner(
       }
       bucketsToFetch = diff.updatedBuckets.map((c) => c.bucket);
 
-      let message = `Updated checkpoint: ${checkpoint} | write: ${writeCheckpoint} | `;
+      let message = `Updated checkpoint: ${checkpoint} | `;
+      message += `write: ${writeCheckpoint} | `;
       message += `buckets: ${allBuckets.length} | `;
       message += `updated: ${limitedBuckets(diff.updatedBuckets, 20)} | `;
-      message += `removed: ${limitedBuckets(diff.removedBuckets, 20)} | `;
-      logger.info(message);
+      message += `removed: ${limitedBuckets(diff.removedBuckets, 20)}`;
+      logger.info(message, {
+        checkpoint,
+        user_id: syncParams.user_id,
+        buckets: allBuckets.length,
+        updated: diff.updatedBuckets.length,
+        removed: diff.removedBuckets.length
+      });
 
       const checksum_line: util.StreamingSyncCheckpointDiff = {
         checkpoint_diff: {
@@ -156,7 +172,7 @@ async function* streamResponseInner(
     } else {
       let message = `New checkpoint: ${checkpoint} | write: ${writeCheckpoint} | `;
       message += `buckets: ${allBuckets.length} ${limitedBuckets(allBuckets, 20)}`;
-      logger.info(message);
+      logger.info(message, { checkpoint, user_id: syncParams.user_id, buckets: allBuckets.length });
       bucketsToFetch = allBuckets;
       const checksum_line: util.StreamingSyncCheckpoint = {
         checkpoint: {
@@ -172,7 +188,16 @@ async function* streamResponseInner(
 
     // This incrementally updates dataBuckets with each individual bucket position.
     // At the end of this, we can be sure that all buckets have data up to the checkpoint.
-    yield* bucketDataInBatches({ storage, checkpoint, bucketsToFetch, dataBuckets, raw_data, binary_data, signal });
+    yield* bucketDataInBatches({
+      storage,
+      checkpoint,
+      bucketsToFetch,
+      dataBuckets,
+      raw_data,
+      binary_data,
+      signal,
+      tracker
+    });
 
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
@@ -186,6 +211,7 @@ interface BucketDataRequest {
   dataBuckets: Map<string, string>;
   raw_data: boolean | undefined;
   binary_data: boolean | undefined;
+  tracker: RequestTracker;
   signal: AbortSignal;
 }
 
@@ -221,11 +247,16 @@ async function* bucketDataInBatches(request: BucketDataRequest) {
   }
 }
 
+interface BucketDataBatchResult {
+  done: boolean;
+  data: any;
+}
+
 /**
  * Extracted as a separate internal function just to avoid memory leaks.
  */
-async function* bucketDataBatch(request: BucketDataRequest) {
-  const { storage, checkpoint, bucketsToFetch, dataBuckets, raw_data, binary_data, signal } = request;
+async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<BucketDataBatchResult, void> {
+  const { storage, checkpoint, bucketsToFetch, dataBuckets, raw_data, binary_data, tracker, signal } = request;
 
   const checkpointOp = BigInt(checkpoint);
   let checkpointInvalidated = false;
@@ -278,7 +309,7 @@ async function* bucketDataBatch(request: BucketDataRequest) {
         // iterator memory in case if large data sent.
         yield { data: null, done: false };
       }
-      Metrics.getInstance().operations_synced_total.add(r.data.length);
+      tracker.addOperationsSynced(r.data.length);
 
       dataBuckets.set(r.bucket, r.next_after);
     }

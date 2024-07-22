@@ -19,11 +19,7 @@ import { WebsocketServerTransport } from './transport/WebSocketServerTransport.j
 import { errors, logger } from '@powersync/lib-services-framework';
 
 export class ReactiveSocketRouter<C> {
-  protected activeConnections: number;
-
-  constructor(protected options?: ReactiveSocketRouterOptions<C>) {
-    this.activeConnections = 0;
-  }
+  constructor(protected options?: ReactiveSocketRouterOptions<C>) {}
 
   reactiveStream<I, O>(path: string, stream: IReactiveStreamInput<I, O, C>): IReactiveStream<I, O, C> {
     return {
@@ -60,11 +56,16 @@ export class ReactiveSocketRouter<C> {
       acceptor: {
         accept: async (payload) => {
           const { max_concurrent_connections } = this.options ?? {};
-          if (max_concurrent_connections && this.activeConnections >= max_concurrent_connections) {
-            throw new errors.JourneyError({
-              code: '429',
+          // wss.clients.size includes this connection, so we check for greater than
+          // TODO: Share connection limit between this and http stream connections
+          if (max_concurrent_connections && wss.clients.size > max_concurrent_connections) {
+            const err = new errors.JourneyError({
+              status: 429,
+              code: 'SERVER_BUSY',
               description: `Maximum active concurrent connections limit has been reached`
             });
+            logger.warn(err);
+            throw err;
           }
 
           // Throwing an exception in this context will be returned to the client side request
@@ -80,16 +81,14 @@ export class ReactiveSocketRouter<C> {
             requestStream: (payload, initialN, responder) => {
               const observer = new SocketRouterObserver();
 
+              // TODO: Consider limiting the number of active streams per connection to prevent abuse
               handleReactiveStream(context, { payload, initialN, responder }, observer, params).catch((ex) => {
                 logger.error(ex);
                 responder.onError(ex);
                 responder.onComplete();
               });
-
-              this.activeConnections++;
               return {
                 cancel: () => {
-                  this.activeConnections--;
                   observer.triggerCancel();
                 },
                 onExtension: () => observer.triggerExtension(),

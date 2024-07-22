@@ -1,15 +1,13 @@
-import * as bson from 'bson';
+import { RequestTracker } from '@/sync/RequestTracker.js';
+import { StreamingSyncLine } from '@/util/protocol-types.js';
+import { lsnMakeComparable } from '@powersync/service-jpgwire';
+import { JSONBig } from '@powersync/service-jsonbig';
+import { RequestParameters } from '@powersync/service-sync-rules';
+import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
 import { ZERO_LSN } from '../../src/replication/WalStream.js';
-import { SourceTable } from '../../src/storage/SourceTable.js';
-import { hashData } from '../../src/util/utils.js';
-import { makeTestTable, MONGO_STORAGE_FACTORY, StorageFactory } from './util.js';
-import { JSONBig } from '@powersync/service-jsonbig';
 import { streamResponse } from '../../src/sync/sync.js';
-import * as timers from 'timers/promises';
-import { lsnMakeComparable } from '@powersync/service-jpgwire';
-import { RequestParameters } from '@powersync/service-sync-rules';
-import { StreamingSyncCheckpoint, StreamingSyncLine } from '@/util/protocol-types.js';
+import { makeTestTable, MONGO_STORAGE_FACTORY, StorageFactory } from './util.js';
 
 describe('sync - mongodb', function () {
   defineTests(MONGO_STORAGE_FACTORY);
@@ -25,6 +23,8 @@ bucket_definitions:
     `;
 
 function defineTests(factory: StorageFactory) {
+  const tracker = new RequestTracker();
+
   test('sync global data', async () => {
     const f = await factory();
 
@@ -65,6 +65,7 @@ function defineTests(factory: StorageFactory) {
         include_checksum: true,
         raw_data: true
       },
+      tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
     });
@@ -105,6 +106,7 @@ function defineTests(factory: StorageFactory) {
         include_checksum: true,
         raw_data: false
       },
+      tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
     });
@@ -133,6 +135,7 @@ function defineTests(factory: StorageFactory) {
         include_checksum: true,
         raw_data: true
       },
+      tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: 0 } as any
     });
@@ -159,6 +162,7 @@ function defineTests(factory: StorageFactory) {
         include_checksum: true,
         raw_data: true
       },
+      tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
     });
@@ -219,6 +223,7 @@ function defineTests(factory: StorageFactory) {
         include_checksum: true,
         raw_data: true
       },
+      tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: exp } as any
     });
@@ -276,6 +281,7 @@ function defineTests(factory: StorageFactory) {
         include_checksum: true,
         raw_data: true
       },
+      tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
     });

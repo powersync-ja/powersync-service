@@ -142,6 +142,17 @@ describe('data queries', () => {
         type: 'warning'
       }
     ]);
+
+    const q4 = SqlDataQuery.fromSql('q4', [], 'SELECT * FROM other', schema);
+    expect(q4.errors).toMatchObject([
+      {
+        message: `Query must return an "id" column`,
+        type: 'warning'
+      }
+    ]);
+
+    const q5 = SqlDataQuery.fromSql('q5', [], 'SELECT other_id as id, * FROM other', schema);
+    expect(q5.errors).toMatchObject([]);
   });
 
   test('invalid query - invalid IN', function () {
