@@ -26,7 +26,7 @@ This is typically (but not necessarily) be the first message in the response, an
 
 ## StreamingSyncCheckpointDiff
 
-This has the same conceptual meaning as a StreamingSyncCheckpoint. It is an optimization to only sent details for buckets that changed, instead of sending the entire checkpoint over.
+This has the same conceptual meaning as a StreamingSyncCheckpoint. It is an optimization to only send details for buckets that changed, instead of sending the entire checkpoint over.
 
 Format:
 

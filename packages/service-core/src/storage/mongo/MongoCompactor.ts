@@ -65,7 +65,7 @@ export class MongoCompactor {
   }
 
   /**
-   * Compact buckets by converting operatoins into MOVE and/or CLEAR operations.
+   * Compact buckets by converting operations into MOVE and/or CLEAR operations.
    *
    * See /docs/compacting-operations.md for details.
    */

@@ -62,7 +62,7 @@ The disadvantage here is that these rows will be re-synced by existing clients.
 
 This is a process that compacts all buckets, by iterating through all operations. This process can be run periodically, for example once a day, or after bulk data modifications.
 
-The process iterates through all operations in reverse order. This effectively processes one bucket at a time, in reverse order of operatoins.
+The process iterates through all operations in reverse order. This effectively processes one bucket at a time, in reverse order of operations.
 
 We track each row we've seen in a bucket, along with the last PUT/REMOVE operation we've seen for the row. Whenever we see the same row again, we replace that operation with a MOVE operation, using the PUT/REMOVE op_id as the target.
 
