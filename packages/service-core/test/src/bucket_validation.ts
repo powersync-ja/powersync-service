@@ -10,7 +10,7 @@ import { expect } from 'vitest';
  * All other operations are replaced with a single CLEAR operation,
  * summing their checksums, and using a 0 as an op_id.
  *
- * This is the function $r(B)$.
+ * This is the function $r(B)$, as described in /docs/bucket-properties.md.
  */
 export function reduceBucket(operations: OplogEntry[]) {
   let rowState = new Map<string, OplogEntry>();
@@ -59,7 +59,7 @@ function rowKey(entry: OplogEntry) {
 }
 
 /**
- * Validate this property:
+ * Validate this property, as described in /docs/bucket-properties.md:
  *
  * $r(B_{[..id_n]}) = r(r(B_{[..id_i]}) \cup B_{[id_{i+1}..id_n]}) \;\forall\; i \in [1..n]$
  *
@@ -82,7 +82,8 @@ export function validateBucket(bucket: OplogEntry[]) {
 }
 
 /**
- * Validate these properties for a bucket $B$ and its compacted version $B'$:
+ * Validate these properties for a bucket $B$ and its compacted version $B'$,:
+ * as described in /docs/bucket-properties.md:
  *
  * 1. $r(B) = r(B')$
  * 2. $r(B_{[..c]}) = r(r(B_{[..c_i]}) \cup B'_{[c_i+1..c]}) \;\forall\; c_i \in B$
@@ -97,7 +98,7 @@ export function validateBucket(bucket: OplogEntry[]) {
 export function validateCompactedBucket(bucket: OplogEntry[], compacted: OplogEntry[]) {
   // r(B_{[..c]})
   const r1 = reduceBucket(bucket);
-  // $r(B) = r(B')$
+  // r(B) = r(B')
   expect(reduceBucket(compacted)).toEqual(r1);
 
   for (let i = 0; i < bucket.length; i++) {
