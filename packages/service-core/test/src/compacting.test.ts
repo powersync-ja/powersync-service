@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 import { makeTestTable, MONGO_STORAGE_FACTORY } from './util.js';
 import { oneFromAsync } from './wal_stream_utils.js';
 import { MongoCompactOptions } from '@/storage/mongo/MongoCompactor.js';
+import { reduceBucket, validateCompactedBucket, validateReducedSets } from './bucket_validation.js';
 
 const TEST_TABLE = makeTestTable('test', ['id']);
 
@@ -102,6 +103,11 @@ bucket_definitions:
         op_id: '3'
       }
     ]);
+
+    expect(reduceBucket(dataBefore)).toEqual(reduceBucket(dataAfter));
+    validateReducedSets(dataBefore);
+    validateReducedSets(dataAfter);
+    validateCompactedBucket(dataBefore, dataAfter);
   });
 
   test('compacting (2)', async () => {
@@ -198,5 +204,10 @@ bucket_definitions:
         op_id: '4'
       }
     ]);
+
+    expect(reduceBucket(dataBefore)).toEqual(reduceBucket(dataAfter));
+    validateReducedSets(dataBefore);
+    validateReducedSets(dataAfter);
+    validateCompactedBucket(dataBefore, dataAfter);
   });
 }
