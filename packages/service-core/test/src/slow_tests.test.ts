@@ -11,7 +11,7 @@ import { SqliteRow } from '@powersync/service-sync-rules';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
 import { PgManager } from '../../src/util/PgManager.js';
 import { mapOpEntry } from '@/storage/storage-index.js';
-import { reduceBucket, validateCompactedBucket, validateReducedSets } from './bucket_validation.js';
+import { reduceBucket, validateCompactedBucket, validateBucket } from './bucket_validation.js';
 import * as timers from 'node:timers/promises';
 
 describe('slow tests - mongodb', function () {
