@@ -2,9 +2,8 @@ import { DEFAULT_TAG, SourceTableInterface, SqlSyncRules } from '@powersync/serv
 import { SyncRulesStatus, TableInfo } from '@powersync/service-types';
 import { container, logger } from '@powersync/lib-services-framework';
 
-import * as storage from '../storage/storage-index.js';
 import { ServiceContext } from '../system/ServiceContext.js';
-
+import * as storage from '../storage/storage-index.js';
 export interface DiagnosticsOptions {
   /**
    * Include sync rules content in response.
@@ -62,10 +61,11 @@ export async function getSyncRulesStatus(
 
   let tables_flat: TableInfo[] = [];
 
-  const sourceConfig = await syncAPI.getSourceConfig();
-  const tag = sourceConfig.tag ?? DEFAULT_TAG;
-
   if (check_connection) {
+    if (!syncAPI) {
+      throw new Error('No connection configured');
+    }
+
     const source_table_patterns = rules.getSourceTables();
     const resolved_tables = await syncAPI.getDebugTablesInfo(source_table_patterns, rules);
     tables_flat = resolved_tables.flatMap((info) => {
@@ -134,12 +134,15 @@ export async function getSyncRulesStatus(
     })
   );
 
+  const sourceConfig = await syncAPI?.getSourceConfig();
+  const tag = sourceConfig?.tag ?? DEFAULT_TAG;
+
   return {
     content: include_content ? sync_rules.sync_rules_content : undefined,
     connections: [
       {
-        id: sourceConfig.id ?? DEFAULT_DATASOURCE_ID,
-        tag: sourceConfig.tag ?? DEFAULT_TAG,
+        id: sourceConfig?.id ?? DEFAULT_DATASOURCE_ID,
+        tag: sourceConfig?.tag ?? DEFAULT_TAG,
         slot_name: sync_rules.slot_name,
         initial_replication_done: status?.snapshot_done ?? false,
         // TODO: Rename?

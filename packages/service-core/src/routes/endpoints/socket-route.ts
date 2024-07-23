@@ -18,7 +18,8 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
     },
     validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
     handler: async ({ context, params, responder, observer, initialN }) => {
-      const { system } = context;
+      const { service_context } = context;
+      const { system } = service_context;
 
       if (system.closed) {
         responder.onError(
@@ -36,7 +37,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
 
       const syncParams = new RequestParameters(context.token_payload!, params.parameters ?? {});
 
-      const storage = system.storage;
+      const storage = service_context.storage;
       // Sanity check before we start the stream
       const cp = await storage.getActiveCheckpoint();
       if (!cp.hasSyncRules()) {

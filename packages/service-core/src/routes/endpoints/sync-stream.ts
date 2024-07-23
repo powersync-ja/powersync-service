@@ -19,7 +19,8 @@ export const syncStreamed = routeDefinition({
   authorize: authUser,
   validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
   handler: async (payload) => {
-    const system = payload.context.system;
+    const { service_context } = payload.context;
+    const { storage, system } = service_context;
 
     if (system.closed) {
       throw new errors.JourneyError({
@@ -32,7 +33,6 @@ export const syncStreamed = routeDefinition({
     const params: util.StreamingSyncRequest = payload.params;
     const syncParams = new RequestParameters(payload.context.token_payload!, payload.params.parameters ?? {});
 
-    const storage = system.storage;
     // Sanity check before we start the stream
     const cp = await storage.getActiveCheckpoint();
     if (!cp.hasSyncRules()) {

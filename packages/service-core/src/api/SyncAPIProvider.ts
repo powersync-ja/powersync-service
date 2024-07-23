@@ -6,7 +6,11 @@ import { logger } from '@powersync/lib-services-framework';
  *  Initially only one SyncAPI per DataSource type is supported
  */
 export class SyncAPIProvider {
-  private api: SyncAPI | undefined;
+  private api: SyncAPI | null;
+
+  constructor() {
+    this.api = null;
+  }
 
   public register(api: SyncAPI) {
     if (this.api) {
@@ -16,11 +20,7 @@ export class SyncAPIProvider {
     this.api = api;
   }
 
-  public getSyncAPI(): SyncAPI {
-    if (!this.api) {
-      throw new Error('No SyncAPI has been registered yet.');
-    }
-
+  public getSyncAPI(): SyncAPI | null {
     return this.api;
   }
 }

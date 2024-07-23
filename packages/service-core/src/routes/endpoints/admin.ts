@@ -3,7 +3,6 @@ import { SqlSyncRules, SqliteValue, StaticSchema, isJsonValue } from '@powersync
 import { internal_routes } from '@powersync/service-types';
 
 import * as api from '../../api/api-index.js';
-import * as util from '../../util/util-index.js';
 
 import { routeDefinition } from '../router.js';
 import { PersistedSyncRulesContent } from '../../storage/BucketStorage.js';
@@ -17,17 +16,17 @@ const demoCredentials = routeDefinition({
     allowAdditional: true
   }),
   handler: async (payload) => {
-    const connection = payload.context.system.config.connection;
-    if (connection == null || !connection.demo_database) {
-      return internal_routes.DemoCredentialsResponse.encode({});
-    }
-
-    const uri = util.buildDemoPgUri(connection);
-    return internal_routes.DemoCredentialsResponse.encode({
-      credentials: {
-        postgres_uri: uri
-      }
-    });
+    // TODO is this used?
+    // const connection = payload.context.system.config.connection;
+    // if (connection == null || !connection.demo_database) {
+    //   return internal_routes.DemoCredentialsResponse.encode({});
+    // }
+    // const uri = util.buildDemoPgUri(connection);
+    // return internal_routes.DemoCredentialsResponse.encode({
+    //   credentials: {
+    //     postgres_uri: uri
+    //   }
+    // });
   }
 });
 
@@ -42,10 +41,21 @@ export const executeSql = routeDefinition({
         sql: { query, args }
       }
     } = payload;
-    return internal_routes.ExecuteSqlResponse.encode(
-      // TODO handle case where no sync API is registered
-      await payload.context.service_context.syncAPIProvider.getSyncAPI().executeQuery(query, args)
-    );
+
+    const api = payload.context.service_context.syncAPIProvider.getSyncAPI();
+    const sourceConfig = await api?.getSourceConfig();
+    if (!sourceConfig?.debug_enabled) {
+      return internal_routes.ExecuteSqlResponse.encode({
+        results: {
+          columns: [],
+          rows: []
+        },
+        success: false,
+        error: 'SQL querying is not enabled'
+      });
+    }
+
+    return internal_routes.ExecuteSqlResponse.encode(await api!.executeQuery(query, args));
   }
 });
 
@@ -60,9 +70,8 @@ export const diagnostics = routeDefinition({
     const include_content = payload.params.sync_rules_content ?? false;
 
     const syncAPI = service_context.syncAPIProvider.getSyncAPI();
-
-    const status = await syncAPI.getConnectionStatus();
-    if (status == null) {
+    const status = await syncAPI?.getConnectionStatus();
+    if (!status) {
       return internal_routes.DiagnosticsResponse.encode({
         connections: []
       });
@@ -137,13 +146,14 @@ export const reprocess = routeDefinition({
     });
 
     const api = service_context.syncAPIProvider.getSyncAPI();
-    const baseConfig = await api.getSourceConfig();
+    const baseConfig = await api?.getSourceConfig();
 
     return internal_routes.ReprocessResponse.encode({
       connections: [
         {
-          tag: baseConfig.tag!,
-          id: baseConfig.id,
+          // Previously the connection was asserted with `!`
+          tag: baseConfig!.tag!,
+          id: baseConfig!.id,
           slot_name: new_rules.slot_name
         }
       ]
@@ -183,9 +193,8 @@ export const validate = routeDefinition({
     };
 
     const apiHandler = service_context.syncAPIProvider.getSyncAPI();
-
-    const connectionStatus = await apiHandler.getConnectionStatus();
-    if (connectionStatus == null) {
+    const connectionStatus = await apiHandler?.getConnectionStatus();
+    if (!connectionStatus) {
       return internal_routes.ValidateResponse.encode({
         errors: [{ level: 'fatal', message: 'No connection configured' }],
         connections: []
@@ -194,7 +203,7 @@ export const validate = routeDefinition({
 
     const status = (await api.getSyncRulesStatus(sync_rules, {
       include_content: false,
-      check_connection: connectionStatus?.connected,
+      check_connection: connectionStatus.connected,
       live_status: false
     }))!;
 
