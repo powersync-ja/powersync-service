@@ -62,6 +62,11 @@ export interface SyncAPI {
   getDemoCredentials(): Promise<DemoCredentials>;
 
   //CRUD API : I don't think this is used besides maybe niche dev use cases
+
+  /**
+   * Close any resources that need graceful termination.
+   */
+  shutdown(): Promise<void>;
 }
 
 export interface DemoCredentials {

@@ -20,6 +20,10 @@ export class PostgresModule extends replication.ReplicationModule {
     return new PostgresReplicationAdapter(this.resolveConfig(config));
   }
 
+  public teardown(): Promise<void> {
+    throw new Error('Method not implemented.');
+  }
+
   /**
    * Combines base config with normalized connection settings
    */
@@ -28,13 +32,5 @@ export class PostgresModule extends replication.ReplicationModule {
       ...config,
       ...normalizeConnectionConfig(config)
     };
-  }
-
-  public shutdown(): Promise<void> {
-    throw new Error('Method not implemented.');
-  }
-
-  public teardown(): Promise<void> {
-    throw new Error('Method not implemented.');
   }
 }

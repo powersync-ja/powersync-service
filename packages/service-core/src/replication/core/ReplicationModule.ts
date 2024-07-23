@@ -17,6 +17,9 @@ export interface ReplicationModuleOptions extends AbstractModuleOptions {
 export abstract class ReplicationModule extends AbstractModule {
   protected type: string;
 
+  protected apiAdapters: Set<SyncAPI>;
+  protected replicationAdapters: Set<ReplicationAdapter>;
+
   /**
    * @protected
    * @param options
@@ -24,6 +27,8 @@ export abstract class ReplicationModule extends AbstractModule {
   protected constructor(options: ReplicationModuleOptions) {
     super(options);
     this.type = options.type;
+    this.apiAdapters = new Set();
+    this.replicationAdapters = new Set();
   }
 
   /**
@@ -65,8 +70,13 @@ export abstract class ReplicationModule extends AbstractModule {
       const decodedConfig = this.configSchema().decode(baseMatchingConfig);
       // If validation fails, log the error and continue, no replication will happen for this data source
       this.validateConfig(matchingConfig[0]);
-      context.replicationEngine.register(this.createReplicationAdapter(decodedConfig));
-      context.syncAPIProvider.register(this.createSyncAPIAdapter(decodedConfig));
+      const replicationAdapter = this.createReplicationAdapter(decodedConfig);
+      this.replicationAdapters.add(replicationAdapter);
+      context.replicationEngine.register(replicationAdapter);
+
+      const apiAdapter = this.createSyncAPIAdapter(decodedConfig);
+      this.apiAdapters.add(apiAdapter);
+      context.syncAPIProvider.register(apiAdapter);
     } catch (e) {
       logger.error(e);
     }
@@ -81,6 +91,16 @@ export abstract class ReplicationModule extends AbstractModule {
 
     if (!valid.valid) {
       throw new Error(`Failed to validate Module ${this.name} configuration: ${valid.errors.join(', ')}`);
+    }
+  }
+
+  public async shutdown(): Promise<void> {
+    for (const api of this.apiAdapters) {
+      await api.shutdown();
+    }
+
+    for (const replication of this.replicationAdapters) {
+      await replication.shutdown();
     }
   }
 }
