@@ -1,12 +1,11 @@
 import * as t from 'ts-codec';
 import type { FastifyPluginAsync } from 'fastify';
-import * as pgwire from '@powersync/service-jpgwire';
 import { errors, router, schema } from '@powersync/lib-services-framework';
 import { SqlSyncRules, SyncRulesErrors } from '@powersync/service-sync-rules';
 
-import * as replication from '../../replication/replication-index.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
+import { ServiceContext } from '../../system/ServiceContext.js';
 
 const DeploySyncRulesRequest = t.object({
   content: t.string
@@ -39,7 +38,10 @@ export const deploySyncRules = routeDefinition({
   plugins: [yamlPlugin],
   validator: schema.createTsCodecValidator(DeploySyncRulesRequest, { allowAdditional: true }),
   handler: async (payload) => {
-    if (payload.context.system.config.sync_rules.present) {
+    const {
+      service_context: { storage, system }
+    } = payload.context;
+    if (system.config.sync_rules.present) {
       // If sync rules are configured via the config, disable deploy via the API.
       throw new errors.JourneyError({
         status: 422,
@@ -61,7 +63,7 @@ export const deploySyncRules = routeDefinition({
       });
     }
 
-    const sync_rules = await payload.context.system.storage.updateSyncRules({
+    const sync_rules = await storage.updateSyncRules({
       content: content
     });
 
@@ -85,7 +87,7 @@ export const validateSyncRules = routeDefinition({
   handler: async (payload) => {
     const content = payload.params.content;
 
-    const info = await debugSyncRules(payload.context.system.requirePgPool(), content);
+    const info = await debugSyncRules(payload.context.service_context, content);
 
     return replyPrettyJson(info);
   }
@@ -96,7 +98,8 @@ export const currentSyncRules = routeDefinition({
   method: router.HTTPMethod.GET,
   authorize: authApi,
   handler: async (payload) => {
-    const storage = payload.context.system.storage;
+    const { service_context } = payload.context;
+    const { storage, system } = service_context;
     const sync_rules = await storage.getActiveSyncRulesContent();
     if (!sync_rules) {
       throw new errors.JourneyError({
@@ -105,12 +108,10 @@ export const currentSyncRules = routeDefinition({
         description: 'No active sync rules'
       });
     }
-    const info = await debugSyncRules(payload.context.system.requirePgPool(), sync_rules.sync_rules_content);
+    const info = await debugSyncRules(service_context, sync_rules.sync_rules_content);
     const next = await storage.getNextSyncRulesContent();
 
-    const next_info = next
-      ? await debugSyncRules(payload.context.system.requirePgPool(), next.sync_rules_content)
-      : null;
+    const next_info = next ? await debugSyncRules(service_context, next.sync_rules_content) : null;
 
     const response = {
       current: {
@@ -140,7 +141,7 @@ export const reprocessSyncRules = routeDefinition({
   authorize: authApi,
   validator: schema.createTsCodecValidator(ReprocessSyncRulesRequest),
   handler: async (payload) => {
-    const storage = payload.context.system.storage;
+    const { storage } = payload.context.service_context;
     const sync_rules = await storage.getActiveSyncRules();
     if (sync_rules == null) {
       throw new errors.JourneyError({
@@ -169,15 +170,17 @@ function replyPrettyJson(payload: any) {
   });
 }
 
-async function debugSyncRules(db: pgwire.PgClient, sync_rules: string) {
+async function debugSyncRules(serviceContext: ServiceContext, sync_rules: string) {
   try {
     const rules = SqlSyncRules.fromYaml(sync_rules);
     const source_table_patterns = rules.getSourceTables();
-    const wc = new replication.WalConnection({
-      db: db,
-      sync_rules: rules
-    });
-    const resolved_tables = await wc.getDebugTablesInfo(source_table_patterns);
+
+    const api = serviceContext.syncAPIProvider.getSyncAPI();
+    if (!api) {
+      throw new Error('No API handler found');
+    }
+
+    const resolved_tables = await api.getDebugTablesInfo(source_table_patterns, rules);
 
     return {
       valid: true,
