@@ -1,5 +1,90 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`sync - mongodb > compacting data - invalidate checkpoint 1`] = `
+[
+  {
+    "checkpoint": {
+      "buckets": [
+        {
+          "bucket": "mybucket[]",
+          "checksum": -93886621,
+          "count": 2,
+        },
+      ],
+      "last_op_id": "2",
+      "write_checkpoint": undefined,
+    },
+  },
+]
+`;
+
+exports[`sync - mongodb > compacting data - invalidate checkpoint 2`] = `
+[
+  {
+    "data": {
+      "after": "0",
+      "bucket": "mybucket[]",
+      "data": [
+        {
+          "checksum": -93886621n,
+          "op": "CLEAR",
+          "op_id": "2",
+        },
+      ],
+      "has_more": false,
+      "next_after": "2",
+    },
+  },
+  {
+    "checkpoint_diff": {
+      "last_op_id": "4",
+      "removed_buckets": [],
+      "updated_buckets": [
+        {
+          "bucket": "mybucket[]",
+          "checksum": 499012468,
+          "count": 4,
+        },
+      ],
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "data": {
+      "after": "2",
+      "bucket": "mybucket[]",
+      "data": [
+        {
+          "checksum": 1859363232n,
+          "data": "{\\"id\\":\\"t1\\",\\"description\\":\\"Test 1b\\"}",
+          "object_id": "t1",
+          "object_type": "test",
+          "op": "PUT",
+          "op_id": "3",
+          "subkey": "6544e3899293153fa7b38331/117ab485-4b42-58a2-ab32-0053a22c3423",
+        },
+        {
+          "checksum": 3028503153n,
+          "data": "{\\"id\\":\\"t2\\",\\"description\\":\\"Test 2b\\"}",
+          "object_id": "t2",
+          "object_type": "test",
+          "op": "PUT",
+          "op_id": "4",
+          "subkey": "6544e3899293153fa7b38331/ec27c691-b47a-5d92-927a-9944feb89eee",
+        },
+      ],
+      "has_more": false,
+      "next_after": "4",
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "4",
+    },
+  },
+]
+`;
+
 exports[`sync - mongodb > expired token 1`] = `
 [
   {

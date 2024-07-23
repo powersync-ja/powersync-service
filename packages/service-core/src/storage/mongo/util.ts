@@ -2,6 +2,9 @@ import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import * as mongo from 'mongodb';
 import * as crypto from 'crypto';
+import { BucketDataDocument } from './models.js';
+import { timestampToOpId } from '../../util/utils.js';
+import { OplogEntry } from '../../util/protocol-types.js';
 
 /**
  * Lookup serialization must be number-agnostic. I.e. normalize numbers, instead of preserving numbers.
@@ -86,3 +89,25 @@ export const BSON_DESERIALIZE_OPTIONS: bson.DeserializeOptions = {
   // use bigint instead of Long
   useBigInt64: true
 };
+
+export function mapOpEntry(row: BucketDataDocument): OplogEntry {
+  if (row.op == 'PUT' || row.op == 'REMOVE') {
+    return {
+      op_id: timestampToOpId(row._id.o),
+      op: row.op,
+      object_type: row.table,
+      object_id: row.row_id,
+      checksum: Number(row.checksum),
+      subkey: `${row.source_table}/${row.source_key!.toHexString()}`,
+      data: row.data
+    };
+  } else {
+    // MOVE, CLEAR
+
+    return {
+      op_id: timestampToOpId(row._id.o),
+      op: row.op,
+      checksum: Number(row.checksum)
+    };
+  }
+}

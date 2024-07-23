@@ -258,6 +258,9 @@ interface BucketDataBatchResult {
 async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<BucketDataBatchResult, void> {
   const { storage, checkpoint, bucketsToFetch, dataBuckets, raw_data, binary_data, tracker, signal } = request;
 
+  const checkpointOp = BigInt(checkpoint);
+  let checkpointInvalidated = false;
+
   const [_, release] = await syncSemaphore.acquire();
   try {
     // Optimization: Only fetch buckets for which the checksums have changed since the last checkpoint
@@ -267,12 +270,15 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
 
     let has_more = false;
 
-    for await (let r of data) {
+    for await (let { batch: r, targetOp } of data) {
       if (signal.aborted) {
         return;
       }
       if (r.has_more) {
         has_more = true;
+      }
+      if (targetOp != null && targetOp > checkpointOp) {
+        checkpointInvalidated = true;
       }
       if (r.data.length == 0) {
         continue;
@@ -309,12 +315,19 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
     }
 
     if (!has_more) {
-      const line: util.StreamingSyncCheckpointComplete = {
-        checkpoint_complete: {
-          last_op_id: checkpoint
-        }
-      };
-      yield { data: line, done: true };
+      if (checkpointInvalidated) {
+        // Checkpoint invalidated by a CLEAR or MOVE op.
+        // Don't send the checkpoint_complete line in this case.
+        // More data should be available immediately for a new checkpoint.
+        yield { data: null, done: true };
+      } else {
+        const line: util.StreamingSyncCheckpointComplete = {
+          checkpoint_complete: {
+            last_op_id: checkpoint
+          }
+        };
+        yield { data: line, done: true };
+      }
     }
   } finally {
     release();
