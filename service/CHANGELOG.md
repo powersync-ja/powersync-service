@@ -1,5 +1,13 @@
 # @powersync/service-image
 
+## 0.4.1
+
+### Patch Changes
+
+- bfe0e64: Fix compact command to use the correct database
+- Updated dependencies [bfe0e64]
+  - @powersync/service-core@0.5.1
+
 ## 0.4.0
 
 ### Minor Changes
