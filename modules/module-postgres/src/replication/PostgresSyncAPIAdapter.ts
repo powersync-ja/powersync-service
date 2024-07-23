@@ -1,8 +1,15 @@
 import * as pgwire from '@powersync/service-jpgwire';
 import { api, replication, storage } from '@powersync/service-core';
 
-import { DEFAULT_TAG, TablePattern } from '@powersync/service-sync-rules';
-import { configFile, DatabaseSchema, internal_routes, ReplicationError, TableInfo } from '@powersync/service-types';
+import { DEFAULT_TAG, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
+import {
+  configFile,
+  ConnectionStatusV2,
+  DatabaseSchema,
+  internal_routes,
+  ReplicationError,
+  TableInfo
+} from '@powersync/service-types';
 
 import * as pg_utils from '../utils/pgwire_utils.js';
 import * as replication_utils from '../replication/replication-utils.js';
@@ -29,10 +36,10 @@ export class PostgresSyncAPIAdapter implements api.SyncAPI {
     return this.config;
   }
 
-  async getConnectionStatus(): Promise<api.ConnectionStatusResponse> {
+  async getConnectionStatus(): Promise<ConnectionStatusV2> {
     const base = {
       id: this.config.id,
-      postgres_uri: baseUri(this.config)
+      uri: baseUri(this.config)
     };
 
     try {
@@ -74,7 +81,10 @@ export class PostgresSyncAPIAdapter implements api.SyncAPI {
     throw new Error('Method not implemented.');
   }
 
-  async getDebugTablesInfo(tablePatterns: TablePattern[]): Promise<replication.PatternResult[]> {
+  async getDebugTablesInfo(
+    tablePatterns: TablePattern[],
+    sqlSyncRules: SqlSyncRules
+  ): Promise<replication.PatternResult[]> {
     let result: replication.PatternResult[] = [];
 
     for (let tablePattern of tablePatterns) {
@@ -109,7 +119,7 @@ export class PostgresSyncAPIAdapter implements api.SyncAPI {
           if (!name.startsWith(prefix)) {
             continue;
           }
-          const details = await this.getDebugTableInfo(tablePattern, name, relationId);
+          const details = await this.getDebugTableInfo(tablePattern, name, relationId, sqlSyncRules);
           patternResult.tables.push(details);
         }
       } else {
@@ -127,13 +137,13 @@ export class PostgresSyncAPIAdapter implements api.SyncAPI {
         });
         if (results.rows.length == 0) {
           // Table not found
-          const details = await this.getDebugTableInfo(tablePattern, tablePattern.name, null);
+          const details = await this.getDebugTableInfo(tablePattern, tablePattern.name, null, sqlSyncRules);
           patternResult.table = details;
         } else {
           const row = pgwire.pgwireRows(results)[0];
           const name = row.table_name as string;
           const relationId = row.relid as number;
-          patternResult.table = await this.getDebugTableInfo(tablePattern, name, relationId);
+          patternResult.table = await this.getDebugTableInfo(tablePattern, name, relationId, sqlSyncRules);
         }
       }
     }
@@ -143,7 +153,8 @@ export class PostgresSyncAPIAdapter implements api.SyncAPI {
   protected async getDebugTableInfo(
     tablePattern: TablePattern,
     name: string,
-    relationId: number | null
+    relationId: number | null,
+    syncRules: SqlSyncRules
   ): Promise<TableInfo> {
     const schema = tablePattern.schema;
     let id_columns_result: replication_utils.ReplicaIdentityResult | undefined = undefined;
@@ -161,8 +172,8 @@ export class PostgresSyncAPIAdapter implements api.SyncAPI {
 
     const sourceTable = new storage.SourceTable(0, this.connectionTag, relationId ?? 0, schema, name, id_columns, true);
 
-    const syncData = this.sync_rules.tableSyncsData(sourceTable);
-    const syncParameters = this.sync_rules.tableSyncsParameters(sourceTable);
+    const syncData = syncRules.tableSyncsData(sourceTable);
+    const syncParameters = syncRules.tableSyncsParameters(sourceTable);
 
     if (relationId == null) {
       return {
@@ -241,8 +252,81 @@ FROM pg_replication_slots WHERE slot_name = $1 LIMIT 1;`,
     throw new Error('Method not implemented.');
   }
 
-  getConnectionSchema(): Promise<DatabaseSchema[]> {
-    throw new Error('Method not implemented.');
+  async getConnectionSchema(): Promise<DatabaseSchema[]> {
+    // https://github.com/Borvik/vscode-postgres/blob/88ec5ed061a0c9bced6c5d4ec122d0759c3f3247/src/language/server.ts
+    const results = await pg_utils.retriedQuery(
+      this.pool,
+      `SELECT
+tbl.schemaname,
+tbl.tablename,
+tbl.quoted_name,
+json_agg(a ORDER BY attnum) as columns
+FROM
+(
+  SELECT
+    n.nspname as schemaname,
+    c.relname as tablename,
+    (quote_ident(n.nspname) || '.' || quote_ident(c.relname)) as quoted_name
+  FROM
+    pg_catalog.pg_class c
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  WHERE
+    c.relkind = 'r'
+    AND n.nspname not in ('information_schema', 'pg_catalog', 'pg_toast')
+    AND n.nspname not like 'pg_temp_%'
+    AND n.nspname not like 'pg_toast_temp_%'
+    AND c.relnatts > 0
+    AND has_schema_privilege(n.oid, 'USAGE') = true
+    AND has_table_privilege(quote_ident(n.nspname) || '.' || quote_ident(c.relname), 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER') = true
+) as tbl
+LEFT JOIN (
+  SELECT
+    attrelid,
+    attname,
+    format_type(atttypid, atttypmod) as data_type,
+    (SELECT typname FROM pg_catalog.pg_type WHERE oid = atttypid) as pg_type,
+    attnum,
+    attisdropped
+  FROM
+    pg_attribute
+) as a ON (
+  a.attrelid = tbl.quoted_name::regclass
+  AND a.attnum > 0
+  AND NOT a.attisdropped
+  AND has_column_privilege(tbl.quoted_name, a.attname, 'SELECT, INSERT, UPDATE, REFERENCES')
+)
+GROUP BY schemaname, tablename, quoted_name`
+    );
+    const rows = pgwire.pgwireRows(results);
+
+    let schemas: Record<string, any> = {};
+
+    for (let row of rows) {
+      const schema = (schemas[row.schemaname] ??= {
+        name: row.schemaname,
+        tables: []
+      });
+      const table = {
+        name: row.tablename,
+        columns: [] as any[]
+      };
+      schema.tables.push(table);
+
+      const columnInfo = JSON.parse(row.columns);
+      for (let column of columnInfo) {
+        let pg_type = column.pg_type as string;
+        if (pg_type.startsWith('_')) {
+          pg_type = `${pg_type.substring(1)}[]`;
+        }
+        table.columns.push({
+          name: column.attname,
+          type: column.data_type,
+          pg_type: pg_type
+        });
+      }
+    }
+
+    return Object.values(schemas);
   }
 
   executeSQL(sql: string, params: any[]): Promise<internal_routes.ExecuteSqlResponse> {

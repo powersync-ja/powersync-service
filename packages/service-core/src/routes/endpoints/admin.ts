@@ -72,20 +72,26 @@ export const diagnostics = routeDefinition({
     const active = await storage.getActiveSyncRulesContent();
     const next = await storage.getNextSyncRulesContent();
 
-    const active_status = await api.getSyncRulesStatus(active, system, {
+    const active_status = await api.getSyncRulesStatus(active, {
       include_content,
       check_connection: status.connected,
       live_status: true
     });
 
-    const next_status = await api.getSyncRulesStatus(next, system, {
+    const next_status = await api.getSyncRulesStatus(next, {
       include_content,
       check_connection: status.connected,
       live_status: true
     });
 
     return internal_routes.DiagnosticsResponse.encode({
-      connections: [status],
+      connections: [
+        {
+          ...status,
+          // TODO update this in future
+          postgres_uri: status.uri
+        }
+      ],
       active_sync_rules: active_status,
       deploying_sync_rules: next_status
     });
@@ -97,10 +103,8 @@ export const getSchema = routeDefinition({
   method: router.HTTPMethod.POST,
   authorize: authApi,
   validator: schema.createTsCodecValidator(internal_routes.GetSchemaRequest, { allowAdditional: true }),
-  handler: async (payload) => {
-    const system = payload.context.system;
-
-    return internal_routes.GetSchemaResponse.encode(await api.getConnectionsSchema(system));
+  handler: async () => {
+    return internal_routes.GetSchemaResponse.encode(await api.getConnectionsSchema());
   }
 });
 
@@ -110,9 +114,10 @@ export const reprocess = routeDefinition({
   authorize: authApi,
   validator: schema.createTsCodecValidator(internal_routes.ReprocessRequest, { allowAdditional: true }),
   handler: async (payload) => {
-    const system = payload.context.system;
-
-    const storage = system.storage;
+    const {
+      context: { service_context }
+    } = payload;
+    const storage = service_context.storage;
     const next = await storage.getNextSyncRules();
     if (next != null) {
       throw new Error(`Busy processing sync rules - cannot reprocess`);
@@ -131,11 +136,14 @@ export const reprocess = routeDefinition({
       content: active.sync_rules.content
     });
 
+    const api = service_context.syncAPIProvider.getSyncAPI();
+    const baseConfig = await api.getSourceConfig();
+
     return internal_routes.ReprocessResponse.encode({
       connections: [
         {
-          tag: system.config.connection!.tag,
-          id: system.config.connection!.id,
+          tag: baseConfig.tag!,
+          id: baseConfig.id,
           slot_name: new_rules.slot_name
         }
       ]
@@ -149,11 +157,12 @@ export const validate = routeDefinition({
   authorize: authApi,
   validator: schema.createTsCodecValidator(internal_routes.ValidateRequest, { allowAdditional: true }),
   handler: async (payload) => {
-    const system = payload.context.system;
-
+    const {
+      context: { service_context }
+    } = payload;
     const content = payload.params.sync_rules;
 
-    const schemaData = await api.getConnectionsSchema(system);
+    const schemaData = await api.getConnectionsSchema();
     const schema = new StaticSchema(schemaData.connections);
 
     const sync_rules: PersistedSyncRulesContent = {
@@ -173,7 +182,9 @@ export const validate = routeDefinition({
       }
     };
 
-    const connectionStatus = await api.getConnectionStatus(system);
+    const apiHandler = service_context.syncAPIProvider.getSyncAPI();
+
+    const connectionStatus = await apiHandler.getConnectionStatus();
     if (connectionStatus == null) {
       return internal_routes.ValidateResponse.encode({
         errors: [{ level: 'fatal', message: 'No connection configured' }],
@@ -181,7 +192,7 @@ export const validate = routeDefinition({
       });
     }
 
-    const status = (await api.getSyncRulesStatus(sync_rules, system, {
+    const status = (await api.getSyncRulesStatus(sync_rules, {
       include_content: false,
       check_connection: connectionStatus?.connected,
       live_status: false

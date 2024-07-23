@@ -3,9 +3,9 @@ import { SyncAPIProvider } from '../api/SyncAPIProvider.js';
 import { ResolvedPowerSyncConfig } from '../util/config/types.js';
 import { BucketStorageFactory } from '../storage/BucketStorage.js';
 
-export type ServiceContext = {
-  configuration: ResolvedPowerSyncConfig;
-  storage: BucketStorageFactory;
-  replicationEngine: ReplicationEngine;
-  syncAPIProvider: SyncAPIProvider;
-};
+export abstract class ServiceContext {
+  abstract configuration: ResolvedPowerSyncConfig;
+  abstract storage: BucketStorageFactory;
+  abstract replicationEngine: ReplicationEngine;
+  abstract syncAPIProvider: SyncAPIProvider;
+}

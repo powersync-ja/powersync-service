@@ -1,9 +1,9 @@
 import { DEFAULT_TAG, SourceTableInterface, SqlSyncRules } from '@powersync/service-sync-rules';
 import { SyncRulesStatus, TableInfo } from '@powersync/service-types';
+import { container, logger } from '@powersync/lib-services-framework';
 
-import { logger } from '@powersync/lib-services-framework';
-import { ServiceContext } from '../system/ServiceContext.js';
 import * as storage from '../storage/storage-index.js';
+import { ServiceContext } from '../system/ServiceContext.js';
 
 export interface DiagnosticsOptions {
   /**
@@ -28,12 +28,13 @@ export const DEFAULT_DATASOURCE_ID = 'default';
 
 export async function getSyncRulesStatus(
   sync_rules: storage.PersistedSyncRulesContent | null,
-  service_context: ServiceContext,
   options: DiagnosticsOptions
 ): Promise<SyncRulesStatus | undefined> {
   if (sync_rules == null) {
     return undefined;
   }
+
+  const serviceContext = container.getImplementation(ServiceContext);
 
   const include_content = options.include_content ?? false;
   const live_status = options.live_status ?? false;
@@ -52,8 +53,8 @@ export async function getSyncRulesStatus(
     };
   }
 
-  const { storage } = service_context;
-  const syncAPI = service_context.syncAPIProvider.getSyncAPI();
+  const { storage } = serviceContext;
+  const syncAPI = serviceContext.syncAPIProvider.getSyncAPI();
 
   const systemStorage = live_status ? await storage.getInstance(persisted) : undefined;
   const status = await systemStorage?.getStatus();
@@ -66,7 +67,7 @@ export async function getSyncRulesStatus(
 
   if (check_connection) {
     const source_table_patterns = rules.getSourceTables();
-    const resolved_tables = await syncAPI.getDebugTablesInfo(source_table_patterns);
+    const resolved_tables = await syncAPI.getDebugTablesInfo(source_table_patterns, rules);
     tables_flat = resolved_tables.flatMap((info) => {
       if (info.table) {
         return [info.table];
@@ -132,7 +133,6 @@ export async function getSyncRulesStatus(
       };
     })
   );
-
 
   return {
     content: include_content ? sync_rules.sync_rules_content : undefined,

@@ -1,4 +1,4 @@
-import { TablePattern } from '@powersync/service-sync-rules';
+import { SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import * as types from '@powersync/service-types';
 
 /**
@@ -14,7 +14,7 @@ export interface SyncAPI {
    * Checks the current connection status of the datasource.
    * This is usually some test query to verify the source can be reached.
    */
-  getConnectionStatus(): Promise<ConnectionStatusResponse>;
+  getConnectionStatus(): Promise<types.ConnectionStatusV2>;
 
   /**
    * Generates replication table information from a given pattern of tables.
@@ -27,7 +27,7 @@ export interface SyncAPI {
    *           tables to ensure syncing should function according to the input
    *           pattern. Debug errors and warnings are reported per table.
    */
-  getDebugTablesInfo(tablePatterns: TablePattern[]): Promise<PatternResult[]>;
+  getDebugTablesInfo(tablePatterns: TablePattern[], sqlSyncRules: SqlSyncRules): Promise<PatternResult[]>;
 
   /**
    * @returns The replication lag: that is the amount of data which has not been
@@ -80,15 +80,6 @@ interface PatternResult {
   wildcard: boolean;
   tables?: types.TableInfo[];
   table?: types.TableInfo;
-}
-
-interface ErrorDescription {
-  level: string;
-  message: string;
-}
-export interface ConnectionStatusResponse {
-  connected: boolean;
-  errors?: ErrorDescription[];
 }
 
 export interface QueryResults {
