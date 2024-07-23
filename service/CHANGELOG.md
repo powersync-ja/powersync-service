@@ -1,5 +1,17 @@
 # @powersync/service-image
 
+## 0.4.0
+
+### Minor Changes
+
+- 1c1a3bf: Implement a compact command
+
+### Patch Changes
+
+- 2a8c614: Fix websockets not being closed on authentication error
+- Updated dependencies [1c1a3bf]
+  - @powersync/service-core@0.5.0
+
 ## 0.3.2
 
 ### Patch Changes

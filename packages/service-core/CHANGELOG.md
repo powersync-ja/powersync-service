@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 0.5.0
+
+### Minor Changes
+
+- 1c1a3bf: Implement a compact command
+
 ## 0.4.2
 
 ### Patch Changes
