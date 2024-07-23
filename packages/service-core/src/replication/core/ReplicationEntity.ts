@@ -2,7 +2,6 @@ import { SqliteRow } from '@powersync/service-sync-rules';
 
 /**
  *  Describes a replication entity, which is a logical representation of a table or collection in a data source.
- *  Extend this interface to add additional properties specific entities in the data source.
  */
 export interface ReplicationEntityDescriptor {
   name: string;
@@ -24,11 +23,12 @@ export interface ReplicationEntityDescriptor {
    *  The field(s) that uniquely identify an entry/row in this replication entity
    */
   primaryIdentifierFields: string[];
+
+  // Add any additional properties specific to the entity here
+  additionalProperties: Record<string, string>;
 }
 
-export abstract class ReplicationEntity<T extends ReplicationEntityDescriptor> {
-  public descriptor: T;
-
+export class ReplicationEntity {
   /**
    * Defaults to true for tests.
    */
@@ -44,9 +44,9 @@ export abstract class ReplicationEntity<T extends ReplicationEntityDescriptor> {
    */
   public snapshotComplete: boolean = false;
 
-  constructor(descriptor: T) {
-    this.descriptor = descriptor;
-  }
+  public snapshotLSN: string | null = null;
+
+  constructor(public descriptor: ReplicationEntityDescriptor) {}
 
   public hasPrimaryIdentifierFields(): boolean {
     return this.descriptor.primaryIdentifierFields.length > 0;
@@ -55,22 +55,4 @@ export abstract class ReplicationEntity<T extends ReplicationEntityDescriptor> {
   public syncAny() {
     return this.syncData || this.syncParameters;
   }
-
-  /**
-   *  Get the number of entries for this Entity
-   *  @param connection
-   */
-  public abstract count<TConnection>(connection: TConnection): Promise<number>;
-
-  /**
-   *  Retrieve the initial snapshot data for the entity. Results should be passed onto the provided recordConsumer in batches.
-   *  The snapshot should happen in an isolated transaction. Returns with the LSN from when the snapshot was started, when the operation is finished.
-   *  This LSN will be used as the starting point for the replication stream.
-   *  @param connection
-   *  @param entryConsumer
-   */
-  public abstract getSnapshot<TConnection>(
-    connection: TConnection,
-    entryConsumer: (batch: SqliteRow[]) => {}
-  ): Promise<string>;
 }
