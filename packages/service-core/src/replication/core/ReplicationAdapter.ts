@@ -1,6 +1,5 @@
 import { SqliteRow, TablePattern } from '@powersync/service-sync-rules';
-import { ReplicationEntity } from './ReplicationEntity.js';
-import { SaveOptions } from '../../storage/BucketStorage.js';
+import * as storage from '../../storage/storage-index.js';
 
 /**
  * The ReplicationAdapter describes all the methods that are required by the
@@ -23,13 +22,13 @@ export interface ReplicationAdapter {
    * Get all the fully qualified entities that match the provided pattern
    * @param pattern // TODO: Need something more generic than TablePattern
    */
-  toReplicationEntities(pattern: TablePattern): Promise<ReplicationEntity[]>;
+  resolveReplicationEntities(pattern: TablePattern): Promise<storage.SourceTable[]>;
 
   /**
    *  Get the number of entries for this Entity
    *  @param entity
    */
-  count(entity: ReplicationEntity): Promise<number>;
+  count(entity: storage.SourceTable): Promise<number>;
 
   /**
    *  Retrieve the initial snapshot data for the entity. Results should be passed onto the provided recordConsumer in batches.
@@ -55,14 +54,14 @@ export interface ReplicationAdapter {
 }
 
 export interface InitializeDataOptions {
-  entity: ReplicationEntity;
+  entity: storage.SourceTable;
   entry_consumer: (batch: SqliteRow[]) => {};
   abort_signal: AbortSignal;
 }
 
 export interface StartReplicationOptions {
-  entities: ReplicationEntity[];
+  entities: storage.SourceTable[];
   from_lsn: string;
-  change_listener: (change: SaveOptions) => {};
+  change_listener: (change: storage.SaveOptions) => {};
   abort_signal: AbortSignal;
 }
