@@ -426,4 +426,11 @@ export interface CompactOptions {
    * not be compacted, to avoid invalidating checkpoints in use.
    */
   maxOpId?: bigint;
+
+  /**
+   * If specified, compact only the specific buckets.
+   *
+   * If not specified, compacts all buckets.
+   */
+  compactBuckets?: string[];
 }
