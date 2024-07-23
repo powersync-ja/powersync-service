@@ -34,7 +34,7 @@ export function registerCompactAction(program: Command) {
     const client = mongo.createMongoClient(storage);
     await client.connect();
     try {
-      const psdb = new PowerSyncMongo(client);
+      const psdb = new PowerSyncMongo(client, { database: storage.database });
       const bucketStorage = new MongoBucketStorage(psdb, { slot_name_prefix: config.slot_name_prefix });
       const active = await bucketStorage.getActiveSyncRules();
       if (active == null) {
