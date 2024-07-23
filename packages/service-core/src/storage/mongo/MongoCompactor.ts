@@ -55,6 +55,7 @@ export class MongoCompactor {
   private moveBatchQueryLimit: number;
   private clearBatchLimit: number;
   private maxOpId: bigint | undefined;
+  private buckets: string[] | undefined;
 
   constructor(private db: PowerSyncMongo, private group_id: number, options?: MongoCompactOptions) {
     this.idLimitBytes = (options?.memoryLimitMB ?? DEFAULT_MEMORY_LIMIT_MB) * 1024 * 1024;
@@ -62,6 +63,7 @@ export class MongoCompactor {
     this.moveBatchQueryLimit = options?.moveBatchQueryLimit ?? DEFAULT_MOVE_BATCH_QUERY_LIMIT;
     this.clearBatchLimit = options?.clearBatchLimit ?? DEFAULT_CLEAR_BATCH_LIMIT;
     this.maxOpId = options?.maxOpId;
+    this.buckets = options?.compactBuckets;
   }
 
   /**
@@ -70,6 +72,19 @@ export class MongoCompactor {
    * See /docs/compacting-operations.md for details.
    */
   async compact() {
+    if (this.buckets) {
+      for (let bucket of this.buckets) {
+        // We can make this more efficient later on by iterating
+        // through the buckets in a single query.
+        // That makes batching more tricky, so we leave for later.
+        await this.compactInternal(bucket);
+      }
+    } else {
+      await this.compactInternal(undefined);
+    }
+  }
+
+  async compactInternal(bucket: string | undefined) {
     const idLimitBytes = this.idLimitBytes;
 
     let currentState: CurrentBucketState | null = null;
@@ -77,14 +92,14 @@ export class MongoCompactor {
     // Constant lower bound
     const lowerBound: BucketDataKey = {
       g: this.group_id,
-      b: new MinKey() as any,
+      b: bucket ?? (new MinKey() as any),
       o: new MinKey() as any
     };
 
     // Upper bound is adjusted for each batch
     let upperBound: BucketDataKey = {
       g: this.group_id,
-      b: new MaxKey() as any,
+      b: bucket ?? (new MaxKey() as any),
       o: new MaxKey() as any
     };
 

@@ -2,8 +2,7 @@ import { Command } from 'commander';
 
 import { logger } from '@powersync/lib-services-framework';
 import * as v8 from 'v8';
-import { mongo } from '../../db/db-index.js';
-import { MongoBucketStorage, PowerSyncMongo } from '../../storage/storage-index.js';
+import { createPowerSyncMongo, MongoBucketStorage } from '../../storage/storage-index.js';
 import { loadConfig } from '../../util/config.js';
 import { extractRunnerOptions, wrapConfigCommand } from './config-command.js';
 
@@ -31,10 +30,10 @@ export function registerCompactAction(program: Command) {
 
     const config = await loadConfig(runnerConfig);
     const { storage } = config;
-    const client = mongo.createMongoClient(storage);
+    const psdb = createPowerSyncMongo(storage);
+    const client = psdb.client;
     await client.connect();
     try {
-      const psdb = new PowerSyncMongo(client);
       const bucketStorage = new MongoBucketStorage(psdb, { slot_name_prefix: config.slot_name_prefix });
       const active = await bucketStorage.getActiveSyncRules();
       if (active == null) {
