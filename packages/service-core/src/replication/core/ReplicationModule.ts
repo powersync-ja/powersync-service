@@ -35,7 +35,7 @@ export abstract class ReplicationModule extends AbstractModule {
   /**
    *  Create the ReplicationAdapter to be used by PowerSync replicator.
    */
-  protected abstract createReplicationAdapter(): ReplicationAdapter<any>;
+  protected abstract createReplicationAdapter(): ReplicationAdapter;
 
   /**
    *  Return the TS codec schema describing the required configuration values for this module.
