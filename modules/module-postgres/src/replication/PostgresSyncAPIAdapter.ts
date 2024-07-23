@@ -2,15 +2,11 @@ import * as pgwire from '@powersync/service-jpgwire';
 import { api, replication } from '@powersync/service-core';
 
 import { TablePattern } from '@powersync/service-sync-rules';
-import { DatabaseSchema, internal_routes } from '@powersync/service-types';
-
-// TODO
-import { ExecuteSqlResponse } from '@powersync/service-types/src/routes.js';
+import { configFile, DatabaseSchema, internal_routes } from '@powersync/service-types';
 
 import * as pg_utils from '../utils/pgwire_utils.js';
 import * as replication_utils from '../replication/replication-utils.js';
 import { baseUri, ResolvedConnectionConfig } from '../types/types.js';
-import { DataSourceConfig } from '@powersync/service-types/src/config/PowerSyncConfig.js';
 
 export class PostgresSyncAPIAdapter implements api.SyncAPI {
   // TODO manage lifecycle of this
@@ -22,7 +18,7 @@ export class PostgresSyncAPIAdapter implements api.SyncAPI {
     });
   }
 
-  async getSourceConfig(): Promise<DataSourceConfig> {
+  async getSourceConfig(): Promise<configFile.DataSourceConfig> {
     return this.config;
   }
 
@@ -101,7 +97,7 @@ FROM pg_replication_slots WHERE slot_name = $1 LIMIT 1;`,
     throw new Error('Method not implemented.');
   }
 
-  executeSQL(sql: string, params: any[]): Promise<ExecuteSqlResponse> {
+  executeSQL(sql: string, params: any[]): Promise<internal_routes.ExecuteSqlResponse> {
     throw new Error('Method not implemented.');
   }
 }
