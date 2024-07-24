@@ -1,11 +1,11 @@
-import * as t from 'ts-codec';
-import type { FastifyPluginAsync } from 'fastify';
 import { errors, router, schema } from '@powersync/lib-services-framework';
 import { SqlSyncRules, SyncRulesErrors } from '@powersync/service-sync-rules';
+import type { FastifyPluginAsync } from 'fastify';
+import * as t from 'ts-codec';
 
+import { ServiceContext } from '../../system/ServiceContext.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
-import { ServiceContext } from '../../system/ServiceContext.js';
 
 const DeploySyncRulesRequest = t.object({
   content: t.string
@@ -38,10 +38,10 @@ export const deploySyncRules = routeDefinition({
   plugins: [yamlPlugin],
   validator: schema.createTsCodecValidator(DeploySyncRulesRequest, { allowAdditional: true }),
   handler: async (payload) => {
-    const {
-      service_context: { storage, system }
-    } = payload.context;
-    if (system.config.sync_rules.present) {
+    const { service_context } = payload.context;
+    const { storage } = service_context;
+
+    if (service_context.configuration.sync_rules.present) {
       // If sync rules are configured via the config, disable deploy via the API.
       throw new errors.JourneyError({
         status: 422,
@@ -99,7 +99,7 @@ export const currentSyncRules = routeDefinition({
   authorize: authApi,
   handler: async (payload) => {
     const { service_context } = payload.context;
-    const { storage, system } = service_context;
+    const { storage } = service_context;
     const sync_rules = await storage.getActiveSyncRulesContent();
     if (!sync_rules) {
       throw new errors.JourneyError({
@@ -175,7 +175,7 @@ async function debugSyncRules(serviceContext: ServiceContext, sync_rules: string
     const rules = SqlSyncRules.fromYaml(sync_rules);
     const source_table_patterns = rules.getSourceTables();
 
-    const api = serviceContext.syncAPIProvider.getSyncAPI();
+    const api = serviceContext.routerEngine.getAPI();
     if (!api) {
       throw new Error('No API handler found');
     }

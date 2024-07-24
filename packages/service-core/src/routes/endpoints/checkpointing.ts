@@ -1,5 +1,5 @@
-import * as t from 'ts-codec';
 import { logger, router, schema } from '@powersync/lib-services-framework';
+import * as t from 'ts-codec';
 
 import { authUser } from '../auth.js';
 import { routeDefinition } from '../router.js';
@@ -15,7 +15,7 @@ export const writeCheckpoint = routeDefinition({
     const {
       context: { service_context }
     } = payload;
-    const api = service_context.syncAPIProvider.getSyncAPI();
+    const api = service_context.routerEngine.getAPI();
     if (!api) {
       throw new Error('No connection API handler is available.');
     }
@@ -53,7 +53,7 @@ export const writeCheckpoint2 = routeDefinition({
   handler: async (payload) => {
     const { user_id, service_context } = payload.context;
 
-    const api = service_context.syncAPIProvider.getSyncAPI();
+    const api = service_context.routerEngine.getAPI();
     if (!api) {
       throw new Error('No connection API handler is available.');
     }

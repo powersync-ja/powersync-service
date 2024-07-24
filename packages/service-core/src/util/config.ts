@@ -1,11 +1,17 @@
 import * as fs from 'fs/promises';
 
-import { ResolvedPowerSyncConfig, RunnerConfig } from './config/types.js';
+import { container } from '@powersync/lib-services-framework';
+import { ServiceContext } from '../system/ServiceContext.js';
 import { CompoundConfigCollector } from './config/compound-config-collector.js';
+import { ResolvedPowerSyncConfig, RunnerConfig } from './config/types.js';
 
-export function loadConfig(runnerConfig: RunnerConfig = {}) {
+export async function loadConfig(runnerConfig: RunnerConfig = {}) {
   const collector = new CompoundConfigCollector();
-  return collector.collectConfig(runnerConfig);
+  const config = await collector.collectConfig(runnerConfig);
+  const serviceContext = new ServiceContext(config);
+  container.register(ServiceContext, serviceContext);
+  await serviceContext.initialize();
+  return config;
 }
 
 export async function loadSyncRules(config: ResolvedPowerSyncConfig): Promise<string | undefined> {

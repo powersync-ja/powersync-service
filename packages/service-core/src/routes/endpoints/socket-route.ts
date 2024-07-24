@@ -19,9 +19,8 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
     validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
     handler: async ({ context, params, responder, observer, initialN }) => {
       const { service_context } = context;
-      const { system } = service_context;
-
-      if (system.closed) {
+      const { routerEngine } = service_context;
+      if (routerEngine.closed) {
         responder.onError(
           new errors.JourneyError({
             status: 503,
@@ -62,7 +61,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         }
       });
 
-      const removeStopHandler = system.addStopHandler(() => {
+      const removeStopHandler = routerEngine.addStopHandler(() => {
         observer.triggerCancel();
       });
 

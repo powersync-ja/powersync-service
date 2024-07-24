@@ -1,9 +1,9 @@
+import { container, logger } from '@powersync/lib-services-framework';
 import { DEFAULT_TAG, SourceTableInterface, SqlSyncRules } from '@powersync/service-sync-rules';
 import { SyncRulesStatus, TableInfo } from '@powersync/service-types';
-import { container, logger } from '@powersync/lib-services-framework';
 
-import { ServiceContext } from '../system/ServiceContext.js';
 import * as storage from '../storage/storage-index.js';
+import { ServiceContext } from '../system/ServiceContext.js';
 export interface DiagnosticsOptions {
   /**
    * Include sync rules content in response.
@@ -33,8 +33,6 @@ export async function getSyncRulesStatus(
     return undefined;
   }
 
-  const serviceContext = container.getImplementation(ServiceContext);
-
   const include_content = options.include_content ?? false;
   const live_status = options.live_status ?? false;
   const check_connection = options.check_connection ?? false;
@@ -52,22 +50,23 @@ export async function getSyncRulesStatus(
     };
   }
 
+  const serviceContext = container.getImplementation(ServiceContext);
   const { storage } = serviceContext;
-  const syncAPI = serviceContext.syncAPIProvider.getSyncAPI();
+  const api = serviceContext.routerEngine.getAPI();
 
-  const systemStorage = live_status ? await storage.getInstance(persisted) : undefined;
+  const systemStorage = live_status ? storage.getInstance(persisted) : undefined;
   const status = await systemStorage?.getStatus();
   let replication_lag_bytes: number | undefined = undefined;
 
   let tables_flat: TableInfo[] = [];
 
   if (check_connection) {
-    if (!syncAPI) {
+    if (!api) {
       throw new Error('No connection configured');
     }
 
     const source_table_patterns = rules.getSourceTables();
-    const resolved_tables = await syncAPI.getDebugTablesInfo(source_table_patterns, rules);
+    const resolved_tables = await api.getDebugTablesInfo(source_table_patterns, rules);
     tables_flat = resolved_tables.flatMap((info) => {
       if (info.table) {
         return [info.table];
@@ -80,7 +79,7 @@ export async function getSyncRulesStatus(
 
     if (systemStorage) {
       try {
-        replication_lag_bytes = await syncAPI.getReplicationLag(systemStorage.slot_name);
+        replication_lag_bytes = await api.getReplicationLag(systemStorage.slot_name);
       } catch (e) {
         // Ignore
         logger.warn(`Unable to get replication lag`, e);
@@ -134,7 +133,7 @@ export async function getSyncRulesStatus(
     })
   );
 
-  const sourceConfig = await syncAPI?.getSourceConfig();
+  const sourceConfig = await api?.getSourceConfig();
   const tag = sourceConfig?.tag ?? DEFAULT_TAG;
 
   return {

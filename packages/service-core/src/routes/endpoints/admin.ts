@@ -4,9 +4,9 @@ import { internal_routes } from '@powersync/service-types';
 
 import * as api from '../../api/api-index.js';
 
-import { routeDefinition } from '../router.js';
 import { PersistedSyncRulesContent } from '../../storage/BucketStorage.js';
 import { authApi } from '../auth.js';
+import { routeDefinition } from '../router.js';
 
 const demoCredentials = routeDefinition({
   path: '/api/admin/v1/demo-credentials',
@@ -42,7 +42,7 @@ export const executeSql = routeDefinition({
       }
     } = payload;
 
-    const api = payload.context.service_context.syncAPIProvider.getSyncAPI();
+    const api = payload.context.service_context.routerEngine.getAPI();
     const sourceConfig = await api?.getSourceConfig();
     if (!sourceConfig?.debug_enabled) {
       return internal_routes.ExecuteSqlResponse.encode({
@@ -69,8 +69,8 @@ export const diagnostics = routeDefinition({
     const { service_context } = context;
     const include_content = payload.params.sync_rules_content ?? false;
 
-    const syncAPI = service_context.syncAPIProvider.getSyncAPI();
-    const status = await syncAPI?.getConnectionStatus();
+    const apiHandler = service_context.routerEngine.getAPI();
+    const status = await apiHandler?.getConnectionStatus();
     if (!status) {
       return internal_routes.DiagnosticsResponse.encode({
         connections: []
@@ -145,8 +145,8 @@ export const reprocess = routeDefinition({
       content: active.sync_rules.content
     });
 
-    const api = service_context.syncAPIProvider.getSyncAPI();
-    const baseConfig = await api?.getSourceConfig();
+    const apiHandler = service_context.routerEngine.getAPI();
+    const baseConfig = await apiHandler?.getSourceConfig();
 
     return internal_routes.ReprocessResponse.encode({
       connections: [
@@ -192,7 +192,7 @@ export const validate = routeDefinition({
       }
     };
 
-    const apiHandler = service_context.syncAPIProvider.getSyncAPI();
+    const apiHandler = service_context.routerEngine.getAPI();
     const connectionStatus = await apiHandler?.getConnectionStatus();
     if (!connectionStatus) {
       return internal_routes.ValidateResponse.encode({

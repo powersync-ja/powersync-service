@@ -4,14 +4,14 @@ import * as types from '@powersync/service-types';
 /**
  *  Describes all the methods currently required to service the sync API endpoints.
  */
-export interface SyncAPI {
+export interface RouteAPI {
   /**
    * @returns basic identification of the connection
    */
   getSourceConfig(): Promise<types.configFile.DataSourceConfig>;
 
   /**
-   * Checks the current connection status of the datasource.
+   * Checks the current connection status of the data source.
    * This is usually some test query to verify the source can be reached.
    */
   getConnectionStatus(): Promise<types.ConnectionStatusV2>;
@@ -80,9 +80,4 @@ interface PatternResult {
   wildcard: boolean;
   tables?: types.TableInfo[];
   table?: types.TableInfo;
-}
-
-export interface QueryResults {
-  columns: string[];
-  rows: (string | number | boolean | null)[][];
 }

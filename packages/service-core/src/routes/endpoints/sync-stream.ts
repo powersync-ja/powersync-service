@@ -20,9 +20,9 @@ export const syncStreamed = routeDefinition({
   validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
   handler: async (payload) => {
     const { service_context } = payload.context;
-    const { storage, system } = service_context;
+    const { routerEngine, storage } = service_context;
 
-    if (system.closed) {
+    if (routerEngine.closed) {
       throw new errors.JourneyError({
         status: 503,
         code: 'SERVICE_UNAVAILABLE',
@@ -60,7 +60,7 @@ export const syncStreamed = routeDefinition({
         { objectMode: false, highWaterMark: 16 * 1024 }
       );
 
-      const deregister = system.addStopHandler(() => {
+      const deregister = routerEngine.addStopHandler(() => {
         // This error is not currently propagated to the client
         controller.abort();
         stream.destroy(new Error('Shutting down system'));

@@ -4,9 +4,9 @@ import { internal_routes } from '@powersync/service-types';
 import { ServiceContext } from '../system/ServiceContext.js';
 
 export async function getConnectionsSchema(): Promise<internal_routes.GetSchemaResponse> {
-  const { syncAPIProvider } = container.getImplementation(ServiceContext);
+  const { routerEngine } = container.getImplementation(ServiceContext);
 
-  const api = syncAPIProvider.getSyncAPI();
+  const api = routerEngine.getAPI();
   if (!api) {
     return {
       connections: []
