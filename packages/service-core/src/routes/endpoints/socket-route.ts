@@ -3,20 +3,13 @@ import { RequestParameters } from '@powersync/service-sync-rules';
 import { serialize } from 'bson';
 
 import { Metrics } from '../../metrics/Metrics.js';
-import { streamResponse } from '../../sync/sync.js';
+import * as sync from '../../sync/sync-index.js';
 import * as util from '../../util/util-index.js';
 import { SocketRouteGenerator } from '../router-socket.js';
 import { SyncRoutes } from './sync-stream.js';
-import { RequestTracker } from '../../sync/RequestTracker.js';
 
 export const syncStreamReactive: SocketRouteGenerator = (router) =>
   router.reactiveStream<util.StreamingSyncRequest, any>(SyncRoutes.STREAM, {
-    authorize: ({ context }) => {
-      return {
-        authorized: !!context.token_payload,
-        errors: ['Authentication required'].concat(context.token_errors ?? [])
-      };
-    },
     validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
     handler: async ({ context, params, responder, observer, initialN }) => {
       const { system } = context;
@@ -67,9 +60,9 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       });
 
       Metrics.getInstance().concurrent_connections.add(1);
-      const tracker = new RequestTracker();
+      const tracker = new sync.RequestTracker();
       try {
-        for await (const data of streamResponse({
+        for await (const data of sync.streamResponse({
           storage,
           params: {
             ...params,
