@@ -16,6 +16,7 @@
     "@opentelemetry/sdk-metrics": "^1.17.0",
     "@powersync/service-core": "workspace:*",
     "@powersync/lib-services-framework": "workspace:*",
+    "@powersync/service-module-postgres": "workapce:*",
     "@powersync/service-jpgwire": "workspace:*",
     "@powersync/service-jsonbig": "workspace:*",
     "@powersync/service-rsocket-router": "workspace:*",

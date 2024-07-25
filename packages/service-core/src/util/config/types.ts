@@ -1,6 +1,7 @@
 import { configFile } from '@powersync/service-types';
 import { KeySpec } from '../../auth/KeySpec.js';
 import { KeyStore } from '../../auth/KeyStore.js';
+import { ServiceContext } from '../../system/ServiceContext.js';
 
 export enum ServiceRunner {
   UNIFIED = 'unified',
@@ -15,10 +16,10 @@ export type RunnerConfig = {
 };
 
 export type MigrationContext = {
-  runner_config: RunnerConfig;
+  serviceContext: ServiceContext;
 };
 
-export type Runner = (config: RunnerConfig) => Promise<void>;
+export type Runner = (serviceContext: ServiceContext) => Promise<void>;
 
 export type SyncRulesConfig = {
   present: boolean;

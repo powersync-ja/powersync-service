@@ -1,25 +1,29 @@
 import { container, ContainerImplementation } from '@powersync/lib-services-framework';
-import { entry, modules, utils } from '@powersync/service-core';
+import { entry, modules, system, utils } from '@powersync/service-core';
+import PostgresModule from '@powersync/service-module-postgres';
 import { startServer } from './runners/server.js';
 import { startStreamWorker } from './runners/stream-worker.js';
 import { createSentryReporter } from './util/alerting.js';
 
+// Initialize framework components
 container.registerDefaults();
 container.register(ContainerImplementation.REPORTER, createSentryReporter());
 
+const serviceContext = new system.ServiceContext();
 const moduleManager = new modules.ModuleManager();
-container.register(modules.ModuleManager, moduleManager);
 
-// TODO register Postgres module
-moduleManager.register([]);
+moduleManager.register([PostgresModule]);
+
+// TODO this can't happen here. The service context needs to be initialized first
+await moduleManager.initialize(serviceContext);
 
 // Generate Commander CLI entry point program
-const { execute } = entry.generateEntryProgram({
+const { execute } = entry.generateEntryProgram(serviceContext, {
   [utils.ServiceRunner.API]: startServer,
   [utils.ServiceRunner.SYNC]: startStreamWorker,
-  [utils.ServiceRunner.UNIFIED]: async (config: utils.RunnerConfig) => {
-    await startServer(config);
-    await startStreamWorker(config);
+  [utils.ServiceRunner.UNIFIED]: async (serviceContext) => {
+    await startServer(serviceContext);
+    await startStreamWorker(serviceContext);
   }
 });
 

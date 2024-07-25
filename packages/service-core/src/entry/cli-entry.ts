@@ -1,10 +1,11 @@
 import { Command } from 'commander';
 
+import { logger } from '@powersync/lib-services-framework';
+import * as system from '../system/system-index.js';
 import * as utils from '../util/util-index.js';
 import { registerMigrationAction } from './commands/migrate-action.js';
 import { registerTearDownAction } from './commands/teardown-action.js';
 import { registerStartAction } from './entry-index.js';
-import { logger } from '@powersync/lib-services-framework';
 
 /**
  * Generates a Commander program which serves as the entry point
@@ -12,7 +13,10 @@ import { logger } from '@powersync/lib-services-framework';
  * This registers standard actions for teardown and migrations.
  * Optionally registers the start command handlers.
  */
-export function generateEntryProgram(startHandlers?: Record<utils.ServiceRunner, utils.Runner>) {
+export function generateEntryProgram(
+  serviceContext: system.ServiceContext,
+  startHandlers?: Record<utils.ServiceRunner, utils.Runner>
+) {
   const entryProgram = new Command();
   entryProgram.name('powersync-runner').description('CLI to initiate a PowerSync service runner');
 
@@ -20,7 +24,7 @@ export function generateEntryProgram(startHandlers?: Record<utils.ServiceRunner,
   registerMigrationAction(entryProgram);
 
   if (startHandlers) {
-    registerStartAction(entryProgram, startHandlers);
+    registerStartAction(entryProgram, serviceContext, startHandlers);
   }
 
   return {

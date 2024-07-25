@@ -1,17 +1,13 @@
 import { container, logger } from '@powersync/lib-services-framework';
 import * as core from '@powersync/service-core';
+import { routerSetup } from '../routes/router-config.js';
 
 /**
  * Starts an API server
  */
-export async function startServer(runnerConfig: core.utils.RunnerConfig) {
+export async function startServer(serviceContext: core.system.ServiceContext) {
   logger.info('Booting');
 
-  await core.utils.loadConfig(runnerConfig);
-
-  // TODO init module manager
-
-  const serviceContext = container.getImplementation(core.system.ServiceContext);
   serviceContext.withLifecycle(serviceContext.storage, {
     async start(storage) {
       const instanceId = await storage.getPowerSyncInstanceId();
@@ -27,12 +23,13 @@ export async function startServer(runnerConfig: core.utils.RunnerConfig) {
   });
 
   logger.info('Starting service');
+  // TODO cleanup the initialization of metrics
   await serviceContext.start();
 
   core.Metrics.getInstance().configureApiMetrics();
 
   // Start the router
-  await serviceContext.routerEngine.initialize();
+  await serviceContext.routerEngine.start(routerSetup);
 
   logger.info('service started');
 

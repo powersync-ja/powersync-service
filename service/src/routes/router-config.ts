@@ -6,7 +6,7 @@ import { deserialize } from 'bson';
 import fastify from 'fastify';
 import { SocketRouter } from './router.js';
 
-export const routerSetup: core.routes.RouterSetup = async () => {
+export const routerSetup: core.routes.RouterSetup = async (routes) => {
   const serviceContext = container.getImplementation(core.system.ServiceContext);
 
   const server = fastify.fastify();
@@ -27,12 +27,7 @@ export const routerSetup: core.routes.RouterSetup = async () => {
           service_context: serviceContext
         };
       },
-      [
-        ...core.routes.endpoints.ADMIN_ROUTES,
-        ...core.routes.endpoints.CHECKPOINT_ROUTES,
-        ...core.routes.endpoints.DEV_ROUTES,
-        ...core.routes.endpoints.SYNC_RULES_ROUTES
-      ]
+      [...routes.apiRoutes]
     );
     // Limit the active concurrent requests
     childContext.addHook(
@@ -55,7 +50,7 @@ export const routerSetup: core.routes.RouterSetup = async () => {
           service_context: container.getImplementation(core.system.ServiceContext)
         };
       },
-      [...core.routes.endpoints.SYNC_STREAM_ROUTES]
+      [...routes.streamRoutes]
     );
     // Limit the active concurrent requests
     childContext.addHook(
@@ -106,6 +101,7 @@ export const routerSetup: core.routes.RouterSetup = async () => {
         service_context: serviceContext
       };
     },
+    // TODO
     endpoints: [core.routes.endpoints.syncStreamReactive(SocketRouter)],
     metaDecoder: async (meta: Buffer) => {
       return RSocketRequestMeta.decode(deserialize(meta) as any);
@@ -123,7 +119,7 @@ export const routerSetup: core.routes.RouterSetup = async () => {
   logger.info(`Running on port ${port}`);
 
   return {
-    onShutDown: async () => {
+    onShutdown: async () => {
       logger.info('Shutting down HTTP server...');
       await server.close();
       logger.info('HTTP server stopped');

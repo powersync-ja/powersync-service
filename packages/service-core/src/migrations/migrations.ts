@@ -2,13 +2,14 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
-import * as db from '../db/db-index.js';
-import * as util from '../util/util-index.js';
-import * as locks from '../locks/locks-index.js';
-import { Direction } from './definitions.js';
-import { createMongoMigrationStore } from './store/migration-store.js';
-import { execute, writeLogsToStore } from './executor.js';
 import { logger } from '@powersync/lib-services-framework';
+import * as db from '../db/db-index.js';
+import * as locks from '../locks/locks-index.js';
+import * as system from '../system/system-index.js';
+import * as util from '../util/util-index.js';
+import { Direction } from './definitions.js';
+import { execute, writeLogsToStore } from './executor.js';
+import { createMongoMigrationStore } from './store/migration-store.js';
 
 const DEFAULT_MONGO_LOCK_COLLECTION = 'locks';
 const MONGO_LOCK_PROCESS = 'migrations';
@@ -20,21 +21,21 @@ const MIGRATIONS_DIR = path.join(__dirname, '/db/migrations');
 
 export type MigrationOptions = {
   direction: Direction;
-  runner_config: util.RunnerConfig;
+  serviceContext: system.ServiceContext;
 };
 
 /**
  * Loads migrations and injects a custom context for loading the specified
  * runner configuration.
  */
-const loadMigrations = async (dir: string, runner_config: util.RunnerConfig) => {
+const loadMigrations = async (dir: string, serviceContext: system.ServiceContext) => {
   const files = await fs.readdir(dir);
   const migrations = files.filter((file) => {
     return path.extname(file) === '.js';
   });
 
   const context: util.MigrationContext = {
-    runner_config
+    serviceContext
   };
 
   return await Promise.all(
@@ -53,15 +54,15 @@ const loadMigrations = async (dir: string, runner_config: util.RunnerConfig) => 
  * Runs migration scripts exclusively using Mongo locks
  */
 export const migrate = async (options: MigrationOptions) => {
-  const { direction, runner_config } = options;
+  const { direction, serviceContext } = options;
 
   /**
    * Try and get Mongo from config file.
    * But this might not be available in Journey Micro as we use the standard Mongo.
    */
 
-  const config = await util.loadConfig(runner_config);
-  const { storage } = config;
+  const { configuration } = serviceContext;
+  const { storage } = configuration;
 
   const client = db.mongo.createMongoClient(storage);
   logger.info('Connecting to MongoDB');
@@ -96,7 +97,7 @@ export const migrate = async (options: MigrationOptions) => {
 
   try {
     logger.info('Loading migrations');
-    const migrations = await loadMigrations(MIGRATIONS_DIR, runner_config);
+    const migrations = await loadMigrations(MIGRATIONS_DIR, serviceContext);
 
     // Use the provided config to connect to Mongo
     const store = createMongoMigrationStore(clientDB);

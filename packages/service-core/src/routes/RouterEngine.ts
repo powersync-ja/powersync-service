@@ -2,11 +2,23 @@ import { container, logger } from '@powersync/lib-services-framework';
 
 import * as api from '../api/api-index.js';
 
+import { ADMIN_ROUTES } from './endpoints/admin.js';
+import { CHECKPOINT_ROUTES } from './endpoints/checkpointing.js';
+import { SYNC_RULES_ROUTES } from './endpoints/sync-rules.js';
+import { SYNC_STREAM_ROUTES } from './endpoints/sync-stream.js';
+import { RouteDefinition } from './router.js';
+
 export type RouterSetupResponse = {
-  onShutDown: () => Promise<void>;
+  onShutdown: () => Promise<void>;
 };
 
-export type RouterSetup = () => Promise<RouterSetupResponse>;
+export type RouterEngineRoutes = {
+  apiRoutes: RouteDefinition[];
+  streamRoutes: RouteDefinition[];
+  socketRoutes: RouteDefinition[];
+};
+
+export type RouterSetup = (routes: RouterEngineRoutes) => Promise<RouterSetupResponse>;
 
 /**
  *  Serves as a registry from which SyncAPIs can be retrieved based on Replication DataSource type
@@ -15,16 +27,28 @@ export type RouterSetup = () => Promise<RouterSetupResponse>;
 export class RouterEngine {
   closed: boolean;
 
-  protected stopHandlers: Set<() => void>;
-  protected routerSetup: RouterSetup | null;
+  /**
+   * The reference itself is readonly, but users should eventually
+   * be able to add their own route definitions.
+   */
+  readonly routes: RouterEngineRoutes;
 
+  protected stopHandlers: Set<() => void>;
   private api: api.RouteAPI | null;
 
   constructor() {
     this.api = null;
-    this.routerSetup = null;
     this.stopHandlers = new Set();
     this.closed = false;
+
+    // Default routes
+    this.routes = {
+      apiRoutes: [...ADMIN_ROUTES, ...CHECKPOINT_ROUTES, ...SYNC_RULES_ROUTES],
+      streamRoutes: [...SYNC_STREAM_ROUTES],
+      socketRoutes: [
+        // TODO
+      ]
+    };
 
     /**
      * This adds a termination handler to the begining of the queue
@@ -43,7 +67,7 @@ export class RouterEngine {
     });
   }
 
-  public register(api: api.RouteAPI) {
+  public registerAPI(api: api.RouteAPI) {
     if (this.api) {
       logger.warn('A SyncAPI has already been registered. Overriding existing implementation');
     }
@@ -55,15 +79,15 @@ export class RouterEngine {
     return this.api;
   }
 
-  async initialize() {
-    if (!this.routerSetup) {
-      throw new Error(`Router setup procedure has not been registered`);
-    }
-    const { onShutDown } = await this.routerSetup();
+  /**
+   * Starts the router given the configuration provided
+   */
+  async start(setup: RouterSetup) {
+    const { onShutdown } = await setup(this.routes);
 
     // This will cause the router shutdown to occur after the stop handlers have completed
     container.terminationHandler.handleTerminationSignalLast(async () => {
-      await onShutDown();
+      await onShutdown();
     });
   }
 

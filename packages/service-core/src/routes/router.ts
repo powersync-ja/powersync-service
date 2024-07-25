@@ -36,6 +36,7 @@ export type RequestEndpointHandlerPayload<
   request: Request;
 };
 
+export type RouteDefinition<I = any, O = any> = RequestEndpoint<I, O>;
 /**
  * Helper function for making generics work well when defining routes
  */

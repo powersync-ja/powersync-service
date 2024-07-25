@@ -1,39 +1,28 @@
-import { migrations, replication, utils, Metrics } from '@powersync/service-core';
 import { container, logger } from '@powersync/lib-services-framework';
+import { Metrics, migrations, replication, system } from '@powersync/service-core';
 
-import { PowerSyncSystem } from '../system/PowerSyncSystem.js';
-
-export async function startStreamWorker(runnerConfig: utils.RunnerConfig) {
+export async function startStreamWorker(serviceContext: system.ServiceContext) {
   logger.info('Booting');
 
-  const config = await utils.loadConfig(runnerConfig);
-
   // Self hosted version allows for automatic migrations
-  if (!config.migrations?.disable_auto_migration) {
+  if (!serviceContext.configuration.migrations?.disable_auto_migration) {
     await migrations.migrate({
       direction: migrations.Direction.Up,
-      runner_config: runnerConfig
+      serviceContext
     });
   }
 
-  const system = new PowerSyncSystem(config);
+  // TODO use replication engine
+  serviceContext.withLifecycle(new replication.WalStreamManager(system), {
+    start: (manager) => manager.start(),
+    stop: (manager) => manager.stop()
+  });
 
   logger.info('Starting system');
-  await system.start();
+  await serviceContext.start();
   logger.info('System started');
 
   Metrics.getInstance().configureReplicationMetrics(system);
-
-  const mngr = new replication.WalStreamManager(system);
-  mngr.start();
-
-  // MUST be after startServer.
-  // This is so that the handler is run before the server's handler, allowing streams to be interrupted on exit
-  system.addTerminationHandler();
-
-  container.terminationHandler.handleTerminationSignal(async () => {
-    await mngr.stop();
-  });
 
   await container.probes.ready();
 }
