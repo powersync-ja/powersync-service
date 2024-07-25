@@ -3,8 +3,7 @@ import { RequestParameters } from '@powersync/service-sync-rules';
 import { serialize } from 'bson';
 
 import { Metrics } from '../../metrics/Metrics.js';
-import { RequestTracker } from '../../sync/RequestTracker.js';
-import { streamResponse } from '../../sync/sync.js';
+import * as sync from '../../sync/sync-index.js';
 import * as util from '../../util/util-index.js';
 import { SocketRouteGenerator } from '../router-socket.js';
 import { SyncRoutes } from './sync-stream.js';
@@ -61,9 +60,9 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       });
 
       Metrics.getInstance().concurrent_connections.add(1);
-      const tracker = new RequestTracker();
+      const tracker = new sync.RequestTracker();
       try {
-        for await (const data of streamResponse({
+        for await (const data of sync.streamResponse({
           storage,
           params: {
             ...params,
