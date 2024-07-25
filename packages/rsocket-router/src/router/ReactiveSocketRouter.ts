@@ -3,10 +3,12 @@
  * to expose reactive websocket stream in an interface similar to
  * other Journey micro routers.
  */
+import { errors, logger } from '@powersync/lib-services-framework';
 import * as http from 'http';
 import { Payload, RSocketServer } from 'rsocket-core';
 import * as ws from 'ws';
 import { SocketRouterObserver } from './SocketRouterListener.js';
+import { WebsocketServerTransport } from './transport/WebSocketServerTransport.js';
 import {
   CommonParams,
   IReactiveStream,
@@ -15,8 +17,6 @@ import {
   ReactiveSocketRouterOptions,
   SocketResponder
 } from './types.js';
-import { WebsocketServerTransport } from './transport/WebSocketServerTransport.js';
-import { errors, logger } from '@powersync/lib-services-framework';
 
 export class ReactiveSocketRouter<C> {
   constructor(protected options?: ReactiveSocketRouterOptions<C>) {}
@@ -56,6 +56,7 @@ export class ReactiveSocketRouter<C> {
       acceptor: {
         accept: async (payload) => {
           const { max_concurrent_connections } = this.options ?? {};
+          logger.info(`Currently have ${wss.clients.size} active WebSocket connection(s)`);
           // wss.clients.size includes this connection, so we check for greater than
           // TODO: Share connection limit between this and http stream connections
           if (max_concurrent_connections && wss.clients.size > max_concurrent_connections) {
