@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 0.6.0
+
+### Minor Changes
+
+- 3f994ae: Added utility functions for registering routes
+
 ## 0.5.1
 
 ### Patch Changes
