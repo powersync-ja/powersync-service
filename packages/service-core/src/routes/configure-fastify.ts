@@ -5,7 +5,6 @@ import * as system from '../system/system-index.js';
 
 import { ADMIN_ROUTES } from './endpoints/admin.js';
 import { CHECKPOINT_ROUTES } from './endpoints/checkpointing.js';
-import { DEV_ROUTES } from './endpoints/dev.js';
 import { SYNC_RULES_ROUTES } from './endpoints/sync-rules.js';
 import { SYNC_STREAM_ROUTES } from './endpoints/sync-stream.js';
 import { createRequestQueueHook, CreateRequestQueueParams } from './hooks.js';
@@ -36,7 +35,7 @@ export type FastifyServerConfig = {
 
 export const DEFAULT_ROUTE_OPTIONS = {
   api: {
-    routes: [...ADMIN_ROUTES, ...CHECKPOINT_ROUTES, ...DEV_ROUTES, ...SYNC_RULES_ROUTES],
+    routes: [...ADMIN_ROUTES, ...CHECKPOINT_ROUTES, ...SYNC_RULES_ROUTES],
     queueOptions: {
       concurrency: 10,
       max_queue_depth: 20

@@ -5,31 +5,9 @@ import { internal_routes } from '@powersync/service-types';
 import * as api from '../../api/api-index.js';
 import * as util from '../../util/util-index.js';
 
-import { routeDefinition } from '../router.js';
 import { PersistedSyncRulesContent } from '../../storage/BucketStorage.js';
 import { authApi } from '../auth.js';
-
-const demoCredentials = routeDefinition({
-  path: '/api/admin/v1/demo-credentials',
-  method: router.HTTPMethod.POST,
-  authorize: authApi,
-  validator: schema.createTsCodecValidator(internal_routes.DemoCredentialsRequest, {
-    allowAdditional: true
-  }),
-  handler: async (payload) => {
-    const connection = payload.context.system.config.connection;
-    if (connection == null || !connection.demo_database) {
-      return internal_routes.DemoCredentialsResponse.encode({});
-    }
-
-    const uri = util.buildDemoPgUri(connection);
-    return internal_routes.DemoCredentialsResponse.encode({
-      credentials: {
-        postgres_uri: uri
-      }
-    });
-  }
-});
+import { routeDefinition } from '../router.js';
 
 export const executeSql = routeDefinition({
   path: '/api/admin/v1/execute-sql',
@@ -234,4 +212,4 @@ function mapColumnValue(value: SqliteValue) {
   }
 }
 
-export const ADMIN_ROUTES = [demoCredentials, executeSql, diagnostics, getSchema, reprocess, validate];
+export const ADMIN_ROUTES = [executeSql, diagnostics, getSchema, reprocess, validate];
