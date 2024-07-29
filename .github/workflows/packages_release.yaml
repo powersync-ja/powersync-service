@@ -11,6 +11,8 @@ jobs:
   release-packages:
     name: Release Packages
     runs-on: ubuntu-latest
+    outputs:
+      imagePackageReleaseCreated: ${{ steps.check_image_package_release.outputs.release_created }}
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
@@ -55,3 +57,77 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Check if @powersync/service-image Released
+        id: check_image_package_release
+        if: steps.changesets.outputs.published == 'true'
+        run: |
+          packages="${{ toJson(steps.changesets.outputs.publishedPackages) }}"
+          echo "Packages: $packages"  # Debugging output
+
+          # Use jq to check if the specific package is in the array
+          # Ensure the JSON is valid by echoing it into jq
+          echo "$packages" | jq -e '[.[] | select(.name == "@powersync/service-image")] | length > 0' > /dev/null
+          if [ $? -eq 0 ]; then
+            echo "release_created=true" >> $GITHUB_OUTPUT
+          else
+            echo "release_created=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Debug Outputs
+        run: |
+          echo "Published Packages: ${{ steps.changesets.outputs.publishedPackages }}"
+          echo "Released Docker Image: ${{ steps.check_image_package_release.outputs.release_created }}"
+
+  release-docker-image:
+    name: Build and Release powersync-service Docker Image
+    runs-on: ubuntu-latest
+    needs: release-packages
+    # Only run this job if the previous release job created a release for @powersync/service-image
+    if: needs.release-packages.outputs.imagePackageReleaseCreated == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # check out full history
+          # Temporarily needed for changesets
+          fetch-depth: 0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+        # This uses the service's package.json version for the Docker Image tag
+      - name: Get Service Version from package.json
+        id: get_version
+        run: echo "SERVICE_VERSION=$(node -p "require('./service/package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Build Image and Push
+        uses: docker/build-push-action@v5
+        with:
+          platforms: linux/arm64,linux/amd64
+          cache-from: type=registry,ref=${{vars.DOCKER_REGISTRY}}:latest
+          context: .
+          tags: ${{vars.DOCKER_REGISTRY}}:latest,${{vars.DOCKER_REGISTRY}}:${{steps.get_version.outputs.SERVICE_VERSION}}
+          push: true
+          file: ./service/Dockerfile
+
+      #   # Updates the README section on the DockerHub page
+      - name: Update repo description
+        #  Note that this 3rd party extention is recommended in the DockerHub docs:
+        #  https://docs.docker.com/build/ci/github-actions/update-dockerhub-desc/
+        uses: peter-evans/dockerhub-description@e98e4d1628a5f3be2be7c231e50981aee98723ae # v4.0.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{vars.DOCKER_REGISTRY}}
+          #   This is the contents of what will be shown on DockerHub
+          readme-filepath: ./service/README.md
