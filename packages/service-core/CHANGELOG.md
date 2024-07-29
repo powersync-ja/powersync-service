@@ -1,5 +1,17 @@
 # @powersync/service-core
 
+## 0.7.0
+
+### Minor Changes
+
+- c9ad713: Removed unused development routes
+
+### Patch Changes
+
+- Updated dependencies [c9ad713]
+  - @powersync/service-types@0.2.0
+  - @powersync/service-jpgwire@0.17.14
+
 ## 0.6.0
 
 ### Minor Changes

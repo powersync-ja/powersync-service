@@ -1,5 +1,14 @@
 # @powersync/service-image
 
+## 0.4.3
+
+### Patch Changes
+
+- Updated dependencies [c9ad713]
+  - @powersync/service-core@0.7.0
+  - @powersync/service-types@0.2.0
+  - @powersync/service-jpgwire@0.17.14
+
 ## 0.4.2
 
 ### Patch Changes
