@@ -1,7 +1,6 @@
 import { DEFAULT_SCHEMA, DEFAULT_TAG } from '@powersync/service-sync-rules';
-
-import * as replication from '../replication/replication-index.js';
 import * as util from '../util/util-index.js';
+import { ColumnDescriptor } from './SourceEntity.js';
 
 export class SourceTable {
   static readonly DEFAULT_SCHEMA = DEFAULT_SCHEMA;
@@ -28,11 +27,11 @@ export class SourceTable {
   constructor(
     public readonly id: any,
     public readonly connectionTag: string,
-    public readonly relationId: number,
+    public readonly objectId: number | string,
     public readonly schema: string,
     public readonly table: string,
 
-    public readonly replicaIdColumns: replication.ReplicationColumn[],
+    public readonly replicaIdColumns: ColumnDescriptor[],
     public readonly snapshotComplete: boolean
   ) {}
 

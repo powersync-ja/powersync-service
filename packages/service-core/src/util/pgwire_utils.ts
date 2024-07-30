@@ -5,8 +5,8 @@ import * as uuid from 'uuid';
 import * as pgwire from '@powersync/service-jpgwire';
 import { SqliteJsonValue, SqliteRow, ToastableSqliteRow, toSyncRulesRow } from '@powersync/service-sync-rules';
 
-import * as replication from '../replication/replication-index.js';
 import { logger } from '@powersync/lib-services-framework';
+import { ColumnDescriptor } from '../storage/SourceEntity.js';
 
 /**
  * pgwire message -> SQLite row.
@@ -45,12 +45,9 @@ export function constructBeforeRecord(message: pgwire.PgoutputDelete | pgwire.Pg
   return toSyncRulesRow(record);
 }
 
-function getRawReplicaIdentity(
-  tuple: ToastableSqliteRow,
-  columns: replication.ReplicationColumn[]
-): Record<string, any> {
+function getRawReplicaIdentity(tuple: ToastableSqliteRow, replicationColumns: ColumnDescriptor[]): Record<string, any> {
   let result: Record<string, any> = {};
-  for (let column of columns) {
+  for (let column of replicationColumns) {
     const name = column.name;
     result[name] = tuple[name];
   }
@@ -60,9 +57,9 @@ const ID_NAMESPACE = 'a396dd91-09fc-4017-a28d-3df722f651e9';
 
 export function getUuidReplicaIdentityString(
   tuple: ToastableSqliteRow,
-  columns: replication.ReplicationColumn[]
+  replicationColumns: ColumnDescriptor[]
 ): string {
-  const rawIdentity = getRawReplicaIdentity(tuple, columns);
+  const rawIdentity = getRawReplicaIdentity(tuple, replicationColumns);
 
   return uuidForRow(rawIdentity);
 }
@@ -76,13 +73,13 @@ export function uuidForRow(row: SqliteRow): string {
 
 export function getUuidReplicaIdentityBson(
   tuple: ToastableSqliteRow,
-  columns: replication.ReplicationColumn[]
+  replicationColumns: ColumnDescriptor[]
 ): bson.UUID {
-  if (columns.length == 0) {
+  if (replicationColumns.length == 0) {
     // REPLICA IDENTITY NOTHING - generate random id
     return new bson.UUID(uuid.v4());
   }
-  const rawIdentity = getRawReplicaIdentity(tuple, columns);
+  const rawIdentity = getRawReplicaIdentity(tuple, replicationColumns);
 
   return uuidForRowBson(rawIdentity);
 }

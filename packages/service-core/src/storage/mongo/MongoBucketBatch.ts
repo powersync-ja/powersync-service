@@ -743,7 +743,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
       const copy = new SourceTable(
         table.id,
         table.connectionTag,
-        table.relationId,
+        table.objectId,
         table.schema,
         table.table,
         table.replicaIdColumns,

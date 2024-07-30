@@ -5,10 +5,11 @@ import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow
 import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
-import { getPgOutputRelation, getRelId, PgRelation } from './PgRelation.js';
+import { getPgOutputRelation, getRelId } from './PgRelation.js';
 import { getReplicationIdentityColumns } from './util.js';
 import { WalConnection } from './WalConnection.js';
 import { Metrics } from '../metrics/Metrics.js';
+import { SourceEntityDescriptor } from '../storage/SourceEntity.js';
 
 export const ZERO_LSN = '00000000/00000000';
 
@@ -44,7 +45,7 @@ export class WalStream {
 
   private abort_signal: AbortSignal;
 
-  private relation_cache = new Map<number, storage.SourceTable>();
+  private relation_cache = new Map<string | number, storage.SourceTable>();
 
   private startedStreaming = false;
 
@@ -168,10 +169,9 @@ export class WalStream {
         {
           name,
           schema,
-          relationId: relid,
-          replicaIdentity: cresult.replicationIdentity,
-          replicationColumns: cresult.columns
-        },
+          objectId: relid,
+          replicationColumns: cresult.replicationColumns
+        } as SourceEntityDescriptor,
         false
       );
 
@@ -414,18 +414,18 @@ WHERE  oid = $1::regclass`,
     await batch.flush();
   }
 
-  async handleRelation(batch: storage.BucketStorageBatch, relation: PgRelation, snapshot: boolean) {
-    if (relation.relationId == null || typeof relation.relationId != 'number') {
-      throw new Error('relationId expected');
+  async handleRelation(batch: storage.BucketStorageBatch, descriptor: SourceEntityDescriptor, snapshot: boolean) {
+    if (!descriptor.objectId) {
+      throw new Error('objectId expected');
     }
     const result = await this.storage.resolveTable({
       group_id: this.group_id,
       connection_id: this.connection_id,
       connection_tag: this.connectionTag,
-      relation: relation,
+      entity_descriptor: descriptor,
       sync_rules: this.sync_rules
     });
-    this.relation_cache.set(relation.relationId, result.table);
+    this.relation_cache.set(descriptor.objectId, result.table);
 
     // Drop conflicting tables. This includes for example renamed tables.
     await batch.drop(result.dropTables);
