@@ -104,6 +104,7 @@ export class ServiceContext extends LifeCycledSystem {
       stop: () => disposer()
     });
 
+    // TODO neaten this
     container.register(
       ReplicationEngine,
       new ReplicationEngine({
