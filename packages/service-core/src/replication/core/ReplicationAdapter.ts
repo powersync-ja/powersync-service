@@ -1,6 +1,5 @@
 import { SqliteRow, TablePattern } from '@powersync/service-sync-rules';
 import * as storage from '../../storage/storage-index.js';
-import { PgRelation } from '../PgRelation.js';
 
 /**
  * The ReplicationAdapter describes all the methods that are required by the
@@ -101,7 +100,7 @@ type ReplicationUpdate = {
    *  Present when the update is a schema change. Describes the new data source entity
    *  TODO: Redefine PgRelation
    */
-  entityDescriptor?: PgRelation;
+  entityDescriptor?: storage.SourceEntityDescriptor;
   /**
    *  Present when the update is a commit. Contains the LSN of the commit
    */

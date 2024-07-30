@@ -4,6 +4,8 @@ import crypto from 'crypto';
 import * as uuid from 'uuid';
 import { BucketChecksum, OpId } from './protocol-types.js';
 
+import * as storage from '../storage/storage-index.js';
+
 export type ChecksumMap = Map<string, BucketChecksum>;
 
 export const ID_NAMESPACE = 'a396dd91-09fc-4017-a28d-3df722f651e9';
@@ -81,7 +83,7 @@ export function addBucketChecksums(a: BucketChecksum, b: BucketChecksum | null):
 
 function getRawReplicaIdentity(
   tuple: sync_rules.ToastableSqliteRow,
-  columns: ReplicationColumn[]
+  columns: storage.ColumnDescriptor[]
 ): Record<string, any> {
   let result: Record<string, any> = {};
   for (let column of columns) {
@@ -93,7 +95,7 @@ function getRawReplicaIdentity(
 
 export function getUuidReplicaIdentityString(
   tuple: sync_rules.ToastableSqliteRow,
-  columns: ReplicationColumn[]
+  columns: storage.ColumnDescriptor[]
 ): string {
   const rawIdentity = getRawReplicaIdentity(tuple, columns);
 
@@ -109,7 +111,7 @@ export function uuidForRow(row: sync_rules.SqliteRow): string {
 
 export function getUuidReplicaIdentityBson(
   tuple: sync_rules.ToastableSqliteRow,
-  columns: ReplicationColumn[]
+  columns: storage.ColumnDescriptor[]
 ): bson.UUID {
   if (columns.length == 0) {
     // REPLICA IDENTITY NOTHING - generate random id

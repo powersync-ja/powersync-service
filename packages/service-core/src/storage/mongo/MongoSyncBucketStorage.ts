@@ -3,7 +3,7 @@ import * as bson from 'bson';
 import * as mongo from 'mongodb';
 
 import * as db from '../../db/db-index.js';
-import * as replication from '../../replication/WalStream.js';
+import * as replication from '../../replication/replication-index.js';
 import * as util from '../../util/util-index.js';
 import {
   BucketDataBatchOptions,
