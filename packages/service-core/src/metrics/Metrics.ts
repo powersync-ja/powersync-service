@@ -4,7 +4,6 @@ import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
 import { Resource } from '@opentelemetry/resources';
 import { MeterProvider, MetricReader, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { logger } from '@powersync/lib-services-framework';
-import * as jpgwire from '@powersync/service-jpgwire';
 import * as storage from '../storage/storage-index.js';
 import * as system from '../system/system-index.js';
 import * as util from '../util/util-index.js';
@@ -238,14 +237,6 @@ Anonymous telemetry is currently: ${options.disable_telemetry_sharing ? 'disable
       const metrics = await getMetrics();
       if (metrics) {
         result.observe(metrics.replication_size_bytes);
-      }
-    });
-
-    const class_scoped_data_replicated_bytes = this.data_replicated_bytes;
-    // Record replicated bytes using global jpgwire metrics.
-    jpgwire.setMetricsRecorder({
-      addBytesRead(bytes) {
-        class_scoped_data_replicated_bytes.add(bytes);
       }
     });
   }

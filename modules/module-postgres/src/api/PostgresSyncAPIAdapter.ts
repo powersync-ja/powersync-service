@@ -10,14 +10,15 @@ import * as pg_utils from '../utils/pgwire_utils.js';
 export class PostgresSyncAPIAdapter implements api.RouteAPI {
   protected pool: pgwire.PgClient;
 
+  connectionTag: string;
   // TODO this should probably be configurable one day
-  connectionTag = sync_rules.DEFAULT_TAG;
   publication_name = 'powersync';
 
   constructor(protected config: types.ResolvedConnectionConfig) {
     this.pool = pgwire.connectPgWirePool(config, {
       idleTimeout: 30_000
     });
+    this.connectionTag = config.tag ?? sync_rules.DEFAULT_TAG;
   }
 
   async shutdown(): Promise<void> {
@@ -196,7 +197,7 @@ export class PostgresSyncAPIAdapter implements api.RouteAPI {
       }
     }
 
-    const id_columns = id_columns_result?.columns ?? [];
+    const id_columns = id_columns_result?.replicationColumns ?? [];
 
     const sourceTable = new storage.SourceTable(0, this.connectionTag, relationId ?? 0, schema, name, id_columns, true);
 

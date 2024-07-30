@@ -8,7 +8,6 @@ import * as types from '../types/types.js';
 import { PostgresSyncAPIAdapter } from '../api/PostgresSyncAPIAdapter.js';
 import { SupabaseKeyCollector } from '../auth/SupabaseKeyCollector.js';
 import { PostgresReplicationAdapter } from '../replication/PostgresReplicationAdapter.js';
-import { normalizeConnectionConfig, PostgresConnectionConfig, ResolvedConnectionConfig } from '../types/types.js';
 import { terminateReplicators } from '../utils/teardown.js';
 
 export class PostgresModule extends replication.ReplicationModule {
@@ -21,20 +20,29 @@ export class PostgresModule extends replication.ReplicationModule {
 
   protected configSchema(): t.AnyCodec {
     // Intersection types have some limitations in codec typing
-    return PostgresConnectionConfig;
+    return types.PostgresConnectionConfig;
   }
 
   async register(context: system.ServiceContext): Promise<void> {}
 
   async initialize(context: system.ServiceContext): Promise<void> {
+    // TODO metrics
+    // const class_scoped_data_replicated_bytes = this.data_replicated_bytes;
+    // // Record replicated bytes using global jpgwire metrics.
+    // jpgwire.setMetricsRecorder({
+    //   addBytesRead(bytes) {
+    //     class_scoped_data_replicated_bytes.add(bytes);
+    //   }
+    // });
+
     // Register the Supabase key collector(s)
-    (context.configuration.data_sources ?? [])
+    (context.configuration.connections ?? [])
       .map((baseConfig) => {
         if (baseConfig.type != types.POSTGRES_CONNECTION_TYPE) {
           return;
         }
         try {
-          return this.resolveConfig(PostgresConnectionConfig.decode(baseConfig as any));
+          return this.resolveConfig(types.PostgresConnectionConfig.decode(baseConfig as any));
         } catch (ex) {
           logger.warn('Failed to decode configuration in Postgres module initialization.');
         }
@@ -50,21 +58,21 @@ export class PostgresModule extends replication.ReplicationModule {
       });
   }
 
-  protected createSyncAPIAdapter(config: PostgresConnectionConfig): api.RouteAPI {
+  protected createSyncAPIAdapter(config: types.PostgresConnectionConfig): api.RouteAPI {
     throw new PostgresSyncAPIAdapter(this.resolveConfig(config));
   }
 
-  protected createReplicationAdapter(config: PostgresConnectionConfig): PostgresReplicationAdapter {
+  protected createReplicationAdapter(config: types.PostgresConnectionConfig): PostgresReplicationAdapter {
     return new PostgresReplicationAdapter(this.resolveConfig(config));
   }
 
   /**
    * Combines base config with normalized connection settings
    */
-  private resolveConfig(config: PostgresConnectionConfig): ResolvedConnectionConfig {
+  private resolveConfig(config: types.PostgresConnectionConfig): types.ResolvedConnectionConfig {
     return {
       ...config,
-      ...normalizeConnectionConfig(config)
+      ...types.normalizeConnectionConfig(config)
     };
   }
 
@@ -80,9 +88,9 @@ export class PostgresModule extends replication.ReplicationModule {
       await db.mongo.waitForAuth(mongoDB.db);
 
       logger.info(`Terminating replication slots`);
-      const connections = (context.configuration.data_sources ?? [])
+      const connections = (context.configuration.connections ?? [])
         .filter((c) => c.type == 'postgresql')
-        .map((c) => PostgresConnectionConfig.decode(c as any));
+        .map((c) => types.PostgresConnectionConfig.decode(c as any));
 
       for (const connection of connections) {
         await terminateReplicators(context.storage, this.resolveConfig(connection));
