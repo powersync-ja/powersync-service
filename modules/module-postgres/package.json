@@ -3,7 +3,7 @@
   "repository": "https://github.com/powersync-ja/powersync-service",
   "types": "dist/index.d.ts",
   "publishConfig": {
-    "access": "public"
+    "access": "restricted"
   },
   "version": "0.0.1",
   "main": "dist/index.js",
