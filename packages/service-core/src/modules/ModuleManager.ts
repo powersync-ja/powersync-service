@@ -44,7 +44,7 @@ export class ModuleManager {
 
   async tearDown() {
     for (const module of this.modules.values()) {
-      await module.teardown();
+      await module.teardown(this.serviceContext);
     }
   }
 }

@@ -21,7 +21,7 @@ export function generateEntryProgram(
   const entryProgram = new Command();
   entryProgram.name('powersync-runner').description('CLI to initiate a PowerSync service runner');
 
-  registerTearDownAction(entryProgram);
+  registerTearDownAction(entryProgram, moduleManager);
   registerMigrationAction(entryProgram, moduleManager);
   registerCompactAction(entryProgram, moduleManager);
 
