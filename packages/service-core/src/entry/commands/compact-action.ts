@@ -2,8 +2,8 @@ import { Command } from 'commander';
 
 import { logger } from '@powersync/lib-services-framework';
 import * as v8 from 'v8';
+import * as modules from '../../modules/modules-index.js';
 import { createPowerSyncMongo, MongoBucketStorage } from '../../storage/storage-index.js';
-import { loadConfig } from '../../util/config.js';
 import { extractRunnerOptions, wrapConfigCommand } from './config-command.js';
 
 const COMMAND_NAME = 'compact';
@@ -20,7 +20,7 @@ const HEAP_LIMIT = v8.getHeapStatistics().heap_size_limit;
  */
 const COMPACT_MEMORY_LIMIT_MB = Math.min(HEAP_LIMIT / 1024 / 1024 - 128, 1024);
 
-export function registerCompactAction(program: Command) {
+export function registerCompactAction(program: Command, moduleManager: modules.ModuleManager) {
   const compactCommand = program.command(COMMAND_NAME);
 
   wrapConfigCommand(compactCommand);
@@ -28,13 +28,15 @@ export function registerCompactAction(program: Command) {
   return compactCommand.description('Compact storage').action(async (options) => {
     const runnerConfig = extractRunnerOptions(options);
 
-    const config = await loadConfig(runnerConfig);
-    const { storage } = config;
+    await moduleManager.initialize(runnerConfig);
+
+    const { configuration } = moduleManager.serviceContext;
+    const { storage } = configuration;
     const psdb = createPowerSyncMongo(storage);
     const client = psdb.client;
     await client.connect();
     try {
-      const bucketStorage = new MongoBucketStorage(psdb, { slot_name_prefix: config.slot_name_prefix });
+      const bucketStorage = new MongoBucketStorage(psdb, { slot_name_prefix: configuration.slot_name_prefix });
       const active = await bucketStorage.getActiveSyncRules();
       if (active == null) {
         logger.info('No active instance to compact');

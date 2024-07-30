@@ -23,9 +23,10 @@ interface LegacySyncRulesDocument extends storage.SyncRuleDocument {
   auto_activate?: boolean;
 }
 
-export const up = async (context?: utils.MigrationContext) => {
-  const config = await utils.loadConfig(context?.runner_config);
-  const db = storage.createPowerSyncMongo(config.storage);
+export const up = async (context: utils.MigrationContext) => {
+  const { service_context } = context;
+  const db = storage.createPowerSyncMongo(service_context.configuration.storage);
+
   await mongo.waitForAuth(db.db);
   try {
     // We keep the old flags for existing deployments still shutting down.
@@ -68,10 +69,10 @@ export const up = async (context?: utils.MigrationContext) => {
   }
 };
 
-export const down = async (context?: utils.MigrationContext) => {
-  const config = await utils.loadConfig(context?.runner_config);
+export const down = async (context: utils.MigrationContext) => {
+  const { service_context } = context;
 
-  const db = storage.createPowerSyncMongo(config.storage);
+  const db = storage.createPowerSyncMongo(service_context.configuration.storage);
   try {
     await db.sync_rules.updateMany(
       {

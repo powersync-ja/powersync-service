@@ -1,12 +1,19 @@
 import { logger } from '@powersync/lib-services-framework';
-import { AbstractModule } from './AbstractModule.js';
 import { ServiceContext } from '../system/ServiceContext.js';
+import { RunnerConfig } from '../util/util-index.js';
+import { AbstractModule } from './AbstractModule.js';
 
 /**
  *  The module manager is responsible for managing the lifecycle of all modules in the system.
  */
 export class ModuleManager {
+  readonly serviceContext: ServiceContext;
+
   private readonly modules: Map<string, AbstractModule> = new Map();
+
+  constructor(serviceContext?: ServiceContext) {
+    this.serviceContext = serviceContext ?? new ServiceContext();
+  }
 
   public register(modules: AbstractModule[]) {
     for (const module of modules) {
@@ -15,12 +22,16 @@ export class ModuleManager {
       } else {
         this.modules.set(module.name, module);
       }
+      // Let the module register functionality on the service context
+      module.register(this.serviceContext);
     }
   }
 
-  async initialize(context: ServiceContext) {
+  async initialize(entryConfig: RunnerConfig) {
+    await this.serviceContext.initialize(entryConfig);
+
     for (const module of this.modules.values()) {
-      await module.initialize(context);
+      await module.initialize(this.serviceContext);
     }
   }
 

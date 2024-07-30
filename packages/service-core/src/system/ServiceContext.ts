@@ -17,22 +17,9 @@ export class ServiceContext extends LifeCycledSystem {
   private _configuration: ResolvedPowerSyncConfig | null;
 
   protected storageProviders: Map<string, StorageProvider>;
-
+  routerEngine: RouterEngine;
+  configCollector: CompoundConfigCollector;
   // TODO metrics
-
-  constructor() {
-    super();
-
-    this._storage = null;
-    this._configuration = null;
-
-    this.storageProviders = new Map();
-    container.register(RouterEngine, new RouterEngine());
-    container.register(CompoundConfigCollector, new CompoundConfigCollector());
-
-    // Mongo storage is available as an option by default
-    this.registerStorageProvider(new MongoStorageProvider());
-  }
 
   get configuration(): ResolvedPowerSyncConfig {
     if (!this._configuration) {
@@ -49,15 +36,27 @@ export class ServiceContext extends LifeCycledSystem {
   }
 
   get replicationEngine(): ReplicationEngine {
+    // TODO clean this up
     return container.getImplementation(ReplicationEngine);
   }
 
-  get routerEngine(): RouterEngine {
-    return container.getImplementation(RouterEngine);
-  }
+  constructor() {
+    super();
 
-  get configCollector(): CompoundConfigCollector {
-    return container.getImplementation(CompoundConfigCollector);
+    // These will only be set once `initialize` has been called
+    this._storage = null;
+    this._configuration = null;
+
+    this.storageProviders = new Map();
+    // Mongo storage is available as an option by default
+    this.registerStorageProvider(new MongoStorageProvider());
+
+    this.configCollector = new CompoundConfigCollector();
+
+    this.routerEngine = new RouterEngine();
+    this.withLifecycle(this.routerEngine, {
+      stop: (routerEngine) => routerEngine.shutdown()
+    });
   }
 
   /**

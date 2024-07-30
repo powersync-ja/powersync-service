@@ -1,9 +1,9 @@
 import * as storage from '../../../storage/storage-index.js';
 import * as utils from '../../../util/util-index.js';
 
-export const up = async (context?: utils.MigrationContext) => {
-  const config = await utils.loadConfig(context?.runner_config);
-  const db = storage.createPowerSyncMongo(config.storage);
+export const up = async (context: utils.MigrationContext) => {
+  const { service_context } = context;
+  const db = storage.createPowerSyncMongo(service_context.configuration.storage);
 
   try {
     await db.write_checkpoints.createIndex(
@@ -17,10 +17,10 @@ export const up = async (context?: utils.MigrationContext) => {
   }
 };
 
-export const down = async (context?: utils.MigrationContext) => {
-  const config = await utils.loadConfig(context?.runner_config);
+export const down = async (context: utils.MigrationContext) => {
+  const { service_context } = context;
 
-  const db = storage.createPowerSyncMongo(config.storage);
+  const db = storage.createPowerSyncMongo(service_context.configuration.storage);
 
   try {
     if (await db.write_checkpoints.indexExists('user_id')) {

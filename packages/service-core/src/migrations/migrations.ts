@@ -21,7 +21,7 @@ const MIGRATIONS_DIR = path.join(__dirname, '/db/migrations');
 
 export type MigrationOptions = {
   direction: Direction;
-  serviceContext: system.ServiceContext;
+  service_context: system.ServiceContext;
 };
 
 /**
@@ -35,7 +35,7 @@ const loadMigrations = async (dir: string, serviceContext: system.ServiceContext
   });
 
   const context: util.MigrationContext = {
-    serviceContext
+    service_context: serviceContext
   };
 
   return await Promise.all(
@@ -54,14 +54,14 @@ const loadMigrations = async (dir: string, serviceContext: system.ServiceContext
  * Runs migration scripts exclusively using Mongo locks
  */
 export const migrate = async (options: MigrationOptions) => {
-  const { direction, serviceContext } = options;
+  const { direction, service_context } = options;
 
   /**
    * Try and get Mongo from config file.
    * But this might not be available in Journey Micro as we use the standard Mongo.
    */
 
-  const { configuration } = serviceContext;
+  const { configuration } = service_context;
   const { storage } = configuration;
 
   const client = db.mongo.createMongoClient(storage);
@@ -97,7 +97,7 @@ export const migrate = async (options: MigrationOptions) => {
 
   try {
     logger.info('Loading migrations');
-    const migrations = await loadMigrations(MIGRATIONS_DIR, serviceContext);
+    const migrations = await loadMigrations(MIGRATIONS_DIR, service_context);
 
     // Use the provided config to connect to Mongo
     const store = createMongoMigrationStore(clientDB);

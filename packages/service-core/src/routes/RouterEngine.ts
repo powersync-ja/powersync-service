@@ -1,4 +1,4 @@
-import { container, logger } from '@powersync/lib-services-framework';
+import { logger } from '@powersync/lib-services-framework';
 
 import * as api from '../api/api-index.js';
 
@@ -13,9 +13,9 @@ export type RouterSetupResponse = {
 };
 
 export type RouterEngineRoutes = {
-  apiRoutes: RouteDefinition[];
-  streamRoutes: RouteDefinition[];
-  socketRoutes: RouteDefinition[];
+  api_routes: RouteDefinition[];
+  stream_routes: RouteDefinition[];
+  socket_routes: RouteDefinition[];
 };
 
 export type RouterSetup = (routes: RouterEngineRoutes) => Promise<RouterSetupResponse>;
@@ -26,45 +26,31 @@ export type RouterSetup = (routes: RouterEngineRoutes) => Promise<RouterSetupRes
  */
 export class RouterEngine {
   closed: boolean;
-
-  /**
-   * The reference itself is readonly, but users should eventually
-   * be able to add their own route definitions.
-   */
-  readonly routes: RouterEngineRoutes;
+  routes: RouterEngineRoutes;
 
   protected stopHandlers: Set<() => void>;
+
+  /**
+   * A final cleanup handler to be executed after all stopHandlers
+   */
+  protected cleanupHandler: (() => Promise<void>) | null;
+
   private api: api.RouteAPI | null;
 
   constructor() {
     this.api = null;
     this.stopHandlers = new Set();
+    this.cleanupHandler = null;
     this.closed = false;
 
     // Default routes
     this.routes = {
-      apiRoutes: [...ADMIN_ROUTES, ...CHECKPOINT_ROUTES, ...SYNC_RULES_ROUTES],
-      streamRoutes: [...SYNC_STREAM_ROUTES],
-      socketRoutes: [
+      api_routes: [...ADMIN_ROUTES, ...CHECKPOINT_ROUTES, ...SYNC_RULES_ROUTES],
+      stream_routes: [...SYNC_STREAM_ROUTES],
+      socket_routes: [
         // TODO
       ]
     };
-
-    /**
-     * This adds a termination handler to the begining of the queue
-     * A server termination handler should be added to run after this one with
-     * `handleTerminationSignalLast`
-     */
-    container.terminationHandler.handleTerminationSignal(async () => {
-      // Close open streams, so that they don't block the server from closing.
-      // Note: This does not work well when streaming requests are queued. In that case, the server still doesn't
-      // close in the 30-second timeout.
-      this.closed = true;
-      logger.info(`Closing ${this.stopHandlers.size} streams`);
-      for (let handler of this.stopHandlers) {
-        handler();
-      }
-    });
   }
 
   public registerAPI(api: api.RouteAPI) {
@@ -84,13 +70,31 @@ export class RouterEngine {
    */
   async start(setup: RouterSetup) {
     const { onShutdown } = await setup(this.routes);
-
-    // This will cause the router shutdown to occur after the stop handlers have completed
-    container.terminationHandler.handleTerminationSignalLast(async () => {
-      await onShutdown();
-    });
+    this.cleanupHandler = onShutdown;
   }
 
+  /**
+   * Runs all stop handlers then final cleanup.
+   */
+  async shutdown() {
+    // Close open streams, so that they don't block the server from closing.
+    // Note: This does not work well when streaming requests are queued. In that case, the server still doesn't
+    // close in the 30-second timeout.
+    this.closed = true;
+
+    logger.info(`Closing ${this.stopHandlers.size} streams`);
+    for (let handler of this.stopHandlers) {
+      handler();
+    }
+
+    logger.info(`Running close cleanup`);
+    await this.cleanupHandler?.();
+  }
+
+  /**
+   * Add a stop handler callback to be executed when the router engine is being
+   * shutdown.
+   */
   addStopHandler(handler: () => void): () => void {
     if (this.closed) {
       handler();

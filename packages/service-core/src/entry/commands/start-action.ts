@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 
-import * as system from '../../system/system-index.js';
+import * as modules from '../../modules/modules-index.js';
 import * as utils from '../../util/util-index.js';
 import { extractRunnerOptions, wrapConfigCommand } from './config-command.js';
 
@@ -8,7 +8,7 @@ const COMMAND_NAME = 'start';
 
 export function registerStartAction(
   program: Command,
-  serviceContext: system.ServiceContext,
+  moduleManager: modules.ModuleManager,
   handlers: Record<utils.ServiceRunner, utils.Runner>
 ) {
   const startCommand = program.command(COMMAND_NAME);
@@ -23,10 +23,9 @@ export function registerStartAction(
       utils.env.PS_RUNNER_TYPE
     )
     .action(async (options) => {
-      // load the config
-      await serviceContext.initialize(extractRunnerOptions(options));
+      await moduleManager.initialize(extractRunnerOptions(options));
 
       const runner = handlers[options.runnerType as utils.ServiceRunner];
-      await runner(serviceContext);
+      await runner(moduleManager.serviceContext);
     });
 }

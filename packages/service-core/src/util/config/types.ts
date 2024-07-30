@@ -16,7 +16,7 @@ export type RunnerConfig = {
 };
 
 export type MigrationContext = {
-  serviceContext: ServiceContext;
+  service_context: ServiceContext;
 };
 
 export type Runner = (serviceContext: ServiceContext) => Promise<void>;

@@ -8,7 +8,7 @@ export async function startStreamWorker(serviceContext: system.ServiceContext) {
   if (!serviceContext.configuration.migrations?.disable_auto_migration) {
     await migrations.migrate({
       direction: migrations.Direction.Up,
-      serviceContext
+      service_context: serviceContext
     });
   }
 
