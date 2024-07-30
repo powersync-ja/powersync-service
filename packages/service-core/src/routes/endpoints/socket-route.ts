@@ -3,19 +3,13 @@ import { RequestParameters } from '@powersync/service-sync-rules';
 import { serialize } from 'bson';
 
 import { Metrics } from '../../metrics/Metrics.js';
-import { streamResponse } from '../../sync/sync.js';
+import * as sync from '../../sync/sync-index.js';
 import * as util from '../../util/util-index.js';
 import { SocketRouteGenerator } from '../router-socket.js';
 import { SyncRoutes } from './sync-stream.js';
 
 export const syncStreamReactive: SocketRouteGenerator = (router) =>
   router.reactiveStream<util.StreamingSyncRequest, any>(SyncRoutes.STREAM, {
-    authorize: ({ context }) => {
-      return {
-        authorized: !!context.token_payload,
-        errors: ['Authentication required'].concat(context.token_errors ?? [])
-      };
-    },
     validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
     handler: async ({ context, params, responder, observer, initialN }) => {
       const { service_context } = context;
@@ -66,8 +60,9 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       });
 
       Metrics.getInstance().concurrent_connections.add(1);
+      const tracker = new sync.RequestTracker();
       try {
-        for await (const data of streamResponse({
+        for await (const data of sync.streamResponse({
           storage,
           params: {
             ...params,
@@ -79,6 +74,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
             // RSocket handles keepalive events by default
             keep_alive: false
           },
+          tracker,
           signal: controller.signal
         })) {
           if (data == null) {
@@ -94,7 +90,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
             const serialized = serialize(data) as Buffer;
             responder.onNext({ data: serialized }, false);
             requestedN--;
-            Metrics.getInstance().data_synced_bytes.add(serialized.length);
+            tracker.addDataSynced(serialized.length);
           }
 
           if (requestedN <= 0) {
@@ -126,6 +122,11 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         responder.onComplete();
         removeStopHandler();
         disposer();
+        logger.info(`Sync stream complete`, {
+          user_id: syncParams.user_id,
+          operations_synced: tracker.operationsSynced,
+          data_synced_bytes: tracker.dataSyncedBytes
+        });
         Metrics.getInstance().concurrent_connections.add(-1);
       }
     }

@@ -228,7 +228,7 @@ export interface SyncRulesBucketStorage {
     checkpoint: util.OpId,
     dataBuckets: Map<string, string>,
     options?: BucketDataBatchOptions
-  ): AsyncIterable<util.SyncBucketData>;
+  ): AsyncIterable<SyncBucketDataBatch>;
 
   /**
    * Compute checksums for a given list of buckets.
@@ -266,6 +266,8 @@ export interface SyncRulesBucketStorage {
    * Errors are cleared on commit.
    */
   reportError(e: any): Promise<void>;
+
+  compact(options?: CompactOptions): Promise<void>;
 }
 
 export interface SyncRuleStatus {
@@ -388,6 +390,11 @@ export interface SaveDelete {
   after?: undefined;
 }
 
+export interface SyncBucketDataBatch {
+  batch: util.SyncBucketData;
+  targetOp: bigint | null;
+}
+
 export function mergeToast(record: ToastableSqliteRow, persisted: ToastableSqliteRow): ToastableSqliteRow {
   const newRecord: ToastableSqliteRow = {};
   for (let key in record) {
@@ -398,4 +405,32 @@ export function mergeToast(record: ToastableSqliteRow, persisted: ToastableSqlit
     }
   }
   return newRecord;
+}
+
+export interface CompactOptions {
+  /**
+   * Heap memory limit for the compact process.
+   *
+   * Add around 64MB to this to determine the "--max-old-space-size" argument.
+   * Add another 80MB to get RSS usage / memory limits.
+   */
+  memoryLimitMB?: number;
+
+  /**
+   * If specified, ignore any operations newer than this when compacting.
+   *
+   * This is primarily for tests, where we want to test compacting at a specific
+   * point.
+   *
+   * This can also be used to create a "safe buffer" of recent operations that should
+   * not be compacted, to avoid invalidating checkpoints in use.
+   */
+  maxOpId?: bigint;
+
+  /**
+   * If specified, compact only the specific buckets.
+   *
+   * If not specified, compacts all buckets.
+   */
+  compactBuckets?: string[];
 }

@@ -8,21 +8,24 @@ import * as util from '../../util/util-index.js';
 import {
   BucketDataBatchOptions,
   BucketStorageBatch,
+  CompactOptions,
   DEFAULT_DOCUMENT_BATCH_LIMIT,
   DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES,
   FlushedResult,
   ResolveTableOptions,
   ResolveTableResult,
+  SyncBucketDataBatch,
   SyncRulesBucketStorage,
   SyncRuleStatus
 } from '../BucketStorage.js';
+import { ChecksumCache, FetchPartialBucketChecksum } from '../ChecksumCache.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { SourceTable } from '../SourceTable.js';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, SourceKey, SyncRuleState } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
-import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, readSingleBatch, serializeLookup } from './util.js';
-import { ChecksumCache, FetchPartialBucketChecksum } from '../ChecksumCache.js';
+import { MongoCompactor } from './MongoCompactor.js';
+import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, mapOpEntry, readSingleBatch, serializeLookup } from './util.js';
 
 export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
   private readonly db: PowerSyncMongo;
@@ -201,7 +204,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     checkpoint: util.OpId,
     dataBuckets: Map<string, string>,
     options?: BucketDataBatchOptions
-  ): AsyncIterable<util.SyncBucketData> {
+  ): AsyncIterable<SyncBucketDataBatch> {
     if (dataBuckets.size == 0) {
       return;
     }
@@ -267,6 +270,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
 
     let batchSize = 0;
     let currentBatch: util.SyncBucketData | null = null;
+    let targetOp: bigint | null = null;
 
     // Ordered by _id, meaning buckets are grouped together
     for (let rawData of data) {
@@ -284,7 +288,8 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
           start = currentBatch.after;
           currentBatch = null;
           batchSize = 0;
-          yield yieldBatch;
+          yield { batch: yieldBatch, targetOp: targetOp };
+          targetOp = null;
         }
 
         start ??= dataBuckets.get(bucket);
@@ -298,17 +303,18 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
           data: [],
           next_after: start
         };
+        targetOp = null;
       }
 
-      const entry: util.OplogEntry = {
-        op_id: util.timestampToOpId(row._id.o),
-        op: row.op,
-        object_type: row.table,
-        object_id: row.row_id,
-        checksum: Number(row.checksum),
-        subkey: `${row.source_table}/${row.source_key.toHexString()}`,
-        data: row.data
-      };
+      const entry = mapOpEntry(row);
+
+      if (row.target_op != null) {
+        // MOVE, CLEAR
+        if (targetOp == null || row.target_op > targetOp) {
+          targetOp = row.target_op;
+        }
+      }
+
       currentBatch.data.push(entry);
       currentBatch.next_after = entry.op_id;
 
@@ -318,7 +324,8 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     if (currentBatch != null) {
       const yieldBatch = currentBatch;
       currentBatch = null;
-      yield yieldBatch;
+      yield { batch: yieldBatch, targetOp: targetOp };
+      targetOp = null;
     }
   }
 
@@ -529,5 +536,9 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
         }
       }
     );
+  }
+
+  async compact(options?: CompactOptions) {
+    return new MongoCompactor(this.db, this.group_id, options).compact();
   }
 }
