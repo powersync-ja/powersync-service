@@ -33,5 +33,5 @@ export abstract class AbstractModule {
   /**
    *  Terminate and clean up any resources managed by the module right away
    */
-  public abstract teardown(): Promise<void>;
+  public abstract teardown(context: ServiceContext): Promise<void>;
 }
