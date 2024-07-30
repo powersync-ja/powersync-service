@@ -1,4 +1,52 @@
-# powersync-open-service
+# @powersync/service-image
+
+## 0.4.3
+
+### Patch Changes
+
+- Updated dependencies [c9ad713]
+  - @powersync/service-core@0.7.0
+  - @powersync/service-types@0.2.0
+  - @powersync/service-jpgwire@0.17.14
+
+## 0.4.2
+
+### Patch Changes
+
+- Updated dependencies [3f994ae]
+  - @powersync/service-core@0.6.0
+
+## 0.4.1
+
+### Patch Changes
+
+- bfe0e64: Fix compact command to use the correct database
+- Updated dependencies [bfe0e64]
+  - @powersync/service-core@0.5.1
+
+## 0.4.0
+
+### Minor Changes
+
+- 1c1a3bf: Implement a compact command
+
+### Patch Changes
+
+- 2a8c614: Fix websockets not being closed on authentication error
+- Updated dependencies [1c1a3bf]
+  - @powersync/service-core@0.5.0
+
+## 0.3.2
+
+### Patch Changes
+
+- bdbf95c: Log user_id and sync stats for each connection
+- Updated dependencies [876f4a0]
+- Updated dependencies [9bff878]
+- Updated dependencies [bdbf95c]
+  - @powersync/service-sync-rules@0.18.1
+  - @powersync/service-rsocket-router@0.0.10
+  - @powersync/service-core@0.4.2
 
 ## 0.3.1
 

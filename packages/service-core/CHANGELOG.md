@@ -1,5 +1,45 @@
 # @powersync/service-core
 
+## 0.7.0
+
+### Minor Changes
+
+- c9ad713: Removed unused development routes
+
+### Patch Changes
+
+- Updated dependencies [c9ad713]
+  - @powersync/service-types@0.2.0
+  - @powersync/service-jpgwire@0.17.14
+
+## 0.6.0
+
+### Minor Changes
+
+- 3f994ae: Added utility functions for registering routes
+
+## 0.5.1
+
+### Patch Changes
+
+- bfe0e64: Fix compact command to use the correct database
+
+## 0.5.0
+
+### Minor Changes
+
+- 1c1a3bf: Implement a compact command
+
+## 0.4.2
+
+### Patch Changes
+
+- bdbf95c: Log user_id and sync stats for each connection
+- Updated dependencies [876f4a0]
+- Updated dependencies [9bff878]
+  - @powersync/service-sync-rules@0.18.1
+  - @powersync/service-rsocket-router@0.0.10
+
 ## 0.4.1
 
 ### Patch Changes

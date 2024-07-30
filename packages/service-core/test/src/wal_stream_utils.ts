@@ -20,9 +20,7 @@ export function walStreamTest(
   return async () => {
     const f = await factory();
     const connections = new PgManager(TEST_CONNECTION_OPTIONS, {});
-    await connections.pool.query(
-      'select pg_drop_replication_slot(slot_name) from pg_replication_slots where active = false'
-    );
+
     await clearTestDb(connections.pool);
     const context = new WalStreamTestContext(f, connections);
     try {
@@ -113,7 +111,7 @@ export class WalStreamTestContext {
     const map = new Map<string, string>([[bucket, start]]);
     const batch = await this.storage!.getBucketDataBatch(checkpoint, map);
     const batches = await fromAsync(batch);
-    return batches[0]?.data ?? [];
+    return batches[0]?.batch.data ?? [];
   }
 }
 
@@ -144,4 +142,15 @@ export async function fromAsync<T>(source: Iterable<T> | AsyncIterable<T>): Prom
     items.push(item);
   }
   return items;
+}
+
+export async function oneFromAsync<T>(source: Iterable<T> | AsyncIterable<T>): Promise<T> {
+  const items: T[] = [];
+  for await (const item of source) {
+    items.push(item);
+  }
+  if (items.length != 1) {
+    throw new Error(`One item expected, got: ${items.length}`);
+  }
+  return items[0];
 }

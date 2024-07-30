@@ -27,21 +27,6 @@ export const ExecuteSqlResponse = t.object({
 });
 export type ExecuteSqlResponse = t.Encoded<typeof ExecuteSqlResponse>;
 
-export const DemoCredentialsRequest = t.object({
-  connection_id: t.string.optional()
-});
-export type DemoCredentialsRequest = t.Encoded<typeof DemoCredentialsRequest>;
-
-export const DemoCredentialsResponse = t.object({
-  /** If this instance has a demo database, this contains the credentials. */
-  credentials: t
-    .object({
-      postgres_uri: t.string
-    })
-    .optional()
-});
-export type DemoCredentialsResponse = t.Encoded<typeof DemoCredentialsResponse>;
-
 export const DiagnosticsRequest = t.object({
   sync_rules_content: t.boolean.optional()
 });
