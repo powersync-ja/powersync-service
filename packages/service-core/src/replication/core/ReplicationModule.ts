@@ -50,12 +50,12 @@ export abstract class ReplicationModule extends modules.AbstractModule {
    *  Register this module's replication adapters and sync API providers if the required configuration is present.
    */
   public async initialize(context: system.ServiceContext): Promise<void> {
-    if (!context.configuration.data_sources) {
+    if (!context.configuration.connections) {
       // No data source configuration found in the config skip for now
       return;
     }
 
-    const matchingConfig = context.configuration.data_sources.filter((dataSource) => dataSource.type === this.type);
+    const matchingConfig = context.configuration.connections.filter((dataSource) => dataSource.type === this.type);
 
     if (matchingConfig.length > 1) {
       logger.warning(

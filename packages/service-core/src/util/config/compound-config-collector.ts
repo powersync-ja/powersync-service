@@ -46,7 +46,7 @@ export class CompoundConfigCollector {
   async collectConfig(runnerConfig: RunnerConfig = {}): Promise<ResolvedPowerSyncConfig> {
     const baseConfig = await this.collectBaseConfig(runnerConfig);
 
-    const dataSources = baseConfig.replication?.data_sources ?? [];
+    const dataSources = baseConfig.replication?.connections ?? [];
     if (dataSources.length > 1) {
       throw new Error('Only a single replication data source is supported currently');
     }
@@ -84,7 +84,7 @@ export class CompoundConfigCollector {
     let jwt_audiences: string[] = baseConfig.client_auth?.audience ?? [];
 
     let config: ResolvedPowerSyncConfig = {
-      data_sources: baseConfig.replication?.data_sources || [],
+      connections: baseConfig.replication?.connections || [],
       storage: baseConfig.storage,
       client_keystore: keyStore,
       // Dev tokens only use the static keys, no external key sources
