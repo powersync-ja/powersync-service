@@ -90,11 +90,15 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
   }
 
   async resolveTable(options: ResolveTableOptions): Promise<ResolveTableResult> {
-    const { group_id, connection_id, connection_tag, relation } = options;
+    const { group_id, connection_id, connection_tag, entity_descriptor } = options;
 
-    const { schema, name: table, relationId, replicationColumns } = relation;
+    const { schema, name: table, objectId, replicationColumns } = entity_descriptor;
 
-    const columns = replicationColumns.map((column) => ({ name: column.name, type_oid: column.typeOid }));
+    const columns = replicationColumns.map((column) => ({
+      name: column.name,
+      type: column.type,
+      type_oid: column.typeId
+    }));
     let result: ResolveTableResult | null = null;
     await this.db.client.withSession(async (session) => {
       const col = this.db.source_tables;
@@ -102,7 +106,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
         {
           group_id: group_id,
           connection_id: connection_id,
-          relation_id: relationId,
+          relation_id: objectId,
           schema_name: schema,
           table_name: table,
           replica_id_columns2: columns
@@ -114,7 +118,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
           _id: new bson.ObjectId(),
           group_id: group_id,
           connection_id: connection_id,
-          relation_id: relationId,
+          relation_id: objectId,
           schema_name: schema,
           table_name: table,
           replica_id_columns: null,
@@ -127,7 +131,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
       const sourceTable = new SourceTable(
         doc._id,
         connection_tag,
-        relationId,
+        objectId,
         schema,
         table,
         replicationColumns,
@@ -142,7 +146,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
             group_id: group_id,
             connection_id: connection_id,
             _id: { $ne: doc._id },
-            $or: [{ relation_id: relationId }, { schema_name: schema, table_name: table }]
+            $or: [{ relation_id: objectId }, { schema_name: schema, table_name: table }]
           },
           { session }
         )
@@ -157,7 +161,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
               doc.relation_id ?? 0,
               doc.schema_name,
               doc.table_name,
-              doc.replica_id_columns2?.map((c) => ({ name: c.name, typeOid: c.type_oid })) ?? [],
+              doc.replica_id_columns2?.map((c) => ({ name: c.name, typeOid: c.type_oid, type: c.type })) ?? [],
               doc.snapshot_done ?? true
             )
         )

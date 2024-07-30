@@ -1,11 +1,11 @@
 import * as pgwire from '@powersync/service-jpgwire';
 
+import { storage } from '@powersync/service-core';
 import * as pgwire_utils from '../utils/pgwire_utils.js';
-
-import { ReplicationColumn, ReplicationIdentity } from './PgRelation.js';
+import { ReplicationIdentity } from './PgRelation.js';
 
 export interface ReplicaIdentityResult {
-  columns: ReplicationColumn[];
+  replicationColumns: storage.ColumnDescriptor[];
   replicationIdentity: ReplicationIdentity;
 }
 
@@ -13,14 +13,13 @@ export async function getPrimaryKeyColumns(
   db: pgwire.PgClient,
   relationId: number,
   mode: 'primary' | 'replident'
-): Promise<ReplicationColumn[]> {
+): Promise<storage.ColumnDescriptor[]> {
   const indexFlag = mode == 'primary' ? `i.indisprimary` : `i.indisreplident`;
   const attrRows = await pgwire_utils.retriedQuery(db, {
-    statement: `SELECT a.attname as name, a.atttypid as typeid, a.attnum as attnum
+    statement: `SELECT a.attname as name, a.atttypid as typeid, t.typname as type, a.attnum as attnum
                                     FROM pg_index i
-                                             JOIN pg_attribute a
-                                                  ON a.attrelid = i.indrelid
-                                                      AND a.attnum = ANY (i.indkey)
+                                    JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey)
+                                    JOIN pg_type t ON a.atttypid = t.oid
                                     WHERE i.indrelid = $1::oid
                                       AND ${indexFlag}
                                       AND a.attnum > 0
@@ -29,21 +28,22 @@ export async function getPrimaryKeyColumns(
   });
 
   return attrRows.rows.map((row) => {
-    return { name: row[0] as string, typeOid: row[1] as number };
+    return { name: row[0] as string, typeOid: row[1] as number, type: row[2] as string };
   });
 }
 
-export async function getAllColumns(db: pgwire.PgClient, relationId: number): Promise<ReplicationColumn[]> {
+export async function getAllColumns(db: pgwire.PgClient, relationId: number): Promise<storage.ColumnDescriptor[]> {
   const attrRows = await pgwire_utils.retriedQuery(db, {
-    statement: `SELECT a.attname as name, a.atttypid as typeid, a.attnum as attnum
+    statement: `SELECT a.attname as name, a.atttypid as typeid, t.typname as type, a.attnum as attnum
                                     FROM pg_attribute a
+                                    JOIN pg_type t ON a.atttypid = t.oid
                                     WHERE a.attrelid = $1::oid
                                       AND attnum > 0
                                     ORDER BY a.attnum`,
     params: [{ type: 'varchar', value: relationId }]
   });
   return attrRows.rows.map((row) => {
-    return { name: row[0] as string, typeOid: row[1] as number };
+    return { name: row[0] as string, typeOid: row[1] as number, type: row[2] as string };
   });
 }
 
@@ -64,15 +64,21 @@ WHERE oid = $1::oid LIMIT 1`,
   });
   const idType: string = rows.rows[0]?.[0];
   if (idType == 'nothing' || idType == null) {
-    return { replicationIdentity: 'nothing', columns: [] };
+    return { replicationIdentity: 'nothing', replicationColumns: [] };
   } else if (idType == 'full') {
-    return { replicationIdentity: 'full', columns: await getAllColumns(db, relationId) };
+    return { replicationIdentity: 'full', replicationColumns: await getAllColumns(db, relationId) };
   } else if (idType == 'default') {
-    return { replicationIdentity: 'default', columns: await getPrimaryKeyColumns(db, relationId, 'primary') };
+    return {
+      replicationIdentity: 'default',
+      replicationColumns: await getPrimaryKeyColumns(db, relationId, 'primary')
+    };
   } else if (idType == 'index') {
-    return { replicationIdentity: 'index', columns: await getPrimaryKeyColumns(db, relationId, 'replident') };
+    return {
+      replicationIdentity: 'index',
+      replicationColumns: await getPrimaryKeyColumns(db, relationId, 'replident')
+    };
   } else {
-    return { replicationIdentity: 'nothing', columns: [] };
+    return { replicationIdentity: 'nothing', replicationColumns: [] };
   }
 }
 

@@ -7,10 +7,9 @@ import {
   SqliteRow,
   ToastableSqliteRow
 } from '@powersync/service-sync-rules';
-
-import * as replication from '../replication/replication-index.js';
 import * as util from '../util/util-index.js';
 import { SourceTable } from './SourceTable.js';
+import { SourceEntityDescriptor } from './SourceEntity.js';
 
 export interface BucketStorageFactory {
   /**
@@ -279,7 +278,7 @@ export interface ResolveTableOptions {
   group_id: number;
   connection_id: number;
   connection_tag: string;
-  relation: replication.PgRelation;
+  entity_descriptor: SourceEntityDescriptor;
 
   sync_rules: SqlSyncRules;
 }
