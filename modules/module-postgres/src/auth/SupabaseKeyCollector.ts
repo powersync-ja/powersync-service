@@ -2,7 +2,7 @@ import { auth } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import * as jose from 'jose';
 
-import { ResolvedConnectionConfig } from '../types/types.js';
+import * as types from '../types/types.js';
 import * as pgwire_utils from '../utils/pgwire_utils.js';
 
 /**
@@ -19,7 +19,7 @@ export class SupabaseKeyCollector implements auth.KeyCollector {
     maxLifetimeSeconds: 86400 * 7 + 1200 // 1 week + 20 minutes margin
   };
 
-  constructor(connectionConfig: ResolvedConnectionConfig) {
+  constructor(connectionConfig: types.ResolvedConnectionConfig) {
     this.pool = pgwire.connectPgWirePool(connectionConfig, {
       // To avoid overloading the source database with open connections,
       // limit to a single connection, and close the connection shortly
@@ -27,6 +27,10 @@ export class SupabaseKeyCollector implements auth.KeyCollector {
       idleTimeout: 5_000,
       maxSize: 1
     });
+  }
+
+  shutdown() {
+    return this.pool.end();
   }
 
   async getKeys() {

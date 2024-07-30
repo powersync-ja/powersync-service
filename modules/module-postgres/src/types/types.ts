@@ -2,6 +2,8 @@ import * as service_types from '@powersync/service-types';
 import * as t from 'ts-codec';
 import * as urijs from 'uri-js';
 
+export const POSTGRES_CONNECTION_TYPE = 'postgresql' as const;
+
 export interface NormalizedPostgresConnectionConfig {
   id: string;
   tag: string;
@@ -22,7 +24,7 @@ export interface NormalizedPostgresConnectionConfig {
 
 export const PostgresConnectionConfig = service_types.configFile.dataSourceConfig.and(
   t.object({
-    type: t.literal('postgresql'),
+    type: t.literal(POSTGRES_CONNECTION_TYPE),
     /** Unique identifier for the connection - optional when a single connection is present. */
     id: t.string.optional(),
     /** Tag used as reference in sync rules. Defaults to "default". Does not have to be unique. */

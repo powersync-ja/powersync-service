@@ -1,13 +1,9 @@
 // Adapted from https://github.com/kagis/pgwire/blob/0dc927f9f8990a903f238737326e53ba1c8d094f/mod.js#L2218
 
 import * as pgwire from '@powersync/service-jpgwire';
-import { SqliteJsonValue, SqliteRow, ToastableSqliteRow, toSyncRulesRow } from '@powersync/service-sync-rules';
-import * as bson from 'bson';
-import * as uuid from 'uuid';
+import { SqliteJsonValue, SqliteRow, toSyncRulesRow } from '@powersync/service-sync-rules';
 
 import { logger } from '@powersync/lib-services-framework';
-
-export const ID_NAMESPACE = 'a396dd91-09fc-4017-a28d-3df722f651e9';
 
 /**
  * pgwire message -> SQLite row.
@@ -18,19 +14,6 @@ export function constructAfterRecord(message: pgwire.PgoutputInsert | pgwire.Pgo
 
   const record = pgwire.decodeTuple(message.relation, rawData);
   return toSyncRulesRow(record);
-}
-
-export function hasToastedValues(row: ToastableSqliteRow) {
-  for (let key in row) {
-    if (typeof row[key] == 'undefined') {
-      return true;
-    }
-  }
-  return false;
-}
-
-export function isCompleteRow(row: ToastableSqliteRow): row is SqliteRow {
-  return !hasToastedValues(row);
 }
 
 /**
@@ -44,14 +27,6 @@ export function constructBeforeRecord(message: pgwire.PgoutputDelete | pgwire.Pg
   }
   const record = pgwire.decodeTuple(message.relation, rawData);
   return toSyncRulesRow(record);
-}
-
-export function uuidForRowBson(row: SqliteRow): bson.UUID {
-  // Important: This must not change, since it will affect how ids are generated.
-  // Use BSON so that it's a well-defined format without encoding ambiguities.
-  const repr = bson.serialize(row);
-  const buffer = Buffer.alloc(16);
-  return new bson.UUID(uuid.v5(repr, ID_NAMESPACE, buffer));
 }
 
 export function escapeIdentifier(identifier: string) {

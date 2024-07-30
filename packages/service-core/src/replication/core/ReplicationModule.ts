@@ -18,7 +18,6 @@ export interface ReplicationModuleOptions extends modules.AbstractModuleOptions 
 export abstract class ReplicationModule extends modules.AbstractModule {
   protected type: string;
 
-  protected apiAdapters: Set<api.RouteAPI>;
   protected replicationAdapters: Set<ReplicationAdapter>;
 
   /**
@@ -28,7 +27,6 @@ export abstract class ReplicationModule extends modules.AbstractModule {
   protected constructor(options: ReplicationModuleOptions) {
     super(options);
     this.type = options.type;
-    this.apiAdapters = new Set();
     this.replicationAdapters = new Set();
   }
 
@@ -54,7 +52,6 @@ export abstract class ReplicationModule extends modules.AbstractModule {
   public async initialize(context: system.ServiceContext): Promise<void> {
     if (!context.configuration.data_sources) {
       // No data source configuration found in the config skip for now
-      // TODO: Consider a mechanism to check for config in the ENV variables as well
       return;
     }
 
@@ -76,7 +73,6 @@ export abstract class ReplicationModule extends modules.AbstractModule {
       context.replicationEngine.register(replicationAdapter);
 
       const apiAdapter = this.createSyncAPIAdapter(decodedConfig);
-      this.apiAdapters.add(apiAdapter);
       context.routerEngine.registerAPI(apiAdapter);
     } catch (e) {
       logger.error(e);
@@ -96,10 +92,7 @@ export abstract class ReplicationModule extends modules.AbstractModule {
   }
 
   public async shutdown(): Promise<void> {
-    for (const api of this.apiAdapters) {
-      await api.shutdown();
-    }
-
+    // TODO maybe manage this in the Replication engine
     for (const replication of this.replicationAdapters) {
       await replication.shutdown();
     }

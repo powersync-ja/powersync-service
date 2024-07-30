@@ -1,15 +1,15 @@
+import { logger } from '@powersync/lib-services-framework';
 import { configFile } from '@powersync/service-types';
-import { ConfigCollector } from './collectors/config-collector.js';
-import { ResolvedPowerSyncConfig, RunnerConfig, SyncRulesConfig } from './types.js';
 import * as auth from '../../auth/auth-index.js';
-import { SyncRulesCollector } from './sync-rules/sync-collector.js';
+import { ConfigCollector } from './collectors/config-collector.js';
 import { Base64ConfigCollector } from './collectors/impl/base64-config-collector.js';
+import { FallbackConfigCollector } from './collectors/impl/fallback-config-collector.js';
 import { FileSystemConfigCollector } from './collectors/impl/filesystem-config-collector.js';
 import { Base64SyncRulesCollector } from './sync-rules/impl/base64-sync-rules-collector.js';
-import { InlineSyncRulesCollector } from './sync-rules/impl/inline-sync-rules-collector.js';
 import { FileSystemSyncRulesCollector } from './sync-rules/impl/filesystem-sync-rules-collector.js';
-import { FallbackConfigCollector } from './collectors/impl/fallback-config-collector.js';
-import { logger } from '@powersync/lib-services-framework';
+import { InlineSyncRulesCollector } from './sync-rules/impl/inline-sync-rules-collector.js';
+import { SyncRulesCollector } from './sync-rules/sync-collector.js';
+import { ResolvedPowerSyncConfig, RunnerConfig, SyncRulesConfig } from './types.js';
 
 const POWERSYNC_DEV_KID = 'powersync-dev';
 
@@ -43,8 +43,8 @@ export class CompoundConfigCollector {
   /**
    * Collects and resolves base config
    */
-  async collectConfig(runner_config: RunnerConfig = {}): Promise<ResolvedPowerSyncConfig> {
-    const baseConfig = await this.collectBaseConfig(runner_config);
+  async collectConfig(runnerConfig: RunnerConfig = {}): Promise<ResolvedPowerSyncConfig> {
+    const baseConfig = await this.collectBaseConfig(runnerConfig);
 
     const dataSources = baseConfig.replication?.data_sources ?? [];
     if (dataSources.length > 1) {
@@ -79,7 +79,7 @@ export class CompoundConfigCollector {
       devKey = await auth.KeySpec.importKey(baseDevKey);
     }
 
-    const sync_rules = await this.collectSyncRules(baseConfig, runner_config);
+    const sync_rules = await this.collectSyncRules(baseConfig, runnerConfig);
 
     let jwt_audiences: string[] = baseConfig.client_auth?.audience ?? [];
 

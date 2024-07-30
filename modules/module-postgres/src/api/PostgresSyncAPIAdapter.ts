@@ -1,28 +1,20 @@
 import { api, storage } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 
-import { DEFAULT_TAG, isJsonValue, SqlSyncRules, TablePattern, toSyncRulesValue } from '@powersync/service-sync-rules';
-import {
-  configFile,
-  ConnectionStatusV2,
-  DatabaseSchema,
-  internal_routes,
-  ReplicationError,
-  TableInfo
-} from '@powersync/service-types';
-
+import * as sync_rules from '@powersync/service-sync-rules';
+import * as service_types from '@powersync/service-types';
 import * as replication_utils from '../replication/replication-utils.js';
-import { baseUri, ResolvedConnectionConfig } from '../types/types.js';
+import * as types from '../types/types.js';
 import * as pg_utils from '../utils/pgwire_utils.js';
 
 export class PostgresSyncAPIAdapter implements api.RouteAPI {
   protected pool: pgwire.PgClient;
 
   // TODO this should probably be configurable one day
-  connectionTag = DEFAULT_TAG;
+  connectionTag = sync_rules.DEFAULT_TAG;
   publication_name = 'powersync';
 
-  constructor(protected config: ResolvedConnectionConfig) {
+  constructor(protected config: types.ResolvedConnectionConfig) {
     this.pool = pgwire.connectPgWirePool(config, {
       idleTimeout: 30_000
     });
@@ -32,14 +24,14 @@ export class PostgresSyncAPIAdapter implements api.RouteAPI {
     await this.pool.end();
   }
 
-  async getSourceConfig(): Promise<configFile.DataSourceConfig> {
+  async getSourceConfig(): Promise<service_types.configFile.DataSourceConfig> {
     return this.config;
   }
 
-  async getConnectionStatus(): Promise<ConnectionStatusV2> {
+  async getConnectionStatus(): Promise<service_types.ConnectionStatusV2> {
     const base = {
       id: this.config.id,
-      uri: baseUri(this.config)
+      uri: types.baseUri(this.config)
     };
 
     try {
@@ -69,9 +61,9 @@ export class PostgresSyncAPIAdapter implements api.RouteAPI {
     };
   }
 
-  async executeQuery(query: string, params: any[]): Promise<internal_routes.ExecuteSqlResponse> {
+  async executeQuery(query: string, params: any[]): Promise<service_types.internal_routes.ExecuteSqlResponse> {
     if (!this.config.debug_api) {
-      return internal_routes.ExecuteSqlResponse.encode({
+      return service_types.internal_routes.ExecuteSqlResponse.encode({
         results: {
           columns: [],
           rows: []
@@ -87,16 +79,16 @@ export class PostgresSyncAPIAdapter implements api.RouteAPI {
         params: params.map(pg_utils.autoParameter)
       });
 
-      return internal_routes.ExecuteSqlResponse.encode({
+      return service_types.internal_routes.ExecuteSqlResponse.encode({
         success: true,
         results: {
           columns: result.columns.map((c) => c.name),
           rows: result.rows.map((row) => {
             return row.map((value) => {
-              const sqlValue = toSyncRulesValue(value);
+              const sqlValue = sync_rules.toSyncRulesValue(value);
               if (typeof sqlValue == 'bigint') {
                 return Number(value);
-              } else if (isJsonValue(sqlValue)) {
+              } else if (sync_rules.isJsonValue(sqlValue)) {
                 return sqlValue;
               } else {
                 return null;
@@ -106,7 +98,7 @@ export class PostgresSyncAPIAdapter implements api.RouteAPI {
         }
       });
     } catch (e) {
-      return internal_routes.ExecuteSqlResponse.encode({
+      return service_types.internal_routes.ExecuteSqlResponse.encode({
         results: {
           columns: [],
           rows: []
@@ -117,7 +109,10 @@ export class PostgresSyncAPIAdapter implements api.RouteAPI {
     }
   }
 
-  async getDebugTablesInfo(tablePatterns: TablePattern[], sqlSyncRules: SqlSyncRules): Promise<api.PatternResult[]> {
+  async getDebugTablesInfo(
+    tablePatterns: sync_rules.TablePattern[],
+    sqlSyncRules: sync_rules.SqlSyncRules
+  ): Promise<api.PatternResult[]> {
     let result: api.PatternResult[] = [];
 
     for (let tablePattern of tablePatterns) {
@@ -184,11 +179,11 @@ export class PostgresSyncAPIAdapter implements api.RouteAPI {
   }
 
   protected async getDebugTableInfo(
-    tablePattern: TablePattern,
+    tablePattern: sync_rules.TablePattern,
     name: string,
     relationId: number | null,
-    syncRules: SqlSyncRules
-  ): Promise<TableInfo> {
+    syncRules: sync_rules.SqlSyncRules
+  ): Promise<service_types.TableInfo> {
     const schema = tablePattern.schema;
     let id_columns_result: replication_utils.ReplicaIdentityResult | undefined = undefined;
     let id_columns_error = null;
@@ -259,7 +254,9 @@ export class PostgresSyncAPIAdapter implements api.RouteAPI {
       replication_id: id_columns.map((c) => c.name),
       data_queries: syncData,
       parameter_queries: syncParameters,
-      errors: [id_columns_error, selectError, replicateError].filter((error) => error != null) as ReplicationError[]
+      errors: [id_columns_error, selectError, replicateError].filter(
+        (error) => error != null
+      ) as service_types.ReplicationError[]
     };
   }
 
@@ -288,7 +285,7 @@ FROM pg_replication_slots WHERE slot_name = $1 LIMIT 1;`,
     return String(lsn);
   }
 
-  async getConnectionSchema(): Promise<DatabaseSchema[]> {
+  async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {
     // https://github.com/Borvik/vscode-postgres/blob/88ec5ed061a0c9bced6c5d4ec122d0759c3f3247/src/language/server.ts
     const results = await pg_utils.retriedQuery(
       this.pool,

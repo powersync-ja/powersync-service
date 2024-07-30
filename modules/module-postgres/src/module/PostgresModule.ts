@@ -1,10 +1,12 @@
 import * as t from 'ts-codec';
 
-import { api, db, replication, storage } from '@powersync/service-core';
+import { api, auth, db, replication, storage, system } from '@powersync/service-core';
 
 import { logger } from '@powersync/lib-services-framework';
-import { ServiceContext } from '@powersync/service-core/src/system/ServiceContext.js';
+import * as types from '../types/types.js';
+
 import { PostgresSyncAPIAdapter } from '../api/PostgresSyncAPIAdapter.js';
+import { SupabaseKeyCollector } from '../auth/SupabaseKeyCollector.js';
 import { PostgresReplicationAdapter } from '../replication/PostgresReplicationAdapter.js';
 import { normalizeConnectionConfig, PostgresConnectionConfig, ResolvedConnectionConfig } from '../types/types.js';
 import { terminateReplicators } from '../utils/teardown.js';
@@ -13,15 +15,39 @@ export class PostgresModule extends replication.ReplicationModule {
   constructor() {
     super({
       name: 'Postgres',
-      type: 'postgresql'
+      type: types.POSTGRES_CONNECTION_TYPE
     });
   }
-
-  async register(context: ServiceContext): Promise<void> {}
 
   protected configSchema(): t.AnyCodec {
     // Intersection types have some limitations in codec typing
     return PostgresConnectionConfig;
+  }
+
+  async register(context: system.ServiceContext): Promise<void> {}
+
+  async initialize(context: system.ServiceContext): Promise<void> {
+    // Register the Supabase key collector(s)
+    (context.configuration.data_sources ?? [])
+      .map((baseConfig) => {
+        if (baseConfig.type != types.POSTGRES_CONNECTION_TYPE) {
+          return;
+        }
+        try {
+          return this.resolveConfig(PostgresConnectionConfig.decode(baseConfig as any));
+        } catch (ex) {
+          logger.warn('Failed to decode configuration in Postgres module initialization.');
+        }
+      })
+      .filter((c) => !!c)
+      .forEach((config) => {
+        const keyCollector = new SupabaseKeyCollector(config);
+        context.withLifecycle(keyCollector, {
+          // Close the internal pool
+          stop: (collector) => collector.shutdown()
+        });
+        context.configuration.client_keystore.add(new auth.CachedKeyCollector(keyCollector));
+      });
   }
 
   protected createSyncAPIAdapter(config: PostgresConnectionConfig): api.RouteAPI {
@@ -42,7 +68,7 @@ export class PostgresModule extends replication.ReplicationModule {
     };
   }
 
-  async teardown(context: ServiceContext): Promise<void> {
+  async teardown(context: system.ServiceContext): Promise<void> {
     const mongoDB = storage.createPowerSyncMongo(context.configuration.storage);
     try {
       // TODO this should not be necessary since the service context
@@ -54,11 +80,11 @@ export class PostgresModule extends replication.ReplicationModule {
       await db.mongo.waitForAuth(mongoDB.db);
 
       logger.info(`Terminating replication slots`);
-      const connection = context.configuration.data_sources?.find(
-        (c) => c.type == 'postgresql'
-      ) as PostgresConnectionConfig;
+      const connections = (context.configuration.data_sources ?? [])
+        .filter((c) => c.type == 'postgresql')
+        .map((c) => PostgresConnectionConfig.decode(c as any));
 
-      if (connection) {
+      for (const connection of connections) {
         await terminateReplicators(context.storage, this.resolveConfig(connection));
       }
 

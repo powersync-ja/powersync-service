@@ -1,4 +1,5 @@
 import { configFile } from '@powersync/service-types';
+import { CompoundKeyCollector } from '../../auth/CompoundKeyCollector.js';
 import { KeySpec } from '../../auth/KeySpec.js';
 import { KeyStore } from '../../auth/KeyStore.js';
 import { ServiceContext } from '../../system/ServiceContext.js';
@@ -40,7 +41,7 @@ export type ResolvedPowerSyncConfig = {
      */
     dev_key?: KeySpec;
   };
-  client_keystore: KeyStore;
+  client_keystore: CompoundKeyCollector;
   /**
    * Keystore for development tokens.
    */

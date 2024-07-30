@@ -1,9 +1,9 @@
+import { logger } from '@powersync/lib-services-framework';
 import * as jose from 'jose';
 import secs from '../util/secs.js';
-import { KeyOptions, KeySpec, SUPPORTED_ALGORITHMS } from './KeySpec.js';
-import { KeyCollector } from './KeyCollector.js';
 import { JwtPayload } from './JwtPayload.js';
-import { logger } from '@powersync/lib-services-framework';
+import { KeyCollector } from './KeyCollector.js';
+import { KeyOptions, KeySpec, SUPPORTED_ALGORITHMS } from './KeySpec.js';
 
 /**
  * KeyStore to get keys and verify tokens.

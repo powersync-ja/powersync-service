@@ -1,9 +1,4 @@
-import bson from 'bson';
-import * as uuid from 'uuid';
-
 import * as pgwire from '@powersync/service-jpgwire';
-
-import * as sync_rules from '@powersync/service-sync-rules';
 
 import * as pgwire_utils from '../utils/pgwire_utils.js';
 
@@ -122,45 +117,4 @@ $$ LANGUAGE plpgsql;`
   if (row.pubviaroot) {
     throw new Error(`'${publication_name}' uses publish_via_partition_root, which is not supported.`);
   }
-}
-
-function getRawReplicaIdentity(
-  tuple: sync_rules.ToastableSqliteRow,
-  columns: ReplicationColumn[]
-): Record<string, any> {
-  let result: Record<string, any> = {};
-  for (let column of columns) {
-    const name = column.name;
-    result[name] = tuple[name];
-  }
-  return result;
-}
-
-export function getUuidReplicaIdentityString(
-  tuple: sync_rules.ToastableSqliteRow,
-  columns: ReplicationColumn[]
-): string {
-  const rawIdentity = getRawReplicaIdentity(tuple, columns);
-
-  return uuidForRow(rawIdentity);
-}
-
-export function uuidForRow(row: sync_rules.SqliteRow): string {
-  // Important: This must not change, since it will affect how ids are generated.
-  // Use BSON so that it's a well-defined format without encoding ambiguities.
-  const repr = bson.serialize(row);
-  return uuid.v5(repr, pgwire_utils.ID_NAMESPACE);
-}
-
-export function getUuidReplicaIdentityBson(
-  tuple: sync_rules.ToastableSqliteRow,
-  columns: ReplicationColumn[]
-): bson.UUID {
-  if (columns.length == 0) {
-    // REPLICA IDENTITY NOTHING - generate random id
-    return new bson.UUID(uuid.v4());
-  }
-  const rawIdentity = getRawReplicaIdentity(tuple, columns);
-
-  return pgwire_utils.uuidForRowBson(rawIdentity);
 }

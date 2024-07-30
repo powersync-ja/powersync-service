@@ -88,7 +88,12 @@ export class RouterEngine {
     }
 
     logger.info(`Running close cleanup`);
+
+    // Typically closes the server
     await this.cleanupHandler?.();
+
+    // Close the api handlers
+    await this.api?.shutdown();
   }
 
   /**

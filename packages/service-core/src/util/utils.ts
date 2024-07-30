@@ -1,7 +1,12 @@
+import * as sync_rules from '@powersync/service-sync-rules';
+import bson from 'bson';
 import crypto from 'crypto';
+import * as uuid from 'uuid';
 import { BucketChecksum, OpId } from './protocol-types.js';
 
 export type ChecksumMap = Map<string, BucketChecksum>;
+
+export const ID_NAMESPACE = 'a396dd91-09fc-4017-a28d-3df722f651e9';
 
 export function escapeIdentifier(identifier: string) {
   return `"${identifier.replace(/"/g, '""').replace(/\./g, '"."')}"`;
@@ -72,4 +77,66 @@ export function addBucketChecksums(a: BucketChecksum, b: BucketChecksum | null):
       checksum: addChecksums(a.checksum, b.checksum)
     };
   }
+}
+
+function getRawReplicaIdentity(
+  tuple: sync_rules.ToastableSqliteRow,
+  columns: ReplicationColumn[]
+): Record<string, any> {
+  let result: Record<string, any> = {};
+  for (let column of columns) {
+    const name = column.name;
+    result[name] = tuple[name];
+  }
+  return result;
+}
+
+export function getUuidReplicaIdentityString(
+  tuple: sync_rules.ToastableSqliteRow,
+  columns: ReplicationColumn[]
+): string {
+  const rawIdentity = getRawReplicaIdentity(tuple, columns);
+
+  return uuidForRow(rawIdentity);
+}
+
+export function uuidForRow(row: sync_rules.SqliteRow): string {
+  // Important: This must not change, since it will affect how ids are generated.
+  // Use BSON so that it's a well-defined format without encoding ambiguities.
+  const repr = bson.serialize(row);
+  return uuid.v5(repr, ID_NAMESPACE);
+}
+
+export function getUuidReplicaIdentityBson(
+  tuple: sync_rules.ToastableSqliteRow,
+  columns: ReplicationColumn[]
+): bson.UUID {
+  if (columns.length == 0) {
+    // REPLICA IDENTITY NOTHING - generate random id
+    return new bson.UUID(uuid.v4());
+  }
+  const rawIdentity = getRawReplicaIdentity(tuple, columns);
+
+  return uuidForRowBson(rawIdentity);
+}
+
+export function uuidForRowBson(row: sync_rules.SqliteRow): bson.UUID {
+  // Important: This must not change, since it will affect how ids are generated.
+  // Use BSON so that it's a well-defined format without encoding ambiguities.
+  const repr = bson.serialize(row);
+  const buffer = Buffer.alloc(16);
+  return new bson.UUID(uuid.v5(repr, ID_NAMESPACE, buffer));
+}
+
+export function hasToastedValues(row: sync_rules.ToastableSqliteRow) {
+  for (let key in row) {
+    if (typeof row[key] == 'undefined') {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function isCompleteRow(row: sync_rules.ToastableSqliteRow): row is sync_rules.SqliteRow {
+  return !hasToastedValues(row);
 }
