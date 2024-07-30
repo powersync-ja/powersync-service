@@ -24,7 +24,7 @@ export const writeCheckpoint = routeDefinition({
     // Since we don't use LSNs anymore, the only way to get that is to wait.
     const start = Date.now();
 
-    const head = String(await api.getCheckpoint());
+    const head = await api.getReplicationHead();
 
     const timeout = 50_000;
 
@@ -59,10 +59,10 @@ export const writeCheckpoint2 = routeDefinition({
     }
 
     // Might want to call this something link replicationHead or something else
-    const currentCheckpoint = await api.getCheckpoint();
+    const currentCheckpoint = await api.getReplicationHead();
     const { storage } = service_context;
 
-    const id = await storage.createWriteCheckpoint(user_id!, { '1': String(currentCheckpoint) });
+    const id = await storage.createWriteCheckpoint(user_id!, { '1': currentCheckpoint });
     logger.info(`Write checkpoint 2: ${JSON.stringify({ currentCheckpoint, id: String(id) })}`);
 
     return {

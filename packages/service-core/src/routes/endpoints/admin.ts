@@ -203,4 +203,4 @@ function mapColumnValue(value: SqliteValue) {
   }
 }
 
-export const ADMIN_ROUTES = [demoCredentials, executeSql, diagnostics, getSchema, reprocess, validate];
+export const ADMIN_ROUTES = [executeSql, diagnostics, getSchema, reprocess, validate];
