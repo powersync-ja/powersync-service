@@ -1,8 +1,7 @@
 import { logger } from '@powersync/lib-services-framework';
 import { Command } from 'commander';
 
-import { Direction } from '../../migrations/definitions.js';
-import { migrate } from '../../migrations/migrations.js';
+import * as migrations from '../../migrations/migrations-index.js';
 import * as modules from '../../modules/modules-index.js';
 import { extractRunnerOptions, wrapConfigCommand } from './config-command.js';
 
@@ -16,11 +15,11 @@ export function registerMigrationAction(program: Command, moduleManager: modules
   return migrationCommand
     .description('Run migrations')
     .argument('<direction>', 'Migration direction. `up` or `down`')
-    .action(async (direction: Direction, options) => {
+    .action(async (direction: migrations.Direction, options) => {
       await moduleManager.initialize(extractRunnerOptions(options));
 
       try {
-        await migrate({
+        await migrations.migrate({
           direction,
           service_context: moduleManager.serviceContext
         });

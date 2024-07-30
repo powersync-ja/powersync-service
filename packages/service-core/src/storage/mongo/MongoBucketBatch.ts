@@ -2,9 +2,9 @@ import { SqliteRow, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import * as mongo from 'mongodb';
 
-import * as util from '../../util/util-index.js';
-import * as replication from '../../replication/replication-index.js';
 import { container, errors, logger } from '@powersync/lib-services-framework';
+import * as replication from '../../replication/replication-index.js';
+import * as util from '../../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, mergeToast, SaveOptions } from '../BucketStorage.js';
 import { SourceTable } from '../SourceTable.js';
 import { PowerSyncMongo } from './db.js';

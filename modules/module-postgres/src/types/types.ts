@@ -1,6 +1,6 @@
+import * as service_types from '@powersync/service-types';
 import * as t from 'ts-codec';
 import * as urijs from 'uri-js';
-import * as service_types from '@powersync/service-types';
 
 export interface NormalizedPostgresConnectionConfig {
   id: string;

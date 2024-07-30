@@ -19,6 +19,7 @@ export class ModuleManager {
     for (const module of modules) {
       if (this.modules.has(module.name)) {
         logger.warn(`Module ${module.name} already registered, skipping...`);
+        return;
       } else {
         this.modules.set(module.name, module);
       }

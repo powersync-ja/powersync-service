@@ -1,12 +1,11 @@
-import { container } from '@powersync/lib-services-framework';
 import { internal_routes } from '@powersync/service-types';
 
-import { ServiceContext } from '../system/ServiceContext.js';
+import * as system from '../system/system-index.js';
 
-export async function getConnectionsSchema(): Promise<internal_routes.GetSchemaResponse> {
-  const { routerEngine } = container.getImplementation(ServiceContext);
-
-  const api = routerEngine.getAPI();
+export async function getConnectionsSchema(
+  serviceContext: system.ServiceContext
+): Promise<internal_routes.GetSchemaResponse> {
+  const api = serviceContext.routerEngine.getAPI();
   if (!api) {
     return {
       connections: []

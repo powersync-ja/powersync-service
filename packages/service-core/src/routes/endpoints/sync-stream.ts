@@ -8,7 +8,6 @@ import * as util from '../../util/util-index.js';
 import { Metrics } from '../../metrics/Metrics.js';
 import { authUser } from '../auth.js';
 import { routeDefinition } from '../router.js';
-import { RequestTracker } from '../../sync/RequestTracker.js';
 
 export enum SyncRoutes {
   STREAM = '/sync/stream'
@@ -44,7 +43,7 @@ export const syncStreamed = routeDefinition({
       });
     }
     const controller = new AbortController();
-    const tracker = new RequestTracker();
+    const tracker = new sync.RequestTracker();
     try {
       Metrics.getInstance().concurrent_connections.add(1);
       const stream = Readable.from(

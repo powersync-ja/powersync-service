@@ -3,7 +3,7 @@ import { SqlSyncRules, SyncRulesErrors } from '@powersync/service-sync-rules';
 import type { FastifyPluginAsync } from 'fastify';
 import * as t from 'ts-codec';
 
-import { ServiceContext } from '../../system/ServiceContext.js';
+import * as system from '../../system/system-index.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
@@ -170,7 +170,7 @@ function replyPrettyJson(payload: any) {
   });
 }
 
-async function debugSyncRules(serviceContext: ServiceContext, sync_rules: string) {
+async function debugSyncRules(serviceContext: system.ServiceContext, sync_rules: string) {
   try {
     const rules = SqlSyncRules.fromYaml(sync_rules);
     const source_table_patterns = rules.getSourceTables();

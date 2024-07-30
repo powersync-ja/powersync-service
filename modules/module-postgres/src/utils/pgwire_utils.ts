@@ -1,9 +1,9 @@
 // Adapted from https://github.com/kagis/pgwire/blob/0dc927f9f8990a903f238737326e53ba1c8d094f/mod.js#L2218
 
-import * as bson from 'bson';
-import * as uuid from 'uuid';
 import * as pgwire from '@powersync/service-jpgwire';
 import { SqliteJsonValue, SqliteRow, ToastableSqliteRow, toSyncRulesRow } from '@powersync/service-sync-rules';
+import * as bson from 'bson';
+import * as uuid from 'uuid';
 
 import { logger } from '@powersync/lib-services-framework';
 

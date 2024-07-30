@@ -2,8 +2,9 @@ import * as t from 'ts-codec';
 
 import { api, replication } from '@powersync/service-core';
 
+import { ServiceContext } from '@powersync/service-core/src/system/ServiceContext.js';
+import { PostgresSyncAPIAdapter } from '../api/PostgresSyncAPIAdapter.js';
 import { PostgresReplicationAdapter } from '../replication/PostgresReplicationAdapter.js';
-import { PostgresSyncAPIAdapter } from '../replication/PostgresSyncAPIAdapter.js';
 import { normalizeConnectionConfig, PostgresConnectionConfig, ResolvedConnectionConfig } from '../types/types.js';
 
 export class PostgresModule extends replication.ReplicationModule {
@@ -14,12 +15,14 @@ export class PostgresModule extends replication.ReplicationModule {
     });
   }
 
+  async register(context: ServiceContext): Promise<void> {}
+
   protected configSchema(): t.AnyCodec {
     // Intersection types have some limitations in codec typing
     return PostgresConnectionConfig;
   }
 
-  protected createSyncAPIAdapter(config: PostgresConnectionConfig): api.SyncAPI {
+  protected createSyncAPIAdapter(config: PostgresConnectionConfig): api.RouteAPI {
     throw new PostgresSyncAPIAdapter(this.resolveConfig(config));
   }
 

@@ -1,4 +1,4 @@
-import { api, replication, storage } from '@powersync/service-core';
+import { api, storage } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 
 import { DEFAULT_TAG, isJsonValue, SqlSyncRules, TablePattern, toSyncRulesValue } from '@powersync/service-sync-rules';
@@ -117,16 +117,13 @@ export class PostgresSyncAPIAdapter implements api.RouteAPI {
     }
   }
 
-  async getDebugTablesInfo(
-    tablePatterns: TablePattern[],
-    sqlSyncRules: SqlSyncRules
-  ): Promise<replication.PatternResult[]> {
-    let result: replication.PatternResult[] = [];
+  async getDebugTablesInfo(tablePatterns: TablePattern[], sqlSyncRules: SqlSyncRules): Promise<api.PatternResult[]> {
+    let result: api.PatternResult[] = [];
 
     for (let tablePattern of tablePatterns) {
       const schema = tablePattern.schema;
 
-      let patternResult: replication.PatternResult = {
+      let patternResult: api.PatternResult = {
         schema: schema,
         pattern: tablePattern.tablePattern,
         wildcard: tablePattern.isWildcard

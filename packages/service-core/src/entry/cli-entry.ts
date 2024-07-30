@@ -3,9 +3,10 @@ import { Command } from 'commander';
 import { logger } from '@powersync/lib-services-framework';
 import * as modules from '../modules/modules-index.js';
 import * as utils from '../util/util-index.js';
+import { registerCompactAction } from './commands/compact-action.js';
 import { registerMigrationAction } from './commands/migrate-action.js';
+import { registerStartAction } from './commands/start-action.js';
 import { registerTearDownAction } from './commands/teardown-action.js';
-import { registerCompactAction, registerStartAction } from './entry-index.js';
 
 /**
  * Generates a Commander program which serves as the entry point

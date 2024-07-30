@@ -1,9 +1,10 @@
-import { container, logger } from '@powersync/lib-services-framework';
+import { logger } from '@powersync/lib-services-framework';
 import { DEFAULT_TAG, SourceTableInterface, SqlSyncRules } from '@powersync/service-sync-rules';
 import { SyncRulesStatus, TableInfo } from '@powersync/service-types';
 
 import * as storage from '../storage/storage-index.js';
-import { ServiceContext } from '../system/ServiceContext.js';
+import * as system from '../system/system-index.js';
+
 export interface DiagnosticsOptions {
   /**
    * Include sync rules content in response.
@@ -26,6 +27,7 @@ export interface DiagnosticsOptions {
 export const DEFAULT_DATASOURCE_ID = 'default';
 
 export async function getSyncRulesStatus(
+  serviceContext: system.ServiceContext,
   sync_rules: storage.PersistedSyncRulesContent | null,
   options: DiagnosticsOptions
 ): Promise<SyncRulesStatus | undefined> {
@@ -50,7 +52,6 @@ export async function getSyncRulesStatus(
     };
   }
 
-  const serviceContext = container.getImplementation(ServiceContext);
   const { storage } = serviceContext;
   const api = serviceContext.routerEngine.getAPI();
 

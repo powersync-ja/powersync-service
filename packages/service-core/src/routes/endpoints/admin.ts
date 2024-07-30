@@ -1,10 +1,9 @@
 import { errors, router, schema } from '@powersync/lib-services-framework';
-import { SqlSyncRules, SqliteValue, StaticSchema, isJsonValue } from '@powersync/service-sync-rules';
+import { SqlSyncRules, StaticSchema } from '@powersync/service-sync-rules';
 import { internal_routes } from '@powersync/service-types';
 
 import * as api from '../../api/api-index.js';
-
-import { PersistedSyncRulesContent } from '../../storage/BucketStorage.js';
+import * as storage from '../../storage/storage-index.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
@@ -59,13 +58,13 @@ export const diagnostics = routeDefinition({
     const active = await storage.getActiveSyncRulesContent();
     const next = await storage.getNextSyncRulesContent();
 
-    const active_status = await api.getSyncRulesStatus(active, {
+    const active_status = await api.getSyncRulesStatus(service_context, active, {
       include_content,
       check_connection: status.connected,
       live_status: true
     });
 
-    const next_status = await api.getSyncRulesStatus(next, {
+    const next_status = await api.getSyncRulesStatus(service_context, next, {
       include_content,
       check_connection: status.connected,
       live_status: true
@@ -90,8 +89,8 @@ export const getSchema = routeDefinition({
   method: router.HTTPMethod.POST,
   authorize: authApi,
   validator: schema.createTsCodecValidator(internal_routes.GetSchemaRequest, { allowAdditional: true }),
-  handler: async () => {
-    return internal_routes.GetSchemaResponse.encode(await api.getConnectionsSchema());
+  handler: async (payload) => {
+    return internal_routes.GetSchemaResponse.encode(await api.getConnectionsSchema(payload.context.service_context));
   }
 });
 
@@ -150,10 +149,10 @@ export const validate = routeDefinition({
     } = payload;
     const content = payload.params.sync_rules;
 
-    const schemaData = await api.getConnectionsSchema();
+    const schemaData = await api.getConnectionsSchema(service_context);
     const schema = new StaticSchema(schemaData.connections);
 
-    const sync_rules: PersistedSyncRulesContent = {
+    const sync_rules: storage.PersistedSyncRulesContent = {
       // Dummy values
       id: 0,
       slot_name: '',
@@ -179,7 +178,7 @@ export const validate = routeDefinition({
       });
     }
 
-    const status = (await api.getSyncRulesStatus(sync_rules, {
+    const status = (await api.getSyncRulesStatus(service_context, sync_rules, {
       include_content: false,
       check_connection: connectionStatus.connected,
       live_status: false
@@ -192,15 +191,5 @@ export const validate = routeDefinition({
     return internal_routes.ValidateResponse.encode(status);
   }
 });
-
-function mapColumnValue(value: SqliteValue) {
-  if (typeof value == 'bigint') {
-    return Number(value);
-  } else if (isJsonValue(value)) {
-    return value;
-  } else {
-    return null;
-  }
-}
 
 export const ADMIN_ROUTES = [executeSql, diagnostics, getSchema, reprocess, validate];

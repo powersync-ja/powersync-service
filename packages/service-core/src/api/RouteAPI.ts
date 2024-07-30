@@ -1,6 +1,14 @@
 import { SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import * as types from '@powersync/service-types';
 
+export interface PatternResult {
+  schema: string;
+  pattern: string;
+  wildcard: boolean;
+  tables?: types.TableInfo[];
+  table?: types.TableInfo;
+}
+
 /**
  *  Describes all the methods currently required to service the sync API endpoints.
  */
@@ -59,17 +67,4 @@ export interface RouteAPI {
    * Close any resources that need graceful termination.
    */
   shutdown(): Promise<void>;
-}
-
-export interface DemoCredentials {
-  url: string;
-}
-
-// TODO: Export this when the existing definition in WALConnection is removed
-interface PatternResult {
-  schema: string;
-  pattern: string;
-  wildcard: boolean;
-  tables?: types.TableInfo[];
-  table?: types.TableInfo;
 }

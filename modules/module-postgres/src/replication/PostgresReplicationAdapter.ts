@@ -1,6 +1,6 @@
-import { replication } from '@powersync/service-core';
-import * as sync_rules from '@powersync/service-sync-rules';
+import { replication, SourceTable } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
+import * as sync_rules from '@powersync/service-sync-rules';
 
 import { ResolvedConnectionConfig } from '../types/types.js';
 
@@ -8,6 +8,15 @@ export type PostgresConnection = pgwire.PgClient;
 
 export class PostgresReplicationAdapter implements replication.ReplicationAdapter {
   constructor(protected config: ResolvedConnectionConfig) {}
+  resolveReplicationEntities(pattern: sync_rules.TablePattern): Promise<SourceTable[]> {
+    throw new Error('Method not implemented.');
+  }
+  count(entity: SourceTable): Promise<number> {
+    throw new Error('Method not implemented.');
+  }
+  initializeData(options: replication.InitializeDataOptions): Promise<void> {
+    throw new Error('Method not implemented.');
+  }
 
   name(): string {
     return 'postgres';
@@ -22,14 +31,6 @@ export class PostgresReplicationAdapter implements replication.ReplicationAdapte
   }
 
   toReplicationEntities(pattern: sync_rules.TablePattern): Promise<replication.ReplicationEntity[]> {
-    throw new Error('Method not implemented.');
-  }
-
-  count(entity: replication.ReplicationEntity): Promise<number> {
-    throw new Error('Method not implemented.');
-  }
-
-  initializeData(options: replication.InitializeDataOptions): Promise<string> {
     throw new Error('Method not implemented.');
   }
 
