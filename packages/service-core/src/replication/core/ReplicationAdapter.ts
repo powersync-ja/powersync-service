@@ -1,5 +1,6 @@
 import { SqliteRow, TablePattern } from '@powersync/service-sync-rules';
 import * as storage from '../../storage/storage-index.js';
+import { PgRelation } from '../PgRelation.js';
 
 /**
  * The ReplicationAdapter describes all the methods that are required by the
@@ -20,7 +21,7 @@ export interface ReplicationAdapter {
 
   /**
    * Get all the fully qualified entities that match the provided pattern
-   * @param pattern // TODO: Need something more generic than TablePattern
+   * @param pattern // TODO: Need something more generic then SourceTable
    */
   resolveReplicationEntities(pattern: TablePattern): Promise<storage.SourceTable[]>;
 
@@ -31,12 +32,12 @@ export interface ReplicationAdapter {
   count(entity: storage.SourceTable): Promise<number>;
 
   /**
-   *  Retrieve the initial snapshot data for the entity. Results should be passed onto the provided recordConsumer in batches.
+   *  Retrieve the initial snapshot data for the entity. Results should be passed onto the provided entryConsumer in batches.
    *  The snapshot should happen in an isolated transaction. Returns with the LSN from when the snapshot was started, when the operation is finished.
    *  This LSN will be used as the starting point for the replication stream.
    * @param options
    */
-  initializeData(options: InitializeDataOptions): Promise<string>;
+  initializeData(options: InitializeDataOptions): Promise<void>;
 
   /**
    *  Start replicating data, assumes that initializeData has already finished running
@@ -53,15 +54,51 @@ export interface ReplicationAdapter {
   cleanupReplication(syncRuleId: number): Promise<void>;
 }
 
-export interface InitializeDataOptions {
+export interface InitializeDataBatch {
+  entries: SqliteRow[];
   entity: storage.SourceTable;
-  entry_consumer: (batch: SqliteRow[]) => {};
-  abort_signal: AbortSignal;
+  isLast: boolean;
+  fromLSN: string;
+}
+
+export interface InitializeDataOptions {
+  entities: storage.SourceTable[];
+  entryConsumer: (batch: InitializeDataBatch) => {};
+  abortSignal: AbortSignal;
 }
 
 export interface StartReplicationOptions {
   entities: storage.SourceTable[];
-  from_lsn: string;
-  change_listener: (change: storage.SaveOptions) => {};
-  abort_signal: AbortSignal;
+  changeListener: (change: ReplicationUpdate) => {};
+  abortSignal: AbortSignal;
 }
+
+export enum UpdateType {
+  INSERT = 'INSERT',
+  UPDATE = 'UPDATE',
+  DELETE = 'DELETE',
+  TRUNCATE = 'TRUNCATE',
+  SCHEMA_CHANGE = 'SCHEMA_CHANGE',
+  COMMIT = 'COMMIT'
+}
+
+type ReplicationUpdate = {
+  type: UpdateType;
+  /**
+   *  Descriptor of the data source entity that was updated
+   */
+  entity: storage.SourceTable;
+  /**
+   *  Present when the update is an insert, update or delete. Contains the changed values for adding to the bucket storage
+   */
+  entry?: storage.SaveOptions;
+  /**
+   *  Present when the update is a schema change. Describes the new data source entity
+   *  TODO: Redefine PgRelation
+   */
+  entityDescriptor?: PgRelation;
+  /**
+   *  Present when the update is a commit. Contains the LSN of the commit
+   */
+  lsn?: string;
+};
