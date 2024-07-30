@@ -8,28 +8,6 @@ import { PersistedSyncRulesContent } from '../../storage/BucketStorage.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
-const demoCredentials = routeDefinition({
-  path: '/api/admin/v1/demo-credentials',
-  method: router.HTTPMethod.POST,
-  authorize: authApi,
-  validator: schema.createTsCodecValidator(internal_routes.DemoCredentialsRequest, {
-    allowAdditional: true
-  }),
-  handler: async (payload) => {
-    // TODO is this used?
-    // const connection = payload.context.system.config.connection;
-    // if (connection == null || !connection.demo_database) {
-    //   return internal_routes.DemoCredentialsResponse.encode({});
-    // }
-    // const uri = util.buildDemoPgUri(connection);
-    // return internal_routes.DemoCredentialsResponse.encode({
-    //   credentials: {
-    //     postgres_uri: uri
-    //   }
-    // });
-  }
-});
-
 export const executeSql = routeDefinition({
   path: '/api/admin/v1/execute-sql',
   method: router.HTTPMethod.POST,

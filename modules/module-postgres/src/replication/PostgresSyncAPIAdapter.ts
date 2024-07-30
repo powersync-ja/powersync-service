@@ -1,7 +1,7 @@
-import * as pgwire from '@powersync/service-jpgwire';
 import { api, replication, storage } from '@powersync/service-core';
+import * as pgwire from '@powersync/service-jpgwire';
 
-import { DEFAULT_TAG, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
+import { DEFAULT_TAG, isJsonValue, SqlSyncRules, TablePattern, toSyncRulesValue } from '@powersync/service-sync-rules';
 import {
   configFile,
   ConnectionStatusV2,
@@ -11,11 +11,11 @@ import {
   TableInfo
 } from '@powersync/service-types';
 
-import * as pg_utils from '../utils/pgwire_utils.js';
 import * as replication_utils from '../replication/replication-utils.js';
 import { baseUri, ResolvedConnectionConfig } from '../types/types.js';
+import * as pg_utils from '../utils/pgwire_utils.js';
 
-export class PostgresSyncAPIAdapter implements api.SyncAPI {
+export class PostgresSyncAPIAdapter implements api.RouteAPI {
   protected pool: pgwire.PgClient;
 
   // TODO this should probably be configurable one day
@@ -69,16 +69,52 @@ export class PostgresSyncAPIAdapter implements api.SyncAPI {
     };
   }
 
-  executeQuery(query: string, params: any[]): Promise<internal_routes.ExecuteSqlResponse> {
-    throw new Error('Method not implemented.');
-  }
+  async executeQuery(query: string, params: any[]): Promise<internal_routes.ExecuteSqlResponse> {
+    if (!this.config.debug_api) {
+      return internal_routes.ExecuteSqlResponse.encode({
+        results: {
+          columns: [],
+          rows: []
+        },
+        success: false,
+        error: 'SQL querying is not enabled'
+      });
+    }
 
-  getDemoCredentials(): Promise<api.DemoCredentials> {
-    throw new Error('Method not implemented.');
-  }
+    try {
+      const result = await this.pool.query({
+        statement: query,
+        params: params.map(pg_utils.autoParameter)
+      });
 
-  getDiagnostics(): Promise<{ connected: boolean; errors?: Array<{ level: string; message: string }> }> {
-    throw new Error('Method not implemented.');
+      return internal_routes.ExecuteSqlResponse.encode({
+        success: true,
+        results: {
+          columns: result.columns.map((c) => c.name),
+          rows: result.rows.map((row) => {
+            return row.map((value) => {
+              const sqlValue = toSyncRulesValue(value);
+              if (typeof sqlValue == 'bigint') {
+                return Number(value);
+              } else if (isJsonValue(sqlValue)) {
+                return sqlValue;
+              } else {
+                return null;
+              }
+            });
+          })
+        }
+      });
+    } catch (e) {
+      return internal_routes.ExecuteSqlResponse.encode({
+        results: {
+          columns: [],
+          rows: []
+        },
+        success: false,
+        error: e.message
+      });
+    }
   }
 
   async getDebugTablesInfo(
@@ -248,8 +284,11 @@ FROM pg_replication_slots WHERE slot_name = $1 LIMIT 1;`,
     throw new Error(`Could not determine replication lag for slot ${slotName}`);
   }
 
-  getCheckpoint(): Promise<bigint> {
-    throw new Error('Method not implemented.');
+  async getReplicationHead(): Promise<string> {
+    const [{ lsn }] = pgwire.pgwireRows(
+      await pg_utils.retriedQuery(this.pool, `SELECT pg_logical_emit_message(false, 'powersync', 'ping') as lsn`)
+    );
+    return String(lsn);
   }
 
   async getConnectionSchema(): Promise<DatabaseSchema[]> {
@@ -327,9 +366,5 @@ GROUP BY schemaname, tablename, quoted_name`
     }
 
     return Object.values(schemas);
-  }
-
-  executeSQL(sql: string, params: any[]): Promise<internal_routes.ExecuteSqlResponse> {
-    throw new Error('Method not implemented.');
   }
 }

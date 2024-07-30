@@ -1,6 +1,6 @@
-import * as jose from 'jose';
-import * as pgwire from '@powersync/service-jpgwire';
 import { auth } from '@powersync/service-core';
+import * as pgwire from '@powersync/service-jpgwire';
+import * as jose from 'jose';
 
 import { ResolvedConnectionConfig } from '../types/types.js';
 import * as pgwire_utils from '../utils/pgwire_utils.js';

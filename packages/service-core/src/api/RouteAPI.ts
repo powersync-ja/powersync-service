@@ -36,9 +36,9 @@ export interface RouteAPI {
   getReplicationLag(slotName: string): Promise<number>;
 
   /**
-   * Get the current LSN or equivalent replication position identifier
+   * Get the current LSN or equivalent replication HEAD position identifier
    */
-  getCheckpoint(): Promise<bigint>;
+  getReplicationHead(): Promise<string>;
 
   /**
    * @returns The schema for tables inside the connected database. This is typically
@@ -54,14 +54,6 @@ export interface RouteAPI {
    * admin API which is exposed in Collide.
    */
   executeQuery(query: string, params: any[]): Promise<types.internal_routes.ExecuteSqlResponse>;
-
-  /**
-   * The management service and SDK expose a demo credentials endpoint.
-   * Not sure if this is actually used.
-   */
-  getDemoCredentials(): Promise<DemoCredentials>;
-
-  //CRUD API : I don't think this is used besides maybe niche dev use cases
 
   /**
    * Close any resources that need graceful termination.
