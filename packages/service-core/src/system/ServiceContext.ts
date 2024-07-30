@@ -19,9 +19,9 @@ export class ServiceContext extends LifeCycledSystem {
   private _metrics: Metrics | null;
 
   protected storageProviders: Map<string, StorageProvider>;
+
   routerEngine: RouterEngine;
   configCollector: CompoundConfigCollector;
-  // TODO metrics
 
   get configuration(): ResolvedPowerSyncConfig {
     if (!this._configuration) {
@@ -116,8 +116,8 @@ export class ServiceContext extends LifeCycledSystem {
 
     // Metrics go here for now
     this._metrics = await this.initializeMetrics();
-    this.withLifecycle(null, {
-      stop: () => Metrics.getInstance().shutdown()
+    this.withLifecycle(this.metrics, {
+      stop: () => this.metrics.shutdown()
     });
 
     // TODO neaten this
