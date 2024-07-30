@@ -1,42 +1,31 @@
 import { PgoutputRelation } from '@powersync/service-jpgwire';
-
-export interface PgRelation {
-  readonly relationId: number;
-  readonly schema: string;
-  readonly name: string;
-  readonly replicaIdentity: ReplicationIdentity;
-  readonly replicationColumns: ReplicationColumn[];
-}
+import { ColumnDescriptor, SourceEntityDescriptor } from '../storage/SourceEntity.js';
 
 export type ReplicationIdentity = 'default' | 'nothing' | 'full' | 'index';
 
-export interface ReplicationColumn {
-  readonly name: string;
-  readonly typeOid: number;
-}
-
-export function getReplicaIdColumns(relation: PgoutputRelation): ReplicationColumn[] {
+export function getReplicaIdColumns(relation: PgoutputRelation): ColumnDescriptor[] {
   if (relation.replicaIdentity == 'nothing') {
     return [];
   } else {
-    return relation.columns.filter((c) => (c.flags & 0b1) != 0).map((c) => ({ name: c.name, typeOid: c.typeOid }));
+    return relation.columns
+      .filter((c) => (c.flags & 0b1) != 0)
+      .map((c) => ({ name: c.name, typeId: c.typeOid, type: c.typeName ?? '' }));
   }
 }
 export function getRelId(source: PgoutputRelation): number {
   // Source types are wrong here
   const relId = (source as any).relationOid as number;
-  if (relId == null || typeof relId != 'number') {
+  if (!relId) {
     throw new Error(`No relation id!`);
   }
   return relId;
 }
 
-export function getPgOutputRelation(source: PgoutputRelation): PgRelation {
+export function getPgOutputRelation(source: PgoutputRelation): SourceEntityDescriptor {
   return {
     name: source.name,
     schema: source.schema,
-    relationId: getRelId(source),
-    replicaIdentity: source.replicaIdentity,
+    objectId: getRelId(source),
     replicationColumns: getReplicaIdColumns(source)
   };
 }
