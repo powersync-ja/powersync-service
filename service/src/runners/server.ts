@@ -12,26 +12,12 @@ import { SocketRouter } from '../routes/router.js';
 export async function startServer(serviceContext: core.system.ServiceContext) {
   logger.info('Booting');
 
-  serviceContext.withLifecycle(serviceContext.storage, {
-    async start(storage) {
-      const instanceId = await storage.getPowerSyncInstanceId();
-      await core.Metrics.initialise({
-        powersync_instance_id: instanceId,
-        disable_telemetry_sharing: serviceContext.configuration.telemetry.disable_telemetry_sharing,
-        internal_metrics_endpoint: serviceContext.configuration.telemetry.internal_service_endpoint
-      });
-    },
-    async stop() {
-      await core.Metrics.getInstance().shutdown();
-    }
-  });
-
   logger.info('Starting service');
 
   // TODO cleanup the initialization of metrics
   await serviceContext.start();
 
-  core.Metrics.getInstance().configureApiMetrics();
+  serviceContext.metrics.configureApiMetrics();
 
   await serviceContext.routerEngine.start(async (routes) => {
     const server = fastify.fastify();

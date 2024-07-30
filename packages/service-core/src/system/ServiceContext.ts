@@ -1,4 +1,5 @@
 import { LifeCycledSystem, ServiceIdentifier, container } from '@powersync/lib-services-framework';
+import { Metrics } from '../metrics/Metrics.js';
 import { ReplicationEngine } from '../replication/core/ReplicationEngine.js';
 import { RouterEngine } from '../routes/RouterEngine.js';
 import { BucketStorageFactory } from '../storage/BucketStorage.js';
@@ -15,6 +16,7 @@ import { CompoundConfigCollector } from '../util/util-index.js';
 export class ServiceContext extends LifeCycledSystem {
   private _storage: BucketStorageFactory | null;
   private _configuration: ResolvedPowerSyncConfig | null;
+  private _metrics: Metrics | null;
 
   protected storageProviders: Map<string, StorageProvider>;
   routerEngine: RouterEngine;
@@ -35,6 +37,13 @@ export class ServiceContext extends LifeCycledSystem {
     return this._storage;
   }
 
+  get metrics(): Metrics {
+    if (!this._metrics) {
+      throw new Error(`Attempt to use metrics before [initialize] has been called`);
+    }
+    return this._metrics;
+  }
+
   get replicationEngine(): ReplicationEngine {
     // TODO clean this up
     return container.getImplementation(ReplicationEngine);
@@ -46,6 +55,7 @@ export class ServiceContext extends LifeCycledSystem {
     // These will only be set once `initialize` has been called
     this._storage = null;
     this._configuration = null;
+    this._metrics = null;
 
     this.storageProviders = new Map();
     // Mongo storage is available as an option by default
@@ -104,6 +114,12 @@ export class ServiceContext extends LifeCycledSystem {
       stop: () => disposer()
     });
 
+    // Metrics go here for now
+    this._metrics = await this.initializeMetrics();
+    this.withLifecycle(null, {
+      stop: () => Metrics.getInstance().shutdown()
+    });
+
     // TODO neaten this
     container.register(
       ReplicationEngine,
@@ -111,5 +127,15 @@ export class ServiceContext extends LifeCycledSystem {
         storage
       })
     );
+  }
+
+  protected async initializeMetrics() {
+    const instanceId = await this.storage.getPowerSyncInstanceId();
+    await Metrics.initialise({
+      powersync_instance_id: instanceId,
+      disable_telemetry_sharing: this.configuration.telemetry.disable_telemetry_sharing,
+      internal_metrics_endpoint: this.configuration.telemetry.internal_service_endpoint
+    });
+    return Metrics.getInstance();
   }
 }

@@ -1,6 +1,6 @@
-import * as t from 'ts-codec';
-
 import { api, auth, db, replication, storage, system } from '@powersync/service-core';
+import * as jpgwire from '@powersync/service-jpgwire';
+import * as t from 'ts-codec';
 
 import { logger } from '@powersync/lib-services-framework';
 import * as types from '../types/types.js';
@@ -26,14 +26,12 @@ export class PostgresModule extends replication.ReplicationModule {
   async register(context: system.ServiceContext): Promise<void> {}
 
   async initialize(context: system.ServiceContext): Promise<void> {
-    // TODO metrics
-    // const class_scoped_data_replicated_bytes = this.data_replicated_bytes;
-    // // Record replicated bytes using global jpgwire metrics.
-    // jpgwire.setMetricsRecorder({
-    //   addBytesRead(bytes) {
-    //     class_scoped_data_replicated_bytes.add(bytes);
-    //   }
-    // });
+    // Record replicated bytes using global jpgwire metrics.
+    jpgwire.setMetricsRecorder({
+      addBytesRead(bytes) {
+        context.metrics.data_replicated_bytes.add(bytes);
+      }
+    });
 
     // Register the Supabase key collector(s)
     (context.configuration.connections ?? [])
