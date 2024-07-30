@@ -46,7 +46,7 @@ export class PostgresModule extends replication.ReplicationModule {
           // Close the internal pool
           stop: (collector) => collector.shutdown()
         });
-        context.configuration.client_keystore.add(new auth.CachedKeyCollector(keyCollector));
+        context.configuration.client_keystore.collector.add(new auth.CachedKeyCollector(keyCollector));
       });
   }
 

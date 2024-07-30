@@ -41,7 +41,7 @@ export type ResolvedPowerSyncConfig = {
      */
     dev_key?: KeySpec;
   };
-  client_keystore: CompoundKeyCollector;
+  client_keystore: KeyStore<CompoundKeyCollector>;
   /**
    * Keystore for development tokens.
    */

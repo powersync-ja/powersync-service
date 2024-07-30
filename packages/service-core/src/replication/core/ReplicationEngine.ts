@@ -1,5 +1,5 @@
-import { ReplicationAdapter } from './ReplicationAdapter.js';
 import { BucketStorageFactory } from '../../storage/BucketStorage.js';
+import { ReplicationAdapter } from './ReplicationAdapter.js';
 import { Replicator } from './Replicator.js';
 
 export interface ReplicationEngineOptions {
@@ -8,7 +8,7 @@ export interface ReplicationEngineOptions {
 
 export class ReplicationEngine {
   private readonly options: ReplicationEngineOptions;
-  private readonly replicators: Map<ReplicationAdapter<any>, Replicator> = new Map();
+  private readonly replicators: Map<ReplicationAdapter, Replicator> = new Map();
 
   constructor(options: ReplicationEngineOptions) {
     this.options = options;
@@ -20,7 +20,7 @@ export class ReplicationEngine {
    *
    *  @param adapter
    */
-  public register(adapter: ReplicationAdapter<any>) {
+  public register(adapter: ReplicationAdapter) {
     if (this.replicators.has(adapter)) {
       throw new Error(`Replicator for type ${adapter.name} already registered`);
     }

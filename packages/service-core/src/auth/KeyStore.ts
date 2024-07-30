@@ -32,10 +32,13 @@ import { KeyOptions, KeySpec, SUPPORTED_ALGORITHMS } from './KeySpec.js';
  * If we have a matching kid, we can generally get a detailed error (e.g. signature verification failed, invalid algorithm, etc).
  * If we don't have a matching kid, we'll generally just get an error "Could not find an appropriate key...".
  */
-export class KeyStore {
-  private collector: KeyCollector;
+export class KeyStore<Collector extends KeyCollector = KeyCollector> {
+  /**
+   * @internal
+   */
+  collector: Collector;
 
-  constructor(collector: KeyCollector) {
+  constructor(collector: Collector) {
     this.collector = collector;
   }
 
