@@ -1,16 +1,16 @@
+import { Metrics } from '@/metrics/Metrics.js';
+import { SourceTable } from '@/storage/SourceTable.js';
+import { SyncBucketData } from '@/util/protocol-types.js';
+import { hashData } from '@/util/utils.js';
 import * as pgwire from '@powersync/service-jpgwire';
 import { normalizeConnection } from '@powersync/service-types';
+import * as bson from 'bson';
 import * as mongo from 'mongodb';
 import { BucketStorageFactory, SyncBucketDataBatch } from '../../src/storage/BucketStorage.js';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
 import { PowerSyncMongo } from '../../src/storage/mongo/db.js';
 import { escapeIdentifier } from '../../src/util/pgwire_utils.js';
 import { env } from './env.js';
-import { Metrics } from '@/metrics/Metrics.js';
-import { hashData } from '@/util/utils.js';
-import { SourceTable } from '@/storage/SourceTable.js';
-import * as bson from 'bson';
-import { SyncBucketData } from '@/util/protocol-types.js';
 
 // The metrics need to be initialised before they can be used
 await Metrics.initialise({

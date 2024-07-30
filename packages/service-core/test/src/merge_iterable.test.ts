@@ -1,11 +1,6 @@
 import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
-import {
-  FixedMergeAsyncIterable,
-  mergeAsyncIterables,
-  mergeAsyncIterablesNew,
-  mergeAsyncIterablesOld
-} from '../../src/sync/merge.js';
+import { mergeAsyncIterablesNew, mergeAsyncIterablesOld } from '../../src/sync/merge.js';
 
 type MergeIteratorFunction = <T>(source: AsyncIterable<T>[]) => AsyncIterable<T>;
 

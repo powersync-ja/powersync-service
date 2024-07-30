@@ -130,6 +130,9 @@ importers:
       typescript:
         specifier: ^5.2.2
         version: 5.2.2
+      vite-tsconfig-paths:
+        specifier: ^4.3.2
+        version: 4.3.2(typescript@5.2.2)(vite@5.3.3(@types/node@18.11.11))
       vitest:
         specifier: ^0.34.6
         version: 0.34.6

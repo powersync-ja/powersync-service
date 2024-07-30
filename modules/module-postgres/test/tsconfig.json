@@ -8,7 +8,8 @@
     "skipLibCheck": true,
     "sourceMap": true,
     "paths": {
-      "@/*": ["../src/*"]
+      "@/*": ["../src/*"],
+      "@core-tests/*": ["../../../packages/service-core/test/src/*"]
     }
   },
   "include": ["src"],

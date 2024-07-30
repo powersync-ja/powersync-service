@@ -1,10 +1,10 @@
+import { BucketStorageFactory } from '@/storage/BucketStorage.js';
+import { Metrics } from '@powersync/service-core';
+import { pgwireRows } from '@powersync/service-jpgwire';
 import * as crypto from 'crypto';
 import { describe, expect, test } from 'vitest';
-import { BucketStorageFactory } from '@/storage/BucketStorage.js';
 import { MONGO_STORAGE_FACTORY } from './util.js';
 import { putOp, removeOp, walStreamTest } from './wal_stream_utils.js';
-import { pgwireRows } from '@powersync/service-jpgwire';
-import { Metrics } from '@/metrics/Metrics.js';
 
 type StorageFactory = () => Promise<BucketStorageFactory>;
 

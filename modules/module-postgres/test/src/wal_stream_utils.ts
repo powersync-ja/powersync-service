@@ -1,11 +1,11 @@
+import { BucketStorageFactory, SyncRulesBucketStorage } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
+import { JSONBig } from '@powersync/service-jsonbig';
 import { WalStream, WalStreamOptions } from '../../src/replication/WalStream.js';
-import { BucketStorageFactory, SyncRulesBucketStorage } from '../../src/storage/BucketStorage.js';
+import { PgManager } from '../../src/util/PgManager.js';
 import { OplogEntry } from '../../src/util/protocol-types.js';
 import { getClientCheckpoint } from '../../src/util/utils.js';
 import { TEST_CONNECTION_OPTIONS, clearTestDb } from './util.js';
-import { PgManager } from '../../src/util/PgManager.js';
-import { JSONBig } from '@powersync/service-jsonbig';
 
 /**
  * Tests operating on the wal stream need to configure the stream and manage asynchronous
