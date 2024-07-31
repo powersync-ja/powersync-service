@@ -2,6 +2,7 @@ import { logger, schema } from '@powersync/lib-services-framework';
 import { DataSourceConfig } from '@powersync/service-types/dist/config/PowerSyncConfig.js';
 import * as t from 'ts-codec';
 
+import * as types from '@powersync/service-types';
 import * as api from '../../api/api-index.js';
 import * as modules from '../../modules/modules-index.js';
 import * as system from '../../system/system-index.js';
@@ -81,7 +82,9 @@ export abstract class ReplicationModule extends modules.AbstractModule {
 
   private validateConfig(config: DataSourceConfig): void {
     const validator = schema
-      .parseJSONSchema(t.generateJSONSchema(this.configSchema(), { allowAdditional: true }))
+      .parseJSONSchema(
+        t.generateJSONSchema(this.configSchema(), { allowAdditional: true, parsers: [types.configFile.portParser] })
+      )
       .validator();
 
     const valid = validator.validate(config);

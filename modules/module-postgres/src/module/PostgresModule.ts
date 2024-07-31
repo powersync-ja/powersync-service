@@ -26,6 +26,7 @@ export class PostgresModule extends replication.ReplicationModule {
   async register(context: system.ServiceContext): Promise<void> {}
 
   async initialize(context: system.ServiceContext): Promise<void> {
+    await super.initialize(context);
     // Record replicated bytes using global jpgwire metrics.
     jpgwire.setMetricsRecorder({
       addBytesRead(bytes) {
@@ -42,7 +43,7 @@ export class PostgresModule extends replication.ReplicationModule {
         try {
           return this.resolveConfig(types.PostgresConnectionConfig.decode(baseConfig as any));
         } catch (ex) {
-          logger.warn('Failed to decode configuration in Postgres module initialization.');
+          logger.warn('Failed to decode configuration in Postgres module initialization.', ex);
         }
       })
       .filter((c) => !!c)
@@ -57,7 +58,7 @@ export class PostgresModule extends replication.ReplicationModule {
   }
 
   protected createSyncAPIAdapter(config: types.PostgresConnectionConfig): api.RouteAPI {
-    throw new PostgresSyncAPIAdapter(this.resolveConfig(config));
+    return new PostgresSyncAPIAdapter(this.resolveConfig(config));
   }
 
   protected createReplicationAdapter(config: types.PostgresConnectionConfig): PostgresReplicationAdapter {

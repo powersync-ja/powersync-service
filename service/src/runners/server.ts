@@ -14,7 +14,6 @@ export async function startServer(serviceContext: core.system.ServiceContext) {
 
   logger.info('Starting service');
 
-  // TODO cleanup the initialization of metrics
   await serviceContext.start();
 
   serviceContext.metrics.configureApiMetrics();

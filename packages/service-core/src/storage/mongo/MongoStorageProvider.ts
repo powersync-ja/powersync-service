@@ -9,7 +9,7 @@ import { PowerSyncMongo } from './db.js';
 export type MongoStorageConfig = configFile.StorageConfig & BaseStorageConfig;
 export class MongoStorageProvider implements StorageProvider<MongoStorageConfig> {
   get type() {
-    return 'mongo';
+    return 'mongodb';
   }
 
   async generate(config: MongoStorageConfig): Promise<GeneratedStorage> {

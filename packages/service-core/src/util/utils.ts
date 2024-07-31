@@ -1,5 +1,5 @@
 import * as sync_rules from '@powersync/service-sync-rules';
-import bson from 'bson';
+import * as bson from 'bson';
 import crypto from 'crypto';
 import * as uuid from 'uuid';
 import { BucketChecksum, OpId } from './protocol-types.js';

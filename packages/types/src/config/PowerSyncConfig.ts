@@ -19,18 +19,20 @@ export const portParser = {
   })
 };
 
-export const dataSourceConfig = t.object({
-  // Unique string identifier for the data source
-  type: t.string,
-  /** Unique identifier for the connection - optional when a single connection is present. */
-  id: t.string.optional(),
-  /** Additional meta tag for connection */
-  tag: t.string.optional(),
-  /**
-   * Allows for debug query execution
-   */
-  debug_enabled: t.boolean.optional()
-});
+export const dataSourceConfig = t
+  .object({
+    // Unique string identifier for the data source
+    type: t.string,
+    /** Unique identifier for the connection - optional when a single connection is present. */
+    id: t.string.optional(),
+    /** Additional meta tag for connection */
+    tag: t.string.optional(),
+    /**
+     * Allows for debug query execution
+     */
+    debug_enabled: t.boolean.optional()
+  })
+  .and(t.record(t.any)); // This essentially allows any extra fields on this type
 
 export type DataSourceConfig = t.Decoded<typeof dataSourceConfig>;
 
