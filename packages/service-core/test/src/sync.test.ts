@@ -1,13 +1,18 @@
+import { ZERO_LSN } from '@/storage/storage-index.js';
 import { RequestTracker } from '@/sync/RequestTracker.js';
+import { streamResponse } from '@/sync/sync.js';
 import { StreamingSyncLine } from '@/util/protocol-types.js';
-import { lsnMakeComparable } from '@powersync/service-jpgwire';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
-import { ZERO_LSN } from '../../src/replication/WalStream.js';
-import { streamResponse } from '../../src/sync/sync.js';
 import { makeTestTable, MONGO_STORAGE_FACTORY, StorageFactory } from './util.js';
+
+// FIXME: This should come from somewhere else
+export function lsnMakeComparable(text: string) {
+  const [h, l] = text.split('/');
+  return h.padStart(8, '0') + '/' + l.padStart(8, '0');
+}
 
 describe('sync - mongodb', function () {
   defineTests(MONGO_STORAGE_FACTORY);
