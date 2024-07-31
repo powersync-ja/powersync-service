@@ -1,9 +1,9 @@
+import { storage } from '@powersync/service-core';
 import { PgoutputRelation } from '@powersync/service-jpgwire';
-import { ColumnDescriptor, SourceEntityDescriptor } from '../storage/SourceEntity.js';
 
 export type ReplicationIdentity = 'default' | 'nothing' | 'full' | 'index';
 
-export function getReplicaIdColumns(relation: PgoutputRelation): ColumnDescriptor[] {
+export function getReplicaIdColumns(relation: PgoutputRelation): storage.ColumnDescriptor[] {
   if (relation.replicaIdentity == 'nothing') {
     return [];
   } else {
@@ -21,7 +21,7 @@ export function getRelId(source: PgoutputRelation): number {
   return relId;
 }
 
-export function getPgOutputRelation(source: PgoutputRelation): SourceEntityDescriptor {
+export function getPgOutputRelation(source: PgoutputRelation): storage.SourceEntityDescriptor {
   return {
     name: source.name,
     schema: source.schema,
