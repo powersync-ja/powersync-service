@@ -3,6 +3,7 @@
   "compilerOptions": {
     "rootDir": "src",
     "baseUrl": "./",
+    "outDir": "dist",
     "esModuleInterop": true,
     "skipLibCheck": true,
     "sourceMap": true,
