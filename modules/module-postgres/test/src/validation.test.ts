@@ -1,5 +1,5 @@
-import { WalConnection } from '@/replication/WalConnection.js';
 import { MONGO_STORAGE_FACTORY } from '@core-tests/util.js';
+import { WalConnection } from '@module/replication/WalConnection.js';
 import { expect, test } from 'vitest';
 import { walStreamTest } from './wal_stream_utils.js';
 

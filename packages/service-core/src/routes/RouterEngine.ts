@@ -4,8 +4,10 @@ import * as api from '../api/api-index.js';
 
 import { ADMIN_ROUTES } from './endpoints/admin.js';
 import { CHECKPOINT_ROUTES } from './endpoints/checkpointing.js';
+import { syncStreamReactive } from './endpoints/socket-route.js';
 import { SYNC_RULES_ROUTES } from './endpoints/sync-rules.js';
 import { SYNC_STREAM_ROUTES } from './endpoints/sync-stream.js';
+import { SocketRouteGenerator } from './router-socket.js';
 import { RouteDefinition } from './router.js';
 
 export type RouterSetupResponse = {
@@ -15,7 +17,7 @@ export type RouterSetupResponse = {
 export type RouterEngineRoutes = {
   api_routes: RouteDefinition[];
   stream_routes: RouteDefinition[];
-  socket_routes: RouteDefinition[];
+  socket_routes: SocketRouteGenerator[];
 };
 
 export type RouterSetup = (routes: RouterEngineRoutes) => Promise<RouterSetupResponse>;
@@ -47,9 +49,7 @@ export class RouterEngine {
     this.routes = {
       api_routes: [...ADMIN_ROUTES, ...CHECKPOINT_ROUTES, ...SYNC_RULES_ROUTES],
       stream_routes: [...SYNC_STREAM_ROUTES],
-      socket_routes: [
-        // TODO
-      ]
+      socket_routes: [syncStreamReactive]
     };
   }
 

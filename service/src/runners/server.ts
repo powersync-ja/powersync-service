@@ -34,7 +34,11 @@ export async function startServer(serviceContext: core.system.ServiceContext) {
       routes: { api: { routes: routes.api_routes }, sync_stream: { routes: routes.stream_routes } }
     });
 
-    core.routes.configureRSocket(SocketRouter, { server: server.server, service_context: serviceContext });
+    core.routes.configureRSocket(SocketRouter, {
+      server: server.server,
+      service_context: serviceContext,
+      route_generators: routes.socket_routes
+    });
 
     const { port } = serviceContext.configuration;
 

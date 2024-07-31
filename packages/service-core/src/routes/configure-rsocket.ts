@@ -13,13 +13,13 @@ import { Context } from './router.js';
 export type RSockerRouterConfig = {
   service_context: ServiceContext;
   server: http.Server;
-  routeGenerators?: SocketRouteGenerator[];
+  route_generators?: SocketRouteGenerator[];
 };
 
 export const DEFAULT_SOCKET_ROUTES = [syncStreamReactive];
 
 export function configureRSocket(router: ReactiveSocketRouter<Context>, options: RSockerRouterConfig) {
-  const { routeGenerators = DEFAULT_SOCKET_ROUTES, server, service_context } = options;
+  const { route_generators = DEFAULT_SOCKET_ROUTES, server, service_context } = options;
 
   router.applyWebSocketEndpoints(server, {
     contextProvider: async (data: Buffer) => {
@@ -50,7 +50,7 @@ export function configureRSocket(router: ReactiveSocketRouter<Context>, options:
         throw ex;
       }
     },
-    endpoints: routeGenerators.map((generator) => generator(router)),
+    endpoints: route_generators.map((generator) => generator(router)),
     metaDecoder: async (meta: Buffer) => {
       return RSocketRequestMeta.decode(deserialize(meta) as any);
     },
