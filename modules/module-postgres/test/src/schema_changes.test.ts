@@ -1,7 +1,8 @@
+import { compareIds, putOp, removeOp } from '@core-tests/stream_utils.js';
+import { MONGO_STORAGE_FACTORY } from '@core-tests/util.js';
+import { BucketStorageFactory } from '@powersync/service-core';
 import { describe, expect, test } from 'vitest';
-import { BucketStorageFactory } from '../../src/storage/BucketStorage.js';
-import { MONGO_STORAGE_FACTORY } from './util.js';
-import { compareIds, putOp, removeOp, walStreamTest } from './wal_stream_utils.js';
+import { walStreamTest } from './wal_stream_utils.js';
 
 type StorageFactory = () => Promise<BucketStorageFactory>;
 

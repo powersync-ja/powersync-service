@@ -8,7 +8,8 @@
     "skipLibCheck": true,
     "sourceMap": true,
     "paths": {
-      "@/*": ["../src/*"],
+      "@/*": ["../../../packages/service-core/src/*"],
+      "@module/*": ["../src/*"],
       "@core-tests/*": ["../../../packages/service-core/test/src/*"]
     }
   },
@@ -16,6 +17,12 @@
   "references": [
     {
       "path": "../"
+    },
+    {
+      "path": "../../../packages/service-core/test"
+    },
+    {
+      "path": "../../../packages/service-core/"
     }
   ]
 }

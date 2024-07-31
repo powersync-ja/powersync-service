@@ -1,7 +1,8 @@
-import { MONGO_STORAGE_FACTORY, StorageFactory, TEST_CONNECTION_OPTIONS } from '@core-tests/util.js';
+import { MONGO_STORAGE_FACTORY, StorageFactory } from '@core-tests/util.js';
+import { populateData } from '@module/utils/populate_test_data.js';
 import { describe, expect, test } from 'vitest';
-import { populateData } from '../../dist/util/populate_test_data.js';
 import { env } from './env.js';
+import { TEST_CONNECTION_OPTIONS } from './util.js';
 import { walStreamTest } from './wal_stream_utils.js';
 
 describe('batch replication tests - mongodb', function () {

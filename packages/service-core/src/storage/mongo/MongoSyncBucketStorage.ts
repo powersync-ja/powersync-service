@@ -3,7 +3,6 @@ import * as bson from 'bson';
 import * as mongo from 'mongodb';
 
 import * as db from '../../db/db-index.js';
-import * as replication from '../../replication/replication-index.js';
 import * as util from '../../util/util-index.js';
 import {
   BucketDataBatchOptions,
@@ -23,7 +22,7 @@ import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { SourceTable } from '../SourceTable.js';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, SourceKey, SyncRuleState } from './models.js';
-import { MongoBucketBatch } from './MongoBucketBatch.js';
+import { MongoBucketBatch, ZERO_LSN } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, mapOpEntry, readSingleBatch, serializeLookup } from './util.js';
 
@@ -53,7 +52,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     );
     return {
       checkpoint: util.timestampToOpId(doc?.last_checkpoint ?? 0n),
-      lsn: doc?.last_checkpoint_lsn ?? replication.ZERO_LSN
+      lsn: doc?.last_checkpoint_lsn ?? ZERO_LSN
     };
   }
 

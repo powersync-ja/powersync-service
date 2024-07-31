@@ -34,8 +34,8 @@ export class PostgresModule extends replication.ReplicationModule {
     });
 
     // Register the Supabase key collector(s)
-    (context.configuration.connections ?? [])
-      .map((baseConfig) => {
+    context.configuration.connections
+      ?.map((baseConfig) => {
         if (baseConfig.type != types.POSTGRES_CONNECTION_TYPE) {
           return;
         }
@@ -47,7 +47,7 @@ export class PostgresModule extends replication.ReplicationModule {
       })
       .filter((c) => !!c)
       .forEach((config) => {
-        const keyCollector = new SupabaseKeyCollector(config);
+        const keyCollector = new SupabaseKeyCollector(config!);
         context.withLifecycle(keyCollector, {
           // Close the internal pool
           stop: (collector) => collector.shutdown()

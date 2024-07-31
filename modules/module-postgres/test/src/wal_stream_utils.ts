@@ -1,9 +1,5 @@
 import { BucketStorageFactory, SyncRulesBucketStorage } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
-import { JSONBig } from '@powersync/service-jsonbig';
-import { WalStream, WalStreamOptions } from '../../src/replication/WalStream.js';
-import { PgManager } from '../../src/util/PgManager.js';
-import { OplogEntry } from '../../src/util/protocol-types.js';
 import { getClientCheckpoint } from '../../src/util/utils.js';
 import { TEST_CONNECTION_OPTIONS, clearTestDb } from './util.js';
 
@@ -19,10 +15,10 @@ export function walStreamTest(
 ): () => Promise<void> {
   return async () => {
     const f = await factory();
-    const connections = new PgManager(TEST_CONNECTION_OPTIONS, {});
+    const pool = pgwire.connectPgWirePool(TEST_CONNECTION_OPTIONS, {});
 
-    await clearTestDb(connections.pool);
-    const context = new WalStreamTestContext(f, connections);
+    await clearTestDb(pool);
+    const context = new WalStreamTestContext(f, pool);
     try {
       await test(context);
     } finally {
@@ -38,7 +34,7 @@ export class WalStreamTestContext {
   public storage?: SyncRulesBucketStorage;
   private replicationConnection?: pgwire.PgConnection;
 
-  constructor(public factory: BucketStorageFactory, public connections: PgManager) {}
+  constructor(public factory: BucketStorageFactory, public connections: pgwire.PgClient) {}
 
   async dispose() {
     this.abortController.abort();
@@ -47,7 +43,7 @@ export class WalStreamTestContext {
   }
 
   get pool() {
-    return this.connections.pool;
+    return this.connections;
   }
 
   async updateSyncRules(content: string) {
@@ -113,44 +109,4 @@ export class WalStreamTestContext {
     const batches = await fromAsync(batch);
     return batches[0]?.batch.data ?? [];
   }
-}
-
-export function putOp(table: string, data: Record<string, any>): Partial<OplogEntry> {
-  return {
-    op: 'PUT',
-    object_type: table,
-    object_id: data.id,
-    data: JSONBig.stringify(data)
-  };
-}
-
-export function removeOp(table: string, id: string): Partial<OplogEntry> {
-  return {
-    op: 'REMOVE',
-    object_type: table,
-    object_id: id
-  };
-}
-
-export function compareIds(a: OplogEntry, b: OplogEntry) {
-  return a.object_id!.localeCompare(b.object_id!);
-}
-
-export async function fromAsync<T>(source: Iterable<T> | AsyncIterable<T>): Promise<T[]> {
-  const items: T[] = [];
-  for await (const item of source) {
-    items.push(item);
-  }
-  return items;
-}
-
-export async function oneFromAsync<T>(source: Iterable<T> | AsyncIterable<T>): Promise<T> {
-  const items: T[] = [];
-  for await (const item of source) {
-    items.push(item);
-  }
-  if (items.length != 1) {
-    throw new Error(`One item expected, got: ${items.length}`);
-  }
-  return items[0];
 }

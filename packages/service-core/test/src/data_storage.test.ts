@@ -1,8 +1,8 @@
+import { BucketDataBatchOptions } from '@/storage/BucketStorage.js';
 import { RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
-import { BucketDataBatchOptions } from '../../src/storage/BucketStorage.js';
+import { fromAsync, oneFromAsync } from './stream_utils.js';
 import { getBatchData, getBatchMeta, makeTestTable, MONGO_STORAGE_FACTORY, StorageFactory } from './util.js';
-import { fromAsync, oneFromAsync } from './wal_stream_utils.js';
 
 const TEST_TABLE = makeTestTable('test', ['id']);
 
