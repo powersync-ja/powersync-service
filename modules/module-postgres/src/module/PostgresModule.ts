@@ -27,12 +27,12 @@ export class PostgresModule extends replication.ReplicationModule {
     // Add the Supabase Ket collector to the resolved config whenever it is collected
     context.configCollector.registerListener({
       configCollected: async (event) => {
-        if (!event.baseConfig.client_auth?.supabase) {
+        if (!event.base_config.client_auth?.supabase) {
           return;
         }
 
         // Register the Supabase key collector(s)
-        event.resolvedConfig.connections
+        event.resolved_config.connections
           ?.map((baseConfig) => {
             if (baseConfig.type != types.POSTGRES_CONNECTION_TYPE) {
               return;
@@ -50,7 +50,7 @@ export class PostgresModule extends replication.ReplicationModule {
               // Close the internal pool
               stop: (collector) => collector.shutdown()
             });
-            event.resolvedConfig.client_keystore.collector.add(new auth.CachedKeyCollector(keyCollector));
+            event.resolved_config.client_keystore.collector.add(new auth.CachedKeyCollector(keyCollector));
           });
       }
     });

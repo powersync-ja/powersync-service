@@ -27,8 +27,8 @@ export type CompoundConfigCollectorOptions = {
 };
 
 export type ConfigCollectedEvent = {
-  baseConfig: configFile.PowerSyncConfig;
-  resolvedConfig: ResolvedPowerSyncConfig;
+  base_config: configFile.PowerSyncConfig;
+  resolved_config: ResolvedPowerSyncConfig;
 };
 
 export type ConfigCollectorListener = {
@@ -129,8 +129,8 @@ export class CompoundConfigCollector extends utils.BaseObserver<ConfigCollectorL
     // Allow listeners to add to the config
     await this.iterateAsyncListeners(async (l) =>
       l.configCollected?.({
-        baseConfig,
-        resolvedConfig: config
+        base_config: baseConfig,
+        resolved_config: config
       })
     );
 
