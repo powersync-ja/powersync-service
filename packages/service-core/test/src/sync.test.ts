@@ -1,3 +1,4 @@
+// FIXME: This needs to come from a better place
 import { ZERO_LSN } from '@/storage/storage-index.js';
 import { RequestTracker } from '@/sync/RequestTracker.js';
 import { streamResponse } from '@/sync/sync.js';
