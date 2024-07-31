@@ -43,7 +43,7 @@
 //       }
 //     }
 
-//     const id_columns = id_columns_result?.columns ?? [];
+// const id_columns = id_columns_result?.replicationColumns ?? [];
 
 //     const sourceTable = new storage.SourceTable(0, this.connectionTag, relationId ?? 0, schema, name, id_columns, true);
 
