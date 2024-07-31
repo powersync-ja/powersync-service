@@ -32,7 +32,7 @@ export function configureRSocket(router: ReactiveSocketRouter<Context>, options:
       try {
         const extracted_token = getTokenFromHeader(token);
         if (extracted_token != null) {
-          const { context, errors: token_errors } = await generateContext(extracted_token);
+          const { context, errors: token_errors } = await generateContext(options.service_context, extracted_token);
           if (context?.token_payload == null) {
             throw new errors.AuthorizationError(token_errors ?? 'Authentication required');
           }

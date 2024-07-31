@@ -74,6 +74,9 @@ importers:
       ts-codec:
         specifier: ^1.2.2
         version: 1.2.2
+      uuid:
+        specifier: ^9.0.1
+        version: 9.0.1
       winston:
         specifier: ^3.13.0
         version: 3.13.1
@@ -84,6 +87,9 @@ importers:
       '@types/lodash':
         specifier: ^4.17.5
         version: 4.17.6
+      '@types/uuid':
+        specifier: ^9.0.4
+        version: 9.0.8
       vitest:
         specifier: ^0.34.6
         version: 0.34.6

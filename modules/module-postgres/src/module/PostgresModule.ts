@@ -23,7 +23,38 @@ export class PostgresModule extends replication.ReplicationModule {
     return types.PostgresConnectionConfig;
   }
 
-  async register(context: system.ServiceContext): Promise<void> {}
+  async register(context: system.ServiceContext): Promise<void> {
+    // Add the Supabase Ket collector to the resolved config whenever it is collected
+    context.configCollector.registerListener({
+      configCollected: async (event) => {
+        if (!event.baseConfig.client_auth?.supabase) {
+          return;
+        }
+
+        // Register the Supabase key collector(s)
+        event.resolvedConfig.connections
+          ?.map((baseConfig) => {
+            if (baseConfig.type != types.POSTGRES_CONNECTION_TYPE) {
+              return;
+            }
+            try {
+              return this.resolveConfig(types.PostgresConnectionConfig.decode(baseConfig as any));
+            } catch (ex) {
+              logger.warn('Failed to decode configuration in Postgres module initialization.', ex);
+            }
+          })
+          .filter((c) => !!c)
+          .forEach((config) => {
+            const keyCollector = new SupabaseKeyCollector(config!);
+            context.withLifecycle(keyCollector, {
+              // Close the internal pool
+              stop: (collector) => collector.shutdown()
+            });
+            event.resolvedConfig.client_keystore.collector.add(new auth.CachedKeyCollector(keyCollector));
+          });
+      }
+    });
+  }
 
   async initialize(context: system.ServiceContext): Promise<void> {
     await super.initialize(context);
@@ -33,28 +64,6 @@ export class PostgresModule extends replication.ReplicationModule {
         context.metrics.data_replicated_bytes.add(bytes);
       }
     });
-
-    // Register the Supabase key collector(s)
-    context.configuration.connections
-      ?.map((baseConfig) => {
-        if (baseConfig.type != types.POSTGRES_CONNECTION_TYPE) {
-          return;
-        }
-        try {
-          return this.resolveConfig(types.PostgresConnectionConfig.decode(baseConfig as any));
-        } catch (ex) {
-          logger.warn('Failed to decode configuration in Postgres module initialization.', ex);
-        }
-      })
-      .filter((c) => !!c)
-      .forEach((config) => {
-        const keyCollector = new SupabaseKeyCollector(config!);
-        context.withLifecycle(keyCollector, {
-          // Close the internal pool
-          stop: (collector) => collector.shutdown()
-        });
-        context.configuration.client_keystore.collector.add(new auth.CachedKeyCollector(keyCollector));
-      });
   }
 
   protected createSyncAPIAdapter(config: types.PostgresConnectionConfig): api.RouteAPI {

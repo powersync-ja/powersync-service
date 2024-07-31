@@ -1,4 +1,4 @@
-import { logger } from '@powersync/lib-services-framework';
+import { logger, utils } from '@powersync/lib-services-framework';
 import { configFile } from '@powersync/service-types';
 import * as auth from '../../auth/auth-index.js';
 import { ConfigCollector } from './collectors/config-collector.js';
@@ -10,8 +10,6 @@ import { FileSystemSyncRulesCollector } from './sync-rules/impl/filesystem-sync-
 import { InlineSyncRulesCollector } from './sync-rules/impl/inline-sync-rules-collector.js';
 import { SyncRulesCollector } from './sync-rules/sync-collector.js';
 import { ResolvedPowerSyncConfig, RunnerConfig, SyncRulesConfig } from './types.js';
-
-const POWERSYNC_DEV_KID = 'powersync-dev';
 
 export type CompoundConfigCollectorOptions = {
   /**
@@ -28,6 +26,17 @@ export type CompoundConfigCollectorOptions = {
   syncRulesCollectors: SyncRulesCollector[];
 };
 
+export type ConfigCollectedEvent = {
+  baseConfig: configFile.PowerSyncConfig;
+  resolvedConfig: ResolvedPowerSyncConfig;
+};
+
+export type ConfigCollectorListener = {
+  configCollected?: (event: ConfigCollectedEvent) => Promise<void>;
+};
+
+const POWERSYNC_DEV_KID = 'powersync-dev';
+
 const DEFAULT_COLLECTOR_OPTIONS: CompoundConfigCollectorOptions = {
   configCollectors: [new Base64ConfigCollector(), new FileSystemConfigCollector(), new FallbackConfigCollector()],
   syncRulesCollectors: [
@@ -37,8 +46,10 @@ const DEFAULT_COLLECTOR_OPTIONS: CompoundConfigCollectorOptions = {
   ]
 };
 
-export class CompoundConfigCollector {
-  constructor(protected options: CompoundConfigCollectorOptions = DEFAULT_COLLECTOR_OPTIONS) {}
+export class CompoundConfigCollector extends utils.BaseObserver<ConfigCollectorListener> {
+  constructor(protected options: CompoundConfigCollectorOptions = DEFAULT_COLLECTOR_OPTIONS) {
+    super();
+  }
 
   /**
    * Collects and resolves base config
@@ -114,6 +125,15 @@ export class CompoundConfigCollector {
       // slot_name_prefix: connections[0]?.slot_name_prefix ?? 'powersync_'
       slot_name_prefix: 'powersync_'
     };
+
+    // Allow listeners to add to the config
+    await this.iterateAsyncListeners(async (l) =>
+      l.configCollected?.({
+        baseConfig,
+        resolvedConfig: config
+      })
+    );
+
     return config;
   }
 

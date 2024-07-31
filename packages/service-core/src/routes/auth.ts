@@ -1,6 +1,5 @@
 import * as jose from 'jose';
 
-import { container } from '@powersync/lib-services-framework';
 import * as auth from '../auth/auth-index.js';
 import { ServiceContext } from '../system/ServiceContext.js';
 import * as util from '../util/util-index.js';
@@ -109,7 +108,7 @@ export async function authorizeUser(context: Context, authHeader: string = '') {
     };
   }
 
-  const { context: tokenContext, errors } = await generateContext(token);
+  const { context: tokenContext, errors } = await generateContext(context.service_context, token);
 
   if (!tokenContext) {
     return {
@@ -122,8 +121,8 @@ export async function authorizeUser(context: Context, authHeader: string = '') {
   return { authorized: true };
 }
 
-export async function generateContext(token: string) {
-  const { configuration } = container.getImplementation(ServiceContext);
+export async function generateContext(serviceContext: ServiceContext, token: string) {
+  const { configuration } = serviceContext;
 
   let tokenPayload: auth.JwtPayload;
   try {

@@ -26,11 +26,13 @@
     "dotenv": "^16.4.5",
     "lodash": "^4.17.21",
     "ts-codec": "^1.2.2",
+    "uuid": "^9.0.1",
     "winston": "^3.13.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/lodash": "^4.17.5",
+    "@types/uuid": "^9.0.4",
     "vitest": "^0.34.6"
   }
 }
