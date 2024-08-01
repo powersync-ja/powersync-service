@@ -178,6 +178,7 @@ export class ReplicationJob {
    * Terminate this replication. Cleans up any config for the replication and deletes the replicated data
    *
    * Stops replication if needed.
+   * TODO: Confirm if this is still needed at all.
    */
   async terminate(): Promise<void> {
     logger.info(`Terminating ${this.adapter.name()} replication job: ${this.storage.group_id}`);
