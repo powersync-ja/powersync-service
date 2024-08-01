@@ -94,10 +94,5 @@ export abstract class ReplicationModule extends modules.AbstractModule {
     }
   }
 
-  public async shutdown(): Promise<void> {
-    // TODO maybe manage this in the Replication engine
-    for (const replication of this.replicationAdapters) {
-      await replication.shutdown();
-    }
-  }
+  public async shutdown(): Promise<void> {}
 }

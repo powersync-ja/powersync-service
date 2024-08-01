@@ -83,26 +83,27 @@ export enum UpdateType {
   DELETE = 'DELETE',
   TRUNCATE = 'TRUNCATE',
   SCHEMA_CHANGE = 'SCHEMA_CHANGE',
-  COMMIT = 'COMMIT'
+  COMMIT = 'COMMIT',
+  KEEP_ALIVE = 'KEEP_ALIVE'
 }
 
-type ReplicationUpdate = {
+export interface ReplicationUpdate {
   type: UpdateType;
   /**
-   *  Descriptor of the data source entity that was updated
+   *  Descriptor of the data source entities that were updated.
+   *  Usually only one entity is updated at a time, but for the truncate operation there could be multiple
    */
-  entity: storage.SourceTable;
+  entities: storage.SourceTable[];
   /**
    *  Present when the update is an insert, update or delete. Contains the changed values for adding to the bucket storage
    */
   entry?: storage.SaveOptions;
   /**
    *  Present when the update is a schema change. Describes the new data source entity
-   *  TODO: Redefine PgRelation
    */
   entityDescriptor?: storage.SourceEntityDescriptor;
   /**
-   *  Present when the update is a commit. Contains the LSN of the commit
+   *  Present when the update is a commit or a keep alive.
    */
   lsn?: string;
-};
+}

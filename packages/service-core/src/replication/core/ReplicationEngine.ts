@@ -1,9 +1,12 @@
 import { BucketStorageFactory } from '../../storage/BucketStorage.js';
 import { ReplicationAdapter } from './ReplicationAdapter.js';
 import { Replicator } from './Replicator.js';
+import { ConfigurationFileSyncRulesProvider } from '../../util/config/sync-rules/sync-rules-provider.js';
+import { SyncRulesConfig } from '../../util/config/types.js';
 
 export interface ReplicationEngineOptions {
   storage: BucketStorageFactory;
+  config: SyncRulesConfig;
 }
 
 export class ReplicationEngine {
@@ -24,7 +27,14 @@ export class ReplicationEngine {
     if (this.replicators.has(adapter)) {
       throw new Error(`Replicator for type ${adapter.name} already registered`);
     }
-    this.replicators.set(adapter, new Replicator({ adapter: adapter, storage: this.options.storage }));
+    this.replicators.set(
+      adapter,
+      new Replicator({
+        adapter: adapter,
+        storage: this.options.storage,
+        sync_rule_provider: new ConfigurationFileSyncRulesProvider(this.options.config)
+      })
+    );
   }
 
   /**

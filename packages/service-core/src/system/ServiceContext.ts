@@ -14,6 +14,7 @@ import { CompoundConfigCollector } from '../util/util-index.js';
  * This controls registering, initializing and the lifecycle of various services.
  */
 export class ServiceContext extends LifeCycledSystem {
+  private _replicationEngine: ReplicationEngine | null;
   private _storage: BucketStorageFactory | null;
   private _configuration: ResolvedPowerSyncConfig | null;
   private _metrics: Metrics | null;
@@ -30,6 +31,13 @@ export class ServiceContext extends LifeCycledSystem {
     return this._configuration;
   }
 
+  get replicationEngine(): ReplicationEngine {
+    if (!this._replicationEngine) {
+      throw new Error(`Attempt to use replication engine before [initialize] has been called`);
+    }
+    return this._replicationEngine;
+  }
+
   get storage(): BucketStorageFactory {
     if (!this._storage) {
       throw new Error(`Attempt to use storage before [initialize] has been called`);
@@ -44,15 +52,11 @@ export class ServiceContext extends LifeCycledSystem {
     return this._metrics;
   }
 
-  get replicationEngine(): ReplicationEngine {
-    // TODO clean this up
-    return container.getImplementation(ReplicationEngine);
-  }
-
   constructor() {
     super();
 
     // These will only be set once `initialize` has been called
+    this._replicationEngine = null;
     this._storage = null;
     this._configuration = null;
     this._metrics = null;
@@ -120,12 +124,14 @@ export class ServiceContext extends LifeCycledSystem {
       stop: () => this.metrics.shutdown()
     });
 
-    // TODO neaten this
-    container.register(
-      ReplicationEngine,
+    this._replicationEngine = this.withLifecycle(
       new ReplicationEngine({
+        config: this.configuration.sync_rules,
         storage
-      })
+      }),
+      {
+        stop: (engine) => engine.stop()
+      }
     );
   }
 
