@@ -90,7 +90,9 @@ export const getSchema = routeDefinition({
   authorize: authApi,
   validator: schema.createTsCodecValidator(internal_routes.GetSchemaRequest, { allowAdditional: true }),
   handler: async (payload) => {
-    return internal_routes.GetSchemaResponse.encode(await api.getConnectionsSchema(payload.context.service_context));
+    return internal_routes.GetSchemaResponse.encode(
+      await api.getConnectionsSchema(payload.context.service_context.routerEngine.getAPI())
+    );
   }
 });
 
@@ -148,8 +150,9 @@ export const validate = routeDefinition({
       context: { service_context }
     } = payload;
     const content = payload.params.sync_rules;
+    const apiHandler = service_context.routerEngine.getAPI();
 
-    const schemaData = await api.getConnectionsSchema(service_context);
+    const schemaData = await api.getConnectionsSchema(apiHandler);
     const schema = new StaticSchema(schemaData.connections);
 
     const sync_rules: storage.PersistedSyncRulesContent = {
@@ -169,7 +172,6 @@ export const validate = routeDefinition({
       }
     };
 
-    const apiHandler = service_context.routerEngine.getAPI();
     const connectionStatus = await apiHandler?.getConnectionStatus();
     if (!connectionStatus) {
       return internal_routes.ValidateResponse.encode({

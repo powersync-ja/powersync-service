@@ -1,11 +1,8 @@
 import { internal_routes } from '@powersync/service-types';
 
-import * as system from '../system/system-index.js';
+import * as api from '../api/api-index.js';
 
-export async function getConnectionsSchema(
-  serviceContext: system.ServiceContext
-): Promise<internal_routes.GetSchemaResponse> {
-  const api = serviceContext.routerEngine.getAPI();
+export async function getConnectionsSchema(api: api.RouteAPI | null): Promise<internal_routes.GetSchemaResponse> {
   if (!api) {
     return {
       connections: []
