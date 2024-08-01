@@ -10,6 +10,7 @@ export interface ColumnDescriptor {
   typeId?: number;
 }
 
+// TODO: This needs to be consolidate with SourceTable into something new.
 export interface SourceEntityDescriptor {
   /**
    *  The internal id of the data source structure in the database
