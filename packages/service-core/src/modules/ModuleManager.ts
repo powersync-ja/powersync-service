@@ -19,10 +19,9 @@ export class ModuleManager {
     for (const module of modules) {
       if (this.modules.has(module.name)) {
         logger.warn(`Module ${module.name} already registered, skipping...`);
-        return;
-      } else {
-        this.modules.set(module.name, module);
+        continue;
       }
+      this.modules.set(module.name, module);
       // Let the module register functionality on the service context
       module.register(this.serviceContext);
     }
