@@ -261,7 +261,7 @@ export class PostgresSyncAPIAdapter implements api.RouteAPI {
     };
   }
 
-  async getReplicationLag(slotName: string): Promise<number> {
+  async getReplicationLag(syncRulesId: string): Promise<number> {
     const results = await pg_utils.retriedQuery(this.pool, {
       statement: `SELECT
   slot_name,
@@ -269,14 +269,14 @@ export class PostgresSyncAPIAdapter implements api.RouteAPI {
   pg_current_wal_lsn(), 
   (pg_current_wal_lsn() - confirmed_flush_lsn) AS lsn_distance
 FROM pg_replication_slots WHERE slot_name = $1 LIMIT 1;`,
-      params: [{ type: 'varchar', value: slotName }]
+      params: [{ type: 'varchar', value: syncRulesId }]
     });
     const [row] = pgwire.pgwireRows(results);
     if (row) {
       return Number(row.lsn_distance);
     }
 
-    throw new Error(`Could not determine replication lag for slot ${slotName}`);
+    throw new Error(`Could not determine replication lag for slot ${syncRulesId}`);
   }
 
   async getReplicationHead(): Promise<string> {
