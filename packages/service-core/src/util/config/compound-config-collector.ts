@@ -1,4 +1,4 @@
-import { logger, utils } from '@powersync/lib-services-framework';
+import { logger } from '@powersync/lib-services-framework';
 import { configFile } from '@powersync/service-types';
 import * as auth from '../../auth/auth-index.js';
 import { ConfigCollector } from './collectors/config-collector.js';
@@ -46,10 +46,8 @@ const DEFAULT_COLLECTOR_OPTIONS: CompoundConfigCollectorOptions = {
   ]
 };
 
-export class CompoundConfigCollector extends utils.BaseObserver<ConfigCollectorListener> {
-  constructor(protected options: CompoundConfigCollectorOptions = DEFAULT_COLLECTOR_OPTIONS) {
-    super();
-  }
+export class CompoundConfigCollector {
+  constructor(protected options: CompoundConfigCollectorOptions = DEFAULT_COLLECTOR_OPTIONS) {}
 
   /**
    * Collects and resolves base config
@@ -95,6 +93,7 @@ export class CompoundConfigCollector extends utils.BaseObserver<ConfigCollectorL
     let jwt_audiences: string[] = baseConfig.client_auth?.audience ?? [];
 
     let config: ResolvedPowerSyncConfig = {
+      base_config: baseConfig,
       connections: baseConfig.replication?.connections || [],
       storage: baseConfig.storage,
       client_keystore: keyStore,
@@ -125,14 +124,6 @@ export class CompoundConfigCollector extends utils.BaseObserver<ConfigCollectorL
       // slot_name_prefix: connections[0]?.slot_name_prefix ?? 'powersync_'
       slot_name_prefix: 'powersync_'
     };
-
-    // Allow listeners to add to the config
-    await this.iterateAsyncListeners(async (l) =>
-      l.configCollected?.({
-        base_config: baseConfig,
-        resolved_config: config
-      })
-    );
 
     return config;
   }

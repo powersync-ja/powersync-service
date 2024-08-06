@@ -1,6 +1,16 @@
 import * as fs from 'fs/promises';
 
-import { ResolvedPowerSyncConfig } from './config/types.js';
+import { container } from '@powersync/lib-services-framework';
+import { ResolvedPowerSyncConfig, RunnerConfig } from './config/types.js';
+import { CompoundConfigCollector } from './util-index.js';
+
+/**
+ * Loads the resolved config using the registered config collector
+ */
+export async function loadConfig(runnerConfig: RunnerConfig) {
+  const collector = container.getImplementation(CompoundConfigCollector);
+  return collector.collectConfig(runnerConfig);
+}
 
 export async function loadSyncRules(config: ResolvedPowerSyncConfig): Promise<string | undefined> {
   const sync_rules = config.sync_rules;

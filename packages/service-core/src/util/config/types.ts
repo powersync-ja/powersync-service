@@ -1,8 +1,8 @@
 import { configFile } from '@powersync/service-types';
+import { PowerSyncConfig } from '@powersync/service-types/src/config/PowerSyncConfig.js';
 import { CompoundKeyCollector } from '../../auth/CompoundKeyCollector.js';
 import { KeySpec } from '../../auth/KeySpec.js';
 import { KeyStore } from '../../auth/KeyStore.js';
-import { ServiceContext } from '../../system/ServiceContext.js';
 
 export enum ServiceRunner {
   UNIFIED = 'unified',
@@ -17,10 +17,10 @@ export type RunnerConfig = {
 };
 
 export type MigrationContext = {
-  service_context: ServiceContext;
+  runner_config: RunnerConfig;
 };
 
-export type Runner = (serviceContext: ServiceContext) => Promise<void>;
+export type Runner = (config: RunnerConfig) => Promise<void>;
 
 export type SyncRulesConfig = {
   present: boolean;
@@ -29,6 +29,7 @@ export type SyncRulesConfig = {
 };
 
 export type ResolvedPowerSyncConfig = {
+  base_config: PowerSyncConfig;
   connections?: configFile.DataSourceConfig[];
   storage: configFile.StorageConfig;
   dev: {

@@ -1,17 +1,19 @@
 import { BucketStorageFactory } from '../storage/BucketStorage.js';
 
+import * as util from '../util/util-index.js';
+
 export type GeneratedStorage = {
   storage: BucketStorageFactory;
   disposer: () => Promise<void>;
 };
 
-export type BaseStorageConfig = {
-  slot_name_prefix: string;
+export type StorageGenerationParams = {
+  resolved_config: util.ResolvedPowerSyncConfig;
 };
 
-export interface StorageProvider<StorageConfig extends BaseStorageConfig = BaseStorageConfig> {
-  // The storage type
+export interface StorageProvider {
+  // The storage type which should match the `type` field in the config
   type: string;
 
-  generate(config: StorageConfig): Promise<GeneratedStorage>;
+  generate(storageConfig: StorageGenerationParams): Promise<GeneratedStorage>;
 }

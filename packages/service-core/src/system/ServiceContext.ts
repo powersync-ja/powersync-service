@@ -3,74 +3,55 @@ import { Metrics } from '../metrics/Metrics.js';
 import { ReplicationEngine } from '../replication/core/ReplicationEngine.js';
 import { RouterEngine } from '../routes/RouterEngine.js';
 import { BucketStorageFactory } from '../storage/BucketStorage.js';
-import { StorageProvider } from '../storage/StorageProvider.js';
+import { StorageFactory } from '../storage/StorageFactory.js';
 import { MongoStorageProvider } from '../storage/mongo/MongoStorageProvider.js';
-import { ResolvedPowerSyncConfig, RunnerConfig } from '../util/config/types.js';
-import { CompoundConfigCollector } from '../util/util-index.js';
+import { ResolvedPowerSyncConfig } from '../util/config/types.js';
+
+export interface ServiceContext {
+  configuration: ResolvedPowerSyncConfig;
+  lifeCycleEngine: LifeCycledSystem;
+  metrics: Metrics;
+  replicationEngine: ReplicationEngine;
+  routerEngine: RouterEngine;
+  storage: BucketStorageFactory;
+}
+
+export enum ServiceIdentifiers {
+  // TODO a better identifier
+  STORAGE = 'storage'
+}
 
 /**
  * Context which allows for registering and getting implementations
  * of various service engines.
  * This controls registering, initializing and the lifecycle of various services.
  */
-export class ServiceContext extends LifeCycledSystem {
-  private _replicationEngine: ReplicationEngine | null;
-  private _storage: BucketStorageFactory | null;
-  private _configuration: ResolvedPowerSyncConfig | null;
-  private _metrics: Metrics | null;
+export class ServiceContextContainer implements ServiceContext {
+  lifeCycleEngine: LifeCycledSystem;
+  storageFactory: StorageFactory;
 
-  protected storageProviders: Map<string, StorageProvider>;
+  constructor(public configuration: ResolvedPowerSyncConfig) {
+    this.lifeCycleEngine = new LifeCycledSystem();
+    this.storageFactory = new StorageFactory();
 
-  routerEngine: RouterEngine;
-  configCollector: CompoundConfigCollector;
-
-  get configuration(): ResolvedPowerSyncConfig {
-    if (!this._configuration) {
-      throw new Error(`Attempt to use configuration before it has been collected`);
-    }
-    return this._configuration;
+    // Mongo storage is available as an option by default
+    this.storageFactory.registerProvider(new MongoStorageProvider());
   }
 
   get replicationEngine(): ReplicationEngine {
-    if (!this._replicationEngine) {
-      throw new Error(`Attempt to use replication engine before [initialize] has been called`);
-    }
-    return this._replicationEngine;
+    return this.get(ReplicationEngine);
+  }
+
+  get routerEngine(): RouterEngine {
+    return this.get(RouterEngine);
   }
 
   get storage(): BucketStorageFactory {
-    if (!this._storage) {
-      throw new Error(`Attempt to use storage before [initialize] has been called`);
-    }
-    return this._storage;
+    return this.get(ServiceIdentifiers.STORAGE);
   }
 
   get metrics(): Metrics {
-    if (!this._metrics) {
-      throw new Error(`Attempt to use metrics before [initialize] has been called`);
-    }
-    return this._metrics;
-  }
-
-  constructor() {
-    super();
-
-    // These will only be set once `initialize` has been called
-    this._replicationEngine = null;
-    this._storage = null;
-    this._configuration = null;
-    this._metrics = null;
-
-    this.storageProviders = new Map();
-    // Mongo storage is available as an option by default
-    this.registerStorageProvider(new MongoStorageProvider());
-
-    this.configCollector = new CompoundConfigCollector();
-
-    this.routerEngine = new RouterEngine();
-    this.withLifecycle(this.routerEngine, {
-      stop: (routerEngine) => routerEngine.shutdown()
-    });
+    return this.get(Metrics);
   }
 
   /**
@@ -86,62 +67,5 @@ export class ServiceContext extends LifeCycledSystem {
    */
   get<T>(identifier: ServiceIdentifier<T>) {
     return container.getImplementation(identifier);
-  }
-
-  /**
-   * Register a provider which generates a {@link BucketStorageFactory}
-   * given the matching config specified in the loaded {@link ResolvedPowerSyncConfig}
-   */
-  registerStorageProvider(provider: StorageProvider) {
-    this.storageProviders.set(provider.type, provider);
-  }
-
-  async initialize(entryConfig: RunnerConfig) {
-    // Collect the config
-    this._configuration = await this.configCollector.collectConfig(entryConfig);
-
-    const { storage: storageConfig } = this.configuration;
-    const { type } = storageConfig;
-    const provider = this.storageProviders.get(type);
-
-    if (!provider) {
-      throw new Error(`No storage provider registered for type: ${type}`);
-    }
-
-    const { storage, disposer } = await provider.generate({
-      ...storageConfig,
-      slot_name_prefix: this.configuration.slot_name_prefix
-    });
-
-    this._storage = storage;
-    this.withLifecycle(storage, {
-      stop: () => disposer()
-    });
-
-    // Metrics go here for now
-    this._metrics = await this.initializeMetrics();
-    this.withLifecycle(this.metrics, {
-      stop: () => this.metrics.shutdown()
-    });
-
-    this._replicationEngine = this.withLifecycle(
-      new ReplicationEngine({
-        config: this.configuration.sync_rules,
-        storage
-      }),
-      {
-        stop: (engine) => engine.stop()
-      }
-    );
-  }
-
-  protected async initializeMetrics() {
-    const instanceId = await this.storage.getPowerSyncInstanceId();
-    await Metrics.initialise({
-      powersync_instance_id: instanceId,
-      disable_telemetry_sharing: this.configuration.telemetry.disable_telemetry_sharing,
-      internal_metrics_endpoint: this.configuration.telemetry.internal_service_endpoint
-    });
-    return Metrics.getInstance();
   }
 }

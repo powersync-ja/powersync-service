@@ -24,8 +24,9 @@ interface LegacySyncRulesDocument extends storage.SyncRuleDocument {
 }
 
 export const up = async (context: utils.MigrationContext) => {
-  const { service_context } = context;
-  const db = storage.createPowerSyncMongo(service_context.configuration.storage);
+  const { runner_config } = context;
+  const config = await utils.loadConfig(runner_config);
+  const db = storage.createPowerSyncMongo(config.storage);
 
   await mongo.waitForAuth(db.db);
   try {
@@ -70,9 +71,10 @@ export const up = async (context: utils.MigrationContext) => {
 };
 
 export const down = async (context: utils.MigrationContext) => {
-  const { service_context } = context;
+  const { runner_config } = context;
+  const config = await utils.loadConfig(runner_config);
 
-  const db = storage.createPowerSyncMongo(service_context.configuration.storage);
+  const db = storage.createPowerSyncMongo(config.storage);
   try {
     await db.sync_rules.updateMany(
       {

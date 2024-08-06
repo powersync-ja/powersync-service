@@ -2,8 +2,8 @@ import { Command } from 'commander';
 
 import { logger } from '@powersync/lib-services-framework';
 import * as v8 from 'v8';
-import * as modules from '../../modules/modules-index.js';
 import * as storage from '../../storage/storage-index.js';
+import * as utils from '../../util/util-index.js';
 import { extractRunnerOptions, wrapConfigCommand } from './config-command.js';
 
 const COMMAND_NAME = 'compact';
@@ -20,17 +20,14 @@ const HEAP_LIMIT = v8.getHeapStatistics().heap_size_limit;
  */
 const COMPACT_MEMORY_LIMIT_MB = Math.min(HEAP_LIMIT / 1024 / 1024 - 128, 1024);
 
-export function registerCompactAction(program: Command, moduleManager: modules.ModuleManager) {
+export function registerCompactAction(program: Command) {
   const compactCommand = program.command(COMMAND_NAME);
 
   wrapConfigCommand(compactCommand);
 
   return compactCommand.description('Compact storage').action(async (options) => {
     const runnerConfig = extractRunnerOptions(options);
-
-    await moduleManager.initialize(runnerConfig);
-
-    const { configuration } = moduleManager.serviceContext;
+    const configuration = await utils.loadConfig(runnerConfig);
     const { storage: storageConfig } = configuration;
     const psdb = storage.createPowerSyncMongo(storageConfig);
     const client = psdb.client;
