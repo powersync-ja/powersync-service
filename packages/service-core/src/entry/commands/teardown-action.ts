@@ -1,12 +1,11 @@
 import { Command } from 'commander';
 
-import * as modules from '../../modules/modules-index.js';
 import { teardown } from '../../runner/teardown.js';
 import { extractRunnerOptions, wrapConfigCommand } from './config-command.js';
 
 const COMMAND_NAME = 'teardown';
 
-export function registerTearDownAction(program: Command, moduleManager: modules.ModuleManager) {
+export function registerTearDownAction(program: Command) {
   const teardownCommand = program.command(COMMAND_NAME);
 
   wrapConfigCommand(teardownCommand);
@@ -19,7 +18,6 @@ export function registerTearDownAction(program: Command, moduleManager: modules.
         throw new Error('TEARDOWN was not acknowledged.');
       }
 
-      await moduleManager.initialize(extractRunnerOptions(options));
-      await teardown(moduleManager);
+      await teardown(extractRunnerOptions(options));
     });
 }
