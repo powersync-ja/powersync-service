@@ -29,6 +29,12 @@ node dist/bin.js fetch-operations --config path/to/powersync.yaml
 node dist/bin.js fetch-operations --config path/to/powersync.yaml --sub test-user
 ```
 
-The script will normalize the data in each bucket to a single CLEAR operation, followed by the latest PUT operation for each row.
+The `fetch-operations` command downloads data for a single checkpoint, and outputs a normalized form: one CLEAR operation, followed by the latest PUT operation for each row. This normalized form is still split per bucket. The output is not affected by compacting, but can be affected by replication order.
 
-To get the raw operations instead, which may additionally include CLEAR, MOVE, REMOVE and duplicate PUT operations, use the `--raw` flag.
+To avoid normalizing the data, use the `--raw` option. This may include additional CLEAR, MOVE, REMOVE and duplicate PUT operations.
+
+To generate a token without downloading data, use the `generate-token` command:
+
+```sh
+node dist/bin.js generate-token --config path/to/powersync.yaml --sub test-user
+```

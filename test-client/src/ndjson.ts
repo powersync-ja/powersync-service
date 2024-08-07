@@ -1,7 +1,4 @@
-// import { ReadableStream } from 'node:stream/web';
-
 export function ndjsonStream<T>(response: ReadableStream<Uint8Array>): ReadableStream<T> & AsyncIterable<T> {
-  // For cancellation
   var is_reader: any,
     cancellationRequest = false;
   return new ReadableStream<T>({
