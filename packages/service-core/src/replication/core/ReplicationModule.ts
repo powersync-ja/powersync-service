@@ -66,9 +66,9 @@ export abstract class ReplicationModule extends modules.AbstractModule {
 
     try {
       const baseMatchingConfig = matchingConfig[0];
-      const decodedConfig = this.configSchema().decode(baseMatchingConfig);
       // If validation fails, log the error and continue, no replication will happen for this data source
-      this.validateConfig(matchingConfig[0]);
+      this.validateConfig(baseMatchingConfig);
+      const decodedConfig = this.configSchema().decode(baseMatchingConfig);
       const replicationAdapter = this.createReplicationAdapter(decodedConfig);
       this.replicationAdapters.add(replicationAdapter);
       context.replicationEngine.register(replicationAdapter);
@@ -83,6 +83,7 @@ export abstract class ReplicationModule extends modules.AbstractModule {
   private validateConfig(config: DataSourceConfig): void {
     const validator = schema
       .parseJSONSchema(
+        // This generates a schema for the encoded form of the codec
         t.generateJSONSchema(this.configSchema(), { allowAdditional: true, parsers: [types.configFile.portParser] })
       )
       .validator();
