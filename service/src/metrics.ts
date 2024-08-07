@@ -34,6 +34,7 @@ export const registerMetrics = async (options: MetricsRegistrationOptions) => {
       if (modes.includes(MetricModes.REPLICATION)) {
         instance.configureReplicationMetrics(service_context.storage.bucketStorage);
       }
-    }
+    },
+    stop: () => service_context.metrics.shutdown()
   });
 };

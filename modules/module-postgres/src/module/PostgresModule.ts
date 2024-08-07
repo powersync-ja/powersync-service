@@ -25,33 +25,10 @@ export class PostgresModule extends replication.ReplicationModule {
   async initialize(context: system.ServiceContextContainer): Promise<void> {
     await super.initialize(context);
 
-    const { configuration } = context;
     // Record replicated bytes using global jpgwire metrics.
-    if (!configuration.base_config.client_auth?.supabase) {
-      return;
+    if (context.configuration.base_config.client_auth?.supabase) {
+      this.registerSupabaseAuth(context);
     }
-
-    // Register the Supabase key collector(s)
-    configuration.connections
-      ?.map((baseConfig) => {
-        if (baseConfig.type != types.POSTGRES_CONNECTION_TYPE) {
-          return;
-        }
-        try {
-          return this.resolveConfig(types.PostgresConnectionConfig.decode(baseConfig as any));
-        } catch (ex) {
-          logger.warn('Failed to decode configuration in Postgres module initialization.', ex);
-        }
-      })
-      .filter((c) => !!c)
-      .forEach((config) => {
-        const keyCollector = new SupabaseKeyCollector(config!);
-        context.lifeCycleEngine.withLifecycle(keyCollector, {
-          // Close the internal pool
-          stop: (collector) => collector.shutdown()
-        });
-        configuration.client_keystore.collector.add(new auth.CachedKeyCollector(keyCollector));
-      });
 
     jpgwire.setMetricsRecorder({
       addBytesRead(bytes) {
@@ -111,5 +88,30 @@ export class PostgresModule extends replication.ReplicationModule {
     //   await mongoDB.client.close();
     //   process.exit(1);
     // }
+  }
+
+  protected registerSupabaseAuth(context: system.ServiceContextContainer) {
+    const { configuration } = context;
+    // Register the Supabase key collector(s)
+    configuration.connections
+      ?.map((baseConfig) => {
+        if (baseConfig.type != types.POSTGRES_CONNECTION_TYPE) {
+          return;
+        }
+        try {
+          return this.resolveConfig(types.PostgresConnectionConfig.decode(baseConfig as any));
+        } catch (ex) {
+          logger.warn('Failed to decode configuration in Postgres module initialization.', ex);
+        }
+      })
+      .filter((c) => !!c)
+      .forEach((config) => {
+        const keyCollector = new SupabaseKeyCollector(config!);
+        context.lifeCycleEngine.withLifecycle(keyCollector, {
+          // Close the internal pool
+          stop: (collector) => collector.shutdown()
+        });
+        configuration.client_keystore.collector.add(new auth.CachedKeyCollector(keyCollector));
+      });
   }
 }

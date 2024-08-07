@@ -93,6 +93,4 @@ export abstract class ReplicationModule extends modules.AbstractModule {
       throw new Error(`Failed to validate Module ${this.name} configuration: ${valid.errors.join(', ')}`);
     }
   }
-
-  public async shutdown(): Promise<void> {}
 }

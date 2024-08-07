@@ -25,11 +25,6 @@ export abstract class AbstractModule {
   public abstract initialize(context: ServiceContextContainer): Promise<void>;
 
   /**
-   *  Finish processing any requests and gracefully shut down any resources managed by the module
-   */
-  public abstract shutdown(): Promise<void>;
-
-  /**
    *  Terminate and clean up any resources managed by the module right away
    */
   public abstract teardown(): Promise<void>;

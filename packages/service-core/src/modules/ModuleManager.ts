@@ -7,8 +7,6 @@ import { AbstractModule } from './AbstractModule.js';
 export class ModuleManager {
   private readonly modules: Map<string, AbstractModule> = new Map();
 
-  constructor() {}
-
   public register(modules: AbstractModule[]) {
     for (const module of modules) {
       if (this.modules.has(module.name)) {
@@ -22,12 +20,6 @@ export class ModuleManager {
   async initialize(serviceContext: system.ServiceContextContainer) {
     for (const module of this.modules.values()) {
       await module.initialize(serviceContext);
-    }
-  }
-
-  async shutDown() {
-    for (const module of this.modules.values()) {
-      await module.shutdown();
     }
   }
 
