@@ -407,6 +407,28 @@ importers:
         specifier: ^0.34.6
         version: 0.34.6
 
+  test-client:
+    dependencies:
+      '@powersync/service-core':
+        specifier: workspace:*
+        version: link:../packages/service-core
+      commander:
+        specifier: ^12.0.0
+        version: 12.1.0
+      jose:
+        specifier: ^4.15.1
+        version: 4.15.5
+      yaml:
+        specifier: ^2.5.0
+        version: 2.5.0
+    devDependencies:
+      '@types/node':
+        specifier: 18.11.11
+        version: 18.11.11
+      typescript:
+        specifier: ^5.2.2
+        version: 5.2.2
+
 packages:
 
   '@babel/code-frame@7.24.6':
@@ -4061,6 +4083,11 @@ packages:
 
   yaml@2.4.2:
     resolution: {integrity: sha512-B3VqDZ+JAg1nZpaEmWtTXUlBneoGx6CPM9b0TENK6aoSu5t73dItudwdgmi6tHlIZZId4dZ9skcAQ2UbcyAeVA==}
+    engines: {node: '>= 14'}
+    hasBin: true
+
+  yaml@2.5.0:
+    resolution: {integrity: sha512-2wWLbGbYDiSqqIKoPjar3MPgB94ErzCtrNE1FdqGuaO0pi2JGjmE8aW8TDZwzU7vuxcGRdL/4gPQwQ7hD5AMSw==}
     engines: {node: '>= 14'}
     hasBin: true
 
@@ -8209,6 +8236,8 @@ snapshots:
   yallist@4.0.0: {}
 
   yaml@2.4.2: {}
+
+  yaml@2.5.0: {}
 
   yargs-parser@18.1.3:
     dependencies:

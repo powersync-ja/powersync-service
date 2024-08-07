@@ -1,0 +1,26 @@
+{
+  "name": "test-client",
+  "repository": "https://github.com/powersync-ja/powersync-service",
+  "private": true,
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "bin": "dist/bin.js",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "fetch-operations": "tsc -b && node dist/bin.js fetch-operations",
+    "generate-token": "tsc -b && node dist/bin.js generate-token",
+    "build": "tsc -b",
+    "clean": "rm -rf ./dist && tsc -b --clean"
+  },
+  "dependencies": {
+    "@powersync/service-core": "workspace:*",
+    "commander": "^12.0.0",
+    "jose": "^4.15.1",
+    "yaml": "^2.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "18.11.11",
+    "typescript": "^5.2.2"
+  }
+}
