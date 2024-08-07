@@ -407,6 +407,22 @@ importers:
         specifier: ^0.34.6
         version: 0.34.6
 
+  test-client:
+    dependencies:
+      '@powersync/service-core':
+        specifier: workspace:*
+        version: link:../packages/service-core
+      '@types/node':
+        specifier: 18.11.11
+        version: 18.11.11
+      commander:
+        specifier: ^12.0.0
+        version: 12.1.0
+    devDependencies:
+      typescript:
+        specifier: ^5.2.2
+        version: 5.2.2
+
 packages:
 
   '@babel/code-frame@7.24.6':
