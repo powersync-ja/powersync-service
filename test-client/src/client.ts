@@ -18,6 +18,7 @@ export async function getCheckpointData(options: GetCheckpointOptions) {
     body: JSON.stringify({
       raw_data: true,
       include_checksum: true,
+      // Client parameters can be specified here
       parameters: {}
     } satisfies types.StreamingSyncRequest)
   });
@@ -30,10 +31,12 @@ export async function getCheckpointData(options: GetCheckpointOptions) {
 
   for await (let chunk of ndjsonStream<types.StreamingSyncLine>(response.body!)) {
     if (isStreamingSyncData(chunk)) {
+      // Collect data
       data.push(chunk);
     } else if (isCheckpoint(chunk)) {
       checkpoint = chunk;
     } else if (isCheckpointComplete(chunk)) {
+      // Stop on the first checkpoint_complete message.
       break;
     }
   }

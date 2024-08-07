@@ -2,6 +2,9 @@ import type * as types from '@powersync/service-core';
 
 export type BucketData = Record<string, types.OplogEntry[]>;
 
+/**
+ * Combine all chunks of received data, excluding any data after the checkpoint.
+ */
 export function normalizeData(
   checkpoint: types.StreamingSyncCheckpoint,
   chunks: types.StreamingSyncData[],
@@ -39,6 +42,7 @@ export function isStreamingSyncData(line: types.StreamingSyncLine): line is type
 export function isCheckpointComplete(line: types.StreamingSyncLine): line is types.StreamingSyncCheckpointComplete {
   return (line as types.StreamingSyncCheckpointComplete).checkpoint_complete != null;
 }
+
 export function isCheckpoint(line: types.StreamingSyncLine): line is types.StreamingSyncCheckpoint {
   return (line as types.StreamingSyncCheckpoint).checkpoint != null;
 }
