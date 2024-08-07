@@ -4,8 +4,8 @@ import fastify from 'fastify';
 import { container, logger } from '@powersync/lib-services-framework';
 import * as core from '@powersync/service-core';
 
+import { MetricModes, registerMetrics } from '../metrics.js';
 import { SocketRouter } from '../routes/router.js';
-import { registerSharedRunnerServices } from './shared-runner.js';
 
 /**
  * Configures the server portion on a {@link ServiceContext}
@@ -68,8 +68,12 @@ export const startServer = async (runnerConfig: core.utils.RunnerConfig) => {
   const config = await core.utils.loadConfig(runnerConfig);
   const serviceContext = new core.system.ServiceContextContainer(config);
 
-  await registerSharedRunnerServices(serviceContext);
   registerServerServices(serviceContext);
+
+  await registerMetrics({
+    service_context: serviceContext,
+    modes: [MetricModes.API]
+  });
 
   const moduleManager = container.getImplementation(core.modules.ModuleManager);
   await moduleManager.initialize(serviceContext);

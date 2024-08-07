@@ -5,7 +5,6 @@ import { Resource } from '@opentelemetry/resources';
 import { MeterProvider, MetricReader, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { logger } from '@powersync/lib-services-framework';
 import * as storage from '../storage/storage-index.js';
-import * as system from '../system/system-index.js';
 import * as util from '../util/util-index.js';
 
 export interface MetricsOptions {
@@ -201,7 +200,7 @@ Anonymous telemetry is currently: ${options.disable_telemetry_sharing ? 'disable
     this.concurrent_connections.add(0);
   }
 
-  public configureReplicationMetrics(serviceContext: system.ServiceContext) {
+  public configureReplicationMetrics(bucketStorage: storage.BucketStorageFactory) {
     // Rate limit collection of these stats, since it may be an expensive query
     const MINIMUM_INTERVAL = 60_000;
 
@@ -210,7 +209,7 @@ Anonymous telemetry is currently: ${options.disable_telemetry_sharing ? 'disable
 
     function getMetrics() {
       if (cachedRequest == null || Date.now() - cacheTimestamp > MINIMUM_INTERVAL) {
-        cachedRequest = serviceContext.storage.getStorageMetrics().catch((e) => {
+        cachedRequest = bucketStorage.getStorageMetrics().catch((e) => {
           logger.error(`Failed to get storage metrics`, e);
           return null;
         });

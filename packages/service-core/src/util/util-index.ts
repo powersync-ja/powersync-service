@@ -19,3 +19,4 @@ export * from './config/sync-rules/impl/base64-sync-rules-collector.js';
 export * from './config/sync-rules/impl/filesystem-sync-rules-collector.js';
 export * from './config/sync-rules/impl/inline-sync-rules-collector.js';
 export * from './config/sync-rules/sync-collector.js';
+export * from './config/sync-rules/sync-rules-provider.js';

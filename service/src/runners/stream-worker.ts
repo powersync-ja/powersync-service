@@ -1,6 +1,6 @@
 import { container, logger } from '@powersync/lib-services-framework';
 import * as core from '@powersync/service-core';
-import { registerSharedRunnerServices } from './shared-runner.js';
+import { MetricModes, registerMetrics } from '../metrics.js';
 
 /**
  * Configures the replication portion on a {@link serviceContext}
@@ -17,7 +17,6 @@ export const registerReplicationServices = (serviceContext: core.system.ServiceC
     start: (replication) => replication.start(),
     stop: (replication) => replication.stop()
   });
-  serviceContext.metrics.configureReplicationMetrics(serviceContext);
 };
 
 export const startStreamRunner = async (runnerConfig: core.utils.RunnerConfig) => {
@@ -31,11 +30,14 @@ export const startStreamRunner = async (runnerConfig: core.utils.RunnerConfig) =
   });
 
   // Self hosted version allows for automatic migrations
-
   const serviceContext = new core.system.ServiceContextContainer(config);
 
-  await registerSharedRunnerServices(serviceContext);
   registerReplicationServices(serviceContext);
+
+  await registerMetrics({
+    service_context: serviceContext,
+    modes: [MetricModes.REPLICATION]
+  });
 
   const moduleManager = container.getImplementation(core.modules.ModuleManager);
   await moduleManager.initialize(serviceContext);

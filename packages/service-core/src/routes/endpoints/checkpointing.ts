@@ -30,7 +30,7 @@ export const writeCheckpoint = routeDefinition({
 
     logger.info(`Waiting for LSN checkpoint: ${head}`);
     while (Date.now() - start < timeout) {
-      const cp = await service_context.storage.getActiveCheckpoint();
+      const cp = await service_context.storage.bucketStorage.getActiveCheckpoint();
       if (!cp.hasSyncRules()) {
         throw new Error('No sync rules available');
       }
@@ -60,9 +60,11 @@ export const writeCheckpoint2 = routeDefinition({
 
     // Might want to call this something link replicationHead or something else
     const currentCheckpoint = await api.getReplicationHead();
-    const { storage } = service_context;
+    const {
+      storage: { bucketStorage }
+    } = service_context;
 
-    const id = await storage.createWriteCheckpoint(user_id!, { '1': currentCheckpoint });
+    const id = await bucketStorage.createWriteCheckpoint(user_id!, { '1': currentCheckpoint });
     logger.info(`Write checkpoint 2: ${JSON.stringify({ currentCheckpoint, id: String(id) })}`);
 
     return {

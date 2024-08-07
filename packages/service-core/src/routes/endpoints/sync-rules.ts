@@ -63,7 +63,7 @@ export const deploySyncRules = routeDefinition({
       });
     }
 
-    const sync_rules = await storage.updateSyncRules({
+    const sync_rules = await storage.bucketStorage.updateSyncRules({
       content: content
     });
 
@@ -99,8 +99,10 @@ export const currentSyncRules = routeDefinition({
   authorize: authApi,
   handler: async (payload) => {
     const { service_context } = payload.context;
-    const { storage } = service_context;
-    const sync_rules = await storage.getActiveSyncRulesContent();
+    const {
+      storage: { bucketStorage }
+    } = service_context;
+    const sync_rules = await bucketStorage.getActiveSyncRulesContent();
     if (!sync_rules) {
       throw new errors.JourneyError({
         status: 422,
@@ -109,7 +111,7 @@ export const currentSyncRules = routeDefinition({
       });
     }
     const info = await debugSyncRules(service_context, sync_rules.sync_rules_content);
-    const next = await storage.getNextSyncRulesContent();
+    const next = await bucketStorage.getNextSyncRulesContent();
 
     const next_info = next ? await debugSyncRules(service_context, next.sync_rules_content) : null;
 
@@ -141,8 +143,10 @@ export const reprocessSyncRules = routeDefinition({
   authorize: authApi,
   validator: schema.createTsCodecValidator(ReprocessSyncRulesRequest),
   handler: async (payload) => {
-    const { storage } = payload.context.service_context;
-    const sync_rules = await storage.getActiveSyncRules();
+    const {
+      storage: { bucketStorage }
+    } = payload.context.service_context;
+    const sync_rules = await bucketStorage.getActiveSyncRules();
     if (sync_rules == null) {
       throw new errors.JourneyError({
         status: 422,
@@ -151,7 +155,7 @@ export const reprocessSyncRules = routeDefinition({
       });
     }
 
-    const new_rules = await storage.updateSyncRules({
+    const new_rules = await bucketStorage.updateSyncRules({
       content: sync_rules.sync_rules.content
     });
     return {

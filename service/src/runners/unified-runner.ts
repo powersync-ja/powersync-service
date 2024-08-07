@@ -1,8 +1,8 @@
 import { container, logger } from '@powersync/lib-services-framework';
 import * as core from '@powersync/service-core';
 
+import { MetricModes, registerMetrics } from '../metrics.js';
 import { registerServerServices } from './server.js';
-import { registerSharedRunnerServices } from './shared-runner.js';
 import { registerReplicationServices } from './stream-worker.js';
 
 /**
@@ -20,9 +20,13 @@ export const startUnifiedRunner = async (runnerConfig: core.utils.RunnerConfig) 
 
   const serviceContext = new core.system.ServiceContextContainer(config);
 
-  await registerSharedRunnerServices(serviceContext);
   registerServerServices(serviceContext);
   registerReplicationServices(serviceContext);
+
+  await registerMetrics({
+    service_context: serviceContext,
+    modes: [MetricModes.API, MetricModes.REPLICATION]
+  });
 
   const moduleManager = container.getImplementation(core.modules.ModuleManager);
   await moduleManager.initialize(serviceContext);

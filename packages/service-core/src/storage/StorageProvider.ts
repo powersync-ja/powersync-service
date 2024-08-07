@@ -11,7 +11,7 @@ export type StorageGenerationParams = {
   resolved_config: util.ResolvedPowerSyncConfig;
 };
 
-export interface StorageProvider {
+export interface BucketStorageProvider {
   // The storage type which should match the `type` field in the config
   type: string;
 

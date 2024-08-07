@@ -30,9 +30,11 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
 
       const syncParams = new RequestParameters(context.token_payload!, params.parameters ?? {});
 
-      const storage = service_context.storage;
+      const {
+        storage: { bucketStorage }
+      } = service_context;
       // Sanity check before we start the stream
-      const cp = await storage.getActiveCheckpoint();
+      const cp = await bucketStorage.getActiveCheckpoint();
       if (!cp.hasSyncRules()) {
         responder.onError(
           new errors.JourneyError({
@@ -63,7 +65,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       const tracker = new sync.RequestTracker();
       try {
         for await (const data of sync.streamResponse({
-          storage,
+          storage: bucketStorage,
           params: {
             ...params,
             binary_data: true // always true for web sockets

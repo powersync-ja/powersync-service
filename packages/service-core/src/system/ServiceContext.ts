@@ -1,24 +1,18 @@
 import { LifeCycledSystem, ServiceIdentifier, container } from '@powersync/lib-services-framework';
-import { Metrics } from '../metrics/Metrics.js';
-import { ReplicationEngine } from '../replication/core/ReplicationEngine.js';
-import { RouterEngine } from '../routes/RouterEngine.js';
-import { BucketStorageFactory } from '../storage/BucketStorage.js';
-import { StorageFactory } from '../storage/StorageFactory.js';
-import { MongoStorageProvider } from '../storage/mongo/MongoStorageProvider.js';
-import { ResolvedPowerSyncConfig } from '../util/config/types.js';
+
+import * as metrics from '../metrics/Metrics.js';
+import * as replication from '../replication/replication-index.js';
+import * as routes from '../routes/routes-index.js';
+import * as storage from '../storage/storage-index.js';
+import * as utils from '../util/util-index.js';
 
 export interface ServiceContext {
-  configuration: ResolvedPowerSyncConfig;
+  configuration: utils.ResolvedPowerSyncConfig;
   lifeCycleEngine: LifeCycledSystem;
-  metrics: Metrics;
-  replicationEngine: ReplicationEngine;
-  routerEngine: RouterEngine;
-  storage: BucketStorageFactory;
-}
-
-export enum ServiceIdentifiers {
-  // TODO a better identifier
-  STORAGE = 'storage'
+  metrics: metrics.Metrics;
+  replicationEngine: replication.ReplicationEngine;
+  routerEngine: routes.RouterEngine;
+  storage: storage.StorageFactoryProvider;
 }
 
 /**
@@ -28,30 +22,29 @@ export enum ServiceIdentifiers {
  */
 export class ServiceContextContainer implements ServiceContext {
   lifeCycleEngine: LifeCycledSystem;
-  storageFactory: StorageFactory;
+  storage: storage.StorageFactoryProvider;
 
-  constructor(public configuration: ResolvedPowerSyncConfig) {
+  constructor(public configuration: utils.ResolvedPowerSyncConfig) {
     this.lifeCycleEngine = new LifeCycledSystem();
-    this.storageFactory = new StorageFactory();
+    this.storage = new storage.StorageFactoryProvider({
+      configuration,
+      lifecycle_engine: this.lifeCycleEngine
+    });
 
     // Mongo storage is available as an option by default
-    this.storageFactory.registerProvider(new MongoStorageProvider());
+    this.storage.registerProvider(new storage.MongoStorageProvider());
   }
 
-  get replicationEngine(): ReplicationEngine {
-    return this.get(ReplicationEngine);
+  get replicationEngine(): replication.ReplicationEngine {
+    return this.get(replication.ReplicationEngine);
   }
 
-  get routerEngine(): RouterEngine {
-    return this.get(RouterEngine);
+  get routerEngine(): routes.RouterEngine {
+    return this.get(routes.RouterEngine);
   }
 
-  get storage(): BucketStorageFactory {
-    return this.get(ServiceIdentifiers.STORAGE);
-  }
-
-  get metrics(): Metrics {
-    return this.get(Metrics);
+  get metrics(): metrics.Metrics {
+    return this.get(metrics.Metrics);
   }
 
   /**

@@ -34,7 +34,7 @@ export const syncStreamed = routeDefinition({
     const syncParams = new RequestParameters(payload.context.token_payload!, payload.params.parameters ?? {});
 
     // Sanity check before we start the stream
-    const cp = await storage.getActiveCheckpoint();
+    const cp = await storage.bucketStorage.getActiveCheckpoint();
     if (!cp.hasSyncRules()) {
       throw new errors.JourneyError({
         status: 500,
@@ -50,7 +50,7 @@ export const syncStreamed = routeDefinition({
         sync.transformToBytesTracked(
           sync.ndjson(
             sync.streamResponse({
-              storage,
+              storage: storage.bucketStorage,
               params,
               syncParams,
               token: payload.context.token_payload!,

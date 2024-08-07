@@ -3,12 +3,12 @@ import { configFile } from '@powersync/service-types';
 import * as db from '../../db/db-index.js';
 
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
-import { GeneratedStorage, StorageGenerationParams, StorageProvider } from '../StorageProvider.js';
+import { BucketStorageProvider, GeneratedStorage, StorageGenerationParams } from '../StorageProvider.js';
 import { PowerSyncMongo } from './db.js';
 
 export type MongoStorageConfig = configFile.StorageConfig;
 
-export class MongoStorageProvider implements StorageProvider {
+export class MongoStorageProvider implements BucketStorageProvider {
   get type() {
     return 'mongodb';
   }
