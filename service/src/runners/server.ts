@@ -11,7 +11,6 @@ import { SocketRouter } from '../routes/router.js';
  * Configures the server portion on a {@link ServiceContext}
  */
 export const registerServerServices = (serviceContext: core.system.ServiceContextContainer) => {
-  serviceContext.metrics.configureApiMetrics();
   serviceContext.register(core.routes.RouterEngine, new core.routes.RouterEngine());
   serviceContext.lifeCycleEngine.withLifecycle(serviceContext.routerEngine, {
     start: async (routerEngine) => {
