@@ -1,12 +1,12 @@
 import { ReplicationAdapter } from './ReplicationAdapter.js';
-import { BucketStorageFactory } from '../../storage/BucketStorage.js';
 import { Replicator } from './Replicator.js';
-import { ConfigurationFileSyncRulesProvider } from '../../util/config/sync-rules/sync-rules-provider.js';
-import { SyncRulesConfig } from '../../util/config/types.js';
+
+import * as storage from '../../storage/storage-index.js';
+import * as utils from '.././../util/util-index.js';
 
 export interface ReplicationEngineOptions {
-  storage: BucketStorageFactory;
-  config: SyncRulesConfig;
+  storage: storage.StorageFactoryProvider;
+  config: utils.SyncRulesConfig;
 }
 
 export class ReplicationEngine {
@@ -32,7 +32,7 @@ export class ReplicationEngine {
       new Replicator({
         adapter: adapter,
         storage: this.options.storage,
-        sync_rule_provider: new ConfigurationFileSyncRulesProvider(this.options.config)
+        sync_rule_provider: new utils.ConfigurationFileSyncRulesProvider(this.options.config)
       })
     );
   }

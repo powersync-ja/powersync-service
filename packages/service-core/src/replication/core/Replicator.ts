@@ -1,15 +1,13 @@
-import * as storage from '../../storage/storage-index.js';
-
-import { ReplicationAdapter } from './ReplicationAdapter.js';
-import { BucketStorageFactory } from '../../storage/BucketStorage.js';
 import { container, logger } from '@powersync/lib-services-framework';
-import { SyncRulesProvider } from '../../util/config/sync-rules/sync-rules-provider.js';
+import { ReplicationAdapter } from './ReplicationAdapter.js';
 import { ReplicationJob } from './ReplicationJob.js';
 
+import * as storage from '../../storage/storage-index.js';
+import * as util from '../../util/util-index.js';
 export interface ReplicatorOptions {
   adapter: ReplicationAdapter;
-  storage: BucketStorageFactory;
-  sync_rule_provider: SyncRulesProvider;
+  storage: storage.StorageFactoryProvider;
+  sync_rule_provider: util.SyncRulesProvider;
 }
 
 /**
@@ -19,7 +17,7 @@ export interface ReplicatorOptions {
  */
 export class Replicator {
   private readonly adapter: ReplicationAdapter;
-  private readonly storage: BucketStorageFactory;
+  private readonly storage: storage.StorageFactoryProvider;
 
   private replicationJobs = new Map<number, ReplicationJob>();
   private stopped = false;
@@ -27,6 +25,10 @@ export class Replicator {
   constructor(private options: ReplicatorOptions) {
     this.adapter = options.adapter;
     this.storage = options.storage;
+  }
+
+  get bucketStorage() {
+    return this.storage.bucketStorage;
   }
 
   public async start(): Promise<void> {
@@ -56,7 +58,7 @@ export class Replicator {
       try {
         // Configure new sync rules, if they have changed.
         // In that case, also immediately take out a lock, so that another process doesn't start replication on it.
-        const { lock } = await this.storage.configureSyncRules(syncRules, {
+        const { lock } = await this.bucketStorage.configureSyncRules(syncRules, {
           lock: true
         });
         if (lock) {
@@ -90,7 +92,7 @@ export class Replicator {
     let configuredLock = options?.configured_lock;
 
     const existingJobs = new Map<number, ReplicationJob>(this.replicationJobs.entries());
-    const replicatingSyncRules = await this.storage.getReplicatingSyncRules();
+    const replicatingSyncRules = await this.bucketStorage.getReplicatingSyncRules();
     const newJobs = new Map<number, ReplicationJob>();
     for (let syncRules of replicatingSyncRules) {
       const existingJob = existingJobs.get(syncRules.id);
@@ -112,7 +114,7 @@ export class Replicator {
             lock = await syncRules.lock();
           }
           const parsed = syncRules.parsed();
-          const storage = this.storage.getInstance(parsed);
+          const storage = this.bucketStorage.getInstance(parsed);
           const newJob = new ReplicationJob({
             adapter: this.adapter,
             storage: storage,
@@ -144,14 +146,14 @@ export class Replicator {
     }
 
     // Sync rules stopped previously or by a different process.
-    const stopped = await this.storage.getStoppedSyncRules();
+    const stopped = await this.bucketStorage.getStoppedSyncRules();
     for (let syncRules of stopped) {
       try {
         const lock = await syncRules.lock();
         try {
           await this.adapter.cleanupReplication(syncRules.id);
           const parsed = syncRules.parsed();
-          const storage = this.storage.getInstance(parsed);
+          const storage = this.bucketStorage.getInstance(parsed);
           await storage.terminate();
         } finally {
           await lock.release();

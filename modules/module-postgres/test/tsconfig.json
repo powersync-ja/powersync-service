@@ -1,0 +1,28 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "noEmit": true,
+    "baseUrl": "./",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "paths": {
+      "@/*": ["../../../packages/service-core/src/*"],
+      "@module/*": ["../src/*"],
+      "@core-tests/*": ["../../../packages/service-core/test/src/*"]
+    }
+  },
+  "include": ["src"],
+  "references": [
+    {
+      "path": "../"
+    },
+    {
+      "path": "../../../packages/service-core/test"
+    },
+    {
+      "path": "../../../packages/service-core/"
+    }
+  ]
+}

@@ -1,6 +1,5 @@
 import { SqliteRow, TablePattern } from '@powersync/service-sync-rules';
 import * as storage from '../../storage/storage-index.js';
-import { SourceEntityDescriptor } from '../../storage/SourceEntity.js';
 
 /**
  * The ReplicationAdapter describes all the methods that are required by the
@@ -52,6 +51,11 @@ export interface ReplicationAdapter {
    *  @param syncRuleId The id of the SyncRule that was used to configure the replication
    */
   cleanupReplication(syncRuleId: number): Promise<void>;
+
+  /**
+   * Close any resources that need graceful termination.
+   */
+  shutdown(): Promise<void>;
 }
 
 export interface InitializeDataBatch {
@@ -97,7 +101,7 @@ export interface ReplicationUpdate {
   /**
    *  Present when the update is a schema change. Describes the new data source entity
    */
-  entityDescriptor?: SourceEntityDescriptor;
+  entityDescriptor?: storage.SourceEntityDescriptor;
   /**
    *  Present when the update is a commit or a keep alive.
    */

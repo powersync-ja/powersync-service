@@ -2,8 +2,8 @@ import { Command } from 'commander';
 
 import { logger } from '@powersync/lib-services-framework';
 import * as v8 from 'v8';
-import { createPowerSyncMongo, MongoBucketStorage } from '../../storage/storage-index.js';
-import { loadConfig } from '../../util/config.js';
+import * as storage from '../../storage/storage-index.js';
+import * as utils from '../../util/util-index.js';
 import { extractRunnerOptions, wrapConfigCommand } from './config-command.js';
 
 const COMMAND_NAME = 'compact';
@@ -27,14 +27,13 @@ export function registerCompactAction(program: Command) {
 
   return compactCommand.description('Compact storage').action(async (options) => {
     const runnerConfig = extractRunnerOptions(options);
-
-    const config = await loadConfig(runnerConfig);
-    const { storage } = config;
-    const psdb = createPowerSyncMongo(storage);
+    const configuration = await utils.loadConfig(runnerConfig);
+    const { storage: storageConfig } = configuration;
+    const psdb = storage.createPowerSyncMongo(storageConfig);
     const client = psdb.client;
     await client.connect();
     try {
-      const bucketStorage = new MongoBucketStorage(psdb, { slot_name_prefix: config.slot_name_prefix });
+      const bucketStorage = new storage.MongoBucketStorage(psdb, { slot_name_prefix: configuration.slot_name_prefix });
       const active = await bucketStorage.getActiveSyncRules();
       if (active == null) {
         logger.info('No active instance to compact');

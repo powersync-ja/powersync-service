@@ -1,9 +1,9 @@
+import { MongoCompactOptions } from '@/storage/mongo/MongoCompactor.js';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
+import { validateCompactedBucket } from './bucket_validation.js';
+import { oneFromAsync } from './stream_utils.js';
 import { makeTestTable, MONGO_STORAGE_FACTORY } from './util.js';
-import { oneFromAsync } from './wal_stream_utils.js';
-import { MongoCompactOptions } from '@/storage/mongo/MongoCompactor.js';
-import { reduceBucket, validateCompactedBucket, validateBucket } from './bucket_validation.js';
 
 const TEST_TABLE = makeTestTable('test', ['id']);
 

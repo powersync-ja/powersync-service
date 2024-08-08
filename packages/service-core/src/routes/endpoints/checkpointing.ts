@@ -1,7 +1,6 @@
+import { logger, router, schema } from '@powersync/lib-services-framework';
 import * as t from 'ts-codec';
-import { router, schema } from '@powersync/lib-services-framework';
 
-import * as util from '../../util/util-index.js';
 import { authUser } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
@@ -13,13 +12,36 @@ export const writeCheckpoint = routeDefinition({
   authorize: authUser,
   validator: schema.createTsCodecValidator(WriteCheckpointRequest, { allowAdditional: true }),
   handler: async (payload) => {
-    const system = payload.context.system;
-    const storage = system.storage;
+    const {
+      context: { service_context }
+    } = payload;
+    const api = service_context.routerEngine.getAPI();
+    if (!api) {
+      throw new Error('No connection API handler is available.');
+    }
 
-    const checkpoint = await util.getClientCheckpoint(system.requirePgPool(), storage);
-    return {
-      checkpoint
-    };
+    // This old API needs a persisted checkpoint id.
+    // Since we don't use LSNs anymore, the only way to get that is to wait.
+    const start = Date.now();
+
+    const head = await api.getReplicationHead();
+
+    const timeout = 50_000;
+
+    logger.info(`Waiting for LSN checkpoint: ${head}`);
+    while (Date.now() - start < timeout) {
+      const cp = await service_context.storage.bucketStorage.getActiveCheckpoint();
+      if (!cp.hasSyncRules()) {
+        throw new Error('No sync rules available');
+      }
+      if (cp.lsn >= head) {
+        logger.info(`Got write checkpoint: ${head} : ${cp.checkpoint}`);
+        return { checkpoint: cp.checkpoint };
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    throw new Error('Timeout while waiting for checkpoint');
   }
 });
 
@@ -29,11 +51,24 @@ export const writeCheckpoint2 = routeDefinition({
   authorize: authUser,
   validator: schema.createTsCodecValidator(WriteCheckpointRequest, { allowAdditional: true }),
   handler: async (payload) => {
-    const { user_id, system } = payload.context;
-    const storage = system.storage;
-    const write_checkpoint = await util.createWriteCheckpoint(system.requirePgPool(), storage, user_id!);
+    const { user_id, service_context } = payload.context;
+
+    const api = service_context.routerEngine.getAPI();
+    if (!api) {
+      throw new Error('No connection API handler is available.');
+    }
+
+    // Might want to call this something link replicationHead or something else
+    const currentCheckpoint = await api.getReplicationHead();
+    const {
+      storage: { bucketStorage }
+    } = service_context;
+
+    const id = await bucketStorage.createWriteCheckpoint(user_id!, { '1': currentCheckpoint });
+    logger.info(`Write checkpoint 2: ${JSON.stringify({ currentCheckpoint, id: String(id) })}`);
+
     return {
-      write_checkpoint: String(write_checkpoint)
+      write_checkpoint: String(id)
     };
   }
 });

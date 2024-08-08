@@ -1,7 +1,6 @@
 import { logger } from '@powersync/lib-services-framework';
+import * as system from '../system/system-index.js';
 import { AbstractModule } from './AbstractModule.js';
-import { ServiceContext } from '../system/ServiceContext.js';
-
 /**
  *  The module manager is responsible for managing the lifecycle of all modules in the system.
  */
@@ -12,21 +11,15 @@ export class ModuleManager {
     for (const module of modules) {
       if (this.modules.has(module.name)) {
         logger.warn(`Module ${module.name} already registered, skipping...`);
-      } else {
-        this.modules.set(module.name, module);
+        continue;
       }
+      this.modules.set(module.name, module);
     }
   }
 
-  async initialize(context: ServiceContext) {
+  async initialize(serviceContext: system.ServiceContextContainer) {
     for (const module of this.modules.values()) {
-      await module.initialize(context);
-    }
-  }
-
-  async shutDown() {
-    for (const module of this.modules.values()) {
-      await module.shutdown();
+      await module.initialize(serviceContext);
     }
   }
 

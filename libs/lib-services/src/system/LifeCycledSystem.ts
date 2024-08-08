@@ -20,7 +20,7 @@ export type ComponentLifecycle<T> = PartialLifecycle<T> & {
 };
 export type LifecycleHandler<T> = () => ComponentLifecycle<T>;
 
-export abstract class LifeCycledSystem {
+export class LifeCycledSystem {
   components: ComponentLifecycle<any>[] = [];
 
   constructor() {

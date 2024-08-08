@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 
-import { extractRunnerOptions, wrapConfigCommand } from './config-command.js';
 import { teardown } from '../../runner/teardown.js';
+import { extractRunnerOptions, wrapConfigCommand } from './config-command.js';
 
 const COMMAND_NAME = 'teardown';
 

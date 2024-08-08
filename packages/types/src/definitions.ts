@@ -82,6 +82,15 @@ export const ConnectionStatus = t.object({
 });
 export type ConnectionStatus = t.Encoded<typeof ConnectionStatus>;
 
+export const ConnectionStatusV2 = t.object({
+  id: t.string,
+  uri: t.string,
+  connected: t.boolean,
+  /** Connection-level errors */
+  errors: t.array(ReplicationError)
+});
+export type ConnectionStatusV2 = t.Encoded<typeof ConnectionStatusV2>;
+
 export const DatabaseSchema = t.object({
   name: t.string,
   tables: t.array(
