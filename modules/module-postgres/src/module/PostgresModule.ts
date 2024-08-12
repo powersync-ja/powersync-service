@@ -5,7 +5,7 @@ import * as t from 'ts-codec';
 import { logger } from '@powersync/lib-services-framework';
 import * as types from '../types/types.js';
 
-import { PostgresRouteAPIAdapter } from '../api/PostgresSyncAPIAdapter.js';
+import { PostgresRouteAPIAdapter } from '../api/PostgresRouteAPIAdapter.js';
 import { SupabaseKeyCollector } from '../auth/SupabaseKeyCollector.js';
 import { PostgresReplicationAdapter } from '../replication/PostgresReplicationAdapter.js';
 
