@@ -17,6 +17,7 @@
     "@powersync/service-core": "workspace:*",
     "@powersync/lib-services-framework": "workspace:*",
     "@powersync/service-module-postgres": "workspace:*",
+    "@powersync/service-module-mysql": "workspace:*",
     "@powersync/service-jpgwire": "workspace:*",
     "@powersync/service-jsonbig": "workspace:*",
     "@powersync/service-rsocket-router": "workspace:*",

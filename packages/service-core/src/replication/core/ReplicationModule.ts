@@ -58,6 +58,10 @@ export abstract class ReplicationModule extends modules.AbstractModule {
 
     const matchingConfig = context.configuration.connections.filter((dataSource) => dataSource.type === this.type);
 
+    if (!matchingConfig.length) {
+      return;
+    }
+
     if (matchingConfig.length > 1) {
       logger.warning(
         `Multiple data sources of type ${this.type} found in the configuration. Only the first will be used.`

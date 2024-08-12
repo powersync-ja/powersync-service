@@ -94,6 +94,46 @@ importers:
         specifier: ^0.34.6
         version: 0.34.6
 
+  modules/module-mysql:
+    dependencies:
+      '@powersync/lib-services-framework':
+        specifier: workspace:*
+        version: link:../../libs/lib-services
+      '@powersync/service-core':
+        specifier: workspace:*
+        version: link:../../packages/service-core
+      '@powersync/service-jsonbig':
+        specifier: workspace:*
+        version: link:../../packages/jsonbig
+      '@powersync/service-sync-rules':
+        specifier: workspace:*
+        version: link:../../packages/sync-rules
+      '@powersync/service-types':
+        specifier: workspace:*
+        version: link:../../packages/types
+      ts-codec:
+        specifier: ^1.2.2
+        version: 1.2.2
+      uri-js:
+        specifier: ^4.4.1
+        version: 4.4.1
+      uuid:
+        specifier: ^9.0.1
+        version: 9.0.1
+    devDependencies:
+      '@types/uuid':
+        specifier: ^9.0.4
+        version: 9.0.8
+      typescript:
+        specifier: ^5.2.2
+        version: 5.2.2
+      vite-tsconfig-paths:
+        specifier: ^4.3.2
+        version: 4.3.2(typescript@5.2.2)(vite@5.3.3(@types/node@18.11.11))
+      vitest:
+        specifier: ^0.34.6
+        version: 0.34.6
+
   modules/module-postgres:
     dependencies:
       '@powersync/lib-services-framework':
@@ -373,6 +413,9 @@ importers:
       '@powersync/service-jsonbig':
         specifier: workspace:*
         version: link:../packages/jsonbig
+      '@powersync/service-module-mysql':
+        specifier: workspace:*
+        version: link:../modules/module-mysql
       '@powersync/service-module-postgres':
         specifier: workspace:*
         version: link:../modules/module-postgres

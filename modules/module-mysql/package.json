@@ -1,0 +1,41 @@
+{
+  "name": "@powersync/service-module-mysql",
+  "repository": "https://github.com/powersync-ja/powersync-service",
+  "types": "dist/index.d.ts",
+  "version": "0.0.1",
+  "license": "FSL-1.1-Apache-2.0",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf ./lib && tsc -b --clean"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./types": {
+      "import": "./dist/types/types.js",
+      "require": "./dist/types/types.js",
+      "default": "./dist/types/types.js"
+    }
+  },
+  "dependencies": {
+    "@powersync/lib-services-framework": "workspace:*",
+    "@powersync/service-core": "workspace:*",
+    "@powersync/service-jsonbig": "workspace:*",
+    "@powersync/service-sync-rules": "workspace:*",
+    "@powersync/service-types": "workspace:*",
+    "ts-codec": "^1.2.2",
+    "uuid": "^9.0.1",
+    "uri-js": "^4.4.1"
+  },
+  "devDependencies": {
+    "@types/uuid": "^9.0.4",
+    "typescript": "^5.2.2",
+    "vitest": "^0.34.6",
+    "vite-tsconfig-paths": "^4.3.2"
+  }
+}
