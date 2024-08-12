@@ -5,7 +5,7 @@ import * as t from 'ts-codec';
 import { logger } from '@powersync/lib-services-framework';
 import * as types from '../types/types.js';
 
-import { PostgresSyncAPIAdapter } from '../api/PostgresSyncAPIAdapter.js';
+import { PostgresRouteAPIAdapter } from '../api/PostgresSyncAPIAdapter.js';
 import { SupabaseKeyCollector } from '../auth/SupabaseKeyCollector.js';
 import { PostgresReplicationAdapter } from '../replication/PostgresReplicationAdapter.js';
 
@@ -38,7 +38,7 @@ export class PostgresModule extends replication.ReplicationModule {
   }
 
   protected createSyncAPIAdapter(config: types.PostgresConnectionConfig): api.RouteAPI {
-    return new PostgresSyncAPIAdapter(this.resolveConfig(config));
+    return new PostgresRouteAPIAdapter(this.resolveConfig(config));
   }
 
   protected createReplicationAdapter(config: types.PostgresConnectionConfig): PostgresReplicationAdapter {
