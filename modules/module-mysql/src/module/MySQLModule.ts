@@ -9,13 +9,13 @@ export class MySQLModule extends replication.ReplicationModule {
   constructor() {
     super({
       name: 'MySQL',
-      type: types.MSSQL_CONNECTION_TYPE
+      type: types.MYSQL_CONNECTION_TYPE
     });
   }
 
   protected configSchema(): t.AnyCodec {
     // Intersection types have some limitations in codec typing
-    return types.MSSQLConnectionConfig;
+    return types.MySQLConnectionConfig;
   }
 
   async initialize(context: system.ServiceContextContainer): Promise<void> {
@@ -28,18 +28,18 @@ export class MySQLModule extends replication.ReplicationModule {
     // });
   }
 
-  protected createSyncAPIAdapter(config: types.MSSQLConnectionConfig): api.RouteAPI {
+  protected createSyncAPIAdapter(config: types.MySQLConnectionConfig): api.RouteAPI {
     return new MySQLAPIAdapter(this.resolveConfig(config));
   }
 
-  protected createReplicationAdapter(config: types.MSSQLConnectionConfig): MSSQLReplicationAdapter {
+  protected createReplicationAdapter(config: types.MySQLConnectionConfig): MSSQLReplicationAdapter {
     return new MSSQLReplicationAdapter(this.resolveConfig(config));
   }
 
   /**
    * Combines base config with normalized connection settings
    */
-  private resolveConfig(config: types.MSSQLConnectionConfig): types.ResolvedConnectionConfig {
+  private resolveConfig(config: types.MySQLConnectionConfig): types.ResolvedConnectionConfig {
     return {
       ...config,
       ...types.normalizeConnectionConfig(config)

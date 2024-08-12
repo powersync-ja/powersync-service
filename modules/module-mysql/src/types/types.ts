@@ -2,9 +2,9 @@ import * as service_types from '@powersync/service-types';
 import * as t from 'ts-codec';
 import * as urijs from 'uri-js';
 
-export const MSSQL_CONNECTION_TYPE = 'mssql' as const;
+export const MYSQL_CONNECTION_TYPE = 'mysql' as const;
 
-export interface NormalizedMSSQLConnectionConfig {
+export interface NormalizedMySQLConnectionConfig {
   id: string;
   tag: string;
 
@@ -14,17 +14,11 @@ export interface NormalizedMSSQLConnectionConfig {
 
   username: string;
   password: string;
-
-  //   TODO other fields
 }
 
-export const MSSQLConnectionConfig = service_types.configFile.dataSourceConfig.and(
+export const MySQLConnectionConfig = service_types.configFile.dataSourceConfig.and(
   t.object({
-    type: t.literal(MSSQL_CONNECTION_TYPE),
-    /** Unique identifier for the connection - optional when a single connection is present. */
-    id: t.string.optional(),
-    /** Tag used as reference in sync rules. Defaults to "default". Does not have to be unique. */
-    tag: t.string.optional(),
+    type: t.literal(MYSQL_CONNECTION_TYPE),
     uri: t.string.optional(),
     hostname: t.string.optional(),
     port: service_types.configFile.portCodec.optional(),
@@ -37,34 +31,31 @@ export const MSSQLConnectionConfig = service_types.configFile.dataSourceConfig.a
 /**
  * Config input specified when starting services
  */
-export type MSSQLConnectionConfig = t.Decoded<typeof MSSQLConnectionConfig>;
+export type MySQLConnectionConfig = t.Decoded<typeof MySQLConnectionConfig>;
 
 /**
- * Resolved version of {@link PostgresConnectionConfig}
+ * Resolved version of {@link MySQLConnectionConfig}
  */
-export type ResolvedConnectionConfig = MSSQLConnectionConfig & NormalizedMSSQLConnectionConfig;
+export type ResolvedConnectionConfig = MySQLConnectionConfig & NormalizedMySQLConnectionConfig;
 
 /**
  * Validate and normalize connection options.
  *
  * Returns destructured options.
  */
-export function normalizeConnectionConfig(options: MSSQLConnectionConfig): NormalizedMSSQLConnectionConfig {
-  //   TOOD
+export function normalizeConnectionConfig(options: MySQLConnectionConfig): NormalizedMySQLConnectionConfig {
   let uri: urijs.URIComponents;
   if (options.uri) {
     uri = urijs.parse(options.uri);
-    if (uri.scheme != 'postgresql' && uri.scheme != 'postgres') {
-      `Invalid URI - protocol must be postgresql, got ${uri.scheme}`;
-    } else if (uri.scheme != 'postgresql') {
-      uri.scheme = 'postgresql';
+    if (uri.scheme != 'mysql') {
+      throw new Error(`Invalid URI - protocol must be mysql, got ${uri.scheme}`);
     }
   } else {
     uri = urijs.parse('postgresql:///');
   }
 
   const hostname = options.hostname ?? uri.host ?? '';
-  const port = Number(options.port ?? uri.port ?? 5432);
+  const port = Number(options.port ?? uri.port ?? 3306);
 
   const database = options.database ?? uri.path?.substring(1) ?? '';
 
@@ -72,13 +63,6 @@ export function normalizeConnectionConfig(options: MSSQLConnectionConfig): Norma
 
   const username = options.username ?? uri_username ?? '';
   const password = options.password ?? uri_password ?? '';
-
-  const sslmode = options.sslmode ?? 'verify-full'; // Configuration not supported via URI
-  const cacert = options.cacert;
-
-  if (sslmode == 'verify-ca' && cacert == null) {
-    throw new Error('Explicit cacert is required for sslmode=verify-ca');
-  }
 
   if (hostname == '') {
     throw new Error(`hostname required`);

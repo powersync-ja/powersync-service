@@ -28,14 +28,15 @@
     "@powersync/service-jsonbig": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",
     "@powersync/service-types": "workspace:*",
+    "mysql2": "^3.11.0",
     "ts-codec": "^1.2.2",
-    "uuid": "^9.0.1",
-    "uri-js": "^4.4.1"
+    "uri-js": "^4.4.1",
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
     "@types/uuid": "^9.0.4",
     "typescript": "^5.2.2",
-    "vitest": "^0.34.6",
-    "vite-tsconfig-paths": "^4.3.2"
+    "vite-tsconfig-paths": "^4.3.2",
+    "vitest": "^0.34.6"
   }
 }

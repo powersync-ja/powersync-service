@@ -2,12 +2,24 @@ import { api } from '@powersync/service-core';
 
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
+import mysql from 'mysql2/promise';
 import * as types from '../types/types.js';
 
 export class MySQLAPIAdapter implements api.RouteAPI {
-  constructor(protected config: types.ResolvedConnectionConfig) {}
+  protected pool: mysql.Pool;
 
-  async shutdown(): Promise<void> {}
+  constructor(protected config: types.ResolvedConnectionConfig) {
+    this.pool = mysql.createPool({
+      host: config.hostname,
+      user: config.username,
+      password: config.password,
+      database: config.database
+    });
+  }
+
+  async shutdown(): Promise<void> {
+    return this.pool.end();
+  }
 
   async getSourceConfig(): Promise<service_types.configFile.DataSourceConfig> {
     return this.config;
