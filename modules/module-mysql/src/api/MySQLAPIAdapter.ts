@@ -57,51 +57,53 @@ export class MySQLAPIAdapter implements api.RouteAPI {
   }
 
   async executeQuery(query: string, params: any[]): Promise<service_types.internal_routes.ExecuteSqlResponse> {
-    throw new Error('not implemented');
-
-    // if (!this.config.debug_api) {
-    //   return service_types.internal_routes.ExecuteSqlResponse.encode({
-    //     results: {
-    //       columns: [],
-    //       rows: []
-    //     },
-    //     success: false,
-    //     error: 'SQL querying is not enabled'
-    //   });
-    // }
-    // try {
-    //   const result = await this.pool.query({
-    //     statement: query,
-    //     params: params.map(pg_utils.autoParameter)
-    //   });
-    //   return service_types.internal_routes.ExecuteSqlResponse.encode({
-    //     success: true,
-    //     results: {
-    //       columns: result.columns.map((c) => c.name),
-    //       rows: result.rows.map((row) => {
-    //         return row.map((value) => {
-    //           const sqlValue = sync_rules.toSyncRulesValue(value);
-    //           if (typeof sqlValue == 'bigint') {
-    //             return Number(value);
-    //           } else if (sync_rules.isJsonValue(sqlValue)) {
-    //             return sqlValue;
-    //           } else {
-    //             return null;
-    //           }
-    //         });
-    //       })
-    //     }
-    //   });
-    // } catch (e) {
-    //   return service_types.internal_routes.ExecuteSqlResponse.encode({
-    //     results: {
-    //       columns: [],
-    //       rows: []
-    //     },
-    //     success: false,
-    //     error: e.message
-    //   });
-    // }
+    if (!this.config.debug_enabled) {
+      return service_types.internal_routes.ExecuteSqlResponse.encode({
+        results: {
+          columns: [],
+          rows: []
+        },
+        success: false,
+        error: 'SQL querying is not enabled'
+      });
+    }
+    try {
+      const [results, fields] = await this.pool.query<mysql.RowDataPacket[]>(query, params);
+      return service_types.internal_routes.ExecuteSqlResponse.encode({
+        success: true,
+        results: {
+          columns: fields.map((c) => c.name),
+          rows: results.map((row) => {
+            /**
+             * Row will be in the format:
+             * @rows: [ { test: 2 } ]
+             */
+            return fields.map((c) => {
+              const value = row[c.name];
+              const sqlValue = sync_rules.toSyncRulesValue(value);
+              if (typeof sqlValue == 'bigint') {
+                return Number(value);
+              } else if (value instanceof Date) {
+                return value.toISOString();
+              } else if (sync_rules.isJsonValue(sqlValue)) {
+                return sqlValue;
+              } else {
+                return null;
+              }
+            });
+          })
+        }
+      });
+    } catch (e) {
+      return service_types.internal_routes.ExecuteSqlResponse.encode({
+        results: {
+          columns: [],
+          rows: []
+        },
+        success: false,
+        error: e.message
+      });
+    }
   }
 
   async getDebugTablesInfo(
