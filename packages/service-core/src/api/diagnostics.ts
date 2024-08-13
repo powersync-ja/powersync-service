@@ -2,8 +2,8 @@ import { logger } from '@powersync/lib-services-framework';
 import { DEFAULT_TAG, SourceTableInterface, SqlSyncRules } from '@powersync/service-sync-rules';
 import { SyncRulesStatus, TableInfo } from '@powersync/service-types';
 
+import { RouterServiceContext } from '../routes/router.js';
 import * as storage from '../storage/storage-index.js';
-import * as system from '../system/system-index.js';
 
 export interface DiagnosticsOptions {
   /**
@@ -27,7 +27,7 @@ export interface DiagnosticsOptions {
 export const DEFAULT_DATASOURCE_ID = 'default';
 
 export async function getSyncRulesStatus(
-  serviceContext: system.ServiceContext,
+  serviceContext: RouterServiceContext,
   sync_rules: storage.PersistedSyncRulesContent | null,
   options: DiagnosticsOptions
 ): Promise<SyncRulesStatus | undefined> {
@@ -63,6 +63,9 @@ export async function getSyncRulesStatus(
 
   let tables_flat: TableInfo[] = [];
 
+  const sourceConfig = await api?.getSourceConfig();
+  const tag = sourceConfig?.tag ?? DEFAULT_TAG;
+
   if (check_connection) {
     if (!api) {
       throw new Error('No connection configured');
@@ -70,6 +73,7 @@ export async function getSyncRulesStatus(
 
     const source_table_patterns = rules.getSourceTables();
     const resolved_tables = await api.getDebugTablesInfo(source_table_patterns, rules);
+
     tables_flat = resolved_tables.flatMap((info) => {
       if (info.table) {
         return [info.table];
@@ -135,9 +139,6 @@ export async function getSyncRulesStatus(
       };
     })
   );
-
-  const sourceConfig = await api?.getSourceConfig();
-  const tag = sourceConfig?.tag ?? DEFAULT_TAG;
 
   return {
     content: include_content ? sync_rules.sync_rules_content : undefined,

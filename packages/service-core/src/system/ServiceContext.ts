@@ -10,8 +10,8 @@ export interface ServiceContext {
   configuration: utils.ResolvedPowerSyncConfig;
   lifeCycleEngine: LifeCycledSystem;
   metrics: metrics.Metrics;
-  replicationEngine: replication.ReplicationEngine;
-  routerEngine: routes.RouterEngine;
+  replicationEngine: replication.ReplicationEngine | null;
+  routerEngine: routes.RouterEngine | null;
   storage: storage.StorageFactoryProvider;
 }
 
@@ -35,12 +35,12 @@ export class ServiceContextContainer implements ServiceContext {
     this.storage.registerProvider(new storage.MongoStorageProvider());
   }
 
-  get replicationEngine(): replication.ReplicationEngine {
-    return this.get(replication.ReplicationEngine);
+  get replicationEngine(): replication.ReplicationEngine | null {
+    return container.getOptional(replication.ReplicationEngine);
   }
 
-  get routerEngine(): routes.RouterEngine {
-    return this.get(routes.RouterEngine);
+  get routerEngine(): routes.RouterEngine | null {
+    return container.getOptional(routes.RouterEngine);
   }
 
   get metrics(): metrics.Metrics {

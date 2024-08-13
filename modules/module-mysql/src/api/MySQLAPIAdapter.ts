@@ -4,6 +4,7 @@ import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import mysql from 'mysql2/promise';
 import * as types from '../types/types.js';
+import { checkSourceConfiguration, readMasterComparableGtid, retriedQuery } from '../utils/mysql_utils.js';
 
 export class MySQLAPIAdapter implements api.RouteAPI {
   protected pool: mysql.Pool;
@@ -26,34 +27,43 @@ export class MySQLAPIAdapter implements api.RouteAPI {
   }
 
   async getConnectionStatus(): Promise<service_types.ConnectionStatusV2> {
-    throw new Error('not implemented');
-    // const base = {
-    //   id: this.config.id,
-    //   uri: types.baseUri(this.config)
-    // };
-    // try {
-    //   await pg_utils.retriedQuery(this.pool, `SELECT 'PowerSync connection test'`);
-    // } catch (e) {
-    //   return {
-    //     ...base,
-    //     connected: false,
-    //     errors: [{ level: 'fatal', message: e.message }]
-    //   };
-    // }
-    // try {
-    //   await replication_utils.checkSourceConfiguration(this.pool);
-    // } catch (e) {
-    //   return {
-    //     ...base,
-    //     connected: true,
-    //     errors: [{ level: 'fatal', message: e.message }]
-    //   };
-    // }
-    // return {
-    //   ...base,
-    //   connected: true,
-    //   errors: []
-    // };
+    const base = {
+      id: this.config.id,
+      uri: `mysql://${this.config.hostname}:${this.config.port}/${this.config.database}`
+    };
+    try {
+      await retriedQuery({
+        db: this.pool,
+        query: `SELECT 'PowerSync connection test'`
+      });
+    } catch (e) {
+      return {
+        ...base,
+        connected: false,
+        errors: [{ level: 'fatal', message: `${e.code} - message: ${e.message}` }]
+      };
+    }
+    try {
+      const errors = await checkSourceConfiguration(this.pool);
+      if (errors.length) {
+        return {
+          ...base,
+          connected: true,
+          errors: errors.map((e) => ({ level: 'fatal', message: e }))
+        };
+      }
+    } catch (e) {
+      return {
+        ...base,
+        connected: true,
+        errors: [{ level: 'fatal', message: e.message }]
+      };
+    }
+    return {
+      ...base,
+      connected: true,
+      errors: []
+    };
   }
 
   async executeQuery(query: string, params: any[]): Promise<service_types.internal_routes.ExecuteSqlResponse> {
@@ -110,7 +120,62 @@ export class MySQLAPIAdapter implements api.RouteAPI {
     tablePatterns: sync_rules.TablePattern[],
     sqlSyncRules: sync_rules.SqlSyncRules
   ): Promise<api.PatternResult[]> {
-    throw new Error('not implemented');
+    let result: api.PatternResult[] = [];
+
+    for (let tablePattern of tablePatterns) {
+      const schema = tablePattern.schema;
+      let patternResult: api.PatternResult = {
+        schema: schema,
+        pattern: tablePattern.tablePattern,
+        wildcard: tablePattern.isWildcard
+      };
+      result.push(patternResult);
+
+      if (tablePattern.isWildcard) {
+        patternResult.tables = [];
+        const prefix = tablePattern.tablePrefix;
+
+        const [results] = await this.pool.query<mysql.RowDataPacket[]>(
+          `SELECT TABLE_NAME AS table_name
+           FROM INFORMATION_SCHEMA.TABLES
+           WHERE TABLE_SCHEMA = ?
+           AND TABLE_NAME LIKE ?`,
+          [schema, tablePattern.tablePattern]
+        );
+
+        for (let row of results) {
+          const name = row.table_name as string;
+
+          if (!name.startsWith(prefix)) {
+            continue;
+          }
+
+          // const details = await getDebugTableInfo(tablePattern, name, sqlSyncRules);
+          // patternResult.tables.push(details);
+        }
+      } else {
+        const [results] = await this.pool.query<mysql.RowDataPacket[]>(
+          `SELECT TABLE_NAME AS table_name
+           FROM INFORMATION_SCHEMA.TABLES
+           WHERE TABLE_SCHEMA = ?
+           AND TABLE_NAME = ?`,
+          [schema, tablePattern.tablePattern]
+        );
+
+        // if (results.length == 0) {
+        //   // Table not found
+        //   const details = await getDebugTableInfo(tablePattern, tablePattern.name, sqlSyncRules);
+        //   patternResult.table = details;
+        // } else {
+        //   const row = results[0];
+        //   const name = row.table_name as string;
+
+        //   patternResult.table = await getDebugTableInfo(tablePattern, name, sqlSyncRules);
+        // }
+      }
+    }
+
+    return result;
 
     // let result: api.PatternResult[] = [];
     // for (let tablePattern of tablePatterns) {
@@ -249,32 +314,35 @@ export class MySQLAPIAdapter implements api.RouteAPI {
   }
 
   async getReplicationLag(syncRulesId: string): Promise<number> {
-    throw new Error('not implemented');
+    const [binLogFiles] = await retriedQuery({
+      db: this.pool,
+      query: `SHOW MASTER STATUS`
+    });
 
-    //     const results = await pg_utils.retriedQuery(this.pool, {
-    //       statement: `SELECT
-    //   slot_name,
-    //   confirmed_flush_lsn,
-    //   pg_current_wal_lsn(),
-    //   (pg_current_wal_lsn() - confirmed_flush_lsn) AS lsn_distance
-    // FROM pg_replication_slots WHERE slot_name = $1 LIMIT 1;`,
-    //       params: [{ type: 'varchar', value: syncRulesId }]
-    //     });
-    //     const [row] = pgwire.pgwireRows(results);
-    //     if (row) {
-    //       return Number(row.lsn_distance);
-    //     }
+    /**
+     * The format will be something like:
+     *  Array<{
+     *     File: 'binlog.000002',
+     *     Position: 197,
+     *     Binlog_Do_DB: '',
+     *     Binlog_Ignore_DB: '',
+     *     Executed_Gtid_Set: 'a7b95c22-5987-11ef-ac5e-0242ac190003:1-12'
+     *   }>
+     * The file should be the syncRulesId. The Position should be the current head in bytes.
+     */
+
+    const matchingFile = binLogFiles.find((f) => f.File == syncRulesId);
+    if (!matchingFile) {
+      throw new Error(`Could not determine replication lag for file ${syncRulesId}: File not found.`);
+    }
+
+    //  TODO, it seems that the lag needs to be tracked manually
 
     throw new Error(`Could not determine replication lag for slot ${syncRulesId}`);
   }
 
   async getReplicationHead(): Promise<string> {
-    throw new Error('not implemented');
-
-    // const [{ lsn }] = pgwire.pgwireRows(
-    //   await pg_utils.retriedQuery(this.pool, `SELECT pg_logical_emit_message(false, 'powersync', 'ping') as lsn`)
-    // );
-    // return String(lsn);
+    return readMasterComparableGtid(this.pool);
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {

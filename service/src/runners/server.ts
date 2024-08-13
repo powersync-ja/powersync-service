@@ -14,7 +14,7 @@ export const registerServerServices = (serviceContext: core.system.ServiceContex
   serviceContext.register(core.routes.RouterEngine, new core.routes.RouterEngine());
   serviceContext.lifeCycleEngine.withLifecycle(serviceContext.routerEngine, {
     start: async (routerEngine) => {
-      await routerEngine.start(async (routes) => {
+      await routerEngine!.start(async (routes) => {
         const server = fastify.fastify();
 
         server.register(cors, {
@@ -54,7 +54,7 @@ export const registerServerServices = (serviceContext: core.system.ServiceContex
         };
       });
     },
-    stop: (routerEngine) => routerEngine.shutdown()
+    stop: (routerEngine) => routerEngine!.shutdown()
   });
 };
 

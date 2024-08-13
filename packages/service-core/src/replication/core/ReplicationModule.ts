@@ -75,10 +75,10 @@ export abstract class ReplicationModule extends modules.AbstractModule {
       const decodedConfig = this.configSchema().decode(baseMatchingConfig);
       const replicationAdapter = this.createReplicationAdapter(decodedConfig);
       this.replicationAdapters.add(replicationAdapter);
-      context.replicationEngine.register(replicationAdapter);
+      context.replicationEngine?.register(replicationAdapter);
 
       const apiAdapter = this.createSyncAPIAdapter(decodedConfig);
-      context.routerEngine.registerAPI(apiAdapter);
+      context.routerEngine?.registerAPI(apiAdapter);
     } catch (e) {
       logger.error(e);
     }
