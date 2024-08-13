@@ -20,7 +20,8 @@ program
   .command('generate-token')
   .description('Generate a JWT from for a given powersync.yaml config file')
   .option('-c, --config [config]', 'path to powersync.yaml')
-  .option('-u, --sub [sub]', 'sub field for auto-generated token')
+  .option('-u, --sub [sub]', 'payload sub')
+  .option('-e, --endpoint [endpoint]', 'additional payload aud')
   .action(async (options) => {
     const credentials = await getCredentials(options);
     const decoded = await jose.decodeJwt(credentials.token);
