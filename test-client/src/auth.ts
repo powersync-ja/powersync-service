@@ -37,7 +37,7 @@ export async function getCredentials(options: CredentialsOptions): Promise<{ end
       endpoint = `http://127.0.0.1:${parsed.port ?? 8080}`;
     }
 
-    const aud = parsed.client_auth?.audience?.[0] ?? endpoint;
+    const aud = [parsed.client_auth?.audience?.[0], endpoint].filter((a) => a != null);
 
     const rawKey = keys[0];
     const key = await jose.importJWK(rawKey);
@@ -50,7 +50,7 @@ export async function getCredentials(options: CredentialsOptions): Promise<{ end
       .setIssuedAt()
       .setIssuer('test-client')
       .setAudience(aud)
-      .setExpirationTime('1h')
+      .setExpirationTime('24h')
       .sign(key);
 
     return { token, endpoint };
