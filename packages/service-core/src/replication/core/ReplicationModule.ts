@@ -1,4 +1,3 @@
-import { logger, schema } from '@powersync/lib-services-framework';
 import { DataSourceConfig } from '@powersync/service-types/dist/config/PowerSyncConfig.js';
 import * as t from 'ts-codec';
 
@@ -7,6 +6,8 @@ import * as api from '../../api/api-index.js';
 import * as modules from '../../modules/modules-index.js';
 import * as system from '../../system/system-index.js';
 import { ReplicationAdapter } from './ReplicationAdapter.js';
+import { logger, schema } from '@powersync/lib-services-framework';
+import { Replicator } from './Replicator.js';
 
 export interface ReplicationModuleOptions extends modules.AbstractModuleOptions {
   type: string;
@@ -40,7 +41,7 @@ export abstract class ReplicationModule extends modules.AbstractModule {
   /**
    *  Create the ReplicationAdapter to be used by PowerSync replicator.
    */
-  protected abstract createReplicationAdapter(config: DataSourceConfig): ReplicationAdapter;
+  protected abstract createReplicator(): Replicator;
 
   /**
    *  Return the TS codec schema describing the required configuration values for this module.
@@ -69,10 +70,7 @@ export abstract class ReplicationModule extends modules.AbstractModule {
       // If validation fails, log the error and continue, no replication will happen for this data source
       this.validateConfig(baseMatchingConfig);
       const decodedConfig = this.configSchema().decode(baseMatchingConfig);
-      const replicationAdapter = this.createReplicationAdapter(decodedConfig);
-      this.replicationAdapters.add(replicationAdapter);
-      context.replicationEngine.register(replicationAdapter);
-
+      context.replicationEngine.register(this.createReplicator());
       const apiAdapter = this.createSyncAPIAdapter(decodedConfig);
       context.routerEngine.registerAPI(apiAdapter);
     } catch (e) {
