@@ -8,30 +8,42 @@ import { DefaultErrorRateLimiter } from './ErrorRateLimiter.js';
 import { WalStreamRunner } from './WalStreamRunner.js';
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
 import { container, logger } from '@powersync/lib-services-framework';
+import { Replicator } from './core/Replicator.js';
 
 // 5 minutes
 const PING_INTERVAL = 1_000_000_000n * 300n;
 
-export class WalStreamManager {
-  private streams = new Map<number, WalStreamRunner>();
+export interface WalStreamManagerOptions {
+  id: string;
+  system: CorePowerSyncSystem;
+  storage: storage.BucketStorageFactory;
+}
 
-  private system: CorePowerSyncSystem;
+export class WalStreamManager implements Replicator {
+  private streams = new Map<number, WalStreamRunner>();
 
   private stopped = false;
 
   // First ping is only after 5 minutes, not when starting
   private lastPing = hrtime.bigint();
 
-  private storage: storage.BucketStorageFactory;
-
   /**
    * This limits the effect of retries when there is a persistent issue.
    */
   private rateLimiter = new DefaultErrorRateLimiter();
 
-  constructor(system: CorePowerSyncSystem) {
-    this.system = system;
-    this.storage = system.storage;
+  constructor(private options: WalStreamManagerOptions) {}
+
+  public get id() {
+    return this.options.id;
+  }
+
+  private get storage() {
+    return this.options.storage;
+  }
+
+  private get system() {
+    return this.options.system;
   }
 
   start() {
