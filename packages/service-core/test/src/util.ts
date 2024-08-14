@@ -1,16 +1,13 @@
-import * as pgwire from '@powersync/service-jpgwire';
-import { normalizeConnection } from '@powersync/service-types';
-import * as mongo from 'mongodb';
-import { BucketStorageFactory, SyncBucketDataBatch } from '../../src/storage/BucketStorage.js';
-import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
-import { PowerSyncMongo } from '../../src/storage/mongo/db.js';
-import { escapeIdentifier } from '../../src/util/pgwire_utils.js';
-import { env } from './env.js';
 import { Metrics } from '@/metrics/Metrics.js';
-import { hashData } from '@/util/utils.js';
+import { BucketStorageFactory, SyncBucketDataBatch } from '@/storage/BucketStorage.js';
+import { MongoBucketStorage } from '@/storage/MongoBucketStorage.js';
 import { SourceTable } from '@/storage/SourceTable.js';
-import * as bson from 'bson';
+import { PowerSyncMongo } from '@/storage/mongo/db.js';
 import { SyncBucketData } from '@/util/protocol-types.js';
+import { hashData } from '@/util/utils.js';
+import * as bson from 'bson';
+import * as mongo from 'mongodb';
+import { env } from './env.js';
 
 // The metrics need to be initialised before they can be used
 await Metrics.initialise({
@@ -20,8 +17,6 @@ await Metrics.initialise({
 });
 Metrics.getInstance().resetCounters();
 
-export const TEST_URI = env.PG_TEST_URL;
-
 export type StorageFactory = () => Promise<BucketStorageFactory>;
 
 export const MONGO_STORAGE_FACTORY: StorageFactory = async () => {
@@ -29,47 +24,6 @@ export const MONGO_STORAGE_FACTORY: StorageFactory = async () => {
   await db.clear();
   return new MongoBucketStorage(db, { slot_name_prefix: 'test_' });
 };
-
-export async function clearTestDb(db: pgwire.PgClient) {
-  await db.query(
-    "select pg_drop_replication_slot(slot_name) from pg_replication_slots where active = false and slot_name like 'test_%'"
-  );
-
-  await db.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
-  try {
-    await db.query(`DROP PUBLICATION powersync`);
-  } catch (e) {
-    // Ignore
-  }
-
-  await db.query(`CREATE PUBLICATION powersync FOR ALL TABLES`);
-
-  const tableRows = pgwire.pgwireRows(
-    await db.query(`SELECT table_name FROM information_schema.tables where table_schema = 'public'`)
-  );
-  for (let row of tableRows) {
-    const name = row.table_name;
-    if (name.startsWith('test_')) {
-      await db.query(`DROP TABLE public.${escapeIdentifier(name)}`);
-    }
-  }
-}
-
-export const TEST_CONNECTION_OPTIONS = normalizeConnection({
-  type: 'postgresql',
-  uri: TEST_URI,
-  sslmode: 'disable'
-});
-
-export async function connectPgWire(type?: 'replication' | 'standard') {
-  const db = await pgwire.connectPgWire(TEST_CONNECTION_OPTIONS, { type });
-  return db;
-}
-
-export function connectPgPool() {
-  const db = pgwire.connectPgWirePool(TEST_CONNECTION_OPTIONS);
-  return db;
-}
 
 export async function connectMongo() {
   // Short timeout for tests, to fail fast when the server is not available.
@@ -92,7 +46,7 @@ export function makeTestTable(name: string, columns?: string[] | undefined) {
     relId,
     SourceTable.DEFAULT_SCHEMA,
     name,
-    (columns ?? ['id']).map((column) => ({ name: column, typeOid: 25 })),
+    (columns ?? ['id']).map((column) => ({ name: column, type: 'VARCHAR', typeOid: 25 })),
     true
   );
 }

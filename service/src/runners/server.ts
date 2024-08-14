@@ -1,56 +1,88 @@
 import cors from '@fastify/cors';
-import { container, logger } from '@powersync/lib-services-framework';
-import * as core from '@powersync/service-core';
 import fastify from 'fastify';
 
+import { container, logger } from '@powersync/lib-services-framework';
+import * as core from '@powersync/service-core';
+
+import { MetricModes, registerMetrics } from '../metrics.js';
 import { SocketRouter } from '../routes/router.js';
-import { PowerSyncSystem } from '../system/PowerSyncSystem.js';
+
+/**
+ * Configures the server portion on a {@link ServiceContext}
+ */
+export const registerServerServices = (serviceContext: core.system.ServiceContextContainer) => {
+  serviceContext.register(core.routes.RouterEngine, new core.routes.RouterEngine());
+  serviceContext.lifeCycleEngine.withLifecycle(serviceContext.routerEngine, {
+    start: async (routerEngine) => {
+      await routerEngine.start(async (routes) => {
+        const server = fastify.fastify();
+
+        server.register(cors, {
+          origin: '*',
+          allowedHeaders: ['Content-Type', 'Authorization'],
+          exposedHeaders: ['Content-Type'],
+          // Cache time for preflight response
+          maxAge: 3600
+        });
+
+        core.routes.configureFastifyServer(server, {
+          service_context: serviceContext,
+          routes: { api: { routes: routes.api_routes }, sync_stream: { routes: routes.stream_routes } }
+        });
+
+        core.routes.configureRSocket(SocketRouter, {
+          server: server.server,
+          service_context: serviceContext,
+          route_generators: routes.socket_routes
+        });
+
+        const { port } = serviceContext.configuration;
+
+        await server.listen({
+          host: '0.0.0.0',
+          port
+        });
+
+        logger.info(`Running on port ${port}`);
+
+        return {
+          onShutdown: async () => {
+            logger.info('Shutting down HTTP server...');
+            await server.close();
+            logger.info('HTTP server stopped');
+          }
+        };
+      });
+    },
+    stop: (routerEngine) => routerEngine.shutdown()
+  });
+};
+
 /**
  * Starts an API server
  */
-export async function startServer(runnerConfig: core.utils.RunnerConfig) {
+export const startServer = async (runnerConfig: core.utils.RunnerConfig) => {
   logger.info('Booting');
 
   const config = await core.utils.loadConfig(runnerConfig);
-  const system = new PowerSyncSystem(config);
+  const serviceContext = new core.system.ServiceContextContainer(config);
 
-  const server = fastify.fastify();
+  registerServerServices(serviceContext);
 
-  server.register(cors, {
-    origin: '*',
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    exposedHeaders: ['Content-Type'],
-    // Cache time for preflight response
-    maxAge: 3600
+  await registerMetrics({
+    service_context: serviceContext,
+    modes: [MetricModes.API]
   });
 
-  core.routes.configureFastifyServer(server, { system });
-  core.routes.configureRSocket(SocketRouter, { server: server.server, system });
+  const moduleManager = container.getImplementation(core.modules.ModuleManager);
+  await moduleManager.initialize(serviceContext);
 
-  logger.info('Starting system');
-  await system.start();
-  logger.info('System started');
+  logger.info('Starting service');
+  await serviceContext.lifeCycleEngine.start();
+  logger.info('service started');
 
-  core.Metrics.getInstance().configureApiMetrics();
-
-  await server.listen({
-    host: '0.0.0.0',
-    port: system.config.port
-  });
-
-  container.terminationHandler.handleTerminationSignal(async () => {
-    logger.info('Shutting down HTTP server...');
-    await server.close();
-    logger.info('HTTP server stopped');
-  });
-
-  // MUST be after adding the termination handler above.
-  // This is so that the handler is run before the server's handler, allowing streams to be interrupted on exit
-  system.addTerminationHandler();
-
-  logger.info(`Running on port ${system.config.port}`);
   await container.probes.ready();
 
   // Enable in development to track memory usage:
   // trackMemoryUsage();
-}
+};

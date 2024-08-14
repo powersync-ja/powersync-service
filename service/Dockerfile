@@ -17,6 +17,8 @@ COPY packages/types/package.json packages/types/tsconfig.json packages/types/
 
 COPY libs/lib-services/package.json libs/lib-services/tsconfig.json libs/lib-services/
 
+COPY modules/module-postgres/package.json modules/module-postgres/tsconfig.json modules/module-postgres/
+
 RUN pnpm install --frozen-lockfile
 
 COPY service/src service/src/
@@ -30,6 +32,8 @@ COPY packages/rsocket-router/src packages/rsocket-router/src/
 COPY packages/types/src packages/types/src/
 
 COPY libs/lib-services/src libs/lib-services/src/
+
+COPY modules/module-postgres/src modules/module-postgres/src/
 
 RUN pnpm build:production && \
     rm -rf node_modules **/node_modules && \

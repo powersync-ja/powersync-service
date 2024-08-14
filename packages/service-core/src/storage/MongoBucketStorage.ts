@@ -1,14 +1,17 @@
-import * as mongo from 'mongodb';
-import * as timers from 'timers/promises';
-import { LRUCache } from 'lru-cache/min';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
+import { LRUCache } from 'lru-cache/min';
+import * as mongo from 'mongodb';
+import * as timers from 'timers/promises';
 
-import * as replication from '../replication/replication-index.js';
+import * as locks from '../locks/locks-index.js';
 import * as sync from '../sync/sync-index.js';
 import * as util from '../util/util-index.js';
-import * as locks from '../locks/locks-index.js';
 
+import { ZERO_LSN } from './mongo/MongoBucketBatch.js';
+
+import { logger } from '@powersync/lib-services-framework';
+import { v4 as uuid } from 'uuid';
 import {
   ActiveCheckpoint,
   BucketStorageFactory,
@@ -23,8 +26,6 @@ import { MongoSyncBucketStorage } from './mongo/MongoSyncBucketStorage.js';
 import { PowerSyncMongo, PowerSyncMongoOptions } from './mongo/db.js';
 import { SyncRuleDocument, SyncRuleState } from './mongo/models.js';
 import { generateSlotName } from './mongo/util.js';
-import { v4 as uuid } from 'uuid';
-import { logger } from '@powersync/lib-services-framework';
 
 export interface MongoBucketStorageOptions extends PowerSyncMongoOptions {}
 
@@ -370,7 +371,7 @@ export class MongoBucketStorage implements BucketStorageFactory {
   private makeActiveCheckpoint(doc: SyncRuleDocument | null) {
     return {
       checkpoint: util.timestampToOpId(doc?.last_checkpoint ?? 0n),
-      lsn: doc?.last_checkpoint_lsn ?? replication.ZERO_LSN,
+      lsn: doc?.last_checkpoint_lsn ?? ZERO_LSN,
       hasSyncRules() {
         return doc != null;
       },

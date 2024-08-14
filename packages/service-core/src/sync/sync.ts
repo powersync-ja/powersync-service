@@ -8,10 +8,9 @@ import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
 import { logger } from '@powersync/lib-services-framework';
-import { Metrics } from '../metrics/Metrics.js';
 import { mergeAsyncIterables } from './merge.js';
-import { TokenStreamOptions, tokenStream } from './util.js';
 import { RequestTracker } from './RequestTracker.js';
+import { TokenStreamOptions, tokenStream } from './util.js';
 
 /**
  * Maximum number of connections actively fetching data.

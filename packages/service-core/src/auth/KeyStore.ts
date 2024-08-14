@@ -1,9 +1,9 @@
+import { logger } from '@powersync/lib-services-framework';
 import * as jose from 'jose';
 import secs from '../util/secs.js';
-import { KeyOptions, KeySpec, SUPPORTED_ALGORITHMS } from './KeySpec.js';
-import { KeyCollector } from './KeyCollector.js';
 import { JwtPayload } from './JwtPayload.js';
-import { logger } from '@powersync/lib-services-framework';
+import { KeyCollector } from './KeyCollector.js';
+import { KeyOptions, KeySpec, SUPPORTED_ALGORITHMS } from './KeySpec.js';
 
 /**
  * KeyStore to get keys and verify tokens.
@@ -32,10 +32,13 @@ import { logger } from '@powersync/lib-services-framework';
  * If we have a matching kid, we can generally get a detailed error (e.g. signature verification failed, invalid algorithm, etc).
  * If we don't have a matching kid, we'll generally just get an error "Could not find an appropriate key...".
  */
-export class KeyStore {
-  private collector: KeyCollector;
+export class KeyStore<Collector extends KeyCollector = KeyCollector> {
+  /**
+   * @internal
+   */
+  collector: Collector;
 
-  constructor(collector: KeyCollector) {
+  constructor(collector: Collector) {
     this.collector = collector;
   }
 

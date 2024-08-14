@@ -1,13 +1,11 @@
 import { Attributes, Counter, ObservableGauge, UpDownCounter, ValueType } from '@opentelemetry/api';
-import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
-import { MeterProvider, MetricReader, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
-import * as jpgwire from '@powersync/service-jpgwire';
-import * as util from '../util/util-index.js';
-import * as storage from '../storage/storage-index.js';
-import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
+import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
 import { Resource } from '@opentelemetry/resources';
+import { MeterProvider, MetricReader, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { logger } from '@powersync/lib-services-framework';
+import * as storage from '../storage/storage-index.js';
+import * as util from '../util/util-index.js';
 
 export interface MetricsOptions {
   disable_telemetry_sharing: boolean;
@@ -202,7 +200,7 @@ Anonymous telemetry is currently: ${options.disable_telemetry_sharing ? 'disable
     this.concurrent_connections.add(0);
   }
 
-  public configureReplicationMetrics(system: CorePowerSyncSystem) {
+  public configureReplicationMetrics(bucketStorage: storage.BucketStorageFactory) {
     // Rate limit collection of these stats, since it may be an expensive query
     const MINIMUM_INTERVAL = 60_000;
 
@@ -211,7 +209,7 @@ Anonymous telemetry is currently: ${options.disable_telemetry_sharing ? 'disable
 
     function getMetrics() {
       if (cachedRequest == null || Date.now() - cacheTimestamp > MINIMUM_INTERVAL) {
-        cachedRequest = system.storage.getStorageMetrics().catch((e) => {
+        cachedRequest = bucketStorage.getStorageMetrics().catch((e) => {
           logger.error(`Failed to get storage metrics`, e);
           return null;
         });
@@ -238,14 +236,6 @@ Anonymous telemetry is currently: ${options.disable_telemetry_sharing ? 'disable
       const metrics = await getMetrics();
       if (metrics) {
         result.observe(metrics.replication_size_bytes);
-      }
-    });
-
-    const class_scoped_data_replicated_bytes = this.data_replicated_bytes;
-    // Record replicated bytes using global jpgwire metrics.
-    jpgwire.setMetricsRecorder({
-      addBytesRead(bytes) {
-        class_scoped_data_replicated_bytes.add(bytes);
       }
     });
   }

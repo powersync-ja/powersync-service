@@ -18,8 +18,11 @@ export * as framework from '@powersync/lib-services-framework';
 export * from './metrics/Metrics.js';
 export * as metrics from './metrics/Metrics.js';
 
-export * from './migrations/migrations.js';
 export * as migrations from './migrations/migrations-index.js';
+export * from './migrations/migrations.js';
+
+export * from './modules/modules-index.js';
+export * as modules from './modules/modules-index.js';
 
 export * from './replication/replication-index.js';
 export * as replication from './replication/replication-index.js';
@@ -33,7 +36,7 @@ export * as storage from './storage/storage-index.js';
 export * from './sync/sync-index.js';
 export * as sync from './sync/sync-index.js';
 
-export * from './system/CorePowerSyncSystem.js';
+export * from './system/system-index.js';
 export * as system from './system/system-index.js';
 
 export * from './util/util-index.js';

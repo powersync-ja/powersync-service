@@ -1,9 +1,9 @@
 import * as jose from 'jose';
 
 import * as auth from '../auth/auth-index.js';
+import { ServiceContext } from '../system/ServiceContext.js';
 import * as util from '../util/util-index.js';
 import { BasicRouterRequest, Context, RequestEndpointHandlerPayload } from './router.js';
-import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
 
 export function endpoint(req: BasicRouterRequest) {
   const protocol = req.headers['x-forwarded-proto'] ?? req.protocol;
@@ -108,7 +108,7 @@ export async function authorizeUser(context: Context, authHeader: string = '') {
     };
   }
 
-  const { context: tokenContext, errors } = await generateContext(context.system, token);
+  const { context: tokenContext, errors } = await generateContext(context.service_context, token);
 
   if (!tokenContext) {
     return {
@@ -121,14 +121,14 @@ export async function authorizeUser(context: Context, authHeader: string = '') {
   return { authorized: true };
 }
 
-export async function generateContext(system: CorePowerSyncSystem, token: string) {
-  const config = system.config;
+export async function generateContext(serviceContext: ServiceContext, token: string) {
+  const { configuration } = serviceContext;
 
   let tokenPayload: auth.JwtPayload;
   try {
-    const maxAge = config.token_max_expiration;
-    tokenPayload = await system.client_keystore.verifyJwt(token, {
-      defaultAudiences: config.jwt_audiences,
+    const maxAge = configuration.token_max_expiration;
+    tokenPayload = await configuration.client_keystore.verifyJwt(token, {
+      defaultAudiences: configuration.jwt_audiences,
       maxAge: maxAge
     });
     return {
@@ -149,9 +149,14 @@ export async function generateContext(system: CorePowerSyncSystem, token: string
  * @deprecated
  */
 export const authDevUser = async (payload: RequestEndpointHandlerPayload) => {
-  const context = payload.context;
+  const {
+    context: {
+      service_context: { configuration }
+    }
+  } = payload;
+
   const token = getTokenFromHeader(payload.request.headers.authorization as string);
-  if (!context.system.config.dev.demo_auth) {
+  if (!configuration.dev.demo_auth) {
     return {
       authorized: false,
       errors: ['Authentication disabled']
@@ -170,7 +175,7 @@ export const authDevUser = async (payload: RequestEndpointHandlerPayload) => {
 
   let tokenPayload: auth.JwtPayload;
   try {
-    tokenPayload = await context.system.dev_client_keystore.verifyJwt(token, {
+    tokenPayload = await configuration.dev_client_keystore.verifyJwt(token, {
       defaultAudiences: audience,
       maxAge: '31d'
     });
@@ -186,8 +191,12 @@ export const authDevUser = async (payload: RequestEndpointHandlerPayload) => {
 };
 
 export const authApi = (payload: RequestEndpointHandlerPayload) => {
-  const context = payload.context;
-  const api_keys = context.system.config.api_tokens;
+  const {
+    context: {
+      service_context: { configuration }
+    }
+  } = payload;
+  const api_keys = configuration.api_tokens;
   if (api_keys.length == 0) {
     return {
       authorized: false,

@@ -1,10 +1,12 @@
-import { BucketStorageFactory } from '../../storage/BucketStorage.js';
-import { SyncRulesConfig } from '../../util/config/types.js';
+import { ReplicationAdapter } from './ReplicationAdapter.js';
 import { Replicator } from './Replicator.js';
 
+import * as storage from '../../storage/storage-index.js';
+import * as utils from '.././../util/util-index.js';
+
 export interface ReplicationEngineOptions {
-  storage: BucketStorageFactory;
-  config: SyncRulesConfig;
+  storage: storage.StorageFactoryProvider;
+  config: utils.SyncRulesConfig;
 }
 
 export class ReplicationEngine {
