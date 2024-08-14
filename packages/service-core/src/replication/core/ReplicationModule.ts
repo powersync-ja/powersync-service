@@ -58,6 +58,10 @@ export abstract class ReplicationModule extends modules.AbstractModule {
     }
 
     const matchingConfig = context.configuration.connections.filter((dataSource) => dataSource.type === this.type);
+    if (!matchingConfig.length) {
+      // This module is needed given the config
+      return;
+    }
 
     if (matchingConfig.length > 1) {
       logger.warning(

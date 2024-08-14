@@ -7,7 +7,7 @@ import * as replication_utils from '../replication/replication-utils.js';
 import * as types from '../types/types.js';
 import * as pg_utils from '../utils/pgwire_utils.js';
 
-export class PostgresSyncAPIAdapter implements api.RouteAPI {
+export class PostgresRouteAPIAdapter implements api.RouteAPI {
   protected pool: pgwire.PgClient;
 
   connectionTag: string;

@@ -13,6 +13,18 @@
     "build": "tsc -b",
     "clean": "rm -rf ./lib && tsc -b --clean"
   },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./types": {
+      "import": "./dist/types/types.js",
+      "require": "./dist/types/types.js",
+      "default": "./dist/types/types.js"
+    }
+  },
   "dependencies": {
     "@powersync/lib-services-framework": "workspace:*",
     "@powersync/service-core": "workspace:*",
