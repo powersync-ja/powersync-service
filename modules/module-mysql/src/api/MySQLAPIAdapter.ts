@@ -1,10 +1,11 @@
-import { api } from '@powersync/service-core';
+import { api, storage } from '@powersync/service-core';
 
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import mysql from 'mysql2/promise';
 import * as types from '../types/types.js';
 import { checkSourceConfiguration, readMasterComparableGtid, retriedQuery } from '../utils/mysql_utils.js';
+import { getReplicationIdentityColumns, ReplicationIdentityColumnsResult } from '../utils/replication/schema.js';
 
 export class MySQLAPIAdapter implements api.RouteAPI {
   protected pool: mysql.Pool;
@@ -122,7 +123,14 @@ export class MySQLAPIAdapter implements api.RouteAPI {
   ): Promise<api.PatternResult[]> {
     let result: api.PatternResult[] = [];
 
-    for (let tablePattern of tablePatterns) {
+    /**
+     * This is a hack. The schema should always be the database name in MySQL.
+     * The default value of `public` is not valid.
+     * We might need to implement this better where the original table patterns are created.
+     */
+    const mappedPatterns = tablePatterns.map((t) => new sync_rules.TablePattern(this.config.database, t.tablePattern));
+
+    for (let tablePattern of mappedPatterns) {
       const schema = tablePattern.schema;
       let patternResult: api.PatternResult = {
         schema: schema,
@@ -150,8 +158,8 @@ export class MySQLAPIAdapter implements api.RouteAPI {
             continue;
           }
 
-          // const details = await getDebugTableInfo(tablePattern, name, sqlSyncRules);
-          // patternResult.tables.push(details);
+          const details = await this.getDebugTableInfo(tablePattern, name, sqlSyncRules);
+          patternResult.tables.push(details);
         }
       } else {
         const [results] = await this.pool.query<mysql.RowDataPacket[]>(
@@ -159,158 +167,83 @@ export class MySQLAPIAdapter implements api.RouteAPI {
            FROM INFORMATION_SCHEMA.TABLES
            WHERE TABLE_SCHEMA = ?
            AND TABLE_NAME = ?`,
-          [schema, tablePattern.tablePattern]
+          [
+            /**
+             * TODO:!!!! The Schema here is the default Postgres `public`
+             * which is not a thing in MySQL. The TABLE_SCHEMA in MySQL is the database name.
+             */
+            // schema
+            this.config.database,
+            tablePattern.tablePattern
+          ]
         );
 
-        // if (results.length == 0) {
-        //   // Table not found
-        //   const details = await getDebugTableInfo(tablePattern, tablePattern.name, sqlSyncRules);
-        //   patternResult.table = details;
-        // } else {
-        //   const row = results[0];
-        //   const name = row.table_name as string;
-
-        //   patternResult.table = await getDebugTableInfo(tablePattern, name, sqlSyncRules);
-        // }
+        if (results.length == 0) {
+          // Table not found
+          const details = await this.getDebugTableInfo(tablePattern, tablePattern.name, sqlSyncRules);
+          patternResult.table = details;
+        } else {
+          const row = results[0];
+          patternResult.table = await this.getDebugTableInfo(tablePattern, row.table_name, sqlSyncRules);
+        }
       }
     }
 
     return result;
-
-    // let result: api.PatternResult[] = [];
-    // for (let tablePattern of tablePatterns) {
-    //   const schema = tablePattern.schema;
-    //   let patternResult: api.PatternResult = {
-    //     schema: schema,
-    //     pattern: tablePattern.tablePattern,
-    //     wildcard: tablePattern.isWildcard
-    //   };
-    //   result.push(patternResult);
-    //   if (tablePattern.isWildcard) {
-    //     patternResult.tables = [];
-    //     const prefix = tablePattern.tablePrefix;
-    //     const results = await pg_utils.retriedQuery(this.pool, {
-    //       statement: `SELECT c.oid AS relid, c.relname AS table_name
-    //     FROM pg_class c
-    //     JOIN pg_namespace n ON n.oid = c.relnamespace
-    //     WHERE n.nspname = $1
-    //     AND c.relkind = 'r'
-    //     AND c.relname LIKE $2`,
-    //       params: [
-    //         { type: 'varchar', value: schema },
-    //         { type: 'varchar', value: tablePattern.tablePattern }
-    //       ]
-    //     });
-    //     for (let row of pgwire.pgwireRows(results)) {
-    //       const name = row.table_name as string;
-    //       const relationId = row.relid as number;
-    //       if (!name.startsWith(prefix)) {
-    //         continue;
-    //       }
-    //       const details = await this.getDebugTableInfo(tablePattern, name, relationId, sqlSyncRules);
-    //       patternResult.tables.push(details);
-    //     }
-    //   } else {
-    //     const results = await pg_utils.retriedQuery(this.pool, {
-    //       statement: `SELECT c.oid AS relid, c.relname AS table_name
-    //     FROM pg_class c
-    //     JOIN pg_namespace n ON n.oid = c.relnamespace
-    //     WHERE n.nspname = $1
-    //     AND c.relkind = 'r'
-    //     AND c.relname = $2`,
-    //       params: [
-    //         { type: 'varchar', value: schema },
-    //         { type: 'varchar', value: tablePattern.tablePattern }
-    //       ]
-    //     });
-    //     if (results.rows.length == 0) {
-    //       // Table not found
-    //       const details = await this.getDebugTableInfo(tablePattern, tablePattern.name, null, sqlSyncRules);
-    //       patternResult.table = details;
-    //     } else {
-    //       const row = pgwire.pgwireRows(results)[0];
-    //       const name = row.table_name as string;
-    //       const relationId = row.relid as number;
-    //       patternResult.table = await this.getDebugTableInfo(tablePattern, name, relationId, sqlSyncRules);
-    //     }
-    //   }
-    // }
-    // return result;
   }
 
   protected async getDebugTableInfo(
     tablePattern: sync_rules.TablePattern,
-    name: string,
-    relationId: number | null,
+    tableName: string,
     syncRules: sync_rules.SqlSyncRules
   ): Promise<service_types.TableInfo> {
-    throw new Error('not implemented');
+    const { schema } = tablePattern;
 
-    // const schema = tablePattern.schema;
-    // let id_columns_result: replication_utils.ReplicaIdentityResult | undefined = undefined;
-    // let id_columns_error = null;
-    // if (relationId != null) {
-    //   try {
-    //     id_columns_result = await replication_utils.getReplicationIdentityColumns(this.pool, relationId);
-    //   } catch (e) {
-    //     id_columns_error = { level: 'fatal', message: e.message };
-    //   }
-    // }
-    // const id_columns = id_columns_result?.replicationColumns ?? [];
-    // const sourceTable = new storage.SourceTable(0, this.connectionTag, relationId ?? 0, schema, name, id_columns, true);
-    // const syncData = syncRules.tableSyncsData(sourceTable);
-    // const syncParameters = syncRules.tableSyncsParameters(sourceTable);
-    // if (relationId == null) {
-    //   return {
-    //     schema: schema,
-    //     name: name,
-    //     pattern: tablePattern.isWildcard ? tablePattern.tablePattern : undefined,
-    //     replication_id: [],
-    //     data_queries: syncData,
-    //     parameter_queries: syncParameters,
-    //     // Also
-    //     errors: [{ level: 'warning', message: `Table ${sourceTable.qualifiedName} not found.` }]
-    //   };
-    // }
-    // if (id_columns.length == 0 && id_columns_error == null) {
-    //   let message = `No replication id found for ${sourceTable.qualifiedName}. Replica identity: ${id_columns_result?.replicationIdentity}.`;
-    //   if (id_columns_result?.replicationIdentity == 'default') {
-    //     message += ' Configure a primary key on the table.';
-    //   }
-    //   id_columns_error = { level: 'fatal', message };
-    // }
-    // let selectError = null;
-    // try {
-    //   await pg_utils.retriedQuery(this.pool, `SELECT * FROM ${sourceTable.escapedIdentifier} LIMIT 1`);
-    // } catch (e) {
-    //   selectError = { level: 'fatal', message: e.message };
-    // }
-    // let replicateError = null;
-    // const publications = await pg_utils.retriedQuery(this.pool, {
-    //   statement: `SELECT tablename FROM pg_publication_tables WHERE pubname = $1 AND schemaname = $2 AND tablename = $3`,
-    //   params: [
-    //     { type: 'varchar', value: this.publication_name },
-    //     { type: 'varchar', value: tablePattern.schema },
-    //     { type: 'varchar', value: name }
-    //   ]
-    // });
-    // if (publications.rows.length == 0) {
-    //   replicateError = {
-    //     level: 'fatal',
-    //     message: `Table ${sourceTable.qualifiedName} is not part of publication '${this.publication_name}'. Run: \`ALTER PUBLICATION ${this.publication_name} ADD TABLE ${sourceTable.qualifiedName}\`.`
-    //   };
-    // }
-    // return {
-    //   schema: schema,
-    //   name: name,
-    //   pattern: tablePattern.isWildcard ? tablePattern.tablePattern : undefined,
-    //   replication_id: id_columns.map((c) => c.name),
-    //   data_queries: syncData,
-    //   parameter_queries: syncParameters,
-    //   errors: [id_columns_error, selectError, replicateError].filter(
-    //     (error) => error != null
-    //   ) as service_types.ReplicationError[]
-    // };
+    let idColumnsResult: ReplicationIdentityColumnsResult | null = null;
+    let idColumnsError: service_types.ReplicationError | null = null;
+    try {
+      idColumnsResult = await getReplicationIdentityColumns({
+        db: this.pool,
+        schema,
+        table_name: tableName
+      });
+    } catch (ex) {
+      idColumnsError = { level: 'fatal', message: ex.message };
+    }
+
+    const idColumns = idColumnsResult?.columns ?? [];
+    const sourceTable = new storage.SourceTable(0, this.config.tag, tableName, schema, tableName, idColumns, true);
+    const syncData = syncRules.tableSyncsData(sourceTable);
+    const syncParameters = syncRules.tableSyncsParameters(sourceTable);
+
+    if (idColumns.length == 0 && idColumnsError == null) {
+      let message = `No replication id found for ${sourceTable.qualifiedName}. Replica identity: ${idColumnsResult?.identity}.`;
+      if (idColumnsResult?.identity == 'default') {
+        message += ' Configure a primary key on the table.';
+      }
+      idColumnsError = { level: 'fatal', message };
+    }
+
+    let selectError: service_types.ReplicationError | null = null;
+    try {
+      await retriedQuery({
+        db: this.pool,
+        query: `SELECT * FROM ${sourceTable.table} LIMIT 1`
+      });
+    } catch (e) {
+      selectError = { level: 'fatal', message: e.message };
+    }
+
+    // Not sure if table level checks are possible yet
+    return {
+      schema: schema,
+      name: tableName,
+      pattern: tablePattern.isWildcard ? tablePattern.tablePattern : undefined,
+      replication_id: idColumns.map((c) => c.name),
+      data_queries: syncData,
+      parameter_queries: syncParameters,
+      errors: [idColumnsError, selectError].filter((error) => error != null) as service_types.ReplicationError[]
+    };
   }
 
   async getReplicationLag(syncRulesId: string): Promise<number> {
