@@ -1,26 +1,25 @@
 import { hrtime } from 'node:process';
 
-import * as storage from '../../../../packages/service-core/src/storage/storage-index.js';
-import * as util from '../../../../packages/service-core/src/util/util-index.js';
-
-import { DefaultErrorRateLimiter } from '@powersync/service-core';
-
-import { Replicator } from '@powersync/service-core';
+import * as pgwire from '@powersync/service-jpgwire';
+import { Replicator, SyncRulesProvider, DefaultErrorRateLimiter, storage } from '@powersync/service-core';
 import { WalStreamRunner } from './WalStreamRunner.js';
-import { ServiceContext } from '@powersync/service-core';
+import { PgManager } from './PgManager.js';
+import { container, logger } from '@powersync/lib-services-framework';
+import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
 
 // 5 minutes
 const PING_INTERVAL = 1_000_000_000n * 300n;
 
 export interface WalStreamManagerOptions {
   id: string;
-  serviceContext: ServiceContext;
-  storage: storage.BucketStorageFactory;
-  connectionPool: util.PgManager;
+  storageFactory: storage.StorageFactoryProvider;
+  syncRuleProvider: SyncRulesProvider;
+  connectionFactory: ConnectionManagerFactory;
 }
 
 export class WalStreamManager implements Replicator {
   private streams = new Map<number, WalStreamRunner>();
+  private connectionManager: PgManager | null = null;
 
   private stopped = false;
 
@@ -39,14 +38,19 @@ export class WalStreamManager implements Replicator {
   }
 
   private get storage() {
-    return this.options.storage;
+    return this.options.storageFactory.bucketStorage;
   }
 
-  private get serviceContext() {
-    return this.options.serviceContext;
+  private get syncRuleProvider() {
+    return this.options.syncRuleProvider;
+  }
+
+  private get connectionFactory() {
+    return this.options.connectionFactory;
   }
 
   start() {
+    this.connectionManager = this.connectionFactory.create({ maxSize: 1, idleTimeout: 30000 });
     this.runLoop().catch((e) => {
       logger.error(`Fatal WalStream error`, e);
       container.reporter.captureException(e);
@@ -62,11 +66,12 @@ export class WalStreamManager implements Replicator {
     for (let stream of this.streams.values()) {
       promises.push(stream.stop());
     }
+    promises.push(this.connectionManager!.end());
     await Promise.all(promises);
   }
 
   private async runLoop() {
-    const configured_sync_rules = await util.loadSyncRules(this.serviceContext.config);
+    const configured_sync_rules = await this.syncRuleProvider.get();
     let configured_lock: storage.ReplicationLock | undefined = undefined;
     if (configured_sync_rules != null) {
       logger.info('Loading sync rules from configuration');
@@ -89,7 +94,7 @@ export class WalStreamManager implements Replicator {
     while (!this.stopped) {
       await container.probes.touch();
       try {
-        const pool = this.serviceContext.pgwire_pool;
+        const pool = this.connectionManager?.pool;
         if (pool) {
           await this.refresh({ configured_lock });
           // The lock is only valid on the first refresh.
@@ -168,7 +173,7 @@ export class WalStreamManager implements Replicator {
           const stream = new WalStreamRunner({
             factory: this.storage,
             storage: storage,
-            source_db: this.serviceContext.config.connection!,
+            connectionFactory: this.connectionFactory,
             lock,
             rateLimiter: this.rateLimiter
           });
@@ -210,7 +215,7 @@ export class WalStreamManager implements Replicator {
           const stream = new WalStreamRunner({
             factory: this.storage,
             storage: storage,
-            source_db: this.serviceContext.config.connection!,
+            connectionFactory: this.connectionFactory,
             lock
           });
           await stream.terminate();

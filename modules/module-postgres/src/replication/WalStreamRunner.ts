@@ -1,15 +1,13 @@
-import * as pgwire from '@powersync/service-jpgwire';
-import * as storage from '@powersync/service-core/dist/storage/storage-index.js';
 import { MissingReplicationSlotError, WalStream } from './WalStream.js';
 import { container, logger } from '@powersync/lib-services-framework';
 import { PgManager } from './PgManager.js';
-import { ErrorRateLimiter } from '@powersync/service-core';
-import { NormalizedPostgresConnectionConfig } from '../types/types.js';
+import { ErrorRateLimiter, storage } from '@powersync/service-core';
+import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
 
 export interface WalStreamRunnerOptions {
   factory: storage.BucketStorageFactory;
   storage: storage.SyncRulesBucketStorage;
-  sourceDbConfig: NormalizedPostgresConnectionConfig;
+  connectionFactory: ConnectionManagerFactory;
   lock: storage.ReplicationLock;
   rateLimiter?: ErrorRateLimiter;
 }
@@ -19,7 +17,7 @@ export class WalStreamRunner {
 
   private runPromise?: Promise<void>;
 
-  private connections: PgManager | null = null;
+  private connectionManager: PgManager | null = null;
 
   private rateLimiter?: ErrorRateLimiter;
 
@@ -37,6 +35,10 @@ export class WalStreamRunner {
 
   get stopped() {
     return this.abortController.signal.aborted;
+  }
+
+  private get connectionFactory() {
+    return this.options.connectionFactory;
   }
 
   async run() {
@@ -75,12 +77,11 @@ export class WalStreamRunner {
     // New connections on every iteration (every error with retry),
     // otherwise we risk repeating errors related to the connection,
     // such as caused by cached PG schemas.
-    let connections = new PgManager(this.options.sourceDbConfig, {
+    this.connectionManager = this.connectionFactory.create({
       // Pool connections are only used intermittently.
       idleTimeout: 30_000,
       maxSize: 2
     });
-    this.connections = connections;
     try {
       await this.rateLimiter?.waitUntilAllowed({ signal: this.abortController.signal });
       if (this.stopped) {
@@ -90,7 +91,7 @@ export class WalStreamRunner {
         abort_signal: this.abortController.signal,
         factory: this.options.factory,
         storage: this.options.storage,
-        connections
+        connections: this.connectionManager
       });
       await stream.replicate();
     } catch (e) {
@@ -131,10 +132,10 @@ export class WalStreamRunner {
         this.rateLimiter?.reportError(e);
       }
     } finally {
-      this.connections = null;
-      if (connections != null) {
-        await connections.end();
+      if (this.connectionManager) {
+        await this.connectionManager.end();
       }
+      this.connectionManager = null;
     }
   }
 
@@ -148,7 +149,7 @@ export class WalStreamRunner {
 
     if (options?.force) {
       // destroy() is more forceful.
-      await this.connections?.destroy();
+      await this.connectionManager?.destroy();
     }
     await this.runPromise;
   }
@@ -163,14 +164,14 @@ export class WalStreamRunner {
     await this.stop(options);
 
     const slotName = this.slot_name;
-    const db = await pgwire.connectPgWire(this.options.sourceDbConfig, { type: 'standard' });
+    const connectionManager = this.connectionFactory.create({ maxSize: 1, idleTimeout: 30_000 });
     try {
-      await db.query({
+      await connectionManager.pool.query({
         statement: 'SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1',
         params: [{ type: 'varchar', value: slotName }]
       });
     } finally {
-      await db.end();
+      await connectionManager.end();
     }
 
     await this.options.storage.terminate();

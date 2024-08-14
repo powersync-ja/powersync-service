@@ -11,14 +11,16 @@ import { Replicator } from './Replicator.js';
 
 export interface ReplicationModuleOptions extends modules.AbstractModuleOptions {
   type: string;
+  configSchema: t.AnyCodec;
 }
 
 /**
  *  A replication module describes all the functionality that PowerSync requires to
  *  replicate data from a DataSource. Whenever a new data source is added to powersync this class should be extended.
  */
-export abstract class ReplicationModule extends modules.AbstractModule {
+export abstract class ReplicationModule<TConfig extends DataSourceConfig> extends modules.AbstractModule {
   protected type: string;
+  protected configSchema: t.AnyCodec;
 
   protected replicationAdapters: Set<ReplicationAdapter>;
 
@@ -26,9 +28,10 @@ export abstract class ReplicationModule extends modules.AbstractModule {
    * @protected
    * @param options
    */
-  protected constructor(options: ReplicationModuleOptions) {
+  protected constructor(protected options: ReplicationModuleOptions) {
     super(options);
     this.type = options.type;
+    this.configSchema = options.configSchema;
     this.replicationAdapters = new Set();
   }
 
@@ -36,17 +39,12 @@ export abstract class ReplicationModule extends modules.AbstractModule {
    *  Create the API adapter for the DataSource required by the sync API
    *  endpoints.
    */
-  protected abstract createSyncAPIAdapter(config: DataSourceConfig): api.RouteAPI;
+  protected abstract createRouteAPIAdapter(decodedConfig: TConfig): api.RouteAPI;
 
   /**
    *  Create the ReplicationAdapter to be used by PowerSync replicator.
    */
-  protected abstract createReplicator(): Replicator;
-
-  /**
-   *  Return the TS codec schema describing the required configuration values for this module.
-   */
-  protected abstract configSchema(): t.AnyCodec;
+  protected abstract createReplicator(decodedConfig: TConfig, context: system.ServiceContext): Replicator;
 
   /**
    *  Register this module's replication adapters and sync API providers if the required configuration is present.
@@ -70,23 +68,26 @@ export abstract class ReplicationModule extends modules.AbstractModule {
     }
 
     try {
-      const baseMatchingConfig = matchingConfig[0];
+      const baseMatchingConfig = matchingConfig[0] as TConfig;
       // If validation fails, log the error and continue, no replication will happen for this data source
       this.validateConfig(baseMatchingConfig);
-      const decodedConfig = this.configSchema().decode(baseMatchingConfig);
-      context.replicationEngine.register(this.createReplicator());
-      const apiAdapter = this.createSyncAPIAdapter(decodedConfig);
+      const decodedConfig = this.configSchema.decode(baseMatchingConfig);
+      context.replicationEngine.register(this.createReplicator(decodedConfig, context));
+      const apiAdapter = this.createRouteAPIAdapter(decodedConfig);
       context.routerEngine.registerAPI(apiAdapter);
     } catch (e) {
       logger.error(e);
     }
   }
 
-  private validateConfig(config: DataSourceConfig): void {
+  private validateConfig(config: TConfig): void {
     const validator = schema
       .parseJSONSchema(
         // This generates a schema for the encoded form of the codec
-        t.generateJSONSchema(this.configSchema(), { allowAdditional: true, parsers: [types.configFile.portParser] })
+        t.generateJSONSchema(this.configSchema, {
+          allowAdditional: true,
+          parsers: [types.configFile.portParser]
+        })
       )
       .validator();
 
@@ -95,5 +96,9 @@ export abstract class ReplicationModule extends modules.AbstractModule {
     if (!valid.valid) {
       throw new Error(`Failed to validate Module ${this.name} configuration: ${valid.errors.join(', ')}`);
     }
+  }
+
+  protected getDefaultId(dataSourceName: string): string {
+    return `${this.type}-${dataSourceName}`;
   }
 }

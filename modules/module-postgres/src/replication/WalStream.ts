@@ -1,11 +1,10 @@
 import * as pgwire from '@powersync/service-jpgwire';
-import * as storage from '@powersync/service-core/dist/storage/storage-index.js';
 import * as util from '../utils/pgwire_utils.js';
 import { container, errors, logger } from '@powersync/lib-services-framework';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
 import { getPgOutputRelation, getRelId } from './PgRelation.js';
 import { WalConnection } from './WalConnection.js';
-import { Metrics, SourceEntityDescriptor } from '@powersync/service-core';
+import { Metrics, SourceEntityDescriptor, storage } from '@powersync/service-core';
 import { checkSourceConfiguration, getReplicationIdentityColumns } from './replication-utils.js';
 import { PgManager } from './PgManager.js';
 

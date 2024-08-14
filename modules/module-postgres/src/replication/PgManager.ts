@@ -34,7 +34,7 @@ export class PgManager {
     return await p;
   }
 
-  async end() {
+  async end(): Promise<void> {
     for (let result of await Promise.allSettled([
       this.pool.end(),
       ...this.connectionPromises.map(async (promise) => {
