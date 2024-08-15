@@ -4,7 +4,7 @@ import { SqlSyncRules } from './SqlSyncRules.js';
 import { SourceSchema } from './types.js';
 
 export class JsLegacySchemaGenerator extends SchemaGenerator {
-  readonly key = 'js';
+  readonly key = 'jsLegacy';
   readonly label = 'JavaScript (legacy syntax)';
   readonly mediaType = 'text/javascript';
   readonly fileName = 'schema.js';
