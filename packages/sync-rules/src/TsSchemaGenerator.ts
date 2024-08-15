@@ -4,9 +4,25 @@ import { SqlSyncRules } from './SqlSyncRules.js';
 import { SourceSchema } from './types.js';
 
 export interface TsSchemaGeneratorOptions {
-  language?: 'ts' | 'js';
-  imports?: 'web' | 'react-native' | 'auto';
+  language?: TsSchemaLanguage;
+  imports?: TsSchemaImports;
 }
+
+export enum TsSchemaLanguage {
+  ts = 'ts',
+  /** Excludes types from the generated schema. */
+  js = 'js'
+}
+
+export enum TsSchemaImports {
+  web = 'web',
+  reactNative = 'reactNative',
+  /**
+   * Emits imports for `@powersync/web`, with comments for `@powersync/react-native`.
+   */
+  auto = 'auto'
+}
+
 export class TsSchemaGenerator extends SchemaGenerator {
   readonly key = 'ts';
   readonly label = 'TypeScript';
@@ -32,8 +48,8 @@ ${this.generateTypeExports()}`;
   }
 
   private generateTypeExports() {
-    const lang = this.options.language ?? 'ts';
-    if (lang == 'ts') {
+    const lang = this.options.language ?? TsSchemaLanguage.ts;
+    if (lang == TsSchemaLanguage.ts) {
       return `export type Database = (typeof AppSchema)['types'];\n`;
     } else {
       return ``;
@@ -42,9 +58,9 @@ ${this.generateTypeExports()}`;
 
   private generateImports() {
     const importStyle = this.options.imports ?? 'auto';
-    if (importStyle == 'web') {
+    if (importStyle == TsSchemaImports.web) {
       return `import { column, Schema, TableV2 } from '@powersync/web';`;
-    } else if (importStyle == 'react-native') {
+    } else if (importStyle == TsSchemaImports.reactNative) {
       return `import { column, Schema, TableV2 } from '@powersync/react-native';`;
     } else {
       return `import { column, Schema, TableV2 } from '@powersync/web';
