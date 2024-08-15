@@ -238,7 +238,6 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
       selectError = { level: 'fatal', message: e.message };
     }
 
-    // Not sure if table level checks are possible yet
     return {
       schema: schema,
       name: tableName,
@@ -261,7 +260,8 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
       WHERE
         Event_type = 'Previous_gtids'
         AND Info = ?
-      LIMIT 1
+      LIMIT 
+        1
         `,
       params: [binLogFilename, last_checkpoint_identifier]
     });
@@ -283,7 +283,8 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
       WHERE
         File = ?
         AND Info = ?
-      LIMIT 1
+      LIMIT 
+        1
         `,
       params: [binLogFilename]
     });

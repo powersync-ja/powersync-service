@@ -21,16 +21,23 @@ export async function getReplicationIdentityColumns(
   const [primaryKeyColumns] = await retriedQuery({
     db,
     query: `
-      SELECT s.COLUMN_NAME AS name, c.DATA_TYPE AS type
-      FROM INFORMATION_SCHEMA.STATISTICS s
-      JOIN INFORMATION_SCHEMA.COLUMNS c 
-        ON s.TABLE_SCHEMA = c.TABLE_SCHEMA
-        AND s.TABLE_NAME = c.TABLE_NAME
-        AND s.COLUMN_NAME = c.COLUMN_NAME
-      WHERE s.TABLE_SCHEMA = ?
+      SELECT 
+        s.COLUMN_NAME AS name,
+        c.DATA_TYPE AS type
+      FROM 
+        INFORMATION_SCHEMA.STATISTICS s
+        JOIN 
+          INFORMATION_SCHEMA.COLUMNS c 
+            ON 
+              s.TABLE_SCHEMA = c.TABLE_SCHEMA
+              AND s.TABLE_NAME = c.TABLE_NAME
+              AND s.COLUMN_NAME = c.COLUMN_NAME
+      WHERE 
+        s.TABLE_SCHEMA = ?
         AND s.TABLE_NAME = ?
         AND s.INDEX_NAME = 'PRIMARY'
-      ORDER BY s.SEQ_IN_INDEX;
+      ORDER BY 
+        s.SEQ_IN_INDEX;
       `,
     params: [schema, table_name]
   });
@@ -50,13 +57,22 @@ export async function getReplicationIdentityColumns(
   const [uniqueKeyColumns] = await retriedQuery({
     db,
     query: `
-      SELECT s.INDEX_NAME, s.COLUMN_NAME, c.DATA_TYPE, s.NON_UNIQUE, s.NULLABLE
-      FROM INFORMATION_SCHEMA.STATISTICS s
-      JOIN INFORMATION_SCHEMA.COLUMNS c
-        ON s.TABLE_SCHEMA = c.TABLE_SCHEMA
-        AND s.TABLE_NAME = c.TABLE_NAME
-        AND s.COLUMN_NAME = c.COLUMN_NAME
-      WHERE s.TABLE_SCHEMA = ?
+      SELECT 
+        s.INDEX_NAME,
+        s.COLUMN_NAME,
+        c.DATA_TYPE,
+        s.NON_UNIQUE,
+        s.NULLABLE
+      FROM 
+        INFORMATION_SCHEMA.STATISTICS s
+      JOIN 
+        INFORMATION_SCHEMA.COLUMNS c
+          ON 
+            s.TABLE_SCHEMA = c.TABLE_SCHEMA
+            AND s.TABLE_NAME = c.TABLE_NAME
+            AND s.COLUMN_NAME = c.COLUMN_NAME
+      WHERE 
+        s.TABLE_SCHEMA = ?
         AND s.TABLE_NAME = ?
         AND s.INDEX_NAME != 'PRIMARY'
         AND s.NON_UNIQUE = 0
@@ -78,15 +94,22 @@ export async function getReplicationIdentityColumns(
   const [allColumns] = await retriedQuery({
     db,
     query: `
-      SELECT s.COLUMN_NAME AS name, c.DATA_TYPE as type
-      FROM INFORMATION_SCHEMA.COLUMNS s
-      JOIN INFORMATION_SCHEMA.COLUMNS c
-        ON s.TABLE_SCHEMA = c.TABLE_SCHEMA
-        AND s.TABLE_NAME = c.TABLE_NAME
-        AND s.COLUMN_NAME = c.COLUMN_NAME
-      WHERE s.TABLE_SCHEMA = ?
+      SELECT 
+        s.COLUMN_NAME AS name,
+        c.DATA_TYPE as type
+      FROM 
+        INFORMATION_SCHEMA.COLUMNS s
+        JOIN 
+          INFORMATION_SCHEMA.COLUMNS c
+            ON 
+              s.TABLE_SCHEMA = c.TABLE_SCHEMA
+              AND s.TABLE_NAME = c.TABLE_NAME
+              AND s.COLUMN_NAME = c.COLUMN_NAME
+      WHERE 
+        s.TABLE_SCHEMA = ?
         AND s.TABLE_NAME = ?
-      ORDER BY s.ORDINAL_POSITION;
+      ORDER BY 
+        s.ORDINAL_POSITION;
       `,
     params: [schema, table_name]
   });
