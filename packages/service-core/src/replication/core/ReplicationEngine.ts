@@ -11,30 +11,22 @@ export interface ReplicationEngineOptions {
 
 export class ReplicationEngine {
   private readonly options: ReplicationEngineOptions;
-  private readonly replicators: Map<ReplicationAdapter, Replicator> = new Map();
+  private readonly replicators: Map<string, Replicator> = new Map();
 
   constructor(options: ReplicationEngineOptions) {
     this.options = options;
   }
 
   /**
-   *  Create a new Replicator from the provided ReplicationAdapter. Once started the Replicator will begin
-   *  replicating data from the DataSource to PowerSync and keep it up to date.
+   *  Register a Replicator with the engine
    *
-   *  @param adapter
+   *  @param replicator
    */
-  public register(adapter: ReplicationAdapter) {
-    if (this.replicators.has(adapter)) {
-      throw new Error(`Replicator for type ${adapter.name} already registered`);
+  public register(replicator: Replicator) {
+    if (this.replicators.has(replicator.id)) {
+      throw new Error(`Replicator for type ${replicator.id} already registered`);
     }
-    this.replicators.set(
-      adapter,
-      new Replicator({
-        adapter: adapter,
-        storage: this.options.storage,
-        sync_rule_provider: new utils.ConfigurationFileSyncRulesProvider(this.options.config)
-      })
-    );
+    this.replicators.set(replicator.id, replicator);
   }
 
   /**
@@ -42,7 +34,7 @@ export class ReplicationEngine {
    */
   public async start(): Promise<void> {
     for (const replicator of this.replicators.values()) {
-      await replicator.start();
+      replicator.start();
     }
   }
 

@@ -1,9 +1,17 @@
-import { ReplicationAdapter, ReplicationUpdate, UpdateType } from './ReplicationAdapter.js';
+import {
+  CrudOperation,
+  LSNUpdate,
+  ReplicationAdapter,
+  ReplicationMessage,
+  ReplicationMessageType,
+  SchemaUpdate,
+  TruncateRequest
+} from './ReplicationAdapter.js';
 import { container, logger } from '@powersync/lib-services-framework';
 import { ErrorRateLimiter } from '../ErrorRateLimiter.js';
 import { Metrics } from '../../metrics/Metrics.js';
 import * as storage from '../../storage/storage-index.js';
-import { SourceEntityDescriptor } from '../../storage/SourceEntity.js';
+import * as util from './replication-utils.js';
 
 export interface ReplicationJobOptions {
   adapter: ReplicationAdapter;
@@ -41,11 +49,11 @@ export class ReplicationJob {
       // Fatal exception
       container.reporter.captureException(e, {
         metadata: {
-          replicator: this.adapter.name()
+          replicator: this.adapter.name
           // TODO We could allow extra metadata contributed from the adapter here
         }
       });
-      logger.error(`Replication failed on ${this.adapter.name()}`, e);
+      logger.error(`Replication failed on ${this.adapter.name}`, e);
     } finally {
       this.abortController.abort();
     }
@@ -64,14 +72,17 @@ export class ReplicationJob {
 
   async replicate() {
     try {
-      await this.adapter.checkPrerequisites();
+      await this.adapter.ensureConfiguration({ abortSignal: this.abortController.signal });
       const status = await this.storage.getStatus();
       const sourceEntities = await this.getSourceEntities();
-      if (status.snapshot_done && status.checkpoint_lsn) {
+      if (!(status.snapshot_done && status.checkpoint_lsn)) {
+        logger.info(`${this.adapter.name}: Starting initial replication...`);
         await this.storage.clear();
         await this.storage.startBatch({}, async (batch) => {
           await this.initializeData(sourceEntities, batch);
         });
+      } else {
+        logger.info(`${this.adapter.name}: Initial replication already done.`);
       }
       await this.startReplication(sourceEntities);
     } catch (e) {
@@ -85,7 +96,17 @@ export class ReplicationJob {
 
     for (const sourceEntity of this.storage.sync_rules.getSourceTables()) {
       const resolved = await this.adapter.resolveReplicationEntities(sourceEntity);
-      resolvedSourceEntities.push(...resolved);
+      for (const resolvedSourceEntity of resolved) {
+        const result = await this.storage.resolveTable({
+          group_id: this.storage.group_id,
+          connection_id: this.connectionId,
+          connection_tag: sourceEntity.connectionTag,
+          entity_descriptor: resolvedSourceEntity,
+          sync_rules: this.storage.sync_rules
+        });
+
+        resolvedSourceEntities.push(result.table);
+      }
     }
 
     return resolvedSourceEntities;
@@ -95,20 +116,22 @@ export class ReplicationJob {
     let at = 0;
     let replicatedCount = 0;
     let currentEntity: storage.SourceTable | null = null;
-    let estimatedCount = 0;
+    let estimatedCount = 0n;
 
     await this.adapter.initializeData({
       entities: sourceEntities,
       abortSignal: this.abortController.signal,
       entryConsumer: async (batch) => {
+        await util.touch();
+
         if (batch.entity != currentEntity) {
-          logger.info(`${this.adapter.name()}: Replicating: ${batch.entity.table}`);
+          logger.info(`${this.adapter.name}: Replicating: ${batch.entity.table}`);
           currentEntity = batch.entity;
           estimatedCount = await this.adapter.count(currentEntity);
         }
 
         if (batch.entries.length > 0 && at - replicatedCount >= 5000) {
-          logger.info(`${this.adapter.name()}: Replicating: ${currentEntity.table} Progress: ${at}/${estimatedCount}`);
+          logger.info(`${this.adapter.name}: Replicating: ${currentEntity.table} Progress: ${at}/${estimatedCount}`);
         }
 
         for (const entry of batch.entries) {
@@ -123,10 +146,8 @@ export class ReplicationJob {
           at = 0;
           replicatedCount = 0;
           currentEntity = null;
-          estimatedCount = 0;
+          estimatedCount = -1n;
         }
-
-        await this.touch();
       }
     });
   }
@@ -143,32 +164,33 @@ export class ReplicationJob {
     });
   }
 
-  private async handeReplicationUpdate(update: ReplicationUpdate, batch: storage.BucketStorageBatch): Promise<void> {
-    switch (update.type) {
-      case UpdateType.INSERT:
-      case UpdateType.UPDATE:
-      case UpdateType.DELETE:
-        await batch.save(update.entry!);
+  private async handeReplicationUpdate(message: ReplicationMessage, batch: storage.BucketStorageBatch): Promise<void> {
+    switch (message.type) {
+      case ReplicationMessageType.CRUD:
+        const crudOperation = message.payload as CrudOperation;
+        await batch.save(crudOperation.entry);
         Metrics.getInstance().rows_replicated_total.add(1);
         return;
-      case UpdateType.TRUNCATE:
-        await batch.truncate(update.entities);
+      case ReplicationMessageType.TRUNCATE:
+        const truncateRequest = message.payload as TruncateRequest;
+        await batch.truncate(truncateRequest.entities);
         return;
-      case UpdateType.SCHEMA_CHANGE:
-        await this.handleSchemaChange(batch, update.entityDescriptor!, update.entities[0]);
+      case ReplicationMessageType.SCHEMA_CHANGE:
+        const schemaUpdate = message.payload as SchemaUpdate;
+        await this.handleSchemaUpdate(batch, schemaUpdate);
         break;
-      case UpdateType.COMMIT:
-        await batch.commit(update.lsn!);
+      case ReplicationMessageType.COMMIT:
+        await batch.commit((message.payload as LSNUpdate).lsn!);
         Metrics.getInstance().transactions_replicated_total.add(1);
         return;
-      case UpdateType.KEEP_ALIVE:
-        await batch.keepalive(update.lsn!);
+      case ReplicationMessageType.KEEP_ALIVE:
+        await batch.keepalive((message.payload as LSNUpdate).lsn!);
         return;
     }
   }
 
   async stop(): Promise<void> {
-    logger.info(`Stopping ${this.adapter.name()} replication job: ${this.storage.group_id}`);
+    logger.info(`Stopping ${this.adapter.name} replication job: ${this.storage.group_id}`);
     // End gracefully
     this.abortController.abort();
     await this.isReplicatingPromise;
@@ -181,25 +203,21 @@ export class ReplicationJob {
    * TODO: Confirm if this is still needed at all.
    */
   async terminate(): Promise<void> {
-    logger.info(`Terminating ${this.adapter.name()} replication job: ${this.storage.group_id}`);
+    logger.info(`Terminating ${this.adapter.name} replication job: ${this.storage.group_id}`);
     await this.stop();
-    await this.adapter.cleanupReplication(this.storage.group_id);
+    await this.adapter.cleanupReplication();
     await this.options.storage.terminate();
   }
 
-  async handleSchemaChange(
-    storageBatch: storage.BucketStorageBatch,
-    entityDescriptor: SourceEntityDescriptor,
-    entity: storage.SourceTable
-  ): Promise<void> {
-    if (!entityDescriptor.objectId) {
+  async handleSchemaUpdate(storageBatch: storage.BucketStorageBatch, update: SchemaUpdate): Promise<void> {
+    if (!update.entityDescriptor.objectId) {
       throw new Error('relationId expected');
     }
     const result = await this.storage.resolveTable({
       group_id: this.storage.group_id,
       connection_id: this.connectionId,
-      connection_tag: entity.connectionTag,
-      entity_descriptor: entityDescriptor,
+      connection_tag: update.connectionTag,
+      entity_descriptor: update.entityDescriptor,
       sync_rules: this.storage.sync_rules
     });
 
@@ -210,12 +228,5 @@ export class ReplicationJob {
     await storageBatch.truncate([result.table]);
 
     await this.initializeData([result.table], storageBatch);
-  }
-
-  async touch(): Promise<void> {
-    // FIXME: The hosted Kubernetes probe does not actually check the timestamp on this.
-    // FIXME: We need a timeout of around 5+ minutes in Kubernetes if we do start checking the timestamp,
-    // or reduce PING_INTERVAL here.
-    return container.probes.touch();
   }
 }

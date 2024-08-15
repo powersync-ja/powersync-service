@@ -13,7 +13,7 @@ type SchemaResult = {
   columns: Array<{ data_type: string; column_name: string }>;
 };
 
-export class MySQLAPIAdapter implements api.RouteAPI {
+export class MySQLRouteAPIAdapter implements api.RouteAPI {
   protected pool: mysql.Pool;
 
   constructor(protected config: types.ResolvedConnectionConfig) {

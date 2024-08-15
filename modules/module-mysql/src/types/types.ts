@@ -14,6 +14,8 @@ export interface NormalizedMySQLConnectionConfig {
 
   username: string;
   password: string;
+
+  // TODO SSL config
 }
 
 export const MySQLConnectionConfig = service_types.configFile.dataSourceConfig.and(

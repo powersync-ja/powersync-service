@@ -1,25 +1,26 @@
-import { api, auth, replication, system } from '@powersync/service-core';
+import {
+  api,
+  auth,
+  ConfigurationFileSyncRulesProvider,
+  replication,
+  Replicator,
+  system
+} from '@powersync/service-core';
 import * as jpgwire from '@powersync/service-jpgwire';
-import * as t from 'ts-codec';
-
 import { logger } from '@powersync/lib-services-framework';
 import * as types from '../types/types.js';
-
 import { PostgresRouteAPIAdapter } from '../api/PostgresRouteAPIAdapter.js';
 import { SupabaseKeyCollector } from '../auth/SupabaseKeyCollector.js';
-import { PostgresReplicationAdapter } from '../replication/PostgresReplicationAdapter.js';
+import { WalStreamManager } from '../replication/WalStreamManager.js';
+import { ConnectionManagerFactory } from '../replication/ConnectionManagerFactory.js';
 
-export class PostgresModule extends replication.ReplicationModule {
+export class PostgresModule extends replication.ReplicationModule<types.PostgresConnectionConfig> {
   constructor() {
     super({
       name: 'Postgres',
-      type: types.POSTGRES_CONNECTION_TYPE
+      type: types.POSTGRES_CONNECTION_TYPE,
+      configSchema: types.PostgresConnectionConfig
     });
-  }
-
-  protected configSchema(): t.AnyCodec {
-    // Intersection types have some limitations in codec typing
-    return types.PostgresConnectionConfig;
   }
 
   async initialize(context: system.ServiceContextContainer): Promise<void> {
@@ -37,12 +38,24 @@ export class PostgresModule extends replication.ReplicationModule {
     });
   }
 
-  protected createSyncAPIAdapter(config: types.PostgresConnectionConfig): api.RouteAPI {
-    return new PostgresRouteAPIAdapter(this.resolveConfig(config));
+  protected createRouteAPIAdapter(decodedConfig: types.PostgresConnectionConfig): api.RouteAPI {
+    return new PostgresRouteAPIAdapter(this.resolveConfig(decodedConfig));
   }
 
-  protected createReplicationAdapter(config: types.PostgresConnectionConfig): PostgresReplicationAdapter {
-    return new PostgresReplicationAdapter(this.resolveConfig(config));
+  protected createReplicator(
+    decodedConfig: types.PostgresConnectionConfig,
+    context: system.ServiceContext
+  ): Replicator {
+    const normalisedConfig = this.resolveConfig(decodedConfig);
+    const connectionFactory = new ConnectionManagerFactory(normalisedConfig);
+    const syncRuleProvider = new ConfigurationFileSyncRulesProvider(context.configuration.sync_rules);
+
+    return new WalStreamManager({
+      id: this.getDefaultId(normalisedConfig.database),
+      syncRuleProvider: syncRuleProvider,
+      storageFactory: context.storage,
+      connectionFactory: connectionFactory
+    });
   }
 
   /**
@@ -55,40 +68,8 @@ export class PostgresModule extends replication.ReplicationModule {
     };
   }
 
-  async teardown(): Promise<void> {
-    // TODO this needs the service context to operate.
-    // Should this keep a refference?
-    // const mongoDB = storage.createPowerSyncMongo(context.configuration.storage);
-    // try {
-    //   // TODO this should not be necessary since the service context
-    //   // has already been initialized.
-    //   // However we need a direct mongo connection for this.
-    //   // Maybe we can add termination methods to the storage.
-    //   // TODO improve this when other storage methods or connections are implemented
-    //   logger.info(`Waiting for auth`);
-    //   await db.mongo.waitForAuth(mongoDB.db);
-    //   logger.info(`Terminating replication slots`);
-    //   const connections = (context.configuration.connections ?? [])
-    //     .filter((c) => c.type == 'postgresql')
-    //     .map((c) => types.PostgresConnectionConfig.decode(c as any));
-    //   for (const connection of connections) {
-    //     await terminateReplicators(context.storage, this.resolveConfig(connection));
-    //   }
-    //   const database = mongoDB.db;
-    //   logger.info(`Dropping database ${database.namespace}`);
-    //   await database.dropDatabase();
-    //   logger.info(`Done`);
-    //   await mongoDB.client.close();
-    //   // If there was an error connecting to postgress, the process may stay open indefinitely.
-    //   // This forces an exit.
-    //   // We do not consider those errors a teardown failure.
-    //   process.exit(0);
-    // } catch (e) {
-    //   logger.error(`Teardown failure`, e);
-    //   await mongoDB.client.close();
-    //   process.exit(1);
-    // }
-  }
+  // TODO: Confirm if there are any resources that would not already be closed by the Replication and Router engines
+  async teardown(): Promise<void> {}
 
   protected registerSupabaseAuth(context: system.ServiceContextContainer) {
     const { configuration } = context;

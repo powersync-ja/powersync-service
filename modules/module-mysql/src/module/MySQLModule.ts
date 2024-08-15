@@ -1,21 +1,16 @@
 import { api, replication, system } from '@powersync/service-core';
-import * as t from 'ts-codec';
 
-import { MySQLAPIAdapter } from '../api/MySQLAPIAdapter.js';
-import { MSSQLReplicationAdapter } from '../replication/MSSQLReplicationAdapter.js';
+import { MySQLRouteAPIAdapter } from '../api/MySQLRouteAPIAdapter.js';
+import { MSSQLReplicator } from '../replication/MSSQLReplicator.js';
 import * as types from '../types/types.js';
 
-export class MySQLModule extends replication.ReplicationModule {
+export class MySQLModule extends replication.ReplicationModule<types.MySQLConnectionConfig> {
   constructor() {
     super({
       name: 'MySQL',
-      type: types.MYSQL_CONNECTION_TYPE
+      type: types.MYSQL_CONNECTION_TYPE,
+      configSchema: types.MySQLConnectionConfig
     });
-  }
-
-  protected configSchema(): t.AnyCodec {
-    // Intersection types have some limitations in codec typing
-    return types.MySQLConnectionConfig;
   }
 
   async initialize(context: system.ServiceContextContainer): Promise<void> {
@@ -28,12 +23,13 @@ export class MySQLModule extends replication.ReplicationModule {
     // });
   }
 
-  protected createSyncAPIAdapter(config: types.MySQLConnectionConfig): api.RouteAPI {
-    return new MySQLAPIAdapter(this.resolveConfig(config));
+  protected createRouteAPIAdapter(config: types.MySQLConnectionConfig): api.RouteAPI {
+    return new MySQLRouteAPIAdapter(this.resolveConfig(config));
   }
 
-  protected createReplicationAdapter(config: types.MySQLConnectionConfig): MSSQLReplicationAdapter {
-    return new MSSQLReplicationAdapter(this.resolveConfig(config));
+  protected createReplicator(config: types.MySQLConnectionConfig): replication.Replicator {
+    // TODO make this work
+    return new MSSQLReplicator();
   }
 
   /**

@@ -1,4 +1,4 @@
-import { SqliteRow } from '@powersync/service-sync-rules';
+import { ColumnDescriptor } from '../../storage/SourceEntity.js';
 
 /**
  *  Describes a replication entity, which is a logical representation of a table or collection in a data source.
@@ -14,15 +14,15 @@ export interface ReplicationEntityDescriptor {
   /**
    *  Identifier to uniquely identify the entity in PowerSync
    */
-  id: string;
+  id: any;
   /**
-   *  The entity's native identifier in the data source
+   *  The entity's native identifier in the data source (oid)
    */
   dataSourceEntityId: string;
   /**
    *  The field(s) that uniquely identify an entry/row in this replication entity
    */
-  primaryIdentifierFields: string[];
+  primaryIdentifierFields: ColumnDescriptor[];
 
   // Add any additional properties specific to the entity here
   additionalProperties: Record<string, string>;
