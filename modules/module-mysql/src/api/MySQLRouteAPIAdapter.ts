@@ -21,7 +21,12 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
       host: config.hostname,
       user: config.username,
       password: config.password,
-      database: config.database
+      database: config.database,
+      ssl: {
+        ca: config.cacert,
+        key: config.client_private_key,
+        cert: config.client_certificate
+      }
     });
   }
 
@@ -39,8 +44,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
       uri: `mysql://${this.config.hostname}:${this.config.port}/${this.config.database}`
     };
     try {
-      await retriedQuery({
-        db: this.pool,
+      await this.retriedQuery({
         query: `SELECT 'PowerSync connection test'`
       });
     } catch (e) {
@@ -230,8 +234,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
 
     let selectError: service_types.ReplicationError | null = null;
     try {
-      await retriedQuery({
-        db: this.pool,
+      await this.retriedQuery({
         query: `SELECT * FROM ${sourceTable.table} LIMIT 1`
       });
     } catch (e) {
@@ -252,16 +255,15 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
   async getReplicationLag(options: api.ReplicationLagOptions): Promise<number> {
     const { replication_identifier: binLogFilename, last_checkpoint_identifier } = options;
 
-    const [[gtidEvent]] = await retriedQuery({
-      db: this.pool,
+    const [[gtidEvent]] = await this.retriedQuery({
       query: `
-      SHOW 
-        BINLOG EVENTS IN ?
-      WHERE
-        Event_type = 'Previous_gtids'
-        AND Info = ?
-      LIMIT 
-        1
+        SHOW 
+          BINLOG EVENTS IN ?
+        WHERE
+          Event_type = 'Previous_gtids'
+          AND Info = ?
+        LIMIT 
+          1
         `,
       params: [binLogFilename, last_checkpoint_identifier]
     });
@@ -275,16 +277,15 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
     const headBinlogPosition = gtidEvent.Pos;
 
     // Get the position of the latest event in the BinLog file
-    const [[binLogEntry]] = await retriedQuery({
-      db: this.pool,
+    const [[binLogEntry]] = await this.retriedQuery({
       query: `
-      SHOW 
-        master status
-      WHERE
-        File = ?
-        AND Info = ?
-      LIMIT 
-        1
+        SHOW 
+          master status
+        WHERE
+          File = ?
+          AND Info = ?
+        LIMIT 
+          1
         `,
       params: [binLogFilename]
     });
@@ -301,8 +302,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {
-    const [results] = await retriedQuery({
-      db: this.pool,
+    const [results] = await this.retriedQuery({
       query: `
         SELECT 
           tbl.schemaname,
@@ -366,5 +366,13 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
         return hash;
       }, {})
     );
+  }
+
+  protected retriedQuery(options: { query: string; params?: any[] }) {
+    return retriedQuery({
+      db: this.pool,
+      query: options.query,
+      params: options.params
+    });
   }
 }

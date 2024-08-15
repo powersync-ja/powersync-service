@@ -26,7 +26,13 @@ export const MySQLConnectionConfig = service_types.configFile.dataSourceConfig.a
     port: service_types.configFile.portCodec.optional(),
     username: t.string.optional(),
     password: t.string.optional(),
-    database: t.string.optional()
+    database: t.string.optional(),
+
+    /** Required for verify-ca, optional for verify-full */
+    cacert: t.string.optional(),
+
+    client_certificate: t.string.optional(),
+    client_private_key: t.string.optional()
   })
 );
 

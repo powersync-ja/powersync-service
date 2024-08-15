@@ -16,6 +16,7 @@ export class MySQLModule extends replication.ReplicationModule<types.MySQLConnec
   async initialize(context: system.ServiceContextContainer): Promise<void> {
     await super.initialize(context);
 
+    // TODO move this to the binlog consumer
     // jpgwire.setMetricsRecorder({
     //   addBytesRead(bytes) {
     //     context.metrics.data_replicated_bytes.add(bytes);
