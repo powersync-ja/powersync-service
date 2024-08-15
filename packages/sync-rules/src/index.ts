@@ -13,7 +13,7 @@ export * from './StaticSchema.js';
 export * from './ExpressionType.js';
 export * from './SchemaGenerator.js';
 export * from './DartSchemaGenerator.js';
-export * from './JsSchemaGenerator.js';
+export * from './JsLegacySchemaGenerator.js';
 export * from './TsSchemaGenerator.js';
 export * from './generators.js';
 export * from './SqlDataQuery.js';

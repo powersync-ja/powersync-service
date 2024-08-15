@@ -3,10 +3,10 @@ import { SchemaGenerator } from './SchemaGenerator.js';
 import { SqlSyncRules } from './SqlSyncRules.js';
 import { SourceSchema } from './types.js';
 
-export class JsSchemaGenerator extends SchemaGenerator {
+export class JsLegacySchemaGenerator extends SchemaGenerator {
   readonly key = 'js';
-  readonly label = 'JavaScript';
-  readonly mediaType = 'application/javascript';
+  readonly label = 'JavaScript (legacy syntax)';
+  readonly mediaType = 'text/javascript';
   readonly fileName = 'schema.js';
 
   generate(source: SqlSyncRules, schema: SourceSchema): string {

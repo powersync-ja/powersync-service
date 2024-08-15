@@ -24,13 +24,27 @@ export enum TsSchemaImports {
 }
 
 export class TsSchemaGenerator extends SchemaGenerator {
-  readonly key = 'ts';
-  readonly label = 'TypeScript';
-  readonly mediaType = 'application/typescript';
-  readonly fileName = 'schema.ts';
+  readonly key: string;
+  readonly fileName: string;
+  readonly mediaType: string;
+  readonly label: string;
+
+  readonly language: TsSchemaLanguage;
 
   constructor(public readonly options: TsSchemaGeneratorOptions = {}) {
     super();
+
+    this.language = options.language ?? TsSchemaLanguage.ts;
+    this.key = this.language;
+    if (this.language == TsSchemaLanguage.ts) {
+      this.fileName = 'schema.ts';
+      this.mediaType = 'text/typescript';
+      this.label = 'TypeScript';
+    } else {
+      this.fileName = 'schema.js';
+      this.mediaType = 'text/javascript';
+      this.label = 'JavaScript';
+    }
   }
 
   generate(source: SqlSyncRules, schema: SourceSchema): string {
@@ -48,8 +62,7 @@ ${this.generateTypeExports()}`;
   }
 
   private generateTypeExports() {
-    const lang = this.options.language ?? TsSchemaLanguage.ts;
-    if (lang == TsSchemaLanguage.ts) {
+    if (this.language == TsSchemaLanguage.ts) {
       return `export type Database = (typeof AppSchema)['types'];\n`;
     } else {
       return ``;

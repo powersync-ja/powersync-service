@@ -3,7 +3,7 @@ import {
   DEFAULT_SCHEMA,
   DEFAULT_TAG,
   DartSchemaGenerator,
-  JsSchemaGenerator,
+  JsLegacySchemaGenerator,
   SqlSyncRules,
   StaticSchema,
   TsSchemaGenerator
@@ -763,7 +763,7 @@ bucket_definitions:
 ]);
 `);
 
-    expect(new JsSchemaGenerator().generate(rules, schema)).toEqual(`new Schema([
+    expect(new JsLegacySchemaGenerator().generate(rules, schema)).toEqual(`new Schema([
   new Table({
     name: 'assets1',
     columns: [
