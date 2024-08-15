@@ -111,6 +111,9 @@ importers:
       '@powersync/service-types':
         specifier: workspace:*
         version: link:../../packages/types
+      '@vlasky/zongji':
+        specifier: ^0.5.9
+        version: 0.5.9
       mysql2:
         specifier: ^3.11.0
         version: 3.11.0
@@ -1349,6 +1352,14 @@ packages:
   '@vitest/utils@0.34.6':
     resolution: {integrity: sha512-IG5aDD8S6zlvloDsnzHw0Ut5xczlF+kv2BOTo+iXfPr54Yhi5qbVOgGB1hZaVq4iJ4C/MZ2J0y15IlsV/ZcI0A==}
 
+  '@vlasky/mysql@2.18.6':
+    resolution: {integrity: sha512-c+qz/zzqecteQLchoje0E0rjLla935d6hHPpMKmfyQJnHlycLpR49ekS6s/zUAt8w0Um5hFglKXm4+PeJTVhaQ==}
+    engines: {node: '>= 0.6'}
+
+  '@vlasky/zongji@0.5.9':
+    resolution: {integrity: sha512-B4pz9a8QJw7hOOcfxtuT26PSVcQvGHlZcXG34T5jh/zjJZJ4/7pW7mioW6Cyxfl/mv/7Rcow+hVgfYpCTAjTMw==}
+    engines: {node: '>= 8.0'}
+
   abbrev@1.1.1:
     resolution: {integrity: sha512-nne9/IiQ/hzIhY6pdDnbBtz7DjPTKrY00P/zvPSm5pOFkl6xuGrGnXn/VtTNNfNtAfZ9/1RtehkszU9qcTii0Q==}
 
@@ -1504,6 +1515,13 @@ packages:
   better-path-resolve@1.0.0:
     resolution: {integrity: sha512-pbnl5XzGBdrFU/wT4jqmJVPn2B6UHPBOhzMQkY/SPUPB6QtUXtmBHBIwCbXJol93mOpGMnQyP/+BB19q04xj7g==}
     engines: {node: '>=4'}
+
+  big-integer@1.6.51:
+    resolution: {integrity: sha512-GPEid2Y9QU1Exl1rpO9B2IPJGHPSupF5GnVIP0blYvNOMer2bTvSWs1jGOUg04hTmu67nmLsQ9TBo1puaotBHg==}
+    engines: {node: '>=0.6'}
+
+  bignumber.js@9.1.1:
+    resolution: {integrity: sha512-pHm4LsMJ6lzgNGVfZHjMoO8sdoRhOzOH4MLmY65Jg70bpxCKu5iOHNJyfF6OyvYw7t8Fpf35RuzUyqnQsj8Vig==}
 
   binary-extensions@2.3.0:
     resolution: {integrity: sha512-Ceh+7ox5qe7LJuLHoY0feh3pHuUDHAcRUeyL2VYghZwfpkNIy/+8Ocg0a3UuSoYzavmylwuLWQOf3hl0jjMMIw==}
@@ -2974,6 +2992,9 @@ packages:
 
   readable-stream@1.0.34:
     resolution: {integrity: sha512-ok1qVCJuRkNmvebYikljxJA/UEsKwLl2nI1OmaqAu4/UE+h0wKCHok4XkL/gvi39OacXvw59RJUOFUkDib2rHg==}
+
+  readable-stream@2.3.7:
+    resolution: {integrity: sha512-Ebho8K4jIbHAxnuxi7o42OrZgF/ZTNcsZj6nRKyUmkhLFq8CHItp/fy6hQZuZmP/n3yZ9VBUbp4zz/mX8hmYPw==}
 
   readable-stream@2.3.8:
     resolution: {integrity: sha512-8p0AUk4XODgIewSi0l8Epjs+EVnWiK7NoDIEGU0HhE7+ZyY8D1IMY7odu5lRrFXGg71L15KG8QrPmum45RTtdA==}
@@ -4771,6 +4792,19 @@ snapshots:
       loupe: 2.3.7
       pretty-format: 29.7.0
 
+  '@vlasky/mysql@2.18.6':
+    dependencies:
+      bignumber.js: 9.1.1
+      readable-stream: 2.3.7
+      safe-buffer: 5.2.1
+      sqlstring: 2.3.3
+
+  '@vlasky/zongji@0.5.9':
+    dependencies:
+      '@vlasky/mysql': 2.18.6
+      big-integer: 1.6.51
+      iconv-lite: 0.6.3
+
   abbrev@1.1.1: {}
 
   abort-controller@3.0.0:
@@ -4905,6 +4939,10 @@ snapshots:
   better-path-resolve@1.0.0:
     dependencies:
       is-windows: 1.0.2
+
+  big-integer@1.6.51: {}
+
+  bignumber.js@9.1.1: {}
 
   binary-extensions@2.3.0: {}
 
@@ -6531,6 +6569,16 @@ snapshots:
       inherits: 2.0.4
       isarray: 0.0.1
       string_decoder: 0.10.31
+
+  readable-stream@2.3.7:
+    dependencies:
+      core-util-is: 1.0.3
+      inherits: 2.0.4
+      isarray: 1.0.0
+      process-nextick-args: 2.0.1
+      safe-buffer: 5.1.2
+      string_decoder: 1.1.1
+      util-deprecate: 1.0.2
 
   readable-stream@2.3.8:
     dependencies:

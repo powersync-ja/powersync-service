@@ -1,11 +1,11 @@
 import { hrtime } from 'node:process';
 
-import * as pgwire from '@powersync/service-jpgwire';
-import { Replicator, SyncRulesProvider, DefaultErrorRateLimiter, storage } from '@powersync/service-core';
-import { WalStreamRunner } from './WalStreamRunner.js';
-import { PgManager } from './PgManager.js';
 import { container, logger } from '@powersync/lib-services-framework';
+import { DefaultErrorRateLimiter, Replicator, storage, SyncRulesProvider } from '@powersync/service-core';
+import * as pgwire from '@powersync/service-jpgwire';
 import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
+import { PgManager } from './PgManager.js';
+import { WalStreamRunner } from './WalStreamRunner.js';
 
 // 5 minutes
 const PING_INTERVAL = 1_000_000_000n * 300n;
@@ -49,7 +49,7 @@ export class WalStreamManager implements Replicator {
     return this.options.connectionFactory;
   }
 
-  start() {
+  async start() {
     this.connectionManager = this.connectionFactory.create({ maxSize: 1, idleTimeout: 30000 });
     this.runLoop().catch((e) => {
       logger.error(`Fatal WalStream error`, e);

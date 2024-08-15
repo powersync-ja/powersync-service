@@ -1,6 +1,5 @@
 import { api, storage } from '@powersync/service-core';
 
-import * as framework from '@powersync/lib-services-framework';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import mysql from 'mysql2/promise';
@@ -244,54 +243,24 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
   }
 
   async getReplicationLag(options: api.ReplicationLagOptions): Promise<number> {
-    const { replication_identifier: binLogFilename, last_checkpoint_identifier } = options;
+    const { last_checkpoint_identifier } = options;
 
-    const [[gtidEvent]] = await this.retriedQuery({
-      query: `
-        SHOW 
-          BINLOG EVENTS IN ?
-        WHERE
-          Event_type = 'Previous_gtids'
-          AND Info = ?
-        LIMIT 
-          1
-        `,
-      params: [binLogFilename, last_checkpoint_identifier]
+    const [[currentHead]] = await this.retriedQuery({
+      query: `SELECT @@GLOBAL.gtid_executed as GTID;`
     });
 
-    if (!gtidEvent) {
-      throw new framework.errors.ResourceNotFound(
-        'GTID',
-        `Could not find binlog event for ${last_checkpoint_identifier}`
-      );
-    }
-
-    // This is the BinLog file position at the last replicated GTID.
-    // The position is the file offset in bytes.
-    const headBinlogPosition = gtidEvent.Pos;
-
-    // Get the position of the latest event in the BinLog file
-    const [[binLogEntry]] = await this.retriedQuery({
-      query: `
-        SHOW 
-          master status
-        WHERE
-          File = ?
-          AND Info = ?
-        LIMIT 
-          1
-        `,
-      params: [binLogFilename]
+    const lag = await replication_utils.getGTIDDistance({
+      db: this.pool,
+      // This is a comparable identifier, need the raw GTID
+      start_gtid: replication_utils.extractGTIDComparable(last_checkpoint_identifier),
+      end_gtid: currentHead.GTID
     });
 
-    if (!binLogEntry) {
-      throw new framework.errors.ResourceNotFound(
-        `BinLog Status`,
-        `Could not find master status for ${binLogFilename} file`
-      );
+    if (lag == null) {
+      throw new Error(`Could not determine replication lag`);
     }
 
-    return binLogEntry.Position - headBinlogPosition;
+    return lag;
   }
 
   async getReplicationHead(): Promise<string> {

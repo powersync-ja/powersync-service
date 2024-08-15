@@ -28,6 +28,7 @@
     "@powersync/service-jsonbig": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",
     "@powersync/service-types": "workspace:*",
+    "@vlasky/zongji": "^0.5.9",
     "mysql2": "^3.11.0",
     "ts-codec": "^1.2.2",
     "uri-js": "^4.4.1",
