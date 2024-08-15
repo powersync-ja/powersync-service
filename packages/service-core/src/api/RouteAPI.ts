@@ -21,7 +21,7 @@ export interface RouteAPI {
   /**
    * @returns basic identification of the connection
    */
-  getSourceConfig(): Promise<types.configFile.DataSourceConfig>;
+  getSourceConfig(): Promise<types.configFile.ResolvedDataSourceConfig>;
 
   /**
    * Checks the current connection status of the data source.
@@ -60,7 +60,7 @@ export interface RouteAPI {
    * contains `pg_type` which we might need to deprecate and add another generic
    * type field - or just use this field as the connection specific type.
    */
-  getConnectionSchema(): Promise<types.DatabaseSchema[]>;
+  getConnectionSchema(): Promise<types.DatabaseSchemaV2[]>;
 
   /**
    * Executes a query and return the result from the data source. This is currently used in the

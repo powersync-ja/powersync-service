@@ -1,5 +1,6 @@
 import { api, storage } from '@powersync/service-core';
 
+import * as framework from '@powersync/lib-services-framework';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import mysql from 'mysql2/promise';
@@ -34,7 +35,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
     return this.pool.end();
   }
 
-  async getSourceConfig(): Promise<service_types.configFile.DataSourceConfig> {
+  async getSourceConfig(): Promise<service_types.configFile.ResolvedDataSourceConfig> {
     return this.config;
   }
 
@@ -269,7 +270,10 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
     });
 
     if (!gtidEvent) {
-      throw new Error(`Could not find binlog event for GTID`);
+      throw new framework.errors.ResourceNotFound(
+        'GTID',
+        `Could not find binlog event for ${last_checkpoint_identifier}`
+      );
     }
 
     // This is the BinLog file position at the last replicated GTID.
@@ -291,7 +295,10 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
     });
 
     if (!binLogEntry) {
-      throw new Error(`Could not find master status for binlog file`);
+      throw new framework.errors.ResourceNotFound(
+        `BinLog Status`,
+        `Could not find master status for ${binLogFilename} file`
+      );
     }
 
     return binLogEntry.Position - headBinlogPosition;
@@ -301,7 +308,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
     return readMasterComparableGtid(this.pool);
   }
 
-  async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {
+  async getConnectionSchema(): Promise<service_types.DatabaseSchemaV2[]> {
     const [results] = await this.retriedQuery({
       query: `
         SELECT 
@@ -345,7 +352,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
      */
 
     return Object.values(
-      (results as SchemaResult[]).reduce((hash: Record<string, service_types.DatabaseSchema>, result) => {
+      (results as SchemaResult[]).reduce((hash: Record<string, service_types.DatabaseSchemaV2>, result) => {
         const schema =
           hash[result.schemaname] ||
           (hash[result.schemaname] = {
@@ -357,9 +364,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
           name: result.tablename,
           columns: result.columns.map((column) => ({
             name: column.column_name,
-            type: column.data_type,
-            // FIXME remove this
-            pg_type: column.data_type
+            type: column.data_type
           }))
         });
 

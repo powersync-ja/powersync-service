@@ -18,7 +18,7 @@ export interface NormalizedMySQLConnectionConfig {
   // TODO SSL config
 }
 
-export const MySQLConnectionConfig = service_types.configFile.dataSourceConfig.and(
+export const MySQLConnectionConfig = service_types.configFile.DataSourceConfig.and(
   t.object({
     type: t.literal(MYSQL_CONNECTION_TYPE),
     uri: t.string.optional(),
@@ -28,7 +28,6 @@ export const MySQLConnectionConfig = service_types.configFile.dataSourceConfig.a
     password: t.string.optional(),
     database: t.string.optional(),
 
-    /** Required for verify-ca, optional for verify-full */
     cacert: t.string.optional(),
 
     client_certificate: t.string.optional(),

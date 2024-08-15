@@ -1,4 +1,4 @@
-import { errors, router, schema } from '@powersync/lib-services-framework';
+import { errors, router, schema, ValidationError } from '@powersync/lib-services-framework';
 import { SqlSyncRules, StaticSchema } from '@powersync/service-sync-rules';
 import { internal_routes } from '@powersync/service-types';
 
@@ -129,14 +129,18 @@ export const reprocess = routeDefinition({
     });
 
     const apiHandler = service_context.routerEngine.getAPI();
-    const baseConfig = await apiHandler?.getSourceConfig();
+    if (!apiHandler) {
+      throw new ValidationError(`No active route API handler has been found.`);
+    }
+
+    const baseConfig = await apiHandler.getSourceConfig();
 
     return internal_routes.ReprocessResponse.encode({
       connections: [
         {
           // Previously the connection was asserted with `!`
-          tag: baseConfig!.tag!,
-          id: baseConfig!.id,
+          tag: baseConfig.tag,
+          id: baseConfig.id,
           slot_name: new_rules.slot_name
         }
       ]

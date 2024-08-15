@@ -19,7 +19,7 @@ export const portParser = {
   })
 };
 
-export const dataSourceConfig = t
+export const DataSourceConfig = t
   .object({
     // Unique string identifier for the data source
     type: t.string,
@@ -34,7 +34,20 @@ export const dataSourceConfig = t
   })
   .and(t.record(t.any)); // This essentially allows any extra fields on this type
 
-export type DataSourceConfig = t.Decoded<typeof dataSourceConfig>;
+export type DataSourceConfig = t.Decoded<typeof DataSourceConfig>;
+
+/**
+ * Resolved version of {@link DataSourceConfig} where the optional
+ * `id` and `tag` field is now required.
+ */
+export const ResolvedDataSourceConfig = DataSourceConfig.and(
+  t.object({
+    id: t.string,
+    tag: t.string
+  })
+);
+
+export type ResolvedDataSourceConfig = t.Decoded<typeof ResolvedDataSourceConfig>;
 
 export const jwkRSA = t.object({
   kty: t.literal('RSA'),
@@ -78,7 +91,7 @@ export type StorageConfig = t.Decoded<typeof storageConfig>;
 export const powerSyncConfig = t.object({
   replication: t
     .object({
-      connections: t.array(dataSourceConfig).optional()
+      connections: t.array(DataSourceConfig).optional()
     })
     .optional(),
 

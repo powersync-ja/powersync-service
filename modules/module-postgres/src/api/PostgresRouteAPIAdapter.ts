@@ -25,7 +25,7 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
     await this.pool.end();
   }
 
-  async getSourceConfig(): Promise<service_types.configFile.DataSourceConfig> {
+  async getSourceConfig(): Promise<service_types.configFile.ResolvedDataSourceConfig> {
     return this.config;
   }
 
@@ -287,7 +287,7 @@ FROM pg_replication_slots WHERE slot_name = $1 LIMIT 1;`,
     return String(lsn);
   }
 
-  async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {
+  async getConnectionSchema(): Promise<service_types.DatabaseSchemaV2[]> {
     // https://github.com/Borvik/vscode-postgres/blob/88ec5ed061a0c9bced6c5d4ec122d0759c3f3247/src/language/server.ts
     const results = await pg_utils.retriedQuery(
       this.pool,
@@ -356,7 +356,7 @@ GROUP BY schemaname, tablename, quoted_name`
         table.columns.push({
           name: column.attname,
           type: column.data_type,
-          pg_type: pg_type
+          internal_type: pg_type
         });
       }
     }
