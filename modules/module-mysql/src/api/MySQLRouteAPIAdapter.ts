@@ -5,12 +5,12 @@ import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import mysql from 'mysql2/promise';
 import * as types from '../types/types.js';
-import { checkSourceConfiguration, readMasterComparableGtid, retriedQuery } from '../utils/mysql_utils.js';
-import { getReplicationIdentityColumns, ReplicationIdentityColumnsResult } from '../utils/replication/schema.js';
+import * as mysql_utils from '../utils/mysql_utils.js';
+import * as replication_utils from '../utils/replication/replication-utils.js';
 
 type SchemaResult = {
-  schemaname: string;
-  tablename: string;
+  schema_name: string;
+  table_name: string;
   columns: Array<{ data_type: string; column_name: string }>;
 };
 
@@ -18,17 +18,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
   protected pool: mysql.Pool;
 
   constructor(protected config: types.ResolvedConnectionConfig) {
-    this.pool = mysql.createPool({
-      host: config.hostname,
-      user: config.username,
-      password: config.password,
-      database: config.database,
-      ssl: {
-        ca: config.cacert,
-        key: config.client_private_key,
-        cert: config.client_certificate
-      }
-    });
+    this.pool = mysql_utils.createPool(config);
   }
 
   async shutdown(): Promise<void> {
@@ -56,7 +46,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
       };
     }
     try {
-      const errors = await checkSourceConfiguration(this.pool);
+      const errors = await replication_utils.checkSourceConfiguration(this.pool);
       if (errors.length) {
         return {
           ...base,
@@ -208,10 +198,10 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
   ): Promise<service_types.TableInfo> {
     const { schema } = tablePattern;
 
-    let idColumnsResult: ReplicationIdentityColumnsResult | null = null;
+    let idColumnsResult: replication_utils.ReplicationIdentityColumnsResult | null = null;
     let idColumnsError: service_types.ReplicationError | null = null;
     try {
-      idColumnsResult = await getReplicationIdentityColumns({
+      idColumnsResult = await replication_utils.getReplicationIdentityColumns({
         db: this.pool,
         schema,
         table_name: tableName
@@ -305,22 +295,22 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
   }
 
   async getReplicationHead(): Promise<string> {
-    return readMasterComparableGtid(this.pool);
+    return replication_utils.readMasterComparableGtid(this.pool);
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchemaV2[]> {
     const [results] = await this.retriedQuery({
       query: `
         SELECT 
-          tbl.schemaname,
-          tbl.tablename,
+          tbl.schema_name,
+          tbl.table_name,
           tbl.quoted_name,
           JSON_ARRAYAGG(JSON_OBJECT('column_name', a.column_name, 'data_type', a.data_type)) AS columns
         FROM
           (
             SELECT 
-              TABLE_SCHEMA AS schemaname,
-              TABLE_NAME AS tablename,
+              TABLE_SCHEMA AS schema_name,
+              TABLE_NAME AS table_name,
               CONCAT('\`', TABLE_SCHEMA, '\`.\`', TABLE_NAME, '\`') AS quoted_name
             FROM 
               INFORMATION_SCHEMA.TABLES
@@ -331,18 +321,18 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
           LEFT JOIN 
             (
               SELECT 
-                TABLE_SCHEMA AS schemaname,
-                TABLE_NAME AS tablename,
+                TABLE_SCHEMA AS schema_name,
+                TABLE_NAME AS table_name,
                 COLUMN_NAME AS column_name,
                 COLUMN_TYPE AS data_type
               FROM 
                 INFORMATION_SCHEMA.COLUMNS
             ) AS a 
             ON 
-              tbl.schemaname = a.schemaname 
-              AND tbl.tablename = a.tablename
+              tbl.schema_name = a.schema_name 
+              AND tbl.table_name = a.table_name
         GROUP BY 
-          tbl.schemaname, tbl.tablename, tbl.quoted_name;
+          tbl.schema_name, tbl.table_name, tbl.quoted_name;
       `
     });
 
@@ -354,14 +344,14 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
     return Object.values(
       (results as SchemaResult[]).reduce((hash: Record<string, service_types.DatabaseSchemaV2>, result) => {
         const schema =
-          hash[result.schemaname] ||
-          (hash[result.schemaname] = {
-            name: result.schemaname,
+          hash[result.schema_name] ||
+          (hash[result.schema_name] = {
+            name: result.schema_name,
             tables: []
           });
 
         schema.tables.push({
-          name: result.tablename,
+          name: result.table_name,
           columns: result.columns.map((column) => ({
             name: column.column_name,
             type: column.data_type
@@ -374,7 +364,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
   }
 
   protected retriedQuery(options: { query: string; params?: any[] }) {
-    return retriedQuery({
+    return mysql_utils.retriedQuery({
       db: this.pool,
       query: options.query,
       params: options.params

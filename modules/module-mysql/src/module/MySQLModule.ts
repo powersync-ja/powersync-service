@@ -30,7 +30,7 @@ export class MySQLModule extends replication.ReplicationModule<types.MySQLConnec
 
   protected createReplicator(config: types.MySQLConnectionConfig): replication.Replicator {
     // TODO make this work
-    return new MSSQLReplicator();
+    return new MSSQLReplicator(this.resolveConfig(config));
   }
 
   /**

@@ -8,6 +8,6 @@ export interface Replicator {
    *  Unique identifier for this replicator
    */
   id: string;
-  start(): void;
+  start(): Promise<void>;
   stop(): Promise<void>;
 }
