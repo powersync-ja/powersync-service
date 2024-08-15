@@ -7,6 +7,12 @@ import * as types from '../types/types.js';
 import { checkSourceConfiguration, readMasterComparableGtid, retriedQuery } from '../utils/mysql_utils.js';
 import { getReplicationIdentityColumns, ReplicationIdentityColumnsResult } from '../utils/replication/schema.js';
 
+type SchemaResult = {
+  schemaname: string;
+  tablename: string;
+  columns: Array<{ data_type: string; column_name: string }>;
+};
+
 export class MySQLAPIAdapter implements api.RouteAPI {
   protected pool: mysql.Pool;
 
@@ -167,15 +173,7 @@ export class MySQLAPIAdapter implements api.RouteAPI {
            FROM INFORMATION_SCHEMA.TABLES
            WHERE TABLE_SCHEMA = ?
            AND TABLE_NAME = ?`,
-          [
-            /**
-             * TODO:!!!! The Schema here is the default Postgres `public`
-             * which is not a thing in MySQL. The TABLE_SCHEMA in MySQL is the database name.
-             */
-            // schema
-            this.config.database,
-            tablePattern.tablePattern
-          ]
+          [tablePattern.schema, tablePattern.tablePattern]
         );
 
         if (results.length == 0) {
@@ -246,32 +244,51 @@ export class MySQLAPIAdapter implements api.RouteAPI {
     };
   }
 
-  async getReplicationLag(syncRulesId: string): Promise<number> {
-    const [binLogFiles] = await retriedQuery({
+  async getReplicationLag(binLogFilename: string): Promise<number> {
+    // Need to get the GTID for the last replicated point.
+    // Need more params for this.
+    const head = '';
+
+    const [[gtidEvent]] = await retriedQuery({
       db: this.pool,
-      query: `SHOW MASTER STATUS`
+      query: `
+      SHOW 
+        BINLOG EVENTS IN ?
+      WHERE
+        Event_type = 'Previous_gtids'
+        AND Info = ?
+      LIMIT 1
+        `,
+      params: [binLogFilename, head]
     });
 
-    /**
-     * The format will be something like:
-     *  Array<{
-     *     File: 'binlog.000002',
-     *     Position: 197,
-     *     Binlog_Do_DB: '',
-     *     Binlog_Ignore_DB: '',
-     *     Executed_Gtid_Set: 'a7b95c22-5987-11ef-ac5e-0242ac190003:1-12'
-     *   }>
-     * The file should be the syncRulesId. The Position should be the current head in bytes.
-     */
-
-    const matchingFile = binLogFiles.find((f) => f.File == syncRulesId);
-    if (!matchingFile) {
-      throw new Error(`Could not determine replication lag for file ${syncRulesId}: File not found.`);
+    if (!gtidEvent) {
+      throw new Error(`Could not find binlog event for GTID`);
     }
 
-    //  TODO, it seems that the lag needs to be tracked manually
+    // This is the BinLog file position at the last replicated GTID.
+    // The position is the file offset in bytes.
+    const headBinlogPosition = gtidEvent.Pos;
 
-    throw new Error(`Could not determine replication lag for slot ${syncRulesId}`);
+    // Get the position of the latest event in the BinLog file
+    const [[binLogEntry]] = await retriedQuery({
+      db: this.pool,
+      query: `
+      SHOW 
+        master status
+      WHERE
+        File = ?
+        AND Info = ?
+      LIMIT 1
+        `,
+      params: [binLogFilename]
+    });
+
+    if (!binLogEntry) {
+      throw new Error(`Could not find master status for binlog file`);
+    }
+
+    return binLogEntry.Position - headBinlogPosition;
   }
 
   async getReplicationHead(): Promise<string> {
@@ -279,77 +296,69 @@ export class MySQLAPIAdapter implements api.RouteAPI {
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {
-    throw new Error('not implemented');
+    const [results] = await retriedQuery({
+      db: this.pool,
+      query: `
+      SELECT 
+    tbl.schemaname,
+    tbl.tablename,
+    tbl.quoted_name,
+    JSON_ARRAYAGG(JSON_OBJECT('column_name', a.column_name, 'data_type', a.data_type)) AS columns
+FROM
+    (
+        SELECT 
+            TABLE_SCHEMA AS schemaname,
+            TABLE_NAME AS tablename,
+            CONCAT('\`', TABLE_SCHEMA, '\`.\`', TABLE_NAME, '\`') AS quoted_name
+        FROM 
+            INFORMATION_SCHEMA.TABLES
+        WHERE 
+            TABLE_TYPE = 'BASE TABLE'
+            AND TABLE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+    ) AS tbl
+LEFT JOIN 
+    (
+        SELECT 
+            TABLE_SCHEMA AS schemaname,
+            TABLE_NAME AS tablename,
+            COLUMN_NAME AS column_name,
+            COLUMN_TYPE AS data_type
+        FROM 
+            INFORMATION_SCHEMA.COLUMNS
+    ) AS a 
+    ON tbl.schemaname = a.schemaname 
+    AND tbl.tablename = a.tablename
+GROUP BY 
+    tbl.schemaname, tbl.tablename, tbl.quoted_name;
+      `
+    });
 
-    // https://github.com/Borvik/vscode-postgres/blob/88ec5ed061a0c9bced6c5d4ec122d0759c3f3247/src/language/server.ts
-    //     const results = await pg_utils.retriedQuery(
-    //       this.pool,
-    //       `SELECT
-    // tbl.schemaname,
-    // tbl.tablename,
-    // tbl.quoted_name,
-    // json_agg(a ORDER BY attnum) as columns
-    // FROM
-    // (
-    //   SELECT
-    //     n.nspname as schemaname,
-    //     c.relname as tablename,
-    //     (quote_ident(n.nspname) || '.' || quote_ident(c.relname)) as quoted_name
-    //   FROM
-    //     pg_catalog.pg_class c
-    //     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-    //   WHERE
-    //     c.relkind = 'r'
-    //     AND n.nspname not in ('information_schema', 'pg_catalog', 'pg_toast')
-    //     AND n.nspname not like 'pg_temp_%'
-    //     AND n.nspname not like 'pg_toast_temp_%'
-    //     AND c.relnatts > 0
-    //     AND has_schema_privilege(n.oid, 'USAGE') = true
-    //     AND has_table_privilege(quote_ident(n.nspname) || '.' || quote_ident(c.relname), 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER') = true
-    // ) as tbl
-    // LEFT JOIN (
-    //   SELECT
-    //     attrelid,
-    //     attname,
-    //     format_type(atttypid, atttypmod) as data_type,
-    //     (SELECT typname FROM pg_catalog.pg_type WHERE oid = atttypid) as pg_type,
-    //     attnum,
-    //     attisdropped
-    //   FROM
-    //     pg_attribute
-    // ) as a ON (
-    //   a.attrelid = tbl.quoted_name::regclass
-    //   AND a.attnum > 0
-    //   AND NOT a.attisdropped
-    //   AND has_column_privilege(tbl.quoted_name, a.attname, 'SELECT, INSERT, UPDATE, REFERENCES')
-    // )
-    // GROUP BY schemaname, tablename, quoted_name`
-    //     );
-    //     const rows = pgwire.pgwireRows(results);
-    //     let schemas: Record<string, any> = {};
-    //     for (let row of rows) {
-    //       const schema = (schemas[row.schemaname] ??= {
-    //         name: row.schemaname,
-    //         tables: []
-    //       });
-    //       const table = {
-    //         name: row.tablename,
-    //         columns: [] as any[]
-    //       };
-    //       schema.tables.push(table);
-    //       const columnInfo = JSON.parse(row.columns);
-    //       for (let column of columnInfo) {
-    //         let pg_type = column.pg_type as string;
-    //         if (pg_type.startsWith('_')) {
-    //           pg_type = `${pg_type.substring(1)}[]`;
-    //         }
-    //         table.columns.push({
-    //           name: column.attname,
-    //           type: column.data_type,
-    //           pg_type: pg_type
-    //         });
-    //       }
-    //     }
-    //     return Object.values(schemas);
+    /**
+     * Reduces the SQL results into a Record of {@link DatabaseSchema}
+     * then returns the values as an array.
+     */
+
+    return Object.values(
+      (results as SchemaResult[]).reduce((hash: Record<string, service_types.DatabaseSchema>, result) => {
+        const schema =
+          hash[result.schemaname] ||
+          (hash[result.schemaname] = {
+            name: result.schemaname,
+            tables: []
+          });
+
+        schema.tables.push({
+          name: result.tablename,
+          columns: result.columns.map((column) => ({
+            name: column.column_name,
+            type: column.data_type,
+            // FIXME remove this
+            pg_type: column.data_type
+          }))
+        });
+
+        return hash;
+      }, {})
+    );
   }
 }
