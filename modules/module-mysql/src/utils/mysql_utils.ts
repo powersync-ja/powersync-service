@@ -62,6 +62,15 @@ export async function checkSourceConfiguration(db: mysql.Pool) {
     errors.push('Binary log index file is not set. Please check your settings.');
   }
 
+  const [[binLogFormatResult]] = await retriedQuery({
+    db,
+    query: `SHOW VARIABLES LIKE 'binlog_format';`
+  });
+
+  if (binLogFormatResult.Value !== 'ROW') {
+    errors.push('Binary log format must be set to "ROW". Please correct your configuration');
+  }
+
   return errors;
 }
 

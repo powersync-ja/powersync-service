@@ -150,10 +150,13 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
         const prefix = tablePattern.tablePrefix;
 
         const [results] = await this.pool.query<mysql.RowDataPacket[]>(
-          `SELECT TABLE_NAME AS table_name
-           FROM INFORMATION_SCHEMA.TABLES
-           WHERE TABLE_SCHEMA = ?
-           AND TABLE_NAME LIKE ?`,
+          `SELECT
+            TABLE_NAME AS table_name
+           FROM 
+            INFORMATION_SCHEMA.TABLES
+           WHERE 
+            TABLE_SCHEMA = ?
+            AND TABLE_NAME LIKE ?`,
           [schema, tablePattern.tablePattern]
         );
 
@@ -169,10 +172,13 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
         }
       } else {
         const [results] = await this.pool.query<mysql.RowDataPacket[]>(
-          `SELECT TABLE_NAME AS table_name
-           FROM INFORMATION_SCHEMA.TABLES
-           WHERE TABLE_SCHEMA = ?
-           AND TABLE_NAME = ?`,
+          `SELECT
+            TABLE_NAME AS table_name
+           FROM 
+            INFORMATION_SCHEMA.TABLES
+           WHERE 
+            TABLE_SCHEMA = ?
+            AND TABLE_NAME = ?`,
           [tablePattern.schema, tablePattern.tablePattern]
         );
 
@@ -244,10 +250,8 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
     };
   }
 
-  async getReplicationLag(binLogFilename: string): Promise<number> {
-    // Need to get the GTID for the last replicated point.
-    // Need more params for this.
-    const head = '';
+  async getReplicationLag(options: api.ReplicationLagOptions): Promise<number> {
+    const { replication_identifier: binLogFilename, last_checkpoint_identifier } = options;
 
     const [[gtidEvent]] = await retriedQuery({
       db: this.pool,
@@ -259,7 +263,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
         AND Info = ?
       LIMIT 1
         `,
-      params: [binLogFilename, head]
+      params: [binLogFilename, last_checkpoint_identifier]
     });
 
     if (!gtidEvent) {
@@ -299,37 +303,38 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
     const [results] = await retriedQuery({
       db: this.pool,
       query: `
-      SELECT 
-    tbl.schemaname,
-    tbl.tablename,
-    tbl.quoted_name,
-    JSON_ARRAYAGG(JSON_OBJECT('column_name', a.column_name, 'data_type', a.data_type)) AS columns
-FROM
-    (
         SELECT 
-            TABLE_SCHEMA AS schemaname,
-            TABLE_NAME AS tablename,
-            CONCAT('\`', TABLE_SCHEMA, '\`.\`', TABLE_NAME, '\`') AS quoted_name
-        FROM 
-            INFORMATION_SCHEMA.TABLES
-        WHERE 
-            TABLE_TYPE = 'BASE TABLE'
-            AND TABLE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
-    ) AS tbl
-LEFT JOIN 
-    (
-        SELECT 
-            TABLE_SCHEMA AS schemaname,
-            TABLE_NAME AS tablename,
-            COLUMN_NAME AS column_name,
-            COLUMN_TYPE AS data_type
-        FROM 
-            INFORMATION_SCHEMA.COLUMNS
-    ) AS a 
-    ON tbl.schemaname = a.schemaname 
-    AND tbl.tablename = a.tablename
-GROUP BY 
-    tbl.schemaname, tbl.tablename, tbl.quoted_name;
+          tbl.schemaname,
+          tbl.tablename,
+          tbl.quoted_name,
+          JSON_ARRAYAGG(JSON_OBJECT('column_name', a.column_name, 'data_type', a.data_type)) AS columns
+        FROM
+          (
+            SELECT 
+              TABLE_SCHEMA AS schemaname,
+              TABLE_NAME AS tablename,
+              CONCAT('\`', TABLE_SCHEMA, '\`.\`', TABLE_NAME, '\`') AS quoted_name
+            FROM 
+              INFORMATION_SCHEMA.TABLES
+            WHERE 
+              TABLE_TYPE = 'BASE TABLE'
+              AND TABLE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+          ) AS tbl
+          LEFT JOIN 
+            (
+              SELECT 
+                TABLE_SCHEMA AS schemaname,
+                TABLE_NAME AS tablename,
+                COLUMN_NAME AS column_name,
+                COLUMN_TYPE AS data_type
+              FROM 
+                INFORMATION_SCHEMA.COLUMNS
+            ) AS a 
+            ON 
+              tbl.schemaname = a.schemaname 
+              AND tbl.tablename = a.tablename
+        GROUP BY 
+          tbl.schemaname, tbl.tablename, tbl.quoted_name;
       `
     });
 

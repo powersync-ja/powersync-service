@@ -86,7 +86,11 @@ export async function getSyncRulesStatus(
 
     if (systemStorage) {
       try {
-        replication_lag_bytes = await api.getReplicationLag(systemStorage.slot_name);
+        const lastCheckpoint = await systemStorage.getCheckpoint();
+        replication_lag_bytes = await api.getReplicationLag({
+          replication_identifier: systemStorage.slot_name,
+          last_checkpoint_identifier: lastCheckpoint.lsn
+        });
       } catch (e) {
         // Ignore
         logger.warn(`Unable to get replication lag`, e);

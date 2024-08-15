@@ -9,6 +9,11 @@ export interface PatternResult {
   table?: types.TableInfo;
 }
 
+export interface ReplicationLagOptions {
+  replication_identifier: string;
+  last_checkpoint_identifier: string;
+}
+
 /**
  *  Describes all the methods currently required to service the sync API endpoints.
  */
@@ -40,9 +45,8 @@ export interface RouteAPI {
   /**
    * @returns The replication lag: that is the amount of data which has not been
    *          replicated yet, in bytes.
-   * @param {string} syncRulesId An identifier representing which set of sync rules the lag is required for.
    */
-  getReplicationLag(syncRulesId: string): Promise<number>;
+  getReplicationLag(options: ReplicationLagOptions): Promise<number>;
 
   /**
    * Get the current LSN or equivalent replication HEAD position identifier

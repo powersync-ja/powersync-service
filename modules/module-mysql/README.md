@@ -1,3 +1,3 @@
-# PowerSync MSSQL Module
+# PowerSync MySQL Module
 
-This is a module which provides MSSQL replication to PowerSync
+This is a module which provides MySQL replication to PowerSync.
