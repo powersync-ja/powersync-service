@@ -64,6 +64,10 @@ export async function getSyncRulesStatus(
   let tables_flat: TableInfo[] = [];
 
   const sourceConfig = await api?.getSourceConfig();
+  // This is a bit weird.
+  // This method can run under some situations if no connection is configured.
+  // It will return a default tag if not connection is available. This default tag
+  // is not module specific.
   const tag = sourceConfig?.tag ?? DEFAULT_TAG;
 
   if (check_connection) {

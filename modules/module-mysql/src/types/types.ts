@@ -15,7 +15,9 @@ export interface NormalizedMySQLConnectionConfig {
   username: string;
   password: string;
 
-  // TODO SSL config
+  cacert?: string;
+  client_certificate?: string;
+  client_private_key?: string;
 }
 
 export const MySQLConnectionConfig = service_types.configFile.DataSourceConfig.and(
@@ -29,7 +31,6 @@ export const MySQLConnectionConfig = service_types.configFile.DataSourceConfig.a
     database: t.string.optional(),
 
     cacert: t.string.optional(),
-
     client_certificate: t.string.optional(),
     client_private_key: t.string.optional()
   })

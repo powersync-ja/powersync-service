@@ -97,6 +97,6 @@ export function gtidMakeComparable(gtid: string): string {
 }
 
 export async function readMasterComparableGtid(db: mysql.Pool): Promise<string> {
-  const results = await db.query<mysql.RowDataPacket[]>('SELECT @@GLOBAL.gtid_executed as GTID;');
-  return gtidMakeComparable(results[0].length > 0 ? `${results[0][0]['GTID']}` : '0:0');
+  const [[gtidResult]] = await db.query<mysql.RowDataPacket[]>('SELECT @@GLOBAL.gtid_executed as GTID;');
+  return gtidMakeComparable(gtidResult?.GTID ?? '0:0');
 }
