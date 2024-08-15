@@ -3,10 +3,12 @@ import {
   DEFAULT_SCHEMA,
   DEFAULT_TAG,
   DartSchemaGenerator,
-  JsSchemaGenerator,
+  JsLegacySchemaGenerator,
   SqlSyncRules,
-  StaticSchema
+  StaticSchema,
+  TsSchemaGenerator
 } from '../../src/index.js';
+
 import { ASSETS, BASIC_SCHEMA, TestSourceTable, USERS, normalizeTokenParameters } from './util.js';
 
 describe('sync rules', () => {
@@ -761,7 +763,7 @@ bucket_definitions:
 ]);
 `);
 
-    expect(new JsSchemaGenerator().generate(rules, schema)).toEqual(`new Schema([
+    expect(new JsLegacySchemaGenerator().generate(rules, schema)).toEqual(`new Schema([
   new Table({
     name: 'assets1',
     columns: [
@@ -781,5 +783,39 @@ bucket_definitions:
   })
 ])
 `);
+
+    expect(new TsSchemaGenerator().generate(rules, schema)).toEqual(
+      `import { column, Schema, TableV2 } from '@powersync/web';
+// OR: import { column, Schema, TableV2 } from '@powersync/react-native';
+
+const assets1 = new TableV2(
+  {
+    // id column (text) is automatically included
+    name: column.text,
+    count: column.integer,
+    owner_id: column.text
+  },
+  { indexes: {} }
+);
+
+const assets2 = new TableV2(
+  {
+    // id column (text) is automatically included
+    name: column.text,
+    count: column.integer,
+    other_id: column.text,
+    foo: column.text
+  },
+  { indexes: {} }
+);
+
+export const AppSchema = new Schema({
+  assets1,
+  assets2
+});
+
+export type Database = (typeof AppSchema)['types'];
+`
+    );
   });
 });
