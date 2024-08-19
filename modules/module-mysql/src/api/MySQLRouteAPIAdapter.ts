@@ -245,17 +245,10 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
   async getReplicationLag(options: api.ReplicationLagOptions): Promise<number> {
     const { last_checkpoint_identifier } = options;
 
-    const [[currentHead]] = await this.retriedQuery({
-      query: `SELECT @@GLOBAL.gtid_executed as GTID;`
-    });
+    const current = replication_utils.ReplicatedGTID.fromSerialized(last_checkpoint_identifier);
+    const head = await replication_utils.readMasterGtid(this.pool);
 
-    const lag = await replication_utils.getGTIDDistance({
-      db: this.pool,
-      // This is a comparable identifier, need the raw GTID
-      start_gtid: replication_utils.extractGTIDComparable(last_checkpoint_identifier),
-      end_gtid: currentHead.GTID
-    });
-
+    const lag = await current.distanceTo(this.pool, head);
     if (lag == null) {
       throw new Error(`Could not determine replication lag`);
     }
@@ -264,7 +257,8 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
   }
 
   async getReplicationHead(): Promise<string> {
-    return replication_utils.readMasterComparableGtid(this.pool);
+    const result = await replication_utils.readMasterGtid(this.pool);
+    return result.comparable;
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchemaV2[]> {
