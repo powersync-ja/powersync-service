@@ -2,12 +2,12 @@ import { DataSourceConfig } from '@powersync/service-types/dist/config/PowerSync
 import * as t from 'ts-codec';
 
 import * as types from '@powersync/service-types';
-import * as api from '../../api/api-index.js';
-import * as modules from '../../modules/modules-index.js';
-import * as system from '../../system/system-index.js';
-import { ReplicationAdapter } from './ReplicationAdapter.js';
+import * as api from '../api/api-index.js';
+import * as modules from './modules-index.js';
+import * as system from '../system/system-index.js';
+import { ReplicationAdapter } from '../replication/ReplicationAdapter.js';
 import { logger, schema } from '@powersync/lib-services-framework';
-import { Replicator } from './Replicator.js';
+import { AbstractReplicator } from '../replication/AbstractReplicator.js';
 
 export interface ReplicationModuleOptions extends modules.AbstractModuleOptions {
   type: string;
@@ -44,7 +44,7 @@ export abstract class ReplicationModule<TConfig extends DataSourceConfig> extend
   /**
    *  Create the ReplicationAdapter to be used by PowerSync replicator.
    */
-  protected abstract createReplicator(decodedConfig: TConfig, context: system.ServiceContext): Replicator;
+  protected abstract createReplicator(decodedConfig: TConfig, context: system.ServiceContext): AbstractReplicator;
 
   /**
    *  Register this module's replication adapters and sync API providers if the required configuration is present.

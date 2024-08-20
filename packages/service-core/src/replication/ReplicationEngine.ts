@@ -1,8 +1,6 @@
-import { ReplicationAdapter } from './ReplicationAdapter.js';
-import { Replicator } from './Replicator.js';
-
-import * as storage from '../../storage/storage-index.js';
-import * as utils from '.././../util/util-index.js';
+import * as storage from '../storage/storage-index.js';
+import * as utils from '../util/util-index.js';
+import { AbstractReplicator } from './AbstractReplicator.js';
 
 export interface ReplicationEngineOptions {
   storage: storage.StorageFactoryProvider;
@@ -11,7 +9,7 @@ export interface ReplicationEngineOptions {
 
 export class ReplicationEngine {
   private readonly options: ReplicationEngineOptions;
-  private readonly replicators: Map<string, Replicator> = new Map();
+  private readonly replicators: Map<string, AbstractReplicator> = new Map();
 
   constructor(options: ReplicationEngineOptions) {
     this.options = options;
@@ -22,9 +20,9 @@ export class ReplicationEngine {
    *
    *  @param replicator
    */
-  public register(replicator: Replicator) {
+  public register(replicator: AbstractReplicator) {
     if (this.replicators.has(replicator.id)) {
-      throw new Error(`Replicator for type ${replicator.id} already registered`);
+      throw new Error(`Replicator with id: ${replicator.id} already registered`);
     }
     this.replicators.set(replicator.id, replicator);
   }
@@ -32,7 +30,7 @@ export class ReplicationEngine {
   /**
    *  Start replication on all managed Replicators
    */
-  public async start(): Promise<void> {
+  public start(): void {
     for (const replicator of this.replicators.values()) {
       replicator.start();
     }
