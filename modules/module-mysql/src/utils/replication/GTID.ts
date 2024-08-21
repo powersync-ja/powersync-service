@@ -9,9 +9,9 @@ export type BinLogPosition = {
 export type ReplicatedGTIDSpecification = {
   raw_gtid: string;
   /**
-   * The position of this GTID
+   * The position in a BinLog file where this transaction has been replicated in.
    */
-  current_position?: BinLogPosition;
+  replicated_position?: BinLogPosition;
   /**
    * The position to start from for the next replication event.
    */
@@ -41,7 +41,7 @@ export class ReplicatedGTID {
       : undefined;
     return {
       raw_gtid: components[1],
-      current_position: currentPosition,
+      replicated_position: currentPosition,
       next_position: nextPosition
     };
   }
@@ -58,10 +58,10 @@ export class ReplicatedGTID {
   constructor(protected options: ReplicatedGTIDSpecification) {}
 
   /**
-   * Get the BinLog position of this GTID event
+   * Get the BinLog position of this GTID event if it has been replicated already.
    */
-  get currentPosition() {
-    return this.options.current_position;
+  get replicatedPosition() {
+    return this.options.replicated_position;
   }
 
   /**
@@ -88,7 +88,7 @@ export class ReplicatedGTID {
    *   `padded_end_transaction|raw_gtid|current_binlog_filename|current_binlog_position|next_binlog_filename|next_binlog_position`
    */
   get comparable() {
-    const { raw, currentPosition, nextPosition } = this;
+    const { raw, replicatedPosition: currentPosition, nextPosition } = this;
     const [, transactionRanges] = this.raw.split(':');
 
     let maxTransactionId = 0;
@@ -120,7 +120,7 @@ export class ReplicatedGTID {
 
     // Default to the first file for the start to handle the zero GTID case.
     const startFileIndex = Math.max(
-      logFiles.findIndex((f) => f['Log_name'] == this.currentPosition?.filename),
+      logFiles.findIndex((f) => f['Log_name'] == this.replicatedPosition?.filename),
       0
     );
     const startFileEntry = logFiles[startFileIndex];
@@ -129,14 +129,27 @@ export class ReplicatedGTID {
       return null;
     }
 
+    /**
+     * Fall back to the next position for comparison if the replicated position is not present
+     */
+    const endPosition = to.replicatedPosition ?? to.nextPosition;
+
     // Default to the past the last file to cater for the HEAD case
-    const testEndFileIndex = logFiles.findIndex((f) => f['Log_name'] == to.currentPosition?.filename);
-    const endFileIndex = testEndFileIndex >= 0 ? testEndFileIndex : logFiles.length;
+    const testEndFileIndex = logFiles.findIndex((f) => f['Log_name'] == endPosition?.filename);
+    // If the endPosition is not defined and found. Fallback to the last file as the end
+    const endFileIndex = testEndFileIndex < 0 && !endPosition ? logFiles.length : logFiles.length - 1;
+
+    const endFileEntry = logFiles[endFileIndex];
+
+    if (!endFileEntry) {
+      return null;
+    }
 
     return (
       startFileEntry['File_size'] -
-      (this?.currentPosition?.offset ?? 0) +
-      (to.currentPosition?.offset ?? 0) +
+      (this?.replicatedPosition?.offset ?? 0) -
+      endFileEntry['File_size'] +
+      (endPosition?.offset ?? 0) +
       logFiles.slice(startFileIndex + 1, endFileIndex).reduce((sum, file) => sum + file['File_size'], 0)
     );
   }

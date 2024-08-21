@@ -5,15 +5,18 @@ import { MSSQLReplicator } from '../replication/MSSQLReplicator.js';
 import * as types from '../types/types.js';
 
 export class MySQLModule extends replication.ReplicationModule<types.MySQLConnectionConfig> {
+  protected context: system.ServiceContext | null;
   constructor() {
     super({
       name: 'MySQL',
       type: types.MYSQL_CONNECTION_TYPE,
       configSchema: types.MySQLConnectionConfig
     });
+    this.context = null;
   }
 
   async initialize(context: system.ServiceContextContainer): Promise<void> {
+    this.context = context;
     await super.initialize(context);
 
     // TODO move this to the binlog consumer
@@ -30,7 +33,7 @@ export class MySQLModule extends replication.ReplicationModule<types.MySQLConnec
 
   protected createReplicator(config: types.MySQLConnectionConfig): replication.Replicator {
     // TODO make this work
-    return new MSSQLReplicator(this.resolveConfig(config));
+    return new MSSQLReplicator(this.resolveConfig(config), this.context!);
   }
 
   /**

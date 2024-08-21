@@ -28,16 +28,18 @@ export async function retriedQuery(options: RetiredMySQLQueryOptions) {
 }
 
 export function createPool(config: types.ResolvedConnectionConfig) {
+  const sslOptions = {
+    ca: config.cacert,
+    key: config.client_private_key,
+    cert: config.client_certificate
+  };
+  const hasSSLOptions = Object.values(sslOptions).some((v) => !!v);
   return mysql.createPool({
     host: config.hostname,
     user: config.username,
     password: config.password,
     database: config.database,
-    ssl: {
-      ca: config.cacert,
-      key: config.client_private_key,
-      cert: config.client_certificate
-    }
+    ssl: hasSSLOptions ? sslOptions : undefined
   });
 }
 
