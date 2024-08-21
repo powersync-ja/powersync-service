@@ -4,4 +4,4 @@ export * from './AbstractReplicator.js';
 export * from './ReplicationAdapter.js';
 export * from './ReplicationEngine.js';
 export * from './ReplicationEntity.js';
-export * from '../modules/ReplicationModule.js';
+export * from './ReplicationModule.js';
