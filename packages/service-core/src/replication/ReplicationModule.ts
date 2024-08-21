@@ -5,7 +5,6 @@ import * as types from '@powersync/service-types';
 import * as api from '../api/api-index.js';
 import * as modules from '../modules/modules-index.js';
 import * as system from '../system/system-index.js';
-import { ReplicationAdapter } from './ReplicationAdapter.js';
 import { schema } from '@powersync/lib-services-framework';
 import { AbstractReplicator } from './AbstractReplicator.js';
 
@@ -21,7 +20,6 @@ export interface ReplicationModuleOptions extends modules.AbstractModuleOptions 
 export abstract class ReplicationModule<TConfig extends DataSourceConfig> extends modules.AbstractModule {
   protected type: string;
   protected configSchema: t.AnyCodec;
-  protected replicationAdapters: Set<ReplicationAdapter>;
 
   /**
    * @protected
@@ -31,7 +29,6 @@ export abstract class ReplicationModule<TConfig extends DataSourceConfig> extend
     super(options);
     this.type = options.type;
     this.configSchema = options.configSchema;
-    this.replicationAdapters = new Set();
   }
 
   /**
@@ -41,7 +38,7 @@ export abstract class ReplicationModule<TConfig extends DataSourceConfig> extend
   protected abstract createRouteAPIAdapter(decodedConfig: TConfig): api.RouteAPI;
 
   /**
-   *  Create the ReplicationAdapter to be used by PowerSync replicator.
+   *  Create the Replicator to be used by the ReplicationEngine.
    */
   protected abstract createReplicator(decodedConfig: TConfig, context: system.ServiceContext): AbstractReplicator;
 
