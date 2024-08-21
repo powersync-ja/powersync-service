@@ -28,14 +28,16 @@
     "@powersync/service-jsonbig": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",
     "@powersync/service-types": "workspace:*",
-    "@vlasky/zongji": "^0.5.9",
+    "@vlasky/zongji": "link:../../../zongji",
+    "async": "^3.2.4",
     "mysql2": "^3.11.0",
     "ts-codec": "^1.2.2",
     "uri-js": "^4.4.1",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
-    "@types/uuid": "^9.0.4",
+    "@types/async": "^3.2.24",
+    "@types/uuid": "^9.0.8",
     "typescript": "^5.2.2",
     "vite-tsconfig-paths": "^4.3.2",
     "vitest": "^0.34.6"

@@ -21,8 +21,7 @@ export async function readMasterGtid(db: mysql.Pool): Promise<ReplicatedGTID> {
 
   return new ReplicatedGTID({
     // The head always points to the next position to start replication from
-    replicated_position: position,
-    next_position: position,
+    position,
     raw_gtid: gtidResult.GTID
   });
 }

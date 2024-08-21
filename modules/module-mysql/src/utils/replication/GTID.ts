@@ -1,6 +1,6 @@
 import mysql from 'mysql2/promise';
+import * as uuid from 'uuid';
 import { retriedQuery } from '../mysql_utils.js';
-
 export type BinLogPosition = {
   filename: string;
   offset: number;
@@ -9,13 +9,19 @@ export type BinLogPosition = {
 export type ReplicatedGTIDSpecification = {
   raw_gtid: string;
   /**
-   * The position in a BinLog file where this transaction has been replicated in.
+   * The (end) position in a BinLog file where this transaction has been replicated in.
    */
-  replicated_position?: BinLogPosition;
-  /**
-   * The position to start from for the next replication event.
-   */
-  next_position?: BinLogPosition;
+  position: BinLogPosition;
+};
+
+export type BinLogGTIDFormat = {
+  server_id: Buffer;
+  transaction_range: number;
+};
+
+export type BinLogGTIDEvent = {
+  raw_gtid: BinLogGTIDFormat;
+  position: BinLogPosition;
 };
 
 /**
@@ -26,23 +32,18 @@ export type ReplicatedGTIDSpecification = {
 export class ReplicatedGTID {
   static deserialize(comparable: string): ReplicatedGTIDSpecification {
     const components = comparable.split('|');
-    const currentPosition: BinLogPosition | undefined = components[2]
-      ? {
-          filename: components[2],
-          offset: parseInt(components[3])
-        }
-      : undefined;
+    if (components.length < 3) {
+      throw new Error(`Invalid serialized GTID: ${comparable}`);
+    }
 
-    const nextPosition: BinLogPosition | undefined = components[4]
-      ? {
-          filename: components[4],
-          offset: parseInt(components[5])
-        }
-      : undefined;
+    const position: BinLogPosition = {
+      filename: components[2],
+      offset: parseInt(components[3])
+    };
+
     return {
       raw_gtid: components[1],
-      replicated_position: currentPosition,
-      next_position: nextPosition
+      position
     };
   }
 
@@ -50,25 +51,27 @@ export class ReplicatedGTID {
     return new ReplicatedGTID(ReplicatedGTID.deserialize(comparable));
   }
 
+  static fromBinLogEvent(event: BinLogGTIDEvent) {
+    const { raw_gtid, position } = event;
+    const stringGTID = `${uuid.stringify(raw_gtid.server_id)}:${raw_gtid.transaction_range}`;
+    return new ReplicatedGTID({
+      raw_gtid: stringGTID,
+      position
+    });
+  }
+
   /**
    * Special case for the zero GTID which means no transactions have been executed.
    */
-  static ZERO = new ReplicatedGTID({ raw_gtid: '0:0' });
+  static ZERO = new ReplicatedGTID({ raw_gtid: '0:0', position: { filename: '', offset: 0 } });
 
   constructor(protected options: ReplicatedGTIDSpecification) {}
 
   /**
-   * Get the BinLog position of this GTID event if it has been replicated already.
+   * Get the BinLog position of this replicated GTID event
    */
-  get replicatedPosition() {
-    return this.options.replicated_position;
-  }
-
-  /**
-   * Get the BinLog position of the next replication event
-   */
-  get nextPosition() {
-    return this.options.next_position;
+  get position() {
+    return this.options.position;
   }
 
   /**
@@ -85,10 +88,10 @@ export class ReplicatedGTID {
    *
    * @param gtid - The GTID string in the format `server_id:transaction_ranges`
    * @returns A comparable string in the format
-   *   `padded_end_transaction|raw_gtid|current_binlog_filename|current_binlog_position|next_binlog_filename|next_binlog_position`
+   *   `padded_end_transaction|raw_gtid|binlog_filename|binlog_position`
    */
   get comparable() {
-    const { raw, replicatedPosition: currentPosition, nextPosition } = this;
+    const { raw, position } = this;
     const [, transactionRanges] = this.raw.split(':');
 
     let maxTransactionId = 0;
@@ -99,14 +102,11 @@ export class ReplicatedGTID {
     }
 
     const paddedTransactionId = maxTransactionId.toString().padStart(16, '0');
-    return [
-      paddedTransactionId,
-      raw,
-      currentPosition?.filename ?? '',
-      currentPosition?.offset ?? '',
-      nextPosition?.filename ?? '',
-      nextPosition?.offset ?? ''
-    ].join('|');
+    return [paddedTransactionId, raw, position.filename, position.offset].join('|');
+  }
+
+  toString() {
+    return this.comparable;
   }
 
   /**
@@ -120,7 +120,7 @@ export class ReplicatedGTID {
 
     // Default to the first file for the start to handle the zero GTID case.
     const startFileIndex = Math.max(
-      logFiles.findIndex((f) => f['Log_name'] == this.replicatedPosition?.filename),
+      logFiles.findIndex((f) => f['Log_name'] == this.position.filename),
       0
     );
     const startFileEntry = logFiles[startFileIndex];
@@ -132,7 +132,7 @@ export class ReplicatedGTID {
     /**
      * Fall back to the next position for comparison if the replicated position is not present
      */
-    const endPosition = to.replicatedPosition ?? to.nextPosition;
+    const endPosition = to.position;
 
     // Default to the past the last file to cater for the HEAD case
     const testEndFileIndex = logFiles.findIndex((f) => f['Log_name'] == endPosition?.filename);
@@ -147,9 +147,9 @@ export class ReplicatedGTID {
 
     return (
       startFileEntry['File_size'] -
-      (this?.replicatedPosition?.offset ?? 0) -
+      this.position.offset -
       endFileEntry['File_size'] +
-      (endPosition?.offset ?? 0) +
+      endPosition.offset +
       logFiles.slice(startFileIndex + 1, endFileIndex).reduce((sum, file) => sum + file['File_size'], 0)
     );
   }
