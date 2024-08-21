@@ -1,7 +1,9 @@
 import { BucketStorageFactory, SyncRulesBucketStorage } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
-import { getClientCheckpoint } from '../../src/util/utils.js';
-import { TEST_CONNECTION_OPTIONS, clearTestDb } from './util.js';
+import { TEST_CONNECTION_OPTIONS, clearTestDb, getClientCheckpoint } from './util.js';
+import { WalStream, WalStreamOptions } from '@module/replication/WalStream.js';
+import { fromAsync } from '@core-tests/stream_utils.js';
+import { PgManager } from '@module/replication/PgManager.js';
 
 /**
  * Tests operating on the wal stream need to configure the stream and manage asynchronous
@@ -15,10 +17,10 @@ export function walStreamTest(
 ): () => Promise<void> {
   return async () => {
     const f = await factory();
-    const pool = pgwire.connectPgWirePool(TEST_CONNECTION_OPTIONS, {});
+    const connectionManager = new PgManager(TEST_CONNECTION_OPTIONS, {});
 
-    await clearTestDb(pool);
-    const context = new WalStreamTestContext(f, pool);
+    await clearTestDb(connectionManager.pool);
+    const context = new WalStreamTestContext(f, connectionManager);
     try {
       await test(context);
     } finally {
@@ -34,16 +36,16 @@ export class WalStreamTestContext {
   public storage?: SyncRulesBucketStorage;
   private replicationConnection?: pgwire.PgConnection;
 
-  constructor(public factory: BucketStorageFactory, public connections: pgwire.PgClient) {}
+  constructor(public factory: BucketStorageFactory, public connectionManager: PgManager) {}
 
   async dispose() {
     this.abortController.abort();
     await this.streamPromise;
-    this.connections.destroy();
+    await this.connectionManager.destroy();
   }
 
   get pool() {
-    return this.connections;
+    return this.connectionManager.pool;
   }
 
   async updateSyncRules(content: string) {
@@ -61,8 +63,7 @@ export class WalStreamTestContext {
     }
     const options: WalStreamOptions = {
       storage: this.storage,
-      factory: this.factory,
-      connections: this.connections,
+      connections: this.connectionManager,
       abort_signal: this.abortController.signal
     };
     this._walStream = new WalStream(options);
@@ -70,7 +71,7 @@ export class WalStreamTestContext {
   }
 
   async replicateSnapshot() {
-    this.replicationConnection = await this.connections.replicationConnection();
+    this.replicationConnection = await this.connectionManager.replicationConnection();
     await this.walStream.initReplication(this.replicationConnection);
     await this.storage!.autoActivate();
   }
@@ -84,7 +85,7 @@ export class WalStreamTestContext {
 
   async getCheckpoint(options?: { timeout?: number }) {
     let checkpoint = await Promise.race([
-      getClientCheckpoint(this.connections.pool, this.factory, { timeout: options?.timeout ?? 15_000 }),
+      getClientCheckpoint(this.pool, this.factory, { timeout: options?.timeout ?? 15_000 }),
       this.streamPromise
     ]);
     if (typeof checkpoint == undefined) {

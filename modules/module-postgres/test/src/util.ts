@@ -1,8 +1,10 @@
 import * as types from '@module/types/types.js';
 import * as pg_utils from '@module/utils/pgwire_utils.js';
-import { Metrics } from '@powersync/service-core';
+import { BucketStorageFactory, Metrics, OpId } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import { env } from './env.js';
+import { pgwireRows } from '@powersync/service-jpgwire';
+import { logger } from '@powersync/lib-services-framework';
 
 // The metrics need to be initialized before they can be used
 await Metrics.initialise({
@@ -53,4 +55,35 @@ export async function connectPgWire(type?: 'replication' | 'standard') {
 export function connectPgPool() {
   const db = pgwire.connectPgWirePool(TEST_CONNECTION_OPTIONS);
   return db;
+}
+
+export async function getClientCheckpoint(
+  db: pgwire.PgClient,
+  bucketStorage: BucketStorageFactory,
+  options?: { timeout?: number }
+): Promise<OpId> {
+  const start = Date.now();
+
+  const [{ lsn }] = pgwireRows(await db.query(`SELECT pg_logical_emit_message(false, 'powersync', 'ping') as lsn`));
+
+  // This old API needs a persisted checkpoint id.
+  // Since we don't use LSNs anymore, the only way to get that is to wait.
+
+  const timeout = options?.timeout ?? 50_000;
+
+  logger.info(`Waiting for LSN checkpoint: ${lsn}`);
+  while (Date.now() - start < timeout) {
+    const cp = await bucketStorage.getActiveCheckpoint();
+    if (!cp.hasSyncRules()) {
+      throw new Error('No sync rules available');
+    }
+    if (cp.lsn >= lsn) {
+      logger.info(`Got write checkpoint: ${lsn} : ${cp.checkpoint}`);
+      return cp.checkpoint;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  }
+
+  throw new Error('Timeout while waiting for checkpoint');
 }
