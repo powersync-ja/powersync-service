@@ -5,7 +5,9 @@ import * as util from '../../util/util-index.js';
 import { authUser } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
-const WriteCheckpointRequest = t.object({});
+const WriteCheckpointRequest = t.object({
+  client_id: t.string.optional()
+});
 
 export const writeCheckpoint = routeDefinition({
   path: '/write-checkpoint.json',
@@ -30,8 +32,10 @@ export const writeCheckpoint2 = routeDefinition({
   validator: schema.createTsCodecValidator(WriteCheckpointRequest, { allowAdditional: true }),
   handler: async (payload) => {
     const { user_id, system } = payload.context;
+    const client_id = payload.params.client_id;
+    const full_user_id = util.checkpointUserId(user_id, client_id);
     const storage = system.storage;
-    const write_checkpoint = await util.createWriteCheckpoint(system.requirePgPool(), storage, user_id!);
+    const write_checkpoint = await util.createWriteCheckpoint(system.requirePgPool(), storage, full_user_id);
     return {
       write_checkpoint: String(write_checkpoint)
     };

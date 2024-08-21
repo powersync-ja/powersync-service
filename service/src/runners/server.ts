@@ -18,7 +18,7 @@ export async function startServer(runnerConfig: core.utils.RunnerConfig) {
 
   server.register(cors, {
     origin: '*',
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'User-Agent', 'X-User-Agent'],
     exposedHeaders: ['Content-Type'],
     // Cache time for preflight response
     maxAge: 3600

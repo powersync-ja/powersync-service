@@ -93,7 +93,8 @@ async function* streamResponseInner(
     }
   }
 
-  const stream = storage.watchWriteCheckpoint(syncParams.token_parameters.user_id as string, signal);
+  const checkpointUserId = util.checkpointUserId(syncParams.token_parameters.user_id as string, params.client_id);
+  const stream = storage.watchWriteCheckpoint(checkpointUserId, signal);
   for await (const next of stream) {
     const { base, writeCheckpoint } = next;
     const checkpoint = base.checkpoint;
