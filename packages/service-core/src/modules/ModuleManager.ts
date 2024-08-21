@@ -10,17 +10,20 @@ export class ModuleManager {
   public register(modules: AbstractModule[]) {
     for (const module of modules) {
       if (this.modules.has(module.name)) {
-        logger.warn(`Module ${module.name} already registered, skipping...`);
+        logger.warn(`Module ${module.name} already registered, skipping.`);
         continue;
       }
       this.modules.set(module.name, module);
+      logger.info(`Successfully registered Module ${module.name}.`);
     }
   }
 
   async initialize(serviceContext: system.ServiceContextContainer) {
+    logger.info(`Initializing modules...`);
     for (const module of this.modules.values()) {
       await module.initialize(serviceContext);
     }
+    logger.info(`Successfully Initialized modules.`);
   }
 
   async tearDown() {

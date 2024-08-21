@@ -1,26 +1,23 @@
-import {
-  api,
-  auth,
-  ConfigurationFileSyncRulesProvider,
-  replication,
-  Replicator,
-  system
-} from '@powersync/service-core';
+import { api, auth, ConfigurationFileSyncRulesProvider, replication, system } from '@powersync/service-core';
 import * as jpgwire from '@powersync/service-jpgwire';
-import { logger } from '@powersync/lib-services-framework';
 import * as types from '../types/types.js';
 import { PostgresRouteAPIAdapter } from '../api/PostgresRouteAPIAdapter.js';
 import { SupabaseKeyCollector } from '../auth/SupabaseKeyCollector.js';
-import { WalStreamManager } from '../replication/WalStreamManager.js';
+import { WalStreamReplicator } from '../replication/WalStreamReplicator.js';
 import { ConnectionManagerFactory } from '../replication/ConnectionManagerFactory.js';
+import { PostgresErrorRateLimiter } from '../replication/PostgresErrorRateLimiter.js';
 
 export class PostgresModule extends replication.ReplicationModule<types.PostgresConnectionConfig> {
+  private connectionFactories: Set<ConnectionManagerFactory>;
+
   constructor() {
     super({
       name: 'Postgres',
       type: types.POSTGRES_CONNECTION_TYPE,
       configSchema: types.PostgresConnectionConfig
     });
+
+    this.connectionFactories = new Set();
   }
 
   async initialize(context: system.ServiceContextContainer): Promise<void> {
@@ -45,16 +42,18 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
   protected createReplicator(
     decodedConfig: types.PostgresConnectionConfig,
     context: system.ServiceContext
-  ): Replicator {
+  ): replication.AbstractReplicator {
     const normalisedConfig = this.resolveConfig(decodedConfig);
     const connectionFactory = new ConnectionManagerFactory(normalisedConfig);
+    this.connectionFactories.add(connectionFactory);
     const syncRuleProvider = new ConfigurationFileSyncRulesProvider(context.configuration.sync_rules);
 
-    return new WalStreamManager({
+    return new WalStreamReplicator({
       id: this.getDefaultId(normalisedConfig.database),
       syncRuleProvider: syncRuleProvider,
       storageFactory: context.storage,
-      connectionFactory: connectionFactory
+      connectionFactory: connectionFactory,
+      rateLimiter: new PostgresErrorRateLimiter()
     });
   }
 
@@ -68,8 +67,11 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
     };
   }
 
-  // TODO: Confirm if there are any resources that would not already be closed by the Replication and Router engines
-  async teardown(): Promise<void> {}
+  async teardown(): Promise<void> {
+    for (const connectionFactory of this.connectionFactories) {
+      await connectionFactory.shutdown();
+    }
+  }
 
   protected registerSupabaseAuth(context: system.ServiceContextContainer) {
     const { configuration } = context;
@@ -82,7 +84,7 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
         try {
           return this.resolveConfig(types.PostgresConnectionConfig.decode(baseConfig as any));
         } catch (ex) {
-          logger.warn('Failed to decode configuration in Postgres module initialization.', ex);
+          this.logger.warn('Failed to decode configuration.', ex);
         }
       })
       .filter((c) => !!c)

@@ -6,7 +6,7 @@ import { SyncRulesProvider } from '../util/config/sync-rules/sync-rules-provider
 import winston from 'winston';
 import { AbstractReplicationJob } from './AbstractReplicationJob.js';
 import { StorageFactoryProvider } from '../storage/storage-index.js';
-import { DefaultErrorRateLimiter, ErrorRateLimiter } from './ErrorRateLimiter.js';
+import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 
 // 5 minutes
 const PING_INTERVAL = 1_000_000_000n * 300n;
@@ -20,6 +20,10 @@ export interface AbstractReplicatorOptions {
   id: string;
   storageFactory: StorageFactoryProvider;
   syncRuleProvider: SyncRulesProvider;
+  /**
+   * This limits the effect of retries when there is a persistent issue.
+   */
+  rateLimiter: ErrorRateLimiter;
 }
 
 /**
@@ -40,20 +44,11 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   // First ping is only after 5 minutes, not when starting
   private lastPing = hrtime.bigint();
 
-  /**
-   * TODO: Remove Postgres coupling of the DefaultLimitter
-   * This limits the effect of retries when there is a persistent issue.
-   */
-  private rateLimiter: ErrorRateLimiter;
-
   protected constructor(private options: AbstractReplicatorOptions) {
     this.logger = logger.child({ name: `Replicator:${options.id}` });
-    this.rateLimiter = this.createRateLimiter();
   }
 
   abstract createJob(options: CreateJobOptions): T;
-
-  abstract createRateLimiter(): ErrorRateLimiter;
 
   public get id() {
     return this.options.id;
@@ -65,6 +60,10 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
   protected get syncRuleProvider() {
     return this.options.syncRuleProvider;
+  }
+
+  protected get rateLimiter() {
+    return this.options.rateLimiter;
   }
 
   public async start(): Promise<void> {

@@ -1,19 +1,8 @@
-import * as storage from '../storage/storage-index.js';
-import * as utils from '../util/util-index.js';
 import { AbstractReplicator } from './AbstractReplicator.js';
-
-export interface ReplicationEngineOptions {
-  storage: storage.StorageFactoryProvider;
-  config: utils.SyncRulesConfig;
-}
+import { logger } from '@powersync/lib-services-framework';
 
 export class ReplicationEngine {
-  private readonly options: ReplicationEngineOptions;
   private readonly replicators: Map<string, AbstractReplicator> = new Map();
-
-  constructor(options: ReplicationEngineOptions) {
-    this.options = options;
-  }
 
   /**
    *  Register a Replicator with the engine
@@ -24,6 +13,7 @@ export class ReplicationEngine {
     if (this.replicators.has(replicator.id)) {
       throw new Error(`Replicator with id: ${replicator.id} already registered`);
     }
+    logger.info(`Successfully registered Replicator ${replicator.id} with ReplicationEngine`);
     this.replicators.set(replicator.id, replicator);
   }
 

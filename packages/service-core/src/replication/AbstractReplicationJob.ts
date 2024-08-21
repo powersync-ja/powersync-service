@@ -19,6 +19,9 @@ export abstract class AbstractReplicationJob {
     this.logger = logger.child({ name: `ReplicationJob: ${options.id}` });
   }
 
+  /**
+   *  Copy the initial data set from the data source if required and then keep it in sync.
+   */
   abstract replicate(): Promise<void>;
 
   /**
@@ -44,7 +47,6 @@ export abstract class AbstractReplicationJob {
       container.reporter.captureException(e, {
         metadata: {
           replicator: this.id
-          // TODO We could allow extra metadata contributed from the adapter here
         }
       });
       logger.error(`Replication failed.`, e);
@@ -60,7 +62,6 @@ export abstract class AbstractReplicationJob {
   public async stop(): Promise<void> {
     logger.info(`Stopping ${this.id} replication job for sync rule iteration: ${this.storage.group_id}`);
     this.abortController.abort();
-    // TODO don't worry about exceptions, stopping is the important part
     await this.isReplicatingPromise;
   }
 

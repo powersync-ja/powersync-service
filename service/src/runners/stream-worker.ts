@@ -7,10 +7,7 @@ import { MetricModes, registerMetrics } from '../metrics.js';
  */
 export const registerReplicationServices = (serviceContext: core.system.ServiceContextContainer) => {
   // Needs to be executed after shared registrations
-  const replication = new core.replication.ReplicationEngine({
-    config: serviceContext.configuration.sync_rules,
-    storage: serviceContext.storage
-  });
+  const replication = new core.replication.ReplicationEngine();
 
   serviceContext.register(core.replication.ReplicationEngine, replication);
   serviceContext.lifeCycleEngine.withLifecycle(replication, {
