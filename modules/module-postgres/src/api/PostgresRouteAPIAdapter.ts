@@ -46,7 +46,7 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
     }
 
     try {
-      await replication_utils.checkSourceConfiguration(this.pool);
+      await replication_utils.checkSourceConfiguration(this.pool, this.publication_name);
     } catch (e) {
       return {
         ...base,

@@ -106,7 +106,7 @@ export class WalStreamTestContext {
     start ??= '0';
     let checkpoint = await this.getCheckpoint(options);
     const map = new Map<string, string>([[bucket, start]]);
-    const batch = await this.storage!.getBucketDataBatch(checkpoint, map);
+    const batch = this.storage!.getBucketDataBatch(checkpoint, map);
     const batches = await fromAsync(batch);
     return batches[0]?.batch.data ?? [];
   }

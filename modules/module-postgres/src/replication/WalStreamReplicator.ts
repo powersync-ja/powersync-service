@@ -22,4 +22,9 @@ export class WalStreamReplicator extends replication.AbstractReplicator<WalStrea
       lock: options.lock
     });
   }
+
+  async stop(): Promise<void> {
+    await super.stop();
+    await this.connectionFactory.shutdown();
+  }
 }

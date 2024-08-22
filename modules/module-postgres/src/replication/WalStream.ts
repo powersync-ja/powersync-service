@@ -167,7 +167,7 @@ export class WalStream {
   }
 
   async initSlot(): Promise<InitResult> {
-    await checkSourceConfiguration(this.connections.pool);
+    await checkSourceConfiguration(this.connections.pool, PUBLICATION_NAME);
 
     const slotName = this.slot_name;
 
@@ -401,7 +401,7 @@ WHERE  oid = $1::regclass`,
   }
 
   async handleRelation(batch: storage.BucketStorageBatch, descriptor: SourceEntityDescriptor, snapshot: boolean) {
-    if (!descriptor.objectId) {
+    if (!descriptor.objectId && typeof descriptor.objectId != 'number') {
       throw new Error('objectId expected');
     }
     const result = await this.storage.resolveTable({

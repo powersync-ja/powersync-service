@@ -8,16 +8,12 @@ import { ConnectionManagerFactory } from '../replication/ConnectionManagerFactor
 import { PostgresErrorRateLimiter } from '../replication/PostgresErrorRateLimiter.js';
 
 export class PostgresModule extends replication.ReplicationModule<types.PostgresConnectionConfig> {
-  private connectionFactories: Set<ConnectionManagerFactory>;
-
   constructor() {
     super({
       name: 'Postgres',
       type: types.POSTGRES_CONNECTION_TYPE,
       configSchema: types.PostgresConnectionConfig
     });
-
-    this.connectionFactories = new Set();
   }
 
   async initialize(context: system.ServiceContextContainer): Promise<void> {
@@ -45,7 +41,6 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
   ): replication.AbstractReplicator {
     const normalisedConfig = this.resolveConfig(decodedConfig);
     const connectionFactory = new ConnectionManagerFactory(normalisedConfig);
-    this.connectionFactories.add(connectionFactory);
     const syncRuleProvider = new ConfigurationFileSyncRulesProvider(context.configuration.sync_rules);
 
     return new WalStreamReplicator({
@@ -67,11 +62,7 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
     };
   }
 
-  async teardown(): Promise<void> {
-    for (const connectionFactory of this.connectionFactories) {
-      await connectionFactory.shutdown();
-    }
-  }
+  async teardown(): Promise<void> {}
 
   protected registerSupabaseAuth(context: system.ServiceContextContainer) {
     const { configuration } = context;
