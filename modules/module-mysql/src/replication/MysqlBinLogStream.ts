@@ -13,35 +13,16 @@ import * as zongji_utils from './zongji/zongji-utils.js';
 export interface BinLogStreamOptions {
   pool: mysql.Pool;
   connection_config: NormalizedMySQLConnectionConfig;
-
   storage: storage.SyncRulesBucketStorage;
   abort_signal: AbortSignal;
-}
-
-interface InitResult {
-  needsInitialSync: boolean;
-}
-
-type Data = Record<string, any>;
-type EventType = 'insert' | 'update' | 'delete';
-
-interface DatabaseEvent {
-  database: string;
-  table: string;
-  type: EventType;
-  ts: number;
-  xid: number;
-  xoffset?: number;
-  gtid: string;
-  commit?: boolean;
-  data: Data;
-  old?: Data;
 }
 
 interface MysqlRelId {
   schema: string;
   name: string;
 }
+
+export type Data = Record<string, any>;
 
 /**
  * MySQL does not have same relation structure. Just returning unique key as string.
@@ -51,97 +32,11 @@ function getMysqlRelId(source: MysqlRelId): string {
   return `${source.schema}.${source.name}`;
 }
 
-async function getReplicationKeyColumns(db: mysql.Pool, relId: MysqlRelId) {
-  const primaryKeyQuery = `
-        SELECT s.COLUMN_NAME AS name, c.DATA_TYPE AS type
-        FROM INFORMATION_SCHEMA.STATISTICS s
-        JOIN INFORMATION_SCHEMA.COLUMNS c 
-            ON s.TABLE_SCHEMA = c.TABLE_SCHEMA
-            AND s.TABLE_NAME = c.TABLE_NAME
-            AND s.COLUMN_NAME = c.COLUMN_NAME
-        WHERE s.TABLE_SCHEMA = ?
-        AND s.TABLE_NAME = ?
-        AND s.INDEX_NAME = 'PRIMARY'
-        ORDER BY s.SEQ_IN_INDEX;
-    `;
-  const primaryKeyRows = await db.execute<RowDataPacket[]>(primaryKeyQuery, [relId.schema, relId.name]);
-
-  if (primaryKeyRows[0].length > 0) {
-    logger.info(`Found primary key, returning it: ${primaryKeyRows[0].reduce((a, b) => `${a}, "${b.name}"`, '')}`);
-    return {
-      columns: (primaryKeyRows[0] as RowDataPacket[]).map((row) => ({
-        name: row.name as string,
-        // Ignoring MySQL types: we should check if they are used.
-        typeOid: -1
-      })),
-      replicationIdentity: 'default'
-    };
-  }
-
-  // TODO: test code with tables with unique keys, compound key etc.
-  // No primary key, find the first valid unique key
-  const uniqueKeyQuery = `
-        SELECT s.INDEX_NAME, s.COLUMN_NAME, c.DATA_TYPE, s.NON_UNIQUE, s.NULLABLE
-        FROM INFORMATION_SCHEMA.STATISTICS s
-        JOIN INFORMATION_SCHEMA.COLUMNS c
-            ON s.TABLE_SCHEMA = c.TABLE_SCHEMA
-            AND s.TABLE_NAME = c.TABLE_NAME
-            AND s.COLUMN_NAME = c.COLUMN_NAME
-        WHERE s.TABLE_SCHEMA = ?
-        AND s.TABLE_NAME = ?
-        AND s.INDEX_NAME != 'PRIMARY'
-        AND s.NON_UNIQUE = 0
-        ORDER BY s.SEQ_IN_INDEX;
-    `;
-  const uniqueKeyRows = await db.execute<RowDataPacket[]>(uniqueKeyQuery, [relId.schema, relId.name]);
-
-  const currentUniqueKey = uniqueKeyRows[0]?.[0]?.INDEX_NAME ?? '';
-  const uniqueKeyColumns: RowDataPacket[] = [];
-  for (const row of uniqueKeyRows[0]) {
-    if (row.INDEX_NAME === currentUniqueKey) {
-      uniqueKeyColumns.push(row);
-    }
-  }
-  if (uniqueKeyColumns.length > 0) {
-    logger.info('Found unique key, returning it');
-    return {
-      columns: uniqueKeyColumns.map((col) => ({
-        name: col.COLUMN_NAME as string,
-        // Ignoring MySQL types: we should check if they are used.
-        typeOid: -1
-      })),
-      replicationIdentity: 'index'
-    };
-  }
-
-  logger.info('No unique key found, returning all columns');
-  const allColumnsQuery = `
-        SELECT COLUMN_NAME AS name
-        FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = ?
-        AND TABLE_NAME = ?
-        ORDER BY ORDINAL_POSITION;
-    `;
-  const allColumnsRows = await db.execute<RowDataPacket[]>(allColumnsQuery, [relId.schema, relId.name]);
-
-  return {
-    columns: (allColumnsRows[0] as RowDataPacket[]).map((row) => ({
-      name: row.name as string,
-      typeOid: -1
-    })),
-    replicationIdentity: 'full'
-  };
-}
-
 export class MysqlBinLogStream {
   sync_rules: sync_rules.SqlSyncRules;
   group_id: number;
 
-  connection_id = 1;
-
   private readonly storage: storage.SyncRulesBucketStorage;
-
-  private slot_name: string;
 
   private abort_signal: AbortSignal;
 
@@ -152,22 +47,19 @@ export class MysqlBinLogStream {
     this.storage = options.storage;
     this.sync_rules = options.storage.sync_rules;
     this.group_id = options.storage.group_id;
-    this.slot_name = options.storage.slot_name;
     this.pool = options.pool;
 
     this.abort_signal = options.abort_signal;
-    this.abort_signal.addEventListener(
-      'abort',
-      () => {
-        // TODO close things
-      },
-      { once: true }
-    );
   }
 
   get connectionTag() {
-    // TODO
-    return 'default';
+    return this.options.connection_config.tag;
+  }
+
+  get connectionId() {
+    // TODO this is currently hardcoded to 1 in most places
+    // return this.options.connection_config.id;
+    return 1;
   }
 
   get stopped() {
@@ -177,7 +69,7 @@ export class MysqlBinLogStream {
   async handleRelation(batch: storage.BucketStorageBatch, entity: storage.SourceEntityDescriptor, snapshot: boolean) {
     const result = await this.storage.resolveTable({
       group_id: this.group_id,
-      connection_id: this.connection_id,
+      connection_id: this.connectionId,
       connection_tag: this.connectionTag,
       entity_descriptor: entity,
       sync_rules: this.sync_rules
@@ -196,22 +88,22 @@ export class MysqlBinLogStream {
       // Truncate this table, in case a previous snapshot was interrupted.
       await batch.truncate([result.table]);
 
-      // TODO: put zero GTID somewhere.
       let gtid: common.ReplicatedGTID;
       // Start the snapshot inside a transaction.
       // We use a dedicated connection for this.
+      const connection = await this.pool.getConnection();
       try {
-        await this.pool.query('BEGIN');
+        await connection.query('BEGIN');
         try {
           gtid = await common.readMasterGtid(this.pool);
-          await this.snapshotTable(batch, this.pool, result.table);
-          await this.pool.query('COMMIT');
+          await this.snapshotTable(batch, result.table);
+          await connection.query('COMMIT');
         } catch (e) {
-          await this.pool.query('ROLLBACK');
+          await connection.query('ROLLBACK');
           throw e;
         }
       } finally {
-        await this.pool.end();
+        await connection.end();
       }
       const [table] = await batch.markSnapshotDone([result.table], gtid.comparable);
       return table;
@@ -222,7 +114,6 @@ export class MysqlBinLogStream {
 
   async getQualifiedTableNames(
     batch: storage.BucketStorageBatch,
-    db: mysql.Pool,
     tablePattern: sync_rules.TablePattern
   ): Promise<storage.SourceTable[]> {
     if (tablePattern.connectionTag != this.connectionTag) {
@@ -232,7 +123,7 @@ export class MysqlBinLogStream {
     let tableRows: any[];
     const prefix = tablePattern.isWildcard ? tablePattern.tablePrefix : undefined;
     if (tablePattern.isWildcard) {
-      const result = await db.query<RowDataPacket[]>(
+      const result = await this.pool.query<RowDataPacket[]>(
         `SELECT TABLE_NAME
 FROM information_schema.tables
 WHERE TABLE_SCHEMA = ? AND TABLE_NAME LIKE ?;
@@ -241,7 +132,7 @@ WHERE TABLE_SCHEMA = ? AND TABLE_NAME LIKE ?;
       );
       tableRows = result[0];
     } else {
-      const result = await db.query<RowDataPacket[]>(
+      const result = await this.pool.query<RowDataPacket[]>(
         `SELECT TABLE_NAME
 FROM information_schema.tables
 WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?;
@@ -258,7 +149,7 @@ WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?;
         continue;
       }
 
-      const rs = await db.query<RowDataPacket[]>(
+      const rs = await this.pool.query<RowDataPacket[]>(
         `SELECT 1
 FROM information_schema.tables
 WHERE table_schema = ? AND table_name = ?
@@ -292,20 +183,18 @@ AND table_type = 'BASE TABLE';`,
     return result;
   }
 
-  async initSlot(): Promise<InitResult> {
+  /**
+   * Checks if the initial sync has been completed yet.
+   */
+  protected async checkInitialReplicated(): Promise<boolean> {
     await common.checkSourceConfiguration(this.pool);
-
-    const slotName = this.slot_name;
 
     const status = await this.storage.getStatus();
     if (status.snapshot_done && status.checkpoint_lsn) {
-      logger.info(`${slotName} Initial replication already done`);
-      // Success
-      logger.info(`MySQL not using Slots ${slotName} appears healthy`);
-      return { needsInitialSync: false };
+      logger.info(`Initial replication already done. MySQL appears healthy`);
+      return true;
     }
-
-    return { needsInitialSync: true };
+    return false;
   }
 
   /**
@@ -314,35 +203,31 @@ AND table_type = 'BASE TABLE';`,
    * If (partial) replication was done before on this slot, this clears the state
    * and starts again from scratch.
    */
-  async startInitialReplication() {
-    const db = this.pool;
-
-    const slotName = this.slot_name;
-
+  async replicateInitial() {
     await this.storage.clear();
-    const headGTID = await common.readMasterGtid(db);
+    const headGTID = await common.readMasterGtid(this.pool);
     logger.info(`Using GTID:: '${headGTID}'`);
-    await db.query('BEGIN');
+    await this.pool.query('BEGIN');
     try {
-      logger.info(`${slotName} Starting initial replication`);
-      await this.initialReplication(db, headGTID);
-      logger.info(`${slotName} Initial replication done`);
-      await db.query('COMMIT');
+      logger.info(`Starting initial replication`);
+      await this.initialReplication(headGTID);
+      logger.info(`Initial replication done`);
+      await this.pool.query('COMMIT');
     } catch (e) {
-      await db.query('ROLLBACK');
+      await this.pool.query('ROLLBACK');
       throw e;
     }
   }
 
-  async initialReplication(db: mysql.Pool, gtid: common.ReplicatedGTID) {
+  async initialReplication(gtid: common.ReplicatedGTID) {
     const sourceTables = this.sync_rules.getSourceTables();
     // TODO fix database default schema if not provided explicitly in the sync rules
     // .map((table) => new sync_rules.TablePattern('mydatabase', table.tablePattern));
     await this.storage.startBatch({}, async (batch) => {
       for (let tablePattern of sourceTables) {
-        const tables = await this.getQualifiedTableNames(batch, db, tablePattern);
+        const tables = await this.getQualifiedTableNames(batch, tablePattern);
         for (let table of tables) {
-          await this.snapshotTable(batch, db, table);
+          await this.snapshotTable(batch, table);
           await batch.markSnapshotDone([table], gtid.comparable);
 
           // await touch();
@@ -352,12 +237,13 @@ AND table_type = 'BASE TABLE';`,
     });
   }
 
-  private async snapshotTable(batch: storage.BucketStorageBatch, db: mysql.Pool, table: storage.SourceTable) {
-    logger.info(`${this.slot_name} Replicating ${table.qualifiedName}`);
-    const results = await db.query<mysql.RowDataPacket[]>(`SELECT * FROM ${table.schema}.${table.table}`);
-    for (let record of results[0]) {
+  private async snapshotTable(batch: storage.BucketStorageBatch, table: storage.SourceTable) {
+    logger.info(`Replicating ${table.qualifiedName}`);
+    // TODO this could be large. Should we chunk this
+    const [rows] = await this.pool.query<mysql.RowDataPacket[]>(`SELECT * FROM ${table.schema}.${table.table}`);
+    for (const record of rows) {
       await batch.save({
-        tag: 'insert',
+        tag: storage.SaveOperationTag.INSERT,
         sourceTable: table,
         before: undefined,
         after: common.toSQLiteRow(record)
@@ -369,7 +255,7 @@ AND table_type = 'BASE TABLE';`,
   async writeChanges(
     batch: storage.BucketStorageBatch,
     msg: {
-      type: EventType;
+      type: storage.SaveOperationTag;
       data: Data[];
       previous_data?: Data[];
       database: string;
@@ -390,7 +276,7 @@ AND table_type = 'BASE TABLE';`,
   async writeChange(
     batch: storage.BucketStorageBatch,
     msg: {
-      type: EventType;
+      type: storage.SaveOperationTag;
       data: Data;
       previous_data?: Data;
       database: string;
@@ -402,7 +288,7 @@ AND table_type = 'BASE TABLE';`,
       if (msg.type == 'insert') {
         // rows_replicated_total.add(1);
         return await batch.save({
-          tag: 'insert',
+          tag: storage.SaveOperationTag.INSERT,
           sourceTable: msg.sourceTable,
           before: undefined,
           after: common.toSQLiteRow(msg.data)
@@ -410,7 +296,7 @@ AND table_type = 'BASE TABLE';`,
       } else if (msg.type == 'update') {
         // rows_replicated_total.add(1);
         return await batch.save({
-          tag: 'update',
+          tag: storage.SaveOperationTag.UPDATE,
           sourceTable: msg.sourceTable,
           before: msg.previous_data ? common.toSQLiteRow(msg.previous_data) : undefined,
           after: common.toSQLiteRow(msg.data)
@@ -418,7 +304,7 @@ AND table_type = 'BASE TABLE';`,
       } else if (msg.type == 'delete') {
         // rows_replicated_total.add(1);
         return await batch.save({
-          tag: 'delete',
+          tag: storage.SaveOperationTag.DELETE,
           sourceTable: msg.sourceTable,
           before: common.toSQLiteRow(msg.data),
           after: undefined
@@ -441,20 +327,18 @@ AND table_type = 'BASE TABLE';`,
   }
 
   async initReplication() {
-    const result = await this.initSlot();
-    await this.loadTables();
-    if (result.needsInitialSync) {
-      await this.startInitialReplication();
-    }
-  }
+    const initialReplicationCompleted = await this.checkInitialReplicated();
 
-  private async loadTables() {
     const sourceTables = this.sync_rules.getSourceTables();
     await this.storage.startBatch({}, async (batch) => {
       for (let tablePattern of sourceTables) {
-        await this.getQualifiedTableNames(batch, this.pool, tablePattern);
+        await this.getQualifiedTableNames(batch, tablePattern);
       }
     });
+
+    if (!initialReplicationCompleted) {
+      await this.replicateInitial();
+    }
   }
 
   async streamChanges() {
@@ -501,14 +385,14 @@ AND table_type = 'BASE TABLE';`,
             const writeTableInfo = evt.tableMap[evt.tableId];
 
             await this.writeChanges(batch, {
-              type: 'insert',
+              type: storage.SaveOperationTag.INSERT,
               data: evt.rows,
               database: writeTableInfo.parentSchema,
               table: writeTableInfo.tableName,
               // TODO cleanup
               sourceTable: (
                 await this.storage.resolveTable({
-                  connection_id: this.connection_id,
+                  connection_id: this.connectionId,
                   connection_tag: this.connectionTag,
                   entity_descriptor: {
                     name: writeTableInfo.tableName,
@@ -528,7 +412,7 @@ AND table_type = 'BASE TABLE';`,
           case zongji_utils.eventIsUpdateMutation(evt):
             const updateTableInfo = evt.tableMap[evt.tableId];
             await this.writeChanges(batch, {
-              type: 'update',
+              type: storage.SaveOperationTag.UPDATE,
               data: evt.rows.map((row) => row.after),
               previous_data: evt.rows.map((row) => row.before),
               database: updateTableInfo.parentSchema,
@@ -536,7 +420,7 @@ AND table_type = 'BASE TABLE';`,
               // TODO cleanup
               sourceTable: (
                 await this.storage.resolveTable({
-                  connection_id: this.connection_id,
+                  connection_id: this.connectionId,
                   connection_tag: this.connectionTag,
                   entity_descriptor: {
                     name: updateTableInfo.tableName,
@@ -557,14 +441,14 @@ AND table_type = 'BASE TABLE';`,
             // TODO, can multiple tables be present?
             const deleteTableInfo = evt.tableMap[evt.tableId];
             await this.writeChanges(batch, {
-              type: 'delete',
+              type: storage.SaveOperationTag.DELETE,
               data: evt.rows,
               database: deleteTableInfo.parentSchema,
               table: deleteTableInfo.tableName,
               // TODO cleanup
               sourceTable: (
                 await this.storage.resolveTable({
-                  connection_id: this.connection_id,
+                  connection_id: this.connectionId,
                   connection_tag: this.connectionTag,
                   entity_descriptor: {
                     name: deleteTableInfo.tableName,

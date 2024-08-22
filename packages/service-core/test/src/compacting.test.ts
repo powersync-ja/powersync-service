@@ -1,3 +1,4 @@
+import { SaveOperationTag } from '@/storage/BucketStorage.js';
 import { MongoCompactOptions } from '@/storage/mongo/MongoCompactor.js';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
@@ -29,7 +30,7 @@ bucket_definitions:
     const result = await storage.startBatch({}, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 't1'
         }
@@ -37,7 +38,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 't2'
         }
@@ -45,7 +46,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'update',
+        tag: SaveOperationTag.UPDATE,
         after: {
           id: 't2'
         }
@@ -119,7 +120,7 @@ bucket_definitions:
     const result = await storage.startBatch({}, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 't1'
         }
@@ -127,7 +128,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 't2'
         }
@@ -135,7 +136,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'delete',
+        tag: SaveOperationTag.DELETE,
         before: {
           id: 't1'
         }
@@ -143,7 +144,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'update',
+        tag: SaveOperationTag.UPDATE,
         after: {
           id: 't2'
         }

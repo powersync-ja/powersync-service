@@ -8,8 +8,8 @@ import {
   ToastableSqliteRow
 } from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
-import { SourceTable } from './SourceTable.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
+import { SourceTable } from './SourceTable.js';
 
 export interface BucketStorageFactory {
   /**
@@ -358,15 +358,21 @@ export interface SaveBucketData {
 
 export type SaveOptions = SaveInsert | SaveUpdate | SaveDelete;
 
+export enum SaveOperationTag {
+  INSERT = 'insert',
+  UPDATE = 'update',
+  DELETE = 'delete'
+}
+
 export interface SaveInsert {
-  tag: 'insert';
+  tag: SaveOperationTag.INSERT;
   sourceTable: SourceTable;
   before?: undefined;
   after: SqliteRow;
 }
 
 export interface SaveUpdate {
-  tag: 'update';
+  tag: SaveOperationTag.UPDATE;
   sourceTable: SourceTable;
 
   /**
@@ -383,7 +389,7 @@ export interface SaveUpdate {
 }
 
 export interface SaveDelete {
-  tag: 'delete';
+  tag: SaveOperationTag.DELETE;
   sourceTable: SourceTable;
   before: SqliteRow;
   after?: undefined;

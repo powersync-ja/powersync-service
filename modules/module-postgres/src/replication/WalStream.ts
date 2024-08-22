@@ -1,11 +1,11 @@
-import * as pgwire from '@powersync/service-jpgwire';
-import * as util from '../utils/pgwire_utils.js';
 import { container, errors, logger } from '@powersync/lib-services-framework';
-import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
-import { getPgOutputRelation, getRelId } from './PgRelation.js';
 import { Metrics, SourceEntityDescriptor, storage } from '@powersync/service-core';
-import { checkSourceConfiguration, getReplicationIdentityColumns } from './replication-utils.js';
+import * as pgwire from '@powersync/service-jpgwire';
+import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
+import * as util from '../utils/pgwire_utils.js';
 import { PgManager } from './PgManager.js';
+import { getPgOutputRelation, getRelId } from './PgRelation.js';
+import { checkSourceConfiguration, getReplicationIdentityColumns } from './replication-utils.js';
 
 export const ZERO_LSN = '00000000/00000000';
 export const PUBLICATION_NAME = 'powersync';
@@ -389,7 +389,12 @@ WHERE  oid = $1::regclass`,
 
       for (let record of WalStream.getQueryData(rows)) {
         // This auto-flushes when the batch reaches its size limit
-        await batch.save({ tag: 'insert', sourceTable: table, before: undefined, after: record });
+        await batch.save({
+          tag: storage.SaveOperationTag.INSERT,
+          sourceTable: table,
+          before: undefined,
+          after: record
+        });
       }
       at += rows.length;
       Metrics.getInstance().rows_replicated_total.add(rows.length);
@@ -471,29 +476,48 @@ WHERE  oid = $1::regclass`,
     if (msg.lsn == null) {
       return null;
     }
-    if (msg.tag == 'insert' || msg.tag == 'update' || msg.tag == 'delete') {
+    if (
+      msg.tag == storage.SaveOperationTag.INSERT ||
+      msg.tag == storage.SaveOperationTag.UPDATE ||
+      msg.tag == storage.SaveOperationTag.DELETE
+    ) {
       const table = this.getTable(getRelId(msg.relation));
       if (!table.syncAny) {
         logger.debug(`Table ${table.qualifiedName} not used in sync rules - skipping`);
         return null;
       }
 
-      if (msg.tag == 'insert') {
+      if (msg.tag == storage.SaveOperationTag.INSERT) {
         Metrics.getInstance().rows_replicated_total.add(1);
         const baseRecord = util.constructAfterRecord(msg);
-        return await batch.save({ tag: 'insert', sourceTable: table, before: undefined, after: baseRecord });
-      } else if (msg.tag == 'update') {
+        return await batch.save({
+          tag: storage.SaveOperationTag.INSERT,
+          sourceTable: table,
+          before: undefined,
+          after: baseRecord
+        });
+      } else if (msg.tag == storage.SaveOperationTag.UPDATE) {
         Metrics.getInstance().rows_replicated_total.add(1);
         // "before" may be null if the replica id columns are unchanged
         // It's fine to treat that the same as an insert.
         const before = util.constructBeforeRecord(msg);
         const after = util.constructAfterRecord(msg);
-        return await batch.save({ tag: 'update', sourceTable: table, before: before, after: after });
-      } else if (msg.tag == 'delete') {
+        return await batch.save({
+          tag: storage.SaveOperationTag.UPDATE,
+          sourceTable: table,
+          before: before,
+          after: after
+        });
+      } else if (msg.tag == storage.SaveOperationTag.DELETE) {
         Metrics.getInstance().rows_replicated_total.add(1);
         const before = util.constructBeforeRecord(msg)!;
 
-        return await batch.save({ tag: 'delete', sourceTable: table, before: before, after: undefined });
+        return await batch.save({
+          tag: storage.SaveOperationTag.DELETE,
+          sourceTable: table,
+          before: before,
+          after: undefined
+        });
       }
     } else if (msg.tag == 'truncate') {
       let tables: storage.SourceTable[] = [];
