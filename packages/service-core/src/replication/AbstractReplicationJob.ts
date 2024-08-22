@@ -39,28 +39,26 @@ export abstract class AbstractReplicationJob {
    *  Start the replication process
    */
   public async start(): Promise<void> {
-    try {
-      this.isReplicatingPromise = this.replicate();
-    } catch (e) {
-      // TODO handle catch
-      // Fatal exception
-      container.reporter.captureException(e, {
-        metadata: {
-          replicator: this.id
-        }
+    this.isReplicatingPromise = this.replicate()
+      .catch((ex) => {
+        container.reporter.captureException(ex, {
+          metadata: {
+            replicator: this.id
+          }
+        });
+        this.logger.error(`Replication failed.`, ex);
+      })
+      .finally(async () => {
+        this.abortController.abort();
+        await this.options.lock.release();
       });
-      logger.error(`Replication failed.`, e);
-    } finally {
-      this.abortController.abort();
-    }
-    await this.options.lock.release();
   }
 
   /**
    *  Safely stop the replication process
    */
   public async stop(): Promise<void> {
-    logger.info(`Stopping ${this.id} replication job for sync rule iteration: ${this.storage.group_id}`);
+    this.logger.info(`Stopping ${this.id} replication job for sync rule iteration: ${this.storage.group_id}`);
     this.abortController.abort();
     await this.isReplicatingPromise;
   }
@@ -70,7 +68,7 @@ export abstract class AbstractReplicationJob {
    *  Clean up any config on the datasource related to this replication job
    */
   public async terminate(): Promise<void> {
-    logger.info(`${this.id} Terminating replication`);
+    this.logger.info(`${this.id} Terminating replication`);
     await this.stop();
     await this.cleanUp();
     await this.options.storage.terminate();
