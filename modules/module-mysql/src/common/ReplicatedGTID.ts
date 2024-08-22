@@ -1,6 +1,7 @@
 import mysql from 'mysql2/promise';
 import * as uuid from 'uuid';
-import { retriedQuery } from '../mysql_utils.js';
+import * as mysql_utils from '../utils/mysql_utils.js';
+
 export type BinLogPosition = {
   filename: string;
   offset: number;
@@ -113,7 +114,7 @@ export class ReplicatedGTID {
    * Calculates the distance in bytes from this GTID to the provided argument.
    */
   async distanceTo(db: mysql.Pool, to: ReplicatedGTID): Promise<number | null> {
-    const [logFiles] = await retriedQuery({
+    const [logFiles] = await mysql_utils.retriedQuery({
       db,
       query: `SHOW BINARY LOGS;`
     });

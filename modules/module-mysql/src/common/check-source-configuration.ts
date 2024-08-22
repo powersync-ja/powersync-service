@@ -1,9 +1,9 @@
 import mysql from 'mysql2/promise';
-import { retriedQuery } from '../mysql_utils.js';
+import * as mysql_utils from '../utils/mysql_utils.js';
 
 export async function checkSourceConfiguration(db: mysql.Pool) {
   const errors: string[] = [];
-  const [[result]] = await retriedQuery({
+  const [[result]] = await mysql_utils.retriedQuery({
     db,
     query: `
       SELECT
@@ -37,7 +37,7 @@ export async function checkSourceConfiguration(db: mysql.Pool) {
     errors.push('Binary log index file is not set. Please check your settings.');
   }
 
-  const [[binLogFormatResult]] = await retriedQuery({
+  const [[binLogFormatResult]] = await mysql_utils.retriedQuery({
     db,
     query: `SHOW VARIABLES LIKE 'binlog_format';`
   });

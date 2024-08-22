@@ -1,6 +1,7 @@
 import mysql from 'mysql2/promise';
-import { retriedQuery } from '../mysql_utils.js';
-import { ReplicatedGTID } from './GTID.js';
+import * as mysql_utils from '../utils/mysql_utils.js';
+
+import { ReplicatedGTID } from './ReplicatedGTID.js';
 
 /**
  * Gets the current master HEAD GTID
@@ -10,7 +11,7 @@ export async function readMasterGtid(db: mysql.Pool): Promise<ReplicatedGTID> {
   const [[gtidResult]] = await db.query<mysql.RowDataPacket[]>('SELECT @@GLOBAL.gtid_executed as GTID;');
 
   // Get the BinLog position if master
-  const [[masterResult]] = await retriedQuery({
+  const [[masterResult]] = await mysql_utils.retriedQuery({
     db,
     query: `SHOW master STATUS`
   });

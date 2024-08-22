@@ -3,9 +3,9 @@ import { api, storage } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import mysql from 'mysql2/promise';
+import * as common from '../common/common-index.js';
 import * as types from '../types/types.js';
 import * as mysql_utils from '../utils/mysql_utils.js';
-import * as replication_utils from '../utils/replication/replication-utils.js';
 
 type SchemaResult = {
   schema_name: string;
@@ -45,7 +45,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
       };
     }
     try {
-      const errors = await replication_utils.checkSourceConfiguration(this.pool);
+      const errors = await common.checkSourceConfiguration(this.pool);
       if (errors.length) {
         return {
           ...base,
@@ -198,10 +198,10 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
   ): Promise<service_types.TableInfo> {
     const { schema } = tablePattern;
 
-    let idColumnsResult: replication_utils.ReplicationIdentityColumnsResult | null = null;
+    let idColumnsResult: common.ReplicationIdentityColumnsResult | null = null;
     let idColumnsError: service_types.ReplicationError | null = null;
     try {
-      idColumnsResult = await replication_utils.getReplicationIdentityColumns({
+      idColumnsResult = await common.getReplicationIdentityColumns({
         db: this.pool,
         schema,
         table_name: tableName
@@ -246,8 +246,8 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
   async getReplicationLag(options: api.ReplicationLagOptions): Promise<number> {
     const { last_checkpoint_identifier } = options;
 
-    const current = replication_utils.ReplicatedGTID.fromSerialized(last_checkpoint_identifier);
-    const head = await replication_utils.readMasterGtid(this.pool);
+    const current = common.ReplicatedGTID.fromSerialized(last_checkpoint_identifier);
+    const head = await common.readMasterGtid(this.pool);
 
     const lag = await current.distanceTo(this.pool, head);
     if (lag == null) {
@@ -258,7 +258,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
   }
 
   async getReplicationHead(): Promise<string> {
-    const result = await replication_utils.readMasterGtid(this.pool);
+    const result = await common.readMasterGtid(this.pool);
     return result.comparable;
   }
 

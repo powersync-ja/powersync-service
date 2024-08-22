@@ -1,6 +1,6 @@
 import { storage } from '@powersync/service-core';
 import mysql from 'mysql2/promise';
-import { retriedQuery } from '../mysql_utils.js';
+import * as mysql_utils from '../utils/mysql_utils.js';
 
 export type GetReplicationColumnsOptions = {
   db: mysql.Pool;
@@ -18,7 +18,7 @@ export async function getReplicationIdentityColumns(
   options: GetReplicationColumnsOptions
 ): Promise<ReplicationIdentityColumnsResult> {
   const { db, schema, table_name } = options;
-  const [primaryKeyColumns] = await retriedQuery({
+  const [primaryKeyColumns] = await mysql_utils.retriedQuery({
     db,
     query: `
       SELECT 
@@ -54,7 +54,7 @@ export async function getReplicationIdentityColumns(
 
   // TODO: test code with tables with unique keys, compound key etc.
   // No primary key, find the first valid unique key
-  const [uniqueKeyColumns] = await retriedQuery({
+  const [uniqueKeyColumns] = await mysql_utils.retriedQuery({
     db,
     query: `
       SELECT 
@@ -91,7 +91,7 @@ export async function getReplicationIdentityColumns(
     };
   }
 
-  const [allColumns] = await retriedQuery({
+  const [allColumns] = await mysql_utils.retriedQuery({
     db,
     query: `
       SELECT 

@@ -6,8 +6,8 @@ import { storage } from '@powersync/service-core';
 import mysql, { RowDataPacket } from 'mysql2/promise';
 
 import ZongJi, { BinLogEvent } from '@vlasky/zongji';
+import * as common from '../common/common-index.js';
 import { NormalizedMySQLConnectionConfig } from '../types/types.js';
-import * as replication_utils from '../utils/replication/replication-utils.js';
 import * as zongji_utils from './zongji/zongji-utils.js';
 
 export interface BinLogStreamOptions {
@@ -198,13 +198,13 @@ export class MysqlBinLogStream {
       await batch.truncate([result.table]);
 
       // TODO: put zero GTID somewhere.
-      let gtid: replication_utils.ReplicatedGTID | null = null;
+      let gtid: common.ReplicatedGTID;
       // Start the snapshot inside a transaction.
       // We use a dedicated connection for this.
       try {
         await this.pool.query('BEGIN');
         try {
-          gtid = await replication_utils.readMasterGtid(this.pool);
+          gtid = await common.readMasterGtid(this.pool);
           await this.snapshotTable(batch, this.pool, result.table);
           await this.pool.query('COMMIT');
         } catch (e) {
@@ -271,7 +271,7 @@ AND table_type = 'BASE TABLE';`,
         continue;
       }
 
-      const cresult = await replication_utils.getReplicationIdentityColumns({
+      const cresult = await common.getReplicationIdentityColumns({
         db: this.pool,
         schema: tablePattern.schema,
         table_name: tablePattern.name
@@ -294,7 +294,7 @@ AND table_type = 'BASE TABLE';`,
   }
 
   async initSlot(): Promise<InitResult> {
-    await replication_utils.checkSourceConfiguration(this.pool);
+    await common.checkSourceConfiguration(this.pool);
 
     const slotName = this.slot_name;
 
@@ -321,7 +321,7 @@ AND table_type = 'BASE TABLE';`,
     const slotName = this.slot_name;
 
     await this.storage.clear();
-    const headGTID = await replication_utils.readMasterGtid(db);
+    const headGTID = await common.readMasterGtid(db);
     logger.info(`Using GTID:: '${headGTID}'`);
     await db.query('BEGIN');
     try {
@@ -335,7 +335,7 @@ AND table_type = 'BASE TABLE';`,
     }
   }
 
-  async initialReplication(db: mysql.Pool, gtid: replication_utils.ReplicatedGTID) {
+  async initialReplication(db: mysql.Pool, gtid: common.ReplicatedGTID) {
     const sourceTables = this.sync_rules.getSourceTables();
     // TODO fix database default schema if not provided explicitly in the sync rules
     // .map((table) => new sync_rules.TablePattern('mydatabase', table.tablePattern));
@@ -473,8 +473,8 @@ AND table_type = 'BASE TABLE';`,
 
     const { checkpoint_lsn } = await this.storage.getStatus();
     const fromGTID = checkpoint_lsn
-      ? replication_utils.ReplicatedGTID.fromSerialized(checkpoint_lsn)
-      : await replication_utils.readMasterGtid(this.pool);
+      ? common.ReplicatedGTID.fromSerialized(checkpoint_lsn)
+      : await common.readMasterGtid(this.pool);
     const binLogPositionState = fromGTID.position;
 
     await this.storage.startBatch({}, async (batch) => {
@@ -484,13 +484,13 @@ AND table_type = 'BASE TABLE';`,
         password: this.options.connection_config.password
       });
 
-      let currentGTID: replication_utils.ReplicatedGTID | null = null;
+      let currentGTID: common.ReplicatedGTID | null = null;
 
       const queue = async.queue(async (evt: BinLogEvent) => {
         // State machine
         switch (true) {
           case zongji_utils.eventIsGTIDLog(evt):
-            currentGTID = replication_utils.ReplicatedGTID.fromBinLogEvent({
+            currentGTID = common.ReplicatedGTID.fromBinLogEvent({
               raw_gtid: {
                 server_id: evt.serverId,
                 transaction_range: evt.transactionRange
@@ -594,7 +594,7 @@ AND table_type = 'BASE TABLE';`,
           case zongji_utils.eventIsXid(evt):
             // Need to commit with a replicated GTID with updated next position
             await batch.commit(
-              new replication_utils.ReplicatedGTID({
+              new common.ReplicatedGTID({
                 raw_gtid: currentGTID!.raw,
                 position: {
                   filename: binLogPositionState.filename,
