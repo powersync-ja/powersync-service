@@ -1,47 +1,66 @@
 import { MissingReplicationSlotError, WalStream } from './WalStream.js';
-import { container, logger } from '@powersync/lib-services-framework';
+import { container } from '@powersync/lib-services-framework';
 import { PgManager } from './PgManager.js';
-import { ErrorRateLimiter, storage } from '@powersync/service-core';
+
+import { replication } from '@powersync/service-core';
 import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
 
-export interface WalStreamRunnerOptions {
-  factory: storage.BucketStorageFactory;
-  storage: storage.SyncRulesBucketStorage;
+export interface WalStreamReplicationJobOptions extends replication.AbstractReplicationJobOptions {
   connectionFactory: ConnectionManagerFactory;
-  lock: storage.ReplicationLock;
-  rateLimiter?: ErrorRateLimiter;
 }
 
-export class WalStreamRunner {
-  private abortController = new AbortController();
+export class WalStreamReplicationJob extends replication.AbstractReplicationJob {
+  private connectionFactory: ConnectionManagerFactory;
+  private connectionManager: PgManager;
 
-  private runPromise?: Promise<void>;
-
-  private connectionManager: PgManager | null = null;
-
-  private rateLimiter?: ErrorRateLimiter;
-
-  constructor(public options: WalStreamRunnerOptions) {
-    this.rateLimiter = options.rateLimiter;
+  constructor(options: WalStreamReplicationJobOptions) {
+    super(options);
+    this.connectionFactory = options.connectionFactory;
+    this.connectionManager = this.connectionFactory.create({
+      // Pool connections are only used intermittently.
+      idleTimeout: 30_000,
+      maxSize: 2
+    });
   }
 
-  start() {
-    this.runPromise = this.run();
+  async cleanUp(): Promise<void> {
+    this.logger.info(`Cleaning up replication slot: ${this.slot_name}`);
+
+    try {
+      await this.connectionManager.pool.query({
+        statement: 'SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1',
+        params: [{ type: 'varchar', value: this.slot_name }]
+      });
+    } finally {
+      await this.connectionManager.end();
+    }
+  }
+
+  /**
+   * Postgres on RDS writes performs a WAL checkpoint every 5 minutes by default, which creates a new 64MB file.
+   *
+   * The old WAL files are only deleted once no replication slot still references it.
+   *
+   * Unfortunately, when there are no changes to the db, the database creates new WAL files without the replication slot
+   * advancing**.
+   *
+   * As a workaround, we write a new message every couple of minutes, to make sure that the replication slot advances.
+   *
+   * **This may be a bug in pgwire or how we're using it.
+   */
+  async keepAlive() {
+    try {
+      await this.connectionManager.pool.query(`SELECT * FROM pg_logical_emit_message(false, 'powersync', 'ping')`);
+    } catch (e) {
+      this.logger.warn(`KeepAlive failed, unable to post to WAL`, e);
+    }
   }
 
   get slot_name() {
     return this.options.storage.slot_name;
   }
 
-  get stopped() {
-    return this.abortController.signal.aborted;
-  }
-
-  private get connectionFactory() {
-    return this.options.connectionFactory;
-  }
-
-  async run() {
+  async replicate() {
     try {
       await this.replicateLoop();
     } catch (e) {
@@ -51,7 +70,7 @@ export class WalStreamRunner {
           replication_slot: this.slot_name
         }
       });
-      logger.error(`Replication failed on ${this.slot_name}`, e);
+      this.logger.error(`Replication failed on ${this.slot_name}`, e);
 
       if (e instanceof MissingReplicationSlotError) {
         // This stops replication on this slot, and creates a new slot
@@ -60,14 +79,13 @@ export class WalStreamRunner {
     } finally {
       this.abortController.abort();
     }
-    await this.options.lock.release();
   }
 
   async replicateLoop() {
-    while (!this.stopped) {
+    while (!this.isStopped) {
       await this.replicateOnce();
 
-      if (!this.stopped) {
+      if (!this.isStopped) {
         await new Promise((resolve) => setTimeout(resolve, 5000));
       }
     }
@@ -77,25 +95,24 @@ export class WalStreamRunner {
     // New connections on every iteration (every error with retry),
     // otherwise we risk repeating errors related to the connection,
     // such as caused by cached PG schemas.
-    this.connectionManager = this.connectionFactory.create({
+    const connectionManager = this.connectionFactory.create({
       // Pool connections are only used intermittently.
       idleTimeout: 30_000,
       maxSize: 2
     });
     try {
       await this.rateLimiter?.waitUntilAllowed({ signal: this.abortController.signal });
-      if (this.stopped) {
+      if (this.isStopped) {
         return;
       }
       const stream = new WalStream({
         abort_signal: this.abortController.signal,
-        factory: this.options.factory,
         storage: this.options.storage,
         connections: this.connectionManager
       });
       await stream.replicate();
     } catch (e) {
-      logger.error(`Replication error`, e);
+      this.logger.error(`Replication error`, e);
       if (e.cause != null) {
         // Example:
         // PgError.conn_ended: Unable to do postgres query on ended connection
@@ -117,7 +134,7 @@ export class WalStreamRunner {
         //   [Symbol(pg.ErrorResponse)]: undefined
         // }
         // Without this additional log, the cause would not be visible in the logs.
-        logger.error(`cause`, e.cause);
+        this.logger.error(`cause`, e.cause);
       }
       if (e instanceof MissingReplicationSlotError) {
         throw e;
@@ -132,48 +149,7 @@ export class WalStreamRunner {
         this.rateLimiter?.reportError(e);
       }
     } finally {
-      if (this.connectionManager) {
-        await this.connectionManager.end();
-      }
-      this.connectionManager = null;
-    }
-  }
-
-  /**
-   * This will also release the lock if start() was called earlier.
-   */
-  async stop(options?: { force?: boolean }) {
-    logger.info(`${this.slot_name} Stopping replication`);
-    // End gracefully
-    this.abortController.abort();
-
-    if (options?.force) {
-      // destroy() is more forceful.
-      await this.connectionManager?.destroy();
-    }
-    await this.runPromise;
-  }
-
-  /**
-   * Terminate this replication stream. This drops the replication slot and deletes the replication data.
-   *
-   * Stops replication if needed.
-   */
-  async terminate(options?: { force?: boolean }) {
-    logger.info(`${this.slot_name} Terminating replication`);
-    await this.stop(options);
-
-    const slotName = this.slot_name;
-    const connectionManager = this.connectionFactory.create({ maxSize: 1, idleTimeout: 30_000 });
-    try {
-      await connectionManager.pool.query({
-        statement: 'SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1',
-        params: [{ type: 'varchar', value: slotName }]
-      });
-    } finally {
       await connectionManager.end();
     }
-
-    await this.options.storage.terminate();
   }
 }

@@ -1,45 +1,74 @@
-import * as storage from '../../storage/storage-index.js';
+import { hrtime } from 'node:process';
+import * as storage from '../storage/storage-index.js';
 
-import { ReplicationAdapterFactory } from './ReplicationAdapter.js';
-import { BucketStorageFactory } from '../../storage/BucketStorage.js';
 import { container, logger } from '@powersync/lib-services-framework';
-import { SyncRulesProvider } from '../../util/config/sync-rules/sync-rules-provider.js';
-import { ReplicationJob } from './ReplicationJob.js';
-import { Replicator } from './Replicator.js';
+import { SyncRulesProvider } from '../util/config/sync-rules/sync-rules-provider.js';
+import winston from 'winston';
+import { AbstractReplicationJob } from './AbstractReplicationJob.js';
+import { StorageFactoryProvider } from '../storage/storage-index.js';
+import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 
-export interface PluggableReplicatorOptions {
+// 5 minutes
+const PING_INTERVAL = 1_000_000_000n * 300n;
+
+export interface CreateJobOptions {
+  lock: storage.ReplicationLock;
+  storage: storage.SyncRulesBucketStorage;
+}
+
+export interface AbstractReplicatorOptions {
   id: string;
-  adapterFactory: ReplicationAdapterFactory;
-  storage: BucketStorageFactory;
+  storageFactory: StorageFactoryProvider;
   syncRuleProvider: SyncRulesProvider;
+  /**
+   * This limits the effect of retries when there is a persistent issue.
+   */
+  rateLimiter: ErrorRateLimiter;
 }
 
 /**
  *   A replicator manages the mechanics for replicating data from a data source to a storage bucket.
- *   This includes copying across the original data set and then keeping it in sync with the data source using ReplicationJobs.
+ *   This includes copying across the original data set and then keeping it in sync with the data source using Replication Jobs.
  *   It also handles any changes to the sync rules.
  */
-export class PluggableReplicator implements Replicator {
-  private replicationJobs = new Map<number, ReplicationJob>();
+export abstract class AbstractReplicator<T extends AbstractReplicationJob = AbstractReplicationJob> {
+  protected logger: winston.Logger;
+  /**
+   *  Map of replication jobs by sync rule id. Usually there is only one running job, but there could be two when
+   *  transitioning to a new set of sync rules.
+   *  @private
+   */
+  private replicationJobs = new Map<number, T>();
   private stopped = false;
 
-  constructor(private options: PluggableReplicatorOptions) {}
+  // First ping is only after 5 minutes, not when starting
+  private lastPing = hrtime.bigint();
+
+  protected constructor(private options: AbstractReplicatorOptions) {
+    this.logger = logger.child({ name: `Replicator:${options.id}` });
+  }
+
+  abstract createJob(options: CreateJobOptions): T;
 
   public get id() {
     return this.options.id;
   }
 
-  private get adapterFactory() {
-    return this.options.adapterFactory;
+  protected get storage() {
+    return this.options.storageFactory.bucketStorage;
   }
 
-  private get storage() {
-    return this.options.storage;
+  protected get syncRuleProvider() {
+    return this.options.syncRuleProvider;
+  }
+
+  protected get rateLimiter() {
+    return this.options.rateLimiter;
   }
 
   public async start(): Promise<void> {
     this.runLoop().catch((e) => {
-      logger.error(`Data source fatal replication error: ${this.adapterFactory.name}`, e);
+      this.logger.error('Data source fatal replication error', e);
       container.reporter.captureException(e);
       setTimeout(() => {
         process.exit(1);
@@ -57,10 +86,10 @@ export class PluggableReplicator implements Replicator {
   }
 
   private async runLoop() {
-    const syncRules = await this.options.syncRuleProvider.get();
+    const syncRules = await this.syncRuleProvider.get();
     let configuredLock: storage.ReplicationLock | undefined = undefined;
     if (syncRules != null) {
-      logger.info('Loaded sync rules');
+      this.logger.info('Loaded sync rules');
       try {
         // Configure new sync rules, if they have changed.
         // In that case, also immediately take out a lock, so that another process doesn't start replication on it.
@@ -72,10 +101,10 @@ export class PluggableReplicator implements Replicator {
         }
       } catch (e) {
         // Log, but continue with previous sync rules
-        logger.error(`Failed to update sync rules from configuration`, e);
+        this.logger.error(`Failed to update sync rules from configuration`, e);
       }
     } else {
-      logger.info('No sync rules configured - configure via API');
+      this.logger.info('No sync rules configured - configure via API');
     }
     while (!this.stopped) {
       await container.probes.touch();
@@ -83,8 +112,21 @@ export class PluggableReplicator implements Replicator {
         await this.refresh({ configured_lock: configuredLock });
         // The lock is only valid on the first refresh.
         configuredLock = undefined;
+
+        // Ensure that the replication jobs' connections are kept alive.
+        // We don't ping while in error retry back-off, to avoid having too failures.
+        if (this.rateLimiter.mayPing()) {
+          const now = hrtime.bigint();
+          if (now - this.lastPing >= PING_INTERVAL) {
+            for (const activeJob of this.replicationJobs.values()) {
+              await activeJob.keepAlive();
+            }
+
+            this.lastPing = now;
+          }
+        }
       } catch (e) {
-        logger.error(`Failed to refresh replication jobs: ${this.adapterFactory.name}`, e);
+        this.logger.error('Failed to refresh replication jobs', e);
       }
       await new Promise((resolve) => setTimeout(resolve, 5000));
     }
@@ -97,16 +139,16 @@ export class PluggableReplicator implements Replicator {
 
     let configuredLock = options?.configured_lock;
 
-    const existingJobs = new Map<number, ReplicationJob>(this.replicationJobs.entries());
+    const existingJobs = new Map<number, T>(this.replicationJobs.entries());
     const replicatingSyncRules = await this.storage.getReplicatingSyncRules();
-    const newJobs = new Map<number, ReplicationJob>();
+    const newJobs = new Map<number, T>();
     for (let syncRules of replicatingSyncRules) {
       const existingJob = existingJobs.get(syncRules.id);
-      if (existingJob && !existingJob.isStopped()) {
+      if (existingJob && !existingJob.isStopped) {
         // No change
         existingJobs.delete(syncRules.id);
         newJobs.set(syncRules.id, existingJob);
-      } else if (existingJob && existingJob.isStopped()) {
+      } else if (existingJob && existingJob.isStopped) {
         // Stopped (e.g. fatal error).
         // Remove from the list. Next refresh call will restart the job.
         existingJobs.delete(syncRules.id);
@@ -121,13 +163,11 @@ export class PluggableReplicator implements Replicator {
           }
           const parsed = syncRules.parsed();
           const storage = this.storage.getInstance(parsed);
-          const newJob = new ReplicationJob({
-            adapter: this.adapterFactory.create({
-              syncRuleId: syncRules.id.toString()
-            }),
-            storage: storage,
-            lock: lock
+          const newJob = this.createJob({
+            lock: lock,
+            storage: storage
           });
+
           newJobs.set(syncRules.id, newJob);
           newJob.start();
         } catch (e) {
@@ -135,7 +175,7 @@ export class PluggableReplicator implements Replicator {
           // for example from stricter validation that was added.
           // This will be retried every couple of seconds.
           // When new (valid) sync rules are deployed and processed, this one be disabled.
-          logger.error(`Failed to start replication for ${this.adapterFactory.name} with new sync rules`, e);
+          this.logger.error('Failed to start replication for with new sync rules', e);
         }
       }
     }
@@ -149,7 +189,7 @@ export class PluggableReplicator implements Replicator {
         await job.terminate();
       } catch (e) {
         // This will be retried
-        logger.warn(`Failed to terminate old ${this.adapterFactory.name} replication job}`, e);
+        this.logger.warn('Failed to terminate old replication job}', e);
       }
     }
 
@@ -158,21 +198,25 @@ export class PluggableReplicator implements Replicator {
     for (let syncRules of stopped) {
       try {
         const lock = await syncRules.lock();
+        const parsed = syncRules.parsed();
+        const storage = this.storage.getInstance(parsed);
         try {
-          const tempAdapter = this.adapterFactory.create({
-            syncRuleId: syncRules.id.toString()
+          // TODO: See if this should maybe just be a separate type of job
+          const terminationJob = this.createJob({
+            lock: lock,
+            storage: storage
           });
-
-          await tempAdapter.cleanupReplication();
-          const parsed = syncRules.parsed();
-          const storage = this.storage.getInstance(parsed);
-          await storage.terminate();
+          await terminationJob.terminate();
         } finally {
           await lock.release();
         }
       } catch (e) {
-        logger.warn(`Failed to terminate ${syncRules.id}`, e);
+        this.logger.warn(`Failed clean up replication config for sync rule: ${syncRules.id}`, e);
       }
     }
+  }
+
+  protected createJobId(syncRuleId: number) {
+    return `${this.id}-${syncRuleId}`;
   }
 }

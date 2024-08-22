@@ -2,17 +2,17 @@ import * as bson from 'bson';
 import * as mongo from 'mongodb';
 import { afterEach, describe, expect, test } from 'vitest';
 import { WalStream, WalStreamOptions } from '../../src/replication/WalStream.js';
-import { getClientCheckpoint } from '../../src/util/utils.js';
 import { env } from './env.js';
-import { MONGO_STORAGE_FACTORY, StorageFactory, TEST_CONNECTION_OPTIONS, clearTestDb, connectPgPool } from './util.js';
+import { TEST_CONNECTION_OPTIONS, clearTestDb, connectPgPool, getClientCheckpoint } from './util.js';
 
 import * as pgwire from '@powersync/service-jpgwire';
 import { SqliteRow } from '@powersync/service-sync-rules';
-import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
-import { PgManager } from '../../src/util/PgManager.js';
-import { mapOpEntry } from '@/storage/storage-index.js';
-import { reduceBucket, validateCompactedBucket, validateBucket } from './bucket_validation.js';
+
+import { mapOpEntry, MongoBucketStorage } from '@/storage/storage-index.js';
 import * as timers from 'node:timers/promises';
+import { MONGO_STORAGE_FACTORY, StorageFactory } from '@core-tests/util.js';
+import { PgManager } from '@module/replication/PgManager.js';
+import { reduceBucket, validateCompactedBucket } from '@core-tests/bucket_validation.js';
 
 describe('slow tests - mongodb', function () {
   // These are slow, inconsistent tests.
@@ -88,8 +88,7 @@ bucket_definitions:
     const options: WalStreamOptions = {
       abort_signal: abortController.signal,
       connections,
-      storage: storage,
-      factory: f
+      storage: storage
     };
     walStream = new WalStream(options);
 
@@ -266,8 +265,7 @@ bucket_definitions:
         const options: WalStreamOptions = {
           abort_signal: abortController.signal,
           connections,
-          storage: storage,
-          factory: f
+          storage: storage
         };
         walStream = new WalStream(options);
 

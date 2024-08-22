@@ -2,8 +2,8 @@ import { constructAfterRecord } from '@module/utils/pgwire_utils.js';
 import * as pgwire from '@powersync/service-jpgwire';
 import { SqliteRow } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
-// import { WalStream } from '../../src/replication/WalStream.js';
 import { clearTestDb, connectPgPool, connectPgWire, TEST_URI } from './util.js';
+import { WalStream } from '@module/replication/WalStream.js';
 
 describe('pg data types', () => {
   async function setupTable(db: pgwire.PgClient) {

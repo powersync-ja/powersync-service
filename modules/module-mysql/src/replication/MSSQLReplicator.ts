@@ -21,26 +21,6 @@ export class MSSQLReplicator implements replication.Replicator {
     this.manager = new MysqlBinLogStreamManager(this.serviceContext, this.pool);
 
     this.manager.start();
-    // const zongji = new ZongJi({
-    //   host: this.config.hostname,
-    //   user: this.config.username,
-    //   password: this.config.password
-    //   // debug: true
-    // });
-
-    // zongji.on('binlog', function (evt: any) {
-    //   // evt.dump();
-    //   console.log(evt);
-    // });
-
-    // zongji.start({
-    //   includeEvents: ['tablemap', 'writerows', 'updaterows', 'deleterows']
-    // });
-
-    // process.on('SIGINT', function () {
-    //   console.log('Got SIGINT.');
-    //   zongji.stop();
-    // });
   }
   async stop(): Promise<void> {
     await this.manager?.stop();

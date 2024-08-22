@@ -14,6 +14,10 @@ export class PgManager {
     this.pool = pgwire.connectPgWirePool(this.options, poolOptions);
   }
 
+  public get connectionTag() {
+    return this.options.tag;
+  }
+
   /**
    * Create a new replication connection.
    */

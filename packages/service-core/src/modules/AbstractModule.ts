@@ -1,16 +1,16 @@
 import { ServiceContextContainer } from '../system/ServiceContext.js';
+import { logger } from '@powersync/lib-services-framework';
+import winston from 'winston';
 
 export interface AbstractModuleOptions {
   name: string;
 }
 
 export abstract class AbstractModule {
-  public name: string;
-  protected options: AbstractModuleOptions;
+  protected logger: winston.Logger;
 
-  protected constructor(options: AbstractModuleOptions) {
-    this.options = options;
-    this.name = options.name;
+  protected constructor(protected options: AbstractModuleOptions) {
+    this.logger = logger.child({ name: `Module:${options.name}` });
   }
 
   /**
@@ -28,4 +28,8 @@ export abstract class AbstractModule {
    *  Terminate and clean up any resources managed by the module right away
    */
   public abstract teardown(): Promise<void>;
+
+  public get name() {
+    return this.options.name;
+  }
 }

@@ -3,16 +3,15 @@ import * as util from '../utils/pgwire_utils.js';
 import { container, errors, logger } from '@powersync/lib-services-framework';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
 import { getPgOutputRelation, getRelId } from './PgRelation.js';
-import { WalConnection } from './WalConnection.js';
 import { Metrics, SourceEntityDescriptor, storage } from '@powersync/service-core';
 import { checkSourceConfiguration, getReplicationIdentityColumns } from './replication-utils.js';
 import { PgManager } from './PgManager.js';
 
 export const ZERO_LSN = '00000000/00000000';
+export const PUBLICATION_NAME = 'powersync';
 
 export interface WalStreamOptions {
   connections: PgManager;
-  factory: storage.BucketStorageFactory;
   storage: storage.SyncRulesBucketStorage;
   abort_signal: AbortSignal;
 }
@@ -31,12 +30,11 @@ export class WalStream {
   sync_rules: SqlSyncRules;
   group_id: number;
 
-  wal_connection: WalConnection;
   connection_id = 1;
 
   private readonly storage: storage.SyncRulesBucketStorage;
 
-  private slot_name: string;
+  private readonly slot_name: string;
 
   private connections: PgManager;
 
@@ -53,7 +51,6 @@ export class WalStream {
     this.slot_name = options.storage.slot_name;
     this.connections = options.connections;
 
-    this.wal_connection = new WalConnection({ db: this.connections.pool, sync_rules: this.sync_rules });
     this.abort_signal = options.abort_signal;
     this.abort_signal.addEventListener(
       'abort',
@@ -79,14 +76,6 @@ export class WalStream {
     );
   }
 
-  get publication_name() {
-    return this.wal_connection.publication_name;
-  }
-
-  get connectionTag() {
-    return this.wal_connection.connectionTag;
-  }
-
   get stopped() {
     return this.abort_signal.aborted;
   }
@@ -97,7 +86,7 @@ export class WalStream {
     tablePattern: TablePattern
   ): Promise<storage.SourceTable[]> {
     const schema = tablePattern.schema;
-    if (tablePattern.connectionTag != this.connectionTag) {
+    if (tablePattern.connectionTag != this.connections.connectionTag) {
       return [];
     }
 
@@ -149,13 +138,13 @@ export class WalStream {
       const rs = await db.query({
         statement: `SELECT 1 FROM pg_publication_tables WHERE pubname = $1 AND schemaname = $2 AND tablename = $3`,
         params: [
-          { type: 'varchar', value: this.publication_name },
+          { type: 'varchar', value: PUBLICATION_NAME },
           { type: 'varchar', value: tablePattern.schema },
           { type: 'varchar', value: name }
         ]
       });
       if (rs.rows.length == 0) {
-        logger.info(`Skipping ${tablePattern.schema}.${name} - not part of ${this.publication_name} publication`);
+        logger.info(`Skipping ${tablePattern.schema}.${name} - not part of ${PUBLICATION_NAME} publication`);
         continue;
       }
 
@@ -212,7 +201,7 @@ export class WalStream {
                                                                         'publication_names', $2)`,
             params: [
               { type: 'varchar', value: slotName },
-              { type: 'varchar', value: this.publication_name }
+              { type: 'varchar', value: PUBLICATION_NAME }
             ]
           });
           // Success
@@ -369,7 +358,7 @@ WHERE  oid = $1::regclass`,
     const estimatedCount = await this.estimatedCount(db, table);
     let at = 0;
     let lastLogIndex = 0;
-    const cursor = await db.stream({ statement: `SELECT * FROM ${table.escapedIdentifier}` });
+    const cursor = db.stream({ statement: `SELECT * FROM ${table.escapedIdentifier}` });
     let columns: { i: number; name: string }[] = [];
     // pgwire streams rows in chunks.
     // These chunks can be quite small (as little as 16KB), so we don't flush chunks automatically.
@@ -418,7 +407,7 @@ WHERE  oid = $1::regclass`,
     const result = await this.storage.resolveTable({
       group_id: this.group_id,
       connection_id: this.connection_id,
-      connection_tag: this.connectionTag,
+      connection_tag: this.connections.connectionTag,
       entity_descriptor: descriptor,
       sync_rules: this.sync_rules
     });
@@ -544,7 +533,7 @@ WHERE  oid = $1::regclass`,
       slot: this.slot_name,
       options: {
         proto_version: '1',
-        publication_names: this.publication_name
+        publication_names: PUBLICATION_NAME
       }
     });
     this.startedStreaming = true;
