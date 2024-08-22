@@ -352,15 +352,6 @@ AND table_type = 'BASE TABLE';`,
     });
   }
 
-  private transformMysqlToSynRulesRow(row: Record<string, any>): sync_rules.SqliteRow {
-    for (let key in row) {
-      if (row[key] instanceof Date) {
-        row[key] = row[key].toISOString();
-      }
-    }
-    return sync_rules.toSyncRulesRow(row);
-  }
-
   private async snapshotTable(batch: storage.BucketStorageBatch, db: mysql.Pool, table: storage.SourceTable) {
     logger.info(`${this.slot_name} Replicating ${table.qualifiedName}`);
     const results = await db.query<mysql.RowDataPacket[]>(`SELECT * FROM ${table.schema}.${table.table}`);
@@ -369,7 +360,7 @@ AND table_type = 'BASE TABLE';`,
         tag: 'insert',
         sourceTable: table,
         before: undefined,
-        after: this.transformMysqlToSynRulesRow(record)
+        after: common.toSQLiteRow(record)
       });
     }
     await batch.flush();
@@ -414,22 +405,22 @@ AND table_type = 'BASE TABLE';`,
           tag: 'insert',
           sourceTable: msg.sourceTable,
           before: undefined,
-          after: this.transformMysqlToSynRulesRow(msg.data)
+          after: common.toSQLiteRow(msg.data)
         });
       } else if (msg.type == 'update') {
         // rows_replicated_total.add(1);
         return await batch.save({
           tag: 'update',
           sourceTable: msg.sourceTable,
-          before: msg.previous_data ? this.transformMysqlToSynRulesRow(msg.previous_data) : undefined,
-          after: this.transformMysqlToSynRulesRow(msg.data)
+          before: msg.previous_data ? common.toSQLiteRow(msg.previous_data) : undefined,
+          after: common.toSQLiteRow(msg.data)
         });
       } else if (msg.type == 'delete') {
         // rows_replicated_total.add(1);
         return await batch.save({
           tag: 'delete',
           sourceTable: msg.sourceTable,
-          before: this.transformMysqlToSynRulesRow(msg.data),
+          before: common.toSQLiteRow(msg.data),
           after: undefined
         });
       }
