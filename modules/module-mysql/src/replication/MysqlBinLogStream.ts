@@ -3,12 +3,13 @@ import * as sync_rules from '@powersync/service-sync-rules';
 import async from 'async';
 
 import { storage } from '@powersync/service-core';
-
 import mysql, { RowDataPacket } from 'mysql2/promise';
-// @ts-expect-error
-import ZongJi from '@vlasky/zongji';
+import './zongji/zongji.js';
+
+import ZongJi, { BinLogEvent } from '@vlasky/zongji';
 import { NormalizedMySQLConnectionConfig } from '../types/types.js';
 import * as replication_utils from '../utils/replication/replication-utils.js';
+import * as zongji_utils from './zongji/zongji-utils.js';
 
 export interface BinLogStreamOptions {
   pool: mysql.Pool;
@@ -381,16 +382,17 @@ AND table_type = 'BASE TABLE';`,
     msg: {
       type: EventType;
       data: Data[];
-      previous_data?: Data;
+      previous_data?: Data[];
       database: string;
       table: string;
       sourceTable: storage.SourceTable;
     }
   ): Promise<storage.FlushedResult | null> {
-    for (const row of msg.data) {
+    for (const [index, row] of msg.data.entries()) {
       await this.writeChange(batch, {
         ...msg,
-        data: row
+        data: row,
+        previous_data: msg.previous_data?.[index]
       });
     }
     return null;
@@ -459,8 +461,6 @@ AND table_type = 'BASE TABLE';`,
 
   private async loadTables() {
     const sourceTables = this.sync_rules.getSourceTables();
-    // TODO fix database
-    // .map((table) => new sync_rules.TablePattern('mydatabase', table.tablePattern));
     await this.storage.startBatch({}, async (batch) => {
       for (let tablePattern of sourceTables) {
         await this.getQualifiedTableNames(batch, this.pool, tablePattern);
@@ -487,13 +487,10 @@ AND table_type = 'BASE TABLE';`,
 
       let currentGTID: replication_utils.ReplicatedGTID | null = null;
 
-      const queue = async.queue(async (evt: any) => {
-        console.log(evt.getEventName());
-        const tableInfo = evt.tableMap?.[evt.tableId];
-
+      const queue = async.queue(async (evt: BinLogEvent) => {
         // State machine
-        switch (evt.getEventName()) {
-          case 'gtidlog':
+        switch (true) {
+          case zongji_utils.eventIsGTIDLog(evt):
             currentGTID = replication_utils.ReplicatedGTID.fromBinLogEvent({
               raw_gtid: {
                 server_id: evt.serverId,
@@ -505,29 +502,32 @@ AND table_type = 'BASE TABLE';`,
               }
             });
             break;
-          case 'rotate':
+          case zongji_utils.eventIsRotation(evt):
             // Update the position
             binLogPositionState.filename = evt.binlogName;
             binLogPositionState.offset = evt.position;
             break;
-          case 'writerows':
+          case zongji_utils.eventIsWriteMutation(evt):
+            // TODO, can multiple tables be present?
+            const writeTableInfo = evt.tableMap[evt.tableId];
+
             await this.writeChanges(batch, {
               type: 'insert',
               data: evt.rows,
-              database: tableInfo.parentSchema,
-              table: tableInfo.tableName,
+              database: writeTableInfo.parentSchema,
+              table: writeTableInfo.tableName,
               // TODO cleanup
               sourceTable: (
                 await this.storage.resolveTable({
                   connection_id: this.connection_id,
                   connection_tag: this.connectionTag,
                   entity_descriptor: {
-                    name: tableInfo.tableName,
+                    name: writeTableInfo.tableName,
                     objectId: evt.tableId,
-                    schema: tableInfo.parentSchema,
-                    replicationColumns: tableInfo.columns.map((c: any, index: number) => ({
+                    schema: writeTableInfo.parentSchema,
+                    replicationColumns: writeTableInfo.columns.map((c: any, index: number) => ({
                       name: c.name,
-                      type: tableInfo.columnSchemas[index].COLUMN_TYPE
+                      type: writeTableInfo.columnSchemas[index].COLUMN_TYPE
                     }))
                   },
                   group_id: this.group_id,
@@ -536,26 +536,54 @@ AND table_type = 'BASE TABLE';`,
               ).table
             });
             break;
-          case 'updaterows':
+          case zongji_utils.eventIsUpdateMutation(evt):
+            const updateTableInfo = evt.tableMap[evt.tableId];
+            await this.writeChanges(batch, {
+              type: 'update',
+              data: evt.rows.map((row) => row.after),
+              previous_data: evt.rows.map((row) => row.before),
+              database: updateTableInfo.parentSchema,
+              table: updateTableInfo.tableName,
+              // TODO cleanup
+              sourceTable: (
+                await this.storage.resolveTable({
+                  connection_id: this.connection_id,
+                  connection_tag: this.connectionTag,
+                  entity_descriptor: {
+                    name: updateTableInfo.tableName,
+                    objectId: evt.tableId,
+                    schema: updateTableInfo.parentSchema,
+                    replicationColumns: updateTableInfo.columns.map((c: any, index: number) => ({
+                      name: c.name,
+                      type: updateTableInfo.columnSchemas[index].COLUMN_TYPE
+                    }))
+                  },
+                  group_id: this.group_id,
+                  sync_rules: this.sync_rules
+                })
+              ).table
+            });
             break;
-          case 'deleterows':
+          case zongji_utils.eventIsDeleteMutation(evt):
+            // TODO, can multiple tables be present?
+            const deleteTableInfo = evt.tableMap[evt.tableId];
             await this.writeChanges(batch, {
               type: 'delete',
               data: evt.rows,
-              database: tableInfo.parentSchema,
-              table: tableInfo.tableName,
+              database: deleteTableInfo.parentSchema,
+              table: deleteTableInfo.tableName,
               // TODO cleanup
               sourceTable: (
                 await this.storage.resolveTable({
                   connection_id: this.connection_id,
                   connection_tag: this.connectionTag,
                   entity_descriptor: {
-                    name: tableInfo.tableName,
+                    name: deleteTableInfo.tableName,
                     objectId: evt.tableId,
-                    schema: tableInfo.parentSchema,
-                    replicationColumns: tableInfo.columns.map((c: any, index: number) => ({
+                    schema: deleteTableInfo.parentSchema,
+                    replicationColumns: deleteTableInfo.columns.map((c: any, index: number) => ({
                       name: c.name,
-                      type: tableInfo.columnSchemas[index].COLUMN_TYPE
+                      type: deleteTableInfo.columnSchemas[index].COLUMN_TYPE
                     }))
                   },
                   group_id: this.group_id,
@@ -564,8 +592,7 @@ AND table_type = 'BASE TABLE';`,
               ).table
             });
             break;
-            break;
-          case 'xid':
+          case zongji_utils.eventIsXid(evt):
             // Need to commit with a replicated GTID with updated next position
             await batch.commit(
               new replication_utils.ReplicatedGTID({
@@ -577,9 +604,10 @@ AND table_type = 'BASE TABLE';`,
               }).comparable
             );
             currentGTID = null;
+            // chunks_replicated_total.add(1);
+            // TODO update other metrics
             break;
         }
-        // chunks_replicated_total.add(1);
       }, 1);
 
       zongji.on('binlog', (evt: any) => {
