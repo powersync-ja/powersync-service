@@ -43,13 +43,13 @@ importers:
         version: 7.6.2
       ts-node-dev:
         specifier: ^2.0.0
-        version: 2.0.0(@types/node@18.11.11)(typescript@5.2.2)
+        version: 2.0.0(@types/node@18.11.11)(typescript@5.5.4)
       tsc-watch:
         specifier: ^6.2.0
-        version: 6.2.0(typescript@5.2.2)
+        version: 6.2.0(typescript@5.5.4)
       typescript:
-        specifier: ~5.2.2
-        version: 5.2.2
+        specifier: ^5.5.4
+        version: 5.5.4
       ws:
         specifier: ^8.2.3
         version: 8.18.0
@@ -137,11 +137,11 @@ importers:
         specifier: ^9.0.8
         version: 9.0.8
       typescript:
-        specifier: ^5.2.2
-        version: 5.2.2
+        specifier: ^5.5.4
+        version: 5.5.4
       vite-tsconfig-paths:
         specifier: ^4.3.2
-        version: 4.3.2(typescript@5.2.2)(vite@5.3.3(@types/node@18.11.11))
+        version: 4.3.2(typescript@5.5.4)(vite@5.3.3(@types/node@18.11.11))
       vitest:
         specifier: ^0.34.6
         version: 0.34.6
@@ -186,11 +186,11 @@ importers:
         specifier: ^9.0.4
         version: 9.0.8
       typescript:
-        specifier: ^5.2.2
-        version: 5.2.2
+        specifier: ^5.5.4
+        version: 5.5.4
       vite-tsconfig-paths:
         specifier: ^4.3.2
-        version: 4.3.2(typescript@5.2.2)(vite@5.3.3(@types/node@18.11.11))
+        version: 4.3.2(typescript@5.5.4)(vite@5.3.3(@types/node@18.11.11))
       vitest:
         specifier: ^0.34.6
         version: 0.34.6
@@ -250,8 +250,8 @@ importers:
         specifier: 1.0.0-alpha.3
         version: 1.0.0-alpha.3
       typescript:
-        specifier: ~5.2.2
-        version: 5.2.2
+        specifier: ^5.5.4
+        version: 5.5.4
       vitest:
         specifier: ^0.34.6
         version: 0.34.6
@@ -356,11 +356,11 @@ importers:
         specifier: ^4.5.1
         version: 4.5.1
       typescript:
-        specifier: ^5.2.2
-        version: 5.2.2
+        specifier: ^5.5.4
+        version: 5.5.4
       vite-tsconfig-paths:
         specifier: ^4.3.2
-        version: 4.3.2(typescript@5.2.2)(vite@5.3.3(@types/node@18.11.11))
+        version: 4.3.2(typescript@5.5.4)(vite@5.3.3(@types/node@18.11.11))
       vitest:
         specifier: ^0.34.6
         version: 0.34.6
@@ -509,10 +509,10 @@ importers:
         version: 16.14.20
       ts-node:
         specifier: ^10.9.1
-        version: 10.9.2(@types/node@18.11.11)(typescript@5.2.2)
+        version: 10.9.2(@types/node@18.11.11)(typescript@5.5.4)
       typescript:
-        specifier: ~5.2.2
-        version: 5.2.2
+        specifier: ^5.5.4
+        version: 5.5.4
       vitest:
         specifier: ^0.34.6
         version: 0.34.6
@@ -3476,8 +3476,8 @@ packages:
   typedarray-to-buffer@3.1.5:
     resolution: {integrity: sha512-zdu8XMNEDepKKR+XYOXAVPtWui0ly0NtohUscw+UmaHiAWT8hrV1rr//H6V+0DvJ3OQ19S979M0laLfX8rm82Q==}
 
-  typescript@5.2.2:
-    resolution: {integrity: sha512-mI4WrpHsbCIcwT9cF4FZvr80QUeKvsUsUvKDoR+X/7XHQH98xYD8YHZg7ANtz2GtZt/CBq2QJ0thkGJMHfqc1w==}
+  typescript@5.5.4:
+    resolution: {integrity: sha512-Mtq29sKDAEYP7aljRgtPOpTvOfbwRWlS6dPRzwjdE+C0R4brX/GUyhHSecbHMFLNBLcJIPt9nl9yG5TZ1weH+Q==}
     engines: {node: '>=14.17'}
     hasBin: true
 
@@ -4613,7 +4613,7 @@ snapshots:
       '@opentelemetry/semantic-conventions': 1.25.1
       '@prisma/instrumentation': 5.16.1
       '@sentry/core': 8.17.0
-      '@sentry/opentelemetry': 8.17.0(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.1(@opentelemetry/api@1.9.0))(@opentelemetry/instrumentation@0.52.1(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.25.1(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.25.1)
+      '@sentry/opentelemetry': 8.17.0(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.1(@opentelemetry/api@1.6.0))(@opentelemetry/instrumentation@0.52.1(@opentelemetry/api@1.6.0))(@opentelemetry/sdk-trace-base@1.25.1(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.25.1)
       '@sentry/types': 8.17.0
       '@sentry/utils': 8.17.0
     optionalDependencies:
@@ -4621,7 +4621,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@sentry/opentelemetry@8.17.0(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.1(@opentelemetry/api@1.9.0))(@opentelemetry/instrumentation@0.52.1(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.25.1(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.25.1)':
+  '@sentry/opentelemetry@8.17.0(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.1(@opentelemetry/api@1.6.0))(@opentelemetry/instrumentation@0.52.1(@opentelemetry/api@1.6.0))(@opentelemetry/sdk-trace-base@1.25.1(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.25.1)':
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/core': 1.25.1(@opentelemetry/api@1.9.0)
@@ -6941,7 +6941,7 @@ snapshots:
 
   ts-codec@1.2.2: {}
 
-  ts-node-dev@2.0.0(@types/node@18.11.11)(typescript@5.2.2):
+  ts-node-dev@2.0.0(@types/node@18.11.11)(typescript@5.5.4):
     dependencies:
       chokidar: 3.6.0
       dynamic-dedupe: 0.3.0
@@ -6951,15 +6951,15 @@ snapshots:
       rimraf: 2.7.1
       source-map-support: 0.5.21
       tree-kill: 1.2.2
-      ts-node: 10.9.2(@types/node@18.11.11)(typescript@5.2.2)
+      ts-node: 10.9.2(@types/node@18.11.11)(typescript@5.5.4)
       tsconfig: 7.0.0
-      typescript: 5.2.2
+      typescript: 5.5.4
     transitivePeerDependencies:
       - '@swc/core'
       - '@swc/wasm'
       - '@types/node'
 
-  ts-node@10.9.2(@types/node@18.11.11)(typescript@5.2.2):
+  ts-node@10.9.2(@types/node@18.11.11)(typescript@5.5.4):
     dependencies:
       '@cspotcode/source-map-support': 0.8.1
       '@tsconfig/node10': 1.0.11
@@ -6973,21 +6973,21 @@ snapshots:
       create-require: 1.1.1
       diff: 4.0.2
       make-error: 1.3.6
-      typescript: 5.2.2
+      typescript: 5.5.4
       v8-compile-cache-lib: 3.0.1
       yn: 3.1.1
 
-  tsc-watch@6.2.0(typescript@5.2.2):
+  tsc-watch@6.2.0(typescript@5.5.4):
     dependencies:
       cross-spawn: 7.0.3
       node-cleanup: 2.1.2
       ps-tree: 1.2.0
       string-argv: 0.3.2
-      typescript: 5.2.2
+      typescript: 5.5.4
 
-  tsconfck@3.1.1(typescript@5.2.2):
+  tsconfck@3.1.1(typescript@5.5.4):
     optionalDependencies:
-      typescript: 5.2.2
+      typescript: 5.5.4
 
   tsconfig@7.0.0:
     dependencies:
@@ -7018,7 +7018,7 @@ snapshots:
     dependencies:
       is-typedarray: 1.0.0
 
-  typescript@5.2.2: {}
+  typescript@5.5.4: {}
 
   ufo@1.5.3: {}
 
@@ -7102,11 +7102,11 @@ snapshots:
       - supports-color
       - terser
 
-  vite-tsconfig-paths@4.3.2(typescript@5.2.2)(vite@5.3.3(@types/node@18.11.11)):
+  vite-tsconfig-paths@4.3.2(typescript@5.5.4)(vite@5.3.3(@types/node@18.11.11)):
     dependencies:
       debug: 4.3.5(supports-color@5.5.0)
       globrex: 0.1.2
-      tsconfck: 3.1.1(typescript@5.2.2)
+      tsconfck: 3.1.1(typescript@5.5.4)
     optionalDependencies:
       vite: 5.3.3(@types/node@18.11.11)
     transitivePeerDependencies:

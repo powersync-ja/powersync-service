@@ -4,7 +4,6 @@ import async from 'async';
 
 import { storage } from '@powersync/service-core';
 import mysql, { RowDataPacket } from 'mysql2/promise';
-import './zongji/zongji.js';
 
 import ZongJi, { BinLogEvent } from '@vlasky/zongji';
 import { NormalizedMySQLConnectionConfig } from '../types/types.js';
