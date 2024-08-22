@@ -3,7 +3,7 @@ import mysql from 'mysql2/promise';
 import * as mysql_utils from '../utils/mysql_utils.js';
 
 export type GetReplicationColumnsOptions = {
-  db: mysql.Pool;
+  db: mysql.Connection;
   schema: string;
   table_name: string;
 };

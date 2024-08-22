@@ -3,7 +3,7 @@ import mysql from 'mysql2/promise';
 import * as types from '../types/types.js';
 
 export type RetiredMySQLQueryOptions = {
-  db: mysql.Pool;
+  db: mysql.Connection;
   query: string;
   params?: any[];
   retries?: number;

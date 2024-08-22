@@ -6,7 +6,7 @@ import { ReplicatedGTID } from './ReplicatedGTID.js';
 /**
  * Gets the current master HEAD GTID
  */
-export async function readMasterGtid(db: mysql.Pool): Promise<ReplicatedGTID> {
+export async function readMasterGtid(db: mysql.Connection): Promise<ReplicatedGTID> {
   // Get the GTID
   const [[gtidResult]] = await db.query<mysql.RowDataPacket[]>('SELECT @@GLOBAL.gtid_executed as GTID;');
 

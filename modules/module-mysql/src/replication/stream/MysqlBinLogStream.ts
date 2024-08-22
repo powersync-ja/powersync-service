@@ -2,7 +2,7 @@ import { logger } from '@powersync/lib-services-framework';
 import * as sync_rules from '@powersync/service-sync-rules';
 import async from 'async';
 
-import { storage } from '@powersync/service-core';
+import { framework, storage } from '@powersync/service-core';
 import mysql, { RowDataPacket } from 'mysql2/promise';
 
 import ZongJi, { BinLogEvent } from '@vlasky/zongji';
@@ -96,7 +96,7 @@ export class MysqlBinLogStream {
         await connection.query('BEGIN');
         try {
           gtid = await common.readMasterGtid(this.pool);
-          await this.snapshotTable(batch, result.table);
+          await this.snapshotTable(batch, connection, result.table);
           await connection.query('COMMIT');
         } catch (e) {
           await connection.query('ROLLBACK');
@@ -198,7 +198,7 @@ AND table_type = 'BASE TABLE';`,
   }
 
   /**
-   * Start initial replication.
+   * Snapshots initial tables
    *
    * If (partial) replication was done before on this slot, this clears the state
    * and starts again from scratch.
@@ -210,7 +210,18 @@ AND table_type = 'BASE TABLE';`,
     await this.pool.query('BEGIN');
     try {
       logger.info(`Starting initial replication`);
-      await this.initialReplication(headGTID);
+      const sourceTables = this.sync_rules.getSourceTables();
+      await this.storage.startBatch({}, async (batch) => {
+        for (let tablePattern of sourceTables) {
+          const tables = await this.getQualifiedTableNames(batch, tablePattern);
+          for (let table of tables) {
+            await this.snapshotTable(batch, table);
+            await batch.markSnapshotDone([table], headGTID.comparable);
+            await framework.container.probes.touch();
+          }
+        }
+        await batch.commit(headGTID.comparable);
+      });
       logger.info(`Initial replication done`);
       await this.pool.query('COMMIT');
     } catch (e) {
@@ -219,28 +230,14 @@ AND table_type = 'BASE TABLE';`,
     }
   }
 
-  async initialReplication(gtid: common.ReplicatedGTID) {
-    const sourceTables = this.sync_rules.getSourceTables();
-    // TODO fix database default schema if not provided explicitly in the sync rules
-    // .map((table) => new sync_rules.TablePattern('mydatabase', table.tablePattern));
-    await this.storage.startBatch({}, async (batch) => {
-      for (let tablePattern of sourceTables) {
-        const tables = await this.getQualifiedTableNames(batch, tablePattern);
-        for (let table of tables) {
-          await this.snapshotTable(batch, table);
-          await batch.markSnapshotDone([table], gtid.comparable);
-
-          // await touch();
-        }
-      }
-      await batch.commit(gtid.comparable);
-    });
-  }
-
-  private async snapshotTable(batch: storage.BucketStorageBatch, table: storage.SourceTable) {
+  private async snapshotTable(
+    batch: storage.BucketStorageBatch,
+    connection: mysql.Connection,
+    table: storage.SourceTable
+  ) {
     logger.info(`Replicating ${table.qualifiedName}`);
     // TODO this could be large. Should we chunk this
-    const [rows] = await this.pool.query<mysql.RowDataPacket[]>(`SELECT * FROM ${table.schema}.${table.table}`);
+    const [rows] = await connection.query<mysql.RowDataPacket[]>(`SELECT * FROM ${table.schema}.${table.table}`);
     for (const record of rows) {
       await batch.save({
         tag: storage.SaveOperationTag.INSERT,
@@ -250,68 +247,6 @@ AND table_type = 'BASE TABLE';`,
       });
     }
     await batch.flush();
-  }
-
-  async writeChanges(
-    batch: storage.BucketStorageBatch,
-    msg: {
-      type: storage.SaveOperationTag;
-      data: Data[];
-      previous_data?: Data[];
-      database: string;
-      table: string;
-      sourceTable: storage.SourceTable;
-    }
-  ): Promise<storage.FlushedResult | null> {
-    for (const [index, row] of msg.data.entries()) {
-      await this.writeChange(batch, {
-        ...msg,
-        data: row,
-        previous_data: msg.previous_data?.[index]
-      });
-    }
-    return null;
-  }
-
-  async writeChange(
-    batch: storage.BucketStorageBatch,
-    msg: {
-      type: storage.SaveOperationTag;
-      data: Data;
-      previous_data?: Data;
-      database: string;
-      table: string;
-      sourceTable: storage.SourceTable;
-    }
-  ): Promise<storage.FlushedResult | null> {
-    if (msg.type == 'insert' || msg.type == 'update' || msg.type == 'delete') {
-      if (msg.type == 'insert') {
-        // rows_replicated_total.add(1);
-        return await batch.save({
-          tag: storage.SaveOperationTag.INSERT,
-          sourceTable: msg.sourceTable,
-          before: undefined,
-          after: common.toSQLiteRow(msg.data)
-        });
-      } else if (msg.type == 'update') {
-        // rows_replicated_total.add(1);
-        return await batch.save({
-          tag: storage.SaveOperationTag.UPDATE,
-          sourceTable: msg.sourceTable,
-          before: msg.previous_data ? common.toSQLiteRow(msg.previous_data) : undefined,
-          after: common.toSQLiteRow(msg.data)
-        });
-      } else if (msg.type == 'delete') {
-        // rows_replicated_total.add(1);
-        return await batch.save({
-          tag: storage.SaveOperationTag.DELETE,
-          sourceTable: msg.sourceTable,
-          before: common.toSQLiteRow(msg.data),
-          after: undefined
-        });
-      }
-    }
-    return null;
   }
 
   async replicate() {
@@ -515,5 +450,65 @@ AND table_type = 'BASE TABLE';`,
         );
       });
     });
+  }
+
+  private async writeChanges(
+    batch: storage.BucketStorageBatch,
+    msg: {
+      type: storage.SaveOperationTag;
+      data: Data[];
+      previous_data?: Data[];
+      database: string;
+      table: string;
+      sourceTable: storage.SourceTable;
+    }
+  ): Promise<storage.FlushedResult | null> {
+    for (const [index, row] of msg.data.entries()) {
+      await this.writeChange(batch, {
+        ...msg,
+        data: row,
+        previous_data: msg.previous_data?.[index]
+      });
+    }
+    return null;
+  }
+
+  private async writeChange(
+    batch: storage.BucketStorageBatch,
+    msg: {
+      type: storage.SaveOperationTag;
+      data: Data;
+      previous_data?: Data;
+      database: string;
+      table: string;
+      sourceTable: storage.SourceTable;
+    }
+  ): Promise<storage.FlushedResult | null> {
+    switch (msg.type) {
+      case storage.SaveOperationTag.INSERT:
+        return await batch.save({
+          tag: storage.SaveOperationTag.INSERT,
+          sourceTable: msg.sourceTable,
+          before: undefined,
+          after: common.toSQLiteRow(msg.data)
+        });
+      case storage.SaveOperationTag.UPDATE:
+        return await batch.save({
+          tag: storage.SaveOperationTag.UPDATE,
+          sourceTable: msg.sourceTable,
+          before: msg.previous_data ? common.toSQLiteRow(msg.previous_data) : undefined,
+          after: common.toSQLiteRow(msg.data)
+        });
+
+      case storage.SaveOperationTag.DELETE:
+        return await batch.save({
+          tag: storage.SaveOperationTag.DELETE,
+          sourceTable: msg.sourceTable,
+          before: common.toSQLiteRow(msg.data),
+          after: undefined
+        });
+      default:
+        return null;
+    }
   }
 }
