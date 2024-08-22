@@ -376,6 +376,26 @@ AND table_type = 'BASE TABLE';`,
     await batch.flush();
   }
 
+  async writeChanges(
+    batch: storage.BucketStorageBatch,
+    msg: {
+      type: EventType;
+      data: Data[];
+      previous_data?: Data;
+      database: string;
+      table: string;
+      sourceTable: storage.SourceTable;
+    }
+  ): Promise<storage.FlushedResult | null> {
+    for (const row of msg.data) {
+      await this.writeChange(batch, {
+        ...msg,
+        data: row
+      });
+    }
+    return null;
+  }
+
   async writeChange(
     batch: storage.BucketStorageBatch,
     msg: {
@@ -468,7 +488,8 @@ AND table_type = 'BASE TABLE';`,
       let currentGTID: replication_utils.ReplicatedGTID | null = null;
 
       const queue = async.queue(async (evt: any) => {
-        console.log(evt, evt.getEventName());
+        console.log(evt.getEventName());
+        const tableInfo = evt.tableMap?.[evt.tableId];
 
         // State machine
         switch (evt.getEventName()) {
@@ -490,8 +511,7 @@ AND table_type = 'BASE TABLE';`,
             binLogPositionState.offset = evt.position;
             break;
           case 'writerows':
-            const tableInfo = evt.tableMap[evt.tableId];
-            await this.writeChange(batch, {
+            await this.writeChanges(batch, {
               type: 'insert',
               data: evt.rows,
               database: tableInfo.parentSchema,
@@ -519,10 +539,43 @@ AND table_type = 'BASE TABLE';`,
           case 'updaterows':
             break;
           case 'deleterows':
+            await this.writeChanges(batch, {
+              type: 'delete',
+              data: evt.rows,
+              database: tableInfo.parentSchema,
+              table: tableInfo.tableName,
+              // TODO cleanup
+              sourceTable: (
+                await this.storage.resolveTable({
+                  connection_id: this.connection_id,
+                  connection_tag: this.connectionTag,
+                  entity_descriptor: {
+                    name: tableInfo.tableName,
+                    objectId: evt.tableId,
+                    schema: tableInfo.parentSchema,
+                    replicationColumns: tableInfo.columns.map((c: any, index: number) => ({
+                      name: c.name,
+                      type: tableInfo.columnSchemas[index].COLUMN_TYPE
+                    }))
+                  },
+                  group_id: this.group_id,
+                  sync_rules: this.sync_rules
+                })
+              ).table
+            });
+            break;
             break;
           case 'xid':
-            // Need to commit
-            await batch.commit(currentGTID!.comparable);
+            // Need to commit with a replicated GTID with updated next position
+            await batch.commit(
+              new replication_utils.ReplicatedGTID({
+                raw_gtid: currentGTID!.raw,
+                position: {
+                  filename: binLogPositionState.filename,
+                  offset: evt.nextPosition
+                }
+              }).comparable
+            );
             currentGTID = null;
             break;
         }
@@ -561,37 +614,5 @@ AND table_type = 'BASE TABLE';`,
         );
       });
     });
-
-    // // Replication never starts in the middle of a transaction
-    // const finished = new Promise<void>((resolve, reject) => {
-    //   readStream.on('data', async (chunk: string) => {
-    //     await touch();
-
-    //     if (this.abort_signal.aborted) {
-    //       logger.info('Aborted, closing stream');
-    //       readStream.close();
-    //       deleteFifoPipe(fifoPath);
-    //       resolve();
-    //       return;
-    //     }
-    //     for (const msg of chunk.split('\n')) {
-    //       if (msg.trim()) {
-    //         logger.info(`mysqlbinlogstream: received message: '${msg}'`);
-    //         let parsedMsg: DatabaseEvent = JSON.parse(msg);
-    //         logger.info(`mysqlbinlogstream: commit: '${parsedMsg.commit}' xoffset:'${parsedMsg.xoffset}'`);
-    //         await this.writeChange(batch, parsedMsg);
-    //         const gtid = gtidMakeComparable(parsedMsg.gtid);
-    //         if (parsedMsg.commit) {
-    //           await batch.commit(gtid);
-    //         }
-    //         micro.logger.info(`${this.slot_name} replicating op GTID: '${gtid}'`);
-    //         chunks_replicated_total.add(1);
-    //       }
-    //     }
-    //   });
-    // });
-
-    // await finished;
-    // });
   }
 }
