@@ -1,22 +1,20 @@
-import { api, replication, system } from '@powersync/service-core';
+import { api, replication, system, utils } from '@powersync/service-core';
 
 import { MySQLRouteAPIAdapter } from '../api/MySQLRouteAPIAdapter.js';
-import { MSSQLReplicator } from '../replication/MSSQLReplicator.js';
+import { BinLogReplicator } from '../replication/BinLogReplicator.js';
+import { MySQLErrorRateLimiter } from '../replication/MySQLErrorRateLimiter.js';
 import * as types from '../types/types.js';
 
 export class MySQLModule extends replication.ReplicationModule<types.MySQLConnectionConfig> {
-  protected context: system.ServiceContext | null;
   constructor() {
     super({
       name: 'MySQL',
       type: types.MYSQL_CONNECTION_TYPE,
       configSchema: types.MySQLConnectionConfig
     });
-    this.context = null;
   }
 
   async initialize(context: system.ServiceContextContainer): Promise<void> {
-    this.context = context;
     await super.initialize(context);
 
     // TODO move this to the binlog consumer
@@ -31,9 +29,21 @@ export class MySQLModule extends replication.ReplicationModule<types.MySQLConnec
     return new MySQLRouteAPIAdapter(this.resolveConfig(config));
   }
 
-  protected createReplicator(config: types.MySQLConnectionConfig): replication.Replicator {
-    // TODO make this work
-    return new MSSQLReplicator(this.resolveConfig(config), this.context!);
+  protected createReplicator(
+    config: types.MySQLConnectionConfig,
+    context: system.ServiceContext
+  ): replication.AbstractReplicator {
+    const resolvedConfig = this.resolveConfig(config);
+    return new BinLogReplicator({
+      connectionConfig: resolvedConfig,
+      id: this.getDefaultId(resolvedConfig.database),
+      rateLimiter: new MySQLErrorRateLimiter(),
+      syncRuleProvider: {
+        // TODO should maybe improve this
+        get: () => utils.loadSyncRules(context.configuration)
+      },
+      storageFactory: context.storage
+    });
   }
 
   /**

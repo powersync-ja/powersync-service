@@ -14,7 +14,6 @@ export interface BinLogStreamOptions {
   pool: mysql.Pool;
   connection_config: NormalizedMySQLConnectionConfig;
 
-  factory: storage.BucketStorageFactory;
   storage: storage.SyncRulesBucketStorage;
   abort_signal: AbortSignal;
 }

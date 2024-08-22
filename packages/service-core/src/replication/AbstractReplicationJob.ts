@@ -1,7 +1,7 @@
-import * as storage from '../storage/storage-index.js';
-import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 import { container, logger } from '@powersync/lib-services-framework';
 import winston from 'winston';
+import * as storage from '../storage/storage-index.js';
+import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 
 export interface AbstractReplicationJobOptions {
   id: string;
@@ -39,21 +39,19 @@ export abstract class AbstractReplicationJob {
    *  Start the replication process
    */
   public async start(): Promise<void> {
-    try {
-      this.isReplicatingPromise = this.replicate();
-    } catch (e) {
-      // TODO handle catch
-      // Fatal exception
-      container.reporter.captureException(e, {
-        metadata: {
-          replicator: this.id
-        }
+    this.isReplicatingPromise = this.replicate()
+      .catch((ex) => {
+        container.reporter.captureException(ex, {
+          metadata: {
+            replicator: this.id
+          }
+        });
+        logger.error(`Replication failed.`, ex);
+      })
+      .finally(async () => {
+        this.abortController.abort();
+        await this.options.lock.release();
       });
-      logger.error(`Replication failed.`, e);
-    } finally {
-      this.abortController.abort();
-    }
-    await this.options.lock.release();
   }
 
   /**

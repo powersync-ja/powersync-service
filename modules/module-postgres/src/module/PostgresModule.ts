@@ -1,11 +1,11 @@
 import { api, auth, ConfigurationFileSyncRulesProvider, replication, system } from '@powersync/service-core';
 import * as jpgwire from '@powersync/service-jpgwire';
-import * as types from '../types/types.js';
 import { PostgresRouteAPIAdapter } from '../api/PostgresRouteAPIAdapter.js';
 import { SupabaseKeyCollector } from '../auth/SupabaseKeyCollector.js';
-import { WalStreamReplicator } from '../replication/WalStreamReplicator.js';
 import { ConnectionManagerFactory } from '../replication/ConnectionManagerFactory.js';
 import { PostgresErrorRateLimiter } from '../replication/PostgresErrorRateLimiter.js';
+import { WalStreamReplicator } from '../replication/WalStreamReplicator.js';
+import * as types from '../types/types.js';
 
 export class PostgresModule extends replication.ReplicationModule<types.PostgresConnectionConfig> {
   private connectionFactories: Set<ConnectionManagerFactory>;
@@ -23,11 +23,11 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
   async initialize(context: system.ServiceContextContainer): Promise<void> {
     await super.initialize(context);
 
-    // Record replicated bytes using global jpgwire metrics.
     if (context.configuration.base_config.client_auth?.supabase) {
       this.registerSupabaseAuth(context);
     }
 
+    // Record replicated bytes using global jpgwire metrics.
     jpgwire.setMetricsRecorder({
       addBytesRead(bytes) {
         context.metrics.data_replicated_bytes.add(bytes);
