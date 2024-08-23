@@ -28,7 +28,10 @@ export async function getPrimaryKeyColumns(
   });
 
   return attrRows.rows.map((row) => {
-    return { name: row[0] as string, typeOid: row[1] as number, type: row[2] as string };
+    return {
+      name: row[0] as string,
+      typeId: row[1] as number
+    } satisfies storage.ColumnDescriptor;
   });
 }
 
@@ -43,7 +46,10 @@ export async function getAllColumns(db: pgwire.PgClient, relationId: number): Pr
     params: [{ type: 'varchar', value: relationId }]
   });
   return attrRows.rows.map((row) => {
-    return { name: row[0] as string, typeOid: row[1] as number, type: row[2] as string };
+    return {
+      name: row[0] as string,
+      typeId: row[1] as number
+    } satisfies storage.ColumnDescriptor;
   });
 }
 
@@ -82,10 +88,7 @@ WHERE oid = $1::oid LIMIT 1`,
   }
 }
 
-export async function checkSourceConfiguration(db: pgwire.PgClient) {
-  // TODO: configurable
-  const publication_name = 'powersync';
-
+export async function checkSourceConfiguration(db: pgwire.PgClient, publicationName: string) {
   // Check basic config
   await pgwire_utils.retriedQuery(
     db,
@@ -107,20 +110,20 @@ $$ LANGUAGE plpgsql;`
   // Check that publication exists
   const rs = await pgwire_utils.retriedQuery(db, {
     statement: `SELECT * FROM pg_publication WHERE pubname = $1`,
-    params: [{ type: 'varchar', value: publication_name }]
+    params: [{ type: 'varchar', value: publicationName }]
   });
   const row = pgwire.pgwireRows(rs)[0];
   if (row == null) {
     throw new Error(
-      `Publication '${publication_name}' does not exist. Run: \`CREATE PUBLICATION ${publication_name} FOR ALL TABLES\`, or read the documentation for details.`
+      `Publication '${publicationName}' does not exist. Run: \`CREATE PUBLICATION ${publicationName} FOR ALL TABLES\`, or read the documentation for details.`
     );
   }
   if (row.pubinsert == false || row.pubupdate == false || row.pubdelete == false || row.pubtruncate == false) {
     throw new Error(
-      `Publication '${publication_name}' does not publish all changes. Create a publication using \`WITH (publish = "insert, update, delete, truncate")\` (the default).`
+      `Publication '${publicationName}' does not publish all changes. Create a publication using \`WITH (publish = "insert, update, delete, truncate")\` (the default).`
     );
   }
   if (row.pubviaroot) {
-    throw new Error(`'${publication_name}' uses publish_via_partition_root, which is not supported.`);
+    throw new Error(`'${publicationName}' uses publish_via_partition_root, which is not supported.`);
   }
 }

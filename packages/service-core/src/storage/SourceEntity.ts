@@ -3,7 +3,7 @@ export interface ColumnDescriptor {
   /**
    *  The type of the column ie VARCHAR, INT, etc
    */
-  type: string;
+  type?: string;
   /**
    *  Some data sources have a type id that can be used to identify the type of the column
    */
