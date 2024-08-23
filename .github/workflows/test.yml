@@ -76,7 +76,7 @@ jobs:
         run: pnpm build
 
       - name: Test
-        run: pnpm test --filter='!./modules'
+        run: pnpm test --filter '!./modules/*'
 
   run-postgres-tests:
     name: Postgres Test
