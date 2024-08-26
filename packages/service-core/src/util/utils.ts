@@ -120,3 +120,13 @@ export async function createWriteCheckpoint(
   logger.info(`Write checkpoint 2: ${JSON.stringify({ lsn, id: String(id) })}`);
   return id;
 }
+
+export function checkpointUserId(user_id: string | undefined, client_id: string | undefined) {
+  if (user_id == null) {
+    throw new Error('user_id is required');
+  }
+  if (client_id == null) {
+    return user_id;
+  }
+  return `${user_id}/${client_id}`;
+}

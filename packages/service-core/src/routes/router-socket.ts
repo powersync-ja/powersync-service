@@ -9,5 +9,6 @@ import { Context } from './router.js';
 export type SocketRouteGenerator = (router: ReactiveSocketRouter<Context>) => IReactiveStream;
 
 export const RSocketContextMeta = t.object({
-  token: t.string
+  token: t.string,
+  user_agent: t.string.optional()
 });
