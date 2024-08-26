@@ -3,7 +3,7 @@ import { describe, expect, test } from 'vitest';
 import { env } from './env.js';
 import { TEST_CONNECTION_OPTIONS } from './util.js';
 import { walStreamTest } from './wal_stream_utils.js';
-import { populateData } from './populate_test_data.js';
+import { populateData } from 'dist/populate_test_data.js';
 
 describe('batch replication tests - mongodb', function () {
   // These are slow but consistent tests.
