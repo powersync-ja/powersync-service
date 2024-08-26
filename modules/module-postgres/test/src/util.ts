@@ -5,6 +5,8 @@ import * as pgwire from '@powersync/service-jpgwire';
 import { env } from './env.js';
 import { pgwireRows } from '@powersync/service-jpgwire';
 import { logger } from '@powersync/lib-services-framework';
+import { Worker } from 'node:worker_threads';
+import { PopulateDataOptions } from '@module/utils/populate_test_data.js';
 
 // The metrics need to be initialized before they can be used
 await Metrics.initialise({
@@ -86,4 +88,29 @@ export async function getClientCheckpoint(
   }
 
   throw new Error('Timeout while waiting for checkpoint');
+}
+
+export async function populateData(options: PopulateDataOptions) {
+  const WORKER_TIMEOUT = 30_000;
+
+  const worker = new Worker(new URL('./populate_test_data.js', import.meta.url), {
+    workerData: options
+  });
+  const timeout = setTimeout(() => {
+    // Exits with code 1 below
+    worker.terminate();
+  }, WORKER_TIMEOUT);
+  try {
+    return await new Promise<number>((resolve, reject) => {
+      worker.on('message', resolve);
+      worker.on('error', reject);
+      worker.on('exit', (code) => {
+        if (code !== 0) {
+          reject(new Error(`Populating data failed with exit code ${code}`));
+        }
+      });
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 }

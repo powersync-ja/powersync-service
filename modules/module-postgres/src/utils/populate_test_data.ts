@@ -1,5 +1,5 @@
 import * as crypto from 'crypto';
-import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
+import { isMainThread, parentPort, workerData } from 'node:worker_threads';
 
 import * as pgwire from '@powersync/service-jpgwire';
 
@@ -49,29 +49,4 @@ async function populateDataInner(options: PopulateDataOptions) {
   }
   await initialDb.end();
   return operation_count;
-}
-
-export async function populateData(options: PopulateDataOptions) {
-  const WORKER_TIMEOUT = 30_000;
-
-  const worker = new Worker(new URL('./populate_test_data.js', import.meta.url), {
-    workerData: options
-  });
-  const timeout = setTimeout(() => {
-    // Exits with code 1 below
-    worker.terminate();
-  }, WORKER_TIMEOUT);
-  try {
-    return await new Promise<number>((resolve, reject) => {
-      worker.on('message', resolve);
-      worker.on('error', reject);
-      worker.on('exit', (code) => {
-        if (code !== 0) {
-          reject(new Error(`Populating data failed with exit code ${code}`));
-        }
-      });
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
 }
