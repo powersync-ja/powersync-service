@@ -196,7 +196,8 @@ async function* streamResponseInner(
       raw_data,
       binary_data,
       signal,
-      tracker
+      tracker,
+      user_id: syncParams.user_id
     });
 
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -213,6 +214,7 @@ interface BucketDataRequest {
   binary_data: boolean | undefined;
   tracker: RequestTracker;
   signal: AbortSignal;
+  user_id?: string;
 }
 
 async function* bucketDataInBatches(request: BucketDataRequest) {
@@ -261,8 +263,19 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
   const checkpointOp = BigInt(checkpoint);
   let checkpointInvalidated = false;
 
-  const [_, release] = await syncSemaphore.acquire();
+  if (syncSemaphore.isLocked()) {
+    logger.info('Sync concurrency limit reached, waiting for lock', { user_id: request.user_id });
+  }
+  const [value, release] = await syncSemaphore.acquire();
   try {
+    if (value <= 3) {
+      // This can be noisy, so we only log when we get close to the
+      // concurrency limit.
+      logger.info(`Got sync lock. Slots available: ${value - 1}`, {
+        user_id: request.user_id,
+        sync_data_slots: value - 1
+      });
+    }
     // Optimization: Only fetch buckets for which the checksums have changed since the last checkpoint
     // For the first batch, this will be all buckets.
     const filteredBuckets = new Map(bucketsToFetch.map((bucket) => [bucket, dataBuckets.get(bucket)!]));
@@ -330,6 +343,13 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
       }
     }
   } finally {
+    if (value <= 3) {
+      // This can be noisy, so we only log when we get close to the
+      // concurrency limit.
+      logger.info(`Releasing sync lock`, {
+        user_id: request.user_id
+      });
+    }
     release();
   }
 }
