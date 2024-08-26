@@ -23,6 +23,9 @@
     },
     {
       "path": "../../../packages/service-core/"
+    },
+    {
+      "path": "../../../packages/jpgwire/"
     }
   ]
 }
