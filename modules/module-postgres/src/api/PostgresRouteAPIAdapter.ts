@@ -166,8 +166,7 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
         });
         if (results.rows.length == 0) {
           // Table not found
-          const details = await this.getDebugTableInfo(tablePattern, tablePattern.name, null, sqlSyncRules);
-          patternResult.table = details;
+          patternResult.table = await this.getDebugTableInfo(tablePattern, tablePattern.name, null, sqlSyncRules);
         } else {
           const row = pgwire.pgwireRows(results)[0];
           const name = row.table_name as string;

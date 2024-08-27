@@ -9,6 +9,7 @@ export type StorageFactoryProviderOptions = {
 };
 
 export class StorageFactoryProvider {
+  // TODO: This will need to revisited when we actually support multiple storage providers.
   protected storageProviders: Map<string, BucketStorageProvider>;
   protected generatedStorage: GeneratedStorage | null;
 

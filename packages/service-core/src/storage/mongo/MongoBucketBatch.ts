@@ -25,7 +25,7 @@ const MAX_ROW_SIZE = 15 * 1024 * 1024;
 // In the future, we can investigate allowing multiple replication streams operating independently.
 const replicationMutex = new util.Mutex();
 
-// FIXME: This
+// TODO: This needs to be provided by the replication Module, since LSNs are data source specific.
 export const ZERO_LSN = '00000000/00000000';
 
 export class MongoBucketBatch implements BucketStorageBatch {

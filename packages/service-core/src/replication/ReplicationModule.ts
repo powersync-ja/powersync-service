@@ -32,7 +32,7 @@ export abstract class ReplicationModule<TConfig extends DataSourceConfig> extend
   }
 
   /**
-   *  Create the API adapter for the DataSource required by the sync API
+   *  Create the RouteAPI adapter for the DataSource required to service the sync API
    *  endpoints.
    */
   protected abstract createRouteAPIAdapter(decodedConfig: TConfig): api.RouteAPI;
@@ -43,7 +43,7 @@ export abstract class ReplicationModule<TConfig extends DataSourceConfig> extend
   protected abstract createReplicator(decodedConfig: TConfig, context: system.ServiceContext): AbstractReplicator;
 
   /**
-   *  Register this module's replication adapters and sync API providers if the required configuration is present.
+   *  Register this module's Replicators and RouteAPI adapters if the required configuration is present.
    */
   public async initialize(context: system.ServiceContext): Promise<void> {
     if (!context.configuration.connections) {

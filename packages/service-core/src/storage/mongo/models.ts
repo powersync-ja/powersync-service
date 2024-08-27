@@ -57,7 +57,7 @@ export interface SourceTableDocument {
   _id: bson.ObjectId;
   group_id: number;
   connection_id: number;
-  relation_id: number | undefined | string;
+  relation_id: number | string | undefined;
   schema_name: string;
   table_name: string;
   replica_id_columns: string[] | null;

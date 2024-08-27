@@ -32,6 +32,7 @@ export interface MongoBucketStorageOptions extends PowerSyncMongoOptions {}
 export class MongoBucketStorage implements BucketStorageFactory {
   private readonly client: mongo.MongoClient;
   private readonly session: mongo.ClientSession;
+  // TODO: This is still Postgres specific and needs to be reworked
   public readonly slot_name_prefix: string;
 
   private readonly storageCache = new LRUCache<number, MongoSyncBucketStorage>({

@@ -159,8 +159,7 @@ export class WalConnection {
         });
         if (results.rows.length == 0) {
           // Table not found
-          const details = await this.getDebugTableInfo(tablePattern, tablePattern.name, null);
-          patternResult.table = details;
+          patternResult.table = await this.getDebugTableInfo(tablePattern, tablePattern.name, null);
         } else {
           const row = pgwire.pgwireRows(results)[0];
           const name = row.table_name as string;

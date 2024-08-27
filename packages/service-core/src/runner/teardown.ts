@@ -13,11 +13,11 @@ export async function teardown(runnerConfig: utils.RunnerConfig) {
     const config = await utils.loadConfig(runnerConfig);
     const serviceContext = new system.ServiceContextContainer(config);
 
-    // TODO what should be registered on the teardown command here?
-
-    const moduleManager = container.getImplementation(modules.ModuleManager);
-    await moduleManager.initialize(serviceContext);
-    await moduleManager.tearDown();
+    // TODO Teardown stopped replication, clean up all replication slots and then wiped the MongoDB
+    // This will now have to take into account multiple modules
+    // const moduleManager = container.getImplementation(modules.ModuleManager);
+    // await moduleManager.initialize(serviceContext);
+    // await moduleManager.tearDown();
     process.exit(0);
   } catch (e) {
     logger.error(`Teardown failure`, e);

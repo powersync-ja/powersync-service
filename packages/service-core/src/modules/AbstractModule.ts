@@ -14,12 +14,6 @@ export abstract class AbstractModule {
   }
 
   /**
-   * Register any functionality on the {@link ServiceContextContainer}.
-   * Note this will be executed before the ServiceContext has been initialized.
-   * This can be used to register storage providers which will be created during initialization.
-   */
-
-  /**
    *  Initialize the module using any required services from the ServiceContext
    */
   public abstract initialize(context: ServiceContextContainer): Promise<void>;

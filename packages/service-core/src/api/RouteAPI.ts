@@ -30,6 +30,7 @@ export interface RouteAPI {
    * @param tablePatterns A set of table patterns which typically come from
    *          the tables listed in sync rules definitions.
    *
+   * @param sqlSyncRules
    * @returns A result of all the tables and columns which should be replicated
    *           based off the input patterns. Certain tests are executed on the
    *           tables to ensure syncing should function according to the input

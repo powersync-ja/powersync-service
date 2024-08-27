@@ -64,7 +64,8 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
 
   async teardown(): Promise<void> {}
 
-  protected registerSupabaseAuth(context: system.ServiceContextContainer) {
+  // TODO: This should rather be done by registering the key collector in some kind of auth engine
+  private registerSupabaseAuth(context: system.ServiceContextContainer) {
     const { configuration } = context;
     // Register the Supabase key collector(s)
     configuration.connections

@@ -77,9 +77,9 @@ export const startServer = async (runnerConfig: core.utils.RunnerConfig) => {
   const moduleManager = container.getImplementation(core.modules.ModuleManager);
   await moduleManager.initialize(serviceContext);
 
-  logger.info('Starting service');
+  logger.info('Starting service...');
   await serviceContext.lifeCycleEngine.start();
-  logger.info('service started');
+  logger.info('Service started.');
 
   await container.probes.ready();
 
