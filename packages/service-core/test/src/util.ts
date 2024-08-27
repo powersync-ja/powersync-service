@@ -24,7 +24,6 @@ export const MONGO_STORAGE_FACTORY: StorageFactory = async () => {
   await db.clear();
   return new MongoBucketStorage(db, { slot_name_prefix: 'test_' });
 };
-
 export async function connectMongo() {
   // Short timeout for tests, to fail fast when the server is not available.
   // Slightly longer timeouts for CI, to avoid arbitrary test failures
@@ -34,7 +33,28 @@ export async function connectMongo() {
     serverSelectionTimeoutMS: env.CI ? 15_000 : 2_500
   });
   const db = new PowerSyncMongo(client);
+  await ensureCollections(db.db);
+
   return db;
+}
+
+/**
+ *  Ensure that all the required collections exist in MongoDB
+ *  Some tests were only passing because the collections were created as part of inserts in other tests.
+ *  Ensuring that the collections are in fact created removes that random element.
+ *
+ *  @param db
+ */
+async function ensureCollections(db: mongo.Db) {
+  await db.createCollection('current_data');
+  await db.createCollection('bucket_data');
+  await db.createCollection('bucket_parameters');
+  await db.createCollection('op_id_sequence');
+  await db.createCollection('sync_rules');
+  await db.createCollection('source_tables');
+  await db.createCollection('write_checkpoints');
+  await db.createCollection('instance');
+  await db.createCollection('locks');
 }
 
 export function makeTestTable(name: string, columns?: string[] | undefined) {
