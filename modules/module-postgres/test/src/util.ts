@@ -1,10 +1,11 @@
 import * as types from '@module/types/types.js';
 import * as pg_utils from '@module/utils/pgwire_utils.js';
-import { BucketStorageFactory, Metrics, OpId } from '@powersync/service-core';
+import { BucketStorageFactory, Metrics, MongoBucketStorage, OpId } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import { env } from './env.js';
 import { pgwireRows } from '@powersync/service-jpgwire';
 import { logger } from '@powersync/lib-services-framework';
+import { connectMongo } from '@core-tests/util.js';
 
 // The metrics need to be initialized before they can be used
 await Metrics.initialise({
@@ -21,6 +22,18 @@ export const TEST_CONNECTION_OPTIONS = types.normalizeConnectionConfig({
   uri: TEST_URI,
   sslmode: 'disable'
 });
+
+export type StorageFactory = () => Promise<BucketStorageFactory>;
+
+export const INITIALIZED_MONGO_STORAGE_FACTORY: StorageFactory = async () => {
+  const db = await connectMongo();
+
+  // None of the PG tests insert data into this collection, so it was never created
+  await db.db.createCollection('bucket_parameters');
+  await db.clear();
+
+  return new MongoBucketStorage(db, { slot_name_prefix: 'test_' });
+};
 
 export async function clearTestDb(db: pgwire.PgClient) {
   await db.query(
