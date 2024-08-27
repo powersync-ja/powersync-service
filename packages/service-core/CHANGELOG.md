@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 0.8.1
+
+### Patch Changes
+
+- 8b3a9b9: Added `client_id` log to WebSocket `sync/stream` endpoint.
+
 ## 0.8.0
 
 ### Minor Changes

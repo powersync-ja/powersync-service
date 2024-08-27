@@ -1,5 +1,12 @@
 # @powersync/service-image
 
+## 0.5.1
+
+### Patch Changes
+
+- Updated dependencies [8b3a9b9]
+  - @powersync/service-core@0.8.1
+
 ## 0.5.0
 
 ### Minor Changes
