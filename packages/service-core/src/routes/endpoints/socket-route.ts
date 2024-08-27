@@ -124,6 +124,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         disposer();
         logger.info(`Sync stream complete`, {
           user_id: syncParams.user_id,
+          client_id: params.client_id,
           user_agent: context.user_agent,
           operations_synced: tracker.operationsSynced,
           data_synced_bytes: tracker.dataSyncedBytes
