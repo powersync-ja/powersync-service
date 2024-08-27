@@ -123,15 +123,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
   ): Promise<api.PatternResult[]> {
     let result: api.PatternResult[] = [];
 
-    /**
-     * This is a hack. The schema should always be the database name in MySQL.
-     * The default value of `public` is not valid.
-     * We might need to implement this better where the original table patterns are created.
-     */
-    const mappedPatterns = tablePatterns;
-    // .map((t) => new sync_rules.TablePattern(this.config.database, t.tablePattern));
-
-    for (let tablePattern of mappedPatterns) {
+    for (let tablePattern of tablePatterns) {
       const schema = tablePattern.schema;
       let patternResult: api.PatternResult = {
         schema: schema,
