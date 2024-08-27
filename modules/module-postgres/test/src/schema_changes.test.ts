@@ -1,24 +1,25 @@
 import { compareIds, putOp, removeOp } from '@core-tests/stream_utils.js';
-import { connectMongo } from '@core-tests/util.js';
-import { BucketStorageFactory, MongoBucketStorage } from '@powersync/service-core';
+import { BucketStorageFactory } from '@powersync/service-core';
 import { describe, expect, test } from 'vitest';
 import { walStreamTest } from './wal_stream_utils.js';
+import { MONGO_STORAGE_FACTORY } from '@core-tests/util.js';
 
 type StorageFactory = () => Promise<BucketStorageFactory>;
 
-export const INITIALIZED_MONGO_STORAGE_FACTORY: StorageFactory = async () => {
-  const db = await connectMongo();
-  // None of the PG tests insert data into this collection, so it was never created
-  await db.db.createCollection('bucket_parameters');
-  await db.clear();
+// export const INITIALIZED_MONGO_STORAGE_FACTORY: StorageFactory = async () => {
+//   const db = await connectMongo();
 
-  return new MongoBucketStorage(db, { slot_name_prefix: 'test_' });
-};
+//   // None of the PG tests insert data into this collection, so it was never created
+//   await db.db.createCollection('bucket_parameters');
+//   await db.clear();
+
+//   return new MongoBucketStorage(db, { slot_name_prefix: 'test_' });
+// };
 
 describe(
   'schema changes',
   function () {
-    defineTests(INITIALIZED_MONGO_STORAGE_FACTORY);
+    defineTests(MONGO_STORAGE_FACTORY);
   },
   { timeout: 20_000 }
 );
