@@ -29,7 +29,10 @@ export const INITIALIZED_MONGO_STORAGE_FACTORY: StorageFactory = async () => {
   const db = await connectMongo();
 
   // None of the PG tests insert data into this collection, so it was never created
-  await db.db.createCollection('bucket_parameters');
+  if (!(await db.db.listCollections({ name: db.bucket_parameters.collectionName }).hasNext())) {
+    await db.db.createCollection('bucket_parameters');
+  }
+
   await db.clear();
 
   return new MongoBucketStorage(db, { slot_name_prefix: 'test_' });
