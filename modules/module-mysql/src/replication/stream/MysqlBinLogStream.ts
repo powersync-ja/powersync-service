@@ -6,9 +6,9 @@ import { framework, storage } from '@powersync/service-core';
 import mysql, { RowDataPacket } from 'mysql2/promise';
 
 import ZongJi, { BinLogEvent } from '@vlasky/zongji';
-import * as common from '../common/common-index.js';
-import { NormalizedMySQLConnectionConfig } from '../types/types.js';
-import * as zongji_utils from './zongji/zongji-utils.js';
+import * as common from '../../common/common-index.js';
+import { NormalizedMySQLConnectionConfig } from '../../types/types.js';
+import * as zongji_utils from '../zongji/zongji-utils.js';
 
 export interface BinLogStreamOptions {
   pool: mysql.Pool;
@@ -215,7 +215,7 @@ AND table_type = 'BASE TABLE';`,
         for (let tablePattern of sourceTables) {
           const tables = await this.getQualifiedTableNames(batch, tablePattern);
           for (let table of tables) {
-            await this.snapshotTable(batch, table);
+            await this.snapshotTable(batch, this.pool, table);
             await batch.markSnapshotDone([table], headGTID.comparable);
             await framework.container.probes.touch();
           }

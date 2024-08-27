@@ -4,7 +4,7 @@ import * as types from '../types/types.js';
 import * as mysql_utils from '../utils/mysql_utils.js';
 
 import { replication } from '@powersync/service-core';
-import { MysqlBinLogStream } from './MysqlBinLogStream.js';
+import { MysqlBinLogStream } from './stream/MysqlBinLogStream.js';
 
 export interface BinLogReplicationJobOptions extends replication.AbstractReplicationJobOptions {
   /**
