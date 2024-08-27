@@ -1,15 +1,15 @@
 import { compareIds, putOp, removeOp } from '@core-tests/stream_utils.js';
-import { MONGO_STORAGE_FACTORY } from '@core-tests/util.js';
 import { BucketStorageFactory } from '@powersync/service-core';
 import { describe, expect, test } from 'vitest';
 import { walStreamTest } from './wal_stream_utils.js';
+import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 
 type StorageFactory = () => Promise<BucketStorageFactory>;
 
 describe(
   'schema changes',
   function () {
-    defineTests(MONGO_STORAGE_FACTORY);
+    defineTests(INITIALIZED_MONGO_STORAGE_FACTORY);
   },
   { timeout: 20_000 }
 );
