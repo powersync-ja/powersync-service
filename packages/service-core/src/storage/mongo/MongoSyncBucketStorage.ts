@@ -13,6 +13,7 @@ import {
   FlushedResult,
   ResolveTableOptions,
   ResolveTableResult,
+  StartBatchOptions,
   SyncBucketDataBatch,
   SyncRulesBucketStorage,
   SyncRuleStatus
@@ -22,7 +23,7 @@ import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { SourceTable } from '../SourceTable.js';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, SourceKey, SyncRuleState } from './models.js';
-import { MongoBucketBatch, ZERO_LSN } from './MongoBucketBatch.js';
+import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, mapOpEntry, readSingleBatch, serializeLookup } from './util.js';
 
@@ -47,16 +48,18 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     const doc = await this.db.sync_rules.findOne(
       { _id: this.group_id },
       {
-        projection: { last_checkpoint: 1, last_checkpoint_lsn: 1 }
+        projection: { last_checkpoint: 1 }
       }
     );
     return {
-      checkpoint: util.timestampToOpId(doc?.last_checkpoint ?? 0n),
-      lsn: doc?.last_checkpoint_lsn ?? ZERO_LSN
+      checkpoint: util.timestampToOpId(doc?.last_checkpoint ?? 0n)
     };
   }
 
-  async startBatch(options: {}, callback: (batch: BucketStorageBatch) => Promise<void>): Promise<FlushedResult | null> {
+  async startBatch(
+    options: StartBatchOptions,
+    callback: (batch: BucketStorageBatch) => Promise<void>
+  ): Promise<FlushedResult | null> {
     const doc = await this.db.sync_rules.findOne(
       {
         _id: this.group_id
@@ -71,7 +74,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
       this.group_id,
       this.slot_name,
       checkpoint_lsn,
-      doc?.no_checkpoint_before ?? null
+      doc?.no_checkpoint_before ?? options.zeroLSN
     );
     try {
       await callback(batch);

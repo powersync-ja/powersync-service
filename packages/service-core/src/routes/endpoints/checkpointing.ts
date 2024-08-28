@@ -31,7 +31,7 @@ export const writeCheckpoint = routeDefinition({
       if (!cp.hasSyncRules()) {
         throw new Error('No sync rules available');
       }
-      if (cp.lsn >= head) {
+      if (cp.lsn && cp.lsn >= head) {
         logger.info(`Got write checkpoint: ${head} : ${cp.checkpoint}`);
         return { checkpoint: cp.checkpoint };
       }
@@ -52,7 +52,6 @@ export const writeCheckpoint2 = routeDefinition({
 
     const api = service_context.routerEngine.getAPI();
 
-    // Might want to call this something link replicationHead or something else
     const currentCheckpoint = await api.getReplicationHead();
     const {
       storage: { activeBucketStorage }
