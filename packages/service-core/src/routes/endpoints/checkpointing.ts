@@ -63,9 +63,8 @@ export const writeCheckpoint2 = routeDefinition({
       storage: { activeBucketStorage }
     } = service_context;
 
-    const writeCheckpoint = await activeBucketStorage.createWriteCheckpoint(user_id!, { '1': currentCheckpoint });
-    const writeCheckpoint = await util.createWriteCheckpoint(system.requirePgPool(), storage, full_user_id);
-    logger.info(`Write checkpoint 2: ${JSON.stringify({ currentCheckpoint, id: String(id) })}`);
+    const writeCheckpoint = await activeBucketStorage.createWriteCheckpoint(full_user_id, { '1': currentCheckpoint });
+    logger.info(`Write checkpoint 2: ${JSON.stringify({ currentCheckpoint, id: String(full_user_id) })}`);
 
     return {
       write_checkpoint: String(writeCheckpoint)
