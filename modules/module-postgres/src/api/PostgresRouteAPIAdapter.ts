@@ -1,4 +1,4 @@
-import { api, storage } from '@powersync/service-core';
+import { api } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 
 import * as sync_rules from '@powersync/service-sync-rules';
@@ -6,13 +6,15 @@ import * as service_types from '@powersync/service-types';
 import * as replication_utils from '../replication/replication-utils.js';
 import * as types from '../types/types.js';
 import * as pg_utils from '../utils/pgwire_utils.js';
+import { getDebugTableInfo } from '../replication/replication-utils.js';
+import { PUBLICATION_NAME } from '../replication/WalStream.js';
 
 export class PostgresRouteAPIAdapter implements api.RouteAPI {
   protected pool: pgwire.PgClient;
 
   connectionTag: string;
   // TODO this should probably be configurable one day
-  publication_name = 'powersync';
+  publicationName = PUBLICATION_NAME;
 
   constructor(protected config: types.ResolvedConnectionConfig) {
     this.pool = pgwire.connectPgWirePool(config, {
@@ -46,7 +48,7 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
     }
 
     try {
-      await replication_utils.checkSourceConfiguration(this.pool, this.publication_name);
+      await replication_utils.checkSourceConfiguration(this.pool, this.publicationName);
     } catch (e) {
       return {
         ...base,
@@ -184,80 +186,15 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
     relationId: number | null,
     syncRules: sync_rules.SqlSyncRules
   ): Promise<service_types.TableInfo> {
-    const schema = tablePattern.schema;
-    let id_columns_result: replication_utils.ReplicaIdentityResult | undefined = undefined;
-    let id_columns_error = null;
-
-    if (relationId != null) {
-      try {
-        id_columns_result = await replication_utils.getReplicationIdentityColumns(this.pool, relationId);
-      } catch (e) {
-        id_columns_error = { level: 'fatal', message: e.message };
-      }
-    }
-
-    const id_columns = id_columns_result?.replicationColumns ?? [];
-
-    const sourceTable = new storage.SourceTable(0, this.connectionTag, relationId ?? 0, schema, name, id_columns, true);
-
-    const syncData = syncRules.tableSyncsData(sourceTable);
-    const syncParameters = syncRules.tableSyncsParameters(sourceTable);
-
-    if (relationId == null) {
-      return {
-        schema: schema,
-        name: name,
-        pattern: tablePattern.isWildcard ? tablePattern.tablePattern : undefined,
-        replication_id: [],
-        data_queries: syncData,
-        parameter_queries: syncParameters,
-        // Also
-        errors: [{ level: 'warning', message: `Table ${sourceTable.qualifiedName} not found.` }]
-      };
-    }
-    if (id_columns.length == 0 && id_columns_error == null) {
-      let message = `No replication id found for ${sourceTable.qualifiedName}. Replica identity: ${id_columns_result?.replicationIdentity}.`;
-      if (id_columns_result?.replicationIdentity == 'default') {
-        message += ' Configure a primary key on the table.';
-      }
-      id_columns_error = { level: 'fatal', message };
-    }
-
-    let selectError = null;
-    try {
-      await pg_utils.retriedQuery(this.pool, `SELECT * FROM ${sourceTable.escapedIdentifier} LIMIT 1`);
-    } catch (e) {
-      selectError = { level: 'fatal', message: e.message };
-    }
-
-    let replicateError = null;
-
-    const publications = await pg_utils.retriedQuery(this.pool, {
-      statement: `SELECT tablename FROM pg_publication_tables WHERE pubname = $1 AND schemaname = $2 AND tablename = $3`,
-      params: [
-        { type: 'varchar', value: this.publication_name },
-        { type: 'varchar', value: tablePattern.schema },
-        { type: 'varchar', value: name }
-      ]
-    });
-    if (publications.rows.length == 0) {
-      replicateError = {
-        level: 'fatal',
-        message: `Table ${sourceTable.qualifiedName} is not part of publication '${this.publication_name}'. Run: \`ALTER PUBLICATION ${this.publication_name} ADD TABLE ${sourceTable.qualifiedName}\`.`
-      };
-    }
-
-    return {
-      schema: schema,
+    return getDebugTableInfo({
+      db: this.pool,
       name: name,
-      pattern: tablePattern.isWildcard ? tablePattern.tablePattern : undefined,
-      replication_id: id_columns.map((c) => c.name),
-      data_queries: syncData,
-      parameter_queries: syncParameters,
-      errors: [id_columns_error, selectError, replicateError].filter(
-        (error) => error != null
-      ) as service_types.ReplicationError[]
-    };
+      publicationName: this.publicationName,
+      connectionTag: this.connectionTag,
+      tablePattern: tablePattern,
+      relationId: relationId,
+      syncRules: syncRules
+    });
   }
 
   async getReplicationLag(syncRulesId: string): Promise<number> {

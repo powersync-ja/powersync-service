@@ -1,7 +1,7 @@
 import { MONGO_STORAGE_FACTORY } from '@core-tests/util.js';
-import { WalConnection } from '@module/replication/WalConnection.js';
 import { expect, test } from 'vitest';
 import { walStreamTest } from './wal_stream_utils.js';
+import { getDebugTablesInfo } from '@module/replication/replication-utils.js';
 
 // Not quite a walStreamTest, but it helps to manage the connection
 test(
@@ -22,13 +22,14 @@ bucket_definitions:
 
     const syncRules = await context.factory.updateSyncRules({ content: syncRuleContent });
 
-    const walConnection = new WalConnection({
-      db: pool,
-      sync_rules: syncRules.parsed().sync_rules
-    });
-
     const tablePatterns = syncRules.parsed().sync_rules.getSourceTables();
-    const tableInfo = await walConnection.getDebugTablesInfo(tablePatterns);
+    const tableInfo = await getDebugTablesInfo({
+      db: pool,
+      publicationName: context.publicationName,
+      connectionTag: context.connectionTag,
+      tablePatterns: tablePatterns,
+      syncRules: syncRules.parsed().sync_rules
+    });
     expect(tableInfo).toEqual([
       {
         schema: 'public',

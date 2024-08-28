@@ -55,10 +55,10 @@ export const diagnostics = routeDefinition({
     }
 
     const {
-      storage: { bucketStorage }
+      storage: { activeBucketStorage }
     } = service_context;
-    const active = await bucketStorage.getActiveSyncRulesContent();
-    const next = await bucketStorage.getNextSyncRulesContent();
+    const active = await activeBucketStorage.getActiveSyncRulesContent();
+    const next = await activeBucketStorage.getNextSyncRulesContent();
 
     const active_status = await api.getSyncRulesStatus(service_context, active, {
       include_content,
@@ -108,14 +108,14 @@ export const reprocess = routeDefinition({
       context: { service_context }
     } = payload;
     const {
-      storage: { bucketStorage }
+      storage: { activeBucketStorage }
     } = service_context;
-    const next = await bucketStorage.getNextSyncRules();
+    const next = await activeBucketStorage.getNextSyncRules();
     if (next != null) {
       throw new Error(`Busy processing sync rules - cannot reprocess`);
     }
 
-    const active = await bucketStorage.getActiveSyncRules();
+    const active = await activeBucketStorage.getActiveSyncRules();
     if (active == null) {
       throw new errors.JourneyError({
         status: 422,
@@ -124,7 +124,7 @@ export const reprocess = routeDefinition({
       });
     }
 
-    const new_rules = await bucketStorage.updateSyncRules({
+    const new_rules = await activeBucketStorage.updateSyncRules({
       content: active.sync_rules.content
     });
 
