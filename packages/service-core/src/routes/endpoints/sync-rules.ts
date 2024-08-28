@@ -63,7 +63,7 @@ export const deploySyncRules = routeDefinition({
       });
     }
 
-    const sync_rules = await storage.bucketStorage.updateSyncRules({
+    const sync_rules = await storage.activeBucketStorage.updateSyncRules({
       content: content
     });
 
@@ -100,9 +100,9 @@ export const currentSyncRules = routeDefinition({
   handler: async (payload) => {
     const { service_context } = payload.context;
     const {
-      storage: { bucketStorage }
+      storage: { activeBucketStorage }
     } = service_context;
-    const sync_rules = await bucketStorage.getActiveSyncRulesContent();
+    const sync_rules = await activeBucketStorage.getActiveSyncRulesContent();
     if (!sync_rules) {
       throw new errors.JourneyError({
         status: 422,
@@ -111,7 +111,7 @@ export const currentSyncRules = routeDefinition({
       });
     }
     const info = await debugSyncRules(service_context, sync_rules.sync_rules_content);
-    const next = await bucketStorage.getNextSyncRulesContent();
+    const next = await activeBucketStorage.getNextSyncRulesContent();
 
     const next_info = next ? await debugSyncRules(service_context, next.sync_rules_content) : null;
 
@@ -144,9 +144,9 @@ export const reprocessSyncRules = routeDefinition({
   validator: schema.createTsCodecValidator(ReprocessSyncRulesRequest),
   handler: async (payload) => {
     const {
-      storage: { bucketStorage }
+      storage: { activeBucketStorage }
     } = payload.context.service_context;
-    const sync_rules = await bucketStorage.getActiveSyncRules();
+    const sync_rules = await activeBucketStorage.getActiveSyncRules();
     if (sync_rules == null) {
       throw new errors.JourneyError({
         status: 422,
@@ -155,7 +155,7 @@ export const reprocessSyncRules = routeDefinition({
       });
     }
 
-    const new_rules = await bucketStorage.updateSyncRules({
+    const new_rules = await activeBucketStorage.updateSyncRules({
       content: sync_rules.sync_rules.content
     });
     return {
@@ -180,9 +180,6 @@ async function debugSyncRules(serviceContext: system.ServiceContext, sync_rules:
     const source_table_patterns = rules.getSourceTables();
 
     const api = serviceContext.routerEngine.getAPI();
-    if (!api) {
-      throw new Error('No API handler found');
-    }
 
     const resolved_tables = await api.getDebugTablesInfo(source_table_patterns, rules);
 

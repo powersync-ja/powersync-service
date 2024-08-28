@@ -5,7 +5,7 @@ import { container, logger } from '@powersync/lib-services-framework';
 import { SyncRulesProvider } from '../util/config/sync-rules/sync-rules-provider.js';
 import winston from 'winston';
 import { AbstractReplicationJob } from './AbstractReplicationJob.js';
-import { StorageFactoryProvider } from '../storage/storage-index.js';
+import { StorageEngine } from '../storage/storage-index.js';
 import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 
 // 5 minutes
@@ -18,7 +18,7 @@ export interface CreateJobOptions {
 
 export interface AbstractReplicatorOptions {
   id: string;
-  storageFactory: StorageFactoryProvider;
+  storageEngine: StorageEngine;
   syncRuleProvider: SyncRulesProvider;
   /**
    * This limits the effect of retries when there is a persistent issue.
@@ -55,7 +55,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   }
 
   protected get storage() {
-    return this.options.storageFactory.bucketStorage;
+    return this.options.storageEngine.activeBucketStorage;
   }
 
   protected get syncRuleProvider() {

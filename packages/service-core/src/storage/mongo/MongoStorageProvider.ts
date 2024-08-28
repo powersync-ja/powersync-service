@@ -1,29 +1,24 @@
-import { configFile } from '@powersync/service-types';
-
 import * as db from '../../db/db-index.js';
-
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
-import { BucketStorageProvider, GeneratedStorage, StorageGenerationParams } from '../StorageProvider.js';
+import { BucketStorageProvider, ActiveStorage, GetStorageOptions } from '../StorageProvider.js';
 import { PowerSyncMongo } from './db.js';
-
-export type MongoStorageConfig = configFile.StorageConfig;
 
 export class MongoStorageProvider implements BucketStorageProvider {
   get type() {
     return 'mongodb';
   }
 
-  async generate(params: StorageGenerationParams): Promise<GeneratedStorage> {
-    const { resolved_config } = params;
-    const { storage } = resolved_config;
-    const client = db.mongo.createMongoClient(resolved_config.storage);
+  async getStorage(options: GetStorageOptions): Promise<ActiveStorage> {
+    const { resolvedConfig } = options;
 
-    const database = new PowerSyncMongo(client, { database: storage.database });
+    const client = db.mongo.createMongoClient(resolvedConfig.storage);
+
+    const database = new PowerSyncMongo(client, { database: resolvedConfig.storage.database });
 
     return {
       storage: new MongoBucketStorage(database, {
         // TODO currently need the entire resolved config for this
-        slot_name_prefix: params.resolved_config.slot_name_prefix
+        slot_name_prefix: resolvedConfig.slot_name_prefix
       }),
       disposer: () => client.close()
     };

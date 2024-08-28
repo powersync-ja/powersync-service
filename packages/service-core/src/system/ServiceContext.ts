@@ -12,7 +12,7 @@ export interface ServiceContext {
   metrics: metrics.Metrics;
   replicationEngine: replication.ReplicationEngine;
   routerEngine: routes.RouterEngine;
-  storage: storage.StorageFactoryProvider;
+  storage: storage.StorageEngine;
 }
 
 /**
@@ -22,13 +22,13 @@ export interface ServiceContext {
  */
 export class ServiceContextContainer implements ServiceContext {
   lifeCycleEngine: LifeCycledSystem;
-  storage: storage.StorageFactoryProvider;
+  storage: storage.StorageEngine;
 
   constructor(public configuration: utils.ResolvedPowerSyncConfig) {
     this.lifeCycleEngine = new LifeCycledSystem();
-    this.storage = new storage.StorageFactoryProvider({
+    this.storage = new storage.StorageEngine({
       configuration,
-      lifecycle_engine: this.lifeCycleEngine
+      lifecycleEngine: this.lifeCycleEngine
     });
 
     // Mongo storage is available as an option by default

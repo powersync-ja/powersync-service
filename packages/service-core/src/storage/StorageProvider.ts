@@ -1,19 +1,22 @@
-import { BucketStorageFactory } from '../storage/BucketStorage.js';
-
+import { BucketStorageFactory } from './BucketStorage.js';
 import * as util from '../util/util-index.js';
 
-export type GeneratedStorage = {
+export interface ActiveStorage {
   storage: BucketStorageFactory;
   disposer: () => Promise<void>;
-};
+}
 
-export type StorageGenerationParams = {
-  resolved_config: util.ResolvedPowerSyncConfig;
-};
+export interface GetStorageOptions {
+  // TODO: This should just be the storage config. Update once the slot name prefix coupling has been removed from the storage
+  resolvedConfig: util.ResolvedPowerSyncConfig;
+}
 
 export interface BucketStorageProvider {
-  // The storage type which should match the `type` field in the config
+  /**
+   *  The storage type that this provider provides.
+   *  The type should match the `type` field in the config.
+   */
   type: string;
 
-  generate(storageConfig: StorageGenerationParams): Promise<GeneratedStorage>;
+  getStorage(options: GetStorageOptions): Promise<ActiveStorage>;
 }

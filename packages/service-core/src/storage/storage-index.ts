@@ -2,7 +2,7 @@ export * from './BucketStorage.js';
 export * from './MongoBucketStorage.js';
 export * from './SourceEntity.js';
 export * from './SourceTable.js';
-export * from './StorageFactoryProvider.js';
+export * from './StorageEngine.js';
 
 export * from './mongo/db.js';
 export * from './mongo/models.js';

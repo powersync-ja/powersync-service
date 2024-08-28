@@ -53,11 +53,11 @@ export async function getSyncRulesStatus(
   }
 
   const {
-    storage: { bucketStorage }
+    storage: { activeBucketStorage }
   } = serviceContext;
   const api = serviceContext.routerEngine.getAPI();
 
-  const systemStorage = live_status ? bucketStorage.getInstance(persisted) : undefined;
+  const systemStorage = live_status ? activeBucketStorage.getInstance(persisted) : undefined;
   const status = await systemStorage?.getStatus();
   let replication_lag_bytes: number | undefined = undefined;
 

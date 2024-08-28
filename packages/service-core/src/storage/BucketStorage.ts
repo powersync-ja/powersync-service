@@ -156,18 +156,6 @@ export interface PersistedSyncRules {
   readonly slot_name: string;
 }
 
-export class DefaultPersistedSyncRules implements PersistedSyncRules {
-  public readonly checkpoint_lsn: string | null;
-
-  constructor(public readonly id: number, public readonly sync_rules: SqlSyncRules, checkpoint_lsn: string | null) {
-    this.checkpoint_lsn = checkpoint_lsn;
-  }
-
-  get slot_name(): string {
-    return `powersync_${this.id}`;
-  }
-}
-
 export interface UpdateSyncRulesOptions {
   content: string;
   lock?: boolean;

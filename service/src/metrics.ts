@@ -16,7 +16,7 @@ export const registerMetrics = async (options: MetricsRegistrationOptions) => {
   // This requires an instantiated bucket storage, which is only created when the lifecycle starts
   service_context.lifeCycleEngine.withLifecycle(null, {
     start: async () => {
-      const instanceId = await service_context.storage.bucketStorage.getPowerSyncInstanceId();
+      const instanceId = await service_context.storage.activeBucketStorage.getPowerSyncInstanceId();
       await core.metrics.Metrics.initialise({
         powersync_instance_id: instanceId,
         disable_telemetry_sharing: service_context.configuration.telemetry.disable_telemetry_sharing,
@@ -32,7 +32,7 @@ export const registerMetrics = async (options: MetricsRegistrationOptions) => {
       }
 
       if (modes.includes(MetricModes.REPLICATION)) {
-        instance.configureReplicationMetrics(service_context.storage.bucketStorage);
+        instance.configureReplicationMetrics(service_context.storage.activeBucketStorage);
       }
     },
     stop: () => service_context.metrics.shutdown()
