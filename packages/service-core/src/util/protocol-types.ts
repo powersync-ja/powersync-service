@@ -94,7 +94,12 @@ export const StreamingSyncRequest = t.object({
   /**
    * Client parameters to be passed to the sync rules.
    */
-  parameters: t.record(t.any).optional()
+  parameters: t.record(t.any).optional(),
+
+  /**
+   * Unique client id.
+   */
+  client_id: t.string.optional()
 });
 
 export type StreamingSyncRequest = t.Decoded<typeof StreamingSyncRequest>;
