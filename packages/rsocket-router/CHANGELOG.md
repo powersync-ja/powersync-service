@@ -1,5 +1,11 @@
 # @powersync/service-rsocket-router
 
+## 0.0.12
+
+### Patch Changes
+
+- 0d4432d: Fix WebSocket is not open: readyState 2 (CLOSING)
+
 ## 0.0.11
 
 ### Patch Changes
