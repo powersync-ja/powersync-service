@@ -7,15 +7,21 @@ import { WebsocketServerTransport } from '../../src/router/transport/WebSocketSe
 import { WebsocketDuplexConnection } from '../../src/router/transport/WebsocketDuplexConnection.js';
 import { Duplex } from 'stream';
 
-const WS_PORT = process.env.WS_PORT ? parseInt(process.env.WS_PORT) : 4532;
-const WS_ADDRESS = `ws://localhost:${WS_PORT}`;
+let nextPort = 5433;
 
 describe('Sockets', () => {
   let server: WebSocket.WebSocketServer;
   let closeServer: () => void;
 
+  let WS_PORT = 0;
+  let WS_ADDRESS = '';
+
   beforeEach(() => {
     let closed = false;
+
+    WS_PORT = process.env.WS_PORT ? parseInt(process.env.WS_PORT) : nextPort++;
+    WS_ADDRESS = `ws://localhost:${WS_PORT}`;
+
     server = new WebSocket.WebSocketServer({
       port: WS_PORT
     });
