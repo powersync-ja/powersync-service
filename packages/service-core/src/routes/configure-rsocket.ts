@@ -2,7 +2,7 @@ import { deserialize } from 'bson';
 import * as http from 'http';
 
 import { errors, logger } from '@powersync/lib-services-framework';
-import { ReactiveSocketRouter, RSocketRequestMeta } from '@powersync/service-rsocket-router';
+import { ReactiveSocketRouter, RequestData, RSocketRequestMeta } from '@powersync/service-rsocket-router';
 
 import { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
 import { generateContext, getTokenFromHeader } from './auth.js';
@@ -22,8 +22,11 @@ export function configureRSocket(router: ReactiveSocketRouter<Context>, options:
   const { routeGenerators = DEFAULT_SOCKET_ROUTES, server, system } = options;
 
   router.applyWebSocketEndpoints(server, {
-    contextProvider: async (data: Buffer) => {
+    contextProvider: async (data: Buffer, request: RequestData) => {
       const { token, user_agent } = RSocketContextMeta.decode(deserialize(data) as any);
+
+      // Concatenate client and browser user agents
+      const combinedUserAgent = [user_agent, request.userAgent].filter((r) => r != null).join(' ');
 
       if (!token) {
         throw new errors.AuthorizationError('No token provided');
@@ -38,7 +41,7 @@ export function configureRSocket(router: ReactiveSocketRouter<Context>, options:
           }
           return {
             token,
-            user_agent,
+            user_agent: combinedUserAgent,
             ...context,
             token_errors: token_errors,
             system

@@ -53,9 +53,13 @@ export type IReactiveStreamInput<I, O, C> = Omit<IReactiveStream<I, O, C>, 'path
 
 export type ReactiveEndpoint = IReactiveStream;
 
+export interface RequestData {
+  userAgent?: string;
+}
+
 export type CommonParams<C> = {
   endpoints: Array<ReactiveEndpoint>;
-  contextProvider: (metaData: Buffer) => Promise<C>;
+  contextProvider: (metaData: Buffer, request: RequestData) => Promise<C>;
   metaDecoder: (meta: Buffer) => Promise<RequestMeta>;
   payloadDecoder: (rawData?: Buffer) => Promise<any>;
 };

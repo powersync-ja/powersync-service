@@ -29,6 +29,7 @@ import {
 import * as WebSocket from 'ws';
 import { WebsocketDuplexConnection } from './WebsocketDuplexConnection.js';
 import { logger } from '@powersync/lib-services-framework';
+import { IncomingMessage } from 'http';
 
 export type SocketFactory = (options: SocketOptions) => WebSocket.WebSocketServer;
 
@@ -70,14 +71,20 @@ export class WebsocketServerTransport implements ServerTransport {
     const websocketServer: WebSocket.WebSocketServer = await this.connectServer();
     const serverCloseable = new ServerCloseable(websocketServer);
 
-    const connectionListener = (websocket: WebSocket.WebSocket) => {
+    const connectionListener = (websocket: WebSocket.WebSocket, request: IncomingMessage) => {
       try {
         websocket.binaryType = 'nodebuffer';
         const duplex = WebSocket.createWebSocketStream(websocket);
         websocket.on('close', (e) => {
           duplex.emit('close', e);
         });
-        WebsocketDuplexConnection.create(duplex, connectionAcceptor, multiplexerDemultiplexerFactory, websocket);
+        WebsocketDuplexConnection.create(
+          duplex,
+          connectionAcceptor,
+          multiplexerDemultiplexerFactory,
+          websocket,
+          request
+        );
       } catch (ex) {
         logger.error(`Could not create duplex connection`, ex);
         if (websocket.readyState == websocket.OPEN) {
