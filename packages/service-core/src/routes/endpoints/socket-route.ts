@@ -11,8 +11,24 @@ import { SyncRoutes } from './sync-stream.js';
 export const syncStreamReactive: SocketRouteGenerator = (router) =>
   router.reactiveStream<util.StreamingSyncRequest, any>(SyncRoutes.STREAM, {
     validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
-    handler: async ({ context, params, responder, observer, initialN }) => {
+    handler: async ({ context, params, responder, observer, initialN, signal: upstreamSignal }) => {
       const { system } = context;
+
+      // Create our own controller that we can abort directly
+      const controller = new AbortController();
+      upstreamSignal.addEventListener('abort', () => {
+        controller.abort();
+      });
+      if (upstreamSignal.aborted) {
+        controller.abort();
+      }
+
+      let requestedN = initialN;
+      const disposer = observer.registerListener({
+        request(n) {
+          requestedN += n;
+        }
+      });
 
       if (system.closed) {
         responder.onError(
@@ -25,8 +41,6 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         responder.onComplete();
         return;
       }
-
-      const controller = new AbortController();
 
       const syncParams = new RequestParameters(context.token_payload!, params.parameters ?? {});
 
@@ -45,18 +59,8 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         return;
       }
 
-      let requestedN = initialN;
-      const disposer = observer.registerListener({
-        request(n) {
-          requestedN += n;
-        },
-        cancel: () => {
-          controller.abort();
-        }
-      });
-
       const removeStopHandler = system.addStopHandler(() => {
-        observer.triggerCancel();
+        controller.abort();
       });
 
       Metrics.getInstance().concurrent_connections.add(1);
@@ -101,14 +105,17 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
                     // Management of updating the total requested items is done above
                     resolve();
                     l();
+                    controller.signal.removeEventListener('abort', onAbort);
                   }
-                },
-                cancel: () => {
-                  // Don't wait here if the request is cancelled
-                  resolve();
-                  l();
                 }
               });
+              const onAbort = () => {
+                // Don't wait here if the request is cancelled
+                resolve();
+                l();
+                controller.signal.removeEventListener('abort', onAbort);
+              };
+              controller.signal.addEventListener('abort', onAbort);
             });
           }
         }
