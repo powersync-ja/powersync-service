@@ -22,6 +22,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       if (upstreamSignal.aborted) {
         controller.abort();
       }
+      const signal = controller.signal;
 
       let requestedN = initialN;
       const disposer = observer.registerListener({
@@ -79,8 +80,11 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
             keep_alive: false
           },
           tracker,
-          signal: controller.signal
+          signal
         })) {
+          if (signal.aborted) {
+            break;
+          }
           if (data == null) {
             // Empty value just to flush iterator memory
             continue;
@@ -97,7 +101,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
             tracker.addDataSynced(serialized.length);
           }
 
-          if (requestedN <= 0) {
+          if (requestedN <= 0 && !signal.aborted) {
             await new Promise<void>((resolve) => {
               const l = observer.registerListener({
                 request() {
@@ -105,7 +109,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
                     // Management of updating the total requested items is done above
                     resolve();
                     l();
-                    controller.signal.removeEventListener('abort', onAbort);
+                    signal.removeEventListener('abort', onAbort);
                   }
                 }
               });
@@ -113,9 +117,9 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
                 // Don't wait here if the request is cancelled
                 resolve();
                 l();
-                controller.signal.removeEventListener('abort', onAbort);
+                signal.removeEventListener('abort', onAbort);
               };
-              controller.signal.addEventListener('abort', onAbort);
+              signal.addEventListener('abort', onAbort);
             });
           }
         }
