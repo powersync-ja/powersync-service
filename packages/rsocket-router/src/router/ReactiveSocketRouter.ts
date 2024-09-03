@@ -81,16 +81,19 @@ export class ReactiveSocketRouter<C> {
             // RequestStream is currently the only supported connection type
             requestStream: (payload, initialN, responder) => {
               const observer = new SocketRouterObserver();
+              const abortController = new AbortController();
 
               // TODO: Consider limiting the number of active streams per connection to prevent abuse
-              handleReactiveStream(context, { payload, initialN, responder }, observer, params).catch((ex) => {
-                logger.error(ex);
-                responder.onError(ex);
-                responder.onComplete();
-              });
+              handleReactiveStream(context, { payload, initialN, responder }, observer, abortController, params).catch(
+                (ex) => {
+                  logger.error(ex);
+                  responder.onError(ex);
+                  responder.onComplete();
+                }
+              );
               return {
                 cancel: () => {
-                  observer.triggerCancel();
+                  abortController.abort();
                 },
                 onExtension: () => observer.triggerExtension(),
                 request: (n) => observer.triggerRequest(n)
@@ -118,6 +121,7 @@ export async function handleReactiveStream<Context>(
     responder: SocketResponder;
   },
   observer: SocketRouterObserver,
+  abortController: AbortController,
   params: CommonParams<Context>
 ) {
   const { payload, responder, initialN } = request;
@@ -154,7 +158,13 @@ export async function handleReactiveStream<Context>(
   }
 
   if (authorize) {
-    const isAuthorized = await authorize({ params: requestPayload, context, observer, responder });
+    const isAuthorized = await authorize({
+      params: requestPayload,
+      context,
+      observer,
+      signal: abortController.signal,
+      responder
+    });
     if (!isAuthorized.authorized) {
       return exitWithError(new errors.AuthorizationError(isAuthorized.errors));
     }
@@ -165,6 +175,7 @@ export async function handleReactiveStream<Context>(
       params: requestPayload,
       context,
       observer,
+      signal: abortController.signal,
       responder,
       initialN
     });
