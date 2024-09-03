@@ -1,9 +1,10 @@
-import { LineCounter, parseDocument, Scalar, YAMLMap, YAMLSeq } from 'yaml';
+import { isScalar, LineCounter, parseDocument, Scalar, YAMLMap, YAMLSeq } from 'yaml';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { IdSequence } from './IdSequence.js';
 import { validateSyncRulesSchema } from './json_schema.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js';
+import { SqlEventDescriptor } from './SqlEventDescriptor.js';
 import { TablePattern } from './TablePattern.js';
 import {
   EvaluatedParameters,
@@ -27,6 +28,7 @@ const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROU
 
 export class SqlSyncRules implements SyncRules {
   bucket_descriptors: SqlBucketDescriptor[] = [];
+  event_descriptors: SqlEventDescriptor[] = [];
   idSequence = new IdSequence();
 
   content: string;
@@ -130,6 +132,34 @@ export class SqlSyncRules implements SyncRules {
         });
       }
       rules.bucket_descriptors.push(descriptor);
+    }
+
+    const eventMap = parsed.get('event_definitions') as YAMLMap;
+    for (const event of eventMap?.items ?? []) {
+      const { key, value } = event as { key: Scalar; value: Scalar | YAMLSeq };
+      const eventDescriptor = new SqlEventDescriptor(key.toString(), rules.idSequence);
+
+      if (value instanceof Scalar) {
+        rules.withScalar(value, (q) => {
+          return eventDescriptor.addParameterQuery(q, schema, {
+            accept_potentially_dangerous_queries: false
+          });
+        });
+      } else if (value instanceof YAMLSeq) {
+        for (let item of value.items) {
+          if (!isScalar(item)) {
+            // TODO position
+            rules.errors.push(new YamlError(new Error(`Parameters for events must be scalar.`)));
+            continue;
+          }
+          rules.withScalar(item, (q) => {
+            return eventDescriptor.addParameterQuery(q, schema, {
+              accept_potentially_dangerous_queries: false
+            });
+          });
+        }
+      }
+      rules.event_descriptors.push(eventDescriptor);
     }
 
     // Validate that there are no additional properties.
@@ -277,14 +307,29 @@ export class SqlSyncRules implements SyncRules {
   }
 
   getSourceTables(): TablePattern[] {
-    let sourceTables = new Map<String, TablePattern>();
-    for (let bucket of this.bucket_descriptors) {
+    const sourceTables = new Map<String, TablePattern>();
+    for (const bucket of this.bucket_descriptors) {
       for (let r of bucket.getSourceTables()) {
         const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
         sourceTables.set(key, r);
       }
     }
+    for (const event of this.event_descriptors) {
+      for (let r of event.getSourceTables()) {
+        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
+        sourceTables.set(key, r);
+      }
+    }
     return [...sourceTables.values()];
+  }
+
+  tableTriggersEvent(table: SourceTableInterface): boolean {
+    for (let bucket of this.event_descriptors) {
+      if (bucket.tableTriggersEvent(table)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   tableSyncsData(table: SourceTableInterface): boolean {

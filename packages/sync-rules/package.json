@@ -16,6 +16,8 @@
     "clean": "rm -r ./dist && tsc -b --clean",
     "build": "tsc -b",
     "build:tests": "tsc -b test/tsconfig.json",
+    "compile:schema": "pnpm build && node scripts/compile-schema.js",
+    "postversion": "pnpm compile:schema",
     "test": "vitest"
   },
   "dependencies": {

@@ -1,7 +1,7 @@
 import ajvModule from 'ajv';
 // Hack to make this work both in NodeJS and a browser
 const Ajv = ajvModule.default ?? ajvModule;
-const ajv = new Ajv({ allErrors: true, verbose: true });
+const ajv = new Ajv({ allErrors: true, verbose: true, allowUnionTypes: true });
 
 export const syncRulesSchema: ajvModule.Schema = {
   type: 'object',
@@ -42,6 +42,27 @@ export const syncRulesSchema: ajvModule.Schema = {
             }
           },
           additionalProperties: false
+        }
+      }
+    },
+    event_definitions: {
+      type: 'object',
+      description: 'Record of sync replication event definitions',
+      examples: [
+        { write_checkpoint: 'select user_id, client_id, checkpoint from write_checkpoints' },
+        ,
+        {
+          write_checkpoint: ['select user_id, client_id, checkpoint from write_checkpoints']
+        }
+      ],
+      patternProperties: {
+        '.*': {
+          type: ['string', 'array'],
+          items: {
+            type: 'string'
+          },
+          minItems: 1,
+          uniqueItems: true
         }
       }
     }
