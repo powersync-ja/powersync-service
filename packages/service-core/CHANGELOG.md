@@ -1,5 +1,13 @@
 # @powersync/service-core
 
+## 0.8.3
+
+### Patch Changes
+
+- 306b6d8: Fix hanging streams
+- Updated dependencies [306b6d8]
+  - @powersync/service-rsocket-router@0.0.13
+
 ## 0.8.2
 
 ### Patch Changes

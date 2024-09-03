@@ -1,5 +1,13 @@
 # @powersync/service-image
 
+## 0.5.3
+
+### Patch Changes
+
+- Updated dependencies [306b6d8]
+  - @powersync/service-rsocket-router@0.0.13
+  - @powersync/service-core@0.8.3
+
 ## 0.5.2
 
 ### Patch Changes
