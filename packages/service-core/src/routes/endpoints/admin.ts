@@ -23,7 +23,7 @@ export const executeSql = routeDefinition({
           rows: []
         },
         success: false,
-        error: 'SQL querying is not enabled'
+        error: 'SQL querying is not enabled. Enable it in your instance settings in order to query your database directly.'
       });
     }
 
