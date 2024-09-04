@@ -314,13 +314,20 @@ export class SqlSyncRules implements SyncRules {
         sourceTables.set(key, r);
       }
     }
+
+    return [...sourceTables.values()];
+  }
+
+  getEventTables(): TablePattern[] {
+    const eventTables = new Map<String, TablePattern>();
+
     for (const event of this.event_descriptors) {
       for (let r of event.getSourceTables()) {
         const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
-        sourceTables.set(key, r);
+        eventTables.set(key, r);
       }
     }
-    return [...sourceTables.values()];
+    return [...eventTables.values()];
   }
 
   tableTriggersEvent(table: SourceTableInterface): boolean {

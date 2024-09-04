@@ -1,17 +1,19 @@
-import { MissingReplicationSlotError, WalStream } from './WalStream.js';
 import { container } from '@powersync/lib-services-framework';
 import { PgManager } from './PgManager.js';
+import { MissingReplicationSlotError, WalStream } from './WalStream.js';
 
 import { replication } from '@powersync/service-core';
 import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
 
 export interface WalStreamReplicationJobOptions extends replication.AbstractReplicationJobOptions {
   connectionFactory: ConnectionManagerFactory;
+  eventManager: replication.ReplicationEventManager;
 }
 
 export class WalStreamReplicationJob extends replication.AbstractReplicationJob {
   private connectionFactory: ConnectionManagerFactory;
   private connectionManager: PgManager;
+  private readonly eventManager: replication.ReplicationEventManager;
 
   constructor(options: WalStreamReplicationJobOptions) {
     super(options);
@@ -21,6 +23,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
       idleTimeout: 30_000,
       maxSize: 2
     });
+    this.eventManager = options.eventManager;
   }
 
   async cleanUp(): Promise<void> {
@@ -108,7 +111,8 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
       const stream = new WalStream({
         abort_signal: this.abortController.signal,
         storage: this.options.storage,
-        connections: this.connectionManager
+        connections: this.connectionManager,
+        event_manager: this.eventManager
       });
       await stream.replicate();
     } catch (e) {

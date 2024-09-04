@@ -1,11 +1,18 @@
-import * as pgwire from '@powersync/service-jpgwire';
-import * as util from '../utils/pgwire_utils.js';
 import { container, errors, logger } from '@powersync/lib-services-framework';
-import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
-import { getPgOutputRelation, getRelId } from './PgRelation.js';
-import { Metrics, SourceEntityDescriptor, storage } from '@powersync/service-core';
-import { checkSourceConfiguration, getReplicationIdentityColumns } from './replication-utils.js';
+import { Metrics, replication, SourceEntityDescriptor, storage } from '@powersync/service-core';
+import * as pgwire from '@powersync/service-jpgwire';
+import {
+  DatabaseInputRow,
+  SqlEventDescriptor,
+  SqliteRow,
+  SqlSyncRules,
+  TablePattern,
+  toSyncRulesRow
+} from '@powersync/service-sync-rules';
+import * as util from '../utils/pgwire_utils.js';
 import { PgManager } from './PgManager.js';
+import { getPgOutputRelation, getRelId } from './PgRelation.js';
+import { checkSourceConfiguration, getReplicationIdentityColumns } from './replication-utils.js';
 
 export const ZERO_LSN = '00000000/00000000';
 export const PUBLICATION_NAME = 'powersync';
@@ -14,6 +21,7 @@ export interface WalStreamOptions {
   connections: PgManager;
   storage: storage.SyncRulesBucketStorage;
   abort_signal: AbortSignal;
+  event_manager: replication.ReplicationEventManager;
 }
 
 interface InitResult {
@@ -40,9 +48,13 @@ export class WalStream {
 
   private abort_signal: AbortSignal;
 
+  private event_manager: replication.ReplicationEventManager;
+
   private relation_cache = new Map<string | number, storage.SourceTable>();
 
   private startedStreaming = false;
+
+  private event_cache = new Map<SqlEventDescriptor, replication.ReplicationEventPayload>();
 
   constructor(options: WalStreamOptions) {
     this.storage = options.storage;
@@ -50,6 +62,7 @@ export class WalStream {
     this.group_id = options.storage.group_id;
     this.slot_name = options.storage.slot_name;
     this.connections = options.connections;
+    this.event_manager = options.event_manager;
 
     this.abort_signal = options.abort_signal;
     this.abort_signal.addEventListener(
@@ -506,6 +519,48 @@ WHERE  oid = $1::regclass`,
     return null;
   }
 
+  async writeEvent(msg: pgwire.PgoutputMessage) {
+    if (msg.tag == 'insert' || msg.tag == 'update' || msg.tag == 'delete') {
+      const table = this.getTable(getRelId(msg.relation));
+      if (!table.triggerEvents) {
+        return null;
+      }
+      const relevantEventDescriptions = this.sync_rules.event_descriptors.filter(
+        (evt) => !!Array.from(evt.getSourceTables()).find((sourceTable) => sourceTable.matches(table))
+      );
+
+      const before = msg.tag == 'update' ? util.constructBeforeRecord(msg) : undefined;
+      const after = msg.tag !== 'delete' ? util.constructAfterRecord(msg) : undefined;
+
+      const dataOp = {
+        op: msg.tag as replication.EventOp,
+        after,
+        before
+      };
+
+      for (const eventDescription of relevantEventDescriptions) {
+        // eventDescription.evaluateParameterRow;
+        if (!this.event_cache.has(eventDescription)) {
+          const dataMap: replication.ReplicationEventData = new Map();
+          dataMap.set(table, [dataOp]);
+          this.event_cache.set(eventDescription, {
+            event: eventDescription,
+            storage: this.storage,
+            data: dataMap
+          });
+          continue;
+        }
+        const cached = this.event_cache.get(eventDescription)!;
+        if (!cached.data.has(table)) {
+          cached.data.set(table, [dataOp]);
+          continue;
+        }
+
+        cached.data.get(table)!.push(dataOp);
+      }
+    }
+  }
+
   async replicate() {
     try {
       // If anything errors here, the entire replication process is halted, and
@@ -567,13 +622,19 @@ WHERE  oid = $1::regclass`,
             inTx = false;
             await batch.commit(msg.lsn!);
             await this.ack(msg.lsn!, replicationStream);
+            // Flush cached event operations
+            for (const event of this.event_cache.values()) {
+              await this.event_manager.fireEvent(event);
+            }
+            this.event_cache.clear();
           } else {
             if (count % 100 == 0) {
               logger.info(`${this.slot_name} replicating op ${count} ${msg.lsn}`);
             }
 
             count += 1;
-            const result = await this.writeChange(batch, msg);
+            await this.writeChange(batch, msg);
+            await this.writeEvent(msg);
           }
         }
 

@@ -1,8 +1,15 @@
-import { AbstractReplicator } from './AbstractReplicator.js';
 import { logger } from '@powersync/lib-services-framework';
+import { AbstractReplicator } from './AbstractReplicator.js';
+import { ReplicationEventManager } from './ReplicationEventManager.js';
 
 export class ReplicationEngine {
   private readonly replicators: Map<string, AbstractReplicator> = new Map();
+
+  readonly eventManager: ReplicationEventManager;
+
+  constructor() {
+    this.eventManager = new ReplicationEventManager();
+  }
 
   /**
    *  Register a Replicator with the engine

@@ -136,6 +136,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
         replicationColumns,
         doc.snapshot_done ?? true
       );
+      sourceTable.triggerEvents = options.sync_rules.tableTriggersEvent(sourceTable);
       sourceTable.syncData = options.sync_rules.tableSyncsData(sourceTable);
       sourceTable.syncParameters = options.sync_rules.tableSyncsParameters(sourceTable);
 

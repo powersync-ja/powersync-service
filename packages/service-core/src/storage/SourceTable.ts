@@ -24,6 +24,15 @@ export class SourceTable {
    */
   public syncParameters = true;
 
+  /**
+   * True if the table is used in sync rules for events.
+   *
+   * This value is resolved externally, and cached here.
+   *
+   * Defaults to true for tests.
+   */
+  public triggerEvents = true;
+
   constructor(
     public readonly id: any,
     public readonly connectionTag: string,

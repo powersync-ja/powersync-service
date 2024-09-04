@@ -1,9 +1,9 @@
-import { BucketStorageFactory, SyncRulesBucketStorage } from '@powersync/service-core';
-import * as pgwire from '@powersync/service-jpgwire';
-import { TEST_CONNECTION_OPTIONS, clearTestDb, getClientCheckpoint } from './util.js';
-import { WalStream, WalStreamOptions, PUBLICATION_NAME } from '@module/replication/WalStream.js';
 import { fromAsync } from '@core-tests/stream_utils.js';
 import { PgManager } from '@module/replication/PgManager.js';
+import { PUBLICATION_NAME, WalStream, WalStreamOptions } from '@module/replication/WalStream.js';
+import { BucketStorageFactory, replication, SyncRulesBucketStorage } from '@powersync/service-core';
+import * as pgwire from '@powersync/service-jpgwire';
+import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
 
 /**
  * Tests operating on the wal stream need to configure the stream and manage asynchronous
@@ -72,7 +72,8 @@ export class WalStreamTestContext {
     const options: WalStreamOptions = {
       storage: this.storage,
       connections: this.connectionManager,
-      abort_signal: this.abortController.signal
+      abort_signal: this.abortController.signal,
+      event_manager: new replication.ReplicationEventManager()
     };
     this._walStream = new WalStream(options);
     return this._walStream!;
