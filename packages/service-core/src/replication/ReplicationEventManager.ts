@@ -9,8 +9,8 @@ export enum EventOp {
 
 export type EventData = {
   op: EventOp;
-  before?: sync_rules.SqliteRow;
-  after?: sync_rules.SqliteRow;
+  before?: sync_rules.EvaluatedParametersResult[];
+  after?: sync_rules.EvaluatedParametersResult[];
 };
 
 export type ReplicationEventData = Map<storage.SourceTable, EventData[]>;

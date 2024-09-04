@@ -50,7 +50,6 @@ export const syncRulesSchema: ajvModule.Schema = {
       description: 'Record of sync replication event definitions',
       examples: [
         { write_checkpoint: 'select user_id, client_id, checkpoint from write_checkpoints' },
-        ,
         {
           write_checkpoint: ['select user_id, client_id, checkpoint from write_checkpoints']
         }

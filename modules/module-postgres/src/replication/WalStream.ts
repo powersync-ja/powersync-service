@@ -532,14 +532,12 @@ WHERE  oid = $1::regclass`,
       const before = msg.tag == 'update' ? util.constructBeforeRecord(msg) : undefined;
       const after = msg.tag !== 'delete' ? util.constructAfterRecord(msg) : undefined;
 
-      const dataOp = {
-        op: msg.tag as replication.EventOp,
-        after,
-        before
-      };
-
       for (const eventDescription of relevantEventDescriptions) {
-        // eventDescription.evaluateParameterRow;
+        const dataOp = {
+          op: msg.tag as replication.EventOp,
+          after: after ? eventDescription.evaluateParameterRow(table, after) : undefined,
+          before: before ? eventDescription.evaluateParameterRow(table, before) : undefined
+        };
         if (!this.event_cache.has(eventDescription)) {
           const dataMap: replication.ReplicationEventData = new Map();
           dataMap.set(table, [dataOp]);
