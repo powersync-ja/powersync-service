@@ -231,7 +231,7 @@ export interface SyncRulesBucketStorage {
    *
    * Must only be called on stopped sync rules.
    */
-  terminate(): Promise<void>;
+  terminate(options?: TerminateOptions): Promise<void>;
 
   getStatus(): Promise<SyncRuleStatus>;
 
@@ -420,4 +420,11 @@ export interface CompactOptions {
    * If not specified, compacts all buckets.
    */
   compactBuckets?: string[];
+}
+
+export interface TerminateOptions {
+  /**
+   * If true, also clear the storage before terminating.
+   */
+  clearStorage: boolean;
 }

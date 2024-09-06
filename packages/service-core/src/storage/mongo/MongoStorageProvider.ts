@@ -2,6 +2,7 @@ import * as db from '../../db/db-index.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { BucketStorageProvider, ActiveStorage, GetStorageOptions } from '../StorageProvider.js';
 import { PowerSyncMongo } from './db.js';
+import { logger } from '@powersync/lib-services-framework';
 
 export class MongoStorageProvider implements BucketStorageProvider {
   get type() {
@@ -20,7 +21,11 @@ export class MongoStorageProvider implements BucketStorageProvider {
         // TODO currently need the entire resolved config for this
         slot_name_prefix: resolvedConfig.slot_name_prefix
       }),
-      disposer: () => client.close()
+      shutDown: () => client.close(),
+      dispose: () => {
+        logger.info(`Dropping storage: ${database.db.namespace}...`);
+        return database.db.dropDatabase();
+      }
     };
   }
 }

@@ -3,9 +3,9 @@ import { SqlSyncRules, SyncRulesErrors } from '@powersync/service-sync-rules';
 import type { FastifyPluginAsync } from 'fastify';
 import * as t from 'ts-codec';
 
-import * as system from '../../system/system-index.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
+import { RouteAPI } from '../../api/RouteAPI.js';
 
 const DeploySyncRulesRequest = t.object({
   content: t.string
@@ -39,7 +39,7 @@ export const deploySyncRules = routeDefinition({
   validator: schema.createTsCodecValidator(DeploySyncRulesRequest, { allowAdditional: true }),
   handler: async (payload) => {
     const { service_context } = payload.context;
-    const { storage } = service_context;
+    const { storageEngine } = service_context;
 
     if (service_context.configuration.sync_rules.present) {
       // If sync rules are configured via the config, disable deploy via the API.
@@ -63,7 +63,7 @@ export const deploySyncRules = routeDefinition({
       });
     }
 
-    const sync_rules = await storage.activeBucketStorage.updateSyncRules({
+    const sync_rules = await storageEngine.activeBucketStorage.updateSyncRules({
       content: content
     });
 
@@ -86,8 +86,13 @@ export const validateSyncRules = routeDefinition({
   validator: schema.createTsCodecValidator(ValidateSyncRulesRequest, { allowAdditional: true }),
   handler: async (payload) => {
     const content = payload.params.content;
+    const { service_context } = payload.context;
+    const apiHandler = service_context.routerEngine?.getAPI();
+    if (!apiHandler) {
+      throw new Error(`No active route API handler has been found.`);
+    }
 
-    const info = await debugSyncRules(payload.context.service_context, content);
+    const info = await debugSyncRules(apiHandler, content);
 
     return replyPrettyJson(info);
   }
@@ -100,8 +105,9 @@ export const currentSyncRules = routeDefinition({
   handler: async (payload) => {
     const { service_context } = payload.context;
     const {
-      storage: { activeBucketStorage }
+      storageEngine: { activeBucketStorage }
     } = service_context;
+
     const sync_rules = await activeBucketStorage.getActiveSyncRulesContent();
     if (!sync_rules) {
       throw new errors.JourneyError({
@@ -110,10 +116,16 @@ export const currentSyncRules = routeDefinition({
         description: 'No active sync rules'
       });
     }
-    const info = await debugSyncRules(service_context, sync_rules.sync_rules_content);
+
+    const apiHandler = service_context.routerEngine?.getAPI();
+    if (!apiHandler) {
+      throw new Error(`No active route API handler has been found.`);
+    }
+
+    const info = await debugSyncRules(apiHandler, sync_rules.sync_rules_content);
     const next = await activeBucketStorage.getNextSyncRulesContent();
 
-    const next_info = next ? await debugSyncRules(service_context, next.sync_rules_content) : null;
+    const next_info = next ? await debugSyncRules(apiHandler, next.sync_rules_content) : null;
 
     const response = {
       current: {
@@ -144,7 +156,7 @@ export const reprocessSyncRules = routeDefinition({
   validator: schema.createTsCodecValidator(ReprocessSyncRulesRequest),
   handler: async (payload) => {
     const {
-      storage: { activeBucketStorage }
+      storageEngine: { activeBucketStorage }
     } = payload.context.service_context;
     const sync_rules = await activeBucketStorage.getActiveSyncRules();
     if (sync_rules == null) {
@@ -174,14 +186,11 @@ function replyPrettyJson(payload: any) {
   });
 }
 
-async function debugSyncRules(serviceContext: system.ServiceContext, sync_rules: string) {
+async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
   try {
     const rules = SqlSyncRules.fromYaml(sync_rules);
     const source_table_patterns = rules.getSourceTables();
-
-    const api = serviceContext.routerEngine.getAPI();
-
-    const resolved_tables = await api.getDebugTablesInfo(source_table_patterns, rules);
+    const resolved_tables = await apiHandler.getDebugTablesInfo(source_table_patterns, rules);
 
     return {
       valid: true,

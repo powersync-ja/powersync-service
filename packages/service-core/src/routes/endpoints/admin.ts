@@ -19,9 +19,13 @@ export const executeSql = routeDefinition({
       }
     } = payload;
 
-    const api = payload.context.service_context.routerEngine.getAPI();
-    const sourceConfig = await api?.getSourceConfig();
-    if (!sourceConfig?.debug_enabled) {
+    const apiHandler = payload.context.service_context.routerEngine?.getAPI();
+    if (!apiHandler) {
+      throw new Error(`No active route API handler has been found.`);
+    }
+
+    const sourceConfig = await apiHandler.getSourceConfig();
+    if (!sourceConfig.debug_enabled) {
       return internal_routes.ExecuteSqlResponse.encode({
         results: {
           columns: [],
@@ -32,7 +36,7 @@ export const executeSql = routeDefinition({
       });
     }
 
-    return internal_routes.ExecuteSqlResponse.encode(await api!.executeQuery(query, args));
+    return internal_routes.ExecuteSqlResponse.encode(await apiHandler.executeQuery(query, args));
   }
 });
 
@@ -46,8 +50,12 @@ export const diagnostics = routeDefinition({
     const { service_context } = context;
     const include_content = payload.params.sync_rules_content ?? false;
 
-    const apiHandler = service_context.routerEngine.getAPI();
-    const status = await apiHandler?.getConnectionStatus();
+    const apiHandler = service_context.routerEngine?.getAPI();
+    if (!apiHandler) {
+      throw new Error(`No active route API handler has been found.`);
+    }
+
+    const status = await apiHandler.getConnectionStatus();
     if (!status) {
       return internal_routes.DiagnosticsResponse.encode({
         connections: []
@@ -55,18 +63,18 @@ export const diagnostics = routeDefinition({
     }
 
     const {
-      storage: { activeBucketStorage }
+      storageEngine: { activeBucketStorage }
     } = service_context;
     const active = await activeBucketStorage.getActiveSyncRulesContent();
     const next = await activeBucketStorage.getNextSyncRulesContent();
 
-    const active_status = await api.getSyncRulesStatus(service_context, active, {
+    const active_status = await api.getSyncRulesStatus(activeBucketStorage, apiHandler, active, {
       include_content,
       check_connection: status.connected,
       live_status: true
     });
 
-    const next_status = await api.getSyncRulesStatus(service_context, next, {
+    const next_status = await api.getSyncRulesStatus(activeBucketStorage, apiHandler, next, {
       include_content,
       check_connection: status.connected,
       live_status: true
@@ -92,9 +100,12 @@ export const getSchema = routeDefinition({
   authorize: authApi,
   validator: schema.createTsCodecValidator(internal_routes.GetSchemaRequest, { allowAdditional: true }),
   handler: async (payload) => {
-    return internal_routes.GetSchemaResponse.encode(
-      await api.getConnectionsSchema(payload.context.service_context.routerEngine.getAPI())
-    );
+    const apiHandler = payload.context.service_context.routerEngine?.getAPI();
+    if (!apiHandler) {
+      throw new Error(`No active route API handler has been found.`);
+    }
+
+    return internal_routes.GetSchemaResponse.encode(await api.getConnectionsSchema(apiHandler));
   }
 });
 
@@ -108,7 +119,7 @@ export const reprocess = routeDefinition({
       context: { service_context }
     } = payload;
     const {
-      storage: { activeBucketStorage }
+      storageEngine: { activeBucketStorage }
     } = service_context;
     const next = await activeBucketStorage.getNextSyncRules();
     if (next != null) {
@@ -128,8 +139,12 @@ export const reprocess = routeDefinition({
       content: active.sync_rules.content
     });
 
-    const apiHandler = service_context.routerEngine.getAPI();
-    const baseConfig = await apiHandler?.getSourceConfig();
+    const apiHandler = service_context.routerEngine?.getAPI();
+    if (!apiHandler) {
+      throw new Error(`No active route API handler has been found.`);
+    }
+
+    const baseConfig = await apiHandler.getSourceConfig();
 
     return internal_routes.ReprocessResponse.encode({
       connections: [
@@ -154,7 +169,10 @@ export const validate = routeDefinition({
       context: { service_context }
     } = payload;
     const content = payload.params.sync_rules;
-    const apiHandler = service_context.routerEngine.getAPI();
+    const apiHandler = service_context.routerEngine?.getAPI();
+    if (!apiHandler) {
+      throw new Error(`No active route API handler has been found.`);
+    }
 
     const schemaData = await api.getConnectionsSchema(apiHandler);
     const schema = new StaticSchema(schemaData.connections);
@@ -176,7 +194,7 @@ export const validate = routeDefinition({
       }
     };
 
-    const connectionStatus = await apiHandler?.getConnectionStatus();
+    const connectionStatus = await apiHandler.getConnectionStatus();
     if (!connectionStatus) {
       return internal_routes.ValidateResponse.encode({
         errors: [{ level: 'fatal', message: 'No connection configured' }],
@@ -184,11 +202,16 @@ export const validate = routeDefinition({
       });
     }
 
-    const status = (await api.getSyncRulesStatus(service_context, sync_rules, {
-      include_content: false,
-      check_connection: connectionStatus.connected,
-      live_status: false
-    }))!;
+    const status = (await api.getSyncRulesStatus(
+      service_context.storageEngine.activeBucketStorage,
+      apiHandler,
+      sync_rules,
+      {
+        include_content: false,
+        check_connection: connectionStatus.connected,
+        live_status: false
+      }
+    ))!;
 
     if (connectionStatus == null) {
       status.errors.push({ level: 'fatal', message: 'No connection configured' });

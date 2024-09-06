@@ -1,8 +1,8 @@
 import { logger } from '@powersync/lib-services-framework';
 import * as system from '../system/system-index.js';
-import { AbstractModule } from './AbstractModule.js';
+import { AbstractModule, TearDownOptions } from './AbstractModule.js';
 /**
- *  The module manager is responsible for managing the lifecycle of all modules in the system.
+ *  The module manager keeps track of activated modules
  */
 export class ModuleManager {
   private readonly modules: Map<string, AbstractModule> = new Map();
@@ -26,9 +26,9 @@ export class ModuleManager {
     logger.info(`Successfully Initialized modules.`);
   }
 
-  async tearDown() {
+  async tearDown(options: TearDownOptions) {
     for (const module of this.modules.values()) {
-      await module.teardown();
+      await module.teardown(options);
     }
   }
 }

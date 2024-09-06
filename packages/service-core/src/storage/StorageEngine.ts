@@ -1,36 +1,28 @@
-import { LifeCycledSystem } from '@powersync/lib-services-framework';
 import { ResolvedPowerSyncConfig } from '../util/util-index.js';
 import { BucketStorageFactory } from './BucketStorage.js';
 import { BucketStorageProvider, ActiveStorage } from './StorageProvider.js';
 
 export type StorageEngineOptions = {
   configuration: ResolvedPowerSyncConfig;
-  lifecycleEngine: LifeCycledSystem;
 };
 
 export class StorageEngine {
   // TODO: This will need to revisited when we actually support multiple storage providers.
-  protected storageProviders: Map<string, BucketStorageProvider> = new Map();
-  protected currentActiveStorage: ActiveStorage | null = null;
+  private storageProviders: Map<string, BucketStorageProvider> = new Map();
+  private currentActiveStorage: ActiveStorage | null = null;
 
-  constructor(options: StorageEngineOptions) {
-    // This will create the relevant storage provider when the system is started.
-    options.lifecycleEngine.withLifecycle(null, {
-      start: async () => {
-        const { configuration } = options;
-        this.currentActiveStorage = await this.storageProviders.get(configuration.storage.type)!.getStorage({
-          resolvedConfig: configuration
-        });
-      },
-      stop: () => this.currentActiveStorage?.disposer()
-    });
-  }
+  constructor(private options: StorageEngineOptions) {}
 
   get activeBucketStorage(): BucketStorageFactory {
+    return this.activeStorage.storage;
+  }
+
+  get activeStorage(): ActiveStorage {
     if (!this.currentActiveStorage) {
       throw new Error(`No storage provider has been initialized yet.`);
     }
-    return this.currentActiveStorage.storage;
+
+    return this.currentActiveStorage;
   }
 
   /**
@@ -39,5 +31,19 @@ export class StorageEngine {
    */
   registerProvider(provider: BucketStorageProvider) {
     this.storageProviders.set(provider.type, provider);
+  }
+
+  public async start(): Promise<void> {
+    const { configuration } = this.options;
+    this.currentActiveStorage = await this.storageProviders.get(configuration.storage.type)!.getStorage({
+      resolvedConfig: configuration
+    });
+  }
+
+  /**
+   *  Shutdown the storage engine, safely shutting down any activated storage providers.
+   */
+  public async shutDown(): Promise<void> {
+    await this.currentActiveStorage?.shutDown();
   }
 }

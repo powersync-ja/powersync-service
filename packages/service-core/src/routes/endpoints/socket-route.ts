@@ -14,6 +14,11 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
     handler: async ({ context, params, responder, observer, initialN }) => {
       const { service_context } = context;
       const { routerEngine } = service_context;
+
+      if (!routerEngine) {
+        throw new Error(`No routerEngine has not been registered yet.`);
+      }
+
       if (routerEngine.closed) {
         responder.onError(
           new errors.JourneyError({
@@ -31,7 +36,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       const syncParams = new RequestParameters(context.token_payload!, params.parameters ?? {});
 
       const {
-        storage: { activeBucketStorage }
+        storageEngine: { activeBucketStorage }
       } = service_context;
       // Sanity check before we start the stream
       const cp = await activeBucketStorage.getActiveCheckpoint();

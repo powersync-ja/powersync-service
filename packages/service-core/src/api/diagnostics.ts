@@ -3,7 +3,7 @@ import { DEFAULT_TAG, SourceTableInterface, SqlSyncRules } from '@powersync/serv
 import { SyncRulesStatus, TableInfo } from '@powersync/service-types';
 
 import * as storage from '../storage/storage-index.js';
-import * as system from '../system/system-index.js';
+import { RouteAPI } from './RouteAPI.js';
 
 export interface DiagnosticsOptions {
   /**
@@ -27,7 +27,8 @@ export interface DiagnosticsOptions {
 export const DEFAULT_DATASOURCE_ID = 'default';
 
 export async function getSyncRulesStatus(
-  serviceContext: system.ServiceContext,
+  bucketStorage: storage.BucketStorageFactory,
+  apiHandler: RouteAPI,
   sync_rules: storage.PersistedSyncRulesContent | null,
   options: DiagnosticsOptions
 ): Promise<SyncRulesStatus | undefined> {
@@ -52,24 +53,15 @@ export async function getSyncRulesStatus(
     };
   }
 
-  const {
-    storage: { activeBucketStorage }
-  } = serviceContext;
-  const api = serviceContext.routerEngine.getAPI();
-
-  const systemStorage = live_status ? activeBucketStorage.getInstance(persisted) : undefined;
+  const systemStorage = live_status ? bucketStorage.getInstance(persisted) : undefined;
   const status = await systemStorage?.getStatus();
   let replication_lag_bytes: number | undefined = undefined;
 
   let tables_flat: TableInfo[] = [];
 
   if (check_connection) {
-    if (!api) {
-      throw new Error('No connection configured');
-    }
-
     const source_table_patterns = rules.getSourceTables();
-    const resolved_tables = await api.getDebugTablesInfo(source_table_patterns, rules);
+    const resolved_tables = await apiHandler.getDebugTablesInfo(source_table_patterns, rules);
     tables_flat = resolved_tables.flatMap((info) => {
       if (info.table) {
         return [info.table];
@@ -82,7 +74,7 @@ export async function getSyncRulesStatus(
 
     if (systemStorage) {
       try {
-        replication_lag_bytes = await api.getReplicationLag(systemStorage.slot_name);
+        replication_lag_bytes = await apiHandler.getReplicationLag(systemStorage.slot_name);
       } catch (e) {
         // Ignore
         logger.warn(`Unable to get replication lag`, e);
@@ -136,15 +128,15 @@ export async function getSyncRulesStatus(
     })
   );
 
-  const sourceConfig = await api?.getSourceConfig();
-  const tag = sourceConfig?.tag ?? DEFAULT_TAG;
+  const sourceConfig = await apiHandler.getSourceConfig();
+  const tag = sourceConfig.tag ?? DEFAULT_TAG;
 
   return {
     content: include_content ? sync_rules.sync_rules_content : undefined,
     connections: [
       {
-        id: sourceConfig?.id ?? DEFAULT_DATASOURCE_ID,
-        tag: sourceConfig?.tag ?? DEFAULT_TAG,
+        id: sourceConfig.id ?? DEFAULT_DATASOURCE_ID,
+        tag: sourceConfig.tag ?? DEFAULT_TAG,
         slot_name: sync_rules.slot_name,
         initial_replication_done: status?.snapshot_done ?? false,
         // TODO: Rename?
