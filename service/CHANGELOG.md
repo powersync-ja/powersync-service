@@ -1,5 +1,34 @@
 # @powersync/service-image
 
+## 0.5.1
+
+### Patch Changes
+
+- Updated dependencies [8b3a9b9]
+  - @powersync/service-core@0.8.1
+
+## 0.5.0
+
+### Minor Changes
+
+- da04865: Support client_id parameter and User-Agent headers.
+
+### Patch Changes
+
+- Updated dependencies [3291a2c]
+- Updated dependencies [da04865]
+- Updated dependencies [fcd54a9]
+  - @powersync/service-rsocket-router@0.0.11
+  - @powersync/service-core@0.8.0
+
+## 0.4.4
+
+### Patch Changes
+
+- Updated dependencies [2ae8711]
+  - @powersync/service-sync-rules@0.18.2
+  - @powersync/service-core@0.7.1
+
 ## 0.4.3
 
 ### Patch Changes

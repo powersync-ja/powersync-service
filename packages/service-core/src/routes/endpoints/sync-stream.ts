@@ -21,7 +21,9 @@ export const syncStreamed = routeDefinition({
   handler: async (payload) => {
     const { service_context } = payload.context;
     const { routerEngine, storage } = service_context;
-
+    const headers = payload.request.headers;
+    const userAgent = headers['x-user-agent'] ?? headers['user-agent'];
+    const clientId = payload.params.client_id;
     if (routerEngine.closed) {
       throw new errors.JourneyError({
         status: 503,
@@ -91,6 +93,8 @@ export const syncStreamed = routeDefinition({
           Metrics.getInstance().concurrent_connections.add(-1);
           logger.info(`Sync stream complete`, {
             user_id: syncParams.user_id,
+            client_id: clientId,
+            user_agent: userAgent,
             operations_synced: tracker.operationsSynced,
             data_synced_bytes: tracker.dataSyncedBytes
           });

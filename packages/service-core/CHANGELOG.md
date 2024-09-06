@@ -1,5 +1,30 @@
 # @powersync/service-core
 
+## 0.8.1
+
+### Patch Changes
+
+- 8b3a9b9: Added `client_id` log to WebSocket `sync/stream` endpoint.
+
+## 0.8.0
+
+### Minor Changes
+
+- da04865: Support client_id parameter and User-Agent headers.
+
+### Patch Changes
+
+- fcd54a9: Log stats on sync lock when reaching concurrency limit
+- Updated dependencies [3291a2c]
+  - @powersync/service-rsocket-router@0.0.11
+
+## 0.7.1
+
+### Patch Changes
+
+- Updated dependencies [2ae8711]
+  - @powersync/service-sync-rules@0.18.2
+
 ## 0.7.0
 
 ### Minor Changes

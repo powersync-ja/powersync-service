@@ -17,13 +17,13 @@ export const registerServerServices = (serviceContext: core.system.ServiceContex
       await routerEngine.start(async (routes) => {
         const server = fastify.fastify();
 
-        server.register(cors, {
-          origin: '*',
-          allowedHeaders: ['Content-Type', 'Authorization'],
-          exposedHeaders: ['Content-Type'],
-          // Cache time for preflight response
-          maxAge: 3600
-        });
+  server.register(cors, {
+    origin: '*',
+    allowedHeaders: ['Content-Type', 'Authorization', 'User-Agent', 'X-User-Agent'],
+    exposedHeaders: ['Content-Type'],
+    // Cache time for preflight response
+    maxAge: 3600
+  });
 
         core.routes.configureFastifyServer(server, {
           service_context: serviceContext,

@@ -3,5 +3,6 @@ packages:
   - 'libs/*'
   - 'modules/*'
   - 'service'
+  - 'test-client'
   # exclude packages that are inside test directories
   - '!**/test/**'

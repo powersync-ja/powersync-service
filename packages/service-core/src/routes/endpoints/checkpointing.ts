@@ -1,10 +1,13 @@
-import { logger, router, schema } from '@powersync/lib-services-framework';
 import * as t from 'ts-codec';
+import { logger, router, schema } from '@powersync/lib-services-framework';
 
+import * as util from '../../util/util-index.js';
 import { authUser } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
-const WriteCheckpointRequest = t.object({});
+const WriteCheckpointRequest = t.object({
+  client_id: t.string.optional()
+});
 
 export const writeCheckpoint = routeDefinition({
   path: '/write-checkpoint.json',
@@ -51,17 +54,19 @@ export const writeCheckpoint2 = routeDefinition({
     const { user_id, service_context } = payload.context;
 
     const api = service_context.routerEngine.getAPI();
+    const client_id = payload.params.client_id;
+    const full_user_id = util.checkpointUserId(user_id, client_id);
 
     const currentCheckpoint = await api.getReplicationHead();
     const {
       storage: { activeBucketStorage }
     } = service_context;
 
-    const id = await activeBucketStorage.createWriteCheckpoint(user_id!, { '1': currentCheckpoint });
-    logger.info(`Write checkpoint 2: ${JSON.stringify({ currentCheckpoint, id: String(id) })}`);
+    const writeCheckpoint = await activeBucketStorage.createWriteCheckpoint(full_user_id, { '1': currentCheckpoint });
+    logger.info(`Write checkpoint 2: ${JSON.stringify({ currentCheckpoint, id: String(full_user_id) })}`);
 
     return {
-      write_checkpoint: String(id)
+      write_checkpoint: String(writeCheckpoint)
     };
   }
 });
