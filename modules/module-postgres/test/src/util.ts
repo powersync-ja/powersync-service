@@ -93,7 +93,7 @@ export async function getClientCheckpoint(
     if (!cp.hasSyncRules()) {
       throw new Error('No sync rules available');
     }
-    if (cp.lsn >= lsn) {
+    if (cp.lsn && cp.lsn >= lsn) {
       logger.info(`Got write checkpoint: ${lsn} : ${cp.checkpoint}`);
       return cp.checkpoint;
     }
