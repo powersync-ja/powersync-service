@@ -1,5 +1,12 @@
 # @powersync/service-core
 
+## 0.8.4
+
+### Patch Changes
+
+- Updated dependencies [f6b678a]
+  - @powersync/service-sync-rules@0.18.3
+
 ## 0.8.3
 
 ### Patch Changes
