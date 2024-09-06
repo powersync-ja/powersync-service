@@ -72,17 +72,17 @@ ${this.generateTypeExports()}`;
   private generateImports() {
     const importStyle = this.options.imports ?? 'auto';
     if (importStyle == TsSchemaImports.web) {
-      return `import { column, Schema, TableV2 } from '@powersync/web';`;
+      return `import { column, Schema, Table } from '@powersync/web';`;
     } else if (importStyle == TsSchemaImports.reactNative) {
-      return `import { column, Schema, TableV2 } from '@powersync/react-native';`;
+      return `import { column, Schema, Table } from '@powersync/react-native';`;
     } else {
-      return `import { column, Schema, TableV2 } from '@powersync/web';
-// OR: import { column, Schema, TableV2 } from '@powersync/react-native';`;
+      return `import { column, Schema, Table } from '@powersync/web';
+// OR: import { column, Schema, Table } from '@powersync/react-native';`;
     }
   }
 
   private generateTable(name: string, columns: ColumnDefinition[]): string {
-    return `const ${name} = new TableV2(
+    return `const ${name} = new Table(
   {
     // id column (text) is automatically included
     ${columns.map((c) => this.generateColumn(c)).join(',\n    ')}
