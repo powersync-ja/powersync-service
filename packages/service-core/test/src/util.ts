@@ -25,6 +25,8 @@ export const MONGO_STORAGE_FACTORY: StorageFactory = async () => {
   return new MongoBucketStorage(db, { slot_name_prefix: 'test_' });
 };
 
+export const ZERO_LSN = '0/0';
+
 export async function connectMongo() {
   // Short timeout for tests, to fail fast when the server is not available.
   // Slightly longer timeouts for CI, to avoid arbitrary test failures

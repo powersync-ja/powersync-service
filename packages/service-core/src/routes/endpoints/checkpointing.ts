@@ -37,7 +37,7 @@ export const writeCheckpoint = routeDefinition({
       if (!cp.hasSyncRules()) {
         throw new Error('No sync rules available');
       }
-      if (cp.lsn >= head) {
+      if (cp.lsn && cp.lsn >= head) {
         logger.info(`Got write checkpoint: ${head} : ${cp.checkpoint}`);
         return { checkpoint: cp.checkpoint };
       }
@@ -64,7 +64,6 @@ export const writeCheckpoint2 = routeDefinition({
     const client_id = payload.params.client_id;
     const full_user_id = util.checkpointUserId(user_id, client_id);
 
-    // Might want to call this something link replicationHead or something else
     const currentCheckpoint = await apiHandler.getReplicationHead();
     const {
       storageEngine: { activeBucketStorage }

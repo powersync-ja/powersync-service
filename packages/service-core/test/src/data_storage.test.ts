@@ -2,7 +2,7 @@ import { BucketDataBatchOptions } from '@/storage/BucketStorage.js';
 import { RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { fromAsync, oneFromAsync } from './stream_utils.js';
-import { getBatchData, getBatchMeta, makeTestTable, MONGO_STORAGE_FACTORY, StorageFactory } from './util.js';
+import { getBatchData, getBatchMeta, makeTestTable, MONGO_STORAGE_FACTORY, StorageFactory, ZERO_LSN } from './util.js';
 
 const TEST_TABLE = makeTestTable('test', ['id']);
 
@@ -22,7 +22,7 @@ bucket_definitions:
 
     const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
 
-    const result = await storage.startBatch({}, async (batch) => {
+    const result = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: 'insert',
@@ -65,7 +65,7 @@ bucket_definitions:
 
     const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
 
-    const result1 = await storage.startBatch({}, async (batch) => {
+    const result1 = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: 'insert',
@@ -75,7 +75,7 @@ bucket_definitions:
         }
       });
     });
-    const result2 = await storage.startBatch({}, async (batch) => {
+    const result2 = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: 'insert',
@@ -113,7 +113,7 @@ bucket_definitions:
 
     const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
 
-    const result = await storage.startBatch({}, async (batch) => {
+    const result = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: 'insert',
@@ -154,7 +154,7 @@ bucket_definitions:
 
     const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
 
-    const result = await storage.startBatch({}, async (batch) => {
+    const result = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: 'insert',
@@ -195,7 +195,7 @@ bucket_definitions:
 `);
     const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
 
-    const result = await storage.startBatch({}, async (batch) => {
+    const result = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       await batch.save({
@@ -258,7 +258,7 @@ bucket_definitions:
 
     const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
 
-    const result = await storage.startBatch({}, async (batch) => {
+    const result = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
         tag: 'insert',
@@ -304,7 +304,7 @@ bucket_definitions:
 
     const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
 
-    const result = await storage.startBatch({}, async (batch) => {
+    const result = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
         tag: 'insert',
@@ -372,7 +372,7 @@ bucket_definitions:
 
     const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
 
-    const result = await storage.startBatch({}, async (batch) => {
+    const result = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
         tag: 'insert',
@@ -454,7 +454,7 @@ bucket_definitions:
     const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
 
     const sourceTable = TEST_TABLE;
-    const result = await storage.startBatch({}, async (batch) => {
+    const result = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       await batch.save({
         sourceTable,
         tag: 'insert',
@@ -510,7 +510,7 @@ bucket_definitions:
 `);
     const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
 
-    await storage.startBatch({}, async (batch) => {
+    await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       await batch.save({
@@ -523,7 +523,7 @@ bucket_definitions:
       });
     });
 
-    await storage.startBatch({}, async (batch) => {
+    await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       await batch.save({
@@ -535,7 +535,7 @@ bucket_definitions:
       });
     });
 
-    const result = await storage.startBatch({}, async (batch) => {
+    const result = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       await batch.save({
@@ -585,7 +585,7 @@ bucket_definitions:
 `);
     const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
 
-    await storage.startBatch({}, async (batch) => {
+    await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       await batch.save({
@@ -598,7 +598,7 @@ bucket_definitions:
       });
     });
 
-    await storage.startBatch({}, async (batch) => {
+    await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       await batch.save({
@@ -628,7 +628,7 @@ bucket_definitions:
       });
     });
 
-    const result = await storage.startBatch({}, async (batch) => {
+    const result = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       await batch.save({
@@ -701,7 +701,7 @@ bucket_definitions:
 
     const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
 
-    await storage.startBatch({}, async (batch) => {
+    await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: 'insert',
@@ -740,7 +740,7 @@ bucket_definitions:
     const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
 
     // Pre-setup
-    const result1 = await storage.startBatch({}, async (batch) => {
+    const result1 = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       await batch.save({
@@ -765,7 +765,7 @@ bucket_definitions:
     const checkpoint1 = result1?.flushed_op ?? '0';
 
     // Test batch
-    const result2 = await storage.startBatch({}, async (batch) => {
+    const result2 = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       const sourceTable = TEST_TABLE;
       // b
       await batch.save({
@@ -876,7 +876,7 @@ bucket_definitions:
     const sourceTable = makeTestTable('test', ['id', 'description']);
 
     // Pre-setup
-    const result1 = await storage.startBatch({}, async (batch) => {
+    const result1 = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       await batch.save({
         sourceTable,
         tag: 'insert',
@@ -889,7 +889,7 @@ bucket_definitions:
 
     const checkpoint1 = result1?.flushed_op ?? '0';
 
-    const result2 = await storage.startBatch({}, async (batch) => {
+    const result2 = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       // Unchanged, but has a before id
       await batch.save({
         sourceTable,
@@ -905,7 +905,7 @@ bucket_definitions:
       });
     });
 
-    const result3 = await storage.startBatch({}, async (batch) => {
+    const result3 = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       // Delete
       await batch.save({
         sourceTable,
@@ -968,7 +968,7 @@ bucket_definitions:
     const sourceTable = makeTestTable('test', ['id', 'description']);
 
     // Pre-setup
-    const result1 = await storage.startBatch({}, async (batch) => {
+    const result1 = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       await batch.save({
         sourceTable,
         tag: 'insert',
@@ -981,7 +981,7 @@ bucket_definitions:
 
     const checkpoint1 = result1?.flushed_op ?? '0';
 
-    const result2 = await storage.startBatch({}, async (batch) => {
+    const result2 = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       // Unchanged, but has a before id
       await batch.save({
         sourceTable,
@@ -997,7 +997,7 @@ bucket_definitions:
       });
     });
 
-    const result3 = await storage.startBatch({}, async (batch) => {
+    const result3 = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       // Delete
       await batch.save({
         sourceTable,
@@ -1054,7 +1054,7 @@ bucket_definitions:
 `);
     const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
 
-    const result = await storage.startBatch({}, async (batch) => {
+    const result = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       const largeDescription = '0123456789'.repeat(12_000_00);
@@ -1146,7 +1146,7 @@ bucket_definitions:
 `);
     const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
 
-    const result = await storage.startBatch({}, async (batch) => {
+    const result = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       const largeDescription = '0123456789'.repeat(2_000_00);
@@ -1235,7 +1235,7 @@ bucket_definitions:
 `);
     const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
 
-    const result = await storage.startBatch({}, async (batch) => {
+    const result = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       for (let i = 1; i <= 6; i++) {
