@@ -25,7 +25,7 @@ export const executeSql = routeDefinition({
     }
 
     const sourceConfig = await apiHandler.getSourceConfig();
-    if (!sourceConfig.debug_enabled) {
+    if (!sourceConfig.debug_api) {
       return internal_routes.ExecuteSqlResponse.encode({
         results: {
           columns: [],

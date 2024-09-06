@@ -46,8 +46,6 @@ export const PostgresConnectionConfig = service_types.configFile.dataSourceConfi
 
     /** Expose database credentials */
     demo_database: t.boolean.optional(),
-    /** Expose "execute-sql" */
-    debug_api: t.boolean.optional(),
 
     /**
      * Prefix for the slot name. Defaults to "powersync_"
