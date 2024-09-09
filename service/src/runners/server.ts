@@ -10,16 +10,16 @@ import { SocketRouter } from '../routes/router.js';
 /**
  * Configures the server portion on a {@link ServiceContext}
  */
-export const registerServerServices = (serviceContext: core.system.ServiceContextContainer) => {
+export function registerServerServices(serviceContext: core.system.ServiceContextContainer) {
   serviceContext.register(core.routes.RouterEngine, new core.routes.RouterEngine());
   serviceContext.lifeCycleEngine.withLifecycle(serviceContext.routerEngine!, {
     start: async (routerEngine) => {
-      await routerEngine.start(async (routes) => {
+      await routerEngine!.start(async (routes) => {
         const server = fastify.fastify();
 
         server.register(cors, {
           origin: '*',
-          allowedHeaders: ['Content-Type', 'Authorization'],
+          allowedHeaders: ['Content-Type', 'Authorization', 'User-Agent', 'X-User-Agent'],
           exposedHeaders: ['Content-Type'],
           // Cache time for preflight response
           maxAge: 3600
@@ -54,14 +54,14 @@ export const registerServerServices = (serviceContext: core.system.ServiceContex
         };
       });
     },
-    stop: (routerEngine) => routerEngine.shutdown()
+    stop: (routerEngine) => routerEngine!.shutdown()
   });
-};
+}
 
 /**
  * Starts an API server
  */
-export const startServer = async (runnerConfig: core.utils.RunnerConfig) => {
+export async function startServer(runnerConfig: core.utils.RunnerConfig) {
   logger.info('Booting');
 
   const config = await core.utils.loadConfig(runnerConfig);
@@ -77,12 +77,12 @@ export const startServer = async (runnerConfig: core.utils.RunnerConfig) => {
   const moduleManager = container.getImplementation(core.modules.ModuleManager);
   await moduleManager.initialize(serviceContext);
 
-  logger.info('Starting service');
+  logger.info('Starting service...');
   await serviceContext.lifeCycleEngine.start();
-  logger.info('service started');
+  logger.info('Service started.');
 
   await container.probes.ready();
 
   // Enable in development to track memory usage:
   // trackMemoryUsage();
-};
+}

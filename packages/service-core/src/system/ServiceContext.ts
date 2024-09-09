@@ -9,10 +9,10 @@ import * as utils from '../util/util-index.js';
 export interface ServiceContext {
   configuration: utils.ResolvedPowerSyncConfig;
   lifeCycleEngine: LifeCycledSystem;
-  metrics: metrics.Metrics;
+  metrics: metrics.Metrics | null;
   replicationEngine: replication.ReplicationEngine | null;
   routerEngine: routes.RouterEngine | null;
-  storage: storage.StorageFactoryProvider;
+  storageEngine: storage.StorageEngine;
 }
 
 /**
@@ -22,17 +22,21 @@ export interface ServiceContext {
  */
 export class ServiceContextContainer implements ServiceContext {
   lifeCycleEngine: LifeCycledSystem;
-  storage: storage.StorageFactoryProvider;
+  storageEngine: storage.StorageEngine;
 
   constructor(public configuration: utils.ResolvedPowerSyncConfig) {
     this.lifeCycleEngine = new LifeCycledSystem();
-    this.storage = new storage.StorageFactoryProvider({
-      configuration,
-      lifecycle_engine: this.lifeCycleEngine
+
+    this.storageEngine = new storage.StorageEngine({
+      configuration
+    });
+    this.lifeCycleEngine.withLifecycle(this.storageEngine, {
+      start: (storageEngine) => storageEngine.start(),
+      stop: (storageEngine) => storageEngine.shutDown()
     });
 
-    // Mongo storage is available as an option by default
-    this.storage.registerProvider(new storage.MongoStorageProvider());
+    // Mongo storage is available as an option by default TODO: Consider moving this to a Mongo Storage Module
+    this.storageEngine.registerProvider(new storage.MongoStorageProvider());
   }
 
   get replicationEngine(): replication.ReplicationEngine | null {
@@ -43,8 +47,8 @@ export class ServiceContextContainer implements ServiceContext {
     return container.getOptional(routes.RouterEngine);
   }
 
-  get metrics(): metrics.Metrics {
-    return this.get(metrics.Metrics);
+  get metrics(): metrics.Metrics | null {
+    return container.getOptional(metrics.Metrics);
   }
 
   /**

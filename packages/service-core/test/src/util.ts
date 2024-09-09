@@ -25,6 +25,8 @@ export const MONGO_STORAGE_FACTORY: StorageFactory = async () => {
   return new MongoBucketStorage(db, { slot_name_prefix: 'test_' });
 };
 
+export const ZERO_LSN = '0/0';
+
 export async function connectMongo() {
   // Short timeout for tests, to fail fast when the server is not available.
   // Slightly longer timeouts for CI, to avoid arbitrary test failures
@@ -33,8 +35,7 @@ export async function connectMongo() {
     socketTimeoutMS: env.CI ? 15_000 : 5_000,
     serverSelectionTimeoutMS: env.CI ? 15_000 : 2_500
   });
-  const db = new PowerSyncMongo(client);
-  return db;
+  return new PowerSyncMongo(client);
 }
 
 export function makeTestTable(name: string, columns?: string[] | undefined) {

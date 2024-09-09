@@ -2,8 +2,8 @@ import { logger } from '@powersync/lib-services-framework';
 import { DEFAULT_TAG, SourceTableInterface, SqlSyncRules } from '@powersync/service-sync-rules';
 import { SyncRulesStatus, TableInfo } from '@powersync/service-types';
 
-import { RouterServiceContext } from '../routes/router.js';
 import * as storage from '../storage/storage-index.js';
+import { RouteAPI } from './RouteAPI.js';
 
 export interface DiagnosticsOptions {
   /**
@@ -27,7 +27,8 @@ export interface DiagnosticsOptions {
 export const DEFAULT_DATASOURCE_ID = 'default';
 
 export async function getSyncRulesStatus(
-  serviceContext: RouterServiceContext,
+  bucketStorage: storage.BucketStorageFactory,
+  apiHandler: RouteAPI,
   sync_rules: storage.PersistedSyncRulesContent | null,
   options: DiagnosticsOptions
 ): Promise<SyncRulesStatus | undefined> {
@@ -52,11 +53,6 @@ export async function getSyncRulesStatus(
     };
   }
 
-  const {
-    storage: { bucketStorage }
-  } = serviceContext;
-  const api = serviceContext.routerEngine.getAPI();
-
   const systemStorage = live_status ? bucketStorage.getInstance(persisted) : undefined;
   const status = await systemStorage?.getStatus();
   let replication_lag_bytes: number | undefined = undefined;
@@ -71,13 +67,8 @@ export async function getSyncRulesStatus(
   const tag = sourceConfig?.tag ?? DEFAULT_TAG;
 
   if (check_connection) {
-    if (!api) {
-      throw new Error('No connection configured');
-    }
-
     const source_table_patterns = rules.getSourceTables();
-    const resolved_tables = await api.getDebugTablesInfo(source_table_patterns, rules);
-
+    const resolved_tables = await apiHandler.getDebugTablesInfo(source_table_patterns, rules);
     tables_flat = resolved_tables.flatMap((info) => {
       if (info.table) {
         return [info.table];
@@ -91,7 +82,7 @@ export async function getSyncRulesStatus(
     if (systemStorage) {
       try {
         const lastCheckpoint = await systemStorage.getCheckpoint();
-        replication_lag_bytes = await api.getReplicationLag({
+        replication_lag_bytes = await apiHandler.getReplicationLag({
           replication_identifier: systemStorage.slot_name,
           last_checkpoint_identifier: lastCheckpoint.lsn
         });
@@ -152,8 +143,8 @@ export async function getSyncRulesStatus(
     content: include_content ? sync_rules.sync_rules_content : undefined,
     connections: [
       {
-        id: sourceConfig?.id ?? DEFAULT_DATASOURCE_ID,
-        tag: sourceConfig?.tag ?? DEFAULT_TAG,
+        id: sourceConfig.id ?? DEFAULT_DATASOURCE_ID,
+        tag: sourceConfig.tag ?? DEFAULT_TAG,
         slot_name: sync_rules.slot_name,
         initial_replication_done: status?.snapshot_done ?? false,
         // TODO: Rename?

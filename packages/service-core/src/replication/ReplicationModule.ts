@@ -1,11 +1,11 @@
 import { DataSourceConfig } from '@powersync/service-types/dist/config/PowerSyncConfig.js';
 import * as t from 'ts-codec';
 
-import { schema } from '@powersync/lib-services-framework';
 import * as types from '@powersync/service-types';
 import * as api from '../api/api-index.js';
 import * as modules from '../modules/modules-index.js';
 import * as system from '../system/system-index.js';
+import { schema } from '@powersync/lib-services-framework';
 import { AbstractReplicator } from './AbstractReplicator.js';
 
 export interface ReplicationModuleOptions extends modules.AbstractModuleOptions {
@@ -20,6 +20,7 @@ export interface ReplicationModuleOptions extends modules.AbstractModuleOptions 
 export abstract class ReplicationModule<TConfig extends DataSourceConfig> extends modules.AbstractModule {
   protected type: string;
   protected configSchema: t.AnyCodec;
+  protected decodedConfig: TConfig | undefined;
 
   /**
    * @protected
@@ -32,18 +33,18 @@ export abstract class ReplicationModule<TConfig extends DataSourceConfig> extend
   }
 
   /**
-   *  Create the API adapter for the DataSource required by the sync API
+   *  Create the RouteAPI adapter for the DataSource required to service the sync API
    *  endpoints.
    */
-  protected abstract createRouteAPIAdapter(decodedConfig: TConfig): api.RouteAPI;
+  protected abstract createRouteAPIAdapter(): api.RouteAPI;
 
   /**
    *  Create the Replicator to be used by the ReplicationEngine.
    */
-  protected abstract createReplicator(decodedConfig: TConfig, context: system.ServiceContext): AbstractReplicator;
+  protected abstract createReplicator(context: system.ServiceContext): AbstractReplicator;
 
   /**
-   *  Register this module's replication adapters and sync API providers if the required configuration is present.
+   *  Register this module's Replicators and RouteAPI adapters if the required configuration is present.
    */
   public async initialize(context: system.ServiceContext): Promise<void> {
     if (!context.configuration.connections) {
@@ -71,10 +72,10 @@ export abstract class ReplicationModule<TConfig extends DataSourceConfig> extend
       const baseMatchingConfig = matchingConfig[0] as TConfig;
       // If validation fails, log the error and continue, no replication will happen for this data source
       this.validateConfig(baseMatchingConfig);
-      const decodedConfig = this.configSchema.decode(baseMatchingConfig);
-      context.replicationEngine?.register(this.createReplicator(decodedConfig, context));
-      const apiAdapter = this.createRouteAPIAdapter(decodedConfig);
-      context.routerEngine?.registerAPI(apiAdapter);
+      this.decodedConfig = this.configSchema.decode(baseMatchingConfig);
+
+      context.replicationEngine?.register(this.createReplicator(context));
+      context.routerEngine?.registerAPI(this.createRouteAPIAdapter());
     } catch (e) {
       this.logger.error('Failed to initialize.', e);
     }

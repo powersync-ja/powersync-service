@@ -6,11 +6,12 @@ _[PowerSync](https://www.powersync.com) is a Postgres-SQLite sync layer, which h
 
 # PowerSync Service
 
-`powersync-service` is the monorepo for the core PowerSync service.
+`powersync-service` is the monorepo for the core [PowerSync service](https://docs.powersync.com/architecture/powersync-service).
 
 The service can be started using the public Docker image. See the image [notes](./service/README.md)
 
-## Monorepo Structure: Packages
+# Monorepo Structure:
+## Packages
 
 - [packages/service-core](./packages/service-core/README.md)
 
@@ -35,7 +36,7 @@ The service can be started using the public Docker image. See the image [notes](
 - [packages/types](./packages/types/README.md)
   - Type definitions for the PowerSync service
 
-## Monorepo Structure: Libraries
+## Libraries
 
 - [libs/lib-services](./libs/lib-services/README.md)
 
@@ -43,7 +44,21 @@ The service can be started using the public Docker image. See the image [notes](
 
 ## Service
 
-The PowerSync service code is located in the `service` folder. This project is used to build the `journeyapps/powersync-service` Docker image.
+- [service](./service/README.md)
+
+Contains the PowerSync service code. This project is used to build the `journeyapps/powersync-service` Docker image.
+
+## Docs
+
+- [docs](./docs/README.md)
+
+Technical documentation regarding the implementation of PowerSync. 
+
+## Test Client
+
+- [test-client](./test-client/README.md)
+
+Contains a minimal client demonstrating direct usage of the HTTP stream sync API. This can be used to test sync rules in contexts such as automated testing. 
 
 # Developing
 

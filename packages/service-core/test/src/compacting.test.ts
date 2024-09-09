@@ -4,7 +4,7 @@ import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { validateCompactedBucket } from './bucket_validation.js';
 import { oneFromAsync } from './stream_utils.js';
-import { makeTestTable, MONGO_STORAGE_FACTORY } from './util.js';
+import { makeTestTable, MONGO_STORAGE_FACTORY, ZERO_LSN } from './util.js';
 
 const TEST_TABLE = makeTestTable('test', ['id']);
 
@@ -27,7 +27,7 @@ bucket_definitions:
 
     const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
 
-    const result = await storage.startBatch({}, async (batch) => {
+    const result = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: SaveOperationTag.INSERT,
@@ -117,7 +117,7 @@ bucket_definitions:
 
     const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
 
-    const result = await storage.startBatch({}, async (batch) => {
+    const result = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: SaveOperationTag.INSERT,

@@ -9,7 +9,7 @@ export function getReplicaIdColumns(relation: PgoutputRelation): storage.ColumnD
   } else {
     return relation.columns
       .filter((c) => (c.flags & 0b1) != 0)
-      .map((c) => ({ name: c.name, typeId: c.typeOid, type: c.typeName ?? '' }));
+      .map((c) => ({ name: c.name, typeId: c.typeOid } satisfies storage.ColumnDescriptor));
   }
 }
 export function getRelId(source: PgoutputRelation): number {
@@ -27,5 +27,5 @@ export function getPgOutputRelation(source: PgoutputRelation): storage.SourceEnt
     schema: source.schema,
     objectId: getRelId(source),
     replicationColumns: getReplicaIdColumns(source)
-  };
+  } satisfies storage.SourceEntityDescriptor;
 }

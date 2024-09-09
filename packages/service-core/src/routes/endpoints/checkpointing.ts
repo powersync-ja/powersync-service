@@ -1,10 +1,13 @@
-import { logger, router, schema } from '@powersync/lib-services-framework';
 import * as t from 'ts-codec';
+import { logger, router, schema } from '@powersync/lib-services-framework';
 
+import * as util from '../../util/util-index.js';
 import { authUser } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
-const WriteCheckpointRequest = t.object({});
+const WriteCheckpointRequest = t.object({
+  client_id: t.string.optional()
+});
 
 export const writeCheckpoint = routeDefinition({
   path: '/write-checkpoint.json',
@@ -15,26 +18,23 @@ export const writeCheckpoint = routeDefinition({
     const {
       context: { service_context }
     } = payload;
-    const api = service_context.routerEngine.getAPI();
-    if (!api) {
-      throw new Error('No connection API handler is available.');
-    }
+    const apiHandler = service_context.routerEngine!.getAPI();
 
     // This old API needs a persisted checkpoint id.
     // Since we don't use LSNs anymore, the only way to get that is to wait.
     const start = Date.now();
 
-    const head = await api.getReplicationHead();
+    const head = await apiHandler.getReplicationHead();
 
     const timeout = 50_000;
 
     logger.info(`Waiting for LSN checkpoint: ${head}`);
     while (Date.now() - start < timeout) {
-      const cp = await service_context.storage.bucketStorage.getActiveCheckpoint();
+      const cp = await service_context.storageEngine.activeBucketStorage.getActiveCheckpoint();
       if (!cp.hasSyncRules()) {
         throw new Error('No sync rules available');
       }
-      if (cp.lsn >= head) {
+      if (cp.lsn && cp.lsn >= head) {
         logger.info(`Got write checkpoint: ${head} : ${cp.checkpoint}`);
         return { checkpoint: cp.checkpoint };
       }
@@ -53,22 +53,21 @@ export const writeCheckpoint2 = routeDefinition({
   handler: async (payload) => {
     const { user_id, service_context } = payload.context;
 
-    const api = service_context.routerEngine.getAPI();
-    if (!api) {
-      throw new Error('No connection API handler is available.');
-    }
+    const apiHandler = service_context.routerEngine!.getAPI();
 
-    // Might want to call this something link replicationHead or something else
-    const currentCheckpoint = await api.getReplicationHead();
+    const client_id = payload.params.client_id;
+    const full_user_id = util.checkpointUserId(user_id, client_id);
+
+    const currentCheckpoint = await apiHandler.getReplicationHead();
     const {
-      storage: { bucketStorage }
+      storageEngine: { activeBucketStorage }
     } = service_context;
 
-    const id = await bucketStorage.createWriteCheckpoint(user_id!, { '1': currentCheckpoint });
-    logger.info(`Write checkpoint 2: ${JSON.stringify({ currentCheckpoint, id: String(id) })}`);
+    const writeCheckpoint = await activeBucketStorage.createWriteCheckpoint(full_user_id, { '1': currentCheckpoint });
+    logger.info(`Write checkpoint 2: ${JSON.stringify({ currentCheckpoint, id: String(full_user_id) })}`);
 
     return {
-      write_checkpoint: String(id)
+      write_checkpoint: String(writeCheckpoint)
     };
   }
 });

@@ -142,3 +142,13 @@ export function hasToastedValues(row: sync_rules.ToastableSqliteRow) {
 export function isCompleteRow(row: sync_rules.ToastableSqliteRow): row is sync_rules.SqliteRow {
   return !hasToastedValues(row);
 }
+
+export function checkpointUserId(user_id: string | undefined, client_id: string | undefined) {
+  if (user_id == null) {
+    throw new Error('user_id is required');
+  }
+  if (client_id == null) {
+    return user_id;
+  }
+  return `${user_id}/${client_id}`;
+}

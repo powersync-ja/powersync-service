@@ -3,8 +3,10 @@ import { SqlSyncRules, SyncRulesErrors } from '@powersync/service-sync-rules';
 import type { FastifyPluginAsync } from 'fastify';
 import * as t from 'ts-codec';
 
+import * as system from '../../system/system-index.js';
 import { authApi } from '../auth.js';
-import { routeDefinition, RouterServiceContext } from '../router.js';
+import { routeDefinition } from '../router.js';
+import { RouteAPI } from '../../api/RouteAPI.js';
 
 const DeploySyncRulesRequest = t.object({
   content: t.string
@@ -38,7 +40,7 @@ export const deploySyncRules = routeDefinition({
   validator: schema.createTsCodecValidator(DeploySyncRulesRequest, { allowAdditional: true }),
   handler: async (payload) => {
     const { service_context } = payload.context;
-    const { storage } = service_context;
+    const { storageEngine } = service_context;
 
     if (service_context.configuration.sync_rules.present) {
       // If sync rules are configured via the config, disable deploy via the API.
@@ -62,7 +64,7 @@ export const deploySyncRules = routeDefinition({
       });
     }
 
-    const sync_rules = await storage.bucketStorage.updateSyncRules({
+    const sync_rules = await storageEngine.activeBucketStorage.updateSyncRules({
       content: content
     });
 
@@ -85,8 +87,10 @@ export const validateSyncRules = routeDefinition({
   validator: schema.createTsCodecValidator(ValidateSyncRulesRequest, { allowAdditional: true }),
   handler: async (payload) => {
     const content = payload.params.content;
+    const { service_context } = payload.context;
+    const apiHandler = service_context.routerEngine!.getAPI();
 
-    const info = await debugSyncRules(payload.context.service_context, content);
+    const info = await debugSyncRules(apiHandler, content);
 
     return replyPrettyJson(info);
   }
@@ -99,9 +103,10 @@ export const currentSyncRules = routeDefinition({
   handler: async (payload) => {
     const { service_context } = payload.context;
     const {
-      storage: { bucketStorage }
+      storageEngine: { activeBucketStorage }
     } = service_context;
-    const sync_rules = await bucketStorage.getActiveSyncRulesContent();
+
+    const sync_rules = await activeBucketStorage.getActiveSyncRulesContent();
     if (!sync_rules) {
       throw new errors.JourneyError({
         status: 422,
@@ -109,10 +114,12 @@ export const currentSyncRules = routeDefinition({
         description: 'No active sync rules'
       });
     }
-    const info = await debugSyncRules(service_context, sync_rules.sync_rules_content);
-    const next = await bucketStorage.getNextSyncRulesContent();
 
-    const next_info = next ? await debugSyncRules(service_context, next.sync_rules_content) : null;
+    const apiHandler = service_context.routerEngine!.getAPI();
+    const info = await debugSyncRules(apiHandler, sync_rules.sync_rules_content);
+    const next = await activeBucketStorage.getNextSyncRulesContent();
+
+    const next_info = next ? await debugSyncRules(apiHandler, next.sync_rules_content) : null;
 
     const response = {
       current: {
@@ -143,9 +150,9 @@ export const reprocessSyncRules = routeDefinition({
   validator: schema.createTsCodecValidator(ReprocessSyncRulesRequest),
   handler: async (payload) => {
     const {
-      storage: { bucketStorage }
+      storageEngine: { activeBucketStorage }
     } = payload.context.service_context;
-    const sync_rules = await bucketStorage.getActiveSyncRules();
+    const sync_rules = await activeBucketStorage.getActiveSyncRules();
     if (sync_rules == null) {
       throw new errors.JourneyError({
         status: 422,
@@ -154,7 +161,7 @@ export const reprocessSyncRules = routeDefinition({
       });
     }
 
-    const new_rules = await bucketStorage.updateSyncRules({
+    const new_rules = await activeBucketStorage.updateSyncRules({
       content: sync_rules.sync_rules.content
     });
     return {
@@ -173,17 +180,11 @@ function replyPrettyJson(payload: any) {
   });
 }
 
-async function debugSyncRules(serviceContext: RouterServiceContext, sync_rules: string) {
+async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
   try {
     const rules = SqlSyncRules.fromYaml(sync_rules);
     const source_table_patterns = rules.getSourceTables();
-
-    const api = serviceContext.routerEngine.getAPI();
-    if (!api) {
-      throw new Error('No API handler found');
-    }
-
-    const resolved_tables = await api.getDebugTablesInfo(source_table_patterns, rules);
+    const resolved_tables = await apiHandler.getDebugTablesInfo(source_table_patterns, rules);
 
     return {
       valid: true,

@@ -14,7 +14,8 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
     handler: async ({ context, params, responder, observer, initialN }) => {
       const { service_context } = context;
       const { routerEngine } = service_context;
-      if (routerEngine.closed) {
+
+      if (routerEngine!.closed) {
         responder.onError(
           new errors.JourneyError({
             status: 503,
@@ -31,10 +32,10 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       const syncParams = new RequestParameters(context.token_payload!, params.parameters ?? {});
 
       const {
-        storage: { bucketStorage }
+        storageEngine: { activeBucketStorage }
       } = service_context;
       // Sanity check before we start the stream
-      const cp = await bucketStorage.getActiveCheckpoint();
+      const cp = await activeBucketStorage.getActiveCheckpoint();
       if (!cp.hasSyncRules()) {
         responder.onError(
           new errors.JourneyError({
@@ -57,7 +58,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         }
       });
 
-      const removeStopHandler = routerEngine.addStopHandler(() => {
+      const removeStopHandler = routerEngine!.addStopHandler(() => {
         observer.triggerCancel();
       });
 
@@ -65,7 +66,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       const tracker = new sync.RequestTracker();
       try {
         for await (const data of sync.streamResponse({
-          storage: bucketStorage,
+          storage: activeBucketStorage,
           params: {
             ...params,
             binary_data: true // always true for web sockets
@@ -126,6 +127,8 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         disposer();
         logger.info(`Sync stream complete`, {
           user_id: syncParams.user_id,
+          client_id: params.client_id,
+          user_agent: context.user_agent,
           operations_synced: tracker.operationsSynced,
           data_synced_bytes: tracker.dataSyncedBytes
         });

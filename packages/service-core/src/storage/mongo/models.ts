@@ -57,11 +57,11 @@ export interface SourceTableDocument {
   _id: bson.ObjectId;
   group_id: number;
   connection_id: number;
-  relation_id: number | undefined | string;
+  relation_id: number | string | undefined;
   schema_name: string;
   table_name: string;
   replica_id_columns: string[] | null;
-  replica_id_columns2: { name: string; type_oid: number | undefined; type: string }[] | undefined;
+  replica_id_columns2: { name: string; type_oid?: number; type?: string }[] | undefined;
   snapshot_done: boolean | undefined;
 }
 

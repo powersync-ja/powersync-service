@@ -1,6 +1,14 @@
 import { ServiceContextContainer } from '../system/ServiceContext.js';
 import { logger } from '@powersync/lib-services-framework';
 import winston from 'winston';
+import { PersistedSyncRulesContent } from '../storage/BucketStorage.js';
+
+export interface TearDownOptions {
+  /**
+   *  If required, tear down any configuration/state for the specific sync rules
+   */
+  syncRules?: PersistedSyncRulesContent[];
+}
 
 export interface AbstractModuleOptions {
   name: string;
@@ -14,20 +22,14 @@ export abstract class AbstractModule {
   }
 
   /**
-   * Register any functionality on the {@link ServiceContextContainer}.
-   * Note this will be executed before the ServiceContext has been initialized.
-   * This can be used to register storage providers which will be created during initialization.
-   */
-
-  /**
    *  Initialize the module using any required services from the ServiceContext
    */
   public abstract initialize(context: ServiceContextContainer): Promise<void>;
 
   /**
-   *  Terminate and clean up any resources managed by the module right away
+   *  Permanently clean up and dispose of any configuration or state for this module.
    */
-  public abstract teardown(): Promise<void>;
+  public abstract teardown(options: TearDownOptions): Promise<void>;
 
   public get name() {
     return this.options.name;

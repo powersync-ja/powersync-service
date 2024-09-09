@@ -1,5 +1,11 @@
 # @powersync/service-rsocket-router
 
+## 0.0.11
+
+### Patch Changes
+
+- 3291a2c: Added a log for current count of connected WebSocket connections.
+
 ## 0.0.10
 
 ### Patch Changes

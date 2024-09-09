@@ -1,7 +1,10 @@
 import { DartSchemaGenerator } from './DartSchemaGenerator.js';
-import { JsSchemaGenerator } from './JsSchemaGenerator.js';
+import { JsLegacySchemaGenerator } from './JsLegacySchemaGenerator.js';
+import { TsSchemaGenerator, TsSchemaLanguage } from './TsSchemaGenerator.js';
 
 export const schemaGenerators = {
-  js: new JsSchemaGenerator(),
+  ts: new TsSchemaGenerator(),
+  js: new TsSchemaGenerator({ language: TsSchemaLanguage.js }),
+  jsLegacy: new JsLegacySchemaGenerator(),
   dart: new DartSchemaGenerator()
 };

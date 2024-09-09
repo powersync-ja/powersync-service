@@ -17,6 +17,10 @@ export type Context = {
 
   token_payload?: auth.JwtPayload;
   token_errors?: string[];
+  /**
+   * Only on websocket endpoints.
+   */
+  user_agent?: string;
 };
 
 export type BasicRouterRequest = {

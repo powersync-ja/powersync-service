@@ -55,13 +55,16 @@ export class RouterEngine {
 
   public registerAPI(api: api.RouteAPI) {
     if (this.api) {
-      logger.warn('A SyncAPI has already been registered. Overriding existing implementation');
+      logger.warn('A RouteAPI has already been registered. Overriding existing implementation');
     }
 
     this.api = api;
   }
 
-  public getAPI(): api.RouteAPI | null {
+  public getAPI(): api.RouteAPI {
+    if (!this.api) {
+      throw new Error('No RouteAPI adapter has been registered yet.');
+    }
     return this.api;
   }
 

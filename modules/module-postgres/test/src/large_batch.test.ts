@@ -1,9 +1,9 @@
 import { MONGO_STORAGE_FACTORY, StorageFactory } from '@core-tests/util.js';
-import { populateData } from '@module/utils/populate_test_data.js';
 import { describe, expect, test } from 'vitest';
 import { env } from './env.js';
 import { TEST_CONNECTION_OPTIONS } from './util.js';
 import { walStreamTest } from './wal_stream_utils.js';
+import { populateData } from '../../dist/utils/populate_test_data.js';
 
 describe('batch replication tests - mongodb', function () {
   // These are slow but consistent tests.

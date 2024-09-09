@@ -23,7 +23,7 @@ export function configureRSocket(router: ReactiveSocketRouter<Context>, options:
 
   router.applyWebSocketEndpoints(server, {
     contextProvider: async (data: Buffer) => {
-      const { token } = RSocketContextMeta.decode(deserialize(data) as any);
+      const { token, user_agent } = RSocketContextMeta.decode(deserialize(data) as any);
 
       if (!token) {
         throw new errors.AuthorizationError('No token provided');
@@ -43,6 +43,7 @@ export function configureRSocket(router: ReactiveSocketRouter<Context>, options:
 
           return {
             token,
+            user_agent,
             ...context,
             token_errors: token_errors,
             service_context: service_context as RouterServiceContext

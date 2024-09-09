@@ -30,7 +30,7 @@ export class MongoSyncRulesLock implements ReplicationLock {
     );
 
     if (doc == null) {
-      throw new Error(`Replication slot ${sync_rules.slot_name} is locked by another process`);
+      throw new Error(`Sync rules: ${sync_rules.id} have been locked by another process for replication.`);
     }
     return new MongoSyncRulesLock(db, sync_rules.id, lockId);
   }

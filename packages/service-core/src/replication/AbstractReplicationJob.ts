@@ -1,7 +1,7 @@
-import { container, logger } from '@powersync/lib-services-framework';
-import winston from 'winston';
 import * as storage from '../storage/storage-index.js';
 import { ErrorRateLimiter } from './ErrorRateLimiter.js';
+import { container, logger } from '@powersync/lib-services-framework';
+import winston from 'winston';
 
 export interface AbstractReplicationJobOptions {
   id: string;
@@ -16,7 +16,7 @@ export abstract class AbstractReplicationJob {
   protected isReplicatingPromise: Promise<void> | null = null;
 
   protected constructor(protected options: AbstractReplicationJobOptions) {
-    this.logger = logger.child({ name: `ReplicationJob: ${options.id}` });
+    this.logger = logger.child({ name: `ReplicationJob: ${this.id}` });
   }
 
   /**
@@ -30,12 +30,6 @@ export abstract class AbstractReplicationJob {
   abstract keepAlive(): Promise<void>;
 
   /**
-   *  Clean up any configuration or state for this replication on the datasource.
-   *  This assumes that the replication is not currently active.
-   */
-  abstract cleanUp(): Promise<void>;
-
-  /**
    *  Start the replication process
    */
   public async start(): Promise<void> {
@@ -46,7 +40,7 @@ export abstract class AbstractReplicationJob {
             replicator: this.id
           }
         });
-        logger.error(`Replication failed.`, ex);
+        this.logger.error(`Replication failed.`, ex);
       })
       .finally(async () => {
         this.abortController.abort();
@@ -58,27 +52,16 @@ export abstract class AbstractReplicationJob {
    *  Safely stop the replication process
    */
   public async stop(): Promise<void> {
-    logger.info(`Stopping ${this.id} replication job for sync rule iteration: ${this.storage.group_id}`);
+    this.logger.info(`Stopping replication job for sync rule iteration: ${this.storage.group_id}`);
     this.abortController.abort();
     await this.isReplicatingPromise;
-  }
-
-  /**
-   *  Stop the replication if it is still running.
-   *  Clean up any config on the datasource related to this replication job
-   */
-  public async terminate(): Promise<void> {
-    logger.info(`${this.id} Terminating replication`);
-    await this.stop();
-    await this.cleanUp();
-    await this.options.storage.terminate();
   }
 
   public get id() {
     return this.options.id;
   }
 
-  protected get storage() {
+  public get storage() {
     return this.options.storage;
   }
 

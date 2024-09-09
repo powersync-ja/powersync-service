@@ -1,7 +1,7 @@
 import { BucketStorageFactory, SyncRulesBucketStorage } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import { TEST_CONNECTION_OPTIONS, clearTestDb, getClientCheckpoint } from './util.js';
-import { WalStream, WalStreamOptions } from '@module/replication/WalStream.js';
+import { WalStream, WalStreamOptions, PUBLICATION_NAME } from '@module/replication/WalStream.js';
 import { fromAsync } from '@core-tests/stream_utils.js';
 import { PgManager } from '@module/replication/PgManager.js';
 
@@ -46,6 +46,14 @@ export class WalStreamTestContext {
 
   get pool() {
     return this.connectionManager.pool;
+  }
+
+  get connectionTag() {
+    return this.connectionManager.connectionTag;
+  }
+
+  get publicationName() {
+    return PUBLICATION_NAME;
   }
 
   async updateSyncRules(content: string) {
@@ -106,7 +114,7 @@ export class WalStreamTestContext {
     start ??= '0';
     let checkpoint = await this.getCheckpoint(options);
     const map = new Map<string, string>([[bucket, start]]);
-    const batch = await this.storage!.getBucketDataBatch(checkpoint, map);
+    const batch = this.storage!.getBucketDataBatch(checkpoint, map);
     const batches = await fromAsync(batch);
     return batches[0]?.batch.data ?? [];
   }

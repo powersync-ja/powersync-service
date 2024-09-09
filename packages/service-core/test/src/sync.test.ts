@@ -1,5 +1,4 @@
-// FIXME: This needs to come from a better place
-import { SaveOperationTag, ZERO_LSN } from '@/storage/storage-index.js';
+import { SaveOperationTag } from '@/storage/storage-index.js';
 import { RequestTracker } from '@/sync/RequestTracker.js';
 import { streamResponse } from '@/sync/sync.js';
 import { StreamingSyncLine } from '@/util/protocol-types.js';
@@ -7,13 +6,7 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
-import { makeTestTable, MONGO_STORAGE_FACTORY, StorageFactory } from './util.js';
-
-// FIXME: This should come from somewhere else
-export function lsnMakeComparable(text: string) {
-  const [h, l] = text.split('/');
-  return h.padStart(8, '0') + '/' + l.padStart(8, '0');
-}
+import { makeTestTable, MONGO_STORAGE_FACTORY, StorageFactory, ZERO_LSN } from './util.js';
 
 describe('sync - mongodb', function () {
   defineTests(MONGO_STORAGE_FACTORY);
@@ -42,7 +35,7 @@ function defineTests(factory: StorageFactory) {
     await storage.setSnapshotDone(ZERO_LSN);
     await storage.autoActivate();
 
-    const result = await storage.startBatch({}, async (batch) => {
+    const result = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: SaveOperationTag.INSERT,
@@ -61,7 +54,7 @@ function defineTests(factory: StorageFactory) {
         }
       });
 
-      await batch.commit(lsnMakeComparable('0/1'));
+      await batch.commit('0/1');
     });
 
     const stream = streamResponse({
@@ -91,7 +84,7 @@ function defineTests(factory: StorageFactory) {
     await storage.setSnapshotDone(ZERO_LSN);
     await storage.autoActivate();
 
-    const result = await storage.startBatch({}, async (batch) => {
+    const result = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: SaveOperationTag.INSERT,
@@ -102,7 +95,7 @@ function defineTests(factory: StorageFactory) {
         }
       });
 
-      await batch.commit(lsnMakeComparable('0/1'));
+      await batch.commit('0/1');
     });
 
     const stream = streamResponse({
@@ -176,7 +169,7 @@ function defineTests(factory: StorageFactory) {
 
     expect(await getCheckpointLines(iter)).toMatchSnapshot();
 
-    await storage.startBatch({}, async (batch) => {
+    await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: SaveOperationTag.INSERT,
@@ -186,12 +179,12 @@ function defineTests(factory: StorageFactory) {
         }
       });
 
-      await batch.commit(lsnMakeComparable('0/1'));
+      await batch.commit('0/1');
     });
 
     expect(await getCheckpointLines(iter)).toMatchSnapshot();
 
-    await storage.startBatch({}, async (batch) => {
+    await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: SaveOperationTag.INSERT,
@@ -201,7 +194,7 @@ function defineTests(factory: StorageFactory) {
         }
       });
 
-      await batch.commit(lsnMakeComparable('0/2'));
+      await batch.commit('0/2');
     });
 
     expect(await getCheckpointLines(iter)).toMatchSnapshot();
@@ -258,7 +251,7 @@ function defineTests(factory: StorageFactory) {
     await storage.setSnapshotDone(ZERO_LSN);
     await storage.autoActivate();
 
-    await storage.startBatch({}, async (batch) => {
+    await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: SaveOperationTag.INSERT,
@@ -277,7 +270,7 @@ function defineTests(factory: StorageFactory) {
         }
       });
 
-      await batch.commit(lsnMakeComparable('0/1'));
+      await batch.commit('0/1');
     });
 
     const stream = streamResponse({
@@ -306,7 +299,7 @@ function defineTests(factory: StorageFactory) {
     // Now we save additional data AND compact before continuing.
     // This invalidates the checkpoint we've received above.
 
-    await storage.startBatch({}, async (batch) => {
+    await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: SaveOperationTag.UPDATE,
@@ -325,7 +318,7 @@ function defineTests(factory: StorageFactory) {
         }
       });
 
-      await batch.commit(lsnMakeComparable('0/2'));
+      await batch.commit('0/2');
     });
 
     await storage.compact();

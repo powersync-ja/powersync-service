@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.18.2
+
+### Patch Changes
+
+- 2ae8711: Add TypeScript/TableV2 schema generator
+
 ## 0.18.1
 
 ### Patch Changes

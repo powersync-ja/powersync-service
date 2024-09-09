@@ -12,7 +12,7 @@ export function registerTearDownAction(program: Command) {
 
   return teardownCommand
     .argument('[ack]', 'Type `TEARDOWN` to confirm teardown should occur')
-    .description('Terminate all replicating sync rules, deleting the replication slots')
+    .description('Terminate all replicating sync rules, clear remote configuration and remove all data')
     .action(async (ack, options) => {
       if (ack !== 'TEARDOWN') {
         throw new Error('TEARDOWN was not acknowledged.');
