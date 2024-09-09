@@ -15,11 +15,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       const { service_context } = context;
       const { routerEngine } = service_context;
 
-      if (!routerEngine) {
-        throw new Error(`No routerEngine has not been registered yet.`);
-      }
-
-      if (routerEngine.closed) {
+      if (routerEngine!.closed) {
         responder.onError(
           new errors.JourneyError({
             status: 503,
@@ -62,7 +58,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         }
       });
 
-      const removeStopHandler = routerEngine.addStopHandler(() => {
+      const removeStopHandler = routerEngine!.addStopHandler(() => {
         observer.triggerCancel();
       });
 

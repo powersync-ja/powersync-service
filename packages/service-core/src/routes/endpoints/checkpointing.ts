@@ -18,10 +18,7 @@ export const writeCheckpoint = routeDefinition({
     const {
       context: { service_context }
     } = payload;
-    const apiHandler = service_context.routerEngine?.getAPI();
-    if (!apiHandler) {
-      throw new Error(`No active route API handler has been found.`);
-    }
+    const apiHandler = service_context.routerEngine!.getAPI();
 
     // This old API needs a persisted checkpoint id.
     // Since we don't use LSNs anymore, the only way to get that is to wait.
@@ -56,10 +53,7 @@ export const writeCheckpoint2 = routeDefinition({
   handler: async (payload) => {
     const { user_id, service_context } = payload.context;
 
-    const apiHandler = service_context.routerEngine?.getAPI();
-    if (!apiHandler) {
-      throw new Error(`No active route API handler has been found.`);
-    }
+    const apiHandler = service_context.routerEngine!.getAPI();
 
     const client_id = payload.params.client_id;
     const full_user_id = util.checkpointUserId(user_id, client_id);

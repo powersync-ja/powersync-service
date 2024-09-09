@@ -87,10 +87,7 @@ export const validateSyncRules = routeDefinition({
   handler: async (payload) => {
     const content = payload.params.content;
     const { service_context } = payload.context;
-    const apiHandler = service_context.routerEngine?.getAPI();
-    if (!apiHandler) {
-      throw new Error(`No active route API handler has been found.`);
-    }
+    const apiHandler = service_context.routerEngine!.getAPI();
 
     const info = await debugSyncRules(apiHandler, content);
 
@@ -117,11 +114,7 @@ export const currentSyncRules = routeDefinition({
       });
     }
 
-    const apiHandler = service_context.routerEngine?.getAPI();
-    if (!apiHandler) {
-      throw new Error(`No active route API handler has been found.`);
-    }
-
+    const apiHandler = service_context.routerEngine!.getAPI();
     const info = await debugSyncRules(apiHandler, sync_rules.sync_rules_content);
     const next = await activeBucketStorage.getNextSyncRulesContent();
 

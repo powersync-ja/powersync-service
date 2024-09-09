@@ -25,11 +25,7 @@ export const syncStreamed = routeDefinition({
     const userAgent = headers['x-user-agent'] ?? headers['user-agent'];
     const clientId = payload.params.client_id;
 
-    if (!routerEngine) {
-      throw new Error(`No routerEngine has not been registered yet.`);
-    }
-
-    if (routerEngine.closed) {
+    if (routerEngine!.closed) {
       throw new errors.JourneyError({
         status: 503,
         code: 'SERVICE_UNAVAILABLE',
@@ -70,7 +66,7 @@ export const syncStreamed = routeDefinition({
         { objectMode: false, highWaterMark: 16 * 1024 }
       );
 
-      const deregister = routerEngine.addStopHandler(() => {
+      const deregister = routerEngine!.addStopHandler(() => {
         // This error is not currently propagated to the client
         controller.abort();
         stream.destroy(new Error('Shutting down system'));
