@@ -2,7 +2,7 @@
   "name": "test-client",
   "repository": "https://github.com/powersync-ja/powersync-service",
   "private": true,
-  "version": "0.1.3",
+  "version": "0.1.6",
   "main": "dist/index.js",
   "bin": "dist/bin.js",
   "license": "Apache-2.0",

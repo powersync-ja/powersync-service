@@ -23,6 +23,7 @@ async function handleRoute(path: string, endpoints: ReactiveEndpoint[], responde
       responder
     },
     createMockObserver(),
+    new AbortController(),
     {
       contextProvider: async () => ({}),
       endpoints,
