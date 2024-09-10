@@ -18,10 +18,10 @@ const MAX_BATCH_SIZE = 1000;
 
 export class ReplicationEventBatch {
   readonly manager: ReplicationEventManager;
+  readonly maxBatchSize: number;
   readonly storage: storage.SyncRulesBucketStorage;
 
   protected event_cache: Map<sync_rules.SqlEventDescriptor, ReplicationEventData>;
-  protected readonly maxBatchSize: number;
 
   /**
    * Keeps track of the number of rows in the cache.
@@ -53,7 +53,6 @@ export class ReplicationEventBatch {
   /**
    * Queues a replication event. The cache is automatically flushed
    * if it exceeds {@link ReplicationEventBatchOptions['max_batch_size']}.
-   *
    */
   async save(params: ReplicationEventWriteParams) {
     const { data, event, table } = params;

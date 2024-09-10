@@ -8,8 +8,12 @@ import {
   ToastableSqliteRow
 } from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
-import { SourceTable } from './SourceTable.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
+import { SourceTable } from './SourceTable.js';
+
+export interface UserCheckpointOptions {
+  sync_rules_id?: number;
+}
 
 export interface BucketStorageFactory {
   /**
@@ -80,11 +84,19 @@ export interface BucketStorageFactory {
    */
   getActiveCheckpoint(): Promise<ActiveCheckpoint>;
 
-  createWriteCheckpoint(user_id: string, lsns: Record<string, string>): Promise<bigint>;
+  createWriteCheckpoint(
+    user_id: string,
+    lsns: Record<string, string>,
+    options?: UserCheckpointOptions
+  ): Promise<bigint>;
 
-  lastWriteCheckpoint(user_id: string, lsn: string): Promise<bigint | null>;
+  lastWriteCheckpoint(user_id: string, lsn: string, options?: UserCheckpointOptions): Promise<bigint | null>;
 
-  watchWriteCheckpoint(user_id: string, signal: AbortSignal): AsyncIterable<WriteCheckpoint>;
+  watchWriteCheckpoint(
+    user_id: string,
+    signal: AbortSignal,
+    options?: UserCheckpointOptions
+  ): AsyncIterable<WriteCheckpoint>;
 
   /**
    * Get storage size of active sync rules.

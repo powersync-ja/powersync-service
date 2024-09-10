@@ -1,5 +1,5 @@
-import * as bson from 'bson';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
+import * as bson from 'bson';
 
 export interface SourceKey {
   /** group_id */
@@ -155,6 +155,7 @@ export interface WriteCheckpointDocument {
   user_id: string;
   lsns: Record<string, string>;
   client_id: bigint;
+  sync_rules_id?: number;
 }
 
 export interface InstanceDocument {
