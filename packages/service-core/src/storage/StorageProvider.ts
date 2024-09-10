@@ -6,9 +6,9 @@ export interface ActiveStorage {
   shutDown(): Promise<void>;
 
   /**
-   *  Drop/Dispose of the storage permanently
+   *  Tear down / drop the storage permanently
    */
-  dispose(): Promise<boolean>;
+  tearDown(): Promise<boolean>;
 }
 
 export interface GetStorageOptions {

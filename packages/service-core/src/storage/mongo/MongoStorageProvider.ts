@@ -18,14 +18,14 @@ export class MongoStorageProvider implements BucketStorageProvider {
 
     return {
       storage: new MongoBucketStorage(database, {
-        // TODO currently need the entire resolved config for this
+        // TODO currently need the entire resolved config due to this
         slot_name_prefix: resolvedConfig.slot_name_prefix
       }),
       shutDown: () => client.close(),
-      dispose: () => {
-        logger.info(`Dropping storage: ${database.db.namespace}...`);
+      tearDown: () => {
+        logger.info(`Tearing down storage: ${database.db.namespace}...`);
         return database.db.dropDatabase();
       }
-    };
+    } satisfies ActiveStorage;
   }
 }
