@@ -32,6 +32,9 @@
     },
     {
       "path": "../modules/module-postgres"
+    },
+    {
+      "path": "../modules/module-mongodb"
     }
   ]
 }
