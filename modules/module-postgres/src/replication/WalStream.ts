@@ -345,13 +345,21 @@ WHERE  oid = $1::regclass`,
   }
 
   async initialReplication(db: pgwire.PgConnection, lsn: string) {
-    const sourceTables = this.sync_rules.getSourceTables();
+    const replicationTables = [...this.sync_rules.getSourceTables(), ...this.sync_rules.getEventTables()];
+
     await this.storage.startBatch({}, async (batch) => {
-      for (let tablePattern of sourceTables) {
+      const eventBatch = new replication.ReplicationEventBatch({
+        manager: this.event_manager,
+        storage: this.storage
+      });
+
+      for (let tablePattern of replicationTables) {
         const tables = await this.getQualifiedTableNames(batch, db, tablePattern);
         for (let table of tables) {
-          await this.snapshotTable(batch, db, table);
-          await batch.markSnapshotDone([table], lsn);
+          await this.snapshotTable(batch, db, table, eventBatch);
+          if (table.syncAny) {
+            await batch.markSnapshotDone([table], lsn);
+          }
 
           await touch();
         }
@@ -366,7 +374,12 @@ WHERE  oid = $1::regclass`,
     }
   }
 
-  private async snapshotTable(batch: storage.BucketStorageBatch, db: pgwire.PgConnection, table: storage.SourceTable) {
+  private async snapshotTable(
+    batch: storage.BucketStorageBatch,
+    db: pgwire.PgConnection,
+    table: storage.SourceTable,
+    eventBatch?: replication.ReplicationEventBatch
+  ) {
     logger.info(`${this.slot_name} Replicating ${table.qualifiedName}`);
     const estimatedCount = await this.estimatedCount(db, table);
     let at = 0;
@@ -400,10 +413,21 @@ WHERE  oid = $1::regclass`,
         throw new Error(`Aborted initial replication of ${this.slot_name}`);
       }
 
-      for (let record of WalStream.getQueryData(rows)) {
+      for (const record of WalStream.getQueryData(rows)) {
         // This auto-flushes when the batch reaches its size limit
-        await batch.save({ tag: 'insert', sourceTable: table, before: undefined, after: record });
+        if (table.syncAny) {
+          await batch.save({ tag: 'insert', sourceTable: table, before: undefined, after: record });
+        }
+        // Event batch is only provided in the initial snapshot
+        if (eventBatch) {
+          // The method checks internally if an event should be emitted
+          await this.writeSnapshotEvent(eventBatch, {
+            table,
+            data: record
+          });
+        }
       }
+
       at += rows.length;
       Metrics.getInstance().rows_replicated_total.add(rows.length);
 
@@ -519,42 +543,51 @@ WHERE  oid = $1::regclass`,
     return null;
   }
 
-  async writeEvent(msg: pgwire.PgoutputMessage) {
+  protected async writeSnapshotEvent(
+    eventBatch: replication.ReplicationEventBatch,
+    params: { table: storage.SourceTable; data: SqliteRow }
+  ) {
+    const { table, data } = params;
+
+    if (!table.triggerEvents) {
+      return null;
+    }
+
+    for (const eventDescription of this.getTableEvents(table)) {
+      await eventBatch.save({
+        event: eventDescription,
+        table,
+        data: {
+          op: replication.EventOp.INSERT,
+          after: eventDescription.evaluateParameterRow(table, data)
+        }
+      });
+    }
+  }
+
+  /**
+   * Writes a replication event which is triggered from the replication stream.
+   */
+  protected async writeReplicationEvent(batch: replication.ReplicationEventBatch, msg: pgwire.PgoutputMessage) {
     if (msg.tag == 'insert' || msg.tag == 'update' || msg.tag == 'delete') {
       const table = this.getTable(getRelId(msg.relation));
       if (!table.triggerEvents) {
         return null;
       }
-      const relevantEventDescriptions = this.sync_rules.event_descriptors.filter(
-        (evt) => !!Array.from(evt.getSourceTables()).find((sourceTable) => sourceTable.matches(table))
-      );
 
       const before = msg.tag == 'update' ? util.constructBeforeRecord(msg) : undefined;
       const after = msg.tag !== 'delete' ? util.constructAfterRecord(msg) : undefined;
 
-      for (const eventDescription of relevantEventDescriptions) {
-        const dataOp = {
-          op: msg.tag as replication.EventOp,
-          after: after ? eventDescription.evaluateParameterRow(table, after) : undefined,
-          before: before ? eventDescription.evaluateParameterRow(table, before) : undefined
-        };
-        if (!this.event_cache.has(eventDescription)) {
-          const dataMap: replication.ReplicationEventData = new Map();
-          dataMap.set(table, [dataOp]);
-          this.event_cache.set(eventDescription, {
-            event: eventDescription,
-            storage: this.storage,
-            data: dataMap
-          });
-          continue;
-        }
-        const cached = this.event_cache.get(eventDescription)!;
-        if (!cached.data.has(table)) {
-          cached.data.set(table, [dataOp]);
-          continue;
-        }
-
-        cached.data.get(table)!.push(dataOp);
+      for (const eventDescription of this.getTableEvents(table)) {
+        await batch.save({
+          event: eventDescription,
+          table,
+          data: {
+            op: msg.tag as replication.EventOp,
+            after: after ? eventDescription.evaluateParameterRow(table, after) : undefined,
+            before: before ? eventDescription.evaluateParameterRow(table, before) : undefined
+          }
+        });
       }
     }
   }
@@ -598,6 +631,10 @@ WHERE  oid = $1::regclass`,
       // Replication never starts in the middle of a transaction
       let inTx = false;
       let count = 0;
+      const eventBatch = new replication.ReplicationEventBatch({
+        manager: this.event_manager,
+        storage: this.storage
+      });
 
       for await (const chunk of replicationStream.pgoutputDecode()) {
         await touch();
@@ -632,7 +669,7 @@ WHERE  oid = $1::regclass`,
 
             count += 1;
             await this.writeChange(batch, msg);
-            await this.writeEvent(msg);
+            await this.writeReplicationEvent(eventBatch, msg);
           }
         }
 
@@ -658,6 +695,15 @@ WHERE  oid = $1::regclass`,
     }
 
     replicationStream.ack(lsn);
+  }
+
+  /**
+   * Gets relevant {@link SqlEventDescriptor}s for the given {@link SourceTable}
+   */
+  protected getTableEvents(table: storage.SourceTable): SqlEventDescriptor[] {
+    return this.sync_rules.event_descriptors.filter((evt) =>
+      [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table))
+    );
   }
 }
 
