@@ -74,6 +74,9 @@ importers:
       ts-codec:
         specifier: ^1.2.2
         version: 1.2.2
+      uuid:
+        specifier: ^9.0.1
+        version: 9.0.1
       winston:
         specifier: ^3.13.0
         version: 3.13.0
@@ -84,6 +87,61 @@ importers:
       '@types/lodash':
         specifier: ^4.17.5
         version: 4.17.5
+      '@types/uuid':
+        specifier: ^9.0.4
+        version: 9.0.8
+      vitest:
+        specifier: ^0.34.6
+        version: 0.34.6
+
+  modules/module-postgres:
+    dependencies:
+      '@powersync/lib-services-framework':
+        specifier: workspace:*
+        version: link:../../libs/lib-services
+      '@powersync/service-core':
+        specifier: workspace:*
+        version: link:../../packages/service-core
+      '@powersync/service-jpgwire':
+        specifier: workspace:*
+        version: link:../../packages/jpgwire
+      '@powersync/service-jsonbig':
+        specifier: workspace:*
+        version: link:../../packages/jsonbig
+      '@powersync/service-sync-rules':
+        specifier: workspace:*
+        version: link:../../packages/sync-rules
+      '@powersync/service-types':
+        specifier: workspace:*
+        version: link:../../packages/types
+      jose:
+        specifier: ^4.15.1
+        version: 4.15.5
+      mongodb:
+        specifier: ^6.7.0
+        version: 6.7.0(socks@2.8.3)
+      pgwire:
+        specifier: github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
+        version: https://codeload.github.com/kagis/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
+      ts-codec:
+        specifier: ^1.2.2
+        version: 1.2.2
+      uri-js:
+        specifier: ^4.4.1
+        version: 4.4.1
+      uuid:
+        specifier: ^9.0.1
+        version: 9.0.1
+    devDependencies:
+      '@types/uuid':
+        specifier: ^9.0.4
+        version: 9.0.8
+      typescript:
+        specifier: ^5.2.2
+        version: 5.2.2
+      vite-tsconfig-paths:
+        specifier: ^4.3.2
+        version: 4.3.2(typescript@5.2.2)(vite@5.2.11(@types/node@18.11.11))
       vitest:
         specifier: ^0.34.6
         version: 0.34.6
@@ -93,6 +151,9 @@ importers:
       '@powersync/service-jsonbig':
         specifier: workspace:^
         version: link:../jsonbig
+      '@powersync/service-sync-rules':
+        specifier: workspace:^
+        version: link:../sync-rules
       '@powersync/service-types':
         specifier: workspace:^
         version: link:../types
@@ -169,9 +230,6 @@ importers:
       '@powersync/lib-services-framework':
         specifier: workspace:*
         version: link:../../libs/lib-services
-      '@powersync/service-jpgwire':
-        specifier: workspace:*
-        version: link:../jpgwire
       '@powersync/service-jsonbig':
         specifier: workspace:*
         version: link:../jsonbig
@@ -220,9 +278,6 @@ importers:
       node-fetch:
         specifier: ^3.3.2
         version: 3.3.2
-      pgwire:
-        specifier: github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
-        version: https://codeload.github.com/kagis/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
       ts-codec:
         specifier: ^1.2.2
         version: 1.2.2
@@ -321,6 +376,9 @@ importers:
       '@powersync/service-jsonbig':
         specifier: workspace:*
         version: link:../packages/jsonbig
+      '@powersync/service-module-postgres':
+        specifier: workspace:*
+        version: link:../modules/module-postgres
       '@powersync/service-rsocket-router':
         specifier: workspace:*
         version: link:../packages/rsocket-router
@@ -5472,7 +5530,7 @@ snapshots:
 
   agent-base@6.0.2:
     dependencies:
-      debug: 4.3.4(supports-color@5.5.0)
+      debug: 4.3.7
     transitivePeerDependencies:
       - supports-color
 
@@ -6518,7 +6576,7 @@ snapshots:
     dependencies:
       '@tootallnate/once': 2.0.0
       agent-base: 6.0.2
-      debug: 4.3.4(supports-color@5.5.0)
+      debug: 4.3.7
     transitivePeerDependencies:
       - supports-color
 
@@ -6530,7 +6588,7 @@ snapshots:
   https-proxy-agent@5.0.1:
     dependencies:
       agent-base: 6.0.2
-      debug: 4.3.4(supports-color@5.5.0)
+      debug: 4.3.7
     transitivePeerDependencies:
       - supports-color
 
@@ -7687,7 +7745,7 @@ snapshots:
 
   require-in-the-middle@7.3.0:
     dependencies:
-      debug: 4.3.4(supports-color@5.5.0)
+      debug: 4.3.7
       module-details-from-path: 1.0.3
       resolve: 1.22.8
     transitivePeerDependencies:
@@ -7896,7 +7954,7 @@ snapshots:
   socks-proxy-agent@7.0.0:
     dependencies:
       agent-base: 6.0.2
-      debug: 4.3.4(supports-color@5.5.0)
+      debug: 4.3.7
       socks: 2.8.3
     transitivePeerDependencies:
       - supports-color
@@ -8183,6 +8241,10 @@ snapshots:
       string-argv: 0.3.2
       typescript: 5.2.2
 
+  tsconfck@3.0.3(typescript@5.2.2):
+    optionalDependencies:
+      typescript: 5.2.2
+
   tsconfck@3.0.3(typescript@5.4.5):
     optionalDependencies:
       typescript: 5.4.5
@@ -8209,7 +8271,7 @@ snapshots:
   tuf-js@1.1.7:
     dependencies:
       '@tufjs/models': 1.0.4
-      debug: 4.3.4(supports-color@5.5.0)
+      debug: 4.3.7
       make-fetch-happen: 11.1.1
     transitivePeerDependencies:
       - supports-color
@@ -8344,7 +8406,7 @@ snapshots:
   vite-node@0.34.6(@types/node@18.11.11):
     dependencies:
       cac: 6.7.14
-      debug: 4.3.4(supports-color@5.5.0)
+      debug: 4.3.7
       mlly: 1.7.0
       pathe: 1.1.2
       picocolors: 1.0.1
@@ -8376,9 +8438,20 @@ snapshots:
       - supports-color
       - terser
 
+  vite-tsconfig-paths@4.3.2(typescript@5.2.2)(vite@5.2.11(@types/node@18.11.11)):
+    dependencies:
+      debug: 4.3.7
+      globrex: 0.1.2
+      tsconfck: 3.0.3(typescript@5.2.2)
+    optionalDependencies:
+      vite: 5.2.11(@types/node@18.11.11)
+    transitivePeerDependencies:
+      - supports-color
+      - typescript
+
   vite-tsconfig-paths@4.3.2(typescript@5.4.5)(vite@5.2.11(@types/node@18.11.11)):
     dependencies:
-      debug: 4.3.4(supports-color@5.5.0)
+      debug: 4.3.7
       globrex: 0.1.2
       tsconfck: 3.0.3(typescript@5.4.5)
     optionalDependencies:
