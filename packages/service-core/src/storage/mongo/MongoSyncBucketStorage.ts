@@ -16,7 +16,8 @@ import {
   StartBatchOptions,
   SyncBucketDataBatch,
   SyncRulesBucketStorage,
-  SyncRuleStatus
+  SyncRuleStatus,
+  TerminateOptions
 } from '../BucketStorage.js';
 import { ChecksumCache, FetchPartialBucketChecksum } from '../ChecksumCache.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
@@ -392,9 +393,11 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     );
   }
 
-  async terminate() {
-    await this.clear();
-
+  async terminate(options?: TerminateOptions) {
+    // Default is to clear the storage except when explicitly requested not to.
+    if (!options || options?.clearStorage) {
+      await this.clear();
+    }
     await this.db.sync_rules.updateOne(
       {
         _id: this.group_id

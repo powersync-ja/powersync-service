@@ -20,6 +20,7 @@ export interface ReplicationModuleOptions extends modules.AbstractModuleOptions 
 export abstract class ReplicationModule<TConfig extends DataSourceConfig> extends modules.AbstractModule {
   protected type: string;
   protected configSchema: t.AnyCodec;
+  protected decodedConfig: TConfig | undefined;
 
   /**
    * @protected
@@ -35,12 +36,12 @@ export abstract class ReplicationModule<TConfig extends DataSourceConfig> extend
    *  Create the RouteAPI adapter for the DataSource required to service the sync API
    *  endpoints.
    */
-  protected abstract createRouteAPIAdapter(decodedConfig: TConfig): api.RouteAPI;
+  protected abstract createRouteAPIAdapter(): api.RouteAPI;
 
   /**
    *  Create the Replicator to be used by the ReplicationEngine.
    */
-  protected abstract createReplicator(decodedConfig: TConfig, context: system.ServiceContext): AbstractReplicator;
+  protected abstract createReplicator(context: system.ServiceContext): AbstractReplicator;
 
   /**
    *  Register this module's Replicators and RouteAPI adapters if the required configuration is present.
@@ -67,10 +68,10 @@ export abstract class ReplicationModule<TConfig extends DataSourceConfig> extend
       const baseMatchingConfig = matchingConfig[0] as TConfig;
       // If validation fails, log the error and continue, no replication will happen for this data source
       this.validateConfig(baseMatchingConfig);
-      const decodedConfig = this.configSchema.decode(baseMatchingConfig);
-      context.replicationEngine.register(this.createReplicator(decodedConfig, context));
-      const apiAdapter = this.createRouteAPIAdapter(decodedConfig);
-      context.routerEngine.registerAPI(apiAdapter);
+      this.decodedConfig = this.configSchema.decode(baseMatchingConfig);
+
+      context.replicationEngine?.register(this.createReplicator(context));
+      context.routerEngine?.registerAPI(this.createRouteAPIAdapter());
     } catch (e) {
       this.logger.error('Failed to initialize.', e);
     }
