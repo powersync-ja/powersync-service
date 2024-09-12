@@ -345,7 +345,7 @@ WHERE  oid = $1::regclass`,
   }
 
   async initialReplication(db: pgwire.PgConnection, lsn: string) {
-    const replicationTables = [...this.sync_rules.getSourceTables(), ...this.sync_rules.getEventTables()];
+    const replicationTables = [...this.sync_rules.getSourceTables()];
 
     await this.storage.startBatch({}, async (batch) => {
       const eventBatch = new replication.ReplicationEventBatch({
@@ -356,14 +356,12 @@ WHERE  oid = $1::regclass`,
       for (let tablePattern of replicationTables) {
         const tables = await this.getQualifiedTableNames(batch, db, tablePattern);
         for (let table of tables) {
-          await this.snapshotTable(batch, db, table, eventBatch);
-          if (table.syncAny) {
-            await batch.markSnapshotDone([table], lsn);
-          }
-
+          await this.snapshotTable(batch, db, table, eventBatch, lsn);
+          await batch.markSnapshotDone([table], lsn);
           await touch();
         }
       }
+      await eventBatch.flush();
       await batch.commit(lsn);
     });
   }
@@ -378,7 +376,8 @@ WHERE  oid = $1::regclass`,
     batch: storage.BucketStorageBatch,
     db: pgwire.PgConnection,
     table: storage.SourceTable,
-    eventBatch?: replication.ReplicationEventBatch
+    eventBatch?: replication.ReplicationEventBatch,
+    lsn?: string
   ) {
     logger.info(`${this.slot_name} Replicating ${table.qualifiedName}`);
     const estimatedCount = await this.estimatedCount(db, table);
@@ -423,6 +422,7 @@ WHERE  oid = $1::regclass`,
           // The method checks internally if an event should be emitted
           await this.writeSnapshotEvent(eventBatch, {
             table,
+            lsn: lsn!,
             data: record
           });
         }
@@ -545,9 +545,9 @@ WHERE  oid = $1::regclass`,
 
   protected async writeSnapshotEvent(
     eventBatch: replication.ReplicationEventBatch,
-    params: { table: storage.SourceTable; data: SqliteRow }
+    params: { table: storage.SourceTable; data: SqliteRow; lsn: string }
   ) {
-    const { table, data } = params;
+    const { data, lsn, table } = params;
 
     if (!table.triggerEvents) {
       return null;
@@ -558,6 +558,7 @@ WHERE  oid = $1::regclass`,
         event: eventDescription,
         table,
         data: {
+          head: lsn,
           op: replication.EventOp.INSERT,
           after: eventDescription.evaluateParameterRow(table, data)
         }
@@ -583,6 +584,7 @@ WHERE  oid = $1::regclass`,
           event: eventDescription,
           table,
           data: {
+            head: msg.lsn!,
             op: msg.tag as replication.EventOp,
             after: after ? eventDescription.evaluateParameterRow(table, after) : undefined,
             before: before ? eventDescription.evaluateParameterRow(table, before) : undefined
@@ -646,7 +648,6 @@ WHERE  oid = $1::regclass`,
         // chunkLastLsn may come from normal messages in the chunk,
         // or from a PrimaryKeepalive message.
         const { messages, lastLsn: chunkLastLsn } = chunk;
-
         for (const msg of messages) {
           if (msg.tag == 'relation') {
             await this.handleRelation(batch, getPgOutputRelation(msg), true);
@@ -655,6 +656,7 @@ WHERE  oid = $1::regclass`,
           } else if (msg.tag == 'commit') {
             Metrics.getInstance().transactions_replicated_total.add(1);
             inTx = false;
+            await eventBatch.flush();
             await batch.commit(msg.lsn!);
             await this.ack(msg.lsn!, replicationStream);
             // Flush cached event operations
@@ -668,8 +670,8 @@ WHERE  oid = $1::regclass`,
             }
 
             count += 1;
-            await this.writeChange(batch, msg);
             await this.writeReplicationEvent(eventBatch, msg);
+            await this.writeChange(batch, msg);
           }
         }
 
