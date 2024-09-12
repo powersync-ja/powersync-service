@@ -73,6 +73,10 @@ export class MongoBucketBatch implements BucketStorageBatch {
     this.no_checkpoint_before_lsn = no_checkpoint_before_lsn;
   }
 
+  get lastCheckpointLsn() {
+    return this.last_checkpoint_lsn;
+  }
+
   async flush(): Promise<FlushedResult | null> {
     let result: FlushedResult | null = null;
     // One flush may be split over multiple transactions.

@@ -3,7 +3,7 @@ import { Metrics, SourceEntityDescriptor, storage } from '@powersync/service-cor
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
 import * as mongo from 'mongodb';
 import { MongoManager } from './MongoManager.js';
-import { constructAfterRecord, getMongoLsn, getMongoRelation } from './MongoRelation.js';
+import { constructAfterRecord, getMongoLsn, getMongoRelation, mongoLsnToTimestamp } from './MongoRelation.js';
 
 export const ZERO_LSN = '00000000';
 
@@ -33,6 +33,7 @@ export class ChangeStream {
 
   private connections: MongoManager;
   private readonly client: mongo.MongoClient;
+  private readonly defaultDb: mongo.Db;
 
   private abort_signal: AbortSignal;
 
@@ -44,6 +45,7 @@ export class ChangeStream {
     this.group_id = options.storage.group_id;
     this.connections = options.connections;
     this.client = this.connections.client;
+    this.defaultDb = this.connections.db;
 
     this.abort_signal = options.abort_signal;
     this.abort_signal.addEventListener(
@@ -260,12 +262,23 @@ export class ChangeStream {
 
     await this.storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       // TODO: Resume replication
+      const lastLsn = batch.lastCheckpointLsn;
+      const startAfter = mongoLsnToTimestamp(lastLsn) ?? undefined;
+      logger.info(`Resume streaming at ${startAfter?.inspect()} / ${lastLsn}`);
+
+      // TODO: Use changeStreamSplitLargeEvent
+
       const stream = this.client.watch(undefined, {
+        startAtOperationTime: startAfter,
+        showExpandedEvents: true,
+        useBigInt64: true,
         fullDocument: 'updateLookup' // FIXME: figure this one out
       });
       this.abort_signal.addEventListener('abort', () => {
         stream.close();
       });
+
+      let lastEventTimestamp: mongo.Timestamp | null = null;
 
       for await (const changeDocument of stream) {
         await touch();
@@ -274,6 +287,30 @@ export class ChangeStream {
           break;
         }
 
+        if (startAfter != null && changeDocument.clusterTime?.lte(startAfter)) {
+          continue;
+        }
+
+        if (
+          lastEventTimestamp != null &&
+          changeDocument.clusterTime != null &&
+          changeDocument.clusterTime.neq(lastEventTimestamp)
+        ) {
+          const lsn = getMongoLsn(lastEventTimestamp);
+          await batch.commit(lsn);
+          lastEventTimestamp = null;
+        }
+
+        if ((changeDocument as any).ns?.db != this.defaultDb.databaseName) {
+          // HACK: Ignore events to other databases, but only _after_
+          // the above commit.
+
+          // TODO: filter out storage db on in the pipeline
+          // TODO: support non-default dbs
+          continue;
+        }
+        console.log('event', changeDocument);
+
         if (
           changeDocument.operationType == 'insert' ||
           changeDocument.operationType == 'update' ||
@@ -281,13 +318,10 @@ export class ChangeStream {
         ) {
           const rel = getMongoRelation(changeDocument.ns);
           const table = await this.handleRelation(batch, rel, true);
-          // TODO: Support transactions
           if (table.syncAny) {
             await this.writeChange(batch, table, changeDocument);
-
-            if (changeDocument.clusterTime != null) {
-              const lsn = getMongoLsn(changeDocument.clusterTime);
-              await batch.commit(lsn);
+            if (changeDocument.clusterTime) {
+              lastEventTimestamp = changeDocument.clusterTime;
             }
           }
         }

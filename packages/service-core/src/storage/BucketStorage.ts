@@ -333,6 +333,11 @@ export interface BucketStorageBatch {
    */
   keepalive(lsn: string): Promise<boolean>;
 
+  /**
+   * Get the last checkpoint LSN, from either commit or keepalive.
+   */
+  lastCheckpointLsn: string | null;
+
   markSnapshotDone(tables: SourceTable[], no_checkpoint_before_lsn: string): Promise<SourceTable[]>;
 }
 

@@ -13,9 +13,18 @@ export function getMongoRelation(source: mongo.ChangeStreamNameSpace): storage.S
 }
 
 export function getMongoLsn(timestamp: mongo.Timestamp) {
-  const a = timestamp.high.toString(16).padStart(4, '0');
-  const b = timestamp.low.toString(16).padStart(4, '0');
+  const a = timestamp.high.toString(16).padStart(8, '0');
+  const b = timestamp.low.toString(16).padStart(8, '0');
   return a + b;
+}
+
+export function mongoLsnToTimestamp(lsn: string | null) {
+  if (lsn == null) {
+    return null;
+  }
+  const a = parseInt(lsn.substring(0, 8), 16);
+  const b = parseInt(lsn.substring(8, 16), 16);
+  return mongo.Timestamp.fromBits(b, a);
 }
 
 export function constructAfterRecord(document: mongo.Document): SqliteRow {

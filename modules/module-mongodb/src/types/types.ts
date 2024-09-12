@@ -9,18 +9,10 @@ export interface NormalizedMongoConnectionConfig {
   tag: string;
 
   uri: string;
-  hostname?: string;
-  port?: number;
-  database?: string;
+  database: string;
 
   username?: string;
   password?: string;
-
-  sslmode: 'verify-full' | 'verify-ca' | 'disable';
-  cacert: string | undefined;
-
-  client_certificate: string | undefined;
-  client_private_key: string | undefined;
 }
 
 export const MongoConnectionConfig = service_types.configFile.dataSourceConfig.and(
@@ -73,26 +65,12 @@ export function normalizeConnectionConfig(options: MongoConnectionConfig): Norma
     uri = urijs.parse('mongodb:///');
   }
 
-  const hostname = options.hostname ?? uri.host ?? '';
-  const port = validatePort(options.port ?? uri.port ?? 5432);
-
   const database = options.database ?? uri.path?.substring(1) ?? '';
 
   const [uri_username, uri_password] = (uri.userinfo ?? '').split(':');
 
   const username = options.username ?? uri_username;
   const password = options.password ?? uri_password;
-
-  const sslmode = options.sslmode ?? 'verify-full'; // Configuration not supported via URI
-  const cacert = options.cacert;
-
-  if (sslmode == 'verify-ca' && cacert == null) {
-    throw new Error('Explicit cacert is required for sslmode=verify-ca');
-  }
-
-  if (hostname == '') {
-    throw new Error(`hostname required`);
-  }
 
   if (database == '') {
     throw new Error(`database required`);
@@ -102,18 +80,12 @@ export function normalizeConnectionConfig(options: MongoConnectionConfig): Norma
     id: options.id ?? 'default',
     tag: options.tag ?? 'default',
 
+    // TODO: remove username & password from uri
     uri: options.uri ?? '',
-    hostname,
-    port,
     database,
 
     username,
-    password,
-    sslmode,
-    cacert,
-
-    client_certificate: options.client_certificate ?? undefined,
-    client_private_key: options.client_private_key ?? undefined
+    password
   };
 }
 
@@ -139,5 +111,5 @@ export function validatePort(port: string | number): number {
  * Only contains hostname, port, database.
  */
 export function baseUri(options: NormalizedMongoConnectionConfig) {
-  return `mongodb://${options.hostname}:${options.port}/${options.database}`;
+  return options.uri;
 }
