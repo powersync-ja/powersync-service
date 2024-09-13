@@ -539,7 +539,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
   async commit(lsn: string): Promise<boolean> {
     await this.flush();
 
-    if (this.last_checkpoint_lsn != null && lsn <= this.last_checkpoint_lsn) {
+    if (this.last_checkpoint_lsn != null && lsn < this.last_checkpoint_lsn) {
       // When re-applying transactions, don't create a new checkpoint until
       // we are past the last transaction.
       logger.info(`Re-applied transaction ${lsn} - skipping checkpoint`);

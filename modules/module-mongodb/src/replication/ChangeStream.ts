@@ -70,7 +70,6 @@ export class ChangeStream {
       return [];
     }
 
-    const prefix = tablePattern.isWildcard ? tablePattern.tablePrefix : undefined;
     if (tablePattern.isWildcard) {
       // TODO: Implement
       throw new Error('not supported yet');
@@ -135,6 +134,28 @@ export class ChangeStream {
       }
       await batch.commit(ZERO_LSN);
     });
+  }
+
+  private getSourceNamespaceFilters() {
+    const sourceTables = this.sync_rules.getSourceTables();
+
+    let filters: any[] = [];
+    for (let tablePattern of sourceTables) {
+      if (tablePattern.connectionTag != this.connections.connectionTag) {
+        continue;
+      }
+
+      if (tablePattern.isWildcard) {
+        // TODO: Implement
+        throw new Error('wildcard collections not supported yet');
+      }
+
+      filters.push({
+        db: tablePattern.schema,
+        coll: tablePattern.name
+      });
+    }
+    return { $in: filters };
   }
 
   static *getQueryData(results: Iterable<DatabaseInputRow>): Generator<SqliteRow> {
@@ -268,10 +289,22 @@ export class ChangeStream {
 
       // TODO: Use changeStreamSplitLargeEvent
 
-      const stream = this.client.watch(undefined, {
+      const nsFilter = this.getSourceNamespaceFilters();
+      nsFilter.$in.push({ ns: nsFilter });
+
+      const pipeline: mongo.Document[] = [
+        {
+          $match: {
+            ns: this.getSourceNamespaceFilters()
+          }
+        }
+      ];
+
+      const stream = this.client.watch(pipeline, {
         startAtOperationTime: startAfter,
         showExpandedEvents: true,
         useBigInt64: true,
+        maxAwaitTimeMS: 200,
         fullDocument: 'updateLookup' // FIXME: figure this one out
       });
       this.abort_signal.addEventListener('abort', () => {
@@ -280,7 +313,22 @@ export class ChangeStream {
 
       let lastEventTimestamp: mongo.Timestamp | null = null;
 
-      for await (const changeDocument of stream) {
+      while (true) {
+        const changeDocument = await stream.tryNext();
+        if (changeDocument == null) {
+          // We don't get events for transaction commit.
+          // So if no events are available in the stream within maxAwaitTimeMS,
+          // we assume the transaction is complete.
+          // This is not foolproof - we may end up with a commit in the middle
+          // of a transaction.
+          if (lastEventTimestamp != null) {
+            const lsn = getMongoLsn(lastEventTimestamp);
+            await batch.commit(lsn);
+            lastEventTimestamp = null;
+          }
+
+          continue;
+        }
         await touch();
 
         if (this.abort_signal.aborted) {
@@ -301,15 +349,7 @@ export class ChangeStream {
           lastEventTimestamp = null;
         }
 
-        if ((changeDocument as any).ns?.db != this.defaultDb.databaseName) {
-          // HACK: Ignore events to other databases, but only _after_
-          // the above commit.
-
-          // TODO: filter out storage db on in the pipeline
-          // TODO: support non-default dbs
-          continue;
-        }
-        console.log('event', changeDocument);
+        // console.log('event', changeDocument);
 
         if (
           changeDocument.operationType == 'insert' ||
