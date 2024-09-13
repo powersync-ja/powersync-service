@@ -5,6 +5,8 @@ import { MissingReplicationSlotError, ChangeStream } from './ChangeStream.js';
 import { replication } from '@powersync/service-core';
 import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
 
+import * as mongo from 'mongodb';
+
 export interface ChangeStreamReplicationJobOptions extends replication.AbstractReplicationJobOptions {
   connectionFactory: ConnectionManagerFactory;
 }
@@ -27,6 +29,10 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
     // TODO: Implement?
   }
 
+  private get slotName() {
+    return this.options.storage.slot_name;
+  }
+
   async replicate() {
     try {
       await this.replicateLoop();
@@ -36,6 +42,11 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
         metadata: {}
       });
       this.logger.error(`Replication failed`, e);
+
+      if (e instanceof MissingReplicationSlotError) {
+        // This stops replication on this slot, and creates a new slot
+        await this.options.storage.factory.slotRemoved(this.slotName);
+      }
     } finally {
       this.abortController.abort();
     }
@@ -70,30 +81,11 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
     } catch (e) {
       this.logger.error(`Replication error`, e);
       if (e.cause != null) {
-        // Example:
-        // PgError.conn_ended: Unable to do postgres query on ended connection
-        //     at PgConnection.stream (file:///.../powersync/node_modules/.pnpm/github.com+kagis+pgwire@f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87/node_modules/pgwire/mod.js:315:13)
-        //     at stream.next (<anonymous>)
-        //     at PgResult.fromStream (file:///.../powersync/node_modules/.pnpm/github.com+kagis+pgwire@f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87/node_modules/pgwire/mod.js:1174:22)
-        //     at PgConnection.query (file:///.../powersync/node_modules/.pnpm/github.com+kagis+pgwire@f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87/node_modules/pgwire/mod.js:311:21)
-        //     at WalStream.startInitialReplication (file:///.../powersync/powersync-service/lib/replication/WalStream.js:266:22)
-        //     ...
-        //   cause: TypeError: match is not iterable
-        //       at timestamptzToSqlite (file:///.../powersync/packages/jpgwire/dist/util.js:140:50)
-        //       at PgType.decode (file:///.../powersync/packages/jpgwire/dist/pgwire_types.js:25:24)
-        //       at PgConnection._recvDataRow (file:///.../powersync/packages/jpgwire/dist/util.js:88:22)
-        //       at PgConnection._recvMessages (file:///.../powersync/node_modules/.pnpm/github.com+kagis+pgwire@f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87/node_modules/pgwire/mod.js:656:30)
-        //       at PgConnection._ioloopAttempt (file:///.../powersync/node_modules/.pnpm/github.com+kagis+pgwire@f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87/node_modules/pgwire/mod.js:563:20)
-        //       at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
-        //       at async PgConnection._ioloop (file:///.../powersync/node_modules/.pnpm/github.com+kagis+pgwire@f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87/node_modules/pgwire/mod.js:517:14),
-        //   [Symbol(pg.ErrorCode)]: 'conn_ended',
-        //   [Symbol(pg.ErrorResponse)]: undefined
-        // }
-        // Without this additional log, the cause would not be visible in the logs.
+        // Without this additional log, the cause may not be visible in the logs.
         this.logger.error(`cause`, e.cause);
       }
-      if (e instanceof MissingReplicationSlotError) {
-        throw e;
+      if (e instanceof mongo.MongoError && e.hasErrorLabel('NonResumableChangeStreamError')) {
+        throw new MissingReplicationSlotError(e.message);
       } else {
         // Report the error if relevant, before retrying
         container.reporter.captureException(e, {

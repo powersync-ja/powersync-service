@@ -5,7 +5,7 @@ import * as mongo from 'mongodb';
 import { MongoManager } from './MongoManager.js';
 import { constructAfterRecord, getMongoLsn, getMongoRelation, mongoLsnToTimestamp } from './MongoRelation.js';
 
-export const ZERO_LSN = '00000000';
+export const ZERO_LSN = '0000000000000000';
 
 export interface WalStreamOptions {
   connections: MongoManager;
@@ -72,7 +72,7 @@ export class ChangeStream {
 
     if (tablePattern.isWildcard) {
       // TODO: Implement
-      throw new Error('not supported yet');
+      throw new Error('Wildcard collections not supported yet');
     }
     let result: storage.SourceTable[] = [];
 
@@ -122,18 +122,35 @@ export class ChangeStream {
 
   async initialReplication() {
     const sourceTables = this.sync_rules.getSourceTables();
-    await this.storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
-      for (let tablePattern of sourceTables) {
-        const tables = await this.getQualifiedTableNames(batch, tablePattern);
-        for (let table of tables) {
-          await this.snapshotTable(batch, table);
-          await batch.markSnapshotDone([table], ZERO_LSN);
+    await this.client.connect();
 
-          await touch();
-        }
-      }
-      await batch.commit(ZERO_LSN);
+    const session = await this.client.startSession({
+      snapshot: true
     });
+    try {
+      await this.storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
+        for (let tablePattern of sourceTables) {
+          const tables = await this.getQualifiedTableNames(batch, tablePattern);
+          for (let table of tables) {
+            await this.snapshotTable(batch, table, session);
+            await batch.markSnapshotDone([table], ZERO_LSN);
+
+            await touch();
+          }
+        }
+        const time = session.clusterTime;
+
+        if (time != null) {
+          const lsn = getMongoLsn(time.clusterTime);
+          logger.info(`Snapshot commit at ${time.clusterTime.inspect()} / ${lsn}`);
+          await batch.commit(lsn);
+        } else {
+          logger.info(`No snapshot clusterTime (no snapshot data?) - skipping commit.`);
+        }
+      });
+    } finally {
+      session.endSession();
+    }
   }
 
   private getSourceNamespaceFilters() {
@@ -164,14 +181,18 @@ export class ChangeStream {
     }
   }
 
-  private async snapshotTable(batch: storage.BucketStorageBatch, table: storage.SourceTable) {
+  private async snapshotTable(
+    batch: storage.BucketStorageBatch,
+    table: storage.SourceTable,
+    session?: mongo.ClientSession
+  ) {
     logger.info(`Replicating ${table.qualifiedName}`);
     const estimatedCount = await this.estimatedCount(table);
     let at = 0;
 
     const db = this.client.db(table.schema);
     const collection = db.collection(table.table);
-    const query = collection.find({}, {});
+    const query = collection.find({}, { session });
 
     const cursor = query.stream();
 
@@ -282,7 +303,6 @@ export class ChangeStream {
     await this.storage.autoActivate();
 
     await this.storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
-      // TODO: Resume replication
       const lastLsn = batch.lastCheckpointLsn;
       const startAfter = mongoLsnToTimestamp(lastLsn) ?? undefined;
       logger.info(`Resume streaming at ${startAfter?.inspect()} / ${lastLsn}`);

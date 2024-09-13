@@ -32,7 +32,6 @@ export function constructAfterRecord(document: mongo.Document): SqliteRow {
   for (let key of Object.keys(document)) {
     record[key] = toMongoSyncRulesValue(document[key]);
   }
-  console.log('convert', document, record);
   return record;
 }
 
