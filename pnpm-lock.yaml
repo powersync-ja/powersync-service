@@ -113,7 +113,7 @@ importers:
         version: link:../../packages/types
       mongodb:
         specifier: ^6.7.0
-        version: 6.8.0(socks@2.8.3)
+        version: 6.7.0(socks@2.8.3)
       ts-codec:
         specifier: ^1.2.2
         version: 1.2.2
@@ -132,7 +132,7 @@ importers:
         version: 5.2.2
       vite-tsconfig-paths:
         specifier: ^4.3.2
-        version: 4.3.2(typescript@5.2.2)(vite@5.3.3(@types/node@18.11.11))
+        version: 4.3.2(typescript@5.2.2)(vite@5.2.11(@types/node@18.11.11))
       vitest:
         specifier: ^0.34.6
         version: 0.34.6
@@ -5267,7 +5267,7 @@ snapshots:
       '@opentelemetry/semantic-conventions': 1.25.0
       '@prisma/instrumentation': 5.15.0
       '@sentry/core': 8.9.2
-      '@sentry/opentelemetry': 8.9.2(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.0(@opentelemetry/api@1.9.0))(@opentelemetry/instrumentation@0.52.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.25.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.25.0)
+      '@sentry/opentelemetry': 8.9.2(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.0(@opentelemetry/api@1.6.0))(@opentelemetry/instrumentation@0.52.0(@opentelemetry/api@1.6.0))(@opentelemetry/sdk-trace-base@1.25.0(@opentelemetry/api@1.6.0))(@opentelemetry/semantic-conventions@1.25.0)
       '@sentry/types': 8.9.2
       '@sentry/utils': 8.9.2
     optionalDependencies:
@@ -5275,7 +5275,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@sentry/opentelemetry@8.9.2(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.0(@opentelemetry/api@1.9.0))(@opentelemetry/instrumentation@0.52.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.25.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.25.0)':
+  '@sentry/opentelemetry@8.9.2(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.0(@opentelemetry/api@1.6.0))(@opentelemetry/instrumentation@0.52.0(@opentelemetry/api@1.6.0))(@opentelemetry/sdk-trace-base@1.25.0(@opentelemetry/api@1.6.0))(@opentelemetry/semantic-conventions@1.25.0)':
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/core': 1.25.0(@opentelemetry/api@1.9.0)

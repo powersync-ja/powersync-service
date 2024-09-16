@@ -1,6 +1,5 @@
 import * as bson from 'bson';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
-import { ReplicaId } from '../BucketStorage.js';
 
 /**
  * Replica id uniquely identifying a row on the source database.
