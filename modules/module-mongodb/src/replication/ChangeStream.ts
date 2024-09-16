@@ -204,7 +204,14 @@ export class ChangeStream {
       const record = constructAfterRecord(document);
 
       // This auto-flushes when the batch reaches its size limit
-      await batch.save({ tag: 'insert', sourceTable: table, before: undefined, after: record });
+      await batch.save({
+        tag: 'insert',
+        sourceTable: table,
+        before: undefined,
+        beforeReplicaId: undefined,
+        after: record,
+        afterReplicaId: document._id
+      });
 
       at += 1;
       Metrics.getInstance().rows_replicated_total.add(1);
@@ -264,15 +271,31 @@ export class ChangeStream {
     Metrics.getInstance().rows_replicated_total.add(1);
     if (change.operationType == 'insert') {
       const baseRecord = constructAfterRecord(change.fullDocument);
-      return await batch.save({ tag: 'insert', sourceTable: table, before: undefined, after: baseRecord });
+      return await batch.save({
+        tag: 'insert',
+        sourceTable: table,
+        before: undefined,
+        beforeReplicaId: undefined,
+        after: baseRecord,
+        afterReplicaId: change.documentKey._id
+      });
     } else if (change.operationType == 'update') {
-      const before = undefined; // TODO: handle changing _id?
-      const after = constructAfterRecord(change.fullDocument!);
-      return await batch.save({ tag: 'update', sourceTable: table, before: before, after: after });
+      const after = constructAfterRecord(change.fullDocument ?? {});
+      return await batch.save({
+        tag: 'update',
+        sourceTable: table,
+        before: undefined,
+        beforeReplicaId: undefined,
+        after: after,
+        afterReplicaId: change.documentKey._id
+      });
     } else if (change.operationType == 'delete') {
-      const key = constructAfterRecord(change.documentKey);
-      console.log('delete', key);
-      return await batch.save({ tag: 'delete', sourceTable: table, before: key });
+      return await batch.save({
+        tag: 'delete',
+        sourceTable: table,
+        before: undefined,
+        beforeReplicaId: change.documentKey._id
+      });
     } else {
       throw new Error(`Unsupported operation: ${change.operationType}`);
     }

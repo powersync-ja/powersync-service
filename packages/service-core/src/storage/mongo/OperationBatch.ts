@@ -1,8 +1,7 @@
-import * as bson from 'bson';
 import { ToastableSqliteRow } from '@powersync/service-sync-rules';
+import * as bson from 'bson';
 
-import * as util from '../../util/util-index.js';
-import { SaveOptions } from '../BucketStorage.js';
+import { ReplicaId, SaveOptions } from '../BucketStorage.js';
 
 /**
  * Maximum number of operations in a batch.
@@ -63,18 +62,15 @@ export class OperationBatch {
 }
 
 export class RecordOperation {
-  public readonly afterId: bson.UUID | null;
-  public readonly beforeId: bson.UUID;
+  public readonly afterId: ReplicaId | null;
+  public readonly beforeId: ReplicaId;
   public readonly internalBeforeKey: string;
   public readonly internalAfterKey: string | null;
   public readonly estimatedSize: number;
 
   constructor(public readonly record: SaveOptions) {
-    const after = record.after;
-    const afterId = after ? util.getUuidReplicaIdentityBson(after, record.sourceTable.replicaIdColumns!) : null;
-    const beforeId = record.before
-      ? util.getUuidReplicaIdentityBson(record.before, record.sourceTable.replicaIdColumns!)
-      : afterId!;
+    const afterId = record.afterReplicaId ?? null;
+    const beforeId = record.beforeReplicaId ?? record.afterReplicaId;
     this.afterId = afterId;
     this.beforeId = beforeId;
     this.internalBeforeKey = cacheKey(record.sourceTable.id, beforeId);
@@ -84,8 +80,14 @@ export class RecordOperation {
   }
 }
 
-export function cacheKey(table: bson.ObjectId, id: bson.UUID) {
-  return `${table.toHexString()}.${id.toHexString()}`;
+export function cacheKey(table: bson.ObjectId, id: ReplicaId) {
+  if (id instanceof bson.UUID) {
+    return `${table.toHexString()}.${id.toHexString()}`;
+  } else if (typeof id == 'string') {
+    return `${table.toHexString()}.${id}`;
+  } else {
+    return `${table.toHexString()}.${(bson.serialize(id) as Buffer).toString('base64')}`;
+  }
 }
 
 /**

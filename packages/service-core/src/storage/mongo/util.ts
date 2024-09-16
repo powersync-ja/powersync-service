@@ -3,8 +3,10 @@ import * as bson from 'bson';
 import * as mongo from 'mongodb';
 import * as crypto from 'crypto';
 import { BucketDataDocument } from './models.js';
-import { timestampToOpId } from '../../util/utils.js';
+import { ID_NAMESPACE, timestampToOpId } from '../../util/utils.js';
 import { OplogEntry } from '../../util/protocol-types.js';
+import { ReplicaId } from '../BucketStorage.js';
+import * as uuid from 'uuid';
 
 /**
  * Lookup serialization must be number-agnostic. I.e. normalize numbers, instead of preserving numbers.
@@ -98,7 +100,7 @@ export function mapOpEntry(row: BucketDataDocument): OplogEntry {
       object_type: row.table,
       object_id: row.row_id,
       checksum: Number(row.checksum),
-      subkey: `${row.source_table}/${row.source_key!.toHexString()}`,
+      subkey: `${row.source_table}/${replicaIdToSubkey(row.source_key!)}`,
       data: row.data
     };
   } else {
@@ -109,5 +111,31 @@ export function mapOpEntry(row: BucketDataDocument): OplogEntry {
       op: row.op,
       checksum: Number(row.checksum)
     };
+  }
+}
+
+export function replicaIdEquals(a: ReplicaId, b: ReplicaId) {
+  if (typeof a == 'string' && typeof b == 'string') {
+    return a == b;
+  } else if (a instanceof bson.UUID && b instanceof bson.UUID) {
+    return a.equals(b);
+  } else if (a == null && b == null) {
+    return true;
+  } else if (a != null || b != null) {
+    return false;
+  } else {
+    return (bson.serialize(a) as Buffer).equals(bson.serialize(b));
+  }
+}
+
+export function replicaIdToSubkey(id: ReplicaId) {
+  if (id instanceof bson.UUID) {
+    return id.toHexString();
+  } else if (typeof id == 'string') {
+    return id;
+  } else {
+    const repr = bson.serialize(id);
+    return uuid.v5(repr, ID_NAMESPACE);
+    return;
   }
 }
