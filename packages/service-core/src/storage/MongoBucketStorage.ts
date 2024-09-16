@@ -13,6 +13,7 @@ import { v4 as uuid } from 'uuid';
 import {
   ActiveCheckpoint,
   BucketStorageFactory,
+  ParseSyncRulesOptions,
   PersistedSyncRules,
   PersistedSyncRulesContent,
   StorageMetrics,
@@ -47,7 +48,7 @@ export class MongoBucketStorage implements BucketStorageFactory {
         return undefined;
       }
       const rules = new MongoPersistedSyncRulesContent(this.db, doc2);
-      return this.getInstance(rules.parsed());
+      return this.getInstance(rules);
     }
   });
 
@@ -60,12 +61,12 @@ export class MongoBucketStorage implements BucketStorageFactory {
     this.slot_name_prefix = options.slot_name_prefix;
   }
 
-  getInstance(options: PersistedSyncRules): MongoSyncBucketStorage {
-    let { id, sync_rules, slot_name } = options;
+  getInstance(options: PersistedSyncRulesContent): MongoSyncBucketStorage {
+    let { id, slot_name } = options;
     if ((typeof id as any) == 'bigint') {
       id = Number(id);
     }
-    return new MongoSyncBucketStorage(this, id, sync_rules, slot_name);
+    return new MongoSyncBucketStorage(this, id, options, slot_name);
   }
 
   async configureSyncRules(sync_rules: string, options?: { lock?: boolean }) {
@@ -135,7 +136,12 @@ export class MongoBucketStorage implements BucketStorageFactory {
 
   async updateSyncRules(options: UpdateSyncRulesOptions): Promise<MongoPersistedSyncRulesContent> {
     // Parse and validate before applying any changes
-    const parsed = SqlSyncRules.fromYaml(options.content);
+    const parsed = SqlSyncRules.fromYaml(options.content, {
+      // No schema-based validation at this point
+      schema: undefined,
+      defaultSchema: 'not_applicable', // Not needed for validation
+      throwOnError: true
+    });
 
     let rules: MongoPersistedSyncRulesContent | undefined = undefined;
 
@@ -203,9 +209,9 @@ export class MongoBucketStorage implements BucketStorageFactory {
     return new MongoPersistedSyncRulesContent(this.db, doc);
   }
 
-  async getActiveSyncRules(): Promise<PersistedSyncRules | null> {
+  async getActiveSyncRules(options: ParseSyncRulesOptions): Promise<PersistedSyncRules | null> {
     const content = await this.getActiveSyncRulesContent();
-    return content?.parsed() ?? null;
+    return content?.parsed(options) ?? null;
   }
 
   async getNextSyncRulesContent(): Promise<MongoPersistedSyncRulesContent | null> {
@@ -222,9 +228,9 @@ export class MongoBucketStorage implements BucketStorageFactory {
     return new MongoPersistedSyncRulesContent(this.db, doc);
   }
 
-  async getNextSyncRules(): Promise<PersistedSyncRules | null> {
+  async getNextSyncRules(options: ParseSyncRulesOptions): Promise<PersistedSyncRules | null> {
     const content = await this.getNextSyncRulesContent();
-    return content?.parsed() ?? null;
+    return content?.parsed(options) ?? null;
   }
 
   async getReplicatingSyncRules(): Promise<PersistedSyncRulesContent[]> {
@@ -293,14 +299,6 @@ export class MongoBucketStorage implements BucketStorageFactory {
   }
 
   async getStorageMetrics(): Promise<StorageMetrics> {
-    const active_sync_rules = await this.getActiveSyncRules();
-    if (active_sync_rules == null) {
-      return {
-        operations_size_bytes: 0,
-        parameters_size_bytes: 0,
-        replication_size_bytes: 0
-      };
-    }
     const operations_aggregate = await this.db.bucket_data
 
       .aggregate([

@@ -24,7 +24,7 @@ export interface BucketStorageFactory {
   /**
    * Get a storage instance to query sync data for specific sync rules.
    */
-  getInstance(options: PersistedSyncRules): SyncRulesBucketStorage;
+  getInstance(options: PersistedSyncRulesContent): SyncRulesBucketStorage;
 
   /**
    * Deploy new sync rules.
@@ -48,7 +48,7 @@ export interface BucketStorageFactory {
   /**
    * Get the sync rules used for querying.
    */
-  getActiveSyncRules(): Promise<PersistedSyncRules | null>;
+  getActiveSyncRules(options: ParseSyncRulesOptions): Promise<PersistedSyncRules | null>;
 
   /**
    * Get the sync rules used for querying.
@@ -58,7 +58,7 @@ export interface BucketStorageFactory {
   /**
    * Get the sync rules that will be active next once done with initial replicatino.
    */
-  getNextSyncRules(): Promise<PersistedSyncRules | null>;
+  getNextSyncRules(options: ParseSyncRulesOptions): Promise<PersistedSyncRules | null>;
 
   /**
    * Get the sync rules that will be active next once done with initial replicatino.
@@ -131,6 +131,10 @@ export interface StorageMetrics {
   replication_size_bytes: number;
 }
 
+export interface ParseSyncRulesOptions {
+  defaultSchema: string;
+}
+
 export interface PersistedSyncRulesContent {
   readonly id: number;
   readonly sync_rules_content: string;
@@ -140,7 +144,7 @@ export interface PersistedSyncRulesContent {
   readonly last_keepalive_ts?: Date | null;
   readonly last_checkpoint_ts?: Date | null;
 
-  parsed(): PersistedSyncRules;
+  parsed(options: ParseSyncRulesOptions): PersistedSyncRules;
 
   lock(): Promise<ReplicationLock>;
 }
@@ -186,12 +190,11 @@ export interface BucketDataBatchOptions {
   chunkLimitBytes?: number;
 }
 
-export interface StartBatchOptions {
+export interface StartBatchOptions extends ParseSyncRulesOptions {
   zeroLSN: string;
 }
 
 export interface SyncRulesBucketStorage {
-  readonly sync_rules: SqlSyncRules;
   readonly group_id: number;
   readonly slot_name: string;
 
@@ -205,6 +208,8 @@ export interface SyncRulesBucketStorage {
   ): Promise<FlushedResult | null>;
 
   getCheckpoint(): Promise<{ checkpoint: util.OpId }>;
+
+  getParsedSyncRules(options: ParseSyncRulesOptions): SqlSyncRules;
 
   getParameterSets(checkpoint: util.OpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]>;
 
@@ -359,7 +364,7 @@ export interface SaveBucketData {
 
 export type SaveOptions = SaveInsert | SaveUpdate | SaveDelete;
 
-export type ReplicaId = string | bson.UUID | bson.Document;
+export type ReplicaId = string | bson.UUID | bson.Document | any;
 
 export interface SaveInsert {
   tag: 'insert';

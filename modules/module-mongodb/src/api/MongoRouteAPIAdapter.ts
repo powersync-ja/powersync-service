@@ -1,4 +1,4 @@
-import { api } from '@powersync/service-core';
+import { api, ParseSyncRulesOptions } from '@powersync/service-core';
 import * as mongo from 'mongodb';
 
 import * as sync_rules from '@powersync/service-sync-rules';
@@ -10,10 +10,19 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
   protected client: mongo.MongoClient;
 
   connectionTag: string;
+  defaultSchema: string;
 
   constructor(protected config: types.ResolvedConnectionConfig) {
-    this.client = new MongoManager(config).client;
+    const manager = new MongoManager(config);
+    this.client = manager.client;
+    this.defaultSchema = manager.db.databaseName;
     this.connectionTag = config.tag ?? sync_rules.DEFAULT_TAG;
+  }
+
+  getParseSyncRulesOptions(): ParseSyncRulesOptions {
+    return {
+      defaultSchema: this.defaultSchema
+    };
   }
 
   async shutdown(): Promise<void> {

@@ -2,6 +2,7 @@ import { ToastableSqliteRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import { ReplicaId, SaveOptions } from '../BucketStorage.js';
+import { isUUID } from './util.js';
 
 /**
  * Maximum number of operations in a batch.
@@ -80,13 +81,16 @@ export class RecordOperation {
   }
 }
 
+/**
+ * In-memory cache key - must not be persisted.
+ */
 export function cacheKey(table: bson.ObjectId, id: ReplicaId) {
-  if (id instanceof bson.UUID) {
+  if (isUUID(id)) {
     return `${table.toHexString()}.${id.toHexString()}`;
   } else if (typeof id == 'string') {
     return `${table.toHexString()}.${id}`;
   } else {
-    return `${table.toHexString()}.${(bson.serialize(id) as Buffer).toString('base64')}`;
+    return `${table.toHexString()}.${(bson.serialize({ id: id }) as Buffer).toString('base64')}`;
   }
 }
 

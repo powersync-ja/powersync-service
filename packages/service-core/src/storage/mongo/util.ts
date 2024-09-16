@@ -115,9 +115,11 @@ export function mapOpEntry(row: BucketDataDocument): OplogEntry {
 }
 
 export function replicaIdEquals(a: ReplicaId, b: ReplicaId) {
-  if (typeof a == 'string' && typeof b == 'string') {
+  if (a === b) {
+    return true;
+  } else if (typeof a == 'string' && typeof b == 'string') {
     return a == b;
-  } else if (a instanceof bson.UUID && b instanceof bson.UUID) {
+  } else if (isUUID(a) && isUUID(b)) {
     return a.equals(b);
   } else if (a == null && b == null) {
     return true;
@@ -129,13 +131,22 @@ export function replicaIdEquals(a: ReplicaId, b: ReplicaId) {
 }
 
 export function replicaIdToSubkey(id: ReplicaId) {
-  if (id instanceof bson.UUID) {
+  if (isUUID(id)) {
+    // Special case for UUID for backwards-compatiblity
     return id.toHexString();
   } else if (typeof id == 'string') {
     return id;
   } else {
-    const repr = bson.serialize(id);
+    const repr = bson.serialize({ id: id });
     return uuid.v5(repr, ID_NAMESPACE);
     return;
   }
+}
+
+export function isUUID(value: any): value is bson.UUID {
+  if (value == null || typeof value != 'object') {
+    return false;
+  }
+  const uuid = value as bson.UUID;
+  return uuid._bsontype == 'Binary' && uuid.sub_type == bson.Binary.SUBTYPE_UUID;
 }

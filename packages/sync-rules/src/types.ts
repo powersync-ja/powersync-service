@@ -3,6 +3,7 @@ import { SourceTableInterface } from './SourceTableInterface.js';
 import { ColumnDefinition, ExpressionType } from './ExpressionType.js';
 import { TablePattern } from './TablePattern.js';
 import { toSyncRulesParameters } from './utils.js';
+import { SyncRulesOptions } from './SqlSyncRules.js';
 
 export interface SyncRules {
   evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
@@ -10,7 +11,7 @@ export interface SyncRules {
   evaluateParameterRow(table: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[];
 }
 
-export interface QueryParseOptions {
+export interface QueryParseOptions extends SyncRulesOptions {
   accept_potentially_dangerous_queries?: boolean;
 }
 

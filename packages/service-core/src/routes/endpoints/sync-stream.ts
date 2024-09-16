@@ -54,6 +54,7 @@ export const syncStreamed = routeDefinition({
           sync.ndjson(
             sync.streamResponse({
               storage: storageEngine.activeBucketStorage,
+              parseOptions: routerEngine!.getAPI().getParseSyncRulesOptions(),
               params,
               syncParams,
               token: payload.context.token_payload!,

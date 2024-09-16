@@ -41,11 +41,13 @@ export class ChangeStream {
 
   constructor(options: WalStreamOptions) {
     this.storage = options.storage;
-    this.sync_rules = options.storage.sync_rules;
     this.group_id = options.storage.group_id;
     this.connections = options.connections;
     this.client = this.connections.client;
     this.defaultDb = this.connections.db;
+    this.sync_rules = options.storage.getParsedSyncRules({
+      defaultSchema: this.defaultDb.databaseName
+    });
 
     this.abort_signal = options.abort_signal;
     this.abort_signal.addEventListener(
@@ -128,26 +130,29 @@ export class ChangeStream {
       snapshot: true
     });
     try {
-      await this.storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
-        for (let tablePattern of sourceTables) {
-          const tables = await this.getQualifiedTableNames(batch, tablePattern);
-          for (let table of tables) {
-            await this.snapshotTable(batch, table, session);
-            await batch.markSnapshotDone([table], ZERO_LSN);
+      await this.storage.startBatch(
+        { zeroLSN: ZERO_LSN, defaultSchema: this.defaultDb.databaseName },
+        async (batch) => {
+          for (let tablePattern of sourceTables) {
+            const tables = await this.getQualifiedTableNames(batch, tablePattern);
+            for (let table of tables) {
+              await this.snapshotTable(batch, table, session);
+              await batch.markSnapshotDone([table], ZERO_LSN);
 
-            await touch();
+              await touch();
+            }
+          }
+          const time = session.clusterTime;
+
+          if (time != null) {
+            const lsn = getMongoLsn(time.clusterTime);
+            logger.info(`Snapshot commit at ${time.clusterTime.inspect()} / ${lsn}`);
+            await batch.commit(lsn);
+          } else {
+            logger.info(`No snapshot clusterTime (no snapshot data?) - skipping commit.`);
           }
         }
-        const time = session.clusterTime;
-
-        if (time != null) {
-          const lsn = getMongoLsn(time.clusterTime);
-          logger.info(`Snapshot commit at ${time.clusterTime.inspect()} / ${lsn}`);
-          await batch.commit(lsn);
-        } else {
-          logger.info(`No snapshot clusterTime (no snapshot data?) - skipping commit.`);
-        }
-      });
+      );
     } finally {
       session.endSession();
     }
@@ -325,7 +330,7 @@ export class ChangeStream {
     // Auto-activate as soon as initial replication is done
     await this.storage.autoActivate();
 
-    await this.storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
+    await this.storage.startBatch({ zeroLSN: ZERO_LSN, defaultSchema: this.defaultDb.databaseName }, async (batch) => {
       const lastLsn = batch.lastCheckpointLsn;
       const startAfter = mongoLsnToTimestamp(lastLsn) ?? undefined;
       logger.info(`Resume streaming at ${startAfter?.inspect()} / ${lastLsn}`);

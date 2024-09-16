@@ -19,6 +19,7 @@ import {
 } from './types.js';
 import { filterJsonRow, getBucketId, isSelectStatement } from './utils.js';
 import { TableQuerySchema } from './TableQuerySchema.js';
+import { SyncRulesOptions } from './SqlSyncRules.js';
 
 interface RowValueExtractor {
   extract(tables: QueryParameters, into: SqliteRow): void;
@@ -26,9 +27,10 @@ interface RowValueExtractor {
 }
 
 export class SqlDataQuery {
-  static fromSql(descriptor_name: string, bucket_parameters: string[], sql: string, schema?: SourceSchema) {
+  static fromSql(descriptor_name: string, bucket_parameters: string[], sql: string, options: SyncRulesOptions) {
     const parsed = parse(sql, { locationTracking: true });
     const rows = new SqlDataQuery();
+    const schema = options.schema;
 
     if (parsed.length > 1) {
       throw new SqlRuleError('Only a single SELECT statement is supported', sql, parsed[1]?._location);
@@ -50,7 +52,7 @@ export class SqlDataQuery {
     }
     const alias: string = tableRef.alias ?? tableRef.name;
 
-    const sourceTable = new TablePattern(tableRef.schema, tableRef.name);
+    const sourceTable = new TablePattern(tableRef.schema ?? options.defaultSchema, tableRef.name);
     let querySchema: QuerySchema | undefined = undefined;
     if (schema) {
       const tables = schema.getTables(sourceTable);

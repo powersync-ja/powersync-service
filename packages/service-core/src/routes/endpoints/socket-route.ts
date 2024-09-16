@@ -67,6 +67,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       try {
         for await (const data of sync.streamResponse({
           storage: activeBucketStorage,
+          parseOptions: routerEngine!.getAPI().getParseSyncRulesOptions(),
           params: {
             ...params,
             binary_data: true // always true for web sockets
