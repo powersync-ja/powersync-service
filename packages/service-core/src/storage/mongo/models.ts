@@ -150,12 +150,19 @@ export interface SyncRuleDocument {
   content: string;
 }
 
+export interface CustomWriteCheckpointDocument {
+  _id: bson.ObjectId;
+  user_id: string;
+  heads?: Record<string, string>;
+  checkpoint: bigint;
+  sync_rules_id: number;
+}
+
 export interface WriteCheckpointDocument {
   _id: bson.ObjectId;
   user_id: string;
   lsns: Record<string, string>;
   client_id: bigint;
-  sync_rules_id?: number;
 }
 
 export interface InstanceDocument {

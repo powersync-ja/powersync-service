@@ -1,5 +1,5 @@
-import * as t from 'ts-codec';
 import { logger, router, schema } from '@powersync/lib-services-framework';
+import * as t from 'ts-codec';
 
 import * as util from '../../util/util-index.js';
 import { authUser } from '../auth.js';
@@ -63,7 +63,10 @@ export const writeCheckpoint2 = routeDefinition({
       storageEngine: { activeBucketStorage }
     } = service_context;
 
-    const writeCheckpoint = await activeBucketStorage.createWriteCheckpoint(full_user_id, { '1': currentCheckpoint });
+    const writeCheckpoint = await activeBucketStorage.createWriteCheckpoint({
+      user_id: full_user_id,
+      heads: { '1': currentCheckpoint }
+    });
     logger.info(`Write checkpoint 2: ${JSON.stringify({ currentCheckpoint, id: String(full_user_id) })}`);
 
     return {

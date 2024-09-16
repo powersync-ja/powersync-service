@@ -21,6 +21,7 @@ import {
 } from '../BucketStorage.js';
 import { ChecksumCache, FetchPartialBucketChecksum } from '../ChecksumCache.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
+import { ReplicationEventBatch } from '../ReplicationEventBatch.js';
 import { SourceTable } from '../SourceTable.js';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, SourceKey, SyncRuleState } from './models.js';
@@ -75,7 +76,11 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
       this.group_id,
       this.slot_name,
       checkpoint_lsn,
-      doc?.no_checkpoint_before ?? options.zeroLSN
+      doc?.no_checkpoint_before ?? options.zeroLSN,
+      new ReplicationEventBatch({
+        manager: this.factory.events,
+        storage: this
+      })
     );
     try {
       await callback(batch);

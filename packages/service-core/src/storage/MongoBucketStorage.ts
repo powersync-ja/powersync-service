@@ -19,12 +19,21 @@ import {
   UpdateSyncRulesOptions,
   WriteCheckpoint
 } from './BucketStorage.js';
-import { WriteCheckpointFilters } from './mongo/Checkpoint.js';
-import { MongoPersistedSyncRulesContent } from './mongo/MongoPersistedSyncRulesContent.js';
-import { MongoSyncBucketStorage } from './mongo/MongoSyncBucketStorage.js';
 import { PowerSyncMongo, PowerSyncMongoOptions } from './mongo/db.js';
 import { SyncRuleDocument, SyncRuleState } from './mongo/models.js';
+import { MongoCustomWriteCheckpointAPI } from './mongo/MongoCustomWriteCheckpointAPI.js';
+import { MongoManagedWriteCheckpointAPI } from './mongo/MongoManagedWriteCheckpointAPI.js';
+import { MongoPersistedSyncRulesContent } from './mongo/MongoPersistedSyncRulesContent.js';
+import { MongoSyncBucketStorage } from './mongo/MongoSyncBucketStorage.js';
 import { generateSlotName } from './mongo/util.js';
+import { ReplicationEventManager } from './ReplicationEventManager.js';
+import {
+  DEFAULT_WRITE_CHECKPOINT_MODE,
+  WriteCheckpointAPI,
+  WriteCheckpointFilters,
+  WriteCheckpointMode,
+  WriteCheckpointOptions
+} from './write-checkpoint.js';
 
 export interface MongoBucketStorageOptions extends PowerSyncMongoOptions {}
 
@@ -33,6 +42,11 @@ export class MongoBucketStorage implements BucketStorageFactory {
   private readonly session: mongo.ClientSession;
   // TODO: This is still Postgres specific and needs to be reworked
   public readonly slot_name_prefix: string;
+
+  readonly events: ReplicationEventManager;
+  readonly write_checkpoint_mode: WriteCheckpointMode;
+
+  protected readonly writeCheckpointAPI: WriteCheckpointAPI;
 
   private readonly storageCache = new LRUCache<number, MongoSyncBucketStorage>({
     max: 3,
@@ -54,11 +68,24 @@ export class MongoBucketStorage implements BucketStorageFactory {
 
   public readonly db: PowerSyncMongo;
 
-  constructor(db: PowerSyncMongo, options: { slot_name_prefix: string }) {
+  constructor(
+    db: PowerSyncMongo,
+    options: {
+      slot_name_prefix: string;
+      event_manager: ReplicationEventManager;
+      write_checkpoint_mode?: WriteCheckpointMode;
+    }
+  ) {
     this.client = db.client;
     this.db = db;
     this.session = this.client.startSession();
     this.slot_name_prefix = options.slot_name_prefix;
+    this.events = options.event_manager;
+    this.write_checkpoint_mode = options.write_checkpoint_mode ?? DEFAULT_WRITE_CHECKPOINT_MODE;
+    this.writeCheckpointAPI =
+      this.write_checkpoint_mode == WriteCheckpointMode.MANAGED
+        ? new MongoManagedWriteCheckpointAPI(db)
+        : new MongoCustomWriteCheckpointAPI(db);
   }
 
   getInstance(options: PersistedSyncRules): MongoSyncBucketStorage {
@@ -252,33 +279,12 @@ export class MongoBucketStorage implements BucketStorageFactory {
     });
   }
 
-  async createWriteCheckpoint(user_id: string, lsns: Record<string, string>): Promise<bigint> {
-    const doc = await this.db.write_checkpoints.findOneAndUpdate(
-      {
-        user_id: user_id
-      },
-      {
-        $set: {
-          lsns: lsns
-        },
-        $inc: {
-          client_id: 1n
-        }
-      },
-      { upsert: true, returnDocument: 'after' }
-    );
-    return doc!.client_id;
+  async createWriteCheckpoint(options: WriteCheckpointOptions): Promise<bigint> {
+    return this.writeCheckpointAPI.createWriteCheckpoint(options);
   }
 
-  // async lastWriteCheckpoint(user_id: string, lsn: string): Promise<bigint | null> {
   async lastWriteCheckpoint(filters: WriteCheckpointFilters): Promise<bigint | null> {
-    const { user_id, lsns, sync_rules_id } = filters;
-    const lastWriteCheckpoint = await this.db.write_checkpoints.findOne({
-      user_id: user_id,
-      sync_rules_id,
-      'lsns.1': { $lte: lsns }
-    });
-    return lastWriteCheckpoint?.client_id ?? null;
+    return this.writeCheckpointAPI.lastWriteCheckpoint(filters);
   }
 
   async getActiveCheckpoint(): Promise<ActiveCheckpoint> {
@@ -490,7 +496,7 @@ export class MongoBucketStorage implements BucketStorageFactory {
   /**
    * User-specific watch on the latest checkpoint and/or write checkpoint.
    */
-  async *watchWriteCheckpoint(user_id: string, signal: AbortSignal): AsyncIterable<WriteCheckpoint> {
+  async *watchWriteCheckpoint(filters: WriteCheckpointFilters, signal: AbortSignal): AsyncIterable<WriteCheckpoint> {
     let lastCheckpoint: util.OpId | null = null;
     let lastWriteCheckpoint: bigint | null = null;
 
@@ -503,7 +509,11 @@ export class MongoBucketStorage implements BucketStorageFactory {
       // 1. checkpoint (op_id) changes.
       // 2. write checkpoint changes for the specific user
 
-      const currentWriteCheckpoint = await this.lastWriteCheckpoint(user_id);
+      const bucketStorage = await cp.getBucketStorage(); // TODO validate and optimize
+      const currentWriteCheckpoint = await this.lastWriteCheckpoint({
+        sync_rules_id: bucketStorage?.group_id,
+        ...filters
+      });
 
       if (currentWriteCheckpoint == lastWriteCheckpoint && checkpoint == lastCheckpoint) {
         // No change - wait for next one

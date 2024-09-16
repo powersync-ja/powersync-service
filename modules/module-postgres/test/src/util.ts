@@ -1,11 +1,11 @@
+import { connectMongo } from '@core-tests/util.js';
 import * as types from '@module/types/types.js';
 import * as pg_utils from '@module/utils/pgwire_utils.js';
-import { BucketStorageFactory, Metrics, MongoBucketStorage, OpId } from '@powersync/service-core';
-import * as pgwire from '@powersync/service-jpgwire';
-import { env } from './env.js';
-import { pgwireRows } from '@powersync/service-jpgwire';
 import { logger } from '@powersync/lib-services-framework';
-import { connectMongo } from '@core-tests/util.js';
+import { BucketStorageFactory, Metrics, MongoBucketStorage, OpId, storage } from '@powersync/service-core';
+import * as pgwire from '@powersync/service-jpgwire';
+import { pgwireRows } from '@powersync/service-jpgwire';
+import { env } from './env.js';
 
 // The metrics need to be initialized before they can be used
 await Metrics.initialise({
@@ -35,7 +35,10 @@ export const INITIALIZED_MONGO_STORAGE_FACTORY: StorageFactory = async () => {
 
   await db.clear();
 
-  return new MongoBucketStorage(db, { slot_name_prefix: 'test_' });
+  return new MongoBucketStorage(db, {
+    slot_name_prefix: 'test_',
+    event_manager: new storage.ReplicationEventManager()
+  });
 };
 
 export async function clearTestDb(db: pgwire.PgClient) {

@@ -1,6 +1,7 @@
 import { Metrics } from '@/metrics/Metrics.js';
 import { BucketStorageFactory, SyncBucketDataBatch } from '@/storage/BucketStorage.js';
 import { MongoBucketStorage } from '@/storage/MongoBucketStorage.js';
+import { ReplicationEventManager } from '@/storage/ReplicationEventManager.js';
 import { SourceTable } from '@/storage/SourceTable.js';
 import { PowerSyncMongo } from '@/storage/mongo/db.js';
 import { SyncBucketData } from '@/util/protocol-types.js';
@@ -22,7 +23,7 @@ export type StorageFactory = () => Promise<BucketStorageFactory>;
 export const MONGO_STORAGE_FACTORY: StorageFactory = async () => {
   const db = await connectMongo();
   await db.clear();
-  return new MongoBucketStorage(db, { slot_name_prefix: 'test_' });
+  return new MongoBucketStorage(db, { slot_name_prefix: 'test_', event_manager: new ReplicationEventManager() });
 };
 
 export const ZERO_LSN = '0/0';

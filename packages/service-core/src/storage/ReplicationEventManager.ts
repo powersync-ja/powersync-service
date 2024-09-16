@@ -1,14 +1,9 @@
 import * as sync_rules from '@powersync/service-sync-rules';
-import * as storage from '../storage/storage-index.js';
-
-export enum EventOp {
-  INSERT = 'insert',
-  UPDATE = 'update',
-  DELETE = 'delete'
-}
+import { SaveOp, SyncRulesBucketStorage } from './BucketStorage.js';
+import { SourceTable } from './SourceTable.js';
 
 export type EventData = {
-  op: EventOp;
+  op: SaveOp;
   /**
    * The replication HEAD at the moment where this event ocurred.
    * For Postgres this is the LSN.
@@ -18,12 +13,12 @@ export type EventData = {
   after?: sync_rules.EvaluatedParametersResult[];
 };
 
-export type ReplicationEventData = Map<storage.SourceTable, EventData[]>;
+export type ReplicationEventData = Map<SourceTable, EventData[]>;
 
 export type ReplicationEventPayload = {
   event: sync_rules.SqlEventDescriptor;
   data: ReplicationEventData;
-  storage: storage.SyncRulesBucketStorage;
+  storage: SyncRulesBucketStorage;
 };
 
 export interface ReplicationEventHandler {

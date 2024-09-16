@@ -1,5 +1,6 @@
 export * from './BucketStorage.js';
 export * from './MongoBucketStorage.js';
+export * from './ReplicationEventManager.js';
 export * from './SourceEntity.js';
 export * from './SourceTable.js';
 export * from './StorageEngine.js';
@@ -16,3 +17,4 @@ export * from './mongo/MongoSyncRulesLock.js';
 export * from './mongo/OperationBatch.js';
 export * from './mongo/PersistedBatch.js';
 export * from './mongo/util.js';
+export * from './write-checkpoint.js';

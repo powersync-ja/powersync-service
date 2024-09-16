@@ -8,11 +8,26 @@ import {
   ToastableSqliteRow
 } from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
+import { ReplicationEventManager } from './ReplicationEventManager.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
-import { WriteCheckpointFilters, WriteCheckpointOptions } from './mongo/Checkpoint.js';
+import { WriteCheckpointAPI, WriteCheckpointFilters } from './write-checkpoint.js';
 
-export interface BucketStorageFactory {
+// Checkpoints
+
+/**
+ * Checkpoints
+ *    Need to be either custom or manual
+ *
+ *    Need to use a different collection for different types
+ *      Need indexes on a new collection
+ *
+ *    Manual
+ *      Need to specify the write checkpoint value
+ *      Need to specify the sync rules for the checkpoint
+ */
+
+export interface BucketStorageFactory extends WriteCheckpointAPI {
   /**
    * Update sync rules from configuration, if changed.
    */
@@ -20,6 +35,11 @@ export interface BucketStorageFactory {
     sync_rules: string,
     options?: { lock?: boolean }
   ): Promise<{ updated: boolean; persisted_sync_rules?: PersistedSyncRulesContent; lock?: ReplicationLock }>;
+
+  /**
+   * Manager which enables handling events for replicated data.
+   */
+  events: ReplicationEventManager;
 
   /**
    * Get a storage instance to query sync data for specific sync rules.
@@ -82,25 +102,7 @@ export interface BucketStorageFactory {
   getActiveCheckpoint(): Promise<ActiveCheckpoint>;
 
   /**
-   * Creates a raw write checkpoint given primitive values.
-   */
-  createRawWriteCheckpoint(checkpoint: WriteCheckpointOptions): Promise<bigint>;
-
-  /**
-   * Creates a mapping of user_id + LSN(s) to an
-   * automatically (managed) incrementing write checkpoint.
-   */
-  createWriteCheckpoint(user_id: string, lsns: Record<string, string>): Promise<bigint>;
-
-  /**
-   * Gets the last write checkpoint before the specified filters.
-   * Checkpoint will be before the specified LSN(s) if provided.
-   * Checkpoint will belong to the specified sync rules if provided.
-   */
-  lastWriteCheckpoint(filters: WriteCheckpointFilters): Promise<bigint | null>;
-
-  /**
-   * Yields the latest write checkpoint whenever the sync checkpoint updates.
+   * Yields the latest user write checkpoint whenever the sync checkpoint updates.
    */
   watchWriteCheckpoint(filters: WriteCheckpointFilters, signal: AbortSignal): AsyncIterable<WriteCheckpoint>;
 
@@ -368,6 +370,8 @@ export interface SaveBucketData {
 
   evaluated: EvaluatedRow[];
 }
+
+export type SaveOp = 'insert' | 'update' | 'delete';
 
 export type SaveOptions = SaveInsert | SaveUpdate | SaveDelete;
 

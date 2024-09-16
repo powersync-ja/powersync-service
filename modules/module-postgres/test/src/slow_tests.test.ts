@@ -12,7 +12,6 @@ import { mapOpEntry, MongoBucketStorage } from '@/storage/storage-index.js';
 import { reduceBucket, validateCompactedBucket } from '@core-tests/bucket_validation.js';
 import { MONGO_STORAGE_FACTORY, StorageFactory } from '@core-tests/util.js';
 import { PgManager } from '@module/replication/PgManager.js';
-import { replication } from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
 
 describe('slow tests - mongodb', function () {
@@ -89,8 +88,7 @@ bucket_definitions:
     const options: WalStreamOptions = {
       abort_signal: abortController.signal,
       connections,
-      storage: storage,
-      event_manager: new replication.ReplicationEventManager()
+      storage: storage
     };
     walStream = new WalStream(options);
 
@@ -267,8 +265,7 @@ bucket_definitions:
         const options: WalStreamOptions = {
           abort_signal: abortController.signal,
           connections,
-          storage: storage,
-          event_manager: new replication.ReplicationEventManager()
+          storage: storage
         };
         walStream = new WalStream(options);
 

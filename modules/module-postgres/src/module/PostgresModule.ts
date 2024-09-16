@@ -1,4 +1,4 @@
-import { api, auth, ConfigurationFileSyncRulesProvider, replication, system } from '@powersync/service-core';
+import { api, auth, ConfigurationFileSyncRulesProvider, modules, replication, system } from '@powersync/service-core';
 import * as jpgwire from '@powersync/service-jpgwire';
 import { PostgresRouteAPIAdapter } from '../api/PostgresRouteAPIAdapter.js';
 import { SupabaseKeyCollector } from '../auth/SupabaseKeyCollector.js';
@@ -49,8 +49,7 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
       syncRuleProvider: syncRuleProvider,
       storageEngine: context.storageEngine,
       connectionFactory: connectionFactory,
-      rateLimiter: new PostgresErrorRateLimiter(),
-      eventManager: context.replicationEngine!.eventManager
+      rateLimiter: new PostgresErrorRateLimiter()
     });
   }
 
@@ -64,7 +63,7 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
     };
   }
 
-  async teardown(options: TearDownOptions): Promise<void> {
+  async teardown(options: modules.TearDownOptions): Promise<void> {
     const normalisedConfig = this.resolveConfig(this.decodedConfig!);
     const connectionManager = new PgManager(normalisedConfig, {
       idleTimeout: 30_000,

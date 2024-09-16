@@ -5,17 +5,14 @@ import { WalStreamReplicationJob } from './WalStreamReplicationJob.js';
 
 export interface WalStreamReplicatorOptions extends replication.AbstractReplicatorOptions {
   connectionFactory: ConnectionManagerFactory;
-  eventManager: replication.ReplicationEventManager;
 }
 
 export class WalStreamReplicator extends replication.AbstractReplicator<WalStreamReplicationJob> {
   private readonly connectionFactory: ConnectionManagerFactory;
-  private readonly eventManager: replication.ReplicationEventManager;
 
   constructor(options: WalStreamReplicatorOptions) {
     super(options);
     this.connectionFactory = options.connectionFactory;
-    this.eventManager = options.eventManager;
   }
 
   createJob(options: replication.CreateJobOptions): WalStreamReplicationJob {
@@ -23,8 +20,7 @@ export class WalStreamReplicator extends replication.AbstractReplicator<WalStrea
       id: this.createJobId(options.storage.group_id),
       storage: options.storage,
       connectionFactory: this.connectionFactory,
-      lock: options.lock,
-      eventManager: this.eventManager
+      lock: options.lock
     });
   }
 

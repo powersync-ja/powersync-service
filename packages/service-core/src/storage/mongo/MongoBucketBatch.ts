@@ -1,10 +1,11 @@
-import { SqliteRow, SqlSyncRules } from '@powersync/service-sync-rules';
+import { SqlEventDescriptor, SqliteRow, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import * as mongo from 'mongodb';
 
 import { container, errors, logger } from '@powersync/lib-services-framework';
 import * as util from '../../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, mergeToast, SaveOptions } from '../BucketStorage.js';
+import { ReplicationEventBatch } from '../ReplicationEventBatch.js';
 import { SourceTable } from '../SourceTable.js';
 import { PowerSyncMongo } from './db.js';
 import { CurrentBucket, CurrentDataDocument, SourceKey } from './models.js';
@@ -50,6 +51,8 @@ export class MongoBucketBatch implements BucketStorageBatch {
 
   private persisted_op: bigint | null = null;
 
+  private event_batch: ReplicationEventBatch;
+
   /**
    * For tests only - not for persistence logic.
    */
@@ -61,7 +64,8 @@ export class MongoBucketBatch implements BucketStorageBatch {
     group_id: number,
     slot_name: string,
     last_checkpoint_lsn: string | null,
-    no_checkpoint_before_lsn: string
+    no_checkpoint_before_lsn: string,
+    event_batch: ReplicationEventBatch
   ) {
     this.db = db;
     this.client = db.client;
@@ -71,6 +75,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
     this.session = this.client.startSession();
     this.last_checkpoint_lsn = last_checkpoint_lsn;
     this.no_checkpoint_before_lsn = no_checkpoint_before_lsn;
+    this.event_batch = event_batch;
   }
 
   async flush(): Promise<FlushedResult | null> {
@@ -83,6 +88,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
         result = r;
       }
     }
+    await this.event_batch.flush();
     return result;
   }
 
@@ -611,6 +617,20 @@ export class MongoBucketBatch implements BucketStorageBatch {
     this.batch ??= new OperationBatch();
     this.batch.push(new RecordOperation(record));
 
+    const { after, before, sourceTable, tag } = record;
+    for (const event of this.getTableEvents(sourceTable)) {
+      await this.event_batch.save({
+        table: sourceTable,
+        data: {
+          head: 'TODO',
+          op: tag,
+          after: after && util.isCompleteRow(after) ? event.evaluateParameterRow(sourceTable, after) : undefined,
+          before: before && util.isCompleteRow(before) ? event.evaluateParameterRow(sourceTable, before) : undefined
+        },
+        event
+      });
+    }
+
     if (this.batch.shouldFlush()) {
       const r = await this.flush();
       // HACK: Give other streams a chance to also flush
@@ -753,6 +773,15 @@ export class MongoBucketBatch implements BucketStorageBatch {
       copy.syncParameters = table.syncParameters;
       return copy;
     });
+  }
+
+  /**
+   * Gets relevant {@link SqlEventDescriptor}s for the given {@link SourceTable}
+   */
+  protected getTableEvents(table: SourceTable): SqlEventDescriptor[] {
+    return this.sync_rules.event_descriptors.filter((evt) =>
+      [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table))
+    );
   }
 }
 
