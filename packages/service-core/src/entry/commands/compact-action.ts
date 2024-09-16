@@ -34,7 +34,7 @@ export function registerCompactAction(program: Command) {
     await client.connect();
     try {
       const bucketStorage = new storage.MongoBucketStorage(psdb, { slot_name_prefix: configuration.slot_name_prefix });
-      const active = await bucketStorage.getActiveSyncRules();
+      const active = await bucketStorage.getActiveSyncRulesContent();
       if (active == null) {
         logger.info('No active instance to compact');
         return;

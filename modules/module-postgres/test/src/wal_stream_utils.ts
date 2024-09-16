@@ -58,7 +58,7 @@ export class WalStreamTestContext {
 
   async updateSyncRules(content: string) {
     const syncRules = await this.factory.updateSyncRules({ content: content });
-    this.storage = this.factory.getInstance(syncRules.parsed());
+    this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
 

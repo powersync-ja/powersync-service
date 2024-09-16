@@ -1,6 +1,7 @@
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import { Semaphore, withTimeout } from 'async-mutex';
+
 import { AbortError } from 'ix/aborterror.js';
 
 import * as auth from '../auth/auth-index.js';
@@ -35,6 +36,7 @@ export interface SyncStreamParameters {
   params: util.StreamingSyncRequest;
   syncParams: RequestParameters;
   token: auth.JwtPayload;
+  parseOptions: storage.ParseSyncRulesOptions;
   /**
    * If this signal is aborted, the stream response ends as soon as possible, without error.
    */
@@ -47,7 +49,7 @@ export interface SyncStreamParameters {
 export async function* streamResponse(
   options: SyncStreamParameters
 ): AsyncIterable<util.StreamingSyncLine | string | null> {
-  const { storage, params, syncParams, token, tokenStreamOptions, tracker, signal } = options;
+  const { storage, params, syncParams, token, tokenStreamOptions, tracker, signal, parseOptions } = options;
   // We also need to be able to abort, so we create our own controller.
   const controller = new AbortController();
   if (signal) {
@@ -63,7 +65,7 @@ export async function* streamResponse(
     }
   }
   const ki = tokenStream(token, controller.signal, tokenStreamOptions);
-  const stream = streamResponseInner(storage, params, syncParams, tracker, controller.signal);
+  const stream = streamResponseInner(storage, params, syncParams, tracker, parseOptions, controller.signal);
   // Merge the two streams, and abort as soon as one of the streams end.
   const merged = mergeAsyncIterables([stream, ki], controller.signal);
 
@@ -87,6 +89,7 @@ async function* streamResponseInner(
   params: util.StreamingSyncRequest,
   syncParams: RequestParameters,
   tracker: RequestTracker,
+  parseOptions: storage.ParseSyncRulesOptions,
   signal: AbortSignal
 ): AsyncGenerator<util.StreamingSyncLine | string | null> {
   // Bucket state of bucket id -> op_id.
@@ -115,9 +118,9 @@ async function* streamResponseInner(
       // Sync rules deleted in the meantime - try again with the next checkpoint.
       continue;
     }
-    const sync_rules = storage.sync_rules;
+    const syncRules = storage.getParsedSyncRules(parseOptions);
 
-    const allBuckets = await sync_rules.queryBucketIds({
+    const allBuckets = await syncRules.queryBucketIds({
       getParameterSets(lookups) {
         return storage.getParameterSets(checkpoint, lookups);
       },
