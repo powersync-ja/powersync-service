@@ -56,6 +56,12 @@ export function toMongoSyncRulesValue(data: any): SqliteValue {
     return data.toHexString();
   } else if (data instanceof mongo.UUID) {
     return data.toHexString();
+  } else if (data instanceof Date) {
+    return data.toISOString().replace('T', ' ');
+  } else if (data instanceof mongo.Binary) {
+    return new Uint8Array(data.buffer);
+  } else if (data instanceof mongo.Long) {
+    return data.toBigInt();
   } else if (Array.isArray(data)) {
     // We may be able to avoid some parse + stringify cycles here for JsonSqliteContainer.
     return JSONBig.stringify(data.map((element) => filterJsonData(element)));
@@ -77,22 +83,35 @@ export function toMongoSyncRulesValue(data: any): SqliteValue {
 const DEPTH_LIMIT = 20;
 
 function filterJsonData(data: any, depth = 0): any {
+  const autoBigNum = true;
   if (depth > DEPTH_LIMIT) {
     // This is primarily to prevent infinite recursion
     throw new Error(`json nested object depth exceeds the limit of ${DEPTH_LIMIT}`);
   }
   if (data == null) {
     return data; // null or undefined
-  } else if (typeof data == 'string' || typeof data == 'number') {
+  } else if (typeof data == 'string') {
     return data;
+  } else if (typeof data == 'number') {
+    if (autoBigNum && Number.isInteger(data)) {
+      return BigInt(data);
+    } else {
+      return data;
+    }
   } else if (typeof data == 'boolean') {
     return data ? 1n : 0n;
   } else if (typeof data == 'bigint') {
     return data;
+  } else if (data instanceof Date) {
+    return data.toISOString().replace('T', ' ');
   } else if (data instanceof mongo.ObjectId) {
     return data.toHexString();
   } else if (data instanceof mongo.UUID) {
     return data.toHexString();
+  } else if (data instanceof mongo.Binary) {
+    return undefined;
+  } else if (data instanceof mongo.Long) {
+    return data.toBigInt();
   } else if (Array.isArray(data)) {
     return data.map((element) => filterJsonData(element, depth + 1));
   } else if (ArrayBuffer.isView(data)) {

@@ -182,7 +182,7 @@ export class ChangeStream {
 
   static *getQueryData(results: Iterable<DatabaseInputRow>): Generator<SqliteRow> {
     for (let row of results) {
-      yield toSyncRulesRow(row);
+      yield constructAfterRecord(row);
     }
   }
 
