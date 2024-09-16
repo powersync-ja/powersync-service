@@ -10,6 +10,7 @@ import {
 import * as util from '../util/util-index.js';
 import { SourceTable } from './SourceTable.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
+import * as bson from 'bson';
 
 export interface BucketStorageFactory {
   /**
@@ -353,11 +354,15 @@ export interface SaveBucketData {
 
 export type SaveOptions = SaveInsert | SaveUpdate | SaveDelete;
 
+export type ReplicaId = string | bson.UUID | bson.Document;
+
 export interface SaveInsert {
   tag: 'insert';
   sourceTable: SourceTable;
   before?: undefined;
+  beforeReplicaId?: undefined;
   after: SqliteRow;
+  afterReplicaId: ReplicaId;
 }
 
 export interface SaveUpdate {
@@ -368,6 +373,7 @@ export interface SaveUpdate {
    * This is only present when the id has changed, and will only contain replica identity columns.
    */
   before?: SqliteRow;
+  beforeReplicaId?: ReplicaId;
 
   /**
    * A null value means null column.
@@ -375,13 +381,16 @@ export interface SaveUpdate {
    * An undefined value means it's a TOAST value - must be copied from another record.
    */
   after: ToastableSqliteRow;
+  afterReplicaId: ReplicaId;
 }
 
 export interface SaveDelete {
   tag: 'delete';
   sourceTable: SourceTable;
-  before: SqliteRow;
+  before?: SqliteRow;
+  beforeReplicaId: ReplicaId;
   after?: undefined;
+  afterReplicaId?: undefined;
 }
 
 export interface SyncBucketDataBatch {

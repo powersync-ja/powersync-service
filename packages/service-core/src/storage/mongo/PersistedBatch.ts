@@ -17,6 +17,7 @@ import {
 } from './models.js';
 import { serializeLookup } from './util.js';
 import { logger } from '@powersync/lib-services-framework';
+import { ReplicaId } from '../BucketStorage.js';
 
 /**
  * Maximum size of operations we write in a single transaction.
@@ -59,7 +60,7 @@ export class PersistedBatch {
 
   saveBucketData(options: {
     op_seq: MongoIdSequence;
-    sourceKey: bson.UUID;
+    sourceKey: ReplicaId;
     table: SourceTable;
     evaluated: EvaluatedRow[];
     before_buckets: CurrentBucket[];
@@ -134,7 +135,7 @@ export class PersistedBatch {
 
   saveParameterData(data: {
     op_seq: MongoIdSequence;
-    sourceKey: bson.UUID;
+    sourceKey: ReplicaId;
     sourceTable: SourceTable;
     evaluated: EvaluatedParameters[];
     existing_lookups: bson.Binary[];

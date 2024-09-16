@@ -93,22 +93,6 @@ function getRawReplicaIdentity(
   return result;
 }
 
-export function getUuidReplicaIdentityString(
-  tuple: sync_rules.ToastableSqliteRow,
-  columns: storage.ColumnDescriptor[]
-): string {
-  const rawIdentity = getRawReplicaIdentity(tuple, columns);
-
-  return uuidForRow(rawIdentity);
-}
-
-export function uuidForRow(row: sync_rules.SqliteRow): string {
-  // Important: This must not change, since it will affect how ids are generated.
-  // Use BSON so that it's a well-defined format without encoding ambiguities.
-  const repr = bson.serialize(row);
-  return uuid.v5(repr, ID_NAMESPACE);
-}
-
 export function getUuidReplicaIdentityBson(
   tuple: sync_rules.ToastableSqliteRow,
   columns: storage.ColumnDescriptor[]

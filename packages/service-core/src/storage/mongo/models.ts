@@ -1,5 +1,6 @@
 import * as bson from 'bson';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
+import { ReplicaId } from '../BucketStorage.js';
 
 export interface SourceKey {
   /** group_id */
@@ -7,7 +8,7 @@ export interface SourceKey {
   /** source table id */
   t: bson.ObjectId;
   /** source key */
-  k: bson.UUID;
+  k: ReplicaId;
 }
 
 export interface BucketDataKey {
@@ -43,7 +44,7 @@ export interface BucketDataDocument {
   _id: BucketDataKey;
   op: OpType;
   source_table?: bson.ObjectId;
-  source_key?: bson.UUID;
+  source_key?: ReplicaId;
   table?: string;
   row_id?: string;
   checksum: number;
