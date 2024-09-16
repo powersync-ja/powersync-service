@@ -8,13 +8,13 @@ import {
 
 export class TestSourceTable implements SourceTableInterface {
   readonly connectionTag = DEFAULT_TAG;
-  readonly schema = 'public';
+  readonly schema = 'test_schema';
 
   constructor(public readonly table: string) {}
 }
 
 export const PARSE_OPTIONS = {
-  defaultSchema: 'public'
+  defaultSchema: 'test_schema'
 };
 
 export const ASSETS = new TestSourceTable('assets');
@@ -25,7 +25,7 @@ export const BASIC_SCHEMA = new StaticSchema([
     tag: DEFAULT_TAG,
     schemas: [
       {
-        name: 'public',
+        name: 'test_schema',
         tables: [
           {
             name: 'assets',

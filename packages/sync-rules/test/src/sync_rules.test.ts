@@ -689,10 +689,10 @@ bucket_definitions:
   mybucket:
     data:
       - SELECT id FROM "assets" # Yes
-      - SELECT id FROM "public"."assets" # yes
-      - SELECT id FROM "default.public"."assets" # yes
+      - SELECT id FROM "test_schema"."assets" # yes
+      - SELECT id FROM "default.test_schema"."assets" # yes
       - SELECT id FROM "other"."assets" # no
-      - SELECT id FROM "other.public"."assets" # no
+      - SELECT id FROM "other.test_schema"."assets" # no
     `,
       PARSE_OPTIONS
     );
@@ -793,7 +793,7 @@ bucket_definitions:
         tag: DEFAULT_TAG,
         schemas: [
           {
-            name: 'public',
+            name: 'test_schema',
             tables: [
               {
                 name: 'assets',

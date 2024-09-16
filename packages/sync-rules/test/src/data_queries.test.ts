@@ -144,7 +144,7 @@ describe('data queries', () => {
     );
     expect(q3.errors).toMatchObject([
       {
-        message: `Table public.nope not found`,
+        message: `Table test_schema.nope not found`,
         type: 'warning'
       }
     ]);
