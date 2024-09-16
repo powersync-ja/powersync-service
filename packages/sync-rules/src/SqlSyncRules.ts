@@ -28,6 +28,8 @@ const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROU
 export interface SyncRulesOptions {
   schema?: SourceSchema;
   /**
+   * The default schema to use when only a table name is specified.
+   *
    * 'public' for Postgres, default database for MongoDB/MySQL.
    */
   defaultSchema: string;

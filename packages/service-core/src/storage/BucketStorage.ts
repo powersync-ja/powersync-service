@@ -10,7 +10,7 @@ import {
 import * as util from '../util/util-index.js';
 import { SourceTable } from './SourceTable.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
-import * as bson from 'bson';
+import { ReplicaId } from './storage-index.js';
 
 export interface BucketStorageFactory {
   /**
@@ -363,8 +363,6 @@ export interface SaveBucketData {
 }
 
 export type SaveOptions = SaveInsert | SaveUpdate | SaveDelete;
-
-export type ReplicaId = string | bson.UUID | bson.Document | any;
 
 export interface SaveInsert {
   tag: 'insert';

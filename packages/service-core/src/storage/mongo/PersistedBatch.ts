@@ -13,9 +13,10 @@ import {
   BucketParameterDocument,
   CurrentBucket,
   CurrentDataDocument,
-  SourceKey
+  SourceKey,
+  ReplicaId
 } from './models.js';
-import { serializeLookup } from './util.js';
+import { replicaIdToSubkey, serializeLookup } from './util.js';
 import { logger } from '@powersync/lib-services-framework';
 import { ReplicaId } from '../BucketStorage.js';
 
@@ -71,7 +72,7 @@ export class PersistedBatch {
       remaining_buckets.set(key, b);
     }
 
-    const dchecksum = util.hashDelete(`${options.table.id}/${options.sourceKey}`);
+    const dchecksum = util.hashDelete(replicaIdToSubkey(options.table.id, options.sourceKey));
 
     for (let k of options.evaluated) {
       const key = currentBucketKey(k);

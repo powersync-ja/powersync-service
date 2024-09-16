@@ -1,5 +1,4 @@
 import {
-  DEFAULT_SCHEMA,
   DEFAULT_TAG,
   RequestJwtPayload,
   RequestParameters,
@@ -9,10 +8,14 @@ import {
 
 export class TestSourceTable implements SourceTableInterface {
   readonly connectionTag = DEFAULT_TAG;
-  readonly schema = DEFAULT_SCHEMA;
+  readonly schema = 'test_schema';
 
   constructor(public readonly table: string) {}
 }
+
+export const PARSE_OPTIONS = {
+  defaultSchema: 'test_schema'
+};
 
 export const ASSETS = new TestSourceTable('assets');
 export const USERS = new TestSourceTable('users');
@@ -22,7 +25,7 @@ export const BASIC_SCHEMA = new StaticSchema([
     tag: DEFAULT_TAG,
     schemas: [
       {
-        name: DEFAULT_SCHEMA,
+        name: 'test_schema',
         tables: [
           {
             name: 'assets',

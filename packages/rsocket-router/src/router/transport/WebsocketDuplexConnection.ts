@@ -62,7 +62,11 @@ export class WebsocketDuplexConnection extends Deferred implements DuplexConnect
       return;
     }
 
-    this.websocketDuplex.removeAllListeners();
+    // Important: do not remove the error handler here.
+    // That causes uncaught error handlers in some edge cases.
+    this.websocketDuplex.removeAllListeners('close');
+    this.websocketDuplex.removeAllListeners('data');
+
     this.websocketDuplex.end();
 
     super.close(error);
@@ -88,13 +92,15 @@ export class WebsocketDuplexConnection extends Deferred implements DuplexConnect
     }
   }
 
-  private handleClosed = (e: WebSocket.CloseEvent): void => {
-    this.close(new Error(e.reason || 'WebsocketDuplexConnection: Socket closed unexpectedly.'));
+  private handleClosed = (e?: WebSocket.CloseEvent): void => {
+    this.close(new Error(e?.reason || 'WebsocketDuplexConnection: Socket closed unexpectedly.'));
   };
 
   private handleError = (e: WebSocket.ErrorEvent): void => {
     logger.error(`Error in WebSocket duplex connection: ${e}`);
-    this.close(e.error);
+    if (!this.done) {
+      this.close(e.error);
+    }
   };
 
   private handleMessage = (buffer: Buffer): void => {
