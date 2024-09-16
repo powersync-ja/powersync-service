@@ -1,6 +1,14 @@
 import * as bson from 'bson';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
-import { ReplicaId } from '../BucketStorage.js';
+
+/**
+ * Replica id uniquely identifying a row on the source database.
+ *
+ * Can be any value serializable to BSON.
+ *
+ * If the value is an entire document, the data serialized to a v5 UUID may be a good choice here.
+ */
+export type ReplicaId = bson.UUID | bson.Document | any;
 
 export interface SourceKey {
   /** group_id */

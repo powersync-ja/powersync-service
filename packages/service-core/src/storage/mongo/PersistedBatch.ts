@@ -13,11 +13,11 @@ import {
   BucketParameterDocument,
   CurrentBucket,
   CurrentDataDocument,
-  SourceKey
+  SourceKey,
+  ReplicaId
 } from './models.js';
 import { serializeLookup } from './util.js';
 import { logger } from '@powersync/lib-services-framework';
-import { ReplicaId } from '../BucketStorage.js';
 
 /**
  * Maximum size of operations we write in a single transaction.

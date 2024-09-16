@@ -1,8 +1,9 @@
 import { ToastableSqliteRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
-import { ReplicaId, SaveOptions } from '../BucketStorage.js';
+import { SaveOptions } from '../BucketStorage.js';
 import { isUUID } from './util.js';
+import { ReplicaId } from './models.js';
 
 /**
  * Maximum number of operations in a batch.

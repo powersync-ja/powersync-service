@@ -1,12 +1,11 @@
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import * as mongo from 'mongodb';
 import * as crypto from 'crypto';
-import { BucketDataDocument } from './models.js';
-import { ID_NAMESPACE, timestampToOpId } from '../../util/utils.js';
-import { OplogEntry } from '../../util/protocol-types.js';
-import { ReplicaId } from '../BucketStorage.js';
+import * as mongo from 'mongodb';
 import * as uuid from 'uuid';
+import { OplogEntry } from '../../util/protocol-types.js';
+import { ID_NAMESPACE, timestampToOpId } from '../../util/utils.js';
+import { BucketDataDocument, ReplicaId } from './models.js';
 
 /**
  * Lookup serialization must be number-agnostic. I.e. normalize numbers, instead of preserving numbers.
@@ -100,7 +99,7 @@ export function mapOpEntry(row: BucketDataDocument): OplogEntry {
       object_type: row.table,
       object_id: row.row_id,
       checksum: Number(row.checksum),
-      subkey: `${row.source_table}/${replicaIdToSubkey(row.source_key!)}`,
+      subkey: replicaIdToSubkey(row.source_table!, row.source_key!),
       data: row.data
     };
   } else {
@@ -114,6 +113,9 @@ export function mapOpEntry(row: BucketDataDocument): OplogEntry {
   }
 }
 
+/**
+ * Returns true if two ReplicaId values are the same (serializes to the same BSON value).
+ */
 export function replicaIdEquals(a: ReplicaId, b: ReplicaId) {
   if (a === b) {
     return true;
@@ -126,23 +128,28 @@ export function replicaIdEquals(a: ReplicaId, b: ReplicaId) {
   } else if (a != null || b != null) {
     return false;
   } else {
-    return (bson.serialize(a) as Buffer).equals(bson.serialize(b));
+    // There are many possible primitive values, this covers them all
+    return (bson.serialize({ id: a }) as Buffer).equals(bson.serialize({ id: b }));
   }
 }
 
-export function replicaIdToSubkey(id: ReplicaId) {
+export function replicaIdToSubkey(table: bson.ObjectId, id: ReplicaId): string {
   if (isUUID(id)) {
     // Special case for UUID for backwards-compatiblity
+    `${table.toHexString()}/${id.toHexString()}`;
     return id.toHexString();
-  } else if (typeof id == 'string') {
-    return id;
   } else {
-    const repr = bson.serialize({ id: id });
+    // Hashed UUID from the table and id
+    const repr = bson.serialize({ table, id });
     return uuid.v5(repr, ID_NAMESPACE);
-    return;
   }
 }
 
+/**
+ * True if this is a bson.UUID.
+ *
+ * Works even with multiple copies of the bson package.
+ */
 export function isUUID(value: any): value is bson.UUID {
   if (value == null || typeof value != 'object') {
     return false;
