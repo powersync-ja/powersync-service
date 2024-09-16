@@ -25,9 +25,6 @@ const MAX_ROW_SIZE = 15 * 1024 * 1024;
 // In the future, we can investigate allowing multiple replication streams operating independently.
 const replicationMutex = new util.Mutex();
 
-// TODO: This needs to be provided by the replication Module, since LSNs are data source specific.
-export const ZERO_LSN = '00000000/00000000';
-
 export class MongoBucketBatch implements BucketStorageBatch {
   private readonly client: mongo.MongoClient;
   public readonly db: PowerSyncMongo;
@@ -64,7 +61,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
     group_id: number,
     slot_name: string,
     last_checkpoint_lsn: string | null,
-    no_checkpoint_before_lsn: string | null
+    no_checkpoint_before_lsn: string
   ) {
     this.db = db;
     this.client = db.client;
@@ -73,7 +70,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
     this.slot_name = slot_name;
     this.session = this.client.startSession();
     this.last_checkpoint_lsn = last_checkpoint_lsn;
-    this.no_checkpoint_before_lsn = no_checkpoint_before_lsn ?? ZERO_LSN;
+    this.no_checkpoint_before_lsn = no_checkpoint_before_lsn;
   }
 
   async flush(): Promise<FlushedResult | null> {

@@ -18,23 +18,23 @@ export const writeCheckpoint = routeDefinition({
     const {
       context: { service_context }
     } = payload;
-    const api = service_context.routerEngine.getAPI();
+    const apiHandler = service_context.routerEngine!.getAPI();
 
     // This old API needs a persisted checkpoint id.
     // Since we don't use LSNs anymore, the only way to get that is to wait.
     const start = Date.now();
 
-    const head = await api.getReplicationHead();
+    const head = await apiHandler.getReplicationHead();
 
     const timeout = 50_000;
 
     logger.info(`Waiting for LSN checkpoint: ${head}`);
     while (Date.now() - start < timeout) {
-      const cp = await service_context.storage.activeBucketStorage.getActiveCheckpoint();
+      const cp = await service_context.storageEngine.activeBucketStorage.getActiveCheckpoint();
       if (!cp.hasSyncRules()) {
         throw new Error('No sync rules available');
       }
-      if (cp.lsn >= head) {
+      if (cp.lsn && cp.lsn >= head) {
         logger.info(`Got write checkpoint: ${head} : ${cp.checkpoint}`);
         return { checkpoint: cp.checkpoint };
       }
@@ -53,14 +53,14 @@ export const writeCheckpoint2 = routeDefinition({
   handler: async (payload) => {
     const { user_id, service_context } = payload.context;
 
-    const api = service_context.routerEngine.getAPI();
+    const apiHandler = service_context.routerEngine!.getAPI();
+
     const client_id = payload.params.client_id;
     const full_user_id = util.checkpointUserId(user_id, client_id);
 
-    // Might want to call this something link replicationHead or something else
-    const currentCheckpoint = await api.getReplicationHead();
+    const currentCheckpoint = await apiHandler.getReplicationHead();
     const {
-      storage: { activeBucketStorage }
+      storageEngine: { activeBucketStorage }
     } = service_context;
 
     const writeCheckpoint = await activeBucketStorage.createWriteCheckpoint(full_user_id, { '1': currentCheckpoint });

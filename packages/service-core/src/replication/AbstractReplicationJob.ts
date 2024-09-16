@@ -30,12 +30,6 @@ export abstract class AbstractReplicationJob {
   abstract keepAlive(): Promise<void>;
 
   /**
-   *  Clean up any configuration or state for this replication on the datasource.
-   *  This assumes that the replication is not currently active.
-   */
-  abstract cleanUp(): Promise<void>;
-
-  /**
    *  Start the replication process
    */
   public async start(): Promise<void> {
@@ -63,22 +57,11 @@ export abstract class AbstractReplicationJob {
     await this.isReplicatingPromise;
   }
 
-  /**
-   *  Stop the replication if it is still running.
-   *  Clean up any config on the datasource related to this replication job
-   */
-  public async terminate(): Promise<void> {
-    this.logger.info(`${this.id} Terminating replication`);
-    await this.stop();
-    await this.cleanUp();
-    await this.options.storage.terminate();
-  }
-
   public get id() {
     return this.options.id;
   }
 
-  protected get storage() {
+  public get storage() {
     return this.options.storage;
   }
 

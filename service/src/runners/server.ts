@@ -10,20 +10,20 @@ import { SocketRouter } from '../routes/router.js';
 /**
  * Configures the server portion on a {@link ServiceContext}
  */
-export const registerServerServices = (serviceContext: core.system.ServiceContextContainer) => {
+export function registerServerServices(serviceContext: core.system.ServiceContextContainer) {
   serviceContext.register(core.routes.RouterEngine, new core.routes.RouterEngine());
   serviceContext.lifeCycleEngine.withLifecycle(serviceContext.routerEngine, {
     start: async (routerEngine) => {
-      await routerEngine.start(async (routes) => {
+      await routerEngine!.start(async (routes) => {
         const server = fastify.fastify();
 
-  server.register(cors, {
-    origin: '*',
-    allowedHeaders: ['Content-Type', 'Authorization', 'User-Agent', 'X-User-Agent'],
-    exposedHeaders: ['Content-Type'],
-    // Cache time for preflight response
-    maxAge: 3600
-  });
+        server.register(cors, {
+          origin: '*',
+          allowedHeaders: ['Content-Type', 'Authorization', 'User-Agent', 'X-User-Agent'],
+          exposedHeaders: ['Content-Type'],
+          // Cache time for preflight response
+          maxAge: 3600
+        });
 
         core.routes.configureFastifyServer(server, {
           service_context: serviceContext,
@@ -54,14 +54,14 @@ export const registerServerServices = (serviceContext: core.system.ServiceContex
         };
       });
     },
-    stop: (routerEngine) => routerEngine.shutdown()
+    stop: (routerEngine) => routerEngine!.shutdown()
   });
-};
+}
 
 /**
  * Starts an API server
  */
-export const startServer = async (runnerConfig: core.utils.RunnerConfig) => {
+export async function startServer(runnerConfig: core.utils.RunnerConfig) {
   logger.info('Booting');
 
   const config = await core.utils.loadConfig(runnerConfig);
@@ -85,4 +85,4 @@ export const startServer = async (runnerConfig: core.utils.RunnerConfig) => {
 
   // Enable in development to track memory usage:
   // trackMemoryUsage();
-};
+}

@@ -3,7 +3,12 @@ import * as util from '../util/util-index.js';
 
 export interface ActiveStorage {
   storage: BucketStorageFactory;
-  disposer: () => Promise<void>;
+  shutDown(): Promise<void>;
+
+  /**
+   *  Tear down / drop the storage permanently
+   */
+  tearDown(): Promise<boolean>;
 }
 
 export interface GetStorageOptions {

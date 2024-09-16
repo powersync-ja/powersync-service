@@ -8,8 +8,6 @@ import * as locks from '../locks/locks-index.js';
 import * as sync from '../sync/sync-index.js';
 import * as util from '../util/util-index.js';
 
-import { ZERO_LSN } from './mongo/MongoBucketBatch.js';
-
 import { logger } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
 import {
@@ -50,8 +48,7 @@ export class MongoBucketStorage implements BucketStorageFactory {
         return undefined;
       }
       const rules = new MongoPersistedSyncRulesContent(this.db, doc2);
-      const storage = this.getInstance(rules.parsed());
-      return storage;
+      return this.getInstance(rules.parsed());
     }
   });
 
@@ -376,7 +373,7 @@ export class MongoBucketStorage implements BucketStorageFactory {
   private makeActiveCheckpoint(doc: SyncRuleDocument | null) {
     return {
       checkpoint: util.timestampToOpId(doc?.last_checkpoint ?? 0n),
-      lsn: doc?.last_checkpoint_lsn ?? ZERO_LSN,
+      lsn: doc?.last_checkpoint_lsn ?? null,
       hasSyncRules() {
         return doc != null;
       },

@@ -7,6 +7,7 @@ import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import * as pg_utils from '../utils/pgwire_utils.js';
 import * as util from '../utils/pgwire_utils.js';
+import { logger } from '@powersync/lib-services-framework';
 
 export interface ReplicaIdentityResult {
   replicationColumns: storage.ColumnDescriptor[];
@@ -316,4 +317,13 @@ export async function getDebugTableInfo(options: GetDebugTableInfoOptions): Prom
       (error) => error != null
     ) as service_types.ReplicationError[]
   };
+}
+
+export async function cleanUpReplicationSlot(slotName: string, db: pgwire.PgClient): Promise<void> {
+  logger.info(`Cleaning up Postgres replication slot: ${slotName}...`);
+
+  await db.query({
+    statement: 'SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1',
+    params: [{ type: 'varchar', value: slotName }]
+  });
 }

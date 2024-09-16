@@ -20,11 +20,12 @@ export const syncStreamed = routeDefinition({
   validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
   handler: async (payload) => {
     const { service_context } = payload.context;
-    const { routerEngine, storage } = service_context;
+    const { routerEngine, storageEngine } = service_context;
     const headers = payload.request.headers;
     const userAgent = headers['x-user-agent'] ?? headers['user-agent'];
     const clientId = payload.params.client_id;
-    if (routerEngine.closed) {
+
+    if (routerEngine!.closed) {
       throw new errors.JourneyError({
         status: 503,
         code: 'SERVICE_UNAVAILABLE',
@@ -36,7 +37,7 @@ export const syncStreamed = routeDefinition({
     const syncParams = new RequestParameters(payload.context.token_payload!, payload.params.parameters ?? {});
 
     // Sanity check before we start the stream
-    const cp = await storage.activeBucketStorage.getActiveCheckpoint();
+    const cp = await storageEngine.activeBucketStorage.getActiveCheckpoint();
     if (!cp.hasSyncRules()) {
       throw new errors.JourneyError({
         status: 500,
@@ -52,7 +53,7 @@ export const syncStreamed = routeDefinition({
         sync.transformToBytesTracked(
           sync.ndjson(
             sync.streamResponse({
-              storage: storage.activeBucketStorage,
+              storage: storageEngine.activeBucketStorage,
               params,
               syncParams,
               token: payload.context.token_payload!,
@@ -65,7 +66,7 @@ export const syncStreamed = routeDefinition({
         { objectMode: false, highWaterMark: 16 * 1024 }
       );
 
-      const deregister = routerEngine.addStopHandler(() => {
+      const deregister = routerEngine!.addStopHandler(() => {
         // This error is not currently propagated to the client
         controller.abort();
         stream.destroy(new Error('Shutting down system'));

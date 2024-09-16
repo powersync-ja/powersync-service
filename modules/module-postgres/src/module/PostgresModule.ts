@@ -3,7 +3,9 @@ import * as jpgwire from '@powersync/service-jpgwire';
 import { PostgresRouteAPIAdapter } from '../api/PostgresRouteAPIAdapter.js';
 import { SupabaseKeyCollector } from '../auth/SupabaseKeyCollector.js';
 import { ConnectionManagerFactory } from '../replication/ConnectionManagerFactory.js';
+import { PgManager } from '../replication/PgManager.js';
 import { PostgresErrorRateLimiter } from '../replication/PostgresErrorRateLimiter.js';
+import { cleanUpReplicationSlot } from '../replication/replication-utils.js';
 import { WalStreamReplicator } from '../replication/WalStreamReplicator.js';
 import * as types from '../types/types.js';
 
@@ -24,32 +26,31 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
       this.registerSupabaseAuth(context);
     }
 
-    jpgwire.setMetricsRecorder({
-      addBytesRead(bytes) {
-        context.metrics.data_replicated_bytes.add(bytes);
-      }
-    });
+    if (context.metrics) {
+      jpgwire.setMetricsRecorder({
+        addBytesRead(bytes) {
+          context.metrics!.data_replicated_bytes.add(bytes);
+        }
+      });
+    }
   }
 
-  protected createRouteAPIAdapter(decodedConfig: types.PostgresConnectionConfig): api.RouteAPI {
-    return new PostgresRouteAPIAdapter(this.resolveConfig(decodedConfig));
+  protected createRouteAPIAdapter(): api.RouteAPI {
+    return new PostgresRouteAPIAdapter(this.resolveConfig(this.decodedConfig!));
   }
 
-  protected createReplicator(
-    decodedConfig: types.PostgresConnectionConfig,
-    context: system.ServiceContext
-  ): replication.AbstractReplicator {
-    const normalisedConfig = this.resolveConfig(decodedConfig);
-    const connectionFactory = new ConnectionManagerFactory(normalisedConfig);
+  protected createReplicator(context: system.ServiceContext): replication.AbstractReplicator {
+    const normalisedConfig = this.resolveConfig(this.decodedConfig!);
     const syncRuleProvider = new ConfigurationFileSyncRulesProvider(context.configuration.sync_rules);
+    const connectionFactory = new ConnectionManagerFactory(normalisedConfig);
 
     return new WalStreamReplicator({
       id: this.getDefaultId(normalisedConfig.database),
       syncRuleProvider: syncRuleProvider,
-      storageEngine: context.storage,
+      storageEngine: context.storageEngine,
       connectionFactory: connectionFactory,
       rateLimiter: new PostgresErrorRateLimiter(),
-      eventManager: context.replicationEngine.eventManager
+      eventManager: context.replicationEngine!.eventManager
     });
   }
 
@@ -63,7 +64,29 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
     };
   }
 
-  async teardown(): Promise<void> {}
+  async teardown(options: TearDownOptions): Promise<void> {
+    const normalisedConfig = this.resolveConfig(this.decodedConfig!);
+    const connectionManager = new PgManager(normalisedConfig, {
+      idleTimeout: 30_000,
+      maxSize: 1
+    });
+
+    try {
+      if (options.syncRules) {
+        // TODO: In the future, once we have more replication types, we will need to check if these syncRules are for Postgres
+        for (let syncRules of options.syncRules) {
+          try {
+            await cleanUpReplicationSlot(syncRules.slot_name, connectionManager.pool);
+          } catch (e) {
+            // Not really much we can do here for failures, most likely the database is no longer accessible
+            this.logger.warn(`Failed to fully clean up Postgres replication slot: ${syncRules.slot_name}`, e);
+          }
+        }
+      }
+    } finally {
+      await connectionManager.end();
+    }
+  }
 
   // TODO: This should rather be done by registering the key collector in some kind of auth engine
   private registerSupabaseAuth(context: system.ServiceContextContainer) {

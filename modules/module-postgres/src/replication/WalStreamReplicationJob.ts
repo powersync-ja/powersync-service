@@ -4,6 +4,7 @@ import { MissingReplicationSlotError, WalStream } from './WalStream.js';
 
 import { replication } from '@powersync/service-core';
 import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
+import { cleanUpReplicationSlot } from './replication-utils.js';
 
 export interface WalStreamReplicationJobOptions extends replication.AbstractReplicationJobOptions {
   connectionFactory: ConnectionManagerFactory;
@@ -12,7 +13,7 @@ export interface WalStreamReplicationJobOptions extends replication.AbstractRepl
 
 export class WalStreamReplicationJob extends replication.AbstractReplicationJob {
   private connectionFactory: ConnectionManagerFactory;
-  private connectionManager: PgManager;
+  private readonly connectionManager: PgManager;
   private readonly eventManager: replication.ReplicationEventManager;
 
   constructor(options: WalStreamReplicationJobOptions) {
@@ -27,15 +28,14 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
   }
 
   async cleanUp(): Promise<void> {
-    this.logger.info(`Cleaning up replication slot: ${this.slot_name}`);
-
+    const connectionManager = this.connectionFactory.create({
+      idleTimeout: 30_000,
+      maxSize: 1
+    });
     try {
-      await this.connectionManager.pool.query({
-        statement: 'SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1',
-        params: [{ type: 'varchar', value: this.slot_name }]
-      });
+      await cleanUpReplicationSlot(this.slotName, connectionManager.pool);
     } finally {
-      await this.connectionManager.end();
+      await connectionManager.end();
     }
   }
 
@@ -59,7 +59,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
     }
   }
 
-  get slot_name() {
+  get slotName() {
     return this.options.storage.slot_name;
   }
 
@@ -70,14 +70,14 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
       // Fatal exception
       container.reporter.captureException(e, {
         metadata: {
-          replication_slot: this.slot_name
+          replication_slot: this.slotName
         }
       });
-      this.logger.error(`Replication failed on ${this.slot_name}`, e);
+      this.logger.error(`Replication failed on ${this.slotName}`, e);
 
       if (e instanceof MissingReplicationSlotError) {
         // This stops replication on this slot, and creates a new slot
-        await this.options.storage.factory.slotRemoved(this.slot_name);
+        await this.options.storage.factory.slotRemoved(this.slotName);
       }
     } finally {
       this.abortController.abort();
@@ -111,7 +111,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
       const stream = new WalStream({
         abort_signal: this.abortController.signal,
         storage: this.options.storage,
-        connections: this.connectionManager,
+        connections: connectionManager,
         event_manager: this.eventManager
       });
       await stream.replicate();
@@ -146,7 +146,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
         // Report the error if relevant, before retrying
         container.reporter.captureException(e, {
           metadata: {
-            replication_slot: this.slot_name
+            replication_slot: this.slotName
           }
         });
         // This sets the retry delay

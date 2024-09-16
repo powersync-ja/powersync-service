@@ -14,7 +14,8 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
     handler: async ({ context, params, responder, observer, initialN }) => {
       const { service_context } = context;
       const { routerEngine } = service_context;
-      if (routerEngine.closed) {
+
+      if (routerEngine!.closed) {
         responder.onError(
           new errors.JourneyError({
             status: 503,
@@ -31,7 +32,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       const syncParams = new RequestParameters(context.token_payload!, params.parameters ?? {});
 
       const {
-        storage: { activeBucketStorage }
+        storageEngine: { activeBucketStorage }
       } = service_context;
       // Sanity check before we start the stream
       const cp = await activeBucketStorage.getActiveCheckpoint();
@@ -57,7 +58,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         }
       });
 
-      const removeStopHandler = routerEngine.addStopHandler(() => {
+      const removeStopHandler = routerEngine!.addStopHandler(() => {
         observer.triggerCancel();
       });
 

@@ -1,6 +1,5 @@
 import { hrtime } from 'node:process';
 import * as storage from '../storage/storage-index.js';
-
 import { container, logger } from '@powersync/lib-services-framework';
 import { SyncRulesProvider } from '../util/config/sync-rules/sync-rules-provider.js';
 import winston from 'winston';
@@ -49,6 +48,12 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   }
 
   abstract createJob(options: CreateJobOptions): T;
+
+  /**
+   *  Clean up any configuration or state for the specified sync rule on the datasource.
+   *  Should be a no-op if the configuration has already been cleared
+   */
+  abstract cleanUp(syncRuleStorage: storage.SyncRulesBucketStorage): Promise<void>;
 
   public get id() {
     return this.options.id;
@@ -175,7 +180,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
           // for example from stricter validation that was added.
           // This will be retried every couple of seconds.
           // When new (valid) sync rules are deployed and processed, this one be disabled.
-          this.logger.error('Failed to start replication for with new sync rules', e);
+          this.logger.error('Failed to start replication for new sync rules', e);
         }
       }
     }
@@ -186,7 +191,8 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     for (let job of existingJobs.values()) {
       // Old - stop and clean up
       try {
-        await job.terminate();
+        await job.stop();
+        await this.terminateSyncRules(job.storage);
       } catch (e) {
         // This will be retried
         this.logger.warn('Failed to terminate old replication job}', e);
@@ -197,19 +203,8 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     const stopped = await this.storage.getStoppedSyncRules();
     for (let syncRules of stopped) {
       try {
-        const lock = await syncRules.lock();
-        const parsed = syncRules.parsed();
-        const storage = this.storage.getInstance(parsed);
-        try {
-          // TODO: See if this should maybe just be a separate type of job
-          const terminationJob = this.createJob({
-            lock: lock,
-            storage: storage
-          });
-          await terminationJob.terminate();
-        } finally {
-          await lock.release();
-        }
+        const syncRuleStorage = this.storage.getInstance(syncRules.parsed());
+        await this.terminateSyncRules(syncRuleStorage);
       } catch (e) {
         this.logger.warn(`Failed clean up replication config for sync rule: ${syncRules.id}`, e);
       }
@@ -218,5 +213,16 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
   protected createJobId(syncRuleId: number) {
     return `${this.id}-${syncRuleId}`;
+  }
+
+  protected async terminateSyncRules(syncRuleStorage: storage.SyncRulesBucketStorage) {
+    this.logger.info(`Terminating sync rules: ${syncRuleStorage.group_id}...`);
+    try {
+      await this.cleanUp(syncRuleStorage);
+      await syncRuleStorage.terminate();
+      this.logger.info(`Successfully terminated sync rules: ${syncRuleStorage.group_id}`);
+    } catch (e) {
+      this.logger.warn(`Failed clean up replication config for sync rules: ${syncRuleStorage.group_id}`, e);
+    }
   }
 }

@@ -122,7 +122,7 @@ export interface WriteCheckpoint {
 
 export interface ActiveCheckpoint {
   readonly checkpoint: util.OpId;
-  readonly lsn: string;
+  readonly lsn: string | null;
 
   hasSyncRules(): boolean;
 
@@ -203,6 +203,10 @@ export interface BucketDataBatchOptions {
   chunkLimitBytes?: number;
 }
 
+export interface StartBatchOptions {
+  zeroLSN: string;
+}
+
 export interface SyncRulesBucketStorage {
   readonly sync_rules: SqlSyncRules;
   readonly group_id: number;
@@ -212,9 +216,12 @@ export interface SyncRulesBucketStorage {
 
   resolveTable(options: ResolveTableOptions): Promise<ResolveTableResult>;
 
-  startBatch(options: {}, callback: (batch: BucketStorageBatch) => Promise<void>): Promise<FlushedResult | null>;
+  startBatch(
+    options: StartBatchOptions,
+    callback: (batch: BucketStorageBatch) => Promise<void>
+  ): Promise<FlushedResult | null>;
 
-  getCheckpoint(): Promise<{ checkpoint: util.OpId; lsn: string }>;
+  getCheckpoint(): Promise<{ checkpoint: util.OpId }>;
 
   getParameterSets(checkpoint: util.OpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]>;
 
@@ -249,7 +256,7 @@ export interface SyncRulesBucketStorage {
    *
    * Must only be called on stopped sync rules.
    */
-  terminate(): Promise<void>;
+  terminate(options?: TerminateOptions): Promise<void>;
 
   getStatus(): Promise<SyncRuleStatus>;
 
@@ -438,4 +445,11 @@ export interface CompactOptions {
    * If not specified, compacts all buckets.
    */
   compactBuckets?: string[];
+}
+
+export interface TerminateOptions {
+  /**
+   * If true, also clear the storage before terminating.
+   */
+  clearStorage: boolean;
 }

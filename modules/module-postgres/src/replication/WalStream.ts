@@ -345,15 +345,8 @@ WHERE  oid = $1::regclass`,
   }
 
   async initialReplication(db: pgwire.PgConnection, lsn: string) {
-    const replicationTables = [...this.sync_rules.getSourceTables()];
-
-    await this.storage.startBatch({}, async (batch) => {
-      const eventBatch = new replication.ReplicationEventBatch({
-        manager: this.event_manager,
-        storage: this.storage
-      });
-
-      for (let tablePattern of replicationTables) {
+    await this.storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
+      for (let tablePattern of this.sync_rules.getSourceTables()) {
         const tables = await this.getQualifiedTableNames(batch, db, tablePattern);
         for (let table of tables) {
           await this.snapshotTable(batch, db, table, eventBatch, lsn);
@@ -629,7 +622,7 @@ WHERE  oid = $1::regclass`,
     // Auto-activate as soon as initial replication is done
     await this.storage.autoActivate();
 
-    await this.storage.startBatch({}, async (batch) => {
+    await this.storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
       // Replication never starts in the middle of a transaction
       let inTx = false;
       let count = 0;
