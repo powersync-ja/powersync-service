@@ -82,7 +82,7 @@ export class ReplicationEventBatch {
   async flush() {
     try {
       for (const [eventDescription, eventData] of this.event_cache) {
-        // TODO: how should errors be dealt with here
+        // TODO: Handle errors with hooks
         await this.manager.fireEvent({
           event: eventDescription,
           storage: this.storage,

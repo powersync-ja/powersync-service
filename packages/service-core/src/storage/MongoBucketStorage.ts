@@ -21,6 +21,7 @@ import {
   UpdateSyncRulesOptions,
   WriteCheckpoint
 } from './BucketStorage.js';
+import { WriteCheckpointFilters } from './mongo/Checkpoint.js';
 import { MongoPersistedSyncRulesContent } from './mongo/MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage } from './mongo/MongoSyncBucketStorage.js';
 import { PowerSyncMongo, PowerSyncMongoOptions } from './mongo/db.js';
@@ -272,10 +273,13 @@ export class MongoBucketStorage implements BucketStorageFactory {
     return doc!.client_id;
   }
 
-  async lastWriteCheckpoint(user_id: string, lsn: string): Promise<bigint | null> {
+  // async lastWriteCheckpoint(user_id: string, lsn: string): Promise<bigint | null> {
+  async lastWriteCheckpoint(filters: WriteCheckpointFilters): Promise<bigint | null> {
+    const { user_id, lsns, sync_rules_id } = filters;
     const lastWriteCheckpoint = await this.db.write_checkpoints.findOne({
       user_id: user_id,
-      'lsns.1': { $lte: lsn }
+      sync_rules_id,
+      'lsns.1': { $lte: lsns }
     });
     return lastWriteCheckpoint?.client_id ?? null;
   }
@@ -502,7 +506,7 @@ export class MongoBucketStorage implements BucketStorageFactory {
       // 1. checkpoint (op_id) changes.
       // 2. write checkpoint changes for the specific user
 
-      const currentWriteCheckpoint = await this.lastWriteCheckpoint(user_id, lsn ?? '');
+      const currentWriteCheckpoint = await this.lastWriteCheckpoint(user_id);
 
       if (currentWriteCheckpoint == lastWriteCheckpoint && checkpoint == lastCheckpoint) {
         // No change - wait for next one

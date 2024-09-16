@@ -10,10 +10,7 @@ import {
 import * as util from '../util/util-index.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
-
-export interface UserCheckpointOptions {
-  sync_rules_id?: number;
-}
+import { WriteCheckpointFilters, WriteCheckpointOptions } from './mongo/Checkpoint.js';
 
 export interface BucketStorageFactory {
   /**
@@ -84,19 +81,28 @@ export interface BucketStorageFactory {
    */
   getActiveCheckpoint(): Promise<ActiveCheckpoint>;
 
-  createWriteCheckpoint(
-    user_id: string,
-    lsns: Record<string, string>,
-    options?: UserCheckpointOptions
-  ): Promise<bigint>;
+  /**
+   * Creates a raw write checkpoint given primitive values.
+   */
+  createRawWriteCheckpoint(checkpoint: WriteCheckpointOptions): Promise<bigint>;
 
-  lastWriteCheckpoint(user_id: string, lsn: string, options?: UserCheckpointOptions): Promise<bigint | null>;
+  /**
+   * Creates a mapping of user_id + LSN(s) to an
+   * automatically (managed) incrementing write checkpoint.
+   */
+  createWriteCheckpoint(user_id: string, lsns: Record<string, string>): Promise<bigint>;
 
-  watchWriteCheckpoint(
-    user_id: string,
-    signal: AbortSignal,
-    options?: UserCheckpointOptions
-  ): AsyncIterable<WriteCheckpoint>;
+  /**
+   * Gets the last write checkpoint before the specified filters.
+   * Checkpoint will be before the specified LSN(s) if provided.
+   * Checkpoint will belong to the specified sync rules if provided.
+   */
+  lastWriteCheckpoint(filters: WriteCheckpointFilters): Promise<bigint | null>;
+
+  /**
+   * Yields the latest write checkpoint whenever the sync checkpoint updates.
+   */
+  watchWriteCheckpoint(filters: WriteCheckpointFilters, signal: AbortSignal): AsyncIterable<WriteCheckpoint>;
 
   /**
    * Get storage size of active sync rules.
