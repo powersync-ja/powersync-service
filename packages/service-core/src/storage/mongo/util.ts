@@ -136,8 +136,7 @@ export function replicaIdEquals(a: ReplicaId, b: ReplicaId) {
 export function replicaIdToSubkey(table: bson.ObjectId, id: ReplicaId): string {
   if (isUUID(id)) {
     // Special case for UUID for backwards-compatiblity
-    `${table.toHexString()}/${id.toHexString()}`;
-    return id.toHexString();
+    return `${table.toHexString()}/${id.toHexString()}`;
   } else {
     // Hashed UUID from the table and id
     const repr = bson.serialize({ table, id });

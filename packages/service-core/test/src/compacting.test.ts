@@ -3,7 +3,9 @@ import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { validateCompactedBucket } from './bucket_validation.js';
 import { oneFromAsync } from './stream_utils.js';
-import { makeTestTable, MONGO_STORAGE_FACTORY, ZERO_LSN } from './util.js';
+import { BATCH_OPTIONS, makeTestTable, MONGO_STORAGE_FACTORY, rid, testRules, ZERO_LSN } from './util.js';
+import { ParseSyncRulesOptions, PersistedSyncRulesContent, StartBatchOptions } from '@/storage/BucketStorage.js';
+import { getUuidReplicaIdentityBson } from '@/util/util-index.js';
 
 const TEST_TABLE = makeTestTable('test', ['id']);
 
@@ -18,21 +20,22 @@ function compactTests(compactOptions: MongoCompactOptions) {
   const factory = MONGO_STORAGE_FACTORY;
 
   test('compacting (1)', async () => {
-    const sync_rules = SqlSyncRules.fromYaml(`
+    const sync_rules = testRules(`
 bucket_definitions:
   global:
     data: [select * from test]
     `);
 
-    const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
+    const storage = (await factory()).getInstance(sync_rules);
 
-    const result = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
+    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: 'insert',
         after: {
           id: 't1'
-        }
+        },
+        afterReplicaId: rid('t1')
       });
 
       await batch.save({
@@ -40,7 +43,8 @@ bucket_definitions:
         tag: 'insert',
         after: {
           id: 't2'
-        }
+        },
+        afterReplicaId: rid('t2')
       });
 
       await batch.save({
@@ -48,7 +52,8 @@ bucket_definitions:
         tag: 'update',
         after: {
           id: 't2'
-        }
+        },
+        afterReplicaId: rid('t2')
       });
     });
 
@@ -108,21 +113,22 @@ bucket_definitions:
   });
 
   test('compacting (2)', async () => {
-    const sync_rules = SqlSyncRules.fromYaml(`
+    const sync_rules = testRules(`
 bucket_definitions:
   global:
     data: [select * from test]
     `);
 
-    const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
+    const storage = (await factory()).getInstance(sync_rules);
 
-    const result = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
+    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: 'insert',
         after: {
           id: 't1'
-        }
+        },
+        afterReplicaId: rid('t1')
       });
 
       await batch.save({
@@ -130,7 +136,8 @@ bucket_definitions:
         tag: 'insert',
         after: {
           id: 't2'
-        }
+        },
+        afterReplicaId: rid('t2')
       });
 
       await batch.save({
@@ -138,7 +145,8 @@ bucket_definitions:
         tag: 'delete',
         before: {
           id: 't1'
-        }
+        },
+        beforeReplicaId: rid('t1')
       });
 
       await batch.save({
@@ -146,7 +154,8 @@ bucket_definitions:
         tag: 'update',
         after: {
           id: 't2'
-        }
+        },
+        afterReplicaId: rid('t2')
       });
     });
 
