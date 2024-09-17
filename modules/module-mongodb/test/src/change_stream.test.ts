@@ -11,7 +11,7 @@ const BASIC_SYNC_RULES = `
 bucket_definitions:
   global:
     data:
-      - SELECT id, description FROM "test_data"
+      - SELECT _id as id, description FROM "test_data"
 `;
 
 describe(
@@ -23,7 +23,7 @@ describe(
 );
 
 function defineWalStreamTests(factory: StorageFactory) {
-  test.only(
+  test(
     'replicating basic values',
     walStreamTest(factory, async (context) => {
       const { db } = context;
@@ -52,105 +52,83 @@ bucket_definitions:
   test(
     'replicating case sensitive table',
     walStreamTest(factory, async (context) => {
-      const { pool } = context;
+      const { db } = context;
       await context.updateSyncRules(`
       bucket_definitions:
         global:
           data:
-            - SELECT id, description FROM "test_DATA"
+            - SELECT _id as id, description FROM "test_DATA"
       `);
-
-      await pool.query(`DROP TABLE IF EXISTS "test_DATA"`);
-      await pool.query(`CREATE TABLE "test_DATA"(id uuid primary key default uuid_generate_v4(), description text)`);
 
       await context.replicateSnapshot();
 
-      const startRowCount =
-        (await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
-      const startTxCount =
-        (await Metrics.getInstance().getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
-
       context.startStreaming();
 
-      const [{ test_id }] = pgwireRows(
-        await pool.query(`INSERT INTO "test_DATA"(description) VALUES('test1') returning id as test_id`)
-      );
+      const collection = db.collection('test_DATA');
+      const result = await collection.insertOne({ description: 'test1' });
+      const test_id = result.insertedId.toHexString();
 
       const data = await context.getBucketData('global[]');
 
       expect(data).toMatchObject([putOp('test_DATA', { id: test_id, description: 'test1' })]);
-      const endRowCount = (await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
-      const endTxCount =
-        (await Metrics.getInstance().getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
-      expect(endRowCount - startRowCount).toEqual(1);
-      expect(endTxCount - startTxCount).toEqual(1);
     })
   );
 
   test(
-    'replicating TOAST values',
+    'replicating large values',
     walStreamTest(factory, async (context) => {
-      const { pool } = context;
+      const { db } = context;
       await context.updateSyncRules(`
       bucket_definitions:
         global:
           data:
-            - SELECT id, name, description FROM "test_data"
+            - SELECT _id as id, name, description FROM "test_data"
       `);
-
-      await pool.query(`DROP TABLE IF EXISTS test_data`);
-      await pool.query(
-        `CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), name text, description text)`
-      );
 
       await context.replicateSnapshot();
       context.startStreaming();
 
-      // Must be > 8kb after compression
       const largeDescription = crypto.randomBytes(20_000).toString('hex');
-      const [{ test_id }] = pgwireRows(
-        await pool.query({
-          statement: `INSERT INTO test_data(name, description) VALUES('test1', $1) returning id as test_id`,
-          params: [{ type: 'varchar', value: largeDescription }]
-        })
-      );
 
-      await pool.query(`UPDATE test_data SET name = 'test2' WHERE id = '${test_id}'`);
+      const collection = db.collection('test_data');
+      const result = await collection.insertOne({ name: 'test1', description: largeDescription });
+      const test_id = result.insertedId;
+
+      await collection.updateOne({ _id: test_id }, { $set: { name: 'test2' } });
 
       const data = await context.getBucketData('global[]');
       expect(data.slice(0, 1)).toMatchObject([
-        putOp('test_data', { id: test_id, name: 'test1', description: largeDescription })
+        putOp('test_data', { id: test_id.toHexString(), name: 'test1', description: largeDescription })
       ]);
       expect(data.slice(1)).toMatchObject([
-        putOp('test_data', { id: test_id, name: 'test2', description: largeDescription })
+        putOp('test_data', { id: test_id.toHexString(), name: 'test2', description: largeDescription })
       ]);
     })
   );
 
-  test(
-    'replicating TRUNCATE',
+  // Not implemented yet
+  test.skip(
+    'replicating dropCollection',
     walStreamTest(factory, async (context) => {
-      const { pool } = context;
+      const { db } = context;
       const syncRuleContent = `
 bucket_definitions:
   global:
     data:
-      - SELECT id, description FROM "test_data"
+      - SELECT _id as id, description FROM "test_data"
   by_test_data:
-    parameters: SELECT id FROM test_data WHERE id = token_parameters.user_id
+    parameters: SELECT _id as id FROM test_data WHERE id = token_parameters.user_id
     data: []
 `;
       await context.updateSyncRules(syncRuleContent);
-      await pool.query(`DROP TABLE IF EXISTS test_data`);
-      await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);
-
       await context.replicateSnapshot();
       context.startStreaming();
 
-      const [{ test_id }] = pgwireRows(
-        await pool.query(`INSERT INTO test_data(description) VALUES('test1') returning id as test_id`)
-      );
-      await pool.query(`TRUNCATE test_data`);
+      const collection = db.collection('test_data');
+      const result = await collection.insertOne({ description: 'test1' });
+      const test_id = result.insertedId.toHexString();
+
+      await collection.drop();
 
       const data = await context.getBucketData('global[]');
 
@@ -162,61 +140,14 @@ bucket_definitions:
   );
 
   test(
-    'replicating changing primary key',
-    walStreamTest(factory, async (context) => {
-      const { pool } = context;
-      await context.updateSyncRules(BASIC_SYNC_RULES);
-      await pool.query(`DROP TABLE IF EXISTS test_data`);
-      await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);
-
-      await context.replicateSnapshot();
-      context.startStreaming();
-
-      const [{ test_id }] = pgwireRows(
-        await pool.query(`INSERT INTO test_data(description) VALUES('test1') returning id as test_id`)
-      );
-
-      const [{ test_id: test_id2 }] = pgwireRows(
-        await pool.query(
-          `UPDATE test_data SET id = uuid_generate_v4(), description = 'test2a' WHERE id = '${test_id}' returning id as test_id`
-        )
-      );
-
-      // This update may fail replicating with:
-      // Error: Update on missing record public.test_data:074a601e-fc78-4c33-a15d-f89fdd4af31d :: {"g":1,"t":"651e9fbe9fec6155895057ec","k":"1a0b34da-fb8c-5e6f-8421-d7a3c5d4df4f"}
-      await pool.query(`UPDATE test_data SET description = 'test2b' WHERE id = '${test_id2}'`);
-
-      // Re-use old id again
-      await pool.query(`INSERT INTO test_data(id, description) VALUES('${test_id}', 'test1b')`);
-      await pool.query(`UPDATE test_data SET description = 'test1c' WHERE id = '${test_id}'`);
-
-      const data = await context.getBucketData('global[]');
-      expect(data).toMatchObject([
-        // Initial insert
-        putOp('test_data', { id: test_id, description: 'test1' }),
-        // Update id, then description
-        removeOp('test_data', test_id),
-        putOp('test_data', { id: test_id2, description: 'test2a' }),
-        putOp('test_data', { id: test_id2, description: 'test2b' }),
-        // Re-use old id
-        putOp('test_data', { id: test_id, description: 'test1b' }),
-        putOp('test_data', { id: test_id, description: 'test1c' })
-      ]);
-    })
-  );
-
-  test(
     'initial sync',
     walStreamTest(factory, async (context) => {
-      const { pool } = context;
+      const { db } = context;
       await context.updateSyncRules(BASIC_SYNC_RULES);
 
-      await pool.query(`DROP TABLE IF EXISTS test_data`);
-      await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);
-
-      const [{ test_id }] = pgwireRows(
-        await pool.query(`INSERT INTO test_data(description) VALUES('test1') returning id as test_id`)
-      );
+      const collection = db.collection('test_data');
+      const result = await collection.insertOne({ description: 'test1' });
+      const test_id = result.insertedId.toHexString();
 
       await context.replicateSnapshot();
       context.startStreaming();

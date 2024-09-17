@@ -147,7 +147,8 @@ export class ChangeStream {
           if (time != null) {
             const lsn = getMongoLsn(time.clusterTime);
             logger.info(`Snapshot commit at ${time.clusterTime.inspect()} / ${lsn}`);
-            await batch.commit(lsn, { forceCommit: true });
+            await batch.commit(lsn);
+            await batch.keepalive(lsn);
           } else {
             logger.info(`No snapshot clusterTime (no snapshot data?) - skipping commit.`);
           }
@@ -161,7 +162,7 @@ export class ChangeStream {
   private getSourceNamespaceFilters() {
     const sourceTables = this.sync_rules.getSourceTables();
 
-    let filters: any[] = [{ db: this.defaultDb.databaseName, collection: '_powersync_checkpoints' }];
+    let filters: any[] = [{ db: this.defaultDb.databaseName, coll: '_powersync_checkpoints' }];
     for (let tablePattern of sourceTables) {
       if (tablePattern.connectionTag != this.connections.connectionTag) {
         continue;
@@ -396,7 +397,10 @@ export class ChangeStream {
 
         // console.log('event', changeDocument);
 
-        if (
+        if (changeDocument.operationType == 'insert' && changeDocument.ns.coll == '_powersync_checkpoints') {
+          const lsn = getMongoLsn(changeDocument.clusterTime!);
+          await batch.keepalive(lsn);
+        } else if (
           changeDocument.operationType == 'insert' ||
           changeDocument.operationType == 'update' ||
           changeDocument.operationType == 'delete'

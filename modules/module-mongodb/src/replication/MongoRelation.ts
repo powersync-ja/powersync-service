@@ -134,7 +134,6 @@ export async function createCheckpoint(db: mongo.Db): Promise<string> {
   const pingResult = await db.command({ ping: 1 });
 
   const time: mongo.Timestamp = pingResult.$clusterTime.clusterTime;
-
   const result = await db.collection('_powersync_checkpoints').findOneAndUpdate(
     {
       _id: 'checkpoint' as any
