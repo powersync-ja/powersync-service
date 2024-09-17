@@ -130,24 +130,27 @@ function filterJsonData(data: any, depth = 0): any {
   }
 }
 
-export async function createCheckpoint(db: mongo.Db): Promise<string> {
-  const pingResult = await db.command({ ping: 1 });
-
-  const time: mongo.Timestamp = pingResult.$clusterTime.clusterTime;
-  const result = await db.collection('_powersync_checkpoints').findOneAndUpdate(
-    {
-      _id: 'checkpoint' as any
-    },
-    {
-      $inc: { i: 1 }
-    },
-    {
-      upsert: true,
-      returnDocument: 'after'
-    }
-  );
-
-  // TODO: Use the above when we support custom write checkpoints
-
-  return getMongoLsn(time);
+export async function createCheckpoint(client: mongo.MongoClient, db: mongo.Db): Promise<string> {
+  const session = client.startSession();
+  try {
+    const result = await db.collection('_powersync_checkpoints').findOneAndUpdate(
+      {
+        _id: 'checkpoint' as any
+      },
+      {
+        $inc: { i: 1 }
+      },
+      {
+        upsert: true,
+        returnDocument: 'after',
+        session
+      }
+    );
+    const time = session.operationTime!;
+    // console.log('marked checkpoint at', time, getMongoLsn(time));
+    // TODO: Use the above when we support custom write checkpoints
+    return getMongoLsn(time);
+  } finally {
+    await session.endSession();
+  }
 }

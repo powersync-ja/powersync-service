@@ -90,7 +90,7 @@ export class ChangeStreamTestContext {
 
   async getCheckpoint(options?: { timeout?: number }) {
     let checkpoint = await Promise.race([
-      getClientCheckpoint(this.db, this.factory, { timeout: options?.timeout ?? 15_000 }),
+      getClientCheckpoint(this.client, this.db, this.factory, { timeout: options?.timeout ?? 15_000 }),
       this.streamPromise
     ]);
     if (typeof checkpoint == undefined) {
@@ -118,16 +118,17 @@ export class ChangeStreamTestContext {
 }
 
 export async function getClientCheckpoint(
+  client: mongo.MongoClient,
   db: mongo.Db,
   bucketStorage: BucketStorageFactory,
   options?: { timeout?: number }
 ): Promise<OpId> {
   const start = Date.now();
-  const lsn = await createCheckpoint(db);
+  const lsn = await createCheckpoint(client, db);
   // This old API needs a persisted checkpoint id.
   // Since we don't use LSNs anymore, the only way to get that is to wait.
 
-  const timeout = options?.timeout ?? 5_00;
+  const timeout = options?.timeout ?? 50_000;
   let lastCp: ActiveCheckpoint | null = null;
 
   while (Date.now() - start < timeout) {
@@ -143,5 +144,5 @@ export async function getClientCheckpoint(
     await new Promise((resolve) => setTimeout(resolve, 30));
   }
 
-  throw new Error(`Timeout while waiting for checkpoint. Last checkpoint: ${lastCp?.lsn}`);
+  throw new Error(`Timeout while waiting for checkpoint ${lsn}. Last checkpoint: ${lastCp?.lsn}`);
 }

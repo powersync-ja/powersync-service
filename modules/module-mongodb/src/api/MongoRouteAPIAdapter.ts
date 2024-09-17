@@ -75,7 +75,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
   }
 
   async getReplicationHead(): Promise<string> {
-    return createCheckpoint(this.db);
+    return createCheckpoint(this.client, this.db);
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {

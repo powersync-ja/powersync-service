@@ -3,7 +3,13 @@ import { Metrics, SourceEntityDescriptor, storage } from '@powersync/service-cor
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
 import * as mongo from 'mongodb';
 import { MongoManager } from './MongoManager.js';
-import { constructAfterRecord, getMongoLsn, getMongoRelation, mongoLsnToTimestamp } from './MongoRelation.js';
+import {
+  constructAfterRecord,
+  createCheckpoint,
+  getMongoLsn,
+  getMongoRelation,
+  mongoLsnToTimestamp
+} from './MongoRelation.js';
 
 export const ZERO_LSN = '0000000000000000';
 
@@ -276,10 +282,10 @@ export class ChangeStream {
       // Truncate this table, in case a previous snapshot was interrupted.
       await batch.truncate([result.table]);
 
-      let lsn: string = ZERO_LSN;
-      // TODO: Transaction / consistency
       await this.snapshotTable(batch, result.table);
-      const [table] = await batch.markSnapshotDone([result.table], lsn);
+      const no_checkpoint_before_lsn = await createCheckpoint(this.client, this.defaultDb);
+
+      const [table] = await batch.markSnapshotDone([result.table], no_checkpoint_before_lsn);
       return table;
     }
 
@@ -428,7 +434,12 @@ export class ChangeStream {
 
         // console.log('event', changeDocument);
 
-        if (changeDocument.operationType == 'insert' && changeDocument.ns.coll == '_powersync_checkpoints') {
+        if (
+          (changeDocument.operationType == 'insert' ||
+            changeDocument.operationType == 'update' ||
+            changeDocument.operationType == 'replace') &&
+          changeDocument.ns.coll == '_powersync_checkpoints'
+        ) {
           const lsn = getMongoLsn(changeDocument.clusterTime!);
           await batch.keepalive(lsn);
         } else if (

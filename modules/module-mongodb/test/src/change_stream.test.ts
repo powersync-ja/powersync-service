@@ -5,6 +5,8 @@ import * as crypto from 'crypto';
 import { describe, expect, test } from 'vitest';
 import { walStreamTest } from './change_stream_utils.js';
 import * as mongo from 'mongodb';
+import { setTimeout } from 'node:timers/promises';
+
 type StorageFactory = () => Promise<BucketStorageFactory>;
 
 const BASIC_SYNC_RULES = `
@@ -44,8 +46,11 @@ bucket_definitions:
 
       const result = await collection.insertOne({ description: 'test1', num: 1152921504606846976n });
       const test_id = result.insertedId;
+      await setTimeout(10);
       await collection.updateOne({ _id: test_id }, { $set: { description: 'test2' } });
+      await setTimeout(10);
       await collection.replaceOne({ _id: test_id }, { description: 'test3' });
+      await setTimeout(10);
       await collection.deleteOne({ _id: test_id });
 
       const data = await context.getBucketData('global[]');
