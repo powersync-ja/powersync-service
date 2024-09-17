@@ -1,5 +1,5 @@
 import { container, logger } from '@powersync/lib-services-framework';
-import { Metrics, SourceEntityDescriptor, storage } from '@powersync/service-core';
+import { Metrics, SourceEntityDescriptor, SourceTable, storage } from '@powersync/service-core';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
 import * as mongo from 'mongodb';
 import { MongoManager } from './MongoManager.js';
@@ -172,6 +172,7 @@ export class ChangeStream {
             const lsn = getMongoLsn(snapshotTime);
             logger.info(`Snapshot commit at ${snapshotTime.inspect()} / ${lsn}`);
             // keepalive() does an auto-commit if there is data
+            await batch.flush();
             await batch.keepalive(lsn);
           } else {
             logger.info(`No snapshot clusterTime (no snapshot data?) - skipping commit.`);
@@ -250,6 +251,17 @@ export class ChangeStream {
     }
 
     await batch.flush();
+  }
+
+  private async getRelation(
+    batch: storage.BucketStorageBatch,
+    descriptor: SourceEntityDescriptor
+  ): Promise<SourceTable> {
+    const existing = this.relation_cache.get(descriptor.objectId);
+    if (existing != null) {
+      return existing;
+    }
+    return this.handleRelation(batch, descriptor, { snapshot: false });
   }
 
   async handleRelation(
@@ -388,28 +400,17 @@ export class ChangeStream {
         showExpandedEvents: true,
         useBigInt64: true,
         maxAwaitTimeMS: 200,
-        fullDocument: 'updateLookup' // FIXME: figure this one out
+        fullDocument: 'updateLookup'
       });
       this.abort_signal.addEventListener('abort', () => {
         stream.close();
       });
 
-      let lastEventTimestamp: mongo.Timestamp | null = null;
+      let waitForCheckpointLsn: string | null = null;
 
       while (true) {
         const changeDocument = await stream.tryNext();
         if (changeDocument == null) {
-          // We don't get events for transaction commit.
-          // So if no events are available in the stream within maxAwaitTimeMS,
-          // we assume the transaction is complete.
-          // This is not foolproof - we may end up with a commit in the middle
-          // of a transaction.
-          if (lastEventTimestamp != null) {
-            const lsn = getMongoLsn(lastEventTimestamp);
-            await batch.commit(lsn);
-            lastEventTimestamp = null;
-          }
-
           continue;
         }
         await touch();
@@ -422,16 +423,6 @@ export class ChangeStream {
           continue;
         }
 
-        if (
-          lastEventTimestamp != null &&
-          changeDocument.clusterTime != null &&
-          changeDocument.clusterTime.neq(lastEventTimestamp)
-        ) {
-          const lsn = getMongoLsn(lastEventTimestamp);
-          await batch.commit(lsn);
-          lastEventTimestamp = null;
-        }
-
         // console.log('event', changeDocument);
 
         if (
@@ -441,6 +432,10 @@ export class ChangeStream {
           changeDocument.ns.coll == '_powersync_checkpoints'
         ) {
           const lsn = getMongoLsn(changeDocument.clusterTime!);
+          if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
+            waitForCheckpointLsn = null;
+          }
+          await batch.flush();
           await batch.keepalive(lsn);
         } else if (
           changeDocument.operationType == 'insert' ||
@@ -448,27 +443,28 @@ export class ChangeStream {
           changeDocument.operationType == 'replace' ||
           changeDocument.operationType == 'delete'
         ) {
+          if (waitForCheckpointLsn == null) {
+            waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb);
+          }
           const rel = getMongoRelation(changeDocument.ns);
-          // Don't snapshot tables here - we get all the data as insert events
-          const table = await this.handleRelation(batch, rel, { snapshot: false });
+          const table = await this.getRelation(batch, rel);
           if (table.syncAny) {
             await this.writeChange(batch, table, changeDocument);
-            if (changeDocument.clusterTime) {
-              lastEventTimestamp = changeDocument.clusterTime;
-            }
           }
         } else if (changeDocument.operationType == 'drop') {
           const rel = getMongoRelation(changeDocument.ns);
-          const table = await this.handleRelation(batch, rel, { snapshot: false });
+          const table = await this.getRelation(batch, rel);
           if (table.syncAny) {
             await batch.drop([table]);
+            this.relation_cache.delete(table.objectId);
           }
         } else if (changeDocument.operationType == 'rename') {
           const relFrom = getMongoRelation(changeDocument.ns);
           const relTo = getMongoRelation(changeDocument.to);
-          const tableFrom = await this.handleRelation(batch, relFrom, { snapshot: false });
+          const tableFrom = await this.getRelation(batch, relFrom);
           if (tableFrom.syncAny) {
             await batch.drop([tableFrom]);
+            this.relation_cache.delete(tableFrom.objectId);
           }
           // Here we do need to snapshot the new table
           await this.handleRelation(batch, relTo, { snapshot: true });
