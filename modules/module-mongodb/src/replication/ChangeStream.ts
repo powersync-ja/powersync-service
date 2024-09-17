@@ -308,7 +308,16 @@ export class ChangeStream {
         afterReplicaId: change.documentKey._id
       });
     } else if (change.operationType == 'update' || change.operationType == 'replace') {
-      const after = constructAfterRecord(change.fullDocument ?? {});
+      if (change.fullDocument == null) {
+        // Treat as delete
+        return await batch.save({
+          tag: 'delete',
+          sourceTable: table,
+          before: undefined,
+          beforeReplicaId: change.documentKey._id
+        });
+      }
+      const after = constructAfterRecord(change.fullDocument!);
       return await batch.save({
         tag: 'update',
         sourceTable: table,

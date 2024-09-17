@@ -4,7 +4,7 @@ import { BucketStorageFactory } from '@powersync/service-core';
 import * as crypto from 'crypto';
 import { describe, expect, test } from 'vitest';
 import { walStreamTest } from './change_stream_utils.js';
-
+import * as mongo from 'mongodb';
 type StorageFactory = () => Promise<BucketStorageFactory>;
 
 const BASIC_SYNC_RULES = `
@@ -55,6 +55,51 @@ bucket_definitions:
         putOp('test_data', { id: test_id.toHexString(), description: 'test2', num: 1152921504606846976n }),
         putOp('test_data', { id: test_id.toHexString(), description: 'test3' }),
         removeOp('test_data', test_id.toHexString())
+      ]);
+    })
+  );
+
+  test(
+    'no fullDocument available',
+    walStreamTest(factory, async (context) => {
+      const { db, client } = context;
+      await context.updateSyncRules(`
+bucket_definitions:
+  global:
+    data:
+      - SELECT _id as id, description, num FROM "test_data"`);
+
+      db.createCollection('test_data', {
+        changeStreamPreAndPostImages: { enabled: false }
+      });
+      const collection = db.collection('test_data');
+
+      await context.replicateSnapshot();
+
+      context.startStreaming();
+
+      const session = client.startSession();
+      let test_id: mongo.ObjectId | undefined;
+      try {
+        await session.withTransaction(async () => {
+          const result = await collection.insertOne({ description: 'test1', num: 1152921504606846976n }, { session });
+          test_id = result.insertedId;
+          await collection.updateOne({ _id: test_id }, { $set: { description: 'test2' } }, { session });
+          await collection.replaceOne({ _id: test_id }, { description: 'test3' }, { session });
+          await collection.deleteOne({ _id: test_id }, { session });
+        });
+      } finally {
+        await session.endSession();
+      }
+
+      const data = await context.getBucketData('global[]');
+
+      expect(data).toMatchObject([
+        putOp('test_data', { id: test_id!.toHexString(), description: 'test1', num: 1152921504606846976n }),
+        // fullDocument is not available at the point this is replicated, resulting in it treated as a remove
+        removeOp('test_data', test_id!.toHexString()),
+        putOp('test_data', { id: test_id!.toHexString(), description: 'test3' }),
+        removeOp('test_data', test_id!.toHexString())
       ]);
     })
   );
