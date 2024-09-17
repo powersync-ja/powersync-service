@@ -12,7 +12,7 @@ export const registerReplicationServices = (serviceContext: core.system.ServiceC
   serviceContext.register(core.replication.ReplicationEngine, replication);
   serviceContext.lifeCycleEngine.withLifecycle(replication, {
     start: (replication) => replication.start(),
-    stop: (replication) => replication.stop()
+    stop: (replication) => replication.shutDown()
   });
 };
 

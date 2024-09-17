@@ -72,31 +72,35 @@ export class RouterEngine {
    * Starts the router given the configuration provided
    */
   async start(setup: RouterSetup) {
+    logger.info('Starting Router Engine...');
     const { onShutdown } = await setup(this.routes);
     this.cleanupHandler = onShutdown;
+    logger.info('Successfully started Router Engine.');
   }
 
   /**
    * Runs all stop handlers then final cleanup.
    */
-  async shutdown() {
+  async shutDown() {
+    logger.info('Shutting down Router Engine...');
     // Close open streams, so that they don't block the server from closing.
     // Note: This does not work well when streaming requests are queued. In that case, the server still doesn't
     // close in the 30-second timeout.
     this.closed = true;
 
-    logger.info(`Closing ${this.stopHandlers.size} streams`);
+    logger.info(`Closing ${this.stopHandlers.size} streams.`);
     for (let handler of this.stopHandlers) {
       handler();
     }
 
-    logger.info(`Running close cleanup`);
+    logger.info(`Running cleanup.`);
 
     // Typically closes the server
     await this.cleanupHandler?.();
 
     // Close the api handlers
     await this.api?.shutdown();
+    logger.info('Successfully shut down Router Engine.');
   }
 
   /**
