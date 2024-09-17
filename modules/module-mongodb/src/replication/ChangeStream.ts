@@ -307,7 +307,7 @@ export class ChangeStream {
         after: baseRecord,
         afterReplicaId: change.documentKey._id
       });
-    } else if (change.operationType == 'update') {
+    } else if (change.operationType == 'update' || change.operationType == 'replace') {
       const after = constructAfterRecord(change.fullDocument ?? {});
       return await batch.save({
         tag: 'update',
@@ -425,6 +425,7 @@ export class ChangeStream {
         } else if (
           changeDocument.operationType == 'insert' ||
           changeDocument.operationType == 'update' ||
+          changeDocument.operationType == 'replace' ||
           changeDocument.operationType == 'delete'
         ) {
           const rel = getMongoRelation(changeDocument.ns);

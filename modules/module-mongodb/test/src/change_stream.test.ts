@@ -33,18 +33,28 @@ bucket_definitions:
     data:
       - SELECT _id as id, description, num FROM "test_data"`);
 
+      db.createCollection('test_data', {
+        changeStreamPreAndPostImages: { enabled: true }
+      });
+      const collection = db.collection('test_data');
+
       await context.replicateSnapshot();
 
       context.startStreaming();
 
-      const collection = db.collection('test_data');
       const result = await collection.insertOne({ description: 'test1', num: 1152921504606846976n });
       const test_id = result.insertedId;
+      await collection.updateOne({ _id: test_id }, { $set: { description: 'test2' } });
+      await collection.replaceOne({ _id: test_id }, { description: 'test3' });
+      await collection.deleteOne({ _id: test_id });
 
       const data = await context.getBucketData('global[]');
 
       expect(data).toMatchObject([
-        putOp('test_data', { id: test_id.toHexString(), description: 'test1', num: 1152921504606846976n })
+        putOp('test_data', { id: test_id.toHexString(), description: 'test1', num: 1152921504606846976n }),
+        putOp('test_data', { id: test_id.toHexString(), description: 'test2', num: 1152921504606846976n }),
+        putOp('test_data', { id: test_id.toHexString(), description: 'test3' }),
+        removeOp('test_data', test_id.toHexString())
       ]);
     })
   );

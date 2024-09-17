@@ -1,4 +1,4 @@
-import { BucketStorageFactory, OpId, SyncRulesBucketStorage } from '@powersync/service-core';
+import { ActiveCheckpoint, BucketStorageFactory, OpId, SyncRulesBucketStorage } from '@powersync/service-core';
 
 import { TEST_CONNECTION_OPTIONS, clearTestDb } from './util.js';
 import { fromAsync } from '@core-tests/stream_utils.js';
@@ -128,9 +128,11 @@ export async function getClientCheckpoint(
   // Since we don't use LSNs anymore, the only way to get that is to wait.
 
   const timeout = options?.timeout ?? 5_00;
+  let lastCp: ActiveCheckpoint | null = null;
 
   while (Date.now() - start < timeout) {
     const cp = await bucketStorage.getActiveCheckpoint();
+    lastCp = cp;
     if (!cp.hasSyncRules()) {
       throw new Error('No sync rules available');
     }
@@ -141,5 +143,5 @@ export async function getClientCheckpoint(
     await new Promise((resolve) => setTimeout(resolve, 30));
   }
 
-  throw new Error('Timeout while waiting for checkpoint');
+  throw new Error(`Timeout while waiting for checkpoint. Last checkpoint: ${lastCp?.lsn}`);
 }
