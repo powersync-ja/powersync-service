@@ -4,8 +4,8 @@ import { SourceTable } from './SourceTable.js';
 
 export type EventData = {
   op: SaveOp;
-  before?: sync_rules.EvaluatedParametersResult[];
-  after?: sync_rules.EvaluatedParametersResult[];
+  before?: sync_rules.SqliteRow;
+  after?: sync_rules.SqliteRow;
 };
 
 export type ReplicationEventData = Map<SourceTable, EventData[]>;

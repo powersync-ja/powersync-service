@@ -1,10 +1,10 @@
 import { isScalar, LineCounter, parseDocument, Scalar, YAMLMap, YAMLSeq } from 'yaml';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
+import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
 import { IdSequence } from './IdSequence.js';
 import { validateSyncRulesSchema } from './json_schema.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js';
-import { SqlEventDescriptor } from './SqlEventDescriptor.js';
 import { TablePattern } from './TablePattern.js';
 import {
   EvaluatedParameters,
@@ -136,29 +136,31 @@ export class SqlSyncRules implements SyncRules {
 
     const eventMap = parsed.get('event_definitions') as YAMLMap;
     for (const event of eventMap?.items ?? []) {
-      const { key, value } = event as { key: Scalar; value: Scalar | YAMLSeq };
-      const eventDescriptor = new SqlEventDescriptor(key.toString(), rules.idSequence);
+      const { key, value } = event as { key: Scalar; value: YAMLSeq };
 
-      if (value instanceof Scalar) {
-        rules.withScalar(value, (q) => {
-          return eventDescriptor.addParameterQuery(q, schema, {
-            accept_potentially_dangerous_queries: false
-          });
-        });
-      } else if (value instanceof YAMLSeq) {
-        for (let item of value.items) {
-          if (!isScalar(item)) {
-            // TODO position
-            rules.errors.push(new YamlError(new Error(`Parameters for events must be scalar.`)));
-            continue;
-          }
-          rules.withScalar(item, (q) => {
-            return eventDescriptor.addParameterQuery(q, schema, {
-              accept_potentially_dangerous_queries: false
-            });
-          });
-        }
+      if (false == value instanceof YAMLMap) {
+        rules.errors.push(new YamlError(new Error(`Event definitions must be objects.`)));
+        continue;
       }
+
+      const payloads = value.get('payloads') as YAMLSeq;
+      if (false == payloads instanceof YAMLSeq) {
+        rules.errors.push(new YamlError(new Error(`Event definition payloads must be an array.`)));
+        continue;
+      }
+
+      const eventDescriptor = new SqlEventDescriptor(key.toString(), rules.idSequence);
+      for (let item of payloads.items) {
+        if (!isScalar(item)) {
+          // TODO position
+          rules.errors.push(new YamlError(new Error(`Payload queries for events must be scalar.`)));
+          continue;
+        }
+        rules.withScalar(item, (q) => {
+          return eventDescriptor.addSourceQuery(q, schema);
+        });
+      }
+
       rules.event_descriptors.push(eventDescriptor);
     }
 

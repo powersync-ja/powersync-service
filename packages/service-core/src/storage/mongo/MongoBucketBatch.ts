@@ -623,8 +623,8 @@ export class MongoBucketBatch implements BucketStorageBatch {
         table: sourceTable,
         data: {
           op: tag,
-          after: after && util.isCompleteRow(after) ? event.evaluateParameterRow(sourceTable, after) : undefined,
-          before: before && util.isCompleteRow(before) ? event.evaluateParameterRow(sourceTable, before) : undefined
+          after: after && util.isCompleteRow(after) ? after : undefined,
+          before: before && util.isCompleteRow(before) ? before : undefined
         },
         event
       });

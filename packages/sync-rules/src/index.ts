@@ -1,5 +1,7 @@
 export * from './DartSchemaGenerator.js';
 export * from './errors.js';
+export * from './events/SqlEventDescriptor.js';
+export * from './events/SqlEventSourceQuery.js';
 export * from './ExpressionType.js';
 export * from './generators.js';
 export * from './IdSequence.js';
@@ -11,7 +13,6 @@ export * from './SourceTableInterface.js';
 export * from './sql_filters.js';
 export * from './sql_functions.js';
 export * from './SqlDataQuery.js';
-export * from './SqlEventDescriptor.js';
 export * from './SqlParameterQuery.js';
 export * from './SqlSyncRules.js';
 export * from './StaticSchema.js';

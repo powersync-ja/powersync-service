@@ -49,19 +49,28 @@ export const syncRulesSchema: ajvModule.Schema = {
       type: 'object',
       description: 'Record of sync replication event definitions',
       examples: [
-        { write_checkpoint: 'select user_id, client_id, checkpoint from write_checkpoints' },
         {
-          write_checkpoint: ['select user_id, client_id, checkpoint from write_checkpoints']
+          write_checkpoints: {
+            payloads: ['select user_id, client_id, checkpoint from checkpoints']
+          }
         }
       ],
       patternProperties: {
         '.*': {
-          type: ['string', 'array'],
-          items: {
-            type: 'string'
-          },
-          minItems: 1,
-          uniqueItems: true
+          type: ['object'],
+          required: ['payloads'],
+          examples: [{ payloads: ['select user_id, client_id, checkpoint from checkpoints'] }],
+          properties: {
+            payloads: {
+              description: 'Queries which extract event payload fields from replicated table rows.',
+              type: 'array',
+              items: {
+                type: 'string'
+              }
+            },
+            additionalProperties: false,
+            uniqueItems: true
+          }
         }
       }
     }

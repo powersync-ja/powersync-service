@@ -1,15 +1,14 @@
-import { JSONBig } from '@powersync/service-jsonbig';
 import { parse, SelectedColumn } from 'pgsql-ast-parser';
-import { SqlRuleError } from './errors.js';
-import { ColumnDefinition, ExpressionType } from './ExpressionType.js';
-import { SourceTableInterface } from './SourceTableInterface.js';
-import { SqlTools } from './sql_filters.js';
-import { castAsText } from './sql_functions.js';
-import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
-import { TablePattern } from './TablePattern.js';
-import { TableQuerySchema } from './TableQuerySchema.js';
+import { SqlRuleError } from '../errors.js';
+import { ColumnDefinition, ExpressionType } from '../ExpressionType.js';
+import { SourceTableInterface } from '../SourceTableInterface.js';
+import { SqlTools } from '../sql_filters.js';
+import { checkUnsupportedFeatures, isClauseError } from '../sql_support.js';
+import { RowValueExtractor } from '../SqlDataQuery.js';
+import { TablePattern } from '../TablePattern.js';
+import { TableQuerySchema } from '../TableQuerySchema.js';
 import {
-  EvaluationResult,
+  EvaluationError,
   ParameterMatchClause,
   QueryParameters,
   QuerySchema,
@@ -17,18 +16,27 @@ import {
   SourceSchemaTable,
   SqliteJsonRow,
   SqliteRow
-} from './types.js';
-import { filterJsonRow, getBucketId, isSelectStatement } from './utils.js';
+} from '../types.js';
+import { filterJsonRow, isSelectStatement } from '../utils.js';
 
-export interface RowValueExtractor {
-  extract(tables: QueryParameters, into: SqliteRow): void;
-  getTypes(schema: QuerySchema, into: Record<string, ColumnDefinition>): void;
-}
+export type EvaluatedEventSourceRow = {
+  data: SqliteJsonRow;
+  ruleId?: string;
+};
 
-export class SqlDataQuery {
-  static fromSql(descriptor_name: string, bucket_parameters: string[], sql: string, schema?: SourceSchema) {
+export type EvaluatedEventRowWithErrors = {
+  result?: EvaluatedEventSourceRow;
+  errors: EvaluationError[];
+};
+
+/**
+ * Defines how a Replicated Row is mapped to source parameters for events.
+ * TODO cleanup duplication
+ */
+export class SqlEventSourceQuery {
+  static fromSql(descriptor_name: string, sql: string, schema?: SourceSchema) {
     const parsed = parse(sql, { locationTracking: true });
-    const rows = new SqlDataQuery();
+    const rows = new SqlEventSourceQuery();
 
     if (parsed.length > 1) {
       throw new SqlRuleError('Only a single SELECT statement is supported', sql, parsed[1]?._location);
@@ -78,35 +86,13 @@ export class SqlDataQuery {
     });
     const filter = tools.compileWhereClause(where);
 
-    const inputParameterNames = filter.inputParameters!.map((p) => p.key);
-    const bucketParameterNames = bucket_parameters.map((p) => `bucket.${p}`);
-    const allParams = new Set<string>([...inputParameterNames, ...bucketParameterNames]);
-    if (
-      (!filter.error && allParams.size != filter.inputParameters!.length) ||
-      allParams.size != bucket_parameters.length
-    ) {
-      rows.errors.push(
-        new SqlRuleError(
-          `Query must cover all bucket parameters. Expected: ${JSONBig.stringify(
-            bucketParameterNames
-          )} Got: ${JSONBig.stringify(inputParameterNames)}`,
-          sql,
-          q._location
-        )
-      );
-    }
-
     rows.sourceTable = sourceTable;
     rows.table = alias;
     rows.sql = sql;
     rows.filter = filter;
     rows.descriptor_name = descriptor_name;
-    rows.bucket_parameters = bucket_parameters;
     rows.columns = q.columns ?? [];
     rows.tools = tools;
-
-    let hasId = false;
-    let hasWildcard = false;
 
     for (let column of q.columns ?? []) {
       const name = tools.getOutputName(column);
@@ -142,28 +128,6 @@ export class SqlDataQuery {
           }
         });
       }
-      if (name == 'id') {
-        hasId = true;
-      } else if (name == '*') {
-        hasWildcard = true;
-        if (querySchema == null) {
-          // Not performing schema-based validation - assume there is an id
-          hasId = true;
-        } else {
-          const idType = querySchema.getType(alias, 'id');
-          if (!idType.isNone()) {
-            hasId = true;
-          }
-        }
-      }
-    }
-    if (!hasId) {
-      const error = new SqlRuleError(`Query must return an "id" column`, sql, q.columns?.[0]._location);
-      if (hasWildcard) {
-        // Schema-based validations are always warnings
-        error.type = 'warning';
-      }
-      rows.errors.push(error);
     }
     rows.errors.push(...tools.errors);
     return rows;
@@ -176,7 +140,6 @@ export class SqlDataQuery {
   extractors: RowValueExtractor[] = [];
   filter?: ParameterMatchClause;
   descriptor_name?: string;
-  bucket_parameters?: string[];
   tools?: SqlTools;
 
   ruleId?: string;
@@ -200,51 +163,24 @@ export class SqlDataQuery {
     }
   }
 
-  getOutputName(sourceTable: string) {
-    if (this.isUnaliasedWildcard()) {
-      // Wildcard without alias - use source
-      return sourceTable;
-    } else {
-      return this.table!;
-    }
-  }
-
   isUnaliasedWildcard() {
     return this.sourceTable!.isWildcard && this.table == this.sourceTable!.tablePattern;
   }
 
-  evaluateRow(table: SourceTableInterface, row: SqliteRow): EvaluationResult[] {
+  evaluateRowWithErrors(table: SourceTableInterface, row: SqliteRow): EvaluatedEventRowWithErrors {
     try {
       const tables = { [this.table!]: this.addSpecialParameters(table, row) };
-      const bucketParameters = this.filter!.filterRow(tables);
-      const bucketIds = bucketParameters.map((params) =>
-        getBucketId(this.descriptor_name!, this.bucket_parameters!, params)
-      );
 
       const data = this.transformRow(tables);
-      let id = data.id;
-      if (typeof id != 'string') {
-        // While an explicit cast would be better, this covers against very common
-        // issues when initially testing out sync, for example when the id column is an
-        // auto-incrementing integer.
-        // If there is no id column, we use a blank id. This will result in the user syncing
-        // a single arbitrary row for this table - better than just not being able to sync
-        // anything.
-        id = castAsText(id) ?? '';
-      }
-      const outputTable = this.getOutputName(table.table);
-
-      return bucketIds.map((bucketId) => {
-        return {
-          bucket: bucketId,
-          table: outputTable,
-          id: id,
+      return {
+        result: {
           data,
           ruleId: this.ruleId
-        } as EvaluationResult;
-      });
+        },
+        errors: []
+      };
     } catch (e) {
-      return [{ error: e.message ?? `Evaluating data query failed` }];
+      return { errors: [e.message ?? `Evaluating data query failed`] };
     }
   }
 
@@ -273,7 +209,7 @@ export class SqlDataQuery {
         this.getColumnOutputsFor(schemaTable, output);
 
         result.push({
-          name: this.getOutputName(schemaTable.table),
+          name: schemaTable.table,
           columns: Object.values(output)
         });
       }
