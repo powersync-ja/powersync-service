@@ -1,6 +1,7 @@
 import { ResolvedPowerSyncConfig } from '../util/util-index.js';
 import { BucketStorageFactory } from './BucketStorage.js';
 import { BucketStorageProvider, ActiveStorage } from './StorageProvider.js';
+import { logger } from '@powersync/lib-services-framework';
 
 export type StorageEngineOptions = {
   configuration: ResolvedPowerSyncConfig;
@@ -34,16 +35,21 @@ export class StorageEngine {
   }
 
   public async start(): Promise<void> {
+    logger.info('Starting Storage Engine...');
     const { configuration } = this.options;
     this.currentActiveStorage = await this.storageProviders.get(configuration.storage.type)!.getStorage({
       resolvedConfig: configuration
     });
+    logger.info(`Successfully activated storage: ${configuration.storage.type}.`);
+    logger.info('Successfully started Storage Engine.');
   }
 
   /**
    *  Shutdown the storage engine, safely shutting down any activated storage providers.
    */
   public async shutDown(): Promise<void> {
+    logger.info('Shutting down Storage Engine...');
     await this.currentActiveStorage?.shutDown();
+    logger.info('Successfully shut down Storage Engine.');
   }
 }
