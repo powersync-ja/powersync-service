@@ -5,7 +5,15 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
-import { makeTestTable, MONGO_STORAGE_FACTORY, StorageFactory, ZERO_LSN } from './util.js';
+import {
+  BATCH_OPTIONS,
+  makeTestTable,
+  MONGO_STORAGE_FACTORY,
+  PARSE_OPTIONS,
+  StorageFactory,
+  ZERO_LSN
+} from './util.js';
+import { ParseSyncRulesOptions, StartBatchOptions } from '@/storage/BucketStorage.js';
 
 describe('sync - mongodb', function () {
   defineTests(MONGO_STORAGE_FACTORY);
@@ -30,18 +38,19 @@ function defineTests(factory: StorageFactory) {
       content: BASIC_SYNC_RULES
     });
 
-    const storage = await f.getInstance(syncRules.parsed());
+    const storage = await f.getInstance(syncRules);
     await storage.setSnapshotDone(ZERO_LSN);
     await storage.autoActivate();
 
-    const result = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
+    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: 'insert',
         after: {
           id: 't1',
           description: 'Test 1'
-        }
+        },
+        afterReplicaId: 't1'
       });
 
       await batch.save({
@@ -50,7 +59,8 @@ function defineTests(factory: StorageFactory) {
         after: {
           id: 't2',
           description: 'Test 2'
-        }
+        },
+        afterReplicaId: 't2'
       });
 
       await batch.commit('0/1');
@@ -63,6 +73,7 @@ function defineTests(factory: StorageFactory) {
         include_checksum: true,
         raw_data: true
       },
+      parseOptions: PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
@@ -79,11 +90,11 @@ function defineTests(factory: StorageFactory) {
       content: BASIC_SYNC_RULES
     });
 
-    const storage = await f.getInstance(syncRules.parsed());
+    const storage = await f.getInstance(syncRules);
     await storage.setSnapshotDone(ZERO_LSN);
     await storage.autoActivate();
 
-    const result = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
+    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: 'insert',
@@ -91,7 +102,8 @@ function defineTests(factory: StorageFactory) {
           id: 't1',
           description: 'Test\n"string"',
           large_num: 12345678901234567890n
-        }
+        },
+        afterReplicaId: 't1'
       });
 
       await batch.commit('0/1');
@@ -104,6 +116,7 @@ function defineTests(factory: StorageFactory) {
         include_checksum: true,
         raw_data: false
       },
+      parseOptions: PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
@@ -122,7 +135,7 @@ function defineTests(factory: StorageFactory) {
       content: BASIC_SYNC_RULES
     });
 
-    const storage = await f.getInstance(syncRules.parsed());
+    const storage = await f.getInstance(syncRules);
     await storage.setSnapshotDone(ZERO_LSN);
     await storage.autoActivate();
 
@@ -133,6 +146,7 @@ function defineTests(factory: StorageFactory) {
         include_checksum: true,
         raw_data: true
       },
+      parseOptions: PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: 0 } as any
@@ -149,7 +163,7 @@ function defineTests(factory: StorageFactory) {
       content: BASIC_SYNC_RULES
     });
 
-    const storage = await f.getInstance(syncRules.parsed());
+    const storage = await f.getInstance(syncRules);
     await storage.setSnapshotDone(ZERO_LSN);
     await storage.autoActivate();
 
@@ -160,6 +174,7 @@ function defineTests(factory: StorageFactory) {
         include_checksum: true,
         raw_data: true
       },
+      parseOptions: PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
@@ -168,14 +183,15 @@ function defineTests(factory: StorageFactory) {
 
     expect(await getCheckpointLines(iter)).toMatchSnapshot();
 
-    await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
+    await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: 'insert',
         after: {
           id: 't1',
           description: 'Test 1'
-        }
+        },
+        afterReplicaId: 't1'
       });
 
       await batch.commit('0/1');
@@ -183,14 +199,15 @@ function defineTests(factory: StorageFactory) {
 
     expect(await getCheckpointLines(iter)).toMatchSnapshot();
 
-    await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
+    await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: 'insert',
         after: {
           id: 't2',
           description: 'Test 2'
-        }
+        },
+        afterReplicaId: 't2'
       });
 
       await batch.commit('0/2');
@@ -208,7 +225,7 @@ function defineTests(factory: StorageFactory) {
       content: BASIC_SYNC_RULES
     });
 
-    const storage = await f.getInstance(syncRules.parsed());
+    const storage = await f.getInstance(syncRules);
     await storage.setSnapshotDone(ZERO_LSN);
     await storage.autoActivate();
 
@@ -221,6 +238,7 @@ function defineTests(factory: StorageFactory) {
         include_checksum: true,
         raw_data: true
       },
+      parseOptions: PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: exp } as any
@@ -246,18 +264,19 @@ function defineTests(factory: StorageFactory) {
       content: BASIC_SYNC_RULES
     });
 
-    const storage = await f.getInstance(syncRules.parsed());
+    const storage = await f.getInstance(syncRules);
     await storage.setSnapshotDone(ZERO_LSN);
     await storage.autoActivate();
 
-    await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
+    await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: 'insert',
         after: {
           id: 't1',
           description: 'Test 1'
-        }
+        },
+        afterReplicaId: 't1'
       });
 
       await batch.save({
@@ -266,7 +285,8 @@ function defineTests(factory: StorageFactory) {
         after: {
           id: 't2',
           description: 'Test 2'
-        }
+        },
+        afterReplicaId: 't2'
       });
 
       await batch.commit('0/1');
@@ -279,6 +299,7 @@ function defineTests(factory: StorageFactory) {
         include_checksum: true,
         raw_data: true
       },
+      parseOptions: PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
@@ -298,14 +319,15 @@ function defineTests(factory: StorageFactory) {
     // Now we save additional data AND compact before continuing.
     // This invalidates the checkpoint we've received above.
 
-    await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
+    await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: 'update',
         after: {
           id: 't1',
           description: 'Test 1b'
-        }
+        },
+        afterReplicaId: 't1'
       });
 
       await batch.save({
@@ -314,7 +336,8 @@ function defineTests(factory: StorageFactory) {
         after: {
           id: 't2',
           description: 'Test 2b'
-        }
+        },
+        afterReplicaId: 't2'
       });
 
       await batch.commit('0/2');

@@ -1,7 +1,7 @@
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import * as mongo from 'mongodb';
 
-import { PersistedSyncRulesContent } from '../BucketStorage.js';
+import { ParseSyncRulesOptions, PersistedSyncRulesContent } from '../BucketStorage.js';
 import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
 import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
 import { PowerSyncMongo } from './db.js';
@@ -30,10 +30,10 @@ export class MongoPersistedSyncRulesContent implements PersistedSyncRulesContent
     this.last_keepalive_ts = doc.last_keepalive_ts;
   }
 
-  parsed() {
+  parsed(options: ParseSyncRulesOptions) {
     return new MongoPersistedSyncRules(
       this.id,
-      SqlSyncRules.fromYaml(this.sync_rules_content),
+      SqlSyncRules.fromYaml(this.sync_rules_content, options),
       this.last_checkpoint_lsn,
       this.slot_name
     );

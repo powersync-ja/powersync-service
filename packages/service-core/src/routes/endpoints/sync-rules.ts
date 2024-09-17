@@ -53,7 +53,12 @@ export const deploySyncRules = routeDefinition({
     const content = payload.params.content;
 
     try {
-      SqlSyncRules.fromYaml(payload.params.content);
+      const apiHandler = service_context.routerEngine!.getAPI();
+      SqlSyncRules.fromYaml(payload.params.content, {
+        ...apiHandler.getParseSyncRulesOptions(),
+        // We don't do any schema-level validation at this point
+        schema: undefined
+      });
     } catch (e) {
       throw new errors.JourneyError({
         status: 422,
@@ -151,7 +156,8 @@ export const reprocessSyncRules = routeDefinition({
     const {
       storageEngine: { activeBucketStorage }
     } = payload.context.service_context;
-    const sync_rules = await activeBucketStorage.getActiveSyncRules();
+    const apiHandler = payload.context.service_context.routerEngine!.getAPI();
+    const sync_rules = await activeBucketStorage.getActiveSyncRules(apiHandler.getParseSyncRulesOptions());
     if (sync_rules == null) {
       throw new errors.JourneyError({
         status: 422,
@@ -181,7 +187,11 @@ function replyPrettyJson(payload: any) {
 
 async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
   try {
-    const rules = SqlSyncRules.fromYaml(sync_rules);
+    const rules = SqlSyncRules.fromYaml(sync_rules, {
+      ...apiHandler.getParseSyncRulesOptions(),
+      // No schema-based validation at this point
+      schema: undefined
+    });
     const source_table_patterns = rules.getSourceTables();
     const resolved_tables = await apiHandler.getDebugTablesInfo(source_table_patterns, rules);
 

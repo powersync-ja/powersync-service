@@ -25,6 +25,18 @@ import {
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
+export interface SyncRulesOptions {
+  schema?: SourceSchema;
+  /**
+   * The default schema to use when only a table name is specified.
+   *
+   * 'public' for Postgres, default database for MongoDB/MySQL.
+   */
+  defaultSchema: string;
+
+  throwOnError?: boolean;
+}
+
 export class SqlSyncRules implements SyncRules {
   bucket_descriptors: SqlBucketDescriptor[] = [];
   idSequence = new IdSequence();
@@ -33,7 +45,7 @@ export class SqlSyncRules implements SyncRules {
 
   errors: YamlError[] = [];
 
-  static validate(yaml: string, options?: { schema?: SourceSchema }): YamlError[] {
+  static validate(yaml: string, options: SyncRulesOptions): YamlError[] {
     try {
       const rules = this.fromYaml(yaml, options);
       return rules.errors;
@@ -48,9 +60,9 @@ export class SqlSyncRules implements SyncRules {
     }
   }
 
-  static fromYaml(yaml: string, options?: { throwOnError?: boolean; schema?: SourceSchema }) {
-    const throwOnError = options?.throwOnError ?? true;
-    const schema = options?.schema;
+  static fromYaml(yaml: string, options: SyncRulesOptions) {
+    const throwOnError = options.throwOnError ?? true;
+    const schema = options.schema;
 
     const lineCounter = new LineCounter();
     const parsed = parseDocument(yaml, {
@@ -98,7 +110,8 @@ export class SqlSyncRules implements SyncRules {
 
       const accept_potentially_dangerous_queries =
         value.get('accept_potentially_dangerous_queries', true)?.value == true;
-      const options: QueryParseOptions = {
+      const queryOptions: QueryParseOptions = {
+        ...options,
         accept_potentially_dangerous_queries
       };
       const parameters = value.get('parameters', true) as unknown;
@@ -108,16 +121,16 @@ export class SqlSyncRules implements SyncRules {
 
       if (parameters instanceof Scalar) {
         rules.withScalar(parameters, (q) => {
-          return descriptor.addParameterQuery(q, schema, options);
+          return descriptor.addParameterQuery(q, queryOptions);
         });
       } else if (parameters instanceof YAMLSeq) {
         for (let item of parameters.items) {
           rules.withScalar(item, (q) => {
-            return descriptor.addParameterQuery(q, schema, options);
+            return descriptor.addParameterQuery(q, queryOptions);
           });
         }
       } else {
-        descriptor.addParameterQuery('SELECT', schema, options);
+        descriptor.addParameterQuery('SELECT', queryOptions);
       }
 
       if (!(dataQueries instanceof YAMLSeq)) {
@@ -126,7 +139,7 @@ export class SqlSyncRules implements SyncRules {
       }
       for (let query of dataQueries.items) {
         rules.withScalar(query, (q) => {
-          return descriptor.addDataQuery(q, schema);
+          return descriptor.addDataQuery(q, queryOptions);
         });
       }
       rules.bucket_descriptors.push(descriptor);

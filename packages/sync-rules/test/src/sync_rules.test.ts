@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'vitest';
 import {
-  DEFAULT_SCHEMA,
   DEFAULT_TAG,
   DartSchemaGenerator,
   JsLegacySchemaGenerator,
@@ -9,21 +8,24 @@ import {
   TsSchemaGenerator
 } from '../../src/index.js';
 
-import { ASSETS, BASIC_SCHEMA, TestSourceTable, USERS, normalizeTokenParameters } from './util.js';
+import { ASSETS, BASIC_SCHEMA, PARSE_OPTIONS, TestSourceTable, USERS, normalizeTokenParameters } from './util.js';
 
 describe('sync rules', () => {
   test('parse empty sync rules', () => {
-    const rules = SqlSyncRules.fromYaml('bucket_definitions: {}');
+    const rules = SqlSyncRules.fromYaml('bucket_definitions: {}', PARSE_OPTIONS);
     expect(rules.bucket_descriptors).toEqual([]);
   });
 
   test('parse global sync rules', () => {
-    const rules = SqlSyncRules.fromYaml(`
+    const rules = SqlSyncRules.fromYaml(
+      `
 bucket_definitions:
   mybucket:
     data:
       - SELECT id, description FROM assets
-    `);
+    `,
+      PARSE_OPTIONS
+    );
     const bucket = rules.bucket_descriptors[0];
     expect(bucket.name).toEqual('mybucket');
     expect(bucket.bucket_parameters).toEqual([]);
@@ -46,12 +48,15 @@ bucket_definitions:
   });
 
   test('parse global sync rules with filter', () => {
-    const rules = SqlSyncRules.fromYaml(`
+    const rules = SqlSyncRules.fromYaml(
+      `
 bucket_definitions:
   mybucket:
     parameters: SELECT WHERE token_parameters.is_admin
     data: []
-    `);
+    `,
+      PARSE_OPTIONS
+    );
     const bucket = rules.bucket_descriptors[0];
     expect(bucket.bucket_parameters).toEqual([]);
     const param_query = bucket.global_parameter_queries[0];
@@ -66,12 +71,15 @@ bucket_definitions:
   });
 
   test('parse global sync rules with table filter', () => {
-    const rules = SqlSyncRules.fromYaml(`
+    const rules = SqlSyncRules.fromYaml(
+      `
 bucket_definitions:
   mybucket:
     parameters: SELECT FROM users WHERE users.id = token_parameters.user_id AND users.is_admin
     data: []
-    `);
+    `,
+      PARSE_OPTIONS
+    );
     const bucket = rules.bucket_descriptors[0];
     expect(bucket.bucket_parameters).toEqual([]);
     const param_query = bucket.parameter_queries[0];
@@ -86,13 +94,16 @@ bucket_definitions:
   });
 
   test('parse bucket with parameters', () => {
-    const rules = SqlSyncRules.fromYaml(`
+    const rules = SqlSyncRules.fromYaml(
+      `
 bucket_definitions:
   mybucket:
     parameters: SELECT token_parameters.user_id, user_parameters.device_id
     data:
       - SELECT id, description FROM assets WHERE assets.user_id = bucket.user_id AND assets.device_id = bucket.device_id AND NOT assets.archived
-    `);
+    `,
+      PARSE_OPTIONS
+    );
     const bucket = rules.bucket_descriptors[0];
     expect(bucket.bucket_parameters).toEqual(['user_id', 'device_id']);
     const param_query = bucket.global_parameter_queries[0];
@@ -129,13 +140,16 @@ bucket_definitions:
   });
 
   test('parse bucket with parameters and OR condition', () => {
-    const rules = SqlSyncRules.fromYaml(`
+    const rules = SqlSyncRules.fromYaml(
+      `
 bucket_definitions:
   mybucket:
     parameters: SELECT token_parameters.user_id
     data:
       - SELECT id, description FROM assets WHERE assets.user_id = bucket.user_id OR assets.owner_id = bucket.user_id
-    `);
+    `,
+      PARSE_OPTIONS
+    );
     const bucket = rules.bucket_descriptors[0];
     expect(bucket.bucket_parameters).toEqual(['user_id']);
     const param_query = bucket.global_parameter_queries[0];
@@ -182,80 +196,104 @@ bucket_definitions:
 
   test('parse bucket with parameters and invalid OR condition', () => {
     expect(() => {
-      const rules = SqlSyncRules.fromYaml(`
+      const rules = SqlSyncRules.fromYaml(
+        `
 bucket_definitions:
   mybucket:
     parameters: SELECT token_parameters.user_id
     data:
       - SELECT id, description FROM assets WHERE assets.user_id = bucket.user_id AND (assets.user_id = bucket.foo OR assets.other_id = bucket.bar)
-    `);
+    `,
+        PARSE_OPTIONS
+      );
     }).toThrowError(/must use the same parameters/);
   });
 
   test('reject unsupported queries', () => {
     expect(
-      SqlSyncRules.validate(`
+      SqlSyncRules.validate(
+        `
 bucket_definitions:
   mybucket:
     parameters: SELECT token_parameters.user_id LIMIT 1
     data: []
-    `)
+    `,
+        PARSE_OPTIONS
+      )
     ).toMatchObject([{ message: 'LIMIT is not supported' }]);
 
     expect(
-      SqlSyncRules.validate(`
+      SqlSyncRules.validate(
+        `
 bucket_definitions:
   mybucket:
     data:
       - SELECT DISTINCT id, description FROM assets
-    `)
+    `,
+        PARSE_OPTIONS
+      )
     ).toMatchObject([{ message: 'DISTINCT is not supported' }]);
 
     expect(
-      SqlSyncRules.validate(`
+      SqlSyncRules.validate(
+        `
 bucket_definitions:
   mybucket:
     parameters: SELECT token_parameters.user_id OFFSET 10
     data: []
-    `)
+    `,
+        PARSE_OPTIONS
+      )
     ).toMatchObject([{ message: 'LIMIT is not supported' }]);
 
     expect(() => {
-      const rules = SqlSyncRules.fromYaml(`
+      const rules = SqlSyncRules.fromYaml(
+        `
 bucket_definitions:
   mybucket:
     parameters: SELECT token_parameters.user_id FOR UPDATE SKIP LOCKED
     data: []
-    `);
+    `,
+        PARSE_OPTIONS
+      );
     }).toThrowError(/SKIP is not supported/);
 
     expect(() => {
-      const rules = SqlSyncRules.fromYaml(`
+      const rules = SqlSyncRules.fromYaml(
+        `
 bucket_definitions:
   mybucket:
     parameters: SELECT token_parameters.user_id FOR UPDATE
     data: []
-    `);
+    `,
+        PARSE_OPTIONS
+      );
     }).toThrowError(/FOR is not supported/);
 
     expect(() => {
-      const rules = SqlSyncRules.fromYaml(`
+      const rules = SqlSyncRules.fromYaml(
+        `
 bucket_definitions:
   mybucket:
     data:
       - SELECT id, description FROM assets ORDER BY id
-    `);
+    `,
+        PARSE_OPTIONS
+      );
     }).toThrowError(/ORDER BY is not supported/);
   });
 
   test('transforming things', () => {
-    const rules = SqlSyncRules.fromYaml(`
+    const rules = SqlSyncRules.fromYaml(
+      `
 bucket_definitions:
   mybucket:
     parameters: SELECT upper(token_parameters.user_id) AS user_id
     data:
       - SELECT id, upper(description) AS description_upper FROM assets WHERE upper(assets.user_id) = bucket.user_id AND NOT assets.archived
-    `);
+    `,
+      PARSE_OPTIONS
+    );
     const bucket = rules.bucket_descriptors[0];
     expect(bucket.bucket_parameters).toEqual(['user_id']);
     expect(rules.getStaticBucketIds(normalizeTokenParameters({ user_id: 'user1' }))).toEqual(['mybucket["USER1"]']);
@@ -281,13 +319,16 @@ bucket_definitions:
 
   test('transforming things with upper-case functions', () => {
     // Testing that we can use different case for the function names
-    const rules = SqlSyncRules.fromYaml(`
+    const rules = SqlSyncRules.fromYaml(
+      `
 bucket_definitions:
   mybucket:
     parameters: SELECT UPPER(token_parameters.user_id) AS user_id
     data:
       - SELECT id, UPPER(description) AS description_upper FROM assets WHERE UPPER(assets.user_id) = bucket.user_id AND NOT assets.archived
-    `);
+    `,
+      PARSE_OPTIONS
+    );
     const bucket = rules.bucket_descriptors[0];
     expect(bucket.bucket_parameters).toEqual(['user_id']);
     expect(rules.getStaticBucketIds(normalizeTokenParameters({ user_id: 'user1' }))).toEqual(['mybucket["USER1"]']);
@@ -312,12 +353,15 @@ bucket_definitions:
   });
 
   test('transforming json', () => {
-    const rules = SqlSyncRules.fromYaml(`
+    const rules = SqlSyncRules.fromYaml(
+      `
 bucket_definitions:
   mybucket:
     data:
       - SELECT id, data ->> 'count' AS count, data -> 'bool' AS bool1, data ->> 'bool' AS bool2, 'true' ->> '$' as bool3, json_extract(data, '$.bool') AS bool4 FROM assets
-    `);
+    `,
+      PARSE_OPTIONS
+    );
     expect(
       rules.evaluateRow({
         sourceTable: ASSETS,
@@ -342,13 +386,16 @@ bucket_definitions:
   });
 
   test('IN json', () => {
-    const rules = SqlSyncRules.fromYaml(`
+    const rules = SqlSyncRules.fromYaml(
+      `
 bucket_definitions:
   mybucket:
     parameters: SELECT token_parameters.region_id
     data:
       - SELECT id, description FROM assets WHERE bucket.region_id IN assets.region_ids
-    `);
+    `,
+      PARSE_OPTIONS
+    );
 
     expect(
       rules.evaluateRow({
@@ -384,14 +431,17 @@ bucket_definitions:
   });
 
   test('direct boolean param', () => {
-    const rules = SqlSyncRules.fromYaml(`
+    const rules = SqlSyncRules.fromYaml(
+      `
 bucket_definitions:
   mybucket:
     parameters: SELECT token_parameters.is_admin
     data:
       - SELECT id, description, role, 'admin' as rule FROM assets WHERE bucket.is_admin
       - SELECT id, description, role, 'normal' as rule FROM assets WHERE (bucket.is_admin OR bucket.is_admin = false) AND assets.role != 'admin'
-    `);
+    `,
+      PARSE_OPTIONS
+    );
 
     expect(
       rules.evaluateRow({ sourceTable: ASSETS, record: { id: 'asset1', description: 'test', role: 'admin' } })
@@ -455,12 +505,15 @@ bucket_definitions:
   });
 
   test('some math', () => {
-    const rules = SqlSyncRules.fromYaml(`
+    const rules = SqlSyncRules.fromYaml(
+      `
 bucket_definitions:
   mybucket:
     data:
       - SELECT id, (5 / 2) AS int, (5 / 2.0) AS float, (CAST(5 AS real) / 2) AS float2 FROM assets
-    `);
+    `,
+      PARSE_OPTIONS
+    );
 
     expect(rules.evaluateRow({ sourceTable: ASSETS, record: { id: 'asset1' } })).toEqual([
       {
@@ -479,13 +532,16 @@ bucket_definitions:
   });
 
   test('bucket with static numeric parameters', () => {
-    const rules = SqlSyncRules.fromYaml(`
+    const rules = SqlSyncRules.fromYaml(
+      `
 bucket_definitions:
   mybucket:
     parameters: SELECT token_parameters.int1, token_parameters.float1, token_parameters.float2
     data:
       - SELECT id FROM assets WHERE assets.int1 = bucket.int1 AND assets.float1 = bucket.float1 AND assets.float2 = bucket.float2
-    `);
+    `,
+      PARSE_OPTIONS
+    );
     expect(rules.getStaticBucketIds(normalizeTokenParameters({ int1: 314, float1: 3.14, float2: 314 }))).toEqual([
       'mybucket[314,3.14,314]'
     ]);
@@ -506,24 +562,30 @@ bucket_definitions:
   });
 
   test('static parameter query with function on token_parameter', () => {
-    const rules = SqlSyncRules.fromYaml(`
+    const rules = SqlSyncRules.fromYaml(
+      `
 bucket_definitions:
   mybucket:
     parameters: SELECT upper(token_parameters.user_id) as upper
     data: []
-    `);
+    `,
+      PARSE_OPTIONS
+    );
     expect(rules.errors).toEqual([]);
     expect(rules.getStaticBucketIds(normalizeTokenParameters({ user_id: 'test' }))).toEqual(['mybucket["TEST"]']);
   });
 
   test('custom table and id', () => {
-    const rules = SqlSyncRules.fromYaml(`
+    const rules = SqlSyncRules.fromYaml(
+      `
 bucket_definitions:
   mybucket:
     data:
       - SELECT client_id AS id, description FROM assets_123 as assets WHERE assets.archived = false
       - SELECT other_id AS id, description FROM assets_123 as assets
-    `);
+    `,
+      PARSE_OPTIONS
+    );
 
     expect(
       rules.evaluateRow({
@@ -555,12 +617,15 @@ bucket_definitions:
   });
 
   test('wildcard table', () => {
-    const rules = SqlSyncRules.fromYaml(`
+    const rules = SqlSyncRules.fromYaml(
+      `
 bucket_definitions:
   mybucket:
     data:
       - SELECT client_id AS id, description, _table_suffix as suffix, * FROM "assets_%" as assets WHERE assets.archived = false AND _table_suffix > '100'
-    `);
+    `,
+      PARSE_OPTIONS
+    );
 
     expect(
       rules.evaluateRow({
@@ -586,12 +651,15 @@ bucket_definitions:
   });
 
   test('wildcard without alias', () => {
-    const rules = SqlSyncRules.fromYaml(`
+    const rules = SqlSyncRules.fromYaml(
+      `
 bucket_definitions:
   mybucket:
     data:
       - SELECT *, _table_suffix as suffix, * FROM "%" WHERE archived = false
-    `);
+    `,
+      PARSE_OPTIONS
+    );
 
     expect(
       rules.evaluateRow({
@@ -615,16 +683,19 @@ bucket_definitions:
   });
 
   test('should filter schemas', () => {
-    const rules = SqlSyncRules.fromYaml(`
+    const rules = SqlSyncRules.fromYaml(
+      `
 bucket_definitions:
   mybucket:
     data:
       - SELECT id FROM "assets" # Yes
-      - SELECT id FROM "public"."assets" # yes
-      - SELECT id FROM "default.public"."assets" # yes
+      - SELECT id FROM "test_schema"."assets" # yes
+      - SELECT id FROM "default.test_schema"."assets" # yes
       - SELECT id FROM "other"."assets" # no
-      - SELECT id FROM "other.public"."assets" # no
-    `);
+      - SELECT id FROM "other.test_schema"."assets" # no
+    `,
+      PARSE_OPTIONS
+    );
 
     expect(
       rules.evaluateRow({
@@ -670,7 +741,7 @@ bucket_definitions:
     parameters: SELECT id FROM assets WHERE other_id = token_parameters.user_id
     data: []
     `,
-      { schema: BASIC_SCHEMA }
+      { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
     );
 
     expect(rules.errors).toMatchObject([
@@ -689,7 +760,7 @@ bucket_definitions:
     parameters: SELECT request.parameters() ->> 'project_id' as project_id
     data: []
     `,
-      { schema: BASIC_SCHEMA }
+      { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
     );
 
     expect(rules.errors).toMatchObject([
@@ -710,7 +781,7 @@ bucket_definitions:
     parameters: SELECT request.parameters() ->> 'project_id' as project_id
     data: []
     `,
-      { schema: BASIC_SCHEMA }
+      { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
     );
 
     expect(rules.errors).toEqual([]);
@@ -722,7 +793,7 @@ bucket_definitions:
         tag: DEFAULT_TAG,
         schemas: [
           {
-            name: DEFAULT_SCHEMA,
+            name: 'test_schema',
             tables: [
               {
                 name: 'assets',
@@ -739,14 +810,17 @@ bucket_definitions:
       }
     ]);
 
-    const rules = SqlSyncRules.fromYaml(`
+    const rules = SqlSyncRules.fromYaml(
+      `
 bucket_definitions:
   mybucket:
     data:
       - SELECT * FROM assets as assets1
       - SELECT id, name, count FROM assets as assets2
       - SELECT id, owner_id as other_id, foo FROM assets as ASSETS2
-    `);
+    `,
+      PARSE_OPTIONS
+    );
 
     expect(new DartSchemaGenerator().generate(rules, schema)).toEqual(`Schema([
   Table('assets1', [

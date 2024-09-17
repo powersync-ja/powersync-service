@@ -11,7 +11,7 @@ import { SyncRoutes } from './sync-stream.js';
 export const syncStreamReactive: SocketRouteGenerator = (router) =>
   router.reactiveStream<util.StreamingSyncRequest, any>(SyncRoutes.STREAM, {
     validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
-    handler: async ({ context, params, responder, observer, initialN, signal: upstreamSignal}) => {
+    handler: async ({ context, params, responder, observer, initialN, signal: upstreamSignal }) => {
       const { service_context } = context;
       const { routerEngine } = service_context;
 
@@ -72,6 +72,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       try {
         for await (const data of sync.streamResponse({
           storage: activeBucketStorage,
+          parseOptions: routerEngine!.getAPI().getParseSyncRulesOptions(),
           params: {
             ...params,
             binary_data: true // always true for web sockets

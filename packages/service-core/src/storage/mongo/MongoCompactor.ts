@@ -4,6 +4,7 @@ import { addChecksums } from '../../util/utils.js';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey } from './models.js';
 import { CompactOptions } from '../BucketStorage.js';
+import { cacheKey } from './OperationBatch.js';
 
 interface CurrentBucketState {
   /** Bucket name */
@@ -168,7 +169,7 @@ export class MongoCompactor {
         let isPersistentPut = doc.op == 'PUT';
 
         if (doc.op == 'REMOVE' || doc.op == 'PUT') {
-          const key = `${doc.table}/${doc.row_id}/${doc.source_table}/${doc.source_key?.toHexString()}`;
+          const key = `${doc.table}/${doc.row_id}/${cacheKey(doc.source_table!, doc.source_key!)}`;
           const targetOp = currentState.seen.get(key);
           if (targetOp) {
             // Will convert to MOVE, so don't count as PUT

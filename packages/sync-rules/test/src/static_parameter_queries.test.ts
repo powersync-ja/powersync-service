@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'vitest';
 import { SqlParameterQuery } from '../../src/index.js';
 import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
-import { normalizeTokenParameters } from './util.js';
+import { normalizeTokenParameters, PARSE_OPTIONS } from './util.js';
 
 describe('static parameter queries', () => {
   test('basic query', function () {
     const sql = 'SELECT token_parameters.user_id';
-    const query = SqlParameterQuery.fromSql('mybucket', sql) as StaticSqlParameterQuery;
+    const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.bucket_parameters!).toEqual(['user_id']);
     expect(query.getStaticBucketIds(normalizeTokenParameters({ user_id: 'user1' }))).toEqual(['mybucket["user1"]']);
@@ -14,7 +14,7 @@ describe('static parameter queries', () => {
 
   test('global query', function () {
     const sql = 'SELECT';
-    const query = SqlParameterQuery.fromSql('mybucket', sql) as StaticSqlParameterQuery;
+    const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.bucket_parameters!).toEqual([]);
     expect(query.getStaticBucketIds(normalizeTokenParameters({ user_id: 'user1' }))).toEqual(['mybucket[]']);
@@ -22,7 +22,7 @@ describe('static parameter queries', () => {
 
   test('query with filter', function () {
     const sql = 'SELECT token_parameters.user_id WHERE token_parameters.is_admin';
-    const query = SqlParameterQuery.fromSql('mybucket', sql) as StaticSqlParameterQuery;
+    const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.getStaticBucketIds(normalizeTokenParameters({ user_id: 'user1', is_admin: true }))).toEqual([
       'mybucket["user1"]'
@@ -32,7 +32,7 @@ describe('static parameter queries', () => {
 
   test('function in select clause', function () {
     const sql = 'SELECT upper(token_parameters.user_id) as upper_id';
-    const query = SqlParameterQuery.fromSql('mybucket', sql) as StaticSqlParameterQuery;
+    const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.getStaticBucketIds(normalizeTokenParameters({ user_id: 'user1' }))).toEqual(['mybucket["USER1"]']);
     expect(query.bucket_parameters!).toEqual(['upper_id']);
@@ -40,7 +40,7 @@ describe('static parameter queries', () => {
 
   test('function in filter clause', function () {
     const sql = "SELECT WHERE upper(token_parameters.role) = 'ADMIN'";
-    const query = SqlParameterQuery.fromSql('mybucket', sql) as StaticSqlParameterQuery;
+    const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.getStaticBucketIds(normalizeTokenParameters({ role: 'admin' }))).toEqual(['mybucket[]']);
     expect(query.getStaticBucketIds(normalizeTokenParameters({ role: 'user' }))).toEqual([]);
@@ -48,7 +48,7 @@ describe('static parameter queries', () => {
 
   test('comparison in filter clause', function () {
     const sql = 'SELECT WHERE token_parameters.id1 = token_parameters.id2';
-    const query = SqlParameterQuery.fromSql('mybucket', sql) as StaticSqlParameterQuery;
+    const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.getStaticBucketIds(normalizeTokenParameters({ id1: 't1', id2: 't1' }))).toEqual(['mybucket[]']);
     expect(query.getStaticBucketIds(normalizeTokenParameters({ id1: 't1', id2: 't2' }))).toEqual([]);
@@ -56,7 +56,8 @@ describe('static parameter queries', () => {
 
   test('request.parameters()', function () {
     const sql = "SELECT request.parameters() ->> 'org_id' as org_id";
-    const query = SqlParameterQuery.fromSql('mybucket', sql, undefined, {
+    const query = SqlParameterQuery.fromSql('mybucket', sql, {
+      ...PARSE_OPTIONS,
       accept_potentially_dangerous_queries: true
     }) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
@@ -66,7 +67,7 @@ describe('static parameter queries', () => {
 
   test('request.jwt()', function () {
     const sql = "SELECT request.jwt() ->> 'sub' as user_id";
-    const query = SqlParameterQuery.fromSql('mybucket', sql) as StaticSqlParameterQuery;
+    const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.bucket_parameters).toEqual(['user_id']);
 
@@ -75,7 +76,7 @@ describe('static parameter queries', () => {
 
   test('request.user_id()', function () {
     const sql = 'SELECT request.user_id() as user_id';
-    const query = SqlParameterQuery.fromSql('mybucket', sql) as StaticSqlParameterQuery;
+    const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.bucket_parameters).toEqual(['user_id']);
 
@@ -85,7 +86,7 @@ describe('static parameter queries', () => {
   describe('dangerous queries', function () {
     function testDangerousQuery(sql: string) {
       test(sql, function () {
-        const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+        const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as SqlParameterQuery;
         expect(query.errors).toMatchObject([
           {
             message:
@@ -97,7 +98,7 @@ describe('static parameter queries', () => {
     }
     function testSafeQuery(sql: string) {
       test(sql, function () {
-        const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+        const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as SqlParameterQuery;
         expect(query.errors).toEqual([]);
         expect(query.usesDangerousRequestParameters).toEqual(false);
       });
