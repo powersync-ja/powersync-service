@@ -80,18 +80,33 @@ export class ChangeStream {
 
     const name = tablePattern.name;
 
-    const table = await this.handleRelation(
-      batch,
-      {
-        name,
-        schema,
-        objectId: name,
-        replicationColumns: [{ name: '_id' }]
-      } as SourceEntityDescriptor,
-      false
-    );
+    // Check if the collection exists
+    const collections = await this.client
+      .db(schema)
+      .listCollections(
+        {
+          name: name
+        },
+        { nameOnly: true }
+      )
+      .toArray();
 
-    result.push(table);
+    if (collections[0]?.name == name) {
+      const table = await this.handleRelation(
+        batch,
+        {
+          name,
+          schema,
+          objectId: name,
+          replicationColumns: [{ name: '_id' }]
+        } as SourceEntityDescriptor,
+        // This is done as part of the initial setup - snapshot is handled elsewhere
+        { snapshot: false }
+      );
+
+      result.push(table);
+    }
+
     return result;
   }
 
@@ -126,6 +141,8 @@ export class ChangeStream {
     const sourceTables = this.sync_rules.getSourceTables();
     await this.client.connect();
 
+    const ping = await this.defaultDb.command({ ping: 1 });
+    const startTime = ping.$clusterTime.clusterTime as mongo.Timestamp;
     const session = await this.client.startSession({
       snapshot: true
     });
@@ -142,11 +159,12 @@ export class ChangeStream {
               await touch();
             }
           }
-          const time = session.clusterTime;
 
-          if (time != null) {
-            const lsn = getMongoLsn(time.clusterTime);
-            logger.info(`Snapshot commit at ${time.clusterTime.inspect()} / ${lsn}`);
+          const snapshotTime = session.clusterTime?.clusterTime ?? startTime;
+
+          if (snapshotTime != null) {
+            const lsn = getMongoLsn(snapshotTime);
+            logger.info(`Snapshot commit at ${snapshotTime.inspect()} / ${lsn}`);
             // keepalive() does an auto-commit if there is data
             await batch.keepalive(lsn);
           } else {
@@ -228,7 +246,12 @@ export class ChangeStream {
     await batch.flush();
   }
 
-  async handleRelation(batch: storage.BucketStorageBatch, descriptor: SourceEntityDescriptor, snapshot: boolean) {
+  async handleRelation(
+    batch: storage.BucketStorageBatch,
+    descriptor: SourceEntityDescriptor,
+    options: { snapshot: boolean }
+  ) {
+    const snapshot = options.snapshot;
     if (!descriptor.objectId && typeof descriptor.objectId != 'string') {
       throw new Error('objectId expected');
     }
@@ -249,7 +272,6 @@ export class ChangeStream {
     // 2. Snapshot is not already done, AND:
     // 3. The table is used in sync rules.
     const shouldSnapshot = snapshot && !result.table.snapshotComplete && result.table.syncAny;
-
     if (shouldSnapshot) {
       // Truncate this table, in case a previous snapshot was interrupted.
       await batch.truncate([result.table]);
@@ -406,13 +428,29 @@ export class ChangeStream {
           changeDocument.operationType == 'delete'
         ) {
           const rel = getMongoRelation(changeDocument.ns);
-          const table = await this.handleRelation(batch, rel, true);
+          // Don't snapshot tables here - we get all the data as insert events
+          const table = await this.handleRelation(batch, rel, { snapshot: false });
           if (table.syncAny) {
             await this.writeChange(batch, table, changeDocument);
             if (changeDocument.clusterTime) {
               lastEventTimestamp = changeDocument.clusterTime;
             }
           }
+        } else if (changeDocument.operationType == 'drop') {
+          const rel = getMongoRelation(changeDocument.ns);
+          const table = await this.handleRelation(batch, rel, { snapshot: false });
+          if (table.syncAny) {
+            await batch.drop([table]);
+          }
+        } else if (changeDocument.operationType == 'rename') {
+          const relFrom = getMongoRelation(changeDocument.ns);
+          const relTo = getMongoRelation(changeDocument.to);
+          const tableFrom = await this.handleRelation(batch, relFrom, { snapshot: false });
+          if (tableFrom.syncAny) {
+            await batch.drop([tableFrom]);
+          }
+          // Here we do need to snapshot the new table
+          await this.handleRelation(batch, relTo, { snapshot: true });
         }
       }
     });

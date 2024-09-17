@@ -106,8 +106,7 @@ bucket_definitions:
     })
   );
 
-  // Not implemented yet
-  test.skip(
+  test(
     'replicating dropCollection',
     walStreamTest(factory, async (context) => {
       const { db } = context;
@@ -135,6 +134,38 @@ bucket_definitions:
       expect(data).toMatchObject([
         putOp('test_data', { id: test_id, description: 'test1' }),
         removeOp('test_data', test_id)
+      ]);
+    })
+  );
+
+  test(
+    'replicating renameCollection',
+    walStreamTest(factory, async (context) => {
+      const { db } = context;
+      const syncRuleContent = `
+bucket_definitions:
+  global:
+    data:
+      - SELECT _id as id, description FROM "test_data1"
+      - SELECT _id as id, description FROM "test_data2"
+`;
+      await context.updateSyncRules(syncRuleContent);
+      await context.replicateSnapshot();
+      context.startStreaming();
+
+      console.log('insert1', db.databaseName);
+      const collection = db.collection('test_data1');
+      const result = await collection.insertOne({ description: 'test1' });
+      const test_id = result.insertedId.toHexString();
+
+      await collection.rename('test_data2');
+
+      const data = await context.getBucketData('global[]');
+
+      expect(data).toMatchObject([
+        putOp('test_data1', { id: test_id, description: 'test1' }),
+        removeOp('test_data1', test_id),
+        putOp('test_data2', { id: test_id, description: 'test1' })
       ]);
     })
   );
