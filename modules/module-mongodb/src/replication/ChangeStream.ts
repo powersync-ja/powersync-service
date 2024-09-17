@@ -78,32 +78,32 @@ export class ChangeStream {
       return [];
     }
 
+    let nameFilter: RegExp | string;
     if (tablePattern.isWildcard) {
-      // TODO: Implement
-      throw new Error('Wildcard collections not supported yet');
+      nameFilter = new RegExp('^' + escapeRegExp(tablePattern.tablePrefix));
+    } else {
+      nameFilter = tablePattern.name;
     }
     let result: storage.SourceTable[] = [];
-
-    const name = tablePattern.name;
 
     // Check if the collection exists
     const collections = await this.client
       .db(schema)
       .listCollections(
         {
-          name: name
+          name: nameFilter
         },
         { nameOnly: true }
       )
       .toArray();
 
-    if (collections[0]?.name == name) {
+    for (let collection of collections) {
       const table = await this.handleRelation(
         batch,
         {
-          name,
+          name: collection.name,
           schema,
-          objectId: name,
+          objectId: collection.name,
           replicationColumns: [{ name: '_id' }]
         } as SourceEntityDescriptor,
         // This is done as part of the initial setup - snapshot is handled elsewhere
@@ -187,23 +187,26 @@ export class ChangeStream {
   private getSourceNamespaceFilters() {
     const sourceTables = this.sync_rules.getSourceTables();
 
-    let filters: any[] = [{ db: this.defaultDb.databaseName, coll: '_powersync_checkpoints' }];
+    let $inFilters: any[] = [{ db: this.defaultDb.databaseName, coll: '_powersync_checkpoints' }];
+    let $refilters: any[] = [];
     for (let tablePattern of sourceTables) {
       if (tablePattern.connectionTag != this.connections.connectionTag) {
         continue;
       }
 
       if (tablePattern.isWildcard) {
-        // TODO: Implement
-        throw new Error('wildcard collections not supported yet');
+        $refilters.push({ db: tablePattern.schema, coll: new RegExp('^' + escapeRegExp(tablePattern.tablePrefix)) });
+      } else {
+        $inFilters.push({
+          db: tablePattern.schema,
+          coll: tablePattern.name
+        });
       }
-
-      filters.push({
-        db: tablePattern.schema,
-        coll: tablePattern.name
-      });
     }
-    return { $in: filters };
+    if ($refilters.length > 0) {
+      return { $or: [{ ns: { $in: $inFilters } }, ...$refilters] };
+    }
+    return { ns: { $in: $inFilters } };
   }
 
   static *getQueryData(results: Iterable<DatabaseInputRow>): Generator<SqliteRow> {
@@ -389,9 +392,7 @@ export class ChangeStream {
 
       const pipeline: mongo.Document[] = [
         {
-          $match: {
-            ns: this.getSourceNamespaceFilters()
-          }
+          $match: this.getSourceNamespaceFilters()
         }
       ];
 
@@ -479,4 +480,9 @@ async function touch() {
   // FIXME: We need a timeout of around 5+ minutes in Kubernetes if we do start checking the timestamp,
   // or reduce PING_INTERVAL here.
   return container.probes.touch();
+}
+
+function escapeRegExp(string: string) {
+  // https://stackoverflow.com/a/3561711/214837
+  return string.replace(/[/\-\\^$*+?.()|[\]{}]/g, '\\$&');
 }
