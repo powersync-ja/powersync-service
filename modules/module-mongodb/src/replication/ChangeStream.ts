@@ -147,7 +147,7 @@ export class ChangeStream {
           if (time != null) {
             const lsn = getMongoLsn(time.clusterTime);
             logger.info(`Snapshot commit at ${time.clusterTime.inspect()} / ${lsn}`);
-            await batch.commit(lsn);
+            // keepalive() does an auto-commit if there is data
             await batch.keepalive(lsn);
           } else {
             logger.info(`No snapshot clusterTime (no snapshot data?) - skipping commit.`);
