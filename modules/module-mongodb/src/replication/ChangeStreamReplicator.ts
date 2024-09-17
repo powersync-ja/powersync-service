@@ -1,6 +1,7 @@
 import { storage, replication } from '@powersync/service-core';
 import { ChangeStreamReplicationJob } from './ChangeStreamReplicationJob.js';
 import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
+import { MongoErrorRateLimiter } from './MongoErrorRateLimiter.js';
 
 export interface WalStreamReplicatorOptions extends replication.AbstractReplicatorOptions {
   connectionFactory: ConnectionManagerFactory;
@@ -19,7 +20,8 @@ export class ChangeStreamReplicator extends replication.AbstractReplicator<Chang
       id: this.createJobId(options.storage.group_id),
       storage: options.storage,
       connectionFactory: this.connectionFactory,
-      lock: options.lock
+      lock: options.lock,
+      rateLimiter: new MongoErrorRateLimiter()
     });
   }
 
