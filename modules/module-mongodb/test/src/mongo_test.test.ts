@@ -2,6 +2,8 @@ import { ChangeStream } from '@module/replication/ChangeStream.js';
 import * as mongo from 'mongodb';
 import { describe, expect, test } from 'vitest';
 import { clearTestDb, connectMongoData } from './util.js';
+import { SqliteRow } from '@powersync/service-sync-rules';
+import { constructAfterRecord } from '@module/replication/MongoRelation.js';
 
 describe('mongo data types', () => {
   async function setupTable(db: mongo.Db) {
@@ -151,85 +153,67 @@ describe('mongo data types', () => {
     }
   });
 
-  // test('test replication', async () => {
-  //   const db = await connectPgPool();
-  //   try {
-  //     await setupTable(db);
+  test('test replication', async () => {
+    // With MongoDB, replication uses the exact same document format
+    // as normal queries. We test it anyway.
+    const { db, client } = await connectMongoData();
+    const collection = db.collection('test_data');
+    try {
+      await setupTable(db);
 
-  //     const slotName = 'test_slot';
+      const stream = db.watch([], {
+        useBigInt64: true,
+        maxAwaitTimeMS: 50,
+        fullDocument: 'updateLookup'
+      });
 
-  //     await db.query({
-  //       statement: 'SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1',
-  //       params: [{ type: 'varchar', value: slotName }]
-  //     });
+      await stream.tryNext();
 
-  //     await db.query({
-  //       statement: `SELECT slot_name, lsn FROM pg_catalog.pg_create_logical_replication_slot($1, 'pgoutput')`,
-  //       params: [{ type: 'varchar', value: slotName }]
-  //     });
+      await insert(collection);
 
-  //     await insert(db);
+      const transformed = await getReplicationTx(stream, 4);
 
-  //     const pg: pgwire.PgConnection = await pgwire.pgconnect({ replication: 'database' }, TEST_URI);
-  //     const replicationStream = await pg.logicalReplication({
-  //       slot: slotName,
-  //       options: {
-  //         proto_version: '1',
-  //         publication_names: 'powersync'
-  //       }
-  //     });
+      checkResults(transformed);
+    } finally {
+      await client.close();
+    }
+  });
 
-  //     const transformed = await getReplicationTx(replicationStream);
-  //     await pg.end();
+  test('test replication - arrays', async () => {
+    const { db, client } = await connectMongoData();
+    const collection = db.collection('test_data');
+    try {
+      await setupTable(db);
 
-  //     checkResults(transformed);
-  //   } finally {
-  //     await db.end();
-  //   }
-  // });
+      const stream = db.watch([], {
+        useBigInt64: true,
+        maxAwaitTimeMS: 50,
+        fullDocument: 'updateLookup'
+      });
 
-  // test('test replication - arrays', async () => {
-  //   const db = await connectPgPool();
-  //   try {
-  //     await setupTable(db);
+      await stream.tryNext();
 
-  //     const slotName = 'test_slot';
+      await insertNested(collection);
 
-  //     await db.query({
-  //       statement: 'SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1',
-  //       params: [{ type: 'varchar', value: slotName }]
-  //     });
+      const transformed = await getReplicationTx(stream, 4);
 
-  //     await db.query({
-  //       statement: `SELECT slot_name, lsn FROM pg_catalog.pg_create_logical_replication_slot($1, 'pgoutput')`,
-  //       params: [{ type: 'varchar', value: slotName }]
-  //     });
-
-  //     await insertArrays(db);
-
-  //     const pg: pgwire.PgConnection = await pgwire.pgconnect({ replication: 'database' }, TEST_URI);
-  //     const replicationStream = await pg.logicalReplication({
-  //       slot: slotName,
-  //       options: {
-  //         proto_version: '1',
-  //         publication_names: 'powersync'
-  //       }
-  //     });
-
-  //     const transformed = await getReplicationTx(replicationStream);
-  //     await pg.end();
-
-  //     checkResultArrays(transformed);
-  //   } finally {
-  //     await db.end();
-  //   }
-  // });
-
-  test.skip('schema', async function () {
-    // const db = await connectPgWire();
-    // await setupTable(db);
-    // TODO need a test for adapter
-    // const schema = await api.getConnectionsSchema(db);
-    // expect(schema).toMatchSnapshot();
+      checkResultsNested(transformed);
+    } finally {
+      await client.close();
+    }
   });
 });
+
+/**
+ * Return all the inserts from the first transaction in the replication stream.
+ */
+async function getReplicationTx(replicationStream: mongo.ChangeStream, count: number) {
+  let transformed: SqliteRow[] = [];
+  for await (const doc of replicationStream) {
+    transformed.push(constructAfterRecord((doc as any).fullDocument));
+    if (transformed.length == count) {
+      break;
+    }
+  }
+  return transformed;
+}
