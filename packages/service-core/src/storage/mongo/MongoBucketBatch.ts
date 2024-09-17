@@ -622,7 +622,6 @@ export class MongoBucketBatch implements BucketStorageBatch {
       await this.event_batch.save({
         table: sourceTable,
         data: {
-          head: 'TODO',
           op: tag,
           after: after && util.isCompleteRow(after) ? event.evaluateParameterRow(sourceTable, after) : undefined,
           before: before && util.isCompleteRow(before) ? event.evaluateParameterRow(sourceTable, before) : undefined

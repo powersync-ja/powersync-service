@@ -9,7 +9,8 @@
     "access": "public"
   },
   "files": [
-    "dist/**/*"
+    "dist/**/*",
+    "schema/*"
   ],
   "type": "module",
   "scripts": {

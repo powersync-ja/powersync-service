@@ -322,7 +322,7 @@ export class SqlSyncRules implements SyncRules {
     const eventTables = new Map<String, TablePattern>();
 
     for (const event of this.event_descriptors) {
-      for (let r of event.getSourceTables()) {
+      for (const r of event.getSourceTables()) {
         const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
         eventTables.set(key, r);
       }
@@ -331,16 +331,11 @@ export class SqlSyncRules implements SyncRules {
   }
 
   tableTriggersEvent(table: SourceTableInterface): boolean {
-    for (let bucket of this.event_descriptors) {
-      if (bucket.tableTriggersEvent(table)) {
-        return true;
-      }
-    }
-    return false;
+    return this.event_descriptors.some((bucket) => bucket.tableTriggersEvent(table));
   }
 
   tableSyncsData(table: SourceTableInterface): boolean {
-    for (let bucket of this.bucket_descriptors) {
+    for (const bucket of this.bucket_descriptors) {
       if (bucket.tableSyncsData(table)) {
         return true;
       }

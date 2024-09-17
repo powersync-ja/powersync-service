@@ -4,11 +4,6 @@ import { SourceTable } from './SourceTable.js';
 
 export type EventData = {
   op: SaveOp;
-  /**
-   * The replication HEAD at the moment where this event ocurred.
-   * For Postgres this is the LSN.
-   */
-  head: string;
   before?: sync_rules.EvaluatedParametersResult[];
   after?: sync_rules.EvaluatedParametersResult[];
 };
