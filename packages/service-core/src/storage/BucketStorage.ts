@@ -328,7 +328,7 @@ export interface BucketStorageBatch {
    *
    * Only call this after a transaction.
    */
-  commit(lsn: string): Promise<boolean>;
+  commit(lsn: string, options?: CommitOptions): Promise<boolean>;
 
   /**
    * Advance the checkpoint LSN position, without any associated op.
@@ -345,6 +345,15 @@ export interface BucketStorageBatch {
   lastCheckpointLsn: string | null;
 
   markSnapshotDone(tables: SourceTable[], no_checkpoint_before_lsn: string): Promise<SourceTable[]>;
+}
+
+export interface CommitOptions {
+  /**
+   * Usually, a commit only takes effect if there are operations to commit.
+   *
+   * Setting this to true forces the commit to take place.
+   */
+  forceCommit?: boolean;
 }
 
 export interface SaveParameterData {

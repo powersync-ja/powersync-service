@@ -5,9 +5,11 @@ import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import * as types from '../types/types.js';
 import { MongoManager } from '../replication/MongoManager.js';
+import { createCheckpoint, getMongoLsn } from '../replication/MongoRelation.js';
 
 export class MongoRouteAPIAdapter implements api.RouteAPI {
   protected client: mongo.MongoClient;
+  private db: mongo.Db;
 
   connectionTag: string;
   defaultSchema: string;
@@ -15,6 +17,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
   constructor(protected config: types.ResolvedConnectionConfig) {
     const manager = new MongoManager(config);
     this.client = manager.client;
+    this.db = manager.db;
     this.defaultSchema = manager.db.databaseName;
     this.connectionTag = config.tag ?? sync_rules.DEFAULT_TAG;
   }
@@ -72,8 +75,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
   }
 
   async getReplicationHead(): Promise<string> {
-    // TODO: implement
-    return '';
+    return createCheckpoint(this.db);
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {

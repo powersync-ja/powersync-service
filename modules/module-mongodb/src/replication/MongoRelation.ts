@@ -129,3 +129,26 @@ function filterJsonData(data: any, depth = 0): any {
     return undefined;
   }
 }
+
+export async function createCheckpoint(db: mongo.Db): Promise<string> {
+  const pingResult = await db.command({ ping: 1 });
+
+  const time: mongo.Timestamp = pingResult.$clusterTime.clusterTime;
+
+  const result = await db.collection('_powersync_checkpoints').findOneAndUpdate(
+    {
+      _id: 'checkpoint' as any
+    },
+    {
+      $inc: { i: 1 }
+    },
+    {
+      upsert: true,
+      returnDocument: 'after'
+    }
+  );
+
+  // TODO: Use the above when we support custom write checkpoints
+
+  return getMongoLsn(time);
+}

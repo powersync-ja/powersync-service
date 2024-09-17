@@ -4,10 +4,10 @@ import * as mongo from 'mongodb';
 
 import { container, errors, logger } from '@powersync/lib-services-framework';
 import * as util from '../../util/util-index.js';
-import { BucketStorageBatch, FlushedResult, mergeToast, SaveOptions } from '../BucketStorage.js';
+import { BucketStorageBatch, CommitOptions, FlushedResult, mergeToast, SaveOptions } from '../BucketStorage.js';
 import { SourceTable } from '../SourceTable.js';
 import { PowerSyncMongo } from './db.js';
-import { CurrentBucket, CurrentDataDocument, SourceKey } from './models.js';
+import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { cacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
@@ -536,7 +536,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
     await this.session.endSession();
   }
 
-  async commit(lsn: string): Promise<boolean> {
+  async commit(lsn: string, options?: CommitOptions): Promise<boolean> {
     await this.flush();
 
     if (this.last_checkpoint_lsn != null && lsn < this.last_checkpoint_lsn) {
@@ -550,21 +550,24 @@ export class MongoBucketBatch implements BucketStorageBatch {
       return false;
     }
 
-    if (this.persisted_op != null) {
+    if (this.persisted_op != null || options?.forceCommit) {
       const now = new Date();
+      let setValues: mongo.MatchKeysAndValues<SyncRuleDocument> = {
+        last_checkpoint_lsn: lsn,
+        last_checkpoint_ts: now,
+        last_keepalive_ts: now,
+        snapshot_done: true,
+        last_fatal_error: null
+      };
+      if (this.persisted_op != null) {
+        (setValues as any).last_checkpoint = this.persisted_op;
+      }
       await this.db.sync_rules.updateOne(
         {
           _id: this.group_id
         },
         {
-          $set: {
-            last_checkpoint: this.persisted_op,
-            last_checkpoint_lsn: lsn,
-            last_checkpoint_ts: now,
-            last_keepalive_ts: now,
-            snapshot_done: true,
-            last_fatal_error: null
-          }
+          $set: setValues
         },
         { session: this.session }
       );

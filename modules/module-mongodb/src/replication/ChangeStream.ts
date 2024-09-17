@@ -7,7 +7,7 @@ import { constructAfterRecord, getMongoLsn, getMongoRelation, mongoLsnToTimestam
 
 export const ZERO_LSN = '0000000000000000';
 
-export interface WalStreamOptions {
+export interface ChangeStreamOptions {
   connections: MongoManager;
   storage: storage.SyncRulesBucketStorage;
   abort_signal: AbortSignal;
@@ -39,7 +39,7 @@ export class ChangeStream {
 
   private relation_cache = new Map<string | number, storage.SourceTable>();
 
-  constructor(options: WalStreamOptions) {
+  constructor(options: ChangeStreamOptions) {
     this.storage = options.storage;
     this.group_id = options.storage.group_id;
     this.connections = options.connections;
@@ -147,7 +147,7 @@ export class ChangeStream {
           if (time != null) {
             const lsn = getMongoLsn(time.clusterTime);
             logger.info(`Snapshot commit at ${time.clusterTime.inspect()} / ${lsn}`);
-            await batch.commit(lsn);
+            await batch.commit(lsn, { forceCommit: true });
           } else {
             logger.info(`No snapshot clusterTime (no snapshot data?) - skipping commit.`);
           }
@@ -161,7 +161,7 @@ export class ChangeStream {
   private getSourceNamespaceFilters() {
     const sourceTables = this.sync_rules.getSourceTables();
 
-    let filters: any[] = [];
+    let filters: any[] = [{ db: this.defaultDb.databaseName, collection: '_powersync_checkpoints' }];
     for (let tablePattern of sourceTables) {
       if (tablePattern.connectionTag != this.connections.connectionTag) {
         continue;
@@ -336,9 +336,6 @@ export class ChangeStream {
       logger.info(`Resume streaming at ${startAfter?.inspect()} / ${lastLsn}`);
 
       // TODO: Use changeStreamSplitLargeEvent
-
-      const nsFilter = this.getSourceNamespaceFilters();
-      nsFilter.$in.push({ ns: nsFilter });
 
       const pipeline: mongo.Document[] = [
         {
