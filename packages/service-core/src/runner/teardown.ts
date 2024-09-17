@@ -21,7 +21,7 @@ export async function teardown(runnerConfig: utils.RunnerConfig) {
     await serviceContext.lifeCycleEngine.start();
 
     await terminateSyncRules(serviceContext.storageEngine.activeBucketStorage, moduleManager);
-    await serviceContext.storageEngine.activeStorage.dispose();
+    await serviceContext.storageEngine.activeStorage.tearDown();
     logger.info(`Teardown complete.`);
     process.exit(0);
   } catch (e) {

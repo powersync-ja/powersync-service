@@ -1,6 +1,6 @@
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import { RequestParameters } from '@powersync/service-sync-rules';
-import { Semaphore } from 'async-mutex';
+import { Semaphore, withTimeout } from 'async-mutex';
 import { AbortError } from 'ix/aborterror.js';
 
 import * as auth from '../auth/auth-index.js';
@@ -16,7 +16,19 @@ import { TokenStreamOptions, tokenStream } from './util.js';
  * Maximum number of connections actively fetching data.
  */
 const MAX_ACTIVE_CONNECTIONS = 10;
-const syncSemaphore = new Semaphore(MAX_ACTIVE_CONNECTIONS);
+
+/**
+ * Maximum duration to wait for the mutex to become available.
+ *
+ * This gives an explicit error if there are mutex issues, rather than just hanging.
+ */
+const MUTEX_ACQUIRE_TIMEOUT = 30_000;
+
+const syncSemaphore = withTimeout(
+  new Semaphore(MAX_ACTIVE_CONNECTIONS),
+  MUTEX_ACQUIRE_TIMEOUT,
+  new Error(`Timeout while waiting for data`)
+);
 
 export interface SyncStreamParameters {
   storage: storage.BucketStorageFactory;

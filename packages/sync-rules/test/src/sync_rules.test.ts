@@ -785,10 +785,10 @@ bucket_definitions:
 `);
 
     expect(new TsSchemaGenerator().generate(rules, schema)).toEqual(
-      `import { column, Schema, TableV2 } from '@powersync/web';
-// OR: import { column, Schema, TableV2 } from '@powersync/react-native';
+      `import { column, Schema, Table } from '@powersync/web';
+// OR: import { column, Schema, Table } from '@powersync/react-native';
 
-const assets1 = new TableV2(
+const assets1 = new Table(
   {
     // id column (text) is automatically included
     name: column.text,
@@ -798,7 +798,7 @@ const assets1 = new TableV2(
   { indexes: {} }
 );
 
-const assets2 = new TableV2(
+const assets2 = new Table(
   {
     // id column (text) is automatically included
     name: column.text,

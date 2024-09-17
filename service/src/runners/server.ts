@@ -54,7 +54,7 @@ export function registerServerServices(serviceContext: core.system.ServiceContex
         };
       });
     },
-    stop: (routerEngine) => routerEngine!.shutdown()
+    stop: (routerEngine) => routerEngine!.shutDown()
   });
 }
 
