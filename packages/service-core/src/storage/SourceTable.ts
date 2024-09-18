@@ -31,7 +31,7 @@ export class SourceTable {
    *
    * Defaults to true for tests.
    */
-  public triggerEvents = true;
+  public syncEvent = true;
 
   constructor(
     public readonly id: any,
@@ -63,6 +63,6 @@ export class SourceTable {
   }
 
   get syncAny() {
-    return this.syncData || this.syncParameters;
+    return this.syncData || this.syncParameters || this.syncEvent;
   }
 }

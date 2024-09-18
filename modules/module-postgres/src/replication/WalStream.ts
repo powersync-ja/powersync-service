@@ -392,9 +392,7 @@ WHERE  oid = $1::regclass`,
 
       for (const record of WalStream.getQueryData(rows)) {
         // This auto-flushes when the batch reaches its size limit
-        if (table.syncAny) {
-          await batch.save({ tag: 'insert', sourceTable: table, before: undefined, after: record });
-        }
+        await batch.save({ tag: 'insert', sourceTable: table, before: undefined, after: record });
       }
 
       at += rows.length;

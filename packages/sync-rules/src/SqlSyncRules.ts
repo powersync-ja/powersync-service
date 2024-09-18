@@ -311,7 +311,14 @@ export class SqlSyncRules implements SyncRules {
   getSourceTables(): TablePattern[] {
     const sourceTables = new Map<String, TablePattern>();
     for (const bucket of this.bucket_descriptors) {
-      for (let r of bucket.getSourceTables()) {
+      for (const r of bucket.getSourceTables()) {
+        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
+        sourceTables.set(key, r);
+      }
+    }
+
+    for (const event of this.event_descriptors) {
+      for (const r of event.getSourceTables()) {
         const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
         sourceTables.set(key, r);
       }

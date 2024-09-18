@@ -8,7 +8,7 @@ import { BucketStorageBatch, FlushedResult, mergeToast, SaveOptions } from '../B
 import { ReplicationEventBatch } from '../ReplicationEventBatch.js';
 import { SourceTable } from '../SourceTable.js';
 import { PowerSyncMongo } from './db.js';
-import { CurrentBucket, CurrentDataDocument, SourceKey } from './models.js';
+import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { cacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
@@ -552,26 +552,29 @@ export class MongoBucketBatch implements BucketStorageBatch {
       return false;
     }
 
+    const now = new Date();
+    const update: Partial<SyncRuleDocument> = {
+      last_checkpoint_lsn: lsn,
+      last_checkpoint_ts: now,
+      last_keepalive_ts: now,
+      snapshot_done: true,
+      last_fatal_error: null
+    };
+
     if (this.persisted_op != null) {
-      const now = new Date();
-      await this.db.sync_rules.updateOne(
-        {
-          _id: this.group_id
-        },
-        {
-          $set: {
-            last_checkpoint: this.persisted_op,
-            last_checkpoint_lsn: lsn,
-            last_checkpoint_ts: now,
-            last_keepalive_ts: now,
-            snapshot_done: true,
-            last_fatal_error: null
-          }
-        },
-        { session: this.session }
-      );
-      this.persisted_op = null;
+      update.last_checkpoint = this.persisted_op;
     }
+
+    await this.db.sync_rules.updateOne(
+      {
+        _id: this.group_id
+      },
+      {
+        $set: update
+      },
+      { session: this.session }
+    );
+    this.persisted_op = null;
     this.last_checkpoint_lsn = lsn;
     return true;
   }
@@ -612,11 +615,6 @@ export class MongoBucketBatch implements BucketStorageBatch {
   }
 
   async save(record: SaveOptions): Promise<FlushedResult | null> {
-    logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
-
-    this.batch ??= new OperationBatch();
-    this.batch.push(new RecordOperation(record));
-
     const { after, before, sourceTable, tag } = record;
     for (const event of this.getTableEvents(sourceTable)) {
       await this.event_batch.save({
@@ -629,6 +627,18 @@ export class MongoBucketBatch implements BucketStorageBatch {
         event
       });
     }
+
+    /**
+     * Handle case where this table is just an event table
+     */
+    if (!sourceTable.syncData && !sourceTable.syncParameters) {
+      return null;
+    }
+
+    logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
+
+    this.batch ??= new OperationBatch();
+    this.batch.push(new RecordOperation(record));
 
     if (this.batch.shouldFlush()) {
       const r = await this.flush();
