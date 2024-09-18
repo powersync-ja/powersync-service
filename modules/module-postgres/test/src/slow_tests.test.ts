@@ -1,5 +1,4 @@
 import * as bson from 'bson';
-import * as mongo from 'mongodb';
 import { afterEach, describe, expect, test } from 'vitest';
 import { WalStream, WalStreamOptions } from '../../src/replication/WalStream.js';
 import { env } from './env.js';
@@ -194,7 +193,7 @@ bucket_definitions:
       // Check that all inserts have been deleted again
       const docs = await f.db.current_data.find().toArray();
       const transformed = docs.map((doc) => {
-        return bson.deserialize((doc.data as mongo.Binary).buffer) as SqliteRow;
+        return bson.deserialize(doc.data.buffer) as SqliteRow;
       });
       expect(transformed).toEqual([]);
 
