@@ -9,7 +9,7 @@ import { logger } from '@powersync/lib-services-framework';
  * replicates those sync rules at a time.
  */
 export class MongoSyncRulesLock implements ReplicationLock {
-  private readonly refreshInterval: NodeJS.Timer;
+  private readonly refreshInterval: NodeJS.Timeout;
 
   static async createLock(db: PowerSyncMongo, sync_rules: PersistedSyncRulesContent): Promise<MongoSyncRulesLock> {
     const lockId = crypto.randomBytes(8).toString('hex');
