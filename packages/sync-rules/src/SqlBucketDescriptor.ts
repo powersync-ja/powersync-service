@@ -30,7 +30,10 @@ export class SqlBucketDescriptor {
   name: string;
   bucket_parameters?: string[];
 
-  constructor(name: string, public idSequence: IdSequence) {
+  constructor(
+    name: string,
+    public idSequence: IdSequence
+  ) {
     this.name = name;
   }
 

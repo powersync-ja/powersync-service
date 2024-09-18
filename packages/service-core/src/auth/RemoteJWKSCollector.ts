@@ -22,7 +22,10 @@ export type RemoteJWKSCollectorOptions = {
 export class RemoteJWKSCollector implements KeyCollector {
   private url: URL;
 
-  constructor(url: string, protected options?: RemoteJWKSCollectorOptions) {
+  constructor(
+    url: string,
+    protected options?: RemoteJWKSCollectorOptions
+  ) {
     try {
       this.url = new URL(url);
     } catch (e) {

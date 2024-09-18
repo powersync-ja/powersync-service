@@ -19,7 +19,10 @@ export class MongoPersistedSyncRulesContent implements PersistedSyncRulesContent
 
   public current_lock: MongoSyncRulesLock | null = null;
 
-  constructor(private db: PowerSyncMongo, doc: mongo.WithId<SyncRuleDocument>) {
+  constructor(
+    private db: PowerSyncMongo,
+    doc: mongo.WithId<SyncRuleDocument>
+  ) {
     this.id = doc._id;
     this.sync_rules_content = doc.content;
     this.last_checkpoint_lsn = doc.last_checkpoint_lsn;

@@ -9,7 +9,10 @@ export class PgManager {
 
   private connectionPromises: Promise<pgwire.PgConnection>[] = [];
 
-  constructor(public options: NormalizedPostgresConnectionConfig, public poolOptions: pgwire.PgPoolOptions) {
+  constructor(
+    public options: NormalizedPostgresConnectionConfig,
+    public poolOptions: pgwire.PgPoolOptions
+  ) {
     // The pool is lazy - no connections are opened until a query is performed.
     this.pool = pgwire.connectPgWirePool(this.options, poolOptions);
   }
