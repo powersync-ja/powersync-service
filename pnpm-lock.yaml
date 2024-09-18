@@ -94,49 +94,6 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1(@types/node@22.5.5)
 
-  modules/module-mongodb:
-    dependencies:
-      '@powersync/lib-services-framework':
-        specifier: workspace:*
-        version: link:../../libs/lib-services
-      '@powersync/service-core':
-        specifier: workspace:*
-        version: link:../../packages/service-core
-      '@powersync/service-jsonbig':
-        specifier: workspace:*
-        version: link:../../packages/jsonbig
-      '@powersync/service-sync-rules':
-        specifier: workspace:*
-        version: link:../../packages/sync-rules
-      '@powersync/service-types':
-        specifier: workspace:*
-        version: link:../../packages/types
-      mongodb:
-        specifier: ^6.7.0
-        version: 6.7.0(socks@2.8.3)
-      ts-codec:
-        specifier: ^1.2.2
-        version: 1.2.2
-      uri-js:
-        specifier: ^4.4.1
-        version: 4.4.1
-      uuid:
-        specifier: ^9.0.1
-        version: 9.0.1
-    devDependencies:
-      '@types/uuid':
-        specifier: ^9.0.4
-        version: 9.0.8
-      typescript:
-        specifier: ^5.6.2
-        version: 5.6.2
-      vite-tsconfig-paths:
-        specifier: ^4.3.2
-        version: 4.3.2(typescript@5.6.2)(vite@5.2.11(@types/node@22.5.5))
-      vitest:
-        specifier: ^2.1.1
-        version: 2.1.1(@types/node@22.5.5)
-
   modules/module-postgres:
     dependencies:
       '@powersync/lib-services-framework':
@@ -521,8 +478,8 @@ importers:
         version: 2.5.0
     devDependencies:
       '@types/node':
-        specifier: 18.11.11
-        version: 18.11.11
+        specifier: ^22.5.5
+        version: 22.5.5
       typescript:
         specifier: ^5.6.2
         version: 5.6.2
@@ -1355,9 +1312,6 @@ packages:
 
   '@types/node@15.14.9':
     resolution: {integrity: sha512-qjd88DrCxupx/kJD5yQgZdcYKZKSIGBVDIBE1/LTGcNm3d2Np/jxojkdePDdfnBHJc5W7vSMpbJ1aB7p/Py69A==}
-
-  '@types/node@18.11.11':
-    resolution: {integrity: sha512-KJ021B1nlQUBLopzZmPBVuGU9un7WJd/W4ya7Ih02B4Uwky5Nja0yGYav2EfYIk0RR2Q9oVhf60S2XR1BCWJ2g==}
 
   '@types/node@22.5.5':
     resolution: {integrity: sha512-Xjs4y5UPO/CLdzpgR6GirZJx36yScjh73+2NlLlkFRSoQN8B0DpfXPdZGnvVmLRLOsqDpOfTNv7D9trgGhmOIA==}
@@ -4829,8 +4783,6 @@ snapshots:
   '@types/node@13.13.52': {}
 
   '@types/node@15.14.9': {}
-
-  '@types/node@18.11.11': {}
 
   '@types/node@22.5.5':
     dependencies:
