@@ -1,4 +1,3 @@
-
 ## AWS RDS
 
 https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.SSL.html#UsingWithRDS.SSL.CertificatesAllRegions
@@ -11,12 +10,13 @@ https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/how-to-connec
 https://learn.microsoft.com/en-us/azure/postgresql/single-server/concepts-certificate-rotation
 
 Includes:
- * BaltimoreCyberTrustRoot
- * DigiCertGlobalRootG2 Root CA
- * Microsoft RSA Root Certificate Authority 2017
- * Microsoft ECC Root Certificate Authority 2017
- * DigiCert Global Root G3
- * DigiCert Global Root CA
+
+- BaltimoreCyberTrustRoot
+- DigiCertGlobalRootG2 Root CA
+- Microsoft RSA Root Certificate Authority 2017
+- Microsoft ECC Root Certificate Authority 2017
+- DigiCert Global Root G3
+- DigiCert Global Root CA
 
 ## Supabase
 

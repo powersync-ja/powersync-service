@@ -36,7 +36,10 @@ export class WalStreamTestContext {
   public storage?: SyncRulesBucketStorage;
   private replicationConnection?: pgwire.PgConnection;
 
-  constructor(public factory: BucketStorageFactory, public connectionManager: PgManager) {}
+  constructor(
+    public factory: BucketStorageFactory,
+    public connectionManager: PgManager
+  ) {}
 
   async dispose() {
     this.abortController.abort();
