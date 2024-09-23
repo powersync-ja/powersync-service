@@ -25,6 +25,7 @@ export type SocketResponder = OnTerminalSubscriber & OnNextSubscriber & OnExtens
 export type CommonStreamPayload = {
   observer: SocketRouterObserver;
   responder: SocketResponder;
+  signal: AbortSignal;
 };
 
 export type ReactiveStreamPayload<O> = CommonStreamPayload & {

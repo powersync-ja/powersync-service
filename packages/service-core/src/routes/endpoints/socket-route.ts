@@ -11,11 +11,27 @@ import { SyncRoutes } from './sync-stream.js';
 export const syncStreamReactive: SocketRouteGenerator = (router) =>
   router.reactiveStream<util.StreamingSyncRequest, any>(SyncRoutes.STREAM, {
     validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
-    handler: async ({ context, params, responder, observer, initialN }) => {
+    handler: async ({ context, params, responder, observer, initialN, signal: upstreamSignal }) => {
       const { service_context } = context;
-      const { routerEngine } = service_context;
 
-      if (routerEngine!.closed) {
+      // Create our own controller that we can abort directly
+      const controller = new AbortController();
+      upstreamSignal.addEventListener('abort', () => {
+        controller.abort();
+      });
+      if (upstreamSignal.aborted) {
+        controller.abort();
+      }
+      const signal = controller.signal;
+
+      let requestedN = initialN;
+      const disposer = observer.registerListener({
+        request(n) {
+          requestedN += n;
+        }
+      });
+
+      if (service_context.routerEngine!.closed) {
         responder.onError(
           new errors.JourneyError({
             status: 503,
@@ -26,8 +42,6 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         responder.onComplete();
         return;
       }
-
-      const controller = new AbortController();
 
       const syncParams = new RequestParameters(context.token_payload!, params.parameters ?? {});
 
@@ -48,18 +62,8 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         return;
       }
 
-      let requestedN = initialN;
-      const disposer = observer.registerListener({
-        request(n) {
-          requestedN += n;
-        },
-        cancel: () => {
-          controller.abort();
-        }
-      });
-
-      const removeStopHandler = routerEngine!.addStopHandler(() => {
-        observer.triggerCancel();
+      const removeStopHandler = service_context.routerEngine!.addStopHandler(() => {
+        controller.abort();
       });
 
       Metrics.getInstance().concurrent_connections.add(1);
@@ -78,8 +82,11 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
             keep_alive: false
           },
           tracker,
-          signal: controller.signal
+          signal
         })) {
+          if (signal.aborted) {
+            break;
+          }
           if (data == null) {
             // Empty value just to flush iterator memory
             continue;
@@ -96,7 +103,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
             tracker.addDataSynced(serialized.length);
           }
 
-          if (requestedN <= 0) {
+          if (requestedN <= 0 && !signal.aborted) {
             await new Promise<void>((resolve) => {
               const l = observer.registerListener({
                 request() {
@@ -104,14 +111,17 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
                     // Management of updating the total requested items is done above
                     resolve();
                     l();
+                    signal.removeEventListener('abort', onAbort);
                   }
-                },
-                cancel: () => {
-                  // Don't wait here if the request is cancelled
-                  resolve();
-                  l();
                 }
               });
+              const onAbort = () => {
+                // Don't wait here if the request is cancelled
+                resolve();
+                l();
+                signal.removeEventListener('abort', onAbort);
+              };
+              signal.addEventListener('abort', onAbort);
             });
           }
         }

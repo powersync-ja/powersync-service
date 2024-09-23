@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.18.3
+
+### Patch Changes
+
+- f6b678a: Change TableV2 to Table in schema generator
+
 ## 0.18.2
 
 ### Patch Changes
