@@ -1,15 +1,17 @@
 import { JSONBig } from '@powersync/service-jsonbig';
 import { parse } from 'pgsql-ast-parser';
-import { BaseSqlDataQuery } from './BaseSqlDataQuery.js';
+import { AbstractSqlDataQuery } from './AbstractSqlDataQuery.js';
 import { SqlRuleError } from './errors.js';
+import { SourceTableInterface } from './SourceTableInterface.js';
 import { SqlTools } from './sql_filters.js';
+import { castAsText } from './sql_functions.js';
 import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
 import { TablePattern } from './TablePattern.js';
 import { TableQuerySchema } from './TableQuerySchema.js';
-import { ParameterMatchClause, QuerySchema, SourceSchema } from './types.js';
-import { isSelectStatement } from './utils.js';
+import { EvaluationResult, ParameterMatchClause, QuerySchema, SourceSchema, SqliteRow } from './types.js';
+import { getBucketId, isSelectStatement } from './utils.js';
 
-export class SqlDataQuery extends BaseSqlDataQuery {
+export class SqlDataQuery extends AbstractSqlDataQuery {
   filter?: ParameterMatchClause;
 
   static fromSql(descriptor_name: string, bucket_parameters: string[], sql: string, schema?: SourceSchema) {
@@ -153,5 +155,40 @@ export class SqlDataQuery extends BaseSqlDataQuery {
     }
     rows.errors.push(...tools.errors);
     return rows;
+  }
+
+  evaluateRow(table: SourceTableInterface, row: SqliteRow): EvaluationResult[] {
+    try {
+      const tables = { [this.table!]: this.addSpecialParameters(table, row) };
+      const bucketParameters = this.filter!.filterRow(tables);
+      const bucketIds = bucketParameters.map((params) =>
+        getBucketId(this.descriptor_name!, this.bucket_parameters!, params)
+      );
+
+      const data = this.transformRow(tables);
+      let id = data.id;
+      if (typeof id != 'string') {
+        // While an explicit cast would be better, this covers against very common
+        // issues when initially testing out sync, for example when the id column is an
+        // auto-incrementing integer.
+        // If there is no id column, we use a blank id. This will result in the user syncing
+        // a single arbitrary row for this table - better than just not being able to sync
+        // anything.
+        id = castAsText(id) ?? '';
+      }
+      const outputTable = this.getOutputName(table.table);
+
+      return bucketIds.map((bucketId) => {
+        return {
+          bucket: bucketId,
+          table: outputTable,
+          id: id,
+          data,
+          ruleId: this.ruleId
+        } as EvaluationResult;
+      });
+    } catch (e) {
+      return [{ error: e.message ?? `Evaluating data query failed` }];
+    }
   }
 }

@@ -1,5 +1,5 @@
-import { parse, SelectedColumn } from 'pgsql-ast-parser';
-import { BaseSqlDataQuery, RowValueExtractor } from '../BaseSqlDataQuery.js';
+import { parse } from 'pgsql-ast-parser';
+import { AbstractSqlDataQuery } from '../AbstractSqlDataQuery.js';
 import { SqlRuleError } from '../errors.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { SqlTools } from '../sql_filters.js';
@@ -22,7 +22,7 @@ export type EvaluatedEventRowWithErrors = {
 /**
  * Defines how a Replicated Row is mapped to source parameters for events.
  */
-export class SqlEventSourceQuery extends BaseSqlDataQuery {
+export class SqlEventSourceQuery extends AbstractSqlDataQuery {
   static fromSql(descriptor_name: string, sql: string, schema?: SourceSchema) {
     const parsed = parse(sql, { locationTracking: true });
     const rows = new SqlEventSourceQuery();
@@ -65,7 +65,6 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
       }
     }
 
-    const where = q.where;
     const tools = new SqlTools({
       table: alias,
       parameter_tables: [],
@@ -119,18 +118,6 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
     rows.errors.push(...tools.errors);
     return rows;
   }
-
-  sourceTable?: TablePattern;
-  table?: string;
-  sql?: string;
-  columns?: SelectedColumn[];
-  extractors: RowValueExtractor[] = [];
-  descriptor_name?: string;
-  tools?: SqlTools;
-
-  ruleId?: string;
-
-  errors: SqlRuleError[] = [];
 
   evaluateRowWithErrors(table: SourceTableInterface, row: SqliteRow): EvaluatedEventRowWithErrors {
     try {

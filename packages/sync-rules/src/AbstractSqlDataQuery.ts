@@ -3,25 +3,16 @@ import { SqlRuleError } from './errors.js';
 import { ColumnDefinition, ExpressionType } from './ExpressionType.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SqlTools } from './sql_filters.js';
-import { castAsText } from './sql_functions.js';
 import { TablePattern } from './TablePattern.js';
-import {
-  EvaluationResult,
-  QueryParameters,
-  QuerySchema,
-  SourceSchema,
-  SourceSchemaTable,
-  SqliteJsonRow,
-  SqliteRow
-} from './types.js';
-import { filterJsonRow, getBucketId } from './utils.js';
+import { QueryParameters, QuerySchema, SourceSchema, SourceSchemaTable, SqliteJsonRow, SqliteRow } from './types.js';
+import { filterJsonRow } from './utils.js';
 
 export interface RowValueExtractor {
   extract(tables: QueryParameters, into: SqliteRow): void;
   getTypes(schema: QuerySchema, into: Record<string, ColumnDefinition>): void;
 }
 
-export abstract class BaseSqlDataQuery {
+export abstract class AbstractSqlDataQuery {
   sourceTable?: TablePattern;
   table?: string;
   sql?: string;
@@ -63,41 +54,6 @@ export abstract class BaseSqlDataQuery {
 
   isUnaliasedWildcard() {
     return this.sourceTable!.isWildcard && this.table == this.sourceTable!.tablePattern;
-  }
-
-  evaluateRow(table: SourceTableInterface, row: SqliteRow): EvaluationResult[] {
-    try {
-      const tables = { [this.table!]: this.addSpecialParameters(table, row) };
-      const bucketParameters = this.filter!.filterRow(tables);
-      const bucketIds = bucketParameters.map((params) =>
-        getBucketId(this.descriptor_name!, this.bucket_parameters!, params)
-      );
-
-      const data = this.transformRow(tables);
-      let id = data.id;
-      if (typeof id != 'string') {
-        // While an explicit cast would be better, this covers against very common
-        // issues when initially testing out sync, for example when the id column is an
-        // auto-incrementing integer.
-        // If there is no id column, we use a blank id. This will result in the user syncing
-        // a single arbitrary row for this table - better than just not being able to sync
-        // anything.
-        id = castAsText(id) ?? '';
-      }
-      const outputTable = this.getOutputName(table.table);
-
-      return bucketIds.map((bucketId) => {
-        return {
-          bucket: bucketId,
-          table: outputTable,
-          id: id,
-          data,
-          ruleId: this.ruleId
-        } as EvaluationResult;
-      });
-    } catch (e) {
-      return [{ error: e.message ?? `Evaluating data query failed` }];
-    }
   }
 
   columnOutputNames(): string[] {
