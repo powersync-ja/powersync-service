@@ -11,7 +11,7 @@ import * as util from '../util/util-index.js';
 import { ReplicationEventManager } from './ReplicationEventManager.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
-import { ReplicaId, WriteCheckpointAPI, WriteCheckpointFilters } from './storage-index.js';
+import { ReplicaId, WriteCheckpointAPI } from './storage-index.js';
 
 export interface BucketStorageFactory extends WriteCheckpointAPI {
   /**
@@ -90,7 +90,7 @@ export interface BucketStorageFactory extends WriteCheckpointAPI {
   /**
    * Yields the latest user write checkpoint whenever the sync checkpoint updates.
    */
-  watchWriteCheckpoint(filters: WriteCheckpointFilters, signal: AbortSignal): AsyncIterable<WriteCheckpoint>;
+  watchWriteCheckpoint(user_id: string, signal: AbortSignal): AsyncIterable<WriteCheckpoint>;
 
   /**
    * Get storage size of active sync rules.

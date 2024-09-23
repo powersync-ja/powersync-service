@@ -498,7 +498,7 @@ export class MongoBucketStorage implements BucketStorageFactory {
   /**
    * User-specific watch on the latest checkpoint and/or write checkpoint.
    */
-  async *watchWriteCheckpoint(filters: WriteCheckpointFilters, signal: AbortSignal): AsyncIterable<WriteCheckpoint> {
+  async *watchWriteCheckpoint(user_id: string, signal: AbortSignal): AsyncIterable<WriteCheckpoint> {
     let lastCheckpoint: util.OpId | null = null;
     let lastWriteCheckpoint: bigint | null = null;
 
@@ -515,10 +515,9 @@ export class MongoBucketStorage implements BucketStorageFactory {
       const lsnFilters: Record<string, string> = lsn ? { 1: lsn } : {};
 
       const currentWriteCheckpoint = await this.lastWriteCheckpoint({
+        user_id,
         sync_rules_id: bucketStorage?.group_id,
-        ...filters,
         heads: {
-          ...(filters.heads ?? {}),
           ...lsnFilters
         }
       });
