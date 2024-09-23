@@ -1,6 +1,6 @@
 import { JSONBig } from '@powersync/service-jsonbig';
 import { parse } from 'pgsql-ast-parser';
-import { AbstractSqlDataQuery } from './AbstractSqlDataQuery.js';
+import { BaseSqlDataQuery } from './BaseSqlDataQuery.js';
 import { SqlRuleError } from './errors.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SqlTools } from './sql_filters.js';
@@ -12,7 +12,7 @@ import { TableQuerySchema } from './TableQuerySchema.js';
 import { EvaluationResult, ParameterMatchClause, QuerySchema, SqliteRow } from './types.js';
 import { getBucketId, isSelectStatement } from './utils.js';
 
-export class SqlDataQuery extends AbstractSqlDataQuery {
+export class SqlDataQuery extends BaseSqlDataQuery {
   filter?: ParameterMatchClause;
 
   static fromSql(descriptor_name: string, bucket_parameters: string[], sql: string, options: SyncRulesOptions) {

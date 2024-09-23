@@ -12,7 +12,7 @@ export interface RowValueExtractor {
   getTypes(schema: QuerySchema, into: Record<string, ColumnDefinition>): void;
 }
 
-export abstract class AbstractSqlDataQuery {
+export class BaseSqlDataQuery {
   sourceTable?: TablePattern;
   table?: string;
   sql?: string;

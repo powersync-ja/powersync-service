@@ -1,5 +1,5 @@
 import { parse } from 'pgsql-ast-parser';
-import { AbstractSqlDataQuery } from '../AbstractSqlDataQuery.js';
+import { BaseSqlDataQuery } from '../BaseSqlDataQuery.js';
 import { SqlRuleError } from '../errors.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { SqlTools } from '../sql_filters.js';
@@ -23,7 +23,7 @@ export type EvaluatedEventRowWithErrors = {
 /**
  * Defines how a Replicated Row is mapped to source parameters for events.
  */
-export class SqlEventSourceQuery extends AbstractSqlDataQuery {
+export class SqlEventSourceQuery extends BaseSqlDataQuery {
   static fromSql(descriptor_name: string, sql: string, options: SyncRulesOptions) {
     const parsed = parse(sql, { locationTracking: true });
     const rows = new SqlEventSourceQuery();
