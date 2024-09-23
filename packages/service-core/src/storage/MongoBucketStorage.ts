@@ -508,9 +508,16 @@ export class MongoBucketStorage implements BucketStorageFactory {
       // 2. write checkpoint changes for the specific user
 
       const bucketStorage = await cp.getBucketStorage(); // TODO validate and optimize
+
+      const lsnFilters: Record<string, string> = lsn ? {1: lsn} : {};
+
       const currentWriteCheckpoint = await this.lastWriteCheckpoint({
         sync_rules_id: bucketStorage?.group_id,
-        ...filters
+        ...filters,
+        heads: {
+          ...(filters.heads ?? {}),
+          ...lsnFilters
+        }
       });
 
       if (currentWriteCheckpoint == lastWriteCheckpoint && checkpoint == lastCheckpoint) {
