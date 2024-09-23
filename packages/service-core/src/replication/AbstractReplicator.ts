@@ -166,8 +166,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
           } else {
             lock = await syncRules.lock();
           }
-          const parsed = syncRules.parsed();
-          const storage = this.storage.getInstance(parsed);
+          const storage = this.storage.getInstance(syncRules);
           const newJob = this.createJob({
             lock: lock,
             storage: storage
@@ -203,7 +202,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     const stopped = await this.storage.getStoppedSyncRules();
     for (let syncRules of stopped) {
       try {
-        const syncRuleStorage = this.storage.getInstance(syncRules.parsed());
+        const syncRuleStorage = this.storage.getInstance(syncRules);
         await this.terminateSyncRules(syncRuleStorage);
       } catch (e) {
         this.logger.warn(`Failed clean up replication config for sync rule: ${syncRules.id}`, e);

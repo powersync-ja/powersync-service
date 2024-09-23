@@ -21,17 +21,23 @@ export class ReplicationEngine {
    *  Start replication on all managed Replicators
    */
   public start(): void {
+    logger.info('Starting Replication Engine...');
     for (const replicator of this.replicators.values()) {
+      logger.info(`Starting Replicator: ${replicator.id}`);
       replicator.start();
     }
+    logger.info('Successfully started Replication Engine.');
   }
 
   /**
    *  Stop replication on all managed Replicators
    */
-  public async stop(): Promise<void> {
+  public async shutDown(): Promise<void> {
+    logger.info('Shutting down Replication Engine...');
     for (const replicator of this.replicators.values()) {
+      logger.info(`Stopping Replicator: ${replicator.id}`);
       await replicator.stop();
     }
+    logger.info('Successfully shut down Replication Engine.');
   }
 }

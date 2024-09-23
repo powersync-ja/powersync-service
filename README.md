@@ -11,6 +11,7 @@ _[PowerSync](https://www.powersync.com) is a Postgres-SQLite sync engine, which 
 The service can be started using the public Docker image. See the image [notes](./service/README.md)
 
 # Monorepo Structure:
+
 ## Packages
 
 - [packages/service-core](./packages/service-core/README.md)
@@ -52,13 +53,13 @@ Contains the PowerSync service code. This project is used to build the `journeya
 
 - [docs](./docs/README.md)
 
-Technical documentation regarding the implementation of PowerSync. 
+Technical documentation regarding the implementation of PowerSync.
 
 ## Test Client
 
 - [test-client](./test-client/README.md)
 
-Contains a minimal client demonstrating direct usage of the HTTP stream sync API. This can be used to test sync rules in contexts such as automated testing. 
+Contains a minimal client demonstrating direct usage of the HTTP stream sync API. This can be used to test sync rules in contexts such as automated testing.
 
 # Developing
 

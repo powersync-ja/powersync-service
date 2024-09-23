@@ -23,6 +23,7 @@ import {
   SqliteRow
 } from './types.js';
 import { filterJsonRow, getBucketId, isJsonValue, isSelectStatement } from './utils.js';
+import { SyncRulesOptions } from './SqlSyncRules.js';
 
 /**
  * Represents a parameter query, such as:
@@ -34,11 +35,11 @@ export class SqlParameterQuery {
   static fromSql(
     descriptor_name: string,
     sql: string,
-    schema?: SourceSchema,
-    options?: QueryParseOptions
+    options: QueryParseOptions
   ): SqlParameterQuery | StaticSqlParameterQuery {
     const parsed = parse(sql, { locationTracking: true });
     const rows = new SqlParameterQuery();
+    const schema = options?.schema;
 
     if (parsed.length > 1) {
       throw new SqlRuleError('Only a single SELECT statement is supported', sql, parsed[1]?._location);
@@ -70,7 +71,7 @@ export class SqlParameterQuery {
         new SqlRuleError('Table aliases not supported in parameter queries', sql, q.from?.[0]._location)
       );
     }
-    const sourceTable = new TablePattern(tableRef.schema, tableRef.name);
+    const sourceTable = new TablePattern(tableRef.schema ?? options.defaultSchema, tableRef.name);
     let querySchema: QuerySchema | undefined = undefined;
     if (schema) {
       const tables = schema.getTables(sourceTable);
@@ -139,7 +140,7 @@ export class SqlParameterQuery {
     rows.tools = tools;
     rows.errors.push(...tools.errors);
 
-    if (rows.usesDangerousRequestParameters && !options?.accept_potentially_dangerous_queries) {
+    if (rows.usesDangerousRequestParameters && !options.accept_potentially_dangerous_queries) {
       let err = new SqlRuleError(
         "Potentially dangerous query based on parameters set by the client. The client can send any value for these parameters so it's not a good place to do authorization.",
         sql

@@ -1,5 +1,4 @@
 import * as bson from 'bson';
-import * as mongo from 'mongodb';
 import { afterEach, describe, expect, test } from 'vitest';
 import { WalStream, WalStreamOptions } from '../../src/replication/WalStream.js';
 import { env } from './env.js';
@@ -83,7 +82,7 @@ bucket_definitions:
       - SELECT * FROM "test_data"
 `;
     const syncRules = await f.updateSyncRules({ content: syncRuleContent });
-    const storage = f.getInstance(syncRules.parsed());
+    const storage = f.getInstance(syncRules);
     abortController = new AbortController();
     const options: WalStreamOptions = {
       abort_signal: abortController.signal,
@@ -194,7 +193,7 @@ bucket_definitions:
       // Check that all inserts have been deleted again
       const docs = await f.db.current_data.find().toArray();
       const transformed = docs.map((doc) => {
-        return bson.deserialize((doc.data as mongo.Binary).buffer) as SqliteRow;
+        return bson.deserialize(doc.data.buffer) as SqliteRow;
       });
       expect(transformed).toEqual([]);
 
@@ -235,7 +234,7 @@ bucket_definitions:
       - SELECT id, description FROM "test_data"
 `;
       const syncRules = await f.updateSyncRules({ content: syncRuleContent });
-      const storage = f.getInstance(syncRules.parsed());
+      const storage = f.getInstance(syncRules);
 
       // 1. Setup some base data that will be replicated in initial replication
       await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);

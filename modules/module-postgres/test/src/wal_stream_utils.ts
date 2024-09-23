@@ -36,7 +36,10 @@ export class WalStreamTestContext {
   public storage?: SyncRulesBucketStorage;
   private replicationConnection?: pgwire.PgConnection;
 
-  constructor(public factory: BucketStorageFactory, public connectionManager: PgManager) {}
+  constructor(
+    public factory: BucketStorageFactory,
+    public connectionManager: PgManager
+  ) {}
 
   async dispose() {
     this.abortController.abort();
@@ -58,7 +61,7 @@ export class WalStreamTestContext {
 
   async updateSyncRules(content: string) {
     const syncRules = await this.factory.updateSyncRules({ content: content });
-    this.storage = this.factory.getInstance(syncRules.parsed());
+    this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
 

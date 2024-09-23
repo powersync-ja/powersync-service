@@ -3,7 +3,7 @@
   "repository": "https://github.com/powersync-ja/powersync-service",
   "types": "dist/index.d.ts",
   "publishConfig": {
-    "access": "restricted"
+    "access": "public"
   },
   "version": "0.0.1",
   "main": "dist/index.js",
@@ -13,7 +13,7 @@
     "build": "tsc -b",
     "build:tests": "tsc -b test/tsconfig.json",
     "clean": "rm -rf ./lib && tsc -b --clean",
-    "test": "vitest --no-threads"
+    "test": "vitest"
   },
   "exports": {
     ".": {
@@ -35,7 +35,6 @@
     "@powersync/service-sync-rules": "workspace:*",
     "@powersync/service-types": "workspace:*",
     "pgwire": "github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87",
-    "mongodb": "^6.7.0",
     "jose": "^4.15.1",
     "ts-codec": "^1.2.2",
     "uuid": "^9.0.1",
@@ -43,8 +42,8 @@
   },
   "devDependencies": {
     "@types/uuid": "^9.0.4",
-    "typescript": "^5.2.2",
-    "vitest": "^0.34.6",
+    "typescript": "^5.6.2",
+    "vitest": "^2.1.1",
     "vite-tsconfig-paths": "^4.3.2"
   }
 }

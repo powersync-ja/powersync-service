@@ -11,21 +11,7 @@ import * as util from '../util/util-index.js';
 import { ReplicationEventManager } from './ReplicationEventManager.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
-import { WriteCheckpointAPI, WriteCheckpointFilters } from './write-checkpoint.js';
-
-// Checkpoints
-
-/**
- * Checkpoints
- *    Need to be either custom or manual
- *
- *    Need to use a different collection for different types
- *      Need indexes on a new collection
- *
- *    Manual
- *      Need to specify the write checkpoint value
- *      Need to specify the sync rules for the checkpoint
- */
+import { ReplicaId, WriteCheckpointAPI, WriteCheckpointFilters } from './storage-index.js';
 
 export interface BucketStorageFactory extends WriteCheckpointAPI {
   /**
@@ -44,7 +30,7 @@ export interface BucketStorageFactory extends WriteCheckpointAPI {
   /**
    * Get a storage instance to query sync data for specific sync rules.
    */
-  getInstance(options: PersistedSyncRules): SyncRulesBucketStorage;
+  getInstance(options: PersistedSyncRulesContent): SyncRulesBucketStorage;
 
   /**
    * Deploy new sync rules.
@@ -68,7 +54,7 @@ export interface BucketStorageFactory extends WriteCheckpointAPI {
   /**
    * Get the sync rules used for querying.
    */
-  getActiveSyncRules(): Promise<PersistedSyncRules | null>;
+  getActiveSyncRules(options: ParseSyncRulesOptions): Promise<PersistedSyncRules | null>;
 
   /**
    * Get the sync rules used for querying.
@@ -78,7 +64,7 @@ export interface BucketStorageFactory extends WriteCheckpointAPI {
   /**
    * Get the sync rules that will be active next once done with initial replicatino.
    */
-  getNextSyncRules(): Promise<PersistedSyncRules | null>;
+  getNextSyncRules(options: ParseSyncRulesOptions): Promise<PersistedSyncRules | null>;
 
   /**
    * Get the sync rules that will be active next once done with initial replicatino.
@@ -150,6 +136,10 @@ export interface StorageMetrics {
   replication_size_bytes: number;
 }
 
+export interface ParseSyncRulesOptions {
+  defaultSchema: string;
+}
+
 export interface PersistedSyncRulesContent {
   readonly id: number;
   readonly sync_rules_content: string;
@@ -159,7 +149,7 @@ export interface PersistedSyncRulesContent {
   readonly last_keepalive_ts?: Date | null;
   readonly last_checkpoint_ts?: Date | null;
 
-  parsed(): PersistedSyncRules;
+  parsed(options: ParseSyncRulesOptions): PersistedSyncRules;
 
   lock(): Promise<ReplicationLock>;
 }
@@ -205,12 +195,11 @@ export interface BucketDataBatchOptions {
   chunkLimitBytes?: number;
 }
 
-export interface StartBatchOptions {
+export interface StartBatchOptions extends ParseSyncRulesOptions {
   zeroLSN: string;
 }
 
 export interface SyncRulesBucketStorage {
-  readonly sync_rules: SqlSyncRules;
   readonly group_id: number;
   readonly slot_name: string;
 
@@ -224,6 +213,8 @@ export interface SyncRulesBucketStorage {
   ): Promise<FlushedResult | null>;
 
   getCheckpoint(): Promise<{ checkpoint: util.OpId }>;
+
+  getParsedSyncRules(options: ParseSyncRulesOptions): SqlSyncRules;
 
   getParameterSets(checkpoint: util.OpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]>;
 
@@ -379,7 +370,9 @@ export interface SaveInsert {
   tag: 'insert';
   sourceTable: SourceTable;
   before?: undefined;
+  beforeReplicaId?: undefined;
   after: SqliteRow;
+  afterReplicaId: ReplicaId;
 }
 
 export interface SaveUpdate {
@@ -390,6 +383,7 @@ export interface SaveUpdate {
    * This is only present when the id has changed, and will only contain replica identity columns.
    */
   before?: SqliteRow;
+  beforeReplicaId?: ReplicaId;
 
   /**
    * A null value means null column.
@@ -397,13 +391,16 @@ export interface SaveUpdate {
    * An undefined value means it's a TOAST value - must be copied from another record.
    */
   after: ToastableSqliteRow;
+  afterReplicaId: ReplicaId;
 }
 
 export interface SaveDelete {
   tag: 'delete';
   sourceTable: SourceTable;
-  before: SqliteRow;
+  before?: SqliteRow;
+  beforeReplicaId: ReplicaId;
   after?: undefined;
+  afterReplicaId?: undefined;
 }
 
 export interface SyncBucketDataBatch {

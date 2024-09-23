@@ -1,4 +1,4 @@
-import { api } from '@powersync/service-core';
+import { api, ParseSyncRulesOptions } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 
 import * as sync_rules from '@powersync/service-sync-rules';
@@ -21,6 +21,12 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
       idleTimeout: 30_000
     });
     this.connectionTag = config.tag ?? sync_rules.DEFAULT_TAG;
+  }
+
+  getParseSyncRulesOptions(): ParseSyncRulesOptions {
+    return {
+      defaultSchema: 'public'
+    };
   }
 
   async shutdown(): Promise<void> {

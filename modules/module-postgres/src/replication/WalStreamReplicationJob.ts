@@ -4,7 +4,6 @@ import { MissingReplicationSlotError, WalStream } from './WalStream.js';
 
 import { replication } from '@powersync/service-core';
 import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
-import { cleanUpReplicationSlot } from './replication-utils.js';
 
 export interface WalStreamReplicationJobOptions extends replication.AbstractReplicationJobOptions {
   connectionFactory: ConnectionManagerFactory;
@@ -22,18 +21,6 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
       idleTimeout: 30_000,
       maxSize: 2
     });
-  }
-
-  async cleanUp(): Promise<void> {
-    const connectionManager = this.connectionFactory.create({
-      idleTimeout: 30_000,
-      maxSize: 1
-    });
-    try {
-      await cleanUpReplicationSlot(this.slotName, connectionManager.pool);
-    } finally {
-      await connectionManager.end();
-    }
   }
 
   /**

@@ -20,7 +20,8 @@ export class WalStreamReplicator extends replication.AbstractReplicator<WalStrea
       id: this.createJobId(options.storage.group_id),
       storage: options.storage,
       connectionFactory: this.connectionFactory,
-      lock: options.lock
+      lock: options.lock,
+      rateLimiter: this.rateLimiter
     });
   }
 

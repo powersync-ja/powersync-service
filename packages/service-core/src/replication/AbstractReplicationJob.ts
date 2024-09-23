@@ -7,7 +7,7 @@ export interface AbstractReplicationJobOptions {
   id: string;
   storage: storage.SyncRulesBucketStorage;
   lock: storage.ReplicationLock;
-  rateLimiter?: ErrorRateLimiter;
+  rateLimiter: ErrorRateLimiter;
 }
 
 export abstract class AbstractReplicationJob {

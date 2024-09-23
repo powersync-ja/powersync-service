@@ -26,25 +26,29 @@ export function registerCompactAction(program: Command) {
   wrapConfigCommand(compactCommand);
 
   return compactCommand.description('Compact storage').action(async (options) => {
+    logger.info('Compacting storage...');
     const runnerConfig = extractRunnerOptions(options);
     const configuration = await utils.loadConfig(runnerConfig);
+    logger.info('Successfully loaded configuration...');
     const { storage: storageConfig } = configuration;
+    logger.info('Connecting to storage...');
     const psdb = storage.createPowerSyncMongo(storageConfig);
     const client = psdb.client;
     await client.connect();
     try {
       const bucketStorage = new storage.MongoBucketStorage(psdb, {
-        event_manager: new storage.ReplicationEventManager(),
-        slot_name_prefix: configuration.slot_name_prefix
+        slot_name_prefix: configuration.slot_name_prefix,
+        event_manager: new storage.ReplicationEventManager()
       });
-      const active = await bucketStorage.getActiveSyncRules();
+      const active = await bucketStorage.getActiveSyncRulesContent();
       if (active == null) {
         logger.info('No active instance to compact');
         return;
       }
       const p = bucketStorage.getInstance(active);
+      logger.info('Performing compaction...');
       await p.compact({ memoryLimitMB: COMPACT_MEMORY_LIMIT_MB });
-      logger.info('done');
+      logger.info('Successfully compacted storage.');
     } catch (e) {
       logger.error(`Failed to compact: ${e.toString()}`);
       process.exit(1);

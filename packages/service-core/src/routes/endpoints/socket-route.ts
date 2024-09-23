@@ -13,6 +13,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
     validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
     handler: async ({ context, params, responder, observer, initialN, signal: upstreamSignal }) => {
       const { service_context } = context;
+      const { routerEngine } = service_context;
 
       // Create our own controller that we can abort directly
       const controller = new AbortController();
@@ -31,7 +32,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         }
       });
 
-      if (service_context.routerEngine!.closed) {
+      if (routerEngine!.closed) {
         responder.onError(
           new errors.JourneyError({
             status: 503,
@@ -62,7 +63,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         return;
       }
 
-      const removeStopHandler = service_context.routerEngine!.addStopHandler(() => {
+      const removeStopHandler = routerEngine!.addStopHandler(() => {
         controller.abort();
       });
 
@@ -71,6 +72,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       try {
         for await (const data of sync.streamResponse({
           storage: activeBucketStorage,
+          parseOptions: routerEngine!.getAPI().getParseSyncRulesOptions(),
           params: {
             ...params,
             binary_data: true // always true for web sockets

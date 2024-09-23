@@ -43,7 +43,7 @@ export async function getSyncRulesStatus(
   let rules: SqlSyncRules;
   let persisted: storage.PersistedSyncRules;
   try {
-    persisted = sync_rules.parsed();
+    persisted = sync_rules.parsed(apiHandler.getParseSyncRulesOptions());
     rules = persisted.sync_rules;
   } catch (e) {
     return {
@@ -53,7 +53,7 @@ export async function getSyncRulesStatus(
     };
   }
 
-  const systemStorage = live_status ? bucketStorage.getInstance(persisted) : undefined;
+  const systemStorage = live_status ? bucketStorage.getInstance(sync_rules) : undefined;
   const status = await systemStorage?.getStatus();
   let replication_lag_bytes: number | undefined = undefined;
 

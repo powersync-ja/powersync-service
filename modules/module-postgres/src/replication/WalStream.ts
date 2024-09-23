@@ -1,14 +1,15 @@
 import { container, errors, logger } from '@powersync/lib-services-framework';
-import { Metrics, SourceEntityDescriptor, storage } from '@powersync/service-core';
+import { getUuidReplicaIdentityBson, Metrics, SourceEntityDescriptor, storage } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
-import * as util from '../utils/pgwire_utils.js';
+import * as pg_utils from '../utils/pgwire_utils.js';
 import { PgManager } from './PgManager.js';
 import { getPgOutputRelation, getRelId } from './PgRelation.js';
 import { checkSourceConfiguration, getReplicationIdentityColumns } from './replication-utils.js';
 
 export const ZERO_LSN = '00000000/00000000';
 export const PUBLICATION_NAME = 'powersync';
+export const POSTGRES_DEFAULT_SCHEMA = 'public';
 
 export interface WalStreamOptions {
   connections: PgManager;
@@ -46,7 +47,7 @@ export class WalStream {
 
   constructor(options: WalStreamOptions) {
     this.storage = options.storage;
-    this.sync_rules = options.storage.sync_rules;
+    this.sync_rules = options.storage.getParsedSyncRules({ defaultSchema: POSTGRES_DEFAULT_SCHEMA });
     this.group_id = options.storage.group_id;
     this.slot_name = options.storage.slot_name;
     this.connections = options.connections;
@@ -59,7 +60,7 @@ export class WalStream {
           // Ping to speed up cancellation of streaming replication
           // We're not using pg_snapshot here, since it could be in the middle of
           // an initial replication transaction.
-          const promise = util.retriedQuery(
+          const promise = pg_utils.retriedQuery(
             this.connections.pool,
             `SELECT * FROM pg_logical_emit_message(false, 'powersync', 'ping')`
           );
@@ -332,8 +333,9 @@ WHERE  oid = $1::regclass`,
   }
 
   async initialReplication(db: pgwire.PgConnection, lsn: string) {
-    await this.storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
-      for (let tablePattern of this.sync_rules.getSourceTables()) {
+    const sourceTables = this.sync_rules.getSourceTables();
+    await this.storage.startBatch({ zeroLSN: ZERO_LSN, defaultSchema: POSTGRES_DEFAULT_SCHEMA }, async (batch) => {
+      for (let tablePattern of sourceTables) {
         const tables = await this.getQualifiedTableNames(batch, db, tablePattern);
         for (let table of tables) {
           await this.snapshotTable(batch, db, table, lsn);
@@ -392,7 +394,14 @@ WHERE  oid = $1::regclass`,
 
       for (const record of WalStream.getQueryData(rows)) {
         // This auto-flushes when the batch reaches its size limit
-        await batch.save({ tag: 'insert', sourceTable: table, before: undefined, after: record });
+        await batch.save({
+          tag: 'insert',
+          sourceTable: table,
+          before: undefined,
+          beforeReplicaId: undefined,
+          after: record,
+          afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns)
+        });
       }
 
       at += rows.length;
@@ -484,20 +493,41 @@ WHERE  oid = $1::regclass`,
 
       if (msg.tag == 'insert') {
         Metrics.getInstance().rows_replicated_total.add(1);
-        const baseRecord = util.constructAfterRecord(msg);
-        return await batch.save({ tag: 'insert', sourceTable: table, before: undefined, after: baseRecord });
+        const baseRecord = pg_utils.constructAfterRecord(msg);
+        return await batch.save({
+          tag: 'insert',
+          sourceTable: table,
+          before: undefined,
+          beforeReplicaId: undefined,
+          after: baseRecord,
+          afterReplicaId: getUuidReplicaIdentityBson(baseRecord, table.replicaIdColumns)
+        });
       } else if (msg.tag == 'update') {
         Metrics.getInstance().rows_replicated_total.add(1);
         // "before" may be null if the replica id columns are unchanged
         // It's fine to treat that the same as an insert.
-        const before = util.constructBeforeRecord(msg);
-        const after = util.constructAfterRecord(msg);
-        return await batch.save({ tag: 'update', sourceTable: table, before: before, after: after });
+        const before = pg_utils.constructBeforeRecord(msg);
+        const after = pg_utils.constructAfterRecord(msg);
+        return await batch.save({
+          tag: 'update',
+          sourceTable: table,
+          before: before,
+          beforeReplicaId: before ? getUuidReplicaIdentityBson(before, table.replicaIdColumns) : undefined,
+          after: after,
+          afterReplicaId: getUuidReplicaIdentityBson(after, table.replicaIdColumns)
+        });
       } else if (msg.tag == 'delete') {
         Metrics.getInstance().rows_replicated_total.add(1);
-        const before = util.constructBeforeRecord(msg)!;
+        const before = pg_utils.constructBeforeRecord(msg)!;
 
-        return await batch.save({ tag: 'delete', sourceTable: table, before: before, after: undefined });
+        return await batch.save({
+          tag: 'delete',
+          sourceTable: table,
+          before: before,
+          beforeReplicaId: getUuidReplicaIdentityBson(before, table.replicaIdColumns),
+          after: undefined,
+          afterReplicaId: undefined
+        });
       }
     } else if (msg.tag == 'truncate') {
       let tables: storage.SourceTable[] = [];
@@ -545,7 +575,7 @@ WHERE  oid = $1::regclass`,
     // Auto-activate as soon as initial replication is done
     await this.storage.autoActivate();
 
-    await this.storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
+    await this.storage.startBatch({ zeroLSN: ZERO_LSN, defaultSchema: POSTGRES_DEFAULT_SCHEMA }, async (batch) => {
       // Replication never starts in the middle of a transaction
       let inTx = false;
       let count = 0;

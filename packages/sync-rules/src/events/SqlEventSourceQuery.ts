@@ -4,9 +4,10 @@ import { SqlRuleError } from '../errors.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { SqlTools } from '../sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError } from '../sql_support.js';
+import { SyncRulesOptions } from '../SqlSyncRules.js';
 import { TablePattern } from '../TablePattern.js';
 import { TableQuerySchema } from '../TableQuerySchema.js';
-import { EvaluationError, QuerySchema, SourceSchema, SqliteJsonRow, SqliteRow } from '../types.js';
+import { EvaluationError, QuerySchema, SqliteJsonRow, SqliteRow } from '../types.js';
 import { isSelectStatement } from '../utils.js';
 
 export type EvaluatedEventSourceRow = {
@@ -23,9 +24,10 @@ export type EvaluatedEventRowWithErrors = {
  * Defines how a Replicated Row is mapped to source parameters for events.
  */
 export class SqlEventSourceQuery extends AbstractSqlDataQuery {
-  static fromSql(descriptor_name: string, sql: string, schema?: SourceSchema) {
+  static fromSql(descriptor_name: string, sql: string, options: SyncRulesOptions) {
     const parsed = parse(sql, { locationTracking: true });
     const rows = new SqlEventSourceQuery();
+    const schema = options.schema;
 
     if (parsed.length > 1) {
       throw new SqlRuleError('Only a single SELECT statement is supported', sql, parsed[1]?._location);
@@ -47,7 +49,7 @@ export class SqlEventSourceQuery extends AbstractSqlDataQuery {
     }
     const alias: string = tableRef.alias ?? tableRef.name;
 
-    const sourceTable = new TablePattern(tableRef.schema, tableRef.name);
+    const sourceTable = new TablePattern(tableRef.schema ?? options.defaultSchema, tableRef.name);
     let querySchema: QuerySchema | undefined = undefined;
     if (schema) {
       const tables = schema.getTables(sourceTable);

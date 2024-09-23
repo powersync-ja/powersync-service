@@ -2,8 +2,9 @@ import { SqlRuleError } from '../errors.js';
 import { IdSequence } from '../IdSequence.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { QueryParseResult } from '../SqlBucketDescriptor.js';
+import { SyncRulesOptions } from '../SqlSyncRules.js';
 import { TablePattern } from '../TablePattern.js';
-import { EvaluateRowOptions, SourceSchema } from '../types.js';
+import { EvaluateRowOptions } from '../types.js';
 import { EvaluatedEventRowWithErrors, SqlEventSourceQuery } from './SqlEventSourceQuery.js';
 
 /**
@@ -17,8 +18,8 @@ export class SqlEventDescriptor {
     this.name = name;
   }
 
-  addSourceQuery(sql: string, schema?: SourceSchema): QueryParseResult {
-    const source = SqlEventSourceQuery.fromSql(this.name, sql, schema);
+  addSourceQuery(sql: string, options: SyncRulesOptions): QueryParseResult {
+    const source = SqlEventSourceQuery.fromSql(this.name, sql, options);
 
     // Each source query should be for a unique table
     const existingSourceQuery = this.source_queries.find((q) => q.table == source.table);

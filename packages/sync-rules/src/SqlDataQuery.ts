@@ -6,17 +6,19 @@ import { SourceTableInterface } from './SourceTableInterface.js';
 import { SqlTools } from './sql_filters.js';
 import { castAsText } from './sql_functions.js';
 import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
+import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import { TableQuerySchema } from './TableQuerySchema.js';
-import { EvaluationResult, ParameterMatchClause, QuerySchema, SourceSchema, SqliteRow } from './types.js';
+import { EvaluationResult, ParameterMatchClause, QuerySchema, SqliteRow } from './types.js';
 import { getBucketId, isSelectStatement } from './utils.js';
 
 export class SqlDataQuery extends AbstractSqlDataQuery {
   filter?: ParameterMatchClause;
 
-  static fromSql(descriptor_name: string, bucket_parameters: string[], sql: string, schema?: SourceSchema) {
+  static fromSql(descriptor_name: string, bucket_parameters: string[], sql: string, options: SyncRulesOptions) {
     const parsed = parse(sql, { locationTracking: true });
     const rows = new SqlDataQuery();
+    const schema = options.schema;
 
     if (parsed.length > 1) {
       throw new SqlRuleError('Only a single SELECT statement is supported', sql, parsed[1]?._location);
@@ -38,7 +40,7 @@ export class SqlDataQuery extends AbstractSqlDataQuery {
     }
     const alias: string = tableRef.alias ?? tableRef.name;
 
-    const sourceTable = new TablePattern(tableRef.schema, tableRef.name);
+    const sourceTable = new TablePattern(tableRef.schema ?? options.defaultSchema, tableRef.name);
     let querySchema: QuerySchema | undefined = undefined;
     if (schema) {
       const tables = schema.getTables(sourceTable);

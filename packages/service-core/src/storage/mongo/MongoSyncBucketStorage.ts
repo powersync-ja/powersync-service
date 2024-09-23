@@ -11,6 +11,9 @@ import {
   DEFAULT_DOCUMENT_BATCH_LIMIT,
   DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES,
   FlushedResult,
+  ParseSyncRulesOptions,
+  PersistedSyncRules,
+  PersistedSyncRulesContent,
   ResolveTableOptions,
   ResolveTableResult,
   StartBatchOptions,
@@ -37,13 +40,20 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     }
   });
 
+  private parsedSyncRulesCache: SqlSyncRules | undefined;
+
   constructor(
     public readonly factory: MongoBucketStorage,
     public readonly group_id: number,
-    public readonly sync_rules: SqlSyncRules,
+    private readonly sync_rules: PersistedSyncRulesContent,
     public readonly slot_name: string
   ) {
     this.db = factory.db;
+  }
+
+  getParsedSyncRules(options: ParseSyncRulesOptions): SqlSyncRules {
+    this.parsedSyncRulesCache ??= this.sync_rules.parsed(options).sync_rules;
+    return this.parsedSyncRulesCache;
   }
 
   async getCheckpoint() {
@@ -72,7 +82,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
 
     const batch = new MongoBucketBatch(
       this.db,
-      this.sync_rules,
+      this.sync_rules.parsed(options).sync_rules,
       this.group_id,
       this.slot_name,
       checkpoint_lsn,

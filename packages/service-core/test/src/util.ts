@@ -1,14 +1,22 @@
 import { Metrics } from '@/metrics/Metrics.js';
-import { BucketStorageFactory, SyncBucketDataBatch } from '@/storage/BucketStorage.js';
+import {
+  BucketStorageFactory,
+  ParseSyncRulesOptions,
+  PersistedSyncRulesContent,
+  StartBatchOptions,
+  SyncBucketDataBatch
+} from '@/storage/BucketStorage.js';
 import { MongoBucketStorage } from '@/storage/MongoBucketStorage.js';
 import { ReplicationEventManager } from '@/storage/ReplicationEventManager.js';
 import { SourceTable } from '@/storage/SourceTable.js';
 import { PowerSyncMongo } from '@/storage/mongo/db.js';
 import { SyncBucketData } from '@/util/protocol-types.js';
-import { hashData } from '@/util/utils.js';
+import { getUuidReplicaIdentityBson, hashData } from '@/util/utils.js';
 import * as bson from 'bson';
 import * as mongo from 'mongodb';
 import { env } from './env.js';
+import { SqlSyncRules } from '@powersync/service-sync-rules';
+import { ReplicaId } from '@/storage/storage-index.js';
 
 // The metrics need to be initialised before they can be used
 await Metrics.initialise({
@@ -28,6 +36,33 @@ export const MONGO_STORAGE_FACTORY: StorageFactory = async () => {
 
 export const ZERO_LSN = '0/0';
 
+export const PARSE_OPTIONS: ParseSyncRulesOptions = {
+  defaultSchema: 'public'
+};
+
+export const BATCH_OPTIONS: StartBatchOptions = {
+  ...PARSE_OPTIONS,
+  zeroLSN: ZERO_LSN
+};
+
+export function testRules(content: string): PersistedSyncRulesContent {
+  return {
+    id: 1,
+    sync_rules_content: content,
+    slot_name: 'test',
+    parsed(options) {
+      return {
+        id: 1,
+        sync_rules: SqlSyncRules.fromYaml(content, PARSE_OPTIONS),
+        slot_name: 'test'
+      };
+    },
+    lock() {
+      throw new Error('Not implemented');
+    }
+  };
+}
+
 export async function connectMongo() {
   // Short timeout for tests, to fail fast when the server is not available.
   // Slightly longer timeouts for CI, to avoid arbitrary test failures
@@ -46,9 +81,9 @@ export function makeTestTable(name: string, columns?: string[] | undefined) {
     id,
     SourceTable.DEFAULT_TAG,
     relId,
-    SourceTable.DEFAULT_SCHEMA,
+    'public',
     name,
-    (columns ?? ['id']).map((column) => ({ name: column, type: 'VARCHAR', typeOid: 25 })),
+    (columns ?? ['id']).map((column) => ({ name: column, type: 'VARCHAR', typeId: 25 })),
     true
   );
 }
@@ -93,4 +128,11 @@ function getFirst(batch: SyncBucketData[] | SyncBucketDataBatch[] | SyncBucketDa
   } else {
     return first as SyncBucketData;
   }
+}
+
+/**
+ * Replica id in the old Postgres format, for backwards-compatible tests.
+ */
+export function rid(id: string): bson.UUID {
+  return getUuidReplicaIdentityBson({ id: id }, [{ name: 'id', type: 'VARCHAR', typeId: 25 }]);
 }

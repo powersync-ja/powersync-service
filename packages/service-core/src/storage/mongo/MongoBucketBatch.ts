@@ -12,7 +12,7 @@ import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from 
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { cacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
-import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, serializeLookup } from './util.js';
+import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, replicaIdEquals, serializeLookup } from './util.js';
 
 /**
  * 15MB
@@ -307,7 +307,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
     }
 
     // 2. Save bucket data
-    if (beforeId != null && (afterId == null || !beforeId.equals(afterId))) {
+    if (beforeId != null && (afterId == null || !replicaIdEquals(beforeId, afterId))) {
       // Source ID updated
       if (sourceTable.syncData) {
         // Delete old record
@@ -437,7 +437,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
       };
     }
 
-    if (afterId == null || !beforeId.equals(afterId)) {
+    if (afterId == null || !replicaIdEquals(beforeId, afterId)) {
       // Either a delete (afterId == null), or replaced the old replication id
       batch.deleteCurrentData(before_key);
     }
