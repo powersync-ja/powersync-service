@@ -79,6 +79,9 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
       });
       await stream.replicate();
     } catch (e) {
+      if (this.abortController.signal.aborted) {
+        return;
+      }
       this.logger.error(`Replication error`, e);
       if (e.cause != null) {
         // Without this additional log, the cause may not be visible in the logs.
