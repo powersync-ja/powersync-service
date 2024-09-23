@@ -403,6 +403,12 @@ export class ChangeStream {
         maxAwaitTimeMS: 200,
         fullDocument: 'updateLookup'
       });
+
+      if (this.abort_signal.aborted) {
+        stream.close();
+        return;
+      }
+
       this.abort_signal.addEventListener('abort', () => {
         stream.close();
       });
@@ -410,15 +416,16 @@ export class ChangeStream {
       let waitForCheckpointLsn: string | null = null;
 
       while (true) {
-        const changeDocument = await stream.tryNext();
-        if (changeDocument == null) {
-          continue;
-        }
-        await touch();
-
         if (this.abort_signal.aborted) {
           break;
         }
+
+        const changeDocument = await stream.tryNext();
+
+        if (changeDocument == null || this.abort_signal.aborted) {
+          continue;
+        }
+        await touch();
 
         if (startAfter != null && changeDocument.clusterTime?.lte(startAfter)) {
           continue;
