@@ -1,23 +1,20 @@
 import { parse, SelectedColumn } from 'pgsql-ast-parser';
 import { SqlRuleError } from '../errors.js';
-import { ColumnDefinition, ExpressionType } from '../ExpressionType.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { SqlTools } from '../sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError } from '../sql_support.js';
-import { RowValueExtractor } from '../SqlDataQuery.js';
+import { RowValueExtractor, SqlDataQuery } from '../SqlDataQuery.js';
 import { TablePattern } from '../TablePattern.js';
 import { TableQuerySchema } from '../TableQuerySchema.js';
 import {
   EvaluationError,
   ParameterMatchClause,
-  QueryParameters,
   QuerySchema,
   SourceSchema,
-  SourceSchemaTable,
   SqliteJsonRow,
   SqliteRow
 } from '../types.js';
-import { filterJsonRow, isSelectStatement } from '../utils.js';
+import { isSelectStatement } from '../utils.js';
 
 export type EvaluatedEventSourceRow = {
   data: SqliteJsonRow;
@@ -31,9 +28,9 @@ export type EvaluatedEventRowWithErrors = {
 
 /**
  * Defines how a Replicated Row is mapped to source parameters for events.
- * TODO cleanup duplication
+ * This shares some implementation with {@link SqlDataQuery} with some subtle differences.
  */
-export class SqlEventSourceQuery {
+export class SqlEventSourceQuery extends SqlDataQuery {
   static fromSql(descriptor_name: string, sql: string, schema?: SourceSchema) {
     const parsed = parse(sql, { locationTracking: true });
     const rows = new SqlEventSourceQuery();
@@ -79,7 +76,7 @@ export class SqlEventSourceQuery {
     const where = q.where;
     const tools = new SqlTools({
       table: alias,
-      parameter_tables: ['bucket'],
+      parameter_tables: [],
       value_tables: [alias],
       sql,
       schema: querySchema
@@ -146,27 +143,6 @@ export class SqlEventSourceQuery {
 
   errors: SqlRuleError[] = [];
 
-  constructor() {}
-
-  applies(table: SourceTableInterface) {
-    return this.sourceTable?.matches(table);
-  }
-
-  addSpecialParameters(table: SourceTableInterface, row: SqliteRow) {
-    if (this.sourceTable!.isWildcard) {
-      return {
-        ...row,
-        _table_suffix: this.sourceTable!.suffix(table.table)
-      };
-    } else {
-      return row;
-    }
-  }
-
-  isUnaliasedWildcard() {
-    return this.sourceTable!.isWildcard && this.table == this.sourceTable!.tablePattern;
-  }
-
   evaluateRowWithErrors(table: SourceTableInterface, row: SqliteRow): EvaluatedEventRowWithErrors {
     try {
       const tables = { [this.table!]: this.addSpecialParameters(table, row) };
@@ -181,73 +157,6 @@ export class SqlEventSourceQuery {
       };
     } catch (e) {
       return { errors: [e.message ?? `Evaluating data query failed`] };
-    }
-  }
-
-  private transformRow(tables: QueryParameters): SqliteJsonRow {
-    let result: SqliteRow = {};
-    for (let extractor of this.extractors) {
-      extractor.extract(tables, result);
-    }
-    return filterJsonRow(result);
-  }
-
-  columnOutputNames(): string[] {
-    return this.columns!.map((c) => {
-      return this.tools!.getOutputName(c);
-    });
-  }
-
-  getColumnOutputs(schema: SourceSchema): { name: string; columns: ColumnDefinition[] }[] {
-    let result: { name: string; columns: ColumnDefinition[] }[] = [];
-
-    if (this.isUnaliasedWildcard()) {
-      // Separate results
-      for (let schemaTable of schema.getTables(this.sourceTable!)) {
-        let output: Record<string, ColumnDefinition> = {};
-
-        this.getColumnOutputsFor(schemaTable, output);
-
-        result.push({
-          name: schemaTable.table,
-          columns: Object.values(output)
-        });
-      }
-    } else {
-      // Merged results
-      let output: Record<string, ColumnDefinition> = {};
-      for (let schemaTable of schema.getTables(this.sourceTable!)) {
-        this.getColumnOutputsFor(schemaTable, output);
-      }
-      result.push({
-        name: this.table!,
-        columns: Object.values(output)
-      });
-    }
-
-    return result;
-  }
-
-  private getColumnOutputsFor(schemaTable: SourceSchemaTable, output: Record<string, ColumnDefinition>) {
-    const querySchema: QuerySchema = {
-      getType: (table, column) => {
-        if (table == this.table!) {
-          return schemaTable.getType(column) ?? ExpressionType.NONE;
-        } else {
-          // TODO: bucket parameters?
-          return ExpressionType.NONE;
-        }
-      },
-      getColumns: (table) => {
-        if (table == this.table!) {
-          return schemaTable.getColumns();
-        } else {
-          return [];
-        }
-      }
-    };
-    for (let extractor of this.extractors) {
-      extractor.getTypes(querySchema, output);
     }
   }
 }
