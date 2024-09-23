@@ -38,7 +38,9 @@ export interface WriteCheckpointOptions extends WriteCheckpointFilters {
 }
 
 export interface WriteCheckpointAPI {
-  createWriteCheckpoint(options: WriteCheckpointOptions): Promise<bigint>;
+  batchCreateWriteCheckpoints(checkpoints: WriteCheckpointOptions[]): Promise<void>;
+
+  createWriteCheckpoint(checkpoint: WriteCheckpointOptions): Promise<bigint>;
 
   lastWriteCheckpoint(filters: WriteCheckpointFilters): Promise<bigint | null>;
 }

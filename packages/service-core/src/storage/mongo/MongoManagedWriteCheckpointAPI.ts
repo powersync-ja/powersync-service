@@ -8,6 +8,25 @@ import { PowerSyncMongo } from './db.js';
 export class MongoManagedWriteCheckpointAPI implements WriteCheckpointAPI {
   constructor(protected db: PowerSyncMongo) {}
 
+  async batchCreateWriteCheckpoints(checkpoints: WriteCheckpointOptions[]): Promise<void> {
+    await this.db.write_checkpoints.bulkWrite(
+      checkpoints.map((checkpoint) => ({
+        updateOne: {
+          filter: { user_id: checkpoint.user_id },
+          update: {
+            $set: {
+              lsns: checkpoint.heads
+            },
+            $inc: {
+              client_id: 1n
+            }
+          },
+          upsert: true
+        }
+      }))
+    );
+  }
+
   async createWriteCheckpoint(options: WriteCheckpointOptions): Promise<bigint> {
     const { user_id, heads: lsns } = options;
     const doc = await this.db.write_checkpoints.findOneAndUpdate(

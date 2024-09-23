@@ -285,6 +285,10 @@ export class MongoBucketStorage implements BucketStorageFactory {
     });
   }
 
+  async batchCreateWriteCheckpoints(checkpoints: WriteCheckpointOptions[]): Promise<void> {
+    return this.writeCheckpointAPI.batchCreateWriteCheckpoints(checkpoints);
+  }
+
   async createWriteCheckpoint(options: WriteCheckpointOptions): Promise<bigint> {
     return this.writeCheckpointAPI.createWriteCheckpoint(options);
   }
@@ -509,7 +513,7 @@ export class MongoBucketStorage implements BucketStorageFactory {
 
       const bucketStorage = await cp.getBucketStorage(); // TODO validate and optimize
 
-      const lsnFilters: Record<string, string> = lsn ? {1: lsn} : {};
+      const lsnFilters: Record<string, string> = lsn ? { 1: lsn } : {};
 
       const currentWriteCheckpoint = await this.lastWriteCheckpoint({
         sync_rules_id: bucketStorage?.group_id,

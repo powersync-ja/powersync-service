@@ -8,15 +8,31 @@ import { PowerSyncMongo } from './db.js';
 export class MongoCustomWriteCheckpointAPI implements WriteCheckpointAPI {
   constructor(protected db: PowerSyncMongo) {}
 
+  async batchCreateWriteCheckpoints(checkpoints: WriteCheckpointOptions[]): Promise<void> {
+    await this.db.custom_write_checkpoints.bulkWrite(
+      checkpoints.map((checkpoint) => ({
+        updateOne: {
+          filter: { user_id: checkpoint.user_id },
+          update: {
+            $set: {
+              checkpoint: checkpoint.checkpoint,
+              sync_rules_id: checkpoint.sync_rules_id
+            }
+          },
+          upsert: true
+        }
+      }))
+    );
+  }
+
   async createWriteCheckpoint(options: WriteCheckpointOptions): Promise<bigint> {
-    const { checkpoint, user_id, heads, sync_rules_id } = options;
+    const { checkpoint, user_id, sync_rules_id } = options;
     const doc = await this.db.custom_write_checkpoints.findOneAndUpdate(
       {
         user_id: user_id
       },
       {
         $set: {
-          heads, // HEADs are technically not relevant, by we can store them if provided
           checkpoint,
           sync_rules_id
         }
@@ -27,16 +43,10 @@ export class MongoCustomWriteCheckpointAPI implements WriteCheckpointAPI {
   }
 
   async lastWriteCheckpoint(filters: WriteCheckpointFilters): Promise<bigint | null> {
-    const { user_id, heads = {} } = filters;
-    const lsnFilter = Object.fromEntries(
-      Object.entries(heads).map(([connectionKey, lsn]) => {
-        return [`heads.${connectionKey}`, { $lte: lsn }];
-      })
-    );
+    const { user_id } = filters;
 
     const lastWriteCheckpoint = await this.db.custom_write_checkpoints.findOne({
-      user_id: user_id,
-      ...lsnFilter
+      user_id: user_id
     });
     return lastWriteCheckpoint?.checkpoint ?? null;
   }
