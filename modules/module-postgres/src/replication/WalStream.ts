@@ -338,7 +338,7 @@ WHERE  oid = $1::regclass`,
       for (let tablePattern of sourceTables) {
         const tables = await this.getQualifiedTableNames(batch, db, tablePattern);
         for (let table of tables) {
-          await this.snapshotTable(batch, db, table, lsn);
+          await this.snapshotTable(batch, db, table);
           await batch.markSnapshotDone([table], lsn);
           await touch();
         }
@@ -353,12 +353,7 @@ WHERE  oid = $1::regclass`,
     }
   }
 
-  private async snapshotTable(
-    batch: storage.BucketStorageBatch,
-    db: pgwire.PgConnection,
-    table: storage.SourceTable,
-    lsn?: string
-  ) {
+  private async snapshotTable(batch: storage.BucketStorageBatch, db: pgwire.PgConnection, table: storage.SourceTable) {
     logger.info(`${this.slot_name} Replicating ${table.qualifiedName}`);
     const estimatedCount = await this.estimatedCount(db, table);
     let at = 0;

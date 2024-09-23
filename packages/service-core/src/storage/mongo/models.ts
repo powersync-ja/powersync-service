@@ -162,7 +162,6 @@ export interface SyncRuleDocument {
 export interface CustomWriteCheckpointDocument {
   _id: bson.ObjectId;
   user_id: string;
-  heads?: Record<string, string>;
   checkpoint: bigint;
   sync_rules_id: number;
 }

@@ -165,7 +165,6 @@ export class SqlSyncRules implements SyncRules {
       const eventDescriptor = new SqlEventDescriptor(key.toString(), rules.idSequence);
       for (let item of payloads.items) {
         if (!isScalar(item)) {
-          // TODO position
           rules.errors.push(new YamlError(new Error(`Payload queries for events must be scalar.`)));
           continue;
         }

@@ -510,8 +510,7 @@ export class MongoBucketStorage implements BucketStorageFactory {
       // What is important is:
       // 1. checkpoint (op_id) changes.
       // 2. write checkpoint changes for the specific user
-
-      const bucketStorage = await cp.getBucketStorage(); // TODO validate and optimize
+      const bucketStorage = await cp.getBucketStorage();
 
       const lsnFilters: Record<string, string> = lsn ? { 1: lsn } : {};
 

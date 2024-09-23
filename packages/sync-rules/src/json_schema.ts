@@ -1,7 +1,7 @@
 import ajvModule from 'ajv';
 // Hack to make this work both in NodeJS and a browser
 const Ajv = ajvModule.default ?? ajvModule;
-const ajv = new Ajv({ allErrors: true, verbose: true, allowUnionTypes: true });
+const ajv = new Ajv({ allErrors: true, verbose: true });
 
 export const syncRulesSchema: ajvModule.Schema = {
   type: 'object',
