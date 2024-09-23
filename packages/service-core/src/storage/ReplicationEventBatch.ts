@@ -80,18 +80,12 @@ export class ReplicationEventBatch {
    * {@link ReplicationEventManager}.
    */
   async flush() {
-    try {
-      for (const [eventDescription, eventData] of this.event_cache) {
-        // TODO: Handle errors with hooks
-        await this.manager.fireEvent({
-          event: eventDescription,
-          storage: this.storage,
-          data: eventData
-        });
-      }
-    } finally {
-      this.event_cache.clear();
-      this._eventCacheRowCount = 0;
-    }
+    await this.manager.fireEvents({
+      batch_data: this.event_cache,
+      storage: this.storage
+    });
+
+    this.event_cache.clear();
+    this._eventCacheRowCount = 0;
   }
 }

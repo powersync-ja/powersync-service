@@ -1,3 +1,4 @@
+import { logger } from '@powersync/lib-services-framework';
 import * as sync_rules from '@powersync/service-sync-rules';
 import { SaveOp, SyncRulesBucketStorage } from './BucketStorage.js';
 import { SourceTable } from './SourceTable.js';
@@ -16,6 +17,11 @@ export type ReplicationEventPayload = {
   storage: SyncRulesBucketStorage;
 };
 
+export type BatchReplicationEventPayload = {
+  storage: SyncRulesBucketStorage;
+  batch_data: Map<sync_rules.SqlEventDescriptor, ReplicationEventData>;
+};
+
 export interface ReplicationEventHandler {
   event_name: string;
   handle(event: ReplicationEventPayload): Promise<void>;
@@ -28,11 +34,38 @@ export class ReplicationEventManager {
     this.handlers = new Map();
   }
 
+  /**
+   * Fires an event, passing the specified payload to all registered handlers.
+   * This call resolves once all handlers have processed the event.
+   * Handler exceptions are caught and logged.
+   */
   async fireEvent(payload: ReplicationEventPayload): Promise<void> {
     const handlers = this.handlers.get(payload.event.name);
 
     for (const handler of handlers?.values() ?? []) {
-      await handler.handle(payload);
+      try {
+        await handler.handle(payload);
+      } catch (ex) {
+        // Exceptions in handlers don't affect the source.
+        logger.info(`Caught exception when processing "${handler.event_name}" event.`, ex);
+      }
+    }
+  }
+
+  /**
+   * Fires a batch of events, passing the specified payload to all registered handlers.
+   * This call resolves once all handlers have processed the events.
+   * Handler exceptions are caught and logged by the {@link fireEvent} method.
+   */
+  async fireEvents(batch: BatchReplicationEventPayload) {
+    const { batch_data, storage } = batch;
+
+    for (const [eventDescription, eventData] of batch_data) {
+      await this.fireEvent({
+        event: eventDescription,
+        storage: storage,
+        data: eventData
+      });
     }
   }
 

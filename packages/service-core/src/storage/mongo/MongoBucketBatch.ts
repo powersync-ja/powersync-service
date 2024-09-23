@@ -629,7 +629,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
     }
 
     /**
-     * Handle case where this table is just an event table
+     * Return if the table is just an event table
      */
     if (!sourceTable.syncData && !sourceTable.syncParameters) {
       return null;
