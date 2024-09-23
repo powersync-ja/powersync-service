@@ -148,7 +148,7 @@ export class ChangeStream {
     await this.client.connect();
 
     const hello = await this.defaultDb.command({ hello: 1 });
-    const startTime = hello.lastWrite?.majorityOpTime as mongo.Timestamp;
+    const startTime = hello.lastWrite?.majorityOpTime?.ts as mongo.Timestamp;
     if (hello.msg == 'isdbgrid') {
       throw new Error('Sharded MongoDB Clusters are not supported yet (including MongoDB Serverless instances).');
     } else if (hello.setName == null) {
