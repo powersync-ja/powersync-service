@@ -1,31 +1,20 @@
-import { parse, SelectedColumn } from 'pgsql-ast-parser';
-import { BaseSqlDataQuery, RowValueExtractor } from '../BaseSqlDataQuery.js';
-import { SqlRuleError } from '../errors.js';
-import { SourceTableInterface } from '../SourceTableInterface.js';
-import { SqlTools } from '../sql_filters.js';
-import { checkUnsupportedFeatures, isClauseError } from '../sql_support.js';
-import { TablePattern } from '../TablePattern.js';
-import { TableQuerySchema } from '../TableQuerySchema.js';
-import { EvaluationError, QuerySchema, SourceSchema, SqliteJsonRow, SqliteRow } from '../types.js';
-import { isSelectStatement } from '../utils.js';
+import { JSONBig } from '@powersync/service-jsonbig';
+import { parse } from 'pgsql-ast-parser';
+import { BaseSqlDataQuery } from './BaseSqlDataQuery.js';
+import { SqlRuleError } from './errors.js';
+import { SqlTools } from './sql_filters.js';
+import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
+import { TablePattern } from './TablePattern.js';
+import { TableQuerySchema } from './TableQuerySchema.js';
+import { ParameterMatchClause, QuerySchema, SourceSchema } from './types.js';
+import { isSelectStatement } from './utils.js';
 
-export type EvaluatedEventSourceRow = {
-  data: SqliteJsonRow;
-  ruleId?: string;
-};
+export class SqlDataQuery extends BaseSqlDataQuery {
+  filter?: ParameterMatchClause;
 
-export type EvaluatedEventRowWithErrors = {
-  result?: EvaluatedEventSourceRow;
-  errors: EvaluationError[];
-};
-
-/**
- * Defines how a Replicated Row is mapped to source parameters for events.
- */
-export class SqlEventSourceQuery extends BaseSqlDataQuery {
-  static fromSql(descriptor_name: string, sql: string, schema?: SourceSchema) {
+  static fromSql(descriptor_name: string, bucket_parameters: string[], sql: string, schema?: SourceSchema) {
     const parsed = parse(sql, { locationTracking: true });
-    const rows = new SqlEventSourceQuery();
+    const rows = new SqlDataQuery();
 
     if (parsed.length > 1) {
       throw new SqlRuleError('Only a single SELECT statement is supported', sql, parsed[1]?._location);
@@ -68,18 +57,42 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
     const where = q.where;
     const tools = new SqlTools({
       table: alias,
-      parameter_tables: [],
+      parameter_tables: ['bucket'],
       value_tables: [alias],
       sql,
       schema: querySchema
     });
+    const filter = tools.compileWhereClause(where);
+
+    const inputParameterNames = filter.inputParameters!.map((p) => p.key);
+    const bucketParameterNames = bucket_parameters.map((p) => `bucket.${p}`);
+    const allParams = new Set<string>([...inputParameterNames, ...bucketParameterNames]);
+    if (
+      (!filter.error && allParams.size != filter.inputParameters!.length) ||
+      allParams.size != bucket_parameters.length
+    ) {
+      rows.errors.push(
+        new SqlRuleError(
+          `Query must cover all bucket parameters. Expected: ${JSONBig.stringify(
+            bucketParameterNames
+          )} Got: ${JSONBig.stringify(inputParameterNames)}`,
+          sql,
+          q._location
+        )
+      );
+    }
 
     rows.sourceTable = sourceTable;
     rows.table = alias;
     rows.sql = sql;
+    rows.filter = filter;
     rows.descriptor_name = descriptor_name;
+    rows.bucket_parameters = bucket_parameters;
     rows.columns = q.columns ?? [];
     rows.tools = tools;
+
+    let hasId = false;
+    let hasWildcard = false;
 
     for (let column of q.columns ?? []) {
       const name = tools.getOutputName(column);
@@ -115,37 +128,30 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
           }
         });
       }
+      if (name == 'id') {
+        hasId = true;
+      } else if (name == '*') {
+        hasWildcard = true;
+        if (querySchema == null) {
+          // Not performing schema-based validation - assume there is an id
+          hasId = true;
+        } else {
+          const idType = querySchema.getType(alias, 'id');
+          if (!idType.isNone()) {
+            hasId = true;
+          }
+        }
+      }
+    }
+    if (!hasId) {
+      const error = new SqlRuleError(`Query must return an "id" column`, sql, q.columns?.[0]._location);
+      if (hasWildcard) {
+        // Schema-based validations are always warnings
+        error.type = 'warning';
+      }
+      rows.errors.push(error);
     }
     rows.errors.push(...tools.errors);
     return rows;
-  }
-
-  sourceTable?: TablePattern;
-  table?: string;
-  sql?: string;
-  columns?: SelectedColumn[];
-  extractors: RowValueExtractor[] = [];
-  descriptor_name?: string;
-  tools?: SqlTools;
-
-  ruleId?: string;
-
-  errors: SqlRuleError[] = [];
-
-  evaluateRowWithErrors(table: SourceTableInterface, row: SqliteRow): EvaluatedEventRowWithErrors {
-    try {
-      const tables = { [this.table!]: this.addSpecialParameters(table, row) };
-
-      const data = this.transformRow(tables);
-      return {
-        result: {
-          data,
-          ruleId: this.ruleId
-        },
-        errors: []
-      };
-    } catch (e) {
-      return { errors: [e.message ?? `Evaluating data query failed`] };
-    }
   }
 }
