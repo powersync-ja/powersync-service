@@ -147,8 +147,15 @@ export class ChangeStream {
     const sourceTables = this.sync_rules.getSourceTables();
     await this.client.connect();
 
-    const ping = await this.defaultDb.command({ ping: 1 });
-    const startTime = ping.$clusterTime.clusterTime as mongo.Timestamp;
+    const hello = await this.defaultDb.command({ hello: 1 });
+    const startTime = hello.lastWrite?.majorityOpTime as mongo.Timestamp;
+    if (hello.isdbgrid) {
+      throw new Error('Sharded MongoDB Clusters are not supported yet.');
+    } else if (hello.setName == null) {
+      throw new Error('Standalone MongoDB instances are not supported - use a replicaset.');
+    } else if (startTime == null) {
+      throw new Error('MongoDB lastWrite timestamp not found.');
+    }
     const session = await this.client.startSession({
       snapshot: true
     });
@@ -175,7 +182,7 @@ export class ChangeStream {
             await batch.flush();
             await batch.keepalive(lsn);
           } else {
-            logger.info(`No snapshot clusterTime (no snapshot data?) - skipping commit.`);
+            throw new Error(`No snapshot clusterTime available.`);
           }
         }
       );
