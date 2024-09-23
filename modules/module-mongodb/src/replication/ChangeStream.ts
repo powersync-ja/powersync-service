@@ -149,11 +149,12 @@ export class ChangeStream {
 
     const hello = await this.defaultDb.command({ hello: 1 });
     const startTime = hello.lastWrite?.majorityOpTime as mongo.Timestamp;
-    if (hello.isdbgrid) {
-      throw new Error('Sharded MongoDB Clusters are not supported yet.');
+    if (hello.msg == 'isdbgrid') {
+      throw new Error('Sharded MongoDB Clusters are not supported yet (including MongoDB Serverless instances).');
     } else if (hello.setName == null) {
       throw new Error('Standalone MongoDB instances are not supported - use a replicaset.');
     } else if (startTime == null) {
+      // Not known where this would happen apart from the above cases
       throw new Error('MongoDB lastWrite timestamp not found.');
     }
     const session = await this.client.startSession({
