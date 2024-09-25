@@ -1,59 +1,6 @@
 import * as t from 'ts-codec';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 
-/**
- * For sync2.json
- */
-export interface ContinueCheckpointRequest {
-  /**
-   * Existing bucket states. Only these buckets are synchronized.
-   */
-  buckets: BucketRequest[];
-
-  checkpoint_token: string;
-
-  limit?: number;
-}
-
-export interface SyncNewCheckpointRequest {
-  /**
-   * Existing bucket states. Used if include_data is specified.
-   */
-  buckets?: BucketRequest[];
-
-  request_checkpoint: {
-    /**
-     * Whether or not to include an initial data request.
-     */
-    include_data: boolean;
-
-    /**
-     * Whether or not to compute a checksum.
-     */
-    include_checksum: boolean;
-  };
-
-  limit?: number;
-}
-
-export type SyncRequest = ContinueCheckpointRequest | SyncNewCheckpointRequest;
-
-export interface SyncResponse {
-  /**
-   * Data for the buckets returned. May not have an an entry for each bucket in the request.
-   */
-  data?: SyncBucketData[];
-
-  /**
-   * True if the response limit has been reached, and another request must be made.
-   */
-  has_more: boolean;
-
-  checkpoint_token?: string;
-
-  checkpoint?: Checkpoint;
-}
-
 export const BucketRequest = t.object({
   name: t.string,
 
@@ -194,40 +141,4 @@ export interface BucketChecksum {
    * Count of operations - informational only.
    */
   count: number;
-}
-
-export function isContinueCheckpointRequest(request: SyncRequest): request is ContinueCheckpointRequest {
-  return (
-    Array.isArray((request as ContinueCheckpointRequest).buckets) &&
-    typeof (request as ContinueCheckpointRequest).checkpoint_token == 'string'
-  );
-}
-
-export function isSyncNewCheckpointRequest(request: SyncRequest): request is SyncNewCheckpointRequest {
-  return typeof (request as SyncNewCheckpointRequest).request_checkpoint == 'object';
-}
-
-/**
- * For crud.json
- */
-export interface CrudRequest {
-  data: CrudEntry[];
-}
-
-export interface CrudEntry {
-  op: 'PUT' | 'PATCH' | 'DELETE';
-  type: string;
-  id: string;
-  data: string;
-}
-
-export interface CrudResponse {
-  /**
-   * A sync response with a checkpoint >= this checkpoint would contain all the changes in this request.
-   *
-   * Any earlier checkpoint may or may not contain these changes.
-   *
-   * May be empty when the request contains no ops.
-   */
-  checkpoint?: OpId;
 }
