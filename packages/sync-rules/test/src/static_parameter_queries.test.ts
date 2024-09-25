@@ -82,6 +82,14 @@ describe('static parameter queries', () => {
     expect(query.getStaticBucketIds(normalizeTokenParameters({ user_id: 'user1' }))).toEqual(['mybucket["user1"]']);
   });
 
+  test('case-sensitive queries (1)', () => {
+    const sql = 'SELECT request.user_id() as USER_ID';
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    expect(query.errors).toMatchObject([
+      { message: `Unquoted identifiers are converted to lower-case. Use "USER_ID" instead.` }
+    ]);
+  });
+
   describe('dangerous queries', function () {
     function testDangerousQuery(sql: string) {
       test(sql, function () {
