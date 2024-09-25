@@ -39,6 +39,9 @@ export class StaticSqlParameterQuery {
     }
 
     for (let column of columns) {
+      if (column.alias != null) {
+        tools.checkSpecificNameCase(column.alias);
+      }
       const name = tools.getSpecificOutputName(column);
       const extractor = tools.compileParameterValueExtractor(column.expr);
       if (isClauseError(extractor)) {

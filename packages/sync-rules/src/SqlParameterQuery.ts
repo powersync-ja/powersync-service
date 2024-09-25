@@ -96,6 +96,7 @@ export class SqlParameterQuery {
       supports_parameter_expressions: true,
       schema: querySchema
     });
+    tools.checkSpecificNameCase(tableRef);
     const where = q.where;
     const filter = tools.compileWhereClause(where);
 
@@ -118,6 +119,9 @@ export class SqlParameterQuery {
 
     for (let column of q.columns ?? []) {
       const name = tools.getSpecificOutputName(column);
+      if (column.alias != null) {
+        tools.checkSpecificNameCase(column.alias);
+      }
       if (tools.isTableRef(column.expr)) {
         rows.lookup_columns.push(column);
         const extractor = tools.compileRowValueExtractor(column.expr);

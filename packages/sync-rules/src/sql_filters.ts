@@ -1,4 +1,4 @@
-import { Expr, ExprRef, NodeLocation, SelectedColumn } from 'pgsql-ast-parser';
+import { Expr, ExprRef, Name, NodeLocation, QName, QNameAliased, SelectedColumn, parse } from 'pgsql-ast-parser';
 import { nil } from 'pgsql-ast-parser/src/utils.js';
 import { ExpressionType, TYPE_NONE } from './ExpressionType.js';
 import { SqlRuleError } from './errors.js';
@@ -182,6 +182,7 @@ export class SqlTools {
       const value = staticValue(expr);
       return staticValueClause(value);
     } else if (expr.type == 'ref') {
+      this.checkRefCase(expr);
       const column = expr.name;
       if (column == '*') {
         return this.error('* not supported here', expr);
@@ -509,6 +510,61 @@ export class SqlTools {
       return true;
     } catch (e) {
       return false;
+    }
+  }
+
+  public checkRefCase(ref: ExprRef) {
+    if (ref.table != null) {
+      this.checkSpecificNameCase(ref.table);
+    }
+    this.checkColumnNameCase(ref);
+  }
+
+  private checkColumnNameCase(expr: ExprRef) {
+    if (expr.name.toLowerCase() != expr.name) {
+      // name is not lower case, must be quoted
+      return;
+    }
+
+    let location = expr._location;
+    if (location == null) {
+      return;
+    }
+    const tableLocation = expr.table?._location;
+    if (tableLocation != null) {
+      // exp._location contains the entire expression.
+      // We use this to remove the "table" part.
+      location = { start: tableLocation.end + 1, end: location.end };
+    }
+    const source = this.sql.substring(location.start, location.end);
+    if (source.toLowerCase() != source) {
+      // source is not lower case, while parsed is lower-case
+      this.warn(`Unquoted identifiers are converted to lower-case. Use "${source}" instead.`, location);
+    }
+  }
+
+  /**
+   * Check the case of a table name or any alias.
+   */
+  public checkSpecificNameCase(expr: Name | QName | QNameAliased) {
+    if ((expr as QNameAliased).alias != null || (expr as QName).schema != null) {
+      // We cannot properly distinguish alias and schema from the name itself,
+      // without building our own complete parser, so we ignore this for now.
+      return;
+    }
+    if (expr.name.toLowerCase() != expr.name) {
+      // name is not lower case, which means it is already quoted
+      return;
+    }
+
+    const location = expr._location;
+    if (location == null) {
+      return;
+    }
+    const source = this.sql.substring(location.start, location.end);
+    if (source.toLowerCase() != source) {
+      // source is not lower case
+      this.warn(`Unquoted identifiers are converted to lower-case. Use "${source}" instead.`, location);
     }
   }
 
