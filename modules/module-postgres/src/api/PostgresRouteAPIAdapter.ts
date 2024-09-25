@@ -282,7 +282,7 @@ GROUP BY schemaname, tablename, quoted_name`
         name: row.schemaname,
         tables: []
       });
-      const table: service_types.DatabaseSchema['tables'][0] = {
+      const table: service_types.TableSchema = {
         name: row.tablename,
         columns: [] as any[]
       };
