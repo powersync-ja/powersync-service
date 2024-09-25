@@ -4,7 +4,7 @@ export const TYPE_TEXT = 2;
 export const TYPE_INTEGER = 4;
 export const TYPE_REAL = 8;
 
-export type SqliteType = 'null' | 'blob' | 'text' | 'integer' | 'real';
+export type SqliteType = 'null' | 'blob' | 'text' | 'integer' | 'real' | 'numeric';
 
 export interface ColumnDefinition {
   name: string;
@@ -34,7 +34,7 @@ export class ExpressionType {
     return new ExpressionType(typeFlags);
   }
 
-  static fromTypeText(type: SqliteType | 'numeric') {
+  static fromTypeText(type: SqliteType) {
     if (type == 'null') {
       return ExpressionType.NONE;
     } else if (type == 'blob') {
@@ -70,5 +70,30 @@ export class ExpressionType {
 
   isNone() {
     return this.typeFlags == TYPE_NONE;
+  }
+}
+
+/**
+ * Here only for backwards-compatibility only.
+ */
+export function expressionTypeFromPostgresType(type: string | undefined): ExpressionType {
+  if (type?.endsWith('[]')) {
+    return ExpressionType.TEXT;
+  }
+  switch (type) {
+    case 'bool':
+      return ExpressionType.INTEGER;
+    case 'bytea':
+      return ExpressionType.BLOB;
+    case 'int2':
+    case 'int4':
+    case 'int8':
+    case 'oid':
+      return ExpressionType.INTEGER;
+    case 'float4':
+    case 'float8':
+      return ExpressionType.REAL;
+    default:
+      return ExpressionType.TEXT;
   }
 }

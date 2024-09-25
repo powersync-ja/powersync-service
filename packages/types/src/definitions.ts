@@ -91,6 +91,15 @@ export const ConnectionStatusV2 = t.object({
 });
 export type ConnectionStatusV2 = t.Encoded<typeof ConnectionStatusV2>;
 
+export enum SqliteSchemaTypeText {
+  null = 'null',
+  blob = 'blob',
+  text = 'text',
+  integer = 'integer',
+  real = 'real',
+  numeric = 'numeric'
+}
+
 export const DatabaseSchema = t.object({
   name: t.string,
   tables: t.array(
@@ -99,14 +108,34 @@ export const DatabaseSchema = t.object({
       columns: t.array(
         t.object({
           name: t.string,
+
+          /**
+           * Option 1: SQLite type flags - see ExpressionType.typeFlags.
+           * Option 2: SQLite type name in lowercase - 'text' | 'integer' | 'real' | 'numeric' | 'blob' | 'null'
+           */
+          sqlite_type: t.number.or(t.Enum(SqliteSchemaTypeText)),
+
+          /**
+           * Type name from the source database, e.g. "character varying(255)[]"
+           */
+          original_type: t.string,
+
+          /**
+           * Description for the field if available.
+           */
+          description: t.string.optional(),
+
           /**
            * Full type name, e.g. "character varying(255)[]"
+           * @deprecated - use original_type
            */
-          type: t.string,
+          type: t.string.optional(),
+
           /**
            * Internal postgres type, e.g. "varchar[]".
+           * @deprecated - use original_type
            */
-          pg_type: t.string
+          pg_type: t.string.optional()
         })
       )
     })
