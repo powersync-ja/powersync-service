@@ -280,7 +280,7 @@ export interface ParameterValueClause {
 }
 
 export interface QuerySchema {
-  getType(table: string, column: string): ExpressionType;
+  getColumn(table: string, column: string): ColumnDefinition | undefined;
   getColumns(table: string): ColumnDefinition[];
 }
 
@@ -292,7 +292,7 @@ export interface QuerySchema {
  */
 export interface RowValueClause {
   evaluate(tables: QueryParameters): SqliteValue;
-  getType(schema: QuerySchema): ExpressionType;
+  getColumnDefinition(schema: QuerySchema): ColumnDefinition | undefined;
 }
 
 /**
@@ -322,7 +322,7 @@ export interface QueryBucketIdOptions {
 
 export interface SourceSchemaTable {
   table: string;
-  getType(column: string): ExpressionType | undefined;
+  getColumn(column: string): ColumnDefinition | undefined;
   getColumns(): ColumnDefinition[];
 }
 export interface SourceSchema {

@@ -60,8 +60,8 @@ class SourceTableDetails implements SourceTableInterface, SourceSchemaTable {
     );
   }
 
-  getType(column: string): ExpressionType | undefined {
-    return this.columns[column]?.type;
+  getColumn(column: string): ColumnDefinition | undefined {
+    return this.columns[column];
   }
 
   getColumns(): ColumnDefinition[] {
@@ -92,7 +92,8 @@ export class StaticSchema implements SourceSchema {
 function mapColumn(column: SourceColumnDefinition): ColumnDefinition {
   return {
     name: column.name,
-    type: mapColumnType(column)
+    type: mapColumnType(column),
+    originalType: column.internal_type
   };
 }
 

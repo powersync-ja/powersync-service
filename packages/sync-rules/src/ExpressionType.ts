@@ -9,6 +9,7 @@ export type SqliteType = 'null' | 'blob' | 'text' | 'integer' | 'real' | 'numeri
 export interface ColumnDefinition {
   name: string;
   type: ExpressionType;
+  originalType?: string;
 }
 
 export class ExpressionType {

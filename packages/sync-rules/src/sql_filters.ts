@@ -198,8 +198,8 @@ export class SqlTools {
           evaluate(tables: QueryParameters): SqliteValue {
             return tables[table]?.[column];
           },
-          getType(schema) {
-            return schema.getType(table, column);
+          getColumnDefinition(schema) {
+            return schema.getColumn(table, column);
           }
         } satisfies RowValueClause;
       } else {
@@ -514,8 +514,8 @@ export class SqlTools {
 
   private checkRef(table: string, ref: ExprRef) {
     if (this.schema) {
-      const type = this.schema.getType(table, ref.name);
-      if (type.typeFlags == TYPE_NONE) {
+      const type = this.schema.getColumn(table, ref.name);
+      if (type == null) {
         this.warn(`Column not found: ${ref.name}`, ref);
       }
     }
@@ -613,9 +613,11 @@ export class SqlTools {
           const args = argClauses.map((e) => (e as RowValueClause).evaluate(tables));
           return fnImpl.call(...args);
         },
-        getType(schema) {
-          const argTypes = argClauses.map((e) => (e as RowValueClause).getType(schema));
-          return fnImpl.getReturnType(argTypes);
+        getColumnDefinition(schema) {
+          const argTypes = argClauses.map(
+            (e) => (e as RowValueClause).getColumnDefinition(schema)?.type ?? ExpressionType.NONE
+          );
+          return { name: `${fnImpl}()`, type: fnImpl.getReturnType(argTypes) };
         }
       } satisfies RowValueClause;
     } else if (argsType == 'param') {
@@ -671,8 +673,11 @@ function staticValueClause(value: SqliteValue): StaticValueClause {
     value: value,
     // RowValueClause compatibility
     evaluate: () => value,
-    getType() {
-      return ExpressionType.fromTypeText(sqliteTypeOf(value));
+    getColumnDefinition() {
+      return {
+        name: 'literal',
+        type: ExpressionType.fromTypeText(sqliteTypeOf(value))
+      };
     },
     // ParamterValueClause compatibility
     key: JSONBig.stringify(value),

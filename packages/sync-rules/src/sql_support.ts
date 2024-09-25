@@ -66,10 +66,14 @@ export function compileStaticOperator(op: string, left: RowValueClause, right: R
       const rightValue = right.evaluate(tables);
       return evaluateOperator(op, leftValue, rightValue);
     },
-    getType(schema) {
-      const typeLeft = left.getType(schema);
-      const typeRight = right.getType(schema);
-      return getOperatorReturnType(op, typeLeft, typeRight);
+    getColumnDefinition(schema) {
+      const typeLeft = left.getColumnDefinition(schema)?.type ?? ExpressionType.NONE;
+      const typeRight = right.getColumnDefinition(schema)?.type ?? ExpressionType.NONE;
+      const type = getOperatorReturnType(op, typeLeft, typeRight);
+      return {
+        name: '?',
+        type
+      };
     }
   };
 }
@@ -95,8 +99,8 @@ export function andFilters(a: CompiledClause, b: CompiledClause): CompiledClause
         const bValue = sqliteBool(b.evaluate(tables));
         return sqliteBool(aValue && bValue);
       },
-      getType() {
-        return ExpressionType.INTEGER;
+      getColumnDefinition() {
+        return { name: 'and', type: ExpressionType.INTEGER };
       }
     } satisfies RowValueClause;
   }
@@ -156,8 +160,8 @@ export function orFilters(a: CompiledClause, b: CompiledClause): CompiledClause 
         const bValue = sqliteBool(b.evaluate(tables));
         return sqliteBool(aValue || bValue);
       },
-      getType() {
-        return ExpressionType.INTEGER;
+      getColumnDefinition() {
+        return { name: 'or', type: ExpressionType.INTEGER };
       }
     } satisfies RowValueClause;
   }
