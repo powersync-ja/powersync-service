@@ -118,7 +118,7 @@ export const DatabaseSchema = t.object({
           /**
            * Type name from the source database, e.g. "character varying(255)[]"
            */
-          original_type: t.string,
+          internal_type: t.string,
 
           /**
            * Description for the field if available.
@@ -127,13 +127,13 @@ export const DatabaseSchema = t.object({
 
           /**
            * Full type name, e.g. "character varying(255)[]"
-           * @deprecated - use original_type
+           * @deprecated - use internal_type
            */
           type: t.string.optional(),
 
           /**
            * Internal postgres type, e.g. "varchar[]".
-           * @deprecated - use original_type
+           * @deprecated - use internal_type instead
            */
           pg_type: t.string.optional()
         })

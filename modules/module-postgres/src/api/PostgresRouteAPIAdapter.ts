@@ -298,7 +298,7 @@ GROUP BY schemaname, tablename, quoted_name`
           name: column.attname,
           sqlite_type: sync_rules.expressionTypeFromPostgresType(pg_type).typeFlags,
           type: column.data_type,
-          original_type: column.data_type,
+          internal_type: column.data_type,
           pg_type: pg_type
         });
       }

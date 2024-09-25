@@ -28,12 +28,12 @@ export interface SourceColumnDefinition {
   /**
    * Type name from the source database, e.g. "character varying(255)[]"
    */
-  original_type?: string;
+  internal_type?: string;
 
   /**
    * Postgres type, kept for backwards-compatibility.
    *
-   * @deprecated - use original_type instead
+   * @deprecated - use internal_type instead
    */
   pg_type?: string;
 }
