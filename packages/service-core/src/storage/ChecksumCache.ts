@@ -33,6 +33,8 @@ export interface ChecksumCacheOptions {
 // Approximately 5MB of memory, if we assume 50 bytes per entry
 const DEFAULT_MAX_SIZE = 100_000;
 
+const TTL_MS = 3_600_000;
+
 /**
  * Implement a LRU cache for checksum requests. Each (bucket, checkpoint) request is cached separately,
  * while the lookups occur in batches.
@@ -93,7 +95,14 @@ export class ChecksumCache {
 
       // When we have more fetches than the cache size, complete the fetches instead
       // of failing with Error('evicted').
-      ignoreFetchAbort: true
+      ignoreFetchAbort: true,
+
+      // We use a TTL so that counts can eventually be refreshed
+      // after a compact. This only has effect if the bucket has
+      // not been checked in the meantime.
+      ttl: TTL_MS,
+      ttlResolution: 1_000,
+      allowStale: false
     });
   }
 
