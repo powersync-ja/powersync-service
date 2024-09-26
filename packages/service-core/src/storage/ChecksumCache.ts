@@ -8,13 +8,34 @@ interface ChecksumFetchContext {
   checkpoint: bigint;
 }
 
+export interface PartialChecksum {
+  bucket: string;
+  /**
+   * 32-bit unsigned hash.
+   */
+  partialChecksum: number;
+
+  /**
+   * Count of operations - informational only.
+   */
+  partialCount: number;
+
+  /**
+   * True if the queried operations contains (starts with) a CLEAR
+   * operation, indicating that the partial checksum is the full
+   * checksum, and must not be added to a previously-cached checksum.
+   */
+  isFullChecksum: boolean;
+}
 export interface FetchPartialBucketChecksum {
   bucket: string;
   start?: OpId;
   end: OpId;
 }
 
-export type FetchChecksums = (batch: FetchPartialBucketChecksum[]) => Promise<ChecksumMap>;
+export type PartialChecksumMap = Map<string, PartialChecksum>;
+
+export type FetchChecksums = (batch: FetchPartialBucketChecksum[]) => Promise<PartialChecksumMap>;
 
 export interface ChecksumCacheOptions {
   /**

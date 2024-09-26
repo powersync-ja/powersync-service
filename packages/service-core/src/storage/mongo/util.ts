@@ -1,10 +1,10 @@
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import * as mongo from 'mongodb';
 import * as crypto from 'crypto';
-import { BucketDataDocument } from './models.js';
-import { timestampToOpId } from '../../util/utils.js';
+import * as mongo from 'mongodb';
 import { OplogEntry } from '../../util/protocol-types.js';
+import { timestampToOpId } from '../../util/utils.js';
+import { BucketDataDocument } from './models.js';
 
 /**
  * Lookup serialization must be number-agnostic. I.e. normalize numbers, instead of preserving numbers.
