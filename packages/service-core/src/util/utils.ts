@@ -1,11 +1,12 @@
 import crypto from 'crypto';
+
+import { logger } from '@powersync/lib-services-framework';
 import * as pgwire from '@powersync/service-jpgwire';
 import { pgwireRows } from '@powersync/service-jpgwire';
-
+import { PartialChecksum } from '../storage/ChecksumCache.js';
 import * as storage from '../storage/storage-index.js';
-import { BucketChecksum, OpId } from './protocol-types.js';
 import { retriedQuery } from './pgwire_utils.js';
-import { logger } from '@powersync/lib-services-framework';
+import { BucketChecksum, OpId } from './protocol-types.js';
 
 export type ChecksumMap = Map<string, BucketChecksum>;
 
@@ -64,14 +65,20 @@ export function addChecksums(a: number, b: number) {
   return (a + b) & 0xffffffff;
 }
 
-export function addBucketChecksums(a: BucketChecksum, b: BucketChecksum | null): BucketChecksum {
+export function addBucketChecksums(a: BucketChecksum, b: PartialChecksum | null): BucketChecksum {
   if (b == null) {
     return a;
+  } else if (b.isFullChecksum) {
+    return {
+      bucket: b.bucket,
+      count: b.partialCount,
+      checksum: b.partialChecksum
+    };
   } else {
     return {
       bucket: a.bucket,
-      count: a.count + b.count,
-      checksum: addChecksums(a.checksum, b.checksum)
+      count: a.count + b.partialCount,
+      checksum: addChecksums(a.checksum, b.partialChecksum)
     };
   }
 }
