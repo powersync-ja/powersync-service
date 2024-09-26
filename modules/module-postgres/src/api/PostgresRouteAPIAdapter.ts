@@ -275,14 +275,14 @@ GROUP BY schemaname, tablename, quoted_name`
     );
     const rows = pgwire.pgwireRows(results);
 
-    let schemas: Record<string, any> = {};
+    let schemas: Record<string, service_types.DatabaseSchema> = {};
 
     for (let row of rows) {
       const schema = (schemas[row.schemaname] ??= {
         name: row.schemaname,
         tables: []
       });
-      const table = {
+      const table: service_types.TableSchema = {
         name: row.tablename,
         columns: [] as any[]
       };
@@ -296,7 +296,9 @@ GROUP BY schemaname, tablename, quoted_name`
         }
         table.columns.push({
           name: column.attname,
+          sqlite_type: sync_rules.expressionTypeFromPostgresType(pg_type).typeFlags,
           type: column.data_type,
+          internal_type: column.data_type,
           pg_type: pg_type
         });
       }

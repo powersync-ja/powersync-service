@@ -1,23 +1,20 @@
-import { ColumnDefinition, ExpressionType } from './ExpressionType.js';
+import { ColumnDefinition } from './ExpressionType.js';
 import { QuerySchema, SourceSchemaTable } from './types.js';
 
 export class TableQuerySchema implements QuerySchema {
-  constructor(
-    private tables: SourceSchemaTable[],
-    private alias: string
-  ) {}
+  constructor(private tables: SourceSchemaTable[], private alias: string) {}
 
-  getType(table: string, column: string): ExpressionType {
+  getColumn(table: string, column: string): ColumnDefinition | undefined {
     if (table != this.alias) {
-      return ExpressionType.NONE;
+      return undefined;
     }
     for (let table of this.tables) {
-      const t = table.getType(column);
+      const t = table.getColumn(column);
       if (t != null) {
         return t;
       }
     }
-    return ExpressionType.NONE;
+    return undefined;
   }
 
   getColumns(table: string): ColumnDefinition[] {

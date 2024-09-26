@@ -2,6 +2,10 @@ import { ColumnDefinition } from './ExpressionType.js';
 import { SqlSyncRules } from './SqlSyncRules.js';
 import { SourceSchema } from './types.js';
 
+export interface GenerateSchemaOptions {
+  includeTypeComments?: boolean;
+}
+
 export abstract class SchemaGenerator {
   protected getAllTables(source: SqlSyncRules, schema: SourceSchema) {
     let tables: Record<string, Record<string, ColumnDefinition>> = {};
@@ -33,5 +37,5 @@ export abstract class SchemaGenerator {
   abstract readonly mediaType: string;
   abstract readonly fileName: string;
 
-  abstract generate(source: SqlSyncRules, schema: SourceSchema): string;
+  abstract generate(source: SqlSyncRules, schema: SourceSchema, options?: GenerateSchemaOptions): string;
 }
