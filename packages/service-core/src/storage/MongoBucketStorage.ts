@@ -22,18 +22,18 @@ import {
 } from './BucketStorage.js';
 import { PowerSyncMongo, PowerSyncMongoOptions } from './mongo/db.js';
 import { SyncRuleDocument, SyncRuleState } from './mongo/models.js';
-import { MongoCustomWriteCheckpointAPI } from './mongo/MongoCustomWriteCheckpointAPI.js';
-import { MongoManagedWriteCheckpointAPI } from './mongo/MongoManagedWriteCheckpointAPI.js';
 import { MongoPersistedSyncRulesContent } from './mongo/MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage } from './mongo/MongoSyncBucketStorage.js';
+import { MongoWriteCheckpointAPI } from './mongo/MongoWriteCheckpointAPI.js';
 import { generateSlotName } from './mongo/util.js';
 import { ReplicationEventManager } from './ReplicationEventManager.js';
 import {
+  CustomWriteCheckpointOptions,
   DEFAULT_WRITE_CHECKPOINT_MODE,
+  LastWriteCheckpointFilters,
+  ManagedWriteCheckpointOptions,
   WriteCheckpointAPI,
-  WriteCheckpointFilters,
-  WriteCheckpointMode,
-  WriteCheckpointOptions
+  WriteCheckpointMode
 } from './write-checkpoint.js';
 
 export interface MongoBucketStorageOptions extends PowerSyncMongoOptions {}
@@ -83,10 +83,10 @@ export class MongoBucketStorage implements BucketStorageFactory {
     this.slot_name_prefix = options.slot_name_prefix;
     this.events = options.event_manager;
     this.write_checkpoint_mode = options.write_checkpoint_mode ?? DEFAULT_WRITE_CHECKPOINT_MODE;
-    this.writeCheckpointAPI =
-      this.write_checkpoint_mode == WriteCheckpointMode.MANAGED
-        ? new MongoManagedWriteCheckpointAPI(db)
-        : new MongoCustomWriteCheckpointAPI(db);
+    this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
+      db,
+      mode: this.write_checkpoint_mode
+    });
   }
 
   getInstance(options: PersistedSyncRulesContent): MongoSyncBucketStorage {
@@ -285,15 +285,19 @@ export class MongoBucketStorage implements BucketStorageFactory {
     });
   }
 
-  async batchCreateWriteCheckpoints(checkpoints: WriteCheckpointOptions[]): Promise<void> {
-    return this.writeCheckpointAPI.batchCreateWriteCheckpoints(checkpoints);
+  async batchCreateCustomWriteCheckpoints(checkpoints: CustomWriteCheckpointOptions[]): Promise<void> {
+    return this.writeCheckpointAPI.batchCreateCustomWriteCheckpoints(checkpoints);
   }
 
-  async createWriteCheckpoint(options: WriteCheckpointOptions): Promise<bigint> {
-    return this.writeCheckpointAPI.createWriteCheckpoint(options);
+  async createCustomWriteCheckpoint(options: CustomWriteCheckpointOptions): Promise<bigint> {
+    return this.writeCheckpointAPI.createCustomWriteCheckpoint(options);
   }
 
-  async lastWriteCheckpoint(filters: WriteCheckpointFilters): Promise<bigint | null> {
+  async createManagedWriteCheckpoint(options: ManagedWriteCheckpointOptions): Promise<bigint> {
+    return this.writeCheckpointAPI.createManagedWriteCheckpoint(options);
+  }
+
+  async lastWriteCheckpoint(filters: LastWriteCheckpointFilters): Promise<bigint | null> {
     return this.writeCheckpointAPI.lastWriteCheckpoint(filters);
   }
 

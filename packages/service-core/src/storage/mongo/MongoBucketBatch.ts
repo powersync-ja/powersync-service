@@ -5,11 +5,13 @@ import * as mongo from 'mongodb';
 import { container, errors, logger } from '@powersync/lib-services-framework';
 import * as util from '../../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, mergeToast, SaveOptions } from '../BucketStorage.js';
-import { ReplicationEventBatch } from '../ReplicationEventBatch.js';
+import { ReplicationEventManager } from '../ReplicationEventManager.js';
 import { SourceTable } from '../SourceTable.js';
+import { BatchedCustomWriteCheckpointOptions, CustomWriteCheckpointOptions } from '../write-checkpoint.js';
 import { PowerSyncMongo } from './db.js';
 import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
+import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
 import { cacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
 import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, replicaIdEquals, serializeLookup } from './util.js';
@@ -37,6 +39,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
   private readonly slot_name: string;
 
   private batch: OperationBatch | null = null;
+  private write_checkpoint_batch: CustomWriteCheckpointOptions[] = [];
 
   /**
    * Last LSN received associated with a checkpoint.
@@ -51,7 +54,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
 
   private persisted_op: bigint | null = null;
 
-  private event_batch: ReplicationEventBatch;
+  private events: ReplicationEventManager;
 
   /**
    * For tests only - not for persistence logic.
@@ -65,17 +68,24 @@ export class MongoBucketBatch implements BucketStorageBatch {
     slot_name: string,
     last_checkpoint_lsn: string | null,
     no_checkpoint_before_lsn: string,
-    event_batch: ReplicationEventBatch
+    events: ReplicationEventManager
   ) {
-    this.db = db;
     this.client = db.client;
-    this.sync_rules = sync_rules;
+    this.db = db;
+    this.events = events;
     this.group_id = group_id;
-    this.slot_name = slot_name;
-    this.session = this.client.startSession();
     this.last_checkpoint_lsn = last_checkpoint_lsn;
     this.no_checkpoint_before_lsn = no_checkpoint_before_lsn;
-    this.event_batch = event_batch;
+    this.session = this.client.startSession();
+    this.slot_name = slot_name;
+    this.sync_rules = sync_rules;
+  }
+
+  addCustomWriteCheckpoint(checkpoint: BatchedCustomWriteCheckpointOptions): void {
+    this.write_checkpoint_batch.push({
+      ...checkpoint,
+      sync_rules_id: this.group_id
+    });
   }
 
   async flush(): Promise<FlushedResult | null> {
@@ -88,7 +98,8 @@ export class MongoBucketBatch implements BucketStorageBatch {
         result = r;
       }
     }
-    await this.event_batch.flush();
+    await batchCreateCustomWriteCheckpoints(this.db, this.write_checkpoint_batch);
+    this.write_checkpoint_batch = [];
     return result;
   }
 
@@ -617,7 +628,8 @@ export class MongoBucketBatch implements BucketStorageBatch {
   async save(record: SaveOptions): Promise<FlushedResult | null> {
     const { after, before, sourceTable, tag } = record;
     for (const event of this.getTableEvents(sourceTable)) {
-      await this.event_batch.save({
+      await this.events.fireEvent({
+        batch: this,
         table: sourceTable,
         data: {
           op: tag,

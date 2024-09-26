@@ -12,16 +12,37 @@ export enum WriteCheckpointMode {
   MANAGED = 'managed'
 }
 
-export interface WriteCheckpointFilters {
+export interface BaseWriteCheckpointIdentifier {
   /**
-   * Replication HEAD(s) at the creation of the checkpoint.
+   * Identifier for User's account.
    */
-  heads?: Record<string, string>;
+  user_id: string;
+}
 
+export interface CustomWriteCheckpointFilters extends BaseWriteCheckpointIdentifier {
   /**
    * Sync rules which were active when this checkpoint was created.
    */
-  sync_rules_id?: number;
+  sync_rules_id: number;
+}
+
+export interface BatchedCustomWriteCheckpointOptions extends BaseWriteCheckpointIdentifier {
+  /**
+   * A supplied incrementing Write Checkpoint number
+   */
+  checkpoint: bigint;
+}
+
+export type CustomWriteCheckpointOptions = BatchedCustomWriteCheckpointOptions & CustomWriteCheckpointFilters;
+
+/**
+ * Managed Write Checkpoints are a mapping of User ID to replication HEAD
+ */
+export interface ManagedWriteCheckpointFilters {
+  /**
+   * Replication HEAD(s) at the creation of the checkpoint.
+   */
+  heads: Record<string, string>;
 
   /**
    * Identifier for User's account.
@@ -29,20 +50,18 @@ export interface WriteCheckpointFilters {
   user_id: string;
 }
 
-export interface WriteCheckpointOptions extends WriteCheckpointFilters {
-  /**
-   * Strictly incrementing write checkpoint number.
-   * Defaults to an automatically incrementing operation.
-   */
-  checkpoint?: bigint;
-}
+export type ManagedWriteCheckpointOptions = ManagedWriteCheckpointFilters;
+
+export type LastWriteCheckpointFilters = CustomWriteCheckpointFilters | ManagedWriteCheckpointFilters;
 
 export interface WriteCheckpointAPI {
-  batchCreateWriteCheckpoints(checkpoints: WriteCheckpointOptions[]): Promise<void>;
+  batchCreateCustomWriteCheckpoints(checkpoints: CustomWriteCheckpointOptions[]): Promise<void>;
 
-  createWriteCheckpoint(checkpoint: WriteCheckpointOptions): Promise<bigint>;
+  createCustomWriteCheckpoint(checkpoint: CustomWriteCheckpointOptions): Promise<bigint>;
 
-  lastWriteCheckpoint(filters: WriteCheckpointFilters): Promise<bigint | null>;
+  createManagedWriteCheckpoint(checkpoint: ManagedWriteCheckpointOptions): Promise<bigint>;
+
+  lastWriteCheckpoint(filters: LastWriteCheckpointFilters): Promise<bigint | null>;
 }
 
 export const DEFAULT_WRITE_CHECKPOINT_MODE = WriteCheckpointMode.MANAGED;

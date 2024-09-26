@@ -63,7 +63,7 @@ export const writeCheckpoint2 = routeDefinition({
       storageEngine: { activeBucketStorage }
     } = service_context;
 
-    const writeCheckpoint = await activeBucketStorage.createWriteCheckpoint({
+    const writeCheckpoint = await activeBucketStorage.createManagedWriteCheckpoint({
       user_id: full_user_id,
       heads: { '1': currentCheckpoint }
     });

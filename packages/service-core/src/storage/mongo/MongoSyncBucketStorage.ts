@@ -12,7 +12,6 @@ import {
   DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES,
   FlushedResult,
   ParseSyncRulesOptions,
-  PersistedSyncRules,
   PersistedSyncRulesContent,
   ResolveTableOptions,
   ResolveTableResult,
@@ -24,7 +23,7 @@ import {
 } from '../BucketStorage.js';
 import { ChecksumCache, FetchPartialBucketChecksum } from '../ChecksumCache.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
-import { ReplicationEventBatch } from '../ReplicationEventBatch.js';
+import { ReplicationEventManager } from '../ReplicationEventManager.js';
 import { SourceTable } from '../SourceTable.js';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, SourceKey, SyncRuleState } from './models.js';
@@ -41,6 +40,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
   });
 
   private parsedSyncRulesCache: SqlSyncRules | undefined;
+  readonly events: ReplicationEventManager;
 
   constructor(
     public readonly factory: MongoBucketStorage,
@@ -49,6 +49,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     public readonly slot_name: string
   ) {
     this.db = factory.db;
+    this.events = factory.events;
   }
 
   getParsedSyncRules(options: ParseSyncRulesOptions): SqlSyncRules {
@@ -87,10 +88,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
       this.slot_name,
       checkpoint_lsn,
       doc?.no_checkpoint_before ?? options.zeroLSN,
-      new ReplicationEventBatch({
-        manager: this.factory.events,
-        storage: this
-      })
+      this.events
     );
     try {
       await callback(batch);

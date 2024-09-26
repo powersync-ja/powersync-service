@@ -56,7 +56,6 @@ export class PowerSyncMongo {
     this.op_id_sequence = db.collection('op_id_sequence');
     this.sync_rules = db.collection('sync_rules');
     this.source_tables = db.collection('source_tables');
-    // TODO add indexes
     this.custom_write_checkpoints = db.collection('custom_write_checkpoints');
     this.write_checkpoints = db.collection('write_checkpoints');
     this.instance = db.collection('instance');
