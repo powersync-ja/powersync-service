@@ -117,7 +117,7 @@ export class StaticSqlParameterQuery {
 
   get usesUnauthenticatedRequestParameters(): boolean {
     // select where request.parameters() ->> 'include_comments'
-    const unauthenticatedFilter = this.filter!.usesUnauthenticatedRequestParameters;
+    const unauthenticatedFilter = this.filter?.usesUnauthenticatedRequestParameters;
 
     // select request.parameters() ->> 'project_id'
     const unauthenticatedExtractor =

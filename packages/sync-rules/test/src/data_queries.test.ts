@@ -158,7 +158,9 @@ describe('data queries', () => {
   test('invalid query - invalid IN', function () {
     const sql = 'SELECT * FROM assets WHERE assets.category IN bucket.categories';
     const query = SqlDataQuery.fromSql('mybucket', ['categories'], sql);
-    expect(query.errors).toMatchObject([{ type: 'fatal', message: 'Unsupported usage of IN operator' }]);
+    expect(query.errors).toMatchObject([
+      { type: 'fatal', message: 'Cannot use bucket parameters on the right side of IN operators' }
+    ]);
   });
 
   test('invalid query - not all parameters used', function () {

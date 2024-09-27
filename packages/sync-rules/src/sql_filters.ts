@@ -4,6 +4,7 @@ import { ExpressionType, TYPE_NONE } from './ExpressionType.js';
 import { SqlRuleError } from './errors.js';
 import {
   BASIC_OPERATORS,
+  OPERATOR_IN,
   OPERATOR_IS_NOT_NULL,
   OPERATOR_IS_NULL,
   OPERATOR_JSON_EXTRACT_JSON,
@@ -302,14 +303,12 @@ export class SqlTools {
           throw new Error('Unexpected');
         }
       } else if (op == 'IN') {
-        // Options:
-        //  static IN static
-        //  parameterValue IN static
+        // Special cases:
+        //  parameterValue IN rowValue
+        //  rowValue IN parameterValue
+        // All others are handled by standard function composition
 
-        if (isRowValueClause(leftFilter) && isRowValueClause(rightFilter)) {
-          // static1 IN static2
-          return compileStaticOperator(op, leftFilter, rightFilter);
-        } else if (isParameterValueClause(leftFilter) && isRowValueClause(rightFilter)) {
+        if (isParameterValueClause(leftFilter) && isRowValueClause(rightFilter)) {
           // token_parameters.value IN table.some_array
           // bucket.param IN table.some_array
           const inputParam = basicInputParameter(leftFilter);
@@ -371,7 +370,7 @@ export class SqlTools {
             usesUnauthenticatedRequestParameters: rightFilter.usesUnauthenticatedRequestParameters
           } satisfies ParameterMatchClause;
         } else {
-          return this.error(`Unsupported usage of IN operator`, expr);
+          return this.composeFunction(OPERATOR_IN, [leftFilter, rightFilter], [left, right]);
         }
       } else if (BASIC_OPERATORS.has(op)) {
         const fnImpl = getOperatorFunction(op);
@@ -645,6 +644,10 @@ export class SqlTools {
         // argsType unchanged
       } else if (isParameterValueClause(clause)) {
         if (!this.supports_parameter_expressions) {
+          if (fnImpl.debugName == 'operatorIN') {
+            // Special-case error message to be more descriptive
+            return this.error(`Cannot use bucket parameters on the right side of IN operators`, debugArg);
+          }
           return this.error(`Cannot use bucket parameters in expressions`, debugArg);
         }
         if (argsType == 'static' || argsType == 'param') {
