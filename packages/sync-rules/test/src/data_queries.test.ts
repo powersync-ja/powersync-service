@@ -41,6 +41,38 @@ describe('data queries', () => {
     expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: null })).toEqual([]);
   });
 
+  test('static IN data query', function () {
+    const sql = `SELECT * FROM assets WHERE 'green' IN assets.categories`;
+    const query = SqlDataQuery.fromSql('mybucket', [], sql);
+    expect(query.errors).toEqual([]);
+
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', categories: JSON.stringify(['red', 'green']) })).toMatchObject([
+      {
+        bucket: 'mybucket[]',
+        table: 'assets',
+        id: 'asset1'
+      }
+    ]);
+
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', categories: JSON.stringify(['red', 'blue']) })).toEqual([]);
+  });
+
+  test('data IN static query', function () {
+    const sql = `SELECT * FROM assets WHERE assets.condition IN '["good","great"]'`;
+    const query = SqlDataQuery.fromSql('mybucket', [], sql);
+    expect(query.errors).toEqual([]);
+
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', condition: 'good' })).toMatchObject([
+      {
+        bucket: 'mybucket[]',
+        table: 'assets',
+        id: 'asset1'
+      }
+    ]);
+
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', condition: 'bad' })).toEqual([]);
+  });
+
   test('table alias', function () {
     const sql = 'SELECT * FROM assets as others WHERE others.org_id = bucket.org_id';
     const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql);

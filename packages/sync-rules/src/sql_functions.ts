@@ -36,11 +36,6 @@ export interface SqlFunction {
   readonly debugName: string;
   call: (...args: SqliteValue[]) => SqliteValue;
   getReturnType(args: ExpressionType[]): ExpressionType;
-  /**
-   * For error messages such as "Cannot use bucket parameters [debugDescription]"
-   * Default: 'in expressions'
-   */
-  debugDescription?: string;
 }
 
 export interface DocumentedSqlFunction extends SqlFunction {
