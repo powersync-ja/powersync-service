@@ -1,5 +1,5 @@
 import { JSONBig } from '@powersync/service-jsonbig';
-import { SQLITE_FALSE, SQLITE_TRUE, sqliteBool, sqliteNot } from './sql_support.js';
+import { getOperatorFunction, SQLITE_FALSE, SQLITE_TRUE, sqliteBool, sqliteNot } from './sql_support.js';
 import { SqliteValue } from './types.js';
 import { jsonValueToSqlite } from './utils.js';
 // Declares @syncpoint/wkx module
@@ -786,6 +786,8 @@ export const OPERATOR_NOT: SqlFunction = {
     return ExpressionType.INTEGER;
   }
 };
+
+export const OPERATOR_IN = getOperatorFunction('IN');
 
 export function castOperator(castTo: string | undefined): SqlFunction | null {
   if (castTo == null || !CAST_TYPES.has(castTo)) {
