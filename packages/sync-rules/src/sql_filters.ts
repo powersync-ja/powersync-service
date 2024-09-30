@@ -4,6 +4,7 @@ import { ExpressionType, TYPE_NONE } from './ExpressionType.js';
 import { SqlRuleError } from './errors.js';
 import {
   BASIC_OPERATORS,
+  OPERATOR_IN,
   OPERATOR_IS_NOT_NULL,
   OPERATOR_IS_NULL,
   OPERATOR_JSON_EXTRACT_JSON,
@@ -302,13 +303,18 @@ export class SqlTools {
           throw new Error('Unexpected');
         }
       } else if (op == 'IN') {
-        // Options:
-        //  static IN static
-        //  parameterValue IN static
+        // Special cases:
+        //  parameterValue IN rowValue
+        //  rowValue IN parameterValue
+        // All others are handled by standard function composition
 
-        if (isRowValueClause(leftFilter) && isRowValueClause(rightFilter)) {
-          // static1 IN static2
-          return compileStaticOperator(op, leftFilter, rightFilter);
+        const composeType = this.getComposeType(OPERATOR_IN, [leftFilter, rightFilter], [left, right]);
+        if (composeType.errorClause != null) {
+          return composeType.errorClause;
+        } else if (composeType.argsType != null) {
+          // This is a standard supported configuration, takes precedence over
+          // the special cases below.
+          return this.composeFunction(OPERATOR_IN, [leftFilter, rightFilter], [left, right]);
         } else if (isParameterValueClause(leftFilter) && isRowValueClause(rightFilter)) {
           // token_parameters.value IN table.some_array
           // bucket.param IN table.some_array
@@ -371,7 +377,8 @@ export class SqlTools {
             usesUnauthenticatedRequestParameters: rightFilter.usesUnauthenticatedRequestParameters
           } satisfies ParameterMatchClause;
         } else {
-          return this.error(`Unsupported usage of IN operator`, expr);
+          // Not supported, return the error previously computed
+          return this.error(composeType.error!, composeType.errorExpr);
         }
       } else if (BASIC_OPERATORS.has(op)) {
         const fnImpl = getOperatorFunction(op);
@@ -634,36 +641,19 @@ export class SqlTools {
    * @returns a compiled function clause
    */
   composeFunction(fnImpl: SqlFunction, argClauses: CompiledClause[], debugArgExpressions: Expr[]): CompiledClause {
-    let argsType: 'static' | 'row' | 'param' = 'static';
-    for (let i = 0; i < argClauses.length; i++) {
-      const debugArg = debugArgExpressions[i];
-      const clause = argClauses[i];
-      if (isClauseError(clause)) {
-        // Return immediately on error
-        return clause;
-      } else if (isStaticValueClause(clause)) {
-        // argsType unchanged
-      } else if (isParameterValueClause(clause)) {
-        if (!this.supports_parameter_expressions) {
-          return this.error(`Cannot use bucket parameters in expressions`, debugArg);
-        }
-        if (argsType == 'static' || argsType == 'param') {
-          argsType = 'param';
-        } else {
-          return this.error(`Cannot use table values and parameters in the same clauses`, debugArg);
-        }
-      } else if (isRowValueClause(clause)) {
-        if (argsType == 'static' || argsType == 'row') {
-          argsType = 'row';
-        } else {
-          return this.error(`Cannot use table values and parameters in the same clauses`, debugArg);
-        }
-      } else {
-        return this.error(`Parameter match clauses cannot be used here`, debugArg);
-      }
+    const result = this.getComposeType(fnImpl, argClauses, debugArgExpressions);
+    if (result.errorClause != null) {
+      return result.errorClause;
+    } else if (result.error != null) {
+      return this.error(result.error, result.errorExpr);
     }
+    const argsType = result.argsType!;
 
-    if (argsType == 'row' || argsType == 'static') {
+    if (argsType == 'static') {
+      const args = argClauses.map((e) => (e as StaticValueClause).value);
+      const evaluated = fnImpl.call(...args);
+      return staticValueClause(evaluated);
+    } else if (argsType == 'row') {
       return {
         evaluate: (tables) => {
           const args = argClauses.map((e) => (e as RowValueClause).evaluate(tables));
@@ -705,7 +695,48 @@ export class SqlTools {
     }
   }
 
-  parameterFunction() {}
+  getComposeType(
+    fnImpl: SqlFunction,
+    argClauses: CompiledClause[],
+    debugArgExpressions: Expr[]
+  ): { argsType?: string; error?: string; errorExpr?: Expr; errorClause?: ClauseError } {
+    let argsType: 'static' | 'row' | 'param' = 'static';
+    for (let i = 0; i < argClauses.length; i++) {
+      const debugArg = debugArgExpressions[i];
+      const clause = argClauses[i];
+      if (isClauseError(clause)) {
+        // Return immediately on error
+        return { errorClause: clause };
+      } else if (isStaticValueClause(clause)) {
+        // argsType unchanged
+      } else if (isParameterValueClause(clause)) {
+        if (!this.supports_parameter_expressions) {
+          if (fnImpl.debugName == 'operatorIN') {
+            // Special-case error message to be more descriptive
+            return { error: `Cannot use bucket parameters on the right side of IN operators`, errorExpr: debugArg };
+          }
+          return { error: `Cannot use bucket parameters in expressions`, errorExpr: debugArg };
+        }
+        if (argsType == 'static' || argsType == 'param') {
+          argsType = 'param';
+        } else {
+          return { error: `Cannot use table values and parameters in the same clauses`, errorExpr: debugArg };
+        }
+      } else if (isRowValueClause(clause)) {
+        if (argsType == 'static' || argsType == 'row') {
+          argsType = 'row';
+        } else {
+          return { error: `Cannot use table values and parameters in the same clauses`, errorExpr: debugArg };
+        }
+      } else {
+        return { error: `Parameter match clauses cannot be used here`, errorExpr: debugArg };
+      }
+    }
+
+    return {
+      argsType
+    };
+  }
 }
 
 function isStatic(expr: Expr) {

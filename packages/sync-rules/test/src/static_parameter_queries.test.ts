@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { SqlParameterQuery } from '../../src/index.js';
+import { RequestParameters, SqlParameterQuery } from '../../src/index.js';
 import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
 import { normalizeTokenParameters } from './util.js';
 
@@ -80,6 +80,68 @@ describe('static parameter queries', () => {
     expect(query.bucket_parameters).toEqual(['user_id']);
 
     expect(query.getStaticBucketIds(normalizeTokenParameters({ user_id: 'user1' }))).toEqual(['mybucket["user1"]']);
+  });
+
+  test('static value', function () {
+    const sql = `SELECT WHERE 1`;
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as StaticSqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    expect(query.getStaticBucketIds(new RequestParameters({ sub: '' }, {}))).toEqual(['mybucket[]']);
+  });
+
+  test('static expression (1)', function () {
+    const sql = `SELECT WHERE 1 = 1`;
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as StaticSqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    expect(query.getStaticBucketIds(new RequestParameters({ sub: '' }, {}))).toEqual(['mybucket[]']);
+  });
+
+  test('static expression (2)', function () {
+    const sql = `SELECT WHERE 1 != 1`;
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as StaticSqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    expect(query.getStaticBucketIds(new RequestParameters({ sub: '' }, {}))).toEqual([]);
+  });
+
+  test('static IN expression', function () {
+    const sql = `SELECT WHERE 'admin' IN '["admin", "superuser"]'`;
+    const query = SqlParameterQuery.fromSql('mybucket', sql, undefined, {}) as StaticSqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    expect(query.getStaticBucketIds(new RequestParameters({ sub: '' }, {}))).toEqual(['mybucket[]']);
+  });
+
+  test('IN for permissions in request.jwt() (1)', function () {
+    // Can use -> or ->> here
+    const sql = `SELECT 'read:users' IN (request.jwt() ->> 'permissions') as access_granted`;
+    const query = SqlParameterQuery.fromSql('mybucket', sql) as StaticSqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    expect(
+      query.getStaticBucketIds(new RequestParameters({ sub: '', permissions: ['write', 'read:users'] }, {}))
+    ).toEqual(['mybucket[1]']);
+    expect(
+      query.getStaticBucketIds(new RequestParameters({ sub: '', permissions: ['write', 'write:users'] }, {}))
+    ).toEqual(['mybucket[0]']);
+  });
+
+  test('IN for permissions in request.jwt() (2)', function () {
+    // Can use -> or ->> here
+    const sql = `SELECT WHERE 'read:users' IN (request.jwt() ->> 'permissions')`;
+    const query = SqlParameterQuery.fromSql('mybucket', sql, undefined, {}) as StaticSqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    expect(
+      query.getStaticBucketIds(new RequestParameters({ sub: '', permissions: ['write', 'read:users'] }, {}))
+    ).toEqual(['mybucket[]']);
+    expect(
+      query.getStaticBucketIds(new RequestParameters({ sub: '', permissions: ['write', 'write:users'] }, {}))
+    ).toEqual([]);
+  });
+
+  test('IN for permissions in request.jwt() (3)', function () {
+    const sql = `SELECT WHERE request.jwt() ->> 'role' IN '["admin", "superuser"]'`;
+    const query = SqlParameterQuery.fromSql('mybucket', sql, undefined, {}) as StaticSqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    expect(query.getStaticBucketIds(new RequestParameters({ sub: '', role: 'superuser' }, {}))).toEqual(['mybucket[]']);
+    expect(query.getStaticBucketIds(new RequestParameters({ sub: '', role: 'superadmin' }, {}))).toEqual([]);
   });
 
   test('case-sensitive queries (1)', () => {
