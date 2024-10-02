@@ -179,45 +179,46 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
     const sampleSize = 50;
 
     const databases = await this.db.admin().listDatabases({ authorizedDatabases: true, nameOnly: true });
-    return (
-      await Promise.all(
-        databases.databases.map(async (db) => {
-          if (db.name == 'local' || db.name == 'admin') {
-            return null;
-          }
-          const collections = await this.client.db(db.name).listCollections().toArray();
+    const filteredDatabases = databases.databases.filter((db) => {
+      return !['local', 'admin', 'config'].includes(db.name);
+    });
+    return await Promise.all(
+      filteredDatabases.map(async (db) => {
+        const collections = await this.client.db(db.name).listCollections().toArray();
+        const filtered = collections.filter((c) => {
+          return !['_powersync_checkpoints'].includes(c.name);
+        });
 
-          const tables = await Promise.all(
-            collections.map(async (collection) => {
-              const sampleDocuments = await this.db
-                .collection(collection.name)
-                .aggregate([{ $sample: { size: sampleSize } }])
-                .toArray();
+        const tables = await Promise.all(
+          filtered.map(async (collection) => {
+            const sampleDocuments = await this.db
+              .collection(collection.name)
+              .aggregate([{ $sample: { size: sampleSize } }])
+              .toArray();
 
-              if (sampleDocuments.length > 0) {
-                const columns = this.getColumnsFromDocuments(sampleDocuments);
+            if (sampleDocuments.length > 0) {
+              const columns = this.getColumnsFromDocuments(sampleDocuments);
 
-                return {
-                  name: collection.name,
-                  // Since documents are sampled in a random order, we need to sort
-                  // to get a consistent order
-                  columns: columns.sort((a, b) => a.name.localeCompare(b.name))
-                } satisfies service_types.TableSchema;
-              } else {
-                return {
-                  name: collection.name,
-                  columns: []
-                } satisfies service_types.TableSchema;
-              }
-            })
-          );
-          return {
-            name: db.name,
-            tables: tables
-          } satisfies service_types.DatabaseSchema;
-        })
-      )
-    ).filter((r) => r != null);
+              return {
+                name: collection.name,
+                // Since documents are sampled in a random order, we need to sort
+                // to get a consistent order
+                columns: columns.sort((a, b) => a.name.localeCompare(b.name))
+              } satisfies service_types.TableSchema;
+            } else {
+              return {
+                name: collection.name,
+                columns: []
+              } satisfies service_types.TableSchema;
+            }
+          })
+        );
+        return {
+          name: db.name,
+          tables: tables
+        } satisfies service_types.DatabaseSchema;
+      })
+    );
   }
 
   private getColumnsFromDocuments(documents: mongo.BSON.Document[]) {

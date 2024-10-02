@@ -151,6 +151,8 @@ export const InstanceSchema = t.object({
       tag: t.string,
       schemas: t.array(DatabaseSchema)
     })
-  )
+  ),
+  defaultConnectionTag: t.string,
+  defaultSchema: t.string
 });
 export type InstanceSchema = t.Encoded<typeof InstanceSchema>;
