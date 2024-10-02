@@ -1,9 +1,10 @@
+import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
 import { ChangeStream } from '@module/replication/ChangeStream.js';
+import { constructAfterRecord } from '@module/replication/MongoRelation.js';
+import { SqliteRow } from '@powersync/service-sync-rules';
 import * as mongo from 'mongodb';
 import { describe, expect, test } from 'vitest';
-import { clearTestDb, connectMongoData } from './util.js';
-import { SqliteRow } from '@powersync/service-sync-rules';
-import { constructAfterRecord } from '@module/replication/MongoRelation.js';
+import { clearTestDb, connectMongoData, TEST_CONNECTION_OPTIONS } from './util.js';
 
 describe('mongo data types', () => {
   async function setupTable(db: mongo.Db) {
@@ -200,6 +201,48 @@ describe('mongo data types', () => {
       checkResultsNested(transformed);
     } finally {
       await client.close();
+    }
+  });
+
+  test('connection schema', async () => {
+    const adapter = new MongoRouteAPIAdapter({
+      type: 'mongodb',
+      ...TEST_CONNECTION_OPTIONS
+    });
+    try {
+      const db = adapter.db;
+      await clearTestDb(db);
+
+      const collection = db.collection('test_data');
+      await setupTable(db);
+      await insert(collection);
+
+      const schema = await adapter.getConnectionSchema();
+      const dbSchema = schema.filter((s) => s.name == TEST_CONNECTION_OPTIONS.database)[0];
+      expect(dbSchema).not.toBeNull();
+      expect(dbSchema.tables).toEqual([
+        {
+          name: 'test_data',
+          columns: [
+            { name: '_id', sqlite_type: 4, internal_type: 'Integer' },
+            { name: 'bool', sqlite_type: 4, internal_type: 'Boolean' },
+            { name: 'bytea', sqlite_type: 1, internal_type: 'Binary' },
+            { name: 'date', sqlite_type: 2, internal_type: 'Date' },
+            { name: 'float', sqlite_type: 8, internal_type: 'Double' },
+            { name: 'int2', sqlite_type: 4, internal_type: 'Integer' },
+            { name: 'int4', sqlite_type: 4, internal_type: 'Integer' },
+            { name: 'int8', sqlite_type: 4, internal_type: 'Long' },
+            { name: 'nested', sqlite_type: 2, internal_type: 'Object' },
+            { name: 'null', sqlite_type: 0, internal_type: 'Null' },
+            { name: 'objectId', sqlite_type: 2, internal_type: 'ObjectId' },
+            { name: 'text', sqlite_type: 2, internal_type: 'String' },
+            { name: 'timestamp', sqlite_type: 4, internal_type: 'Timestamp' },
+            { name: 'uuid', sqlite_type: 2, internal_type: 'UUID' }
+          ]
+        }
+      ]);
+    } finally {
+      await adapter.shutdown();
     }
   });
 });

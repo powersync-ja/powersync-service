@@ -5,12 +5,12 @@ import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import * as types from '../types/types.js';
 import { MongoManager } from '../replication/MongoManager.js';
-import { createCheckpoint, getMongoLsn } from '../replication/MongoRelation.js';
+import { constructAfterRecord, createCheckpoint, getMongoLsn } from '../replication/MongoRelation.js';
 import { escapeRegExp } from '../utils.js';
 
 export class MongoRouteAPIAdapter implements api.RouteAPI {
   protected client: mongo.MongoClient;
-  private db: mongo.Db;
+  public db: mongo.Db;
 
   connectionTag: string;
   defaultSchema: string;
@@ -176,8 +176,116 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {
-    // TODO: Implement
+    const sampleSize = 50;
 
-    return [];
+    const databases = await this.db.admin().listDatabases({ authorizedDatabases: true, nameOnly: true });
+    return (
+      await Promise.all(
+        databases.databases.map(async (db) => {
+          if (db.name == 'local' || db.name == 'admin') {
+            return null;
+          }
+          const collections = await this.client.db(db.name).listCollections().toArray();
+
+          const tables = await Promise.all(
+            collections.map(async (collection) => {
+              const sampleDocuments = await this.db
+                .collection(collection.name)
+                .aggregate([{ $sample: { size: sampleSize } }])
+                .toArray();
+
+              if (sampleDocuments.length > 0) {
+                const columns = this.getColumnsFromDocuments(sampleDocuments);
+
+                return {
+                  name: collection.name,
+                  // Since documents are sampled in a random order, we need to sort
+                  // to get a consistent order
+                  columns: columns.sort((a, b) => a.name.localeCompare(b.name))
+                } satisfies service_types.TableSchema;
+              } else {
+                return {
+                  name: collection.name,
+                  columns: []
+                } satisfies service_types.TableSchema;
+              }
+            })
+          );
+          return {
+            name: db.name,
+            tables: tables
+          } satisfies service_types.DatabaseSchema;
+        })
+      )
+    ).filter((r) => r != null);
+  }
+
+  private getColumnsFromDocuments(documents: mongo.BSON.Document[]) {
+    let columns = new Map<string, { sqliteType: sync_rules.ExpressionType; bsonTypes: Set<string> }>();
+    for (const document of documents) {
+      const parsed = constructAfterRecord(document);
+      for (const key in parsed) {
+        const value = parsed[key];
+        const type = sync_rules.sqliteTypeOf(value);
+        const sqliteType = sync_rules.ExpressionType.fromTypeText(type);
+        let entry = columns.get(key);
+        if (entry == null) {
+          entry = { sqliteType, bsonTypes: new Set() };
+          columns.set(key, entry);
+        } else {
+          entry.sqliteType = entry.sqliteType.or(sqliteType);
+        }
+        const bsonType = this.getBsonType(document[key]);
+        if (bsonType != null) {
+          entry.bsonTypes.add(bsonType);
+        }
+      }
+    }
+    return [...columns.entries()].map(([key, value]) => {
+      return {
+        name: key,
+        sqlite_type: value.sqliteType.typeFlags,
+        internal_type: value.bsonTypes.size == 0 ? '' : [...value.bsonTypes].join(' | ')
+      };
+    });
+  }
+
+  private getBsonType(data: any): string | null {
+    if (data == null) {
+      // null or undefined
+      return 'Null';
+    } else if (typeof data == 'string') {
+      return 'String';
+    } else if (typeof data == 'number') {
+      if (Number.isInteger(data)) {
+        return 'Integer';
+      } else {
+        return 'Double';
+      }
+    } else if (typeof data == 'bigint') {
+      return 'Long';
+    } else if (typeof data == 'boolean') {
+      return 'Boolean';
+    } else if (data instanceof mongo.ObjectId) {
+      return 'ObjectId';
+    } else if (data instanceof mongo.UUID) {
+      return 'UUID';
+    } else if (data instanceof Date) {
+      return 'Date';
+    } else if (data instanceof mongo.Timestamp) {
+      return 'Timestamp';
+    } else if (data instanceof mongo.Binary) {
+      return 'Binary';
+    } else if (data instanceof mongo.Long) {
+      return 'Long';
+    } else if (Array.isArray(data)) {
+      return 'Array';
+    } else if (data instanceof Uint8Array) {
+      return 'Binary';
+    } else if (typeof data == 'object') {
+      return 'Object';
+    } else {
+      return null;
+    }
   }
 }
