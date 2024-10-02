@@ -78,6 +78,7 @@ export class SqlDataQuery {
       sql,
       schema: querySchema
     });
+    tools.checkSpecificNameCase(tableRef);
     const filter = tools.compileWhereClause(where);
 
     const inputParameterNames = filter.inputParameters!.map((p) => p.key);
@@ -123,7 +124,9 @@ export class SqlDataQuery {
             output[name] = clause.evaluate(tables);
           },
           getTypes(schema, into) {
-            into[name] = { name, type: clause.getType(schema) };
+            const def = clause.getColumnDefinition(schema);
+
+            into[name] = { name, type: def?.type ?? ExpressionType.NONE, originalType: def?.originalType };
           }
         });
       } else {
@@ -152,7 +155,7 @@ export class SqlDataQuery {
           // Not performing schema-based validation - assume there is an id
           hasId = true;
         } else {
-          const idType = querySchema.getType(alias, 'id');
+          const idType = querySchema.getColumn(alias, 'id')?.type ?? ExpressionType.NONE;
           if (!idType.isNone()) {
             hasId = true;
           }
@@ -296,12 +299,12 @@ export class SqlDataQuery {
 
   private getColumnOutputsFor(schemaTable: SourceSchemaTable, output: Record<string, ColumnDefinition>) {
     const querySchema: QuerySchema = {
-      getType: (table, column) => {
+      getColumn: (table, column) => {
         if (table == this.table!) {
-          return schemaTable.getType(column) ?? ExpressionType.NONE;
+          return schemaTable.getColumn(column);
         } else {
           // TODO: bucket parameters?
-          return ExpressionType.NONE;
+          return undefined;
         }
       },
       getColumns: (table) => {

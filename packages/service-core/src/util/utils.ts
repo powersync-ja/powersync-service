@@ -6,6 +6,8 @@ import { BucketChecksum, OpId } from './protocol-types.js';
 
 import * as storage from '../storage/storage-index.js';
 
+import { PartialChecksum } from '../storage/ChecksumCache.js';
+
 export type ChecksumMap = Map<string, BucketChecksum>;
 
 export const ID_NAMESPACE = 'a396dd91-09fc-4017-a28d-3df722f651e9';
@@ -69,14 +71,20 @@ export function addChecksums(a: number, b: number) {
   return (a + b) & 0xffffffff;
 }
 
-export function addBucketChecksums(a: BucketChecksum, b: BucketChecksum | null): BucketChecksum {
+export function addBucketChecksums(a: BucketChecksum, b: PartialChecksum | null): BucketChecksum {
   if (b == null) {
     return a;
+  } else if (b.isFullChecksum) {
+    return {
+      bucket: b.bucket,
+      count: b.partialCount,
+      checksum: b.partialChecksum
+    };
   } else {
     return {
       bucket: a.bucket,
-      count: a.count + b.count,
-      checksum: addChecksums(a.checksum, b.checksum)
+      count: a.count + b.partialCount,
+      checksum: addChecksums(a.checksum, b.partialChecksum)
     };
   }
 }

@@ -1,6 +1,6 @@
 # Test Client
 
-This is a minimal client demonstrating direct usage of the HTTP stream sync api.
+This is a minimal client demonstrating direct usage of the HTTP stream sync API.
 
 For a full implementation, see our client SDKs.
 

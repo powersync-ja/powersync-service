@@ -54,7 +54,10 @@ export class PersistedBatch {
    */
   currentSize = 0;
 
-  constructor(private group_id: number, writtenSize: number) {
+  constructor(
+    private group_id: number,
+    writtenSize: number
+  ) {
     this.currentSize = writtenSize;
   }
 
