@@ -394,7 +394,7 @@ describe('parameter queries', () => {
 
   test('case-sensitive parameter queries (3)', () => {
     const sql = 'SELECT user_id FROM users WHERE Users.user_id = token_parameters.user_id';
-    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as SqlParameterQuery;
     expect(query.errors).toMatchObject([
       { message: `Unquoted identifiers are converted to lower-case. Use "Users" instead.` }
     ]);
@@ -402,7 +402,7 @@ describe('parameter queries', () => {
 
   test('case-sensitive parameter queries (4)', () => {
     const sql = 'SELECT Users.user_id FROM users WHERE user_id = token_parameters.user_id';
-    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as SqlParameterQuery;
     expect(query.errors).toMatchObject([
       { message: `Unquoted identifiers are converted to lower-case. Use "Users" instead.` }
     ]);
@@ -410,7 +410,7 @@ describe('parameter queries', () => {
 
   test('case-sensitive parameter queries (5)', () => {
     const sql = 'SELECT user_id FROM Users WHERE user_id = token_parameters.user_id';
-    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as SqlParameterQuery;
     expect(query.errors).toMatchObject([
       { message: `Unquoted identifiers are converted to lower-case. Use "Users" instead.` }
     ]);
@@ -418,7 +418,7 @@ describe('parameter queries', () => {
 
   test('case-sensitive parameter queries (6)', () => {
     const sql = 'SELECT userId FROM users';
-    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as SqlParameterQuery;
     expect(query.errors).toMatchObject([
       { message: `Unquoted identifiers are converted to lower-case. Use "userId" instead.` }
     ]);
@@ -426,7 +426,7 @@ describe('parameter queries', () => {
 
   test('case-sensitive parameter queries (7)', () => {
     const sql = 'SELECT user_id as userId FROM users';
-    const query = SqlParameterQuery.fromSql('mybucket', sql) as SqlParameterQuery;
+    const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as SqlParameterQuery;
     expect(query.errors).toMatchObject([
       { message: `Unquoted identifiers are converted to lower-case. Use "userId" instead.` }
     ]);

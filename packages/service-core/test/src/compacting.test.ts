@@ -222,21 +222,22 @@ bucket_definitions:
   });
 
   test('compacting (3)', async () => {
-    const sync_rules = SqlSyncRules.fromYaml(`
+    const sync_rules = testRules(`
 bucket_definitions:
   global:
     data: [select * from test]
     `);
 
-    const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
+    const storage = (await factory()).getInstance(sync_rules);
 
-    const result = await storage.startBatch({}, async (batch) => {
+    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: 'insert',
         after: {
           id: 't1'
-        }
+        },
+        afterReplicaId: 't1'
       });
 
       await batch.save({
@@ -244,7 +245,8 @@ bucket_definitions:
         tag: 'insert',
         after: {
           id: 't2'
-        }
+        },
+        afterReplicaId: 't2'
       });
 
       await batch.save({
@@ -252,21 +254,22 @@ bucket_definitions:
         tag: 'delete',
         before: {
           id: 't1'
-        }
+        },
+        beforeReplicaId: 't1'
       });
     });
 
     const checkpoint1 = result!.flushed_op;
     const checksumBefore = await storage.getChecksums(checkpoint1, ['global[]']);
-    console.log('before', checksumBefore);
 
-    const result2 = await storage.startBatch({}, async (batch) => {
+    const result2 = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: 'delete',
         before: {
           id: 't2'
-        }
+        },
+        beforeReplicaId: 't2'
       });
     });
     const checkpoint2 = result2!.flushed_op;
@@ -280,7 +283,7 @@ bucket_definitions:
     expect(batchAfter.targetOp).toEqual(4n);
     expect(dataAfter).toMatchObject([
       {
-        checksum: 857217610,
+        checksum: 1874612650,
         op: 'CLEAR',
         op_id: '4'
       }
@@ -288,7 +291,7 @@ bucket_definitions:
     expect(checksumAfter.get('global[]')).toEqual({
       bucket: 'global[]',
       count: 1,
-      checksum: 857217610
+      checksum: 1874612650
     });
   });
 }
