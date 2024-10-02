@@ -78,6 +78,7 @@ export class SqlDataQuery {
       sql,
       schema: querySchema
     });
+    tools.checkSpecificNameCase(tableRef);
     const filter = tools.compileWhereClause(where);
 
     const inputParameterNames = filter.inputParameters!.map((p) => p.key);

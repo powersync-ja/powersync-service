@@ -39,6 +39,9 @@ export class StaticSqlParameterQuery {
     }
 
     for (let column of columns) {
+      if (column.alias != null) {
+        tools.checkSpecificNameCase(column.alias);
+      }
       const name = tools.getSpecificOutputName(column);
       const extractor = tools.compileParameterValueExtractor(column.expr);
       if (isClauseError(extractor)) {
@@ -114,7 +117,7 @@ export class StaticSqlParameterQuery {
 
   get usesUnauthenticatedRequestParameters(): boolean {
     // select where request.parameters() ->> 'include_comments'
-    const unauthenticatedFilter = this.filter!.usesUnauthenticatedRequestParameters;
+    const unauthenticatedFilter = this.filter?.usesUnauthenticatedRequestParameters;
 
     // select request.parameters() ->> 'project_id'
     const unauthenticatedExtractor =

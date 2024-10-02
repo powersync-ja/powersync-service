@@ -22,7 +22,7 @@ import {
   SyncRuleStatus,
   TerminateOptions
 } from '../BucketStorage.js';
-import { ChecksumCache, FetchPartialBucketChecksum } from '../ChecksumCache.js';
+import { ChecksumCache, FetchPartialBucketChecksum, PartialChecksum, PartialChecksumMap } from '../ChecksumCache.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { SourceTable } from '../SourceTable.js';
 import { PowerSyncMongo } from './db.js';
@@ -350,7 +350,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     return this.checksumCache.getChecksumMap(checkpoint, buckets);
   }
 
-  private async getChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<util.ChecksumMap> {
+  private async getChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
     if (batch.length == 0) {
       return new Map();
     }
@@ -382,22 +382,32 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
             }
           },
           {
-            $group: { _id: '$_id.b', checksum_total: { $sum: '$checksum' }, count: { $sum: 1 } }
+            $group: {
+              _id: '$_id.b',
+              checksum_total: { $sum: '$checksum' },
+              count: { $sum: 1 },
+              has_clear_op: {
+                $max: {
+                  $cond: [{ $eq: ['$op', 'CLEAR'] }, 1, 0]
+                }
+              }
+            }
           }
         ],
-        { session: undefined }
+        { session: undefined, readConcern: 'snapshot' }
       )
       .toArray();
 
-    return new Map<string, util.BucketChecksum>(
+    return new Map<string, PartialChecksum>(
       aggregate.map((doc) => {
         return [
           doc._id,
           {
             bucket: doc._id,
-            count: doc.count,
-            checksum: Number(BigInt(doc.checksum_total) & 0xffffffffn) & 0xffffffff
-          } satisfies util.BucketChecksum
+            partialCount: doc.count,
+            partialChecksum: Number(BigInt(doc.checksum_total) & 0xffffffffn) & 0xffffffff,
+            isFullChecksum: doc.has_clear_op == 1
+          } satisfies PartialChecksum
         ];
       })
     );

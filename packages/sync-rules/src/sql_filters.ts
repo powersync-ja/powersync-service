@@ -1,9 +1,10 @@
-import { Expr, ExprRef, NodeLocation, SelectedColumn } from 'pgsql-ast-parser';
+import { Expr, ExprRef, Name, NodeLocation, QName, QNameAliased, SelectedColumn, parse } from 'pgsql-ast-parser';
 import { nil } from 'pgsql-ast-parser/src/utils.js';
 import { ExpressionType, TYPE_NONE } from './ExpressionType.js';
 import { SqlRuleError } from './errors.js';
 import {
   BASIC_OPERATORS,
+  OPERATOR_IN,
   OPERATOR_IS_NOT_NULL,
   OPERATOR_IS_NULL,
   OPERATOR_JSON_EXTRACT_JSON,
@@ -182,6 +183,7 @@ export class SqlTools {
       const value = staticValue(expr);
       return staticValueClause(value);
     } else if (expr.type == 'ref') {
+      this.checkRefCase(expr);
       const column = expr.name;
       if (column == '*') {
         return this.error('* not supported here', expr);
@@ -301,13 +303,18 @@ export class SqlTools {
           throw new Error('Unexpected');
         }
       } else if (op == 'IN') {
-        // Options:
-        //  static IN static
-        //  parameterValue IN static
+        // Special cases:
+        //  parameterValue IN rowValue
+        //  rowValue IN parameterValue
+        // All others are handled by standard function composition
 
-        if (isRowValueClause(leftFilter) && isRowValueClause(rightFilter)) {
-          // static1 IN static2
-          return compileStaticOperator(op, leftFilter, rightFilter);
+        const composeType = this.getComposeType(OPERATOR_IN, [leftFilter, rightFilter], [left, right]);
+        if (composeType.errorClause != null) {
+          return composeType.errorClause;
+        } else if (composeType.argsType != null) {
+          // This is a standard supported configuration, takes precedence over
+          // the special cases below.
+          return this.composeFunction(OPERATOR_IN, [leftFilter, rightFilter], [left, right]);
         } else if (isParameterValueClause(leftFilter) && isRowValueClause(rightFilter)) {
           // token_parameters.value IN table.some_array
           // bucket.param IN table.some_array
@@ -370,7 +377,8 @@ export class SqlTools {
             usesUnauthenticatedRequestParameters: rightFilter.usesUnauthenticatedRequestParameters
           } satisfies ParameterMatchClause;
         } else {
-          return this.error(`Unsupported usage of IN operator`, expr);
+          // Not supported, return the error previously computed
+          return this.error(composeType.error!, composeType.errorExpr);
         }
       } else if (BASIC_OPERATORS.has(op)) {
         const fnImpl = getOperatorFunction(op);
@@ -512,6 +520,61 @@ export class SqlTools {
     }
   }
 
+  public checkRefCase(ref: ExprRef) {
+    if (ref.table != null) {
+      this.checkSpecificNameCase(ref.table);
+    }
+    this.checkColumnNameCase(ref);
+  }
+
+  private checkColumnNameCase(expr: ExprRef) {
+    if (expr.name.toLowerCase() != expr.name) {
+      // name is not lower case, must be quoted
+      return;
+    }
+
+    let location = expr._location;
+    if (location == null) {
+      return;
+    }
+    const tableLocation = expr.table?._location;
+    if (tableLocation != null) {
+      // exp._location contains the entire expression.
+      // We use this to remove the "table" part.
+      location = { start: tableLocation.end + 1, end: location.end };
+    }
+    const source = this.sql.substring(location.start, location.end);
+    if (source.toLowerCase() != source) {
+      // source is not lower case, while parsed is lower-case
+      this.warn(`Unquoted identifiers are converted to lower-case. Use "${source}" instead.`, location);
+    }
+  }
+
+  /**
+   * Check the case of a table name or any alias.
+   */
+  public checkSpecificNameCase(expr: Name | QName | QNameAliased) {
+    if ((expr as QNameAliased).alias != null || (expr as QName).schema != null) {
+      // We cannot properly distinguish alias and schema from the name itself,
+      // without building our own complete parser, so we ignore this for now.
+      return;
+    }
+    if (expr.name.toLowerCase() != expr.name) {
+      // name is not lower case, which means it is already quoted
+      return;
+    }
+
+    const location = expr._location;
+    if (location == null) {
+      return;
+    }
+    const source = this.sql.substring(location.start, location.end);
+    if (source.toLowerCase() != source) {
+      // source is not lower case
+      this.warn(`Unquoted identifiers are converted to lower-case. Use "${source}" instead.`, location);
+    }
+  }
+
   private checkRef(table: string, ref: ExprRef) {
     if (this.schema) {
       const type = this.schema.getColumn(table, ref.name);
@@ -578,36 +641,19 @@ export class SqlTools {
    * @returns a compiled function clause
    */
   composeFunction(fnImpl: SqlFunction, argClauses: CompiledClause[], debugArgExpressions: Expr[]): CompiledClause {
-    let argsType: 'static' | 'row' | 'param' = 'static';
-    for (let i = 0; i < argClauses.length; i++) {
-      const debugArg = debugArgExpressions[i];
-      const clause = argClauses[i];
-      if (isClauseError(clause)) {
-        // Return immediately on error
-        return clause;
-      } else if (isStaticValueClause(clause)) {
-        // argsType unchanged
-      } else if (isParameterValueClause(clause)) {
-        if (!this.supports_parameter_expressions) {
-          return this.error(`Cannot use bucket parameters in expressions`, debugArg);
-        }
-        if (argsType == 'static' || argsType == 'param') {
-          argsType = 'param';
-        } else {
-          return this.error(`Cannot use table values and parameters in the same clauses`, debugArg);
-        }
-      } else if (isRowValueClause(clause)) {
-        if (argsType == 'static' || argsType == 'row') {
-          argsType = 'row';
-        } else {
-          return this.error(`Cannot use table values and parameters in the same clauses`, debugArg);
-        }
-      } else {
-        return this.error(`Parameter match clauses cannot be used here`, debugArg);
-      }
+    const result = this.getComposeType(fnImpl, argClauses, debugArgExpressions);
+    if (result.errorClause != null) {
+      return result.errorClause;
+    } else if (result.error != null) {
+      return this.error(result.error, result.errorExpr);
     }
+    const argsType = result.argsType!;
 
-    if (argsType == 'row' || argsType == 'static') {
+    if (argsType == 'static') {
+      const args = argClauses.map((e) => (e as StaticValueClause).value);
+      const evaluated = fnImpl.call(...args);
+      return staticValueClause(evaluated);
+    } else if (argsType == 'row') {
       return {
         evaluate: (tables) => {
           const args = argClauses.map((e) => (e as RowValueClause).evaluate(tables));
@@ -651,7 +697,48 @@ export class SqlTools {
     }
   }
 
-  parameterFunction() {}
+  getComposeType(
+    fnImpl: SqlFunction,
+    argClauses: CompiledClause[],
+    debugArgExpressions: Expr[]
+  ): { argsType?: string; error?: string; errorExpr?: Expr; errorClause?: ClauseError } {
+    let argsType: 'static' | 'row' | 'param' = 'static';
+    for (let i = 0; i < argClauses.length; i++) {
+      const debugArg = debugArgExpressions[i];
+      const clause = argClauses[i];
+      if (isClauseError(clause)) {
+        // Return immediately on error
+        return { errorClause: clause };
+      } else if (isStaticValueClause(clause)) {
+        // argsType unchanged
+      } else if (isParameterValueClause(clause)) {
+        if (!this.supports_parameter_expressions) {
+          if (fnImpl.debugName == 'operatorIN') {
+            // Special-case error message to be more descriptive
+            return { error: `Cannot use bucket parameters on the right side of IN operators`, errorExpr: debugArg };
+          }
+          return { error: `Cannot use bucket parameters in expressions`, errorExpr: debugArg };
+        }
+        if (argsType == 'static' || argsType == 'param') {
+          argsType = 'param';
+        } else {
+          return { error: `Cannot use table values and parameters in the same clauses`, errorExpr: debugArg };
+        }
+      } else if (isRowValueClause(clause)) {
+        if (argsType == 'static' || argsType == 'row') {
+          argsType = 'row';
+        } else {
+          return { error: `Cannot use table values and parameters in the same clauses`, errorExpr: debugArg };
+        }
+      } else {
+        return { error: `Parameter match clauses cannot be used here`, errorExpr: debugArg };
+      }
+    }
+
+    return {
+      argsType
+    };
+  }
 }
 
 function isStatic(expr: Expr) {
