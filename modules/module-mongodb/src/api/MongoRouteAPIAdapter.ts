@@ -1,4 +1,4 @@
-import { api, ParseSyncRulesOptions } from '@powersync/service-core';
+import { api, ParseSyncRulesOptions, SourceTable } from '@powersync/service-core';
 import * as mongo from 'mongodb';
 
 import * as sync_rules from '@powersync/service-sync-rules';
@@ -6,6 +6,7 @@ import * as service_types from '@powersync/service-types';
 import * as types from '../types/types.js';
 import { MongoManager } from '../replication/MongoManager.js';
 import { createCheckpoint, getMongoLsn } from '../replication/MongoRelation.js';
+import { escapeRegExp } from '../utils.js';
 
 export class MongoRouteAPIAdapter implements api.RouteAPI {
   protected client: mongo.MongoClient;
@@ -37,11 +38,21 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
   }
 
   async getConnectionStatus(): Promise<service_types.ConnectionStatusV2> {
-    // TODO: Implement
     const base = {
       id: this.config.id,
       uri: types.baseUri(this.config)
     };
+
+    try {
+      await this.client.connect();
+      await this.db.command({ hello: 1 });
+    } catch (e) {
+      return {
+        ...base,
+        connected: false,
+        errors: [{ level: 'fatal', message: e.message }]
+      };
+    }
     return {
       ...base,
       connected: true,
@@ -64,14 +75,100 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
     tablePatterns: sync_rules.TablePattern[],
     sqlSyncRules: sync_rules.SqlSyncRules
   ): Promise<api.PatternResult[]> {
-    // TODO: Implement
-    return [];
+    let result: api.PatternResult[] = [];
+    for (let tablePattern of tablePatterns) {
+      const schema = tablePattern.schema;
+
+      let patternResult: api.PatternResult = {
+        schema: schema,
+        pattern: tablePattern.tablePattern,
+        wildcard: tablePattern.isWildcard
+      };
+      result.push(patternResult);
+
+      let nameFilter: RegExp | string;
+      if (tablePattern.isWildcard) {
+        nameFilter = new RegExp('^' + escapeRegExp(tablePattern.tablePrefix));
+      } else {
+        nameFilter = tablePattern.name;
+      }
+
+      // Check if the collection exists
+      const collections = await this.client
+        .db(schema)
+        .listCollections(
+          {
+            name: nameFilter
+          },
+          { nameOnly: true }
+        )
+        .toArray();
+
+      if (tablePattern.isWildcard) {
+        patternResult.tables = [];
+        for (let collection of collections) {
+          const sourceTable = new SourceTable(
+            0,
+            this.connectionTag,
+            collection.name,
+            schema,
+            collection.name,
+            [],
+            true
+          );
+          const syncData = sqlSyncRules.tableSyncsData(sourceTable);
+          const syncParameters = sqlSyncRules.tableSyncsParameters(sourceTable);
+          patternResult.tables.push({
+            schema,
+            name: collection.name,
+            replication_id: ['_id'],
+            data_queries: syncData,
+            parameter_queries: syncParameters,
+            errors: []
+          });
+        }
+      } else {
+        const sourceTable = new SourceTable(
+          0,
+          this.connectionTag,
+          tablePattern.name,
+          schema,
+          tablePattern.name,
+          [],
+          true
+        );
+
+        const syncData = sqlSyncRules.tableSyncsData(sourceTable);
+        const syncParameters = sqlSyncRules.tableSyncsParameters(sourceTable);
+
+        if (collections.length == 1) {
+          patternResult.table = {
+            schema,
+            name: tablePattern.name,
+            replication_id: ['_id'],
+            data_queries: syncData,
+            parameter_queries: syncParameters,
+            errors: []
+          };
+        } else {
+          patternResult.table = {
+            schema,
+            name: tablePattern.name,
+            replication_id: ['_id'],
+            data_queries: syncData,
+            parameter_queries: syncParameters,
+            errors: [{ level: 'warning', message: `Collection ${schema}.${tablePattern.name} not found` }]
+          };
+        }
+      }
+    }
+    return result;
   }
 
-  async getReplicationLag(syncRulesId: string): Promise<number> {
-    // TODO: Implement
-
-    return 0;
+  async getReplicationLag(syncRulesId: string): Promise<number | undefined> {
+    // There is no fast way to get replication lag in bytes in MongoDB.
+    // We can get replication lag in seconds, but need a different API for that.
+    return undefined;
   }
 
   async getReplicationHead(): Promise<string> {

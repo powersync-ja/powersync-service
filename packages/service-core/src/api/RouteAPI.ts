@@ -44,7 +44,7 @@ export interface RouteAPI {
    *          replicated yet, in bytes.
    * @param {string} syncRulesId An identifier representing which set of sync rules the lag is required for.
    */
-  getReplicationLag(syncRulesId: string): Promise<number>;
+  getReplicationLag(syncRulesId: string): Promise<number | undefined>;
 
   /**
    * Get the current LSN or equivalent replication HEAD position identifier

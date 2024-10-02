@@ -10,6 +10,7 @@ import {
   getMongoRelation,
   mongoLsnToTimestamp
 } from './MongoRelation.js';
+import { escapeRegExp } from '../utils.js';
 
 export const ZERO_LSN = '0000000000000000';
 
@@ -495,9 +496,4 @@ async function touch() {
   // FIXME: We need a timeout of around 5+ minutes in Kubernetes if we do start checking the timestamp,
   // or reduce PING_INTERVAL here.
   return container.probes.touch();
-}
-
-function escapeRegExp(string: string) {
-  // https://stackoverflow.com/a/3561711/214837
-  return string.replace(/[/\-\\^$*+?.()|[\]{}]/g, '\\$&');
 }
