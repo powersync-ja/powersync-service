@@ -53,6 +53,8 @@ export async function getSyncRulesStatus(
     };
   }
 
+  const sourceConfig = await apiHandler.getSourceConfig();
+  const tag = sourceConfig.tag ?? DEFAULT_TAG;
   const systemStorage = live_status ? bucketStorage.getInstance(sync_rules) : undefined;
   const status = await systemStorage?.getStatus();
   let replication_lag_bytes: number | undefined = undefined;
@@ -128,15 +130,12 @@ export async function getSyncRulesStatus(
     })
   );
 
-  const sourceConfig = await apiHandler.getSourceConfig();
-  const tag = sourceConfig.tag ?? DEFAULT_TAG;
-
   return {
     content: include_content ? sync_rules.sync_rules_content : undefined,
     connections: [
       {
         id: sourceConfig.id ?? DEFAULT_DATASOURCE_ID,
-        tag: sourceConfig.tag ?? DEFAULT_TAG,
+        tag: tag,
         slot_name: sync_rules.slot_name,
         initial_replication_done: status?.snapshot_done ?? false,
         // TODO: Rename?
