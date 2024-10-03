@@ -54,6 +54,10 @@ export async function getSyncRulesStatus(
   }
 
   const sourceConfig = await apiHandler.getSourceConfig();
+  // This is a bit weird.
+  // This method can run under some situations if no connection is configured.
+  // It will return a default tag if no connection is available. This default tag
+  // is not module specific.
   const tag = sourceConfig.tag ?? DEFAULT_TAG;
   const systemStorage = live_status ? bucketStorage.getInstance(sync_rules) : undefined;
   const status = await systemStorage?.getStatus();
