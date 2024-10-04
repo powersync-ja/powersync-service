@@ -3,9 +3,9 @@ import * as mongo from 'mongodb';
 
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
-import * as types from '../types/types.js';
 import { MongoManager } from '../replication/MongoManager.js';
-import { constructAfterRecord, createCheckpoint, getMongoLsn } from '../replication/MongoRelation.js';
+import { constructAfterRecord, createCheckpoint } from '../replication/MongoRelation.js';
+import * as types from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
 
 export class MongoRouteAPIAdapter implements api.RouteAPI {
@@ -178,13 +178,24 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {
     const sampleSize = 50;
 
-    const databases = await this.db.admin().listDatabases({ authorizedDatabases: true, nameOnly: true });
+    const databases = await this.db.admin().listDatabases({ nameOnly: true });
     const filteredDatabases = databases.databases.filter((db) => {
       return !['local', 'admin', 'config'].includes(db.name);
     });
-    return await Promise.all(
+    const databaseSchemas = await Promise.all(
       filteredDatabases.map(async (db) => {
-        const collections = await this.client.db(db.name).listCollections().toArray();
+        /**
+         * Filtering the list of database with `authorizedDatabases: true`
+         * does not produce the full list of databases under some circumstances.
+         * This catches any potential auth errors.
+         */
+        let collections: mongo.CollectionInfo[];
+        try {
+          collections = await this.client.db(db.name).listCollections().toArray();
+        } catch (ex) {
+          return null;
+        }
+
         const filtered = collections.filter((c) => {
           return !['_powersync_checkpoints'].includes(c.name);
         });
@@ -219,6 +230,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
         } satisfies service_types.DatabaseSchema;
       })
     );
+    return databaseSchemas.filter((schema) => !!schema);
   }
 
   private getColumnsFromDocuments(documents: mongo.BSON.Document[]) {
