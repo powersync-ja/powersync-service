@@ -132,7 +132,7 @@ export const TableSchema = t.object({
        * Internal postgres type, e.g. "varchar[]".
        * @deprecated - use internal_type instead
        */
-      pg_type: t.string.optional()
+      pg_type: t.string
     })
   )
 });

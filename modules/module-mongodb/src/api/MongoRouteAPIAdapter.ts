@@ -260,7 +260,8 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
         name: key,
         type: internal_type,
         sqlite_type: value.sqliteType.typeFlags,
-        internal_type
+        internal_type,
+        pg_type: internal_type
       };
     });
   }
