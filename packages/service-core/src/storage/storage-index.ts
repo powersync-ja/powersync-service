@@ -16,3 +16,4 @@ export * from './mongo/MongoSyncRulesLock.js';
 export * from './mongo/OperationBatch.js';
 export * from './mongo/PersistedBatch.js';
 export * from './mongo/util.js';
+export * from './mongo/config.js';

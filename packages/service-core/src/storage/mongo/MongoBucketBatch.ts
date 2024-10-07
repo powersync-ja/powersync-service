@@ -7,7 +7,7 @@ import * as util from '../../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, mergeToast, SaveOptions } from '../BucketStorage.js';
 import { SourceTable } from '../SourceTable.js';
 import { PowerSyncMongo } from './db.js';
-import { CurrentBucket, CurrentDataDocument, SourceKey } from './models.js';
+import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { cacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
@@ -71,6 +71,10 @@ export class MongoBucketBatch implements BucketStorageBatch {
     this.session = this.client.startSession();
     this.last_checkpoint_lsn = last_checkpoint_lsn;
     this.no_checkpoint_before_lsn = no_checkpoint_before_lsn;
+  }
+
+  get lastCheckpointLsn() {
+    return this.last_checkpoint_lsn;
   }
 
   async flush(): Promise<FlushedResult | null> {
@@ -535,7 +539,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
   async commit(lsn: string): Promise<boolean> {
     await this.flush();
 
-    if (this.last_checkpoint_lsn != null && lsn <= this.last_checkpoint_lsn) {
+    if (this.last_checkpoint_lsn != null && lsn < this.last_checkpoint_lsn) {
       // When re-applying transactions, don't create a new checkpoint until
       // we are past the last transaction.
       logger.info(`Re-applied transaction ${lsn} - skipping checkpoint`);
