@@ -255,10 +255,12 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
       }
     }
     return [...columns.entries()].map(([key, value]) => {
+      const internal_type = value.bsonTypes.size == 0 ? '' : [...value.bsonTypes].join(' | ');
       return {
         name: key,
+        type: internal_type,
         sqlite_type: value.sqliteType.typeFlags,
-        internal_type: value.bsonTypes.size == 0 ? '' : [...value.bsonTypes].join(' | ')
+        internal_type
       };
     });
   }
