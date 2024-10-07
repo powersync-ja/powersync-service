@@ -126,13 +126,13 @@ export const TableSchema = t.object({
        * Full type name, e.g. "character varying(255)[]"
        * @deprecated - use internal_type
        */
-      type: t.string.optional(),
+      type: t.string,
 
       /**
        * Internal postgres type, e.g. "varchar[]".
        * @deprecated - use internal_type instead
        */
-      pg_type: t.string.optional()
+      pg_type: t.string
     })
   )
 });
