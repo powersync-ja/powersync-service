@@ -75,19 +75,11 @@ export class PowerSyncMongo {
   }
 
   /**
-   * Drop all collections.
+   * Drop the entire database.
    *
    * Primarily for tests.
    */
   async drop() {
-    await this.current_data.drop();
-    await this.bucket_data.drop();
-    await this.bucket_parameters.drop();
-    await this.op_id_sequence.drop();
-    await this.sync_rules.drop();
-    await this.source_tables.drop();
-    await this.write_checkpoints.drop();
-    await this.instance.drop();
-    await this.locks.drop();
+    await this.db.dropDatabase();
   }
 }
