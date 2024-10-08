@@ -1,6 +1,6 @@
 import { SelectedColumn } from 'pgsql-ast-parser';
 import { SqlRuleError } from './errors.js';
-import { ColumnDefinition, ExpressionType } from './ExpressionType.js';
+import { ColumnDefinition } from './ExpressionType.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SqlTools } from './sql_filters.js';
 import { TablePattern } from './TablePattern.js';
@@ -100,14 +100,14 @@ export class BaseSqlDataQuery {
     return filterJsonRow(result);
   }
 
-  private getColumnOutputsFor(schemaTable: SourceSchemaTable, output: Record<string, ColumnDefinition>) {
+  protected getColumnOutputsFor(schemaTable: SourceSchemaTable, output: Record<string, ColumnDefinition>) {
     const querySchema: QuerySchema = {
-      getType: (table, column) => {
+      getColumn: (table, column) => {
         if (table == this.table!) {
-          return schemaTable.getType(column) ?? ExpressionType.NONE;
+          return schemaTable.getColumn(column);
         } else {
           // TODO: bucket parameters?
-          return ExpressionType.NONE;
+          return undefined;
         }
       },
       getColumns: (table) => {

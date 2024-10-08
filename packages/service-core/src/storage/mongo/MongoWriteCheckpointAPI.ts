@@ -50,7 +50,7 @@ export class MongoWriteCheckpointAPI implements WriteCheckpointAPI {
   }
 
   async createManagedWriteCheckpoint(checkpoint: ManagedWriteCheckpointOptions): Promise<bigint> {
-    if (this.mode !== WriteCheckpointMode.CUSTOM) {
+    if (this.mode !== WriteCheckpointMode.MANAGED) {
       logger.warn(
         `Creating a managed Write Checkpoint when the current Write Checkpoint mode is set to "${this.mode}"`
       );
@@ -116,13 +116,13 @@ export async function batchCreateCustomWriteCheckpoints(
   }
 
   await db.custom_write_checkpoints.bulkWrite(
-    checkpoints.map((checkpoint) => ({
+    checkpoints.map((checkpointOptions) => ({
       updateOne: {
-        filter: { user_id: checkpoint.user_id, sync_rules_id: checkpoint.sync_rules_id },
+        filter: { user_id: checkpointOptions.user_id, sync_rules_id: checkpointOptions.sync_rules_id },
         update: {
           $set: {
-            checkpoint: checkpoint.checkpoint,
-            sync_rules_id: checkpoint.sync_rules_id
+            checkpoint: checkpointOptions.checkpoint,
+            sync_rules_id: checkpointOptions.sync_rules_id
           }
         },
         upsert: true

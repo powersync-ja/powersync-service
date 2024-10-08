@@ -1,6 +1,7 @@
 import { parse } from 'pgsql-ast-parser';
 import { BaseSqlDataQuery } from '../BaseSqlDataQuery.js';
 import { SqlRuleError } from '../errors.js';
+import { ExpressionType } from '../ExpressionType.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { SqlTools } from '../sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError } from '../sql_support.js';
@@ -95,7 +96,8 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
             output[name] = clause.evaluate(tables);
           },
           getTypes(schema, into) {
-            into[name] = { name, type: clause.getType(schema) };
+            const def = clause.getColumnDefinition(schema);
+            into[name] = { name, type: def?.type ?? ExpressionType.NONE, originalType: def?.originalType };
           }
         });
       } else {
