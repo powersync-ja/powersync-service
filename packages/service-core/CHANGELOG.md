@@ -1,5 +1,12 @@
 # @powersync/service-core
 
+## 0.8.6
+
+### Patch Changes
+
+- 2d3bb6a: Fix "operation exceeded time limit" error
+- 17a6db0: Fix storageStats error in metrics endpoint when collections don't exist.
+
 ## 0.8.5
 
 ### Patch Changes
