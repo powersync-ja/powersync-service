@@ -1,4 +1,4 @@
-import { logger } from '@powersync/lib-services-framework';
+import * as framework from '@powersync/lib-services-framework';
 import {
   CustomWriteCheckpointFilters,
   CustomWriteCheckpointOptions,
@@ -30,7 +30,9 @@ export class MongoWriteCheckpointAPI implements WriteCheckpointAPI {
 
   async createCustomWriteCheckpoint(options: CustomWriteCheckpointOptions): Promise<bigint> {
     if (this.mode !== WriteCheckpointMode.CUSTOM) {
-      logger.warn(`Creating a custom Write Checkpoint when the current Write Checkpoint mode is set to "${this.mode}"`);
+      throw new framework.errors.ValidationError(
+        `Creating a custom Write Checkpoint when the current Write Checkpoint mode is set to "${this.mode}"`
+      );
     }
 
     const { checkpoint, user_id, sync_rules_id } = options;
@@ -51,7 +53,7 @@ export class MongoWriteCheckpointAPI implements WriteCheckpointAPI {
 
   async createManagedWriteCheckpoint(checkpoint: ManagedWriteCheckpointOptions): Promise<bigint> {
     if (this.mode !== WriteCheckpointMode.MANAGED) {
-      logger.warn(
+      throw new framework.errors.ValidationError(
         `Creating a managed Write Checkpoint when the current Write Checkpoint mode is set to "${this.mode}"`
       );
     }
@@ -78,12 +80,14 @@ export class MongoWriteCheckpointAPI implements WriteCheckpointAPI {
     switch (this.mode) {
       case WriteCheckpointMode.CUSTOM:
         if (false == 'sync_rules_id' in filters) {
-          throw new Error(`Sync rules ID is required for custom Write Checkpoint filtering`);
+          throw new framework.errors.ValidationError(`Sync rules ID is required for custom Write Checkpoint filtering`);
         }
         return this.lastCustomWriteCheckpoint(filters);
       case WriteCheckpointMode.MANAGED:
         if (false == 'heads' in filters) {
-          throw new Error(`Replication HEAD is required for managed Write Checkpoint filtering`);
+          throw new framework.errors.ValidationError(
+            `Replication HEAD is required for managed Write Checkpoint filtering`
+          );
         }
         return this.lastManagedWriteCheckpoint(filters);
     }
