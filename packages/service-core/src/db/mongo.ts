@@ -22,6 +22,13 @@ export const MONGO_SOCKET_TIMEOUT_MS = 60_000;
  */
 export const MONGO_OPERATION_TIMEOUT_MS = 30_000;
 
+/**
+ * Same as above, but specifically for clear operations.
+ *
+ * These are retried when reaching the timeout.
+ */
+export const MONGO_CLEAR_OPERATION_TIMEOUT_MS = 5_000;
+
 export function createMongoClient(config: configFile.PowerSyncConfig['storage']) {
   return new mongo.MongoClient(config.uri, {
     auth: {
