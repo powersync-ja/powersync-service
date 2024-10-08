@@ -294,22 +294,15 @@ export class MongoBucketStorage implements BucketStorageFactory {
   }
 
   async getStorageMetrics(): Promise<StorageMetrics> {
-    try {
-      return await this.getStorageMetricsInner();
-    } catch (e: unknown) {
-      // This can happen when migrations weren't run
+    const ignoreNotExiting = (e: unknown) => {
       if (e instanceof mongo.MongoServerError && e.codeName == 'NamespaceNotFound') {
-        return {
-          operations_size_bytes: 0,
-          parameters_size_bytes: 0,
-          replication_size_bytes: 0
-        };
+        // Collection doesn't exist - return 0
+        return [{ storageStats: { size: 0 } }];
+      } else {
+        return Promise.reject(e);
       }
-      throw e;
-    }
-  }
+    };
 
-  private async getStorageMetricsInner(): Promise<StorageMetrics> {
     const active_sync_rules = await this.getActiveSyncRules();
     if (active_sync_rules == null) {
       return {
@@ -323,34 +316,34 @@ export class MongoBucketStorage implements BucketStorageFactory {
       .aggregate([
         {
           $collStats: {
-            storageStats: {},
-            count: {}
+            storageStats: {}
           }
         }
       ])
-      .toArray();
+      .toArray()
+      .catch(ignoreNotExiting);
 
     const parameters_aggregate = await this.db.bucket_parameters
       .aggregate([
         {
           $collStats: {
-            storageStats: {},
-            count: {}
+            storageStats: {}
           }
         }
       ])
-      .toArray();
+      .toArray()
+      .catch(ignoreNotExiting);
 
     const replication_aggregate = await this.db.current_data
       .aggregate([
         {
           $collStats: {
-            storageStats: {},
-            count: {}
+            storageStats: {}
           }
         }
       ])
-      .toArray();
+      .toArray()
+      .catch(ignoreNotExiting);
 
     return {
       operations_size_bytes: operations_aggregate[0].storageStats.size,
