@@ -22,7 +22,10 @@ export const syncStreamed = routeDefinition({
   handler: async (payload) => {
     const system = payload.context.system;
     const headers = payload.request.headers;
-    const userAgent = headers['x-user-agent'] ?? headers['user-agent'];
+
+    const userAgentCustom = headers['x-user-agent'];
+    const userAgentbase = headers['user-agent'];
+    const userAgent = [userAgentCustom, userAgentbase].filter((ua) => ua != null).join(' ');
     const clientId = payload.params.client_id;
 
     if (system.closed) {

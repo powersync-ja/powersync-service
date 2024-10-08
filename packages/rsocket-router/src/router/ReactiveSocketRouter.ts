@@ -54,7 +54,9 @@ export class ReactiveSocketRouter<C> {
     const rSocketServer = new RSocketServer({
       transport,
       acceptor: {
-        accept: async (payload) => {
+        accept: async (payload, peer) => {
+          const userAgent = (peer as any).connection.userAgent;
+
           const { max_concurrent_connections } = this.options ?? {};
           logger.info(`Currently have ${wss.clients.size} active WebSocket connection(s)`);
           // wss.clients.size includes this connection, so we check for greater than
@@ -75,7 +77,7 @@ export class ReactiveSocketRouter<C> {
             throw new errors.AuthorizationError('No context meta data provided');
           }
 
-          const context = await params.contextProvider(payload.metadata!);
+          const context = await params.contextProvider(payload.metadata!, { userAgent: userAgent });
 
           return {
             // RequestStream is currently the only supported connection type
