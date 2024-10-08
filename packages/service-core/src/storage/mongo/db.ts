@@ -59,6 +59,9 @@ export class PowerSyncMongo {
     this.locks = this.db.collection('locks');
   }
 
+  /**
+   * Clear all collections.
+   */
   async clear() {
     await this.current_data.deleteMany({});
     await this.bucket_data.deleteMany({});
@@ -69,5 +72,22 @@ export class PowerSyncMongo {
     await this.write_checkpoints.deleteMany({});
     await this.instance.deleteOne({});
     await this.locks.deleteMany({});
+  }
+
+  /**
+   * Drop all collections.
+   *
+   * Primarily for tests.
+   */
+  async drop() {
+    await this.current_data.drop();
+    await this.bucket_data.drop();
+    await this.bucket_parameters.drop();
+    await this.op_id_sequence.drop();
+    await this.sync_rules.drop();
+    await this.source_tables.drop();
+    await this.write_checkpoints.drop();
+    await this.instance.drop();
+    await this.locks.drop();
   }
 }

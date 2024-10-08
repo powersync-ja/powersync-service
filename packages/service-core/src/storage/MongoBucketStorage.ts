@@ -294,6 +294,22 @@ export class MongoBucketStorage implements BucketStorageFactory {
   }
 
   async getStorageMetrics(): Promise<StorageMetrics> {
+    try {
+      return await this.getStorageMetricsInner();
+    } catch (e: unknown) {
+      // This can happen when migrations weren't run
+      if (e instanceof mongo.MongoServerError && e.codeName == 'NamespaceNotFound') {
+        return {
+          operations_size_bytes: 0,
+          parameters_size_bytes: 0,
+          replication_size_bytes: 0
+        };
+      }
+      throw e;
+    }
+  }
+
+  private async getStorageMetricsInner(): Promise<StorageMetrics> {
     const active_sync_rules = await this.getActiveSyncRules();
     if (active_sync_rules == null) {
       return {

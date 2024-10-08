@@ -505,21 +505,6 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     );
   }
 
-  async setSnapshotDone(lsn: string): Promise<void> {
-    await this.db.sync_rules.updateOne(
-      {
-        _id: this.group_id
-      },
-      {
-        $set: {
-          snapshot_done: true,
-          persisted_lsn: lsn,
-          last_checkpoint_ts: new Date()
-        }
-      }
-    );
-  }
-
   async autoActivate(): Promise<void> {
     await this.db.client.withSession(async (session) => {
       await session.withTransaction(async () => {

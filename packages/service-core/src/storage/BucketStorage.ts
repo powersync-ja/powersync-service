@@ -253,8 +253,6 @@ export interface SyncRulesBucketStorage {
    */
   clear(): Promise<void>;
 
-  setSnapshotDone(lsn: string): Promise<void>;
-
   autoActivate(): Promise<void>;
 
   /**
