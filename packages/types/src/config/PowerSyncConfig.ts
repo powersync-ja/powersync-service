@@ -95,7 +95,6 @@ export type StorageConfig = t.Decoded<typeof storageConfig>;
 export const powerSyncConfig = t.object({
   replication: t
     .object({
-      connections: t.array(DataSourceConfig).optional()
       // This uses the generic config which may have additional fields
       connections: t.array(genericDataSourceConfig).optional()
     })

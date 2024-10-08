@@ -63,13 +63,6 @@ export async function getSyncRulesStatus(
 
   let tables_flat: TableInfo[] = [];
 
-  const sourceConfig = await api?.getSourceConfig();
-  // This is a bit weird.
-  // This method can run under some situations if no connection is configured.
-  // It will return a default tag if not connection is available. This default tag
-  // is not module specific.
-  const tag = sourceConfig?.tag ?? DEFAULT_TAG;
-
   if (check_connection) {
     const source_table_patterns = rules.getSourceTables();
     const resolved_tables = await apiHandler.getDebugTablesInfo(source_table_patterns, rules);
@@ -88,7 +81,7 @@ export async function getSyncRulesStatus(
         const lastCheckpoint = await systemStorage.getCheckpoint();
         replication_lag_bytes = await apiHandler.getReplicationLag({
           replication_identifier: systemStorage.slot_name,
-          last_checkpoint_identifier: lastCheckpoint.lsn
+          last_checkpoint_identifier: lastCheckpoint.checkpoint
         });
       } catch (e) {
         // Ignore
