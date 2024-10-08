@@ -11,7 +11,7 @@ import * as util from '../util/util-index.js';
 import { ReplicationEventManager } from './ReplicationEventManager.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
-import { CustomWriteCheckpointOptions, ReplicaId, WriteCheckpointAPI } from './storage-index.js';
+import { BatchedCustomWriteCheckpointOptions, ReplicaId, WriteCheckpointAPI } from './storage-index.js';
 
 export interface BucketStorageFactory extends WriteCheckpointAPI {
   /**
@@ -349,7 +349,7 @@ export interface BucketStorageBatch {
   /**
    * Queues the creation of a custom Write Checkpoint. This will be persisted after operations are flushed.
    */
-  addCustomWriteCheckpoint(checkpoint: CustomWriteCheckpointOptions): void;
+  addCustomWriteCheckpoint(checkpoint: BatchedCustomWriteCheckpointOptions): void;
 }
 
 export interface SaveParameterData {

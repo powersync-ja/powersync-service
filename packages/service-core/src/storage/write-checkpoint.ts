@@ -34,6 +34,13 @@ export interface CustomWriteCheckpointOptions extends CustomWriteCheckpointFilte
 }
 
 /**
+ * Options for creating a custom Write Checkpoint in a batch.
+ * A {@link BucketStorageBatch} is already associated with a Sync Rules instance.
+ * The `sync_rules_id` is not required here.
+ */
+export type BatchedCustomWriteCheckpointOptions = Omit<CustomWriteCheckpointOptions, 'sync_rules_id'>;
+
+/**
  * Managed Write Checkpoints are a mapping of User ID to replication HEAD
  */
 export interface ManagedWriteCheckpointFilters extends BaseWriteCheckpointIdentifier {
