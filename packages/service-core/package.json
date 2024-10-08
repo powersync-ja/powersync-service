@@ -12,7 +12,7 @@
   "scripts": {
     "build": "tsc -b",
     "build:tests": "tsc -b test/tsconfig.json",
-    "test": "vitest --no-threads",
+    "test": "vitest",
     "clean": "rm -rf ./lib && tsc -b --clean"
   },
   "dependencies": {
@@ -50,8 +50,8 @@
     "@types/uuid": "^9.0.4",
     "fastify": "4.23.2",
     "fastify-plugin": "^4.5.1",
-    "typescript": "^5.5.4",
+    "typescript": "^5.6.2",
     "vite-tsconfig-paths": "^4.3.2",
-    "vitest": "^0.34.6"
+    "vitest": "^2.1.1"
   }
 }

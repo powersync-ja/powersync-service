@@ -112,12 +112,13 @@ export const reprocess = routeDefinition({
     const {
       storageEngine: { activeBucketStorage }
     } = service_context;
-    const next = await activeBucketStorage.getNextSyncRules();
+    const apiHandler = service_context.routerEngine!.getAPI();
+    const next = await activeBucketStorage.getNextSyncRules(apiHandler.getParseSyncRulesOptions());
     if (next != null) {
       throw new Error(`Busy processing sync rules - cannot reprocess`);
     }
 
-    const active = await activeBucketStorage.getActiveSyncRules();
+    const active = await activeBucketStorage.getActiveSyncRules(apiHandler.getParseSyncRulesOptions());
     if (active == null) {
       throw new errors.JourneyError({
         status: 422,
@@ -129,8 +130,6 @@ export const reprocess = routeDefinition({
     const new_rules = await activeBucketStorage.updateSyncRules({
       content: active.sync_rules.content
     });
-
-    const apiHandler = service_context.routerEngine!.getAPI();
 
     const baseConfig = await apiHandler.getSourceConfig();
 
@@ -170,7 +169,10 @@ export const validate = routeDefinition({
       parsed() {
         return {
           ...this,
-          sync_rules: SqlSyncRules.fromYaml(content, { throwOnError: false, schema })
+          sync_rules: SqlSyncRules.fromYaml(content, {
+            ...apiHandler.getParseSyncRulesOptions(),
+            schema
+          })
         };
       },
       sync_rules_content: content,

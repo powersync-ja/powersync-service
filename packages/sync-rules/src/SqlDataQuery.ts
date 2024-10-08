@@ -19,6 +19,7 @@ import {
 } from './types.js';
 import { filterJsonRow, getBucketId, isSelectStatement } from './utils.js';
 import { TableQuerySchema } from './TableQuerySchema.js';
+import { SyncRulesOptions } from './SqlSyncRules.js';
 
 interface RowValueExtractor {
   extract(tables: QueryParameters, into: SqliteRow): void;
@@ -26,9 +27,10 @@ interface RowValueExtractor {
 }
 
 export class SqlDataQuery {
-  static fromSql(descriptor_name: string, bucket_parameters: string[], sql: string, schema?: SourceSchema) {
+  static fromSql(descriptor_name: string, bucket_parameters: string[], sql: string, options: SyncRulesOptions) {
     const parsed = parse(sql, { locationTracking: true });
     const rows = new SqlDataQuery();
+    const schema = options.schema;
 
     if (parsed.length > 1) {
       throw new SqlRuleError('Only a single SELECT statement is supported', sql, parsed[1]?._location);
@@ -50,7 +52,7 @@ export class SqlDataQuery {
     }
     const alias: string = tableRef.alias ?? tableRef.name;
 
-    const sourceTable = new TablePattern(tableRef.schema, tableRef.name);
+    const sourceTable = new TablePattern(tableRef.schema ?? options.defaultSchema, tableRef.name);
     let querySchema: QuerySchema | undefined = undefined;
     if (schema) {
       const tables = schema.getTables(sourceTable);
@@ -76,6 +78,7 @@ export class SqlDataQuery {
       sql,
       schema: querySchema
     });
+    tools.checkSpecificNameCase(tableRef);
     const filter = tools.compileWhereClause(where);
 
     const inputParameterNames = filter.inputParameters!.map((p) => p.key);
@@ -121,7 +124,9 @@ export class SqlDataQuery {
             output[name] = clause.evaluate(tables);
           },
           getTypes(schema, into) {
-            into[name] = { name, type: clause.getType(schema) };
+            const def = clause.getColumnDefinition(schema);
+
+            into[name] = { name, type: def?.type ?? ExpressionType.NONE, originalType: def?.originalType };
           }
         });
       } else {
@@ -150,7 +155,7 @@ export class SqlDataQuery {
           // Not performing schema-based validation - assume there is an id
           hasId = true;
         } else {
-          const idType = querySchema.getType(alias, 'id');
+          const idType = querySchema.getColumn(alias, 'id')?.type ?? ExpressionType.NONE;
           if (!idType.isNone()) {
             hasId = true;
           }
@@ -294,12 +299,12 @@ export class SqlDataQuery {
 
   private getColumnOutputsFor(schemaTable: SourceSchemaTable, output: Record<string, ColumnDefinition>) {
     const querySchema: QuerySchema = {
-      getType: (table, column) => {
+      getColumn: (table, column) => {
         if (table == this.table!) {
-          return schemaTable.getType(column) ?? ExpressionType.NONE;
+          return schemaTable.getColumn(column);
         } else {
           // TODO: bucket parameters?
-          return ExpressionType.NONE;
+          return undefined;
         }
       },
       getColumns: (table) => {

@@ -1,14 +1,15 @@
-import { container, errors, logger } from '@powersync/lib-services-framework';
-import { Metrics, SourceEntityDescriptor, storage } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
-import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
 import * as util from '../utils/pgwire_utils.js';
-import { PgManager } from './PgManager.js';
+import { container, errors, logger } from '@powersync/lib-services-framework';
+import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
 import { getPgOutputRelation, getRelId } from './PgRelation.js';
+import { getUuidReplicaIdentityBson, Metrics, SourceEntityDescriptor, storage } from '@powersync/service-core';
 import { checkSourceConfiguration, getReplicationIdentityColumns } from './replication-utils.js';
+import { PgManager } from './PgManager.js';
 
 export const ZERO_LSN = '00000000/00000000';
 export const PUBLICATION_NAME = 'powersync';
+export const POSTGRES_DEFAULT_SCHEMA = 'public';
 
 export interface WalStreamOptions {
   connections: PgManager;
@@ -46,7 +47,7 @@ export class WalStream {
 
   constructor(options: WalStreamOptions) {
     this.storage = options.storage;
-    this.sync_rules = options.storage.sync_rules;
+    this.sync_rules = options.storage.getParsedSyncRules({ defaultSchema: POSTGRES_DEFAULT_SCHEMA });
     this.group_id = options.storage.group_id;
     this.slot_name = options.storage.slot_name;
     this.connections = options.connections;
@@ -195,15 +196,22 @@ export class WalStream {
           // We peek a large number of changes here, to make it more likely to pick up replication slot errors.
           // For example, "publication does not exist" only occurs here if the peek actually includes changes related
           // to the slot.
-          await this.connections.pool.query({
-            statement: `SELECT *
-                    FROM pg_catalog.pg_logical_slot_peek_binary_changes($1, NULL, 1000, 'proto_version', '1',
-                                                                        'publication_names', $2)`,
+          logger.info(`Checking ${slotName}`);
+
+          // The actual results can be quite large, so we don't actually return everything
+          // due to memory and processing overhead that would create.
+          const cursor = await this.connections.pool.stream({
+            statement: `SELECT 1 FROM pg_catalog.pg_logical_slot_peek_binary_changes($1, NULL, 1000, 'proto_version', '1', 'publication_names', $2)`,
             params: [
               { type: 'varchar', value: slotName },
               { type: 'varchar', value: PUBLICATION_NAME }
             ]
           });
+
+          for await (let _chunk of cursor) {
+            // No-op, just exhaust the cursor
+          }
+
           // Success
           logger.info(`Slot ${slotName} appears healthy`);
           return { needsInitialSync: false };
@@ -333,7 +341,7 @@ WHERE  oid = $1::regclass`,
 
   async initialReplication(db: pgwire.PgConnection, lsn: string) {
     const sourceTables = this.sync_rules.getSourceTables();
-    await this.storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
+    await this.storage.startBatch({ zeroLSN: ZERO_LSN, defaultSchema: POSTGRES_DEFAULT_SCHEMA }, async (batch) => {
       for (let tablePattern of sourceTables) {
         const tables = await this.getQualifiedTableNames(batch, db, tablePattern);
         for (let table of tables) {
@@ -393,7 +401,9 @@ WHERE  oid = $1::regclass`,
           tag: storage.SaveOperationTag.INSERT,
           sourceTable: table,
           before: undefined,
-          after: record
+          beforeReplicaId: undefined,
+          after: record,
+          afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns)
         });
       }
       at += rows.length;
@@ -476,27 +486,25 @@ WHERE  oid = $1::regclass`,
     if (msg.lsn == null) {
       return null;
     }
-    if (
-      msg.tag == storage.SaveOperationTag.INSERT ||
-      msg.tag == storage.SaveOperationTag.UPDATE ||
-      msg.tag == storage.SaveOperationTag.DELETE
-    ) {
+    if (msg.tag == 'insert' || msg.tag == 'update' || msg.tag == 'delete') {
       const table = this.getTable(getRelId(msg.relation));
       if (!table.syncAny) {
         logger.debug(`Table ${table.qualifiedName} not used in sync rules - skipping`);
         return null;
       }
 
-      if (msg.tag == storage.SaveOperationTag.INSERT) {
+      if (msg.tag == 'insert') {
         Metrics.getInstance().rows_replicated_total.add(1);
         const baseRecord = util.constructAfterRecord(msg);
         return await batch.save({
           tag: storage.SaveOperationTag.INSERT,
           sourceTable: table,
           before: undefined,
-          after: baseRecord
+          beforeReplicaId: undefined,
+          after: baseRecord,
+          afterReplicaId: getUuidReplicaIdentityBson(baseRecord, table.replicaIdColumns)
         });
-      } else if (msg.tag == storage.SaveOperationTag.UPDATE) {
+      } else if (msg.tag == 'update') {
         Metrics.getInstance().rows_replicated_total.add(1);
         // "before" may be null if the replica id columns are unchanged
         // It's fine to treat that the same as an insert.
@@ -506,9 +514,11 @@ WHERE  oid = $1::regclass`,
           tag: storage.SaveOperationTag.UPDATE,
           sourceTable: table,
           before: before,
-          after: after
+          beforeReplicaId: before ? getUuidReplicaIdentityBson(before, table.replicaIdColumns) : undefined,
+          after: after,
+          afterReplicaId: getUuidReplicaIdentityBson(after, table.replicaIdColumns)
         });
-      } else if (msg.tag == storage.SaveOperationTag.DELETE) {
+      } else if (msg.tag == 'delete') {
         Metrics.getInstance().rows_replicated_total.add(1);
         const before = util.constructBeforeRecord(msg)!;
 
@@ -516,7 +526,9 @@ WHERE  oid = $1::regclass`,
           tag: storage.SaveOperationTag.DELETE,
           sourceTable: table,
           before: before,
-          after: undefined
+          beforeReplicaId: getUuidReplicaIdentityBson(before, table.replicaIdColumns),
+          after: undefined,
+          afterReplicaId: undefined
         });
       }
     } else if (msg.tag == 'truncate') {
@@ -565,7 +577,7 @@ WHERE  oid = $1::regclass`,
     // Auto-activate as soon as initial replication is done
     await this.storage.autoActivate();
 
-    await this.storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
+    await this.storage.startBatch({ zeroLSN: ZERO_LSN, defaultSchema: POSTGRES_DEFAULT_SCHEMA }, async (batch) => {
       // Replication never starts in the middle of a transaction
       let inTx = false;
       let count = 0;

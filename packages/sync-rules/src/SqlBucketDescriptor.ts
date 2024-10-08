@@ -2,6 +2,7 @@ import { IdSequence } from './IdSequence.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SqlDataQuery } from './SqlDataQuery.js';
 import { SqlParameterQuery } from './SqlParameterQuery.js';
+import { SyncRulesOptions } from './SqlSyncRules.js';
 import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
 import { TablePattern } from './TablePattern.js';
 import { SqlRuleError } from './errors.js';
@@ -29,7 +30,10 @@ export class SqlBucketDescriptor {
   name: string;
   bucket_parameters?: string[];
 
-  constructor(name: string, public idSequence: IdSequence) {
+  constructor(
+    name: string,
+    public idSequence: IdSequence
+  ) {
     this.name = name;
   }
 
@@ -42,11 +46,11 @@ export class SqlBucketDescriptor {
 
   parameterIdSequence = new IdSequence();
 
-  addDataQuery(sql: string, schema?: SourceSchema): QueryParseResult {
+  addDataQuery(sql: string, options: SyncRulesOptions): QueryParseResult {
     if (this.bucket_parameters == null) {
       throw new Error('Bucket parameters must be defined');
     }
-    const dataRows = SqlDataQuery.fromSql(this.name, this.bucket_parameters, sql, schema);
+    const dataRows = SqlDataQuery.fromSql(this.name, this.bucket_parameters, sql, options);
 
     dataRows.ruleId = this.idSequence.nextId();
 
@@ -58,8 +62,8 @@ export class SqlBucketDescriptor {
     };
   }
 
-  addParameterQuery(sql: string, schema: SourceSchema | undefined, options: QueryParseOptions): QueryParseResult {
-    const parameterQuery = SqlParameterQuery.fromSql(this.name, sql, schema, options);
+  addParameterQuery(sql: string, options: QueryParseOptions): QueryParseResult {
+    const parameterQuery = SqlParameterQuery.fromSql(this.name, sql, options);
     if (this.bucket_parameters == null) {
       this.bucket_parameters = parameterQuery.bucket_parameters;
     } else {

@@ -28,7 +28,11 @@ export class SqlRuleError extends Error {
   location?: ErrorLocation;
   type: 'warning' | 'fatal' = 'fatal';
 
-  constructor(message: string, public sql: string, location?: NodeLocation | Expr) {
+  constructor(
+    message: string,
+    public sql: string,
+    location?: NodeLocation | Expr
+  ) {
     super(message);
 
     this.location = getLocation(location) ?? { start: 0, end: sql.length };
@@ -39,7 +43,10 @@ export class YamlError extends Error {
   location: ErrorLocation;
   type: 'warning' | 'fatal' = 'fatal';
 
-  constructor(public source: Error, location?: ErrorLocation) {
+  constructor(
+    public source: Error,
+    location?: ErrorLocation
+  ) {
     super(source.message);
 
     if (location == null && source instanceof yaml.YAMLError) {

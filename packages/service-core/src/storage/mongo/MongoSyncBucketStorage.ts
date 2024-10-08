@@ -11,6 +11,9 @@ import {
   DEFAULT_DOCUMENT_BATCH_LIMIT,
   DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES,
   FlushedResult,
+  ParseSyncRulesOptions,
+  PersistedSyncRules,
+  PersistedSyncRulesContent,
   ResolveTableOptions,
   ResolveTableResult,
   StartBatchOptions,
@@ -19,7 +22,7 @@ import {
   SyncRuleStatus,
   TerminateOptions
 } from '../BucketStorage.js';
-import { ChecksumCache, FetchPartialBucketChecksum } from '../ChecksumCache.js';
+import { ChecksumCache, FetchPartialBucketChecksum, PartialChecksum, PartialChecksumMap } from '../ChecksumCache.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { SourceTable } from '../SourceTable.js';
 import { PowerSyncMongo } from './db.js';
@@ -36,13 +39,20 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     }
   });
 
+  private parsedSyncRulesCache: SqlSyncRules | undefined;
+
   constructor(
     public readonly factory: MongoBucketStorage,
     public readonly group_id: number,
-    public readonly sync_rules: SqlSyncRules,
+    private readonly sync_rules: PersistedSyncRulesContent,
     public readonly slot_name: string
   ) {
     this.db = factory.db;
+  }
+
+  getParsedSyncRules(options: ParseSyncRulesOptions): SqlSyncRules {
+    this.parsedSyncRulesCache ??= this.sync_rules.parsed(options).sync_rules;
+    return this.parsedSyncRulesCache;
   }
 
   async getCheckpoint() {
@@ -71,7 +81,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
 
     const batch = new MongoBucketBatch(
       this.db,
-      this.sync_rules,
+      this.sync_rules.parsed(options).sync_rules,
       this.group_id,
       this.slot_name,
       checkpoint_lsn,
@@ -340,7 +350,7 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     return this.checksumCache.getChecksumMap(checkpoint, buckets);
   }
 
-  private async getChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<util.ChecksumMap> {
+  private async getChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
     if (batch.length == 0) {
       return new Map();
     }
@@ -372,22 +382,32 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
             }
           },
           {
-            $group: { _id: '$_id.b', checksum_total: { $sum: '$checksum' }, count: { $sum: 1 } }
+            $group: {
+              _id: '$_id.b',
+              checksum_total: { $sum: '$checksum' },
+              count: { $sum: 1 },
+              has_clear_op: {
+                $max: {
+                  $cond: [{ $eq: ['$op', 'CLEAR'] }, 1, 0]
+                }
+              }
+            }
           }
         ],
-        { session: undefined }
+        { session: undefined, readConcern: 'snapshot' }
       )
       .toArray();
 
-    return new Map<string, util.BucketChecksum>(
+    return new Map<string, PartialChecksum>(
       aggregate.map((doc) => {
         return [
           doc._id,
           {
             bucket: doc._id,
-            count: doc.count,
-            checksum: Number(BigInt(doc.checksum_total) & 0xffffffffn) & 0xffffffff
-          } satisfies util.BucketChecksum
+            partialCount: doc.count,
+            partialChecksum: Number(BigInt(doc.checksum_total) & 0xffffffffn) & 0xffffffff,
+            isFullChecksum: doc.has_clear_op == 1
+          } satisfies PartialChecksum
         ];
       })
     );

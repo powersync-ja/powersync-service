@@ -1,4 +1,4 @@
-import { api } from '@powersync/service-core';
+import { api, ParseSyncRulesOptions } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 
 import * as sync_rules from '@powersync/service-sync-rules';
@@ -21,6 +21,12 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
       idleTimeout: 30_000
     });
     this.connectionTag = config.tag ?? sync_rules.DEFAULT_TAG;
+  }
+
+  getParseSyncRulesOptions(): ParseSyncRulesOptions {
+    return {
+      defaultSchema: 'public'
+    };
   }
 
   async shutdown(): Promise<void> {
@@ -270,14 +276,14 @@ GROUP BY schemaname, tablename, quoted_name`
     );
     const rows = pgwire.pgwireRows(results);
 
-    let schemas: Record<string, any> = {};
+    let schemas: Record<string, service_types.DatabaseSchema> = {};
 
     for (let row of rows) {
       const schema = (schemas[row.schemaname] ??= {
         name: row.schemaname,
         tables: []
       });
-      const table = {
+      const table: service_types.TableSchema = {
         name: row.tablename,
         columns: [] as any[]
       };
@@ -291,8 +297,10 @@ GROUP BY schemaname, tablename, quoted_name`
         }
         table.columns.push({
           name: column.attname,
+          sqlite_type: sync_rules.expressionTypeFromPostgresType(pg_type).typeFlags,
           type: column.data_type,
-          internal_type: pg_type
+          internal_type: column.data_type,
+          pg_type: pg_type
         });
       }
     }

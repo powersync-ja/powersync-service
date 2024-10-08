@@ -1,6 +1,6 @@
-import { ChecksumCache, FetchChecksums, FetchPartialBucketChecksum } from '@/storage/ChecksumCache.js';
-import { BucketChecksum, OpId } from '@/util/protocol-types.js';
-import { addBucketChecksums } from '@/util/util-index.js';
+import { ChecksumCache, FetchChecksums, FetchPartialBucketChecksum, PartialChecksum } from '@/storage/ChecksumCache.js';
+import { OpId } from '@/util/protocol-types.js';
+import { addChecksums } from '@/util/util-index.js';
 import * as crypto from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 
@@ -13,28 +13,22 @@ function testHash(bucket: string, checkpoint: OpId) {
   return hash;
 }
 
-function testPartialHash(request: FetchPartialBucketChecksum): BucketChecksum {
+function testPartialHash(request: FetchPartialBucketChecksum): PartialChecksum {
   if (request.start) {
     const a = testHash(request.bucket, request.start);
     const b = testHash(request.bucket, request.end);
-    return addBucketChecksums(
-      {
-        bucket: request.bucket,
-        checksum: b,
-        count: Number(request.end)
-      },
-      {
-        // Subtract a
-        bucket: request.bucket,
-        checksum: -a,
-        count: -Number(request.start)
-      }
-    );
+    return {
+      bucket: request.bucket,
+      partialCount: Number(request.end) - Number(request.start),
+      partialChecksum: addChecksums(b, -a),
+      isFullChecksum: false
+    };
   } else {
     return {
       bucket: request.bucket,
-      checksum: testHash(request.bucket, request.end),
-      count: Number(request.end)
+      partialChecksum: testHash(request.bucket, request.end),
+      partialCount: Number(request.end),
+      isFullChecksum: true
     };
   }
 }
@@ -432,5 +426,18 @@ describe('checksum cache', function () {
       [{ bucket: 'test', end: '123' }],
       [{ bucket: 'test2', end: '123' }]
     ]);
+  });
+
+  it('should handle CLEAR/isFullChecksum checksums', async function () {
+    let lookups: FetchPartialBucketChecksum[][] = [];
+    const cache = factory(async (batch) => {
+      lookups.push(batch);
+      // This forces a `isFullChecksum: true` result
+      delete batch[0].start;
+      return fetchTestChecksums(batch);
+    });
+
+    expect(await cache.getChecksums('123', ['test'])).toEqual([TEST_123]);
+    expect(await cache.getChecksums('1234', ['test'])).toEqual([TEST_1234]);
   });
 });

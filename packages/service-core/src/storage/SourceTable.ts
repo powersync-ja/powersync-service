@@ -1,9 +1,8 @@
-import { DEFAULT_SCHEMA, DEFAULT_TAG } from '@powersync/service-sync-rules';
+import { DEFAULT_TAG } from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
 import { ColumnDescriptor } from './SourceEntity.js';
 
 export class SourceTable {
-  static readonly DEFAULT_SCHEMA = DEFAULT_SCHEMA;
   static readonly DEFAULT_TAG = DEFAULT_TAG;
 
   /**

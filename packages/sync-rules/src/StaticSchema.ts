@@ -1,4 +1,4 @@
-import { ColumnDefinition, ExpressionType } from './ExpressionType.js';
+import { ColumnDefinition, ExpressionType, expressionTypeFromPostgresType, SqliteType } from './ExpressionType.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { TablePattern } from './TablePattern.js';
 import { SourceSchema, SourceSchemaTable } from './types.js';
@@ -14,11 +14,28 @@ export interface SourceTableDefinition {
 }
 
 export interface SourceColumnDefinition {
-  name: string;
   /**
-   * Postgres type.
+   * Column name.
    */
-  pg_type: string;
+  name: string;
+
+  /**
+   * Option 1: SQLite type flags - see ExpressionType.typeFlags.
+   * Option 2: SQLite type name in lowercase - 'text' | 'integer' | 'real' | 'numeric' | 'blob' | 'null'
+   */
+  sqlite_type?: number | SqliteType;
+
+  /**
+   * Type name from the source database, e.g. "character varying(255)[]"
+   */
+  internal_type?: string;
+
+  /**
+   * Postgres type, kept for backwards-compatibility.
+   *
+   * @deprecated - use internal_type instead
+   */
+  pg_type?: string;
 }
 
 export interface SourceConnectionDefinition {
@@ -43,8 +60,8 @@ class SourceTableDetails implements SourceTableInterface, SourceSchemaTable {
     );
   }
 
-  getType(column: string): ExpressionType | undefined {
-    return this.columns[column]?.type;
+  getColumn(column: string): ColumnDefinition | undefined {
+    return this.columns[column];
   }
 
   getColumns(): ColumnDefinition[] {
@@ -75,28 +92,20 @@ export class StaticSchema implements SourceSchema {
 function mapColumn(column: SourceColumnDefinition): ColumnDefinition {
   return {
     name: column.name,
-    type: mapType(column.pg_type)
+    type: mapColumnType(column),
+    originalType: column.internal_type
   };
 }
 
-function mapType(type: string | undefined): ExpressionType {
-  if (type?.endsWith('[]')) {
-    return ExpressionType.TEXT;
-  }
-  switch (type) {
-    case 'bool':
-      return ExpressionType.INTEGER;
-    case 'bytea':
-      return ExpressionType.BLOB;
-    case 'int2':
-    case 'int4':
-    case 'int8':
-    case 'oid':
-      return ExpressionType.INTEGER;
-    case 'float4':
-    case 'float8':
-      return ExpressionType.REAL;
-    default:
-      return ExpressionType.TEXT;
+function mapColumnType(column: SourceColumnDefinition): ExpressionType {
+  if (typeof column.sqlite_type == 'number') {
+    return ExpressionType.of(column.sqlite_type);
+  } else if (typeof column.sqlite_type == 'string') {
+    return ExpressionType.fromTypeText(column.sqlite_type);
+  } else if (column.pg_type != null) {
+    // We still handle these types for backwards-compatibility of old schemas
+    return expressionTypeFromPostgresType(column.pg_type);
+  } else {
+    throw new Error(`Cannot determine SQLite type of ${JSON.stringify(column)}`);
   }
 }

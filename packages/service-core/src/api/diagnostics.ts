@@ -43,7 +43,7 @@ export async function getSyncRulesStatus(
   let rules: SqlSyncRules;
   let persisted: storage.PersistedSyncRules;
   try {
-    persisted = sync_rules.parsed();
+    persisted = sync_rules.parsed(apiHandler.getParseSyncRulesOptions());
     rules = persisted.sync_rules;
   } catch (e) {
     return {
@@ -53,7 +53,11 @@ export async function getSyncRulesStatus(
     };
   }
 
-  const systemStorage = live_status ? bucketStorage.getInstance(persisted) : undefined;
+  const sourceConfig = await apiHandler.getSourceConfig();
+  // This method can run under some situations if no connection is configured yet.
+  // It will return a default tag in such a case. This default tag is not module specific.
+  const tag = sourceConfig.tag ?? DEFAULT_TAG;
+  const systemStorage = live_status ? bucketStorage.getInstance(sync_rules) : undefined;
   const status = await systemStorage?.getStatus();
   let replication_lag_bytes: number | undefined = undefined;
 
@@ -144,7 +148,7 @@ export async function getSyncRulesStatus(
     connections: [
       {
         id: sourceConfig.id ?? DEFAULT_DATASOURCE_ID,
-        tag: sourceConfig.tag ?? DEFAULT_TAG,
+        tag: tag,
         slot_name: sync_rules.slot_name,
         initial_replication_done: status?.snapshot_done ?? false,
         // TODO: Rename?

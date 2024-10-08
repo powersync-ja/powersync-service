@@ -4,7 +4,9 @@ import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { validateCompactedBucket } from './bucket_validation.js';
 import { oneFromAsync } from './stream_utils.js';
-import { makeTestTable, MONGO_STORAGE_FACTORY, ZERO_LSN } from './util.js';
+import { BATCH_OPTIONS, makeTestTable, MONGO_STORAGE_FACTORY, rid, testRules, ZERO_LSN } from './util.js';
+import { ParseSyncRulesOptions, PersistedSyncRulesContent, StartBatchOptions } from '@/storage/BucketStorage.js';
+import { getUuidReplicaIdentityBson } from '@/util/util-index.js';
 
 const TEST_TABLE = makeTestTable('test', ['id']);
 
@@ -19,21 +21,22 @@ function compactTests(compactOptions: MongoCompactOptions) {
   const factory = MONGO_STORAGE_FACTORY;
 
   test('compacting (1)', async () => {
-    const sync_rules = SqlSyncRules.fromYaml(`
+    const sync_rules = testRules(`
 bucket_definitions:
   global:
     data: [select * from test]
     `);
 
-    const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
+    const storage = (await factory()).getInstance(sync_rules);
 
-    const result = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
+    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: SaveOperationTag.INSERT,
         after: {
           id: 't1'
-        }
+        },
+        afterReplicaId: rid('t1')
       });
 
       await batch.save({
@@ -41,7 +44,8 @@ bucket_definitions:
         tag: SaveOperationTag.INSERT,
         after: {
           id: 't2'
-        }
+        },
+        afterReplicaId: rid('t2')
       });
 
       await batch.save({
@@ -49,7 +53,8 @@ bucket_definitions:
         tag: SaveOperationTag.UPDATE,
         after: {
           id: 't2'
-        }
+        },
+        afterReplicaId: rid('t2')
       });
     });
 
@@ -57,6 +62,7 @@ bucket_definitions:
 
     const batchBefore = await oneFromAsync(storage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
     const dataBefore = batchBefore.batch.data;
+    const checksumBefore = await storage.getChecksums(checkpoint, ['global[]']);
 
     expect(dataBefore).toMatchObject([
       {
@@ -83,6 +89,7 @@ bucket_definitions:
 
     const batchAfter = await oneFromAsync(storage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
     const dataAfter = batchAfter.batch.data;
+    const checksumAfter = await storage.getChecksums(checkpoint, ['global[]']);
 
     expect(batchAfter.targetOp).toEqual(3n);
     expect(dataAfter).toMatchObject([
@@ -105,25 +112,28 @@ bucket_definitions:
       }
     ]);
 
+    expect(checksumBefore.get('global[]')).toEqual(checksumAfter.get('global[]'));
+
     validateCompactedBucket(dataBefore, dataAfter);
   });
 
   test('compacting (2)', async () => {
-    const sync_rules = SqlSyncRules.fromYaml(`
+    const sync_rules = testRules(`
 bucket_definitions:
   global:
     data: [select * from test]
     `);
 
-    const storage = (await factory()).getInstance({ id: 1, sync_rules, slot_name: 'test' });
+    const storage = (await factory()).getInstance(sync_rules);
 
-    const result = await storage.startBatch({ zeroLSN: ZERO_LSN }, async (batch) => {
+    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: SaveOperationTag.INSERT,
         after: {
           id: 't1'
-        }
+        },
+        afterReplicaId: rid('t1')
       });
 
       await batch.save({
@@ -131,7 +141,8 @@ bucket_definitions:
         tag: SaveOperationTag.INSERT,
         after: {
           id: 't2'
-        }
+        },
+        afterReplicaId: rid('t2')
       });
 
       await batch.save({
@@ -139,7 +150,8 @@ bucket_definitions:
         tag: SaveOperationTag.DELETE,
         before: {
           id: 't1'
-        }
+        },
+        beforeReplicaId: rid('t1')
       });
 
       await batch.save({
@@ -147,7 +159,8 @@ bucket_definitions:
         tag: SaveOperationTag.UPDATE,
         after: {
           id: 't2'
-        }
+        },
+        afterReplicaId: rid('t2')
       });
     });
 
@@ -155,6 +168,7 @@ bucket_definitions:
 
     const batchBefore = await oneFromAsync(storage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
     const dataBefore = batchBefore.batch.data;
+    const checksumBefore = await storage.getChecksums(checkpoint, ['global[]']);
 
     expect(dataBefore).toMatchObject([
       {
@@ -187,6 +201,7 @@ bucket_definitions:
 
     const batchAfter = await oneFromAsync(storage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
     const dataAfter = batchAfter.batch.data;
+    const checksumAfter = await storage.getChecksums(checkpoint, ['global[]']);
 
     expect(batchAfter.targetOp).toEqual(4n);
     expect(dataAfter).toMatchObject([
@@ -202,7 +217,82 @@ bucket_definitions:
         op_id: '4'
       }
     ]);
+    expect(checksumBefore.get('global[]')).toEqual(checksumAfter.get('global[]'));
 
     validateCompactedBucket(dataBefore, dataAfter);
+  });
+
+  test('compacting (3)', async () => {
+    const sync_rules = testRules(`
+bucket_definitions:
+  global:
+    data: [select * from test]
+    `);
+
+    const storage = (await factory()).getInstance(sync_rules);
+
+    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: 'insert',
+        after: {
+          id: 't1'
+        },
+        afterReplicaId: 't1'
+      });
+
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: 'insert',
+        after: {
+          id: 't2'
+        },
+        afterReplicaId: 't2'
+      });
+
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: 'delete',
+        before: {
+          id: 't1'
+        },
+        beforeReplicaId: 't1'
+      });
+    });
+
+    const checkpoint1 = result!.flushed_op;
+    const checksumBefore = await storage.getChecksums(checkpoint1, ['global[]']);
+
+    const result2 = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: 'delete',
+        before: {
+          id: 't2'
+        },
+        beforeReplicaId: 't2'
+      });
+    });
+    const checkpoint2 = result2!.flushed_op;
+
+    await storage.compact(compactOptions);
+
+    const batchAfter = await oneFromAsync(storage.getBucketDataBatch(checkpoint2, new Map([['global[]', '0']])));
+    const dataAfter = batchAfter.batch.data;
+    const checksumAfter = await storage.getChecksums(checkpoint2, ['global[]']);
+
+    expect(batchAfter.targetOp).toEqual(4n);
+    expect(dataAfter).toMatchObject([
+      {
+        checksum: 1874612650,
+        op: 'CLEAR',
+        op_id: '4'
+      }
+    ]);
+    expect(checksumAfter.get('global[]')).toEqual({
+      bucket: 'global[]',
+      count: 1,
+      checksum: 1874612650
+    });
   });
 }

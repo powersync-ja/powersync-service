@@ -1,5 +1,6 @@
 import { SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import * as types from '@powersync/service-types';
+import { ParseSyncRulesOptions } from '../storage/BucketStorage.js';
 
 export interface PatternResult {
   schema: string;
@@ -73,4 +74,9 @@ export interface RouteAPI {
    * Close any resources that need graceful termination.
    */
   shutdown(): Promise<void>;
+
+  /**
+   * Get the default schema (or database) when only a table name is specified in sync rules.
+   */
+  getParseSyncRulesOptions(): ParseSyncRulesOptions;
 }
