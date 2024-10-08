@@ -26,28 +26,21 @@ export interface CustomWriteCheckpointFilters extends BaseWriteCheckpointIdentif
   sync_rules_id: number;
 }
 
-export interface BatchedCustomWriteCheckpointOptions extends BaseWriteCheckpointIdentifier {
+export interface CustomWriteCheckpointOptions extends CustomWriteCheckpointFilters {
   /**
    * A supplied incrementing Write Checkpoint number
    */
   checkpoint: bigint;
 }
 
-export type CustomWriteCheckpointOptions = BatchedCustomWriteCheckpointOptions & CustomWriteCheckpointFilters;
-
 /**
  * Managed Write Checkpoints are a mapping of User ID to replication HEAD
  */
-export interface ManagedWriteCheckpointFilters {
+export interface ManagedWriteCheckpointFilters extends BaseWriteCheckpointIdentifier {
   /**
    * Replication HEAD(s) at the creation of the checkpoint.
    */
   heads: Record<string, string>;
-
-  /**
-   * Identifier for User's account.
-   */
-  user_id: string;
 }
 
 export type ManagedWriteCheckpointOptions = ManagedWriteCheckpointFilters;

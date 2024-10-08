@@ -7,7 +7,7 @@ import * as util from '../../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, mergeToast, SaveOptions } from '../BucketStorage.js';
 import { ReplicationEventManager } from '../ReplicationEventManager.js';
 import { SourceTable } from '../SourceTable.js';
-import { BatchedCustomWriteCheckpointOptions, CustomWriteCheckpointOptions } from '../write-checkpoint.js';
+import { CustomWriteCheckpointOptions } from '../write-checkpoint.js';
 import { PowerSyncMongo } from './db.js';
 import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
@@ -81,7 +81,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
     this.sync_rules = sync_rules;
   }
 
-  addCustomWriteCheckpoint(checkpoint: BatchedCustomWriteCheckpointOptions): void {
+  addCustomWriteCheckpoint(checkpoint: CustomWriteCheckpointOptions): void {
     this.write_checkpoint_batch.push({
       ...checkpoint,
       sync_rules_id: this.group_id
