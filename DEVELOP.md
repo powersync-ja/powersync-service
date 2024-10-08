@@ -20,7 +20,7 @@ pnpm build
 
 The PowerSync service requires Postgres and MongoDB server connections. These configuration details can be specified in a `powersync.yaml` (or JSON) configuration file.
 
-See the [Self hosting demo](https://github.com/powersync-ja/self-host-demo) for demos of starting these services.
+See the [self-hosting demo](https://github.com/powersync-ja/self-host-demo) for demos of starting these services.
 
 A quick method for running all required services with a handy backend and frontend is to run the following in a checked-out `self-host-demo` folder.
 
@@ -65,7 +65,7 @@ Some tests for these packages require a connection to MongoDB and Postgres. Conn
 These can be set in a terminal/shell
 
 ```bash
-export MONGO_TEST_UR="mongodb://localhost:27017/powersync_test"
+export MONGO_TEST_URL="mongodb://localhost:27017/powersync_test"
 export PG_TEST_URL="postgres://postgres:postgres@localhost:5432/powersync_test"
 ```
 

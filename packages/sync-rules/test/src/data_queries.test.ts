@@ -41,6 +41,38 @@ describe('data queries', () => {
     expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: null })).toEqual([]);
   });
 
+  test('static IN data query', function () {
+    const sql = `SELECT * FROM assets WHERE 'green' IN assets.categories`;
+    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS);
+    expect(query.errors).toEqual([]);
+
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', categories: JSON.stringify(['red', 'green']) })).toMatchObject([
+      {
+        bucket: 'mybucket[]',
+        table: 'assets',
+        id: 'asset1'
+      }
+    ]);
+
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', categories: JSON.stringify(['red', 'blue']) })).toEqual([]);
+  });
+
+  test('data IN static query', function () {
+    const sql = `SELECT * FROM assets WHERE assets.condition IN '["good","great"]'`;
+    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS);
+    expect(query.errors).toEqual([]);
+
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', condition: 'good' })).toMatchObject([
+      {
+        bucket: 'mybucket[]',
+        table: 'assets',
+        id: 'asset1'
+      }
+    ]);
+
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', condition: 'bad' })).toEqual([]);
+  });
+
   test('table alias', function () {
     const sql = 'SELECT * FROM assets as others WHERE others.org_id = bucket.org_id';
     const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql, PARSE_OPTIONS);
@@ -164,7 +196,9 @@ describe('data queries', () => {
   test('invalid query - invalid IN', function () {
     const sql = 'SELECT * FROM assets WHERE assets.category IN bucket.categories';
     const query = SqlDataQuery.fromSql('mybucket', ['categories'], sql, PARSE_OPTIONS);
-    expect(query.errors).toMatchObject([{ type: 'fatal', message: 'Unsupported usage of IN operator' }]);
+    expect(query.errors).toMatchObject([
+      { type: 'fatal', message: 'Cannot use bucket parameters on the right side of IN operators' }
+    ]);
   });
 
   test('invalid query - not all parameters used', function () {
@@ -199,5 +233,65 @@ describe('data queries', () => {
     const sql = 'SELECT id, (bucket.org_id = assets.org_id) as org_matches FROM assets where org_id = bucket.org_id';
     const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql, PARSE_OPTIONS);
     expect(query.errors[0].message).toMatch(/Parameter match expression is not allowed here/);
+  });
+
+  test('case-sensitive queries (1)', () => {
+    const sql = 'SELECT * FROM Assets';
+    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS);
+    expect(query.errors).toMatchObject([
+      { message: `Unquoted identifiers are converted to lower-case. Use "Assets" instead.` }
+    ]);
+  });
+
+  test('case-sensitive queries (2)', () => {
+    const sql = 'SELECT *, Name FROM assets';
+    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS);
+    expect(query.errors).toMatchObject([
+      { message: `Unquoted identifiers are converted to lower-case. Use "Name" instead.` }
+    ]);
+  });
+
+  test('case-sensitive queries (3)', () => {
+    const sql = 'SELECT * FROM assets WHERE Archived = False';
+    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS);
+    expect(query.errors).toMatchObject([
+      { message: `Unquoted identifiers are converted to lower-case. Use "Archived" instead.` }
+    ]);
+  });
+
+  test.skip('case-sensitive queries (4)', () => {
+    // Cannot validate table alias yet
+    const sql = 'SELECT * FROM assets as myAssets';
+    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS);
+    expect(query.errors).toMatchObject([
+      { message: `Unquoted identifiers are converted to lower-case. Use "myAssets" instead.` }
+    ]);
+  });
+
+  test.skip('case-sensitive queries (5)', () => {
+    // Cannot validate table alias yet
+    const sql = 'SELECT * FROM assets myAssets';
+    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS);
+    expect(query.errors).toMatchObject([
+      { message: `Unquoted identifiers are converted to lower-case. Use "myAssets" instead.` }
+    ]);
+  });
+
+  test.skip('case-sensitive queries (6)', () => {
+    // Cannot validate anything with a schema yet
+    const sql = 'SELECT * FROM public.ASSETS';
+    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS);
+    expect(query.errors).toMatchObject([
+      { message: `Unquoted identifiers are converted to lower-case. Use "ASSETS" instead.` }
+    ]);
+  });
+
+  test.skip('case-sensitive queries (7)', () => {
+    // Cannot validate schema yet
+    const sql = 'SELECT * FROM PUBLIC.assets';
+    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS);
+    expect(query.errors).toMatchObject([
+      { message: `Unquoted identifiers are converted to lower-case. Use "PUBLIC" instead.` }
+    ]);
   });
 });

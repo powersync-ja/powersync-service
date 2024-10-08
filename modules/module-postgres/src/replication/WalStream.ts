@@ -196,15 +196,22 @@ export class WalStream {
           // We peek a large number of changes here, to make it more likely to pick up replication slot errors.
           // For example, "publication does not exist" only occurs here if the peek actually includes changes related
           // to the slot.
-          await this.connections.pool.query({
-            statement: `SELECT *
-                    FROM pg_catalog.pg_logical_slot_peek_binary_changes($1, NULL, 1000, 'proto_version', '1',
-                                                                        'publication_names', $2)`,
+          logger.info(`Checking ${slotName}`);
+
+          // The actual results can be quite large, so we don't actually return everything
+          // due to memory and processing overhead that would create.
+          const cursor = await this.connections.pool.stream({
+            statement: `SELECT 1 FROM pg_catalog.pg_logical_slot_peek_binary_changes($1, NULL, 1000, 'proto_version', '1', 'publication_names', $2)`,
             params: [
               { type: 'varchar', value: slotName },
               { type: 'varchar', value: PUBLICATION_NAME }
             ]
           });
+
+          for await (let _chunk of cursor) {
+            // No-op, just exhaust the cursor
+          }
+
           // Success
           logger.info(`Slot ${slotName} appears healthy`);
           return { needsInitialSync: false };
