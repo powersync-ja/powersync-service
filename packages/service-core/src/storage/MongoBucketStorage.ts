@@ -294,6 +294,15 @@ export class MongoBucketStorage implements BucketStorageFactory {
   }
 
   async getStorageMetrics(): Promise<StorageMetrics> {
+    const ignoreNotExiting = (e: unknown) => {
+      if (e instanceof mongo.MongoServerError && e.codeName == 'NamespaceNotFound') {
+        // Collection doesn't exist - return 0
+        return [{ storageStats: { size: 0 } }];
+      } else {
+        return Promise.reject(e);
+      }
+    };
+
     const active_sync_rules = await this.getActiveSyncRules();
     if (active_sync_rules == null) {
       return {
@@ -307,34 +316,34 @@ export class MongoBucketStorage implements BucketStorageFactory {
       .aggregate([
         {
           $collStats: {
-            storageStats: {},
-            count: {}
+            storageStats: {}
           }
         }
       ])
-      .toArray();
+      .toArray()
+      .catch(ignoreNotExiting);
 
     const parameters_aggregate = await this.db.bucket_parameters
       .aggregate([
         {
           $collStats: {
-            storageStats: {},
-            count: {}
+            storageStats: {}
           }
         }
       ])
-      .toArray();
+      .toArray()
+      .catch(ignoreNotExiting);
 
     const replication_aggregate = await this.db.current_data
       .aggregate([
         {
           $collStats: {
-            storageStats: {},
-            count: {}
+            storageStats: {}
           }
         }
       ])
-      .toArray();
+      .toArray()
+      .catch(ignoreNotExiting);
 
     return {
       operations_size_bytes: operations_aggregate[0].storageStats.size,

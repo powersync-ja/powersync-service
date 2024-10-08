@@ -5,7 +5,6 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
-import { ZERO_LSN } from '../../src/replication/WalStream.js';
 import { streamResponse } from '../../src/sync/sync.js';
 import { makeTestTable, MONGO_STORAGE_FACTORY, StorageFactory } from './util.js';
 
@@ -33,7 +32,6 @@ function defineTests(factory: StorageFactory) {
     });
 
     const storage = await f.getInstance(syncRules.parsed());
-    await storage.setSnapshotDone(ZERO_LSN);
     await storage.autoActivate();
 
     const result = await storage.startBatch({}, async (batch) => {
@@ -82,7 +80,6 @@ function defineTests(factory: StorageFactory) {
     });
 
     const storage = await f.getInstance(syncRules.parsed());
-    await storage.setSnapshotDone(ZERO_LSN);
     await storage.autoActivate();
 
     const result = await storage.startBatch({}, async (batch) => {
@@ -125,7 +122,6 @@ function defineTests(factory: StorageFactory) {
     });
 
     const storage = await f.getInstance(syncRules.parsed());
-    await storage.setSnapshotDone(ZERO_LSN);
     await storage.autoActivate();
 
     const stream = streamResponse({
@@ -152,7 +148,6 @@ function defineTests(factory: StorageFactory) {
     });
 
     const storage = await f.getInstance(syncRules.parsed());
-    await storage.setSnapshotDone(ZERO_LSN);
     await storage.autoActivate();
 
     const stream = streamResponse({
@@ -211,7 +206,6 @@ function defineTests(factory: StorageFactory) {
     });
 
     const storage = await f.getInstance(syncRules.parsed());
-    await storage.setSnapshotDone(ZERO_LSN);
     await storage.autoActivate();
 
     const exp = Date.now() / 1000 + 0.1;
@@ -249,7 +243,6 @@ function defineTests(factory: StorageFactory) {
     });
 
     const storage = await f.getInstance(syncRules.parsed());
-    await storage.setSnapshotDone(ZERO_LSN);
     await storage.autoActivate();
 
     await storage.startBatch({}, async (batch) => {
