@@ -19,7 +19,7 @@ export async function getReplicationIdentityColumns(
 ): Promise<ReplicationIdentityColumnsResult> {
   const { db, schema, table_name } = options;
   const [primaryKeyColumns] = await mysql_utils.retriedQuery({
-    db,
+    connection: db,
     query: `
       SELECT 
         s.COLUMN_NAME AS name,
@@ -55,7 +55,7 @@ export async function getReplicationIdentityColumns(
   // TODO: test code with tables with unique keys, compound key etc.
   // No primary key, find the first valid unique key
   const [uniqueKeyColumns] = await mysql_utils.retriedQuery({
-    db,
+    connection: db,
     query: `
       SELECT 
         s.INDEX_NAME,
@@ -92,7 +92,7 @@ export async function getReplicationIdentityColumns(
   }
 
   const [allColumns] = await mysql_utils.retriedQuery({
-    db,
+    connection: db,
     query: `
       SELECT 
         s.COLUMN_NAME AS name,

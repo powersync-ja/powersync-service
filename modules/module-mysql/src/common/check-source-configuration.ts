@@ -1,10 +1,10 @@
 import mysql from 'mysql2/promise';
 import * as mysql_utils from '../utils/mysql_utils.js';
 
-export async function checkSourceConfiguration(db: mysql.Pool) {
+export async function checkSourceConfiguration(connection: mysql.Connection) {
   const errors: string[] = [];
   const [[result]] = await mysql_utils.retriedQuery({
-    db,
+    connection,
     query: `
       SELECT
         @@GLOBAL.gtid_mode AS gtid_mode,
@@ -38,7 +38,7 @@ export async function checkSourceConfiguration(db: mysql.Pool) {
   }
 
   const [[binLogFormatResult]] = await mysql_utils.retriedQuery({
-    db,
+    connection,
     query: `SHOW VARIABLES LIKE 'binlog_format';`
   });
 

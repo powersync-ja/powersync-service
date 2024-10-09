@@ -37,14 +37,12 @@ export class ReplicatedGTID {
       throw new Error(`Invalid serialized GTID: ${comparable}`);
     }
 
-    const position: BinLogPosition = {
-      filename: components[2],
-      offset: parseInt(components[3])
-    };
-
     return {
       raw_gtid: components[1],
-      position
+      position: {
+        filename: components[2],
+        offset: parseInt(components[3])
+      } satisfies BinLogPosition
     };
   }
 
@@ -113,9 +111,9 @@ export class ReplicatedGTID {
   /**
    * Calculates the distance in bytes from this GTID to the provided argument.
    */
-  async distanceTo(db: mysql.Pool, to: ReplicatedGTID): Promise<number | null> {
+  async distanceTo(db: mysql.Connection, to: ReplicatedGTID): Promise<number | null> {
     const [logFiles] = await mysql_utils.retriedQuery({
-      db,
+      connection: db,
       query: `SHOW BINARY LOGS;`
     });
 

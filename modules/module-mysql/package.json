@@ -28,7 +28,8 @@
     "@powersync/service-jsonbig": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",
     "@powersync/service-types": "workspace:*",
-    "@vlasky/zongji": "link:../../../zongji",
+    "@powersync/mysql-zongji": "0.0.0-dev-20241008105633",
+    "semver": "^7.5.4",
     "async": "^3.2.4",
     "mysql2": "^3.11.0",
     "ts-codec": "^1.2.2",
@@ -36,6 +37,7 @@
     "uuid": "^9.0.1"
   },
   "devDependencies": {
+    "@types/semver": "^7.5.4",
     "@types/async": "^3.2.24",
     "@types/uuid": "^9.0.8",
     "typescript": "^5.5.4",

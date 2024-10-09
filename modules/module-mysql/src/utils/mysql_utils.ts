@@ -2,8 +2,8 @@ import { logger } from '@powersync/lib-services-framework';
 import mysql from 'mysql2/promise';
 import * as types from '../types/types.js';
 
-export type RetiredMySQLQueryOptions = {
-  db: mysql.Connection;
+export type RetriedQueryOptions = {
+  connection: mysql.Connection;
   query: string;
   params?: any[];
   retries?: number;
@@ -12,12 +12,12 @@ export type RetiredMySQLQueryOptions = {
 /**
  * Retry a simple query - up to 2 attempts total.
  */
-export async function retriedQuery(options: RetiredMySQLQueryOptions) {
-  const { db, query, params = [], retries = 2 } = options;
+export async function retriedQuery(options: RetriedQueryOptions) {
+  const { connection, query, params = [], retries = 2 } = options;
   for (let tries = retries; ; tries--) {
     try {
       logger.debug(`Executing query: ${query}`);
-      return db.query<mysql.RowDataPacket[]>(query, params);
+      return connection.query<mysql.RowDataPacket[]>(query, params);
     } catch (e) {
       if (tries == 1) {
         throw e;
@@ -27,19 +27,21 @@ export async function retriedQuery(options: RetiredMySQLQueryOptions) {
   }
 }
 
-export function createPool(config: types.ResolvedConnectionConfig) {
+export function createPool(config: types.ResolvedConnectionConfig, options?: mysql.PoolOptions): mysql.Pool {
   const sslOptions = {
     ca: config.cacert,
     key: config.client_private_key,
     cert: config.client_certificate
   };
   const hasSSLOptions = Object.values(sslOptions).some((v) => !!v);
+  // TODO confirm if default options are fine for Powersync use case
   return mysql.createPool({
     host: config.hostname,
     user: config.username,
     password: config.password,
     database: config.database,
-    ssl: hasSSLOptions ? sslOptions : undefined
+    ssl: hasSSLOptions ? sslOptions : undefined,
+    ...(options || {})
   });
 }
 
