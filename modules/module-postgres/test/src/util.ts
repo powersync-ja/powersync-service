@@ -2,7 +2,7 @@ import { connectMongo } from '@core-tests/util.js';
 import * as types from '@module/types/types.js';
 import * as pg_utils from '@module/utils/pgwire_utils.js';
 import { logger } from '@powersync/lib-services-framework';
-import { BucketStorageFactory, Metrics, MongoBucketStorage, OpId, storage } from '@powersync/service-core';
+import { BucketStorageFactory, Metrics, MongoBucketStorage, OpId } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import { pgwireRows } from '@powersync/service-jpgwire';
 import { env } from './env.js';
@@ -36,8 +36,7 @@ export const INITIALIZED_MONGO_STORAGE_FACTORY: StorageFactory = async () => {
   await db.clear();
 
   return new MongoBucketStorage(db, {
-    slot_name_prefix: 'test_',
-    event_manager: new storage.ReplicationEventManager()
+    slot_name_prefix: 'test_'
   });
 };
 

@@ -82,7 +82,7 @@ bucket_definitions:
       - SELECT * FROM "test_data"
 `;
     const syncRules = await f.updateSyncRules({ content: syncRuleContent });
-    const storage = f.getInstance(syncRules);
+    using storage = f.getInstance(syncRules);
     abortController = new AbortController();
     const options: WalStreamOptions = {
       abort_signal: abortController.signal,
@@ -234,7 +234,7 @@ bucket_definitions:
       - SELECT id, description FROM "test_data"
 `;
       const syncRules = await f.updateSyncRules({ content: syncRuleContent });
-      const storage = f.getInstance(syncRules);
+      using storage = f.getInstance(syncRules);
 
       // 1. Setup some base data that will be replicated in initial replication
       await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);

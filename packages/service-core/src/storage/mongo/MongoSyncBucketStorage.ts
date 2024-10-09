@@ -2,6 +2,7 @@ import { SqliteJsonRow, SqliteJsonValue, SqlSyncRules } from '@powersync/service
 import * as bson from 'bson';
 import * as mongo from 'mongodb';
 
+import { DisposableObserver } from '@powersync/lib-services-framework';
 import * as db from '../../db/db-index.js';
 import * as util from '../../util/util-index.js';
 import {
@@ -18,12 +19,12 @@ import {
   StartBatchOptions,
   SyncBucketDataBatch,
   SyncRulesBucketStorage,
+  SyncRulesBucketStorageListener,
   SyncRuleStatus,
   TerminateOptions
 } from '../BucketStorage.js';
 import { ChecksumCache, FetchPartialBucketChecksum, PartialChecksum, PartialChecksumMap } from '../ChecksumCache.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
-import { ReplicationEventManager } from '../ReplicationEventManager.js';
 import { SourceTable } from '../SourceTable.js';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, SourceKey, SyncRuleState } from './models.js';
@@ -31,7 +32,10 @@ import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, mapOpEntry, readSingleBatch, serializeLookup } from './util.js';
 
-export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
+export class MongoSyncBucketStorage
+  extends DisposableObserver<SyncRulesBucketStorageListener>
+  implements SyncRulesBucketStorage
+{
   private readonly db: PowerSyncMongo;
   private checksumCache = new ChecksumCache({
     fetchChecksums: (batch) => {
@@ -40,7 +44,6 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
   });
 
   private parsedSyncRulesCache: SqlSyncRules | undefined;
-  readonly events: ReplicationEventManager;
 
   constructor(
     public readonly factory: MongoBucketStorage,
@@ -48,8 +51,8 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     private readonly sync_rules: PersistedSyncRulesContent,
     public readonly slot_name: string
   ) {
+    super();
     this.db = factory.db;
-    this.events = factory.events;
   }
 
   getParsedSyncRules(options: ParseSyncRulesOptions): SqlSyncRules {
@@ -81,27 +84,22 @@ export class MongoSyncBucketStorage implements SyncRulesBucketStorage {
     );
     const checkpoint_lsn = doc?.last_checkpoint_lsn ?? null;
 
-    const batch = new MongoBucketBatch(
+    await using batch = new MongoBucketBatch(
       this.db,
       this.sync_rules.parsed(options).sync_rules,
       this.group_id,
       this.slot_name,
       checkpoint_lsn,
-      doc?.no_checkpoint_before ?? options.zeroLSN,
-      this.events
+      doc?.no_checkpoint_before ?? options.zeroLSN
     );
-    try {
-      await callback(batch);
-      await batch.flush();
-      await batch.abort();
-      if (batch.last_flushed_op) {
-        return { flushed_op: String(batch.last_flushed_op) };
-      } else {
-        return null;
-      }
-    } catch (e) {
-      await batch.abort();
-      throw e;
+    this.iterateListeners((cb) => cb.batchStarted?.(batch));
+
+    await callback(batch);
+    await batch.flush();
+    if (batch.last_flushed_op) {
+      return { flushed_op: String(batch.last_flushed_op) };
+    } else {
+      return null;
     }
   }
 

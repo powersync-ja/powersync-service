@@ -37,15 +37,14 @@ export function registerCompactAction(program: Command) {
     await client.connect();
     try {
       const bucketStorage = new storage.MongoBucketStorage(psdb, {
-        slot_name_prefix: configuration.slot_name_prefix,
-        event_manager: new storage.ReplicationEventManager()
+        slot_name_prefix: configuration.slot_name_prefix
       });
       const active = await bucketStorage.getActiveSyncRulesContent();
       if (active == null) {
         logger.info('No active instance to compact');
         return;
       }
-      const p = bucketStorage.getInstance(active);
+      using p = bucketStorage.getInstance(active);
       logger.info('Performing compaction...');
       await p.compact({ memoryLimitMB: COMPACT_MEMORY_LIMIT_MB });
       logger.info('Successfully compacted storage.');

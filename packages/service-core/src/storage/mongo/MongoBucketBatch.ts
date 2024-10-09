@@ -2,10 +2,15 @@ import { SqlEventDescriptor, SqliteRow, SqlSyncRules } from '@powersync/service-
 import * as bson from 'bson';
 import * as mongo from 'mongodb';
 
-import { container, errors, logger } from '@powersync/lib-services-framework';
+import { container, DisposableObserver, errors, logger } from '@powersync/lib-services-framework';
 import * as util from '../../util/util-index.js';
-import { BucketStorageBatch, FlushedResult, mergeToast, SaveOptions } from '../BucketStorage.js';
-import { ReplicationEventManager } from '../ReplicationEventManager.js';
+import {
+  BucketBatchStorageListener,
+  BucketStorageBatch,
+  FlushedResult,
+  mergeToast,
+  SaveOptions
+} from '../BucketStorage.js';
 import { SourceTable } from '../SourceTable.js';
 import { CustomWriteCheckpointOptions } from '../write-checkpoint.js';
 import { PowerSyncMongo } from './db.js';
@@ -28,7 +33,7 @@ const MAX_ROW_SIZE = 15 * 1024 * 1024;
 // In the future, we can investigate allowing multiple replication streams operating independently.
 const replicationMutex = new util.Mutex();
 
-export class MongoBucketBatch implements BucketStorageBatch {
+export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListener> implements BucketStorageBatch {
   private readonly client: mongo.MongoClient;
   public readonly db: PowerSyncMongo;
   public readonly session: mongo.ClientSession;
@@ -54,8 +59,6 @@ export class MongoBucketBatch implements BucketStorageBatch {
 
   private persisted_op: bigint | null = null;
 
-  private events: ReplicationEventManager;
-
   /**
    * For tests only - not for persistence logic.
    */
@@ -67,12 +70,11 @@ export class MongoBucketBatch implements BucketStorageBatch {
     group_id: number,
     slot_name: string,
     last_checkpoint_lsn: string | null,
-    no_checkpoint_before_lsn: string,
-    events: ReplicationEventManager
+    no_checkpoint_before_lsn: string
   ) {
+    super();
     this.client = db.client;
     this.db = db;
-    this.events = events;
     this.group_id = group_id;
     this.last_checkpoint_lsn = last_checkpoint_lsn;
     this.no_checkpoint_before_lsn = no_checkpoint_before_lsn;
@@ -545,8 +547,9 @@ export class MongoBucketBatch implements BucketStorageBatch {
     });
   }
 
-  async abort() {
+  async [Symbol.asyncDispose]() {
     await this.session.endSession();
+    super[Symbol.dispose];
   }
 
   async commit(lsn: string): Promise<boolean> {
@@ -628,16 +631,18 @@ export class MongoBucketBatch implements BucketStorageBatch {
   async save(record: SaveOptions): Promise<FlushedResult | null> {
     const { after, before, sourceTable, tag } = record;
     for (const event of this.getTableEvents(sourceTable)) {
-      await this.events.fireEvent({
-        batch: this,
-        table: sourceTable,
-        data: {
-          op: tag,
-          after: after && util.isCompleteRow(after) ? after : undefined,
-          before: before && util.isCompleteRow(before) ? before : undefined
-        },
-        event
-      });
+      this.iterateListeners((cb) =>
+        cb.replicationEvent?.({
+          batch: this,
+          table: sourceTable,
+          data: {
+            op: tag,
+            after: after && util.isCompleteRow(after) ? after : undefined,
+            before: before && util.isCompleteRow(before) ? before : undefined
+          },
+          event
+        })
+      );
     }
 
     /**

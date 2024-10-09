@@ -1,6 +1,5 @@
 import * as util from '../util/util-index.js';
 import { BucketStorageFactory } from './BucketStorage.js';
-import { ReplicationEventManager } from './ReplicationEventManager.js';
 import { WriteCheckpointMode } from './write-checkpoint.js';
 
 export interface ActiveStorage {
@@ -21,7 +20,6 @@ export interface StorageSettings {
 }
 
 export interface GetStorageOptions extends StorageSettings {
-  eventManager: ReplicationEventManager;
   // TODO: This should just be the storage config. Update once the slot name prefix coupling has been removed from the storage
   resolvedConfig: util.ResolvedPowerSyncConfig;
 }

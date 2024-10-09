@@ -20,16 +20,12 @@ export function walStreamTest(
     const connectionManager = new PgManager(TEST_CONNECTION_OPTIONS, {});
 
     await clearTestDb(connectionManager.pool);
-    const context = new WalStreamTestContext(f, connectionManager);
-    try {
-      await test(context);
-    } finally {
-      await context.dispose();
-    }
+    await using context = new WalStreamTestContext(f, connectionManager);
+    await test(context);
   };
 }
 
-export class WalStreamTestContext {
+export class WalStreamTestContext implements AsyncDisposable {
   private _walStream?: WalStream;
   private abortController = new AbortController();
   private streamPromise?: Promise<void>;
@@ -41,10 +37,11 @@ export class WalStreamTestContext {
     public connectionManager: PgManager
   ) {}
 
-  async dispose() {
+  async [Symbol.asyncDispose]() {
     this.abortController.abort();
     await this.streamPromise;
     await this.connectionManager.destroy();
+    this.storage?.[Symbol.dispose]();
   }
 
   get pool() {

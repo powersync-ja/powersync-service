@@ -1,7 +1,6 @@
-import { logger } from '@powersync/lib-services-framework';
+import { DisposableListener, DisposableObserver, logger } from '@powersync/lib-services-framework';
 import { ResolvedPowerSyncConfig } from '../util/util-index.js';
 import { BucketStorageFactory } from './BucketStorage.js';
-import { ReplicationEventManager } from './ReplicationEventManager.js';
 import { ActiveStorage, BucketStorageProvider, StorageSettings } from './StorageProvider.js';
 import { DEFAULT_WRITE_CHECKPOINT_MODE } from './write-checkpoint.js';
 
@@ -13,16 +12,18 @@ export const DEFAULT_STORAGE_SETTINGS: StorageSettings = {
   writeCheckpointMode: DEFAULT_WRITE_CHECKPOINT_MODE
 };
 
-export class StorageEngine {
+export interface StorageEngineListener extends DisposableListener {
+  storageActivated: (storage: BucketStorageFactory) => void;
+}
+
+export class StorageEngine extends DisposableObserver<StorageEngineListener> {
   // TODO: This will need to revisited when we actually support multiple storage providers.
   private storageProviders: Map<string, BucketStorageProvider> = new Map();
   private currentActiveStorage: ActiveStorage | null = null;
-  readonly events: ReplicationEventManager;
-
   private _activeSettings: StorageSettings;
 
   constructor(private options: StorageEngineOptions) {
-    this.events = new ReplicationEventManager();
+    super();
     this._activeSettings = DEFAULT_STORAGE_SETTINGS;
   }
 
@@ -65,9 +66,9 @@ export class StorageEngine {
     const { configuration } = this.options;
     this.currentActiveStorage = await this.storageProviders.get(configuration.storage.type)!.getStorage({
       resolvedConfig: configuration,
-      eventManager: this.events,
       ...this.activeSettings
     });
+    this.iterateListeners((cb) => cb.storageActivated?.(this.activeBucketStorage));
     logger.info(`Successfully activated storage: ${configuration.storage.type}.`);
     logger.info('Successfully started Storage Engine.');
   }

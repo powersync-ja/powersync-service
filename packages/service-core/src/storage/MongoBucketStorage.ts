@@ -8,11 +8,12 @@ import * as locks from '../locks/locks-index.js';
 import * as sync from '../sync/sync-index.js';
 import * as util from '../util/util-index.js';
 
-import { logger } from '@powersync/lib-services-framework';
+import { DisposableObserver, logger } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
 import {
   ActiveCheckpoint,
   BucketStorageFactory,
+  BucketStorageFactoryListener,
   ParseSyncRulesOptions,
   PersistedSyncRules,
   PersistedSyncRulesContent,
@@ -26,7 +27,6 @@ import { MongoPersistedSyncRulesContent } from './mongo/MongoPersistedSyncRulesC
 import { MongoSyncBucketStorage } from './mongo/MongoSyncBucketStorage.js';
 import { MongoWriteCheckpointAPI } from './mongo/MongoWriteCheckpointAPI.js';
 import { generateSlotName } from './mongo/util.js';
-import { ReplicationEventManager } from './ReplicationEventManager.js';
 import {
   CustomWriteCheckpointOptions,
   DEFAULT_WRITE_CHECKPOINT_MODE,
@@ -38,13 +38,15 @@ import {
 
 export interface MongoBucketStorageOptions extends PowerSyncMongoOptions {}
 
-export class MongoBucketStorage implements BucketStorageFactory {
+export class MongoBucketStorage
+  extends DisposableObserver<BucketStorageFactoryListener>
+  implements BucketStorageFactory
+{
   private readonly client: mongo.MongoClient;
   private readonly session: mongo.ClientSession;
   // TODO: This is still Postgres specific and needs to be reworked
   public readonly slot_name_prefix: string;
 
-  readonly events: ReplicationEventManager;
   readonly write_checkpoint_mode: WriteCheckpointMode;
 
   protected readonly writeCheckpointAPI: WriteCheckpointAPI;
@@ -64,6 +66,9 @@ export class MongoBucketStorage implements BucketStorageFactory {
       }
       const rules = new MongoPersistedSyncRulesContent(this.db, doc2);
       return this.getInstance(rules);
+    },
+    dispose: (storage) => {
+      storage[Symbol.dispose]();
     }
   });
 
@@ -73,15 +78,14 @@ export class MongoBucketStorage implements BucketStorageFactory {
     db: PowerSyncMongo,
     options: {
       slot_name_prefix: string;
-      event_manager: ReplicationEventManager;
       write_checkpoint_mode?: WriteCheckpointMode;
     }
   ) {
+    super();
     this.client = db.client;
     this.db = db;
     this.session = this.client.startSession();
     this.slot_name_prefix = options.slot_name_prefix;
-    this.events = options.event_manager;
     this.write_checkpoint_mode = options.write_checkpoint_mode ?? DEFAULT_WRITE_CHECKPOINT_MODE;
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
       db,
@@ -94,7 +98,16 @@ export class MongoBucketStorage implements BucketStorageFactory {
     if ((typeof id as any) == 'bigint') {
       id = Number(id);
     }
-    return new MongoSyncBucketStorage(this, id, options, slot_name);
+    const storage = new MongoSyncBucketStorage(this, id, options, slot_name);
+    this.iterateListeners((cb) => cb.syncStorageCreated?.(storage));
+    storage.registerListener({
+      batchStarted: (batch) => {
+        batch.registerListener({
+          replicationEvent: (payload) => this.iterateListeners((cb) => cb.replicationEvent?.(payload))
+        });
+      }
+    });
+    return storage;
   }
 
   async configureSyncRules(sync_rules: string, options?: { lock?: boolean }) {

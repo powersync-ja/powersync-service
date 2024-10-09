@@ -1,6 +1,6 @@
 export * from './BucketStorage.js';
 export * from './MongoBucketStorage.js';
-export * from './ReplicationEventManager.js';
+export * from './ReplicationEventPayload.js';
 export * from './SourceEntity.js';
 export * from './SourceTable.js';
 export * from './StorageEngine.js';

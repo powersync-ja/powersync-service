@@ -10,7 +10,7 @@ export class MongoStorageProvider implements BucketStorageProvider {
   }
 
   async getStorage(options: GetStorageOptions): Promise<ActiveStorage> {
-    const { eventManager, resolvedConfig } = options;
+    const { resolvedConfig } = options;
 
     const client = db.mongo.createMongoClient(resolvedConfig.storage);
 
@@ -20,7 +20,6 @@ export class MongoStorageProvider implements BucketStorageProvider {
       storage: new MongoBucketStorage(database, {
         // TODO currently need the entire resolved config due to this
         slot_name_prefix: resolvedConfig.slot_name_prefix,
-        event_manager: eventManager,
         write_checkpoint_mode: options.writeCheckpointMode
       }),
       shutDown: () => client.close(),

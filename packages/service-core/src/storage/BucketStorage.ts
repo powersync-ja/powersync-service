@@ -1,3 +1,4 @@
+import { DisposableListener, DisposableObserverClient } from '@powersync/lib-services-framework';
 import {
   EvaluatedParameters,
   EvaluatedRow,
@@ -8,12 +9,19 @@ import {
   ToastableSqliteRow
 } from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
-import { ReplicationEventManager } from './ReplicationEventManager.js';
+import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
 import { BatchedCustomWriteCheckpointOptions, ReplicaId, WriteCheckpointAPI } from './storage-index.js';
 
-export interface BucketStorageFactory extends WriteCheckpointAPI {
+export interface BucketStorageFactoryListener extends DisposableListener {
+  syncStorageCreated: (storage: SyncRulesBucketStorage) => void;
+  replicationEvent: (event: ReplicationEventPayload) => void;
+}
+
+export interface BucketStorageFactory
+  extends DisposableObserverClient<BucketStorageFactoryListener>,
+    WriteCheckpointAPI {
   /**
    * Update sync rules from configuration, if changed.
    */
@@ -21,11 +29,6 @@ export interface BucketStorageFactory extends WriteCheckpointAPI {
     sync_rules: string,
     options?: { lock?: boolean }
   ): Promise<{ updated: boolean; persisted_sync_rules?: PersistedSyncRulesContent; lock?: ReplicationLock }>;
-
-  /**
-   * Manager which enables handling events for replicated data.
-   */
-  events: ReplicationEventManager;
 
   /**
    * Get a storage instance to query sync data for specific sync rules.
@@ -199,7 +202,11 @@ export interface StartBatchOptions extends ParseSyncRulesOptions {
   zeroLSN: string;
 }
 
-export interface SyncRulesBucketStorage {
+export interface SyncRulesBucketStorageListener extends DisposableListener {
+  batchStarted: (batch: BucketStorageBatch) => void;
+}
+
+export interface SyncRulesBucketStorage extends DisposableObserverClient<SyncRulesBucketStorageListener> {
   readonly group_id: number;
   readonly slot_name: string;
 
@@ -298,7 +305,11 @@ export interface FlushedResult {
   flushed_op: string;
 }
 
-export interface BucketStorageBatch {
+export interface BucketBatchStorageListener extends DisposableListener {
+  replicationEvent: (payload: ReplicationEventPayload) => void;
+}
+
+export interface BucketStorageBatch extends DisposableObserverClient<BucketBatchStorageListener> {
   /**
    * Save an op, and potentially flush.
    *
