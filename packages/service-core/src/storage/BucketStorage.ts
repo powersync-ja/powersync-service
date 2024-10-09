@@ -98,18 +98,20 @@ export interface BucketStorageFactory {
   getPowerSyncInstanceId(): Promise<string>;
 }
 
-export interface WriteCheckpoint {
-  base: ActiveCheckpoint;
-  writeCheckpoint: bigint | null;
-}
-
-export interface ActiveCheckpoint {
+export interface Checkpoint {
   readonly checkpoint: util.OpId;
   readonly lsn: string | null;
+}
 
+export interface ActiveCheckpoint extends Checkpoint {
   hasSyncRules(): boolean;
 
   getBucketStorage(): Promise<SyncRulesBucketStorage | null>;
+}
+
+export interface WriteCheckpoint {
+  base: ActiveCheckpoint;
+  writeCheckpoint: bigint | null;
 }
 
 export interface StorageMetrics {
@@ -207,7 +209,7 @@ export interface SyncRulesBucketStorage {
     callback: (batch: BucketStorageBatch) => Promise<void>
   ): Promise<FlushedResult | null>;
 
-  getCheckpoint(): Promise<{ checkpoint: util.OpId }>;
+  getCheckpoint(): Promise<Checkpoint>;
 
   getParsedSyncRules(options: ParseSyncRulesOptions): SqlSyncRules;
 

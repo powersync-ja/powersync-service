@@ -88,7 +88,7 @@ export type StreamingSyncLine =
  */
 export type OpId = string;
 
-export interface Checkpoint {
+interface Checkpoint {
   last_op_id: OpId;
   write_checkpoint?: OpId;
   buckets: BucketChecksum[];

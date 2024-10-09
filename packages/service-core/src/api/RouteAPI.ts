@@ -1,6 +1,6 @@
 import { SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import * as types from '@powersync/service-types';
-import { ParseSyncRulesOptions } from '../storage/BucketStorage.js';
+import { ParseSyncRulesOptions, SyncRulesBucketStorage } from '../storage/BucketStorage.js';
 
 export interface PatternResult {
   schema: string;
@@ -11,8 +11,7 @@ export interface PatternResult {
 }
 
 export interface ReplicationLagOptions {
-  replication_identifier: string;
-  last_checkpoint_identifier: string;
+  bucketStorage: SyncRulesBucketStorage;
 }
 
 /**
@@ -62,7 +61,7 @@ export interface RouteAPI {
    * contains `pg_type` which we might need to deprecate and add another generic
    * type field - or just use this field as the connection specific type.
    */
-  getConnectionSchema(): Promise<types.DatabaseSchemaV2[]>;
+  getConnectionSchema(): Promise<types.DatabaseSchema[]>;
 
   /**
    * Executes a query and return the result from the data source. This is currently used in the

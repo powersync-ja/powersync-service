@@ -144,29 +144,6 @@ export const DatabaseSchema = t.object({
 });
 export type DatabaseSchema = t.Encoded<typeof DatabaseSchema>;
 
-export const DatabaseSchemaV2 = t.object({
-  name: t.string,
-  tables: t.array(
-    t.object({
-      name: t.string,
-      columns: t.array(
-        t.object({
-          name: t.string,
-          /**
-           * Full type name, e.g. "character varying(255)[]"
-           */
-          type: t.string,
-          /**
-           * Internal type, e.g. "varchar[]".
-           */
-          internal_type: t.string.optional()
-        })
-      )
-    })
-  )
-});
-export type DatabaseSchemaV2 = t.Encoded<typeof DatabaseSchemaV2>;
-
 export const InstanceSchema = t.object({
   connections: t.array(
     t.object({
@@ -177,14 +154,3 @@ export const InstanceSchema = t.object({
   )
 });
 export type InstanceSchema = t.Encoded<typeof InstanceSchema>;
-
-export const InstanceSchemaV2 = t.object({
-  connections: t.array(
-    t.object({
-      id: t.string.optional(),
-      tag: t.string,
-      schemas: t.array(DatabaseSchemaV2)
-    })
-  )
-});
-export type InstanceSchemaV2 = t.Encoded<typeof InstanceSchemaV2>;

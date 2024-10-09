@@ -6,15 +6,14 @@ import { framework, storage } from '@powersync/service-core';
 import mysql, { RowDataPacket } from 'mysql2/promise';
 
 import ZongJi, { BinLogEvent } from '@vlasky/zongji';
-import * as common from '../../common/common-index.js';
-import { NormalizedMySQLConnectionConfig } from '../../types/types.js';
-import * as zongji_utils from '../zongji/zongji-utils.js';
+import * as common from '../common/common-index.js';
+import * as zongji_utils from './zongji/zongji-utils.js';
+import { MySQLConnectionManager } from './MySQLConnectionManager.js';
 
 export interface BinLogStreamOptions {
-  pool: mysql.Pool;
-  connection_config: NormalizedMySQLConnectionConfig;
+  connections: MySQLConnectionManager;
   storage: storage.SyncRulesBucketStorage;
-  abort_signal: AbortSignal;
+  abortSignal: AbortSignal;
 }
 
 interface MysqlRelId {
@@ -33,37 +32,40 @@ function getMysqlRelId(source: MysqlRelId): string {
 }
 
 export class MysqlBinLogStream {
-  sync_rules: sync_rules.SqlSyncRules;
-  group_id: number;
+  private readonly sync_rules: sync_rules.SqlSyncRules;
+  private readonly group_id: number;
 
   private readonly storage: storage.SyncRulesBucketStorage;
 
-  private abort_signal: AbortSignal;
+  private readonly connections: MySQLConnectionManager;
 
-  private pool: mysql.Pool;
+  private abortSignal: AbortSignal;
+
   private relation_cache = new Map<string | number, storage.SourceTable>();
 
   constructor(protected options: BinLogStreamOptions) {
     this.storage = options.storage;
-    this.sync_rules = options.storage.sync_rules;
+    this.connections = options.connections;
+    this.sync_rules = options.storage.getParsedSyncRules({ defaultSchema: this.defaultSchema });
     this.group_id = options.storage.group_id;
-    this.pool = options.pool;
-
-    this.abort_signal = options.abort_signal;
+    this.abortSignal = options.abortSignal;
   }
 
   get connectionTag() {
-    return this.options.connection_config.tag;
+    return this.connections.connectionTag;
   }
 
   get connectionId() {
-    // TODO this is currently hardcoded to 1 in most places
-    // return this.options.connection_config.id;
-    return 1;
+    // Default to 1 if not set
+    return this.connections.connectionId ? Number.parseInt(this.connections.connectionId) : 1;
   }
 
   get stopped() {
-    return this.abort_signal.aborted;
+    return this.abortSignal.aborted;
+  }
+
+  get defaultSchema() {
+    return this.connections.databaseName;
   }
 
   async handleRelation(batch: storage.BucketStorageBatch, entity: storage.SourceEntityDescriptor, snapshot: boolean) {
@@ -74,6 +76,7 @@ export class MysqlBinLogStream {
       entity_descriptor: entity,
       sync_rules: this.sync_rules
     });
+    this.relation_cache.set(entity.objectId, result.table);
 
     // Drop conflicting tables. This includes for example renamed tables.
     await batch.drop(result.dropTables);
@@ -91,11 +94,11 @@ export class MysqlBinLogStream {
       let gtid: common.ReplicatedGTID;
       // Start the snapshot inside a transaction.
       // We use a dedicated connection for this.
-      const connection = await this.pool.getConnection();
+      const connection = await this.connections.getConnection();
       try {
         await connection.query('BEGIN');
         try {
-          gtid = await common.readMasterGtid(this.pool);
+          gtid = await common.readExecutedGtid(connection);
           await this.snapshotTable(batch, connection, result.table);
           await connection.query('COMMIT');
         } catch (e) {
@@ -103,7 +106,7 @@ export class MysqlBinLogStream {
           throw e;
         }
       } finally {
-        await connection.end();
+        connection.release();
       }
       const [table] = await batch.markSnapshotDone([result.table], gtid.comparable);
       return table;
@@ -116,14 +119,16 @@ export class MysqlBinLogStream {
     batch: storage.BucketStorageBatch,
     tablePattern: sync_rules.TablePattern
   ): Promise<storage.SourceTable[]> {
+    const schema = tablePattern.schema;
     if (tablePattern.connectionTag != this.connectionTag) {
       return [];
     }
 
     let tableRows: any[];
     const prefix = tablePattern.isWildcard ? tablePattern.tablePrefix : undefined;
+    const connection = await this.connections.getConnection();
     if (tablePattern.isWildcard) {
-      const result = await this.pool.query<RowDataPacket[]>(
+      const result = await connection.query<RowDataPacket[]>(
         `SELECT TABLE_NAME
 FROM information_schema.tables
 WHERE TABLE_SCHEMA = ? AND TABLE_NAME LIKE ?;
@@ -132,7 +137,7 @@ WHERE TABLE_SCHEMA = ? AND TABLE_NAME LIKE ?;
       );
       tableRows = result[0];
     } else {
-      const result = await this.pool.query<RowDataPacket[]>(
+      const result = await connection.query<RowDataPacket[]>(
         `SELECT TABLE_NAME
 FROM information_schema.tables
 WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?;
@@ -141,7 +146,7 @@ WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?;
       );
       tableRows = result[0];
     }
-    let result: storage.SourceTable[] = [];
+    let tables: storage.SourceTable[] = [];
 
     for (let row of tableRows) {
       const name = row['TABLE_NAME'] as string;
@@ -149,20 +154,20 @@ WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?;
         continue;
       }
 
-      const rs = await this.pool.query<RowDataPacket[]>(
+      const result = await connection.query<RowDataPacket[]>(
         `SELECT 1
 FROM information_schema.tables
 WHERE table_schema = ? AND table_name = ?
 AND table_type = 'BASE TABLE';`,
         [tablePattern.schema, tablePattern.name]
       );
-      if (rs[0].length == 0) {
+      if (result[0].length == 0) {
         logger.info(`Skipping ${tablePattern.schema}.${name} - no table exists/is not a base table`);
         continue;
       }
 
-      const cresult = await common.getReplicationIdentityColumns({
-        db: this.pool,
+      const replicationColumns = await common.getReplicationIdentityColumns({
+        db: connection,
         schema: tablePattern.schema,
         table_name: tablePattern.name
       });
@@ -173,22 +178,22 @@ AND table_type = 'BASE TABLE';`,
           name,
           schema: tablePattern.schema,
           objectId: getMysqlRelId(tablePattern),
-          replicationColumns: cresult.columns
+          replicationColumns: replicationColumns.columns
         },
         false
       );
 
-      result.push(table);
+      tables.push(table);
     }
-    return result;
+
+    connection.release();
+    return tables;
   }
 
   /**
    * Checks if the initial sync has been completed yet.
    */
   protected async checkInitialReplicated(): Promise<boolean> {
-    await common.checkSourceConfiguration(this.pool);
-
     const status = await this.storage.getStatus();
     if (status.snapshot_done && status.checkpoint_lsn) {
       logger.info(`Initial replication already done. MySQL appears healthy`);
@@ -205,13 +210,14 @@ AND table_type = 'BASE TABLE';`,
    */
   async replicateInitial() {
     await this.storage.clear();
-    const headGTID = await common.readMasterGtid(this.pool);
+    const connection = await this.connections.getConnection();
+    const headGTID = await common.readExecutedGtid(connection);
     logger.info(`Using GTID:: '${headGTID}'`);
-    await this.pool.query('BEGIN');
+    await connection.query('BEGIN');
     try {
       logger.info(`Starting initial replication`);
       const sourceTables = this.sync_rules.getSourceTables();
-      await this.storage.startBatch({}, async (batch) => {
+      await this.storage.startBatch({zeroLSN: , defaultSchema: this.defaultSchema}, async (batch) => {
         for (let tablePattern of sourceTables) {
           const tables = await this.getQualifiedTableNames(batch, tablePattern);
           for (let table of tables) {
@@ -262,6 +268,10 @@ AND table_type = 'BASE TABLE';`,
   }
 
   async initReplication() {
+    const connection = await this.connections.getConnection();
+    await common.checkSourceConfiguration(connection);
+    connection.release();
+
     const initialReplicationCompleted = await this.checkInitialReplicated();
 
     const sourceTables = this.sync_rules.getSourceTables();
@@ -283,7 +293,7 @@ AND table_type = 'BASE TABLE';`,
     const { checkpoint_lsn } = await this.storage.getStatus();
     const fromGTID = checkpoint_lsn
       ? common.ReplicatedGTID.fromSerialized(checkpoint_lsn)
-      : await common.readMasterGtid(this.pool);
+      : await common.readExecutedGtid(this.pool);
     const binLogPositionState = fromGTID.position;
 
     await this.storage.startBatch({}, async (batch) => {
@@ -418,7 +428,7 @@ AND table_type = 'BASE TABLE';`,
         }
       }, 1);
 
-      zongji.on('binlog', (evt: any) => {
+      zongji.on('binlog', (evt: BinLogEvent) => {
         queue.push(evt);
       });
 
@@ -436,7 +446,7 @@ AND table_type = 'BASE TABLE';`,
           queue.kill();
           reject(error);
         });
-        this.abort_signal.addEventListener(
+        this.abortSignal.addEventListener(
           'abort',
           async () => {
             zongji.stop();
