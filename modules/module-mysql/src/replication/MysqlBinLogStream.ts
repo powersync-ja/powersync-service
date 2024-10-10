@@ -2,13 +2,14 @@ import { logger } from '@powersync/lib-services-framework';
 import * as sync_rules from '@powersync/service-sync-rules';
 import async from 'async';
 
-import { framework, storage } from '@powersync/service-core';
-import mysql, { RowDataPacket } from 'mysql2/promise';
+import { framework, getUuidReplicaIdentityBson, storage } from '@powersync/service-core';
+import mysql from 'mysql2';
 
-import ZongJi, { BinLogEvent } from '@vlasky/zongji';
+import { BinLogEvent } from '@powersync/mysql-zongji';
 import * as common from '../common/common-index.js';
 import * as zongji_utils from './zongji/zongji-utils.js';
 import { MySQLConnectionManager } from './MySQLConnectionManager.js';
+import { ReplicatedGTID } from '../common/common-index.js';
 
 export interface BinLogStreamOptions {
   connections: MySQLConnectionManager;
@@ -94,15 +95,16 @@ export class MysqlBinLogStream {
       let gtid: common.ReplicatedGTID;
       // Start the snapshot inside a transaction.
       // We use a dedicated connection for this.
-      const connection = await this.connections.getConnection();
+      const connection = await this.connections.getStreamingConnection();
+      const promiseConnection = connection.connection.promise();
       try {
-        await connection.query('BEGIN');
+        await promiseConnection.query('BEGIN');
         try {
-          gtid = await common.readExecutedGtid(connection);
-          await this.snapshotTable(batch, connection, result.table);
-          await connection.query('COMMIT');
+          gtid = await common.readExecutedGtid(promiseConnection);
+          await this.snapshotTable(connection.connection, batch, result.table);
+          await promiseConnection.query('COMMIT');
         } catch (e) {
-          await connection.query('ROLLBACK');
+          await promiseConnection.query('ROLLBACK');
           throw e;
         }
       } finally {
@@ -119,16 +121,14 @@ export class MysqlBinLogStream {
     batch: storage.BucketStorageBatch,
     tablePattern: sync_rules.TablePattern
   ): Promise<storage.SourceTable[]> {
-    const schema = tablePattern.schema;
     if (tablePattern.connectionTag != this.connectionTag) {
       return [];
     }
 
     let tableRows: any[];
     const prefix = tablePattern.isWildcard ? tablePattern.tablePrefix : undefined;
-    const connection = await this.connections.getConnection();
     if (tablePattern.isWildcard) {
-      const result = await connection.query<RowDataPacket[]>(
+      const result = await this.connections.query(
         `SELECT TABLE_NAME
 FROM information_schema.tables
 WHERE TABLE_SCHEMA = ? AND TABLE_NAME LIKE ?;
@@ -137,7 +137,7 @@ WHERE TABLE_SCHEMA = ? AND TABLE_NAME LIKE ?;
       );
       tableRows = result[0];
     } else {
-      const result = await connection.query<RowDataPacket[]>(
+      const result = await this.connections.query(
         `SELECT TABLE_NAME
 FROM information_schema.tables
 WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?;
@@ -154,7 +154,7 @@ WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?;
         continue;
       }
 
-      const result = await connection.query<RowDataPacket[]>(
+      const result = await this.connections.query(
         `SELECT 1
 FROM information_schema.tables
 WHERE table_schema = ? AND table_name = ?
@@ -166,11 +166,13 @@ AND table_type = 'BASE TABLE';`,
         continue;
       }
 
+      const connection = await this.connections.getConnection();
       const replicationColumns = await common.getReplicationIdentityColumns({
         db: connection,
         schema: tablePattern.schema,
         table_name: tablePattern.name
       });
+      connection.release();
 
       const table = await this.handleRelation(
         batch,
@@ -185,8 +187,6 @@ AND table_type = 'BASE TABLE';`,
 
       tables.push(table);
     }
-
-    connection.release();
     return tables;
   }
 
@@ -203,56 +203,81 @@ AND table_type = 'BASE TABLE';`,
   }
 
   /**
-   * Snapshots initial tables
+   * Does the initial replication of the database tables.
    *
    * If (partial) replication was done before on this slot, this clears the state
    * and starts again from scratch.
    */
-  async replicateInitial() {
+  async startInitialReplication() {
     await this.storage.clear();
-    const connection = await this.connections.getConnection();
-    const headGTID = await common.readExecutedGtid(connection);
+    // Replication will be performed in a single transaction on this connection
+    const connection = await this.connections.getStreamingConnection();
+    const promiseConnection = connection.connection.promise();
+    const headGTID = await common.readExecutedGtid(promiseConnection);
     logger.info(`Using GTID:: '${headGTID}'`);
-    await connection.query('BEGIN');
     try {
       logger.info(`Starting initial replication`);
+      await promiseConnection.query('START TRANSACTION');
+      await promiseConnection.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ ACCESS_MODE READ ONLY');
       const sourceTables = this.sync_rules.getSourceTables();
-      await this.storage.startBatch({zeroLSN: , defaultSchema: this.defaultSchema}, async (batch) => {
-        for (let tablePattern of sourceTables) {
-          const tables = await this.getQualifiedTableNames(batch, tablePattern);
-          for (let table of tables) {
-            await this.snapshotTable(batch, this.pool, table);
-            await batch.markSnapshotDone([table], headGTID.comparable);
-            await framework.container.probes.touch();
+      await this.storage.startBatch(
+        { zeroLSN: ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema },
+        async (batch) => {
+          for (let tablePattern of sourceTables) {
+            const tables = await this.getQualifiedTableNames(batch, tablePattern);
+            for (let table of tables) {
+              await this.snapshotTable(connection.connection, batch, table);
+              await batch.markSnapshotDone([table], headGTID.comparable);
+              await framework.container.probes.touch();
+            }
           }
+          await batch.commit(headGTID.comparable);
         }
-        await batch.commit(headGTID.comparable);
-      });
+      );
       logger.info(`Initial replication done`);
-      await this.pool.query('COMMIT');
+      await connection.query('COMMIT');
     } catch (e) {
-      await this.pool.query('ROLLBACK');
+      await connection.query('ROLLBACK');
       throw e;
+    } finally {
+      connection.release();
     }
   }
 
   private async snapshotTable(
-    batch: storage.BucketStorageBatch,
     connection: mysql.Connection,
+    batch: storage.BucketStorageBatch,
     table: storage.SourceTable
   ) {
     logger.info(`Replicating ${table.qualifiedName}`);
-    // TODO this could be large. Should we chunk this
-    const [rows] = await connection.query<mysql.RowDataPacket[]>(`SELECT * FROM ${table.schema}.${table.table}`);
-    for (const record of rows) {
-      await batch.save({
-        tag: storage.SaveOperationTag.INSERT,
-        sourceTable: table,
-        before: undefined,
-        after: common.toSQLiteRow(record)
-      });
-    }
-    await batch.flush();
+    // TODO count rows
+
+    return new Promise<void>((resolve, reject) => {
+      // MAX_EXECUTION_TIME(0) hint disables execution timeout for this query
+      connection
+        .query(`SELECT /*+ MAX_EXECUTION_TIME(0) */ * FROM ${table.schema}.${table.table}`)
+        .on('error', (err) => {
+          reject(err);
+        })
+        .on('result', async (row) => {
+          connection.pause();
+          const record = common.toSQLiteRow(row);
+
+          await batch.save({
+            tag: storage.SaveOperationTag.INSERT,
+            sourceTable: table,
+            before: undefined,
+            beforeReplicaId: undefined,
+            after: record,
+            afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns)
+          });
+          connection.resume();
+        })
+        .on('end', async function () {
+          await batch.flush();
+          resolve();
+        });
+    });
   }
 
   async replicate() {
@@ -273,193 +298,159 @@ AND table_type = 'BASE TABLE';`,
     connection.release();
 
     const initialReplicationCompleted = await this.checkInitialReplicated();
-
-    const sourceTables = this.sync_rules.getSourceTables();
-    await this.storage.startBatch({}, async (batch) => {
-      for (let tablePattern of sourceTables) {
-        await this.getQualifiedTableNames(batch, tablePattern);
-      }
-    });
-
     if (!initialReplicationCompleted) {
-      await this.replicateInitial();
+      await this.startInitialReplication();
     }
+  }
+
+  private getTable(tableId: string): storage.SourceTable {
+    const table = this.relation_cache.get(tableId);
+    if (table == null) {
+      // We should always receive a replication message before the relation is used.
+      // If we can't find it, it's a bug.
+      throw new Error(`Missing relation cache for ${tableId}`);
+    }
+    return table;
   }
 
   async streamChanges() {
     // Auto-activate as soon as initial replication is done
     await this.storage.autoActivate();
 
+    const connection = await this.connections.getConnection();
     const { checkpoint_lsn } = await this.storage.getStatus();
     const fromGTID = checkpoint_lsn
       ? common.ReplicatedGTID.fromSerialized(checkpoint_lsn)
-      : await common.readExecutedGtid(this.pool);
+      : await common.readExecutedGtid(connection);
     const binLogPositionState = fromGTID.position;
+    connection.release();
 
-    await this.storage.startBatch({}, async (batch) => {
-      const zongji = new ZongJi({
-        host: this.options.connection_config.hostname,
-        user: this.options.connection_config.username,
-        password: this.options.connection_config.password
-      });
+    await this.storage.startBatch(
+      { zeroLSN: ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema },
+      async (batch) => {
+        const zongji = this.connections.createBinlogListener();
 
-      let currentGTID: common.ReplicatedGTID | null = null;
+        let currentGTID: common.ReplicatedGTID | null = null;
 
-      const queue = async.queue(async (evt: BinLogEvent) => {
-        // State machine
-        switch (true) {
-          case zongji_utils.eventIsGTIDLog(evt):
-            currentGTID = common.ReplicatedGTID.fromBinLogEvent({
-              raw_gtid: {
-                server_id: evt.serverId,
-                transaction_range: evt.transactionRange
-              },
-              position: {
-                filename: binLogPositionState.filename,
-                offset: evt.nextPosition
-              }
-            });
-            break;
-          case zongji_utils.eventIsRotation(evt):
-            // Update the position
-            binLogPositionState.filename = evt.binlogName;
-            binLogPositionState.offset = evt.position;
-            break;
-          case zongji_utils.eventIsWriteMutation(evt):
-            // TODO, can multiple tables be present?
-            const writeTableInfo = evt.tableMap[evt.tableId];
-
-            await this.writeChanges(batch, {
-              type: storage.SaveOperationTag.INSERT,
-              data: evt.rows,
-              database: writeTableInfo.parentSchema,
-              table: writeTableInfo.tableName,
-              // TODO cleanup
-              sourceTable: (
-                await this.storage.resolveTable({
-                  connection_id: this.connectionId,
-                  connection_tag: this.connectionTag,
-                  entity_descriptor: {
-                    name: writeTableInfo.tableName,
-                    objectId: evt.tableId,
-                    schema: writeTableInfo.parentSchema,
-                    replicationColumns: writeTableInfo.columns.map((c: any, index: number) => ({
-                      name: c.name,
-                      type: writeTableInfo.columnSchemas[index].COLUMN_TYPE
-                    }))
-                  },
-                  group_id: this.group_id,
-                  sync_rules: this.sync_rules
-                })
-              ).table
-            });
-            break;
-          case zongji_utils.eventIsUpdateMutation(evt):
-            const updateTableInfo = evt.tableMap[evt.tableId];
-            await this.writeChanges(batch, {
-              type: storage.SaveOperationTag.UPDATE,
-              data: evt.rows.map((row) => row.after),
-              previous_data: evt.rows.map((row) => row.before),
-              database: updateTableInfo.parentSchema,
-              table: updateTableInfo.tableName,
-              // TODO cleanup
-              sourceTable: (
-                await this.storage.resolveTable({
-                  connection_id: this.connectionId,
-                  connection_tag: this.connectionTag,
-                  entity_descriptor: {
-                    name: updateTableInfo.tableName,
-                    objectId: evt.tableId,
-                    schema: updateTableInfo.parentSchema,
-                    replicationColumns: updateTableInfo.columns.map((c: any, index: number) => ({
-                      name: c.name,
-                      type: updateTableInfo.columnSchemas[index].COLUMN_TYPE
-                    }))
-                  },
-                  group_id: this.group_id,
-                  sync_rules: this.sync_rules
-                })
-              ).table
-            });
-            break;
-          case zongji_utils.eventIsDeleteMutation(evt):
-            // TODO, can multiple tables be present?
-            const deleteTableInfo = evt.tableMap[evt.tableId];
-            await this.writeChanges(batch, {
-              type: storage.SaveOperationTag.DELETE,
-              data: evt.rows,
-              database: deleteTableInfo.parentSchema,
-              table: deleteTableInfo.tableName,
-              // TODO cleanup
-              sourceTable: (
-                await this.storage.resolveTable({
-                  connection_id: this.connectionId,
-                  connection_tag: this.connectionTag,
-                  entity_descriptor: {
-                    name: deleteTableInfo.tableName,
-                    objectId: evt.tableId,
-                    schema: deleteTableInfo.parentSchema,
-                    replicationColumns: deleteTableInfo.columns.map((c: any, index: number) => ({
-                      name: c.name,
-                      type: deleteTableInfo.columnSchemas[index].COLUMN_TYPE
-                    }))
-                  },
-                  group_id: this.group_id,
-                  sync_rules: this.sync_rules
-                })
-              ).table
-            });
-            break;
-          case zongji_utils.eventIsXid(evt):
-            // Need to commit with a replicated GTID with updated next position
-            await batch.commit(
-              new common.ReplicatedGTID({
-                raw_gtid: currentGTID!.raw,
+        const queue = async.queue(async (evt: BinLogEvent) => {
+          // State machine
+          switch (true) {
+            case zongji_utils.eventIsGTIDLog(evt):
+              currentGTID = common.ReplicatedGTID.fromBinLogEvent({
+                raw_gtid: {
+                  server_id: evt.serverId,
+                  transaction_range: evt.transactionRange
+                },
                 position: {
                   filename: binLogPositionState.filename,
                   offset: evt.nextPosition
                 }
-              }).comparable
-            );
-            currentGTID = null;
-            // chunks_replicated_total.add(1);
-            // TODO update other metrics
-            break;
-        }
-      }, 1);
+              });
+              break;
+            case zongji_utils.eventIsRotation(evt):
+              // Update the position
+              binLogPositionState.filename = evt.binlogName;
+              binLogPositionState.offset = evt.position;
+              break;
+            case zongji_utils.eventIsWriteMutation(evt):
+              // TODO, can multiple tables be present?
+              const writeTableInfo = evt.tableMap[evt.tableId];
+              await this.writeChanges(batch, {
+                type: storage.SaveOperationTag.INSERT,
+                data: evt.rows,
+                database: writeTableInfo.parentSchema,
+                table: writeTableInfo.tableName,
+                sourceTable: this.getTable(
+                  getMysqlRelId({
+                    schema: writeTableInfo.parentSchema,
+                    name: writeTableInfo.tableName
+                  })
+                )
+              });
+              break;
+            case zongji_utils.eventIsUpdateMutation(evt):
+              const updateTableInfo = evt.tableMap[evt.tableId];
+              await this.writeChanges(batch, {
+                type: storage.SaveOperationTag.UPDATE,
+                data: evt.rows.map((row) => row.after),
+                previous_data: evt.rows.map((row) => row.before),
+                database: updateTableInfo.parentSchema,
+                table: updateTableInfo.tableName,
+                sourceTable: this.getTable(
+                  getMysqlRelId({
+                    schema: updateTableInfo.parentSchema,
+                    name: updateTableInfo.tableName
+                  })
+                )
+              });
+              break;
+            case zongji_utils.eventIsDeleteMutation(evt):
+              // TODO, can multiple tables be present?
+              const deleteTableInfo = evt.tableMap[evt.tableId];
+              await this.writeChanges(batch, {
+                type: storage.SaveOperationTag.DELETE,
+                data: evt.rows,
+                database: deleteTableInfo.parentSchema,
+                table: deleteTableInfo.tableName,
+                // TODO cleanup
+                sourceTable: this.getTable(
+                  getMysqlRelId({
+                    schema: deleteTableInfo.parentSchema,
+                    name: deleteTableInfo.tableName
+                  })
+                )
+              });
+              break;
+            case zongji_utils.eventIsXid(evt):
+              // Need to commit with a replicated GTID with updated next position
+              await batch.commit(
+                new common.ReplicatedGTID({
+                  raw_gtid: currentGTID!.raw,
+                  position: {
+                    filename: binLogPositionState.filename,
+                    offset: evt.nextPosition
+                  }
+                }).comparable
+              );
+              currentGTID = null;
+              // chunks_replicated_total.add(1);
+              break;
+          }
+        }, 1);
 
-      zongji.on('binlog', (evt: BinLogEvent) => {
-        queue.push(evt);
-      });
-
-      zongji.start({
-        includeEvents: ['tablemap', 'writerows', 'updaterows', 'deleterows', 'xid', 'rotate', 'gtidlog'],
-        excludeEvents: [],
-        filename: binLogPositionState.filename,
-        position: binLogPositionState.offset
-      });
-
-      // Forever young
-      await new Promise<void>((resolve, reject) => {
-        queue.error((error) => {
-          zongji.stop();
-          queue.kill();
-          reject(error);
+        zongji.on('binlog', (evt: BinLogEvent) => {
+          queue.push(evt);
         });
-        this.abortSignal.addEventListener(
-          'abort',
-          async () => {
+
+        zongji.start({
+          includeEvents: ['tablemap', 'writerows', 'updaterows', 'deleterows', 'xid', 'rotate', 'gtidlog'],
+          excludeEvents: [],
+          filename: binLogPositionState.filename,
+          position: binLogPositionState.offset
+        });
+
+        // Forever young
+        await new Promise<void>((resolve, reject) => {
+          queue.error((error) => {
             zongji.stop();
             queue.kill();
-            if (!queue.length) {
-              await queue.drain();
-            }
-            resolve();
-          },
-          { once: true }
-        );
-      });
-    });
+            reject(error);
+          });
+          this.abortSignal.addEventListener(
+            'abort',
+            async () => {
+              zongji.stop();
+              queue.kill();
+              if (!queue.length) {
+                await queue.drain();
+              }
+              resolve();
+            },
+            { once: true }
+          );
+        });
+      }
+    );
   }
 
   private async writeChanges(
@@ -496,26 +487,42 @@ AND table_type = 'BASE TABLE';`,
   ): Promise<storage.FlushedResult | null> {
     switch (msg.type) {
       case storage.SaveOperationTag.INSERT:
+        const record = common.toSQLiteRow(msg.data);
         return await batch.save({
           tag: storage.SaveOperationTag.INSERT,
           sourceTable: msg.sourceTable,
           before: undefined,
-          after: common.toSQLiteRow(msg.data)
+          beforeReplicaId: undefined,
+          after: record,
+          afterReplicaId: getUuidReplicaIdentityBson(record, msg.sourceTable.replicaIdColumns)
         });
       case storage.SaveOperationTag.UPDATE:
+        // "before" may be null if the replica id columns are unchanged
+        // It's fine to treat that the same as an insert.
+        const beforeUpdated = msg.previous_data ? common.toSQLiteRow(msg.previous_data) : undefined;
+        const after = common.toSQLiteRow(msg.data);
+
         return await batch.save({
           tag: storage.SaveOperationTag.UPDATE,
           sourceTable: msg.sourceTable,
-          before: msg.previous_data ? common.toSQLiteRow(msg.previous_data) : undefined,
-          after: common.toSQLiteRow(msg.data)
+          before: beforeUpdated,
+          beforeReplicaId: beforeUpdated
+            ? getUuidReplicaIdentityBson(beforeUpdated, msg.sourceTable.replicaIdColumns)
+            : undefined,
+          after: common.toSQLiteRow(msg.data),
+          afterReplicaId: getUuidReplicaIdentityBson(after, msg.sourceTable.replicaIdColumns)
         });
 
       case storage.SaveOperationTag.DELETE:
+        const beforeDeleted = common.toSQLiteRow(msg.data);
+
         return await batch.save({
           tag: storage.SaveOperationTag.DELETE,
           sourceTable: msg.sourceTable,
-          before: common.toSQLiteRow(msg.data),
-          after: undefined
+          before: beforeDeleted,
+          beforeReplicaId: getUuidReplicaIdentityBson(beforeDeleted, msg.sourceTable.replicaIdColumns),
+          after: undefined,
+          afterReplicaId: undefined
         });
       default:
         return null;

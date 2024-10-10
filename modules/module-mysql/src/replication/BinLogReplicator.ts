@@ -1,28 +1,35 @@
-import { replication } from '@powersync/service-core';
-import * as types from '../types/types.js';
-import { BinLogReplicatorJob } from './BinLogReplicatorJob.js';
+import { replication, storage } from '@powersync/service-core';
+import { BinLogReplicationJob } from './BinLogReplicationJob.js';
+import { MySQLConnectionManagerFactory } from './MySQLConnectionManagerFactory.js';
 
 export interface BinLogReplicatorOptions extends replication.AbstractReplicatorOptions {
-  /**
-   * Connection config required to a MySQL Pool
-   */
-  connectionConfig: types.ResolvedConnectionConfig;
+  connectionFactory: MySQLConnectionManagerFactory;
 }
 
-export class BinLogReplicator extends replication.AbstractReplicator<BinLogReplicatorJob> {
-  protected connectionConfig: types.ResolvedConnectionConfig;
+export class BinLogReplicator extends replication.AbstractReplicator<BinLogReplicationJob> {
+  private readonly connectionFactory: MySQLConnectionManagerFactory;
 
   constructor(options: BinLogReplicatorOptions) {
     super(options);
-    this.connectionConfig = options.connectionConfig;
+    this.connectionFactory = options.connectionFactory;
   }
 
-  createJob(options: replication.CreateJobOptions): BinLogReplicatorJob {
-    return new BinLogReplicatorJob({
+  createJob(options: replication.CreateJobOptions): BinLogReplicationJob {
+    return new BinLogReplicationJob({
       id: this.createJobId(options.storage.group_id),
       storage: options.storage,
       lock: options.lock,
-      connectionConfig: this.connectionConfig
+      connectionFactory: this.connectionFactory,
+      rateLimiter: this.rateLimiter
     });
+  }
+
+  async cleanUp(syncRulesStorage: storage.SyncRulesBucketStorage): Promise<void> {
+    // The MySQL module does not create anything which requires cleanup on the MySQL server.
+  }
+
+  async stop(): Promise<void> {
+    await super.stop();
+    await this.connectionFactory.shutdown();
   }
 }
