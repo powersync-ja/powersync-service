@@ -2,16 +2,16 @@ import * as bson from 'bson';
 import { afterEach, describe, expect, test } from 'vitest';
 import { WalStream, WalStreamOptions } from '../../src/replication/WalStream.js';
 import { env } from './env.js';
-import { TEST_CONNECTION_OPTIONS, clearTestDb, connectPgPool, getClientCheckpoint } from './util.js';
+import { clearTestDb, connectPgPool, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
 
 import * as pgwire from '@powersync/service-jpgwire';
 import { SqliteRow } from '@powersync/service-sync-rules';
 
 import { mapOpEntry, MongoBucketStorage } from '@/storage/storage-index.js';
-import * as timers from 'node:timers/promises';
+import { reduceBucket, validateCompactedBucket } from '@core-tests/bucket_validation.js';
 import { MONGO_STORAGE_FACTORY, StorageFactory } from '@core-tests/util.js';
 import { PgManager } from '@module/replication/PgManager.js';
-import { reduceBucket, validateCompactedBucket } from '@core-tests/bucket_validation.js';
+import * as timers from 'node:timers/promises';
 
 describe('slow tests - mongodb', function () {
   // These are slow, inconsistent tests.
@@ -82,7 +82,7 @@ bucket_definitions:
       - SELECT * FROM "test_data"
 `;
     const syncRules = await f.updateSyncRules({ content: syncRuleContent });
-    const storage = f.getInstance(syncRules);
+    using storage = f.getInstance(syncRules);
     abortController = new AbortController();
     const options: WalStreamOptions = {
       abort_signal: abortController.signal,
@@ -234,7 +234,7 @@ bucket_definitions:
       - SELECT id, description FROM "test_data"
 `;
       const syncRules = await f.updateSyncRules({ content: syncRuleContent });
-      const storage = f.getInstance(syncRules);
+      using storage = f.getInstance(syncRules);
 
       // 1. Setup some base data that will be replicated in initial replication
       await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);

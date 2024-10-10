@@ -1,3 +1,4 @@
+import { DisposableListener, DisposableObserverClient } from '@powersync/lib-services-framework';
 import {
   EvaluatedParameters,
   EvaluatedRow,
@@ -8,11 +9,19 @@ import {
   ToastableSqliteRow
 } from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
-import { SourceTable } from './SourceTable.js';
+import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
-import { ReplicaId } from './storage-index.js';
+import { SourceTable } from './SourceTable.js';
+import { BatchedCustomWriteCheckpointOptions, ReplicaId, WriteCheckpointAPI } from './storage-index.js';
 
-export interface BucketStorageFactory {
+export interface BucketStorageFactoryListener extends DisposableListener {
+  syncStorageCreated: (storage: SyncRulesBucketStorage) => void;
+  replicationEvent: (event: ReplicationEventPayload) => void;
+}
+
+export interface BucketStorageFactory
+  extends DisposableObserverClient<BucketStorageFactoryListener>,
+    WriteCheckpointAPI {
   /**
    * Update sync rules from configuration, if changed.
    */
@@ -81,10 +90,9 @@ export interface BucketStorageFactory {
    */
   getActiveCheckpoint(): Promise<ActiveCheckpoint>;
 
-  createWriteCheckpoint(user_id: string, lsns: Record<string, string>): Promise<bigint>;
-
-  lastWriteCheckpoint(user_id: string, lsn: string): Promise<bigint | null>;
-
+  /**
+   * Yields the latest user write checkpoint whenever the sync checkpoint updates.
+   */
   watchWriteCheckpoint(user_id: string, signal: AbortSignal): AsyncIterable<WriteCheckpoint>;
 
   /**
@@ -194,7 +202,11 @@ export interface StartBatchOptions extends ParseSyncRulesOptions {
   zeroLSN: string;
 }
 
-export interface SyncRulesBucketStorage {
+export interface SyncRulesBucketStorageListener extends DisposableListener {
+  batchStarted: (batch: BucketStorageBatch) => void;
+}
+
+export interface SyncRulesBucketStorage extends DisposableObserverClient<SyncRulesBucketStorageListener> {
   readonly group_id: number;
   readonly slot_name: string;
 
@@ -293,7 +305,11 @@ export interface FlushedResult {
   flushed_op: string;
 }
 
-export interface BucketStorageBatch {
+export interface BucketBatchStorageListener extends DisposableListener {
+  replicationEvent: (payload: ReplicationEventPayload) => void;
+}
+
+export interface BucketStorageBatch extends DisposableObserverClient<BucketBatchStorageListener> {
   /**
    * Save an op, and potentially flush.
    *
@@ -340,6 +356,11 @@ export interface BucketStorageBatch {
   keepalive(lsn: string): Promise<boolean>;
 
   markSnapshotDone(tables: SourceTable[], no_checkpoint_before_lsn: string): Promise<SourceTable[]>;
+
+  /**
+   * Queues the creation of a custom Write Checkpoint. This will be persisted after operations are flushed.
+   */
+  addCustomWriteCheckpoint(checkpoint: BatchedCustomWriteCheckpointOptions): void;
 }
 
 export interface SaveParameterData {
@@ -356,6 +377,8 @@ export interface SaveBucketData {
 
   evaluated: EvaluatedRow[];
 }
+
+export type SaveOp = 'insert' | 'update' | 'delete';
 
 export type SaveOptions = SaveInsert | SaveUpdate | SaveDelete;
 

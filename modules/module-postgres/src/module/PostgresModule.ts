@@ -1,20 +1,13 @@
-import {
-  api,
-  auth,
-  ConfigurationFileSyncRulesProvider,
-  replication,
-  system,
-  TearDownOptions
-} from '@powersync/service-core';
+import { api, auth, ConfigurationFileSyncRulesProvider, modules, replication, system } from '@powersync/service-core';
 import * as jpgwire from '@powersync/service-jpgwire';
-import * as types from '../types/types.js';
 import { PostgresRouteAPIAdapter } from '../api/PostgresRouteAPIAdapter.js';
 import { SupabaseKeyCollector } from '../auth/SupabaseKeyCollector.js';
-import { WalStreamReplicator } from '../replication/WalStreamReplicator.js';
 import { ConnectionManagerFactory } from '../replication/ConnectionManagerFactory.js';
+import { PgManager } from '../replication/PgManager.js';
 import { PostgresErrorRateLimiter } from '../replication/PostgresErrorRateLimiter.js';
 import { cleanUpReplicationSlot } from '../replication/replication-utils.js';
-import { PgManager } from '../replication/PgManager.js';
+import { WalStreamReplicator } from '../replication/WalStreamReplicator.js';
+import * as types from '../types/types.js';
 
 export class PostgresModule extends replication.ReplicationModule<types.PostgresConnectionConfig> {
   constructor() {
@@ -70,7 +63,7 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
     };
   }
 
-  async teardown(options: TearDownOptions): Promise<void> {
+  async teardown(options: modules.TearDownOptions): Promise<void> {
     const normalisedConfig = this.resolveConfig(this.decodedConfig!);
     const connectionManager = new PgManager(normalisedConfig, {
       idleTimeout: 30_000,

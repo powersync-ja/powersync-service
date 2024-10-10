@@ -1,6 +1,6 @@
-import { MissingReplicationSlotError, WalStream } from './WalStream.js';
 import { container } from '@powersync/lib-services-framework';
 import { PgManager } from './PgManager.js';
+import { MissingReplicationSlotError, WalStream } from './WalStream.js';
 
 import { replication } from '@powersync/service-core';
 import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';

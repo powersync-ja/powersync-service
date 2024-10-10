@@ -1,7 +1,7 @@
-import { storage, replication } from '@powersync/service-core';
-import { WalStreamReplicationJob } from './WalStreamReplicationJob.js';
+import { replication, storage } from '@powersync/service-core';
 import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
 import { cleanUpReplicationSlot } from './replication-utils.js';
+import { WalStreamReplicationJob } from './WalStreamReplicationJob.js';
 
 export interface WalStreamReplicatorOptions extends replication.AbstractReplicatorOptions {
   connectionFactory: ConnectionManagerFactory;

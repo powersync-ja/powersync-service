@@ -1,8 +1,8 @@
+import { logger } from '@powersync/lib-services-framework';
 import * as db from '../../db/db-index.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
-import { BucketStorageProvider, ActiveStorage, GetStorageOptions } from '../StorageProvider.js';
+import { ActiveStorage, BucketStorageProvider, GetStorageOptions } from '../StorageProvider.js';
 import { PowerSyncMongo } from './db.js';
-import { logger } from '@powersync/lib-services-framework';
 
 export class MongoStorageProvider implements BucketStorageProvider {
   get type() {
@@ -19,7 +19,8 @@ export class MongoStorageProvider implements BucketStorageProvider {
     return {
       storage: new MongoBucketStorage(database, {
         // TODO currently need the entire resolved config due to this
-        slot_name_prefix: resolvedConfig.slot_name_prefix
+        slot_name_prefix: resolvedConfig.slot_name_prefix,
+        write_checkpoint_mode: options.writeCheckpointMode
       }),
       shutDown: () => client.close(),
       tearDown: () => {

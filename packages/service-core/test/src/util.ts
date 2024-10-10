@@ -11,11 +11,10 @@ import { SourceTable } from '@/storage/SourceTable.js';
 import { PowerSyncMongo } from '@/storage/mongo/db.js';
 import { SyncBucketData } from '@/util/protocol-types.js';
 import { getUuidReplicaIdentityBson, hashData } from '@/util/utils.js';
+import { SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import * as mongo from 'mongodb';
 import { env } from './env.js';
-import { SqlSyncRules } from '@powersync/service-sync-rules';
-import { ReplicaId } from '@/storage/storage-index.js';
 
 // The metrics need to be initialised before they can be used
 await Metrics.initialise({

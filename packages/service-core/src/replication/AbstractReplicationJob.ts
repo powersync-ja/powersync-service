@@ -1,7 +1,7 @@
-import * as storage from '../storage/storage-index.js';
-import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 import { container, logger } from '@powersync/lib-services-framework';
 import winston from 'winston';
+import * as storage from '../storage/storage-index.js';
+import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 
 export interface AbstractReplicationJobOptions {
   id: string;

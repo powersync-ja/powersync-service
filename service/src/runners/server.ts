@@ -78,6 +78,7 @@ export async function startServer(runnerConfig: core.utils.RunnerConfig) {
   await moduleManager.initialize(serviceContext);
 
   logger.info('Starting service...');
+
   await serviceContext.lifeCycleEngine.start();
   logger.info('Service started.');
 

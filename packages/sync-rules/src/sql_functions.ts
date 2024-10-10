@@ -1,5 +1,5 @@
 import { JSONBig } from '@powersync/service-jsonbig';
-import { getOperatorFunction, SQLITE_FALSE, SQLITE_TRUE, sqliteBool, sqliteNot } from './sql_support.js';
+import { SQLITE_FALSE, SQLITE_TRUE, sqliteBool, sqliteNot } from './sql_support.js';
 import { SqliteValue } from './types.js';
 import { jsonValueToSqlite } from './utils.js';
 // Declares @syncpoint/wkx module
@@ -42,6 +42,18 @@ export interface DocumentedSqlFunction extends SqlFunction {
   parameters: FunctionParameter[];
   detail: string;
   documentation?: string;
+}
+
+export function getOperatorFunction(op: string): SqlFunction {
+  return {
+    debugName: `operator${op}`,
+    call(...args: SqliteValue[]) {
+      return evaluateOperator(op, args[0], args[1]);
+    },
+    getReturnType(args) {
+      return getOperatorReturnType(op, args[0], args[1]);
+    }
+  };
 }
 
 const upper: DocumentedSqlFunction = {

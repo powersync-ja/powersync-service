@@ -1,11 +1,11 @@
-import * as pgwire from '@powersync/service-jpgwire';
-import * as util from '../utils/pgwire_utils.js';
 import { container, errors, logger } from '@powersync/lib-services-framework';
-import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
-import { getPgOutputRelation, getRelId } from './PgRelation.js';
 import { getUuidReplicaIdentityBson, Metrics, SourceEntityDescriptor, storage } from '@powersync/service-core';
-import { checkSourceConfiguration, getReplicationIdentityColumns } from './replication-utils.js';
+import * as pgwire from '@powersync/service-jpgwire';
+import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
+import * as pg_utils from '../utils/pgwire_utils.js';
 import { PgManager } from './PgManager.js';
+import { getPgOutputRelation, getRelId } from './PgRelation.js';
+import { checkSourceConfiguration, getReplicationIdentityColumns } from './replication-utils.js';
 
 export const ZERO_LSN = '00000000/00000000';
 export const PUBLICATION_NAME = 'powersync';
@@ -60,7 +60,7 @@ export class WalStream {
           // Ping to speed up cancellation of streaming replication
           // We're not using pg_snapshot here, since it could be in the middle of
           // an initial replication transaction.
-          const promise = util.retriedQuery(
+          const promise = pg_utils.retriedQuery(
             this.connections.pool,
             `SELECT * FROM pg_logical_emit_message(false, 'powersync', 'ping')`
           );
@@ -347,7 +347,6 @@ WHERE  oid = $1::regclass`,
         for (let table of tables) {
           await this.snapshotTable(batch, db, table);
           await batch.markSnapshotDone([table], lsn);
-
           await touch();
         }
       }
@@ -395,7 +394,7 @@ WHERE  oid = $1::regclass`,
         throw new Error(`Aborted initial replication of ${this.slot_name}`);
       }
 
-      for (let record of WalStream.getQueryData(rows)) {
+      for (const record of WalStream.getQueryData(rows)) {
         // This auto-flushes when the batch reaches its size limit
         await batch.save({
           tag: 'insert',
@@ -406,6 +405,7 @@ WHERE  oid = $1::regclass`,
           afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns)
         });
       }
+
       at += rows.length;
       Metrics.getInstance().rows_replicated_total.add(rows.length);
 
@@ -495,7 +495,7 @@ WHERE  oid = $1::regclass`,
 
       if (msg.tag == 'insert') {
         Metrics.getInstance().rows_replicated_total.add(1);
-        const baseRecord = util.constructAfterRecord(msg);
+        const baseRecord = pg_utils.constructAfterRecord(msg);
         return await batch.save({
           tag: 'insert',
           sourceTable: table,
@@ -508,8 +508,8 @@ WHERE  oid = $1::regclass`,
         Metrics.getInstance().rows_replicated_total.add(1);
         // "before" may be null if the replica id columns are unchanged
         // It's fine to treat that the same as an insert.
-        const before = util.constructBeforeRecord(msg);
-        const after = util.constructAfterRecord(msg);
+        const before = pg_utils.constructBeforeRecord(msg);
+        const after = pg_utils.constructAfterRecord(msg);
         return await batch.save({
           tag: 'update',
           sourceTable: table,
@@ -520,7 +520,7 @@ WHERE  oid = $1::regclass`,
         });
       } else if (msg.tag == 'delete') {
         Metrics.getInstance().rows_replicated_total.add(1);
-        const before = util.constructBeforeRecord(msg)!;
+        const before = pg_utils.constructBeforeRecord(msg)!;
 
         return await batch.save({
           tag: 'delete',
@@ -592,7 +592,6 @@ WHERE  oid = $1::regclass`,
         // chunkLastLsn may come from normal messages in the chunk,
         // or from a PrimaryKeepalive message.
         const { messages, lastLsn: chunkLastLsn } = chunk;
-
         for (const msg of messages) {
           if (msg.tag == 'relation') {
             await this.handleRelation(batch, getPgOutputRelation(msg), true);
@@ -609,7 +608,7 @@ WHERE  oid = $1::regclass`,
             }
 
             count += 1;
-            const result = await this.writeChange(batch, msg);
+            await this.writeChange(batch, msg);
           }
         }
 

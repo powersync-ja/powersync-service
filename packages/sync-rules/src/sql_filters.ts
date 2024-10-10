@@ -1,7 +1,9 @@
-import { Expr, ExprRef, Name, NodeLocation, QName, QNameAliased, SelectedColumn, parse } from 'pgsql-ast-parser';
+import { JSONBig } from '@powersync/service-jsonbig';
+import { Expr, ExprRef, Name, NodeLocation, QName, QNameAliased, SelectedColumn } from 'pgsql-ast-parser';
 import { nil } from 'pgsql-ast-parser/src/utils.js';
-import { ExpressionType, TYPE_NONE } from './ExpressionType.js';
+import { ExpressionType } from './ExpressionType.js';
 import { SqlRuleError } from './errors.js';
+import { REQUEST_FUNCTIONS } from './request_functions.js';
 import {
   BASIC_OPERATORS,
   OPERATOR_IN,
@@ -13,6 +15,7 @@ import {
   SQL_FUNCTIONS,
   SqlFunction,
   castOperator,
+  getOperatorFunction,
   sqliteTypeOf
 } from './sql_functions.js';
 import {
@@ -20,7 +23,6 @@ import {
   SQLITE_TRUE,
   andFilters,
   compileStaticOperator,
-  getOperatorFunction,
   isClauseError,
   isParameterMatchClause,
   isParameterValueClause,
@@ -44,8 +46,6 @@ import {
   TrueIfParametersMatch
 } from './types.js';
 import { isJsonValue } from './utils.js';
-import { JSONBig } from '@powersync/service-jsonbig';
-import { REQUEST_FUNCTIONS } from './request_functions.js';
 
 export const MATCH_CONST_FALSE: TrueIfParametersMatch = [];
 export const MATCH_CONST_TRUE: TrueIfParametersMatch = [{}];

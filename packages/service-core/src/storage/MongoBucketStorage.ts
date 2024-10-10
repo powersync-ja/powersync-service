@@ -8,11 +8,12 @@ import * as locks from '../locks/locks-index.js';
 import * as sync from '../sync/sync-index.js';
 import * as util from '../util/util-index.js';
 
-import { logger } from '@powersync/lib-services-framework';
+import { DisposableObserver, logger } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
 import {
   ActiveCheckpoint,
   BucketStorageFactory,
+  BucketStorageFactoryListener,
   ParseSyncRulesOptions,
   PersistedSyncRules,
   PersistedSyncRulesContent,
@@ -20,19 +21,35 @@ import {
   UpdateSyncRulesOptions,
   WriteCheckpoint
 } from './BucketStorage.js';
-import { MongoPersistedSyncRulesContent } from './mongo/MongoPersistedSyncRulesContent.js';
-import { MongoSyncBucketStorage } from './mongo/MongoSyncBucketStorage.js';
 import { PowerSyncMongo, PowerSyncMongoOptions } from './mongo/db.js';
 import { SyncRuleDocument, SyncRuleState } from './mongo/models.js';
+import { MongoPersistedSyncRulesContent } from './mongo/MongoPersistedSyncRulesContent.js';
+import { MongoSyncBucketStorage } from './mongo/MongoSyncBucketStorage.js';
+import { MongoWriteCheckpointAPI } from './mongo/MongoWriteCheckpointAPI.js';
 import { generateSlotName } from './mongo/util.js';
+import {
+  CustomWriteCheckpointOptions,
+  DEFAULT_WRITE_CHECKPOINT_MODE,
+  LastWriteCheckpointFilters,
+  ManagedWriteCheckpointOptions,
+  WriteCheckpointAPI,
+  WriteCheckpointMode
+} from './write-checkpoint.js';
 
 export interface MongoBucketStorageOptions extends PowerSyncMongoOptions {}
 
-export class MongoBucketStorage implements BucketStorageFactory {
+export class MongoBucketStorage
+  extends DisposableObserver<BucketStorageFactoryListener>
+  implements BucketStorageFactory
+{
   private readonly client: mongo.MongoClient;
   private readonly session: mongo.ClientSession;
   // TODO: This is still Postgres specific and needs to be reworked
   public readonly slot_name_prefix: string;
+
+  readonly write_checkpoint_mode: WriteCheckpointMode;
+
+  protected readonly writeCheckpointAPI: WriteCheckpointAPI;
 
   private readonly storageCache = new LRUCache<number, MongoSyncBucketStorage>({
     max: 3,
@@ -49,16 +66,31 @@ export class MongoBucketStorage implements BucketStorageFactory {
       }
       const rules = new MongoPersistedSyncRulesContent(this.db, doc2);
       return this.getInstance(rules);
+    },
+    dispose: (storage) => {
+      storage[Symbol.dispose]();
     }
   });
 
   public readonly db: PowerSyncMongo;
 
-  constructor(db: PowerSyncMongo, options: { slot_name_prefix: string }) {
+  constructor(
+    db: PowerSyncMongo,
+    options: {
+      slot_name_prefix: string;
+      write_checkpoint_mode?: WriteCheckpointMode;
+    }
+  ) {
+    super();
     this.client = db.client;
     this.db = db;
     this.session = this.client.startSession();
     this.slot_name_prefix = options.slot_name_prefix;
+    this.write_checkpoint_mode = options.write_checkpoint_mode ?? DEFAULT_WRITE_CHECKPOINT_MODE;
+    this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
+      db,
+      mode: this.write_checkpoint_mode
+    });
   }
 
   getInstance(options: PersistedSyncRulesContent): MongoSyncBucketStorage {
@@ -66,7 +98,17 @@ export class MongoBucketStorage implements BucketStorageFactory {
     if ((typeof id as any) == 'bigint') {
       id = Number(id);
     }
-    return new MongoSyncBucketStorage(this, id, options, slot_name);
+    const storage = new MongoSyncBucketStorage(this, id, options, slot_name);
+    this.iterateListeners((cb) => cb.syncStorageCreated?.(storage));
+    storage.registerListener({
+      batchStarted: (batch) => {
+        // This nested listener will be automatically disposed when the storage is disposed
+        batch.registerManagedListener(storage, {
+          replicationEvent: (payload) => this.iterateListeners((cb) => cb.replicationEvent?.(payload))
+        });
+      }
+    });
+    return storage;
   }
 
   async configureSyncRules(sync_rules: string, options?: { lock?: boolean }) {
@@ -257,30 +299,20 @@ export class MongoBucketStorage implements BucketStorageFactory {
     });
   }
 
-  async createWriteCheckpoint(user_id: string, lsns: Record<string, string>): Promise<bigint> {
-    const doc = await this.db.write_checkpoints.findOneAndUpdate(
-      {
-        user_id: user_id
-      },
-      {
-        $set: {
-          lsns: lsns
-        },
-        $inc: {
-          client_id: 1n
-        }
-      },
-      { upsert: true, returnDocument: 'after' }
-    );
-    return doc!.client_id;
+  async batchCreateCustomWriteCheckpoints(checkpoints: CustomWriteCheckpointOptions[]): Promise<void> {
+    return this.writeCheckpointAPI.batchCreateCustomWriteCheckpoints(checkpoints);
   }
 
-  async lastWriteCheckpoint(user_id: string, lsn: string): Promise<bigint | null> {
-    const lastWriteCheckpoint = await this.db.write_checkpoints.findOne({
-      user_id: user_id,
-      'lsns.1': { $lte: lsn }
-    });
-    return lastWriteCheckpoint?.client_id ?? null;
+  async createCustomWriteCheckpoint(options: CustomWriteCheckpointOptions): Promise<bigint> {
+    return this.writeCheckpointAPI.createCustomWriteCheckpoint(options);
+  }
+
+  async createManagedWriteCheckpoint(options: ManagedWriteCheckpointOptions): Promise<bigint> {
+    return this.writeCheckpointAPI.createManagedWriteCheckpoint(options);
+  }
+
+  async lastWriteCheckpoint(filters: LastWriteCheckpointFilters): Promise<bigint | null> {
+    return this.writeCheckpointAPI.lastWriteCheckpoint(filters);
   }
 
   async getActiveCheckpoint(): Promise<ActiveCheckpoint> {
@@ -496,8 +528,17 @@ export class MongoBucketStorage implements BucketStorageFactory {
       // What is important is:
       // 1. checkpoint (op_id) changes.
       // 2. write checkpoint changes for the specific user
+      const bucketStorage = await cp.getBucketStorage();
 
-      const currentWriteCheckpoint = await this.lastWriteCheckpoint(user_id, lsn ?? '');
+      const lsnFilters: Record<string, string> = lsn ? { 1: lsn } : {};
+
+      const currentWriteCheckpoint = await this.lastWriteCheckpoint({
+        user_id,
+        sync_rules_id: bucketStorage?.group_id,
+        heads: {
+          ...lsnFilters
+        }
+      });
 
       if (currentWriteCheckpoint == lastWriteCheckpoint && checkpoint == lastCheckpoint) {
         // No change - wait for next one
