@@ -1,15 +1,34 @@
 import { BaseObserver, ObserverClient } from './BaseObserver.js';
 
 export interface DisposableListener {
+  /**
+   * Event which is fired when the `[Symbol.disposed]` method is called.
+   */
   disposed: () => void;
 }
 
-export interface DisposableObserverClient<T extends DisposableListener> extends ObserverClient<T>, Disposable {}
+export interface DisposableObserverClient<T extends DisposableListener> extends ObserverClient<T>, Disposable {
+  /**
+   * Registers a listener that is automatically disposed when the parent is disposed.
+   * This is useful for disposing nested listeners.
+   */
+  registerManagedListener: (parent: DisposableObserverClient<DisposableListener>, cb: Partial<T>) => () => void;
+}
 
 export class DisposableObserver<T extends DisposableListener>
   extends BaseObserver<T>
   implements DisposableObserverClient<T>
 {
+  registerManagedListener(parent: DisposableObserverClient<DisposableListener>, cb: Partial<T>) {
+    const disposer = this.registerListener(cb);
+    parent.registerListener({
+      disposed: () => {
+        disposer();
+      }
+    });
+    return disposer;
+  }
+
   [Symbol.dispose]() {
     this.iterateListeners((cb) => cb.disposed?.());
     // Delete all callbacks

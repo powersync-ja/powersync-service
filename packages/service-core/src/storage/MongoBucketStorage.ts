@@ -102,7 +102,8 @@ export class MongoBucketStorage
     this.iterateListeners((cb) => cb.syncStorageCreated?.(storage));
     storage.registerListener({
       batchStarted: (batch) => {
-        batch.registerListener({
+        // This nested listener will be automatically disposed when the storage is disposed
+        batch.registerManagedListener(storage, {
           replicationEvent: (payload) => this.iterateListeners((cb) => cb.replicationEvent?.(payload))
         });
       }
