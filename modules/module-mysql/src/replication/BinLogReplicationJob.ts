@@ -1,32 +1,22 @@
 import { container } from '@powersync/lib-services-framework';
-import * as types from '../types/types.js';
-
-import * as mysql_utils from '../utils/mysql_utils.js';
-
 import { replication } from '@powersync/service-core';
-import { MysqlBinLogStream } from './stream/MysqlBinLogStream.js';
+import { MysqlBinLogStream } from './MysqlBinLogStream.js';
+import { MySQLConnectionManagerFactory } from './MySQLConnectionManagerFactory.js';
 
 export interface BinLogReplicationJobOptions extends replication.AbstractReplicationJobOptions {
-  /**
-   * Connection config required to create a MySQL Pool
-   */
-  connectionConfig: types.ResolvedConnectionConfig;
+  connectionFactory: MySQLConnectionManagerFactory;
 }
 
-export class BinLogReplicatorJob extends replication.AbstractReplicationJob {
-  protected connectionConfig: types.ResolvedConnectionConfig;
+export class BinLogReplicationJob extends replication.AbstractReplicationJob {
+  private connectionFactory: MySQLConnectionManagerFactory;
 
   constructor(options: BinLogReplicationJobOptions) {
     super(options);
-    this.connectionConfig = options.connectionConfig;
+    this.connectionFactory = options.connectionFactory;
   }
 
   get slot_name() {
     return this.options.storage.slot_name;
-  }
-
-  async cleanUp(): Promise<void> {
-    // This MySQL module does not create anything which requires cleanup on the MySQL server.
   }
 
   async keepAlive() {}
@@ -67,17 +57,19 @@ export class BinLogReplicatorJob extends replication.AbstractReplicationJob {
     // New connections on every iteration (every error with retry),
     // otherwise we risk repeating errors related to the connection,
     // such as caused by cached PG schemas.
-    const pool = mysql_utils.createPool(this.connectionConfig);
+    const connectionManager = this.connectionFactory.create({
+      // Pool connections are only used intermittently.
+      idleTimeout: 30_000
+    });
     try {
       await this.rateLimiter?.waitUntilAllowed({ signal: this.abortController.signal });
       if (this.isStopped) {
         return;
       }
       const stream = new MysqlBinLogStream({
-        abort_signal: this.abortController.signal,
-        connection_config: this.connectionConfig,
-        pool,
-        storage: this.options.storage
+        abortSignal: this.abortController.signal,
+        storage: this.options.storage,
+        connections: connectionManager
       });
       await stream.replicate();
     } catch (e) {
@@ -99,7 +91,7 @@ export class BinLogReplicatorJob extends replication.AbstractReplicationJob {
         this.rateLimiter?.reportError(e);
       }
     } finally {
-      await pool.end();
+      await connectionManager.end();
     }
   }
 }

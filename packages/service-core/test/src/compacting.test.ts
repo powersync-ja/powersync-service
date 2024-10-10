@@ -1,12 +1,9 @@
 import { SaveOperationTag } from '@/storage/BucketStorage.js';
 import { MongoCompactOptions } from '@/storage/mongo/MongoCompactor.js';
-import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { validateCompactedBucket } from './bucket_validation.js';
 import { oneFromAsync } from './stream_utils.js';
-import { BATCH_OPTIONS, makeTestTable, MONGO_STORAGE_FACTORY, rid, testRules, ZERO_LSN } from './util.js';
-import { ParseSyncRulesOptions, PersistedSyncRulesContent, StartBatchOptions } from '@/storage/BucketStorage.js';
-import { getUuidReplicaIdentityBson } from '@/util/util-index.js';
+import { BATCH_OPTIONS, makeTestTable, MONGO_STORAGE_FACTORY, rid, testRules } from './util.js';
 
 const TEST_TABLE = makeTestTable('test', ['id']);
 
@@ -234,7 +231,7 @@ bucket_definitions:
     const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 't1'
         },
@@ -243,7 +240,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 't2'
         },
@@ -252,7 +249,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'delete',
+        tag: SaveOperationTag.DELETE,
         before: {
           id: 't1'
         },
@@ -266,7 +263,7 @@ bucket_definitions:
     const result2 = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'delete',
+        tag: SaveOperationTag.DELETE,
         before: {
           id: 't2'
         },
