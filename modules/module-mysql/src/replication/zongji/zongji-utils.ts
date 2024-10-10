@@ -5,7 +5,7 @@ import {
   BinLogRotationEvent,
   BinLogUpdateEvent,
   BinLogXidEvent
-} from '@vlasky/zongji';
+} from '@powersync/mysql-zongji';
 
 export function eventIsGTIDLog(event: BinLogEvent): event is BinLogGTIDLogEvent {
   return event.getEventName() == 'gtidlog';

@@ -1,4 +1,4 @@
-declare module '@vlasky/zongji' {
+declare module '@powersync/mysql-zongji' {
   export type ZongjiOptions = {
     host: string;
     user: string;
