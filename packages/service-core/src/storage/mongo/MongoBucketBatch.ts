@@ -549,7 +549,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
 
   async [Symbol.asyncDispose]() {
     await this.session.endSession();
-    super[Symbol.dispose];
+    super[Symbol.dispose]();
   }
 
   async commit(lsn: string): Promise<boolean> {
