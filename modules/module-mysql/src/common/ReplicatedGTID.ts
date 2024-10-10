@@ -31,7 +31,11 @@ export type BinLogGTIDEvent = {
  * and position where this GTID could be located.
  */
 export class ReplicatedGTID {
-  static deserialize(comparable: string): ReplicatedGTIDSpecification {
+  static fromSerialized(comparable: string): ReplicatedGTID {
+    return new ReplicatedGTID(ReplicatedGTID.deserialize(comparable));
+  }
+
+  private static deserialize(comparable: string): ReplicatedGTIDSpecification {
     const components = comparable.split('|');
     if (components.length < 3) {
       throw new Error(`Invalid serialized GTID: ${comparable}`);
@@ -44,10 +48,6 @@ export class ReplicatedGTID {
         offset: parseInt(components[3])
       } satisfies BinLogPosition
     };
-  }
-
-  static fromSerialized(comparable: string): ReplicatedGTID {
-    return new ReplicatedGTID(ReplicatedGTID.deserialize(comparable));
   }
 
   static fromBinLogEvent(event: BinLogGTIDEvent) {
@@ -80,12 +80,15 @@ export class ReplicatedGTID {
     return this.options.raw_gtid;
   }
 
+  get serverId() {
+    return this.options.raw_gtid.split(':')[0];
+  }
+
   /**
    * Transforms a GTID into a comparable string format, ensuring lexicographical
    * order aligns with the GTID's relative age. This assumes that all GTIDs
    * have the same server ID.
    *
-   * @param gtid - The GTID string in the format `server_id:transaction_ranges`
    * @returns A comparable string in the format
    *   `padded_end_transaction|raw_gtid|binlog_filename|binlog_position`
    */
@@ -111,9 +114,9 @@ export class ReplicatedGTID {
   /**
    * Calculates the distance in bytes from this GTID to the provided argument.
    */
-  async distanceTo(db: mysql.Connection, to: ReplicatedGTID): Promise<number | null> {
+  async distanceTo(connection: mysql.Connection, to: ReplicatedGTID): Promise<number | null> {
     const [logFiles] = await mysql_utils.retriedQuery({
-      connection: db,
+      connection,
       query: `SHOW BINARY LOGS;`
     });
 

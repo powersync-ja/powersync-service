@@ -1,9 +1,9 @@
 import { storage } from '@powersync/service-core';
-import mysql from 'mysql2/promise';
+import mysqlPromise from 'mysql2/promise';
 import * as mysql_utils from '../utils/mysql_utils.js';
 
 export type GetReplicationColumnsOptions = {
-  db: mysql.Connection;
+  db: mysqlPromise.Connection;
   schema: string;
   table_name: string;
 };

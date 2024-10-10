@@ -1,9 +1,10 @@
 import { logger } from '@powersync/lib-services-framework';
-import mysql from 'mysql2/promise';
+import mysql from 'mysql2';
+import mysqlPromise from 'mysql2/promise';
 import * as types from '../types/types.js';
 
 export type RetriedQueryOptions = {
-  connection: mysql.Connection;
+  connection: mysqlPromise.Connection;
   query: string;
   params?: any[];
   retries?: number;
@@ -17,7 +18,7 @@ export async function retriedQuery(options: RetriedQueryOptions) {
   for (let tries = retries; ; tries--) {
     try {
       logger.debug(`Executing query: ${query}`);
-      return connection.query<mysql.RowDataPacket[]>(query, params);
+      return connection.query<mysqlPromise.RowDataPacket[]>(query, params);
     } catch (e) {
       if (tries == 1) {
         throw e;
@@ -43,8 +44,4 @@ export function createPool(config: types.ResolvedConnectionConfig, options?: mys
     ssl: hasSSLOptions ? sslOptions : undefined,
     ...(options || {})
   });
-}
-
-export function createConnection(config: types.ResolvedConnectionConfig) {
-  return mysql.createConnection(config);
 }

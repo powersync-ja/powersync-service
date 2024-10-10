@@ -1,4 +1,4 @@
-import mysql from 'mysql2/promise';
+import mysqlPromise from 'mysql2/promise';
 import * as mysql_utils from '../utils/mysql_utils.js';
 import { gte } from 'semver';
 
@@ -7,14 +7,14 @@ import { ReplicatedGTID } from './ReplicatedGTID.js';
 /**
  * Gets the current master HEAD GTID
  */
-export async function readExecutedGtid(connection: mysql.Connection): Promise<ReplicatedGTID> {
+export async function readExecutedGtid(connection: mysqlPromise.Connection): Promise<ReplicatedGTID> {
   const [[versionResult]] = await mysql_utils.retriedQuery({
     connection,
     query: `SELECT VERSION() as version`
   });
 
   const version = versionResult.version as string;
-  let binlogStatus: mysql.RowDataPacket;
+  let binlogStatus: mysqlPromise.RowDataPacket;
   if (gte(version, '8.4.0')) {
     // Get the BinLog status
     const [[binLogResult]] = await mysql_utils.retriedQuery({
