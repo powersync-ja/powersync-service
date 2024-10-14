@@ -23,6 +23,15 @@ export class SourceTable {
    */
   public syncParameters = true;
 
+  /**
+   * True if the table is used in sync rules for events.
+   *
+   * This value is resolved externally, and cached here.
+   *
+   * Defaults to true for tests.
+   */
+  public syncEvent = true;
+
   constructor(
     public readonly id: any,
     public readonly connectionTag: string,
@@ -53,6 +62,6 @@ export class SourceTable {
   }
 
   get syncAny() {
-    return this.syncData || this.syncParameters;
+    return this.syncData || this.syncParameters || this.syncEvent;
   }
 }

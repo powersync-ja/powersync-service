@@ -1,10 +1,6 @@
-import {
-  BucketDataBatchOptions,
-  ParseSyncRulesOptions,
-  PersistedSyncRulesContent,
-  StartBatchOptions
-} from '@/storage/BucketStorage.js';
-import { RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
+import { BucketDataBatchOptions } from '@/storage/BucketStorage.js';
+import { getUuidReplicaIdentityBson } from '@/util/util-index.js';
+import { RequestParameters } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { fromAsync, oneFromAsync } from './stream_utils.js';
 import {
@@ -16,10 +12,8 @@ import {
   PARSE_OPTIONS,
   rid,
   StorageFactory,
-  testRules,
-  ZERO_LSN
+  testRules
 } from './util.js';
-import { getUuidReplicaIdentityBson } from '@/util/util-index.js';
 
 const TEST_TABLE = makeTestTable('test', ['id']);
 
@@ -1405,5 +1399,43 @@ bucket_definitions:
     expect(getBatchData(batch3)).toEqual([]);
 
     expect(getBatchMeta(batch3)).toEqual(null);
+  });
+
+  test('batch should be disposed automatically', async () => {
+    const sync_rules = testRules(`
+      bucket_definitions:
+        global:
+          data: [] 
+          `);
+
+    const storage = (await factory()).getInstance(sync_rules);
+
+    let isDisposed = false;
+    await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+      batch.registerListener({
+        disposed: () => {
+          isDisposed = true;
+        }
+      });
+    });
+    expect(isDisposed).true;
+
+    isDisposed = false;
+    let errorCaught = false;
+    try {
+      await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+        batch.registerListener({
+          disposed: () => {
+            isDisposed = true;
+          }
+        });
+        throw new Error(`Testing exceptions`);
+      });
+    } catch (ex) {
+      errorCaught = true;
+      expect(ex.message.includes('Testing')).true;
+    }
+    expect(errorCaught).true;
+    expect(isDisposed).true;
   });
 }
