@@ -1,14 +1,22 @@
-import { SqliteRow, SqlSyncRules } from '@powersync/service-sync-rules';
+import { SqlEventDescriptor, SqliteRow, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import * as mongo from 'mongodb';
 
-import { container, errors, logger } from '@powersync/lib-services-framework';
+import { container, DisposableObserver, errors, logger } from '@powersync/lib-services-framework';
 import * as util from '../../util/util-index.js';
-import { BucketStorageBatch, FlushedResult, mergeToast, SaveOptions } from '../BucketStorage.js';
+import {
+  BucketBatchStorageListener,
+  BucketStorageBatch,
+  FlushedResult,
+  mergeToast,
+  SaveOptions
+} from '../BucketStorage.js';
 import { SourceTable } from '../SourceTable.js';
+import { CustomWriteCheckpointOptions } from '../write-checkpoint.js';
 import { PowerSyncMongo } from './db.js';
 import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
+import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
 import { cacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
 import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, replicaIdEquals, serializeLookup } from './util.js';
@@ -25,7 +33,7 @@ const MAX_ROW_SIZE = 15 * 1024 * 1024;
 // In the future, we can investigate allowing multiple replication streams operating independently.
 const replicationMutex = new util.Mutex();
 
-export class MongoBucketBatch implements BucketStorageBatch {
+export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListener> implements BucketStorageBatch {
   private readonly client: mongo.MongoClient;
   public readonly db: PowerSyncMongo;
   public readonly session: mongo.ClientSession;
@@ -36,6 +44,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
   private readonly slot_name: string;
 
   private batch: OperationBatch | null = null;
+  private write_checkpoint_batch: CustomWriteCheckpointOptions[] = [];
 
   /**
    * Last LSN received associated with a checkpoint.
@@ -63,14 +72,22 @@ export class MongoBucketBatch implements BucketStorageBatch {
     last_checkpoint_lsn: string | null,
     no_checkpoint_before_lsn: string
   ) {
-    this.db = db;
+    super();
     this.client = db.client;
-    this.sync_rules = sync_rules;
+    this.db = db;
     this.group_id = group_id;
-    this.slot_name = slot_name;
-    this.session = this.client.startSession();
     this.last_checkpoint_lsn = last_checkpoint_lsn;
     this.no_checkpoint_before_lsn = no_checkpoint_before_lsn;
+    this.session = this.client.startSession();
+    this.slot_name = slot_name;
+    this.sync_rules = sync_rules;
+  }
+
+  addCustomWriteCheckpoint(checkpoint: CustomWriteCheckpointOptions): void {
+    this.write_checkpoint_batch.push({
+      ...checkpoint,
+      sync_rules_id: this.group_id
+    });
   }
 
   get lastCheckpointLsn() {
@@ -87,6 +104,8 @@ export class MongoBucketBatch implements BucketStorageBatch {
         result = r;
       }
     }
+    await batchCreateCustomWriteCheckpoints(this.db, this.write_checkpoint_batch);
+    this.write_checkpoint_batch = [];
     return result;
   }
 
@@ -532,8 +551,9 @@ export class MongoBucketBatch implements BucketStorageBatch {
     });
   }
 
-  async abort() {
+  async [Symbol.asyncDispose]() {
     await this.session.endSession();
+    super[Symbol.dispose]();
   }
 
   async commit(lsn: string): Promise<boolean> {
@@ -550,26 +570,29 @@ export class MongoBucketBatch implements BucketStorageBatch {
       return false;
     }
 
+    const now = new Date();
+    const update: Partial<SyncRuleDocument> = {
+      last_checkpoint_lsn: lsn,
+      last_checkpoint_ts: now,
+      last_keepalive_ts: now,
+      snapshot_done: true,
+      last_fatal_error: null
+    };
+
     if (this.persisted_op != null) {
-      const now = new Date();
-      await this.db.sync_rules.updateOne(
-        {
-          _id: this.group_id
-        },
-        {
-          $set: {
-            last_checkpoint: this.persisted_op,
-            last_checkpoint_lsn: lsn,
-            last_checkpoint_ts: now,
-            last_keepalive_ts: now,
-            snapshot_done: true,
-            last_fatal_error: null
-          }
-        },
-        { session: this.session }
-      );
-      this.persisted_op = null;
+      update.last_checkpoint = this.persisted_op;
     }
+
+    await this.db.sync_rules.updateOne(
+      {
+        _id: this.group_id
+      },
+      {
+        $set: update
+      },
+      { session: this.session }
+    );
+    this.persisted_op = null;
     this.last_checkpoint_lsn = lsn;
     return true;
   }
@@ -610,6 +633,29 @@ export class MongoBucketBatch implements BucketStorageBatch {
   }
 
   async save(record: SaveOptions): Promise<FlushedResult | null> {
+    const { after, before, sourceTable, tag } = record;
+    for (const event of this.getTableEvents(sourceTable)) {
+      this.iterateListeners((cb) =>
+        cb.replicationEvent?.({
+          batch: this,
+          table: sourceTable,
+          data: {
+            op: tag,
+            after: after && util.isCompleteRow(after) ? after : undefined,
+            before: before && util.isCompleteRow(before) ? before : undefined
+          },
+          event
+        })
+      );
+    }
+
+    /**
+     * Return if the table is just an event table
+     */
+    if (!sourceTable.syncData && !sourceTable.syncParameters) {
+      return null;
+    }
+
     logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
 
     this.batch ??= new OperationBatch();
@@ -757,6 +803,15 @@ export class MongoBucketBatch implements BucketStorageBatch {
       copy.syncParameters = table.syncParameters;
       return copy;
     });
+  }
+
+  /**
+   * Gets relevant {@link SqlEventDescriptor}s for the given {@link SourceTable}
+   */
+  protected getTableEvents(table: SourceTable): SqlEventDescriptor[] {
+    return this.sync_rules.event_descriptors.filter((evt) =>
+      [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table))
+    );
   }
 }
 

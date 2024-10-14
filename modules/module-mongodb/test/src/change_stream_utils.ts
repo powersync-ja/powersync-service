@@ -37,7 +37,10 @@ export class ChangeStreamTestContext {
   private streamPromise?: Promise<void>;
   public storage?: SyncRulesBucketStorage;
 
-  constructor(public factory: BucketStorageFactory, public connectionManager: MongoManager) {}
+  constructor(
+    public factory: BucketStorageFactory,
+    public connectionManager: MongoManager
+  ) {}
 
   async dispose() {
     this.abortController.abort();

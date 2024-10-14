@@ -1,5 +1,5 @@
-import * as bson from 'bson';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
+import * as bson from 'bson';
 
 /**
  * Replica id uniquely identifying a row on the source database.
@@ -157,6 +157,13 @@ export interface SyncRuleDocument {
   last_fatal_error: string | null;
 
   content: string;
+}
+
+export interface CustomWriteCheckpointDocument {
+  _id: bson.ObjectId;
+  user_id: string;
+  checkpoint: bigint;
+  sync_rules_id: number;
 }
 
 export interface WriteCheckpointDocument {

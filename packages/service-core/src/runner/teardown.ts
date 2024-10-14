@@ -4,11 +4,11 @@
 // 2. Delete the storage
 
 import { container, logger } from '@powersync/lib-services-framework';
-import * as modules from '../modules/modules-index.js';
-import * as system from '../system/system-index.js';
-import * as storage from '../storage/storage-index.js';
-import * as utils from '../util/util-index.js';
 import timers from 'timers/promises';
+import * as modules from '../modules/modules-index.js';
+import * as storage from '../storage/storage-index.js';
+import * as system from '../system/system-index.js';
+import * as utils from '../util/util-index.js';
 
 export async function teardown(runnerConfig: utils.RunnerConfig) {
   try {
@@ -51,7 +51,7 @@ async function terminateSyncRules(storageFactory: storage.BucketStorageFactory, 
 
       // Mark the sync rules as terminated
       for (let syncRules of combinedSyncRules) {
-        const syncRulesStorage = storageFactory.getInstance(syncRules);
+        using syncRulesStorage = storageFactory.getInstance(syncRules);
         // The storage will be dropped at the end of the teardown, so we don't need to clear it here
         await syncRulesStorage.terminate({ clearStorage: false });
       }

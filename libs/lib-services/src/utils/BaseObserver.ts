@@ -1,6 +1,10 @@
 import { v4 as uuid } from 'uuid';
 
-export class BaseObserver<T> {
+export interface ObserverClient<T> {
+  registerListener(listener: Partial<T>): () => void;
+}
+
+export class BaseObserver<T> implements ObserverClient<T> {
   protected listeners: { [id: string]: Partial<T> };
 
   constructor() {
