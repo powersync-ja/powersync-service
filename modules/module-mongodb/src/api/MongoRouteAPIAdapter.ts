@@ -210,6 +210,9 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
             // https://www.mongodb.com/docs/manual/reference/system-collections/
             continue;
           }
+          if (collection.type == 'view') {
+            continue;
+          }
           try {
             const sampleDocuments = await this.db
               .collection(collection.name)
