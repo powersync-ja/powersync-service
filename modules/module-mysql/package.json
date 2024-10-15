@@ -8,7 +8,9 @@
   "type": "module",
   "scripts": {
     "build": "tsc -b",
-    "clean": "rm -rf ./lib && tsc -b --clean"
+    "build:tests": "tsc -b test/tsconfig.json",
+    "clean": "rm -rf ./lib && tsc -b --clean",
+    "test": "vitest"
   },
   "exports": {
     ".": {
