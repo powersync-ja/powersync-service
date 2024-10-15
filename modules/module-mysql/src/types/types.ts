@@ -59,7 +59,7 @@ export function normalizeConnectionConfig(options: MySQLConnectionConfig): Norma
       throw new Error(`Invalid URI - protocol must be mysql, got ${uri.scheme}`);
     }
   } else {
-    uri = urijs.parse('postgresql:///');
+    uri = urijs.parse('mysql:///');
   }
 
   const hostname = options.hostname ?? uri.host ?? '';

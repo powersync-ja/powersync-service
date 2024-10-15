@@ -2,7 +2,7 @@ import { logger } from '@powersync/lib-services-framework';
 import * as sync_rules from '@powersync/service-sync-rules';
 import async from 'async';
 
-import { framework, getUuidReplicaIdentityBson, storage } from '@powersync/service-core';
+import { framework, getUuidReplicaIdentityBson, Metrics, storage } from '@powersync/service-core';
 import mysql from 'mysql2';
 
 import { BinLogEvent } from '@powersync/mysql-zongji';
@@ -10,6 +10,7 @@ import * as common from '../common/common-index.js';
 import * as zongji_utils from './zongji/zongji-utils.js';
 import { MySQLConnectionManager } from './MySQLConnectionManager.js';
 import { ReplicatedGTID } from '../common/common-index.js';
+import mysqlPromise from 'mysql2/promise';
 
 export interface BinLogStreamOptions {
   connections: MySQLConnectionManager;
@@ -22,6 +23,15 @@ interface MysqlRelId {
   name: string;
 }
 
+interface WriteChangePayload {
+  type: storage.SaveOperationTag;
+  data: Data;
+  previous_data?: Data;
+  database: string;
+  table: string;
+  sourceTable: storage.SourceTable;
+}
+
 export type Data = Record<string, any>;
 
 /**
@@ -32,9 +42,9 @@ function getMysqlRelId(source: MysqlRelId): string {
   return `${source.schema}.${source.name}`;
 }
 
-export class MysqlBinLogStream {
-  private readonly sync_rules: sync_rules.SqlSyncRules;
-  private readonly group_id: number;
+export class BinLogStream {
+  private readonly syncRules: sync_rules.SqlSyncRules;
+  private readonly groupId: number;
 
   private readonly storage: storage.SyncRulesBucketStorage;
 
@@ -42,13 +52,13 @@ export class MysqlBinLogStream {
 
   private abortSignal: AbortSignal;
 
-  private relation_cache = new Map<string | number, storage.SourceTable>();
+  private tableCache = new Map<string | number, storage.SourceTable>();
 
   constructor(protected options: BinLogStreamOptions) {
     this.storage = options.storage;
     this.connections = options.connections;
-    this.sync_rules = options.storage.getParsedSyncRules({ defaultSchema: this.defaultSchema });
-    this.group_id = options.storage.group_id;
+    this.syncRules = options.storage.getParsedSyncRules({ defaultSchema: this.defaultSchema });
+    this.groupId = options.storage.group_id;
     this.abortSignal = options.abortSignal;
   }
 
@@ -71,13 +81,13 @@ export class MysqlBinLogStream {
 
   async handleRelation(batch: storage.BucketStorageBatch, entity: storage.SourceEntityDescriptor, snapshot: boolean) {
     const result = await this.storage.resolveTable({
-      group_id: this.group_id,
+      group_id: this.groupId,
       connection_id: this.connectionId,
       connection_tag: this.connectionTag,
       entity_descriptor: entity,
-      sync_rules: this.sync_rules
+      sync_rules: this.syncRules
     });
-    this.relation_cache.set(entity.objectId, result.table);
+    this.tableCache.set(entity.objectId, result.table);
 
     // Drop conflicting tables. This includes for example renamed tables.
     await batch.drop(result.dropTables);
@@ -96,7 +106,7 @@ export class MysqlBinLogStream {
       // Start the snapshot inside a transaction.
       // We use a dedicated connection for this.
       const connection = await this.connections.getStreamingConnection();
-      const promiseConnection = connection.connection.promise();
+      const promiseConnection = (connection as mysql.Connection).promise();
       try {
         await promiseConnection.query('BEGIN');
         try {
@@ -168,7 +178,7 @@ AND table_type = 'BASE TABLE';`,
 
       const connection = await this.connections.getConnection();
       const replicationColumns = await common.getReplicationIdentityColumns({
-        db: connection,
+        connection: connection,
         schema: tablePattern.schema,
         table_name: tablePattern.name
       });
@@ -212,21 +222,23 @@ AND table_type = 'BASE TABLE';`,
     await this.storage.clear();
     // Replication will be performed in a single transaction on this connection
     const connection = await this.connections.getStreamingConnection();
-    const promiseConnection = connection.connection.promise();
+    const promiseConnection = (connection as mysql.Connection).promise();
     const headGTID = await common.readExecutedGtid(promiseConnection);
-    logger.info(`Using GTID:: '${headGTID}'`);
+    logger.info(`Using snapshot checkpoint GTID:: '${headGTID}'`);
     try {
       logger.info(`Starting initial replication`);
-      await promiseConnection.query('START TRANSACTION');
-      await promiseConnection.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ ACCESS_MODE READ ONLY');
-      const sourceTables = this.sync_rules.getSourceTables();
+      await promiseConnection.query<mysqlPromise.RowDataPacket[]>(
+        'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'
+      );
+      await promiseConnection.query<mysqlPromise.RowDataPacket[]>('START TRANSACTION');
+      const sourceTables = this.syncRules.getSourceTables();
       await this.storage.startBatch(
         { zeroLSN: ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema },
         async (batch) => {
           for (let tablePattern of sourceTables) {
             const tables = await this.getQualifiedTableNames(batch, tablePattern);
             for (let table of tables) {
-              await this.snapshotTable(connection.connection, batch, table);
+              await this.snapshotTable(connection as mysql.Connection, batch, table);
               await batch.markSnapshotDone([table], headGTID.comparable);
               await framework.container.probes.touch();
             }
@@ -235,9 +247,9 @@ AND table_type = 'BASE TABLE';`,
         }
       );
       logger.info(`Initial replication done`);
-      await connection.query('COMMIT');
+      await promiseConnection.query('COMMIT');
     } catch (e) {
-      await connection.query('ROLLBACK');
+      await promiseConnection.query('ROLLBACK');
       throw e;
     } finally {
       connection.release();
@@ -250,16 +262,17 @@ AND table_type = 'BASE TABLE';`,
     table: storage.SourceTable
   ) {
     logger.info(`Replicating ${table.qualifiedName}`);
-    // TODO count rows
+    // TODO count rows and log progress at certain batch sizes
 
     return new Promise<void>((resolve, reject) => {
       // MAX_EXECUTION_TIME(0) hint disables execution timeout for this query
       connection
         .query(`SELECT /*+ MAX_EXECUTION_TIME(0) */ * FROM ${table.schema}.${table.table}`)
+        .stream()
         .on('error', (err) => {
           reject(err);
         })
-        .on('result', async (row) => {
+        .on('data', async (row) => {
           connection.pause();
           const record = common.toSQLiteRow(row);
 
@@ -272,6 +285,8 @@ AND table_type = 'BASE TABLE';`,
             afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns)
           });
           connection.resume();
+          // TODO: These metrics can probably be reported in batches
+          Metrics.getInstance().rows_replicated_total.add(1);
         })
         .on('end', async function () {
           await batch.flush();
@@ -304,7 +319,7 @@ AND table_type = 'BASE TABLE';`,
   }
 
   private getTable(tableId: string): storage.SourceTable {
-    const table = this.relation_cache.get(tableId);
+    const table = this.tableCache.get(tableId);
     if (table == null) {
       // We should always receive a replication message before the relation is used.
       // If we can't find it, it's a bug.
@@ -319,6 +334,8 @@ AND table_type = 'BASE TABLE';`,
 
     const connection = await this.connections.getConnection();
     const { checkpoint_lsn } = await this.storage.getStatus();
+    logger.info(`Last known LSN from storage: ${checkpoint_lsn}`);
+
     const fromGTID = checkpoint_lsn
       ? common.ReplicatedGTID.fromSerialized(checkpoint_lsn)
       : await common.readExecutedGtid(connection);
@@ -402,6 +419,7 @@ AND table_type = 'BASE TABLE';`,
               });
               break;
             case zongji_utils.eventIsXid(evt):
+              Metrics.getInstance().transactions_replicated_total.add(1);
               // Need to commit with a replicated GTID with updated next position
               await batch.commit(
                 new common.ReplicatedGTID({
@@ -419,9 +437,11 @@ AND table_type = 'BASE TABLE';`,
         }, 1);
 
         zongji.on('binlog', (evt: BinLogEvent) => {
+          logger.info(`Pushing Binlog event ${evt.getEventName()}`);
           queue.push(evt);
         });
 
+        logger.info(`Starting replication from ${binLogPositionState.filename}:${binLogPositionState.offset}`);
         zongji.start({
           includeEvents: ['tablemap', 'writerows', 'updaterows', 'deleterows', 'xid', 'rotate', 'gtidlog'],
           excludeEvents: [],
@@ -476,51 +496,47 @@ AND table_type = 'BASE TABLE';`,
 
   private async writeChange(
     batch: storage.BucketStorageBatch,
-    msg: {
-      type: storage.SaveOperationTag;
-      data: Data;
-      previous_data?: Data;
-      database: string;
-      table: string;
-      sourceTable: storage.SourceTable;
-    }
+    payload: WriteChangePayload
   ): Promise<storage.FlushedResult | null> {
-    switch (msg.type) {
+    switch (payload.type) {
       case storage.SaveOperationTag.INSERT:
-        const record = common.toSQLiteRow(msg.data);
+        Metrics.getInstance().rows_replicated_total.add(1);
+        const record = common.toSQLiteRow(payload.data);
         return await batch.save({
           tag: storage.SaveOperationTag.INSERT,
-          sourceTable: msg.sourceTable,
+          sourceTable: payload.sourceTable,
           before: undefined,
           beforeReplicaId: undefined,
           after: record,
-          afterReplicaId: getUuidReplicaIdentityBson(record, msg.sourceTable.replicaIdColumns)
+          afterReplicaId: getUuidReplicaIdentityBson(record, payload.sourceTable.replicaIdColumns)
         });
       case storage.SaveOperationTag.UPDATE:
+        Metrics.getInstance().rows_replicated_total.add(1);
         // "before" may be null if the replica id columns are unchanged
         // It's fine to treat that the same as an insert.
-        const beforeUpdated = msg.previous_data ? common.toSQLiteRow(msg.previous_data) : undefined;
-        const after = common.toSQLiteRow(msg.data);
+        const beforeUpdated = payload.previous_data ? common.toSQLiteRow(payload.previous_data) : undefined;
+        const after = common.toSQLiteRow(payload.data);
 
         return await batch.save({
           tag: storage.SaveOperationTag.UPDATE,
-          sourceTable: msg.sourceTable,
+          sourceTable: payload.sourceTable,
           before: beforeUpdated,
           beforeReplicaId: beforeUpdated
-            ? getUuidReplicaIdentityBson(beforeUpdated, msg.sourceTable.replicaIdColumns)
+            ? getUuidReplicaIdentityBson(beforeUpdated, payload.sourceTable.replicaIdColumns)
             : undefined,
-          after: common.toSQLiteRow(msg.data),
-          afterReplicaId: getUuidReplicaIdentityBson(after, msg.sourceTable.replicaIdColumns)
+          after: common.toSQLiteRow(payload.data),
+          afterReplicaId: getUuidReplicaIdentityBson(after, payload.sourceTable.replicaIdColumns)
         });
 
       case storage.SaveOperationTag.DELETE:
-        const beforeDeleted = common.toSQLiteRow(msg.data);
+        Metrics.getInstance().rows_replicated_total.add(1);
+        const beforeDeleted = common.toSQLiteRow(payload.data);
 
         return await batch.save({
           tag: storage.SaveOperationTag.DELETE,
-          sourceTable: msg.sourceTable,
+          sourceTable: payload.sourceTable,
           before: beforeDeleted,
-          beforeReplicaId: getUuidReplicaIdentityBson(beforeDeleted, msg.sourceTable.replicaIdColumns),
+          beforeReplicaId: getUuidReplicaIdentityBson(beforeDeleted, payload.sourceTable.replicaIdColumns),
           after: undefined,
           afterReplicaId: undefined
         });

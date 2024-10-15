@@ -1,4 +1,4 @@
-import { ResolvedConnectionConfig } from '../types/types.js';
+import { NormalizedMySQLConnectionConfig } from '../types/types.js';
 import mysqlPromise from 'mysql2/promise';
 import mysql, { RowDataPacket } from 'mysql2';
 import * as mysql_utils from '../utils/mysql_utils.js';
@@ -17,7 +17,7 @@ export class MySQLConnectionManager {
   private binlogListeners: ZongJi[] = [];
 
   constructor(
-    public options: ResolvedConnectionConfig,
+    public options: NormalizedMySQLConnectionConfig,
     public poolOptions: mysqlPromise.PoolOptions
   ) {
     // The pool is lazy - no connections are opened until a query is performed.
@@ -100,11 +100,5 @@ export class MySQLConnectionManager {
         }
       });
     });
-  }
-
-  destroy() {
-    for (const listener of this.binlogListeners) {
-      listener.stop();
-    }
   }
 }

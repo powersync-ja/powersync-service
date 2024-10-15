@@ -28,7 +28,7 @@ export async function retriedQuery(options: RetriedQueryOptions) {
   }
 }
 
-export function createPool(config: types.ResolvedConnectionConfig, options?: mysql.PoolOptions): mysql.Pool {
+export function createPool(config: types.NormalizedMySQLConnectionConfig, options?: mysql.PoolOptions): mysql.Pool {
   const sslOptions = {
     ca: config.cacert,
     key: config.client_private_key,

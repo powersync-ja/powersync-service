@@ -1,6 +1,6 @@
 import { container } from '@powersync/lib-services-framework';
 import { replication } from '@powersync/service-core';
-import { MysqlBinLogStream } from './MysqlBinLogStream.js';
+import { BinLogStream } from './BinLogStream.js';
 import { MySQLConnectionManagerFactory } from './MySQLConnectionManagerFactory.js';
 
 export interface BinLogReplicationJobOptions extends replication.AbstractReplicationJobOptions {
@@ -66,7 +66,7 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
       if (this.isStopped) {
         return;
       }
-      const stream = new MysqlBinLogStream({
+      const stream = new BinLogStream({
         abortSignal: this.abortController.signal,
         storage: this.options.storage,
         connections: connectionManager

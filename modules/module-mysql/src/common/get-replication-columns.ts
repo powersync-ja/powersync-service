@@ -3,7 +3,7 @@ import mysqlPromise from 'mysql2/promise';
 import * as mysql_utils from '../utils/mysql_utils.js';
 
 export type GetReplicationColumnsOptions = {
-  db: mysqlPromise.Connection;
+  connection: mysqlPromise.Connection;
   schema: string;
   table_name: string;
 };
@@ -17,9 +17,9 @@ export type ReplicationIdentityColumnsResult = {
 export async function getReplicationIdentityColumns(
   options: GetReplicationColumnsOptions
 ): Promise<ReplicationIdentityColumnsResult> {
-  const { db, schema, table_name } = options;
+  const { connection, schema, table_name } = options;
   const [primaryKeyColumns] = await mysql_utils.retriedQuery({
-    connection: db,
+    connection: connection,
     query: `
       SELECT 
         s.COLUMN_NAME AS name,
@@ -55,7 +55,7 @@ export async function getReplicationIdentityColumns(
   // TODO: test code with tables with unique keys, compound key etc.
   // No primary key, find the first valid unique key
   const [uniqueKeyColumns] = await mysql_utils.retriedQuery({
-    connection: db,
+    connection: connection,
     query: `
       SELECT 
         s.INDEX_NAME,
@@ -92,7 +92,7 @@ export async function getReplicationIdentityColumns(
   }
 
   const [allColumns] = await mysql_utils.retriedQuery({
-    connection: db,
+    connection: connection,
     query: `
       SELECT 
         s.COLUMN_NAME AS name,

@@ -48,3 +48,12 @@ export async function checkSourceConfiguration(connection: mysqlPromise.Connecti
 
   return errors;
 }
+
+export async function getMySQLVersion(connection: mysqlPromise.Connection): Promise<string> {
+  const [[versionResult]] = await mysql_utils.retriedQuery({
+    connection,
+    query: `SELECT VERSION() as version`
+  });
+
+  return versionResult.version as string;
+}

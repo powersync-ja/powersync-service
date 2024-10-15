@@ -206,7 +206,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
     try {
       connection = await this.pool.getConnection();
       idColumnsResult = await common.getReplicationIdentityColumns({
-        db: connection,
+        connection: connection,
         schema,
         table_name: tableName
       });
