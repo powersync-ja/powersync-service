@@ -71,6 +71,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
     this.session = this.client.startSession();
     this.last_checkpoint_lsn = last_checkpoint_lsn;
     this.no_checkpoint_before_lsn = no_checkpoint_before_lsn;
+    this.batch = new OperationBatch();
   }
 
   async flush(): Promise<FlushedResult | null> {
