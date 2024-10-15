@@ -35,6 +35,9 @@
     },
     {
       "path": "../modules/module-mongodb"
+    },
+    {
+      "path": "../modules/module-mysql"
     }
   ]
 }
