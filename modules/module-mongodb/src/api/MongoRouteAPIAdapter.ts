@@ -192,16 +192,25 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
         let collections: mongo.CollectionInfo[];
         try {
           collections = await this.client.db(db.name).listCollections().toArray();
-        } catch (ex) {
-          return null;
+        } catch (e) {
+          if (e instanceof mongo.MongoServerError && e.codeName == 'Unauthorized') {
+            // Ignore databases we're not authorized to query
+            return null;
+          }
+          throw e;
         }
 
-        const filtered = collections.filter((c) => {
-          return !['_powersync_checkpoints'].includes(c.name);
-        });
-
-        const tables = await Promise.all(
-          filtered.map(async (collection) => {
+        let tables: service_types.TableSchema[] = [];
+        for (let collection of collections) {
+          if (['_powersync_checkpoints'].includes(collection.name)) {
+            continue;
+          }
+          if (collection.name.startsWith('system.')) {
+            // system.views, system.js, system.profile, system.buckets
+            // https://www.mongodb.com/docs/manual/reference/system-collections/
+            continue;
+          }
+          try {
             const sampleDocuments = await this.db
               .collection(collection.name)
               .aggregate([{ $sample: { size: sampleSize } }])
@@ -210,20 +219,27 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
             if (sampleDocuments.length > 0) {
               const columns = this.getColumnsFromDocuments(sampleDocuments);
 
-              return {
+              tables.push({
                 name: collection.name,
                 // Since documents are sampled in a random order, we need to sort
                 // to get a consistent order
                 columns: columns.sort((a, b) => a.name.localeCompare(b.name))
-              } satisfies service_types.TableSchema;
+              });
             } else {
-              return {
+              tables.push({
                 name: collection.name,
                 columns: []
-              } satisfies service_types.TableSchema;
+              });
             }
-          })
-        );
+          } catch (e) {
+            if (e instanceof mongo.MongoServerError && e.codeName == 'Unauthorized') {
+              // Ignore collections we're not authorized to query
+              continue;
+            }
+            throw e;
+          }
+        }
+
         return {
           name: db.name,
           tables: tables
