@@ -1,10 +1,10 @@
-import { hrtime } from 'node:process';
-import * as storage from '../storage/storage-index.js';
 import { container, logger } from '@powersync/lib-services-framework';
-import { SyncRulesProvider } from '../util/config/sync-rules/sync-rules-provider.js';
+import { hrtime } from 'node:process';
 import winston from 'winston';
-import { AbstractReplicationJob } from './AbstractReplicationJob.js';
+import * as storage from '../storage/storage-index.js';
 import { StorageEngine } from '../storage/storage-index.js';
+import { SyncRulesProvider } from '../util/config/sync-rules/sync-rules-provider.js';
+import { AbstractReplicationJob } from './AbstractReplicationJob.js';
 import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 
 // 5 minutes
@@ -192,6 +192,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       try {
         await job.stop();
         await this.terminateSyncRules(job.storage);
+        job.storage[Symbol.dispose]();
       } catch (e) {
         // This will be retried
         this.logger.warn('Failed to terminate old replication job}', e);
@@ -202,7 +203,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     const stopped = await this.storage.getStoppedSyncRules();
     for (let syncRules of stopped) {
       try {
-        const syncRuleStorage = this.storage.getInstance(syncRules);
+        using syncRuleStorage = this.storage.getInstance(syncRules);
         await this.terminateSyncRules(syncRuleStorage);
       } catch (e) {
         this.logger.warn(`Failed clean up replication config for sync rule: ${syncRules.id}`, e);

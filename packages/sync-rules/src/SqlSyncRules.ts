@@ -1,5 +1,6 @@
-import { LineCounter, parseDocument, Scalar, YAMLMap, YAMLSeq } from 'yaml';
+import { isScalar, LineCounter, parseDocument, Scalar, YAMLMap, YAMLSeq } from 'yaml';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
+import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
 import { IdSequence } from './IdSequence.js';
 import { validateSyncRulesSchema } from './json_schema.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
@@ -39,6 +40,7 @@ export interface SyncRulesOptions {
 
 export class SqlSyncRules implements SyncRules {
   bucket_descriptors: SqlBucketDescriptor[] = [];
+  event_descriptors: SqlEventDescriptor[] = [];
   idSequence = new IdSequence();
 
   content: string;
@@ -143,6 +145,35 @@ export class SqlSyncRules implements SyncRules {
         });
       }
       rules.bucket_descriptors.push(descriptor);
+    }
+
+    const eventMap = parsed.get('event_definitions') as YAMLMap;
+    for (const event of eventMap?.items ?? []) {
+      const { key, value } = event as { key: Scalar; value: YAMLSeq };
+
+      if (false == value instanceof YAMLMap) {
+        rules.errors.push(new YamlError(new Error(`Event definitions must be objects.`)));
+        continue;
+      }
+
+      const payloads = value.get('payloads') as YAMLSeq;
+      if (false == payloads instanceof YAMLSeq) {
+        rules.errors.push(new YamlError(new Error(`Event definition payloads must be an array.`)));
+        continue;
+      }
+
+      const eventDescriptor = new SqlEventDescriptor(key.toString(), rules.idSequence);
+      for (let item of payloads.items) {
+        if (!isScalar(item)) {
+          rules.errors.push(new YamlError(new Error(`Payload queries for events must be scalar.`)));
+          continue;
+        }
+        rules.withScalar(item, (q) => {
+          return eventDescriptor.addSourceQuery(q, options);
+        });
+      }
+
+      rules.event_descriptors.push(eventDescriptor);
     }
 
     // Validate that there are no additional properties.
@@ -290,18 +321,42 @@ export class SqlSyncRules implements SyncRules {
   }
 
   getSourceTables(): TablePattern[] {
-    let sourceTables = new Map<String, TablePattern>();
-    for (let bucket of this.bucket_descriptors) {
-      for (let r of bucket.getSourceTables()) {
+    const sourceTables = new Map<String, TablePattern>();
+    for (const bucket of this.bucket_descriptors) {
+      for (const r of bucket.getSourceTables()) {
         const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
         sourceTables.set(key, r);
       }
     }
+
+    for (const event of this.event_descriptors) {
+      for (const r of event.getSourceTables()) {
+        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
+        sourceTables.set(key, r);
+      }
+    }
+
     return [...sourceTables.values()];
   }
 
+  getEventTables(): TablePattern[] {
+    const eventTables = new Map<String, TablePattern>();
+
+    for (const event of this.event_descriptors) {
+      for (const r of event.getSourceTables()) {
+        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
+        eventTables.set(key, r);
+      }
+    }
+    return [...eventTables.values()];
+  }
+
+  tableTriggersEvent(table: SourceTableInterface): boolean {
+    return this.event_descriptors.some((bucket) => bucket.tableTriggersEvent(table));
+  }
+
   tableSyncsData(table: SourceTableInterface): boolean {
-    for (let bucket of this.bucket_descriptors) {
+    for (const bucket of this.bucket_descriptors) {
       if (bucket.tableSyncsData(table)) {
         return true;
       }

@@ -1,5 +1,5 @@
-import { AbstractReplicator } from './AbstractReplicator.js';
 import { logger } from '@powersync/lib-services-framework';
+import { AbstractReplicator } from './AbstractReplicator.js';
 
 export class ReplicationEngine {
   private readonly replicators: Map<string, AbstractReplicator> = new Map();

@@ -1,11 +1,13 @@
 import * as mongo from 'mongodb';
 
+import { configFile } from '@powersync/service-types';
 import * as db from '../../db/db-index.js';
 import * as locks from '../../locks/locks-index.js';
 import {
   BucketDataDocument,
   BucketParameterDocument,
   CurrentDataDocument,
+  CustomWriteCheckpointDocument,
   IdSequenceDocument,
   InstanceDocument,
   SourceTableDocument,
@@ -13,7 +15,6 @@ import {
   WriteCheckpointDocument
 } from './models.js';
 import { BSON_DESERIALIZE_OPTIONS } from './util.js';
-import { configFile } from '@powersync/service-types';
 
 export interface PowerSyncMongoOptions {
   /**
@@ -33,6 +34,7 @@ export class PowerSyncMongo {
   readonly op_id_sequence: mongo.Collection<IdSequenceDocument>;
   readonly sync_rules: mongo.Collection<SyncRuleDocument>;
   readonly source_tables: mongo.Collection<SourceTableDocument>;
+  readonly custom_write_checkpoints: mongo.Collection<CustomWriteCheckpointDocument>;
   readonly write_checkpoints: mongo.Collection<WriteCheckpointDocument>;
   readonly instance: mongo.Collection<InstanceDocument>;
   readonly locks: mongo.Collection<locks.Lock>;
@@ -54,6 +56,7 @@ export class PowerSyncMongo {
     this.op_id_sequence = db.collection('op_id_sequence');
     this.sync_rules = db.collection('sync_rules');
     this.source_tables = db.collection('source_tables');
+    this.custom_write_checkpoints = db.collection('custom_write_checkpoints');
     this.write_checkpoints = db.collection('write_checkpoints');
     this.instance = db.collection('instance');
     this.locks = this.db.collection('locks');

@@ -1,12 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import {
-  DEFAULT_TAG,
-  DartSchemaGenerator,
-  JsLegacySchemaGenerator,
-  SqlSyncRules,
-  StaticSchema,
-  TsSchemaGenerator
-} from '../../src/index.js';
+import { SqlSyncRules } from '../../src/index.js';
 
 import { ASSETS, BASIC_SCHEMA, PARSE_OPTIONS, TestSourceTable, USERS, normalizeTokenParameters } from './util.js';
 

@@ -5,7 +5,9 @@ import * as api from '../api/api-index.js';
 export async function getConnectionsSchema(api: api.RouteAPI): Promise<internal_routes.GetSchemaResponse> {
   if (!api) {
     return {
-      connections: []
+      connections: [],
+      defaultConnectionTag: 'default',
+      defaultSchema: ''
     };
   }
 
@@ -18,6 +20,8 @@ export async function getConnectionsSchema(api: api.RouteAPI): Promise<internal_
         tag: baseConfig.tag,
         schemas: await api.getConnectionSchema()
       }
-    ]
+    ],
+    defaultConnectionTag: baseConfig.tag!,
+    defaultSchema: api.getParseSyncRulesOptions().defaultSchema
   };
 }
