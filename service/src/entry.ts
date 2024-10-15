@@ -1,6 +1,7 @@
 import { container, ContainerImplementation } from '@powersync/lib-services-framework';
 import * as core from '@powersync/service-core';
 import PostgresModule from '@powersync/service-module-postgres';
+import MongoModule from '@powersync/service-module-mongodb';
 
 import { startServer } from './runners/server.js';
 import { startStreamRunner } from './runners/stream-worker.js';
@@ -12,7 +13,7 @@ container.registerDefaults();
 container.register(ContainerImplementation.REPORTER, createSentryReporter());
 
 const moduleManager = new core.modules.ModuleManager();
-moduleManager.register([PostgresModule]);
+moduleManager.register([PostgresModule, MongoModule]);
 // This is a bit of a hack. Commands such as the teardown command or even migrations might
 // want access to the ModuleManager in order to use modules
 container.register(core.ModuleManager, moduleManager);

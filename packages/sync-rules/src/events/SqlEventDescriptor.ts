@@ -14,7 +14,10 @@ export class SqlEventDescriptor {
   name: string;
   source_queries: SqlEventSourceQuery[] = [];
 
-  constructor(name: string, public idSequence: IdSequence) {
+  constructor(
+    name: string,
+    public idSequence: IdSequence
+  ) {
     this.name = name;
   }
 

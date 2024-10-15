@@ -2,7 +2,10 @@ import { ColumnDefinition } from './ExpressionType.js';
 import { QuerySchema, SourceSchemaTable } from './types.js';
 
 export class TableQuerySchema implements QuerySchema {
-  constructor(private tables: SourceSchemaTable[], private alias: string) {}
+  constructor(
+    private tables: SourceSchemaTable[],
+    private alias: string
+  ) {}
 
   getColumn(table: string, column: string): ColumnDefinition | undefined {
     if (table != this.alias) {
