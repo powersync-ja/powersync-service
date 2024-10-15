@@ -3,14 +3,14 @@ import { ChangeStreamReplicationJob } from './ChangeStreamReplicationJob.js';
 import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
 import { MongoErrorRateLimiter } from './MongoErrorRateLimiter.js';
 
-export interface WalStreamReplicatorOptions extends replication.AbstractReplicatorOptions {
+export interface ChangeStreamReplicatorOptions extends replication.AbstractReplicatorOptions {
   connectionFactory: ConnectionManagerFactory;
 }
 
 export class ChangeStreamReplicator extends replication.AbstractReplicator<ChangeStreamReplicationJob> {
   private readonly connectionFactory: ConnectionManagerFactory;
 
-  constructor(options: WalStreamReplicatorOptions) {
+  constructor(options: ChangeStreamReplicatorOptions) {
     super(options);
     this.connectionFactory = options.connectionFactory;
   }

@@ -3,7 +3,7 @@ import { MONGO_STORAGE_FACTORY } from '@core-tests/util.js';
 import { BucketStorageFactory } from '@powersync/service-core';
 import * as crypto from 'crypto';
 import { describe, expect, test } from 'vitest';
-import { walStreamTest } from './change_stream_utils.js';
+import { changeStreamTest } from './change_stream_utils.js';
 import * as mongo from 'mongodb';
 import { setTimeout } from 'node:timers/promises';
 
@@ -19,15 +19,15 @@ bucket_definitions:
 describe(
   'change stream - mongodb',
   function () {
-    defineWalStreamTests(MONGO_STORAGE_FACTORY);
+    defineChangeStreamTests(MONGO_STORAGE_FACTORY);
   },
   { timeout: 20_000 }
 );
 
-function defineWalStreamTests(factory: StorageFactory) {
+function defineChangeStreamTests(factory: StorageFactory) {
   test(
     'replicating basic values',
-    walStreamTest(factory, async (context) => {
+    changeStreamTest(factory, async (context) => {
       const { db } = context;
       await context.updateSyncRules(`
 bucket_definitions:
@@ -66,7 +66,7 @@ bucket_definitions:
 
   test(
     'no fullDocument available',
-    walStreamTest(factory, async (context) => {
+    changeStreamTest(factory, async (context) => {
       const { db, client } = context;
       await context.updateSyncRules(`
 bucket_definitions:
@@ -111,7 +111,7 @@ bucket_definitions:
 
   test(
     'replicating case sensitive table',
-    walStreamTest(factory, async (context) => {
+    changeStreamTest(factory, async (context) => {
       const { db } = context;
       await context.updateSyncRules(`
       bucket_definitions:
@@ -136,7 +136,7 @@ bucket_definitions:
 
   test(
     'replicating large values',
-    walStreamTest(factory, async (context) => {
+    changeStreamTest(factory, async (context) => {
       const { db } = context;
       await context.updateSyncRules(`
       bucket_definitions:
@@ -168,7 +168,7 @@ bucket_definitions:
 
   test(
     'replicating dropCollection',
-    walStreamTest(factory, async (context) => {
+    changeStreamTest(factory, async (context) => {
       const { db } = context;
       const syncRuleContent = `
 bucket_definitions:
@@ -200,7 +200,7 @@ bucket_definitions:
 
   test(
     'replicating renameCollection',
-    walStreamTest(factory, async (context) => {
+    changeStreamTest(factory, async (context) => {
       const { db } = context;
       const syncRuleContent = `
 bucket_definitions:
@@ -232,7 +232,7 @@ bucket_definitions:
 
   test(
     'initial sync',
-    walStreamTest(factory, async (context) => {
+    changeStreamTest(factory, async (context) => {
       const { db } = context;
       await context.updateSyncRules(BASIC_SYNC_RULES);
 
@@ -251,7 +251,7 @@ bucket_definitions:
   // Not correctly implemented yet
   test.skip(
     'large record',
-    walStreamTest(factory, async (context) => {
+    changeStreamTest(factory, async (context) => {
       await context.updateSyncRules(`bucket_definitions:
       global:
         data:
@@ -287,7 +287,7 @@ bucket_definitions:
 
   test(
     'table not in sync rules',
-    walStreamTest(factory, async (context) => {
+    changeStreamTest(factory, async (context) => {
       const { db } = context;
       await context.updateSyncRules(BASIC_SYNC_RULES);
 

@@ -203,7 +203,7 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
     });
   }
 
-  async getReplicationLag(options: api.ReplicationLagOptions): Promise<number> {
+  async getReplicationLag(options: api.ReplicationLagOptions): Promise<number | undefined> {
     const { bucketStorage: slotName } = options;
     const results = await pg_utils.retriedQuery(this.pool, {
       statement: `SELECT

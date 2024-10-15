@@ -15,7 +15,7 @@ export interface NormalizedMongoConnectionConfig {
   password?: string;
 }
 
-export const MongoConnectionConfig = service_types.configFile.dataSourceConfig.and(
+export const MongoConnectionConfig = service_types.configFile.DataSourceConfig.and(
   t.object({
     type: t.literal(MONGO_CONNECTION_TYPE),
     /** Unique identifier for the connection - optional when a single connection is present. */
