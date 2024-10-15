@@ -90,6 +90,10 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
     });
   }
 
+  get lastCheckpointLsn() {
+    return this.last_checkpoint_lsn;
+  }
+
   async flush(): Promise<FlushedResult | null> {
     let result: FlushedResult | null = null;
     // One flush may be split over multiple transactions.
@@ -555,7 +559,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
   async commit(lsn: string): Promise<boolean> {
     await this.flush();
 
-    if (this.last_checkpoint_lsn != null && lsn <= this.last_checkpoint_lsn) {
+    if (this.last_checkpoint_lsn != null && lsn < this.last_checkpoint_lsn) {
       // When re-applying transactions, don't create a new checkpoint until
       // we are past the last transaction.
       logger.info(`Re-applied transaction ${lsn} - skipping checkpoint`);

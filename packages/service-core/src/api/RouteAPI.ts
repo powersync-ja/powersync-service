@@ -44,7 +44,7 @@ export interface RouteAPI {
    *          replicated yet, in bytes.
    * @param {string} syncRulesId An identifier representing which set of sync rules the lag is required for.
    */
-  getReplicationLag(syncRulesId: string): Promise<number>;
+  getReplicationLag(syncRulesId: string): Promise<number | undefined>;
 
   /**
    * Get the current LSN or equivalent replication HEAD position identifier
@@ -54,9 +54,6 @@ export interface RouteAPI {
   /**
    * @returns The schema for tables inside the connected database. This is typically
    *          used to validate sync rules.
-   * Side Note: https://github.com/powersync-ja/powersync-service/blob/33bbb8c0ab1c48555956593f427fc674a8f15768/packages/types/src/definitions.ts#L100
-   * contains `pg_type` which we might need to deprecate and add another generic
-   * type field - or just use this field as the connection specific type.
    */
   getConnectionSchema(): Promise<types.DatabaseSchema[]>;
 

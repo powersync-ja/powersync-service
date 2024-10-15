@@ -1,0 +1,47 @@
+{
+  "name": "@powersync/service-module-mongodb",
+  "repository": "https://github.com/powersync-ja/powersync-service",
+  "types": "dist/index.d.ts",
+  "version": "0.0.1",
+  "main": "dist/index.js",
+  "license": "FSL-1.1-Apache-2.0",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "build:tests": "tsc -b test/tsconfig.json",
+    "clean": "rm -rf ./lib && tsc -b --clean",
+    "test": "vitest --no-threads"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./types": {
+      "import": "./dist/types/types.js",
+      "require": "./dist/types/types.js",
+      "default": "./dist/types/types.js"
+    }
+  },
+  "dependencies": {
+    "@powersync/lib-services-framework": "workspace:*",
+    "@powersync/service-core": "workspace:*",
+    "@powersync/service-jsonbig": "workspace:*",
+    "@powersync/service-sync-rules": "workspace:*",
+    "@powersync/service-types": "workspace:*",
+    "mongodb": "^6.7.0",
+    "ts-codec": "^1.2.2",
+    "uuid": "^9.0.1",
+    "uri-js": "^4.4.1"
+  },
+  "devDependencies": {
+    "@types/uuid": "^9.0.4",
+    "typescript": "^5.2.2",
+    "vitest": "^0.34.6",
+    "vite-tsconfig-paths": "^4.3.2"
+  }
+}
