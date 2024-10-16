@@ -416,7 +416,7 @@ export class MongoBucketStorage
         }
         return (await this.storageCache.fetch(doc._id)) ?? null;
       },
-      syncRules: doc
+      syncRules: doc?.content
         ? new MongoPersistedSyncRulesContent(this.db, doc).parsed({
             defaultSchema: ''
           })
