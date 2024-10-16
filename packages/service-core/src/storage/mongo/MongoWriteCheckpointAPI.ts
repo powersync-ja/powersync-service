@@ -24,7 +24,7 @@ export class MongoWriteCheckpointAPI implements WriteCheckpointAPI {
     this._mode = options.mode;
   }
 
-  get mode() {
+  get writeCheckpointMode() {
     return this._mode;
   }
 
@@ -59,9 +59,9 @@ export class MongoWriteCheckpointAPI implements WriteCheckpointAPI {
   }
 
   async createManagedWriteCheckpoint(checkpoint: ManagedWriteCheckpointOptions): Promise<bigint> {
-    if (this.mode !== WriteCheckpointMode.MANAGED) {
+    if (this.writeCheckpointMode !== WriteCheckpointMode.MANAGED) {
       throw new framework.errors.ValidationError(
-        `Creating a managed Write Checkpoint when the current Write Checkpoint mode is set to "${this.mode}"`
+        `Attempting to create a managed Write Checkpoint when the current Write Checkpoint mode is set to "${this.writeCheckpointMode}"`
       );
     }
 
@@ -84,7 +84,7 @@ export class MongoWriteCheckpointAPI implements WriteCheckpointAPI {
   }
 
   async lastWriteCheckpoint(filters: LastWriteCheckpointFilters): Promise<bigint | null> {
-    switch (this.mode) {
+    switch (this.writeCheckpointMode) {
       case WriteCheckpointMode.CUSTOM:
         if (false == 'sync_rules_id' in filters) {
           throw new framework.errors.ValidationError(`Sync rules ID is required for custom Write Checkpoint filtering`);

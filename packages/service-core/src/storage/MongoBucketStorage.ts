@@ -96,6 +96,10 @@ export class MongoBucketStorage
     });
   }
 
+  get writeCheckpointMode() {
+    return this.writeCheckpointAPI.writeCheckpointMode;
+  }
+
   getInstance(options: PersistedSyncRulesContent): MongoSyncBucketStorage {
     let { id, slot_name } = options;
     if ((typeof id as any) == 'bigint') {
