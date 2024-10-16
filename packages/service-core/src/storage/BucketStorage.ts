@@ -91,6 +91,11 @@ export interface BucketStorageFactory
   getActiveCheckpoint(): Promise<ActiveCheckpoint>;
 
   /**
+   * Yields the latest sync checkpoint.
+   */
+  watchActiveCheckpoint(signal: AbortSignal): AsyncIterable<ActiveCheckpoint>;
+
+  /**
    * Yields the latest user write checkpoint whenever the sync checkpoint updates.
    */
   watchWriteCheckpoint(user_id: string, signal: AbortSignal): AsyncIterable<WriteCheckpoint>;
@@ -118,6 +123,8 @@ export interface ActiveCheckpoint {
   hasSyncRules(): boolean;
 
   getBucketStorage(): Promise<SyncRulesBucketStorage | null>;
+
+  syncRules: PersistedSyncRules | null;
 }
 
 export interface StorageMetrics {

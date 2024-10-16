@@ -17,11 +17,19 @@ export type MongoCheckpointAPIOptions = {
 
 export class MongoWriteCheckpointAPI implements WriteCheckpointAPI {
   readonly db: PowerSyncMongo;
-  readonly mode: WriteCheckpointMode;
+  private _mode: WriteCheckpointMode;
 
   constructor(options: MongoCheckpointAPIOptions) {
     this.db = options.db;
-    this.mode = options.mode;
+    this._mode = options.mode;
+  }
+
+  get mode() {
+    return this._mode;
+  }
+
+  setWriteCheckpointMode(mode: WriteCheckpointMode): void {
+    this._mode = mode;
   }
 
   async batchCreateCustomWriteCheckpoints(checkpoints: CustomWriteCheckpointOptions[]): Promise<void> {
@@ -29,12 +37,11 @@ export class MongoWriteCheckpointAPI implements WriteCheckpointAPI {
   }
 
   async createCustomWriteCheckpoint(options: CustomWriteCheckpointOptions): Promise<bigint> {
-    if (this.mode !== WriteCheckpointMode.CUSTOM) {
-      throw new framework.errors.ValidationError(
-        `Creating a custom Write Checkpoint when the current Write Checkpoint mode is set to "${this.mode}"`
-      );
-    }
-
+    /**
+     * Allow creating custom checkpoints even if the current mode is not `custom`.
+     * There might be a state where the next sync rules rely on replicating custom
+     * write checkpoints, but the current active sync rules uses managed checkpoints.
+     */
     const { checkpoint, user_id, sync_rules_id } = options;
     const doc = await this.db.custom_write_checkpoints.findOneAndUpdate(
       {

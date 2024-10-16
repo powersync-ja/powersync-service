@@ -55,6 +55,8 @@ export type ManagedWriteCheckpointOptions = ManagedWriteCheckpointFilters;
 export type LastWriteCheckpointFilters = CustomWriteCheckpointFilters | ManagedWriteCheckpointFilters;
 
 export interface WriteCheckpointAPI {
+  setWriteCheckpointMode(mode: WriteCheckpointMode): void;
+
   batchCreateCustomWriteCheckpoints(checkpoints: CustomWriteCheckpointOptions[]): Promise<void>;
 
   createCustomWriteCheckpoint(checkpoint: CustomWriteCheckpointOptions): Promise<bigint>;
