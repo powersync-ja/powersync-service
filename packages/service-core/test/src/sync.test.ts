@@ -5,15 +5,7 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
-import {
-  BATCH_OPTIONS,
-  makeTestTable,
-  MONGO_STORAGE_FACTORY,
-  PARSE_OPTIONS,
-  StorageFactory,
-  ZERO_LSN
-} from './util.js';
-import { ParseSyncRulesOptions, StartBatchOptions } from '@/storage/BucketStorage.js';
+import { BATCH_OPTIONS, makeTestTable, MONGO_STORAGE_FACTORY, PARSE_OPTIONS, StorageFactory } from './util.js';
 
 describe('sync - mongodb', function () {
   defineTests(MONGO_STORAGE_FACTORY);
@@ -38,8 +30,7 @@ function defineTests(factory: StorageFactory) {
       content: BASIC_SYNC_RULES
     });
 
-    const storage = await f.getInstance(syncRules);
-    await storage.setSnapshotDone(ZERO_LSN);
+    const storage = f.getInstance(syncRules);
     await storage.autoActivate();
 
     const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
@@ -91,7 +82,6 @@ function defineTests(factory: StorageFactory) {
     });
 
     const storage = await f.getInstance(syncRules);
-    await storage.setSnapshotDone(ZERO_LSN);
     await storage.autoActivate();
 
     const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
@@ -136,7 +126,6 @@ function defineTests(factory: StorageFactory) {
     });
 
     const storage = await f.getInstance(syncRules);
-    await storage.setSnapshotDone(ZERO_LSN);
     await storage.autoActivate();
 
     const stream = streamResponse({
@@ -164,7 +153,6 @@ function defineTests(factory: StorageFactory) {
     });
 
     const storage = await f.getInstance(syncRules);
-    await storage.setSnapshotDone(ZERO_LSN);
     await storage.autoActivate();
 
     const stream = streamResponse({
@@ -226,7 +214,6 @@ function defineTests(factory: StorageFactory) {
     });
 
     const storage = await f.getInstance(syncRules);
-    await storage.setSnapshotDone(ZERO_LSN);
     await storage.autoActivate();
 
     const exp = Date.now() / 1000 + 0.1;
@@ -265,7 +252,6 @@ function defineTests(factory: StorageFactory) {
     });
 
     const storage = await f.getInstance(syncRules);
-    await storage.setSnapshotDone(ZERO_LSN);
     await storage.autoActivate();
 
     await storage.startBatch(BATCH_OPTIONS, async (batch) => {
