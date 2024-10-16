@@ -12,7 +12,7 @@
   "scripts": {
     "build": "tsc -b",
     "build:tests": "tsc -b test/tsconfig.json",
-    "clean": "rm -rf ./lib && tsc -b --clean",
+    "clean": "rm -rf ./dist && tsc -b --clean",
     "test": "vitest"
   },
   "exports": {
@@ -32,7 +32,7 @@
     "@powersync/service-core": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",
     "@powersync/service-types": "workspace:*",
-    "@powersync/mysql-zongji": "0.0.0-dev-20241008105633",
+    "@powersync/mysql-zongji": "0.0.0-dev-20241016072406",
     "semver": "^7.5.4",
     "async": "^3.2.4",
     "mysql2": "^3.11.0",

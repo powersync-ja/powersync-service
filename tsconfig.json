@@ -23,6 +23,9 @@
       "path": "./modules/module-mysql"
     },
     {
+      "path": "./modules/module-mongodb"
+    },
+    {
       "path": "./libs/lib-services"
     },
     {
