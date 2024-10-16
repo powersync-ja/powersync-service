@@ -340,7 +340,7 @@ export class MongoBucketStorage
       }
     };
 
-    const active_sync_rules = await this.getActiveSyncRules();
+    const active_sync_rules = await this.getActiveSyncRules({ defaultSchema: 'public' });
     if (active_sync_rules == null) {
       return {
         operations_size_bytes: 0,

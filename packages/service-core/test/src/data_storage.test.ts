@@ -1450,7 +1450,7 @@ bucket_definitions:
     });
 
     const r = await f.configureSyncRules('bucket_definitions: {}');
-    const storage = f.getInstance(r.persisted_sync_rules!.parsed());
+    const storage = f.getInstance(r.persisted_sync_rules!);
     await storage.autoActivate();
 
     const metrics2 = await f.getStorageMetrics();

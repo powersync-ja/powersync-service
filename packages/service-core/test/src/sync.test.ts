@@ -30,7 +30,7 @@ function defineTests(factory: StorageFactory) {
       content: BASIC_SYNC_RULES
     });
 
-    const storage = await f.getInstance(syncRules.parsed());
+    const storage = f.getInstance(syncRules);
     await storage.autoActivate();
 
     const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
@@ -81,7 +81,7 @@ function defineTests(factory: StorageFactory) {
       content: BASIC_SYNC_RULES
     });
 
-    const storage = await f.getInstance(syncRules.parsed());
+    const storage = await f.getInstance(syncRules);
     await storage.autoActivate();
 
     const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
@@ -125,7 +125,7 @@ function defineTests(factory: StorageFactory) {
       content: BASIC_SYNC_RULES
     });
 
-    const storage = await f.getInstance(syncRules.parsed());
+    const storage = await f.getInstance(syncRules);
     await storage.autoActivate();
 
     const stream = streamResponse({
@@ -152,7 +152,7 @@ function defineTests(factory: StorageFactory) {
       content: BASIC_SYNC_RULES
     });
 
-    const storage = await f.getInstance(syncRules.parsed());
+    const storage = await f.getInstance(syncRules);
     await storage.autoActivate();
 
     const stream = streamResponse({
@@ -213,7 +213,7 @@ function defineTests(factory: StorageFactory) {
       content: BASIC_SYNC_RULES
     });
 
-    const storage = await f.getInstance(syncRules.parsed());
+    const storage = await f.getInstance(syncRules);
     await storage.autoActivate();
 
     const exp = Date.now() / 1000 + 0.1;
@@ -251,7 +251,7 @@ function defineTests(factory: StorageFactory) {
       content: BASIC_SYNC_RULES
     });
 
-    const storage = await f.getInstance(syncRules.parsed());
+    const storage = await f.getInstance(syncRules);
     await storage.autoActivate();
 
     await storage.startBatch(BATCH_OPTIONS, async (batch) => {
