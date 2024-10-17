@@ -223,6 +223,32 @@ const json_valid: DocumentedSqlFunction = {
   documentation: 'Returns 1 if valid, 0 if invalid'
 };
 
+const json_keys: DocumentedSqlFunction = {
+  debugName: 'json_keys',
+  call(json: SqliteValue) {
+    const jsonString = castAsText(json);
+    if (jsonString == null) {
+      return null;
+    }
+
+    const jsonParsed = JSONBig.parse(jsonString);
+    if (typeof jsonParsed != 'object') {
+      throw new Error(`Cannot call json_keys on a scalar`);
+    } else if (Array.isArray(jsonParsed)) {
+      throw new Error(`Cannot call json_keys on an array`);
+    }
+    const keys = Object.keys(jsonParsed as {});
+    // Keys are always strings, safe to use plain JSON.
+    return JSON.stringify(keys);
+  },
+  parameters: [{ name: 'json', type: ExpressionType.ANY, optional: false }],
+  getReturnType(args) {
+    // TODO: proper nullable types
+    return ExpressionType.TEXT;
+  },
+  detail: 'Returns the keys of a JSON object as a JSON array'
+};
+
 const unixepoch: DocumentedSqlFunction = {
   debugName: 'unixepoch',
   call(value?: SqliteValue, specifier?: SqliteValue, specifier2?: SqliteValue) {
@@ -397,6 +423,7 @@ export const SQL_FUNCTIONS_NAMED = {
   json_extract,
   json_array_length,
   json_valid,
+  json_keys,
   unixepoch,
   datetime,
   st_asgeojson,

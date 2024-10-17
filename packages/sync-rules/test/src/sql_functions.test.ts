@@ -44,6 +44,30 @@ describe('SQL functions', () => {
     expect(fn.json_array_length(`{"a":[1,2,3,4]}`)).toEqual(0n);
   });
 
+  test('json_keys', () => {
+    expect(fn.json_keys(`{"a": 1, "b": "2", "0": "test", "c": {"d": "e"}}`)).toEqual(`["0","a","b","c"]`);
+    expect(fn.json_keys(`{}`)).toEqual(`[]`);
+    expect(fn.json_keys(null)).toEqual(null);
+    expect(fn.json_keys()).toEqual(null);
+    expect(() => fn.json_keys(`{"a": 1, "a": 2}`)).toThrow();
+    expect(() => fn.json_keys(`[1,2,3]`)).toThrow();
+    expect(() => fn.json_keys(3)).toThrow();
+  });
+
+  test('json_valid', () => {
+    expect(fn.json_valid(`{"a": 1, "b": "2", "0": "test", "c": {"d": "e"}}`)).toEqual(1n);
+    expect(fn.json_valid(`{}`)).toEqual(1n);
+    expect(fn.json_valid(null)).toEqual(0n);
+    expect(fn.json_valid()).toEqual(0n);
+    expect(fn.json_valid(`{"a": 1, "a": 2}`)).toEqual(0n);
+    expect(fn.json_valid(`[1,2,3]`)).toEqual(1n);
+    expect(fn.json_valid(3)).toEqual(1n);
+    expect(fn.json_valid('test')).toEqual(0n);
+    expect(fn.json_valid('"test"')).toEqual(1n);
+    expect(fn.json_valid('true')).toEqual(1n);
+    expect(fn.json_valid('TRUE')).toEqual(0n);
+  });
+
   test('typeof', () => {
     expect(fn.typeof(null)).toEqual('null');
     expect(fn.typeof('test')).toEqual('text');
