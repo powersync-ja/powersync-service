@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.20.0
+
+### Minor Changes
+
+- 0f90b02: Support substring and json_keys functions in sync rules
+
 ## 0.19.0
 
 ### Minor Changes
