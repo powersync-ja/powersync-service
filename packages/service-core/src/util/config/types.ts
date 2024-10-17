@@ -64,4 +64,5 @@ export type ResolvedPowerSyncConfig = {
 
   /** Prefix for postgres replication slot names. May eventually be connection-specific. */
   slot_name_prefix: string;
+  parameters: Record<string, number | string | boolean | null>;
 };

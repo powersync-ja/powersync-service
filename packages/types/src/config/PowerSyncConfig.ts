@@ -135,7 +135,9 @@ export const powerSyncConfig = t.object({
       disable_telemetry_sharing: t.boolean,
       internal_service_endpoint: t.string.optional()
     })
-    .optional()
+    .optional(),
+
+  parameters: t.record(t.number.or(t.string).or(t.boolean).or(t.Null)).optional()
 });
 
 export type PowerSyncConfig = t.Decoded<typeof powerSyncConfig>;

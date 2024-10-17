@@ -122,7 +122,8 @@ export class CompoundConfigCollector {
       },
       // TODO maybe move this out of the connection or something
       // slot_name_prefix: connections[0]?.slot_name_prefix ?? 'powersync_'
-      slot_name_prefix: 'powersync_'
+      slot_name_prefix: 'powersync_',
+      parameters: baseConfig.parameters ?? {}
     };
 
     return config;
