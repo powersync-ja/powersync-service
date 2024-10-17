@@ -44,6 +44,30 @@ describe('SQL functions', () => {
     expect(fn.json_array_length(`{"a":[1,2,3,4]}`)).toEqual(0n);
   });
 
+  test('json_keys', () => {
+    expect(fn.json_keys(`{"a": 1, "b": "2", "0": "test", "c": {"d": "e"}}`)).toEqual(`["0","a","b","c"]`);
+    expect(fn.json_keys(`{}`)).toEqual(`[]`);
+    expect(fn.json_keys(null)).toEqual(null);
+    expect(fn.json_keys()).toEqual(null);
+    expect(() => fn.json_keys(`{"a": 1, "a": 2}`)).toThrow();
+    expect(() => fn.json_keys(`[1,2,3]`)).toThrow();
+    expect(() => fn.json_keys(3)).toThrow();
+  });
+
+  test('json_valid', () => {
+    expect(fn.json_valid(`{"a": 1, "b": "2", "0": "test", "c": {"d": "e"}}`)).toEqual(1n);
+    expect(fn.json_valid(`{}`)).toEqual(1n);
+    expect(fn.json_valid(null)).toEqual(0n);
+    expect(fn.json_valid()).toEqual(0n);
+    expect(fn.json_valid(`{"a": 1, "a": 2}`)).toEqual(0n);
+    expect(fn.json_valid(`[1,2,3]`)).toEqual(1n);
+    expect(fn.json_valid(3)).toEqual(1n);
+    expect(fn.json_valid('test')).toEqual(0n);
+    expect(fn.json_valid('"test"')).toEqual(1n);
+    expect(fn.json_valid('true')).toEqual(1n);
+    expect(fn.json_valid('TRUE')).toEqual(0n);
+  });
+
   test('typeof', () => {
     expect(fn.typeof(null)).toEqual('null');
     expect(fn.typeof('test')).toEqual('text');
@@ -99,6 +123,22 @@ describe('SQL functions', () => {
     expect(fn.lower(123n)).toEqual('123');
     expect(fn.lower(3e60)).toEqual('3e+60');
     expect(fn.lower(Uint8Array.of(0x61, 0x62, 0x43))).toEqual('abc');
+  });
+
+  test('substring', () => {
+    expect(fn.substring(null)).toEqual(null);
+    expect(fn.substring('abc')).toEqual(null);
+    expect(fn.substring('abcde', 2, 3)).toEqual('bcd');
+    expect(fn.substring('abcde', 2)).toEqual('bcde');
+    expect(fn.substring('abcde', 2, null)).toEqual(null);
+    expect(fn.substring('abcde', 0, 1)).toEqual('');
+    expect(fn.substring('abcde', 0, 2)).toEqual('a');
+    expect(fn.substring('abcde', 1, 2)).toEqual('ab');
+    expect(fn.substring('abcde', -2)).toEqual('de');
+    expect(fn.substring('abcde', -2, 1)).toEqual('d');
+    expect(fn.substring('abcde', 6, -5)).toEqual('abcde');
+    expect(fn.substring('abcde', 5, -2)).toEqual('cd');
+    expect(fn.substring('2023-06-28 14:12:00.999Z', 1, 10)).toEqual('2023-06-28');
   });
 
   test('cast', () => {

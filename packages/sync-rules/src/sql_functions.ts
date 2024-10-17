@@ -70,6 +70,61 @@ const lower: DocumentedSqlFunction = {
   detail: 'Convert text to lower case'
 };
 
+const substring: DocumentedSqlFunction = {
+  debugName: 'substring',
+  call(value: SqliteValue, start: SqliteValue, length?: SqliteValue) {
+    const text = castAsText(value);
+    if (text == null) {
+      return null;
+    }
+    const startIndex = cast(start, 'integer') as bigint | null;
+    if (startIndex == null) {
+      return null;
+    }
+    if (length === null) {
+      // Different from undefined in this case, to match SQLite behavior
+      return null;
+    }
+    const castLength = cast(length ?? null, 'integer') as bigint | null;
+    let realLength: number;
+    if (castLength == null) {
+      // undefined (not specified)
+      realLength = text.length + 1; // +1 to account for the start = 0 special case
+    } else {
+      realLength = Number(castLength);
+    }
+
+    let realStart = 0;
+    if (startIndex < 0n) {
+      realStart = Math.max(0, text.length + Number(startIndex));
+    } else if (startIndex == 0n) {
+      // Weird special case
+      realStart = 0;
+      realLength -= 1;
+    } else {
+      realStart = Number(startIndex) - 1;
+    }
+
+    if (realLength < 0) {
+      // Negative length means we return that many characters _before_
+      // the start index.
+      return text.substring(realStart + realLength, realStart);
+    }
+
+    return text.substring(realStart, realStart + realLength);
+  },
+  parameters: [
+    { name: 'value', type: ExpressionType.TEXT, optional: false },
+    { name: 'start', type: ExpressionType.INTEGER, optional: false },
+    { name: 'length', type: ExpressionType.INTEGER, optional: true }
+  ],
+  getReturnType(args) {
+    return ExpressionType.TEXT;
+  },
+  detail: 'Compute a substring',
+  documentation: 'The start index starts at 1. If no length is specified, the remainder of the string is returned.'
+};
+
 const hex: DocumentedSqlFunction = {
   debugName: 'hex',
   call(value: SqliteValue) {
@@ -221,6 +276,32 @@ const json_valid: DocumentedSqlFunction = {
   },
   detail: 'Checks whether JSON text is valid',
   documentation: 'Returns 1 if valid, 0 if invalid'
+};
+
+const json_keys: DocumentedSqlFunction = {
+  debugName: 'json_keys',
+  call(json: SqliteValue) {
+    const jsonString = castAsText(json);
+    if (jsonString == null) {
+      return null;
+    }
+
+    const jsonParsed = JSONBig.parse(jsonString);
+    if (typeof jsonParsed != 'object') {
+      throw new Error(`Cannot call json_keys on a scalar`);
+    } else if (Array.isArray(jsonParsed)) {
+      throw new Error(`Cannot call json_keys on an array`);
+    }
+    const keys = Object.keys(jsonParsed as {});
+    // Keys are always strings, safe to use plain JSON.
+    return JSON.stringify(keys);
+  },
+  parameters: [{ name: 'json', type: ExpressionType.ANY, optional: false }],
+  getReturnType(args) {
+    // TODO: proper nullable types
+    return ExpressionType.TEXT;
+  },
+  detail: 'Returns the keys of a JSON object as a JSON array'
 };
 
 const unixepoch: DocumentedSqlFunction = {
@@ -389,6 +470,7 @@ const st_y: DocumentedSqlFunction = {
 export const SQL_FUNCTIONS_NAMED = {
   upper,
   lower,
+  substring,
   hex,
   length,
   base64,
@@ -397,6 +479,7 @@ export const SQL_FUNCTIONS_NAMED = {
   json_extract,
   json_array_length,
   json_valid,
+  json_keys,
   unixepoch,
   datetime,
   st_asgeojson,
