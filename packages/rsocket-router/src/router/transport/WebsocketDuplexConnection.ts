@@ -16,6 +16,7 @@
  */
 
 import { logger } from '@powersync/lib-services-framework';
+import { IncomingMessage } from 'http';
 import {
   Closeable,
   Deferred,
@@ -33,6 +34,8 @@ import WebSocket from 'ws';
 
 export class WebsocketDuplexConnection extends Deferred implements DuplexConnection, Outbound {
   readonly multiplexerDemultiplexer: Multiplexer & Demultiplexer & FrameHandler;
+
+  userAgent?: string;
 
   constructor(
     private websocketDuplex: Duplex,
@@ -119,7 +122,8 @@ export class WebsocketDuplexConnection extends Deferred implements DuplexConnect
       frame: Frame,
       outbound: Outbound & Closeable
     ) => Multiplexer & Demultiplexer & FrameHandler,
-    rawSocket: WebSocket.WebSocket
+    rawSocket: WebSocket.WebSocket,
+    request?: IncomingMessage
   ): void {
     socket.once('data', async (buffer) => {
       let frame: Frame | undefined = undefined;
@@ -135,6 +139,7 @@ export class WebsocketDuplexConnection extends Deferred implements DuplexConnect
       }
 
       const connection = new WebsocketDuplexConnection(socket, frame, multiplexerDemultiplexerFactory, rawSocket);
+      connection.userAgent = request?.headers['user-agent'];
       if (connection.done) {
         return;
       }
