@@ -272,8 +272,6 @@ export interface SyncRulesBucketStorage extends DisposableObserverClient<SyncRul
    */
   clear(): Promise<void>;
 
-  setSnapshotDone(lsn: string): Promise<void>;
-
   autoActivate(): Promise<void>;
 
   /**

@@ -1,5 +1,17 @@
 # @powersync/service-image
 
+## 0.5.5
+
+### Patch Changes
+
+- 1fd50a5: Fix checksum cache edge case with compacting
+- Updated dependencies [9e78ff1]
+- Updated dependencies [1fd50a5]
+- Updated dependencies [0e16938]
+- Updated dependencies [aa4eb0a]
+  - @powersync/service-sync-rules@0.19.0
+  - @powersync/service-core@0.8.5
+
 ## 0.5.4
 
 ### Patch Changes
