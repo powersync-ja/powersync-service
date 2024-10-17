@@ -420,11 +420,7 @@ export class MongoBucketStorage
         }
         return (await this.storageCache.fetch(doc._id)) ?? null;
       },
-      syncRules: doc?.content
-        ? new MongoPersistedSyncRulesContent(this.db, doc).parsed({
-            defaultSchema: ''
-          })
-        : null
+      syncRules: doc ? new MongoPersistedSyncRulesContent(this.db, doc) : null
     } satisfies ActiveCheckpoint;
   }
 

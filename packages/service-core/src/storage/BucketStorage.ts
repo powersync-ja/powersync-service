@@ -124,7 +124,7 @@ export interface ActiveCheckpoint {
 
   getBucketStorage(): Promise<SyncRulesBucketStorage | null>;
 
-  syncRules: PersistedSyncRules | null;
+  syncRules: PersistedSyncRulesContent | null;
 }
 
 export interface StorageMetrics {
