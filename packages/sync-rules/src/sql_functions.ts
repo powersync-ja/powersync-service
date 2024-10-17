@@ -70,6 +70,61 @@ const lower: DocumentedSqlFunction = {
   detail: 'Convert text to lower case'
 };
 
+const substring: DocumentedSqlFunction = {
+  debugName: 'substring',
+  call(value: SqliteValue, start: SqliteValue, length?: SqliteValue) {
+    const text = castAsText(value);
+    if (text == null) {
+      return null;
+    }
+    const startIndex = cast(start, 'integer') as bigint | null;
+    if (startIndex == null) {
+      return null;
+    }
+    if (length === null) {
+      // Different from undefined in this case, to match SQLite behavior
+      return null;
+    }
+    const castLength = cast(length ?? null, 'integer') as bigint | null;
+    let realLength: number;
+    if (castLength == null) {
+      // undefined (not specified)
+      realLength = text.length + 1; // +1 to account for the start = 0 special case
+    } else {
+      realLength = Number(castLength);
+    }
+
+    let realStart = 0;
+    if (startIndex < 0n) {
+      realStart = Math.max(0, text.length + Number(startIndex));
+    } else if (startIndex == 0n) {
+      // Weird special case
+      realStart = 0;
+      realLength -= 1;
+    } else {
+      realStart = Number(startIndex) - 1;
+    }
+
+    if (realLength < 0) {
+      // Negative length means we return that many characters _before_
+      // the start index.
+      return text.substring(realStart + realLength, realStart);
+    }
+
+    return text.substring(realStart, realStart + realLength);
+  },
+  parameters: [
+    { name: 'value', type: ExpressionType.TEXT, optional: false },
+    { name: 'start', type: ExpressionType.INTEGER, optional: false },
+    { name: 'length', type: ExpressionType.INTEGER, optional: true }
+  ],
+  getReturnType(args) {
+    return ExpressionType.TEXT;
+  },
+  detail: 'Compute a substring',
+  documentation: 'The start index starts at 1. If no length is specified, the remainder of the string is returned.'
+};
+
 const hex: DocumentedSqlFunction = {
   debugName: 'hex',
   call(value: SqliteValue) {
@@ -415,6 +470,7 @@ const st_y: DocumentedSqlFunction = {
 export const SQL_FUNCTIONS_NAMED = {
   upper,
   lower,
+  substring,
   hex,
   length,
   base64,

@@ -125,6 +125,22 @@ describe('SQL functions', () => {
     expect(fn.lower(Uint8Array.of(0x61, 0x62, 0x43))).toEqual('abc');
   });
 
+  test('substring', () => {
+    expect(fn.substring(null)).toEqual(null);
+    expect(fn.substring('abc')).toEqual(null);
+    expect(fn.substring('abcde', 2, 3)).toEqual('bcd');
+    expect(fn.substring('abcde', 2)).toEqual('bcde');
+    expect(fn.substring('abcde', 2, null)).toEqual(null);
+    expect(fn.substring('abcde', 0, 1)).toEqual('');
+    expect(fn.substring('abcde', 0, 2)).toEqual('a');
+    expect(fn.substring('abcde', 1, 2)).toEqual('ab');
+    expect(fn.substring('abcde', -2)).toEqual('de');
+    expect(fn.substring('abcde', -2, 1)).toEqual('d');
+    expect(fn.substring('abcde', 6, -5)).toEqual('abcde');
+    expect(fn.substring('abcde', 5, -2)).toEqual('cd');
+    expect(fn.substring('2023-06-28 14:12:00.999Z', 1, 10)).toEqual('2023-06-28');
+  });
+
   test('cast', () => {
     expect(cast(null, 'text')).toEqual(null);
     expect(cast(null, 'integer')).toEqual(null);
