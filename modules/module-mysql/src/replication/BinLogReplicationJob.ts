@@ -1,6 +1,6 @@
 import { container } from '@powersync/lib-services-framework';
 import { replication } from '@powersync/service-core';
-import { BinLogStream } from './BinLogStream.js';
+import { BinlogConfigurationError, BinLogStream } from './BinLogStream.js';
 import { MySQLConnectionManagerFactory } from './MySQLConnectionManagerFactory.js';
 
 export interface BinLogReplicationJobOptions extends replication.AbstractReplicationJobOptions {
@@ -32,12 +32,6 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
         }
       });
       this.logger.error(`Replication failed on ${this.slot_name}`, e);
-
-      //   Slot removal type error logic goes here
-      //   if (e) {
-      //     // This stops replication on this slot, and creates a new slot
-      //     await this.options.storage.factory.slotRemoved(this.slot_name);
-      //   }
     } finally {
       this.abortController.abort();
     }
@@ -73,12 +67,15 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
       });
       await stream.replicate();
     } catch (e) {
+      if (this.abortController.signal.aborted) {
+        return;
+      }
       this.logger.error(`Replication error`, e);
       if (e.cause != null) {
         this.logger.error(`cause`, e.cause);
       }
-      // TODO not recoverable error
-      if (false) {
+
+      if (e instanceof BinlogConfigurationError) {
         throw e;
       } else {
         // Report the error if relevant, before retrying

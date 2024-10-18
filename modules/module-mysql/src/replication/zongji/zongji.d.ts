@@ -5,9 +5,23 @@ declare module '@powersync/mysql-zongji' {
     password: string;
   };
 
+  interface DatabaseFilter {
+    [databaseName: string]: string[] | true;
+  }
+
   export type StartOptions = {
     includeEvents?: string[];
     excludeEvents?: string[];
+    /**
+     *  Describe which databases and tables to include (Only for row events). Use database names as the key and pass an array of table names or true (for the entire database).
+     *  Example: { 'my_database': ['allow_table', 'another_table'], 'another_db': true }
+     */
+    includeSchema?: DatabaseFilter;
+    /**
+     *  Object describing which databases and tables to exclude (Same format as includeSchema)
+     *  Example: { 'other_db': ['disallowed_table'], 'ex_db': true }
+     */
+    excludeSchema?: DatabaseFilter;
     /**
      * BinLog position filename to start reading events from
      */

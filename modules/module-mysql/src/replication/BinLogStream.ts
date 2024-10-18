@@ -34,6 +34,12 @@ interface WriteChangePayload {
 
 export type Data = Record<string, any>;
 
+export class BinlogConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+  }
+}
+
 /**
  * MySQL does not have same relation structure. Just returning unique key as string.
  * @param source
@@ -301,6 +307,7 @@ AND table_type = 'BASE TABLE';`,
       // all connections automatically closed, including this one.
       await this.initReplication();
       await this.streamChanges();
+      logger.info('BinlogStream has been shut down');
     } catch (e) {
       await this.storage.reportError(e);
       throw e;
@@ -309,8 +316,12 @@ AND table_type = 'BASE TABLE';`,
 
   async initReplication() {
     const connection = await this.connections.getConnection();
-    await common.checkSourceConfiguration(connection);
+    const errors = await common.checkSourceConfiguration(connection);
     connection.release();
+
+    if (errors.length > 0) {
+      throw new BinlogConfigurationError(`Binlog Configuration Errors: ${errors.join(', ')}`);
+    }
 
     const initialReplicationCompleted = await this.checkInitialReplicated();
     if (!initialReplicationCompleted) {
@@ -342,135 +353,150 @@ AND table_type = 'BASE TABLE';`,
     const binLogPositionState = fromGTID.position;
     connection.release();
 
-    await this.storage.startBatch(
-      { zeroLSN: ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema },
-      async (batch) => {
-        const zongji = this.connections.createBinlogListener();
+    if (!this.stopped) {
+      await this.storage.startBatch(
+        { zeroLSN: ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema },
+        async (batch) => {
+          const zongji = this.connections.createBinlogListener();
 
-        let currentGTID: common.ReplicatedGTID | null = null;
+          let currentGTID: common.ReplicatedGTID | null = null;
 
-        const queue = async.queue(async (evt: BinLogEvent) => {
-          // State machine
-          switch (true) {
-            case zongji_utils.eventIsGTIDLog(evt):
-              currentGTID = common.ReplicatedGTID.fromBinLogEvent({
-                raw_gtid: {
-                  server_id: evt.serverId,
-                  transaction_range: evt.transactionRange
-                },
-                position: {
-                  filename: binLogPositionState.filename,
-                  offset: evt.nextPosition
-                }
-              });
-              break;
-            case zongji_utils.eventIsRotation(evt):
-              // Update the position
-              binLogPositionState.filename = evt.binlogName;
-              binLogPositionState.offset = evt.position;
-              break;
-            case zongji_utils.eventIsWriteMutation(evt):
-              // TODO, can multiple tables be present?
-              const writeTableInfo = evt.tableMap[evt.tableId];
-              await this.writeChanges(batch, {
-                type: storage.SaveOperationTag.INSERT,
-                data: evt.rows,
-                database: writeTableInfo.parentSchema,
-                table: writeTableInfo.tableName,
-                sourceTable: this.getTable(
-                  getMysqlRelId({
-                    schema: writeTableInfo.parentSchema,
-                    name: writeTableInfo.tableName
-                  })
-                )
-              });
-              break;
-            case zongji_utils.eventIsUpdateMutation(evt):
-              const updateTableInfo = evt.tableMap[evt.tableId];
-              await this.writeChanges(batch, {
-                type: storage.SaveOperationTag.UPDATE,
-                data: evt.rows.map((row) => row.after),
-                previous_data: evt.rows.map((row) => row.before),
-                database: updateTableInfo.parentSchema,
-                table: updateTableInfo.tableName,
-                sourceTable: this.getTable(
-                  getMysqlRelId({
-                    schema: updateTableInfo.parentSchema,
-                    name: updateTableInfo.tableName
-                  })
-                )
-              });
-              break;
-            case zongji_utils.eventIsDeleteMutation(evt):
-              // TODO, can multiple tables be present?
-              const deleteTableInfo = evt.tableMap[evt.tableId];
-              await this.writeChanges(batch, {
-                type: storage.SaveOperationTag.DELETE,
-                data: evt.rows,
-                database: deleteTableInfo.parentSchema,
-                table: deleteTableInfo.tableName,
-                // TODO cleanup
-                sourceTable: this.getTable(
-                  getMysqlRelId({
-                    schema: deleteTableInfo.parentSchema,
-                    name: deleteTableInfo.tableName
-                  })
-                )
-              });
-              break;
-            case zongji_utils.eventIsXid(evt):
-              Metrics.getInstance().transactions_replicated_total.add(1);
-              // Need to commit with a replicated GTID with updated next position
-              await batch.commit(
-                new common.ReplicatedGTID({
-                  raw_gtid: currentGTID!.raw,
+          const queue = async.queue(async (evt: BinLogEvent) => {
+            // State machine
+            switch (true) {
+              case zongji_utils.eventIsGTIDLog(evt):
+                currentGTID = common.ReplicatedGTID.fromBinLogEvent({
+                  raw_gtid: {
+                    server_id: evt.serverId,
+                    transaction_range: evt.transactionRange
+                  },
                   position: {
                     filename: binLogPositionState.filename,
                     offset: evt.nextPosition
                   }
-                }).comparable
-              );
-              currentGTID = null;
-              // chunks_replicated_total.add(1);
-              break;
-          }
-        }, 1);
+                });
+                break;
+              case zongji_utils.eventIsRotation(evt):
+                // Update the position
+                binLogPositionState.filename = evt.binlogName;
+                binLogPositionState.offset = evt.position;
+                break;
+              case zongji_utils.eventIsWriteMutation(evt):
+                // TODO, can multiple tables be present?
+                const writeTableInfo = evt.tableMap[evt.tableId];
+                await this.writeChanges(batch, {
+                  type: storage.SaveOperationTag.INSERT,
+                  data: evt.rows,
+                  database: writeTableInfo.parentSchema,
+                  table: writeTableInfo.tableName,
+                  sourceTable: this.getTable(
+                    getMysqlRelId({
+                      schema: writeTableInfo.parentSchema,
+                      name: writeTableInfo.tableName
+                    })
+                  )
+                });
+                break;
+              case zongji_utils.eventIsUpdateMutation(evt):
+                const updateTableInfo = evt.tableMap[evt.tableId];
+                await this.writeChanges(batch, {
+                  type: storage.SaveOperationTag.UPDATE,
+                  data: evt.rows.map((row) => row.after),
+                  previous_data: evt.rows.map((row) => row.before),
+                  database: updateTableInfo.parentSchema,
+                  table: updateTableInfo.tableName,
+                  sourceTable: this.getTable(
+                    getMysqlRelId({
+                      schema: updateTableInfo.parentSchema,
+                      name: updateTableInfo.tableName
+                    })
+                  )
+                });
+                break;
+              case zongji_utils.eventIsDeleteMutation(evt):
+                // TODO, can multiple tables be present?
+                const deleteTableInfo = evt.tableMap[evt.tableId];
+                await this.writeChanges(batch, {
+                  type: storage.SaveOperationTag.DELETE,
+                  data: evt.rows,
+                  database: deleteTableInfo.parentSchema,
+                  table: deleteTableInfo.tableName,
+                  // TODO cleanup
+                  sourceTable: this.getTable(
+                    getMysqlRelId({
+                      schema: deleteTableInfo.parentSchema,
+                      name: deleteTableInfo.tableName
+                    })
+                  )
+                });
+                break;
+              case zongji_utils.eventIsXid(evt):
+                Metrics.getInstance().transactions_replicated_total.add(1);
+                // Need to commit with a replicated GTID with updated next position
+                await batch.commit(
+                  new common.ReplicatedGTID({
+                    raw_gtid: currentGTID!.raw,
+                    position: {
+                      filename: binLogPositionState.filename,
+                      offset: evt.nextPosition
+                    }
+                  }).comparable
+                );
+                currentGTID = null;
+                // chunks_replicated_total.add(1);
+                break;
+            }
+          }, 1);
 
-        zongji.on('binlog', (evt: BinLogEvent) => {
-          logger.info(`Pushing Binlog event ${evt.getEventName()}`);
-          queue.push(evt);
-        });
-
-        logger.info(`Starting replication from ${binLogPositionState.filename}:${binLogPositionState.offset}`);
-        zongji.start({
-          includeEvents: ['tablemap', 'writerows', 'updaterows', 'deleterows', 'xid', 'rotate', 'gtidlog'],
-          excludeEvents: [],
-          filename: binLogPositionState.filename,
-          position: binLogPositionState.offset
-        });
-
-        // Forever young
-        await new Promise<void>((resolve, reject) => {
-          queue.error((error) => {
-            zongji.stop();
-            queue.kill();
-            reject(error);
+          zongji.on('binlog', (evt: BinLogEvent) => {
+            if (!this.stopped) {
+              logger.info(`Pushing Binlog event ${evt.getEventName()}`);
+              queue.push(evt);
+            } else {
+              logger.info(`Abort signal detected, ignoring event ${evt.getEventName()}`);
+            }
           });
-          this.abortSignal.addEventListener(
-            'abort',
-            async () => {
+
+          // Only listen for changes to tables in the sync rules
+          const includedTables = [...this.tableCache.values()].map((table) => table.table);
+          logger.info(`Starting replication from ${binLogPositionState.filename}:${binLogPositionState.offset}`);
+          zongji.start({
+            includeEvents: ['tablemap', 'writerows', 'updaterows', 'deleterows', 'xid', 'rotate', 'gtidlog'],
+            excludeEvents: [],
+            includeSchema: { [this.defaultSchema]: includedTables },
+            filename: binLogPositionState.filename,
+            position: binLogPositionState.offset
+          });
+
+          // Forever young
+          await new Promise<void>((resolve, reject) => {
+            queue.error((error) => {
+              logger.error('Queue error.', error);
               zongji.stop();
               queue.kill();
-              if (!queue.length) {
-                await queue.drain();
-              }
+              reject(error);
+            });
+            if (!this.stopped) {
+              this.abortSignal.addEventListener(
+                'abort',
+                () => {
+                  logger.info('Abort signal received, stopping replication.');
+                  zongji.stop();
+                  queue.kill();
+                  resolve();
+                },
+                { once: true }
+              );
+            } else {
+              logger.info('Process was already aborted.');
+              zongji.stop();
+              queue.kill();
               resolve();
-            },
-            { once: true }
-          );
-        });
-      }
-    );
+            }
+          });
+        }
+      );
+    }
   }
 
   private async writeChanges(
