@@ -453,10 +453,14 @@ AND table_type = 'BASE TABLE';`,
               logger.info(`Pushing Binlog event ${evt.getEventName()}`);
               queue.push(evt);
             } else {
-              logger.info(`Abort signal detected, ignoring event ${evt.getEventName()}`);
+              logger.info(`Replication is busy stopping, ignoring event ${evt.getEventName()}`);
             }
           });
 
+          if (this.stopped) {
+            // Powersync is shutting down, don't start replicating
+            return;
+          }
           // Only listen for changes to tables in the sync rules
           const includedTables = [...this.tableCache.values()].map((table) => table.table);
           logger.info(`Starting replication from ${binLogPositionState.filename}:${binLogPositionState.offset}`);
@@ -476,23 +480,17 @@ AND table_type = 'BASE TABLE';`,
               queue.kill();
               reject(error);
             });
-            if (!this.stopped) {
-              this.abortSignal.addEventListener(
-                'abort',
-                () => {
-                  logger.info('Abort signal received, stopping replication.');
-                  zongji.stop();
-                  queue.kill();
-                  resolve();
-                },
-                { once: true }
-              );
-            } else {
-              logger.info('Process was already aborted.');
-              zongji.stop();
-              queue.kill();
-              resolve();
-            }
+
+            this.abortSignal.addEventListener(
+              'abort',
+              () => {
+                logger.info('Abort signal received, stopping replication...');
+                zongji.stop();
+                queue.kill();
+                resolve();
+              },
+              { once: true }
+            );
           });
         }
       );
