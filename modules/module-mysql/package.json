@@ -32,7 +32,7 @@
     "@powersync/service-core": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",
     "@powersync/service-types": "workspace:*",
-    "@powersync/mysql-zongji": "0.0.0-dev-20241016072406",
+    "@powersync/mysql-zongji": "0.0.0-dev-20241016125109",
     "semver": "^7.5.4",
     "async": "^3.2.4",
     "mysql2": "^3.11.0",
@@ -43,9 +43,9 @@
   "devDependencies": {
     "@types/semver": "^7.5.4",
     "@types/async": "^3.2.24",
-    "@types/uuid": "^9.0.8",
+    "@types/uuid": "^9.0.4",
     "typescript": "^5.5.4",
     "vite-tsconfig-paths": "^4.3.2",
-    "vitest": "^0.34.6"
+    "vitest": "^2.1.1"
   }
 }

@@ -21,7 +21,7 @@ import {
   UpdateSyncRulesOptions,
   WriteCheckpoint
 } from './BucketStorage.js';
-import { PowerSyncMongo, PowerSyncMongoOptions } from './mongo/db.js';
+import { PowerSyncMongo } from './mongo/db.js';
 import { SyncRuleDocument, SyncRuleState } from './mongo/models.js';
 import { MongoPersistedSyncRulesContent } from './mongo/MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage } from './mongo/MongoSyncBucketStorage.js';
@@ -35,8 +35,6 @@ import {
   WriteCheckpointAPI,
   WriteCheckpointMode
 } from './write-checkpoint.js';
-
-export interface MongoBucketStorageOptions extends PowerSyncMongoOptions {}
 
 export class MongoBucketStorage
   extends DisposableObserver<BucketStorageFactoryListener>
