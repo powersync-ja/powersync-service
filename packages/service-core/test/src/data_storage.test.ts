@@ -1438,4 +1438,26 @@ bucket_definitions:
     expect(errorCaught).true;
     expect(isDisposed).true;
   });
+
+  test('empty storage metrics', async () => {
+    const f = await factory({ dropAll: true });
+
+    const metrics = await f.getStorageMetrics();
+    expect(metrics).toEqual({
+      operations_size_bytes: 0,
+      parameters_size_bytes: 0,
+      replication_size_bytes: 0
+    });
+
+    const r = await f.configureSyncRules('bucket_definitions: {}');
+    const storage = f.getInstance(r.persisted_sync_rules!);
+    await storage.autoActivate();
+
+    const metrics2 = await f.getStorageMetrics();
+    expect(metrics2).toEqual({
+      operations_size_bytes: 0,
+      parameters_size_bytes: 0,
+      replication_size_bytes: 0
+    });
+  });
 }

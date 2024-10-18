@@ -1,5 +1,12 @@
 # @powersync/service-sync-rules
 
+## 0.19.0
+
+### Minor Changes
+
+- 9e78ff1: Warn when identifiers are automatically convererted to lower case.
+- 0e16938: Expand supported combinations of the IN operator
+
 ## 0.18.3
 
 ### Patch Changes

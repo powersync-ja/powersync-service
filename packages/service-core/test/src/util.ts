@@ -24,11 +24,22 @@ await Metrics.initialise({
 });
 Metrics.getInstance().resetCounters();
 
-export type StorageFactory = () => Promise<BucketStorageFactory>;
+export interface StorageOptions {
+  /**
+   * By default, collections are only cleared/
+   * Setting this to true will drop the collections completely.
+   */
+  dropAll?: boolean;
+}
+export type StorageFactory = (options?: StorageOptions) => Promise<BucketStorageFactory>;
 
-export const MONGO_STORAGE_FACTORY: StorageFactory = async () => {
+export const MONGO_STORAGE_FACTORY: StorageFactory = async (options?: StorageOptions) => {
   const db = await connectMongo();
-  await db.clear();
+  if (options?.dropAll) {
+    await db.drop();
+  } else {
+    await db.clear();
+  }
   return new MongoBucketStorage(db, { slot_name_prefix: 'test_' });
 };
 

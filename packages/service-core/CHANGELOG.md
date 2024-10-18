@@ -1,5 +1,15 @@
 # @powersync/service-core
 
+## 0.8.5
+
+### Patch Changes
+
+- 1fd50a5: Fix checksum cache edge case with compacting
+- aa4eb0a: Fix "JavaScript heap out of memory" on startup (slot health check)
+- Updated dependencies [9e78ff1]
+- Updated dependencies [0e16938]
+  - @powersync/service-sync-rules@0.19.0
+
 ## 0.8.4
 
 ### Patch Changes
