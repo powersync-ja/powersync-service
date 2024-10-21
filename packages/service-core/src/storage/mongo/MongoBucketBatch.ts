@@ -12,7 +12,7 @@ import {
   SaveOptions
 } from '../BucketStorage.js';
 import { SourceTable } from '../SourceTable.js';
-import { BatchedCustomWriteCheckpointOptions, CustomWriteCheckpointOptions } from '../write-checkpoint.js';
+import { BatchedCustomWriteCheckpointOptions, CustomWriteCheckpointOptions } from '../WriteCheckpointAPI.js';
 import { PowerSyncMongo } from './db.js';
 import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
 import { MongoIdSequence } from './MongoIdSequence.js';

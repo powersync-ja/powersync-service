@@ -13,7 +13,7 @@ import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
 import { BatchedCustomWriteCheckpointOptions, ReplicaId } from './storage-index.js';
-import { SyncStorageWriteCheckpointAPI } from './write-checkpoint.js';
+import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
 
 export interface BucketStorageFactoryListener extends DisposableListener {
   syncStorageCreated: (storage: SyncRulesBucketStorage) => void;

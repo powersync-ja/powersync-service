@@ -7,7 +7,7 @@ import {
   ManagedWriteCheckpointOptions,
   WriteCheckpointAPI,
   WriteCheckpointMode
-} from '../write-checkpoint.js';
+} from '../WriteCheckpointAPI.js';
 import { PowerSyncMongo } from './db.js';
 
 export type MongoCheckpointAPIOptions = {

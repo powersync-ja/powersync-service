@@ -33,7 +33,7 @@ import {
   SyncStorageLastWriteCheckpointFilters,
   WriteCheckpointAPI,
   WriteCheckpointMode
-} from '../write-checkpoint.js';
+} from '../WriteCheckpointAPI.js';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, SourceKey, SyncRuleState } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
