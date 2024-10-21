@@ -64,12 +64,12 @@ export const writeCheckpoint2 = routeDefinition({
       storageEngine: { activeBucketStorage }
     } = service_context;
 
-    const active = await activeBucketStorage.getActiveSyncRulesContent();
-    if (!active) {
+    const activeSyncRules = await activeBucketStorage.getActiveSyncRulesContent();
+    if (!activeSyncRules) {
       throw new framework.errors.ValidationError(`Cannot create Write Checkpoint since no sync rules are active.`);
     }
 
-    using syncBucketStorage = activeBucketStorage.getInstance(active);
+    using syncBucketStorage = activeBucketStorage.getInstance(activeSyncRules);
     const writeCheckpoint = await syncBucketStorage.createManagedWriteCheckpoint({
       user_id: full_user_id,
       heads: { '1': currentCheckpoint }
