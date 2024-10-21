@@ -3,6 +3,7 @@ declare module '@powersync/mysql-zongji' {
     host: string;
     user: string;
     password: string;
+    dateStrings?: boolean;
   };
 
   interface DatabaseFilter {
