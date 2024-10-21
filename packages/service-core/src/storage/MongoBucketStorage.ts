@@ -25,16 +25,7 @@ import { PowerSyncMongo, PowerSyncMongoOptions } from './mongo/db.js';
 import { SyncRuleDocument, SyncRuleState } from './mongo/models.js';
 import { MongoPersistedSyncRulesContent } from './mongo/MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage } from './mongo/MongoSyncBucketStorage.js';
-import { MongoWriteCheckpointAPI } from './mongo/MongoWriteCheckpointAPI.js';
 import { generateSlotName } from './mongo/util.js';
-import {
-  CustomWriteCheckpointOptions,
-  DEFAULT_WRITE_CHECKPOINT_MODE,
-  LastWriteCheckpointFilters,
-  ManagedWriteCheckpointOptions,
-  WriteCheckpointAPI,
-  WriteCheckpointMode
-} from './write-checkpoint.js';
 
 export interface MongoBucketStorageOptions extends PowerSyncMongoOptions {}
 
@@ -46,10 +37,6 @@ export class MongoBucketStorage
   private readonly session: mongo.ClientSession;
   // TODO: This is still Postgres specific and needs to be reworked
   public readonly slot_name_prefix: string;
-
-  readonly write_checkpoint_mode: WriteCheckpointMode;
-
-  protected readonly writeCheckpointAPI: WriteCheckpointAPI;
 
   private readonly storageCache = new LRUCache<number, MongoSyncBucketStorage>({
     max: 3,
@@ -78,10 +65,6 @@ export class MongoBucketStorage
     db: PowerSyncMongo,
     options: {
       slot_name_prefix: string;
-      /**
-       * Initial Write Checkpoint Mode
-       */
-      write_checkpoint_mode?: WriteCheckpointMode;
     }
   ) {
     super();
@@ -89,15 +72,6 @@ export class MongoBucketStorage
     this.db = db;
     this.session = this.client.startSession();
     this.slot_name_prefix = options.slot_name_prefix;
-    this.write_checkpoint_mode = options.write_checkpoint_mode ?? DEFAULT_WRITE_CHECKPOINT_MODE;
-    this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
-      db,
-      mode: this.write_checkpoint_mode
-    });
-  }
-
-  get writeCheckpointMode() {
-    return this.writeCheckpointAPI.writeCheckpointMode;
   }
 
   getInstance(options: PersistedSyncRulesContent): MongoSyncBucketStorage {
@@ -306,26 +280,6 @@ export class MongoBucketStorage
     });
   }
 
-  async batchCreateCustomWriteCheckpoints(checkpoints: CustomWriteCheckpointOptions[]): Promise<void> {
-    return this.writeCheckpointAPI.batchCreateCustomWriteCheckpoints(checkpoints);
-  }
-
-  setWriteCheckpointMode(mode: WriteCheckpointMode): void {
-    return this.writeCheckpointAPI.setWriteCheckpointMode(mode);
-  }
-
-  async createCustomWriteCheckpoint(options: CustomWriteCheckpointOptions): Promise<bigint> {
-    return this.writeCheckpointAPI.createCustomWriteCheckpoint(options);
-  }
-
-  async createManagedWriteCheckpoint(options: ManagedWriteCheckpointOptions): Promise<bigint> {
-    return this.writeCheckpointAPI.createManagedWriteCheckpoint(options);
-  }
-
-  async lastWriteCheckpoint(filters: LastWriteCheckpointFilters): Promise<bigint | null> {
-    return this.writeCheckpointAPI.lastWriteCheckpoint(filters);
-  }
-
   async getActiveCheckpoint(): Promise<ActiveCheckpoint> {
     const doc = await this.db.sync_rules.findOne(
       {
@@ -436,15 +390,14 @@ export class MongoBucketStorage
           return null;
         }
         return (await this.storageCache.fetch(doc._id)) ?? null;
-      },
-      syncRules: doc ? new MongoPersistedSyncRulesContent(this.db, doc) : null
+      }
     } satisfies ActiveCheckpoint;
   }
 
   /**
    * Instance-wide watch on the latest available checkpoint (op_id + lsn).
    */
-  private async *_watchActiveCheckpoint(signal: AbortSignal): AsyncIterable<ActiveCheckpoint> {
+  private async *watchActiveCheckpoint(signal: AbortSignal): AsyncIterable<ActiveCheckpoint> {
     const pipeline: mongo.Document[] = [
       {
         $match: {
@@ -457,8 +410,7 @@ export class MongoBucketStorage
           operationType: 1,
           'fullDocument._id': 1,
           'fullDocument.last_checkpoint': 1,
-          'fullDocument.last_checkpoint_lsn': 1,
-          'fullDocument.content': 1
+          'fullDocument.last_checkpoint_lsn': 1
         }
       }
     ];
@@ -480,8 +432,7 @@ export class MongoBucketStorage
           projection: {
             _id: 1,
             last_checkpoint: 1,
-            last_checkpoint_lsn: 1,
-            content: 1
+            last_checkpoint_lsn: 1
           }
         }
       );
@@ -542,15 +493,8 @@ export class MongoBucketStorage
 
   // Nothing is done here until a subscriber starts to iterate
   private readonly sharedIter = new sync.BroadcastIterable((signal) => {
-    return this._watchActiveCheckpoint(signal);
+    return this.watchActiveCheckpoint(signal);
   });
-
-  /**
-   * Watch changes to the active sync rules and checkpoint.
-   */
-  watchActiveCheckpoint(signal: AbortSignal): AsyncIterable<ActiveCheckpoint> {
-    return wrapWithAbort(this.sharedIter, signal);
-  }
 
   /**
    * User-specific watch on the latest checkpoint and/or write checkpoint.
@@ -568,12 +512,14 @@ export class MongoBucketStorage
       // 1. checkpoint (op_id) changes.
       // 2. write checkpoint changes for the specific user
       const bucketStorage = await cp.getBucketStorage();
+      if (!bucketStorage) {
+        continue;
+      }
 
       const lsnFilters: Record<string, string> = lsn ? { 1: lsn } : {};
 
-      const currentWriteCheckpoint = await this.lastWriteCheckpoint({
+      const currentWriteCheckpoint = await bucketStorage.lastWriteCheckpoint({
         user_id,
-        sync_rules_id: bucketStorage?.group_id,
         heads: {
           ...lsnFilters
         }

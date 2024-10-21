@@ -1,6 +1,7 @@
 import { logger, router, schema } from '@powersync/lib-services-framework';
 import * as t from 'ts-codec';
 
+import * as framework from '@powersync/lib-services-framework';
 import * as util from '../../util/util-index.js';
 import { authUser } from '../auth.js';
 import { routeDefinition } from '../router.js';
@@ -63,7 +64,13 @@ export const writeCheckpoint2 = routeDefinition({
       storageEngine: { activeBucketStorage }
     } = service_context;
 
-    const writeCheckpoint = await activeBucketStorage.createManagedWriteCheckpoint({
+    const active = await activeBucketStorage.getActiveSyncRulesContent();
+    if (!active) {
+      throw new framework.errors.ValidationError(`Cannot create Write Checkpoint since no sync rules are active.`);
+    }
+
+    using syncBucketStorage = activeBucketStorage.getInstance(active);
+    const writeCheckpoint = await syncBucketStorage.createManagedWriteCheckpoint({
       user_id: full_user_id,
       heads: { '1': currentCheckpoint }
     });

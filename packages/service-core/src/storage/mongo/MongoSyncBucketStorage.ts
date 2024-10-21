@@ -2,7 +2,8 @@ import { SqliteJsonRow, SqliteJsonValue, SqlSyncRules } from '@powersync/service
 import * as bson from 'bson';
 import * as mongo from 'mongodb';
 
-import { DisposableObserver } from '@powersync/lib-services-framework';
+import { DisposableObserver, logger } from '@powersync/lib-services-framework';
+import * as timers from 'timers/promises';
 import * as db from '../../db/db-index.js';
 import * as util from '../../util/util-index.js';
 import {
@@ -26,13 +27,19 @@ import {
 import { ChecksumCache, FetchPartialBucketChecksum, PartialChecksum, PartialChecksumMap } from '../ChecksumCache.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { SourceTable } from '../SourceTable.js';
+import {
+  BatchedCustomWriteCheckpointOptions,
+  ManagedWriteCheckpointOptions,
+  SyncStorageLastWriteCheckpointFilters,
+  WriteCheckpointAPI,
+  WriteCheckpointMode
+} from '../write-checkpoint.js';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, SourceKey, SyncRuleState } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
+import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, mapOpEntry, readSingleBatch, serializeLookup } from './util.js';
-import { logger } from '@powersync/lib-services-framework';
-import * as timers from 'timers/promises';
 
 export class MongoSyncBucketStorage
   extends DisposableObserver<SyncRulesBucketStorageListener>
@@ -46,15 +53,53 @@ export class MongoSyncBucketStorage
   });
 
   private parsedSyncRulesCache: SqlSyncRules | undefined;
+  private writeCheckpointAPI: WriteCheckpointAPI;
 
   constructor(
     public readonly factory: MongoBucketStorage,
     public readonly group_id: number,
     private readonly sync_rules: PersistedSyncRulesContent,
-    public readonly slot_name: string
+    public readonly slot_name: string,
+    writeCheckpointMode: WriteCheckpointMode = WriteCheckpointMode.MANAGED
   ) {
     super();
     this.db = factory.db;
+    this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
+      db: this.db,
+      mode: writeCheckpointMode
+    });
+  }
+
+  get writeCheckpointMode() {
+    return this.writeCheckpointAPI.writeCheckpointMode;
+  }
+
+  setWriteCheckpointMode(mode: WriteCheckpointMode): void {
+    this.writeCheckpointAPI.setWriteCheckpointMode(mode);
+  }
+
+  batchCreateCustomWriteCheckpoints(checkpoints: BatchedCustomWriteCheckpointOptions[]): Promise<void> {
+    return this.writeCheckpointAPI.batchCreateCustomWriteCheckpoints(
+      checkpoints.map((checkpoint) => ({ ...checkpoint, sync_rules_id: this.group_id }))
+    );
+  }
+
+  createCustomWriteCheckpoint(checkpoint: BatchedCustomWriteCheckpointOptions): Promise<bigint> {
+    return this.writeCheckpointAPI.createCustomWriteCheckpoint({
+      ...checkpoint,
+      sync_rules_id: this.group_id
+    });
+  }
+
+  createManagedWriteCheckpoint(checkpoint: ManagedWriteCheckpointOptions): Promise<bigint> {
+    return this.writeCheckpointAPI.createManagedWriteCheckpoint(checkpoint);
+  }
+
+  lastWriteCheckpoint(filters: SyncStorageLastWriteCheckpointFilters): Promise<bigint | null> {
+    return this.writeCheckpointAPI.lastWriteCheckpoint({
+      ...filters,
+      sync_rules_id: this.group_id
+    });
   }
 
   getParsedSyncRules(options: ParseSyncRulesOptions): SqlSyncRules {

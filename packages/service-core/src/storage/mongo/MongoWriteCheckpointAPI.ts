@@ -37,11 +37,12 @@ export class MongoWriteCheckpointAPI implements WriteCheckpointAPI {
   }
 
   async createCustomWriteCheckpoint(options: CustomWriteCheckpointOptions): Promise<bigint> {
-    /**
-     * Allow creating custom checkpoints even if the current mode is not `custom`.
-     * There might be a state where the next sync rules rely on replicating custom
-     * write checkpoints, but the current active sync rules uses managed checkpoints.
-     */
+    if (this.writeCheckpointMode !== WriteCheckpointMode.CUSTOM) {
+      throw new framework.errors.ValidationError(
+        `Creating a custom Write Checkpoint when the current Write Checkpoint mode is set to "${this.writeCheckpointMode}"`
+      );
+    }
+
     const { checkpoint, user_id, sync_rules_id } = options;
     const doc = await this.db.custom_write_checkpoints.findOneAndUpdate(
       {

@@ -12,16 +12,15 @@ import * as util from '../util/util-index.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
-import { BatchedCustomWriteCheckpointOptions, ReplicaId, WriteCheckpointAPI } from './storage-index.js';
+import { BatchedCustomWriteCheckpointOptions, ReplicaId } from './storage-index.js';
+import { SyncStorageWriteCheckpointAPI } from './write-checkpoint.js';
 
 export interface BucketStorageFactoryListener extends DisposableListener {
   syncStorageCreated: (storage: SyncRulesBucketStorage) => void;
   replicationEvent: (event: ReplicationEventPayload) => void;
 }
 
-export interface BucketStorageFactory
-  extends DisposableObserverClient<BucketStorageFactoryListener>,
-    WriteCheckpointAPI {
+export interface BucketStorageFactory extends DisposableObserverClient<BucketStorageFactoryListener> {
   /**
    * Update sync rules from configuration, if changed.
    */
@@ -91,11 +90,6 @@ export interface BucketStorageFactory
   getActiveCheckpoint(): Promise<ActiveCheckpoint>;
 
   /**
-   * Yields the latest sync checkpoint.
-   */
-  watchActiveCheckpoint(signal: AbortSignal): AsyncIterable<ActiveCheckpoint>;
-
-  /**
    * Yields the latest user write checkpoint whenever the sync checkpoint updates.
    */
   watchWriteCheckpoint(user_id: string, signal: AbortSignal): AsyncIterable<WriteCheckpoint>;
@@ -123,8 +117,6 @@ export interface ActiveCheckpoint {
   hasSyncRules(): boolean;
 
   getBucketStorage(): Promise<SyncRulesBucketStorage | null>;
-
-  syncRules: PersistedSyncRulesContent | null;
 }
 
 export interface StorageMetrics {
@@ -213,7 +205,9 @@ export interface SyncRulesBucketStorageListener extends DisposableListener {
   batchStarted: (batch: BucketStorageBatch) => void;
 }
 
-export interface SyncRulesBucketStorage extends DisposableObserverClient<SyncRulesBucketStorageListener> {
+export interface SyncRulesBucketStorage
+  extends DisposableObserverClient<SyncRulesBucketStorageListener>,
+    SyncStorageWriteCheckpointAPI {
   readonly group_id: number;
   readonly slot_name: string;
 

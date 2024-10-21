@@ -26,19 +26,19 @@ export interface CustomWriteCheckpointFilters extends BaseWriteCheckpointIdentif
   sync_rules_id: number;
 }
 
-export interface CustomWriteCheckpointOptions extends CustomWriteCheckpointFilters {
+export interface BatchedCustomWriteCheckpointOptions extends BaseWriteCheckpointIdentifier {
   /**
    * A supplied incrementing Write Checkpoint number
    */
   checkpoint: bigint;
 }
 
-/**
- * Options for creating a custom Write Checkpoint in a batch.
- * A {@link BucketStorageBatch} is already associated with a Sync Rules instance.
- * The `sync_rules_id` is not required here.
- */
-export type BatchedCustomWriteCheckpointOptions = Omit<CustomWriteCheckpointOptions, 'sync_rules_id'>;
+export interface CustomWriteCheckpointOptions extends BatchedCustomWriteCheckpointOptions {
+  /**
+   * Sync rules which were active when this checkpoint was created.
+   */
+  sync_rules_id: number;
+}
 
 /**
  * Managed Write Checkpoints are a mapping of User ID to replication HEAD
@@ -52,19 +52,33 @@ export interface ManagedWriteCheckpointFilters extends BaseWriteCheckpointIdenti
 
 export type ManagedWriteCheckpointOptions = ManagedWriteCheckpointFilters;
 
+export type SyncStorageLastWriteCheckpointFilters = BaseWriteCheckpointIdentifier | ManagedWriteCheckpointFilters;
 export type LastWriteCheckpointFilters = CustomWriteCheckpointFilters | ManagedWriteCheckpointFilters;
 
-export interface WriteCheckpointAPI {
+export interface BaseWriteCheckpointAPI {
   readonly writeCheckpointMode: WriteCheckpointMode;
-
   setWriteCheckpointMode(mode: WriteCheckpointMode): void;
-
-  batchCreateCustomWriteCheckpoints(checkpoints: CustomWriteCheckpointOptions[]): Promise<void>;
-
-  createCustomWriteCheckpoint(checkpoint: CustomWriteCheckpointOptions): Promise<bigint>;
-
   createManagedWriteCheckpoint(checkpoint: ManagedWriteCheckpointOptions): Promise<bigint>;
+}
 
+/**
+ * Write Checkpoint API to be used in conjunction with a {@link SyncRulesBucketStorage}.
+ * This storage corresponds with a set of sync rules. These APIs don't require specifying a
+ * sync rules id.
+ */
+export interface SyncStorageWriteCheckpointAPI extends BaseWriteCheckpointAPI {
+  batchCreateCustomWriteCheckpoints(checkpoints: BatchedCustomWriteCheckpointOptions[]): Promise<void>;
+  createCustomWriteCheckpoint(checkpoint: BatchedCustomWriteCheckpointOptions): Promise<bigint>;
+  lastWriteCheckpoint(filters: SyncStorageLastWriteCheckpointFilters): Promise<bigint | null>;
+}
+
+/**
+ * Write Checkpoint API which is interfaced directly with the storage layer. This requires
+ * sync rules identifiers for custom write checkpoints.
+ */
+export interface WriteCheckpointAPI extends BaseWriteCheckpointAPI {
+  batchCreateCustomWriteCheckpoints(checkpoints: CustomWriteCheckpointOptions[]): Promise<void>;
+  createCustomWriteCheckpoint(checkpoint: CustomWriteCheckpointOptions): Promise<bigint>;
   lastWriteCheckpoint(filters: LastWriteCheckpointFilters): Promise<bigint | null>;
 }
 

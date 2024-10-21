@@ -12,7 +12,7 @@ import {
   SaveOptions
 } from '../BucketStorage.js';
 import { SourceTable } from '../SourceTable.js';
-import { CustomWriteCheckpointOptions } from '../write-checkpoint.js';
+import { BatchedCustomWriteCheckpointOptions, CustomWriteCheckpointOptions } from '../write-checkpoint.js';
 import { PowerSyncMongo } from './db.js';
 import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
@@ -83,7 +83,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
     this.sync_rules = sync_rules;
   }
 
-  addCustomWriteCheckpoint(checkpoint: CustomWriteCheckpointOptions): void {
+  addCustomWriteCheckpoint(checkpoint: BatchedCustomWriteCheckpointOptions): void {
     this.write_checkpoint_batch.push({
       ...checkpoint,
       sync_rules_id: this.group_id
