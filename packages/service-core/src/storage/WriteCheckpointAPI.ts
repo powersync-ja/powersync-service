@@ -3,7 +3,7 @@ export enum WriteCheckpointMode {
    * Raw mappings of `user_id` to `write_checkpoint`s should
    * be supplied for each set of sync rules.
    */
-  CUSTOM = 'manual',
+  CUSTOM = 'custom',
   /**
    * Write checkpoints are stored as a mapping of `user_id` plus
    * replication HEAD (lsn in Postgres) to an automatically generated
