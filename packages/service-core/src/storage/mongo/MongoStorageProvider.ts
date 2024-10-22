@@ -19,8 +19,7 @@ export class MongoStorageProvider implements BucketStorageProvider {
     return {
       storage: new MongoBucketStorage(database, {
         // TODO currently need the entire resolved config due to this
-        slot_name_prefix: resolvedConfig.slot_name_prefix,
-        write_checkpoint_mode: options.writeCheckpointMode
+        slot_name_prefix: resolvedConfig.slot_name_prefix
       }),
       shutDown: () => client.close(),
       tearDown: () => {

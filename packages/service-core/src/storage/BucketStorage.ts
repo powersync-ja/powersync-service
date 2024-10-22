@@ -12,16 +12,15 @@ import * as util from '../util/util-index.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
-import { BatchedCustomWriteCheckpointOptions, ReplicaId, WriteCheckpointAPI } from './storage-index.js';
+import { BatchedCustomWriteCheckpointOptions, ReplicaId } from './storage-index.js';
+import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
 
 export interface BucketStorageFactoryListener extends DisposableListener {
   syncStorageCreated: (storage: SyncRulesBucketStorage) => void;
   replicationEvent: (event: ReplicationEventPayload) => void;
 }
 
-export interface BucketStorageFactory
-  extends DisposableObserverClient<BucketStorageFactoryListener>,
-    WriteCheckpointAPI {
+export interface BucketStorageFactory extends DisposableObserverClient<BucketStorageFactoryListener> {
   /**
    * Update sync rules from configuration, if changed.
    */
@@ -206,7 +205,9 @@ export interface SyncRulesBucketStorageListener extends DisposableListener {
   batchStarted: (batch: BucketStorageBatch) => void;
 }
 
-export interface SyncRulesBucketStorage extends DisposableObserverClient<SyncRulesBucketStorageListener> {
+export interface SyncRulesBucketStorage
+  extends DisposableObserverClient<SyncRulesBucketStorageListener>,
+    SyncStorageWriteCheckpointAPI {
   readonly group_id: number;
   readonly slot_name: string;
 
