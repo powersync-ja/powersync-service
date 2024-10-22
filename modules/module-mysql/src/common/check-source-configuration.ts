@@ -1,7 +1,7 @@
 import mysqlPromise from 'mysql2/promise';
 import * as mysql_utils from '../utils/mysql_utils.js';
 
-export async function checkSourceConfiguration(connection: mysqlPromise.Connection) {
+export async function checkSourceConfiguration(connection: mysqlPromise.Connection): Promise<string[]> {
   const errors: string[] = [];
   const [[result]] = await mysql_utils.retriedQuery({
     connection,

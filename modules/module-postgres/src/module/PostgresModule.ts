@@ -5,9 +5,11 @@ import { SupabaseKeyCollector } from '../auth/SupabaseKeyCollector.js';
 import { ConnectionManagerFactory } from '../replication/ConnectionManagerFactory.js';
 import { PgManager } from '../replication/PgManager.js';
 import { PostgresErrorRateLimiter } from '../replication/PostgresErrorRateLimiter.js';
-import { cleanUpReplicationSlot } from '../replication/replication-utils.js';
+import { checkSourceConfiguration, cleanUpReplicationSlot } from '../replication/replication-utils.js';
 import { WalStreamReplicator } from '../replication/WalStreamReplicator.js';
 import * as types from '../types/types.js';
+import { PostgresConnectionConfig } from '../types/types.js';
+import { PUBLICATION_NAME } from '../replication/WalStream.js';
 
 export class PostgresModule extends replication.ReplicationModule<types.PostgresConnectionConfig> {
   constructor() {
@@ -111,5 +113,20 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
         });
         configuration.client_keystore.collector.add(new auth.CachedKeyCollector(keyCollector));
       });
+  }
+
+  async testConnection(config: PostgresConnectionConfig): Promise<void> {
+    this.decodeConfig(config);
+    const normalisedConfig = this.resolveConfig(this.decodedConfig!);
+    const connectionManager = new PgManager(normalisedConfig, {
+      idleTimeout: 30_000,
+      maxSize: 1
+    });
+    const connection = await connectionManager.snapshotConnection();
+    try {
+      return checkSourceConfiguration(connection, PUBLICATION_NAME);
+    } finally {
+      await connectionManager.end();
+    }
   }
 }

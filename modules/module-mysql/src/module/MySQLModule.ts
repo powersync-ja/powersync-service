@@ -5,6 +5,9 @@ import { BinLogReplicator } from '../replication/BinLogReplicator.js';
 import { MySQLErrorRateLimiter } from '../replication/MySQLErrorRateLimiter.js';
 import * as types from '../types/types.js';
 import { MySQLConnectionManagerFactory } from '../replication/MySQLConnectionManagerFactory.js';
+import { MySQLConnectionConfig } from '../types/types.js';
+import { checkSourceConfiguration } from '../common/check-source-configuration.js';
+import { MySQLConnectionManager } from '../replication/MySQLConnectionManager.js';
 
 export class MySQLModule extends replication.ReplicationModule<types.MySQLConnectionConfig> {
   constructor() {
@@ -49,5 +52,20 @@ export class MySQLModule extends replication.ReplicationModule<types.MySQLConnec
 
   async teardown(options: TearDownOptions): Promise<void> {
     // No specific teardown required for MySQL
+  }
+
+  async testConnection(config: MySQLConnectionConfig): Promise<void> {
+    this.decodeConfig(config);
+    const normalisedConfig = this.resolveConfig(this.decodedConfig!);
+    const connectionManager = new MySQLConnectionManager(normalisedConfig, {});
+    const connection = await connectionManager.getConnection();
+    try {
+      const errors = await checkSourceConfiguration(connection);
+      if (errors.length > 0) {
+        throw new Error(errors.join('\n'));
+      }
+    } finally {
+      await connectionManager.end();
+    }
   }
 }

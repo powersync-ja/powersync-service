@@ -93,7 +93,7 @@ WHERE oid = $1::oid LIMIT 1`,
   }
 }
 
-export async function checkSourceConfiguration(db: pgwire.PgClient, publicationName: string) {
+export async function checkSourceConfiguration(db: pgwire.PgClient, publicationName: string): Promise<void> {
   // Check basic config
   await pgwire_utils.retriedQuery(
     db,

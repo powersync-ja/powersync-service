@@ -7,6 +7,18 @@ import * as modules from '../modules/modules-index.js';
 import * as system from '../system/system-index.js';
 import { schema } from '@powersync/lib-services-framework';
 import { AbstractReplicator } from './AbstractReplicator.js';
+import { TearDownOptions } from '../modules/modules-index.js';
+
+/**
+ *  Provides a common interface for testing the connection to a DataSource.
+ */
+export interface ConnectionTester<TConfig extends DataSourceConfig> {
+  /**
+   *  Confirm if a connection can be established to the datasource for the provided datasource configuration
+   *  @param config
+   */
+  testConnection(config: TConfig): Promise<void>;
+}
 
 export interface ReplicationModuleOptions extends modules.AbstractModuleOptions {
   type: string;
@@ -17,7 +29,10 @@ export interface ReplicationModuleOptions extends modules.AbstractModuleOptions 
  *  A replication module describes all the functionality that PowerSync requires to
  *  replicate data from a DataSource. Whenever a new data source is added to powersync this class should be extended.
  */
-export abstract class ReplicationModule<TConfig extends DataSourceConfig> extends modules.AbstractModule {
+export abstract class ReplicationModule<TConfig extends DataSourceConfig>
+  extends modules.AbstractModule
+  implements ConnectionTester<TConfig>
+{
   protected type: string;
   protected configSchema: t.AnyCodec;
   protected decodedConfig: TConfig | undefined;
@@ -43,6 +58,8 @@ export abstract class ReplicationModule<TConfig extends DataSourceConfig> extend
    */
   protected abstract createReplicator(context: system.ServiceContext): AbstractReplicator;
 
+  public abstract testConnection(config: TConfig): Promise<void>;
+
   /**
    *  Register this module's Replicators and RouteAPI adapters if the required configuration is present.
    */
@@ -54,11 +71,7 @@ export abstract class ReplicationModule<TConfig extends DataSourceConfig> extend
 
     const matchingConfig = context.configuration.connections.filter((dataSource) => dataSource.type === this.type);
     if (!matchingConfig.length) {
-      // This module is needed given the config
-      return;
-    }
-
-    if (!matchingConfig.length) {
+      // No configuration for this module was found
       return;
     }
 
@@ -70,15 +83,19 @@ export abstract class ReplicationModule<TConfig extends DataSourceConfig> extend
 
     try {
       const baseMatchingConfig = matchingConfig[0] as TConfig;
-      // If validation fails, log the error and continue, no replication will happen for this data source
-      this.validateConfig(baseMatchingConfig);
-      this.decodedConfig = this.configSchema.decode(baseMatchingConfig);
+      // If decoding fails, log the error and continue, no replication will happen for this data source
+      this.decodeConfig(baseMatchingConfig);
 
       context.replicationEngine?.register(this.createReplicator(context));
       context.routerEngine?.registerAPI(this.createRouteAPIAdapter());
     } catch (e) {
       this.logger.error('Failed to initialize.', e);
     }
+  }
+
+  protected decodeConfig(config: TConfig): void {
+    this.validateConfig(config);
+    this.decodedConfig = this.configSchema.decode(config);
   }
 
   private validateConfig(config: TConfig): void {
