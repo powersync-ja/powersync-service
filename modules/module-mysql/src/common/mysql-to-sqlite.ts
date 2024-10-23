@@ -1,21 +1,18 @@
-import { logger } from '@powersync/lib-services-framework';
 import * as sync_rules from '@powersync/service-sync-rules';
 import { ExpressionType } from '@powersync/service-sync-rules';
 import { ColumnDescriptor } from '@powersync/service-core';
-import { formatISO } from 'date-fns';
 import mysql from 'mysql2';
 
 export function toSQLiteRow(row: Record<string, any>, columns?: Map<string, ColumnDescriptor>): sync_rules.SqliteRow {
   for (let key in row) {
     if (row[key] instanceof Date) {
-      logger.info(`Date before conversion: ${key}=${row[key].toISOString()}`);
       const column = columns?.get(key);
       if (column?.typeId == mysql.Types.DATE) {
-        row[key] = formatISO(row[key], { representation: 'date' });
+        // Only parse the date part
+        row[key] = row[key].toISOString().split('T')[0];
       } else {
         row[key] = row[key].toISOString();
       }
-      logger.info(`Converted date to string: ${key}=${row[key]}`);
     }
   }
   return sync_rules.toSyncRulesRow(row);

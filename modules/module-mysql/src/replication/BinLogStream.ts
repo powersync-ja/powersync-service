@@ -5,7 +5,7 @@ import async from 'async';
 import { ColumnDescriptor, framework, getUuidReplicaIdentityBson, Metrics, storage } from '@powersync/service-core';
 import mysql, { FieldPacket } from 'mysql2';
 
-import { BinLogEvent } from '@powersync/mysql-zongji';
+import { BinLogEvent, TableMapEntry } from '@powersync/mysql-zongji';
 import * as common from '../common/common-index.js';
 import * as zongji_utils from './zongji/zongji-utils.js';
 import { MySQLConnectionManager } from './MySQLConnectionManager.js';
@@ -31,6 +31,7 @@ interface WriteChangePayload {
   database: string;
   table: string;
   sourceTable: storage.SourceTable;
+  columns: Map<string, ColumnDescriptor>;
 }
 
 export type Data = Record<string, any>;
@@ -408,14 +409,7 @@ AND table_type = 'BASE TABLE';`,
                 await this.writeChanges(batch, {
                   type: storage.SaveOperationTag.INSERT,
                   data: evt.rows,
-                  database: writeTableInfo.parentSchema,
-                  table: writeTableInfo.tableName,
-                  sourceTable: this.getTable(
-                    getMysqlRelId({
-                      schema: writeTableInfo.parentSchema,
-                      name: writeTableInfo.tableName
-                    })
-                  )
+                  tableEntry: writeTableInfo
                 });
                 break;
               case zongji_utils.eventIsUpdateMutation(evt):
@@ -424,14 +418,7 @@ AND table_type = 'BASE TABLE';`,
                   type: storage.SaveOperationTag.UPDATE,
                   data: evt.rows.map((row) => row.after),
                   previous_data: evt.rows.map((row) => row.before),
-                  database: updateTableInfo.parentSchema,
-                  table: updateTableInfo.tableName,
-                  sourceTable: this.getTable(
-                    getMysqlRelId({
-                      schema: updateTableInfo.parentSchema,
-                      name: updateTableInfo.tableName
-                    })
-                  )
+                  tableEntry: updateTableInfo
                 });
                 break;
               case zongji_utils.eventIsDeleteMutation(evt):
@@ -440,15 +427,7 @@ AND table_type = 'BASE TABLE';`,
                 await this.writeChanges(batch, {
                   type: storage.SaveOperationTag.DELETE,
                   data: evt.rows,
-                  database: deleteTableInfo.parentSchema,
-                  table: deleteTableInfo.tableName,
-                  // TODO cleanup
-                  sourceTable: this.getTable(
-                    getMysqlRelId({
-                      schema: deleteTableInfo.parentSchema,
-                      name: deleteTableInfo.tableName
-                    })
-                  )
+                  tableEntry: deleteTableInfo
                 });
                 break;
               case zongji_utils.eventIsXid(evt):
@@ -524,14 +503,26 @@ AND table_type = 'BASE TABLE';`,
       type: storage.SaveOperationTag;
       data: Data[];
       previous_data?: Data[];
-      database: string;
-      table: string;
-      sourceTable: storage.SourceTable;
+      tableEntry: TableMapEntry;
     }
   ): Promise<storage.FlushedResult | null> {
+    const columns = new Map<string, ColumnDescriptor>();
+    msg.tableEntry.columns.forEach((column) => {
+      columns.set(column.name, { name: column.name, typeId: column.type });
+    });
+
     for (const [index, row] of msg.data.entries()) {
       await this.writeChange(batch, {
-        ...msg,
+        type: msg.type,
+        database: msg.tableEntry.parentSchema,
+        sourceTable: this.getTable(
+          getMysqlRelId({
+            schema: msg.tableEntry.parentSchema,
+            name: msg.tableEntry.tableName
+          })
+        ),
+        table: msg.tableEntry.tableName,
+        columns: columns,
         data: row,
         previous_data: msg.previous_data?.[index]
       });
@@ -546,7 +537,7 @@ AND table_type = 'BASE TABLE';`,
     switch (payload.type) {
       case storage.SaveOperationTag.INSERT:
         Metrics.getInstance().rows_replicated_total.add(1);
-        const record = common.toSQLiteRow(payload.data);
+        const record = common.toSQLiteRow(payload.data, payload.columns);
         return await batch.save({
           tag: storage.SaveOperationTag.INSERT,
           sourceTable: payload.sourceTable,
