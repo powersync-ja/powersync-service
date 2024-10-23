@@ -55,10 +55,10 @@ declare module '@powersync/mysql-zongji' {
   };
 
   export type TableMapEntry = {
-    columnSchemas: Array<ColumnSchema>;
+    columnSchemas: ColumnSchema[];
     parentSchema: string;
     tableName: string;
-    columns: Array<ColumnDefinition>;
+    columns: ColumnDefinition[];
   };
 
   export type BaseBinLogEvent = {
@@ -96,14 +96,14 @@ declare module '@powersync/mysql-zongji' {
     tableId: number;
     numberOfColumns: number;
     tableMap: Record<string, TableMapEntry>;
-    rows: Array<Record<string, any>>;
+    rows: Record<string, any>[];
   };
 
   export type BinLogUpdateEvent = Omit<BinLogMutationEvent, 'rows'> & {
-    rows: Array<{
+    rows: {
       before: Record<string, any>;
       after: Record<string, any>;
-    }>;
+    }[];
   };
 
   export type BinLogEvent = BinLogRotationEvent | BinLogGTIDLogEvent | BinLogXidEvent | BinLogMutationEvent;

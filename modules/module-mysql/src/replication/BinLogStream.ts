@@ -313,7 +313,6 @@ AND table_type = 'BASE TABLE';`,
             afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns)
           });
           connection.resume();
-          // TODO: These metrics can probably be reported in batches
           Metrics.getInstance().rows_replicated_total.add(1);
         })
         .on('end', async function () {
@@ -404,7 +403,6 @@ AND table_type = 'BASE TABLE';`,
                 binLogPositionState.offset = evt.position;
                 break;
               case zongji_utils.eventIsWriteMutation(evt):
-                // TODO, can multiple tables be present?
                 const writeTableInfo = evt.tableMap[evt.tableId];
                 await this.writeChanges(batch, {
                   type: storage.SaveOperationTag.INSERT,
@@ -422,7 +420,6 @@ AND table_type = 'BASE TABLE';`,
                 });
                 break;
               case zongji_utils.eventIsDeleteMutation(evt):
-                // TODO, can multiple tables be present?
                 const deleteTableInfo = evt.tableMap[evt.tableId];
                 await this.writeChanges(batch, {
                   type: storage.SaveOperationTag.DELETE,

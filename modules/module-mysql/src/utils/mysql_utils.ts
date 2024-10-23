@@ -40,7 +40,6 @@ export function createPool(config: types.NormalizedMySQLConnectionConfig, option
     cert: config.client_certificate
   };
   const hasSSLOptions = Object.values(sslOptions).some((v) => !!v);
-  // TODO confirm if default options are fine for Powersync use case
   return mysql.createPool({
     host: config.hostname,
     user: config.username,
@@ -48,7 +47,6 @@ export function createPool(config: types.NormalizedMySQLConnectionConfig, option
     database: config.database,
     ssl: hasSSLOptions ? sslOptions : undefined,
     supportBigNumbers: true,
-    // dateStrings: true,
     timezone: 'Z', // Ensure no auto timezone manipulation of the dates occur
     ...(options || {})
   });
