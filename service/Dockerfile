@@ -30,6 +30,7 @@ COPY packages/jpgwire/src packages/jpgwire/src/
 COPY packages/jpgwire/ca packages/jpgwire/ca/
 COPY packages/jsonbig/src packages/jsonbig/src/
 COPY packages/sync-rules/src packages/sync-rules/src/
+COPY packages/sync-rules/scripts packages/sync-rules/scripts/
 COPY packages/rsocket-router/src packages/rsocket-router/src/
 COPY packages/types/src packages/types/src/
 
