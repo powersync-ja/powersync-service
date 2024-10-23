@@ -1,6 +1,6 @@
 import { SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import * as types from '@powersync/service-types';
-import { ParseSyncRulesOptions } from '../storage/BucketStorage.js';
+import { ParseSyncRulesOptions, SyncRulesBucketStorage } from '../storage/BucketStorage.js';
 
 export interface PatternResult {
   schema: string;
@@ -10,6 +10,10 @@ export interface PatternResult {
   table?: types.TableInfo;
 }
 
+export interface ReplicationLagOptions {
+  bucketStorage: SyncRulesBucketStorage;
+}
+
 /**
  *  Describes all the methods currently required to service the sync API endpoints.
  */
@@ -17,7 +21,7 @@ export interface RouteAPI {
   /**
    * @returns basic identification of the connection
    */
-  getSourceConfig(): Promise<types.configFile.DataSourceConfig>;
+  getSourceConfig(): Promise<types.configFile.ResolvedDataSourceConfig>;
 
   /**
    * Checks the current connection status of the data source.
@@ -42,9 +46,8 @@ export interface RouteAPI {
   /**
    * @returns The replication lag: that is the amount of data which has not been
    *          replicated yet, in bytes.
-   * @param {string} syncRulesId An identifier representing which set of sync rules the lag is required for.
    */
-  getReplicationLag(syncRulesId: string): Promise<number | undefined>;
+  getReplicationLag(options: ReplicationLagOptions): Promise<number | undefined>;
 
   /**
    * Get the current LSN or equivalent replication HEAD position identifier

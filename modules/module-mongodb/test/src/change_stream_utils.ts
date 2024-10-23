@@ -8,12 +8,12 @@ import * as mongo from 'mongodb';
 import { createCheckpoint } from '@module/replication/MongoRelation.js';
 
 /**
- * Tests operating on the wal stream need to configure the stream and manage asynchronous
+ * Tests operating on the mongo change stream need to configure the stream and manage asynchronous
  * replication, which gets a little tricky.
  *
  * This wraps a test in a function that configures all the context, and tears it down afterwards.
  */
-export function walStreamTest(
+export function changeStreamTest(
   factory: () => Promise<BucketStorageFactory>,
   test: (context: ChangeStreamTestContext) => Promise<void>
 ): () => Promise<void> {

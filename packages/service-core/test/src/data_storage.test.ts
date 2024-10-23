@@ -1,5 +1,4 @@
-import { BucketDataBatchOptions } from '@/storage/BucketStorage.js';
-import { getUuidReplicaIdentityBson } from '@/util/util-index.js';
+import { BucketDataBatchOptions, SaveOperationTag } from '@/storage/BucketStorage.js';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { fromAsync, oneFromAsync } from './stream_utils.js';
@@ -14,6 +13,7 @@ import {
   StorageFactory,
   testRules
 } from './util.js';
+import { getUuidReplicaIdentityBson } from '@/util/util-index.js';
 
 const TEST_TABLE = makeTestTable('test', ['id']);
 
@@ -36,7 +36,7 @@ bucket_definitions:
     const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 't2',
           id1: 'user3',
@@ -48,7 +48,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 't1',
           id1: 'user1',
@@ -83,7 +83,7 @@ bucket_definitions:
     const result1 = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'user1',
           group_id: 'group1'
@@ -94,7 +94,7 @@ bucket_definitions:
     const result2 = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'user1',
           group_id: 'group2'
@@ -135,7 +135,7 @@ bucket_definitions:
     const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 't1',
           group_id: 'group1',
@@ -179,7 +179,7 @@ bucket_definitions:
     const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 't1',
           group_id: 'group1',
@@ -190,7 +190,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'update',
+        tag: SaveOperationTag.UPDATE,
         after: {
           id: 't1',
           group_id: 'group1',
@@ -226,7 +226,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'test1',
           description: 'test1'
@@ -235,7 +235,7 @@ bucket_definitions:
       });
       await batch.save({
         sourceTable,
-        tag: 'delete',
+        tag: SaveOperationTag.DELETE,
         beforeReplicaId: rid('test1')
       });
     });
@@ -289,7 +289,7 @@ bucket_definitions:
     const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'workspace1',
           userId: 'u1'
@@ -339,7 +339,7 @@ bucket_definitions:
     const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'workspace1',
           visibility: 'public'
@@ -349,7 +349,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'workspace2',
           visibility: 'private'
@@ -359,7 +359,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'workspace3',
           visibility: 'public'
@@ -413,7 +413,7 @@ bucket_definitions:
     const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'workspace1',
           visibility: 'public'
@@ -423,7 +423,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'workspace2',
           visibility: 'private'
@@ -433,7 +433,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'workspace3',
           user_id: 'u1',
@@ -444,7 +444,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'workspace4',
           user_id: 'u2',
@@ -501,7 +501,7 @@ bucket_definitions:
     const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'test1',
           client_id: 'client1a',
@@ -511,7 +511,7 @@ bucket_definitions:
       });
       await batch.save({
         sourceTable,
-        tag: 'update',
+        tag: SaveOperationTag.UPDATE,
         after: {
           id: 'test1',
           client_id: 'client1b',
@@ -522,7 +522,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'test2',
           client_id: 'client2',
@@ -564,7 +564,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'test1',
           description: 'test1'
@@ -578,7 +578,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable,
-        tag: 'delete',
+        tag: SaveOperationTag.DELETE,
         beforeReplicaId: rid('test1')
       });
     });
@@ -588,7 +588,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable,
-        tag: 'delete',
+        tag: SaveOperationTag.DELETE,
         beforeReplicaId: rid('test1')
       });
     });
@@ -638,7 +638,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'test1',
           description: 'test1'
@@ -652,7 +652,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable,
-        tag: 'update',
+        tag: SaveOperationTag.UPDATE,
         after: {
           id: 'test1',
           description: undefined
@@ -662,7 +662,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable,
-        tag: 'update',
+        tag: SaveOperationTag.UPDATE,
         after: {
           id: 'test1',
           description: undefined
@@ -672,7 +672,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable,
-        tag: 'delete',
+        tag: SaveOperationTag.DELETE,
         beforeReplicaId: rid('test1')
       });
     });
@@ -682,7 +682,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable,
-        tag: 'update',
+        tag: SaveOperationTag.UPDATE,
         after: {
           id: 'test1',
           description: undefined
@@ -692,7 +692,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable,
-        tag: 'update',
+        tag: SaveOperationTag.UPDATE,
         after: {
           id: 'test1',
           description: undefined
@@ -702,7 +702,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable,
-        tag: 'delete',
+        tag: SaveOperationTag.DELETE,
         beforeReplicaId: rid('test1')
       });
     });
@@ -755,7 +755,7 @@ bucket_definitions:
     await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 't2',
           id1: 'user3',
@@ -799,7 +799,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'test1',
           description: 'test1a'
@@ -809,7 +809,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'test2',
           description: 'test2a'
@@ -826,7 +826,7 @@ bucket_definitions:
       // b
       await batch.save({
         sourceTable,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'test1',
           description: 'test1b'
@@ -836,7 +836,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable,
-        tag: 'update',
+        tag: SaveOperationTag.UPDATE,
         before: {
           id: 'test1'
         },
@@ -850,7 +850,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable,
-        tag: 'update',
+        tag: SaveOperationTag.UPDATE,
         before: {
           id: 'test2'
         },
@@ -866,7 +866,7 @@ bucket_definitions:
       // c
       await batch.save({
         sourceTable,
-        tag: 'update',
+        tag: SaveOperationTag.UPDATE,
         after: {
           id: 'test2',
           description: 'test2c'
@@ -877,7 +877,7 @@ bucket_definitions:
       // d
       await batch.save({
         sourceTable,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'test4',
           description: 'test4d'
@@ -887,7 +887,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable,
-        tag: 'update',
+        tag: SaveOperationTag.UPDATE,
         before: {
           id: 'test4'
         },
@@ -953,7 +953,7 @@ bucket_definitions:
     const result1 = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'test1',
           description: 'test1a'
@@ -968,7 +968,7 @@ bucket_definitions:
       // Unchanged, but has a before id
       await batch.save({
         sourceTable,
-        tag: 'update',
+        tag: SaveOperationTag.UPDATE,
         before: {
           id: 'test1',
           description: 'test1a'
@@ -986,7 +986,7 @@ bucket_definitions:
       // Delete
       await batch.save({
         sourceTable,
-        tag: 'delete',
+        tag: SaveOperationTag.DELETE,
         before: {
           id: 'test1',
           description: 'test1b'
@@ -1058,7 +1058,7 @@ bucket_definitions:
     const result1 = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'test1',
           description: 'test1a'
@@ -1073,7 +1073,7 @@ bucket_definitions:
       // Unchanged, but has a before id
       await batch.save({
         sourceTable,
-        tag: 'update',
+        tag: SaveOperationTag.UPDATE,
         before: {
           id: 'test1',
           description: 'test1a'
@@ -1091,7 +1091,7 @@ bucket_definitions:
       // Delete
       await batch.save({
         sourceTable,
-        tag: 'delete',
+        tag: SaveOperationTag.DELETE,
         before: {
           id: 'test1',
           description: 'test1a'
@@ -1154,7 +1154,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'test1',
           description: 'test1'
@@ -1164,7 +1164,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'large1',
           description: largeDescription
@@ -1175,7 +1175,7 @@ bucket_definitions:
       // Large enough to split the returned batch
       await batch.save({
         sourceTable,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'large2',
           description: largeDescription
@@ -1185,7 +1185,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'test3',
           description: 'test3'
@@ -1252,7 +1252,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'test1',
           description: 'test1'
@@ -1262,7 +1262,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'large1',
           description: largeDescription
@@ -1273,7 +1273,7 @@ bucket_definitions:
       // Large enough to split the returned batch
       await batch.save({
         sourceTable,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'large2',
           description: largeDescription
@@ -1283,7 +1283,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 'test3',
           description: 'test3'
@@ -1346,7 +1346,7 @@ bucket_definitions:
       for (let i = 1; i <= 6; i++) {
         await batch.save({
           sourceTable,
-          tag: 'insert',
+          tag: SaveOperationTag.INSERT,
           after: {
             id: `test${i}`,
             description: `test${i}`

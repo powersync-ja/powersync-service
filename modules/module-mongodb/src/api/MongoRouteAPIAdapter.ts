@@ -33,7 +33,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
     await this.client.close();
   }
 
-  async getSourceConfig(): Promise<service_types.configFile.DataSourceConfig> {
+  async getSourceConfig(): Promise<service_types.configFile.ResolvedDataSourceConfig> {
     return this.config;
   }
 
@@ -165,7 +165,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
     return result;
   }
 
-  async getReplicationLag(syncRulesId: string): Promise<number | undefined> {
+  async getReplicationLag(options: api.ReplicationLagOptions): Promise<number | undefined> {
     // There is no fast way to get replication lag in bytes in MongoDB.
     // We can get replication lag in seconds, but need a different API for that.
     return undefined;

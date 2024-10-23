@@ -16,9 +16,9 @@ export async function getConnectionsSchema(api: api.RouteAPI): Promise<internal_
   return {
     connections: [
       {
-        schemas: await api.getConnectionSchema(),
-        tag: baseConfig.tag!,
-        id: baseConfig.id
+        id: baseConfig.id,
+        tag: baseConfig.tag,
+        schemas: await api.getConnectionSchema()
       }
     ],
     defaultConnectionTag: baseConfig.tag!,

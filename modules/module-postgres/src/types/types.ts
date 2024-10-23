@@ -22,7 +22,7 @@ export interface NormalizedPostgresConnectionConfig {
   client_private_key: string | undefined;
 }
 
-export const PostgresConnectionConfig = service_types.configFile.dataSourceConfig.and(
+export const PostgresConnectionConfig = service_types.configFile.DataSourceConfig.and(
   t.object({
     type: t.literal(POSTGRES_CONNECTION_TYPE),
     /** Unique identifier for the connection - optional when a single connection is present. */

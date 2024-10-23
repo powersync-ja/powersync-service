@@ -8,7 +8,7 @@ import { CHECKPOINT_ROUTES } from './endpoints/checkpointing.js';
 import { SYNC_RULES_ROUTES } from './endpoints/sync-rules.js';
 import { SYNC_STREAM_ROUTES } from './endpoints/sync-stream.js';
 import { createRequestQueueHook, CreateRequestQueueParams } from './hooks.js';
-import { RouteDefinition } from './router.js';
+import { RouteDefinition, RouterServiceContext } from './router.js';
 
 /**
  * A list of route definitions to be registered as endpoints.
@@ -56,6 +56,19 @@ export const DEFAULT_ROUTE_OPTIONS = {
  */
 export function configureFastifyServer(server: fastify.FastifyInstance, options: FastifyServerConfig) {
   const { service_context, routes = DEFAULT_ROUTE_OPTIONS } = options;
+
+  const generateContext = async () => {
+    const { routerEngine } = service_context;
+    if (!routerEngine) {
+      throw new Error(`RouterEngine has not been registered`);
+    }
+
+    return {
+      user_id: undefined,
+      service_context: service_context as RouterServiceContext
+    };
+  };
+
   /**
    * Fastify creates an encapsulated context for each `.register` call.
    * Creating a separate context here to separate the concurrency limits for Admin APIs
@@ -63,16 +76,7 @@ export function configureFastifyServer(server: fastify.FastifyInstance, options:
    * https://github.com/fastify/fastify/blob/main/docs/Reference/Encapsulation.md
    */
   server.register(async function (childContext) {
-    registerFastifyRoutes(
-      childContext,
-      async () => {
-        return {
-          user_id: undefined,
-          service_context
-        };
-      },
-      routes.api?.routes ?? DEFAULT_ROUTE_OPTIONS.api.routes
-    );
+    registerFastifyRoutes(childContext, generateContext, routes.api?.routes ?? DEFAULT_ROUTE_OPTIONS.api.routes);
     // Limit the active concurrent requests
     childContext.addHook(
       'onRequest',
@@ -84,12 +88,7 @@ export function configureFastifyServer(server: fastify.FastifyInstance, options:
   server.register(async function (childContext) {
     registerFastifyRoutes(
       childContext,
-      async () => {
-        return {
-          user_id: undefined,
-          service_context
-        };
-      },
+      generateContext,
       routes.sync_stream?.routes ?? DEFAULT_ROUTE_OPTIONS.sync_stream.routes
     );
     // Limit the active concurrent requests

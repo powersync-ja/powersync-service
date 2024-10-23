@@ -397,7 +397,7 @@ WHERE  oid = $1::regclass`,
       for (const record of WalStream.getQueryData(rows)) {
         // This auto-flushes when the batch reaches its size limit
         await batch.save({
-          tag: 'insert',
+          tag: storage.SaveOperationTag.INSERT,
           sourceTable: table,
           before: undefined,
           beforeReplicaId: undefined,
@@ -497,7 +497,7 @@ WHERE  oid = $1::regclass`,
         Metrics.getInstance().rows_replicated_total.add(1);
         const baseRecord = pg_utils.constructAfterRecord(msg);
         return await batch.save({
-          tag: 'insert',
+          tag: storage.SaveOperationTag.INSERT,
           sourceTable: table,
           before: undefined,
           beforeReplicaId: undefined,
@@ -511,7 +511,7 @@ WHERE  oid = $1::regclass`,
         const before = pg_utils.constructBeforeRecord(msg);
         const after = pg_utils.constructAfterRecord(msg);
         return await batch.save({
-          tag: 'update',
+          tag: storage.SaveOperationTag.UPDATE,
           sourceTable: table,
           before: before,
           beforeReplicaId: before ? getUuidReplicaIdentityBson(before, table.replicaIdColumns) : undefined,
@@ -523,7 +523,7 @@ WHERE  oid = $1::regclass`,
         const before = pg_utils.constructBeforeRecord(msg)!;
 
         return await batch.save({
-          tag: 'delete',
+          tag: storage.SaveOperationTag.DELETE,
           sourceTable: table,
           before: before,
           beforeReplicaId: getUuidReplicaIdentityBson(before, table.replicaIdColumns),

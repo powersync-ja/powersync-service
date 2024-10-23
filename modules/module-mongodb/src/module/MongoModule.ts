@@ -4,6 +4,8 @@ import { ConnectionManagerFactory } from '../replication/ConnectionManagerFactor
 import { MongoErrorRateLimiter } from '../replication/MongoErrorRateLimiter.js';
 import { ChangeStreamReplicator } from '../replication/ChangeStreamReplicator.js';
 import * as types from '../types/types.js';
+import { MongoManager } from '../replication/MongoManager.js';
+import { checkSourceConfiguration } from '../replication/replication-utils.js';
 
 export class MongoModule extends replication.ReplicationModule<types.MongoConnectionConfig> {
   constructor() {
@@ -48,5 +50,16 @@ export class MongoModule extends replication.ReplicationModule<types.MongoConnec
 
   async teardown(options: TearDownOptions): Promise<void> {
     // TODO: Implement?
+  }
+
+  async testConnection(config: types.MongoConnectionConfig): Promise<void> {
+    this.decodeConfig(config);
+    const normalisedConfig = this.resolveConfig(this.decodedConfig!);
+    const connectionManager = new MongoManager(normalisedConfig);
+    try {
+      return checkSourceConfiguration(connectionManager);
+    } finally {
+      await connectionManager.end();
+    }
   }
 }
