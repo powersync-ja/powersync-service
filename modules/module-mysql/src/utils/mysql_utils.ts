@@ -1,10 +1,10 @@
 import { logger } from '@powersync/lib-services-framework';
-import mysql, { Types } from 'mysql2';
+import mysql from 'mysql2';
 import mysqlPromise from 'mysql2/promise';
 import * as types from '../types/types.js';
 
 export const MySQLTypesMap: { [key: number]: string } = {};
-for (const [name, code] of Object.entries(Types)) {
+for (const [name, code] of Object.entries(mysql.Types)) {
   MySQLTypesMap[code as number] = name;
 }
 

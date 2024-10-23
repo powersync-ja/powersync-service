@@ -7,7 +7,7 @@ services:
       MYSQL_USER: myuser
       MYSQL_PASSWORD: mypassword
     ports:
-      - "3306:3306"
+      - '3306:3306'
     volumes:
       - ./init-scripts/my.cnf:/etc/mysql/my.cnf
       - ./init-scripts/mysql.sql:/docker-entrypoint-initdb.d/init_user.sql
