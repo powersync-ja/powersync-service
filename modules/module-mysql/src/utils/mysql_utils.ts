@@ -1,7 +1,12 @@
 import { logger } from '@powersync/lib-services-framework';
-import mysql from 'mysql2';
+import mysql, { Types } from 'mysql2';
 import mysqlPromise from 'mysql2/promise';
 import * as types from '../types/types.js';
+
+export const MySQLTypesMap: { [key: number]: string } = {};
+for (const [name, code] of Object.entries(Types)) {
+  MySQLTypesMap[code as number] = name;
+}
 
 export type RetriedQueryOptions = {
   connection: mysqlPromise.Connection;
@@ -42,6 +47,9 @@ export function createPool(config: types.NormalizedMySQLConnectionConfig, option
     password: config.password,
     database: config.database,
     ssl: hasSSLOptions ? sslOptions : undefined,
+    supportBigNumbers: true,
+    // dateStrings: true,
+    timezone: 'Z', // Ensure no auto timezone manipulation of the dates occur
     ...(options || {})
   });
 }

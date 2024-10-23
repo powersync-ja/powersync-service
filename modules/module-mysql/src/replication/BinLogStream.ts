@@ -2,15 +2,16 @@ import { logger } from '@powersync/lib-services-framework';
 import * as sync_rules from '@powersync/service-sync-rules';
 import async from 'async';
 
-import { framework, getUuidReplicaIdentityBson, Metrics, storage } from '@powersync/service-core';
-import mysql from 'mysql2';
+import { ColumnDescriptor, framework, getUuidReplicaIdentityBson, Metrics, storage } from '@powersync/service-core';
+import mysql, { FieldPacket } from 'mysql2';
 
 import { BinLogEvent } from '@powersync/mysql-zongji';
 import * as common from '../common/common-index.js';
 import * as zongji_utils from './zongji/zongji-utils.js';
 import { MySQLConnectionManager } from './MySQLConnectionManager.js';
-import { ReplicatedGTID } from '../common/common-index.js';
+import { isBinlogStillAvailable, ReplicatedGTID } from '../common/common-index.js';
 import mysqlPromise from 'mysql2/promise';
+import { MySQLTypesMap } from '../utils/mysql_utils.js';
 
 export interface BinLogStreamOptions {
   connections: MySQLConnectionManager;
@@ -211,10 +212,23 @@ AND table_type = 'BASE TABLE';`,
    */
   protected async checkInitialReplicated(): Promise<boolean> {
     const status = await this.storage.getStatus();
+    const lastKnowGTID = status.checkpoint_lsn ? common.ReplicatedGTID.fromSerialized(status.checkpoint_lsn) : null;
     if (status.snapshot_done && status.checkpoint_lsn) {
-      logger.info(`Initial replication already done. MySQL appears healthy`);
+      logger.info(`Initial replication already done.`);
+
+      if (lastKnowGTID) {
+        // Check if the binlog is still available. If it isn't we need to snapshot again.
+        const connection = await this.connections.getConnection();
+        try {
+          return await isBinlogStillAvailable(connection, lastKnowGTID.position.filename);
+        } finally {
+          connection.release();
+        }
+      }
+
       return true;
     }
+
     return false;
   }
 
@@ -270,17 +284,24 @@ AND table_type = 'BASE TABLE';`,
     logger.info(`Replicating ${table.qualifiedName}`);
     // TODO count rows and log progress at certain batch sizes
 
+    const columns = new Map<string, ColumnDescriptor>();
     return new Promise<void>((resolve, reject) => {
       // MAX_EXECUTION_TIME(0) hint disables execution timeout for this query
       connection
         .query(`SELECT /*+ MAX_EXECUTION_TIME(0) */ * FROM ${table.schema}.${table.table}`)
-        .stream()
         .on('error', (err) => {
           reject(err);
         })
-        .on('data', async (row) => {
+        .on('fields', (fields: FieldPacket[]) => {
+          // Map the columns and their types
+          fields.forEach((field) => {
+            const columnType = MySQLTypesMap[field.type as number];
+            columns.set(field.name, { name: field.name, type: columnType, typeId: field.type });
+          });
+        })
+        .on('result', async (row) => {
           connection.pause();
-          const record = common.toSQLiteRow(row);
+          const record = common.toSQLiteRow(row, columns);
 
           await batch.save({
             tag: storage.SaveOperationTag.INSERT,

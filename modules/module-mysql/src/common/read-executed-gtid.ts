@@ -41,3 +41,15 @@ export async function readExecutedGtid(connection: mysqlPromise.Connection): Pro
     raw_gtid: binlogStatus.Executed_Gtid_Set
   });
 }
+
+export async function isBinlogStillAvailable(
+  connection: mysqlPromise.Connection,
+  binlogFile: string
+): Promise<boolean> {
+  const [logFiles] = await mysql_utils.retriedQuery({
+    connection,
+    query: `SHOW BINARY LOGS;`
+  });
+
+  return logFiles.some((f) => f['Log_name'] == binlogFile);
+}

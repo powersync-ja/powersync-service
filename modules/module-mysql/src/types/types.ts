@@ -14,6 +14,7 @@ export interface NormalizedMySQLConnectionConfig {
 
   username: string;
   password: string;
+  server_id: number;
 
   cacert?: string;
   client_certificate?: string;
@@ -29,6 +30,7 @@ export const MySQLConnectionConfig = service_types.configFile.DataSourceConfig.a
     username: t.string.optional(),
     password: t.string.optional(),
     database: t.string.optional(),
+    server_id: t.number.optional(),
 
     cacert: t.string.optional(),
     client_certificate: t.string.optional(),
@@ -97,6 +99,8 @@ export function normalizeConnectionConfig(options: MySQLConnectionConfig): Norma
     database,
 
     username,
-    password
+    password,
+
+    server_id: options.server_id ?? 1
   };
 }

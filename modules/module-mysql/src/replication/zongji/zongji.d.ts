@@ -4,6 +4,7 @@ declare module '@powersync/mysql-zongji' {
     user: string;
     password: string;
     dateStrings?: boolean;
+    timeZone?: string;
   };
 
   interface DatabaseFilter {
@@ -31,6 +32,11 @@ declare module '@powersync/mysql-zongji' {
      * BinLog position offset to start reading events from in file specified
      */
     position?: number;
+
+    /**
+     *  Unique server ID for this replication client.
+     */
+    serverId?: number;
   };
 
   export type ColumnSchema = {

@@ -143,8 +143,8 @@ importers:
         specifier: workspace:*
         version: link:../../libs/lib-services
       '@powersync/mysql-zongji':
-        specifier: 0.0.0-dev-20241021144804
-        version: 0.0.0-dev-20241021144804
+        specifier: 0.0.0-dev-20241022103518
+        version: 0.0.0-dev-20241022103518
       '@powersync/service-core':
         specifier: workspace:*
         version: link:../../packages/service-core
@@ -157,6 +157,9 @@ importers:
       async:
         specifier: ^3.2.4
         version: 3.2.5
+      date-fns:
+        specifier: ^4.1.0
+        version: 4.1.0
       mysql2:
         specifier: ^3.11.0
         version: 3.11.3
@@ -253,8 +256,8 @@ importers:
         specifier: workspace:^
         version: link:../types
       date-fns:
-        specifier: ^3.6.0
-        version: 3.6.0
+        specifier: ^4.1.0
+        version: 4.1.0
       pgwire:
         specifier: github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
         version: https://codeload.github.com/kagis/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
@@ -1178,8 +1181,8 @@ packages:
     resolution: {integrity: sha512-UA91GwWPhFExt3IizW6bOeY/pQ0BkuNwKjk9iQW9KqxluGCrg4VenZ0/L+2Y0+ZOtme72EVvg6v0zo3AMQRCeA==}
     engines: {node: '>=12'}
 
-  '@powersync/mysql-zongji@0.0.0-dev-20241021144804':
-    resolution: {integrity: sha512-P2A3x8i12ipcFOeAuJGYnDBJkRqL1e2QqDxBLnaxqQzXmaNRhxbAHeG+luMvpNGucUBBVvdmdXqe3jR0vgOgqA==}
+  '@powersync/mysql-zongji@0.0.0-dev-20241022103518':
+    resolution: {integrity: sha512-/udQJ87ArI3mPxDrTJXj1DML4tLyAv4pJ+QFumhIDU/WJVZLNw11JwlKn+EtCOfVzd20B39B2AwKWXi4vTWVtw==}
     engines: {node: '>=20.0.0'}
 
   '@prisma/instrumentation@5.16.1':
@@ -1825,8 +1828,8 @@ packages:
     resolution: {integrity: sha512-fnULvOpxnC5/Vg3NCiWelDsLiUc9bRwAPs/+LfTLNvetFCtCTN+yQz15C/fs4AwX1R9K5GLtLfn8QW+dWisaAw==}
     engines: {node: '>=0.11'}
 
-  date-fns@3.6.0:
-    resolution: {integrity: sha512-fRHTG8g/Gif+kSh50gaGEdToemgfj74aRX3swtiouboip5JDLAyDE9F11nHMIcvOaXeOC6D7SpNhi7uFyB7Uww==}
+  date-fns@4.1.0:
+    resolution: {integrity: sha512-Ukq0owbQXxa/U3EGtsdVBkR1w7KOQ5gIBqdH2hkvknzZPYvBxb/aa6E8L7tmjFtkwZBu3UXBbjIgPo/Ez4xaNg==}
 
   debug@4.3.5:
     resolution: {integrity: sha512-pt0bNEmneDIvdL1Xsd9oDQ/wrQRkXDT4AUWlNZNPKvW5x/jyO9VFXkJUP07vQ2upmw5PlaITaPKc31jK13V+jg==}
@@ -4579,7 +4582,7 @@ snapshots:
       '@pnpm/network.ca-file': 1.0.2
       config-chain: 1.1.13
 
-  '@powersync/mysql-zongji@0.0.0-dev-20241021144804':
+  '@powersync/mysql-zongji@0.0.0-dev-20241022103518':
     dependencies:
       '@vlasky/mysql': 2.18.6
       big-integer: 1.6.51
@@ -5271,7 +5274,7 @@ snapshots:
     dependencies:
       '@babel/runtime': 7.24.8
 
-  date-fns@3.6.0: {}
+  date-fns@4.1.0: {}
 
   debug@4.3.5(supports-color@5.5.0):
     dependencies:
