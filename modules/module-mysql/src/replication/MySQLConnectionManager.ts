@@ -3,6 +3,7 @@ import mysqlPromise from 'mysql2/promise';
 import mysql, { RowDataPacket } from 'mysql2';
 import * as mysql_utils from '../utils/mysql_utils.js';
 import ZongJi from '@powersync/mysql-zongji';
+import { logger } from '@powersync/lib-services-framework';
 
 export class MySQLConnectionManager {
   /**
@@ -15,6 +16,8 @@ export class MySQLConnectionManager {
   private readonly promisePool: mysqlPromise.Pool;
 
   private binlogListeners: ZongJi[] = [];
+
+  private isClosed = false;
 
   constructor(
     public options: NormalizedMySQLConnectionConfig,
@@ -87,18 +90,18 @@ export class MySQLConnectionManager {
   }
 
   async end(): Promise<void> {
-    for (const listener of this.binlogListeners) {
-      listener.stop();
-    }
+    if (!this.isClosed) {
+      for (const listener of this.binlogListeners) {
+        listener.stop();
+      }
 
-    await new Promise<void>((resolve, reject) => {
-      this.pool.end((err) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve();
-        }
-      });
-    });
+      try {
+        await this.promisePool.end();
+        this.isClosed = true;
+      } catch (error) {
+        // We don't particularly care if any errors are thrown when shutting down the pool
+        logger.warn('Error shutting down MySQL connection pool', error);
+      }
+    }
   }
 }
