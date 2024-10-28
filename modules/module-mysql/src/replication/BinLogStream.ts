@@ -5,7 +5,7 @@ import async from 'async';
 import { ColumnDescriptor, framework, getUuidReplicaIdentityBson, Metrics, storage } from '@powersync/service-core';
 import mysql, { FieldPacket } from 'mysql2';
 
-import { BinLogEvent, TableMapEntry } from '@powersync/mysql-zongji';
+import { BinLogEvent, StartOptions, TableMapEntry } from '@powersync/mysql-zongji';
 import * as common from '../common/common-index.js';
 import * as zongji_utils from './zongji/zongji-utils.js';
 import { MySQLConnectionManager } from './MySQLConnectionManager.js';
@@ -466,8 +466,9 @@ AND table_type = 'BASE TABLE';`,
             excludeEvents: [],
             includeSchema: { [this.defaultSchema]: includedTables },
             filename: binLogPositionState.filename,
-            position: binLogPositionState.offset
-          });
+            position: binLogPositionState.offset,
+            serverId: this.storage.group_id
+          } satisfies StartOptions);
 
           // Forever young
           await new Promise<void>((resolve, reject) => {
