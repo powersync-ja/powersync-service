@@ -9,7 +9,7 @@ import * as util from '../../util/util-index.js';
 import {
   BucketDataBatchOptions,
   BucketStorageBatch,
-  Checkpoint,
+  ReplicationCheckpoint,
   CompactOptions,
   DEFAULT_DOCUMENT_BATCH_LIMIT,
   DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES,
@@ -108,7 +108,7 @@ export class MongoSyncBucketStorage
     return this.parsedSyncRulesCache;
   }
 
-  async getCheckpoint(): Promise<Checkpoint> {
+  async getCheckpoint(): Promise<ReplicationCheckpoint> {
     const doc = await this.db.sync_rules.findOne(
       { _id: this.group_id },
       {

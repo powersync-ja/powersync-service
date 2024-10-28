@@ -105,12 +105,12 @@ export interface BucketStorageFactory extends DisposableObserverClient<BucketSto
   getPowerSyncInstanceId(): Promise<string>;
 }
 
-export interface Checkpoint {
+export interface ReplicationCheckpoint {
   readonly checkpoint: util.OpId;
   readonly lsn: string | null;
 }
 
-export interface ActiveCheckpoint extends Checkpoint {
+export interface ActiveCheckpoint extends ReplicationCheckpoint {
   hasSyncRules(): boolean;
 
   getBucketStorage(): Promise<SyncRulesBucketStorage | null>;
@@ -222,7 +222,7 @@ export interface SyncRulesBucketStorage
     callback: (batch: BucketStorageBatch) => Promise<void>
   ): Promise<FlushedResult | null>;
 
-  getCheckpoint(): Promise<Checkpoint>;
+  getCheckpoint(): Promise<ReplicationCheckpoint>;
 
   getParsedSyncRules(options: ParseSyncRulesOptions): SqlSyncRules;
 
