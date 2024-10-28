@@ -12,7 +12,7 @@ import { SocketRouter } from '../routes/router.js';
  */
 export function registerServerServices(serviceContext: core.system.ServiceContextContainer) {
   serviceContext.register(core.routes.RouterEngine, new core.routes.RouterEngine());
-  serviceContext.lifeCycleEngine.withLifecycle(serviceContext.routerEngine, {
+  serviceContext.lifeCycleEngine.withLifecycle(serviceContext.routerEngine!, {
     start: async (routerEngine) => {
       await routerEngine!.start(async (routes) => {
         const server = fastify.fastify();

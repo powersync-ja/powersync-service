@@ -81,6 +81,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
     this.session = this.client.startSession();
     this.slot_name = slot_name;
     this.sync_rules = sync_rules;
+    this.batch = new OperationBatch();
   }
 
   addCustomWriteCheckpoint(checkpoint: BatchedCustomWriteCheckpointOptions): void {

@@ -1,5 +1,4 @@
 import { container } from '@powersync/lib-services-framework';
-import { MongoManager } from './MongoManager.js';
 import { MissingReplicationSlotError, ChangeStream } from './ChangeStream.js';
 
 import { replication } from '@powersync/service-core';
@@ -13,12 +12,10 @@ export interface ChangeStreamReplicationJobOptions extends replication.AbstractR
 
 export class ChangeStreamReplicationJob extends replication.AbstractReplicationJob {
   private connectionFactory: ConnectionManagerFactory;
-  private readonly connectionManager: MongoManager;
 
   constructor(options: ChangeStreamReplicationJobOptions) {
     super(options);
     this.connectionFactory = options.connectionFactory;
-    this.connectionManager = this.connectionFactory.create();
   }
 
   async cleanUp(): Promise<void> {

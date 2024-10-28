@@ -105,18 +105,20 @@ export interface BucketStorageFactory extends DisposableObserverClient<BucketSto
   getPowerSyncInstanceId(): Promise<string>;
 }
 
-export interface WriteCheckpoint {
-  base: ActiveCheckpoint;
-  writeCheckpoint: bigint | null;
-}
-
-export interface ActiveCheckpoint {
+export interface ReplicationCheckpoint {
   readonly checkpoint: util.OpId;
   readonly lsn: string | null;
+}
 
+export interface ActiveCheckpoint extends ReplicationCheckpoint {
   hasSyncRules(): boolean;
 
   getBucketStorage(): Promise<SyncRulesBucketStorage | null>;
+}
+
+export interface WriteCheckpoint {
+  base: ActiveCheckpoint;
+  writeCheckpoint: bigint | null;
 }
 
 export interface StorageMetrics {
@@ -220,7 +222,7 @@ export interface SyncRulesBucketStorage
     callback: (batch: BucketStorageBatch) => Promise<void>
   ): Promise<FlushedResult | null>;
 
-  getCheckpoint(): Promise<{ checkpoint: util.OpId }>;
+  getCheckpoint(): Promise<ReplicationCheckpoint>;
 
   getParsedSyncRules(options: ParseSyncRulesOptions): SqlSyncRules;
 
@@ -386,8 +388,14 @@ export type SaveOp = 'insert' | 'update' | 'delete';
 
 export type SaveOptions = SaveInsert | SaveUpdate | SaveDelete;
 
+export enum SaveOperationTag {
+  INSERT = 'insert',
+  UPDATE = 'update',
+  DELETE = 'delete'
+}
+
 export interface SaveInsert {
-  tag: 'insert';
+  tag: SaveOperationTag.INSERT;
   sourceTable: SourceTable;
   before?: undefined;
   beforeReplicaId?: undefined;
@@ -396,7 +404,7 @@ export interface SaveInsert {
 }
 
 export interface SaveUpdate {
-  tag: 'update';
+  tag: SaveOperationTag.UPDATE;
   sourceTable: SourceTable;
 
   /**
@@ -415,7 +423,7 @@ export interface SaveUpdate {
 }
 
 export interface SaveDelete {
-  tag: 'delete';
+  tag: SaveOperationTag.DELETE;
   sourceTable: SourceTable;
   before?: SqliteRow;
   beforeReplicaId: ReplicaId;

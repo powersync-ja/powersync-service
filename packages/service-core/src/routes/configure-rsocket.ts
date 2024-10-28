@@ -8,7 +8,7 @@ import { ServiceContext } from '../system/ServiceContext.js';
 import { generateContext, getTokenFromHeader } from './auth.js';
 import { syncStreamReactive } from './endpoints/socket-route.js';
 import { RSocketContextMeta, SocketRouteGenerator } from './router-socket.js';
-import { Context } from './router.js';
+import { Context, RouterServiceContext } from './router.js';
 
 export type RSockerRouterConfig = {
   service_context: ServiceContext;
@@ -36,12 +36,17 @@ export function configureRSocket(router: ReactiveSocketRouter<Context>, options:
           if (context?.token_payload == null) {
             throw new errors.AuthorizationError(token_errors ?? 'Authentication required');
           }
+
+          if (!service_context.routerEngine) {
+            throw new Error(`RouterEngine has not been registered`);
+          }
+
           return {
             token,
             user_agent,
             ...context,
             token_errors: token_errors,
-            service_context
+            service_context: service_context as RouterServiceContext
           };
         } else {
           throw new errors.AuthorizationError('No token provided');

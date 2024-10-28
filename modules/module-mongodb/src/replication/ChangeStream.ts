@@ -1,6 +1,6 @@
 import { container, logger } from '@powersync/lib-services-framework';
-import { Metrics, SourceEntityDescriptor, SourceTable, storage } from '@powersync/service-core';
-import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
+import { Metrics, SaveOperationTag, SourceEntityDescriptor, SourceTable, storage } from '@powersync/service-core';
+import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import * as mongo from 'mongodb';
 import { MongoManager } from './MongoManager.js';
 import {
@@ -248,7 +248,7 @@ export class ChangeStream {
 
       // This auto-flushes when the batch reaches its size limit
       await batch.save({
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         sourceTable: table,
         before: undefined,
         beforeReplicaId: undefined,
@@ -330,7 +330,7 @@ export class ChangeStream {
     if (change.operationType == 'insert') {
       const baseRecord = constructAfterRecord(change.fullDocument);
       return await batch.save({
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         sourceTable: table,
         before: undefined,
         beforeReplicaId: undefined,
@@ -341,7 +341,7 @@ export class ChangeStream {
       if (change.fullDocument == null) {
         // Treat as delete
         return await batch.save({
-          tag: 'delete',
+          tag: SaveOperationTag.DELETE,
           sourceTable: table,
           before: undefined,
           beforeReplicaId: change.documentKey._id
@@ -349,7 +349,7 @@ export class ChangeStream {
       }
       const after = constructAfterRecord(change.fullDocument!);
       return await batch.save({
-        tag: 'update',
+        tag: SaveOperationTag.UPDATE,
         sourceTable: table,
         before: undefined,
         beforeReplicaId: undefined,
@@ -358,7 +358,7 @@ export class ChangeStream {
       });
     } else if (change.operationType == 'delete') {
       return await batch.save({
-        tag: 'delete',
+        tag: SaveOperationTag.DELETE,
         sourceTable: table,
         before: undefined,
         beforeReplicaId: change.documentKey._id

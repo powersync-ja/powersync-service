@@ -1,3 +1,4 @@
+import { SaveOperationTag } from '@/storage/storage-index.js';
 import { RequestTracker } from '@/sync/RequestTracker.js';
 import { streamResponse } from '@/sync/sync.js';
 import { StreamingSyncLine } from '@/util/protocol-types.js';
@@ -36,7 +37,7 @@ function defineTests(factory: StorageFactory) {
     const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 't1',
           description: 'Test 1'
@@ -46,7 +47,7 @@ function defineTests(factory: StorageFactory) {
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 't2',
           description: 'Test 2'
@@ -87,7 +88,7 @@ function defineTests(factory: StorageFactory) {
     const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 't1',
           description: 'Test\n"string"',
@@ -174,7 +175,7 @@ function defineTests(factory: StorageFactory) {
     await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 't1',
           description: 'Test 1'
@@ -190,7 +191,7 @@ function defineTests(factory: StorageFactory) {
     await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 't2',
           description: 'Test 2'
@@ -257,7 +258,7 @@ function defineTests(factory: StorageFactory) {
     await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 't1',
           description: 'Test 1'
@@ -267,7 +268,7 @@ function defineTests(factory: StorageFactory) {
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'insert',
+        tag: SaveOperationTag.INSERT,
         after: {
           id: 't2',
           description: 'Test 2'
@@ -308,7 +309,7 @@ function defineTests(factory: StorageFactory) {
     await storage.startBatch(BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'update',
+        tag: SaveOperationTag.UPDATE,
         after: {
           id: 't1',
           description: 'Test 1b'
@@ -318,7 +319,7 @@ function defineTests(factory: StorageFactory) {
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: 'update',
+        tag: SaveOperationTag.UPDATE,
         after: {
           id: 't2',
           description: 'Test 2b'

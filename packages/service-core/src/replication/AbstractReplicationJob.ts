@@ -16,7 +16,7 @@ export abstract class AbstractReplicationJob {
   protected isReplicatingPromise: Promise<void> | null = null;
 
   protected constructor(protected options: AbstractReplicationJobOptions) {
-    this.logger = logger.child({ name: `ReplicationJob: ${options.id}` });
+    this.logger = logger.child({ name: `ReplicationJob: ${this.id}` });
   }
 
   /**
@@ -52,7 +52,7 @@ export abstract class AbstractReplicationJob {
    *  Safely stop the replication process
    */
   public async stop(): Promise<void> {
-    this.logger.info(`Stopping ${this.id} replication job for sync rule iteration: ${this.storage.group_id}`);
+    this.logger.info(`Stopping replication job for sync rule iteration: ${this.storage.group_id}`);
     this.abortController.abort();
     await this.isReplicatingPromise;
   }

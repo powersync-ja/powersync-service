@@ -137,8 +137,8 @@ export const reprocess = routeDefinition({
       connections: [
         {
           // Previously the connection was asserted with `!`
-          tag: baseConfig!.tag!,
-          id: baseConfig!.id,
+          tag: baseConfig.tag,
+          id: baseConfig.id,
           slot_name: new_rules.slot_name
         }
       ]

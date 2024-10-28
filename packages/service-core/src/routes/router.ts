@@ -1,13 +1,19 @@
 import { router } from '@powersync/lib-services-framework';
 import * as auth from '../auth/auth-index.js';
 import { ServiceContext } from '../system/ServiceContext.js';
+import { RouterEngine } from './RouterEngine.js';
 
+/**
+ * The {@link RouterEngine} must be provided for these routes
+ */
+export type RouterServiceContext = ServiceContext & { routerEngine: RouterEngine };
 /**
  * Common context for routes
  */
 export type Context = {
   user_id?: string;
-  service_context: ServiceContext;
+
+  service_context: RouterServiceContext;
 
   token_payload?: auth.JwtPayload;
   token_errors?: string[];

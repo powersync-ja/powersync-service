@@ -9,6 +9,7 @@ import * as util from '../../util/util-index.js';
 import {
   BucketDataBatchOptions,
   BucketStorageBatch,
+  ReplicationCheckpoint,
   CompactOptions,
   DEFAULT_DOCUMENT_BATCH_LIMIT,
   DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES,
@@ -107,15 +108,16 @@ export class MongoSyncBucketStorage
     return this.parsedSyncRulesCache;
   }
 
-  async getCheckpoint() {
+  async getCheckpoint(): Promise<ReplicationCheckpoint> {
     const doc = await this.db.sync_rules.findOne(
       { _id: this.group_id },
       {
-        projection: { last_checkpoint: 1 }
+        projection: { last_checkpoint: 1, last_checkpoint_lsn: 1 }
       }
     );
     return {
-      checkpoint: util.timestampToOpId(doc?.last_checkpoint ?? 0n)
+      checkpoint: util.timestampToOpId(doc?.last_checkpoint ?? 0n),
+      lsn: doc?.last_checkpoint_lsn ?? null
     };
   }
 
