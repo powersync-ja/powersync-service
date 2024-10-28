@@ -472,8 +472,20 @@ AND table_type = 'BASE TABLE';`,
 
           // Forever young
           await new Promise<void>((resolve, reject) => {
+            zongji.on('error', (error) => {
+              logger.error('Error on Binlog listener:', error);
+              zongji.stop();
+              queue.kill();
+              reject(error);
+            });
+
+            zongji.on('stopped', () => {
+              logger.info('Binlog listener stopped. Replication ended.');
+              resolve();
+            });
+
             queue.error((error) => {
-              logger.error('Queue error.', error);
+              logger.error('Binlog listener queue error:', error);
               zongji.stop();
               queue.kill();
               reject(error);
