@@ -2,17 +2,20 @@ import * as sync_rules from '@powersync/service-sync-rules';
 import { ExpressionType } from '@powersync/service-sync-rules';
 import { ColumnDescriptor } from '@powersync/service-core';
 import mysql from 'mysql2';
+import { JsonContainer } from '@powersync/service-jsonbig';
 
 export function toSQLiteRow(row: Record<string, any>, columns?: Map<string, ColumnDescriptor>): sync_rules.SqliteRow {
   for (let key in row) {
+    const column = columns?.get(key);
     if (row[key] instanceof Date) {
-      const column = columns?.get(key);
       if (column?.typeId == mysql.Types.DATE) {
         // Only parse the date part
         row[key] = row[key].toISOString().split('T')[0];
       } else {
         row[key] = row[key].toISOString();
       }
+    } else if (column?.typeId == mysql.Types.JSON) {
+      row[key] = new JsonContainer(row[key]);
     }
   }
   return sync_rules.toSyncRulesRow(row);

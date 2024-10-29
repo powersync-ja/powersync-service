@@ -32,6 +32,7 @@
     "@powersync/service-core": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",
     "@powersync/service-types": "workspace:*",
+    "@powersync/service-jsonbig": "workspace:*",
     "@powersync/mysql-zongji": "0.0.0-dev-20241023144335",
     "semver": "^7.5.4",
     "async": "^3.2.4",
