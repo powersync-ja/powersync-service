@@ -51,3 +51,15 @@ export function createPool(config: types.NormalizedMySQLConnectionConfig, option
     ...(options || {})
   });
 }
+
+/**
+ *  Return a random server id for a given sync rule id.
+ *  Expected format is: <syncRuleId>00<random number>
+ *  The max value for server id in MySQL is 2^32 - 1.
+ *  We use the GTID format to keep track of our position in the binlog, no state is kept by the MySQL server, therefore
+ *  it is ok to use a randomised server id every time.
+ *  @param syncRuleId
+ */
+export function createRandomServerId(syncRuleId: number): number {
+  return Number.parseInt(`${syncRuleId}00${Math.floor(Math.random() * 10000)}`);
+}

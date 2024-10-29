@@ -11,7 +11,7 @@ import * as zongji_utils from './zongji/zongji-utils.js';
 import { MySQLConnectionManager } from './MySQLConnectionManager.js';
 import { isBinlogStillAvailable, ReplicatedGTID } from '../common/common-index.js';
 import mysqlPromise from 'mysql2/promise';
-import { MySQLTypesMap } from '../utils/mysql_utils.js';
+import { createRandomServerId, MySQLTypesMap } from '../utils/mysql_utils.js';
 
 export interface BinLogStreamOptions {
   connections: MySQLConnectionManager;
@@ -363,6 +363,8 @@ AND table_type = 'BASE TABLE';`,
   async streamChanges() {
     // Auto-activate as soon as initial replication is done
     await this.storage.autoActivate();
+    const serverId = createRandomServerId(this.storage.group_id);
+    logger.info(`Starting replication. Created replica client with serverId:${serverId}`);
 
     const connection = await this.connections.getConnection();
     const { checkpoint_lsn } = await this.storage.getStatus();
@@ -467,7 +469,7 @@ AND table_type = 'BASE TABLE';`,
             includeSchema: { [this.defaultSchema]: includedTables },
             filename: binLogPositionState.filename,
             position: binLogPositionState.offset,
-            serverId: this.storage.group_id
+            serverId: serverId
           } satisfies StartOptions);
 
           // Forever young
