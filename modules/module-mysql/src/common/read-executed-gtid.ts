@@ -4,7 +4,6 @@ import { gte } from 'semver';
 
 import { ReplicatedGTID } from './ReplicatedGTID.js';
 import { getMySQLVersion } from './check-source-configuration.js';
-import { logger } from '@powersync/lib-services-framework';
 
 /**
  * Gets the current master HEAD GTID
@@ -32,8 +31,6 @@ export async function readExecutedGtid(connection: mysqlPromise.Connection): Pro
     filename: binlogStatus.File,
     offset: parseInt(binlogStatus.Position)
   };
-
-  logger.info('Succesfully read executed GTID', { position });
 
   return new ReplicatedGTID({
     // The head always points to the next position to start replication from

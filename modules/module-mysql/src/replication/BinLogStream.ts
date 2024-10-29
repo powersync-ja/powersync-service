@@ -221,7 +221,13 @@ AND table_type = 'BASE TABLE';`,
         // Check if the binlog is still available. If it isn't we need to snapshot again.
         const connection = await this.connections.getConnection();
         try {
-          return await isBinlogStillAvailable(connection, lastKnowGTID.position.filename);
+          const isAvailable = await isBinlogStillAvailable(connection, lastKnowGTID.position.filename);
+          if (!isAvailable) {
+            logger.info(
+              `Binlog file ${lastKnowGTID.position.filename} is no longer available, starting initial replication again.`
+            );
+          }
+          return isAvailable;
         } finally {
           connection.release();
         }
@@ -245,7 +251,7 @@ AND table_type = 'BASE TABLE';`,
     const connection = await this.connections.getStreamingConnection();
     const promiseConnection = (connection as mysql.Connection).promise();
     const headGTID = await common.readExecutedGtid(promiseConnection);
-    logger.info(`Using snapshot checkpoint GTID:: '${headGTID}'`);
+    logger.info(`Using snapshot checkpoint GTID: '${headGTID}'`);
     try {
       logger.info(`Starting initial replication`);
       await promiseConnection.query<mysqlPromise.RowDataPacket[]>(
@@ -368,7 +374,9 @@ AND table_type = 'BASE TABLE';`,
 
     const connection = await this.connections.getConnection();
     const { checkpoint_lsn } = await this.storage.getStatus();
-    logger.info(`Last known LSN from storage: ${checkpoint_lsn}`);
+    if (checkpoint_lsn) {
+      logger.info(`Existing checkpoint found: ${checkpoint_lsn}`);
+    }
 
     const fromGTID = checkpoint_lsn
       ? common.ReplicatedGTID.fromSerialized(checkpoint_lsn)
@@ -449,7 +457,7 @@ AND table_type = 'BASE TABLE';`,
 
           zongji.on('binlog', (evt: BinLogEvent) => {
             if (!this.stopped) {
-              logger.info(`Pushing Binlog event ${evt.getEventName()}`);
+              logger.info(`Received Binlog event:${evt.getEventName()}`);
               queue.push(evt);
             } else {
               logger.info(`Replication is busy stopping, ignoring event ${evt.getEventName()}`);
@@ -460,9 +468,11 @@ AND table_type = 'BASE TABLE';`,
             // Powersync is shutting down, don't start replicating
             return;
           }
+
+          logger.info(`Reading binlog from: ${binLogPositionState.filename}:${binLogPositionState.offset}`);
+
           // Only listen for changes to tables in the sync rules
           const includedTables = [...this.tableCache.values()].map((table) => table.table);
-          logger.info(`Starting replication from ${binLogPositionState.filename}:${binLogPositionState.offset}`);
           zongji.start({
             includeEvents: ['tablemap', 'writerows', 'updaterows', 'deleterows', 'xid', 'rotate', 'gtidlog'],
             excludeEvents: [],
