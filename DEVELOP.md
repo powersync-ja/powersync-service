@@ -36,7 +36,7 @@ One method to obtain access is to add the following to `/etc/hosts` (on Unix-lik
 127.0.0.1 mongo
 ```
 
-This will start all the services defined in the Self hosting demo except for the PowerSync Service - which will be started from this repository.
+This will start all the services defined in the self-hosting demo except for the PowerSync Service - which will be started from this repository.
 
 ## Local Configuration
 
