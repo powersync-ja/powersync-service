@@ -193,14 +193,19 @@ export class ChangeStream {
     }
   }
 
-  private getSourceNamespaceFilters() {
+  private getSourceNamespaceFilters(): { $match: any; multipleDatabases: boolean } {
     const sourceTables = this.sync_rules.getSourceTables();
 
     let $inFilters: any[] = [{ db: this.defaultDb.databaseName, coll: '_powersync_checkpoints' }];
     let $refilters: any[] = [];
+    let multipleDatabases = false;
     for (let tablePattern of sourceTables) {
       if (tablePattern.connectionTag != this.connections.connectionTag) {
         continue;
+      }
+
+      if (tablePattern.schema != this.defaultDb.databaseName) {
+        multipleDatabases = true;
       }
 
       if (tablePattern.isWildcard) {
@@ -213,9 +218,9 @@ export class ChangeStream {
       }
     }
     if ($refilters.length > 0) {
-      return { $or: [{ ns: { $in: $inFilters } }, ...$refilters] };
+      return { $match: { $or: [{ ns: { $in: $inFilters } }, ...$refilters] }, multipleDatabases };
     }
-    return { ns: { $in: $inFilters } };
+    return { $match: { ns: { $in: $inFilters } }, multipleDatabases };
   }
 
   static *getQueryData(results: Iterable<DatabaseInputRow>): Generator<SqliteRow> {
@@ -399,19 +404,29 @@ export class ChangeStream {
 
       // TODO: Use changeStreamSplitLargeEvent
 
+      const filters = this.getSourceNamespaceFilters();
+
       const pipeline: mongo.Document[] = [
         {
-          $match: this.getSourceNamespaceFilters()
+          $match: filters.$match
         }
       ];
 
-      const stream = this.client.watch(pipeline, {
+      const streamOptions: mongo.ChangeStreamOptions = {
         startAtOperationTime: startAfter,
         showExpandedEvents: true,
         useBigInt64: true,
         maxAwaitTimeMS: 200,
         fullDocument: 'updateLookup'
-      });
+      };
+      let stream: mongo.ChangeStream<mongo.Document>;
+      if (filters.multipleDatabases) {
+        // Requires readAnyDatabase@admin on Atlas
+        stream = this.client.watch(pipeline, streamOptions);
+      } else {
+        // Same general result, but requires less permissions than the above
+        stream = this.defaultDb.watch(pipeline, streamOptions);
+      }
 
       if (this.abort_signal.aborted) {
         stream.close();
