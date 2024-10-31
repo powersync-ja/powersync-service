@@ -9,9 +9,9 @@ import { BinLogEvent, StartOptions, TableMapEntry } from '@powersync/mysql-zongj
 import * as common from '../common/common-index.js';
 import * as zongji_utils from './zongji/zongji-utils.js';
 import { MySQLConnectionManager } from './MySQLConnectionManager.js';
-import { isBinlogStillAvailable, ReplicatedGTID } from '../common/common-index.js';
+import { isBinlogStillAvailable, ReplicatedGTID, toColumnDescriptors } from '../common/common-index.js';
 import mysqlPromise from 'mysql2/promise';
-import { createRandomServerId, MySQLTypesMap } from '../utils/mysql_utils.js';
+import { createRandomServerId } from '../utils/mysql_utils.js';
 
 export interface BinLogStreamOptions {
   connections: MySQLConnectionManager;
@@ -291,7 +291,7 @@ AND table_type = 'BASE TABLE';`,
     logger.info(`Replicating ${table.qualifiedName}`);
     // TODO count rows and log progress at certain batch sizes
 
-    const columns = new Map<string, ColumnDescriptor>();
+    let columns: Map<string, ColumnDescriptor>;
     return new Promise<void>((resolve, reject) => {
       // MAX_EXECUTION_TIME(0) hint disables execution timeout for this query
       connection
@@ -301,10 +301,7 @@ AND table_type = 'BASE TABLE';`,
         })
         .on('fields', (fields: FieldPacket[]) => {
           // Map the columns and their types
-          fields.forEach((field) => {
-            const columnType = MySQLTypesMap[field.type as number];
-            columns.set(field.name, { name: field.name, type: columnType, typeId: field.type });
-          });
+          columns = toColumnDescriptors(fields);
         })
         .on('result', async (row) => {
           connection.pause();
@@ -528,10 +525,7 @@ AND table_type = 'BASE TABLE';`,
       tableEntry: TableMapEntry;
     }
   ): Promise<storage.FlushedResult | null> {
-    const columns = new Map<string, ColumnDescriptor>();
-    msg.tableEntry.columns.forEach((column) => {
-      columns.set(column.name, { name: column.name, typeId: column.type });
-    });
+    const columns = toColumnDescriptors(msg.tableEntry);
 
     for (const [index, row] of msg.data.entries()) {
       await this.writeChange(batch, {
@@ -572,8 +566,10 @@ AND table_type = 'BASE TABLE';`,
         Metrics.getInstance().rows_replicated_total.add(1);
         // "before" may be null if the replica id columns are unchanged
         // It's fine to treat that the same as an insert.
-        const beforeUpdated = payload.previous_data ? common.toSQLiteRow(payload.previous_data) : undefined;
-        const after = common.toSQLiteRow(payload.data);
+        const beforeUpdated = payload.previous_data
+          ? common.toSQLiteRow(payload.previous_data, payload.columns)
+          : undefined;
+        const after = common.toSQLiteRow(payload.data, payload.columns);
 
         return await batch.save({
           tag: storage.SaveOperationTag.UPDATE,
@@ -582,13 +578,13 @@ AND table_type = 'BASE TABLE';`,
           beforeReplicaId: beforeUpdated
             ? getUuidReplicaIdentityBson(beforeUpdated, payload.sourceTable.replicaIdColumns)
             : undefined,
-          after: common.toSQLiteRow(payload.data),
+          after: common.toSQLiteRow(payload.data, payload.columns),
           afterReplicaId: getUuidReplicaIdentityBson(after, payload.sourceTable.replicaIdColumns)
         });
 
       case storage.SaveOperationTag.DELETE:
         Metrics.getInstance().rows_replicated_total.add(1);
-        const beforeDeleted = common.toSQLiteRow(payload.data);
+        const beforeDeleted = common.toSQLiteRow(payload.data, payload.columns);
 
         return await batch.save({
           tag: storage.SaveOperationTag.DELETE,

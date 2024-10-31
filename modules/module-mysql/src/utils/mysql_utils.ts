@@ -3,11 +3,6 @@ import mysql from 'mysql2';
 import mysqlPromise from 'mysql2/promise';
 import * as types from '../types/types.js';
 
-export const MySQLTypesMap: { [key: number]: string } = {};
-for (const [name, code] of Object.entries(mysql.Types)) {
-  MySQLTypesMap[code as number] = name;
-}
-
 export type RetriedQueryOptions = {
   connection: mysqlPromise.Connection;
   query: string;
@@ -47,7 +42,9 @@ export function createPool(config: types.NormalizedMySQLConnectionConfig, option
     database: config.database,
     ssl: hasSSLOptions ? sslOptions : undefined,
     supportBigNumbers: true,
+    decimalNumbers: true,
     timezone: 'Z', // Ensure no auto timezone manipulation of the dates occur
+    jsonStrings: true, // Return JSON columns as strings
     ...(options || {})
   });
 }

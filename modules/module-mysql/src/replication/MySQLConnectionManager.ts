@@ -1,6 +1,6 @@
 import { NormalizedMySQLConnectionConfig } from '../types/types.js';
 import mysqlPromise from 'mysql2/promise';
-import mysql, { RowDataPacket } from 'mysql2';
+import mysql, { FieldPacket, RowDataPacket } from 'mysql2';
 import * as mysql_utils from '../utils/mysql_utils.js';
 import ZongJi from '@powersync/mysql-zongji';
 import { logger } from '@powersync/lib-services-framework';
@@ -61,7 +61,7 @@ export class MySQLConnectionManager {
    *  @param query
    *  @param params
    */
-  async query(query: string, params?: any[]) {
+  async query(query: string, params?: any[]): Promise<[RowDataPacket[], FieldPacket[]]> {
     return this.promisePool.query<RowDataPacket[]>(query, params);
   }
 
