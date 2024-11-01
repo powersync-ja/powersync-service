@@ -163,8 +163,6 @@ jobs:
           --name MySQLTestDatabase \
           -e MYSQL_ROOT_PASSWORD=mypassword \
           -e MYSQL_DATABASE=mydatabase \
-          -e MYSQL_USER=myuser \
-          -e MYSQL_PASSWORD=mypassword \
           -p 3306:3306 \
           -d mysql:${{ matrix.mysql-version }} \
           --log-bin=/var/lib/mysql/mysql-bin.log 
