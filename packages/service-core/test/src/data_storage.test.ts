@@ -1462,8 +1462,6 @@ bucket_definitions:
   });
 
   test('invalidate cached parsed sync rules', async () => {
-    const WORKSPACE_TABLE = makeTestTable('workspace', ['id']);
-
     const sync_rules_content = testRules(
       `
 bucket_definitions:
