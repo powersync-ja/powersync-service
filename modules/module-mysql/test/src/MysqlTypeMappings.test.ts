@@ -68,23 +68,6 @@ describe('MySQL Data Types', () => {
     connection.release();
   }
 
-  // test('test direct queries', async () => {
-  //   const db = connectMySQLPool();
-  //   try {
-  //     await setupTable(db);
-  //
-  //     await insert(db);
-  //
-  //     const transformed = [
-  //       ...WalStream.getQueryData(pgwire.pgwireRows(await db.query(`SELECT * FROM test_data ORDER BY id`)))
-  //     ];
-  //
-  //     checkResults(transformed);
-  //   } finally {
-  //     await db.end();
-  //   }
-  // });
-
   test('Number types mappings', async () => {
     await setupTable();
     await connectionManager.query(`
