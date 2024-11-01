@@ -1,4 +1,5 @@
 import { BucketDataBatchOptions, SaveOperationTag } from '@/storage/BucketStorage.js';
+import { getUuidReplicaIdentityBson } from '@/util/util-index.js';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { fromAsync, oneFromAsync } from './stream_utils.js';
@@ -13,7 +14,6 @@ import {
   StorageFactory,
   testRules
 } from './util.js';
-import { getUuidReplicaIdentityBson } from '@/util/util-index.js';
 
 const TEST_TABLE = makeTestTable('test', ['id']);
 
@@ -1459,5 +1459,43 @@ bucket_definitions:
       parameters_size_bytes: 0,
       replication_size_bytes: 0
     });
+  });
+
+  test('invalidate cached parsed sync rules', async () => {
+    const WORKSPACE_TABLE = makeTestTable('workspace', ['id']);
+
+    const sync_rules_content = testRules(
+      `
+bucket_definitions:
+    by_workspace:
+      parameters:
+        - SELECT id as workspace_id FROM workspace WHERE
+          workspace."userId" = token_parameters.user_id
+      data: []
+    `
+    );
+
+    const bucketStorageFactory = await factory();
+    const syncBucketStorage = bucketStorageFactory.getInstance(sync_rules_content);
+
+    const parsedSchema1 = syncBucketStorage.getParsedSyncRules({
+      defaultSchema: 'public'
+    });
+
+    const parsedSchema2 = syncBucketStorage.getParsedSyncRules({
+      defaultSchema: 'public'
+    });
+
+    // These should be cached, this will be the same instance
+    expect(parsedSchema2).equals(parsedSchema1);
+    expect(parsedSchema1.getSourceTables()[0].schema).equals('public');
+
+    const parsedSchema3 = syncBucketStorage.getParsedSyncRules({
+      defaultSchema: 'databasename'
+    });
+
+    // The cache should not be used
+    expect(parsedSchema3).not.equals(parsedSchema2);
+    expect(parsedSchema3.getSourceTables()[0].schema).equals('databasename');
   });
 }
