@@ -152,7 +152,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        postgres-version: [ 5.7, 8.0, 8.4 ]
+        mysql-version: [ 5.7, 8.0, 8.4 ]
 
     steps:
       - uses: actions/checkout@v4
@@ -160,11 +160,10 @@ jobs:
       - name: Start MySQL
         run: |
           docker run \
-          --name zongji_test \
+          --name mydatabase \
           -e MYSQL_ROOT_PASSWORD=my_password \
           -p 3306:3306 \
           -d mysql:${{ matrix.mysql-version }} \
-          --server-id=1 \
           --log-bin=/var/lib/mysql/mysql-bin.log \
           --binlog-format=row
 
