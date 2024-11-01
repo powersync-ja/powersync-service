@@ -62,7 +62,7 @@ export function testRules(content: string): PersistedSyncRulesContent {
     parsed(options) {
       return {
         id: 1,
-        sync_rules: SqlSyncRules.fromYaml(content, PARSE_OPTIONS),
+        sync_rules: SqlSyncRules.fromYaml(content, options),
         slot_name: 'test'
       };
     },

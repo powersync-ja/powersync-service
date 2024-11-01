@@ -9,13 +9,13 @@ import * as util from '../../util/util-index.js';
 import {
   BucketDataBatchOptions,
   BucketStorageBatch,
-  ReplicationCheckpoint,
   CompactOptions,
   DEFAULT_DOCUMENT_BATCH_LIMIT,
   DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES,
   FlushedResult,
   ParseSyncRulesOptions,
   PersistedSyncRulesContent,
+  ReplicationCheckpoint,
   ResolveTableOptions,
   ResolveTableResult,
   StartBatchOptions,
@@ -53,7 +53,7 @@ export class MongoSyncBucketStorage
     }
   });
 
-  private parsedSyncRulesCache: SqlSyncRules | undefined;
+  private parsedSyncRulesCache: {parsed: SqlSyncRules, options:  ParseSyncRulesOptions} | undefined;
   private writeCheckpointAPI: WriteCheckpointAPI;
 
   constructor(
@@ -104,8 +104,16 @@ export class MongoSyncBucketStorage
   }
 
   getParsedSyncRules(options: ParseSyncRulesOptions): SqlSyncRules {
-    this.parsedSyncRulesCache ??= this.sync_rules.parsed(options).sync_rules;
-    return this.parsedSyncRulesCache;
+    const {parsed, options: cachedOptions} = this.parsedSyncRulesCache ?? {};
+    /**
+     * Check if the cached sync rules, if present, had the same options.
+     * Parse sync rules if the options are different or if there is no cached value.
+     */
+    if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema ) {
+      this.parsedSyncRulesCache = {parsed: this.sync_rules.parsed(options).sync_rules, options};
+    }
+
+    return this.parsedSyncRulesCache!.parsed;
   }
 
   async getCheckpoint(): Promise<ReplicationCheckpoint> {
