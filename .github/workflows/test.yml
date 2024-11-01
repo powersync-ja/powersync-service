@@ -161,7 +161,7 @@ jobs:
         run: |
           docker run \
           --name mydatabase \
-          -e MYSQL_ROOT_PASSWORD=my_password \
+          -e MYSQL_ROOT_PASSWORD=mypassword \
           -p 3306:3306 \
           -d mysql:${{ matrix.mysql-version }} \
           --log-bin=/var/lib/mysql/mysql-bin.log \
