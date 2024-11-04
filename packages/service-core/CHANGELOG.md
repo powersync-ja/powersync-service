@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 0.8.7
+
+### Patch Changes
+
+- 6b72e6c: Improved Postgres connection port restrictions. Connections are now supported on ports >= 1024.
+
 ## 0.8.6
 
 ### Patch Changes
