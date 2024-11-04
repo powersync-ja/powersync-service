@@ -2,7 +2,7 @@ import * as sync_rules from '@powersync/service-sync-rules';
 import { ExpressionType } from '@powersync/service-sync-rules';
 import { ColumnDescriptor } from '@powersync/service-core';
 import mysql from 'mysql2';
-import { JsonContainer } from '@powersync/service-jsonbig';
+import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import { ColumnDefinition, TableMapEntry } from '@powersync/mysql-zongji';
 
 export enum ADDITIONAL_MYSQL_TYPES {
@@ -42,11 +42,20 @@ export function toColumnDescriptors(columns: mysql.FieldPacket[] | TableMapEntry
 export function toColumnDescriptorFromFieldPacket(column: mysql.FieldPacket): ColumnDescriptor {
   let typeId = column.type!;
   const BINARY_FLAG = 128;
+  const MYSQL_ENUM_FLAG = 256;
+  const MYSQL_SET_FLAG = 2048;
 
   switch (column.type) {
     case mysql.Types.STRING:
-      typeId = ((column.flags as number) & BINARY_FLAG) !== 0 ? ADDITIONAL_MYSQL_TYPES.BINARY : column.type;
+      if (((column.flags as number) & BINARY_FLAG) !== 0) {
+        typeId = ADDITIONAL_MYSQL_TYPES.BINARY;
+      } else if (((column.flags as number) & MYSQL_ENUM_FLAG) !== 0) {
+        typeId = mysql.Types.ENUM;
+      } else if (((column.flags as number) & MYSQL_SET_FLAG) !== 0) {
+        typeId = mysql.Types.SET;
+      }
       break;
+
     case mysql.Types.VAR_STRING:
       typeId = ((column.flags as number) & BINARY_FLAG) !== 0 ? ADDITIONAL_MYSQL_TYPES.VARBINARY : column.type;
       break;
@@ -123,11 +132,25 @@ export function toSQLiteRow(row: Record<string, any>, columns: Map<string, Colum
         case mysql.Types.LONGLONG:
           if (typeof row[key] === 'string') {
             row[key] = BigInt(row[key]);
+          } else if (typeof row[key] === 'number') {
+            // Zongji returns BIGINT as a number when it can be represented as a number
+            row[key] = BigInt(row[key]);
           }
           break;
-        // case ADDITIONAL_MYSQL_TYPES.TEXT:
-        //   row[key] = row[key].toString();
-        //   break;
+        case mysql.Types.TINY:
+        case mysql.Types.SHORT:
+        case mysql.Types.LONG:
+        case mysql.Types.INT24:
+          // Handle all integer values a BigInt
+          if (typeof row[key] === 'number') {
+            row[key] = BigInt(row[key]);
+          }
+          break;
+        case mysql.Types.SET:
+          // Convert to JSON array from string
+          const values = row[key].split(',');
+          row[key] = JSONBig.stringify(values);
+          break;
       }
     }
   }

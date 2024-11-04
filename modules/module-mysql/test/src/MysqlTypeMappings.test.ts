@@ -78,7 +78,6 @@ INSERT INTO test_data (
     int_col,
     integer_col,
     bigint_col,
- -- float_col,
     double_col,
     decimal_col,
     numeric_col,
@@ -92,7 +91,6 @@ INSERT INTO test_data (
     2147483647,          -- INT maximum value
     2147483647,          -- INTEGER maximum value
     9223372036854775807, -- BIGINT maximum value
-    -- 3.14,             -- FLOAT example
     3.1415926535,        -- DOUBLE example
     12345.67,            -- DECIMAL(10,2) example
     12345.67,            -- NUMERIC(10,2) example
@@ -105,22 +103,40 @@ INSERT INTO test_data (
     const replicatedRows = await getReplicatedRows();
 
     const expectedResult = {
-      tinyint_col: 127,
-      smallint_col: 32767,
-      mediumint_col: 8388607,
-      int_col: 2147483647,
-      integer_col: 2147483647,
+      tinyint_col: 127n,
+      smallint_col: 32767n,
+      mediumint_col: 8388607n,
+      int_col: 2147483647n,
+      integer_col: 2147483647n,
       bigint_col: 9223372036854775807n,
-      //float_col: 3.14,
       double_col: 3.1415926535,
       decimal_col: 12345.67,
       numeric_col: 12345.67,
       bit_col: new Uint8Array([0b10101010]).valueOf(),
-      boolean_col: 1,
-      serial_col: 1
+      boolean_col: 1n,
+      serial_col: 1n
     };
     expect(databaseRows[0]).toMatchObject(expectedResult);
     expect(replicatedRows[0]).toMatchObject(expectedResult);
+  });
+
+  test('Float type mapping', async () => {
+    await setupTable();
+    const expectedFloatValue = 3.14;
+    await connectionManager.query(`INSERT INTO test_data (float_col) VALUES (${expectedFloatValue})`);
+
+    const databaseRows = await getDatabaseRows(connectionManager, 'test_data');
+    const replicatedRows = await getReplicatedRows();
+
+    const allowedPrecision = 0.0001;
+
+    const actualFloatValueDB = databaseRows[0].float_col;
+    let difference = Math.abs((actualFloatValueDB as number) - expectedFloatValue);
+    expect(difference).toBeLessThan(allowedPrecision);
+
+    const actualFloatValueReplicated = replicatedRows[0].float_col;
+    difference = Math.abs((actualFloatValueReplicated as number) - expectedFloatValue);
+    expect(difference).toBeLessThan(allowedPrecision);
   });
 
   test('Character types mappings', async () => {
@@ -139,8 +155,7 @@ INSERT INTO test_data (
     text_col,
     mediumtext_col,
     longtext_col,
-    enum_col,
-    set_col
+    enum_col
 ) VALUES (
     'CharData',               -- CHAR(10) with padding spaces
     'Variable character data',-- VARCHAR(255)
@@ -154,8 +169,7 @@ INSERT INTO test_data (
     'TextData',               -- TEXT
     'MediumTextData',         -- MEDIUMTEXT
     'LongTextData',           -- LONGTEXT
-    'value1',                 -- ENUM('value1', 'value2', 'value3')
-    'value1,value3'           -- SET('value1', 'value2', 'value3')
+    'value1'                 -- ENUM('value1', 'value2', 'value3')
 );`);
 
     const databaseRows = await getDatabaseRows(connectionManager, 'test_data');
@@ -177,8 +191,7 @@ INSERT INTO test_data (
       text_col: 'TextData',
       mediumtext_col: 'MediumTextData',
       longtext_col: 'LongTextData',
-      enum_col: 'value1',
-      set_col: 'value1,value3'
+      enum_col: 'value1'
     };
 
     expect(databaseRows[0]).toMatchObject(expectedResult);
@@ -232,19 +245,26 @@ INSERT INTO test_data (
   test('Json types mappings', async () => {
     await setupTable();
 
+    const expectedJSON = { name: 'John Doe', age: 30, married: true };
+    const expectedSet = ['value1', 'value3'];
+
+    // For convenience, we map the SET data type to a JSON Array
     await connectionManager.query(
-      `INSERT INTO test_data (json_col) VALUES ('{ "name": "John Doe", "age": 30, "married": true }')`
+      `INSERT INTO test_data (json_col, set_col) VALUES ('${JSON.stringify(expectedJSON)}', '${expectedSet.join(',')}')`
     );
 
     const databaseRows = await getDatabaseRows(connectionManager, 'test_data');
     const replicatedRows = await getReplicatedRows();
 
-    const expectedResult = { name: 'John Doe', age: 30, married: true };
+    const actualDBJSONValue = JSON.parse(databaseRows[0].json_col as string);
+    const actualReplicatedJSONValue = JSON.parse(replicatedRows[0].json_col as string);
+    expect(actualDBJSONValue).toEqual(expectedJSON);
+    expect(actualReplicatedJSONValue).toEqual(expectedJSON);
 
-    const actualDBValue = JSON.parse(databaseRows[0].json_col as string);
-    const actualReplicatedValue = JSON.parse(replicatedRows[0].json_col as string);
-    expect(actualDBValue).toEqual(expectedResult);
-    expect(actualReplicatedValue).toEqual(expectedResult);
+    const actualDBSetValue = JSON.parse(databaseRows[0].set_col as string);
+    const actualReplicatedSetValue = JSON.parse(replicatedRows[0].set_col as string);
+    expect(actualDBSetValue).toEqual(expectedSet);
+    expect(actualReplicatedSetValue).toEqual(expectedSet);
   });
 });
 
