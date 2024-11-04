@@ -10,7 +10,7 @@ on:
 
 jobs:
   test-service-container-build:
-    name: Build and Test Powersync Service
+    name: Build and Test PowerSync Service
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

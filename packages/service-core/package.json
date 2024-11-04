@@ -5,7 +5,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "0.8.5",
+  "version": "0.8.6",
   "main": "dist/index.js",
   "license": "FSL-1.1-Apache-2.0",
   "type": "module",
@@ -13,7 +13,7 @@
     "build": "tsc -b",
     "build:tests": "tsc -b test/tsconfig.json",
     "test": "vitest",
-    "clean": "rm -rf ./lib && tsc -b --clean"
+    "clean": "rm -rf ./dist && tsc -b --clean"
   },
   "dependencies": {
     "@js-sdsl/ordered-set": "^4.4.2",

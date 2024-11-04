@@ -18,7 +18,7 @@ pnpm build
 
 ## Dependent Services
 
-The PowerSync service requires Postgres and MongoDB server connections. These configuration details can be specified in a `powersync.yaml` (or JSON) configuration file.
+The PowerSync Service requires Postgres and MongoDB server connections. These configuration details can be specified in a `powersync.yaml` (or JSON) configuration file.
 
 See the [self-hosting demo](https://github.com/powersync-ja/self-host-demo) for demos of starting these services.
 
@@ -36,7 +36,7 @@ One method to obtain access is to add the following to `/etc/hosts` (on Unix-lik
 127.0.0.1 mongo
 ```
 
-This will start all the services defined in the Self hosting demo except for the PowerSync service - which will be started from this repository.
+This will start all the services defined in the self-hosting demo except for the PowerSync Service - which will be started from this repository.
 
 ## Local Configuration
 
