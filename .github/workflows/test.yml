@@ -143,3 +143,68 @@ jobs:
 
       - name: Test
         run: pnpm test --filter='./modules/module-postgres'
+
+  run-mysql-tests:
+    name: MySQL Test
+    runs-on: ubuntu-latest
+    needs: run-core-tests
+
+    strategy:
+      fail-fast: false
+      matrix:
+        mysql-version: [ 8.0, 8.4 ]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start MySQL
+        run: |
+          docker run \
+          --name MySQLTestDatabase \
+          -e MYSQL_ROOT_PASSWORD=mypassword \
+          -e MYSQL_DATABASE=mydatabase \
+          -p 3306:3306 \
+          -d mysql:${{ matrix.mysql-version }} \
+          --log-bin=/var/lib/mysql/mysql-bin.log \
+          --gtid_mode=ON \
+          --enforce_gtid_consistency=ON
+
+      - name: Start MongoDB
+        uses: supercharge/mongodb-github-action@1.8.0
+        with:
+          mongodb-version: '6.0'
+          mongodb-replica-set: test-rs
+
+      - name: Setup NodeJS
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - uses: pnpm/action-setup@v4
+        name: Install pnpm
+        with:
+          version: 9
+          run_install: false
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - uses: actions/cache@v3
+        name: Setup pnpm cache
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build
+        shell: bash
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test --filter='./modules/module-mysql'
