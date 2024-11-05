@@ -2,6 +2,7 @@ import { logger } from '@powersync/lib-services-framework';
 import mysql from 'mysql2';
 import mysqlPromise from 'mysql2/promise';
 import * as types from '../types/types.js';
+import { ColumnDescriptor } from '@powersync/service-core';
 
 export type RetriedQueryOptions = {
   connection: mysqlPromise.Connection;
@@ -59,4 +60,8 @@ export function createPool(config: types.NormalizedMySQLConnectionConfig, option
  */
 export function createRandomServerId(syncRuleId: number): number {
   return Number.parseInt(`${syncRuleId}00${Math.floor(Math.random() * 10000)}`);
+}
+
+export function createSchemaHash(columns: ColumnDescriptor[]): string {
+  return columns.map((c) => `${c.name}:${c.type}`).join(',');
 }

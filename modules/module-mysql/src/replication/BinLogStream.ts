@@ -11,7 +11,7 @@ import * as zongji_utils from './zongji/zongji-utils.js';
 import { MySQLConnectionManager } from './MySQLConnectionManager.js';
 import { isBinlogStillAvailable, ReplicatedGTID, toColumnDescriptors } from '../common/common-index.js';
 import mysqlPromise from 'mysql2/promise';
-import { createRandomServerId } from '../utils/mysql_utils.js';
+import { createRandomServerId, createSchemaHash } from '../utils/mysql_utils.js';
 
 export interface BinLogStreamOptions {
   connections: MySQLConnectionManager;
@@ -70,6 +70,13 @@ export class BinLogStream {
   private abortSignal: AbortSignal;
 
   private tableCache = new Map<string | number, storage.SourceTable>();
+  /**
+   *  Used to quickly check if any schema changes happened
+   *  The keys in the map are the internal table ids as used by MySQL
+   *  Each map value is a concatenated string of a table's columns and their types
+   *  @private
+   */
+  private tableSchemaCache = new Map<number, string>();
 
   constructor(protected options: BinLogStreamOptions) {
     this.storage = options.storage;
@@ -545,7 +552,34 @@ AND table_type = 'BASE TABLE';`,
   private async writeChanges(options: WriteChangesOptions): Promise<storage.FlushedResult | null> {
     const { batch, payload } = options;
     const columns = toColumnDescriptors(payload.tableEntry);
+    const oldHash = this.tableSchemaCache.get(payload.tableId);
+    const newHash = createSchemaHash([...columns.values()]);
+    if (!oldHash) {
+      // First entry into the cache
+      this.tableSchemaCache.set(payload.tableId, newHash);
+    } else if (oldHash !== newHash) {
+      logger.info(`Schema change detected for table ${payload.tableEntry.tableName}.`);
+      // Schema changed, need to update the schema and snapshot the table again
+      this.tableSchemaCache.set(payload.tableId, newHash);
 
+      const connection = await this.connections.getConnection();
+      const replicationColumns = await common.getReplicationIdentityColumns({
+        connection: connection,
+        schema: payload.tableEntry.parentSchema,
+        table_name: payload.tableEntry.tableName
+      });
+      connection.release();
+      await this.handleRelation(
+        batch,
+        {
+          name: payload.tableEntry.tableName,
+          schema: payload.tableEntry.parentSchema,
+          objectId: getMysqlRelId(payload.tableEntry.parentSchema, payload.tableEntry.tableName),
+          replicationColumns: replicationColumns.columns
+        },
+        true
+      );
+    }
     for (const [index, row] of options.payload.data.entries()) {
       await this.writeChange({
         batch,
