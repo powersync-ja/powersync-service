@@ -13,7 +13,7 @@
     "build": "tsc -b",
     "build:tests": "tsc -b test/tsconfig.json",
     "clean": "rm -rf ./dist && tsc -b --clean",
-    "test": "vitest --no-threads"
+    "test": "vitest"
   },
   "exports": {
     ".": {
