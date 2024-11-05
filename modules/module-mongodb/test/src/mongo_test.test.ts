@@ -23,14 +23,18 @@ describe('mongo data types', () => {
         int2: 1000,
         int4: 1000000,
         int8: 9007199254740993n,
-        float: 3.14
+        float: 3.14,
+        decimal: new mongo.Decimal128('3.14')
       },
       { _id: 2 as any, nested: { test: 'thing' } },
       { _id: 3 as any, date: new Date('2023-03-06 15:47+02') },
       {
         _id: 4 as any,
         timestamp: mongo.Timestamp.fromBits(123, 456),
-        objectId: mongo.ObjectId.createFromHexString('66e834cc91d805df11fa0ecb')
+        objectId: mongo.ObjectId.createFromHexString('66e834cc91d805df11fa0ecb'),
+        regexp: new mongo.BSONRegExp('test', 'i'),
+        minKey: new mongo.MinKey(),
+        maxKey: new mongo.MaxKey()
       }
     ]);
   }
@@ -47,14 +51,18 @@ describe('mongo data types', () => {
         int2: [1000],
         int4: [1000000],
         int8: [9007199254740993n],
-        float: [3.14]
+        float: [3.14],
+        decimal: [new mongo.Decimal128('3.14')]
       },
       { _id: 2 as any, nested: [{ test: 'thing' }] },
       { _id: 3 as any, date: [new Date('2023-03-06 15:47+02')] },
       {
         _id: 10 as any,
         timestamp: [mongo.Timestamp.fromBits(123, 456)],
-        objectId: [mongo.ObjectId.createFromHexString('66e834cc91d805df11fa0ecb')]
+        objectId: [mongo.ObjectId.createFromHexString('66e834cc91d805df11fa0ecb')],
+        regexp: [new mongo.BSONRegExp('test', 'i')],
+        minKey: [new mongo.MinKey()],
+        maxKey: [new mongo.MaxKey()]
       }
     ]);
   }
@@ -70,7 +78,8 @@ describe('mongo data types', () => {
       int4: 1000000n,
       int8: 9007199254740993n,
       float: 3.14,
-      null: null
+      null: null,
+      decimal: '3.14'
     });
     expect(transformed[1]).toMatchObject({
       _id: 2n,
@@ -85,7 +94,10 @@ describe('mongo data types', () => {
     expect(transformed[3]).toMatchObject({
       _id: 4n,
       objectId: '66e834cc91d805df11fa0ecb',
-      timestamp: 1958505087099n
+      timestamp: 1958505087099n,
+      regexp: '{"pattern":"test","options":"i"}',
+      minKey: null,
+      maxKey: null
     });
   }
 
@@ -220,7 +232,7 @@ describe('mongo data types', () => {
       const schema = await adapter.getConnectionSchema();
       const dbSchema = schema.filter((s) => s.name == TEST_CONNECTION_OPTIONS.database)[0];
       expect(dbSchema).not.toBeNull();
-      expect(dbSchema.tables).toEqual([
+      expect(dbSchema.tables).toMatchObject([
         {
           name: 'test_data',
           columns: [
@@ -228,13 +240,17 @@ describe('mongo data types', () => {
             { name: 'bool', sqlite_type: 4, internal_type: 'Boolean' },
             { name: 'bytea', sqlite_type: 1, internal_type: 'Binary' },
             { name: 'date', sqlite_type: 2, internal_type: 'Date' },
+            { name: 'decimal', sqlite_type: 2, internal_type: 'Decimal' },
             { name: 'float', sqlite_type: 8, internal_type: 'Double' },
             { name: 'int2', sqlite_type: 4, internal_type: 'Integer' },
             { name: 'int4', sqlite_type: 4, internal_type: 'Integer' },
             { name: 'int8', sqlite_type: 4, internal_type: 'Long' },
+            { name: 'maxKey', sqlite_type: 0, internal_type: 'MaxKey' },
+            { name: 'minKey', sqlite_type: 0, internal_type: 'MinKey' },
             { name: 'nested', sqlite_type: 2, internal_type: 'Object' },
             { name: 'null', sqlite_type: 0, internal_type: 'Null' },
             { name: 'objectId', sqlite_type: 2, internal_type: 'ObjectId' },
+            { name: 'regexp', sqlite_type: 2, internal_type: 'RegExp' },
             { name: 'text', sqlite_type: 2, internal_type: 'String' },
             { name: 'timestamp', sqlite_type: 4, internal_type: 'Timestamp' },
             { name: 'uuid', sqlite_type: 2, internal_type: 'UUID' }

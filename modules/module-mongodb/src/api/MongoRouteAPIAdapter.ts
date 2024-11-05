@@ -313,6 +313,14 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
       return 'Binary';
     } else if (data instanceof mongo.Long) {
       return 'Long';
+    } else if (data instanceof RegExp) {
+      return 'RegExp';
+    } else if (data instanceof mongo.MinKey) {
+      return 'MinKey';
+    } else if (data instanceof mongo.MaxKey) {
+      return 'MaxKey';
+    } else if (data instanceof mongo.Decimal128) {
+      return 'Decimal';
     } else if (Array.isArray(data)) {
       return 'Array';
     } else if (data instanceof Uint8Array) {

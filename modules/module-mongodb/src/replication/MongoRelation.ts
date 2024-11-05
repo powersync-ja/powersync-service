@@ -62,6 +62,12 @@ export function toMongoSyncRulesValue(data: any): SqliteValue {
     return new Uint8Array(data.buffer);
   } else if (data instanceof mongo.Long) {
     return data.toBigInt();
+  } else if (data instanceof mongo.Decimal128) {
+    return data.toString();
+  } else if (data instanceof mongo.MinKey || data instanceof mongo.MaxKey) {
+    return null;
+  } else if (data instanceof RegExp) {
+    return JSON.stringify({ pattern: data.source, options: data.flags });
   } else if (Array.isArray(data)) {
     // We may be able to avoid some parse + stringify cycles here for JsonSqliteContainer.
     return JSONBig.stringify(data.map((element) => filterJsonData(element)));
@@ -112,6 +118,12 @@ function filterJsonData(data: any, depth = 0): any {
     return undefined;
   } else if (data instanceof mongo.Long) {
     return data.toBigInt();
+  } else if (data instanceof mongo.Decimal128) {
+    return data.toString();
+  } else if (data instanceof mongo.MinKey || data instanceof mongo.MaxKey) {
+    return data._bsontype;
+  } else if (data instanceof mongo.BSONRegExp) {
+    return JSON.stringify({ pattern: data.pattern, options: data.options });
   } else if (Array.isArray(data)) {
     return data.map((element) => filterJsonData(element, depth + 1));
   } else if (ArrayBuffer.isView(data)) {
