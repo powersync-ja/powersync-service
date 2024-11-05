@@ -35,7 +35,7 @@ export async function readExecutedGtid(connection: mysqlPromise.Connection): Pro
   return new ReplicatedGTID({
     // The head always points to the next position to start replication from
     position,
-    raw_gtid: binlogStatus.Executed_Gtid_Set
+    raw_gtid: binlogStatus.Executed_Gtid_Set.length > 0 ? binlogStatus.Executed_Gtid_Set : '0:0'
   });
 }
 

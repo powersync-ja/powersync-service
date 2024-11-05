@@ -19,19 +19,28 @@ export interface BinLogStreamOptions {
   abortSignal: AbortSignal;
 }
 
-interface MysqlRelId {
-  schema: string;
-  name: string;
+interface WriteChangesOptions {
+  batch: storage.BucketStorageBatch;
+  payload: {
+    type: storage.SaveOperationTag;
+    data: Data[];
+    previousData?: Data[];
+    tableId: number;
+    tableEntry: TableMapEntry;
+  };
 }
 
-interface WriteChangePayload {
-  type: storage.SaveOperationTag;
-  data: Data;
-  previous_data?: Data;
-  database: string;
-  table: string;
-  sourceTable: storage.SourceTable;
-  columns: Map<string, ColumnDescriptor>;
+interface WriteChangeOptions {
+  batch: storage.BucketStorageBatch;
+  payload: {
+    type: storage.SaveOperationTag;
+    data: Data;
+    previousData?: Data;
+    database: string;
+    table: string;
+    sourceTable: storage.SourceTable;
+    columns: Map<string, ColumnDescriptor>;
+  };
 }
 
 export type Data = Record<string, any>;
@@ -44,13 +53,13 @@ export class BinlogConfigurationError extends Error {
 
 /**
  * MySQL does not have same relation structure. Just returning unique key as string.
- * @param source
  */
-function getMysqlRelId(source: MysqlRelId): string {
-  return `${source.schema}.${source.name}`;
+function getMysqlRelId(database: string, tableName: string): string {
+  return `${database}.${tableName}`;
 }
 
 export class BinLogStream {
+  public isReady = false;
   private readonly syncRules: sync_rules.SqlSyncRules;
   private readonly groupId: number;
 
@@ -197,7 +206,7 @@ AND table_type = 'BASE TABLE';`,
         {
           name,
           schema: tablePattern.schema,
-          objectId: getMysqlRelId(tablePattern),
+          objectId: getMysqlRelId(tablePattern.schema, name),
           replicationColumns: replicationColumns.columns
         },
         false
@@ -411,27 +420,39 @@ AND table_type = 'BASE TABLE';`,
                 break;
               case zongji_utils.eventIsWriteMutation(evt):
                 const writeTableInfo = evt.tableMap[evt.tableId];
-                await this.writeChanges(batch, {
-                  type: storage.SaveOperationTag.INSERT,
-                  data: evt.rows,
-                  tableEntry: writeTableInfo
+                await this.writeChanges({
+                  batch,
+                  payload: {
+                    type: storage.SaveOperationTag.INSERT,
+                    data: evt.rows,
+                    tableId: evt.tableId,
+                    tableEntry: writeTableInfo
+                  }
                 });
                 break;
               case zongji_utils.eventIsUpdateMutation(evt):
                 const updateTableInfo = evt.tableMap[evt.tableId];
-                await this.writeChanges(batch, {
-                  type: storage.SaveOperationTag.UPDATE,
-                  data: evt.rows.map((row) => row.after),
-                  previous_data: evt.rows.map((row) => row.before),
-                  tableEntry: updateTableInfo
+                await this.writeChanges({
+                  batch,
+                  payload: {
+                    type: storage.SaveOperationTag.UPDATE,
+                    data: evt.rows.map((row) => row.after),
+                    previousData: evt.rows.map((row) => row.before),
+                    tableId: evt.tableId,
+                    tableEntry: updateTableInfo
+                  }
                 });
                 break;
               case zongji_utils.eventIsDeleteMutation(evt):
                 const deleteTableInfo = evt.tableMap[evt.tableId];
-                await this.writeChanges(batch, {
-                  type: storage.SaveOperationTag.DELETE,
-                  data: evt.rows,
-                  tableEntry: deleteTableInfo
+                await this.writeChanges({
+                  batch,
+                  payload: {
+                    type: storage.SaveOperationTag.DELETE,
+                    data: evt.rows,
+                    tableId: evt.tableId,
+                    tableEntry: deleteTableInfo
+                  }
                 });
                 break;
               case zongji_utils.eventIsXid(evt):
@@ -479,6 +500,11 @@ AND table_type = 'BASE TABLE';`,
             serverId: serverId
           } satisfies StartOptions);
 
+          zongji.on('ready', () => {
+            logger.info('Binlog listener started.');
+            this.isReady = true;
+          });
+
           // Forever young
           await new Promise<void>((resolve, reject) => {
             zongji.on('error', (error) => {
@@ -516,40 +542,29 @@ AND table_type = 'BASE TABLE';`,
     }
   }
 
-  private async writeChanges(
-    batch: storage.BucketStorageBatch,
-    msg: {
-      type: storage.SaveOperationTag;
-      data: Data[];
-      previous_data?: Data[];
-      tableEntry: TableMapEntry;
-    }
-  ): Promise<storage.FlushedResult | null> {
-    const columns = toColumnDescriptors(msg.tableEntry);
+  private async writeChanges(options: WriteChangesOptions): Promise<storage.FlushedResult | null> {
+    const { batch, payload } = options;
+    const columns = toColumnDescriptors(payload.tableEntry);
 
-    for (const [index, row] of msg.data.entries()) {
-      await this.writeChange(batch, {
-        type: msg.type,
-        database: msg.tableEntry.parentSchema,
-        sourceTable: this.getTable(
-          getMysqlRelId({
-            schema: msg.tableEntry.parentSchema,
-            name: msg.tableEntry.tableName
-          })
-        ),
-        table: msg.tableEntry.tableName,
-        columns: columns,
-        data: row,
-        previous_data: msg.previous_data?.[index]
+    for (const [index, row] of options.payload.data.entries()) {
+      await this.writeChange({
+        batch,
+        payload: {
+          type: payload.type,
+          database: payload.tableEntry.parentSchema,
+          sourceTable: this.getTable(getMysqlRelId(payload.tableEntry.parentSchema, payload.tableEntry.tableName)),
+          table: payload.tableEntry.tableName,
+          columns: columns,
+          data: row,
+          previousData: payload.previousData?.[index]
+        }
       });
     }
     return null;
   }
 
-  private async writeChange(
-    batch: storage.BucketStorageBatch,
-    payload: WriteChangePayload
-  ): Promise<storage.FlushedResult | null> {
+  private async writeChange(options: WriteChangeOptions): Promise<storage.FlushedResult | null> {
+    const { batch, payload } = options;
     switch (payload.type) {
       case storage.SaveOperationTag.INSERT:
         Metrics.getInstance().rows_replicated_total.add(1);
@@ -566,8 +581,8 @@ AND table_type = 'BASE TABLE';`,
         Metrics.getInstance().rows_replicated_total.add(1);
         // "before" may be null if the replica id columns are unchanged
         // It's fine to treat that the same as an insert.
-        const beforeUpdated = payload.previous_data
-          ? common.toSQLiteRow(payload.previous_data, payload.columns)
+        const beforeUpdated = payload.previousData
+          ? common.toSQLiteRow(payload.previousData, payload.columns)
           : undefined;
         const after = common.toSQLiteRow(payload.data, payload.columns);
 

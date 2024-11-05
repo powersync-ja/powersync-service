@@ -61,7 +61,7 @@ function defineBinlogStreamTests(factory: StorageFactory) {
   );
 
   test(
-    'replicating case sensitive table',
+    'Replicate case sensitive table',
     binlogStreamTest(factory, async (context) => {
       const { connectionManager } = context;
       await context.updateSyncRules(`
@@ -72,7 +72,7 @@ function defineBinlogStreamTests(factory: StorageFactory) {
       `);
 
       await connectionManager.query(
-        `CREATE TABLE test_DATA (id CHAR(36) PRIMARY KEY DEFAULT (UUID()), description text)`
+        `CREATE TABLE test_DATA (id CHAR(36) PRIMARY KEY DEFAULT (UUID()), description TEXT)`
       );
 
       await context.replicateSnapshot();
@@ -118,7 +118,7 @@ function defineBinlogStreamTests(factory: StorageFactory) {
   //       await context.updateSyncRules(syncRuleContent);
   //       await connectionManager.query(`DROP TABLE IF EXISTS test_data`);
   //       await connectionManager.query(
-  //         `CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`
+  //         `CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description TEXT)`
   //       );
   //
   //       await context.replicateSnapshot();
@@ -139,13 +139,13 @@ function defineBinlogStreamTests(factory: StorageFactory) {
   //   );
 
   test(
-    'replicating changing primary key',
+    'Replicate row with changed primary key',
     binlogStreamTest(factory, async (context) => {
       const { connectionManager } = context;
       await context.updateSyncRules(BASIC_SYNC_RULES);
 
       await connectionManager.query(
-        `CREATE TABLE test_data (id CHAR(36) PRIMARY KEY DEFAULT (UUID()), description text)`
+        `CREATE TABLE test_data (id CHAR(36) PRIMARY KEY DEFAULT (UUID()), description TEXT)`
       );
 
       await context.replicateSnapshot();
@@ -187,13 +187,13 @@ function defineBinlogStreamTests(factory: StorageFactory) {
   );
 
   test(
-    'initial sync',
+    'Initial sync / snapshot',
     binlogStreamTest(factory, async (context) => {
       const { connectionManager } = context;
       await context.updateSyncRules(BASIC_SYNC_RULES);
 
       await connectionManager.query(
-        `CREATE TABLE test_data (id CHAR(36) PRIMARY KEY DEFAULT (UUID()), description text)`
+        `CREATE TABLE test_data (id CHAR(36) PRIMARY KEY DEFAULT (UUID()), description TEXT)`
       );
 
       await connectionManager.query(`INSERT INTO test_data(description) VALUES('test1')`);
@@ -210,7 +210,7 @@ function defineBinlogStreamTests(factory: StorageFactory) {
   );
 
   test(
-    'snapshot with date values',
+    'Snapshot with date values',
     binlogStreamTest(factory, async (context) => {
       const { connectionManager } = context;
       await context.updateSyncRules(`
@@ -248,7 +248,7 @@ function defineBinlogStreamTests(factory: StorageFactory) {
   );
 
   test(
-    'replication with date values',
+    'Replicate data values',
     binlogStreamTest(factory, async (context) => {
       const { connectionManager } = context;
       await context.updateSyncRules(`
@@ -298,13 +298,13 @@ function defineBinlogStreamTests(factory: StorageFactory) {
   );
 
   test(
-    'table not in sync rules',
+    'Ignore replication for tables not in sync rules',
     binlogStreamTest(factory, async (context) => {
       const { connectionManager } = context;
       await context.updateSyncRules(BASIC_SYNC_RULES);
 
       await connectionManager.query(
-        `CREATE TABLE test_donotsync (id CHAR(36) PRIMARY KEY DEFAULT (UUID()), description text)`
+        `CREATE TABLE test_donotsync (id CHAR(36) PRIMARY KEY DEFAULT (UUID()), description TEXT)`
       );
 
       await context.replicateSnapshot();
