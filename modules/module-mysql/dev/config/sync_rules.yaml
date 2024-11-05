@@ -3,10 +3,8 @@
 # Note that changes to this file are not watched.
 # The service needs to be restarted for changes to take effect.
 
-# Note that specifying the schema is currently required due to the default
-# schema being specified as `public`, but in mysql the schema is the database name
 bucket_definitions:
   global:
     data:
-      - SELECT * FROM mydatabase.lists
-      - SELECT * FROM mydatabase.todos
+      - SELECT * FROM lists
+      - SELECT * FROM todos

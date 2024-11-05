@@ -3,11 +3,6 @@ import mysql from 'mysql2';
 import mysqlPromise from 'mysql2/promise';
 import * as types from '../types/types.js';
 
-export const MySQLTypesMap: { [key: number]: string } = {};
-for (const [name, code] of Object.entries(mysql.Types)) {
-  MySQLTypesMap[code as number] = name;
-}
-
 export type RetriedQueryOptions = {
   connection: mysqlPromise.Connection;
   query: string;
@@ -47,7 +42,21 @@ export function createPool(config: types.NormalizedMySQLConnectionConfig, option
     database: config.database,
     ssl: hasSSLOptions ? sslOptions : undefined,
     supportBigNumbers: true,
+    decimalNumbers: true,
     timezone: 'Z', // Ensure no auto timezone manipulation of the dates occur
+    jsonStrings: true, // Return JSON columns as strings
     ...(options || {})
   });
+}
+
+/**
+ *  Return a random server id for a given sync rule id.
+ *  Expected format is: <syncRuleId>00<random number>
+ *  The max value for server id in MySQL is 2^32 - 1.
+ *  We use the GTID format to keep track of our position in the binlog, no state is kept by the MySQL server, therefore
+ *  it is ok to use a randomised server id every time.
+ *  @param syncRuleId
+ */
+export function createRandomServerId(syncRuleId: number): number {
+  return Number.parseInt(`${syncRuleId}00${Math.floor(Math.random() * 10000)}`);
 }

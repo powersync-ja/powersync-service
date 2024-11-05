@@ -5,7 +5,13 @@ import mysqlPromise from 'mysql2/promise';
 import { connectMongo } from '@core-tests/util.js';
 import { getMySQLVersion } from '@module/common/check-source-configuration.js';
 import { gte } from 'semver';
-import { RowDataPacket } from 'mysql2';
+
+export const TEST_URI = env.MYSQL_TEST_URI;
+
+export const TEST_CONNECTION_OPTIONS = types.normalizeConnectionConfig({
+  type: 'mysql',
+  uri: TEST_URI
+});
 
 // The metrics need to be initialized before they can be used
 await Metrics.initialise({
@@ -14,13 +20,6 @@ await Metrics.initialise({
   internal_metrics_endpoint: 'unused.for.tests.com'
 });
 Metrics.getInstance().resetCounters();
-
-export const TEST_URI = env.MYSQL_TEST_URI;
-
-export const TEST_CONNECTION_OPTIONS = types.normalizeConnectionConfig({
-  type: 'mysql',
-  uri: TEST_URI
-});
 
 export type StorageFactory = () => Promise<BucketStorageFactory>;
 
@@ -37,7 +36,7 @@ export const INITIALIZED_MONGO_STORAGE_FACTORY: StorageFactory = async () => {
   return new MongoBucketStorage(db, { slot_name_prefix: 'test_' });
 };
 
-export async function clearAndRecreateTestDb(connection: mysqlPromise.Connection) {
+export async function clearTestDb(connection: mysqlPromise.Connection) {
   const version = await getMySQLVersion(connection);
   if (gte(version, '8.4.0')) {
     await connection.query('RESET BINARY LOGS AND GTIDS');
@@ -45,11 +44,7 @@ export async function clearAndRecreateTestDb(connection: mysqlPromise.Connection
     await connection.query('RESET MASTER');
   }
 
-  // await connection.query(`DROP DATABASE IF EXISTS ${TEST_CONNECTION_OPTIONS.database}`);
-  //
-  // await connection.query(`CREATE DATABASE IF NOT EXISTS ${TEST_CONNECTION_OPTIONS.database}`);
-
-  const [result] = await connection.query<RowDataPacket[]>(
+  const [result] = await connection.query<mysqlPromise.RowDataPacket[]>(
     `SELECT TABLE_NAME FROM information_schema.tables
      WHERE TABLE_SCHEMA = '${TEST_CONNECTION_OPTIONS.database}'`
   );
@@ -59,4 +54,8 @@ export async function clearAndRecreateTestDb(connection: mysqlPromise.Connection
       await connection.query(`DROP TABLE ${name}`);
     }
   }
+}
+
+export function connectMySQLPool(): mysqlPromise.Pool {
+  return mysqlPromise.createPool(TEST_URI);
 }
