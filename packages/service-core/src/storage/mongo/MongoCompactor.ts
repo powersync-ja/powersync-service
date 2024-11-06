@@ -94,17 +94,33 @@ export class MongoCompactor {
 
     let currentState: CurrentBucketState | null = null;
 
+    let bucketLower: string | MinKey;
+    let bucketUpper: string | MaxKey;
+
+    if (bucket == null) {
+      bucketLower = new MinKey();
+      bucketUpper = new MaxKey();
+    } else if (bucket.includes('[')) {
+      // Exact bucket name
+      bucketLower = bucket;
+      bucketUpper = bucket;
+    } else {
+      // Bucket definition name
+      bucketLower = `${bucket}[`;
+      bucketUpper = `${bucket}[\uFFFF`;
+    }
+
     // Constant lower bound
     const lowerBound: BucketDataKey = {
       g: this.group_id,
-      b: bucket ?? (new MinKey() as any),
+      b: bucketLower as string,
       o: new MinKey() as any
     };
 
     // Upper bound is adjusted for each batch
     let upperBound: BucketDataKey = {
       g: this.group_id,
-      b: bucket ?? (new MaxKey() as any),
+      b: bucketUpper as string,
       o: new MaxKey() as any
     };
 
