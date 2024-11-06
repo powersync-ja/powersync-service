@@ -13,6 +13,8 @@ export interface NormalizedMongoConnectionConfig {
 
   username?: string;
   password?: string;
+
+  postImages: 'on' | 'autoConfigure' | 'updateLookup';
 }
 
 export const MongoConnectionConfig = service_types.configFile.DataSourceConfig.and(
@@ -25,7 +27,9 @@ export const MongoConnectionConfig = service_types.configFile.DataSourceConfig.a
     uri: t.string,
     username: t.string.optional(),
     password: t.string.optional(),
-    database: t.string.optional()
+    database: t.string.optional(),
+
+    postImages: t.literal('on').or(t.literal('autoConfigure')).or(t.literal('updateLookup')).optional()
   })
 );
 
@@ -48,10 +52,10 @@ export function normalizeConnectionConfig(options: MongoConnectionConfig): Norma
   const base = normalizeMongoConfig(options);
 
   return {
+    ...base,
     id: options.id ?? 'default',
     tag: options.tag ?? 'default',
-
-    ...base
+    postImages: options.postImages ?? 'updateLookup'
   };
 }
 

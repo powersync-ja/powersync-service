@@ -7,6 +7,7 @@ import { MongoManager } from '../replication/MongoManager.js';
 import { constructAfterRecord, createCheckpoint } from '../replication/MongoRelation.js';
 import * as types from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
+import { CHECKPOINTS_COLLECTION } from '../replication/replication-utils.js';
 
 export class MongoRouteAPIAdapter implements api.RouteAPI {
   protected client: mongo.MongoClient;
@@ -202,7 +203,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
 
         let tables: service_types.TableSchema[] = [];
         for (let collection of collections) {
-          if (['_powersync_checkpoints'].includes(collection.name)) {
+          if ([CHECKPOINTS_COLLECTION].includes(collection.name)) {
             continue;
           }
           if (collection.name.startsWith('system.')) {

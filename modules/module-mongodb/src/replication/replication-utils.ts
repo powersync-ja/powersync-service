@@ -1,5 +1,6 @@
-import * as mongo from 'mongodb';
 import { MongoManager } from './MongoManager.js';
+
+export const CHECKPOINTS_COLLECTION = '_powersync_checkpoints';
 
 export async function checkSourceConfiguration(connectionManager: MongoManager): Promise<void> {
   const db = connectionManager.db;
