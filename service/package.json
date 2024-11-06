@@ -1,6 +1,6 @@
 {
   "name": "@powersync/service-image",
-  "version": "0.5.5",
+  "version": "0.5.7",
   "private": true,
   "license": "FSL-1.1-Apache-2.0",
   "type": "module",
