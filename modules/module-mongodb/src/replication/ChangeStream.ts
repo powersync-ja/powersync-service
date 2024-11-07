@@ -25,7 +25,15 @@ interface InitResult {
   needsInitialSync: boolean;
 }
 
-export class MissingReplicationSlotError extends Error {
+/**
+ * Thrown when the change stream is not valid anymore, and replication
+ * must be restarted.
+ *
+ * Possible reasons:
+ *  * Some change stream documents do not have postImages.
+ *  * startAfter/resumeToken is not valid anymore.
+ */
+export class ChangeStreamInvalidatedError extends Error {
   constructor(message: string) {
     super(message);
   }
@@ -482,6 +490,21 @@ export class ChangeStream {
   }
 
   async streamChanges() {
+    try {
+      await this.streamChangesInternal();
+    } catch (e) {
+      if (
+        e instanceof mongo.MongoServerError &&
+        e.codeName == 'NoMatchingDocument' &&
+        e.errmsg?.includes('post-image was not found')
+      ) {
+        throw new ChangeStreamInvalidatedError(e.errmsg);
+      }
+      throw e;
+    }
+  }
+
+  async streamChangesInternal() {
     // Auto-activate as soon as initial replication is done
     await this.storage.autoActivate();
 

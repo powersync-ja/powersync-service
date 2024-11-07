@@ -402,4 +402,61 @@ bucket_definitions:
 
     expect(data).toMatchObject([]);
   });
+
+  test('postImages - new collection with postImages enabled', async () => {
+    await using context = await ChangeStreamTestContext.open(factory, { postImages: 'autoConfigure' });
+    const { db } = context;
+    await context.updateSyncRules(`
+bucket_definitions:
+  global:
+    data:
+      - SELECT _id as id, description FROM "test_%"`);
+
+    await context.replicateSnapshot();
+
+    await db.createCollection('test_data', {
+      // enabled: true here - everything should work
+      changeStreamPreAndPostImages: { enabled: true }
+    });
+    const collection = db.collection('test_data');
+    const result = await collection.insertOne({ description: 'test1' });
+    const test_id = result.insertedId;
+    await collection.updateOne({ _id: test_id }, { $set: { description: 'test2' } });
+
+    context.startStreaming();
+
+    const data = await context.getBucketData('global[]');
+    expect(data).toMatchObject([
+      putOp('test_data', { id: test_id!.toHexString(), description: 'test1' }),
+      putOp('test_data', { id: test_id!.toHexString(), description: 'test2' })
+    ]);
+  });
+
+  test.only('postImages - new collection with postImages disabled', async () => {
+    await using context = await ChangeStreamTestContext.open(factory, { postImages: 'autoConfigure' });
+    const { db } = context;
+    await context.updateSyncRules(`
+bucket_definitions:
+  global:
+    data:
+      - SELECT _id as id, description FROM "test_data%"`);
+
+    await context.replicateSnapshot();
+
+    await db.createCollection('test_data', {
+      // enabled: false here, but autoConfigure will enable it.
+      // Unfortunately, that is too late, and replication must be restarted.
+      changeStreamPreAndPostImages: { enabled: false }
+    });
+    const collection = db.collection('test_data');
+    const result = await collection.insertOne({ description: 'test1' });
+    const test_id = result.insertedId;
+    await collection.updateOne({ _id: test_id }, { $set: { description: 'test2' } });
+
+    context.startStreaming();
+
+    await expect(() => context.getBucketData('global[]')).rejects.toMatchObject({
+      message: expect.stringContaining('stream was configured to require a post-image for all update events')
+    });
+  });
 }
