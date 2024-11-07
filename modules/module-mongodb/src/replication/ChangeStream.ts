@@ -12,6 +12,7 @@ import {
 } from './MongoRelation.js';
 import { escapeRegExp } from '../utils.js';
 import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
+import { PostImagesOption } from '../types/types.js';
 
 export const ZERO_LSN = '0000000000000000';
 
@@ -79,8 +80,12 @@ export class ChangeStream {
     return this.abort_signal.aborted;
   }
 
-  private get postImages() {
-    return this.connections.options.postImages;
+  private get usePostImages() {
+    return this.connections.options.postImages != PostImagesOption.OFF;
+  }
+
+  private get configurePostImages() {
+    return this.connections.options.postImages == PostImagesOption.AUTO_CONFIGURE;
   }
 
   /**
@@ -228,7 +233,7 @@ export class ChangeStream {
       await this.defaultDb.createCollection(CHECKPOINTS_COLLECTION, {
         changeStreamPreAndPostImages: { enabled: true }
       });
-    } else if (this.postImages != 'updateLookup' && collection.options?.changeStreamPreAndPostImages?.enabled != true) {
+    } else if (this.usePostImages && collection.options?.changeStreamPreAndPostImages?.enabled != true) {
       await this.defaultDb.command({
         collMod: CHECKPOINTS_COLLECTION,
         changeStreamPreAndPostImages: { enabled: true }
@@ -351,14 +356,14 @@ export class ChangeStream {
   }
 
   private async checkPostImages(db: string, collectionInfo: mongo.CollectionInfo) {
-    if (this.postImages == 'updateLookup') {
+    if (!this.usePostImages) {
       // Nothing to check
       return;
     }
 
     const enabled = collectionInfo.options?.changeStreamPreAndPostImages?.enabled == true;
 
-    if (!enabled && this.postImages == 'autoConfigure') {
+    if (!enabled && this.configurePostImages) {
       await this.client.db(db).command({
         collMod: collectionInfo.name,
         changeStreamPreAndPostImages: { enabled: true }
@@ -525,12 +530,13 @@ export class ChangeStream {
 
       let fullDocument: 'required' | 'updateLookup';
 
-      if (this.connections.options.postImages == 'updateLookup') {
-        fullDocument = 'updateLookup';
-      } else {
-        // 'on' or 'autoConfigure'
-        // Configuration happens during snapshot
+      if (this.usePostImages) {
+        // 'read_only' or 'auto_configure'
+        // Configuration happens during snapshot, or when we see new
+        // collections.
         fullDocument = 'required';
+      } else {
+        fullDocument = 'updateLookup';
       }
 
       const streamOptions: mongo.ChangeStreamOptions = {

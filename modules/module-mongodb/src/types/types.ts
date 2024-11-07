@@ -4,6 +4,42 @@ import * as t from 'ts-codec';
 
 export const MONGO_CONNECTION_TYPE = 'mongodb' as const;
 
+export enum PostImagesOption {
+  /**
+   * Use fullDocument: updateLookup on the changeStream.
+   *
+   * This does not guarantee consistency - operations may
+   * arrive out of order, especially when there is replication lag.
+   *
+   * This is the default option for backwards-compatability.
+   */
+  OFF = 'off',
+
+  /**
+   * Use fullDocument: required on the changeStream.
+   *
+   * Collections are automatically configured with:
+   * `changeStreamPreAndPostImages: { enabled: true }`
+   *
+   * This is the recommended behavior for new instances.
+   */
+  AUTO_CONFIGURE = 'auto_configure',
+
+  /**
+   *
+   * Use fullDocument: required on the changeStream.
+   *
+   * Collections are not automatically configured. Each
+   * collection must be configured configured manually before
+   * replicating with:
+   *
+   * `changeStreamPreAndPostImages: { enabled: true }`
+   *
+   * Use when the collMod permission is not available.
+   */
+  READ_ONLY = 'read_only'
+}
+
 export interface NormalizedMongoConnectionConfig {
   id: string;
   tag: string;
@@ -14,7 +50,7 @@ export interface NormalizedMongoConnectionConfig {
   username?: string;
   password?: string;
 
-  postImages: 'on' | 'autoConfigure' | 'updateLookup';
+  postImages: PostImagesOption;
 }
 
 export const MongoConnectionConfig = service_types.configFile.DataSourceConfig.and(
@@ -29,7 +65,7 @@ export const MongoConnectionConfig = service_types.configFile.DataSourceConfig.a
     password: t.string.optional(),
     database: t.string.optional(),
 
-    postImages: t.literal('on').or(t.literal('autoConfigure')).or(t.literal('updateLookup')).optional()
+    post_images: t.literal('off').or(t.literal('auto_configure')).or(t.literal('read_only')).optional()
   })
 );
 
@@ -55,7 +91,7 @@ export function normalizeConnectionConfig(options: MongoConnectionConfig): Norma
     ...base,
     id: options.id ?? 'default',
     tag: options.tag ?? 'default',
-    postImages: options.postImages ?? 'updateLookup'
+    postImages: (options.post_images as PostImagesOption | undefined) ?? PostImagesOption.OFF
   };
 }
 

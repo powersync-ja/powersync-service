@@ -6,6 +6,7 @@ import * as mongo from 'mongodb';
 import { setTimeout } from 'node:timers/promises';
 import { describe, expect, test } from 'vitest';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
+import { PostImagesOption } from '@module/types/types.js';
 
 type StorageFactory = () => Promise<BucketStorageFactory>;
 
@@ -91,7 +92,7 @@ bucket_definitions:
   });
 
   test('updateLookup - no fullDocument available', async () => {
-    await using context = await ChangeStreamTestContext.open(factory, { postImages: 'updateLookup' });
+    await using context = await ChangeStreamTestContext.open(factory, { postImages: PostImagesOption.OFF });
     const { db, client } = context;
     await context.updateSyncRules(`
 bucket_definitions:
@@ -135,7 +136,7 @@ bucket_definitions:
   test('postImages - autoConfigure', async () => {
     // Similar to the above test, but with postImages enabled.
     // This resolves the consistency issue.
-    await using context = await ChangeStreamTestContext.open(factory, { postImages: 'autoConfigure' });
+    await using context = await ChangeStreamTestContext.open(factory, { postImages: PostImagesOption.AUTO_CONFIGURE });
     const { db, client } = context;
     await context.updateSyncRules(`
 bucket_definitions:
@@ -181,7 +182,7 @@ bucket_definitions:
   test('postImages - on', async () => {
     // Similar to postImages - autoConfigure, but does not auto-configure.
     // changeStreamPreAndPostImages must be manually configured.
-    await using context = await ChangeStreamTestContext.open(factory, { postImages: 'on' });
+    await using context = await ChangeStreamTestContext.open(factory, { postImages: PostImagesOption.READ_ONLY });
     const { db, client } = context;
     await context.updateSyncRules(`
 bucket_definitions:
@@ -404,7 +405,7 @@ bucket_definitions:
   });
 
   test('postImages - new collection with postImages enabled', async () => {
-    await using context = await ChangeStreamTestContext.open(factory, { postImages: 'autoConfigure' });
+    await using context = await ChangeStreamTestContext.open(factory, { postImages: PostImagesOption.AUTO_CONFIGURE });
     const { db } = context;
     await context.updateSyncRules(`
 bucket_definitions:
@@ -432,8 +433,8 @@ bucket_definitions:
     ]);
   });
 
-  test.only('postImages - new collection with postImages disabled', async () => {
-    await using context = await ChangeStreamTestContext.open(factory, { postImages: 'autoConfigure' });
+  test('postImages - new collection with postImages disabled', async () => {
+    await using context = await ChangeStreamTestContext.open(factory, { postImages: PostImagesOption.AUTO_CONFIGURE });
     const { db } = context;
     await context.updateSyncRules(`
 bucket_definitions:
