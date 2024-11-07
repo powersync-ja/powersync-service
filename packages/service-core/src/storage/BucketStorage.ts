@@ -472,6 +472,8 @@ export interface CompactOptions {
    * If specified, compact only the specific buckets.
    *
    * If not specified, compacts all buckets.
+   *
+   * These can be individual bucket names, or bucket definition names.
    */
   compactBuckets?: string[];
 }

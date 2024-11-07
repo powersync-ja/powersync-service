@@ -142,11 +142,10 @@ export function validatePort(port: string | number): number {
   if (typeof port == 'string') {
     port = parseInt(port);
   }
-  if (port >= 1024 && port <= 49151) {
-    return port;
-  } else {
+  if (port < 1024) {
     throw new Error(`Port ${port} not supported`);
-  }
+  } 
+  return port;
 }
 
 /**

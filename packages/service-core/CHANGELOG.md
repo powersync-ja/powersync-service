@@ -1,5 +1,20 @@
 # @powersync/service-core
 
+## 0.8.7
+
+### Patch Changes
+
+- 6b72e6c: Improved Postgres connection port restrictions. Connections are now supported on ports >= 1024.
+
+## 0.8.6
+
+### Patch Changes
+
+- 2d3bb6a: Fix "operation exceeded time limit" error
+- 17a6db0: Fix storageStats error in metrics endpoint when collections don't exist.
+- Updated dependencies [0f90b02]
+  - @powersync/service-sync-rules@0.20.0
+
 ## 0.8.5
 
 ### Patch Changes
