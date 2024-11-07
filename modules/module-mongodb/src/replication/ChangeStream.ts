@@ -244,7 +244,10 @@ export class ChangeStream {
       }
 
       if (tablePattern.isWildcard) {
-        $refilters.push({ db: tablePattern.schema, coll: new RegExp('^' + escapeRegExp(tablePattern.tablePrefix)) });
+        $refilters.push({
+          'ns.db': tablePattern.schema,
+          'ns.coll': new RegExp('^' + escapeRegExp(tablePattern.tablePrefix))
+        });
       } else {
         $inFilters.push({
           db: tablePattern.schema,
@@ -284,6 +287,8 @@ export class ChangeStream {
         throw new Error(`Aborted initial replication`);
       }
 
+      at += 1;
+
       const record = constructAfterRecord(document);
 
       // This auto-flushes when the batch reaches its size limit
@@ -303,6 +308,7 @@ export class ChangeStream {
     }
 
     await batch.flush();
+    logger.info(`Replicated ${at} documents for ${table.qualifiedName}`);
   }
 
   private async getRelation(
@@ -503,7 +509,6 @@ export class ChangeStream {
         // Configuration happens during snapshot
         fullDocument = 'required';
       }
-      console.log({ fullDocument });
 
       const streamOptions: mongo.ChangeStreamOptions = {
         startAtOperationTime: startAfter,

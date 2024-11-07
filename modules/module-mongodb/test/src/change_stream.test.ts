@@ -2,10 +2,10 @@ import { putOp, removeOp } from '@core-tests/stream_utils.js';
 import { MONGO_STORAGE_FACTORY } from '@core-tests/util.js';
 import { BucketStorageFactory } from '@powersync/service-core';
 import * as crypto from 'crypto';
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { ChangeStreamTestContext } from './change_stream_utils.js';
 import * as mongo from 'mongodb';
 import { setTimeout } from 'node:timers/promises';
+import { describe, expect, test } from 'vitest';
+import { ChangeStreamTestContext } from './change_stream_utils.js';
 
 type StorageFactory = () => Promise<BucketStorageFactory>;
 
@@ -30,8 +30,8 @@ bucket_definitions:
     data:
       - SELECT _id as id, description, num FROM "test_data"`);
 
-    db.createCollection('test_data', {
-      changeStreamPreAndPostImages: { enabled: true }
+    await db.createCollection('test_data', {
+      changeStreamPreAndPostImages: { enabled: false }
     });
     const collection = db.collection('test_data');
 
@@ -58,6 +58,38 @@ bucket_definitions:
     ]);
   });
 
+  test('replicating wildcard', async () => {
+    await using context = await ChangeStreamTestContext.open(factory);
+    const { db } = context;
+    await context.updateSyncRules(`
+bucket_definitions:
+  global:
+    data:
+      - SELECT _id as id, description, num FROM "test_%"`);
+
+    await db.createCollection('test_data', {
+      changeStreamPreAndPostImages: { enabled: false }
+    });
+    const collection = db.collection('test_data');
+
+    const result = await collection.insertOne({ description: 'test1', num: 1152921504606846976n });
+    const test_id = result.insertedId;
+
+    await context.replicateSnapshot();
+
+    context.startStreaming();
+
+    await setTimeout(30);
+    await collection.updateOne({ _id: test_id }, { $set: { description: 'test2' } });
+
+    const data = await context.getBucketData('global[]');
+
+    expect(data).toMatchObject([
+      putOp('test_data', { id: test_id.toHexString(), description: 'test1', num: 1152921504606846976n }),
+      putOp('test_data', { id: test_id.toHexString(), description: 'test2', num: 1152921504606846976n })
+    ]);
+  });
+
   test('updateLookup - no fullDocument available', async () => {
     await using context = await ChangeStreamTestContext.open(factory, { postImages: 'updateLookup' });
     const { db, client } = context;
@@ -67,13 +99,12 @@ bucket_definitions:
     data:
       - SELECT _id as id, description, num FROM "test_data"`);
 
-    db.createCollection('test_data', {
+    await db.createCollection('test_data', {
       changeStreamPreAndPostImages: { enabled: false }
     });
     const collection = db.collection('test_data');
 
     await context.replicateSnapshot();
-
     context.startStreaming();
 
     const session = client.startSession();
@@ -112,7 +143,7 @@ bucket_definitions:
     data:
       - SELECT _id as id, description, num FROM "test_data"`);
 
-    db.createCollection('test_data', {
+    await db.createCollection('test_data', {
       // enabled: false here, but autoConfigure will enable it.
       changeStreamPreAndPostImages: { enabled: false }
     });
@@ -158,7 +189,7 @@ bucket_definitions:
     data:
       - SELECT _id as id, description, num FROM "test_data"`);
 
-    db.createCollection('test_data', {
+    await db.createCollection('test_data', {
       changeStreamPreAndPostImages: { enabled: true }
     });
     const collection = db.collection('test_data');
@@ -355,7 +386,7 @@ bucket_definitions:
     });
   });
 
-  test('table not in sync rules', async () => {
+  test('collection not in sync rules', async () => {
     await using context = await ChangeStreamTestContext.open(factory);
     const { db } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
