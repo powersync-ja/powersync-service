@@ -7,35 +7,25 @@ import { ChangeStream, ChangeStreamOptions } from '@module/replication/ChangeStr
 import * as mongo from 'mongodb';
 import { createCheckpoint } from '@module/replication/MongoRelation.js';
 
-/**
- * Tests operating on the mongo change stream need to configure the stream and manage asynchronous
- * replication, which gets a little tricky.
- *
- * This wraps a test in a function that configures all the context, and tears it down afterwards.
- */
-export function changeStreamTest(
-  factory: () => Promise<BucketStorageFactory>,
-  test: (context: ChangeStreamTestContext) => Promise<void>
-): () => Promise<void> {
-  return async () => {
-    const f = await factory();
-    const connectionManager = new MongoManager(TEST_CONNECTION_OPTIONS);
-
-    await clearTestDb(connectionManager.db);
-    const context = new ChangeStreamTestContext(f, connectionManager);
-    try {
-      await test(context);
-    } finally {
-      await context.dispose();
-    }
-  };
-}
-
 export class ChangeStreamTestContext {
   private _walStream?: ChangeStream;
   private abortController = new AbortController();
   private streamPromise?: Promise<void>;
   public storage?: SyncRulesBucketStorage;
+
+  /**
+   * Tests operating on the mongo change stream need to configure the stream and manage asynchronous
+   * replication, which gets a little tricky.
+   *
+   * This configures all the context, and tears it down afterwards.
+   */
+  static async open(factory: () => Promise<BucketStorageFactory>) {
+    const f = await factory();
+    const connectionManager = new MongoManager(TEST_CONNECTION_OPTIONS);
+
+    await clearTestDb(connectionManager.db);
+    return new ChangeStreamTestContext(f, connectionManager);
+  }
 
   constructor(
     public factory: BucketStorageFactory,
@@ -46,6 +36,10 @@ export class ChangeStreamTestContext {
     this.abortController.abort();
     await this.streamPromise?.catch((e) => e);
     await this.connectionManager.destroy();
+  }
+
+  async [Symbol.asyncDispose]() {
+    await this.dispose();
   }
 
   get client() {
