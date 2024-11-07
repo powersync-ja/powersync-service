@@ -16,13 +16,9 @@ bucket_definitions:
       - SELECT _id as id, description FROM "test_data"
 `;
 
-describe(
-  'change stream - mongodb',
-  function () {
-    defineChangeStreamTests(MONGO_STORAGE_FACTORY);
-  },
-  { timeout: 20_000 }
-);
+describe('change stream - mongodb', { timeout: 20_000 }, function () {
+  defineChangeStreamTests(MONGO_STORAGE_FACTORY);
+});
 
 function defineChangeStreamTests(factory: StorageFactory) {
   test(
@@ -46,11 +42,11 @@ bucket_definitions:
 
       const result = await collection.insertOne({ description: 'test1', num: 1152921504606846976n });
       const test_id = result.insertedId;
-      await setTimeout(10);
+      await setTimeout(30);
       await collection.updateOne({ _id: test_id }, { $set: { description: 'test2' } });
-      await setTimeout(10);
+      await setTimeout(30);
       await collection.replaceOne({ _id: test_id }, { description: 'test3' });
-      await setTimeout(10);
+      await setTimeout(30);
       await collection.deleteOne({ _id: test_id });
 
       const data = await context.getBucketData('global[]');
@@ -213,7 +209,6 @@ bucket_definitions:
       await context.replicateSnapshot();
       context.startStreaming();
 
-      console.log('insert1', db.databaseName);
       const collection = db.collection('test_data1');
       const result = await collection.insertOne({ description: 'test1' });
       const test_id = result.insertedId.toHexString();
