@@ -2,7 +2,7 @@ import { putOp, removeOp } from '@core-tests/stream_utils.js';
 import { MONGO_STORAGE_FACTORY } from '@core-tests/util.js';
 import { BucketStorageFactory } from '@powersync/service-core';
 import * as crypto from 'crypto';
-import { describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
 import * as mongo from 'mongodb';
 import { setTimeout } from 'node:timers/promises';
@@ -58,8 +58,8 @@ bucket_definitions:
     ]);
   });
 
-  test('no fullDocument available', async () => {
-    await using context = await ChangeStreamTestContext.open(factory);
+  test('updateLookup - no fullDocument available', async () => {
+    await using context = await ChangeStreamTestContext.open(factory, { postImages: 'updateLookup' });
     const { db, client } = context;
     await context.updateSyncRules(`
 bucket_definitions:
@@ -96,6 +96,97 @@ bucket_definitions:
       putOp('test_data', { id: test_id!.toHexString(), description: 'test1', num: 1152921504606846976n }),
       // fullDocument is not available at the point this is replicated, resulting in it treated as a remove
       removeOp('test_data', test_id!.toHexString()),
+      putOp('test_data', { id: test_id!.toHexString(), description: 'test3' }),
+      removeOp('test_data', test_id!.toHexString())
+    ]);
+  });
+
+  test('postImages - autoConfigure', async () => {
+    // Similar to the above test, but with postImages enabled.
+    // This resolves the consistency issue.
+    await using context = await ChangeStreamTestContext.open(factory, { postImages: 'autoConfigure' });
+    const { db, client } = context;
+    await context.updateSyncRules(`
+bucket_definitions:
+  global:
+    data:
+      - SELECT _id as id, description, num FROM "test_data"`);
+
+    db.createCollection('test_data', {
+      // enabled: false here, but autoConfigure will enable it.
+      changeStreamPreAndPostImages: { enabled: false }
+    });
+    const collection = db.collection('test_data');
+
+    await context.replicateSnapshot();
+
+    context.startStreaming();
+
+    const session = client.startSession();
+    let test_id: mongo.ObjectId | undefined;
+    try {
+      await session.withTransaction(async () => {
+        const result = await collection.insertOne({ description: 'test1', num: 1152921504606846976n }, { session });
+        test_id = result.insertedId;
+        await collection.updateOne({ _id: test_id }, { $set: { description: 'test2' } }, { session });
+        await collection.replaceOne({ _id: test_id }, { description: 'test3' }, { session });
+        await collection.deleteOne({ _id: test_id }, { session });
+      });
+    } finally {
+      await session.endSession();
+    }
+
+    const data = await context.getBucketData('global[]');
+
+    expect(data).toMatchObject([
+      putOp('test_data', { id: test_id!.toHexString(), description: 'test1', num: 1152921504606846976n }),
+      // The postImage helps us get this data
+      putOp('test_data', { id: test_id!.toHexString(), description: 'test2', num: 1152921504606846976n }),
+      putOp('test_data', { id: test_id!.toHexString(), description: 'test3' }),
+      removeOp('test_data', test_id!.toHexString())
+    ]);
+  });
+
+  test('postImages - on', async () => {
+    // Similar to postImages - autoConfigure, but does not auto-configure.
+    // changeStreamPreAndPostImages must be manually configured.
+    await using context = await ChangeStreamTestContext.open(factory, { postImages: 'on' });
+    const { db, client } = context;
+    await context.updateSyncRules(`
+bucket_definitions:
+  global:
+    data:
+      - SELECT _id as id, description, num FROM "test_data"`);
+
+    db.createCollection('test_data', {
+      changeStreamPreAndPostImages: { enabled: true }
+    });
+    const collection = db.collection('test_data');
+
+    await context.replicateSnapshot();
+
+    context.startStreaming();
+
+    const session = client.startSession();
+    let test_id: mongo.ObjectId | undefined;
+    try {
+      await session.withTransaction(async () => {
+        const result = await collection.insertOne({ description: 'test1', num: 1152921504606846976n }, { session });
+        test_id = result.insertedId;
+        await collection.updateOne({ _id: test_id }, { $set: { description: 'test2' } }, { session });
+        await collection.replaceOne({ _id: test_id }, { description: 'test3' }, { session });
+        await collection.deleteOne({ _id: test_id }, { session });
+      });
+    } finally {
+      await session.endSession();
+    }
+
+    const data = await context.getBucketData('global[]');
+
+    expect(data).toMatchObject([
+      putOp('test_data', { id: test_id!.toHexString(), description: 'test1', num: 1152921504606846976n }),
+      // The postImage helps us get this data
+      putOp('test_data', { id: test_id!.toHexString(), description: 'test2', num: 1152921504606846976n }),
       putOp('test_data', { id: test_id!.toHexString(), description: 'test3' }),
       removeOp('test_data', test_id!.toHexString())
     ]);

@@ -6,6 +6,7 @@ import { MongoManager } from '@module/replication/MongoManager.js';
 import { ChangeStream, ChangeStreamOptions } from '@module/replication/ChangeStream.js';
 import * as mongo from 'mongodb';
 import { createCheckpoint } from '@module/replication/MongoRelation.js';
+import { NormalizedMongoConnectionConfig } from '@module/types/types.js';
 
 export class ChangeStreamTestContext {
   private _walStream?: ChangeStream;
@@ -19,9 +20,9 @@ export class ChangeStreamTestContext {
    *
    * This configures all the context, and tears it down afterwards.
    */
-  static async open(factory: () => Promise<BucketStorageFactory>) {
+  static async open(factory: () => Promise<BucketStorageFactory>, options?: Partial<NormalizedMongoConnectionConfig>) {
     const f = await factory();
-    const connectionManager = new MongoManager(TEST_CONNECTION_OPTIONS);
+    const connectionManager = new MongoManager({ ...TEST_CONNECTION_OPTIONS, ...options });
 
     await clearTestDb(connectionManager.db);
     return new ChangeStreamTestContext(f, connectionManager);
