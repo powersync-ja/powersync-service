@@ -11,7 +11,7 @@ import { toExpressionTypeFromMySQLType } from '../common/common-index.js';
 type SchemaResult = {
   schema_name: string;
   table_name: string;
-  columns: Array<{ data_type: string; column_name: string }>;
+  columns: string;
 };
 
 export class MySQLRouteAPIAdapter implements api.RouteAPI {
@@ -326,16 +326,18 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
             name: result.schema_name,
             tables: []
           });
+ 
+        const columns = JSON.parse(result.columns).map((column: { data_type: string; column_name: string }) => ({
+          name: column.column_name,
+          type: column.data_type,
+          sqlite_type: toExpressionTypeFromMySQLType(column.data_type).typeFlags,
+          internal_type: column.data_type,
+          pg_type: column.data_type
+        }));
 
         schema.tables.push({
           name: result.table_name,
-          columns: result.columns.map((column) => ({
-            name: column.column_name,
-            type: column.data_type,
-            sqlite_type: toExpressionTypeFromMySQLType(column.data_type).typeFlags,
-            internal_type: column.data_type,
-            pg_type: column.data_type
-          }))
+          columns: columns
         });
 
         return hash;
