@@ -1,6 +1,5 @@
 import { container, router } from "@powersync/lib-services-framework";
 import { routeDefinition } from "../router.js";
-import { authUser } from "../auth.js";
 
 export enum ProbeRoutes {
   STARTUP = '/probes/startup',
@@ -30,8 +29,7 @@ export const livenessCheck = routeDefinition({
     const state = container.probes.state();
 
     const timeDifference = Date.now() - state.touched_at.getTime()
-    const status = timeDifference > 10000 ? 400 : 200;
-    console.log(status)
+    const status = timeDifference < 10000 ? 200 : 400;
 
     return new router.RouterResponse({
       status,
