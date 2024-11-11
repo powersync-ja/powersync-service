@@ -167,7 +167,11 @@ export class TableValuedFunctionSqlParameterQuery {
       Object.values(this.parameter_extractors).find(
         (clause) => isParameterValueClause(clause) && clause.usesAuthenticatedRequestParameters
       ) != null;
-    return authenticatedExtractor;
+
+    // select value from json_each(request.jwt() ->> 'project_ids')
+    const authenticatedArgument = this.callClause?.usesAuthenticatedRequestParameters ?? false;
+
+    return authenticatedExtractor || authenticatedArgument;
   }
 
   get usesUnauthenticatedRequestParameters(): boolean {
@@ -180,7 +184,10 @@ export class TableValuedFunctionSqlParameterQuery {
         (clause) => isParameterValueClause(clause) && clause.usesUnauthenticatedRequestParameters
       ) != null;
 
-    return unauthenticatedFilter || unauthenticatedExtractor;
+    // select value from json_each(request.parameters() ->> 'project_ids')
+    const unauthenticatedArgument = this.callClause?.usesUnauthenticatedRequestParameters ?? false;
+
+    return unauthenticatedFilter || unauthenticatedExtractor || unauthenticatedArgument;
   }
 
   get usesDangerousRequestParameters() {
