@@ -153,6 +153,19 @@ describe('static parameter queries', () => {
     ]);
   });
 
+  test.only('array parameters', function () {
+    const sql = "SELECT json_each.value as v FROM json_each(request.parameters() -> 'array')";
+    const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    expect(query.bucket_parameters).toEqual(['v']);
+
+    expect(query.getStaticBucketIds(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }))).toEqual([
+      'mybucket[1]',
+      'mybucket[2]',
+      'mybucket[3]'
+    ]);
+  });
+
   describe('dangerous queries', function () {
     function testDangerousQuery(sql: string) {
       test(sql, function () {

@@ -73,7 +73,21 @@ export interface RequestJwtPayload {
   [key: string]: any;
 }
 
-export class RequestParameters {
+export interface ParameterValueSet {
+  lookup(table: string, column: string): SqliteJsonValue /**
+   * JSON string of raw request parameters.
+   */;
+  raw_user_parameters: string;
+
+  /**
+   * JSON string of raw request parameters.
+   */
+  raw_token_payload: string;
+
+  user_id: string;
+}
+
+export class RequestParameters implements ParameterValueSet {
   token_parameters: SqliteJsonRow;
   user_parameters: SqliteJsonRow;
 
@@ -105,6 +119,15 @@ export class RequestParameters {
 
     this.raw_user_parameters = JSONBig.stringify(clientParameters);
     this.user_parameters = toSyncRulesParameters(clientParameters);
+  }
+
+  lookup(table: string, column: string): SqliteJsonValue {
+    if (table == 'token_parameters') {
+      return this.token_parameters[column];
+    } else if (table == 'user_parameters') {
+      return this.user_parameters[column];
+    }
+    throw new Error(`Unknown table: ${table}`);
   }
 }
 
@@ -200,7 +223,7 @@ export interface InputParameter {
    *
    * Only relevant for parameter queries.
    */
-  parametersToLookupValue(parameters: RequestParameters): SqliteValue;
+  parametersToLookupValue(parameters: ParameterValueSet): SqliteValue;
 }
 
 export interface EvaluateRowOptions {
@@ -276,7 +299,7 @@ export interface ParameterValueClause {
    *
    * Only relevant for parameter queries.
    */
-  lookupParameterValue(parameters: RequestParameters): SqliteValue;
+  lookupParameterValue(parameters: ParameterValueSet): SqliteValue;
 }
 
 export interface QuerySchema {

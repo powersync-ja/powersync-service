@@ -590,8 +590,7 @@ export class SqlTools {
     return {
       key: `${table}.${column}`,
       lookupParameterValue: (parameters) => {
-        const pt: SqliteJsonRow | undefined = (parameters as any)[table];
-        return pt?.[column] ?? null;
+        return parameters.lookup(table, column);
       },
       usesAuthenticatedRequestParameters: table == 'token_parameters',
       usesUnauthenticatedRequestParameters: table == 'user_parameters'
