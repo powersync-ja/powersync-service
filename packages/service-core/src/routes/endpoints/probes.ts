@@ -11,7 +11,6 @@ export enum ProbeRoutes {
 export const startupCheck = routeDefinition({
   path: ProbeRoutes.STARTUP,
   method: router.HTTPMethod.GET,
-  authorize: authUser,
   handler: async () => {
     const state = container.probes.state();
 
@@ -27,12 +26,15 @@ export const startupCheck = routeDefinition({
 export const livenessCheck = routeDefinition({
   path: ProbeRoutes.LIVENESS,
   method: router.HTTPMethod.GET,
-  authorize: authUser,
   handler: async () => {
     const state = container.probes.state();
 
+    const timeDifference = Date.now() - state.touched_at.getTime()
+    const status = timeDifference > 10000 ? 400 : 200;
+    console.log(status)
+
     return new router.RouterResponse({
-      status: Date.now() - state.touched_at.getTime() > 10000 ? 200 : 400,
+      status,
       data: {
         ...state,
       }
@@ -43,7 +45,6 @@ export const livenessCheck = routeDefinition({
 export const readinessCheck = routeDefinition({
   path: ProbeRoutes.READINESS,
   method: router.HTTPMethod.GET,
-  authorize: authUser,
   handler: async () => {
     const state = container.probes.state();
 

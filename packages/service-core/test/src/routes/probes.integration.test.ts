@@ -15,7 +15,7 @@ vi.mock("@powersync/lib-services-framework", async () => {
       probes: {
         state: vi.fn()
       }
-    }
+    },
   }
 })
 
@@ -34,17 +34,14 @@ describe('Probe Routes Integration', () => {
     await app.close();
   });
 
-  describe.only('Startup Probe', () => {
+  describe('Startup Probe', () => {
     it('returns 200 when system is started', async () => {
       const mockState = {
         started: true,
         ready: true,
         touched_at: new Date()
       };
-      vi.spyOn(auth, 'authorizeUser').mockResolvedValue({ authorized: true });
-      vi.spyOn(auth, 'authApi').mockResolvedValue({ authorized: true });
       vi.spyOn(auth, 'authUser').mockResolvedValue({ authorized: true });
-      vi.spyOn(auth, 'authDevUser').mockResolvedValue({ authorized: true });
       vi.mocked(container.probes.state).mockReturnValue(mockState);
 
       const response = await app.inject({
@@ -53,7 +50,10 @@ describe('Probe Routes Integration', () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(JSON.parse(response.payload)).toEqual(mockState);
+      expect(JSON.parse(response.payload)).toEqual({
+        ...mockState,
+        touched_at: mockState.touched_at.toISOString()
+      });
     });
 
     it('returns 400 when system is not started', async () => {
@@ -71,7 +71,10 @@ describe('Probe Routes Integration', () => {
       });
 
       expect(response.statusCode).toBe(400);
-      expect(JSON.parse(response.payload)).toEqual(mockState);
+      expect(JSON.parse(response.payload)).toEqual({
+        ...mockState,
+        touched_at: mockState.touched_at.toISOString()
+      });
     });
   });
 
@@ -91,7 +94,10 @@ describe('Probe Routes Integration', () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(JSON.parse(response.payload)).toEqual(mockState);
+      expect(JSON.parse(response.payload)).toEqual({
+        ...mockState,
+        touched_at: mockState.touched_at.toISOString()
+      });
     });
 
     it('returns 400 when system has not been touched recently', async () => {
@@ -109,7 +115,10 @@ describe('Probe Routes Integration', () => {
       });
 
       expect(response.statusCode).toBe(400);
-      expect(JSON.parse(response.payload)).toEqual(mockState);
+      expect(JSON.parse(response.payload)).toEqual({
+        ...mockState,
+        touched_at: mockState.touched_at.toISOString()
+      });
     });
   });
 
@@ -129,7 +138,10 @@ describe('Probe Routes Integration', () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(JSON.parse(response.payload)).toEqual(mockState);
+      expect(JSON.parse(response.payload)).toEqual({
+        ...mockState,
+        touched_at: mockState.touched_at.toISOString()
+      });
     });
 
     it('returns 400 when system is not ready', async () => {
@@ -147,7 +159,10 @@ describe('Probe Routes Integration', () => {
       });
 
       expect(response.statusCode).toBe(400);
-      expect(JSON.parse(response.payload)).toEqual(mockState);
+      expect(JSON.parse(response.payload)).toEqual({
+        ...mockState,
+        touched_at: mockState.touched_at.toISOString()
+      });
     });
   });
 
@@ -169,7 +184,10 @@ describe('Probe Routes Integration', () => {
       // All requests should complete successfully
       responses.forEach(response => {
         expect(response.statusCode).toBe(200);
-        expect(JSON.parse(response.payload)).toEqual(mockState);
+        expect(JSON.parse(response.payload)).toEqual({
+          ...mockState,
+          touched_at: mockState.touched_at.toISOString()
+        });
       });
     });
 

@@ -83,11 +83,11 @@ describe('Probe Routes', () => {
       expect(livenessCheck.method).toBe('GET');
     });
 
-    it('returns 200 when last touch was more than 10 seconds ago', async () => {
+    it('returns 200 when last touch was less than 10 seconds ago', async () => {
       const mockState = {
         started: true,
         ready: true,
-        touched_at: new Date(Date.now() - 11000) // 11 seconds ago
+        touched_at: new Date(Date.now() - 9000) // 11 seconds ago
       };
 
       vi.mocked(container.probes.state).mockReturnValue(mockState);
@@ -98,11 +98,11 @@ describe('Probe Routes', () => {
       expect(response.data).toEqual(mockState);
     });
 
-    it('returns 400 when last touch was less than 10 seconds ago', async () => {
+    it('returns 400 when last touch was more than 10 seconds ago', async () => {
       const mockState = {
         started: true,
         ready: true,
-        touched_at: new Date(Date.now() - 5000)
+        touched_at: new Date(Date.now() - 11000)
       };
 
       vi.mocked(container.probes.state).mockReturnValue(mockState);
