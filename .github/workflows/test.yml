@@ -167,7 +167,8 @@ jobs:
           -d mysql:${{ matrix.mysql-version }} \
           --log-bin=/var/lib/mysql/mysql-bin.log \
           --gtid_mode=ON \
-          --enforce_gtid_consistency=ON
+          --enforce_gtid_consistency=ON \
+          --server-id=1
 
       - name: Start MongoDB
         uses: supercharge/mongodb-github-action@1.8.0
