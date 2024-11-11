@@ -607,14 +607,14 @@ export class SqlTools {
    *
    * Only "value" tables are supported here, not parameter values.
    */
-  getTableName(ref: ExprRef) {
+  getTableName(ref: ExprRef): string {
     if (this.refHasSchema(ref)) {
       throw new SqlRuleError(`Specifying schema in column references is not supported`, this.sql, ref);
     }
     const tableName = ref.table?.name ?? this.default_table;
     if (this.value_tables.includes(tableName ?? '')) {
-      return ref.table!.name;
-    } else if (tableName == null) {
+      return tableName!;
+    } else if (ref.table?.name == null) {
       throw new SqlRuleError(`Table name required`, this.sql, ref);
     } else {
       throw new SqlRuleError(`Undefined table ${tableName}`, this.sql, ref);
