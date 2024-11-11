@@ -58,7 +58,6 @@ export class SqlParameterQuery {
 
     rows.errors.push(...checkUnsupportedFeatures(sql, q));
 
-    console.log(q.from);
     if (q.from.length != 1) {
       throw new SqlRuleError('Must SELECT from a single table', sql, q.from?.[0]._location);
     } else if (q.from[0].type == 'call') {

@@ -14,7 +14,9 @@ export const JSON_EACH: TableValuedFunction = {
       throw new Error(`json_each expects 1 argument, got ${args.length}`);
     }
     const valueString = args[0];
-    if (typeof valueString !== 'string') {
+    if (valueString === null) {
+      return [];
+    } else if (typeof valueString !== 'string') {
       throw new Error(`Expected json_each to be called with a string, got ${valueString}`);
     }
     let values: SqliteJsonValue[] = [];

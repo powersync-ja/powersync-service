@@ -14,9 +14,13 @@ import {
 import { getBucketId, isJsonValue } from './utils.js';
 
 /**
- * Represents using the special json_each call:
+ * Represents a parameter query using a table-valued function.
+ *
+ * Right now this only supports json_each:
  *
  *    SELECT json_each.value as v FROM json_each(request.parameters() -> 'array')
+ *
+ * This can currently not be combined with parameter table queries or multiple table-valued functions.
  */
 export class TableValuedFunctionSqlParameterQuery {
   static fromSql(
@@ -39,7 +43,7 @@ export class TableValuedFunctionSqlParameterQuery {
     const callExpression = call.args[0];
 
     const tools = new SqlTools({
-      table: undefined,
+      table: callTable,
       parameter_tables: ['token_parameters', 'user_parameters', callTable],
       supports_parameter_expressions: true,
       sql
@@ -57,6 +61,7 @@ export class TableValuedFunctionSqlParameterQuery {
     query.columns = columns;
     query.tools = tools;
     query.function = TABLE_VALUED_FUNCTIONS[call.function.name]!;
+    query.callTableName = callTable;
     if (!isClauseError(callClause)) {
       query.callClause = callClause;
     }
@@ -102,6 +107,7 @@ export class TableValuedFunctionSqlParameterQuery {
   filter?: ParameterValueClause;
   callClause?: ParameterValueClause;
   function?: TableValuedFunction;
+  callTableName?: string;
 
   errors: SqlRuleError[] = [];
 
@@ -126,7 +132,7 @@ export class TableValuedFunctionSqlParameterQuery {
       raw_user_parameters: parameters.raw_user_parameters,
       user_id: parameters.user_id,
       lookup: (table, column) => {
-        if (table == this.function!.name) {
+        if (table == this.callTableName) {
           return row[column]!;
         } else {
           return parameters.lookup(table, column);
@@ -144,9 +150,7 @@ export class TableValuedFunctionSqlParameterQuery {
       if (isJsonValue(value)) {
         result[`bucket.${name}`] = value;
       } else {
-        // Not valid.
-        // Should we error instead?
-        return [];
+        throw new Error(`Invalid parameter value: ${value}`);
       }
     }
 
