@@ -2,6 +2,7 @@ import { logger } from '@powersync/lib-services-framework';
 import mysql from 'mysql2';
 import mysqlPromise from 'mysql2/promise';
 import * as types from '../types/types.js';
+import { coerce, gte } from 'semver';
 
 export type RetriedQueryOptions = {
   connection: mysqlPromise.Connection;
@@ -59,4 +60,25 @@ export function createPool(config: types.NormalizedMySQLConnectionConfig, option
  */
 export function createRandomServerId(syncRuleId: number): number {
   return Number.parseInt(`${syncRuleId}00${Math.floor(Math.random() * 10000)}`);
+}
+
+export async function getMySQLVersion(connection: mysqlPromise.Connection): Promise<string> {
+  const [[versionResult]] = await retriedQuery({
+    connection,
+    query: `SELECT VERSION() as version`
+  });
+
+  return versionResult.version as string;
+}
+
+/**
+ *  Check if the current MySQL version is newer or equal to the target version.
+ *  @param version
+ *  @param minimumVersion
+ */
+export function isVersionAtLeast(version: string, minimumVersion: string): boolean {
+  const coercedVersion = coerce(version);
+  const coercedMinimumVersion = coerce(minimumVersion);
+
+  return gte(coercedVersion!, coercedMinimumVersion!, { loose: true });
 }

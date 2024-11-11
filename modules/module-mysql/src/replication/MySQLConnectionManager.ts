@@ -1,7 +1,7 @@
 import { NormalizedMySQLConnectionConfig } from '../types/types.js';
 import mysqlPromise from 'mysql2/promise';
 import mysql, { FieldPacket, RowDataPacket } from 'mysql2';
-import * as mysql_utils from '../utils/mysql_utils.js';
+import * as mysql_utils from '../utils/mysql-utils.js';
 import ZongJi from '@powersync/mysql-zongji';
 import { logger } from '@powersync/lib-services-framework';
 
