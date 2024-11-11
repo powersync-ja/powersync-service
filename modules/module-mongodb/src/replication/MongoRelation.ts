@@ -121,9 +121,9 @@ function filterJsonData(data: any, depth = 0): any {
   } else if (data instanceof mongo.Decimal128) {
     return data.toString();
   } else if (data instanceof mongo.MinKey || data instanceof mongo.MaxKey) {
-    return data._bsontype;
-  } else if (data instanceof mongo.BSONRegExp) {
-    return JSON.stringify({ pattern: data.pattern, options: data.options });
+    return null;
+  } else if (data instanceof RegExp) {
+    return { pattern: data.source, options: data.flags };
   } else if (Array.isArray(data)) {
     return data.map((element) => filterJsonData(element, depth + 1));
   } else if (ArrayBuffer.isView(data)) {
