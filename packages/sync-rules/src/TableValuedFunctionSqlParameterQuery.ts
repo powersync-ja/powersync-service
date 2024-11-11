@@ -2,12 +2,14 @@ import { FromCall, SelectedColumn, SelectFromStatement } from 'pgsql-ast-parser'
 import { SqlRuleError } from './errors.js';
 import { SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, isParameterValueClause, sqliteBool } from './sql_support.js';
+import { TABLE_VALUED_FUNCTIONS, TableValuedFunction } from './TableValuedFunctions.js';
 import {
   ParameterValueClause,
   ParameterValueSet,
   QueryParseOptions,
   RequestParameters,
-  SqliteJsonValue
+  SqliteJsonValue,
+  SqliteRow
 } from './types.js';
 import { getBucketId, isJsonValue } from './utils.js';
 
@@ -16,25 +18,20 @@ import { getBucketId, isJsonValue } from './utils.js';
  *
  *    SELECT json_each.value as v FROM json_each(request.parameters() -> 'array')
  */
-export class StaticArraySqlParameterQuery {
+export class TableValuedFunctionSqlParameterQuery {
   static fromSql(
     descriptor_name: string,
     sql: string,
     call: FromCall,
     q: SelectFromStatement,
     options?: QueryParseOptions
-  ): StaticArraySqlParameterQuery {
-    const query = new StaticArraySqlParameterQuery();
+  ): TableValuedFunctionSqlParameterQuery {
+    const query = new TableValuedFunctionSqlParameterQuery();
 
     query.errors.push(...checkUnsupportedFeatures(sql, q));
 
-    if (call.function.name != 'json_each') {
-      query.errors.push(new SqlRuleError(`Table-valued function ${call.function.name} is not supported.`, sql, call));
-      return query;
-    }
-
-    if (call.args.length !== 1) {
-      query.errors.push(new SqlRuleError(`json_each needs exactly 1 argument`, sql, call));
+    if (!(call.function.name in TABLE_VALUED_FUNCTIONS)) {
+      query.errors.push(new SqlRuleError(`Table-valued function ${call.function.name} is not defined.`, sql, call));
       return query;
     }
 
@@ -59,6 +56,7 @@ export class StaticArraySqlParameterQuery {
     query.bucket_parameters = bucket_parameters;
     query.columns = columns;
     query.tools = tools;
+    query.function = TABLE_VALUED_FUNCTIONS[call.function.name]!;
     if (!isClauseError(callClause)) {
       query.callClause = callClause;
     }
@@ -103,6 +101,7 @@ export class StaticArraySqlParameterQuery {
 
   filter?: ParameterValueClause;
   callClause?: ParameterValueClause;
+  function?: TableValuedFunction;
 
   errors: SqlRuleError[] = [];
 
@@ -111,38 +110,24 @@ export class StaticArraySqlParameterQuery {
       // Error in filter clause
       return [];
     }
-    const valueString = this.callClause.lookupParameterValue(parameters);
-    if (typeof valueString != 'string') {
-      throw new Error('Expected JSON string');
-    }
-    let values: SqliteJsonValue[] = [];
-    try {
-      values = JSON.parse(valueString);
-    } catch (e) {
-      throw new Error('Expected JSON string');
-    }
-    if (!Array.isArray(values)) {
-      throw new Error('Expected an array');
-    }
 
+    const valueString = this.callClause.lookupParameterValue(parameters);
+    const rows = this.function!.call([valueString]);
     let total: string[] = [];
-    for (let value of values) {
-      total.push(...this.getIndividualBucketIds(value, parameters));
+    for (let row of rows) {
+      total.push(...this.getIndividualBucketIds(row, parameters));
     }
     return total;
   }
 
-  private getIndividualBucketIds(value: SqliteJsonValue, parameters: RequestParameters): string[] {
+  private getIndividualBucketIds(row: SqliteRow, parameters: RequestParameters): string[] {
     const mergedParams: ParameterValueSet = {
       raw_token_payload: parameters.raw_token_payload,
       raw_user_parameters: parameters.raw_user_parameters,
       user_id: parameters.user_id,
       lookup: (table, column) => {
-        console.log('lookup', table, column);
-        if (table == 'json_each' && column == 'value') {
-          return value;
-        } else if (table == 'json_each') {
-          return null;
+        if (table == this.function!.name) {
+          return row[column]!;
         } else {
           return parameters.lookup(table, column);
         }
@@ -156,7 +141,6 @@ export class StaticArraySqlParameterQuery {
     let result: Record<string, SqliteJsonValue> = {};
     for (let name of this.bucket_parameters!) {
       const value = this.parameter_extractors[name].lookupParameterValue(mergedParams);
-      console.log('extract', name, value);
       if (isJsonValue(value)) {
         result[`bucket.${name}`] = value;
       } else {

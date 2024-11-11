@@ -1,5 +1,5 @@
 import { ExpressionType } from './ExpressionType.js';
-import { RequestParameters, SqliteValue, ParameterValueSet } from './types.js';
+import { ParameterValueSet, SqliteValue } from './types.js';
 
 export interface SqlParameterFunction {
   readonly debugName: string;

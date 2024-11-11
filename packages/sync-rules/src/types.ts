@@ -74,9 +74,11 @@ export interface RequestJwtPayload {
 }
 
 export interface ParameterValueSet {
-  lookup(table: string, column: string): SqliteJsonValue /**
+  lookup(table: string, column: string): SqliteValue;
+
+  /**
    * JSON string of raw request parameters.
-   */;
+   */
   raw_user_parameters: string;
 
   /**
