@@ -1,6 +1,6 @@
 import mysql from 'mysql2/promise';
 import * as uuid from 'uuid';
-import * as mysql_utils from '../utils/mysql_utils.js';
+import * as mysql_utils from '../utils/mysql-utils.js';
 
 export type BinLogPosition = {
   filename: string;

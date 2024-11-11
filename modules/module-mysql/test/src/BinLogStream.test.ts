@@ -3,6 +3,7 @@ import { MONGO_STORAGE_FACTORY } from '@core-tests/util.js';
 import { BucketStorageFactory, Metrics } from '@powersync/service-core';
 import { describe, expect, test } from 'vitest';
 import { binlogStreamTest } from './BinlogStreamUtils.js';
+import { v4 as uuid } from 'uuid';
 
 type StorageFactory = () => Promise<BucketStorageFactory>;
 
@@ -32,9 +33,7 @@ function defineBinlogStreamTests(factory: StorageFactory) {
       data:
         - SELECT id, description, num FROM "test_data"`);
 
-      await connectionManager.query(
-        `CREATE TABLE test_data (id CHAR(36) PRIMARY KEY DEFAULT (UUID()), description TEXT, num BIGINT)`
-      );
+      await connectionManager.query(`CREATE TABLE test_data (id CHAR(36) PRIMARY KEY, description TEXT, num BIGINT)`);
 
       await context.replicateSnapshot();
 
@@ -44,11 +43,10 @@ function defineBinlogStreamTests(factory: StorageFactory) {
         (await Metrics.getInstance().getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
 
       context.startStreaming();
-      await connectionManager.query(`INSERT INTO test_data(description, num) VALUES('test1', 1152921504606846976)`);
-      const [[result]] = await connectionManager.query(
-        `SELECT id AS test_id FROM test_data WHERE description = 'test1' AND num = 1152921504606846976`
+      const testId = uuid();
+      await connectionManager.query(
+        `INSERT INTO test_data(id, description, num) VALUES('${testId}', 'test1', 1152921504606846976)`
       );
-      const testId = result.test_id;
       const data = await context.getBucketData('global[]');
 
       expect(data).toMatchObject([putOp('test_data', { id: testId, description: 'test1', num: 1152921504606846976n })]);
@@ -71,9 +69,7 @@ function defineBinlogStreamTests(factory: StorageFactory) {
             - SELECT id, description FROM "test_DATA"
       `);
 
-      await connectionManager.query(
-        `CREATE TABLE test_DATA (id CHAR(36) PRIMARY KEY DEFAULT (UUID()), description text)`
-      );
+      await connectionManager.query(`CREATE TABLE test_DATA (id CHAR(36) PRIMARY KEY, description text)`);
 
       await context.replicateSnapshot();
 
@@ -84,11 +80,8 @@ function defineBinlogStreamTests(factory: StorageFactory) {
 
       context.startStreaming();
 
-      await connectionManager.query(`INSERT INTO test_DATA(description) VALUES('test1')`);
-      const [[result]] = await connectionManager.query(
-        `SELECT id AS test_id FROM test_DATA WHERE description = 'test1'`
-      );
-      const testId = result.test_id;
+      const testId = uuid();
+      await connectionManager.query(`INSERT INTO test_DATA(id, description) VALUES('${testId}','test1')`);
 
       const data = await context.getBucketData('global[]');
 
@@ -144,24 +137,18 @@ function defineBinlogStreamTests(factory: StorageFactory) {
       const { connectionManager } = context;
       await context.updateSyncRules(BASIC_SYNC_RULES);
 
-      await connectionManager.query(
-        `CREATE TABLE test_data (id CHAR(36) PRIMARY KEY DEFAULT (UUID()), description text)`
-      );
+      await connectionManager.query(`CREATE TABLE test_data (id CHAR(36) PRIMARY KEY, description text)`);
 
       await context.replicateSnapshot();
       context.startStreaming();
 
-      await connectionManager.query(`INSERT INTO test_data(description) VALUES('test1')`);
-      const [[result1]] = await connectionManager.query(
-        `SELECT id AS test_id FROM test_data WHERE description = 'test1'`
-      );
-      const testId1 = result1.test_id;
+      const testId1 = uuid();
+      await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('${testId1}','test1')`);
 
-      await connectionManager.query(`UPDATE test_data SET id = UUID(), description = 'test2a' WHERE id = '${testId1}'`);
-      const [[result2]] = await connectionManager.query(
-        `SELECT id AS test_id FROM test_data WHERE description = 'test2a'`
+      const testId2 = uuid();
+      await connectionManager.query(
+        `UPDATE test_data SET id = '${testId2}', description = 'test2a' WHERE id = '${testId1}'`
       );
-      const testId2 = result2.test_id;
 
       // This update may fail replicating with:
       // Error: Update on missing record public.test_data:074a601e-fc78-4c33-a15d-f89fdd4af31d :: {"g":1,"t":"651e9fbe9fec6155895057ec","k":"1a0b34da-fb8c-5e6f-8421-d7a3c5d4df4f"}
@@ -192,15 +179,10 @@ function defineBinlogStreamTests(factory: StorageFactory) {
       const { connectionManager } = context;
       await context.updateSyncRules(BASIC_SYNC_RULES);
 
-      await connectionManager.query(
-        `CREATE TABLE test_data (id CHAR(36) PRIMARY KEY DEFAULT (UUID()), description text)`
-      );
+      await connectionManager.query(`CREATE TABLE test_data (id CHAR(36) PRIMARY KEY, description text)`);
 
-      await connectionManager.query(`INSERT INTO test_data(description) VALUES('test1')`);
-      const [[result]] = await connectionManager.query(
-        `SELECT id AS test_id FROM test_data WHERE description = 'test1'`
-      );
-      const testId = result.test_id;
+      const testId = uuid();
+      await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('${testId}','test1')`);
 
       await context.replicateSnapshot();
 
@@ -221,16 +203,13 @@ function defineBinlogStreamTests(factory: StorageFactory) {
       `);
 
       await connectionManager.query(
-        `CREATE TABLE test_data (id CHAR(36) PRIMARY KEY DEFAULT (UUID()), description TEXT, date DATE, datetime DATETIME, timestamp TIMESTAMP)`
+        `CREATE TABLE test_data (id CHAR(36) PRIMARY KEY, description TEXT, date DATE, datetime DATETIME, timestamp TIMESTAMP)`
       );
 
+      const testId = uuid();
       await connectionManager.query(`
-        INSERT INTO test_data(description, date, datetime, timestamp) VALUES('testDates', '2023-03-06', '2023-03-06 15:47', '2023-03-06 15:47')
+        INSERT INTO test_data(id, description, date, datetime, timestamp) VALUES('${testId}','testDates', '2023-03-06', '2023-03-06 15:47', '2023-03-06 15:47')
       `);
-      const [[result]] = await connectionManager.query(
-        `SELECT id AS test_id FROM test_data WHERE description = 'testDates'`
-      );
-      const testId = result.test_id;
 
       await context.replicateSnapshot();
 
@@ -259,7 +238,7 @@ function defineBinlogStreamTests(factory: StorageFactory) {
       `);
 
       await connectionManager.query(
-        `CREATE TABLE test_data (id CHAR(36) PRIMARY KEY DEFAULT (UUID()), description TEXT, date DATE, datetime DATETIME, timestamp TIMESTAMP)`
+        `CREATE TABLE test_data (id CHAR(36) PRIMARY KEY, description TEXT, date DATE, datetime DATETIME, timestamp TIMESTAMP)`
       );
 
       await context.replicateSnapshot();
@@ -271,13 +250,10 @@ function defineBinlogStreamTests(factory: StorageFactory) {
 
       context.startStreaming();
 
+      const testId = uuid();
       await connectionManager.query(`
-        INSERT INTO test_data(description, date, datetime, timestamp) VALUES('testDates', '2023-03-06', '2023-03-06 15:47', '2023-03-06 15:47')
+        INSERT INTO test_data(id, description, date, datetime, timestamp) VALUES('${testId}','testDates', '2023-03-06', '2023-03-06 15:47', '2023-03-06 15:47')
       `);
-      const [[result]] = await connectionManager.query(
-        `SELECT id AS test_id FROM test_data WHERE description = 'testDates'`
-      );
-      const testId = result.test_id;
 
       const data = await context.getBucketData('global[]');
       expect(data).toMatchObject([
@@ -303,9 +279,7 @@ function defineBinlogStreamTests(factory: StorageFactory) {
       const { connectionManager } = context;
       await context.updateSyncRules(BASIC_SYNC_RULES);
 
-      await connectionManager.query(
-        `CREATE TABLE test_donotsync (id CHAR(36) PRIMARY KEY DEFAULT (UUID()), description text)`
-      );
+      await connectionManager.query(`CREATE TABLE test_donotsync (id CHAR(36) PRIMARY KEY, description text)`);
 
       await context.replicateSnapshot();
 
@@ -316,7 +290,7 @@ function defineBinlogStreamTests(factory: StorageFactory) {
 
       context.startStreaming();
 
-      await connectionManager.query(`INSERT INTO test_donotsync(description) VALUES('test1')`);
+      await connectionManager.query(`INSERT INTO test_donotsync(id, description) VALUES('${uuid()}','test1')`);
       const data = await context.getBucketData('global[]');
 
       expect(data).toMatchObject([]);

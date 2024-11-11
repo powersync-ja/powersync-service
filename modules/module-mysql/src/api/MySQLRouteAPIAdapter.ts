@@ -4,7 +4,7 @@ import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import mysql from 'mysql2/promise';
 import * as common from '../common/common-index.js';
-import * as mysql_utils from '../utils/mysql_utils.js';
+import * as mysql_utils from '../utils/mysql-utils.js';
 import * as types from '../types/types.js';
 import { toExpressionTypeFromMySQLType } from '../common/common-index.js';
 
@@ -326,7 +326,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
             name: result.schema_name,
             tables: []
           });
- 
+
         const columns = JSON.parse(result.columns).map((column: { data_type: string; column_name: string }) => ({
           name: column.column_name,
           type: column.data_type,

@@ -11,7 +11,7 @@ import * as zongji_utils from './zongji/zongji-utils.js';
 import { MySQLConnectionManager } from './MySQLConnectionManager.js';
 import { isBinlogStillAvailable, ReplicatedGTID, toColumnDescriptors } from '../common/common-index.js';
 import mysqlPromise from 'mysql2/promise';
-import { createRandomServerId } from '../utils/mysql_utils.js';
+import { createRandomServerId } from '../utils/mysql-utils.js';
 
 export interface BinLogStreamOptions {
   connections: MySQLConnectionManager;

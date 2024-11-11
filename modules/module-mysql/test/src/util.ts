@@ -3,8 +3,7 @@ import { BucketStorageFactory, Metrics, MongoBucketStorage } from '@powersync/se
 import { env } from './env.js';
 import mysqlPromise from 'mysql2/promise';
 import { connectMongo } from '@core-tests/util.js';
-import { getMySQLVersion } from '@module/common/check-source-configuration.js';
-import { gte } from 'semver';
+import { getMySQLVersion, isVersionAtLeast } from '@module/utils/mysql-utils.js';
 
 export const TEST_URI = env.MYSQL_TEST_URI;
 
@@ -38,7 +37,7 @@ export const INITIALIZED_MONGO_STORAGE_FACTORY: StorageFactory = async () => {
 
 export async function clearTestDb(connection: mysqlPromise.Connection) {
   const version = await getMySQLVersion(connection);
-  if (gte(version, '8.4.0')) {
+  if (isVersionAtLeast(version, '8.4.0')) {
     await connection.query('RESET BINARY LOGS AND GTIDS');
   } else {
     await connection.query('RESET MASTER');
@@ -54,8 +53,4 @@ export async function clearTestDb(connection: mysqlPromise.Connection) {
       await connection.query(`DROP TABLE ${name}`);
     }
   }
-}
-
-export function connectMySQLPool(): mysqlPromise.Pool {
-  return mysqlPromise.createPool(TEST_URI);
 }
