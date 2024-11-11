@@ -1,4 +1,5 @@
 import { SqliteJsonValue, SqliteRow, SqliteValue } from './types.js';
+import { jsonValueToSqlite } from './utils.js';
 
 export interface TableValuedFunction {
   readonly name: string;
@@ -31,7 +32,7 @@ export const JSON_EACH: TableValuedFunction = {
 
     return values.map((v) => {
       return {
-        value: v
+        value: jsonValueToSqlite(v)
       };
     });
   },

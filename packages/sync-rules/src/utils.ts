@@ -51,9 +51,12 @@ export function filterJsonRow(data: SqliteRow): SqliteJsonRow {
  *
  * Types specifically not supported in output are `boolean` and `undefined`.
  */
-export function jsonValueToSqlite(value: null | undefined | string | number | bigint | boolean): SqliteValue {
+export function jsonValueToSqlite(value: null | undefined | string | number | bigint | boolean | any): SqliteValue {
   if (typeof value == 'boolean') {
     return value ? SQLITE_TRUE : SQLITE_FALSE;
+  } else if (typeof value == 'object' || Array.isArray(value)) {
+    // Objects and arrays must be stringified
+    return JSONBig.stringify(value);
   } else {
     return value ?? null;
   }

@@ -74,7 +74,7 @@ describe('table-valued function queries', () => {
     ]);
   });
 
-  test('json_each in filters', function () {
+  test('json_each in filters (1)', function () {
     const sql = "SELECT value as v FROM json_each(request.parameters() -> 'array') e WHERE e.value >= 2";
     const query = SqlParameterQuery.fromSql('mybucket', sql, {
       ...PARSE_OPTIONS,
@@ -87,6 +87,32 @@ describe('table-valued function queries', () => {
       'mybucket[2]',
       'mybucket[3]'
     ]);
+  });
+
+  test('json_each with nested json', function () {
+    const sql =
+      "SELECT value ->> 'id' as project_id FROM json_each(request.jwt() -> 'projects') WHERE (value ->> 'role') = 'admin'";
+    const query = SqlParameterQuery.fromSql('mybucket', sql, {
+      ...PARSE_OPTIONS,
+      accept_potentially_dangerous_queries: true
+    }) as StaticSqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    expect(query.bucket_parameters).toEqual(['project_id']);
+
+    expect(
+      query.getStaticBucketIds(
+        new RequestParameters(
+          {
+            sub: '',
+            projects: [
+              { id: 1, role: 'admin' },
+              { id: 2, role: 'user' }
+            ]
+          },
+          {}
+        )
+      )
+    ).toEqual(['mybucket[1]']);
   });
 
   describe('dangerous queries', function () {
