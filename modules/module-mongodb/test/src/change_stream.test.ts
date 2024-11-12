@@ -4,7 +4,7 @@ import { BucketStorageFactory } from '@powersync/service-core';
 import * as crypto from 'crypto';
 import * as mongo from 'mongodb';
 import { setTimeout } from 'node:timers/promises';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
 import { PostImagesOption } from '@module/types/types.js';
 
@@ -459,5 +459,41 @@ bucket_definitions:
     await expect(() => context.getBucketData('global[]')).rejects.toMatchObject({
       message: expect.stringContaining('stream was configured to require a post-image for all update events')
     });
+  });
+
+  test('recover from error', async () => {
+    await using context = await ChangeStreamTestContext.open(factory);
+    const { db } = context;
+    await context.updateSyncRules(`
+bucket_definitions:
+  global:
+    data:
+      - SELECT _id as id, description, num FROM "test_data"`);
+
+    await db.createCollection('test_data', {
+      changeStreamPreAndPostImages: { enabled: false }
+    });
+
+    const collection = db.collection('test_data');
+    await collection.insertOne({ description: 'test1', num: 1152921504606846976n });
+
+    await context.replicateSnapshot();
+
+    // Simulate an error
+    await context.storage!.reportError(new Error('simulated error'));
+    expect((await context.factory.getActiveSyncRulesContent())?.last_fatal_error).toEqual('simulated error');
+
+    // startStreaming() should automatically clear the error.
+    context.startStreaming();
+
+    // getBucketData() creates a checkpoint that clears the error, so we don't do that
+    // Just wait, and check that the error is cleared automatically.
+    await vi.waitUntil(
+      async () => {
+        const error = (await context.factory.getActiveSyncRulesContent())?.last_fatal_error;
+        return error == null;
+      },
+      { timeout: 2_000 }
+    );
   });
 }

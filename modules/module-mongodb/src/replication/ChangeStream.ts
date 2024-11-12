@@ -564,7 +564,10 @@ export class ChangeStream {
         stream.close();
       });
 
-      let waitForCheckpointLsn: string | null = null;
+      // Always start with a checkpoint.
+      // This helps us to clear erorrs when restarting, even if there is
+      // no data to replicate.
+      let waitForCheckpointLsn: string | null = await createCheckpoint(this.client, this.defaultDb);
 
       while (true) {
         if (this.abort_signal.aborted) {
