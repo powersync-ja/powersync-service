@@ -1,8 +1,16 @@
 import mysqlPromise from 'mysql2/promise';
-import * as mysql_utils from '../utils/mysql_utils.js';
+import * as mysql_utils from '../utils/mysql-utils.js';
+
+const MIN_SUPPORTED_VERSION = '5.7.0';
 
 export async function checkSourceConfiguration(connection: mysqlPromise.Connection): Promise<string[]> {
   const errors: string[] = [];
+
+  const version = await mysql_utils.getMySQLVersion(connection);
+  if (!mysql_utils.isVersionAtLeast(version, MIN_SUPPORTED_VERSION)) {
+    errors.push(`MySQL versions older than ${MIN_SUPPORTED_VERSION} are not supported. Your version is: ${version}.`);
+  }
+
   const [[result]] = await mysql_utils.retriedQuery({
     connection,
     query: `
@@ -47,13 +55,4 @@ export async function checkSourceConfiguration(connection: mysqlPromise.Connecti
   }
 
   return errors;
-}
-
-export async function getMySQLVersion(connection: mysqlPromise.Connection): Promise<string> {
-  const [[versionResult]] = await mysql_utils.retriedQuery({
-    connection,
-    query: `SELECT VERSION() as version`
-  });
-
-  return versionResult.version as string;
 }

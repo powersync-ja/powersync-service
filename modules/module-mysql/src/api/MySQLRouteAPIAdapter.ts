@@ -4,14 +4,14 @@ import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import mysql from 'mysql2/promise';
 import * as common from '../common/common-index.js';
-import * as mysql_utils from '../utils/mysql_utils.js';
+import * as mysql_utils from '../utils/mysql-utils.js';
 import * as types from '../types/types.js';
 import { toExpressionTypeFromMySQLType } from '../common/common-index.js';
 
 type SchemaResult = {
   schema_name: string;
   table_name: string;
-  columns: Array<{ data_type: string; column_name: string }>;
+  columns: string;
 };
 
 export class MySQLRouteAPIAdapter implements api.RouteAPI {
@@ -327,15 +327,17 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
             tables: []
           });
 
+        const columns = JSON.parse(result.columns).map((column: { data_type: string; column_name: string }) => ({
+          name: column.column_name,
+          type: column.data_type,
+          sqlite_type: toExpressionTypeFromMySQLType(column.data_type).typeFlags,
+          internal_type: column.data_type,
+          pg_type: column.data_type
+        }));
+
         schema.tables.push({
           name: result.table_name,
-          columns: result.columns.map((column) => ({
-            name: column.column_name,
-            type: column.data_type,
-            sqlite_type: toExpressionTypeFromMySQLType(column.data_type).typeFlags,
-            internal_type: column.data_type,
-            pg_type: column.data_type
-          }))
+          columns: columns
         });
 
         return hash;

@@ -1,26 +1,22 @@
 import mysqlPromise from 'mysql2/promise';
-import * as mysql_utils from '../utils/mysql_utils.js';
-import { gte } from 'semver';
-
+import * as mysql_utils from '../utils/mysql-utils.js';
 import { ReplicatedGTID } from './ReplicatedGTID.js';
-import { getMySQLVersion } from './check-source-configuration.js';
 
 /**
  * Gets the current master HEAD GTID
  */
 export async function readExecutedGtid(connection: mysqlPromise.Connection): Promise<ReplicatedGTID> {
-  const version = await getMySQLVersion(connection);
+  const version = await mysql_utils.getMySQLVersion(connection);
+
   let binlogStatus: mysqlPromise.RowDataPacket;
-  if (gte(version, '8.4.0')) {
-    // Get the BinLog status
+  if (mysql_utils.isVersionAtLeast(version, '8.4.0')) {
+    // Syntax for the below query changed in 8.4.0
     const [[binLogResult]] = await mysql_utils.retriedQuery({
       connection,
       query: `SHOW BINARY LOG STATUS`
     });
     binlogStatus = binLogResult;
   } else {
-    // TODO Check if this works for version 5.7
-    // Get the BinLog status
     const [[binLogResult]] = await mysql_utils.retriedQuery({
       connection,
       query: `SHOW MASTER STATUS`
