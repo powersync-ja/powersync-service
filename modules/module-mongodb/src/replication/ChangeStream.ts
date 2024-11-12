@@ -176,19 +176,22 @@ export class ChangeStream {
     const sourceTables = this.sync_rules.getSourceTables();
     await this.client.connect();
 
+    // We need to get the snapshot time before taking the initial snapshot.
     const hello = await this.defaultDb.command({ hello: 1 });
-    const startTime = hello.lastWrite?.majorityOpTime?.ts as mongo.Timestamp;
+    const snapshotTime = hello.lastWrite?.majorityOpTime?.ts as mongo.Timestamp;
     if (hello.msg == 'isdbgrid') {
       throw new Error('Sharded MongoDB Clusters are not supported yet (including MongoDB Serverless instances).');
     } else if (hello.setName == null) {
       throw new Error('Standalone MongoDB instances are not supported - use a replicaset.');
-    } else if (startTime == null) {
+    } else if (snapshotTime == null) {
       // Not known where this would happen apart from the above cases
       throw new Error('MongoDB lastWrite timestamp not found.');
     }
-    const session = await this.client.startSession({
-      snapshot: true
-    });
+    // We previously used {snapshot: true} for the snapshot session.
+    // While it gives nice consistency guarantees, it fails when the
+    // snapshot takes longer than 5 minutes, due to minSnapshotHistoryWindowInSeconds
+    // expiring the snapshot.
+    const session = await this.client.startSession();
     try {
       await this.storage.startBatch(
         { zeroLSN: ZERO_LSN, defaultSchema: this.defaultDb.databaseName },
@@ -209,15 +212,9 @@ export class ChangeStream {
             await touch();
           }
 
-          const snapshotTime = session.clusterTime?.clusterTime ?? startTime;
-
-          if (snapshotTime != null) {
-            const lsn = getMongoLsn(snapshotTime);
-            logger.info(`Snapshot commit at ${snapshotTime.inspect()} / ${lsn}`);
-            await batch.commit(lsn);
-          } else {
-            throw new Error(`No snapshot clusterTime available.`);
-          }
+          const lsn = getMongoLsn(snapshotTime);
+          logger.info(`Snapshot commit at ${snapshotTime.inspect()} / ${lsn}`);
+          await batch.commit(lsn);
         }
       );
     } finally {
@@ -289,7 +286,7 @@ export class ChangeStream {
 
     const db = this.client.db(table.schema);
     const collection = db.collection(table.table);
-    const query = collection.find({}, { session });
+    const query = collection.find({}, { session, readConcern: { level: 'majority' } });
 
     const cursor = query.stream();
 
