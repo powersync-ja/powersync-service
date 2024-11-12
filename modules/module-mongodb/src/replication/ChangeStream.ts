@@ -214,9 +214,7 @@ export class ChangeStream {
           if (snapshotTime != null) {
             const lsn = getMongoLsn(snapshotTime);
             logger.info(`Snapshot commit at ${snapshotTime.inspect()} / ${lsn}`);
-            // keepalive() does an auto-commit if there is data
-            await batch.flush();
-            await batch.keepalive(lsn);
+            await batch.commit(lsn);
           } else {
             throw new Error(`No snapshot clusterTime available.`);
           }
@@ -597,8 +595,7 @@ export class ChangeStream {
           if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
             waitForCheckpointLsn = null;
           }
-          await batch.flush();
-          await batch.keepalive(lsn);
+          await batch.commit(lsn);
         } else if (
           changeDocument.operationType == 'insert' ||
           changeDocument.operationType == 'update' ||
