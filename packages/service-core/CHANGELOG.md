@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 0.8.8
+
+### Patch Changes
+
+- 21de621: Add probe endpoints which can be used for system health checks.
+
 ## 0.8.7
 
 ### Patch Changes
