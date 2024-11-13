@@ -234,8 +234,10 @@ export class ChangeStream {
         changeStreamPreAndPostImages: { enabled: true }
       });
     } else if (this.usePostImages && collection.options?.changeStreamPreAndPostImages?.enabled != true) {
-      await this.defaultDb.command({
-        collMod: CHECKPOINTS_COLLECTION,
+      // Drop + create requires less permissions than collMod,
+      // and we don't care about the data in this collection.
+      await this.defaultDb.dropCollection(CHECKPOINTS_COLLECTION);
+      await this.defaultDb.createCollection(CHECKPOINTS_COLLECTION, {
         changeStreamPreAndPostImages: { enabled: true }
       });
     }
