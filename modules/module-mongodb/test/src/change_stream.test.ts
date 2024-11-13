@@ -352,38 +352,56 @@ bucket_definitions:
     expect(data).toMatchObject([putOp('test_data', { id: test_id, description: 'test1' })]);
   });
 
-  // Not correctly implemented yet
-  test.skip('large record', async () => {
+  test('large record', async () => {
+    // Test a large update.
+
+    // Without $changeStreamSplitLargeEvent, we get this error:
+    // MongoServerError: PlanExecutor error during aggregation :: caused by :: BSONObj size: 33554925 (0x20001ED) is invalid.
+    // Size must be between 0 and 16793600(16MB)
+
     await using context = await ChangeStreamTestContext.open(factory);
     await context.updateSyncRules(`bucket_definitions:
       global:
         data:
-          - SELECT _id as id, description, other FROM "test_data"`);
+          - SELECT _id as id, name, other FROM "test_data"`);
     const { db } = context;
 
     await context.replicateSnapshot();
 
-    // 16MB
-    const largeDescription = crypto.randomBytes(8_000_000 - 100).toString('hex');
-
     const collection = db.collection('test_data');
-    const result = await collection.insertOne({ description: largeDescription });
+    const result = await collection.insertOne({ name: 't1' });
     const test_id = result.insertedId;
 
-    await collection.updateOne({ _id: test_id }, { $set: { name: 't2' } });
+    // 12MB field.
+    // The field appears twice in the ChangeStream event, so the total size
+    // is > 16MB.
+
+    // We don't actually have this description field in the sync rules,
+    // That causes other issues, not relevant for this specific test.
+    const largeDescription = crypto.randomBytes(12000000 / 2).toString('hex');
+
+    await collection.updateOne({ _id: test_id }, { $set: { description: largeDescription } });
     context.startStreaming();
 
     const data = await context.getBucketData('global[]');
     expect(data.length).toEqual(2);
-    const row = JSON.parse(data[0].data as string);
-    delete row.description;
-    expect(row).toEqual({ id: test_id.toHexString() });
+    const row1 = JSON.parse(data[0].data as string);
+    expect(row1).toEqual({ id: test_id.toHexString(), name: 't1' });
     delete data[0].data;
     expect(data[0]).toMatchObject({
       object_id: test_id.toHexString(),
       object_type: 'test_data',
       op: 'PUT',
       op_id: '1'
+    });
+    const row2 = JSON.parse(data[1].data as string);
+    expect(row2).toEqual({ id: test_id.toHexString(), name: 't1' });
+    delete data[1].data;
+    expect(data[1]).toMatchObject({
+      object_id: test_id.toHexString(),
+      object_type: 'test_data',
+      op: 'PUT',
+      op_id: '2'
     });
   });
 
