@@ -341,17 +341,20 @@ WHERE  oid = $1::regclass`,
 
   async initialReplication(db: pgwire.PgConnection, lsn: string) {
     const sourceTables = this.sync_rules.getSourceTables();
-    await this.storage.startBatch({ zeroLSN: ZERO_LSN, defaultSchema: POSTGRES_DEFAULT_SCHEMA }, async (batch) => {
-      for (let tablePattern of sourceTables) {
-        const tables = await this.getQualifiedTableNames(batch, db, tablePattern);
-        for (let table of tables) {
-          await this.snapshotTable(batch, db, table);
-          await batch.markSnapshotDone([table], lsn);
-          await touch();
+    await this.storage.startBatch(
+      { zeroLSN: ZERO_LSN, defaultSchema: POSTGRES_DEFAULT_SCHEMA, storeCurrentData: true },
+      async (batch) => {
+        for (let tablePattern of sourceTables) {
+          const tables = await this.getQualifiedTableNames(batch, db, tablePattern);
+          for (let table of tables) {
+            await this.snapshotTable(batch, db, table);
+            await batch.markSnapshotDone([table], lsn);
+            await touch();
+          }
         }
+        await batch.commit(lsn);
       }
-      await batch.commit(lsn);
-    });
+    );
   }
 
   static *getQueryData(results: Iterable<DatabaseInputRow>): Generator<SqliteRow> {
@@ -577,55 +580,58 @@ WHERE  oid = $1::regclass`,
     // Auto-activate as soon as initial replication is done
     await this.storage.autoActivate();
 
-    await this.storage.startBatch({ zeroLSN: ZERO_LSN, defaultSchema: POSTGRES_DEFAULT_SCHEMA }, async (batch) => {
-      // Replication never starts in the middle of a transaction
-      let inTx = false;
-      let count = 0;
+    await this.storage.startBatch(
+      { zeroLSN: ZERO_LSN, defaultSchema: POSTGRES_DEFAULT_SCHEMA, storeCurrentData: true },
+      async (batch) => {
+        // Replication never starts in the middle of a transaction
+        let inTx = false;
+        let count = 0;
 
-      for await (const chunk of replicationStream.pgoutputDecode()) {
-        await touch();
+        for await (const chunk of replicationStream.pgoutputDecode()) {
+          await touch();
 
-        if (this.abort_signal.aborted) {
-          break;
-        }
+          if (this.abort_signal.aborted) {
+            break;
+          }
 
-        // chunkLastLsn may come from normal messages in the chunk,
-        // or from a PrimaryKeepalive message.
-        const { messages, lastLsn: chunkLastLsn } = chunk;
-        for (const msg of messages) {
-          if (msg.tag == 'relation') {
-            await this.handleRelation(batch, getPgOutputRelation(msg), true);
-          } else if (msg.tag == 'begin') {
-            inTx = true;
-          } else if (msg.tag == 'commit') {
-            Metrics.getInstance().transactions_replicated_total.add(1);
-            inTx = false;
-            await batch.commit(msg.lsn!);
-            await this.ack(msg.lsn!, replicationStream);
-          } else {
-            if (count % 100 == 0) {
-              logger.info(`${this.slot_name} replicating op ${count} ${msg.lsn}`);
+          // chunkLastLsn may come from normal messages in the chunk,
+          // or from a PrimaryKeepalive message.
+          const { messages, lastLsn: chunkLastLsn } = chunk;
+          for (const msg of messages) {
+            if (msg.tag == 'relation') {
+              await this.handleRelation(batch, getPgOutputRelation(msg), true);
+            } else if (msg.tag == 'begin') {
+              inTx = true;
+            } else if (msg.tag == 'commit') {
+              Metrics.getInstance().transactions_replicated_total.add(1);
+              inTx = false;
+              await batch.commit(msg.lsn!);
+              await this.ack(msg.lsn!, replicationStream);
+            } else {
+              if (count % 100 == 0) {
+                logger.info(`${this.slot_name} replicating op ${count} ${msg.lsn}`);
+              }
+
+              count += 1;
+              await this.writeChange(batch, msg);
             }
-
-            count += 1;
-            await this.writeChange(batch, msg);
           }
-        }
 
-        if (!inTx) {
-          // In a transaction, we ack and commit according to the transaction progress.
-          // Outside transactions, we use the PrimaryKeepalive messages to advance progress.
-          // Big caveat: This _must not_ be used to skip individual messages, since this LSN
-          // may be in the middle of the next transaction.
-          // It must only be used to associate checkpoints with LSNs.
-          if (await batch.keepalive(chunkLastLsn)) {
-            await this.ack(chunkLastLsn, replicationStream);
+          if (!inTx) {
+            // In a transaction, we ack and commit according to the transaction progress.
+            // Outside transactions, we use the PrimaryKeepalive messages to advance progress.
+            // Big caveat: This _must not_ be used to skip individual messages, since this LSN
+            // may be in the middle of the next transaction.
+            // It must only be used to associate checkpoints with LSNs.
+            if (await batch.keepalive(chunkLastLsn)) {
+              await this.ack(chunkLastLsn, replicationStream);
+            }
           }
-        }
 
-        Metrics.getInstance().chunks_replicated_total.add(1);
+          Metrics.getInstance().chunks_replicated_total.add(1);
+        }
       }
-    });
+    );
   }
 
   async ack(lsn: string, replicationStream: pgwire.ReplicationStream) {

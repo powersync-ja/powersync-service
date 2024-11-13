@@ -191,7 +191,7 @@ export class ChangeStream {
     });
     try {
       await this.storage.startBatch(
-        { zeroLSN: ZERO_LSN, defaultSchema: this.defaultDb.databaseName },
+        { zeroLSN: ZERO_LSN, defaultSchema: this.defaultDb.databaseName, storeCurrentData: false },
         async (batch) => {
           // Start by resolving all tables.
           // This checks postImage configuration, and that should fail as
@@ -515,124 +515,127 @@ export class ChangeStream {
     // Auto-activate as soon as initial replication is done
     await this.storage.autoActivate();
 
-    await this.storage.startBatch({ zeroLSN: ZERO_LSN, defaultSchema: this.defaultDb.databaseName }, async (batch) => {
-      const lastLsn = batch.lastCheckpointLsn;
-      const startAfter = mongoLsnToTimestamp(lastLsn) ?? undefined;
-      logger.info(`Resume streaming at ${startAfter?.inspect()} / ${lastLsn}`);
+    await this.storage.startBatch(
+      { zeroLSN: ZERO_LSN, defaultSchema: this.defaultDb.databaseName, storeCurrentData: false },
+      async (batch) => {
+        const lastLsn = batch.lastCheckpointLsn;
+        const startAfter = mongoLsnToTimestamp(lastLsn) ?? undefined;
+        logger.info(`Resume streaming at ${startAfter?.inspect()} / ${lastLsn}`);
 
-      // TODO: Use changeStreamSplitLargeEvent
+        // TODO: Use changeStreamSplitLargeEvent
 
-      const filters = this.getSourceNamespaceFilters();
+        const filters = this.getSourceNamespaceFilters();
 
-      const pipeline: mongo.Document[] = [
-        {
-          $match: filters.$match
+        const pipeline: mongo.Document[] = [
+          {
+            $match: filters.$match
+          }
+        ];
+
+        let fullDocument: 'required' | 'updateLookup';
+
+        if (this.usePostImages) {
+          // 'read_only' or 'auto_configure'
+          // Configuration happens during snapshot, or when we see new
+          // collections.
+          fullDocument = 'required';
+        } else {
+          fullDocument = 'updateLookup';
         }
-      ];
 
-      let fullDocument: 'required' | 'updateLookup';
+        const streamOptions: mongo.ChangeStreamOptions = {
+          startAtOperationTime: startAfter,
+          showExpandedEvents: true,
+          useBigInt64: true,
+          maxAwaitTimeMS: 200,
+          fullDocument: fullDocument
+        };
+        let stream: mongo.ChangeStream<mongo.Document>;
+        if (filters.multipleDatabases) {
+          // Requires readAnyDatabase@admin on Atlas
+          stream = this.client.watch(pipeline, streamOptions);
+        } else {
+          // Same general result, but requires less permissions than the above
+          stream = this.defaultDb.watch(pipeline, streamOptions);
+        }
 
-      if (this.usePostImages) {
-        // 'read_only' or 'auto_configure'
-        // Configuration happens during snapshot, or when we see new
-        // collections.
-        fullDocument = 'required';
-      } else {
-        fullDocument = 'updateLookup';
-      }
-
-      const streamOptions: mongo.ChangeStreamOptions = {
-        startAtOperationTime: startAfter,
-        showExpandedEvents: true,
-        useBigInt64: true,
-        maxAwaitTimeMS: 200,
-        fullDocument: fullDocument
-      };
-      let stream: mongo.ChangeStream<mongo.Document>;
-      if (filters.multipleDatabases) {
-        // Requires readAnyDatabase@admin on Atlas
-        stream = this.client.watch(pipeline, streamOptions);
-      } else {
-        // Same general result, but requires less permissions than the above
-        stream = this.defaultDb.watch(pipeline, streamOptions);
-      }
-
-      if (this.abort_signal.aborted) {
-        stream.close();
-        return;
-      }
-
-      this.abort_signal.addEventListener('abort', () => {
-        stream.close();
-      });
-
-      let waitForCheckpointLsn: string | null = null;
-
-      while (true) {
         if (this.abort_signal.aborted) {
-          break;
+          stream.close();
+          return;
         }
 
-        const changeDocument = await stream.tryNext();
+        this.abort_signal.addEventListener('abort', () => {
+          stream.close();
+        });
 
-        if (changeDocument == null || this.abort_signal.aborted) {
-          continue;
-        }
-        await touch();
+        let waitForCheckpointLsn: string | null = null;
 
-        if (startAfter != null && changeDocument.clusterTime?.lte(startAfter)) {
-          continue;
-        }
+        while (true) {
+          if (this.abort_signal.aborted) {
+            break;
+          }
 
-        // console.log('event', changeDocument);
+          const changeDocument = await stream.tryNext();
 
-        if (
-          (changeDocument.operationType == 'insert' ||
+          if (changeDocument == null || this.abort_signal.aborted) {
+            continue;
+          }
+          await touch();
+
+          if (startAfter != null && changeDocument.clusterTime?.lte(startAfter)) {
+            continue;
+          }
+
+          // console.log('event', changeDocument);
+
+          if (
+            (changeDocument.operationType == 'insert' ||
+              changeDocument.operationType == 'update' ||
+              changeDocument.operationType == 'replace') &&
+            changeDocument.ns.coll == CHECKPOINTS_COLLECTION
+          ) {
+            const lsn = getMongoLsn(changeDocument.clusterTime!);
+            if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
+              waitForCheckpointLsn = null;
+            }
+            await batch.flush();
+            await batch.keepalive(lsn);
+          } else if (
+            changeDocument.operationType == 'insert' ||
             changeDocument.operationType == 'update' ||
-            changeDocument.operationType == 'replace') &&
-          changeDocument.ns.coll == CHECKPOINTS_COLLECTION
-        ) {
-          const lsn = getMongoLsn(changeDocument.clusterTime!);
-          if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
-            waitForCheckpointLsn = null;
+            changeDocument.operationType == 'replace' ||
+            changeDocument.operationType == 'delete'
+          ) {
+            if (waitForCheckpointLsn == null) {
+              waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb);
+            }
+            const rel = getMongoRelation(changeDocument.ns);
+            const table = await this.getRelation(batch, rel);
+            if (table.syncAny) {
+              await this.writeChange(batch, table, changeDocument);
+            }
+          } else if (changeDocument.operationType == 'drop') {
+            const rel = getMongoRelation(changeDocument.ns);
+            const table = await this.getRelation(batch, rel);
+            if (table.syncAny) {
+              await batch.drop([table]);
+              this.relation_cache.delete(table.objectId);
+            }
+          } else if (changeDocument.operationType == 'rename') {
+            const relFrom = getMongoRelation(changeDocument.ns);
+            const relTo = getMongoRelation(changeDocument.to);
+            const tableFrom = await this.getRelation(batch, relFrom);
+            if (tableFrom.syncAny) {
+              await batch.drop([tableFrom]);
+              this.relation_cache.delete(tableFrom.objectId);
+            }
+            // Here we do need to snapshot the new table
+            const collection = await this.getCollectionInfo(relTo.schema, relTo.name);
+            await this.handleRelation(batch, relTo, { snapshot: true, collectionInfo: collection });
           }
-          await batch.flush();
-          await batch.keepalive(lsn);
-        } else if (
-          changeDocument.operationType == 'insert' ||
-          changeDocument.operationType == 'update' ||
-          changeDocument.operationType == 'replace' ||
-          changeDocument.operationType == 'delete'
-        ) {
-          if (waitForCheckpointLsn == null) {
-            waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb);
-          }
-          const rel = getMongoRelation(changeDocument.ns);
-          const table = await this.getRelation(batch, rel);
-          if (table.syncAny) {
-            await this.writeChange(batch, table, changeDocument);
-          }
-        } else if (changeDocument.operationType == 'drop') {
-          const rel = getMongoRelation(changeDocument.ns);
-          const table = await this.getRelation(batch, rel);
-          if (table.syncAny) {
-            await batch.drop([table]);
-            this.relation_cache.delete(table.objectId);
-          }
-        } else if (changeDocument.operationType == 'rename') {
-          const relFrom = getMongoRelation(changeDocument.ns);
-          const relTo = getMongoRelation(changeDocument.to);
-          const tableFrom = await this.getRelation(batch, relFrom);
-          if (tableFrom.syncAny) {
-            await batch.drop([tableFrom]);
-            this.relation_cache.delete(tableFrom.objectId);
-          }
-          // Here we do need to snapshot the new table
-          const collection = await this.getCollectionInfo(relTo.schema, relTo.name);
-          await this.handleRelation(batch, relTo, { snapshot: true, collectionInfo: collection });
         }
       }
-    });
+    );
   }
 }
 
