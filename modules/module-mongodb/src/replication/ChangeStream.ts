@@ -11,6 +11,8 @@ import {
   mongoLsnToTimestamp
 } from './MongoRelation.js';
 import { escapeRegExp } from '../utils.js';
+import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
+import { PostImagesOption } from '../types/types.js';
 
 export const ZERO_LSN = '0000000000000000';
 
@@ -24,7 +26,15 @@ interface InitResult {
   needsInitialSync: boolean;
 }
 
-export class MissingReplicationSlotError extends Error {
+/**
+ * Thrown when the change stream is not valid anymore, and replication
+ * must be restarted.
+ *
+ * Possible reasons:
+ *  * Some change stream documents do not have postImages.
+ *  * startAfter/resumeToken is not valid anymore.
+ */
+export class ChangeStreamInvalidatedError extends Error {
   constructor(message: string) {
     super(message);
   }
@@ -70,7 +80,21 @@ export class ChangeStream {
     return this.abort_signal.aborted;
   }
 
-  async getQualifiedTableNames(
+  private get usePostImages() {
+    return this.connections.options.postImages != PostImagesOption.OFF;
+  }
+
+  private get configurePostImages() {
+    return this.connections.options.postImages == PostImagesOption.AUTO_CONFIGURE;
+  }
+
+  /**
+   * This resolves a pattern, persists the related metadata, and returns
+   * the resulting SourceTables.
+   *
+   * This implicitly checks the collection postImage configuration.
+   */
+  async resolveQualifiedTableNames(
     batch: storage.BucketStorageBatch,
     tablePattern: TablePattern
   ): Promise<storage.SourceTable[]> {
@@ -94,9 +118,13 @@ export class ChangeStream {
         {
           name: nameFilter
         },
-        { nameOnly: true }
+        { nameOnly: false }
       )
       .toArray();
+
+    if (!tablePattern.isWildcard && collections.length == 0) {
+      logger.warn(`Collection ${schema}.${tablePattern.name} not found`);
+    }
 
     for (let collection of collections) {
       const table = await this.handleRelation(
@@ -108,7 +136,7 @@ export class ChangeStream {
           replicationColumns: [{ name: '_id' }]
         } as SourceEntityDescriptor,
         // This is done as part of the initial setup - snapshot is handled elsewhere
-        { snapshot: false }
+        { snapshot: false, collectionInfo: collection }
       );
 
       result.push(table);
@@ -165,14 +193,20 @@ export class ChangeStream {
       await this.storage.startBatch(
         { zeroLSN: ZERO_LSN, defaultSchema: this.defaultDb.databaseName },
         async (batch) => {
+          // Start by resolving all tables.
+          // This checks postImage configuration, and that should fail as
+          // earlier as possible.
+          let allSourceTables: SourceTable[] = [];
           for (let tablePattern of sourceTables) {
-            const tables = await this.getQualifiedTableNames(batch, tablePattern);
-            for (let table of tables) {
-              await this.snapshotTable(batch, table, session);
-              await batch.markSnapshotDone([table], ZERO_LSN);
+            const tables = await this.resolveQualifiedTableNames(batch, tablePattern);
+            allSourceTables.push(...tables);
+          }
 
-              await touch();
-            }
+          for (let table of allSourceTables) {
+            await this.snapshotTable(batch, table, session);
+            await batch.markSnapshotDone([table], ZERO_LSN);
+
+            await touch();
           }
 
           const snapshotTime = session.clusterTime?.clusterTime ?? startTime;
@@ -193,10 +227,26 @@ export class ChangeStream {
     }
   }
 
+  private async setupCheckpointsCollection() {
+    const collection = await this.getCollectionInfo(this.defaultDb.databaseName, CHECKPOINTS_COLLECTION);
+    if (collection == null) {
+      await this.defaultDb.createCollection(CHECKPOINTS_COLLECTION, {
+        changeStreamPreAndPostImages: { enabled: true }
+      });
+    } else if (this.usePostImages && collection.options?.changeStreamPreAndPostImages?.enabled != true) {
+      // Drop + create requires less permissions than collMod,
+      // and we don't care about the data in this collection.
+      await this.defaultDb.dropCollection(CHECKPOINTS_COLLECTION);
+      await this.defaultDb.createCollection(CHECKPOINTS_COLLECTION, {
+        changeStreamPreAndPostImages: { enabled: true }
+      });
+    }
+  }
+
   private getSourceNamespaceFilters(): { $match: any; multipleDatabases: boolean } {
     const sourceTables = this.sync_rules.getSourceTables();
 
-    let $inFilters: any[] = [{ db: this.defaultDb.databaseName, coll: '_powersync_checkpoints' }];
+    let $inFilters: any[] = [{ db: this.defaultDb.databaseName, coll: CHECKPOINTS_COLLECTION }];
     let $refilters: any[] = [];
     let multipleDatabases = false;
     for (let tablePattern of sourceTables) {
@@ -209,7 +259,10 @@ export class ChangeStream {
       }
 
       if (tablePattern.isWildcard) {
-        $refilters.push({ db: tablePattern.schema, coll: new RegExp('^' + escapeRegExp(tablePattern.tablePrefix)) });
+        $refilters.push({
+          'ns.db': tablePattern.schema,
+          'ns.coll': new RegExp('^' + escapeRegExp(tablePattern.tablePrefix))
+        });
       } else {
         $inFilters.push({
           db: tablePattern.schema,
@@ -249,6 +302,8 @@ export class ChangeStream {
         throw new Error(`Aborted initial replication`);
       }
 
+      at += 1;
+
       const record = constructAfterRecord(document);
 
       // This auto-flushes when the batch reaches its size limit
@@ -268,6 +323,7 @@ export class ChangeStream {
     }
 
     await batch.flush();
+    logger.info(`Replicated ${at} documents for ${table.qualifiedName}`);
   }
 
   private async getRelation(
@@ -278,14 +334,60 @@ export class ChangeStream {
     if (existing != null) {
       return existing;
     }
-    return this.handleRelation(batch, descriptor, { snapshot: false });
+
+    // Note: collection may have been dropped at this point, so we handle
+    // missing values.
+    const collection = await this.getCollectionInfo(descriptor.schema, descriptor.name);
+
+    return this.handleRelation(batch, descriptor, { snapshot: false, collectionInfo: collection });
+  }
+
+  private async getCollectionInfo(db: string, name: string): Promise<mongo.CollectionInfo | undefined> {
+    const collection = (
+      await this.client
+        .db(db)
+        .listCollections(
+          {
+            name: name
+          },
+          { nameOnly: false }
+        )
+        .toArray()
+    )[0];
+    return collection;
+  }
+
+  private async checkPostImages(db: string, collectionInfo: mongo.CollectionInfo) {
+    if (!this.usePostImages) {
+      // Nothing to check
+      return;
+    }
+
+    const enabled = collectionInfo.options?.changeStreamPreAndPostImages?.enabled == true;
+
+    if (!enabled && this.configurePostImages) {
+      await this.client.db(db).command({
+        collMod: collectionInfo.name,
+        changeStreamPreAndPostImages: { enabled: true }
+      });
+      logger.info(`Enabled postImages on ${db}.${collectionInfo.name}`);
+    } else if (!enabled) {
+      throw new Error(`postImages not enabled on ${db}.${collectionInfo.name}`);
+    }
   }
 
   async handleRelation(
     batch: storage.BucketStorageBatch,
     descriptor: SourceEntityDescriptor,
-    options: { snapshot: boolean }
+    options: { snapshot: boolean; collectionInfo: mongo.CollectionInfo | undefined }
   ) {
+    if (options.collectionInfo != null) {
+      await this.checkPostImages(descriptor.schema, options.collectionInfo);
+    } else {
+      // If collectionInfo is null, the collection may have been dropped.
+      // Ignore the postImages check in this case.
+    }
+
     const snapshot = options.snapshot;
     if (!descriptor.objectId && typeof descriptor.objectId != 'string') {
       throw new Error('objectId expected');
@@ -388,12 +490,28 @@ export class ChangeStream {
 
   async initReplication() {
     const result = await this.initSlot();
+    await this.setupCheckpointsCollection();
     if (result.needsInitialSync) {
       await this.startInitialReplication();
     }
   }
 
   async streamChanges() {
+    try {
+      await this.streamChangesInternal();
+    } catch (e) {
+      if (
+        e instanceof mongo.MongoServerError &&
+        e.codeName == 'NoMatchingDocument' &&
+        e.errmsg?.includes('post-image was not found')
+      ) {
+        throw new ChangeStreamInvalidatedError(e.errmsg);
+      }
+      throw e;
+    }
+  }
+
+  async streamChangesInternal() {
     // Auto-activate as soon as initial replication is done
     await this.storage.autoActivate();
 
@@ -412,12 +530,23 @@ export class ChangeStream {
         }
       ];
 
+      let fullDocument: 'required' | 'updateLookup';
+
+      if (this.usePostImages) {
+        // 'read_only' or 'auto_configure'
+        // Configuration happens during snapshot, or when we see new
+        // collections.
+        fullDocument = 'required';
+      } else {
+        fullDocument = 'updateLookup';
+      }
+
       const streamOptions: mongo.ChangeStreamOptions = {
         startAtOperationTime: startAfter,
         showExpandedEvents: true,
         useBigInt64: true,
         maxAwaitTimeMS: 200,
-        fullDocument: 'updateLookup'
+        fullDocument: fullDocument
       };
       let stream: mongo.ChangeStream<mongo.Document>;
       if (filters.multipleDatabases) {
@@ -461,7 +590,7 @@ export class ChangeStream {
           (changeDocument.operationType == 'insert' ||
             changeDocument.operationType == 'update' ||
             changeDocument.operationType == 'replace') &&
-          changeDocument.ns.coll == '_powersync_checkpoints'
+          changeDocument.ns.coll == CHECKPOINTS_COLLECTION
         ) {
           const lsn = getMongoLsn(changeDocument.clusterTime!);
           if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
@@ -499,7 +628,8 @@ export class ChangeStream {
             this.relation_cache.delete(tableFrom.objectId);
           }
           // Here we do need to snapshot the new table
-          await this.handleRelation(batch, relTo, { snapshot: true });
+          const collection = await this.getCollectionInfo(relTo.schema, relTo.name);
+          await this.handleRelation(batch, relTo, { snapshot: true, collectionInfo: collection });
         }
       }
     });

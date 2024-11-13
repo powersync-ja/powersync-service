@@ -2,6 +2,7 @@ import { storage } from '@powersync/service-core';
 import { SqliteRow, SqliteValue, toSyncRulesRow } from '@powersync/service-sync-rules';
 import * as mongo from 'mongodb';
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
+import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
 
 export function getMongoRelation(source: mongo.ChangeStreamNameSpace): storage.SourceEntityDescriptor {
   return {
@@ -145,7 +146,10 @@ function filterJsonData(data: any, depth = 0): any {
 export async function createCheckpoint(client: mongo.MongoClient, db: mongo.Db): Promise<string> {
   const session = client.startSession();
   try {
-    const result = await db.collection('_powersync_checkpoints').findOneAndUpdate(
+    // Note: If multiple PowerSync instances are replicating the same source database,
+    // they'll modify the same checkpoint document. This is fine - it could create
+    // more replication load than required, but won't break anything.
+    await db.collection(CHECKPOINTS_COLLECTION).findOneAndUpdate(
       {
         _id: 'checkpoint' as any
       },
@@ -159,7 +163,6 @@ export async function createCheckpoint(client: mongo.MongoClient, db: mongo.Db):
       }
     );
     const time = session.operationTime!;
-    // console.log('marked checkpoint at', time, getMongoLsn(time));
     // TODO: Use the above when we support custom write checkpoints
     return getMongoLsn(time);
   } finally {
