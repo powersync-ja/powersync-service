@@ -91,7 +91,7 @@ export class ChangeStreamTestContext {
       getClientCheckpoint(this.client, this.db, this.factory, { timeout: options?.timeout ?? 15_000 }),
       this.streamPromise
     ]);
-    if (typeof checkpoint == undefined) {
+    if (typeof checkpoint == 'undefined') {
       // This indicates an issue with the test setup - streamingPromise completed instead
       // of getClientCheckpoint()
       throw new Error('Test failure - streamingPromise completed');
@@ -105,13 +105,31 @@ export class ChangeStreamTestContext {
     return fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
-  async getBucketData(bucket: string, start?: string, options?: { timeout?: number }) {
+  async getBucketData(
+    bucket: string,
+    start?: string,
+    options?: { timeout?: number; limit?: number; chunkLimitBytes?: number }
+  ) {
     start ??= '0';
     let checkpoint = await this.getCheckpoint(options);
     const map = new Map<string, string>([[bucket, start]]);
-    const batch = this.storage!.getBucketDataBatch(checkpoint, map);
+    const batch = this.storage!.getBucketDataBatch(checkpoint, map, {
+      limit: options?.limit,
+      chunkLimitBytes: options?.chunkLimitBytes
+    });
     const batches = await fromAsync(batch);
     return batches[0]?.batch.data ?? [];
+  }
+
+  async getChecksums(buckets: string[], options?: { timeout?: number }) {
+    let checkpoint = await this.getCheckpoint(options);
+    return this.storage!.getChecksums(checkpoint, buckets);
+  }
+
+  async getChecksum(bucket: string, options?: { timeout?: number }) {
+    let checkpoint = await this.getCheckpoint(options);
+    const map = await this.storage!.getChecksums(checkpoint, [bucket]);
+    return map.get(bucket);
   }
 }
 
@@ -143,4 +161,18 @@ export async function getClientCheckpoint(
   }
 
   throw new Error(`Timeout while waiting for checkpoint ${lsn}. Last checkpoint: ${lastCp?.lsn}`);
+}
+
+export async function setSnapshotHistorySeconds(client: mongo.MongoClient, seconds: number) {
+  const { minSnapshotHistoryWindowInSeconds: currentValue } = await client
+    .db('admin')
+    .command({ getParameter: 1, minSnapshotHistoryWindowInSeconds: 1 });
+
+  await client.db('admin').command({ setParameter: 1, minSnapshotHistoryWindowInSeconds: seconds });
+
+  return {
+    async [Symbol.asyncDispose]() {
+      await client.db('admin').command({ setParameter: 1, minSnapshotHistoryWindowInSeconds: currentValue });
+    }
+  };
 }
