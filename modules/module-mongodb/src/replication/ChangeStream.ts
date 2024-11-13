@@ -522,14 +522,13 @@ export class ChangeStream {
         const startAfter = mongoLsnToTimestamp(lastLsn) ?? undefined;
         logger.info(`Resume streaming at ${startAfter?.inspect()} / ${lastLsn}`);
 
-        // TODO: Use changeStreamSplitLargeEvent
-
         const filters = this.getSourceNamespaceFilters();
 
         const pipeline: mongo.Document[] = [
           {
             $match: filters.$match
-          }
+          },
+          { $changeStreamSplitLargeEvent: {} }
         ];
 
         let fullDocument: 'required' | 'updateLookup';
@@ -570,20 +569,47 @@ export class ChangeStream {
 
         let waitForCheckpointLsn: string | null = null;
 
+        let splitDocument: mongo.ChangeStreamDocument | null = null;
+
         while (true) {
           if (this.abort_signal.aborted) {
             break;
           }
 
-          const changeDocument = await stream.tryNext();
+          const originalChangeDocument = await stream.tryNext();
 
-          if (changeDocument == null || this.abort_signal.aborted) {
+          if (originalChangeDocument == null || this.abort_signal.aborted) {
             continue;
           }
           await touch();
 
-          if (startAfter != null && changeDocument.clusterTime?.lte(startAfter)) {
+          if (startAfter != null && originalChangeDocument.clusterTime?.lte(startAfter)) {
             continue;
+          }
+
+          let changeDocument = originalChangeDocument;
+          if (originalChangeDocument?.splitEvent != null) {
+            // Handle split events from $changeStreamSplitLargeEvent.
+            // This is only relevant for very large update operations.
+            const splitEvent = originalChangeDocument?.splitEvent;
+
+            if (splitDocument == null) {
+              splitDocument = originalChangeDocument;
+            } else {
+              splitDocument = Object.assign(splitDocument, originalChangeDocument);
+            }
+
+            if (splitEvent.fragment == splitEvent.of) {
+              // Got all fragments
+              changeDocument = splitDocument;
+              splitDocument = null;
+            } else {
+              // Wait for more fragments
+              continue;
+            }
+          } else if (splitDocument != null) {
+            // We were waiting for fragments, but got a different event
+            throw new Error(`Incomplete splitEvent: ${JSON.stringify(splitDocument.splitEvent)}`);
           }
 
           // console.log('event', changeDocument);
