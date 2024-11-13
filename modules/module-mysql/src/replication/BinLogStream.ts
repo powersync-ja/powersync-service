@@ -260,7 +260,7 @@ AND table_type = 'BASE TABLE';`,
       await promiseConnection.query<mysqlPromise.RowDataPacket[]>('START TRANSACTION');
       const sourceTables = this.syncRules.getSourceTables();
       await this.storage.startBatch(
-        { zeroLSN: ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema },
+        { zeroLSN: ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema, storeCurrentData: true },
         async (batch) => {
           for (let tablePattern of sourceTables) {
             const tables = await this.getQualifiedTableNames(batch, tablePattern);
@@ -383,7 +383,7 @@ AND table_type = 'BASE TABLE';`,
 
     if (!this.stopped) {
       await this.storage.startBatch(
-        { zeroLSN: ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema },
+        { zeroLSN: ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema, storeCurrentData: true },
         async (batch) => {
           const zongji = this.connections.createBinlogListener();
 

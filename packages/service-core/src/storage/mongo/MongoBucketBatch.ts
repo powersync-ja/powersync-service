@@ -33,6 +33,16 @@ const MAX_ROW_SIZE = 15 * 1024 * 1024;
 // In the future, we can investigate allowing multiple replication streams operating independently.
 const replicationMutex = new util.Mutex();
 
+export interface MongoBucketBatchOptions {
+  db: PowerSyncMongo;
+  syncRules: SqlSyncRules;
+  groupId: number;
+  slotName: string;
+  lastCheckpointLsn: string | null;
+  noCheckpointBeforeLsn: string;
+  storeCurrentData: boolean;
+}
+
 export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListener> implements BucketStorageBatch {
   private readonly client: mongo.MongoClient;
   public readonly db: PowerSyncMongo;
@@ -42,6 +52,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
   private readonly group_id: number;
 
   private readonly slot_name: string;
+  private readonly storeCurrentData: boolean;
 
   private batch: OperationBatch | null = null;
   private write_checkpoint_batch: CustomWriteCheckpointOptions[] = [];
@@ -64,23 +75,17 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
    */
   public last_flushed_op: bigint | null = null;
 
-  constructor(
-    db: PowerSyncMongo,
-    sync_rules: SqlSyncRules,
-    group_id: number,
-    slot_name: string,
-    last_checkpoint_lsn: string | null,
-    no_checkpoint_before_lsn: string
-  ) {
+  constructor(options: MongoBucketBatchOptions) {
     super();
-    this.client = db.client;
-    this.db = db;
-    this.group_id = group_id;
-    this.last_checkpoint_lsn = last_checkpoint_lsn;
-    this.no_checkpoint_before_lsn = no_checkpoint_before_lsn;
+    this.client = options.db.client;
+    this.db = options.db;
+    this.group_id = options.groupId;
+    this.last_checkpoint_lsn = options.lastCheckpointLsn;
+    this.no_checkpoint_before_lsn = options.noCheckpointBeforeLsn;
     this.session = this.client.startSession();
-    this.slot_name = slot_name;
-    this.sync_rules = sync_rules;
+    this.slot_name = options.slotName;
+    this.sync_rules = options.syncRules;
+    this.storeCurrentData = options.storeCurrentData;
     this.batch = new OperationBatch();
   }
 
@@ -142,38 +147,44 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
     batch: OperationBatch,
     op_seq: MongoIdSequence
   ): Promise<OperationBatch | null> {
-    // 1. Find sizes of current_data documents, to assist in intelligent batching without
-    // exceeding memory limits.
-    //
-    // A previous attempt tried to do batching by the results of the current_data query
-    // (automatically limited to 48MB(?) per batch by MongoDB). The issue is that it changes
-    // the order of processing, which then becomes really tricky to manage.
-    // This now takes 2+ queries, but doesn't have any issues with order of operations.
-    const sizeLookups: SourceKey[] = batch.batch.map((r) => {
-      return { g: this.group_id, t: r.record.sourceTable.id, k: r.beforeId };
-    });
+    let sizes: Map<string, number> | undefined = undefined;
+    if (this.storeCurrentData) {
+      // We skip this step if we don't store current_data, since the sizes will
+      // always be small in that case.
 
-    const sizes = new Map<string, number>();
+      // Find sizes of current_data documents, to assist in intelligent batching without
+      // exceeding memory limits.
+      //
+      // A previous attempt tried to do batching by the results of the current_data query
+      // (automatically limited to 48MB(?) per batch by MongoDB). The issue is that it changes
+      // the order of processing, which then becomes really tricky to manage.
+      // This now takes 2+ queries, but doesn't have any issues with order of operations.
+      const sizeLookups: SourceKey[] = batch.batch.map((r) => {
+        return { g: this.group_id, t: r.record.sourceTable.id, k: r.beforeId };
+      });
 
-    const sizeCursor: mongo.AggregationCursor<{ _id: SourceKey; size: number }> = this.db.current_data.aggregate(
-      [
-        {
-          $match: {
-            _id: { $in: sizeLookups }
+      sizes = new Map<string, number>();
+
+      const sizeCursor: mongo.AggregationCursor<{ _id: SourceKey; size: number }> = this.db.current_data.aggregate(
+        [
+          {
+            $match: {
+              _id: { $in: sizeLookups }
+            }
+          },
+          {
+            $project: {
+              _id: 1,
+              size: { $bsonSize: '$$ROOT' }
+            }
           }
-        },
-        {
-          $project: {
-            _id: 1,
-            size: { $bsonSize: '$$ROOT' }
-          }
-        }
-      ],
-      { session }
-    );
-    for await (let doc of sizeCursor.stream()) {
-      const key = cacheKey(doc._id.t, doc._id.k);
-      sizes.set(key, doc.size);
+        ],
+        { session }
+      );
+      for await (let doc of sizeCursor.stream()) {
+        const key = cacheKey(doc._id.t, doc._id.k);
+        sizes.set(key, doc.size);
+      }
     }
 
     // If set, we need to start a new transaction with this batch.
@@ -181,6 +192,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
     let transactionSize = 0;
 
     // Now batch according to the sizes
+    // This is a single batch if storeCurrentData == false
     for await (let b of batch.batched(sizes)) {
       if (resumeBatch) {
         for (let op of b) {
@@ -218,7 +230,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
         if (nextData != null) {
           // Update our current_data and size cache
           current_data_lookup.set(op.internalAfterKey!, nextData);
-          sizes.set(op.internalAfterKey!, nextData.data.length());
+          sizes?.set(op.internalAfterKey!, nextData.data.length());
         }
 
         if (persistedBatch!.shouldFlushTransaction()) {
@@ -268,14 +280,18 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
         existing_buckets = [];
         existing_lookups = [];
         // Log to help with debugging if there was a consistency issue
-        logger.warn(
-          `Cannot find previous record for update on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
-        );
+        if (this.storeCurrentData) {
+          logger.warn(
+            `Cannot find previous record for update on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
+          );
+        }
       } else {
-        const data = bson.deserialize((result.data as mongo.Binary).buffer, BSON_DESERIALIZE_OPTIONS) as SqliteRow;
         existing_buckets = result.buckets;
         existing_lookups = result.lookups;
-        after = mergeToast(after!, data);
+        if (this.storeCurrentData) {
+          const data = bson.deserialize((result.data as mongo.Binary).buffer, BSON_DESERIALIZE_OPTIONS) as SqliteRow;
+          after = mergeToast(after!, data);
+        }
       }
     } else if (record.tag == 'delete') {
       const result = current_data;
@@ -284,9 +300,11 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
         existing_buckets = [];
         existing_lookups = [];
         // Log to help with debugging if there was a consistency issue
-        logger.warn(
-          `Cannot find previous record for delete on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
-        );
+        if (this.storeCurrentData) {
+          logger.warn(
+            `Cannot find previous record for delete on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
+          );
+        }
       } else {
         existing_buckets = result.buckets;
         existing_lookups = result.lookups;
@@ -294,7 +312,9 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
     }
 
     let afterData: bson.Binary | undefined;
-    if (afterId) {
+    if (afterId != null && !this.storeCurrentData) {
+      afterData = new bson.Binary(bson.serialize({}));
+    } else if (afterId != null) {
       try {
         // This will fail immediately if the record is > 16MB.
         afterData = new bson.Binary(bson.serialize(after!));

@@ -53,7 +53,7 @@ export class MongoSyncBucketStorage
     }
   });
 
-  private parsedSyncRulesCache: {parsed: SqlSyncRules, options:  ParseSyncRulesOptions} | undefined;
+  private parsedSyncRulesCache: { parsed: SqlSyncRules; options: ParseSyncRulesOptions } | undefined;
   private writeCheckpointAPI: WriteCheckpointAPI;
 
   constructor(
@@ -104,13 +104,13 @@ export class MongoSyncBucketStorage
   }
 
   getParsedSyncRules(options: ParseSyncRulesOptions): SqlSyncRules {
-    const {parsed, options: cachedOptions} = this.parsedSyncRulesCache ?? {};
+    const { parsed, options: cachedOptions } = this.parsedSyncRulesCache ?? {};
     /**
      * Check if the cached sync rules, if present, had the same options.
      * Parse sync rules if the options are different or if there is no cached value.
      */
-    if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema ) {
-      this.parsedSyncRulesCache = {parsed: this.sync_rules.parsed(options).sync_rules, options};
+    if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
+      this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).sync_rules, options };
     }
 
     return this.parsedSyncRulesCache!.parsed;
@@ -141,14 +141,15 @@ export class MongoSyncBucketStorage
     );
     const checkpoint_lsn = doc?.last_checkpoint_lsn ?? null;
 
-    await using batch = new MongoBucketBatch(
-      this.db,
-      this.sync_rules.parsed(options).sync_rules,
-      this.group_id,
-      this.slot_name,
-      checkpoint_lsn,
-      doc?.no_checkpoint_before ?? options.zeroLSN
-    );
+    await using batch = new MongoBucketBatch({
+      db: this.db,
+      syncRules: this.sync_rules.parsed(options).sync_rules,
+      groupId: this.group_id,
+      slotName: this.slot_name,
+      lastCheckpointLsn: checkpoint_lsn,
+      noCheckpointBeforeLsn: doc?.no_checkpoint_before ?? options.zeroLSN,
+      storeCurrentData: options.storeCurrentData
+    });
     this.iterateListeners((cb) => cb.batchStarted?.(batch));
 
     await callback(batch);
