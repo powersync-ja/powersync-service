@@ -141,14 +141,15 @@ export class MongoSyncBucketStorage
     );
     const checkpoint_lsn = doc?.last_checkpoint_lsn ?? null;
 
-    await using batch = new MongoBucketBatch(
-      this.db,
-      this.sync_rules.parsed(options).sync_rules,
-      this.group_id,
-      this.slot_name,
-      checkpoint_lsn,
-      doc?.no_checkpoint_before ?? options.zeroLSN
-    );
+    await using batch = new MongoBucketBatch({
+      db: this.db,
+      syncRules: this.sync_rules.parsed(options).sync_rules,
+      groupId: this.group_id,
+      slotName: this.slot_name,
+      lastCheckpointLsn: checkpoint_lsn,
+      noCheckpointBeforeLsn: doc?.no_checkpoint_before ?? options.zeroLSN,
+      storeCurrentData: options.storeCurrentData
+    });
     this.iterateListeners((cb) => cb.batchStarted?.(batch));
 
     await callback(batch);

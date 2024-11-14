@@ -201,6 +201,16 @@ export interface BucketDataBatchOptions {
 
 export interface StartBatchOptions extends ParseSyncRulesOptions {
   zeroLSN: string;
+  /**
+   * Whether or not to store a copy of the current data.
+   *
+   * This is needed if we need to apply partial updates, for example
+   * when we get TOAST values from Postgres.
+   *
+   * This is not needed when we get the full document from the source
+   * database, for example from MongoDB.
+   */
+  storeCurrentData: boolean;
 }
 
 export interface SyncRulesBucketStorageListener extends DisposableListener {
