@@ -111,9 +111,16 @@ export class MongoWriteCheckpointAPI implements WriteCheckpointAPI {
   }
 
   protected async lastManagedWriteCheckpoint(filters: ManagedWriteCheckpointFilters) {
-    const { user_id } = filters;
+    const { user_id, heads } = filters;
+    // TODO: support multiple heads when we need to support multiple connections
+    const lsn = heads['1'];
+    if (lsn == null) {
+      // Can happen if we haven't replicated anything yet.
+      return null;
+    }
     const lastWriteCheckpoint = await this.db.write_checkpoints.findOne({
-      user_id: user_id
+      user_id: user_id,
+      'lsns.1': { $lte: lsn }
     });
     return lastWriteCheckpoint?.client_id ?? null;
   }
