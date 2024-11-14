@@ -1,7 +1,9 @@
-import { Expr, ExprRef, Name, NodeLocation, QName, QNameAliased, SelectedColumn, parse } from 'pgsql-ast-parser';
+import { JSONBig } from '@powersync/service-jsonbig';
+import { Expr, ExprRef, Name, NodeLocation, QName, QNameAliased, SelectedColumn } from 'pgsql-ast-parser';
 import { nil } from 'pgsql-ast-parser/src/utils.js';
-import { ExpressionType, TYPE_NONE } from './ExpressionType.js';
+import { ExpressionType } from './ExpressionType.js';
 import { SqlRuleError } from './errors.js';
+import { REQUEST_FUNCTIONS } from './request_functions.js';
 import {
   BASIC_OPERATORS,
   OPERATOR_IN,
@@ -13,6 +15,7 @@ import {
   SQL_FUNCTIONS,
   SqlFunction,
   castOperator,
+  getOperatorFunction,
   sqliteTypeOf
 } from './sql_functions.js';
 import {
@@ -20,7 +23,6 @@ import {
   SQLITE_TRUE,
   andFilters,
   compileStaticOperator,
-  getOperatorFunction,
   isClauseError,
   isParameterMatchClause,
   isParameterValueClause,
@@ -44,8 +46,6 @@ import {
   TrueIfParametersMatch
 } from './types.js';
 import { isJsonValue } from './utils.js';
-import { JSONBig } from '@powersync/service-jsonbig';
-import { REQUEST_FUNCTIONS } from './request_functions.js';
 
 export const MATCH_CONST_FALSE: TrueIfParametersMatch = [];
 export const MATCH_CONST_TRUE: TrueIfParametersMatch = [{}];
@@ -200,8 +200,8 @@ export class SqlTools {
           evaluate(tables: QueryParameters): SqliteValue {
             return tables[table]?.[column];
           },
-          getType(schema) {
-            return schema.getType(table, column);
+          getColumnDefinition(schema) {
+            return schema.getColumn(table, column);
           }
         } satisfies RowValueClause;
       } else {
@@ -577,8 +577,8 @@ export class SqlTools {
 
   private checkRef(table: string, ref: ExprRef) {
     if (this.schema) {
-      const type = this.schema.getType(table, ref.name);
-      if (type.typeFlags == TYPE_NONE) {
+      const type = this.schema.getColumn(table, ref.name);
+      if (type == null) {
         this.warn(`Column not found: ${ref.name}`, ref);
       }
     }
@@ -659,9 +659,11 @@ export class SqlTools {
           const args = argClauses.map((e) => (e as RowValueClause).evaluate(tables));
           return fnImpl.call(...args);
         },
-        getType(schema) {
-          const argTypes = argClauses.map((e) => (e as RowValueClause).getType(schema));
-          return fnImpl.getReturnType(argTypes);
+        getColumnDefinition(schema) {
+          const argTypes = argClauses.map(
+            (e) => (e as RowValueClause).getColumnDefinition(schema)?.type ?? ExpressionType.NONE
+          );
+          return { name: `${fnImpl}()`, type: fnImpl.getReturnType(argTypes) };
         }
       } satisfies RowValueClause;
     } else if (argsType == 'param') {
@@ -758,8 +760,11 @@ function staticValueClause(value: SqliteValue): StaticValueClause {
     value: value,
     // RowValueClause compatibility
     evaluate: () => value,
-    getType() {
-      return ExpressionType.fromTypeText(sqliteTypeOf(value));
+    getColumnDefinition() {
+      return {
+        name: 'literal',
+        type: ExpressionType.fromTypeText(sqliteTypeOf(value))
+      };
     },
     // ParamterValueClause compatibility
     key: JSONBig.stringify(value),

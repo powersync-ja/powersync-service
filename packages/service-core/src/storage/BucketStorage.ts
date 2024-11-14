@@ -1,3 +1,4 @@
+import { DisposableListener, DisposableObserverClient } from '@powersync/lib-services-framework';
 import {
   EvaluatedParameters,
   EvaluatedRow,
@@ -7,12 +8,19 @@ import {
   SqliteRow,
   ToastableSqliteRow
 } from '@powersync/service-sync-rules';
-
-import * as replication from '../replication/replication-index.js';
 import * as util from '../util/util-index.js';
+import { ReplicationEventPayload } from './ReplicationEventPayload.js';
+import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
+import { BatchedCustomWriteCheckpointOptions, ReplicaId } from './storage-index.js';
+import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
 
-export interface BucketStorageFactory {
+export interface BucketStorageFactoryListener extends DisposableListener {
+  syncStorageCreated: (storage: SyncRulesBucketStorage) => void;
+  replicationEvent: (event: ReplicationEventPayload) => void;
+}
+
+export interface BucketStorageFactory extends DisposableObserverClient<BucketStorageFactoryListener> {
   /**
    * Update sync rules from configuration, if changed.
    */
@@ -24,7 +32,7 @@ export interface BucketStorageFactory {
   /**
    * Get a storage instance to query sync data for specific sync rules.
    */
-  getInstance(options: PersistedSyncRules): SyncRulesBucketStorage;
+  getInstance(options: PersistedSyncRulesContent): SyncRulesBucketStorage;
 
   /**
    * Deploy new sync rules.
@@ -48,7 +56,7 @@ export interface BucketStorageFactory {
   /**
    * Get the sync rules used for querying.
    */
-  getActiveSyncRules(): Promise<PersistedSyncRules | null>;
+  getActiveSyncRules(options: ParseSyncRulesOptions): Promise<PersistedSyncRules | null>;
 
   /**
    * Get the sync rules used for querying.
@@ -58,7 +66,7 @@ export interface BucketStorageFactory {
   /**
    * Get the sync rules that will be active next once done with initial replicatino.
    */
-  getNextSyncRules(): Promise<PersistedSyncRules | null>;
+  getNextSyncRules(options: ParseSyncRulesOptions): Promise<PersistedSyncRules | null>;
 
   /**
    * Get the sync rules that will be active next once done with initial replicatino.
@@ -81,10 +89,9 @@ export interface BucketStorageFactory {
    */
   getActiveCheckpoint(): Promise<ActiveCheckpoint>;
 
-  createWriteCheckpoint(user_id: string, lsns: Record<string, string>): Promise<bigint>;
-
-  lastWriteCheckpoint(user_id: string, lsn: string): Promise<bigint | null>;
-
+  /**
+   * Yields the latest user write checkpoint whenever the sync checkpoint updates.
+   */
   watchWriteCheckpoint(user_id: string, signal: AbortSignal): AsyncIterable<WriteCheckpoint>;
 
   /**
@@ -98,18 +105,20 @@ export interface BucketStorageFactory {
   getPowerSyncInstanceId(): Promise<string>;
 }
 
-export interface WriteCheckpoint {
-  base: ActiveCheckpoint;
-  writeCheckpoint: bigint | null;
+export interface ReplicationCheckpoint {
+  readonly checkpoint: util.OpId;
+  readonly lsn: string | null;
 }
 
-export interface ActiveCheckpoint {
-  readonly checkpoint: util.OpId;
-  readonly lsn: string;
-
+export interface ActiveCheckpoint extends ReplicationCheckpoint {
   hasSyncRules(): boolean;
 
   getBucketStorage(): Promise<SyncRulesBucketStorage | null>;
+}
+
+export interface WriteCheckpoint {
+  base: ActiveCheckpoint;
+  writeCheckpoint: bigint | null;
 }
 
 export interface StorageMetrics {
@@ -131,6 +140,10 @@ export interface StorageMetrics {
   replication_size_bytes: number;
 }
 
+export interface ParseSyncRulesOptions {
+  defaultSchema: string;
+}
+
 export interface PersistedSyncRulesContent {
   readonly id: number;
   readonly sync_rules_content: string;
@@ -140,7 +153,7 @@ export interface PersistedSyncRulesContent {
   readonly last_keepalive_ts?: Date | null;
   readonly last_checkpoint_ts?: Date | null;
 
-  parsed(): PersistedSyncRules;
+  parsed(options: ParseSyncRulesOptions): PersistedSyncRules;
 
   lock(): Promise<ReplicationLock>;
 }
@@ -155,18 +168,6 @@ export interface PersistedSyncRules {
   readonly id: number;
   readonly sync_rules: SqlSyncRules;
   readonly slot_name: string;
-}
-
-export class DefaultPersistedSyncRules implements PersistedSyncRules {
-  public readonly checkpoint_lsn: string | null;
-
-  constructor(public readonly id: number, public readonly sync_rules: SqlSyncRules, checkpoint_lsn: string | null) {
-    this.checkpoint_lsn = checkpoint_lsn;
-  }
-
-  get slot_name(): string {
-    return `powersync_${this.id}`;
-  }
 }
 
 export interface UpdateSyncRulesOptions {
@@ -198,8 +199,17 @@ export interface BucketDataBatchOptions {
   chunkLimitBytes?: number;
 }
 
-export interface SyncRulesBucketStorage {
-  readonly sync_rules: SqlSyncRules;
+export interface StartBatchOptions extends ParseSyncRulesOptions {
+  zeroLSN: string;
+}
+
+export interface SyncRulesBucketStorageListener extends DisposableListener {
+  batchStarted: (batch: BucketStorageBatch) => void;
+}
+
+export interface SyncRulesBucketStorage
+  extends DisposableObserverClient<SyncRulesBucketStorageListener>,
+    SyncStorageWriteCheckpointAPI {
   readonly group_id: number;
   readonly slot_name: string;
 
@@ -207,9 +217,14 @@ export interface SyncRulesBucketStorage {
 
   resolveTable(options: ResolveTableOptions): Promise<ResolveTableResult>;
 
-  startBatch(options: {}, callback: (batch: BucketStorageBatch) => Promise<void>): Promise<FlushedResult | null>;
+  startBatch(
+    options: StartBatchOptions,
+    callback: (batch: BucketStorageBatch) => Promise<void>
+  ): Promise<FlushedResult | null>;
 
-  getCheckpoint(): Promise<{ checkpoint: util.OpId; lsn: string }>;
+  getCheckpoint(): Promise<ReplicationCheckpoint>;
+
+  getParsedSyncRules(options: ParseSyncRulesOptions): SqlSyncRules;
 
   getParameterSets(checkpoint: util.OpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]>;
 
@@ -244,7 +259,7 @@ export interface SyncRulesBucketStorage {
    *
    * Must only be called on stopped sync rules.
    */
-  terminate(): Promise<void>;
+  terminate(options?: TerminateOptions): Promise<void>;
 
   getStatus(): Promise<SyncRuleStatus>;
 
@@ -277,7 +292,7 @@ export interface ResolveTableOptions {
   group_id: number;
   connection_id: number;
   connection_tag: string;
-  relation: replication.PgRelation;
+  entity_descriptor: SourceEntityDescriptor;
 
   sync_rules: SqlSyncRules;
 }
@@ -291,7 +306,11 @@ export interface FlushedResult {
   flushed_op: string;
 }
 
-export interface BucketStorageBatch {
+export interface BucketBatchStorageListener extends DisposableListener {
+  replicationEvent: (payload: ReplicationEventPayload) => void;
+}
+
+export interface BucketStorageBatch extends DisposableObserverClient<BucketBatchStorageListener> {
   /**
    * Save an op, and potentially flush.
    *
@@ -337,7 +356,17 @@ export interface BucketStorageBatch {
    */
   keepalive(lsn: string): Promise<boolean>;
 
+  /**
+   * Get the last checkpoint LSN, from either commit or keepalive.
+   */
+  lastCheckpointLsn: string | null;
+
   markSnapshotDone(tables: SourceTable[], no_checkpoint_before_lsn: string): Promise<SourceTable[]>;
+
+  /**
+   * Queues the creation of a custom Write Checkpoint. This will be persisted after operations are flushed.
+   */
+  addCustomWriteCheckpoint(checkpoint: BatchedCustomWriteCheckpointOptions): void;
 }
 
 export interface SaveParameterData {
@@ -355,23 +384,34 @@ export interface SaveBucketData {
   evaluated: EvaluatedRow[];
 }
 
+export type SaveOp = 'insert' | 'update' | 'delete';
+
 export type SaveOptions = SaveInsert | SaveUpdate | SaveDelete;
 
+export enum SaveOperationTag {
+  INSERT = 'insert',
+  UPDATE = 'update',
+  DELETE = 'delete'
+}
+
 export interface SaveInsert {
-  tag: 'insert';
+  tag: SaveOperationTag.INSERT;
   sourceTable: SourceTable;
   before?: undefined;
+  beforeReplicaId?: undefined;
   after: SqliteRow;
+  afterReplicaId: ReplicaId;
 }
 
 export interface SaveUpdate {
-  tag: 'update';
+  tag: SaveOperationTag.UPDATE;
   sourceTable: SourceTable;
 
   /**
    * This is only present when the id has changed, and will only contain replica identity columns.
    */
   before?: SqliteRow;
+  beforeReplicaId?: ReplicaId;
 
   /**
    * A null value means null column.
@@ -379,13 +419,16 @@ export interface SaveUpdate {
    * An undefined value means it's a TOAST value - must be copied from another record.
    */
   after: ToastableSqliteRow;
+  afterReplicaId: ReplicaId;
 }
 
 export interface SaveDelete {
-  tag: 'delete';
+  tag: SaveOperationTag.DELETE;
   sourceTable: SourceTable;
-  before: SqliteRow;
+  before?: SqliteRow;
+  beforeReplicaId: ReplicaId;
   after?: undefined;
+  afterReplicaId?: undefined;
 }
 
 export interface SyncBucketDataBatch {
@@ -429,6 +472,15 @@ export interface CompactOptions {
    * If specified, compact only the specific buckets.
    *
    * If not specified, compacts all buckets.
+   *
+   * These can be individual bucket names, or bucket definition names.
    */
   compactBuckets?: string[];
+}
+
+export interface TerminateOptions {
+  /**
+   * If true, also clear the storage before terminating.
+   */
+  clearStorage: boolean;
 }

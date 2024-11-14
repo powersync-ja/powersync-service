@@ -17,6 +17,15 @@
       "path": "./packages/sync-rules"
     },
     {
+      "path": "./modules/module-postgres"
+    },
+    {
+      "path": "./modules/module-mysql"
+    },
+    {
+      "path": "./modules/module-mongodb"
+    },
+    {
       "path": "./libs/lib-services"
     },
     {

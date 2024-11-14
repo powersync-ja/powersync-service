@@ -1,34 +1,25 @@
 import { JSONBig } from '@powersync/service-jsonbig';
-import { parse, SelectedColumn } from 'pgsql-ast-parser';
+import { parse } from 'pgsql-ast-parser';
+import { BaseSqlDataQuery } from './BaseSqlDataQuery.js';
 import { SqlRuleError } from './errors.js';
-import { ColumnDefinition, ExpressionType } from './ExpressionType.js';
+import { ExpressionType } from './ExpressionType.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SqlTools } from './sql_filters.js';
 import { castAsText } from './sql_functions.js';
 import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
+import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
-import {
-  EvaluationResult,
-  ParameterMatchClause,
-  QueryParameters,
-  QuerySchema,
-  SourceSchema,
-  SourceSchemaTable,
-  SqliteJsonRow,
-  SqliteRow
-} from './types.js';
-import { filterJsonRow, getBucketId, isSelectStatement } from './utils.js';
 import { TableQuerySchema } from './TableQuerySchema.js';
+import { EvaluationResult, ParameterMatchClause, QuerySchema, SqliteRow } from './types.js';
+import { getBucketId, isSelectStatement } from './utils.js';
 
-interface RowValueExtractor {
-  extract(tables: QueryParameters, into: SqliteRow): void;
-  getTypes(schema: QuerySchema, into: Record<string, ColumnDefinition>): void;
-}
+export class SqlDataQuery extends BaseSqlDataQuery {
+  filter?: ParameterMatchClause;
 
-export class SqlDataQuery {
-  static fromSql(descriptor_name: string, bucket_parameters: string[], sql: string, schema?: SourceSchema) {
+  static fromSql(descriptor_name: string, bucket_parameters: string[], sql: string, options: SyncRulesOptions) {
     const parsed = parse(sql, { locationTracking: true });
     const rows = new SqlDataQuery();
+    const schema = options.schema;
 
     if (parsed.length > 1) {
       throw new SqlRuleError('Only a single SELECT statement is supported', sql, parsed[1]?._location);
@@ -50,7 +41,7 @@ export class SqlDataQuery {
     }
     const alias: string = tableRef.alias ?? tableRef.name;
 
-    const sourceTable = new TablePattern(tableRef.schema, tableRef.name);
+    const sourceTable = new TablePattern(tableRef.schema ?? options.defaultSchema, tableRef.name);
     let querySchema: QuerySchema | undefined = undefined;
     if (schema) {
       const tables = schema.getTables(sourceTable);
@@ -122,7 +113,9 @@ export class SqlDataQuery {
             output[name] = clause.evaluate(tables);
           },
           getTypes(schema, into) {
-            into[name] = { name, type: clause.getType(schema) };
+            const def = clause.getColumnDefinition(schema);
+
+            into[name] = { name, type: def?.type ?? ExpressionType.NONE, originalType: def?.originalType };
           }
         });
       } else {
@@ -151,7 +144,7 @@ export class SqlDataQuery {
           // Not performing schema-based validation - assume there is an id
           hasId = true;
         } else {
-          const idType = querySchema.getType(alias, 'id');
+          const idType = querySchema.getColumn(alias, 'id')?.type ?? ExpressionType.NONE;
           if (!idType.isNone()) {
             hasId = true;
           }
@@ -168,50 +161,6 @@ export class SqlDataQuery {
     }
     rows.errors.push(...tools.errors);
     return rows;
-  }
-
-  sourceTable?: TablePattern;
-  table?: string;
-  sql?: string;
-  columns?: SelectedColumn[];
-  extractors: RowValueExtractor[] = [];
-  filter?: ParameterMatchClause;
-  descriptor_name?: string;
-  bucket_parameters?: string[];
-  tools?: SqlTools;
-
-  ruleId?: string;
-
-  errors: SqlRuleError[] = [];
-
-  constructor() {}
-
-  applies(table: SourceTableInterface) {
-    return this.sourceTable?.matches(table);
-  }
-
-  addSpecialParameters(table: SourceTableInterface, row: SqliteRow) {
-    if (this.sourceTable!.isWildcard) {
-      return {
-        ...row,
-        _table_suffix: this.sourceTable!.suffix(table.table)
-      };
-    } else {
-      return row;
-    }
-  }
-
-  getOutputName(sourceTable: string) {
-    if (this.isUnaliasedWildcard()) {
-      // Wildcard without alias - use source
-      return sourceTable;
-    } else {
-      return this.table!;
-    }
-  }
-
-  isUnaliasedWildcard() {
-    return this.sourceTable!.isWildcard && this.table == this.sourceTable!.tablePattern;
   }
 
   evaluateRow(table: SourceTableInterface, row: SqliteRow): EvaluationResult[] {
@@ -246,73 +195,6 @@ export class SqlDataQuery {
       });
     } catch (e) {
       return [{ error: e.message ?? `Evaluating data query failed` }];
-    }
-  }
-
-  private transformRow(tables: QueryParameters): SqliteJsonRow {
-    let result: SqliteRow = {};
-    for (let extractor of this.extractors) {
-      extractor.extract(tables, result);
-    }
-    return filterJsonRow(result);
-  }
-
-  columnOutputNames(): string[] {
-    return this.columns!.map((c) => {
-      return this.tools!.getOutputName(c);
-    });
-  }
-
-  getColumnOutputs(schema: SourceSchema): { name: string; columns: ColumnDefinition[] }[] {
-    let result: { name: string; columns: ColumnDefinition[] }[] = [];
-
-    if (this.isUnaliasedWildcard()) {
-      // Separate results
-      for (let schemaTable of schema.getTables(this.sourceTable!)) {
-        let output: Record<string, ColumnDefinition> = {};
-
-        this.getColumnOutputsFor(schemaTable, output);
-
-        result.push({
-          name: this.getOutputName(schemaTable.table),
-          columns: Object.values(output)
-        });
-      }
-    } else {
-      // Merged results
-      let output: Record<string, ColumnDefinition> = {};
-      for (let schemaTable of schema.getTables(this.sourceTable!)) {
-        this.getColumnOutputsFor(schemaTable, output);
-      }
-      result.push({
-        name: this.table!,
-        columns: Object.values(output)
-      });
-    }
-
-    return result;
-  }
-
-  private getColumnOutputsFor(schemaTable: SourceSchemaTable, output: Record<string, ColumnDefinition>) {
-    const querySchema: QuerySchema = {
-      getType: (table, column) => {
-        if (table == this.table!) {
-          return schemaTable.getType(column) ?? ExpressionType.NONE;
-        } else {
-          // TODO: bucket parameters?
-          return ExpressionType.NONE;
-        }
-      },
-      getColumns: (table) => {
-        if (table == this.table!) {
-          return schemaTable.getColumns();
-        } else {
-          return [];
-        }
-      }
-    };
-    for (let extractor of this.extractors) {
-      extractor.getTypes(querySchema, output);
     }
   }
 }

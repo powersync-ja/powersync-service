@@ -1,7 +1,6 @@
 import { SourceTableInterface } from './SourceTableInterface.js';
 
 export const DEFAULT_TAG = 'default';
-export const DEFAULT_SCHEMA = 'public';
 
 /**
  * Some pattern matching SourceTables.
@@ -12,8 +11,7 @@ export class TablePattern {
   public readonly schema: string;
   public readonly tablePattern: string;
 
-  constructor(schema: string | undefined, tablePattern: string) {
-    schema ??= DEFAULT_SCHEMA;
+  constructor(schema: string, tablePattern: string) {
     const splitSchema = schema.split('.');
     if (splitSchema.length > 2) {
       throw new Error(`Invalid schema: ${schema}`);

@@ -9,12 +9,14 @@
     "access": "public"
   },
   "files": [
-    "dist/**/*"
+    "dist/**/*",
+    "schema/*"
   ],
   "type": "module",
   "scripts": {
     "clean": "rm -r ./dist && tsc -b --clean",
-    "build": "tsc -b",
+    "build:tsc": "tsc -b",
+    "build": "pnpm build:tsc && node scripts/compile-schema.js",
     "build:tests": "tsc -b test/tsconfig.json",
     "test": "vitest"
   },
@@ -26,7 +28,7 @@
     "yaml": "^2.3.1"
   },
   "devDependencies": {
-    "@types/node": "18.19.50",
-    "vitest": "^2.0.5"
+    "@types/node": "^22.5.5",
+    "vitest": "^2.1.1"
   }
 }

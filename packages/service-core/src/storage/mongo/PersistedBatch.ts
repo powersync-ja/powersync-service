@@ -13,9 +13,10 @@ import {
   BucketParameterDocument,
   CurrentBucket,
   CurrentDataDocument,
-  SourceKey
+  SourceKey,
+  ReplicaId
 } from './models.js';
-import { serializeLookup } from './util.js';
+import { replicaIdToSubkey, serializeLookup } from './util.js';
 import { logger } from '@powersync/lib-services-framework';
 
 /**
@@ -53,13 +54,16 @@ export class PersistedBatch {
    */
   currentSize = 0;
 
-  constructor(private group_id: number, writtenSize: number) {
+  constructor(
+    private group_id: number,
+    writtenSize: number
+  ) {
     this.currentSize = writtenSize;
   }
 
   saveBucketData(options: {
     op_seq: MongoIdSequence;
-    sourceKey: bson.UUID;
+    sourceKey: ReplicaId;
     table: SourceTable;
     evaluated: EvaluatedRow[];
     before_buckets: CurrentBucket[];
@@ -70,7 +74,7 @@ export class PersistedBatch {
       remaining_buckets.set(key, b);
     }
 
-    const dchecksum = util.hashDelete(`${options.table.id}/${options.sourceKey}`);
+    const dchecksum = util.hashDelete(replicaIdToSubkey(options.table.id, options.sourceKey));
 
     for (let k of options.evaluated) {
       const key = currentBucketKey(k);
@@ -134,7 +138,7 @@ export class PersistedBatch {
 
   saveParameterData(data: {
     op_seq: MongoIdSequence;
-    sourceKey: bson.UUID;
+    sourceKey: ReplicaId;
     sourceTable: SourceTable;
     evaluated: EvaluatedParameters[];
     existing_lookups: bson.Binary[];

@@ -8,7 +8,6 @@ import * as util from '../../util/util-index.js';
 import { Metrics } from '../../metrics/Metrics.js';
 import { authUser } from '../auth.js';
 import { routeDefinition } from '../router.js';
-import { RequestTracker } from '../../sync/RequestTracker.js';
 
 export enum SyncRoutes {
   STREAM = '/sync/stream'
@@ -20,12 +19,13 @@ export const syncStreamed = routeDefinition({
   authorize: authUser,
   validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
   handler: async (payload) => {
-    const system = payload.context.system;
+    const { service_context } = payload.context;
+    const { routerEngine, storageEngine } = service_context;
     const headers = payload.request.headers;
     const userAgent = headers['x-user-agent'] ?? headers['user-agent'];
     const clientId = payload.params.client_id;
 
-    if (system.closed) {
+    if (routerEngine!.closed) {
       throw new errors.JourneyError({
         status: 503,
         code: 'SERVICE_UNAVAILABLE',
@@ -36,9 +36,8 @@ export const syncStreamed = routeDefinition({
     const params: util.StreamingSyncRequest = payload.params;
     const syncParams = new RequestParameters(payload.context.token_payload!, payload.params.parameters ?? {});
 
-    const storage = system.storage;
     // Sanity check before we start the stream
-    const cp = await storage.getActiveCheckpoint();
+    const cp = await storageEngine.activeBucketStorage.getActiveCheckpoint();
     if (!cp.hasSyncRules()) {
       throw new errors.JourneyError({
         status: 500,
@@ -47,14 +46,15 @@ export const syncStreamed = routeDefinition({
       });
     }
     const controller = new AbortController();
-    const tracker = new RequestTracker();
+    const tracker = new sync.RequestTracker();
     try {
       Metrics.getInstance().concurrent_connections.add(1);
       const stream = Readable.from(
         sync.transformToBytesTracked(
           sync.ndjson(
             sync.streamResponse({
-              storage,
+              storage: storageEngine.activeBucketStorage,
+              parseOptions: routerEngine!.getAPI().getParseSyncRulesOptions(),
               params,
               syncParams,
               token: payload.context.token_payload!,
@@ -67,7 +67,7 @@ export const syncStreamed = routeDefinition({
         { objectMode: false, highWaterMark: 16 * 1024 }
       );
 
-      const deregister = system.addStopHandler(() => {
+      const deregister = routerEngine!.addStopHandler(() => {
         // This error is not currently propagated to the client
         controller.abort();
         stream.destroy(new Error('Shutting down system'));

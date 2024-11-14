@@ -1,12 +1,12 @@
-import * as t from 'ts-codec';
-import type { FastifyPluginAsync } from 'fastify';
-import * as pgwire from '@powersync/service-jpgwire';
 import { errors, router, schema } from '@powersync/lib-services-framework';
 import { SqlSyncRules, SyncRulesErrors } from '@powersync/service-sync-rules';
+import type { FastifyPluginAsync } from 'fastify';
+import * as t from 'ts-codec';
 
-import * as replication from '../../replication/replication-index.js';
+import * as system from '../../system/system-index.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
+import { RouteAPI } from '../../api/RouteAPI.js';
 
 const DeploySyncRulesRequest = t.object({
   content: t.string
@@ -39,7 +39,10 @@ export const deploySyncRules = routeDefinition({
   plugins: [yamlPlugin],
   validator: schema.createTsCodecValidator(DeploySyncRulesRequest, { allowAdditional: true }),
   handler: async (payload) => {
-    if (payload.context.system.config.sync_rules.present) {
+    const { service_context } = payload.context;
+    const { storageEngine } = service_context;
+
+    if (service_context.configuration.sync_rules.present) {
       // If sync rules are configured via the config, disable deploy via the API.
       throw new errors.JourneyError({
         status: 422,
@@ -51,7 +54,12 @@ export const deploySyncRules = routeDefinition({
     const content = payload.params.content;
 
     try {
-      SqlSyncRules.fromYaml(payload.params.content);
+      const apiHandler = service_context.routerEngine!.getAPI();
+      SqlSyncRules.fromYaml(payload.params.content, {
+        ...apiHandler.getParseSyncRulesOptions(),
+        // We don't do any schema-level validation at this point
+        schema: undefined
+      });
     } catch (e) {
       throw new errors.JourneyError({
         status: 422,
@@ -61,7 +69,7 @@ export const deploySyncRules = routeDefinition({
       });
     }
 
-    const sync_rules = await payload.context.system.storage.updateSyncRules({
+    const sync_rules = await storageEngine.activeBucketStorage.updateSyncRules({
       content: content
     });
 
@@ -84,8 +92,10 @@ export const validateSyncRules = routeDefinition({
   validator: schema.createTsCodecValidator(ValidateSyncRulesRequest, { allowAdditional: true }),
   handler: async (payload) => {
     const content = payload.params.content;
+    const { service_context } = payload.context;
+    const apiHandler = service_context.routerEngine!.getAPI();
 
-    const info = await debugSyncRules(payload.context.system.requirePgPool(), content);
+    const info = await debugSyncRules(apiHandler, content);
 
     return replyPrettyJson(info);
   }
@@ -96,8 +106,12 @@ export const currentSyncRules = routeDefinition({
   method: router.HTTPMethod.GET,
   authorize: authApi,
   handler: async (payload) => {
-    const storage = payload.context.system.storage;
-    const sync_rules = await storage.getActiveSyncRulesContent();
+    const { service_context } = payload.context;
+    const {
+      storageEngine: { activeBucketStorage }
+    } = service_context;
+
+    const sync_rules = await activeBucketStorage.getActiveSyncRulesContent();
     if (!sync_rules) {
       throw new errors.JourneyError({
         status: 422,
@@ -105,12 +119,12 @@ export const currentSyncRules = routeDefinition({
         description: 'No active sync rules'
       });
     }
-    const info = await debugSyncRules(payload.context.system.requirePgPool(), sync_rules.sync_rules_content);
-    const next = await storage.getNextSyncRulesContent();
 
-    const next_info = next
-      ? await debugSyncRules(payload.context.system.requirePgPool(), next.sync_rules_content)
-      : null;
+    const apiHandler = service_context.routerEngine!.getAPI();
+    const info = await debugSyncRules(apiHandler, sync_rules.sync_rules_content);
+    const next = await activeBucketStorage.getNextSyncRulesContent();
+
+    const next_info = next ? await debugSyncRules(apiHandler, next.sync_rules_content) : null;
 
     const response = {
       current: {
@@ -140,8 +154,11 @@ export const reprocessSyncRules = routeDefinition({
   authorize: authApi,
   validator: schema.createTsCodecValidator(ReprocessSyncRulesRequest),
   handler: async (payload) => {
-    const storage = payload.context.system.storage;
-    const sync_rules = await storage.getActiveSyncRules();
+    const {
+      storageEngine: { activeBucketStorage }
+    } = payload.context.service_context;
+    const apiHandler = payload.context.service_context.routerEngine!.getAPI();
+    const sync_rules = await activeBucketStorage.getActiveSyncRules(apiHandler.getParseSyncRulesOptions());
     if (sync_rules == null) {
       throw new errors.JourneyError({
         status: 422,
@@ -150,7 +167,7 @@ export const reprocessSyncRules = routeDefinition({
       });
     }
 
-    const new_rules = await storage.updateSyncRules({
+    const new_rules = await activeBucketStorage.updateSyncRules({
       content: sync_rules.sync_rules.content
     });
     return {
@@ -169,15 +186,15 @@ function replyPrettyJson(payload: any) {
   });
 }
 
-async function debugSyncRules(db: pgwire.PgClient, sync_rules: string) {
+async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
   try {
-    const rules = SqlSyncRules.fromYaml(sync_rules);
-    const source_table_patterns = rules.getSourceTables();
-    const wc = new replication.WalConnection({
-      db: db,
-      sync_rules: rules
+    const rules = SqlSyncRules.fromYaml(sync_rules, {
+      ...apiHandler.getParseSyncRulesOptions(),
+      // No schema-based validation at this point
+      schema: undefined
     });
-    const resolved_tables = await wc.getDebugTablesInfo(source_table_patterns);
+    const source_table_patterns = rules.getSourceTables();
+    const resolved_tables = await apiHandler.getDebugTablesInfo(source_table_patterns, rules);
 
     return {
       valid: true,

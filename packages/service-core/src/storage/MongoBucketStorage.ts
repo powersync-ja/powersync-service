@@ -1,36 +1,39 @@
-import * as mongo from 'mongodb';
-import * as timers from 'timers/promises';
-import { LRUCache } from 'lru-cache/min';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
+import { LRUCache } from 'lru-cache/min';
+import * as mongo from 'mongodb';
+import * as timers from 'timers/promises';
 
-import * as replication from '../replication/replication-index.js';
+import * as locks from '../locks/locks-index.js';
 import * as sync from '../sync/sync-index.js';
 import * as util from '../util/util-index.js';
-import * as locks from '../locks/locks-index.js';
 
+import { DisposableObserver, logger } from '@powersync/lib-services-framework';
+import { v4 as uuid } from 'uuid';
 import {
   ActiveCheckpoint,
   BucketStorageFactory,
+  BucketStorageFactoryListener,
+  ParseSyncRulesOptions,
   PersistedSyncRules,
   PersistedSyncRulesContent,
   StorageMetrics,
   UpdateSyncRulesOptions,
   WriteCheckpoint
 } from './BucketStorage.js';
+import { PowerSyncMongo } from './mongo/db.js';
+import { SyncRuleDocument, SyncRuleState } from './mongo/models.js';
 import { MongoPersistedSyncRulesContent } from './mongo/MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage } from './mongo/MongoSyncBucketStorage.js';
-import { PowerSyncMongo, PowerSyncMongoOptions } from './mongo/db.js';
-import { SyncRuleDocument, SyncRuleState } from './mongo/models.js';
 import { generateSlotName } from './mongo/util.js';
-import { v4 as uuid } from 'uuid';
-import { logger } from '@powersync/lib-services-framework';
 
-export interface MongoBucketStorageOptions extends PowerSyncMongoOptions {}
-
-export class MongoBucketStorage implements BucketStorageFactory {
+export class MongoBucketStorage
+  extends DisposableObserver<BucketStorageFactoryListener>
+  implements BucketStorageFactory
+{
   private readonly client: mongo.MongoClient;
   private readonly session: mongo.ClientSession;
+  // TODO: This is still Postgres specific and needs to be reworked
   public readonly slot_name_prefix: string;
 
   private readonly storageCache = new LRUCache<number, MongoSyncBucketStorage>({
@@ -47,26 +50,44 @@ export class MongoBucketStorage implements BucketStorageFactory {
         return undefined;
       }
       const rules = new MongoPersistedSyncRulesContent(this.db, doc2);
-      const storage = this.getInstance(rules.parsed());
-      return storage;
+      return this.getInstance(rules);
+    },
+    dispose: (storage) => {
+      storage[Symbol.dispose]();
     }
   });
 
   public readonly db: PowerSyncMongo;
 
-  constructor(db: PowerSyncMongo, options: { slot_name_prefix: string }) {
+  constructor(
+    db: PowerSyncMongo,
+    options: {
+      slot_name_prefix: string;
+    }
+  ) {
+    super();
     this.client = db.client;
     this.db = db;
     this.session = this.client.startSession();
     this.slot_name_prefix = options.slot_name_prefix;
   }
 
-  getInstance(options: PersistedSyncRules): MongoSyncBucketStorage {
-    let { id, sync_rules, slot_name } = options;
+  getInstance(options: PersistedSyncRulesContent): MongoSyncBucketStorage {
+    let { id, slot_name } = options;
     if ((typeof id as any) == 'bigint') {
       id = Number(id);
     }
-    return new MongoSyncBucketStorage(this, id, sync_rules, slot_name);
+    const storage = new MongoSyncBucketStorage(this, id, options, slot_name);
+    this.iterateListeners((cb) => cb.syncStorageCreated?.(storage));
+    storage.registerListener({
+      batchStarted: (batch) => {
+        // This nested listener will be automatically disposed when the storage is disposed
+        batch.registerManagedListener(storage, {
+          replicationEvent: (payload) => this.iterateListeners((cb) => cb.replicationEvent?.(payload))
+        });
+      }
+    });
+    return storage;
   }
 
   async configureSyncRules(sync_rules: string, options?: { lock?: boolean }) {
@@ -136,7 +157,12 @@ export class MongoBucketStorage implements BucketStorageFactory {
 
   async updateSyncRules(options: UpdateSyncRulesOptions): Promise<MongoPersistedSyncRulesContent> {
     // Parse and validate before applying any changes
-    const parsed = SqlSyncRules.fromYaml(options.content);
+    const parsed = SqlSyncRules.fromYaml(options.content, {
+      // No schema-based validation at this point
+      schema: undefined,
+      defaultSchema: 'not_applicable', // Not needed for validation
+      throwOnError: true
+    });
 
     let rules: MongoPersistedSyncRulesContent | undefined = undefined;
 
@@ -204,9 +230,9 @@ export class MongoBucketStorage implements BucketStorageFactory {
     return new MongoPersistedSyncRulesContent(this.db, doc);
   }
 
-  async getActiveSyncRules(): Promise<PersistedSyncRules | null> {
+  async getActiveSyncRules(options: ParseSyncRulesOptions): Promise<PersistedSyncRules | null> {
     const content = await this.getActiveSyncRulesContent();
-    return content?.parsed() ?? null;
+    return content?.parsed(options) ?? null;
   }
 
   async getNextSyncRulesContent(): Promise<MongoPersistedSyncRulesContent | null> {
@@ -223,9 +249,9 @@ export class MongoBucketStorage implements BucketStorageFactory {
     return new MongoPersistedSyncRulesContent(this.db, doc);
   }
 
-  async getNextSyncRules(): Promise<PersistedSyncRules | null> {
+  async getNextSyncRules(options: ParseSyncRulesOptions): Promise<PersistedSyncRules | null> {
     const content = await this.getNextSyncRulesContent();
-    return content?.parsed() ?? null;
+    return content?.parsed(options) ?? null;
   }
 
   async getReplicatingSyncRules(): Promise<PersistedSyncRulesContent[]> {
@@ -250,32 +276,6 @@ export class MongoBucketStorage implements BucketStorageFactory {
     return docs.map((doc) => {
       return new MongoPersistedSyncRulesContent(this.db, doc);
     });
-  }
-
-  async createWriteCheckpoint(user_id: string, lsns: Record<string, string>): Promise<bigint> {
-    const doc = await this.db.write_checkpoints.findOneAndUpdate(
-      {
-        user_id: user_id
-      },
-      {
-        $set: {
-          lsns: lsns
-        },
-        $inc: {
-          client_id: 1n
-        }
-      },
-      { upsert: true, returnDocument: 'after' }
-    );
-    return doc!.client_id;
-  }
-
-  async lastWriteCheckpoint(user_id: string, lsn: string): Promise<bigint | null> {
-    const lastWriteCheckpoint = await this.db.write_checkpoints.findOne({
-      user_id: user_id,
-      'lsns.1': { $lte: lsn }
-    });
-    return lastWriteCheckpoint?.client_id ?? null;
   }
 
   async getActiveCheckpoint(): Promise<ActiveCheckpoint> {
@@ -303,7 +303,7 @@ export class MongoBucketStorage implements BucketStorageFactory {
       }
     };
 
-    const active_sync_rules = await this.getActiveSyncRules();
+    const active_sync_rules = await this.getActiveSyncRules({ defaultSchema: 'public' });
     if (active_sync_rules == null) {
       return {
         operations_size_bytes: 0,
@@ -379,7 +379,7 @@ export class MongoBucketStorage implements BucketStorageFactory {
   private makeActiveCheckpoint(doc: SyncRuleDocument | null) {
     return {
       checkpoint: util.timestampToOpId(doc?.last_checkpoint ?? 0n),
-      lsn: doc?.last_checkpoint_lsn ?? replication.ZERO_LSN,
+      lsn: doc?.last_checkpoint_lsn ?? null,
       hasSyncRules() {
         return doc != null;
       },
@@ -389,7 +389,7 @@ export class MongoBucketStorage implements BucketStorageFactory {
         }
         return (await this.storageCache.fetch(doc._id)) ?? null;
       }
-    };
+    } satisfies ActiveCheckpoint;
   }
 
   /**
@@ -479,6 +479,7 @@ export class MongoBucketStorage implements BucketStorageFactory {
       if (doc == null) {
         continue;
       }
+
       const op = this.makeActiveCheckpoint(doc);
       // Check for LSN / checkpoint changes - ignore other metadata changes
       if (lastOp == null || op.lsn != lastOp.lsn || op.checkpoint != lastOp.checkpoint) {
@@ -508,8 +509,19 @@ export class MongoBucketStorage implements BucketStorageFactory {
       // What is important is:
       // 1. checkpoint (op_id) changes.
       // 2. write checkpoint changes for the specific user
+      const bucketStorage = await cp.getBucketStorage();
+      if (!bucketStorage) {
+        continue;
+      }
 
-      const currentWriteCheckpoint = await this.lastWriteCheckpoint(user_id, lsn ?? '');
+      const lsnFilters: Record<string, string> = lsn ? { 1: lsn } : {};
+
+      const currentWriteCheckpoint = await bucketStorage.lastWriteCheckpoint({
+        user_id,
+        heads: {
+          ...lsnFilters
+        }
+      });
 
       if (currentWriteCheckpoint == lastWriteCheckpoint && checkpoint == lastCheckpoint) {
         // No change - wait for next one

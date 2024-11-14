@@ -1,0 +1,49 @@
+{
+  "name": "@powersync/service-module-postgres",
+  "repository": "https://github.com/powersync-ja/powersync-service",
+  "types": "dist/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "version": "0.0.1",
+  "main": "dist/index.js",
+  "license": "FSL-1.1-Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "build:tests": "tsc -b test/tsconfig.json",
+    "clean": "rm -rf ./dist && tsc -b --clean",
+    "test": "vitest"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./types": {
+      "import": "./dist/types/types.js",
+      "require": "./dist/types/types.js",
+      "default": "./dist/types/types.js"
+    }
+  },
+  "dependencies": {
+    "@powersync/lib-services-framework": "workspace:*",
+    "@powersync/service-core": "workspace:*",
+    "@powersync/service-jpgwire": "workspace:*",
+    "@powersync/service-jsonbig": "workspace:*",
+    "@powersync/service-sync-rules": "workspace:*",
+    "@powersync/service-types": "workspace:*",
+    "pgwire": "github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87",
+    "jose": "^4.15.1",
+    "ts-codec": "^1.2.2",
+    "uuid": "^9.0.1",
+    "uri-js": "^4.4.1"
+  },
+  "devDependencies": {
+    "@types/uuid": "^9.0.4",
+    "typescript": "^5.6.2",
+    "vitest": "^2.1.1",
+    "vite-tsconfig-paths": "^4.3.2"
+  }
+}

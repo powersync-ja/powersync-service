@@ -3,6 +3,7 @@ import { SourceTableInterface } from './SourceTableInterface.js';
 import { ColumnDefinition, ExpressionType } from './ExpressionType.js';
 import { TablePattern } from './TablePattern.js';
 import { toSyncRulesParameters } from './utils.js';
+import { SyncRulesOptions } from './SqlSyncRules.js';
 
 export interface SyncRules {
   evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
@@ -10,7 +11,7 @@ export interface SyncRules {
   evaluateParameterRow(table: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[];
 }
 
-export interface QueryParseOptions {
+export interface QueryParseOptions extends SyncRulesOptions {
   accept_potentially_dangerous_queries?: boolean;
 }
 
@@ -279,7 +280,7 @@ export interface ParameterValueClause {
 }
 
 export interface QuerySchema {
-  getType(table: string, column: string): ExpressionType;
+  getColumn(table: string, column: string): ColumnDefinition | undefined;
   getColumns(table: string): ColumnDefinition[];
 }
 
@@ -291,7 +292,7 @@ export interface QuerySchema {
  */
 export interface RowValueClause {
   evaluate(tables: QueryParameters): SqliteValue;
-  getType(schema: QuerySchema): ExpressionType;
+  getColumnDefinition(schema: QuerySchema): ColumnDefinition | undefined;
 }
 
 /**
@@ -321,7 +322,7 @@ export interface QueryBucketIdOptions {
 
 export interface SourceSchemaTable {
   table: string;
-  getType(column: string): ExpressionType | undefined;
+  getColumn(column: string): ColumnDefinition | undefined;
   getColumns(): ColumnDefinition[];
 }
 export interface SourceSchema {

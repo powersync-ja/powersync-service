@@ -12,7 +12,8 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
   router.reactiveStream<util.StreamingSyncRequest, any>(SyncRoutes.STREAM, {
     validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
     handler: async ({ context, params, responder, observer, initialN, signal: upstreamSignal }) => {
-      const { system } = context;
+      const { service_context } = context;
+      const { routerEngine } = service_context;
 
       // Create our own controller that we can abort directly
       const controller = new AbortController();
@@ -31,7 +32,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         }
       });
 
-      if (system.closed) {
+      if (routerEngine!.closed) {
         responder.onError(
           new errors.JourneyError({
             status: 503,
@@ -45,9 +46,11 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
 
       const syncParams = new RequestParameters(context.token_payload!, params.parameters ?? {});
 
-      const storage = system.storage;
+      const {
+        storageEngine: { activeBucketStorage }
+      } = service_context;
       // Sanity check before we start the stream
-      const cp = await storage.getActiveCheckpoint();
+      const cp = await activeBucketStorage.getActiveCheckpoint();
       if (!cp.hasSyncRules()) {
         responder.onError(
           new errors.JourneyError({
@@ -60,7 +63,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         return;
       }
 
-      const removeStopHandler = system.addStopHandler(() => {
+      const removeStopHandler = routerEngine!.addStopHandler(() => {
         controller.abort();
       });
 
@@ -68,7 +71,8 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       const tracker = new sync.RequestTracker();
       try {
         for await (const data of sync.streamResponse({
-          storage,
+          storage: activeBucketStorage,
+          parseOptions: routerEngine!.getAPI().getParseSyncRulesOptions(),
           params: {
             ...params,
             binary_data: true // always true for web sockets

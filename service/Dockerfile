@@ -17,6 +17,10 @@ COPY packages/types/package.json packages/types/tsconfig.json packages/types/
 
 COPY libs/lib-services/package.json libs/lib-services/tsconfig.json libs/lib-services/
 
+COPY modules/module-postgres/package.json modules/module-postgres/tsconfig.json modules/module-postgres/
+COPY modules/module-mongodb/package.json modules/module-mongodb/tsconfig.json modules/module-mongodb/
+COPY modules/module-mysql/package.json modules/module-mysql/tsconfig.json modules/module-mysql/
+
 RUN pnpm install --frozen-lockfile
 
 COPY service/src service/src/
@@ -26,10 +30,15 @@ COPY packages/jpgwire/src packages/jpgwire/src/
 COPY packages/jpgwire/ca packages/jpgwire/ca/
 COPY packages/jsonbig/src packages/jsonbig/src/
 COPY packages/sync-rules/src packages/sync-rules/src/
+COPY packages/sync-rules/scripts packages/sync-rules/scripts/
 COPY packages/rsocket-router/src packages/rsocket-router/src/
 COPY packages/types/src packages/types/src/
 
 COPY libs/lib-services/src libs/lib-services/src/
+
+COPY modules/module-postgres/src modules/module-postgres/src/
+COPY modules/module-mongodb/src modules/module-mongodb/src/
+COPY modules/module-mysql/src modules/module-mysql/src/
 
 RUN pnpm build:production && \
     rm -rf node_modules **/node_modules && \

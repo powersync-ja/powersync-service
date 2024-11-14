@@ -1,15 +1,33 @@
-import { NormalizedPostgresConnection } from '@powersync/service-types';
 import * as tls from 'tls';
 import { DEFAULT_CERTS } from './certs.js';
 import * as pgwire from './pgwire.js';
 import { PgType } from './pgwire_types.js';
 import * as datefns from 'date-fns';
 
+// TODO this is duplicated, but maybe that is ok
+export interface NormalizedConnectionConfig {
+  id: string;
+  tag: string;
+
+  hostname: string;
+  port: number;
+  database: string;
+
+  username: string;
+  password: string;
+
+  sslmode: 'verify-full' | 'verify-ca' | 'disable';
+  cacert: string | undefined;
+
+  client_certificate: string | undefined;
+  client_private_key: string | undefined;
+}
+
 type Mutable<T> = {
   -readonly [P in keyof T]: T[P];
 };
 
-export interface PgWireConnectionOptions extends NormalizedPostgresConnection {
+export interface PgWireConnectionOptions extends NormalizedConnectionConfig {
   resolved_ip?: string;
 }
 

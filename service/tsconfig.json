@@ -22,13 +22,22 @@
       "path": "../packages/service-core"
     },
     {
-      "path": "../libs/lib-services"
-    },
-    {
       "path": "../packages/sync-rules"
     },
     {
       "path": "../packages/types"
+    },
+    {
+      "path": "../libs/lib-services"
+    },
+    {
+      "path": "../modules/module-postgres"
+    },
+    {
+      "path": "../modules/module-mongodb"
+    },
+    {
+      "path": "../modules/module-mysql"
     }
   ]
 }

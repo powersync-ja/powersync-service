@@ -1,3 +1,4 @@
+import { BroadcastIterable, IterableSource } from '@/sync/BroadcastIterable.js';
 import { AsyncIterableX, interval } from 'ix/asynciterable/index.js';
 import { delayEach } from 'ix/asynciterable/operators/delayeach.js';
 import { take } from 'ix/asynciterable/operators/take.js';
@@ -5,7 +6,6 @@ import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 import { toArray } from 'ix/asynciterable/toarray.js';
 import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
-import { BroadcastIterable, IterableSource } from '../../src/sync/BroadcastIterable.js';
 
 describe('BroadcastIterable', () => {
   test('should iterate', async () => {

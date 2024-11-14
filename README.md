@@ -2,7 +2,7 @@
   <a href="https://www.powersync.com" target="_blank"><img src="https://github.com/powersync-ja/.github/assets/7372448/d2538c43-c1a0-4c47-9a76-41462dba484f"/></a>
 </p>
 
-*[PowerSync](https://www.powersync.com) is a sync engine for building local-first apps with instantly-responsive UI/UX and simplified state transfer. Syncs between SQLite on the client-side and Postgres, MongoDB or MySQL on the server-side.*
+_[PowerSync](https://www.powersync.com) is a sync engine for building local-first apps with instantly-responsive UI/UX and simplified state transfer. Syncs between SQLite on the client-side and Postgres, MongoDB or MySQL on the server-side._
 
 # PowerSync Service
 
@@ -11,6 +11,7 @@
 The service can be started using the public Docker image. See the image [notes](./service/README.md)
 
 # Monorepo Structure:
+
 ## Packages
 
 - [packages/service-core](./packages/service-core/README.md)
@@ -52,13 +53,13 @@ Contains the PowerSync Service code. This project is used to build the `journeya
 
 - [docs](./docs/README.md)
 
-Technical documentation regarding the implementation of PowerSync. 
+Technical documentation regarding the implementation of PowerSync.
 
 ## Test Client
 
 - [test-client](./test-client/README.md)
 
-Contains a minimal client demonstrating direct usage of the HTTP stream sync API. This can be used to test sync rules in contexts such as automated testing. 
+Contains a minimal client demonstrating direct usage of the HTTP stream sync API. This can be used to test sync rules in contexts such as automated testing.
 
 # Developing
 

@@ -1,5 +1,14 @@
-import * as bson from 'bson';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
+import * as bson from 'bson';
+
+/**
+ * Replica id uniquely identifying a row on the source database.
+ *
+ * Can be any value serializable to BSON.
+ *
+ * If the value is an entire document, the data serialized to a v5 UUID may be a good choice here.
+ */
+export type ReplicaId = bson.UUID | bson.Document | any;
 
 export interface SourceKey {
   /** group_id */
@@ -7,7 +16,7 @@ export interface SourceKey {
   /** source table id */
   t: bson.ObjectId;
   /** source key */
-  k: bson.UUID;
+  k: ReplicaId;
 }
 
 export interface BucketDataKey {
@@ -43,7 +52,7 @@ export interface BucketDataDocument {
   _id: BucketDataKey;
   op: OpType;
   source_table?: bson.ObjectId;
-  source_key?: bson.UUID;
+  source_key?: ReplicaId;
   table?: string;
   row_id?: string;
   checksum: number;
@@ -57,11 +66,11 @@ export interface SourceTableDocument {
   _id: bson.ObjectId;
   group_id: number;
   connection_id: number;
-  relation_id: number | undefined;
+  relation_id: number | string | undefined;
   schema_name: string;
   table_name: string;
   replica_id_columns: string[] | null;
-  replica_id_columns2: { name: string; type_oid: number }[] | undefined;
+  replica_id_columns2: { name: string; type_oid?: number; type?: string }[] | undefined;
   snapshot_done: boolean | undefined;
 }
 
@@ -148,6 +157,13 @@ export interface SyncRuleDocument {
   last_fatal_error: string | null;
 
   content: string;
+}
+
+export interface CustomWriteCheckpointDocument {
+  _id: bson.ObjectId;
+  user_id: string;
+  checkpoint: bigint;
+  sync_rules_id: number;
 }
 
 export interface WriteCheckpointDocument {

@@ -1,10 +1,8 @@
-import { DEFAULT_SCHEMA, DEFAULT_TAG } from '@powersync/service-sync-rules';
-
-import * as replication from '../replication/replication-index.js';
+import { DEFAULT_TAG } from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
+import { ColumnDescriptor } from './SourceEntity.js';
 
 export class SourceTable {
-  static readonly DEFAULT_SCHEMA = DEFAULT_SCHEMA;
   static readonly DEFAULT_TAG = DEFAULT_TAG;
 
   /**
@@ -25,14 +23,23 @@ export class SourceTable {
    */
   public syncParameters = true;
 
+  /**
+   * True if the table is used in sync rules for events.
+   *
+   * This value is resolved externally, and cached here.
+   *
+   * Defaults to true for tests.
+   */
+  public syncEvent = true;
+
   constructor(
     public readonly id: any,
     public readonly connectionTag: string,
-    public readonly relationId: number,
+    public readonly objectId: number | string,
     public readonly schema: string,
     public readonly table: string,
 
-    public readonly replicaIdColumns: replication.ReplicationColumn[],
+    public readonly replicaIdColumns: ColumnDescriptor[],
     public readonly snapshotComplete: boolean
   ) {}
 
@@ -55,6 +62,6 @@ export class SourceTable {
   }
 
   get syncAny() {
-    return this.syncData || this.syncParameters;
+    return this.syncData || this.syncParameters || this.syncEvent;
   }
 }

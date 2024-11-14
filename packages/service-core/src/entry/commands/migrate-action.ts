@@ -1,9 +1,8 @@
+import { logger } from '@powersync/lib-services-framework';
 import { Command } from 'commander';
 
+import * as migrations from '../../migrations/migrations-index.js';
 import { extractRunnerOptions, wrapConfigCommand } from './config-command.js';
-import { migrate } from '../../migrations/migrations.js';
-import { Direction } from '../../migrations/definitions.js';
-import { logger } from '@powersync/lib-services-framework';
 
 const COMMAND_NAME = 'migrate';
 
@@ -15,13 +14,11 @@ export function registerMigrationAction(program: Command) {
   return migrationCommand
     .description('Run migrations')
     .argument('<direction>', 'Migration direction. `up` or `down`')
-    .action(async (direction: Direction, options) => {
-      const runnerConfig = extractRunnerOptions(options);
-
+    .action(async (direction: migrations.Direction, options) => {
       try {
-        await migrate({
+        await migrations.migrate({
           direction,
-          runner_config: runnerConfig
+          runner_config: extractRunnerOptions(options)
         });
 
         process.exit(0);
