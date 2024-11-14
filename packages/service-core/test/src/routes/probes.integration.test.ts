@@ -6,8 +6,8 @@ import * as system from '../../../src/system/system-index.js';
 import { configureFastifyServer } from '../../../src/index.js';
 import { ProbeRoutes } from '../../../src/routes/endpoints/probes.js';
 
-vi.mock("@powersync/lib-services-framework", async () => {
-  const actual = await vi.importActual("@powersync/lib-services-framework") as any;
+vi.mock('@powersync/lib-services-framework', async () => {
+  const actual = (await vi.importActual('@powersync/lib-services-framework')) as any;
   return {
     ...actual,
     container: {
@@ -15,18 +15,18 @@ vi.mock("@powersync/lib-services-framework", async () => {
       probes: {
         state: vi.fn()
       }
-    },
-  }
-})
+    }
+  };
+});
 
 describe('Probe Routes Integration', () => {
   let app: FastifyInstance;
-  let mockSystem: system.CorePowerSyncSystem;
+  let mockSystem: system.ServiceContext;
 
   beforeEach(async () => {
     app = Fastify();
-    mockSystem = {} as system.CorePowerSyncSystem;
-    await configureFastifyServer(app, { system: mockSystem });
+    mockSystem = { routerEngine: {} } as system.ServiceContext;
+    await configureFastifyServer(app, { service_context: mockSystem });
     await app.ready();
   });
 
@@ -46,7 +46,7 @@ describe('Probe Routes Integration', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: ProbeRoutes.STARTUP,
+        url: ProbeRoutes.STARTUP
       });
 
       expect(response.statusCode).toBe(200);
@@ -67,7 +67,7 @@ describe('Probe Routes Integration', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: ProbeRoutes.STARTUP,
+        url: ProbeRoutes.STARTUP
       });
 
       expect(response.statusCode).toBe(400);
@@ -90,7 +90,7 @@ describe('Probe Routes Integration', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: ProbeRoutes.LIVENESS,
+        url: ProbeRoutes.LIVENESS
       });
 
       expect(response.statusCode).toBe(200);
@@ -111,7 +111,7 @@ describe('Probe Routes Integration', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: ProbeRoutes.LIVENESS,
+        url: ProbeRoutes.LIVENESS
       });
 
       expect(response.statusCode).toBe(400);
@@ -134,7 +134,7 @@ describe('Probe Routes Integration', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: ProbeRoutes.READINESS,
+        url: ProbeRoutes.READINESS
       });
 
       expect(response.statusCode).toBe(200);
@@ -155,7 +155,7 @@ describe('Probe Routes Integration', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: ProbeRoutes.READINESS,
+        url: ProbeRoutes.READINESS
       });
 
       expect(response.statusCode).toBe(400);
@@ -172,17 +172,19 @@ describe('Probe Routes Integration', () => {
       vi.mocked(container.probes.state).mockReturnValue(mockState);
 
       // Create array of 15 concurrent requests (default concurrency is 10)
-      const requests = Array(15).fill(null).map(() =>
-        app.inject({
-          method: 'GET',
-          url: ProbeRoutes.STARTUP,
-        })
-      );
+      const requests = Array(15)
+        .fill(null)
+        .map(() =>
+          app.inject({
+            method: 'GET',
+            url: ProbeRoutes.STARTUP
+          })
+        );
 
       const responses = await Promise.all(requests);
 
       // All requests should complete successfully
-      responses.forEach(response => {
+      responses.forEach((response) => {
         expect(response.statusCode).toBe(200);
         expect(JSON.parse(response.payload)).toEqual({
           ...mockState,
@@ -196,18 +198,20 @@ describe('Probe Routes Integration', () => {
       vi.mocked(container.probes.state).mockReturnValue(mockState);
 
       // Create array of 35 concurrent requests (default max_queue_depth is 20)
-      const requests = Array(35).fill(null).map(() =>
-        app.inject({
-          method: 'GET',
-          url: ProbeRoutes.STARTUP,
-        })
-      );
+      const requests = Array(35)
+        .fill(null)
+        .map(() =>
+          app.inject({
+            method: 'GET',
+            url: ProbeRoutes.STARTUP
+          })
+        );
 
       const responses = await Promise.all(requests);
 
       // Some requests should succeed and some should fail with 429
-      const successCount = responses.filter(r => r.statusCode === 200).length;
-      const queueFullCount = responses.filter(r => r.statusCode === 429).length;
+      const successCount = responses.filter((r) => r.statusCode === 200).length;
+      const queueFullCount = responses.filter((r) => r.statusCode === 429).length;
 
       expect(successCount).toBeGreaterThan(0);
       expect(queueFullCount).toBeGreaterThan(0);
@@ -222,7 +226,7 @@ describe('Probe Routes Integration', () => {
 
       const response = await app.inject({
         method: 'GET',
-        url: ProbeRoutes.STARTUP,
+        url: ProbeRoutes.STARTUP
       });
 
       expect(response.headers['content-type']).toMatch(/application\/json/);
