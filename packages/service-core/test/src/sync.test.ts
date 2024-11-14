@@ -1,6 +1,6 @@
 import { SaveOperationTag } from '@/storage/storage-index.js';
 import { RequestTracker } from '@/sync/RequestTracker.js';
-import { streamResponse } from '@/sync/sync.js';
+import { streamResponse, SyncStreamParameters } from '@/sync/sync.js';
 import { StreamingSyncLine } from '@/util/protocol-types.js';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { RequestParameters } from '@powersync/service-sync-rules';
@@ -378,6 +378,67 @@ function defineTests(factory: StorageFactory) {
     expect(lines2[3]).toEqual({
       checkpoint_complete: expect.objectContaining({
         last_op_id: '4'
+      })
+    });
+  });
+
+  test('write checkpoint', async () => {
+    const f = await factory();
+
+    const syncRules = await f.updateSyncRules({
+      content: BASIC_SYNC_RULES
+    });
+
+    const storage = f.getInstance(syncRules);
+    await storage.autoActivate();
+
+    await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+      // <= the managed write checkpoint LSN below
+      await batch.commit('0/1');
+    });
+
+    const checkpoint = await storage.createManagedWriteCheckpoint({
+      user_id: 'test',
+      heads: { '1': '1/0' }
+    });
+
+    const params: SyncStreamParameters = {
+      storage: f,
+      params: {
+        buckets: [],
+        include_checksum: true,
+        raw_data: true
+      },
+      parseOptions: PARSE_OPTIONS,
+      tracker,
+      syncParams: new RequestParameters({ sub: 'test' }, {}),
+      token: { sub: 'test', exp: Date.now() / 1000 + 10 } as any
+    };
+    const stream1 = streamResponse(params);
+    const lines1 = await consumeCheckpointLines(stream1);
+
+    // If write checkpoints are not correctly filtered, this may already
+    // contain the write checkpoint.
+    expect(lines1[0]).toMatchObject({
+      checkpoint: expect.objectContaining({
+        last_op_id: '0',
+        write_checkpoint: undefined
+      })
+    });
+
+    await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+      // must be >= the managed write checkpoint LSN
+      await batch.commit('1/0');
+    });
+
+    // At this point the LSN has advanced, so the write checkpoint should be
+    // included in the next checkpoint message.
+    const stream2 = streamResponse(params);
+    const lines2 = await consumeCheckpointLines(stream2);
+    expect(lines2[0]).toMatchObject({
+      checkpoint: expect.objectContaining({
+        last_op_id: '0',
+        write_checkpoint: `${checkpoint}`
       })
     });
   });
