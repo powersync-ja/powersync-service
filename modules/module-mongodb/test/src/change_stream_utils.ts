@@ -6,36 +6,27 @@ import { MongoManager } from '@module/replication/MongoManager.js';
 import { ChangeStream, ChangeStreamOptions } from '@module/replication/ChangeStream.js';
 import * as mongo from 'mongodb';
 import { createCheckpoint } from '@module/replication/MongoRelation.js';
-
-/**
- * Tests operating on the mongo change stream need to configure the stream and manage asynchronous
- * replication, which gets a little tricky.
- *
- * This wraps a test in a function that configures all the context, and tears it down afterwards.
- */
-export function changeStreamTest(
-  factory: () => Promise<BucketStorageFactory>,
-  test: (context: ChangeStreamTestContext) => Promise<void>
-): () => Promise<void> {
-  return async () => {
-    const f = await factory();
-    const connectionManager = new MongoManager(TEST_CONNECTION_OPTIONS);
-
-    await clearTestDb(connectionManager.db);
-    const context = new ChangeStreamTestContext(f, connectionManager);
-    try {
-      await test(context);
-    } finally {
-      await context.dispose();
-    }
-  };
-}
+import { NormalizedMongoConnectionConfig } from '@module/types/types.js';
 
 export class ChangeStreamTestContext {
   private _walStream?: ChangeStream;
   private abortController = new AbortController();
   private streamPromise?: Promise<void>;
   public storage?: SyncRulesBucketStorage;
+
+  /**
+   * Tests operating on the mongo change stream need to configure the stream and manage asynchronous
+   * replication, which gets a little tricky.
+   *
+   * This configures all the context, and tears it down afterwards.
+   */
+  static async open(factory: () => Promise<BucketStorageFactory>, options?: Partial<NormalizedMongoConnectionConfig>) {
+    const f = await factory();
+    const connectionManager = new MongoManager({ ...TEST_CONNECTION_OPTIONS, ...options });
+
+    await clearTestDb(connectionManager.db);
+    return new ChangeStreamTestContext(f, connectionManager);
+  }
 
   constructor(
     public factory: BucketStorageFactory,
@@ -46,6 +37,10 @@ export class ChangeStreamTestContext {
     this.abortController.abort();
     await this.streamPromise?.catch((e) => e);
     await this.connectionManager.destroy();
+  }
+
+  async [Symbol.asyncDispose]() {
+    await this.dispose();
   }
 
   get client() {
@@ -96,7 +91,7 @@ export class ChangeStreamTestContext {
       getClientCheckpoint(this.client, this.db, this.factory, { timeout: options?.timeout ?? 15_000 }),
       this.streamPromise
     ]);
-    if (typeof checkpoint == undefined) {
+    if (typeof checkpoint == 'undefined') {
       // This indicates an issue with the test setup - streamingPromise completed instead
       // of getClientCheckpoint()
       throw new Error('Test failure - streamingPromise completed');
@@ -110,13 +105,31 @@ export class ChangeStreamTestContext {
     return fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
-  async getBucketData(bucket: string, start?: string, options?: { timeout?: number }) {
+  async getBucketData(
+    bucket: string,
+    start?: string,
+    options?: { timeout?: number; limit?: number; chunkLimitBytes?: number }
+  ) {
     start ??= '0';
     let checkpoint = await this.getCheckpoint(options);
     const map = new Map<string, string>([[bucket, start]]);
-    const batch = this.storage!.getBucketDataBatch(checkpoint, map);
+    const batch = this.storage!.getBucketDataBatch(checkpoint, map, {
+      limit: options?.limit,
+      chunkLimitBytes: options?.chunkLimitBytes
+    });
     const batches = await fromAsync(batch);
     return batches[0]?.batch.data ?? [];
+  }
+
+  async getChecksums(buckets: string[], options?: { timeout?: number }) {
+    let checkpoint = await this.getCheckpoint(options);
+    return this.storage!.getChecksums(checkpoint, buckets);
+  }
+
+  async getChecksum(bucket: string, options?: { timeout?: number }) {
+    let checkpoint = await this.getCheckpoint(options);
+    const map = await this.storage!.getChecksums(checkpoint, [bucket]);
+    return map.get(bucket);
   }
 }
 
@@ -148,4 +161,18 @@ export async function getClientCheckpoint(
   }
 
   throw new Error(`Timeout while waiting for checkpoint ${lsn}. Last checkpoint: ${lastCp?.lsn}`);
+}
+
+export async function setSnapshotHistorySeconds(client: mongo.MongoClient, seconds: number) {
+  const { minSnapshotHistoryWindowInSeconds: currentValue } = await client
+    .db('admin')
+    .command({ getParameter: 1, minSnapshotHistoryWindowInSeconds: 1 });
+
+  await client.db('admin').command({ setParameter: 1, minSnapshotHistoryWindowInSeconds: seconds });
+
+  return {
+    async [Symbol.asyncDispose]() {
+      await client.db('admin').command({ setParameter: 1, minSnapshotHistoryWindowInSeconds: currentValue });
+    }
+  };
 }

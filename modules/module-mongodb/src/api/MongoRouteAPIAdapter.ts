@@ -7,6 +7,7 @@ import { MongoManager } from '../replication/MongoManager.js';
 import { constructAfterRecord, createCheckpoint } from '../replication/MongoRelation.js';
 import * as types from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
+import { CHECKPOINTS_COLLECTION } from '../replication/replication-utils.js';
 
 export class MongoRouteAPIAdapter implements api.RouteAPI {
   protected client: mongo.MongoClient;
@@ -31,6 +32,10 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
 
   async shutdown(): Promise<void> {
     await this.client.close();
+  }
+
+  async [Symbol.asyncDispose]() {
+    await this.shutdown();
   }
 
   async getSourceConfig(): Promise<service_types.configFile.ResolvedDataSourceConfig> {
@@ -76,6 +81,28 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
     sqlSyncRules: sync_rules.SqlSyncRules
   ): Promise<api.PatternResult[]> {
     let result: api.PatternResult[] = [];
+
+    const validatePostImages = (schema: string, collection: mongo.CollectionInfo): service_types.ReplicationError[] => {
+      if (this.config.postImages == types.PostImagesOption.OFF) {
+        return [];
+      } else if (!collection.options?.changeStreamPreAndPostImages?.enabled) {
+        if (this.config.postImages == types.PostImagesOption.READ_ONLY) {
+          return [
+            { level: 'fatal', message: `changeStreamPreAndPostImages not enabled on ${schema}.${collection.name}` }
+          ];
+        } else {
+          return [
+            {
+              level: 'warning',
+              message: `changeStreamPreAndPostImages not enabled on ${schema}.${collection.name}, will be enabled automatically`
+            }
+          ];
+        }
+      } else {
+        return [];
+      }
+    };
+
     for (let tablePattern of tablePatterns) {
       const schema = tablePattern.schema;
 
@@ -100,7 +127,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
           {
             name: nameFilter
           },
-          { nameOnly: true }
+          { nameOnly: false }
         )
         .toArray();
 
@@ -116,6 +143,12 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
             [],
             true
           );
+          let errors: service_types.ReplicationError[] = [];
+          if (collection.type == 'view') {
+            errors.push({ level: 'warning', message: `Collection ${schema}.${tablePattern.name} is a view` });
+          } else {
+            errors.push(...validatePostImages(schema, collection));
+          }
           const syncData = sqlSyncRules.tableSyncsData(sourceTable);
           const syncParameters = sqlSyncRules.tableSyncsParameters(sourceTable);
           patternResult.tables.push({
@@ -124,7 +157,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
             replication_id: ['_id'],
             data_queries: syncData,
             parameter_queries: syncParameters,
-            errors: []
+            errors: errors
           });
         }
       } else {
@@ -140,26 +173,25 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
 
         const syncData = sqlSyncRules.tableSyncsData(sourceTable);
         const syncParameters = sqlSyncRules.tableSyncsParameters(sourceTable);
+        const collection = collections[0];
 
-        if (collections.length == 1) {
-          patternResult.table = {
-            schema,
-            name: tablePattern.name,
-            replication_id: ['_id'],
-            data_queries: syncData,
-            parameter_queries: syncParameters,
-            errors: []
-          };
-        } else {
-          patternResult.table = {
-            schema,
-            name: tablePattern.name,
-            replication_id: ['_id'],
-            data_queries: syncData,
-            parameter_queries: syncParameters,
-            errors: [{ level: 'warning', message: `Collection ${schema}.${tablePattern.name} not found` }]
-          };
+        let errors: service_types.ReplicationError[] = [];
+        if (collections.length != 1) {
+          errors.push({ level: 'warning', message: `Collection ${schema}.${tablePattern.name} not found` });
+        } else if (collection.type == 'view') {
+          errors.push({ level: 'warning', message: `Collection ${schema}.${tablePattern.name} is a view` });
+        } else if (!collection.options?.changeStreamPreAndPostImages?.enabled) {
+          errors.push(...validatePostImages(schema, collection));
         }
+
+        patternResult.table = {
+          schema,
+          name: tablePattern.name,
+          replication_id: ['_id'],
+          data_queries: syncData,
+          parameter_queries: syncParameters,
+          errors
+        };
       }
     }
     return result;
@@ -202,7 +234,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
 
         let tables: service_types.TableSchema[] = [];
         for (let collection of collections) {
-          if (['_powersync_checkpoints'].includes(collection.name)) {
+          if ([CHECKPOINTS_COLLECTION].includes(collection.name)) {
             continue;
           }
           if (collection.name.startsWith('system.')) {

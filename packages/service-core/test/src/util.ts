@@ -51,7 +51,8 @@ export const PARSE_OPTIONS: ParseSyncRulesOptions = {
 
 export const BATCH_OPTIONS: StartBatchOptions = {
   ...PARSE_OPTIONS,
-  zeroLSN: ZERO_LSN
+  zeroLSN: ZERO_LSN,
+  storeCurrentData: true
 };
 
 export function testRules(content: string): PersistedSyncRulesContent {

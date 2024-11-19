@@ -1,5 +1,5 @@
 import { container } from '@powersync/lib-services-framework';
-import { MissingReplicationSlotError, ChangeStream } from './ChangeStream.js';
+import { ChangeStreamInvalidatedError, ChangeStream } from './ChangeStream.js';
 
 import { replication } from '@powersync/service-core';
 import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
@@ -40,7 +40,7 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
       });
       this.logger.error(`Replication failed`, e);
 
-      if (e instanceof MissingReplicationSlotError) {
+      if (e instanceof ChangeStreamInvalidatedError) {
         // This stops replication on this slot, and creates a new slot
         await this.options.storage.factory.slotRemoved(this.slotName);
       }
@@ -84,8 +84,10 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
         // Without this additional log, the cause may not be visible in the logs.
         this.logger.error(`cause`, e.cause);
       }
-      if (e instanceof mongo.MongoError && e.hasErrorLabel('NonResumableChangeStreamError')) {
-        throw new MissingReplicationSlotError(e.message);
+      if (e instanceof ChangeStreamInvalidatedError) {
+        throw e;
+      } else if (e instanceof mongo.MongoError && e.hasErrorLabel('NonResumableChangeStreamError')) {
+        throw new ChangeStreamInvalidatedError(e.message);
       } else {
         // Report the error if relevant, before retrying
         container.reporter.captureException(e, {

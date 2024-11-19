@@ -1,10 +1,11 @@
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
 import { ChangeStream } from '@module/replication/ChangeStream.js';
 import { constructAfterRecord } from '@module/replication/MongoRelation.js';
-import { SqliteRow } from '@powersync/service-sync-rules';
+import { SqliteRow, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as mongo from 'mongodb';
 import { describe, expect, test } from 'vitest';
 import { clearTestDb, connectMongoData, TEST_CONNECTION_OPTIONS } from './util.js';
+import { PostImagesOption } from '@module/types/types.js';
 
 describe('mongo data types', () => {
   async function setupTable(db: mongo.Db) {
@@ -245,58 +246,191 @@ describe('mongo data types', () => {
   });
 
   test('connection schema', async () => {
-    const adapter = new MongoRouteAPIAdapter({
+    await using adapter = new MongoRouteAPIAdapter({
       type: 'mongodb',
       ...TEST_CONNECTION_OPTIONS
     });
-    try {
-      const db = adapter.db;
-      await clearTestDb(db);
+    const db = adapter.db;
+    await clearTestDb(db);
 
-      const collection = db.collection('test_data');
-      await setupTable(db);
-      await insert(collection);
+    const collection = db.collection('test_data');
+    await setupTable(db);
+    await insert(collection);
 
-      const schema = await adapter.getConnectionSchema();
-      const dbSchema = schema.filter((s) => s.name == TEST_CONNECTION_OPTIONS.database)[0];
-      expect(dbSchema).not.toBeNull();
-      expect(dbSchema.tables).toMatchObject([
+    const schema = await adapter.getConnectionSchema();
+    const dbSchema = schema.filter((s) => s.name == TEST_CONNECTION_OPTIONS.database)[0];
+    expect(dbSchema).not.toBeNull();
+    expect(dbSchema.tables).toMatchObject([
+      {
+        name: 'test_data',
+        columns: [
+          { name: '_id', sqlite_type: 4, internal_type: 'Integer' },
+          { name: 'bool', sqlite_type: 4, internal_type: 'Boolean' },
+          { name: 'bytea', sqlite_type: 1, internal_type: 'Binary' },
+          { name: 'date', sqlite_type: 2, internal_type: 'Date' },
+          { name: 'decimal', sqlite_type: 2, internal_type: 'Decimal' },
+          { name: 'float', sqlite_type: 8, internal_type: 'Double' },
+          { name: 'int2', sqlite_type: 4, internal_type: 'Integer' },
+          { name: 'int4', sqlite_type: 4, internal_type: 'Integer' },
+          { name: 'int8', sqlite_type: 4, internal_type: 'Long' },
+          // We can fix these later
+          { name: 'js', sqlite_type: 2, internal_type: 'Object' },
+          { name: 'js2', sqlite_type: 2, internal_type: 'Object' },
+          { name: 'maxKey', sqlite_type: 0, internal_type: 'MaxKey' },
+          { name: 'minKey', sqlite_type: 0, internal_type: 'MinKey' },
+          { name: 'nested', sqlite_type: 2, internal_type: 'Object' },
+          { name: 'null', sqlite_type: 0, internal_type: 'Null' },
+          { name: 'objectId', sqlite_type: 2, internal_type: 'ObjectId' },
+          // We can fix these later
+          { name: 'pointer', sqlite_type: 2, internal_type: 'Object' },
+          { name: 'pointer2', sqlite_type: 2, internal_type: 'Object' },
+          { name: 'regexp', sqlite_type: 2, internal_type: 'RegExp' },
+          // Can fix this later
+          { name: 'symbol', sqlite_type: 2, internal_type: 'String' },
+          { name: 'text', sqlite_type: 2, internal_type: 'String' },
+          { name: 'timestamp', sqlite_type: 4, internal_type: 'Timestamp' },
+          { name: 'undefined', sqlite_type: 0, internal_type: 'Null' },
+          { name: 'uuid', sqlite_type: 2, internal_type: 'UUID' }
+        ]
+      }
+    ]);
+  });
+
+  test('validate postImages', async () => {
+    await using adapter = new MongoRouteAPIAdapter({
+      type: 'mongodb',
+      ...TEST_CONNECTION_OPTIONS,
+      postImages: PostImagesOption.READ_ONLY
+    });
+    const db = adapter.db;
+    await clearTestDb(db);
+
+    const collection = db.collection('test_data');
+    await setupTable(db);
+    await insert(collection);
+
+    const rules = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  global:
+    data:
+      - select _id as id, * from test_data
+
+      `,
+      {
+        ...adapter.getParseSyncRulesOptions(),
+        // No schema-based validation at this point
+        schema: undefined
+      }
+    );
+    const source_table_patterns = rules.getSourceTables();
+    const results = await adapter.getDebugTablesInfo(source_table_patterns, rules);
+
+    const result = results[0];
+    expect(result).not.toBeNull();
+    expect(result.table).toMatchObject({
+      schema: 'powersync_test_data',
+      name: 'test_data',
+      replication_id: ['_id'],
+      data_queries: true,
+      parameter_queries: false,
+      errors: [
         {
-          name: 'test_data',
-          columns: [
-            { name: '_id', sqlite_type: 4, internal_type: 'Integer' },
-            { name: 'bool', sqlite_type: 4, internal_type: 'Boolean' },
-            { name: 'bytea', sqlite_type: 1, internal_type: 'Binary' },
-            { name: 'date', sqlite_type: 2, internal_type: 'Date' },
-            { name: 'decimal', sqlite_type: 2, internal_type: 'Decimal' },
-            { name: 'float', sqlite_type: 8, internal_type: 'Double' },
-            { name: 'int2', sqlite_type: 4, internal_type: 'Integer' },
-            { name: 'int4', sqlite_type: 4, internal_type: 'Integer' },
-            { name: 'int8', sqlite_type: 4, internal_type: 'Long' },
-            // We can fix these later
-            { name: 'js', sqlite_type: 2, internal_type: 'Object' },
-            { name: 'js2', sqlite_type: 2, internal_type: 'Object' },
-            { name: 'maxKey', sqlite_type: 0, internal_type: 'MaxKey' },
-            { name: 'minKey', sqlite_type: 0, internal_type: 'MinKey' },
-            { name: 'nested', sqlite_type: 2, internal_type: 'Object' },
-            { name: 'null', sqlite_type: 0, internal_type: 'Null' },
-            { name: 'objectId', sqlite_type: 2, internal_type: 'ObjectId' },
-            // We can fix these later
-            { name: 'pointer', sqlite_type: 2, internal_type: 'Object' },
-            { name: 'pointer2', sqlite_type: 2, internal_type: 'Object' },
-            { name: 'regexp', sqlite_type: 2, internal_type: 'RegExp' },
-            // Can fix this later
-            { name: 'symbol', sqlite_type: 2, internal_type: 'String' },
-            { name: 'text', sqlite_type: 2, internal_type: 'String' },
-            { name: 'timestamp', sqlite_type: 4, internal_type: 'Timestamp' },
-            { name: 'undefined', sqlite_type: 0, internal_type: 'Null' },
-            { name: 'uuid', sqlite_type: 2, internal_type: 'UUID' }
-          ]
+          level: 'fatal',
+          message: 'changeStreamPreAndPostImages not enabled on powersync_test_data.test_data'
         }
-      ]);
-    } finally {
-      await adapter.shutdown();
-    }
+      ]
+    });
+  });
+
+  test('validate postImages - auto-configure', async () => {
+    await using adapter = new MongoRouteAPIAdapter({
+      type: 'mongodb',
+      ...TEST_CONNECTION_OPTIONS,
+      postImages: PostImagesOption.AUTO_CONFIGURE
+    });
+    const db = adapter.db;
+    await clearTestDb(db);
+
+    const collection = db.collection('test_data');
+    await setupTable(db);
+    await insert(collection);
+
+    const rules = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  global:
+    data:
+      - select _id as id, * from test_data
+
+      `,
+      {
+        ...adapter.getParseSyncRulesOptions(),
+        // No schema-based validation at this point
+        schema: undefined
+      }
+    );
+    const source_table_patterns = rules.getSourceTables();
+    const results = await adapter.getDebugTablesInfo(source_table_patterns, rules);
+
+    const result = results[0];
+    expect(result).not.toBeNull();
+    expect(result.table).toMatchObject({
+      schema: 'powersync_test_data',
+      name: 'test_data',
+      replication_id: ['_id'],
+      data_queries: true,
+      parameter_queries: false,
+      errors: [
+        {
+          level: 'warning',
+          message:
+            'changeStreamPreAndPostImages not enabled on powersync_test_data.test_data, will be enabled automatically'
+        }
+      ]
+    });
+  });
+
+  test('validate postImages - off', async () => {
+    await using adapter = new MongoRouteAPIAdapter({
+      type: 'mongodb',
+      ...TEST_CONNECTION_OPTIONS,
+      postImages: PostImagesOption.OFF
+    });
+    const db = adapter.db;
+    await clearTestDb(db);
+
+    const collection = db.collection('test_data');
+    await setupTable(db);
+    await insert(collection);
+
+    const rules = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  global:
+    data:
+      - select _id as id, * from test_data
+
+      `,
+      {
+        ...adapter.getParseSyncRulesOptions(),
+        // No schema-based validation at this point
+        schema: undefined
+      }
+    );
+    const source_table_patterns = rules.getSourceTables();
+    const results = await adapter.getDebugTablesInfo(source_table_patterns, rules);
+
+    const result = results[0];
+    expect(result).not.toBeNull();
+    expect(result.table).toMatchObject({
+      schema: 'powersync_test_data',
+      name: 'test_data',
+      replication_id: ['_id'],
+      data_queries: true,
+      parameter_queries: false,
+      errors: []
+    });
   });
 });
 
