@@ -144,7 +144,7 @@ export function validatePort(port: string | number): number {
   }
   if (port < 1024) {
     throw new Error(`Port ${port} not supported`);
-  } 
+  }
   return port;
 }
 
