@@ -500,7 +500,8 @@ export class SqlTools {
     if (expr.type != 'ref') {
       return false;
     }
-    return this.parameter_tables.includes(expr.table?.name ?? '');
+    const tableName = expr.table?.name ?? this.default_table;
+    return this.parameter_tables.includes(tableName ?? '');
   }
 
   /**
@@ -585,13 +586,12 @@ export class SqlTools {
   }
 
   getParameterRefClause(expr: ExprRef): ParameterValueClause {
-    const table = expr.table!.name;
+    const table = (expr.table?.name ?? this.default_table)!;
     const column = expr.name;
     return {
       key: `${table}.${column}`,
       lookupParameterValue: (parameters) => {
-        const pt: SqliteJsonRow | undefined = (parameters as any)[table];
-        return pt?.[column] ?? null;
+        return parameters.lookup(table, column);
       },
       usesAuthenticatedRequestParameters: table == 'token_parameters',
       usesUnauthenticatedRequestParameters: table == 'user_parameters'
@@ -607,18 +607,17 @@ export class SqlTools {
    *
    * Only "value" tables are supported here, not parameter values.
    */
-  getTableName(ref: ExprRef) {
+  getTableName(ref: ExprRef): string {
     if (this.refHasSchema(ref)) {
       throw new SqlRuleError(`Specifying schema in column references is not supported`, this.sql, ref);
     }
-    if (ref.table?.name == null && this.default_table != null) {
-      return this.default_table;
-    } else if (this.value_tables.includes(ref.table?.name ?? '')) {
-      return ref.table!.name;
+    const tableName = ref.table?.name ?? this.default_table;
+    if (this.value_tables.includes(tableName ?? '')) {
+      return tableName!;
     } else if (ref.table?.name == null) {
       throw new SqlRuleError(`Table name required`, this.sql, ref);
     } else {
-      throw new SqlRuleError(`Undefined table ${ref.table?.name}`, this.sql, ref);
+      throw new SqlRuleError(`Undefined table ${tableName}`, this.sql, ref);
     }
   }
 
@@ -750,6 +749,8 @@ function staticValue(expr: Expr): SqliteValue {
     return expr.value ? SQLITE_TRUE : SQLITE_FALSE;
   } else if (expr.type == 'integer') {
     return BigInt(expr.value);
+  } else if (expr.type == 'null') {
+    return null;
   } else {
     return (expr as any).value;
   }

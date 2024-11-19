@@ -1,9 +1,9 @@
 import { ExpressionType } from './ExpressionType.js';
-import { RequestParameters, SqliteValue } from './types.js';
+import { ParameterValueSet, SqliteValue } from './types.js';
 
 export interface SqlParameterFunction {
   readonly debugName: string;
-  call: (parameters: RequestParameters) => SqliteValue;
+  call: (parameters: ParameterValueSet) => SqliteValue;
   getReturnType(): ExpressionType;
   /** request.user_id(), request.jwt(), token_parameters.* */
   usesAuthenticatedRequestParameters: boolean;
@@ -15,7 +15,7 @@ export interface SqlParameterFunction {
 
 const request_parameters: SqlParameterFunction = {
   debugName: 'request.parameters',
-  call(parameters: RequestParameters) {
+  call(parameters: ParameterValueSet) {
     return parameters.raw_user_parameters;
   },
   getReturnType() {
@@ -30,7 +30,7 @@ const request_parameters: SqlParameterFunction = {
 
 const request_jwt: SqlParameterFunction = {
   debugName: 'request.jwt',
-  call(parameters: RequestParameters) {
+  call(parameters: ParameterValueSet) {
     return parameters.raw_token_payload;
   },
   getReturnType() {
@@ -44,7 +44,7 @@ const request_jwt: SqlParameterFunction = {
 
 const request_user_id: SqlParameterFunction = {
   debugName: 'request.user_id',
-  call(parameters: RequestParameters) {
+  call(parameters: ParameterValueSet) {
     return parameters.user_id;
   },
   getReturnType() {

@@ -24,6 +24,7 @@ import {
 } from './types.js';
 import { filterJsonRow, getBucketId, isJsonValue, isSelectStatement } from './utils.js';
 import { SyncRulesOptions } from './SqlSyncRules.js';
+import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
 
 /**
  * Represents a parameter query, such as:
@@ -57,11 +58,16 @@ export class SqlParameterQuery {
 
     rows.errors.push(...checkUnsupportedFeatures(sql, q));
 
-    if (q.from.length != 1 || q.from[0].type != 'table') {
+    if (q.from.length != 1) {
       throw new SqlRuleError('Must SELECT from a single table', sql, q.from?.[0]._location);
+    } else if (q.from[0].type == 'call') {
+      const from = q.from[0];
+      return TableValuedFunctionSqlParameterQuery.fromSql(descriptor_name, sql, from, q, options);
+    } else if (q.from[0].type == 'statement') {
+      throw new SqlRuleError('Subqueries are not supported yet', sql, q.from?.[0]._location);
     }
 
-    const tableRef = q.from?.[0].name;
+    const tableRef = q.from[0].name;
     if (tableRef?.name == null) {
       throw new SqlRuleError('Must SELECT from a single table', sql, q.from?.[0]._location);
     }

@@ -823,9 +823,6 @@ export function jsonExtract(sourceValue: SqliteValue, path: SqliteValue, operato
   if (operator == '->') {
     // -> must always stringify
     return JSONBig.stringify(value);
-  } else if (typeof value == 'object' || Array.isArray(value)) {
-    // Objects and arrays must be stringified
-    return JSONBig.stringify(value);
   } else {
     // Plain scalar value - simple conversion.
     return jsonValueToSqlite(value as string | number | bigint | boolean | null);
