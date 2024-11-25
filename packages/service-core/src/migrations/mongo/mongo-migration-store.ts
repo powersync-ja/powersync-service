@@ -1,18 +1,13 @@
+import { migrations } from '@powersync/lib-services-framework';
 import { Db } from 'mongodb';
 import * as path from 'path';
-import * as defs from '../definitions.js';
-
-export type MigrationStore = {
-  load: () => Promise<defs.MigrationState | undefined>;
-  save: (state: defs.MigrationState) => Promise<void>;
-};
 
 /**
  * A custom store for node-migrate which is used to save and load migrations that have
  * been operated on to mongo.
  */
-export const createMongoMigrationStore = (db: Db): MigrationStore => {
-  const collection = db.collection<defs.MigrationState>('migrations');
+export const createMongoMigrationStore = (db: Db): migrations.MigrationStore => {
+  const collection = db.collection<migrations.MigrationState>('migrations');
 
   return {
     load: async () => {
@@ -47,7 +42,7 @@ export const createMongoMigrationStore = (db: Db): MigrationStore => {
       };
     },
 
-    save: async (state: defs.MigrationState) => {
+    save: async (state: migrations.MigrationState) => {
       await collection.replaceOne(
         {},
         {

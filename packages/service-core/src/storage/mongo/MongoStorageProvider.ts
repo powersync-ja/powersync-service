@@ -1,18 +1,29 @@
 import { logger } from '@powersync/lib-services-framework';
+import { configFile } from '@powersync/service-types';
 import * as db from '../../db/db-index.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { ActiveStorage, BucketStorageProvider, GetStorageOptions } from '../StorageProvider.js';
 import { PowerSyncMongo } from './db.js';
 
+export const MONGO_STORAGE_TYPE = 'mongodb';
 export class MongoStorageProvider implements BucketStorageProvider {
   get type() {
-    return 'mongodb';
+    return MONGO_STORAGE_TYPE;
   }
 
   async getStorage(options: GetStorageOptions): Promise<ActiveStorage> {
     const { resolvedConfig } = options;
 
-    const client = db.mongo.createMongoClient(resolvedConfig.storage);
+    const { storage } = resolvedConfig;
+    if (storage.type != MONGO_STORAGE_TYPE) {
+      // This should not be reached since the generation should be managed externally.
+      throw new Error(
+        `Cannot create MongoDB bucket storage with provided config ${storage.type} !== ${MONGO_STORAGE_TYPE}`
+      );
+    }
+
+    const decodedConfig = configFile.MongoStorageConfig.decode(storage as any);
+    const client = db.mongo.createMongoClient(decodedConfig);
 
     const database = new PowerSyncMongo(client, { database: resolvedConfig.storage.database });
 

@@ -1,5 +1,6 @@
 import { LifeCycledSystem, ServiceIdentifier, container } from '@powersync/lib-services-framework';
 
+import { framework } from '../index.js';
 import * as metrics from '../metrics/Metrics.js';
 import * as replication from '../replication/replication-index.js';
 import * as routes from '../routes/routes-index.js';
@@ -49,6 +50,10 @@ export class ServiceContextContainer implements ServiceContext {
 
   get metrics(): metrics.Metrics | null {
     return container.getOptional(metrics.Metrics);
+  }
+
+  get migrations() {
+    return container.getImplementation(framework.ContainerImplementation.MIGRATION_MANAGER);
   }
 
   /**

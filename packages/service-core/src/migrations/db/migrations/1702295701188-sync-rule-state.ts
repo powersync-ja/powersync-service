@@ -1,3 +1,4 @@
+import { configFile } from '@powersync/service-types';
 import * as mongo from '../../../db/mongo.js';
 import * as storage from '../../../storage/storage-index.js';
 import * as utils from '../../../util/util-index.js';
@@ -26,7 +27,7 @@ interface LegacySyncRulesDocument extends storage.SyncRuleDocument {
 export const up = async (context: utils.MigrationContext) => {
   const { runner_config } = context;
   const config = await utils.loadConfig(runner_config);
-  const db = storage.createPowerSyncMongo(config.storage);
+  const db = storage.createPowerSyncMongo(config.storage as configFile.MongoStorageConfig);
 
   await mongo.waitForAuth(db.db);
   try {
@@ -74,7 +75,7 @@ export const down = async (context: utils.MigrationContext) => {
   const { runner_config } = context;
   const config = await utils.loadConfig(runner_config);
 
-  const db = storage.createPowerSyncMongo(config.storage);
+  const db = storage.createPowerSyncMongo(config.storage as configFile.MongoStorageConfig);
   try {
     await db.sync_rules.updateMany(
       {

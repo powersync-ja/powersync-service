@@ -82,7 +82,16 @@ export const strictJwks = t.object({
 
 export type StrictJwk = t.Decoded<typeof jwk>;
 
-export const storageConfig = t.object({
+export const BaseStorageConfig = t.object({
+  type: t.string
+});
+
+/**
+ * Base configuration for Bucket storage connections.
+ */
+export type BaseStorageConfig = t.Encoded<typeof BaseStorageConfig>;
+
+export const MongoStorageConfig = t.object({
   type: t.literal('mongodb'),
   uri: t.string,
   database: t.string.optional(),
@@ -90,7 +99,13 @@ export const storageConfig = t.object({
   password: t.string.optional()
 });
 
-export type StorageConfig = t.Decoded<typeof storageConfig>;
+export type MongoStorageConfig = t.Encoded<typeof MongoStorageConfig>;
+
+/**
+ * This essentially allows any extra fields on this type
+ */
+export const GenericStorageConfig = BaseStorageConfig.and(t.record(t.any)).or(MongoStorageConfig);
+export type GenericStorageConfig = t.Encoded<typeof GenericStorageConfig>;
 
 export const powerSyncConfig = t.object({
   replication: t
@@ -125,7 +140,7 @@ export const powerSyncConfig = t.object({
     })
     .optional(),
 
-  storage: storageConfig,
+  storage: GenericStorageConfig,
 
   port: portCodec.optional(),
   sync_rules: t

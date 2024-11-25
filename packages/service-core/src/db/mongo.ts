@@ -30,7 +30,7 @@ export const MONGO_OPERATION_TIMEOUT_MS = 30_000;
  */
 export const MONGO_CLEAR_OPERATION_TIMEOUT_MS = 5_000;
 
-export function createMongoClient(config: configFile.PowerSyncConfig['storage']) {
+export function createMongoClient(config: configFile.MongoStorageConfig) {
   const normalized = normalizeMongoConfig(config);
   return new mongo.MongoClient(normalized.uri, {
     auth: {

@@ -6,10 +6,10 @@ import { ConnectionManagerFactory } from '../replication/ConnectionManagerFactor
 import { PgManager } from '../replication/PgManager.js';
 import { PostgresErrorRateLimiter } from '../replication/PostgresErrorRateLimiter.js';
 import { checkSourceConfiguration, cleanUpReplicationSlot } from '../replication/replication-utils.js';
+import { PUBLICATION_NAME } from '../replication/WalStream.js';
 import { WalStreamReplicator } from '../replication/WalStreamReplicator.js';
 import * as types from '../types/types.js';
 import { PostgresConnectionConfig } from '../types/types.js';
-import { PUBLICATION_NAME } from '../replication/WalStream.js';
 
 export class PostgresModule extends replication.ReplicationModule<types.PostgresConnectionConfig> {
   constructor() {

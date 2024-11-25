@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 
 import { logger } from '@powersync/lib-services-framework';
+import { configFile } from '@powersync/service-types';
 import * as v8 from 'v8';
 import * as storage from '../../storage/storage-index.js';
 import * as utils from '../../util/util-index.js';
@@ -39,7 +40,9 @@ export function registerCompactAction(program: Command) {
     logger.info('Successfully loaded configuration...');
     const { storage: storageConfig } = configuration;
     logger.info('Connecting to storage...');
-    const psdb = storage.createPowerSyncMongo(storageConfig);
+
+    // TODO improve this for other storage types
+    const psdb = storage.createPowerSyncMongo(storageConfig as configFile.MongoStorageConfig);
     const client = psdb.client;
     await client.connect();
     try {

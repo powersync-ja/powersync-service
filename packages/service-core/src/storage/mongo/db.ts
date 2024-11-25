@@ -1,6 +1,5 @@
-import * as mongo from 'mongodb';
-
 import { configFile } from '@powersync/service-types';
+import * as mongo from 'mongodb';
 import * as db from '../../db/db-index.js';
 import * as locks from '../../locks/locks-index.js';
 import {
@@ -23,7 +22,7 @@ export interface PowerSyncMongoOptions {
   database?: string;
 }
 
-export function createPowerSyncMongo(config: configFile.PowerSyncConfig['storage']) {
+export function createPowerSyncMongo(config: configFile.MongoStorageConfig) {
   return new PowerSyncMongo(db.mongo.createMongoClient(config), { database: config.database });
 }
 

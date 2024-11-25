@@ -1,5 +1,5 @@
-import * as mongo from 'mongodb';
 import * as bson from 'bson';
+import * as mongo from 'mongodb';
 import { LockActiveError, LockManager } from './LockManager.js';
 
 /**
@@ -72,13 +72,14 @@ const acquireLock = async (collection: Collection, params: AcquireLockParams) =>
     return null;
   }
 
-  return lock_id;
+  return lock_id.toString();
 };
 
-const refreshLock = async (collection: Collection, lock_id: bson.ObjectId) => {
+const refreshLock = async (collection: Collection, lock_id: string) => {
+  const lockId = new bson.ObjectId(lock_id);
   const res = await collection.updateOne(
     {
-      'active_lock.lock_id': lock_id
+      'active_lock.lock_id': lockId
     },
     {
       $set: {
@@ -92,10 +93,11 @@ const refreshLock = async (collection: Collection, lock_id: bson.ObjectId) => {
   }
 };
 
-export const releaseLock = async (collection: Collection, lock_id: bson.ObjectId) => {
+export const releaseLock = async (collection: Collection, lock_id: string) => {
+  const lockId = new bson.ObjectId(lock_id);
   const res = await collection.updateOne(
     {
-      'active_lock.lock_id': lock_id
+      'active_lock.lock_id': lockId
     },
     {
       $unset: {
@@ -123,8 +125,8 @@ export type CreateLockManagerParams = {
 export const createMongoLockManager = (collection: Collection, params: CreateLockManagerParams): LockManager => {
   return {
     acquire: () => acquireLock(collection, params),
-    refresh: (lock_id: bson.ObjectId) => refreshLock(collection, lock_id),
-    release: (lock_id: bson.ObjectId) => releaseLock(collection, lock_id),
+    refresh: (lock_id: string) => refreshLock(collection, lock_id),
+    release: (lock_id: string) => releaseLock(collection, lock_id),
 
     lock: async (handler) => {
       const lock_id = await acquireLock(collection, params);
