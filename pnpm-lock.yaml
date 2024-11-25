@@ -111,6 +111,12 @@ importers:
       '@powersync/service-types':
         specifier: workspace:*
         version: link:../../packages/types
+      ix:
+        specifier: ^5.0.0
+        version: 5.0.0
+      lru-cache:
+        specifier: ^10.2.2
+        version: 10.4.3
       mongodb:
         specifier: ^6.7.0
         version: 6.8.0(socks@2.8.3)

@@ -1,7 +1,7 @@
+import { locks } from '@powersync/service-core';
 import { configFile } from '@powersync/service-types';
 import * as mongo from 'mongodb';
 import * as db from '../../db/db-index.js';
-import * as locks from '../../locks/locks-index.js';
 import {
   BucketDataDocument,
   BucketParameterDocument,

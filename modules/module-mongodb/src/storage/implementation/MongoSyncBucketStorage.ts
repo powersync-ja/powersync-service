@@ -3,38 +3,10 @@ import * as bson from 'bson';
 import * as mongo from 'mongodb';
 
 import { DisposableObserver, logger } from '@powersync/lib-services-framework';
+import { storage, utils } from '@powersync/service-core';
 import * as timers from 'timers/promises';
 import * as db from '../../db/db-index.js';
-import * as util from '../../util/util-index.js';
-import {
-  BucketDataBatchOptions,
-  BucketStorageBatch,
-  CompactOptions,
-  DEFAULT_DOCUMENT_BATCH_LIMIT,
-  DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES,
-  FlushedResult,
-  ParseSyncRulesOptions,
-  PersistedSyncRulesContent,
-  ReplicationCheckpoint,
-  ResolveTableOptions,
-  ResolveTableResult,
-  StartBatchOptions,
-  SyncBucketDataBatch,
-  SyncRulesBucketStorage,
-  SyncRulesBucketStorageListener,
-  SyncRuleStatus,
-  TerminateOptions
-} from '../BucketStorage.js';
-import { ChecksumCache, FetchPartialBucketChecksum, PartialChecksum, PartialChecksumMap } from '../ChecksumCache.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
-import { SourceTable } from '../SourceTable.js';
-import {
-  BatchedCustomWriteCheckpointOptions,
-  ManagedWriteCheckpointOptions,
-  SyncStorageLastWriteCheckpointFilters,
-  WriteCheckpointAPI,
-  WriteCheckpointMode
-} from '../WriteCheckpointAPI.js';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, SourceKey, SyncRuleState } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
@@ -43,25 +15,25 @@ import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, mapOpEntry, readSingleBatch, serializeLookup } from './util.js';
 
 export class MongoSyncBucketStorage
-  extends DisposableObserver<SyncRulesBucketStorageListener>
-  implements SyncRulesBucketStorage
+  extends DisposableObserver<storage.SyncRulesBucketStorageListener>
+  implements storage.SyncRulesBucketStorage
 {
   private readonly db: PowerSyncMongo;
-  private checksumCache = new ChecksumCache({
+  private checksumCache = new storage.ChecksumCache({
     fetchChecksums: (batch) => {
       return this.getChecksumsInternal(batch);
     }
   });
 
-  private parsedSyncRulesCache: { parsed: SqlSyncRules; options: ParseSyncRulesOptions } | undefined;
-  private writeCheckpointAPI: WriteCheckpointAPI;
+  private parsedSyncRulesCache: { parsed: SqlSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
+  private writeCheckpointAPI: storage.WriteCheckpointAPI;
 
   constructor(
     public readonly factory: MongoBucketStorage,
     public readonly group_id: number,
-    private readonly sync_rules: PersistedSyncRulesContent,
+    private readonly sync_rules: storage.PersistedSyncRulesContent,
     public readonly slot_name: string,
-    writeCheckpointMode: WriteCheckpointMode = WriteCheckpointMode.MANAGED
+    writeCheckpointMode: storage.WriteCheckpointMode = storage.WriteCheckpointMode.MANAGED
   ) {
     super();
     this.db = factory.db;
@@ -75,35 +47,35 @@ export class MongoSyncBucketStorage
     return this.writeCheckpointAPI.writeCheckpointMode;
   }
 
-  setWriteCheckpointMode(mode: WriteCheckpointMode): void {
+  setWriteCheckpointMode(mode: storage.WriteCheckpointMode): void {
     this.writeCheckpointAPI.setWriteCheckpointMode(mode);
   }
 
-  batchCreateCustomWriteCheckpoints(checkpoints: BatchedCustomWriteCheckpointOptions[]): Promise<void> {
+  batchCreateCustomWriteCheckpoints(checkpoints: storage.BatchedCustomWriteCheckpointOptions[]): Promise<void> {
     return this.writeCheckpointAPI.batchCreateCustomWriteCheckpoints(
       checkpoints.map((checkpoint) => ({ ...checkpoint, sync_rules_id: this.group_id }))
     );
   }
 
-  createCustomWriteCheckpoint(checkpoint: BatchedCustomWriteCheckpointOptions): Promise<bigint> {
+  createCustomWriteCheckpoint(checkpoint: storage.BatchedCustomWriteCheckpointOptions): Promise<bigint> {
     return this.writeCheckpointAPI.createCustomWriteCheckpoint({
       ...checkpoint,
       sync_rules_id: this.group_id
     });
   }
 
-  createManagedWriteCheckpoint(checkpoint: ManagedWriteCheckpointOptions): Promise<bigint> {
+  createManagedWriteCheckpoint(checkpoint: storage.ManagedWriteCheckpointOptions): Promise<bigint> {
     return this.writeCheckpointAPI.createManagedWriteCheckpoint(checkpoint);
   }
 
-  lastWriteCheckpoint(filters: SyncStorageLastWriteCheckpointFilters): Promise<bigint | null> {
+  lastWriteCheckpoint(filters: storage.SyncStorageLastWriteCheckpointFilters): Promise<bigint | null> {
     return this.writeCheckpointAPI.lastWriteCheckpoint({
       ...filters,
       sync_rules_id: this.group_id
     });
   }
 
-  getParsedSyncRules(options: ParseSyncRulesOptions): SqlSyncRules {
+  getParsedSyncRules(options: storage.ParseSyncRulesOptions): SqlSyncRules {
     const { parsed, options: cachedOptions } = this.parsedSyncRulesCache ?? {};
     /**
      * Check if the cached sync rules, if present, had the same options.
@@ -116,7 +88,7 @@ export class MongoSyncBucketStorage
     return this.parsedSyncRulesCache!.parsed;
   }
 
-  async getCheckpoint(): Promise<ReplicationCheckpoint> {
+  async getCheckpoint(): Promise<storage.ReplicationCheckpoint> {
     const doc = await this.db.sync_rules.findOne(
       { _id: this.group_id },
       {
@@ -124,15 +96,15 @@ export class MongoSyncBucketStorage
       }
     );
     return {
-      checkpoint: util.timestampToOpId(doc?.last_checkpoint ?? 0n),
+      checkpoint: utils.timestampToOpId(doc?.last_checkpoint ?? 0n),
       lsn: doc?.last_checkpoint_lsn ?? null
     };
   }
 
   async startBatch(
-    options: StartBatchOptions,
-    callback: (batch: BucketStorageBatch) => Promise<void>
-  ): Promise<FlushedResult | null> {
+    options: storage.StartBatchOptions,
+    callback: (batch: storage.BucketStorageBatch) => Promise<void>
+  ): Promise<storage.FlushedResult | null> {
     const doc = await this.db.sync_rules.findOne(
       {
         _id: this.group_id
@@ -161,7 +133,7 @@ export class MongoSyncBucketStorage
     }
   }
 
-  async resolveTable(options: ResolveTableOptions): Promise<ResolveTableResult> {
+  async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
     const { group_id, connection_id, connection_tag, entity_descriptor } = options;
 
     const { schema, name: table, objectId, replicationColumns } = entity_descriptor;
@@ -171,7 +143,7 @@ export class MongoSyncBucketStorage
       type: column.type,
       type_oid: column.typeId
     }));
-    let result: ResolveTableResult | null = null;
+    let result: storage.ResolveTableResult | null = null;
     await this.db.client.withSession(async (session) => {
       const col = this.db.source_tables;
       let doc = await col.findOne(
@@ -200,7 +172,7 @@ export class MongoSyncBucketStorage
 
         await col.insertOne(doc, { session });
       }
-      const sourceTable = new SourceTable(
+      const sourceTable = new storage.SourceTable(
         doc._id,
         connection_tag,
         objectId,
@@ -228,7 +200,7 @@ export class MongoSyncBucketStorage
         table: sourceTable,
         dropTables: truncate.map(
           (doc) =>
-            new SourceTable(
+            new storage.SourceTable(
               doc._id,
               connection_tag,
               doc.relation_id ?? 0,
@@ -243,7 +215,7 @@ export class MongoSyncBucketStorage
     return result!;
   }
 
-  async getParameterSets(checkpoint: util.OpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]> {
+  async getParameterSets(checkpoint: utils.OpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]> {
     const lookupFilter = lookups.map((lookup) => {
       return serializeLookup(lookup);
     });
@@ -278,10 +250,10 @@ export class MongoSyncBucketStorage
   }
 
   async *getBucketDataBatch(
-    checkpoint: util.OpId,
+    checkpoint: utils.OpId,
     dataBuckets: Map<string, string>,
-    options?: BucketDataBatchOptions
-  ): AsyncIterable<SyncBucketDataBatch> {
+    options?: storage.BucketDataBatchOptions
+  ): AsyncIterable<storage.SyncBucketDataBatch> {
     if (dataBuckets.size == 0) {
       return;
     }
@@ -305,8 +277,8 @@ export class MongoSyncBucketStorage
       });
     }
 
-    const limit = options?.limit ?? DEFAULT_DOCUMENT_BATCH_LIMIT;
-    const sizeLimit = options?.chunkLimitBytes ?? DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES;
+    const limit = options?.limit ?? storage.DEFAULT_DOCUMENT_BATCH_LIMIT;
+    const sizeLimit = options?.chunkLimitBytes ?? storage.DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES;
 
     const cursor = this.db.bucket_data.find(
       {
@@ -346,7 +318,7 @@ export class MongoSyncBucketStorage
     }
 
     let batchSize = 0;
-    let currentBatch: util.SyncBucketData | null = null;
+    let currentBatch: utils.SyncBucketData | null = null;
     let targetOp: bigint | null = null;
 
     // Ordered by _id, meaning buckets are grouped together
@@ -406,11 +378,11 @@ export class MongoSyncBucketStorage
     }
   }
 
-  async getChecksums(checkpoint: util.OpId, buckets: string[]): Promise<util.ChecksumMap> {
+  async getChecksums(checkpoint: utils.OpId, buckets: string[]): Promise<utils.ChecksumMap> {
     return this.checksumCache.getChecksumMap(checkpoint, buckets);
   }
 
-  private async getChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
+  private async getChecksumsInternal(batch: storage.FetchPartialBucketChecksum[]): Promise<storage.PartialChecksumMap> {
     if (batch.length == 0) {
       return new Map();
     }
@@ -458,7 +430,7 @@ export class MongoSyncBucketStorage
       )
       .toArray();
 
-    return new Map<string, PartialChecksum>(
+    return new Map<string, storage.PartialChecksum>(
       aggregate.map((doc) => {
         return [
           doc._id,
@@ -467,13 +439,13 @@ export class MongoSyncBucketStorage
             partialCount: doc.count,
             partialChecksum: Number(BigInt(doc.checksum_total) & 0xffffffffn) & 0xffffffff,
             isFullChecksum: doc.has_clear_op == 1
-          } satisfies PartialChecksum
+          } satisfies storage.PartialChecksum
         ];
       })
     );
   }
 
-  async terminate(options?: TerminateOptions) {
+  async terminate(options?: storage.TerminateOptions) {
     // Default is to clear the storage except when explicitly requested not to.
     if (!options || options?.clearStorage) {
       await this.clear();
@@ -492,7 +464,7 @@ export class MongoSyncBucketStorage
     );
   }
 
-  async getStatus(): Promise<SyncRuleStatus> {
+  async getStatus(): Promise<storage.SyncRuleStatus> {
     const doc = await this.db.sync_rules.findOne(
       {
         _id: this.group_id
@@ -630,7 +602,7 @@ export class MongoSyncBucketStorage
     );
   }
 
-  async compact(options?: CompactOptions) {
+  async compact(options?: storage.CompactOptions) {
     return new MongoCompactor(this.db, this.group_id, options).compact();
   }
 }

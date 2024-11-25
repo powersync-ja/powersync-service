@@ -1,17 +1,20 @@
 import crypto from 'crypto';
 
-import { PersistedSyncRulesContent, ReplicationLock } from '../BucketStorage.js';
-import { PowerSyncMongo } from './db.js';
 import { logger } from '@powersync/lib-services-framework';
+import { storage } from '@powersync/service-core';
+import { PowerSyncMongo } from './db.js';
 
 /**
  * Manages a lock on a sync rules document, so that only one process
  * replicates those sync rules at a time.
  */
-export class MongoSyncRulesLock implements ReplicationLock {
+export class MongoSyncRulesLock implements storage.ReplicationLock {
   private readonly refreshInterval: NodeJS.Timeout;
 
-  static async createLock(db: PowerSyncMongo, sync_rules: PersistedSyncRulesContent): Promise<MongoSyncRulesLock> {
+  static async createLock(
+    db: PowerSyncMongo,
+    sync_rules: storage.PersistedSyncRulesContent
+  ): Promise<MongoSyncRulesLock> {
     const lockId = crypto.randomBytes(8).toString('hex');
     const doc = await db.sync_rules.findOneAndUpdate(
       { _id: sync_rules.id, $or: [{ lock: null }, { 'lock.expires_at': { $lt: new Date() } }] },

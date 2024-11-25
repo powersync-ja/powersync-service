@@ -1,23 +1,15 @@
 import * as framework from '@powersync/lib-services-framework';
-import {
-  CustomWriteCheckpointFilters,
-  CustomWriteCheckpointOptions,
-  LastWriteCheckpointFilters,
-  ManagedWriteCheckpointFilters,
-  ManagedWriteCheckpointOptions,
-  WriteCheckpointAPI,
-  WriteCheckpointMode
-} from '../WriteCheckpointAPI.js';
+import { storage } from '@powersync/service-core';
 import { PowerSyncMongo } from './db.js';
 
 export type MongoCheckpointAPIOptions = {
   db: PowerSyncMongo;
-  mode: WriteCheckpointMode;
+  mode: storage.WriteCheckpointMode;
 };
 
-export class MongoWriteCheckpointAPI implements WriteCheckpointAPI {
+export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
   readonly db: PowerSyncMongo;
-  private _mode: WriteCheckpointMode;
+  private _mode: storage.WriteCheckpointMode;
 
   constructor(options: MongoCheckpointAPIOptions) {
     this.db = options.db;
@@ -28,16 +20,16 @@ export class MongoWriteCheckpointAPI implements WriteCheckpointAPI {
     return this._mode;
   }
 
-  setWriteCheckpointMode(mode: WriteCheckpointMode): void {
+  setWriteCheckpointMode(mode: storage.WriteCheckpointMode): void {
     this._mode = mode;
   }
 
-  async batchCreateCustomWriteCheckpoints(checkpoints: CustomWriteCheckpointOptions[]): Promise<void> {
+  async batchCreateCustomWriteCheckpoints(checkpoints: storage.CustomWriteCheckpointOptions[]): Promise<void> {
     return batchCreateCustomWriteCheckpoints(this.db, checkpoints);
   }
 
-  async createCustomWriteCheckpoint(options: CustomWriteCheckpointOptions): Promise<bigint> {
-    if (this.writeCheckpointMode !== WriteCheckpointMode.CUSTOM) {
+  async createCustomWriteCheckpoint(options: storage.CustomWriteCheckpointOptions): Promise<bigint> {
+    if (this.writeCheckpointMode !== storage.WriteCheckpointMode.CUSTOM) {
       throw new framework.errors.ValidationError(
         `Creating a custom Write Checkpoint when the current Write Checkpoint mode is set to "${this.writeCheckpointMode}"`
       );
@@ -59,8 +51,8 @@ export class MongoWriteCheckpointAPI implements WriteCheckpointAPI {
     return doc!.checkpoint;
   }
 
-  async createManagedWriteCheckpoint(checkpoint: ManagedWriteCheckpointOptions): Promise<bigint> {
-    if (this.writeCheckpointMode !== WriteCheckpointMode.MANAGED) {
+  async createManagedWriteCheckpoint(checkpoint: storage.ManagedWriteCheckpointOptions): Promise<bigint> {
+    if (this.writeCheckpointMode !== storage.WriteCheckpointMode.MANAGED) {
       throw new framework.errors.ValidationError(
         `Attempting to create a managed Write Checkpoint when the current Write Checkpoint mode is set to "${this.writeCheckpointMode}"`
       );
@@ -84,14 +76,14 @@ export class MongoWriteCheckpointAPI implements WriteCheckpointAPI {
     return doc!.client_id;
   }
 
-  async lastWriteCheckpoint(filters: LastWriteCheckpointFilters): Promise<bigint | null> {
+  async lastWriteCheckpoint(filters: storage.LastWriteCheckpointFilters): Promise<bigint | null> {
     switch (this.writeCheckpointMode) {
-      case WriteCheckpointMode.CUSTOM:
+      case storage.WriteCheckpointMode.CUSTOM:
         if (false == 'sync_rules_id' in filters) {
           throw new framework.errors.ValidationError(`Sync rules ID is required for custom Write Checkpoint filtering`);
         }
         return this.lastCustomWriteCheckpoint(filters);
-      case WriteCheckpointMode.MANAGED:
+      case storage.WriteCheckpointMode.MANAGED:
         if (false == 'heads' in filters) {
           throw new framework.errors.ValidationError(
             `Replication HEAD is required for managed Write Checkpoint filtering`
@@ -101,7 +93,7 @@ export class MongoWriteCheckpointAPI implements WriteCheckpointAPI {
     }
   }
 
-  protected async lastCustomWriteCheckpoint(filters: CustomWriteCheckpointFilters) {
+  protected async lastCustomWriteCheckpoint(filters: storage.CustomWriteCheckpointFilters) {
     const { user_id, sync_rules_id } = filters;
     const lastWriteCheckpoint = await this.db.custom_write_checkpoints.findOne({
       user_id,
@@ -110,7 +102,7 @@ export class MongoWriteCheckpointAPI implements WriteCheckpointAPI {
     return lastWriteCheckpoint?.checkpoint ?? null;
   }
 
-  protected async lastManagedWriteCheckpoint(filters: ManagedWriteCheckpointFilters) {
+  protected async lastManagedWriteCheckpoint(filters: storage.ManagedWriteCheckpointFilters) {
     const { user_id, heads } = filters;
     // TODO: support multiple heads when we need to support multiple connections
     const lsn = heads['1'];
@@ -128,7 +120,7 @@ export class MongoWriteCheckpointAPI implements WriteCheckpointAPI {
 
 export async function batchCreateCustomWriteCheckpoints(
   db: PowerSyncMongo,
-  checkpoints: CustomWriteCheckpointOptions[]
+  checkpoints: storage.CustomWriteCheckpointOptions[]
 ): Promise<void> {
   if (!checkpoints.length) {
     return;

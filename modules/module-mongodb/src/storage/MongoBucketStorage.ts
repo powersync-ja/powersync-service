@@ -4,32 +4,20 @@ import { LRUCache } from 'lru-cache/min';
 import * as mongo from 'mongodb';
 import * as timers from 'timers/promises';
 
-import * as locks from '../locks/locks-index.js';
-import * as sync from '../sync/sync-index.js';
-import * as util from '../util/util-index.js';
+import { locks, storage, sync, utils } from '@powersync/service-core';
 
 import { DisposableObserver, logger } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
-import {
-  ActiveCheckpoint,
-  BucketStorageFactory,
-  BucketStorageFactoryListener,
-  ParseSyncRulesOptions,
-  PersistedSyncRules,
-  PersistedSyncRulesContent,
-  StorageMetrics,
-  UpdateSyncRulesOptions,
-  WriteCheckpoint
-} from './BucketStorage.js';
-import { PowerSyncMongo } from './mongo/db.js';
-import { SyncRuleDocument, SyncRuleState } from './mongo/models.js';
-import { MongoPersistedSyncRulesContent } from './mongo/MongoPersistedSyncRulesContent.js';
-import { MongoSyncBucketStorage } from './mongo/MongoSyncBucketStorage.js';
-import { generateSlotName } from './mongo/util.js';
+
+import { PowerSyncMongo } from './implementation/db.js';
+import { SyncRuleDocument, SyncRuleState } from './implementation/models.js';
+import { MongoPersistedSyncRulesContent } from './implementation/MongoPersistedSyncRulesContent.js';
+import { MongoSyncBucketStorage } from './implementation/MongoSyncBucketStorage.js';
+import { generateSlotName } from './implementation/util.js';
 
 export class MongoBucketStorage
-  extends DisposableObserver<BucketStorageFactoryListener>
-  implements BucketStorageFactory
+  extends DisposableObserver<storage.BucketStorageFactoryListener>
+  implements storage.BucketStorageFactory
 {
   private readonly client: mongo.MongoClient;
   private readonly session: mongo.ClientSession;
@@ -72,7 +60,7 @@ export class MongoBucketStorage
     this.slot_name_prefix = options.slot_name_prefix;
   }
 
-  getInstance(options: PersistedSyncRulesContent): MongoSyncBucketStorage {
+  getInstance(options: storage.PersistedSyncRulesContent): MongoSyncBucketStorage {
     let { id, slot_name } = options;
     if ((typeof id as any) == 'bigint') {
       id = Number(id);
@@ -155,7 +143,7 @@ export class MongoBucketStorage
     }
   }
 
-  async updateSyncRules(options: UpdateSyncRulesOptions): Promise<MongoPersistedSyncRulesContent> {
+  async updateSyncRules(options: storage.UpdateSyncRulesOptions): Promise<MongoPersistedSyncRulesContent> {
     // Parse and validate before applying any changes
     const parsed = SqlSyncRules.fromYaml(options.content, {
       // No schema-based validation at this point
@@ -230,7 +218,7 @@ export class MongoBucketStorage
     return new MongoPersistedSyncRulesContent(this.db, doc);
   }
 
-  async getActiveSyncRules(options: ParseSyncRulesOptions): Promise<PersistedSyncRules | null> {
+  async getActiveSyncRules(options: storage.ParseSyncRulesOptions): Promise<storage.PersistedSyncRules | null> {
     const content = await this.getActiveSyncRulesContent();
     return content?.parsed(options) ?? null;
   }
@@ -249,12 +237,12 @@ export class MongoBucketStorage
     return new MongoPersistedSyncRulesContent(this.db, doc);
   }
 
-  async getNextSyncRules(options: ParseSyncRulesOptions): Promise<PersistedSyncRules | null> {
+  async getNextSyncRules(options: storage.ParseSyncRulesOptions): Promise<storage.PersistedSyncRules | null> {
     const content = await this.getNextSyncRulesContent();
     return content?.parsed(options) ?? null;
   }
 
-  async getReplicatingSyncRules(): Promise<PersistedSyncRulesContent[]> {
+  async getReplicatingSyncRules(): Promise<storage.PersistedSyncRulesContent[]> {
     const docs = await this.db.sync_rules
       .find({
         $or: [{ state: SyncRuleState.ACTIVE }, { state: SyncRuleState.PROCESSING }]
@@ -266,7 +254,7 @@ export class MongoBucketStorage
     });
   }
 
-  async getStoppedSyncRules(): Promise<PersistedSyncRulesContent[]> {
+  async getStoppedSyncRules(): Promise<storage.PersistedSyncRulesContent[]> {
     const docs = await this.db.sync_rules
       .find({
         state: SyncRuleState.STOP
@@ -278,7 +266,7 @@ export class MongoBucketStorage
     });
   }
 
-  async getActiveCheckpoint(): Promise<ActiveCheckpoint> {
+  async getActiveCheckpoint(): Promise<storage.ActiveCheckpoint> {
     const doc = await this.db.sync_rules.findOne(
       {
         state: SyncRuleState.ACTIVE
@@ -293,7 +281,7 @@ export class MongoBucketStorage
     return this.makeActiveCheckpoint(doc);
   }
 
-  async getStorageMetrics(): Promise<StorageMetrics> {
+  async getStorageMetrics(): Promise<storage.StorageMetrics> {
     const ignoreNotExiting = (e: unknown) => {
       if (e instanceof mongo.MongoServerError && e.codeName == 'NamespaceNotFound') {
         // Collection doesn't exist - return 0
@@ -378,7 +366,7 @@ export class MongoBucketStorage
 
   private makeActiveCheckpoint(doc: SyncRuleDocument | null) {
     return {
-      checkpoint: util.timestampToOpId(doc?.last_checkpoint ?? 0n),
+      checkpoint: utils.timestampToOpId(doc?.last_checkpoint ?? 0n),
       lsn: doc?.last_checkpoint_lsn ?? null,
       hasSyncRules() {
         return doc != null;
@@ -389,13 +377,13 @@ export class MongoBucketStorage
         }
         return (await this.storageCache.fetch(doc._id)) ?? null;
       }
-    } satisfies ActiveCheckpoint;
+    } satisfies storage.ActiveCheckpoint;
   }
 
   /**
    * Instance-wide watch on the latest available checkpoint (op_id + lsn).
    */
-  private async *watchActiveCheckpoint(signal: AbortSignal): AsyncIterable<ActiveCheckpoint> {
+  private async *watchActiveCheckpoint(signal: AbortSignal): AsyncIterable<storage.ActiveCheckpoint> {
     const pipeline: mongo.Document[] = [
       {
         $match: {
@@ -466,7 +454,7 @@ export class MongoBucketStorage
       { once: true }
     );
 
-    let lastOp: ActiveCheckpoint | null = null;
+    let lastOp: storage.ActiveCheckpoint | null = null;
 
     for await (const update of stream.stream()) {
       if (signal.aborted) {
@@ -497,8 +485,8 @@ export class MongoBucketStorage
   /**
    * User-specific watch on the latest checkpoint and/or write checkpoint.
    */
-  async *watchWriteCheckpoint(user_id: string, signal: AbortSignal): AsyncIterable<WriteCheckpoint> {
-    let lastCheckpoint: util.OpId | null = null;
+  async *watchWriteCheckpoint(user_id: string, signal: AbortSignal): AsyncIterable<storage.WriteCheckpoint> {
+    let lastCheckpoint: utils.OpId | null = null;
     let lastWriteCheckpoint: bigint | null = null;
 
     const iter = wrapWithAbort(this.sharedIter, signal);

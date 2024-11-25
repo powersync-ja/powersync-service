@@ -1,9 +1,9 @@
 import { ToastableSqliteRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
-import { SaveOptions } from '../BucketStorage.js';
-import { isUUID } from './util.js';
+import { storage } from '@powersync/service-core';
 import { ReplicaId } from './models.js';
+import { isUUID } from './util.js';
 
 /**
  * Maximum number of operations in a batch.
@@ -79,7 +79,7 @@ export class RecordOperation {
   public readonly internalAfterKey: string | null;
   public readonly estimatedSize: number;
 
-  constructor(public readonly record: SaveOptions) {
+  constructor(public readonly record: storage.SaveOptions) {
     const afterId = record.afterReplicaId ?? null;
     const beforeId = record.beforeReplicaId ?? record.afterReplicaId;
     this.afterId = afterId;

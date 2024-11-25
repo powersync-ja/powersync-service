@@ -1,11 +1,12 @@
 import { api, ConfigurationFileSyncRulesProvider, replication, system, TearDownOptions } from '@powersync/service-core';
 import { MongoRouteAPIAdapter } from '../api/MongoRouteAPIAdapter.js';
+import { ChangeStreamReplicator } from '../replication/ChangeStreamReplicator.js';
 import { ConnectionManagerFactory } from '../replication/ConnectionManagerFactory.js';
 import { MongoErrorRateLimiter } from '../replication/MongoErrorRateLimiter.js';
-import { ChangeStreamReplicator } from '../replication/ChangeStreamReplicator.js';
-import * as types from '../types/types.js';
 import { MongoManager } from '../replication/MongoManager.js';
 import { checkSourceConfiguration } from '../replication/replication-utils.js';
+import { MongoStorageProvider } from '../storage/storage-index.js';
+import * as types from '../types/types.js';
 
 export class MongoModule extends replication.ReplicationModule<types.MongoConnectionConfig> {
   constructor() {
@@ -18,6 +19,7 @@ export class MongoModule extends replication.ReplicationModule<types.MongoConnec
 
   async initialize(context: system.ServiceContextContainer): Promise<void> {
     await super.initialize(context);
+    context.storageEngine.registerProvider(new MongoStorageProvider());
   }
 
   protected createRouteAPIAdapter(): api.RouteAPI {

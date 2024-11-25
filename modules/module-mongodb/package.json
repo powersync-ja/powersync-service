@@ -35,6 +35,8 @@
     "@powersync/service-types": "workspace:*",
     "mongodb": "^6.7.0",
     "ts-codec": "^1.2.2",
+    "ix": "^5.0.0",
+    "lru-cache": "^10.2.2",
     "uuid": "^9.0.1",
     "uri-js": "^4.4.1"
   },

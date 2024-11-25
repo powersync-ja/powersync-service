@@ -3,8 +3,8 @@ import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules
 import * as bson from 'bson';
 import * as mongo from 'mongodb';
 
-import * as util from '../../util/util-index.js';
-import { SourceTable } from '../SourceTable.js';
+import { logger } from '@powersync/lib-services-framework';
+import { storage, utils } from '@powersync/service-core';
 import { currentBucketKey } from './MongoBucketBatch.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { PowerSyncMongo } from './db.js';
@@ -13,11 +13,10 @@ import {
   BucketParameterDocument,
   CurrentBucket,
   CurrentDataDocument,
-  SourceKey,
-  ReplicaId
+  ReplicaId,
+  SourceKey
 } from './models.js';
 import { replicaIdToSubkey, serializeLookup } from './util.js';
-import { logger } from '@powersync/lib-services-framework';
 
 /**
  * Maximum size of operations we write in a single transaction.
@@ -64,7 +63,7 @@ export class PersistedBatch {
   saveBucketData(options: {
     op_seq: MongoIdSequence;
     sourceKey: ReplicaId;
-    table: SourceTable;
+    table: storage.SourceTable;
     evaluated: EvaluatedRow[];
     before_buckets: CurrentBucket[];
   }) {
@@ -74,7 +73,7 @@ export class PersistedBatch {
       remaining_buckets.set(key, b);
     }
 
-    const dchecksum = util.hashDelete(replicaIdToSubkey(options.table.id, options.sourceKey));
+    const dchecksum = utils.hashDelete(replicaIdToSubkey(options.table.id, options.sourceKey));
 
     for (let k of options.evaluated) {
       const key = currentBucketKey(k);
@@ -82,7 +81,7 @@ export class PersistedBatch {
 
       // INSERT
       const recordData = JSONBig.stringify(k.data);
-      const checksum = util.hashData(k.table, k.id, recordData);
+      const checksum = utils.hashData(k.table, k.id, recordData);
       this.currentSize += recordData.length + 200;
 
       const op_id = options.op_seq.next();
@@ -139,7 +138,7 @@ export class PersistedBatch {
   saveParameterData(data: {
     op_seq: MongoIdSequence;
     sourceKey: ReplicaId;
-    sourceTable: SourceTable;
+    sourceTable: storage.SourceTable;
     evaluated: EvaluatedParameters[];
     existing_lookups: bson.Binary[];
   }) {

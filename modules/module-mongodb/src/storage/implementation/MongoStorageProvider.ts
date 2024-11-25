@@ -1,6 +1,7 @@
 import { logger } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import { configFile } from '@powersync/service-types';
+import * as db from '../../db/db-index.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
 

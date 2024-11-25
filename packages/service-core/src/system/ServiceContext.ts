@@ -37,9 +37,6 @@ export class ServiceContextContainer implements ServiceContext {
       start: (storageEngine) => storageEngine.start(),
       stop: (storageEngine) => storageEngine.shutDown()
     });
-
-    // Mongo storage is available as an option by default TODO: Consider moving this to a Mongo Storage Module
-    this.storageEngine.registerProvider(new storage.MongoStorageProvider());
   }
 
   get replicationEngine(): replication.ReplicationEngine | null {

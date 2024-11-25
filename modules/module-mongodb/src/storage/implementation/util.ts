@@ -1,10 +1,9 @@
+import { utils } from '@powersync/service-core';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import * as crypto from 'crypto';
 import * as mongo from 'mongodb';
 import * as uuid from 'uuid';
-import { OplogEntry } from '../../util/protocol-types.js';
-import { ID_NAMESPACE, timestampToOpId } from '../../util/utils.js';
 import { BucketDataDocument, ReplicaId } from './models.js';
 
 /**
@@ -91,10 +90,10 @@ export const BSON_DESERIALIZE_OPTIONS: bson.DeserializeOptions = {
   useBigInt64: true
 };
 
-export function mapOpEntry(row: BucketDataDocument): OplogEntry {
+export function mapOpEntry(row: BucketDataDocument): utils.OplogEntry {
   if (row.op == 'PUT' || row.op == 'REMOVE') {
     return {
-      op_id: timestampToOpId(row._id.o),
+      op_id: utils.timestampToOpId(row._id.o),
       op: row.op,
       object_type: row.table,
       object_id: row.row_id,
@@ -106,7 +105,7 @@ export function mapOpEntry(row: BucketDataDocument): OplogEntry {
     // MOVE, CLEAR
 
     return {
-      op_id: timestampToOpId(row._id.o),
+      op_id: utils.timestampToOpId(row._id.o),
       op: row.op,
       checksum: Number(row.checksum)
     };
@@ -140,7 +139,7 @@ export function replicaIdToSubkey(table: bson.ObjectId, id: ReplicaId): string {
   } else {
     // Hashed UUID from the table and id
     const repr = bson.serialize({ table, id });
-    return uuid.v5(repr, ID_NAMESPACE);
+    return uuid.v5(repr, utils.ID_NAMESPACE);
   }
 }
 
