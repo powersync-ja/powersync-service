@@ -3,16 +3,7 @@ import * as bson from 'bson';
 import * as mongo from 'mongodb';
 
 import { container, DisposableObserver, errors, logger } from '@powersync/lib-services-framework';
-import * as util from '../../util/util-index.js';
-import {
-  BucketBatchStorageListener,
-  BucketStorageBatch,
-  FlushedResult,
-  mergeToast,
-  SaveOptions
-} from '../BucketStorage.js';
-import { SourceTable } from '../SourceTable.js';
-import { BatchedCustomWriteCheckpointOptions, CustomWriteCheckpointOptions } from '../WriteCheckpointAPI.js';
+import { storage, utils } from '@powersync/service-core';
 import { PowerSyncMongo } from './db.js';
 import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
@@ -31,7 +22,7 @@ const MAX_ROW_SIZE = 15 * 1024 * 1024;
 // makes it more fair and has less overhead.
 //
 // In the future, we can investigate allowing multiple replication streams operating independently.
-const replicationMutex = new util.Mutex();
+const replicationMutex = new utils.Mutex();
 
 export interface MongoBucketBatchOptions {
   db: PowerSyncMongo;
@@ -43,7 +34,10 @@ export interface MongoBucketBatchOptions {
   storeCurrentData: boolean;
 }
 
-export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListener> implements BucketStorageBatch {
+export class MongoBucketBatch
+  extends DisposableObserver<storage.BucketBatchStorageListener>
+  implements storage.BucketStorageBatch
+{
   private readonly client: mongo.MongoClient;
   public readonly db: PowerSyncMongo;
   public readonly session: mongo.ClientSession;
@@ -55,7 +49,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
   private readonly storeCurrentData: boolean;
 
   private batch: OperationBatch | null = null;
-  private write_checkpoint_batch: CustomWriteCheckpointOptions[] = [];
+  private write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
 
   /**
    * Last LSN received associated with a checkpoint.
@@ -89,7 +83,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
     this.batch = new OperationBatch();
   }
 
-  addCustomWriteCheckpoint(checkpoint: BatchedCustomWriteCheckpointOptions): void {
+  addCustomWriteCheckpoint(checkpoint: storage.BatchedCustomWriteCheckpointOptions): void {
     this.write_checkpoint_batch.push({
       ...checkpoint,
       sync_rules_id: this.group_id
@@ -100,8 +94,8 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
     return this.last_checkpoint_lsn;
   }
 
-  async flush(): Promise<FlushedResult | null> {
-    let result: FlushedResult | null = null;
+  async flush(): Promise<storage.FlushedResult | null> {
+    let result: storage.FlushedResult | null = null;
     // One flush may be split over multiple transactions.
     // Each flushInner() is one transaction.
     while (this.batch != null) {
@@ -115,7 +109,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
     return result;
   }
 
-  private async flushInner(): Promise<FlushedResult | null> {
+  private async flushInner(): Promise<storage.FlushedResult | null> {
     const batch = this.batch;
     if (batch == null) {
       return null;
@@ -290,7 +284,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
         existing_lookups = result.lookups;
         if (this.storeCurrentData) {
           const data = bson.deserialize((result.data as mongo.Binary).buffer, BSON_DESERIALIZE_OPTIONS) as SqliteRow;
-          after = mergeToast(after!, data);
+          after = storage.mergeToast(after!, data);
         }
       }
     } else if (record.tag == 'delete') {
@@ -379,7 +373,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
     // However, it will be valid by the end of the transaction.
     //
     // In this case, we don't save the op, but we do save the current data.
-    if (afterId && after && util.isCompleteRow(after)) {
+    if (afterId && after && utils.isCompleteRow(after)) {
       // Insert or update
       if (sourceTable.syncData) {
         const { results: evaluated, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
@@ -653,7 +647,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
     return true;
   }
 
-  async save(record: SaveOptions): Promise<FlushedResult | null> {
+  async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
     const { after, before, sourceTable, tag } = record;
     for (const event of this.getTableEvents(sourceTable)) {
       this.iterateListeners((cb) =>
@@ -662,8 +656,8 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
           table: sourceTable,
           data: {
             op: tag,
-            after: after && util.isCompleteRow(after) ? after : undefined,
-            before: before && util.isCompleteRow(before) ? before : undefined
+            after: after && utils.isCompleteRow(after) ? after : undefined,
+            before: before && utils.isCompleteRow(before) ? before : undefined
           },
           event
         })
@@ -695,7 +689,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
   /**
    * Drop is equivalent to TRUNCATE, plus removing our record of the table.
    */
-  async drop(sourceTables: SourceTable[]): Promise<FlushedResult | null> {
+  async drop(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
     await this.truncate(sourceTables);
     const result = await this.flush();
 
@@ -707,7 +701,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
     return result;
   }
 
-  async truncate(sourceTables: SourceTable[]): Promise<FlushedResult | null> {
+  async truncate(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
     await this.flush();
 
     let last_op: bigint | null = null;
@@ -724,7 +718,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
     };
   }
 
-  async truncateSingle(sourceTable: SourceTable): Promise<bigint> {
+  async truncateSingle(sourceTable: storage.SourceTable): Promise<bigint> {
     let last_op: bigint | null = null;
 
     // To avoid too large transactions, we limit the amount of data we delete per transaction.
@@ -778,7 +772,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
     return last_op!;
   }
 
-  async markSnapshotDone(tables: SourceTable[], no_checkpoint_before_lsn: string) {
+  async markSnapshotDone(tables: storage.SourceTable[], no_checkpoint_before_lsn: string) {
     const session = this.session;
     const ids = tables.map((table) => table.id);
 
@@ -811,7 +805,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
       }
     });
     return tables.map((table) => {
-      const copy = new SourceTable(
+      const copy = new storage.SourceTable(
         table.id,
         table.connectionTag,
         table.objectId,
@@ -829,7 +823,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
   /**
    * Gets relevant {@link SqlEventDescriptor}s for the given {@link SourceTable}
    */
-  protected getTableEvents(table: SourceTable): SqlEventDescriptor[] {
+  protected getTableEvents(table: storage.SourceTable): SqlEventDescriptor[] {
     return this.sync_rules.event_descriptors.filter((evt) =>
       [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table))
     );

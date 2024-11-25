@@ -1,9 +1,8 @@
 import { logger } from '@powersync/lib-services-framework';
+import { storage, utils } from '@powersync/service-core';
 import { AnyBulkWriteOperation, MaxKey, MinKey } from 'mongodb';
-import { addChecksums } from '../../util/utils.js';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey } from './models.js';
-import { CompactOptions } from '../BucketStorage.js';
 import { cacheKey } from './OperationBatch.js';
 
 interface CurrentBucketState {
@@ -32,7 +31,7 @@ interface CurrentBucketState {
 /**
  * Additional options, primarily for testing.
  */
-export interface MongoCompactOptions extends CompactOptions {
+export interface MongoCompactOptions extends storage.CompactOptions {
   /** Minimum of 2 */
   clearBatchLimit?: number;
   /** Minimum of 1 */
@@ -323,7 +322,7 @@ export class MongoCompactor {
             let gotAnOp = false;
             for await (let op of query.stream()) {
               if (op.op == 'MOVE' || op.op == 'REMOVE' || op.op == 'CLEAR') {
-                checksum = addChecksums(checksum, op.checksum);
+                checksum = utils.addChecksums(checksum, op.checksum);
                 lastOpId = op._id;
                 if (op.op != 'CLEAR') {
                   gotAnOp = true;

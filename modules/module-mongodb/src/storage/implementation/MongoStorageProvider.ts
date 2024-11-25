@@ -1,17 +1,16 @@
 import { logger } from '@powersync/lib-services-framework';
+import { storage } from '@powersync/service-core';
 import { configFile } from '@powersync/service-types';
-import * as db from '../../db/db-index.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
-import { ActiveStorage, BucketStorageProvider, GetStorageOptions } from '../StorageProvider.js';
 import { PowerSyncMongo } from './db.js';
 
 export const MONGO_STORAGE_TYPE = 'mongodb';
-export class MongoStorageProvider implements BucketStorageProvider {
+export class MongoStorageProvider implements storage.BucketStorageProvider {
   get type() {
     return MONGO_STORAGE_TYPE;
   }
 
-  async getStorage(options: GetStorageOptions): Promise<ActiveStorage> {
+  async getStorage(options: storage.GetStorageOptions): Promise<storage.ActiveStorage> {
     const { resolvedConfig } = options;
 
     const { storage } = resolvedConfig;
@@ -37,6 +36,6 @@ export class MongoStorageProvider implements BucketStorageProvider {
         logger.info(`Tearing down storage: ${database.db.namespace}...`);
         return database.db.dropDatabase();
       }
-    } satisfies ActiveStorage;
+    } satisfies storage.ActiveStorage;
   }
 }

@@ -1,8 +1,8 @@
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 
-import { PersistedSyncRules } from '../BucketStorage.js';
+import { storage } from '@powersync/service-core';
 
-export class MongoPersistedSyncRules implements PersistedSyncRules {
+export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
   public readonly slot_name: string;
 
   constructor(

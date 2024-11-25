@@ -1,13 +1,12 @@
+import { storage } from '@powersync/service-core';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import * as mongo from 'mongodb';
-
-import { ParseSyncRulesOptions, PersistedSyncRulesContent } from '../BucketStorage.js';
 import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
 import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
 import { PowerSyncMongo } from './db.js';
 import { SyncRuleDocument } from './models.js';
 
-export class MongoPersistedSyncRulesContent implements PersistedSyncRulesContent {
+export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRulesContent {
   public readonly slot_name: string;
 
   public readonly id: number;
@@ -33,7 +32,7 @@ export class MongoPersistedSyncRulesContent implements PersistedSyncRulesContent
     this.last_keepalive_ts = doc.last_keepalive_ts;
   }
 
-  parsed(options: ParseSyncRulesOptions) {
+  parsed(options: storage.ParseSyncRulesOptions) {
     return new MongoPersistedSyncRules(
       this.id,
       SqlSyncRules.fromYaml(this.sync_rules_content, options),
