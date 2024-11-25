@@ -1,7 +1,7 @@
+import { migrations } from '@powersync/service-core';
 import { configFile } from '@powersync/service-types';
 import * as mongo from '../../../db/mongo.js';
 import * as storage from '../../../storage/storage-index.js';
-import { PowerSyncMigrationFunction } from '../../PowerSyncMigrationManager.js';
 
 interface LegacySyncRulesDocument extends storage.SyncRuleDocument {
   /**
@@ -24,7 +24,7 @@ interface LegacySyncRulesDocument extends storage.SyncRuleDocument {
   auto_activate?: boolean;
 }
 
-export const up: PowerSyncMigrationFunction = async (context) => {
+export const up: migrations.PowerSyncMigrationFunction = async (context) => {
   const {
     service_context: { configuration }
   } = context;
@@ -72,7 +72,7 @@ export const up: PowerSyncMigrationFunction = async (context) => {
   }
 };
 
-export const down: PowerSyncMigrationFunction = async (context) => {
+export const down: migrations.PowerSyncMigrationFunction = async (context) => {
   const {
     service_context: { configuration }
   } = context;

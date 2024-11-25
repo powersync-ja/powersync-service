@@ -1,10 +1,10 @@
+import { migrations } from '@powersync/service-core';
 import { configFile } from '@powersync/service-types';
 import * as storage from '../../../storage/storage-index.js';
-import { PowerSyncMigrationFunction } from '../../PowerSyncMigrationManager.js';
 
 const INDEX_NAME = 'user_sync_rule_unique';
 
-export const up: PowerSyncMigrationFunction = async (context) => {
+export const up: migrations.PowerSyncMigrationFunction = async (context) => {
   const {
     service_context: { configuration }
   } = context;
@@ -23,7 +23,7 @@ export const up: PowerSyncMigrationFunction = async (context) => {
   }
 };
 
-export const down: PowerSyncMigrationFunction = async (context) => {
+export const down: migrations.PowerSyncMigrationFunction = async (context) => {
   const {
     service_context: { configuration }
   } = context;

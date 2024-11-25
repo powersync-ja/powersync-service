@@ -1,22 +1,13 @@
+import { storage } from '@powersync/service-core';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-
-/**
- * Replica id uniquely identifying a row on the source database.
- *
- * Can be any value serializable to BSON.
- *
- * If the value is an entire document, the data serialized to a v5 UUID may be a good choice here.
- */
-export type ReplicaId = bson.UUID | bson.Document | any;
-
 export interface SourceKey {
   /** group_id */
   g: number;
   /** source table id */
   t: bson.ObjectId;
   /** source key */
-  k: ReplicaId;
+  k: storage.ReplicaId;
 }
 
 export interface BucketDataKey {
@@ -52,7 +43,7 @@ export interface BucketDataDocument {
   _id: BucketDataKey;
   op: OpType;
   source_table?: bson.ObjectId;
-  source_key?: ReplicaId;
+  source_key?: storage.ReplicaId;
   table?: string;
   row_id?: string;
   checksum: number;

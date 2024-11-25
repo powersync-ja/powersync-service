@@ -1,6 +1,6 @@
+import { locks } from '@powersync/service-core';
 import * as bson from 'bson';
 import * as mongo from 'mongodb';
-import { LockActiveError, LockManager } from './LockManager.js';
 
 /**
  * Lock Document Schema
@@ -122,7 +122,7 @@ export type CreateLockManagerParams = {
   timeout?: number;
 };
 
-export const createMongoLockManager = (collection: Collection, params: CreateLockManagerParams): LockManager => {
+export const createMongoLockManager = (collection: Collection, params: CreateLockManagerParams): locks.LockManager => {
   return {
     acquire: () => acquireLock(collection, params),
     refresh: (lock_id: string) => refreshLock(collection, lock_id),
@@ -131,7 +131,7 @@ export const createMongoLockManager = (collection: Collection, params: CreateLoc
     lock: async (handler) => {
       const lock_id = await acquireLock(collection, params);
       if (!lock_id) {
-        throw new LockActiveError();
+        throw new locks.LockActiveError();
       }
 
       try {

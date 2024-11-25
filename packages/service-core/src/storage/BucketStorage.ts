@@ -8,12 +8,22 @@ import {
   SqliteRow,
   ToastableSqliteRow
 } from '@powersync/service-sync-rules';
+import { BSON } from 'bson';
 import * as util from '../util/util-index.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
-import { BatchedCustomWriteCheckpointOptions, ReplicaId } from './storage-index.js';
+import { BatchedCustomWriteCheckpointOptions } from './storage-index.js';
 import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
+
+/**
+ * Replica id uniquely identifying a row on the source database.
+ *
+ * Can be any value serializable to BSON.
+ *
+ * If the value is an entire document, the data serialized to a v5 UUID may be a good choice here.
+ */
+export type ReplicaId = BSON.UUID | BSON.Document | any;
 
 export interface BucketStorageFactoryListener extends DisposableListener {
   syncStorageCreated: (storage: SyncRulesBucketStorage) => void;
