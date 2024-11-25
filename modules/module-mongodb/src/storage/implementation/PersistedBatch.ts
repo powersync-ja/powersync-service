@@ -13,7 +13,6 @@ import {
   BucketParameterDocument,
   CurrentBucket,
   CurrentDataDocument,
-  ReplicaId,
   SourceKey
 } from './models.js';
 import { replicaIdToSubkey, serializeLookup } from './util.js';
@@ -62,7 +61,7 @@ export class PersistedBatch {
 
   saveBucketData(options: {
     op_seq: MongoIdSequence;
-    sourceKey: ReplicaId;
+    sourceKey: storage.ReplicaId;
     table: storage.SourceTable;
     evaluated: EvaluatedRow[];
     before_buckets: CurrentBucket[];
@@ -137,7 +136,7 @@ export class PersistedBatch {
 
   saveParameterData(data: {
     op_seq: MongoIdSequence;
-    sourceKey: ReplicaId;
+    sourceKey: storage.ReplicaId;
     sourceTable: storage.SourceTable;
     evaluated: EvaluatedParameters[];
     existing_lookups: bson.Binary[];

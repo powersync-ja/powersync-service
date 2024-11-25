@@ -4,11 +4,12 @@ import { LRUCache } from 'lru-cache/min';
 import * as mongo from 'mongodb';
 import * as timers from 'timers/promises';
 
-import { locks, storage, sync, utils } from '@powersync/service-core';
+import { storage, sync, utils } from '@powersync/service-core';
 
 import { DisposableObserver, logger } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
 
+import { createMongoLockManager } from '../locks/MonogLocks.js';
 import { PowerSyncMongo } from './implementation/db.js';
 import { SyncRuleDocument, SyncRuleState } from './implementation/models.js';
 import { MongoPersistedSyncRulesContent } from './implementation/MongoPersistedSyncRulesContent.js';
@@ -346,7 +347,7 @@ export class MongoBucketStorage
     });
 
     if (!instance) {
-      const manager = locks.createMongoLockManager(this.db.locks, {
+      const manager = createMongoLockManager(this.db.locks, {
         name: `instance-id-insertion-lock`
       });
 

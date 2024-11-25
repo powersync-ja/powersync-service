@@ -2,7 +2,6 @@ import { ToastableSqliteRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import { storage } from '@powersync/service-core';
-import { ReplicaId } from './models.js';
 import { isUUID } from './util.js';
 
 /**
@@ -73,8 +72,8 @@ export class OperationBatch {
 }
 
 export class RecordOperation {
-  public readonly afterId: ReplicaId | null;
-  public readonly beforeId: ReplicaId;
+  public readonly afterId: storage.ReplicaId | null;
+  public readonly beforeId: storage.ReplicaId;
   public readonly internalBeforeKey: string;
   public readonly internalAfterKey: string | null;
   public readonly estimatedSize: number;
@@ -94,7 +93,7 @@ export class RecordOperation {
 /**
  * In-memory cache key - must not be persisted.
  */
-export function cacheKey(table: bson.ObjectId, id: ReplicaId) {
+export function cacheKey(table: bson.ObjectId, id: storage.ReplicaId) {
   if (isUUID(id)) {
     return `${table.toHexString()}.${id.toHexString()}`;
   } else if (typeof id == 'string') {

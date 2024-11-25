@@ -22,7 +22,10 @@ export class MongoModule extends replication.ReplicationModule<types.MongoConnec
     await super.initialize(context);
     context.storageEngine.registerProvider(new MongoStorageProvider());
     if (context.configuration.storage.type == MONGO_STORAGE_TYPE) {
-      context.migrations.registerMigrationAgent(new MongoMigrationAgent(this.resolveConfig(this.decodedConfig!)));
+      // FIXME types
+      context.migrations.registerMigrationAgent(
+        new MongoMigrationAgent(this.resolveConfig(context.configuration.storage as any))
+      );
     }
   }
 

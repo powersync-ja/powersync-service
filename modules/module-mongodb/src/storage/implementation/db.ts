@@ -1,7 +1,7 @@
-import { locks } from '@powersync/service-core';
 import { configFile } from '@powersync/service-types';
 import * as mongo from 'mongodb';
 import * as db from '../../db/db-index.js';
+import { Lock } from '../../locks/MonogLocks.js';
 import {
   BucketDataDocument,
   BucketParameterDocument,
@@ -36,7 +36,7 @@ export class PowerSyncMongo {
   readonly custom_write_checkpoints: mongo.Collection<CustomWriteCheckpointDocument>;
   readonly write_checkpoints: mongo.Collection<WriteCheckpointDocument>;
   readonly instance: mongo.Collection<InstanceDocument>;
-  readonly locks: mongo.Collection<locks.Lock>;
+  readonly locks: mongo.Collection<Lock>;
 
   readonly client: mongo.MongoClient;
   readonly db: mongo.Db;

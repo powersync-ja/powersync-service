@@ -1,10 +1,10 @@
-import { utils } from '@powersync/service-core';
+import { storage, utils } from '@powersync/service-core';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import * as crypto from 'crypto';
 import * as mongo from 'mongodb';
 import * as uuid from 'uuid';
-import { BucketDataDocument, ReplicaId } from './models.js';
+import { BucketDataDocument } from './models.js';
 
 /**
  * Lookup serialization must be number-agnostic. I.e. normalize numbers, instead of preserving numbers.
@@ -115,7 +115,7 @@ export function mapOpEntry(row: BucketDataDocument): utils.OplogEntry {
 /**
  * Returns true if two ReplicaId values are the same (serializes to the same BSON value).
  */
-export function replicaIdEquals(a: ReplicaId, b: ReplicaId) {
+export function replicaIdEquals(a: storage.ReplicaId, b: storage.ReplicaId) {
   if (a === b) {
     return true;
   } else if (typeof a == 'string' && typeof b == 'string') {
@@ -132,7 +132,7 @@ export function replicaIdEquals(a: ReplicaId, b: ReplicaId) {
   }
 }
 
-export function replicaIdToSubkey(table: bson.ObjectId, id: ReplicaId): string {
+export function replicaIdToSubkey(table: bson.ObjectId, id: storage.ReplicaId): string {
   if (isUUID(id)) {
     // Special case for UUID for backwards-compatiblity
     return `${table.toHexString()}/${id.toHexString()}`;

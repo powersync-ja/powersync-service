@@ -26,11 +26,6 @@ export const startUnifiedRunner = async (runnerConfig: core.utils.RunnerConfig) 
   const moduleManager = container.getImplementation(core.modules.ModuleManager);
   await moduleManager.initialize(serviceContext);
 
-  // TODO proper conditional registration
-  serviceContext.migrations.registerMigrationAgent(
-    new core.MongoMigrationAgent(serviceContext.configuration.storage as any)
-  );
-
   await core.migrations.ensureAutomaticMigrations({
     serviceContext
   });
