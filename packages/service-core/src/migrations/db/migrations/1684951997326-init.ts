@@ -1,14 +1,13 @@
 import { configFile } from '@powersync/service-types';
 import * as mongo from '../../../db/mongo.js';
 import * as storage from '../../../storage/storage-index.js';
-import * as utils from '../../../util/util-index.js';
+import { PowerSyncMigrationFunction } from '../../PowerSyncMigrationManager.js';
 
-export const up = async (context: utils.MigrationContext) => {
-  const { runner_config } = context;
-
-  const config = await utils.loadConfig(runner_config);
-
-  const database = storage.createPowerSyncMongo(config.storage as configFile.MongoStorageConfig);
+export const up: PowerSyncMigrationFunction = async (context) => {
+  const {
+    service_context: { configuration }
+  } = context;
+  const database = storage.createPowerSyncMongo(configuration.storage as configFile.MongoStorageConfig);
   await mongo.waitForAuth(database.db);
   try {
     await database.bucket_parameters.createIndex(
@@ -24,11 +23,12 @@ export const up = async (context: utils.MigrationContext) => {
   }
 };
 
-export const down = async (context: utils.MigrationContext) => {
-  const { runner_config } = context;
-  const config = await utils.loadConfig(runner_config);
+export const down: PowerSyncMigrationFunction = async (context) => {
+  const {
+    service_context: { configuration }
+  } = context;
 
-  const database = storage.createPowerSyncMongo(config.storage as configFile.MongoStorageConfig);
+  const database = storage.createPowerSyncMongo(configuration.storage as configFile.MongoStorageConfig);
   try {
     if (await database.bucket_parameters.indexExists('lookup')) {
       await database.bucket_parameters.dropIndex('lookup1');

@@ -1,7 +1,9 @@
+export type MigrationFunction<Context extends {} | undefined = undefined> = (context: Context) => Promise<void>;
+
 export type Migration<Context extends {} | undefined = undefined> = {
   name: string;
-  up: (context: Context) => Promise<void>;
-  down: (context: Context) => Promise<void>;
+  up: MigrationFunction<Context>;
+  down: MigrationFunction<Context>;
 };
 
 export enum Direction {

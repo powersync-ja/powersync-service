@@ -21,11 +21,6 @@ export const startStreamRunner = async (runnerConfig: core.utils.RunnerConfig) =
 
   const config = await core.utils.loadConfig(runnerConfig);
 
-  await core.migrations.ensureAutomaticMigrations({
-    config,
-    runner_config: runnerConfig
-  });
-
   // Self hosted version allows for automatic migrations
   const serviceContext = new core.system.ServiceContextContainer(config);
 
@@ -38,6 +33,11 @@ export const startStreamRunner = async (runnerConfig: core.utils.RunnerConfig) =
 
   const moduleManager = container.getImplementation(core.modules.ModuleManager);
   await moduleManager.initialize(serviceContext);
+
+  // Ensure automatic migrations
+  await core.migrations.ensureAutomaticMigrations({
+    serviceContext
+  });
 
   logger.info('Starting system');
   await serviceContext.lifeCycleEngine.start();

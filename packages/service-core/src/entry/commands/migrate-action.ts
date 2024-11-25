@@ -28,7 +28,9 @@ export function registerMigrationAction(program: Command) {
         await serviceContext.migrations.migrate({
           direction,
           // Give the migrations access to the service context
-          migrationContext: serviceContext
+          migrationContext: {
+            service_context: serviceContext
+          }
         });
 
         process.exit(0);

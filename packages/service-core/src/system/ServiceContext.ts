@@ -2,6 +2,7 @@ import { LifeCycledSystem, ServiceIdentifier, container } from '@powersync/lib-s
 
 import { framework } from '../index.js';
 import * as metrics from '../metrics/Metrics.js';
+import { PowerSyncMigrationManager } from '../migrations/PowerSyncMigrationManager.js';
 import * as replication from '../replication/replication-index.js';
 import * as routes from '../routes/routes-index.js';
 import * as storage from '../storage/storage-index.js';
@@ -14,6 +15,7 @@ export interface ServiceContext {
   replicationEngine: replication.ReplicationEngine | null;
   routerEngine: routes.RouterEngine | null;
   storageEngine: storage.StorageEngine;
+  migrations: PowerSyncMigrationManager;
 }
 
 /**
@@ -52,7 +54,7 @@ export class ServiceContextContainer implements ServiceContext {
     return container.getOptional(metrics.Metrics);
   }
 
-  get migrations() {
+  get migrations(): PowerSyncMigrationManager {
     return container.getImplementation(framework.ContainerImplementation.MIGRATION_MANAGER);
   }
 

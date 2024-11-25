@@ -21,7 +21,7 @@ export class MigrationManager<Generics extends MigrationAgentGenerics = Migratio
     this.migrations.push(...migrations);
   }
 
-  async migrate(params: MigrationParams) {
+  async migrate(params: MigrationParams<Generics>) {
     if (!this._agent) {
       throw new Error(`A migration agent has not been registered yet.`);
     }

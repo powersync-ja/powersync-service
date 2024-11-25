@@ -34,7 +34,7 @@ export abstract class AbstractMigrationAgent<Generics extends MigrationAgentGene
   abstract dispose(): Promise<void>;
 
   async run(params: RunMigrationParams) {
-    const { direction, migrations } = params;
+    const { direction, migrations, migrationContext } = params;
     // Only one process should execute this at a time.
     logger.info('Acquiring lock');
     const lockId = await this.locks.acquire();
@@ -62,7 +62,8 @@ export abstract class AbstractMigrationAgent<Generics extends MigrationAgentGene
       const logStream = this.execute({
         direction,
         migrations,
-        state
+        state,
+        migrationContext
       });
 
       await this.writeLogsToStore({

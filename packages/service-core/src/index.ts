@@ -21,8 +21,8 @@ export * as locks from './locks/locks-index.js';
 export * from './metrics/Metrics.js';
 export * as metrics from './metrics/Metrics.js';
 
+export * from './migrations/migrations-index.js';
 export * as migrations from './migrations/migrations-index.js';
-export * from './migrations/migrations.js';
 
 export * from './modules/modules-index.js';
 export * as modules from './modules/modules-index.js';

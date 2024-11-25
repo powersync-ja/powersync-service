@@ -1,7 +1,7 @@
 import { configFile } from '@powersync/service-types';
 import * as mongo from '../../../db/mongo.js';
 import * as storage from '../../../storage/storage-index.js';
-import * as utils from '../../../util/util-index.js';
+import { PowerSyncMigrationFunction } from '../../PowerSyncMigrationManager.js';
 
 interface LegacySyncRulesDocument extends storage.SyncRuleDocument {
   /**
@@ -24,10 +24,11 @@ interface LegacySyncRulesDocument extends storage.SyncRuleDocument {
   auto_activate?: boolean;
 }
 
-export const up = async (context: utils.MigrationContext) => {
-  const { runner_config } = context;
-  const config = await utils.loadConfig(runner_config);
-  const db = storage.createPowerSyncMongo(config.storage as configFile.MongoStorageConfig);
+export const up: PowerSyncMigrationFunction = async (context) => {
+  const {
+    service_context: { configuration }
+  } = context;
+  const db = storage.createPowerSyncMongo(configuration.storage as configFile.MongoStorageConfig);
 
   await mongo.waitForAuth(db.db);
   try {
@@ -71,11 +72,12 @@ export const up = async (context: utils.MigrationContext) => {
   }
 };
 
-export const down = async (context: utils.MigrationContext) => {
-  const { runner_config } = context;
-  const config = await utils.loadConfig(runner_config);
+export const down: PowerSyncMigrationFunction = async (context) => {
+  const {
+    service_context: { configuration }
+  } = context;
 
-  const db = storage.createPowerSyncMongo(config.storage as configFile.MongoStorageConfig);
+  const db = storage.createPowerSyncMongo(configuration.storage as configFile.MongoStorageConfig);
   try {
     await db.sync_rules.updateMany(
       {
