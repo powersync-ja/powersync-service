@@ -1,5 +1,5 @@
-import { setTimeout } from 'timers/promises';
 import { ErrorRateLimiter } from '@powersync/service-core';
+import { setTimeout } from 'timers/promises';
 
 export class MongoErrorRateLimiter implements ErrorRateLimiter {
   nextAllowed: number = Date.now();
@@ -27,13 +27,6 @@ export class MongoErrorRateLimiter implements ErrorRateLimiter {
     } else if (message.includes('ECONNREFUSED')) {
       // Could be fail2ban or similar
       this.setDelay(120_000);
-    } else if (
-      message.includes('Unable to do postgres query on ended pool') ||
-      message.includes('Postgres unexpectedly closed connection')
-    ) {
-      // Connection timed out - ignore / immediately retry
-      // We don't explicitly set the delay to 0, since there could have been another error that
-      // we need to respect.
     } else {
       this.setDelay(30_000);
     }

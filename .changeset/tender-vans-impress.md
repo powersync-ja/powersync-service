@@ -4,7 +4,7 @@
 '@powersync/lib-services-framework': minor
 '@powersync/service-jpgwire': minor
 '@powersync/service-types': minor
-'@powersync/service-image': minor
+'@powersync/service-image': major
 '@powersync/service-module-postgres': patch
 ---
 
