@@ -1,12 +1,12 @@
 import { ActiveCheckpoint, BucketStorageFactory, OpId, SyncRulesBucketStorage } from '@powersync/service-core';
 
-import { TEST_CONNECTION_OPTIONS, clearTestDb } from './util.js';
-import { fromAsync } from '@core-tests/stream_utils.js';
-import { MongoManager } from '@module/replication/MongoManager.js';
 import { ChangeStream, ChangeStreamOptions } from '@module/replication/ChangeStream.js';
-import * as mongo from 'mongodb';
+import { MongoManager } from '@module/replication/MongoManager.js';
 import { createCheckpoint } from '@module/replication/MongoRelation.js';
 import { NormalizedMongoConnectionConfig } from '@module/types/types.js';
+import { test_utils } from '@powersync/service-core-tests';
+import * as mongo from 'mongodb';
+import { TEST_CONNECTION_OPTIONS, clearTestDb } from './util.js';
 
 export class ChangeStreamTestContext {
   private _walStream?: ChangeStream;
@@ -102,7 +102,7 @@ export class ChangeStreamTestContext {
   async getBucketsDataBatch(buckets: Record<string, string>, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
     const map = new Map<string, string>(Object.entries(buckets));
-    return fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
+    return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
   async getBucketData(
@@ -117,7 +117,7 @@ export class ChangeStreamTestContext {
       limit: options?.limit,
       chunkLimitBytes: options?.chunkLimitBytes
     });
-    const batches = await fromAsync(batch);
+    const batches = await test_utils.fromAsync(batch);
     return batches[0]?.batch.data ?? [];
   }
 

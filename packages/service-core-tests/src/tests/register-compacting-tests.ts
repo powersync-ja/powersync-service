@@ -1,65 +1,65 @@
-import { SaveOperationTag } from '@/storage/BucketStorage.js';
-import { MongoCompactOptions } from '@/storage/mongo/MongoCompactor.js';
-import { describe, expect, test } from 'vitest';
-import { validateCompactedBucket } from './bucket_validation.js';
-import { oneFromAsync } from './stream_utils.js';
-import { BATCH_OPTIONS, makeTestTable, MONGO_STORAGE_FACTORY, rid, testRules } from './util.js';
+import { storage } from '@powersync/service-core';
+import { expect, test } from 'vitest';
+import * as test_utils from '../test-utils/test-utils-index.js';
 
-const TEST_TABLE = makeTestTable('test', ['id']);
+const TEST_TABLE = test_utils.makeTestTable('test', ['id']);
 
-// Test with the default options - large batch sizes
-describe('compacting buckets - default options', () => compactTests({}));
-
-// Also test with the miniumum batch sizes, forcing usage of multiple batches internally
-describe('compacting buckets - batched', () =>
-  compactTests({ clearBatchLimit: 2, moveBatchLimit: 1, moveBatchQueryLimit: 1 }));
-
-function compactTests(compactOptions: MongoCompactOptions) {
-  const factory = MONGO_STORAGE_FACTORY;
-
+/**
+ * @example
+ * ```TypeScript
+ * // Test with the default options - large batch sizes
+ * describe('compacting buckets - default options', () => registerCompactTests(() => new MongoStorageFactory(), {}));
+ *
+ *  // Also test with the miniumum batch sizes, forcing usage of multiple batches internally
+ * describe('compacting buckets - batched', () =>
+ * compactTests(() => new MongoStorageFactory(), { clearBatchLimit: 2, moveBatchLimit: 1, moveBatchQueryLimit: 1 }));
+ * ```
+ */
+export function registerCompactTests(generateStorageFactory: test_utils.StorageFactory, compactOptions: storage.CompactOptions) {
   test('compacting (1)', async () => {
-    const sync_rules = testRules(`
+    const sync_rules = test_utils.testRules(`
 bucket_definitions:
   global:
     data: [select * from test]
     `);
 
-    const storage = (await factory()).getInstance(sync_rules);
+    using factory = await generateStorageFactory()
+    const bucketStorage = factory.getInstance(sync_rules);
 
-    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 't1'
         },
-        afterReplicaId: rid('t1')
+        afterReplicaId: test_utils.rid('t1')
       });
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 't2'
         },
-        afterReplicaId: rid('t2')
+        afterReplicaId: test_utils.rid('t2')
       });
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.UPDATE,
+        tag: storage.SaveOperationTag.UPDATE,
         after: {
           id: 't2'
         },
-        afterReplicaId: rid('t2')
+        afterReplicaId: test_utils.rid('t2')
       });
     });
 
     const checkpoint = result!.flushed_op;
 
-    const batchBefore = await oneFromAsync(storage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
+    const batchBefore = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
     const dataBefore = batchBefore.batch.data;
-    const checksumBefore = await storage.getChecksums(checkpoint, ['global[]']);
+    const checksumBefore = await bucketStorage.getChecksums(checkpoint, ['global[]']);
 
     expect(dataBefore).toMatchObject([
       {
@@ -82,11 +82,11 @@ bucket_definitions:
       }
     ]);
 
-    await storage.compact(compactOptions);
+    await bucketStorage.compact(compactOptions);
 
-    const batchAfter = await oneFromAsync(storage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
+    const batchAfter = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
     const dataAfter = batchAfter.batch.data;
-    const checksumAfter = await storage.getChecksums(checkpoint, ['global[]']);
+    const checksumAfter = await bucketStorage.getChecksums(checkpoint, ['global[]']);
 
     expect(batchAfter.targetOp).toEqual(3n);
     expect(dataAfter).toMatchObject([
@@ -111,61 +111,62 @@ bucket_definitions:
 
     expect(checksumBefore.get('global[]')).toEqual(checksumAfter.get('global[]'));
 
-    validateCompactedBucket(dataBefore, dataAfter);
+    test_utils.validateCompactedBucket(dataBefore, dataAfter);
   });
 
   test('compacting (2)', async () => {
-    const sync_rules = testRules(`
+    const sync_rules = test_utils.testRules(`
 bucket_definitions:
   global:
     data: [select * from test]
     `);
 
-    const storage = (await factory()).getInstance(sync_rules);
+    using factory = await generateStorageFactory();
+    const bucketStorage = factory.getInstance(sync_rules);
 
-    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 't1'
         },
-        afterReplicaId: rid('t1')
+        afterReplicaId: test_utils.rid('t1')
       });
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 't2'
         },
-        afterReplicaId: rid('t2')
+        afterReplicaId: test_utils.rid('t2')
       });
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.DELETE,
+        tag: storage.SaveOperationTag.DELETE,
         before: {
           id: 't1'
         },
-        beforeReplicaId: rid('t1')
+        beforeReplicaId: test_utils.rid('t1')
       });
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.UPDATE,
+        tag: storage.SaveOperationTag.UPDATE,
         after: {
           id: 't2'
         },
-        afterReplicaId: rid('t2')
+        afterReplicaId: test_utils.rid('t2')
       });
     });
 
     const checkpoint = result!.flushed_op;
 
-    const batchBefore = await oneFromAsync(storage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
+    const batchBefore = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
     const dataBefore = batchBefore.batch.data;
-    const checksumBefore = await storage.getChecksums(checkpoint, ['global[]']);
+    const checksumBefore = await bucketStorage.getChecksums(checkpoint, ['global[]']);
 
     expect(dataBefore).toMatchObject([
       {
@@ -194,11 +195,11 @@ bucket_definitions:
       }
     ]);
 
-    await storage.compact(compactOptions);
+    await bucketStorage.compact(compactOptions);
 
-    const batchAfter = await oneFromAsync(storage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
+    const batchAfter = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
     const dataAfter = batchAfter.batch.data;
-    const checksumAfter = await storage.getChecksums(checkpoint, ['global[]']);
+    const checksumAfter = await bucketStorage.getChecksums(checkpoint, ['global[]']);
 
     expect(batchAfter.targetOp).toEqual(4n);
     expect(dataAfter).toMatchObject([
@@ -216,22 +217,23 @@ bucket_definitions:
     ]);
     expect(checksumBefore.get('global[]')).toEqual(checksumAfter.get('global[]'));
 
-    validateCompactedBucket(dataBefore, dataAfter);
+    test_utils.validateCompactedBucket(dataBefore, dataAfter);
   });
 
   test('compacting (3)', async () => {
-    const sync_rules = testRules(`
+    const sync_rules = test_utils.testRules(`
 bucket_definitions:
   global:
     data: [select * from test]
     `);
 
-    const storage = (await factory()).getInstance(sync_rules);
+    using factory = await generateStorageFactory();
+    const bucketStorage = factory.getInstance(sync_rules);
 
-    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 't1'
         },
@@ -240,7 +242,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 't2'
         },
@@ -249,7 +251,7 @@ bucket_definitions:
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.DELETE,
+        tag: storage.SaveOperationTag.DELETE,
         before: {
           id: 't1'
         },
@@ -258,12 +260,12 @@ bucket_definitions:
     });
 
     const checkpoint1 = result!.flushed_op;
-    const checksumBefore = await storage.getChecksums(checkpoint1, ['global[]']);
+    const checksumBefore = await bucketStorage.getChecksums(checkpoint1, ['global[]']);
 
-    const result2 = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result2 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.DELETE,
+        tag: storage.SaveOperationTag.DELETE,
         before: {
           id: 't2'
         },
@@ -272,11 +274,11 @@ bucket_definitions:
     });
     const checkpoint2 = result2!.flushed_op;
 
-    await storage.compact(compactOptions);
+    await bucketStorage.compact(compactOptions);
 
-    const batchAfter = await oneFromAsync(storage.getBucketDataBatch(checkpoint2, new Map([['global[]', '0']])));
+    const batchAfter = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint2, new Map([['global[]', '0']])));
     const dataAfter = batchAfter.batch.data;
-    const checksumAfter = await storage.getChecksums(checkpoint2, ['global[]']);
+    const checksumAfter = await bucketStorage.getChecksums(checkpoint2, ['global[]']);
 
     expect(batchAfter.targetOp).toEqual(4n);
     expect(dataAfter).toMatchObject([

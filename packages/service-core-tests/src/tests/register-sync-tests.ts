@@ -1,18 +1,16 @@
-import { SaveOperationTag } from '@/storage/storage-index.js';
-import { RequestTracker } from '@/sync/RequestTracker.js';
-import { streamResponse, SyncStreamParameters } from '@/sync/sync.js';
-import { StreamingSyncLine } from '@/util/protocol-types.js';
+import { storage, sync, utils } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { RequestParameters } from '@powersync/service-sync-rules';
+import path from 'path';
 import * as timers from 'timers/promises';
-import { describe, expect, test } from 'vitest';
-import { BATCH_OPTIONS, makeTestTable, MONGO_STORAGE_FACTORY, PARSE_OPTIONS, StorageFactory } from './util.js';
+import { fileURLToPath } from 'url';
+import { expect, test } from 'vitest';
+import * as test_utils from '../test-utils/test-utils-index.js';
 
-describe('sync - mongodb', function () {
-  defineTests(MONGO_STORAGE_FACTORY);
-});
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-const TEST_TABLE = makeTestTable('test', ['id']);
+const TEST_TABLE = test_utils.makeTestTable('test', ['id']);
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -21,23 +19,33 @@ bucket_definitions:
       - SELECT * FROM test
     `;
 
-function defineTests(factory: StorageFactory) {
-  const tracker = new RequestTracker();
+export const SYNC_SNAPSHOT_PATH = path.resolve(__dirname, '../__snapshots/sync.test.ts.snap');
+
+/**
+ * @example
+ * ```TypeScript
+ * describe('sync - mongodb', function () {
+ * registerSyncTests(MONGO_STORAGE_FACTORY);
+ * });
+ * ```
+ */
+export function registerSyncTests(factory: test_utils.StorageFactory) {
+  const tracker = new sync.RequestTracker();
 
   test('sync global data', async () => {
-    const f = await factory();
+    using f = await factory();
 
     const syncRules = await f.updateSyncRules({
       content: BASIC_SYNC_RULES
     });
 
-    const storage = f.getInstance(syncRules);
-    await storage.autoActivate();
+    const bucketStorage = f.getInstance(syncRules);
+    await bucketStorage.autoActivate();
 
-    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 't1',
           description: 'Test 1'
@@ -47,7 +55,7 @@ function defineTests(factory: StorageFactory) {
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 't2',
           description: 'Test 2'
@@ -58,21 +66,21 @@ function defineTests(factory: StorageFactory) {
       await batch.commit('0/1');
     });
 
-    const stream = streamResponse({
+    const stream = sync.streamResponse({
       storage: f,
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
-      parseOptions: PARSE_OPTIONS,
+      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
     });
 
     const lines = await consumeCheckpointLines(stream);
-    expect(lines).toMatchSnapshot();
+    expect(lines).toMatchFileSnapshot(SYNC_SNAPSHOT_PATH);
   });
 
   test('sync legacy non-raw data', async () => {
@@ -82,13 +90,13 @@ function defineTests(factory: StorageFactory) {
       content: BASIC_SYNC_RULES
     });
 
-    const storage = await f.getInstance(syncRules);
-    await storage.autoActivate();
+    const bucketStorage = await f.getInstance(syncRules);
+    await bucketStorage.autoActivate();
 
-    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 't1',
           description: 'Test\n"string"',
@@ -100,21 +108,21 @@ function defineTests(factory: StorageFactory) {
       await batch.commit('0/1');
     });
 
-    const stream = streamResponse({
+    const stream = sync.streamResponse({
       storage: f,
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: false
       },
-      parseOptions: PARSE_OPTIONS,
+      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
     });
 
     const lines = await consumeCheckpointLines(stream);
-    expect(lines).toMatchSnapshot();
+    expect(lines).toMatchFileSnapshot(SYNC_SNAPSHOT_PATH);
     // Specifically check the number - this is the important part of the test
     expect(lines[1].data.data[0].data.large_num).toEqual(12345678901234567890n);
   });
@@ -129,53 +137,53 @@ function defineTests(factory: StorageFactory) {
     const storage = await f.getInstance(syncRules);
     await storage.autoActivate();
 
-    const stream = streamResponse({
+    const stream = sync.streamResponse({
       storage: f,
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
-      parseOptions: PARSE_OPTIONS,
+      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: 0 } as any
     });
 
     const lines = await consumeCheckpointLines(stream);
-    expect(lines).toMatchSnapshot();
+    expect(lines).toMatchFileSnapshot(SYNC_SNAPSHOT_PATH);
   });
 
   test('sync updates to global data', async () => {
-    const f = await factory();
+    using f = await factory();
 
     const syncRules = await f.updateSyncRules({
       content: BASIC_SYNC_RULES
     });
 
-    const storage = await f.getInstance(syncRules);
-    await storage.autoActivate();
+    const bucketStorage = await f.getInstance(syncRules);
+    await bucketStorage.autoActivate();
 
-    const stream = streamResponse({
+    const stream = sync.streamResponse({
       storage: f,
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
-      parseOptions: PARSE_OPTIONS,
+      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
     });
     const iter = stream[Symbol.asyncIterator]();
 
-    expect(await getCheckpointLines(iter)).toMatchSnapshot();
+    expect(await getCheckpointLines(iter)).toMatchFileSnapshot(SYNC_SNAPSHOT_PATH);
 
-    await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 't1',
           description: 'Test 1'
@@ -186,12 +194,12 @@ function defineTests(factory: StorageFactory) {
       await batch.commit('0/1');
     });
 
-    expect(await getCheckpointLines(iter)).toMatchSnapshot();
+    expect(await getCheckpointLines(iter)).toMatchFileSnapshot(SYNC_SNAPSHOT_PATH);
 
-    await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 't2',
           description: 'Test 2'
@@ -202,13 +210,13 @@ function defineTests(factory: StorageFactory) {
       await batch.commit('0/2');
     });
 
-    expect(await getCheckpointLines(iter)).toMatchSnapshot();
+    expect(await getCheckpointLines(iter)).toMatchFileSnapshot(SYNC_SNAPSHOT_PATH);
 
     iter.return?.();
   });
 
   test('expiring token', async () => {
-    const f = await factory();
+    using f = await factory();
 
     const syncRules = await f.updateSyncRules({
       content: BASIC_SYNC_RULES
@@ -219,14 +227,14 @@ function defineTests(factory: StorageFactory) {
 
     const exp = Date.now() / 1000 + 0.1;
 
-    const stream = streamResponse({
+    const stream = sync.streamResponse({
       storage: f,
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
-      parseOptions: PARSE_OPTIONS,
+      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: exp } as any
@@ -234,10 +242,10 @@ function defineTests(factory: StorageFactory) {
     const iter = stream[Symbol.asyncIterator]();
 
     const checkpoint = await getCheckpointLines(iter);
-    expect(checkpoint).toMatchSnapshot();
+    expect(checkpoint).toMatchFileSnapshot(SYNC_SNAPSHOT_PATH);
 
     const expLines = await getCheckpointLines(iter);
-    expect(expLines).toMatchSnapshot();
+    expect(expLines).toMatchFileSnapshot(SYNC_SNAPSHOT_PATH);
   });
 
   test('compacting data - invalidate checkpoint', async () => {
@@ -246,19 +254,19 @@ function defineTests(factory: StorageFactory) {
     // This is expected to be rare in practice, but it is important to handle
     // this case correctly to maintain consistency on the client.
 
-    const f = await factory();
+    using f = await factory();
 
     const syncRules = await f.updateSyncRules({
       content: BASIC_SYNC_RULES
     });
 
-    const storage = await f.getInstance(syncRules);
-    await storage.autoActivate();
+    const bucketStorage = await f.getInstance(syncRules);
+    await bucketStorage.autoActivate();
 
-    await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 't1',
           description: 'Test 1'
@@ -268,7 +276,7 @@ function defineTests(factory: StorageFactory) {
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 't2',
           description: 'Test 2'
@@ -279,14 +287,14 @@ function defineTests(factory: StorageFactory) {
       await batch.commit('0/1');
     });
 
-    const stream = streamResponse({
+    const stream = sync.streamResponse({
       storage: f,
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
-      parseOptions: PARSE_OPTIONS,
+      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
@@ -296,7 +304,7 @@ function defineTests(factory: StorageFactory) {
 
     // Only consume the first "checkpoint" message, and pause before receiving data.
     const lines = await consumeIterator(iter, { consume: false, isDone: (line) => (line as any)?.checkpoint != null });
-    expect(lines).toMatchSnapshot();
+    expect(lines).toMatchFileSnapshot(SYNC_SNAPSHOT_PATH);
     expect(lines[0]).toEqual({
       checkpoint: expect.objectContaining({
         last_op_id: '2'
@@ -306,10 +314,10 @@ function defineTests(factory: StorageFactory) {
     // Now we save additional data AND compact before continuing.
     // This invalidates the checkpoint we've received above.
 
-    await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.UPDATE,
+        tag: storage.SaveOperationTag.UPDATE,
         after: {
           id: 't1',
           description: 'Test 1b'
@@ -319,7 +327,7 @@ function defineTests(factory: StorageFactory) {
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.UPDATE,
+        tag: storage.SaveOperationTag.UPDATE,
         after: {
           id: 't2',
           description: 'Test 2b'
@@ -330,14 +338,14 @@ function defineTests(factory: StorageFactory) {
       await batch.commit('0/2');
     });
 
-    await storage.compact();
+    await bucketStorage.compact();
 
     const lines2 = await getCheckpointLines(iter, { consume: true });
 
     // Snapshot test checks for changes in general.
     // The tests after that documents the specific things we're looking for
     // in this test.
-    expect(lines2).toMatchSnapshot();
+    expect(lines2).toMatchFileSnapshot(SYNC_SNAPSHOT_PATH);
 
     expect(lines2[0]).toEqual({
       data: expect.objectContaining({
@@ -383,38 +391,38 @@ function defineTests(factory: StorageFactory) {
   });
 
   test('write checkpoint', async () => {
-    const f = await factory();
+    using f = await factory();
 
     const syncRules = await f.updateSyncRules({
       content: BASIC_SYNC_RULES
     });
 
-    const storage = f.getInstance(syncRules);
-    await storage.autoActivate();
+    const bucketStorage = f.getInstance(syncRules);
+    await bucketStorage.autoActivate();
 
-    await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       // <= the managed write checkpoint LSN below
       await batch.commit('0/1');
     });
 
-    const checkpoint = await storage.createManagedWriteCheckpoint({
+    const checkpoint = await bucketStorage.createManagedWriteCheckpoint({
       user_id: 'test',
       heads: { '1': '1/0' }
     });
 
-    const params: SyncStreamParameters = {
+    const params: sync.SyncStreamParameters = {
       storage: f,
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
-      parseOptions: PARSE_OPTIONS,
+      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: 'test' }, {}),
       token: { sub: 'test', exp: Date.now() / 1000 + 10 } as any
     };
-    const stream1 = streamResponse(params);
+    const stream1 = sync.streamResponse(params);
     const lines1 = await consumeCheckpointLines(stream1);
 
     // If write checkpoints are not correctly filtered, this may already
@@ -426,14 +434,14 @@ function defineTests(factory: StorageFactory) {
       })
     });
 
-    await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       // must be >= the managed write checkpoint LSN
       await batch.commit('1/0');
     });
 
     // At this point the LSN has advanced, so the write checkpoint should be
     // included in the next checkpoint message.
-    const stream2 = streamResponse(params);
+    const stream2 = sync.streamResponse(params);
     const lines2 = await consumeCheckpointLines(stream2);
     expect(lines2[0]).toMatchObject({
       checkpoint: expect.objectContaining({
@@ -492,7 +500,7 @@ async function consumeIterator<T>(
  * Does not stop the iterator unless options.consume is true.
  */
 async function getCheckpointLines(
-  iter: AsyncIterator<StreamingSyncLine | string | null>,
+  iter: AsyncIterator<utils.StreamingSyncLine | string | null>,
   options?: { consume?: boolean }
 ) {
   return consumeIterator(iter, {
@@ -506,6 +514,6 @@ async function getCheckpointLines(
  *
  * Stops the iterator afterwards.
  */
-async function consumeCheckpointLines(iterable: AsyncIterable<StreamingSyncLine | string | null>): Promise<any[]> {
+async function consumeCheckpointLines(iterable: AsyncIterable<utils.StreamingSyncLine | string | null>): Promise<any[]> {
   return getCheckpointLines(iterable[Symbol.asyncIterator](), { consume: true });
 }

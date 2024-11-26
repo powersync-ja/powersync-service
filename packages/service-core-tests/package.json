@@ -1,0 +1,28 @@
+{
+  "name": "@powersync/service-core-tests",
+  "repository": "https://github.com/powersync-ja/powersync-service",
+  "types": "dist/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "version": "0.8.8",
+  "main": "dist/index.js",
+  "license": "FSL-1.1-Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf ./dist && tsc -b --clean"
+  },
+  "dependencies": {
+    "@powersync/service-core": "workspace:^",
+    "@powersync/service-jsonbig": "workspace:^",
+    "@powersync/service-sync-rules": "workspace:^"
+  },
+  "peerDependencies": {
+    "vite-tsconfig-paths": "^4.3.2",
+    "vitest": "^2.1.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.2"
+  }
+}

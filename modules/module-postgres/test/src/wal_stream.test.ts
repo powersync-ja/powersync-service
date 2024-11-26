@@ -1,9 +1,9 @@
-import { putOp, removeOp } from '@core-tests/stream_utils.js';
-import { MONGO_STORAGE_FACTORY } from '@core-tests/util.js';
 import { BucketStorageFactory, Metrics } from '@powersync/service-core';
+import { test_utils } from '@powersync/service-core-tests';
 import { pgwireRows } from '@powersync/service-jpgwire';
 import * as crypto from 'crypto';
 import { describe, expect, test } from 'vitest';
+import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 import { walStreamTest } from './wal_stream_utils.js';
 
 type StorageFactory = () => Promise<BucketStorageFactory>;
@@ -18,7 +18,7 @@ bucket_definitions:
 describe(
   'wal stream - mongodb',
   function () {
-    defineWalStreamTests(MONGO_STORAGE_FACTORY);
+    defineWalStreamTests(INITIALIZED_MONGO_STORAGE_FACTORY);
   },
   { timeout: 20_000 }
 );
@@ -57,7 +57,7 @@ bucket_definitions:
       const data = await context.getBucketData('global[]');
 
       expect(data).toMatchObject([
-        putOp('test_data', { id: test_id, description: 'test1', num: 1152921504606846976n })
+        test_utils.putOp('test_data', { id: test_id, description: 'test1', num: 1152921504606846976n })
       ]);
       const endRowCount = (await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
       const endTxCount =
@@ -96,7 +96,7 @@ bucket_definitions:
 
       const data = await context.getBucketData('global[]');
 
-      expect(data).toMatchObject([putOp('test_DATA', { id: test_id, description: 'test1' })]);
+      expect(data).toMatchObject([test_utils.putOp('test_DATA', { id: test_id, description: 'test1' })]);
       const endRowCount = (await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
       const endTxCount =
         (await Metrics.getInstance().getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
@@ -137,10 +137,10 @@ bucket_definitions:
 
       const data = await context.getBucketData('global[]');
       expect(data.slice(0, 1)).toMatchObject([
-        putOp('test_data', { id: test_id, name: 'test1', description: largeDescription })
+        test_utils.putOp('test_data', { id: test_id, name: 'test1', description: largeDescription })
       ]);
       expect(data.slice(1)).toMatchObject([
-        putOp('test_data', { id: test_id, name: 'test2', description: largeDescription })
+        test_utils.putOp('test_data', { id: test_id, name: 'test2', description: largeDescription })
       ]);
     })
   );
@@ -173,8 +173,8 @@ bucket_definitions:
       const data = await context.getBucketData('global[]');
 
       expect(data).toMatchObject([
-        putOp('test_data', { id: test_id, description: 'test1' }),
-        removeOp('test_data', test_id)
+        test_utils.putOp('test_data', { id: test_id, description: 'test1' }),
+        test_utils.removeOp('test_data', test_id)
       ]);
     })
   );
@@ -211,14 +211,14 @@ bucket_definitions:
       const data = await context.getBucketData('global[]');
       expect(data).toMatchObject([
         // Initial insert
-        putOp('test_data', { id: test_id, description: 'test1' }),
+        test_utils.putOp('test_data', { id: test_id, description: 'test1' }),
         // Update id, then description
-        removeOp('test_data', test_id),
-        putOp('test_data', { id: test_id2, description: 'test2a' }),
-        putOp('test_data', { id: test_id2, description: 'test2b' }),
+        test_utils.removeOp('test_data', test_id),
+        test_utils.putOp('test_data', { id: test_id2, description: 'test2a' }),
+        test_utils.putOp('test_data', { id: test_id2, description: 'test2b' }),
         // Re-use old id
-        putOp('test_data', { id: test_id, description: 'test1b' }),
-        putOp('test_data', { id: test_id, description: 'test1c' })
+        test_utils.putOp('test_data', { id: test_id, description: 'test1b' }),
+        test_utils.putOp('test_data', { id: test_id, description: 'test1c' })
       ]);
     })
   );
@@ -240,7 +240,7 @@ bucket_definitions:
       context.startStreaming();
 
       const data = await context.getBucketData('global[]');
-      expect(data).toMatchObject([putOp('test_data', { id: test_id, description: 'test1' })]);
+      expect(data).toMatchObject([test_utils.putOp('test_data', { id: test_id, description: 'test1' })]);
     })
   );
 

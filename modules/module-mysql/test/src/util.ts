@@ -1,9 +1,9 @@
 import * as types from '@module/types/types.js';
-import { BucketStorageFactory, Metrics, MongoBucketStorage } from '@powersync/service-core';
-import { env } from './env.js';
-import mysqlPromise from 'mysql2/promise';
-import { connectMongo } from '@core-tests/util.js';
 import { getMySQLVersion, isVersionAtLeast } from '@module/utils/mysql-utils.js';
+import { BucketStorageFactory, Metrics } from '@powersync/service-core';
+import * as mongo_module from '@powersync/service-module-mongodb';
+import mysqlPromise from 'mysql2/promise';
+import { env } from './env.js';
 
 export const TEST_URI = env.MYSQL_TEST_URI;
 
@@ -22,6 +22,7 @@ Metrics.getInstance().resetCounters();
 
 export type StorageFactory = () => Promise<BucketStorageFactory>;
 
+
 export const INITIALIZED_MONGO_STORAGE_FACTORY: StorageFactory = async () => {
   const db = await connectMongo();
 
@@ -32,8 +33,19 @@ export const INITIALIZED_MONGO_STORAGE_FACTORY: StorageFactory = async () => {
 
   await db.clear();
 
-  return new MongoBucketStorage(db, { slot_name_prefix: 'test_' });
+  return new mongo_module.storage.MongoBucketStorage(db, { slot_name_prefix: 'test_' });
 };
+
+export async function connectMongo() {
+  // Short timeout for tests, to fail fast when the server is not available.
+  // Slightly longer timeouts for CI, to avoid arbitrary test failures
+  const client =  mongo_module.storage.createMongoClient(env.MONGO_TEST_URL, {
+    connectTimeoutMS: env.CI ? 15_000 : 5_000,
+    socketTimeoutMS: env.CI ? 15_000 : 5_000,
+    serverSelectionTimeoutMS: env.CI ? 15_000 : 2_500
+  });
+  return new mongo_module.storage.PowerSyncMongo(client);
+}
 
 export async function clearTestDb(connection: mysqlPromise.Connection) {
   const version = await getMySQLVersion(connection);

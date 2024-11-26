@@ -1,5 +1,4 @@
-import { OplogEntry } from '@/util/protocol-types.js';
-import { addChecksums } from '@/util/utils.js';
+import { utils } from '@powersync/service-core';
 import { expect } from 'vitest';
 
 /**
@@ -12,8 +11,8 @@ import { expect } from 'vitest';
  *
  * This is the function $r(B)$, as described in /docs/bucket-properties.md.
  */
-export function reduceBucket(operations: OplogEntry[]) {
-  let rowState = new Map<string, OplogEntry>();
+export function reduceBucket(operations: utils.OplogEntry[]) {
+  let rowState = new Map<string, utils.OplogEntry>();
   let otherChecksum = 0;
 
   for (let op of operations) {
@@ -21,21 +20,21 @@ export function reduceBucket(operations: OplogEntry[]) {
     if (op.op == 'PUT') {
       const existing = rowState.get(key);
       if (existing) {
-        otherChecksum = addChecksums(otherChecksum, existing.checksum as number);
+        otherChecksum = utils.addChecksums(otherChecksum, existing.checksum as number);
       }
       rowState.set(key, op);
     } else if (op.op == 'REMOVE') {
       const existing = rowState.get(key);
       if (existing) {
-        otherChecksum = addChecksums(otherChecksum, existing.checksum as number);
+        otherChecksum = utils.addChecksums(otherChecksum, existing.checksum as number);
       }
       rowState.delete(key);
-      otherChecksum = addChecksums(otherChecksum, op.checksum as number);
+      otherChecksum = utils.addChecksums(otherChecksum, op.checksum as number);
     } else if (op.op == 'CLEAR') {
       rowState.clear();
       otherChecksum = op.checksum as number;
     } else if (op.op == 'MOVE') {
-      otherChecksum = addChecksums(otherChecksum, op.checksum as number);
+      otherChecksum = utils.addChecksums(otherChecksum, op.checksum as number);
     } else {
       throw new Error(`Unknown operation ${op.op}`);
     }
@@ -45,7 +44,7 @@ export function reduceBucket(operations: OplogEntry[]) {
     return Number(BigInt(a.op_id) - BigInt(b.op_id));
   });
 
-  let finalState: OplogEntry[] = [
+  let finalState: utils.OplogEntry[] = [
     // Special operation to indiciate the checksum remainder
     { op_id: '0', op: 'CLEAR', checksum: otherChecksum },
     ...puts
@@ -54,7 +53,7 @@ export function reduceBucket(operations: OplogEntry[]) {
   return finalState;
 }
 
-function rowKey(entry: OplogEntry) {
+function rowKey(entry: utils.OplogEntry) {
   return `${entry.object_type}/${entry.object_id}/${entry.subkey}`;
 }
 
@@ -67,7 +66,7 @@ function rowKey(entry: OplogEntry) {
  * ends up with the same result as another client syncing up to operation id_i, then sync
  * the rest.
  */
-export function validateBucket(bucket: OplogEntry[]) {
+export function validateBucket(bucket: utils.OplogEntry[]) {
   const r1 = reduceBucket(bucket);
   for (let i = 0; i <= bucket.length; i++) {
     const r2 = reduceBucket(bucket.slice(0, i + 1));
@@ -95,7 +94,7 @@ export function validateBucket(bucket: OplogEntry[]) {
  * as syncing any partial version of that (up to op $c_i$), and then continue syncing
  * using the compacted bucket.
  */
-export function validateCompactedBucket(bucket: OplogEntry[], compacted: OplogEntry[]) {
+export function validateCompactedBucket(bucket: utils.OplogEntry[], compacted: utils.OplogEntry[]) {
   // r(B_{[..c]})
   const r1 = reduceBucket(bucket);
   // r(B) = r(B')

@@ -2,29 +2,28 @@ import * as bson from 'bson';
 import { afterEach, describe, expect, test } from 'vitest';
 import { WalStream, WalStreamOptions } from '../../src/replication/WalStream.js';
 import { env } from './env.js';
-import { clearTestDb, connectPgPool, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
+import { clearTestDb, connectPgPool, getClientCheckpoint, INITIALIZED_MONGO_STORAGE_FACTORY, TEST_CONNECTION_OPTIONS } from './util.js';
 
 import * as pgwire from '@powersync/service-jpgwire';
 import { SqliteRow } from '@powersync/service-sync-rules';
 
-import { mapOpEntry, MongoBucketStorage } from '@/storage/storage-index.js';
-import { reduceBucket, validateCompactedBucket } from '@core-tests/bucket_validation.js';
-import { MONGO_STORAGE_FACTORY, StorageFactory } from '@core-tests/util.js';
 import { PgManager } from '@module/replication/PgManager.js';
+import { test_utils } from '@powersync/service-core-tests';
+import * as mongo_module from '@powersync/service-module-mongodb';
 import * as timers from 'node:timers/promises';
 
 describe('slow tests - mongodb', function () {
   // These are slow, inconsistent tests.
   // Not run on every test run, but we do run on CI, or when manually debugging issues.
   if (env.CI || env.SLOW_TESTS) {
-    defineSlowTests(MONGO_STORAGE_FACTORY);
+    defineSlowTests(INITIALIZED_MONGO_STORAGE_FACTORY);
   } else {
     // Need something in this file.
     test('no-op', () => {});
   }
 });
 
-function defineSlowTests(factory: StorageFactory) {
+function defineSlowTests(factory: test_utils.StorageFactory) {
   let walStream: WalStream | undefined;
   let connections: PgManager | undefined;
   let abortController: AbortController | undefined;
@@ -73,7 +72,7 @@ function defineSlowTests(factory: StorageFactory) {
     const replicationConnection = await connections.replicationConnection();
     const pool = connections.pool;
     await clearTestDb(pool);
-    const f = (await factory()) as MongoBucketStorage;
+    const f = (await factory()) as mongo_module.storage.MongoBucketStorage;
 
     const syncRuleContent = `
 bucket_definitions:
@@ -170,13 +169,13 @@ bucket_definitions:
           const checkpoint = BigInt((await storage.getCheckpoint()).checkpoint);
           const opsBefore = (await f.db.bucket_data.find().sort({ _id: 1 }).toArray())
             .filter((row) => row._id.o <= checkpoint)
-            .map(mapOpEntry);
+            .map(mongo_module.storage.mapOpEntry);
           await storage.compact({ maxOpId: checkpoint });
           const opsAfter = (await f.db.bucket_data.find().sort({ _id: 1 }).toArray())
             .filter((row) => row._id.o <= checkpoint)
-            .map(mapOpEntry);
+            .map(mongo_module.storage.mapOpEntry);
 
-          validateCompactedBucket(opsBefore, opsAfter);
+          test_utils.validateCompactedBucket(opsBefore, opsAfter);
         }
       };
 
@@ -201,8 +200,8 @@ bucket_definitions:
       const ops = await f.db.bucket_data.find().sort({ _id: 1 }).toArray();
 
       // All a single bucket in this test
-      const bucket = ops.map((op) => mapOpEntry(op));
-      const reduced = reduceBucket(bucket);
+      const bucket = ops.map((op) => mongo_module.storage.mapOpEntry(op));
+      const reduced = test_utils.reduceBucket(bucket);
       expect(reduced).toMatchObject([
         {
           op_id: '0',

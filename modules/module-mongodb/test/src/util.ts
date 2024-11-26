@@ -1,10 +1,10 @@
 import * as types from '@module/types/types.js';
-import { BucketStorageFactory, Metrics, MongoBucketStorage, OpId } from '@powersync/service-core';
+import { BucketStorageFactory, Metrics } from '@powersync/service-core';
 
-import { env } from './env.js';
-import { logger } from '@powersync/lib-services-framework';
-import { connectMongo } from '@core-tests/util.js';
+import { MongoBucketStorage } from '@module/storage/MongoBucketStorage.js';
+import { PowerSyncMongo } from '@module/storage/storage-index.js';
 import * as mongo from 'mongodb';
+import { env } from './env.js';
 
 // The metrics need to be initialized before they can be used
 await Metrics.initialise({
@@ -22,6 +22,7 @@ export const TEST_CONNECTION_OPTIONS = types.normalizeConnectionConfig({
 });
 
 export type StorageFactory = () => Promise<BucketStorageFactory>;
+
 
 export const INITIALIZED_MONGO_STORAGE_FACTORY: StorageFactory = async () => {
   const db = await connectMongo();
@@ -49,4 +50,16 @@ export async function connectMongoData() {
   });
   const dbname = new URL(env.MONGO_TEST_DATA_URL).pathname.substring(1);
   return { client, db: client.db(dbname) };
+}
+
+
+export async function connectMongo() {
+  // Short timeout for tests, to fail fast when the server is not available.
+  // Slightly longer timeouts for CI, to avoid arbitrary test failures
+  const client = new mongo.MongoClient(env.MONGO_TEST_URL, {
+    connectTimeoutMS: env.CI ? 15_000 : 5_000,
+    socketTimeoutMS: env.CI ? 15_000 : 5_000,
+    serverSelectionTimeoutMS: env.CI ? 15_000 : 2_500
+  });
+  return new PowerSyncMongo(client);
 }

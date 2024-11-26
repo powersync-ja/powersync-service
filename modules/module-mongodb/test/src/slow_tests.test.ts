@@ -1,10 +1,11 @@
-import { MONGO_STORAGE_FACTORY } from '@core-tests/util.js';
+
 import { BucketStorageFactory } from '@powersync/service-core';
 import * as mongo from 'mongodb';
 import { setTimeout } from 'node:timers/promises';
 import { describe, expect, test } from 'vitest';
 import { ChangeStreamTestContext, setSnapshotHistorySeconds } from './change_stream_utils.js';
 import { env } from './env.js';
+import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 
 type StorageFactory = () => Promise<BucketStorageFactory>;
 
@@ -17,7 +18,7 @@ bucket_definitions:
 
 describe('change stream slow tests - mongodb', { timeout: 60_000 }, function () {
   if (env.CI || env.SLOW_TESTS) {
-    defineSlowTests(MONGO_STORAGE_FACTORY);
+    defineSlowTests(INITIALIZED_MONGO_STORAGE_FACTORY);
   } else {
     // Need something in this file.
     test('no-op', () => {});
@@ -96,8 +97,8 @@ bucket_definitions:
 
     const data = await context.getBucketData('global[]', undefined, { limit: 50_000, chunkLimitBytes: 60_000_000 });
 
-    const preDocuments = data.filter((d) => JSON.parse(d.data! as string).description.startsWith('pre')).length;
-    const updatedDocuments = data.filter((d) => JSON.parse(d.data! as string).description.startsWith('updated')).length;
+    const preDocuments = data.filter((d: any) => JSON.parse(d.data! as string).description.startsWith('pre')).length;
+    const updatedDocuments = data.filter((d: any) => JSON.parse(d.data! as string).description.startsWith('updated')).length;
 
     // If the test works properly, preDocuments should be around 2000-3000.
     // The total should be around 9000-9900.

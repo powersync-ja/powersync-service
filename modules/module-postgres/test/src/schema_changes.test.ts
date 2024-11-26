@@ -1,7 +1,7 @@
-import { compareIds, putOp, removeOp } from '@core-tests/stream_utils.js';
+import { test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
-import { walStreamTest } from './wal_stream_utils.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, StorageFactory } from './util.js';
+import { walStreamTest } from './wal_stream_utils.js';
 
 describe(
   'schema changes',
@@ -18,12 +18,12 @@ bucket_definitions:
       - SELECT id, * FROM "test_data"
 `;
 
-const PUT_T1 = putOp('test_data', { id: 't1', description: 'test1' });
-const PUT_T2 = putOp('test_data', { id: 't2', description: 'test2' });
-const PUT_T3 = putOp('test_data', { id: 't3', description: 'test3' });
+const PUT_T1 = test_utils.putOp('test_data', { id: 't1', description: 'test1' });
+const PUT_T2 = test_utils.putOp('test_data', { id: 't2', description: 'test2' });
+const PUT_T3 = test_utils.putOp('test_data', { id: 't3', description: 'test3' });
 
-const REMOVE_T1 = removeOp('test_data', 't1');
-const REMOVE_T2 = removeOp('test_data', 't2');
+const REMOVE_T1 = test_utils.removeOp('test_data', 't1');
+const REMOVE_T2 = test_utils.removeOp('test_data', 't2');
 
 function defineTests(factory: StorageFactory) {
   test(
@@ -54,7 +54,7 @@ function defineTests(factory: StorageFactory) {
       expect(data.slice(0, 2)).toMatchObject([PUT_T1, PUT_T2]);
 
       // Truncate - order doesn't matter
-      expect(data.slice(2, 4).sort(compareIds)).toMatchObject([REMOVE_T1, REMOVE_T2]);
+      expect(data.slice(2, 4).sort(test_utils.compareIds)).toMatchObject([REMOVE_T1, REMOVE_T2]);
 
       expect(data.slice(4)).toMatchObject([
         // Snapshot insert
@@ -113,7 +113,7 @@ function defineTests(factory: StorageFactory) {
 
       const data = await context.getBucketData('global[]');
 
-      expect(data.slice(0, 2).sort(compareIds)).toMatchObject([
+      expect(data.slice(0, 2).sort(test_utils.compareIds)).toMatchObject([
         // Snapshot insert
         PUT_T1,
         PUT_T2
@@ -155,20 +155,20 @@ function defineTests(factory: StorageFactory) {
 
       expect(data.slice(0, 2)).toMatchObject([
         // Initial replication
-        putOp('test_data1', { id: 't1', description: 'test1' }),
+        test_utils.putOp('test_data1', { id: 't1', description: 'test1' }),
         // Initial truncate
-        removeOp('test_data1', 't1')
+        test_utils.removeOp('test_data1', 't1')
       ]);
 
-      expect(data.slice(2, 4).sort(compareIds)).toMatchObject([
+      expect(data.slice(2, 4).sort(test_utils.compareIds)).toMatchObject([
         // Snapshot insert
-        putOp('test_data2', { id: 't1', description: 'test1' }),
-        putOp('test_data2', { id: 't2', description: 'test2' })
+        test_utils.putOp('test_data2', { id: 't1', description: 'test1' }),
+        test_utils. putOp('test_data2', { id: 't2', description: 'test2' })
       ]);
       expect(data.slice(4)).toMatchObject([
         // Replicated insert
         // We may eventually be able to de-duplicate this
-        putOp('test_data2', { id: 't2', description: 'test2' })
+        test_utils.putOp('test_data2', { id: 't2', description: 'test2' })
       ]);
     })
   );
@@ -236,9 +236,9 @@ function defineTests(factory: StorageFactory) {
       ]);
 
       // Snapshot - order doesn't matter
-      expect(data.slice(2, 4).sort(compareIds)).toMatchObject([PUT_T1, PUT_T2]);
+      expect(data.slice(2, 4).sort(test_utils.compareIds)).toMatchObject([PUT_T1, PUT_T2]);
 
-      expect(data.slice(4).sort(compareIds)).toMatchObject([
+      expect(data.slice(4).sort(test_utils.compareIds)).toMatchObject([
         // Replicated insert
         // We may eventually be able to de-duplicate this
         PUT_T2
@@ -278,15 +278,15 @@ function defineTests(factory: StorageFactory) {
       ]);
 
       // Snapshot - order doesn't matter
-      expect(data.slice(2, 4).sort(compareIds)).toMatchObject([
-        putOp('test_data', { id: 't1', description: 'test1', other: null }),
-        putOp('test_data', { id: 't2', description: 'test2', other: null })
+      expect(data.slice(2, 4).sort(test_utils.compareIds)).toMatchObject([
+        test_utils.putOp('test_data', { id: 't1', description: 'test1', other: null }),
+        test_utils.putOp('test_data', { id: 't2', description: 'test2', other: null })
       ]);
 
-      expect(data.slice(4).sort(compareIds)).toMatchObject([
+      expect(data.slice(4).sort(test_utils.compareIds)).toMatchObject([
         // Replicated insert
         // We may eventually be able to de-duplicate this
-        putOp('test_data', { id: 't2', description: 'test2', other: null })
+        test_utils.putOp('test_data', { id: 't2', description: 'test2', other: null })
       ]);
     })
   );
@@ -320,9 +320,9 @@ function defineTests(factory: StorageFactory) {
       ]);
 
       // Snapshot - order doesn't matter
-      expect(data.slice(2, 4).sort(compareIds)).toMatchObject([PUT_T1, PUT_T2]);
+      expect(data.slice(2, 4).sort(test_utils.compareIds)).toMatchObject([PUT_T1, PUT_T2]);
 
-      expect(data.slice(4).sort(compareIds)).toMatchObject([
+      expect(data.slice(4).sort(test_utils.compareIds)).toMatchObject([
         // Replicated insert
         // We may eventually be able to de-duplicate this
         PUT_T2
@@ -365,16 +365,16 @@ function defineTests(factory: StorageFactory) {
         PUT_T2
       ]);
 
-      expect(data.slice(2, 4).sort(compareIds)).toMatchObject([
+      expect(data.slice(2, 4).sort(test_utils.compareIds)).toMatchObject([
         // Truncate - any order
         REMOVE_T1,
         REMOVE_T2
       ]);
 
       // Snapshot - order doesn't matter
-      expect(data.slice(4, 7).sort(compareIds)).toMatchObject([PUT_T1, PUT_T2, PUT_T3]);
+      expect(data.slice(4, 7).sort(test_utils.compareIds)).toMatchObject([PUT_T1, PUT_T2, PUT_T3]);
 
-      expect(data.slice(7).sort(compareIds)).toMatchObject([
+      expect(data.slice(7).sort(test_utils.compareIds)).toMatchObject([
         // Replicated insert
         // We may eventually be able to de-duplicate this
         PUT_T3
@@ -407,7 +407,7 @@ function defineTests(factory: StorageFactory) {
 
       const data = await context.getBucketData('global[]');
 
-      expect(data.slice(0, 3).sort(compareIds)).toMatchObject([
+      expect(data.slice(0, 3).sort(test_utils.compareIds)).toMatchObject([
         // Snapshot insert - any order
         PUT_T1,
         PUT_T2,
@@ -493,7 +493,7 @@ function defineTests(factory: StorageFactory) {
         PUT_T2
       ]);
 
-      expect(data.slice(2).sort(compareIds)).toMatchObject([
+      expect(data.slice(2).sort(test_utils.compareIds)).toMatchObject([
         // Truncate
         REMOVE_T1,
         REMOVE_T2
@@ -533,7 +533,7 @@ function defineTests(factory: StorageFactory) {
         PUT_T2
       ]);
 
-      expect(data.slice(2).sort(compareIds)).toMatchObject([
+      expect(data.slice(2).sort(test_utils.compareIds)).toMatchObject([
         // Truncate
         REMOVE_T1,
         REMOVE_T2

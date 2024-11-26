@@ -1,28 +1,14 @@
-import { Metrics } from '@/metrics/Metrics.js';
-import {
-  BucketStorageFactory,
-  ParseSyncRulesOptions,
-  PersistedSyncRulesContent,
-  StartBatchOptions,
-  SyncBucketDataBatch
-} from '@/storage/BucketStorage.js';
-import { MongoBucketStorage } from '@/storage/MongoBucketStorage.js';
-import { SourceTable } from '@/storage/SourceTable.js';
-import { PowerSyncMongo } from '@/storage/mongo/db.js';
-import { SyncBucketData } from '@/util/protocol-types.js';
-import { getUuidReplicaIdentityBson, hashData } from '@/util/utils.js';
+import { storage, utils } from '@powersync/service-core';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import * as mongo from 'mongodb';
-import { env } from './env.js';
 
-// The metrics need to be initialised before they can be used
-await Metrics.initialise({
-  disable_telemetry_sharing: true,
-  powersync_instance_id: 'test',
-  internal_metrics_endpoint: 'unused.for.tests.com'
-});
-Metrics.getInstance().resetCounters();
+// // The metrics need to be initialised before they can be used
+// await metrics.Metrics.initialise({
+//   disable_telemetry_sharing: true,
+//   powersync_instance_id: 'test',
+//   internal_metrics_endpoint: 'unused.for.tests.com'
+// });
+// metrics.Metrics.getInstance().resetCounters();
 
 export interface StorageOptions {
   /**
@@ -31,31 +17,22 @@ export interface StorageOptions {
    */
   dropAll?: boolean;
 }
-export type StorageFactory = (options?: StorageOptions) => Promise<BucketStorageFactory>;
+export type StorageFactory = (options?: StorageOptions) => Promise<storage.BucketStorageFactory>;
 
-export const MONGO_STORAGE_FACTORY: StorageFactory = async (options?: StorageOptions) => {
-  const db = await connectMongo();
-  if (options?.dropAll) {
-    await db.drop();
-  } else {
-    await db.clear();
-  }
-  return new MongoBucketStorage(db, { slot_name_prefix: 'test_' });
-};
 
 export const ZERO_LSN = '0/0';
 
-export const PARSE_OPTIONS: ParseSyncRulesOptions = {
+export const PARSE_OPTIONS: storage.ParseSyncRulesOptions = {
   defaultSchema: 'public'
 };
 
-export const BATCH_OPTIONS: StartBatchOptions = {
+export const BATCH_OPTIONS: storage.StartBatchOptions = {
   ...PARSE_OPTIONS,
   zeroLSN: ZERO_LSN,
   storeCurrentData: true
 };
 
-export function testRules(content: string): PersistedSyncRulesContent {
+export function testRules(content: string): storage.PersistedSyncRulesContent {
   return {
     id: 1,
     sync_rules_content: content,
@@ -73,23 +50,13 @@ export function testRules(content: string): PersistedSyncRulesContent {
   };
 }
 
-export async function connectMongo() {
-  // Short timeout for tests, to fail fast when the server is not available.
-  // Slightly longer timeouts for CI, to avoid arbitrary test failures
-  const client = new mongo.MongoClient(env.MONGO_TEST_URL, {
-    connectTimeoutMS: env.CI ? 15_000 : 5_000,
-    socketTimeoutMS: env.CI ? 15_000 : 5_000,
-    serverSelectionTimeoutMS: env.CI ? 15_000 : 2_500
-  });
-  return new PowerSyncMongo(client);
-}
 
 export function makeTestTable(name: string, columns?: string[] | undefined) {
-  const relId = hashData('table', name, (columns ?? ['id']).join(','));
+  const relId = utils.hashData('table', name, (columns ?? ['id']).join(','));
   const id = new bson.ObjectId('6544e3899293153fa7b38331');
-  return new SourceTable(
+  return new storage.SourceTable(
     id,
-    SourceTable.DEFAULT_TAG,
+    storage.SourceTable.DEFAULT_TAG,
     relId,
     'public',
     name,
@@ -98,7 +65,7 @@ export function makeTestTable(name: string, columns?: string[] | undefined) {
   );
 }
 
-export function getBatchData(batch: SyncBucketData[] | SyncBucketDataBatch[] | SyncBucketDataBatch) {
+export function getBatchData(batch:  utils.SyncBucketData[] |  storage.SyncBucketDataBatch[] |  storage.SyncBucketDataBatch) {
   const first = getFirst(batch);
   if (first == null) {
     return [];
@@ -113,7 +80,7 @@ export function getBatchData(batch: SyncBucketData[] | SyncBucketDataBatch[] | S
   });
 }
 
-export function getBatchMeta(batch: SyncBucketData[] | SyncBucketDataBatch[] | SyncBucketDataBatch) {
+export function getBatchMeta(batch:   utils.SyncBucketData[] |  storage.SyncBucketDataBatch[] |  storage.SyncBucketDataBatch) {
   const first = getFirst(batch);
   if (first == null) {
     return null;
@@ -125,7 +92,7 @@ export function getBatchMeta(batch: SyncBucketData[] | SyncBucketDataBatch[] | S
   };
 }
 
-function getFirst(batch: SyncBucketData[] | SyncBucketDataBatch[] | SyncBucketDataBatch): SyncBucketData | null {
+function getFirst(batch:   utils.SyncBucketData[] |  storage.SyncBucketDataBatch[] |  storage.SyncBucketDataBatch):   utils.SyncBucketData | null {
   if (!Array.isArray(batch)) {
     return batch.batch;
   }
@@ -133,10 +100,10 @@ function getFirst(batch: SyncBucketData[] | SyncBucketDataBatch[] | SyncBucketDa
     return null;
   }
   let first = batch[0];
-  if ((first as SyncBucketDataBatch).batch != null) {
-    return (first as SyncBucketDataBatch).batch;
+  if ((first as  storage.SyncBucketDataBatch).batch != null) {
+    return (first as  storage.SyncBucketDataBatch).batch;
   } else {
-    return first as SyncBucketData;
+    return first as   utils.SyncBucketData;
   }
 }
 
@@ -144,5 +111,5 @@ function getFirst(batch: SyncBucketData[] | SyncBucketDataBatch[] | SyncBucketDa
  * Replica id in the old Postgres format, for backwards-compatible tests.
  */
 export function rid(id: string): bson.UUID {
-  return getUuidReplicaIdentityBson({ id: id }, [{ name: 'id', type: 'VARCHAR', typeId: 25 }]);
+  return utils.getUuidReplicaIdentityBson({ id: id }, [{ name: 'id', type: 'VARCHAR', typeId: 25 }]);
 }

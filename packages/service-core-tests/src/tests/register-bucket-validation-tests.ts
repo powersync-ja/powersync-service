@@ -1,7 +1,6 @@
-import { OplogEntry } from '@/util/protocol-types.js';
+import { OplogEntry } from '@powersync/service-core';
 import { describe, expect, test } from 'vitest';
-import { reduceBucket, validateBucket } from './bucket_validation.js';
-
+import * as test_utils from '../test-utils/test-utils-index.js';
 // This tests the reduceBucket function.
 // While this function is not used directly in the service implementation,
 // it is an important part of validating consistency in other tests.
@@ -46,7 +45,7 @@ describe('bucket validation', () => {
   ];
 
   test('reduce 1', () => {
-    expect(reduceBucket(ops1)).toEqual([
+    expect(test_utils.reduceBucket(ops1)).toEqual([
       {
         checksum: -1778190028,
         op: 'CLEAR',
@@ -63,7 +62,7 @@ describe('bucket validation', () => {
       }
     ]);
 
-    expect(reduceBucket(reduceBucket(ops1))).toEqual([
+    expect(test_utils.reduceBucket(test_utils.reduceBucket(ops1))).toEqual([
       {
         checksum: -1778190028,
         op: 'CLEAR',
@@ -80,7 +79,7 @@ describe('bucket validation', () => {
       }
     ]);
 
-    validateBucket(ops1);
+    test_utils.validateBucket(ops1);
   });
 
   test('reduce 2', () => {
@@ -103,7 +102,7 @@ describe('bucket validation', () => {
       }
     ];
 
-    expect(reduceBucket(bucket)).toEqual([
+    expect(test_utils.reduceBucket(bucket)).toEqual([
       {
         checksum: 93784613,
         op: 'CLEAR',
@@ -120,7 +119,7 @@ describe('bucket validation', () => {
       }
     ]);
 
-    expect(reduceBucket(reduceBucket(bucket))).toEqual([
+    expect(test_utils.reduceBucket(test_utils.reduceBucket(bucket))).toEqual([
       {
         checksum: 93784613,
         op: 'CLEAR',
@@ -137,6 +136,6 @@ describe('bucket validation', () => {
       }
     ]);
 
-    validateBucket(bucket);
+    test_utils.validateBucket(bucket);
   });
 });

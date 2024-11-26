@@ -44,6 +44,7 @@
     "@types/uuid": "^9.0.4",
     "typescript": "^5.2.2",
     "vitest": "^2.1.1",
-    "vite-tsconfig-paths": "^4.3.2"
+    "vite-tsconfig-paths": "^4.3.2",
+    "@powersync/service-core-tests": "workspace:*"
   }
 }

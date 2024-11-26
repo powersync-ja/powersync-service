@@ -1,9 +1,10 @@
-import { putOp, removeOp } from '@core-tests/stream_utils.js';
-import { MONGO_STORAGE_FACTORY } from '@core-tests/util.js';
+import { test_utils } from '@powersync/service-core-tests';
+// import { MONGO_STORAGE_FACTORY } from '@core-tests/util.js';
 import { BucketStorageFactory, Metrics } from '@powersync/service-core';
+import { v4 as uuid } from 'uuid';
 import { describe, expect, test } from 'vitest';
 import { binlogStreamTest } from './BinlogStreamUtils.js';
-import { v4 as uuid } from 'uuid';
+import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 
 type StorageFactory = () => Promise<BucketStorageFactory>;
 
@@ -17,7 +18,7 @@ bucket_definitions:
 describe(
   ' Binlog stream - mongodb',
   function () {
-    defineBinlogStreamTests(MONGO_STORAGE_FACTORY);
+    defineBinlogStreamTests(INITIALIZED_MONGO_STORAGE_FACTORY);
   },
   { timeout: 20_000 }
 );
@@ -49,7 +50,7 @@ function defineBinlogStreamTests(factory: StorageFactory) {
       );
       const data = await context.getBucketData('global[]');
 
-      expect(data).toMatchObject([putOp('test_data', { id: testId, description: 'test1', num: 1152921504606846976n })]);
+      expect(data).toMatchObject([test_utils.putOp('test_data', { id: testId, description: 'test1', num: 1152921504606846976n })]);
       const endRowCount = (await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
       const endTxCount =
         (await Metrics.getInstance().getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
@@ -85,7 +86,7 @@ function defineBinlogStreamTests(factory: StorageFactory) {
 
       const data = await context.getBucketData('global[]');
 
-      expect(data).toMatchObject([putOp('test_DATA', { id: testId, description: 'test1' })]);
+      expect(data).toMatchObject([test_utils.putOp('test_DATA', { id: testId, description: 'test1' })]);
       const endRowCount = (await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
       const endTxCount =
         (await Metrics.getInstance().getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
@@ -161,14 +162,14 @@ function defineBinlogStreamTests(factory: StorageFactory) {
       const data = await context.getBucketData('global[]');
       expect(data).toMatchObject([
         // Initial insert
-        putOp('test_data', { id: testId1, description: 'test1' }),
+        test_utils.putOp('test_data', { id: testId1, description: 'test1' }),
         // Update id, then description
-        removeOp('test_data', testId1),
-        putOp('test_data', { id: testId2, description: 'test2a' }),
-        putOp('test_data', { id: testId2, description: 'test2b' }),
+        test_utils.removeOp('test_data', testId1),
+        test_utils.putOp('test_data', { id: testId2, description: 'test2a' }),
+        test_utils.putOp('test_data', { id: testId2, description: 'test2b' }),
         // Re-use old id
-        putOp('test_data', { id: testId1, description: 'test1b' }),
-        putOp('test_data', { id: testId1, description: 'test1c' })
+        test_utils.putOp('test_data', { id: testId1, description: 'test1b' }),
+        test_utils.putOp('test_data', { id: testId1, description: 'test1c' })
       ]);
     })
   );
@@ -187,7 +188,7 @@ function defineBinlogStreamTests(factory: StorageFactory) {
       await context.replicateSnapshot();
 
       const data = await context.getBucketData('global[]');
-      expect(data).toMatchObject([putOp('test_data', { id: testId, description: 'test1' })]);
+      expect(data).toMatchObject([test_utils.putOp('test_data', { id: testId, description: 'test1' })]);
     })
   );
 
@@ -215,7 +216,7 @@ function defineBinlogStreamTests(factory: StorageFactory) {
 
       const data = await context.getBucketData('global[]');
       expect(data).toMatchObject([
-        putOp('test_data', {
+        test_utils.putOp('test_data', {
           id: testId,
           description: 'testDates',
           date: `2023-03-06`,
@@ -257,7 +258,7 @@ function defineBinlogStreamTests(factory: StorageFactory) {
 
       const data = await context.getBucketData('global[]');
       expect(data).toMatchObject([
-        putOp('test_data', {
+        test_utils.putOp('test_data', {
           id: testId,
           description: 'testDates',
           date: `2023-03-06`,

@@ -1,12 +1,13 @@
-import { putOp, removeOp } from '@core-tests/stream_utils.js';
-import { MONGO_STORAGE_FACTORY } from '@core-tests/util.js';
+import { test_utils } from '@powersync/service-core-tests';
+
+import { PostImagesOption } from '@module/types/types.js';
 import { BucketStorageFactory } from '@powersync/service-core';
 import * as crypto from 'crypto';
 import * as mongo from 'mongodb';
 import { setTimeout } from 'node:timers/promises';
 import { describe, expect, test, vi } from 'vitest';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
-import { PostImagesOption } from '@module/types/types.js';
+import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 
 type StorageFactory = () => Promise<BucketStorageFactory>;
 
@@ -18,7 +19,7 @@ bucket_definitions:
 `;
 
 describe('change stream - mongodb', { timeout: 20_000 }, function () {
-  defineChangeStreamTests(MONGO_STORAGE_FACTORY);
+  defineChangeStreamTests(INITIALIZED_MONGO_STORAGE_FACTORY);
 });
 
 function defineChangeStreamTests(factory: StorageFactory) {
@@ -52,10 +53,10 @@ bucket_definitions:
     const data = await context.getBucketData('global[]');
 
     expect(data).toMatchObject([
-      putOp('test_data', { id: test_id.toHexString(), description: 'test1', num: 1152921504606846976n }),
-      putOp('test_data', { id: test_id.toHexString(), description: 'test2', num: 1152921504606846976n }),
-      putOp('test_data', { id: test_id.toHexString(), description: 'test3' }),
-      removeOp('test_data', test_id.toHexString())
+      test_utils.putOp('test_data', { id: test_id.toHexString(), description: 'test1', num: 1152921504606846976n }),
+      test_utils.putOp('test_data', { id: test_id.toHexString(), description: 'test2', num: 1152921504606846976n }),
+      test_utils.putOp('test_data', { id: test_id.toHexString(), description: 'test3' }),
+      test_utils.removeOp('test_data', test_id.toHexString())
     ]);
   });
 
@@ -86,8 +87,8 @@ bucket_definitions:
     const data = await context.getBucketData('global[]');
 
     expect(data).toMatchObject([
-      putOp('test_data', { id: test_id.toHexString(), description: 'test1', num: 1152921504606846976n }),
-      putOp('test_data', { id: test_id.toHexString(), description: 'test2', num: 1152921504606846976n })
+      test_utils.putOp('test_data', { id: test_id.toHexString(), description: 'test1', num: 1152921504606846976n }),
+      test_utils.putOp('test_data', { id: test_id.toHexString(), description: 'test2', num: 1152921504606846976n })
     ]);
   });
 
@@ -125,11 +126,11 @@ bucket_definitions:
     const data = await context.getBucketData('global[]');
 
     expect(data).toMatchObject([
-      putOp('test_data', { id: test_id!.toHexString(), description: 'test1', num: 1152921504606846976n }),
+      test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test1', num: 1152921504606846976n }),
       // fullDocument is not available at the point this is replicated, resulting in it treated as a remove
-      removeOp('test_data', test_id!.toHexString()),
-      putOp('test_data', { id: test_id!.toHexString(), description: 'test3' }),
-      removeOp('test_data', test_id!.toHexString())
+      test_utils.removeOp('test_data', test_id!.toHexString()),
+      test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test3' }),
+      test_utils.removeOp('test_data', test_id!.toHexString())
     ]);
   });
 
@@ -171,11 +172,11 @@ bucket_definitions:
     const data = await context.getBucketData('global[]');
 
     expect(data).toMatchObject([
-      putOp('test_data', { id: test_id!.toHexString(), description: 'test1', num: 1152921504606846976n }),
+      test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test1', num: 1152921504606846976n }),
       // The postImage helps us get this data
-      putOp('test_data', { id: test_id!.toHexString(), description: 'test2', num: 1152921504606846976n }),
-      putOp('test_data', { id: test_id!.toHexString(), description: 'test3' }),
-      removeOp('test_data', test_id!.toHexString())
+      test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2', num: 1152921504606846976n }),
+      test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test3' }),
+      test_utils.removeOp('test_data', test_id!.toHexString())
     ]);
   });
 
@@ -216,11 +217,11 @@ bucket_definitions:
     const data = await context.getBucketData('global[]');
 
     expect(data).toMatchObject([
-      putOp('test_data', { id: test_id!.toHexString(), description: 'test1', num: 1152921504606846976n }),
+      test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test1', num: 1152921504606846976n }),
       // The postImage helps us get this data
-      putOp('test_data', { id: test_id!.toHexString(), description: 'test2', num: 1152921504606846976n }),
-      putOp('test_data', { id: test_id!.toHexString(), description: 'test3' }),
-      removeOp('test_data', test_id!.toHexString())
+      test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2', num: 1152921504606846976n }),
+      test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test3' }),
+      test_utils.removeOp('test_data', test_id!.toHexString())
     ]);
   });
 
@@ -244,7 +245,7 @@ bucket_definitions:
 
     const data = await context.getBucketData('global[]');
 
-    expect(data).toMatchObject([putOp('test_DATA', { id: test_id, description: 'test1' })]);
+    expect(data).toMatchObject([test_utils.putOp('test_DATA', { id: test_id, description: 'test1' })]);
   });
 
   test('replicating large values', async () => {
@@ -270,10 +271,10 @@ bucket_definitions:
 
     const data = await context.getBucketData('global[]');
     expect(data.slice(0, 1)).toMatchObject([
-      putOp('test_data', { id: test_id.toHexString(), name: 'test1', description: largeDescription })
+      test_utils.putOp('test_data', { id: test_id.toHexString(), name: 'test1', description: largeDescription })
     ]);
     expect(data.slice(1)).toMatchObject([
-      putOp('test_data', { id: test_id.toHexString(), name: 'test2', description: largeDescription })
+      test_utils.putOp('test_data', { id: test_id.toHexString(), name: 'test2', description: largeDescription })
     ]);
   });
 
@@ -302,8 +303,8 @@ bucket_definitions:
     const data = await context.getBucketData('global[]');
 
     expect(data).toMatchObject([
-      putOp('test_data', { id: test_id, description: 'test1' }),
-      removeOp('test_data', test_id)
+      test_utils.putOp('test_data', { id: test_id, description: 'test1' }),
+      test_utils.removeOp('test_data', test_id)
     ]);
   });
 
@@ -330,9 +331,9 @@ bucket_definitions:
     const data = await context.getBucketData('global[]');
 
     expect(data).toMatchObject([
-      putOp('test_data1', { id: test_id, description: 'test1' }),
-      removeOp('test_data1', test_id),
-      putOp('test_data2', { id: test_id, description: 'test1' })
+      test_utils.putOp('test_data1', { id: test_id, description: 'test1' }),
+      test_utils.removeOp('test_data1', test_id),
+      test_utils.putOp('test_data2', { id: test_id, description: 'test1' })
     ]);
   });
 
@@ -349,7 +350,7 @@ bucket_definitions:
     context.startStreaming();
 
     const data = await context.getBucketData('global[]');
-    expect(data).toMatchObject([putOp('test_data', { id: test_id, description: 'test1' })]);
+    expect(data).toMatchObject([test_utils.putOp('test_data', { id: test_id, description: 'test1' })]);
   });
 
   test('large record', async () => {
@@ -446,8 +447,8 @@ bucket_definitions:
 
     const data = await context.getBucketData('global[]');
     expect(data).toMatchObject([
-      putOp('test_data', { id: test_id!.toHexString(), description: 'test1' }),
-      putOp('test_data', { id: test_id!.toHexString(), description: 'test2' })
+      test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test1' }),
+      test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' })
     ]);
   });
 

@@ -1,29 +1,23 @@
-import { BucketDataBatchOptions, SaveOperationTag } from '@/storage/BucketStorage.js';
-import { getUuidReplicaIdentityBson } from '@/util/util-index.js';
+import { getUuidReplicaIdentityBson, storage } from '@powersync/service-core';
 import { RequestParameters } from '@powersync/service-sync-rules';
-import { describe, expect, test } from 'vitest';
-import { fromAsync, oneFromAsync } from './stream_utils.js';
-import {
-  BATCH_OPTIONS,
-  getBatchData,
-  getBatchMeta,
-  makeTestTable,
-  MONGO_STORAGE_FACTORY,
-  PARSE_OPTIONS,
-  rid,
-  StorageFactory,
-  testRules
-} from './util.js';
+import { expect, test } from 'vitest';
+import * as test_utils from '../test-utils/test-utils-index.js';
 
-const TEST_TABLE = makeTestTable('test', ['id']);
+const TEST_TABLE = test_utils.makeTestTable('test', ['id']);
 
-describe('store - mongodb', function () {
-  defineDataStorageTests(MONGO_STORAGE_FACTORY);
-});
-
-function defineDataStorageTests(factory: StorageFactory) {
+/**
+ * @example
+ * ```TypeScript
+ * 
+ * describe('store - mongodb', function () {
+ *  registerDataStorageTests(MONGO_STORAGE_FACTORY);
+ * }); 
+ * 
+ * ```
+ */
+export function registerDataStorageTests(generateStorageFactory: test_utils.StorageFactory) {
   test('save and load parameters', async () => {
-    const sync_rules = testRules(`
+    const sync_rules = test_utils.testRules(`
 bucket_definitions:
   mybucket:
     parameters:
@@ -31,35 +25,36 @@ bucket_definitions:
     data: [] 
     `);
 
-    const storage = (await factory()).getInstance(sync_rules);
+    using factory = await generateStorageFactory();
+    const bucketStorage = factory.getInstance(sync_rules);
 
-    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 't2',
           id1: 'user3',
           id2: 'user4',
           group_id: 'group2a'
         },
-        afterReplicaId: rid('t2')
+        afterReplicaId: test_utils.rid('t2')
       });
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 't1',
           id1: 'user1',
           id2: 'user2',
           group_id: 'group1a'
         },
-        afterReplicaId: rid('t1')
+        afterReplicaId: test_utils.rid('t1')
       });
     });
 
-    const parameters = await storage.getParameterSets(result!.flushed_op, [['mybucket', '1', 'user1']]);
+    const parameters = await bucketStorage.getParameterSets(result!.flushed_op, [['mybucket', '1', 'user1']]);
     expect(parameters).toEqual([
       {
         group_id: 'group1a'
@@ -68,7 +63,7 @@ bucket_definitions:
   });
 
   test('it should use the latest version', async () => {
-    const sync_rules = testRules(
+    const sync_rules = test_utils.testRules(
       `
 bucket_definitions:
   mybucket:
@@ -78,32 +73,33 @@ bucket_definitions:
     `
     );
 
-    const storage = (await factory()).getInstance(sync_rules);
+    using factory = await generateStorageFactory();
+    const bucketStorage = factory.getInstance(sync_rules);
 
-    const result1 = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result1 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'user1',
           group_id: 'group1'
         },
-        afterReplicaId: rid('user1')
+        afterReplicaId: test_utils.rid('user1')
       });
     });
-    const result2 = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result2 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'user1',
           group_id: 'group2'
         },
-        afterReplicaId: rid('user1')
+        afterReplicaId: test_utils.rid('user1')
       });
     });
 
-    const parameters = await storage.getParameterSets(result2!.flushed_op, [['mybucket', '1', 'user1']]);
+    const parameters = await bucketStorage.getParameterSets(result2!.flushed_op, [['mybucket', '1', 'user1']]);
     expect(parameters).toEqual([
       {
         group_id: 'group2'
@@ -111,7 +107,7 @@ bucket_definitions:
     ]);
 
     // Use the checkpoint to get older data if relevant
-    const parameters2 = await storage.getParameterSets(result1!.flushed_op, [['mybucket', '1', 'user1']]);
+    const parameters2 = await bucketStorage.getParameterSets(result1!.flushed_op, [['mybucket', '1', 'user1']]);
     expect(parameters2).toEqual([
       {
         group_id: 'group1'
@@ -120,7 +116,7 @@ bucket_definitions:
   });
 
   test('save and load parameters with different number types', async () => {
-    const sync_rules = testRules(
+    const sync_rules = test_utils.testRules(
       `
 bucket_definitions:
   mybucket:
@@ -130,12 +126,13 @@ bucket_definitions:
     `
     );
 
-    const storage = (await factory()).getInstance(sync_rules);
+    using factory = await generateStorageFactory();
+    const bucketStorage = factory.getInstance(sync_rules);
 
-    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 't1',
           group_id: 'group1',
@@ -143,7 +140,7 @@ bucket_definitions:
           f2: 314,
           f3: 3.14
         },
-        afterReplicaId: rid('t1')
+        afterReplicaId: test_utils.rid('t1')
       });
     });
 
@@ -151,11 +148,11 @@ bucket_definitions:
 
     const checkpoint = result!.flushed_op;
 
-    const parameters1 = await storage.getParameterSets(checkpoint, [['mybucket', '1', 314n, 314, 3.14]]);
+    const parameters1 = await bucketStorage.getParameterSets(checkpoint, [['mybucket', '1', 314n, 314, 3.14]]);
     expect(parameters1).toEqual([TEST_PARAMS]);
-    const parameters2 = await storage.getParameterSets(checkpoint, [['mybucket', '1', 314, 314n, 3.14]]);
+    const parameters2 = await bucketStorage.getParameterSets(checkpoint, [['mybucket', '1', 314, 314n, 3.14]]);
     expect(parameters2).toEqual([TEST_PARAMS]);
-    const parameters3 = await storage.getParameterSets(checkpoint, [['mybucket', '1', 314n, 314, 3]]);
+    const parameters3 = await bucketStorage.getParameterSets(checkpoint, [['mybucket', '1', 314n, 314, 3]]);
     expect(parameters3).toEqual([]);
   });
 
@@ -164,7 +161,7 @@ bucket_definitions:
     // This specific case tested here cannot happen with postgres in practice, but we still
     // test this to ensure correct deserialization.
 
-    const sync_rules = testRules(
+    const sync_rules = test_utils.testRules(
       `
 bucket_definitions:
   mybucket:
@@ -174,23 +171,24 @@ bucket_definitions:
     `
     );
 
-    const storage = (await factory()).getInstance(sync_rules);
+    using factory = await generateStorageFactory();
+    const bucketStorage = factory.getInstance(sync_rules);
 
-    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 't1',
           group_id: 'group1',
           n1: 1152921504606846976n // 2^60
         },
-        afterReplicaId: rid('t1')
+        afterReplicaId: test_utils.rid('t1')
       });
 
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.UPDATE,
+        tag: storage.SaveOperationTag.UPDATE,
         after: {
           id: 't1',
           group_id: 'group1',
@@ -198,7 +196,7 @@ bucket_definitions:
           // in practice.
           n1: undefined
         },
-        afterReplicaId: rid('t1')
+        afterReplicaId: test_utils.rid('t1')
       });
     });
 
@@ -206,12 +204,12 @@ bucket_definitions:
 
     const checkpoint = result!.flushed_op;
 
-    const parameters1 = await storage.getParameterSets(checkpoint, [['mybucket', '1', 1152921504606846976n]]);
+    const parameters1 = await bucketStorage.getParameterSets(checkpoint, [['mybucket', '1', 1152921504606846976n]]);
     expect(parameters1).toEqual([TEST_PARAMS]);
   });
 
   test('removing row', async () => {
-    const sync_rules = testRules(
+    const sync_rules = test_utils.testRules(
       `
 bucket_definitions:
   global:
@@ -219,30 +217,31 @@ bucket_definitions:
       - SELECT id, description FROM "%"
 `
     );
-    const storage = (await factory()).getInstance(sync_rules);
+    using factory = await generateStorageFactory();
+    const bucketStorage = factory.getInstance(sync_rules);
 
-    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'test1',
           description: 'test1'
         },
-        afterReplicaId: rid('test1')
+        afterReplicaId: test_utils.rid('test1')
       });
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.DELETE,
-        beforeReplicaId: rid('test1')
+        tag: storage.SaveOperationTag.DELETE,
+        beforeReplicaId: test_utils.rid('test1')
       });
     });
 
     const checkpoint = result!.flushed_op;
 
-    const batch = await fromAsync(storage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
+    const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
     const data = batch[0].batch.data.map((d) => {
       return {
         op: d.op,
@@ -259,7 +258,7 @@ bucket_definitions:
       { op: 'REMOVE', object_id: 'test1', checksum: c2 }
     ]);
 
-    const checksums = [...(await storage.getChecksums(checkpoint, ['global[]'])).values()];
+    const checksums = [...(await bucketStorage.getChecksums(checkpoint, ['global[]'])).values()];
     expect(checksums).toEqual([
       {
         bucket: 'global[]',
@@ -270,9 +269,9 @@ bucket_definitions:
   });
 
   test('save and load parameters with workspaceId', async () => {
-    const WORKSPACE_TABLE = makeTestTable('workspace', ['id']);
+    const WORKSPACE_TABLE = test_utils.makeTestTable('workspace', ['id']);
 
-    const sync_rules_content = testRules(
+    const sync_rules_content = test_utils.testRules(
       `
 bucket_definitions:
     by_workspace:
@@ -282,19 +281,20 @@ bucket_definitions:
       data: []
     `
     );
-    const sync_rules = sync_rules_content.parsed(PARSE_OPTIONS).sync_rules;
+    const sync_rules = sync_rules_content.parsed(test_utils.PARSE_OPTIONS).sync_rules;
 
-    const storage = (await factory()).getInstance(sync_rules_content);
+    using factory = await generateStorageFactory();
+    const bucketStorage = factory.getInstance(sync_rules_content);
 
-    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'workspace1',
           userId: 'u1'
         },
-        afterReplicaId: rid('workspace1')
+        afterReplicaId: test_utils.rid('workspace1')
       });
     });
 
@@ -307,12 +307,12 @@ bucket_definitions:
     const lookups = q1.getLookups(parameters);
     expect(lookups).toEqual([['by_workspace', '1', 'u1']]);
 
-    const parameter_sets = await storage.getParameterSets(checkpoint, lookups);
+    const parameter_sets = await bucketStorage.getParameterSets(checkpoint, lookups);
     expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }]);
 
     const buckets = await sync_rules.queryBucketIds({
       getParameterSets(lookups) {
-        return storage.getParameterSets(checkpoint, lookups);
+        return bucketStorage.getParameterSets(checkpoint, lookups);
       },
       parameters
     });
@@ -320,9 +320,9 @@ bucket_definitions:
   });
 
   test('save and load parameters with dynamic global buckets', async () => {
-    const WORKSPACE_TABLE = makeTestTable('workspace');
+    const WORKSPACE_TABLE = test_utils.makeTestTable('workspace');
 
-    const sync_rules_content = testRules(
+    const sync_rules_content = test_utils.testRules(
       `
 bucket_definitions:
     by_public_workspace:
@@ -332,39 +332,40 @@ bucket_definitions:
       data: []
     `
     );
-    const sync_rules = sync_rules_content.parsed(PARSE_OPTIONS).sync_rules;
+    const sync_rules = sync_rules_content.parsed(test_utils.PARSE_OPTIONS).sync_rules;
 
-    const storage = (await factory()).getInstance(sync_rules_content);
+    using factory = await generateStorageFactory();
+    const bucketStorage = factory.getInstance(sync_rules_content);
 
-    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'workspace1',
           visibility: 'public'
         },
-        afterReplicaId: rid('workspace1')
+        afterReplicaId: test_utils.rid('workspace1')
       });
 
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'workspace2',
           visibility: 'private'
         },
-        afterReplicaId: rid('workspace2')
+        afterReplicaId: test_utils.rid('workspace2')
       });
 
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'workspace3',
           visibility: 'public'
         },
-        afterReplicaId: rid('workspace3')
+        afterReplicaId: test_utils.rid('workspace3')
       });
     });
 
@@ -377,13 +378,13 @@ bucket_definitions:
     const lookups = q1.getLookups(parameters);
     expect(lookups).toEqual([['by_public_workspace', '1']]);
 
-    const parameter_sets = await storage.getParameterSets(checkpoint, lookups);
+    const parameter_sets = await bucketStorage.getParameterSets(checkpoint, lookups);
     parameter_sets.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }, { workspace_id: 'workspace3' }]);
 
     const buckets = await sync_rules.queryBucketIds({
       getParameterSets(lookups) {
-        return storage.getParameterSets(checkpoint, lookups);
+        return bucketStorage.getParameterSets(checkpoint, lookups);
       },
       parameters
     });
@@ -392,9 +393,9 @@ bucket_definitions:
   });
 
   test('multiple parameter queries', async () => {
-    const WORKSPACE_TABLE = makeTestTable('workspace');
+    const WORKSPACE_TABLE = test_utils.makeTestTable('workspace');
 
-    const sync_rules_content = testRules(
+    const sync_rules_content = test_utils.testRules(
       `
 bucket_definitions:
     by_workspace:
@@ -406,51 +407,52 @@ bucket_definitions:
       data: []
     `
     );
-    const sync_rules = sync_rules_content.parsed(PARSE_OPTIONS).sync_rules;
+    const sync_rules = sync_rules_content.parsed(test_utils.PARSE_OPTIONS).sync_rules;
 
-    const storage = (await factory()).getInstance(sync_rules_content);
+    using factory = await generateStorageFactory();
+    const bucketStorage = factory.getInstance(sync_rules_content);
 
-    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'workspace1',
           visibility: 'public'
         },
-        afterReplicaId: rid('workspace1')
+        afterReplicaId: test_utils.rid('workspace1')
       });
 
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'workspace2',
           visibility: 'private'
         },
-        afterReplicaId: rid('workspace2')
+        afterReplicaId: test_utils.rid('workspace2')
       });
 
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'workspace3',
           user_id: 'u1',
           visibility: 'private'
         },
-        afterReplicaId: rid('workspace3')
+        afterReplicaId: test_utils.rid('workspace3')
       });
 
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'workspace4',
           user_id: 'u2',
           visibility: 'private'
         },
-        afterReplicaId: rid('workspace4')
+        afterReplicaId: test_utils.rid('workspace4')
       });
     });
 
@@ -463,7 +465,7 @@ bucket_definitions:
     const lookups1 = q1.getLookups(parameters);
     expect(lookups1).toEqual([['by_workspace', '1']]);
 
-    const parameter_sets1 = await storage.getParameterSets(checkpoint, lookups1);
+    const parameter_sets1 = await bucketStorage.getParameterSets(checkpoint, lookups1);
     parameter_sets1.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     expect(parameter_sets1).toEqual([{ workspace_id: 'workspace1' }]);
 
@@ -471,14 +473,14 @@ bucket_definitions:
     const lookups2 = q2.getLookups(parameters);
     expect(lookups2).toEqual([['by_workspace', '2', 'u1']]);
 
-    const parameter_sets2 = await storage.getParameterSets(checkpoint, lookups2);
+    const parameter_sets2 = await bucketStorage.getParameterSets(checkpoint, lookups2);
     parameter_sets2.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     expect(parameter_sets2).toEqual([{ workspace_id: 'workspace3' }]);
 
     // Test final values - the important part
     const buckets = await sync_rules.queryBucketIds({
       getParameterSets(lookups) {
-        return storage.getParameterSets(checkpoint, lookups);
+        return bucketStorage.getParameterSets(checkpoint, lookups);
       },
       parameters
     });
@@ -487,7 +489,7 @@ bucket_definitions:
   });
 
   test('changing client ids', async () => {
-    const sync_rules = testRules(
+    const sync_rules = test_utils.testRules(
       `
 bucket_definitions:
   global:
@@ -495,44 +497,46 @@ bucket_definitions:
       - SELECT client_id as id, description FROM "%"
 `
     );
-    const storage = (await factory()).getInstance(sync_rules);
+    using factory = await generateStorageFactory();
+
+    const bucketStorage = factory.getInstance(sync_rules);
 
     const sourceTable = TEST_TABLE;
-    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'test1',
           client_id: 'client1a',
           description: 'test1a'
         },
-        afterReplicaId: rid('test1')
+        afterReplicaId: test_utils.rid('test1')
       });
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.UPDATE,
+        tag: storage.SaveOperationTag.UPDATE,
         after: {
           id: 'test1',
           client_id: 'client1b',
           description: 'test1b'
         },
-        afterReplicaId: rid('test1')
+        afterReplicaId: test_utils.rid('test1')
       });
 
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'test2',
           client_id: 'client2',
           description: 'test2'
         },
-        afterReplicaId: rid('test2')
+        afterReplicaId: test_utils.rid('test2')
       });
     });
     const checkpoint = result!.flushed_op;
-    const batch = await fromAsync(storage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
+    const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
     const data = batch[0].batch.data.map((d) => {
       return {
         op: d.op,
@@ -549,7 +553,7 @@ bucket_definitions:
   });
 
   test('re-apply delete', async () => {
-    const sync_rules = testRules(
+    const sync_rules = test_utils.testRules(
       `
 bucket_definitions:
   global:
@@ -557,45 +561,46 @@ bucket_definitions:
       - SELECT id, description FROM "%"
 `
     );
-    const storage = (await factory()).getInstance(sync_rules);
+    using factory = await generateStorageFactory();
+    const bucketStorage =  factory.getInstance(sync_rules);
 
-    await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'test1',
           description: 'test1'
         },
-        afterReplicaId: rid('test1')
+        afterReplicaId: test_utils.rid('test1')
       });
     });
 
-    await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.DELETE,
-        beforeReplicaId: rid('test1')
+        tag: storage.SaveOperationTag.DELETE,
+        beforeReplicaId: test_utils.rid('test1')
       });
     });
 
-    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.DELETE,
-        beforeReplicaId: rid('test1')
+        tag: storage.SaveOperationTag.DELETE,
+        beforeReplicaId: test_utils.rid('test1')
       });
     });
 
     const checkpoint = result!.flushed_op;
 
-    const batch = await fromAsync(storage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
+    const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
     const data = batch[0].batch.data.map((d) => {
       return {
         op: d.op,
@@ -612,7 +617,7 @@ bucket_definitions:
       { op: 'REMOVE', object_id: 'test1', checksum: c2 }
     ]);
 
-    const checksums = [...(await storage.getChecksums(checkpoint, ['global[]'])).values()];
+    const checksums = [...(await bucketStorage.getChecksums(checkpoint, ['global[]'])).values()];
     expect(checksums).toEqual([
       {
         bucket: 'global[]',
@@ -623,7 +628,7 @@ bucket_definitions:
   });
 
   test('re-apply update + delete', async () => {
-    const sync_rules = testRules(
+    const sync_rules = test_utils.testRules(
       `
 bucket_definitions:
   global:
@@ -631,85 +636,86 @@ bucket_definitions:
       - SELECT id, description FROM "%"
 `
     );
-    const storage = (await factory()).getInstance(sync_rules);
+    using factory = await generateStorageFactory();
+    const bucketStorage = factory.getInstance(sync_rules);
 
-    await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'test1',
           description: 'test1'
         },
-        afterReplicaId: rid('test1')
+        afterReplicaId: test_utils.rid('test1')
       });
     });
 
-    await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.UPDATE,
+        tag: storage.SaveOperationTag.UPDATE,
         after: {
           id: 'test1',
           description: undefined
         },
-        afterReplicaId: rid('test1')
+        afterReplicaId: test_utils.rid('test1')
       });
 
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.UPDATE,
+        tag: storage.SaveOperationTag.UPDATE,
         after: {
           id: 'test1',
           description: undefined
         },
-        afterReplicaId: rid('test1')
+        afterReplicaId: test_utils.rid('test1')
       });
 
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.DELETE,
-        beforeReplicaId: rid('test1')
+        tag: storage.SaveOperationTag.DELETE,
+        beforeReplicaId: test_utils.rid('test1')
       });
     });
 
-    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.UPDATE,
+        tag: storage.SaveOperationTag.UPDATE,
         after: {
           id: 'test1',
           description: undefined
         },
-        afterReplicaId: rid('test1')
+        afterReplicaId: test_utils.rid('test1')
       });
 
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.UPDATE,
+        tag: storage.SaveOperationTag.UPDATE,
         after: {
           id: 'test1',
           description: undefined
         },
-        afterReplicaId: rid('test1')
+        afterReplicaId: test_utils.rid('test1')
       });
 
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.DELETE,
-        beforeReplicaId: rid('test1')
+        tag: storage.SaveOperationTag.DELETE,
+        beforeReplicaId: test_utils.rid('test1')
       });
     });
 
     const checkpoint = result!.flushed_op;
 
-    const batch = await fromAsync(storage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
+    const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
 
     const data = batch[0].batch.data.map((d) => {
       return {
@@ -729,7 +735,7 @@ bucket_definitions:
       { op: 'REMOVE', object_id: 'test1', checksum: c2 }
     ]);
 
-    const checksums = [...(await storage.getChecksums(checkpoint, ['global[]'])).values()];
+    const checksums = [...(await bucketStorage.getChecksums(checkpoint, ['global[]'])).values()];
     expect(checksums).toEqual([
       {
         bucket: 'global[]',
@@ -740,7 +746,7 @@ bucket_definitions:
   });
 
   test('truncate parameters', async () => {
-    const sync_rules = testRules(
+    const sync_rules = test_utils.testRules(
       `
 bucket_definitions:
   mybucket:
@@ -750,27 +756,28 @@ bucket_definitions:
     `
     );
 
-    const storage = (await factory()).getInstance(sync_rules);
+    using factory = await generateStorageFactory();
+const bucketStorage = factory.getInstance(sync_rules);
 
-    await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 't2',
           id1: 'user3',
           id2: 'user4',
           group_id: 'group2a'
         },
-        afterReplicaId: rid('t2')
+        afterReplicaId: test_utils.rid('t2')
       });
 
       await batch.truncate([TEST_TABLE]);
     });
 
-    const { checkpoint } = await storage.getCheckpoint();
+    const { checkpoint } = await bucketStorage.getCheckpoint();
 
-    const parameters = await storage.getParameterSets(checkpoint, [['mybucket', '1', 'user1']]);
+    const parameters = await bucketStorage.getParameterSets(checkpoint, [['mybucket', '1', 'user1']]);
     expect(parameters).toEqual([]);
   });
 
@@ -783,7 +790,7 @@ bucket_definitions:
     // 1. Not getting the correct "current_data" state for each operation.
     // 2. Output order not being correct.
 
-    const sync_rules = testRules(
+    const sync_rules = test_utils.testRules(
       `
 bucket_definitions:
   global:
@@ -791,118 +798,119 @@ bucket_definitions:
       - SELECT id, description FROM "test"
 `
     );
-    const storage = (await factory()).getInstance(sync_rules);
+    using factory = await generateStorageFactory();
+const bucketStorage = factory.getInstance(sync_rules);
 
     // Pre-setup
-    const result1 = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result1 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'test1',
           description: 'test1a'
         },
-        afterReplicaId: rid('test1')
+        afterReplicaId: test_utils.rid('test1')
       });
 
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'test2',
           description: 'test2a'
         },
-        afterReplicaId: rid('test2')
+        afterReplicaId: test_utils.rid('test2')
       });
     });
 
     const checkpoint1 = result1?.flushed_op ?? '0';
 
     // Test batch
-    const result2 = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result2 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       const sourceTable = TEST_TABLE;
       // b
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'test1',
           description: 'test1b'
         },
-        afterReplicaId: rid('test1')
+        afterReplicaId: test_utils.rid('test1')
       });
 
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.UPDATE,
+        tag: storage.SaveOperationTag.UPDATE,
         before: {
           id: 'test1'
         },
-        beforeReplicaId: rid('test1'),
+        beforeReplicaId: test_utils.rid('test1'),
         after: {
           id: 'test2',
           description: 'test2b'
         },
-        afterReplicaId: rid('test2')
+        afterReplicaId: test_utils.rid('test2')
       });
 
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.UPDATE,
+        tag: storage.SaveOperationTag.UPDATE,
         before: {
           id: 'test2'
         },
-        beforeReplicaId: rid('test2'),
+        beforeReplicaId: test_utils.rid('test2'),
         after: {
           id: 'test3',
           description: 'test3b'
         },
 
-        afterReplicaId: rid('test3')
+        afterReplicaId: test_utils.rid('test3')
       });
 
       // c
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.UPDATE,
+        tag: storage.SaveOperationTag.UPDATE,
         after: {
           id: 'test2',
           description: 'test2c'
         },
-        afterReplicaId: rid('test2')
+        afterReplicaId: test_utils.rid('test2')
       });
 
       // d
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'test4',
           description: 'test4d'
         },
-        afterReplicaId: rid('test4')
+        afterReplicaId: test_utils.rid('test4')
       });
 
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.UPDATE,
+        tag: storage.SaveOperationTag.UPDATE,
         before: {
           id: 'test4'
         },
-        beforeReplicaId: rid('test4'),
+        beforeReplicaId: test_utils.rid('test4'),
         after: {
           id: 'test5',
           description: 'test5d'
         },
-        afterReplicaId: rid('test5')
+        afterReplicaId: test_utils.rid('test5')
       });
     });
 
     const checkpoint2 = result2!.flushed_op;
 
-    const batch = await fromAsync(storage.getBucketDataBatch(checkpoint2, new Map([['global[]', checkpoint1]])));
+    const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint2, new Map([['global[]', checkpoint1]])));
     const data = batch[0].batch.data.map((d) => {
       return {
         op: d.op,
@@ -931,7 +939,7 @@ bucket_definitions:
   });
 
   test('changed data with replica identity full', async () => {
-    const sync_rules = testRules(
+    const sync_rules = test_utils.testRules(
       `
 bucket_definitions:
   global:
@@ -945,15 +953,16 @@ bucket_definitions:
         { name: 'description', type: 'VARCHAR', typeId: 25 }
       ]);
     }
-    const storage = (await factory()).getInstance(sync_rules);
+    using factory = await generateStorageFactory();
+const bucketStorage = factory.getInstance(sync_rules);
 
-    const sourceTable = makeTestTable('test', ['id', 'description']);
+    const sourceTable = test_utils.makeTestTable('test', ['id', 'description']);
 
     // Pre-setup
-    const result1 = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result1 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'test1',
           description: 'test1a'
@@ -964,11 +973,11 @@ bucket_definitions:
 
     const checkpoint1 = result1?.flushed_op ?? '0';
 
-    const result2 = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result2 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       // Unchanged, but has a before id
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.UPDATE,
+        tag: storage.SaveOperationTag.UPDATE,
         before: {
           id: 'test1',
           description: 'test1a'
@@ -982,11 +991,11 @@ bucket_definitions:
       });
     });
 
-    const result3 = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result3 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       // Delete
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.DELETE,
+        tag: storage.SaveOperationTag.DELETE,
         before: {
           id: 'test1',
           description: 'test1b'
@@ -998,7 +1007,7 @@ bucket_definitions:
 
     const checkpoint3 = result3!.flushed_op;
 
-    const batch = await fromAsync(storage.getBucketDataBatch(checkpoint3, new Map([['global[]', checkpoint1]])));
+    const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint3, new Map([['global[]', checkpoint1]])));
     const data = batch[0].batch.data.map((d) => {
       return {
         op: d.op,
@@ -1035,7 +1044,7 @@ bucket_definitions:
   });
 
   test('unchanged data with replica identity full', async () => {
-    const sync_rules = testRules(
+    const sync_rules = test_utils.testRules(
       `
 bucket_definitions:
   global:
@@ -1050,15 +1059,16 @@ bucket_definitions:
       ]);
     }
 
-    const storage = (await factory()).getInstance(sync_rules);
+    using factory = await generateStorageFactory();
+const bucketStorage = factory.getInstance(sync_rules);
 
-    const sourceTable = makeTestTable('test', ['id', 'description']);
+    const sourceTable = test_utils.makeTestTable('test', ['id', 'description']);
 
     // Pre-setup
-    const result1 = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result1 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'test1',
           description: 'test1a'
@@ -1069,11 +1079,11 @@ bucket_definitions:
 
     const checkpoint1 = result1?.flushed_op ?? '0';
 
-    const result2 = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result2 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       // Unchanged, but has a before id
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.UPDATE,
+        tag: storage.SaveOperationTag.UPDATE,
         before: {
           id: 'test1',
           description: 'test1a'
@@ -1087,11 +1097,11 @@ bucket_definitions:
       });
     });
 
-    const result3 = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result3 = await  bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       // Delete
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.DELETE,
+        tag: storage.SaveOperationTag.DELETE,
         before: {
           id: 'test1',
           description: 'test1a'
@@ -1103,7 +1113,7 @@ bucket_definitions:
 
     const checkpoint3 = result3!.flushed_op;
 
-    const batch = await fromAsync(storage.getBucketDataBatch(checkpoint3, new Map([['global[]', checkpoint1]])));
+    const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint3, new Map([['global[]', checkpoint1]])));
     const data = batch[0].batch.data.map((d) => {
       return {
         op: d.op,
@@ -1137,7 +1147,7 @@ bucket_definitions:
     // but large enough in size to be split over multiple returned batches.
     // The specific batch splits is an implementation detail of the storage driver,
     // and the test will have to updated when other implementations are added.
-    const sync_rules = testRules(
+    const sync_rules = test_utils.testRules(
       `
 bucket_definitions:
   global:
@@ -1145,97 +1155,98 @@ bucket_definitions:
       - SELECT id, description FROM "%"
 `
     );
-    const storage = (await factory()).getInstance(sync_rules);
+    using factory = await generateStorageFactory();
+const bucketStorage = factory.getInstance(sync_rules);
 
-    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       const largeDescription = '0123456789'.repeat(12_000_00);
 
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'test1',
           description: 'test1'
         },
-        afterReplicaId: rid('test1')
+        afterReplicaId: test_utils.rid('test1')
       });
 
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'large1',
           description: largeDescription
         },
-        afterReplicaId: rid('large1')
+        afterReplicaId: test_utils.rid('large1')
       });
 
       // Large enough to split the returned batch
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'large2',
           description: largeDescription
         },
-        afterReplicaId: rid('large2')
+        afterReplicaId: test_utils.rid('large2')
       });
 
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'test3',
           description: 'test3'
         },
-        afterReplicaId: rid('test3')
+        afterReplicaId: test_utils.rid('test3')
       });
     });
 
     const checkpoint = result!.flushed_op;
 
-    const options: BucketDataBatchOptions = {
+    const options: storage.BucketDataBatchOptions = {
       chunkLimitBytes: 16 * 1024 * 1024
     };
 
-    const batch1 = await fromAsync(storage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]), options));
-    expect(getBatchData(batch1)).toEqual([
+    const batch1 = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]), options));
+    expect(test_utils.getBatchData(batch1)).toEqual([
       { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 },
       { op_id: '2', op: 'PUT', object_id: 'large1', checksum: 454746904 }
     ]);
-    expect(getBatchMeta(batch1)).toEqual({
+    expect(test_utils.getBatchMeta(batch1)).toEqual({
       after: '0',
       has_more: true,
       next_after: '2'
     });
 
-    const batch2 = await fromAsync(
-      storage.getBucketDataBatch(checkpoint, new Map([['global[]', batch1[0].batch.next_after]]), options)
+    const batch2 = await test_utils.fromAsync(
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', batch1[0].batch.next_after]]), options)
     );
-    expect(getBatchData(batch2)).toEqual([
+    expect(test_utils.getBatchData(batch2)).toEqual([
       { op_id: '3', op: 'PUT', object_id: 'large2', checksum: 1795508474 },
       { op_id: '4', op: 'PUT', object_id: 'test3', checksum: 1359888332 }
     ]);
-    expect(getBatchMeta(batch2)).toEqual({
+    expect(test_utils.getBatchMeta(batch2)).toEqual({
       after: '2',
       has_more: false,
       next_after: '4'
     });
 
-    const batch3 = await fromAsync(
-      storage.getBucketDataBatch(checkpoint, new Map([['global[]', batch2[0].batch.next_after]]), options)
+    const batch3 = await test_utils.fromAsync(
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', batch2[0].batch.next_after]]), options)
     );
-    expect(getBatchData(batch3)).toEqual([]);
-    expect(getBatchMeta(batch3)).toEqual(null);
+    expect(test_utils.getBatchData(batch3)).toEqual([]);
+    expect(test_utils.getBatchMeta(batch3)).toEqual(null);
   });
 
   test('large batch (2)', async () => {
     // Test syncing a batch of data that is small in count,
     // but large enough in size to be split over multiple returned chunks.
     // Similar to the above test, but splits over 1MB chunks.
-    const sync_rules = testRules(
+    const sync_rules = test_utils.testRules(
       `
 bucket_definitions:
   global:
@@ -1243,85 +1254,86 @@ bucket_definitions:
       - SELECT id, description FROM "%"
 `
     );
-    const storage = (await factory()).getInstance(sync_rules);
+    using factory = await generateStorageFactory();
+const bucketStorage = factory.getInstance(sync_rules);
 
-    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       const largeDescription = '0123456789'.repeat(2_000_00);
 
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'test1',
           description: 'test1'
         },
-        afterReplicaId: rid('test1')
+        afterReplicaId: test_utils.rid('test1')
       });
 
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'large1',
           description: largeDescription
         },
-        afterReplicaId: rid('large1')
+        afterReplicaId: test_utils.rid('large1')
       });
 
       // Large enough to split the returned batch
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'large2',
           description: largeDescription
         },
-        afterReplicaId: rid('large2')
+        afterReplicaId: test_utils.rid('large2')
       });
 
       await batch.save({
         sourceTable,
-        tag: SaveOperationTag.INSERT,
+        tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 'test3',
           description: 'test3'
         },
-        afterReplicaId: rid('test3')
+        afterReplicaId: test_utils.rid('test3')
       });
     });
 
     const checkpoint = result!.flushed_op;
 
-    const options: BucketDataBatchOptions = {};
+    const options: storage.BucketDataBatchOptions = {};
 
-    const batch1 = await fromAsync(storage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]), options));
-    expect(getBatchData(batch1)).toEqual([
+    const batch1 = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]), options));
+    expect(test_utils.getBatchData(batch1)).toEqual([
       { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 },
       { op_id: '2', op: 'PUT', object_id: 'large1', checksum: 1178768505 }
     ]);
-    expect(getBatchMeta(batch1)).toEqual({
+    expect(test_utils.getBatchMeta(batch1)).toEqual({
       after: '0',
       has_more: true,
       next_after: '2'
     });
 
-    const batch2 = await fromAsync(
-      storage.getBucketDataBatch(checkpoint, new Map([['global[]', batch1[0].batch.next_after]]), options)
+    const batch2 = await test_utils.fromAsync(
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', batch1[0].batch.next_after]]), options)
     );
-    expect(getBatchData(batch2)).toEqual([{ op_id: '3', op: 'PUT', object_id: 'large2', checksum: 1607205872 }]);
-    expect(getBatchMeta(batch2)).toEqual({
+    expect(test_utils.getBatchData(batch2)).toEqual([{ op_id: '3', op: 'PUT', object_id: 'large2', checksum: 1607205872 }]);
+    expect(test_utils.getBatchMeta(batch2)).toEqual({
       after: '2',
       has_more: true,
       next_after: '3'
     });
 
-    const batch3 = await fromAsync(
-      storage.getBucketDataBatch(checkpoint, new Map([['global[]', batch2[0].batch.next_after]]), options)
+    const batch3 = await test_utils.fromAsync(
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', batch2[0].batch.next_after]]), options)
     );
-    expect(getBatchData(batch3)).toEqual([{ op_id: '4', op: 'PUT', object_id: 'test3', checksum: 1359888332 }]);
-    expect(getBatchMeta(batch3)).toEqual({
+    expect(test_utils.getBatchData(batch3)).toEqual([{ op_id: '4', op: 'PUT', object_id: 'test3', checksum: 1359888332 }]);
+    expect(test_utils.getBatchMeta(batch3)).toEqual({
       after: '3',
       has_more: false,
       next_after: '4'
@@ -1330,7 +1342,7 @@ bucket_definitions:
 
   test('long batch', async () => {
     // Test syncing a batch of data that is limited by count.
-    const sync_rules = testRules(
+    const sync_rules = test_utils.testRules(
       `
 bucket_definitions:
   global:
@@ -1338,15 +1350,16 @@ bucket_definitions:
       - SELECT id, description FROM "%"
 `
     );
-    const storage = (await factory()).getInstance(sync_rules);
+    using factory = await generateStorageFactory();
+const bucketStorage = factory.getInstance(sync_rules);
 
-    const result = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       for (let i = 1; i <= 6; i++) {
         await batch.save({
           sourceTable,
-          tag: SaveOperationTag.INSERT,
+          tag: storage.SaveOperationTag.INSERT,
           after: {
             id: `test${i}`,
             description: `test${i}`
@@ -1358,60 +1371,61 @@ bucket_definitions:
 
     const checkpoint = result!.flushed_op;
 
-    const batch1 = await oneFromAsync(
-      storage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]), { limit: 4 })
+    const batch1 = await test_utils.oneFromAsync(
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]), { limit: 4 })
     );
 
-    expect(getBatchData(batch1)).toEqual([
+    expect(test_utils.getBatchData(batch1)).toEqual([
       { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 },
       { op_id: '2', op: 'PUT', object_id: 'test2', checksum: 730027011 },
       { op_id: '3', op: 'PUT', object_id: 'test3', checksum: 1359888332 },
       { op_id: '4', op: 'PUT', object_id: 'test4', checksum: 2049153252 }
     ]);
 
-    expect(getBatchMeta(batch1)).toEqual({
+    expect(test_utils.getBatchMeta(batch1)).toEqual({
       after: '0',
       has_more: true,
       next_after: '4'
     });
 
-    const batch2 = await oneFromAsync(
-      storage.getBucketDataBatch(checkpoint, new Map([['global[]', batch1.batch.next_after]]), {
+    const batch2 = await test_utils.oneFromAsync(
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', batch1.batch.next_after]]), {
         limit: 4
       })
     );
-    expect(getBatchData(batch2)).toEqual([
+    expect(test_utils.getBatchData(batch2)).toEqual([
       { op_id: '5', op: 'PUT', object_id: 'test5', checksum: 3686902721 },
       { op_id: '6', op: 'PUT', object_id: 'test6', checksum: 1974820016 }
     ]);
 
-    expect(getBatchMeta(batch2)).toEqual({
+    expect(test_utils.getBatchMeta(batch2)).toEqual({
       after: '4',
       has_more: false,
       next_after: '6'
     });
 
-    const batch3 = await fromAsync(
-      storage.getBucketDataBatch(checkpoint, new Map([['global[]', batch2.batch.next_after]]), {
+    const batch3 = await test_utils.fromAsync(
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', batch2.batch.next_after]]), {
         limit: 4
       })
     );
-    expect(getBatchData(batch3)).toEqual([]);
+    expect(test_utils.getBatchData(batch3)).toEqual([]);
 
-    expect(getBatchMeta(batch3)).toEqual(null);
+    expect(test_utils.getBatchMeta(batch3)).toEqual(null);
   });
 
   test('batch should be disposed automatically', async () => {
-    const sync_rules = testRules(`
+    const sync_rules = test_utils.testRules(`
       bucket_definitions:
         global:
           data: [] 
           `);
 
-    const storage = (await factory()).getInstance(sync_rules);
+    using factory = await generateStorageFactory();
+const bucketStorage = factory.getInstance(sync_rules);
 
     let isDisposed = false;
-    await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       batch.registerListener({
         disposed: () => {
           isDisposed = true;
@@ -1423,7 +1437,7 @@ bucket_definitions:
     isDisposed = false;
     let errorCaught = false;
     try {
-      await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+      await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
         batch.registerListener({
           disposed: () => {
             isDisposed = true;
@@ -1440,8 +1454,7 @@ bucket_definitions:
   });
 
   test('empty storage metrics', async () => {
-    const f = await factory({ dropAll: true });
-
+    using f = await generateStorageFactory({ dropAll: true });
     const metrics = await f.getStorageMetrics();
     expect(metrics).toEqual({
       operations_size_bytes: 0,
@@ -1462,7 +1475,7 @@ bucket_definitions:
   });
 
   test('invalidate cached parsed sync rules', async () => {
-    const sync_rules_content = testRules(
+    const sync_rules_content = test_utils.testRules(
       `
 bucket_definitions:
     by_workspace:
@@ -1473,7 +1486,7 @@ bucket_definitions:
     `
     );
 
-    const bucketStorageFactory = await factory();
+    using bucketStorageFactory = await generateStorageFactory();
     const syncBucketStorage = bucketStorageFactory.getInstance(sync_rules_content);
 
     const parsedSchema1 = syncBucketStorage.getParsedSyncRules({

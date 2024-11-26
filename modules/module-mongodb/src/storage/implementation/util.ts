@@ -155,3 +155,11 @@ export function isUUID(value: any): value is bson.UUID {
   const uuid = value as bson.UUID;
   return uuid._bsontype == 'Binary' && uuid.sub_type == bson.Binary.SUBTYPE_UUID;
 }
+
+
+/**
+ * Helper function for creating a MongoDB client from consumers of this package
+ */
+export const createMongoClient =(url: string, options?: mongo.MongoClientOptions) => {
+  return new mongo.MongoClient(url, options);
+}
