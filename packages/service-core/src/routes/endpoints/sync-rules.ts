@@ -3,10 +3,9 @@ import { SqlSyncRules, SyncRulesErrors } from '@powersync/service-sync-rules';
 import type { FastifyPluginAsync } from 'fastify';
 import * as t from 'ts-codec';
 
-import * as system from '../../system/system-index.js';
+import { RouteAPI } from '../../api/RouteAPI.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
-import { RouteAPI } from '../../api/RouteAPI.js';
 
 const DeploySyncRulesRequest = t.object({
   content: t.string
