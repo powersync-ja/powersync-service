@@ -50,6 +50,12 @@ importers:
       typescript:
         specifier: ^5.6.2
         version: 5.6.2
+      vite-tsconfig-paths:
+        specifier: ^4.3.2
+        version: 4.3.2(typescript@5.6.2)(vite@5.3.3(@types/node@22.5.5))
+      vitest:
+        specifier: ^2.1.1
+        version: 2.1.1(@types/node@22.5.5)
       ws:
         specifier: ^8.2.3
         version: 8.18.0
@@ -127,15 +133,6 @@ importers:
       '@types/uuid':
         specifier: ^9.0.4
         version: 9.0.8
-      typescript:
-        specifier: ^5.2.2
-        version: 5.6.2
-      vite-tsconfig-paths:
-        specifier: ^4.3.2
-        version: 4.3.2(typescript@5.6.2)(vite@5.3.3(@types/node@22.5.5))
-      vitest:
-        specifier: ^2.1.1
-        version: 2.1.1(@types/node@22.5.5)
 
   modules/module-mysql:
     dependencies:
@@ -185,15 +182,6 @@ importers:
       '@types/uuid':
         specifier: ^9.0.4
         version: 9.0.8
-      typescript:
-        specifier: ^5.5.4
-        version: 5.6.2
-      vite-tsconfig-paths:
-        specifier: ^4.3.2
-        version: 4.3.2(typescript@5.6.2)(vite@5.3.3(@types/node@22.5.5))
-      vitest:
-        specifier: ^2.1.1
-        version: 2.1.1(@types/node@22.5.5)
 
   modules/module-postgres:
     dependencies:
@@ -234,15 +222,6 @@ importers:
       '@types/uuid':
         specifier: ^9.0.4
         version: 9.0.8
-      typescript:
-        specifier: ^5.6.2
-        version: 5.6.2
-      vite-tsconfig-paths:
-        specifier: ^4.3.2
-        version: 4.3.2(typescript@5.6.2)(vite@5.3.3(@types/node@22.5.5))
-      vitest:
-        specifier: ^2.1.1
-        version: 2.1.1(@types/node@22.5.5)
 
   packages/jpgwire:
     dependencies:
@@ -298,12 +277,6 @@ importers:
       rsocket-websocket-client:
         specifier: 1.0.0-alpha.3
         version: 1.0.0-alpha.3
-      typescript:
-        specifier: ^5.6.2
-        version: 5.6.2
-      vitest:
-        specifier: ^2.1.1
-        version: 2.1.1(@types/node@22.5.5)
 
   packages/service-core:
     dependencies:
@@ -407,15 +380,6 @@ importers:
       fastify-plugin:
         specifier: ^4.5.1
         version: 4.5.1
-      typescript:
-        specifier: ^5.6.2
-        version: 5.6.2
-      vite-tsconfig-paths:
-        specifier: ^4.3.2
-        version: 4.3.2(typescript@5.6.2)(vite@5.3.3(@types/node@22.5.5))
-      vitest:
-        specifier: ^2.1.1
-        version: 2.1.1(@types/node@22.5.5)
 
   packages/sync-rules:
     dependencies:
@@ -565,12 +529,6 @@ importers:
       ts-node:
         specifier: ^10.9.1
         version: 10.9.2(@types/node@22.5.5)(typescript@5.6.2)
-      typescript:
-        specifier: ^5.6.2
-        version: 5.6.2
-      vitest:
-        specifier: ^2.1.1
-        version: 2.1.1(@types/node@22.5.5)
 
   test-client:
     dependencies:
@@ -590,9 +548,6 @@ importers:
       '@types/node':
         specifier: ^22.5.5
         version: 22.5.5
-      typescript:
-        specifier: ^5.6.2
-        version: 5.6.2
 
 packages:
 
@@ -4675,7 +4630,7 @@ snapshots:
       '@opentelemetry/semantic-conventions': 1.25.1
       '@prisma/instrumentation': 5.16.1
       '@sentry/core': 8.17.0
-      '@sentry/opentelemetry': 8.17.0(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.1(@opentelemetry/api@1.6.0))(@opentelemetry/instrumentation@0.52.1(@opentelemetry/api@1.6.0))(@opentelemetry/sdk-trace-base@1.25.1(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.25.1)
+      '@sentry/opentelemetry': 8.17.0(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.1(@opentelemetry/api@1.6.0))(@opentelemetry/instrumentation@0.52.1(@opentelemetry/api@1.6.0))(@opentelemetry/sdk-trace-base@1.25.1(@opentelemetry/api@1.6.0))(@opentelemetry/semantic-conventions@1.25.1)
       '@sentry/types': 8.17.0
       '@sentry/utils': 8.17.0
     optionalDependencies:
@@ -4683,7 +4638,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@sentry/opentelemetry@8.17.0(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.1(@opentelemetry/api@1.6.0))(@opentelemetry/instrumentation@0.52.1(@opentelemetry/api@1.6.0))(@opentelemetry/sdk-trace-base@1.25.1(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.25.1)':
+  '@sentry/opentelemetry@8.17.0(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.1(@opentelemetry/api@1.6.0))(@opentelemetry/instrumentation@0.52.1(@opentelemetry/api@1.6.0))(@opentelemetry/sdk-trace-base@1.25.1(@opentelemetry/api@1.6.0))(@opentelemetry/semantic-conventions@1.25.1)':
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/core': 1.25.1(@opentelemetry/api@1.9.0)
@@ -4880,7 +4835,7 @@ snapshots:
 
   agent-base@6.0.2:
     dependencies:
-      debug: 4.3.5(supports-color@5.5.0)
+      debug: 4.3.7
     transitivePeerDependencies:
       - supports-color
 
@@ -7044,7 +6999,7 @@ snapshots:
   tuf-js@1.1.7:
     dependencies:
       '@tufjs/models': 1.0.4
-      debug: 4.3.5(supports-color@5.5.0)
+      debug: 4.3.7
       make-fetch-happen: 11.1.1
     transitivePeerDependencies:
       - supports-color
@@ -7143,7 +7098,7 @@ snapshots:
 
   vite-tsconfig-paths@4.3.2(typescript@5.6.2)(vite@5.3.3(@types/node@22.5.5)):
     dependencies:
-      debug: 4.3.5(supports-color@5.5.0)
+      debug: 4.3.7
       globrex: 0.1.2
       tsconfck: 3.1.1(typescript@5.6.2)
     optionalDependencies:
