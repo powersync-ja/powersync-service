@@ -1,5 +1,14 @@
 # @powersync/service-rsocket-router
 
+## 0.0.14
+
+### Patch Changes
+
+- 57bd18b: Updates from Replication events changes
+- Updated dependencies [57bd18b]
+- Updated dependencies [57bd18b]
+  - @powersync/lib-services-framework@0.2.0
+
 ## 0.0.13
 
 ### Patch Changes
