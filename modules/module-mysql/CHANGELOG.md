@@ -1,15 +1,19 @@
-# @powersync/service-module-mongodb
+# @powersync/service-module-mysql
 
 ## 0.1.0
 
 ### Minor Changes
 
-- 57bd18b: Reduce permissions required for replicating a single mongodb database
-- 57bd18b: Add MongoDB support (Alpha)
+- 57bd18b: Generate random serverId based on syncrule id for MySQL replication client
+  Consolidated type mappings between snapshot and replicated values
+  Enabled MySQL tests in CI
+- 57bd18b: Introduced alpha support for MySQL as a datasource for replication.
+  Bunch of cleanup
 
 ### Patch Changes
 
-- 57bd18b: Fix diagnostics schema authorization issues for MongoDB
+- 57bd18b: Fixed MySQL version checking to better handle non-semantic version strings
+- 57bd18b: Fixed mysql schema json parsing
 - Updated dependencies [57bd18b]
 - Updated dependencies [57bd18b]
 - Updated dependencies [57bd18b]
