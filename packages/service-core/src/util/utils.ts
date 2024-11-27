@@ -1,14 +1,20 @@
+import * as sync_rules from '@powersync/service-sync-rules';
+import * as bson from 'bson';
 import crypto from 'crypto';
-
-import { logger } from '@powersync/lib-services-framework';
-import * as pgwire from '@powersync/service-jpgwire';
-import { pgwireRows } from '@powersync/service-jpgwire';
-import { PartialChecksum } from '../storage/ChecksumCache.js';
-import * as storage from '../storage/storage-index.js';
-import { retriedQuery } from './pgwire_utils.js';
+import * as uuid from 'uuid';
 import { BucketChecksum, OpId } from './protocol-types.js';
 
+import * as storage from '../storage/storage-index.js';
+
+import { PartialChecksum } from '../storage/ChecksumCache.js';
+
 export type ChecksumMap = Map<string, BucketChecksum>;
+
+export const ID_NAMESPACE = 'a396dd91-09fc-4017-a28d-3df722f651e9';
+
+export function escapeIdentifier(identifier: string) {
+  return `"${identifier.replace(/"/g, '""').replace(/\./g, '"."')}"`;
+}
 
 export function hashData(type: string, id: string, data: string): number {
   const hash = crypto.createHash('sha256');
@@ -83,49 +89,50 @@ export function addBucketChecksums(a: BucketChecksum, b: PartialChecksum | null)
   }
 }
 
-export async function getClientCheckpoint(
-  db: pgwire.PgClient,
-  bucketStorage: storage.BucketStorageFactory,
-  options?: { timeout?: number }
-): Promise<OpId> {
-  const start = Date.now();
-
-  const [{ lsn }] = pgwireRows(await db.query(`SELECT pg_logical_emit_message(false, 'powersync', 'ping') as lsn`));
-
-  // This old API needs a persisted checkpoint id.
-  // Since we don't use LSNs anymore, the only way to get that is to wait.
-
-  const timeout = options?.timeout ?? 50_000;
-
-  logger.info(`Waiting for LSN checkpoint: ${lsn}`);
-  while (Date.now() - start < timeout) {
-    const cp = await bucketStorage.getActiveCheckpoint();
-    if (!cp.hasSyncRules()) {
-      throw new Error('No sync rules available');
-    }
-    if (cp.lsn >= lsn) {
-      logger.info(`Got write checkpoint: ${lsn} : ${cp.checkpoint}`);
-      return cp.checkpoint;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 30));
+function getRawReplicaIdentity(
+  tuple: sync_rules.ToastableSqliteRow,
+  columns: storage.ColumnDescriptor[]
+): Record<string, any> {
+  let result: Record<string, any> = {};
+  for (let column of columns) {
+    const name = column.name;
+    result[name] = tuple[name];
   }
-
-  throw new Error('Timeout while waiting for checkpoint');
+  return result;
 }
 
-export async function createWriteCheckpoint(
-  db: pgwire.PgClient,
-  bucketStorage: storage.BucketStorageFactory,
-  user_id: string
-): Promise<bigint> {
-  const [{ lsn }] = pgwireRows(
-    await retriedQuery(db, `SELECT pg_logical_emit_message(false, 'powersync', 'ping') as lsn`)
-  );
+export function getUuidReplicaIdentityBson(
+  tuple: sync_rules.ToastableSqliteRow,
+  columns: storage.ColumnDescriptor[]
+): bson.UUID {
+  if (columns.length == 0) {
+    // REPLICA IDENTITY NOTHING - generate random id
+    return new bson.UUID(uuid.v4());
+  }
+  const rawIdentity = getRawReplicaIdentity(tuple, columns);
 
-  const id = await bucketStorage.createWriteCheckpoint(user_id, { '1': lsn });
-  logger.info(`Write checkpoint 2: ${JSON.stringify({ lsn, id: String(id) })}`);
-  return id;
+  return uuidForRowBson(rawIdentity);
+}
+
+export function uuidForRowBson(row: sync_rules.SqliteRow): bson.UUID {
+  // Important: This must not change, since it will affect how ids are generated.
+  // Use BSON so that it's a well-defined format without encoding ambiguities.
+  const repr = bson.serialize(row);
+  const buffer = Buffer.alloc(16);
+  return new bson.UUID(uuid.v5(repr, ID_NAMESPACE, buffer));
+}
+
+export function hasToastedValues(row: sync_rules.ToastableSqliteRow) {
+  for (let key in row) {
+    if (typeof row[key] == 'undefined') {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function isCompleteRow(row: sync_rules.ToastableSqliteRow): row is sync_rules.SqliteRow {
+  return !hasToastedValues(row);
 }
 
 export function checkpointUserId(user_id: string | undefined, client_id: string | undefined) {

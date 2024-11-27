@@ -9,7 +9,7 @@ import { PROBES_ROUTES } from './endpoints/probes.js';
 import { SYNC_RULES_ROUTES } from './endpoints/sync-rules.js';
 import { SYNC_STREAM_ROUTES } from './endpoints/sync-stream.js';
 import { createRequestQueueHook, CreateRequestQueueParams } from './hooks.js';
-import { RouteDefinition } from './router.js';
+import { RouteDefinition, RouterServiceContext } from './router.js';
 
 /**
  * A list of route definitions to be registered as endpoints.
@@ -17,7 +17,7 @@ import { RouteDefinition } from './router.js';
  */
 export type RouteRegistrationOptions = {
   routes: RouteDefinition[];
-  queueOptions: CreateRequestQueueParams;
+  queue_options: CreateRequestQueueParams;
 };
 
 /**
@@ -26,25 +26,25 @@ export type RouteRegistrationOptions = {
  */
 export type RouteDefinitions = {
   api?: Partial<RouteRegistrationOptions>;
-  syncStream?: Partial<RouteRegistrationOptions>;
+  sync_stream?: Partial<RouteRegistrationOptions>;
 };
 
 export type FastifyServerConfig = {
-  system: system.CorePowerSyncSystem;
+  service_context: system.ServiceContext;
   routes?: RouteDefinitions;
 };
 
 export const DEFAULT_ROUTE_OPTIONS = {
   api: {
     routes: [...ADMIN_ROUTES, ...CHECKPOINT_ROUTES, ...SYNC_RULES_ROUTES, ...PROBES_ROUTES],
-    queueOptions: {
+    queue_options: {
       concurrency: 10,
       max_queue_depth: 20
     }
   },
-  syncStream: {
+  sync_stream: {
     routes: [...SYNC_STREAM_ROUTES],
-    queueOptions: {
+    queue_options: {
       concurrency: 200,
       max_queue_depth: 0
     }
@@ -56,7 +56,20 @@ export const DEFAULT_ROUTE_OPTIONS = {
  * concurrency queue limits or override routes.
  */
 export function configureFastifyServer(server: fastify.FastifyInstance, options: FastifyServerConfig) {
-  const { system, routes = DEFAULT_ROUTE_OPTIONS } = options;
+  const { service_context, routes = DEFAULT_ROUTE_OPTIONS } = options;
+
+  const generateContext = async () => {
+    const { routerEngine } = service_context;
+    if (!routerEngine) {
+      throw new Error(`RouterEngine has not been registered`);
+    }
+
+    return {
+      user_id: undefined,
+      service_context: service_context as RouterServiceContext
+    };
+  };
+
   /**
    * Fastify creates an encapsulated context for each `.register` call.
    * Creating a separate context here to separate the concurrency limits for Admin APIs
@@ -64,20 +77,11 @@ export function configureFastifyServer(server: fastify.FastifyInstance, options:
    * https://github.com/fastify/fastify/blob/main/docs/Reference/Encapsulation.md
    */
   server.register(async function (childContext) {
-    registerFastifyRoutes(
-      childContext,
-      async () => {
-        return {
-          user_id: undefined,
-          system: system
-        };
-      },
-      routes.api?.routes ?? DEFAULT_ROUTE_OPTIONS.api.routes
-    );
+    registerFastifyRoutes(childContext, generateContext, routes.api?.routes ?? DEFAULT_ROUTE_OPTIONS.api.routes);
     // Limit the active concurrent requests
     childContext.addHook(
       'onRequest',
-      createRequestQueueHook(routes.api?.queueOptions ?? DEFAULT_ROUTE_OPTIONS.api.queueOptions)
+      createRequestQueueHook(routes.api?.queue_options ?? DEFAULT_ROUTE_OPTIONS.api.queue_options)
     );
   });
 
@@ -85,18 +89,13 @@ export function configureFastifyServer(server: fastify.FastifyInstance, options:
   server.register(async function (childContext) {
     registerFastifyRoutes(
       childContext,
-      async () => {
-        return {
-          user_id: undefined,
-          system: system
-        };
-      },
-      routes.syncStream?.routes ?? DEFAULT_ROUTE_OPTIONS.syncStream.routes
+      generateContext,
+      routes.sync_stream?.routes ?? DEFAULT_ROUTE_OPTIONS.sync_stream.routes
     );
     // Limit the active concurrent requests
     childContext.addHook(
       'onRequest',
-      createRequestQueueHook(routes.syncStream?.queueOptions ?? DEFAULT_ROUTE_OPTIONS.syncStream.queueOptions)
+      createRequestQueueHook(routes.sync_stream?.queue_options ?? DEFAULT_ROUTE_OPTIONS.sync_stream.queue_options)
     );
   });
 }

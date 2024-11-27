@@ -1,18 +1,25 @@
-import { SqliteRow, SqlSyncRules } from '@powersync/service-sync-rules';
+import { SqlEventDescriptor, SqliteRow, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import * as mongo from 'mongodb';
 
+import { container, DisposableObserver, errors, logger } from '@powersync/lib-services-framework';
 import * as util from '../../util/util-index.js';
-import * as replication from '../../replication/replication-index.js';
-import { container, errors, logger } from '@powersync/lib-services-framework';
-import { BucketStorageBatch, FlushedResult, mergeToast, SaveOptions } from '../BucketStorage.js';
+import {
+  BucketBatchStorageListener,
+  BucketStorageBatch,
+  FlushedResult,
+  mergeToast,
+  SaveOptions
+} from '../BucketStorage.js';
 import { SourceTable } from '../SourceTable.js';
+import { BatchedCustomWriteCheckpointOptions, CustomWriteCheckpointOptions } from '../WriteCheckpointAPI.js';
 import { PowerSyncMongo } from './db.js';
-import { CurrentBucket, CurrentDataDocument, SourceKey } from './models.js';
+import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
+import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
 import { cacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
-import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, serializeLookup } from './util.js';
+import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, replicaIdEquals, serializeLookup } from './util.js';
 
 /**
  * 15MB
@@ -25,7 +32,18 @@ const MAX_ROW_SIZE = 15 * 1024 * 1024;
 //
 // In the future, we can investigate allowing multiple replication streams operating independently.
 const replicationMutex = new util.Mutex();
-export class MongoBucketBatch implements BucketStorageBatch {
+
+export interface MongoBucketBatchOptions {
+  db: PowerSyncMongo;
+  syncRules: SqlSyncRules;
+  groupId: number;
+  slotName: string;
+  lastCheckpointLsn: string | null;
+  noCheckpointBeforeLsn: string;
+  storeCurrentData: boolean;
+}
+
+export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListener> implements BucketStorageBatch {
   private readonly client: mongo.MongoClient;
   public readonly db: PowerSyncMongo;
   public readonly session: mongo.ClientSession;
@@ -34,8 +52,10 @@ export class MongoBucketBatch implements BucketStorageBatch {
   private readonly group_id: number;
 
   private readonly slot_name: string;
+  private readonly storeCurrentData: boolean;
 
   private batch: OperationBatch | null = null;
+  private write_checkpoint_batch: CustomWriteCheckpointOptions[] = [];
 
   /**
    * Last LSN received associated with a checkpoint.
@@ -55,22 +75,29 @@ export class MongoBucketBatch implements BucketStorageBatch {
    */
   public last_flushed_op: bigint | null = null;
 
-  constructor(
-    db: PowerSyncMongo,
-    sync_rules: SqlSyncRules,
-    group_id: number,
-    slot_name: string,
-    last_checkpoint_lsn: string | null,
-    no_checkpoint_before_lsn: string | null
-  ) {
-    this.db = db;
-    this.client = db.client;
-    this.sync_rules = sync_rules;
-    this.group_id = group_id;
-    this.slot_name = slot_name;
+  constructor(options: MongoBucketBatchOptions) {
+    super();
+    this.client = options.db.client;
+    this.db = options.db;
+    this.group_id = options.groupId;
+    this.last_checkpoint_lsn = options.lastCheckpointLsn;
+    this.no_checkpoint_before_lsn = options.noCheckpointBeforeLsn;
     this.session = this.client.startSession();
-    this.last_checkpoint_lsn = last_checkpoint_lsn;
-    this.no_checkpoint_before_lsn = no_checkpoint_before_lsn ?? replication.ZERO_LSN;
+    this.slot_name = options.slotName;
+    this.sync_rules = options.syncRules;
+    this.storeCurrentData = options.storeCurrentData;
+    this.batch = new OperationBatch();
+  }
+
+  addCustomWriteCheckpoint(checkpoint: BatchedCustomWriteCheckpointOptions): void {
+    this.write_checkpoint_batch.push({
+      ...checkpoint,
+      sync_rules_id: this.group_id
+    });
+  }
+
+  get lastCheckpointLsn() {
+    return this.last_checkpoint_lsn;
   }
 
   async flush(): Promise<FlushedResult | null> {
@@ -83,6 +110,8 @@ export class MongoBucketBatch implements BucketStorageBatch {
         result = r;
       }
     }
+    await batchCreateCustomWriteCheckpoints(this.db, this.write_checkpoint_batch);
+    this.write_checkpoint_batch = [];
     return result;
   }
 
@@ -118,38 +147,44 @@ export class MongoBucketBatch implements BucketStorageBatch {
     batch: OperationBatch,
     op_seq: MongoIdSequence
   ): Promise<OperationBatch | null> {
-    // 1. Find sizes of current_data documents, to assist in intelligent batching without
-    // exceeding memory limits.
-    //
-    // A previous attempt tried to do batching by the results of the current_data query
-    // (automatically limited to 48MB(?) per batch by MongoDB). The issue is that it changes
-    // the order of processing, which then becomes really tricky to manage.
-    // This now takes 2+ queries, but doesn't have any issues with order of operations.
-    const sizeLookups: SourceKey[] = batch.batch.map((r) => {
-      return { g: this.group_id, t: r.record.sourceTable.id, k: r.beforeId };
-    });
+    let sizes: Map<string, number> | undefined = undefined;
+    if (this.storeCurrentData) {
+      // We skip this step if we don't store current_data, since the sizes will
+      // always be small in that case.
 
-    const sizes = new Map<string, number>();
+      // Find sizes of current_data documents, to assist in intelligent batching without
+      // exceeding memory limits.
+      //
+      // A previous attempt tried to do batching by the results of the current_data query
+      // (automatically limited to 48MB(?) per batch by MongoDB). The issue is that it changes
+      // the order of processing, which then becomes really tricky to manage.
+      // This now takes 2+ queries, but doesn't have any issues with order of operations.
+      const sizeLookups: SourceKey[] = batch.batch.map((r) => {
+        return { g: this.group_id, t: r.record.sourceTable.id, k: r.beforeId };
+      });
 
-    const sizeCursor: mongo.AggregationCursor<{ _id: SourceKey; size: number }> = this.db.current_data.aggregate(
-      [
-        {
-          $match: {
-            _id: { $in: sizeLookups }
+      sizes = new Map<string, number>();
+
+      const sizeCursor: mongo.AggregationCursor<{ _id: SourceKey; size: number }> = this.db.current_data.aggregate(
+        [
+          {
+            $match: {
+              _id: { $in: sizeLookups }
+            }
+          },
+          {
+            $project: {
+              _id: 1,
+              size: { $bsonSize: '$$ROOT' }
+            }
           }
-        },
-        {
-          $project: {
-            _id: 1,
-            size: { $bsonSize: '$$ROOT' }
-          }
-        }
-      ],
-      { session }
-    );
-    for await (let doc of sizeCursor.stream()) {
-      const key = cacheKey(doc._id.t, doc._id.k);
-      sizes.set(key, doc.size);
+        ],
+        { session }
+      );
+      for await (let doc of sizeCursor.stream()) {
+        const key = cacheKey(doc._id.t, doc._id.k);
+        sizes.set(key, doc.size);
+      }
     }
 
     // If set, we need to start a new transaction with this batch.
@@ -157,6 +192,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
     let transactionSize = 0;
 
     // Now batch according to the sizes
+    // This is a single batch if storeCurrentData == false
     for await (let b of batch.batched(sizes)) {
       if (resumeBatch) {
         for (let op of b) {
@@ -194,7 +230,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
         if (nextData != null) {
           // Update our current_data and size cache
           current_data_lookup.set(op.internalAfterKey!, nextData);
-          sizes.set(op.internalAfterKey!, nextData.data.length());
+          sizes?.set(op.internalAfterKey!, nextData.data.length());
         }
 
         if (persistedBatch!.shouldFlushTransaction()) {
@@ -244,14 +280,18 @@ export class MongoBucketBatch implements BucketStorageBatch {
         existing_buckets = [];
         existing_lookups = [];
         // Log to help with debugging if there was a consistency issue
-        logger.warn(
-          `Cannot find previous record for update on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
-        );
+        if (this.storeCurrentData) {
+          logger.warn(
+            `Cannot find previous record for update on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
+          );
+        }
       } else {
-        const data = bson.deserialize((result.data as mongo.Binary).buffer, BSON_DESERIALIZE_OPTIONS) as SqliteRow;
         existing_buckets = result.buckets;
         existing_lookups = result.lookups;
-        after = mergeToast(after!, data);
+        if (this.storeCurrentData) {
+          const data = bson.deserialize((result.data as mongo.Binary).buffer, BSON_DESERIALIZE_OPTIONS) as SqliteRow;
+          after = mergeToast(after!, data);
+        }
       }
     } else if (record.tag == 'delete') {
       const result = current_data;
@@ -260,9 +300,11 @@ export class MongoBucketBatch implements BucketStorageBatch {
         existing_buckets = [];
         existing_lookups = [];
         // Log to help with debugging if there was a consistency issue
-        logger.warn(
-          `Cannot find previous record for delete on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
-        );
+        if (this.storeCurrentData) {
+          logger.warn(
+            `Cannot find previous record for delete on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
+          );
+        }
       } else {
         existing_buckets = result.buckets;
         existing_lookups = result.lookups;
@@ -270,7 +312,9 @@ export class MongoBucketBatch implements BucketStorageBatch {
     }
 
     let afterData: bson.Binary | undefined;
-    if (afterId) {
+    if (afterId != null && !this.storeCurrentData) {
+      afterData = new bson.Binary(bson.serialize({}));
+    } else if (afterId != null) {
       try {
         // This will fail immediately if the record is > 16MB.
         afterData = new bson.Binary(bson.serialize(after!));
@@ -301,7 +345,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
     }
 
     // 2. Save bucket data
-    if (beforeId != null && (afterId == null || !beforeId.equals(afterId))) {
+    if (beforeId != null && (afterId == null || !replicaIdEquals(beforeId, afterId))) {
       // Source ID updated
       if (sourceTable.syncData) {
         // Delete old record
@@ -431,7 +475,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
       };
     }
 
-    if (afterId == null || !beforeId.equals(afterId)) {
+    if (afterId == null || !replicaIdEquals(beforeId, afterId)) {
       // Either a delete (afterId == null), or replaced the old replication id
       batch.deleteCurrentData(before_key);
     }
@@ -528,14 +572,15 @@ export class MongoBucketBatch implements BucketStorageBatch {
     });
   }
 
-  async abort() {
+  async [Symbol.asyncDispose]() {
     await this.session.endSession();
+    super[Symbol.dispose]();
   }
 
   async commit(lsn: string): Promise<boolean> {
     await this.flush();
 
-    if (this.last_checkpoint_lsn != null && lsn <= this.last_checkpoint_lsn) {
+    if (this.last_checkpoint_lsn != null && lsn < this.last_checkpoint_lsn) {
       // When re-applying transactions, don't create a new checkpoint until
       // we are past the last transaction.
       logger.info(`Re-applied transaction ${lsn} - skipping checkpoint`);
@@ -546,26 +591,29 @@ export class MongoBucketBatch implements BucketStorageBatch {
       return false;
     }
 
+    const now = new Date();
+    const update: Partial<SyncRuleDocument> = {
+      last_checkpoint_lsn: lsn,
+      last_checkpoint_ts: now,
+      last_keepalive_ts: now,
+      snapshot_done: true,
+      last_fatal_error: null
+    };
+
     if (this.persisted_op != null) {
-      const now = new Date();
-      await this.db.sync_rules.updateOne(
-        {
-          _id: this.group_id
-        },
-        {
-          $set: {
-            last_checkpoint: this.persisted_op,
-            last_checkpoint_lsn: lsn,
-            last_checkpoint_ts: now,
-            last_keepalive_ts: now,
-            snapshot_done: true,
-            last_fatal_error: null
-          }
-        },
-        { session: this.session }
-      );
-      this.persisted_op = null;
+      update.last_checkpoint = this.persisted_op;
     }
+
+    await this.db.sync_rules.updateOne(
+      {
+        _id: this.group_id
+      },
+      {
+        $set: update
+      },
+      { session: this.session }
+    );
+    this.persisted_op = null;
     this.last_checkpoint_lsn = lsn;
     return true;
   }
@@ -606,6 +654,29 @@ export class MongoBucketBatch implements BucketStorageBatch {
   }
 
   async save(record: SaveOptions): Promise<FlushedResult | null> {
+    const { after, before, sourceTable, tag } = record;
+    for (const event of this.getTableEvents(sourceTable)) {
+      this.iterateListeners((cb) =>
+        cb.replicationEvent?.({
+          batch: this,
+          table: sourceTable,
+          data: {
+            op: tag,
+            after: after && util.isCompleteRow(after) ? after : undefined,
+            before: before && util.isCompleteRow(before) ? before : undefined
+          },
+          event
+        })
+      );
+    }
+
+    /**
+     * Return if the table is just an event table
+     */
+    if (!sourceTable.syncData && !sourceTable.syncParameters) {
+      return null;
+    }
+
     logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
 
     this.batch ??= new OperationBatch();
@@ -743,7 +814,7 @@ export class MongoBucketBatch implements BucketStorageBatch {
       const copy = new SourceTable(
         table.id,
         table.connectionTag,
-        table.relationId,
+        table.objectId,
         table.schema,
         table.table,
         table.replicaIdColumns,
@@ -753,6 +824,15 @@ export class MongoBucketBatch implements BucketStorageBatch {
       copy.syncParameters = table.syncParameters;
       return copy;
     });
+  }
+
+  /**
+   * Gets relevant {@link SqlEventDescriptor}s for the given {@link SourceTable}
+   */
+  protected getTableEvents(table: SourceTable): SqlEventDescriptor[] {
+    return this.sync_rules.event_descriptors.filter((evt) =>
+      [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table))
+    );
   }
 }
 

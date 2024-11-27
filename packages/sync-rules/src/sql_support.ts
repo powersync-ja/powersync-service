@@ -1,3 +1,8 @@
+import { SelectFromStatement } from 'pgsql-ast-parser';
+import { SqlRuleError } from './errors.js';
+import { ExpressionType } from './ExpressionType.js';
+import { MATCH_CONST_FALSE, MATCH_CONST_TRUE } from './sql_filters.js';
+import { evaluateOperator, getOperatorReturnType } from './sql_functions.js';
 import {
   ClauseError,
   CompiledClause,
@@ -6,16 +11,11 @@ import {
   ParameterMatchClause,
   ParameterValueClause,
   QueryParameters,
-  SqliteValue,
   RowValueClause,
+  SqliteValue,
   StaticValueClause,
   TrueIfParametersMatch
 } from './types.js';
-import { MATCH_CONST_FALSE, MATCH_CONST_TRUE } from './sql_filters.js';
-import { SqlFunction, evaluateOperator, getOperatorReturnType } from './sql_functions.js';
-import { SelectFromStatement } from 'pgsql-ast-parser';
-import { SqlRuleError } from './errors.js';
-import { ExpressionType } from './ExpressionType.js';
 
 export function isParameterMatchClause(clause: CompiledClause): clause is ParameterMatchClause {
   return Array.isArray((clause as ParameterMatchClause).inputParameters);
@@ -66,22 +66,14 @@ export function compileStaticOperator(op: string, left: RowValueClause, right: R
       const rightValue = right.evaluate(tables);
       return evaluateOperator(op, leftValue, rightValue);
     },
-    getType(schema) {
-      const typeLeft = left.getType(schema);
-      const typeRight = right.getType(schema);
-      return getOperatorReturnType(op, typeLeft, typeRight);
-    }
-  };
-}
-
-export function getOperatorFunction(op: string): SqlFunction {
-  return {
-    debugName: `operator${op}`,
-    call(...args: SqliteValue[]) {
-      return evaluateOperator(op, args[0], args[1]);
-    },
-    getReturnType(args) {
-      return getOperatorReturnType(op, args[0], args[1]);
+    getColumnDefinition(schema) {
+      const typeLeft = left.getColumnDefinition(schema)?.type ?? ExpressionType.NONE;
+      const typeRight = right.getColumnDefinition(schema)?.type ?? ExpressionType.NONE;
+      const type = getOperatorReturnType(op, typeLeft, typeRight);
+      return {
+        name: '?',
+        type
+      };
     }
   };
 }
@@ -95,8 +87,8 @@ export function andFilters(a: CompiledClause, b: CompiledClause): CompiledClause
         const bValue = sqliteBool(b.evaluate(tables));
         return sqliteBool(aValue && bValue);
       },
-      getType() {
-        return ExpressionType.INTEGER;
+      getColumnDefinition() {
+        return { name: 'and', type: ExpressionType.INTEGER };
       }
     } satisfies RowValueClause;
   }
@@ -156,8 +148,8 @@ export function orFilters(a: CompiledClause, b: CompiledClause): CompiledClause 
         const bValue = sqliteBool(b.evaluate(tables));
         return sqliteBool(aValue || bValue);
       },
-      getType() {
-        return ExpressionType.INTEGER;
+      getColumnDefinition() {
+        return { name: 'or', type: ExpressionType.INTEGER };
       }
     } satisfies RowValueClause;
   }

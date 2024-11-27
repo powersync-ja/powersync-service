@@ -3,7 +3,7 @@ import * as t from 'ts-codec';
 /**
  * Users might specify ports as strings if using YAML custom tag environment substitutions
  */
-const portCodec = t.codec<number, number | string>(
+export const portCodec = t.codec<number, number | string>(
   'Port',
   (value) => value,
   (value) => (typeof value == 'number' ? value : parseInt(value))
@@ -19,39 +19,39 @@ export const portParser = {
   })
 };
 
-export const postgresConnection = t.object({
-  type: t.literal('postgresql'),
+export const DataSourceConfig = t.object({
+  // Unique string identifier for the data source
+  type: t.string,
   /** Unique identifier for the connection - optional when a single connection is present. */
   id: t.string.optional(),
-  /** Tag used as reference in sync rules. Defaults to "default". Does not have to be unique. */
+  /** Additional meta tag for connection */
   tag: t.string.optional(),
-  uri: t.string.optional(),
-  hostname: t.string.optional(),
-  port: portCodec.optional(),
-  username: t.string.optional(),
-  password: t.string.optional(),
-  database: t.string.optional(),
-
-  /** Defaults to verify-full */
-  sslmode: t.literal('verify-full').or(t.literal('verify-ca')).or(t.literal('disable')).optional(),
-  /** Required for verify-ca, optional for verify-full */
-  cacert: t.string.optional(),
-
-  client_certificate: t.string.optional(),
-  client_private_key: t.string.optional(),
-
-  /** Expose database credentials */
-  demo_database: t.boolean.optional(),
-  /** Expose "execute-sql" */
-  debug_api: t.boolean.optional(),
-
   /**
-   * Prefix for the slot name. Defaults to "powersync_"
+   * Allows for debug query execution
    */
-  slot_name_prefix: t.string.optional()
+  debug_api: t.boolean.optional()
 });
 
-export type PostgresConnection = t.Decoded<typeof postgresConnection>;
+export type DataSourceConfig = t.Decoded<typeof DataSourceConfig>;
+
+/**
+ * Resolved version of {@link DataSourceConfig} where the optional
+ * `id` and `tag` field is now required.
+ */
+export const ResolvedDataSourceConfig = DataSourceConfig.and(
+  t.object({
+    id: t.string,
+    tag: t.string
+  })
+);
+
+export type ResolvedDataSourceConfig = t.Decoded<typeof ResolvedDataSourceConfig>;
+
+/**
+ * This essentially allows any extra fields on this type
+ */
+export const genericDataSourceConfig = DataSourceConfig.and(t.record(t.any));
+export type GenericDataSourceConfig = t.Decoded<typeof genericDataSourceConfig>;
 
 export const jwkRSA = t.object({
   kty: t.literal('RSA'),
@@ -95,7 +95,8 @@ export type StorageConfig = t.Decoded<typeof storageConfig>;
 export const powerSyncConfig = t.object({
   replication: t
     .object({
-      connections: t.array(postgresConnection).optional()
+      // This uses the generic config which may have additional fields
+      connections: t.array(genericDataSourceConfig).optional()
     })
     .optional(),
 
@@ -147,7 +148,9 @@ export const powerSyncConfig = t.object({
       disable_telemetry_sharing: t.boolean,
       internal_service_endpoint: t.string.optional()
     })
-    .optional()
+    .optional(),
+
+  parameters: t.record(t.number.or(t.string).or(t.boolean).or(t.Null)).optional()
 });
 
 export type PowerSyncConfig = t.Decoded<typeof powerSyncConfig>;

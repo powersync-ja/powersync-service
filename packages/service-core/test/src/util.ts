@@ -1,16 +1,20 @@
-import * as pgwire from '@powersync/service-jpgwire';
-import { normalizeConnection } from '@powersync/service-types';
-import * as mongo from 'mongodb';
-import { BucketStorageFactory, SyncBucketDataBatch } from '../../src/storage/BucketStorage.js';
-import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
-import { PowerSyncMongo } from '../../src/storage/mongo/db.js';
-import { escapeIdentifier } from '../../src/util/pgwire_utils.js';
-import { env } from './env.js';
 import { Metrics } from '@/metrics/Metrics.js';
-import { hashData } from '@/util/utils.js';
+import {
+  BucketStorageFactory,
+  ParseSyncRulesOptions,
+  PersistedSyncRulesContent,
+  StartBatchOptions,
+  SyncBucketDataBatch
+} from '@/storage/BucketStorage.js';
+import { MongoBucketStorage } from '@/storage/MongoBucketStorage.js';
 import { SourceTable } from '@/storage/SourceTable.js';
-import * as bson from 'bson';
+import { PowerSyncMongo } from '@/storage/mongo/db.js';
 import { SyncBucketData } from '@/util/protocol-types.js';
+import { getUuidReplicaIdentityBson, hashData } from '@/util/utils.js';
+import { SqlSyncRules } from '@powersync/service-sync-rules';
+import * as bson from 'bson';
+import * as mongo from 'mongodb';
+import { env } from './env.js';
 
 // The metrics need to be initialised before they can be used
 await Metrics.initialise({
@@ -19,8 +23,6 @@ await Metrics.initialise({
   internal_metrics_endpoint: 'unused.for.tests.com'
 });
 Metrics.getInstance().resetCounters();
-
-export const TEST_URI = env.PG_TEST_URL;
 
 export interface StorageOptions {
   /**
@@ -41,45 +43,34 @@ export const MONGO_STORAGE_FACTORY: StorageFactory = async (options?: StorageOpt
   return new MongoBucketStorage(db, { slot_name_prefix: 'test_' });
 };
 
-export async function clearTestDb(db: pgwire.PgClient) {
-  await db.query(
-    "select pg_drop_replication_slot(slot_name) from pg_replication_slots where active = false and slot_name like 'test_%'"
-  );
+export const ZERO_LSN = '0/0';
 
-  await db.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
-  try {
-    await db.query(`DROP PUBLICATION powersync`);
-  } catch (e) {
-    // Ignore
-  }
+export const PARSE_OPTIONS: ParseSyncRulesOptions = {
+  defaultSchema: 'public'
+};
 
-  await db.query(`CREATE PUBLICATION powersync FOR ALL TABLES`);
+export const BATCH_OPTIONS: StartBatchOptions = {
+  ...PARSE_OPTIONS,
+  zeroLSN: ZERO_LSN,
+  storeCurrentData: true
+};
 
-  const tableRows = pgwire.pgwireRows(
-    await db.query(`SELECT table_name FROM information_schema.tables where table_schema = 'public'`)
-  );
-  for (let row of tableRows) {
-    const name = row.table_name;
-    if (name.startsWith('test_')) {
-      await db.query(`DROP TABLE public.${escapeIdentifier(name)}`);
+export function testRules(content: string): PersistedSyncRulesContent {
+  return {
+    id: 1,
+    sync_rules_content: content,
+    slot_name: 'test',
+    parsed(options) {
+      return {
+        id: 1,
+        sync_rules: SqlSyncRules.fromYaml(content, options),
+        slot_name: 'test'
+      };
+    },
+    lock() {
+      throw new Error('Not implemented');
     }
-  }
-}
-
-export const TEST_CONNECTION_OPTIONS = normalizeConnection({
-  type: 'postgresql',
-  uri: TEST_URI,
-  sslmode: 'disable'
-});
-
-export async function connectPgWire(type?: 'replication' | 'standard') {
-  const db = await pgwire.connectPgWire(TEST_CONNECTION_OPTIONS, { type });
-  return db;
-}
-
-export function connectPgPool() {
-  const db = pgwire.connectPgWirePool(TEST_CONNECTION_OPTIONS);
-  return db;
+  };
 }
 
 export async function connectMongo() {
@@ -90,8 +81,7 @@ export async function connectMongo() {
     socketTimeoutMS: env.CI ? 15_000 : 5_000,
     serverSelectionTimeoutMS: env.CI ? 15_000 : 2_500
   });
-  const db = new PowerSyncMongo(client);
-  return db;
+  return new PowerSyncMongo(client);
 }
 
 export function makeTestTable(name: string, columns?: string[] | undefined) {
@@ -101,9 +91,9 @@ export function makeTestTable(name: string, columns?: string[] | undefined) {
     id,
     SourceTable.DEFAULT_TAG,
     relId,
-    SourceTable.DEFAULT_SCHEMA,
+    'public',
     name,
-    (columns ?? ['id']).map((column) => ({ name: column, typeOid: 25 })),
+    (columns ?? ['id']).map((column) => ({ name: column, type: 'VARCHAR', typeId: 25 })),
     true
   );
 }
@@ -148,4 +138,11 @@ function getFirst(batch: SyncBucketData[] | SyncBucketDataBatch[] | SyncBucketDa
   } else {
     return first as SyncBucketData;
   }
+}
+
+/**
+ * Replica id in the old Postgres format, for backwards-compatible tests.
+ */
+export function rid(id: string): bson.UUID {
+  return getUuidReplicaIdentityBson({ id: id }, [{ name: 'id', type: 'VARCHAR', typeId: 25 }]);
 }

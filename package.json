@@ -21,20 +21,22 @@
     "test": "pnpm run -r test"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.27.3",
-    "@types/node": "18.11.11",
+    "@changesets/cli": "^2.27.8",
+    "@types/node": "^22.5.5",
     "async": "^3.2.4",
     "bson": "^6.6.0",
     "concurrently": "^8.2.2",
     "inquirer": "^9.2.7",
-    "npm-check-updates": "^16.10.15",
-    "prettier": "^2.8.8",
+    "npm-check-updates": "^17.1.2",
+    "prettier": "^3.3.3",
     "rsocket-core": "1.0.0-alpha.3",
     "rsocket-websocket-client": "1.0.0-alpha.3",
     "semver": "^7.5.4",
     "tsc-watch": "^6.2.0",
     "ts-node-dev": "^2.0.0",
-    "typescript": "~5.2.2",
+    "typescript": "^5.6.2",
+    "vite-tsconfig-paths": "^4.3.2",
+    "vitest": "^2.1.1",
     "ws": "^8.2.3"
   }
 }

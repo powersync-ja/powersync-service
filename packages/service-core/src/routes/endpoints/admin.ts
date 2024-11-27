@@ -1,11 +1,9 @@
 import { errors, router, schema } from '@powersync/lib-services-framework';
-import { SqlSyncRules, SqliteValue, StaticSchema, isJsonValue, toSyncRulesValue } from '@powersync/service-sync-rules';
+import { SqlSyncRules, StaticSchema } from '@powersync/service-sync-rules';
 import { internal_routes } from '@powersync/service-types';
 
 import * as api from '../../api/api-index.js';
-import * as util from '../../util/util-index.js';
-
-import { PersistedSyncRulesContent } from '../../storage/BucketStorage.js';
+import * as storage from '../../storage/storage-index.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
@@ -15,8 +13,16 @@ export const executeSql = routeDefinition({
   authorize: authApi,
   validator: schema.createTsCodecValidator(internal_routes.ExecuteSqlRequest, { allowAdditional: true }),
   handler: async (payload) => {
-    const connection = payload.context.system.config.connection;
-    if (connection == null || !connection.debug_api) {
+    const {
+      params: {
+        sql: { query, args }
+      }
+    } = payload;
+
+    const apiHandler = payload.context.service_context.routerEngine!.getAPI();
+
+    const sourceConfig = await apiHandler.getSourceConfig();
+    if (!sourceConfig.debug_api) {
       return internal_routes.ExecuteSqlResponse.encode({
         results: {
           columns: [],
@@ -27,35 +33,7 @@ export const executeSql = routeDefinition({
       });
     }
 
-    const pool = payload.context.system.requirePgPool();
-
-    const { query, args } = payload.params.sql;
-
-    try {
-      const result = await pool.query({
-        statement: query,
-        params: args.map(util.autoParameter)
-      });
-
-      return internal_routes.ExecuteSqlResponse.encode({
-        success: true,
-        results: {
-          columns: result.columns.map((c) => c.name),
-          rows: result.rows.map((row) => {
-            return row.map((value) => mapColumnValue(toSyncRulesValue(value)));
-          })
-        }
-      });
-    } catch (e) {
-      return internal_routes.ExecuteSqlResponse.encode({
-        results: {
-          columns: [],
-          rows: []
-        },
-        success: false,
-        error: e.message
-      });
-    }
+    return internal_routes.ExecuteSqlResponse.encode(await apiHandler.executeQuery(query, args));
   }
 });
 
@@ -65,34 +43,45 @@ export const diagnostics = routeDefinition({
   authorize: authApi,
   validator: schema.createTsCodecValidator(internal_routes.DiagnosticsRequest, { allowAdditional: true }),
   handler: async (payload) => {
+    const { context } = payload;
+    const { service_context } = context;
     const include_content = payload.params.sync_rules_content ?? false;
-    const system = payload.context.system;
 
-    const status = await api.getConnectionStatus(system);
-    if (status == null) {
+    const apiHandler = service_context.routerEngine!.getAPI();
+
+    const status = await apiHandler.getConnectionStatus();
+    if (!status) {
       return internal_routes.DiagnosticsResponse.encode({
         connections: []
       });
     }
 
-    const { storage } = system;
-    const active = await storage.getActiveSyncRulesContent();
-    const next = await storage.getNextSyncRulesContent();
+    const {
+      storageEngine: { activeBucketStorage }
+    } = service_context;
+    const active = await activeBucketStorage.getActiveSyncRulesContent();
+    const next = await activeBucketStorage.getNextSyncRulesContent();
 
-    const active_status = await api.getSyncRulesStatus(active, system, {
+    const active_status = await api.getSyncRulesStatus(activeBucketStorage, apiHandler, active, {
       include_content,
       check_connection: status.connected,
       live_status: true
     });
 
-    const next_status = await api.getSyncRulesStatus(next, system, {
+    const next_status = await api.getSyncRulesStatus(activeBucketStorage, apiHandler, next, {
       include_content,
       check_connection: status.connected,
       live_status: true
     });
 
     return internal_routes.DiagnosticsResponse.encode({
-      connections: [status],
+      connections: [
+        {
+          ...status,
+          // TODO update this in future
+          postgres_uri: status.uri
+        }
+      ],
       active_sync_rules: active_status,
       deploying_sync_rules: next_status
     });
@@ -105,9 +94,9 @@ export const getSchema = routeDefinition({
   authorize: authApi,
   validator: schema.createTsCodecValidator(internal_routes.GetSchemaRequest, { allowAdditional: true }),
   handler: async (payload) => {
-    const system = payload.context.system;
+    const apiHandler = payload.context.service_context.routerEngine!.getAPI();
 
-    return internal_routes.GetSchemaResponse.encode(await api.getConnectionsSchema(system));
+    return internal_routes.GetSchemaResponse.encode(await api.getConnectionsSchema(apiHandler));
   }
 });
 
@@ -117,15 +106,19 @@ export const reprocess = routeDefinition({
   authorize: authApi,
   validator: schema.createTsCodecValidator(internal_routes.ReprocessRequest, { allowAdditional: true }),
   handler: async (payload) => {
-    const system = payload.context.system;
-
-    const storage = system.storage;
-    const next = await storage.getNextSyncRules();
+    const {
+      context: { service_context }
+    } = payload;
+    const {
+      storageEngine: { activeBucketStorage }
+    } = service_context;
+    const apiHandler = service_context.routerEngine!.getAPI();
+    const next = await activeBucketStorage.getNextSyncRules(apiHandler.getParseSyncRulesOptions());
     if (next != null) {
       throw new Error(`Busy processing sync rules - cannot reprocess`);
     }
 
-    const active = await storage.getActiveSyncRules();
+    const active = await activeBucketStorage.getActiveSyncRules(apiHandler.getParseSyncRulesOptions());
     if (active == null) {
       throw new errors.JourneyError({
         status: 422,
@@ -134,15 +127,18 @@ export const reprocess = routeDefinition({
       });
     }
 
-    const new_rules = await storage.updateSyncRules({
+    const new_rules = await activeBucketStorage.updateSyncRules({
       content: active.sync_rules.content
     });
+
+    const baseConfig = await apiHandler.getSourceConfig();
 
     return internal_routes.ReprocessResponse.encode({
       connections: [
         {
-          tag: system.config.connection!.tag,
-          id: system.config.connection!.id,
+          // Previously the connection was asserted with `!`
+          tag: baseConfig.tag,
+          id: baseConfig.id,
           slot_name: new_rules.slot_name
         }
       ]
@@ -156,14 +152,16 @@ export const validate = routeDefinition({
   authorize: authApi,
   validator: schema.createTsCodecValidator(internal_routes.ValidateRequest, { allowAdditional: true }),
   handler: async (payload) => {
-    const system = payload.context.system;
-
+    const {
+      context: { service_context }
+    } = payload;
     const content = payload.params.sync_rules;
+    const apiHandler = service_context.routerEngine!.getAPI();
 
-    const schemaData = await api.getConnectionsSchema(system);
+    const schemaData = await api.getConnectionsSchema(apiHandler);
     const schema = new StaticSchema(schemaData.connections);
 
-    const sync_rules: PersistedSyncRulesContent = {
+    const sync_rules: storage.PersistedSyncRulesContent = {
       // Dummy values
       id: 0,
       slot_name: '',
@@ -171,7 +169,10 @@ export const validate = routeDefinition({
       parsed() {
         return {
           ...this,
-          sync_rules: SqlSyncRules.fromYaml(content, { throwOnError: false, schema })
+          sync_rules: SqlSyncRules.fromYaml(content, {
+            ...apiHandler.getParseSyncRulesOptions(),
+            schema
+          })
         };
       },
       sync_rules_content: content,
@@ -180,19 +181,24 @@ export const validate = routeDefinition({
       }
     };
 
-    const connectionStatus = await api.getConnectionStatus(system);
-    if (connectionStatus == null) {
+    const connectionStatus = await apiHandler.getConnectionStatus();
+    if (!connectionStatus) {
       return internal_routes.ValidateResponse.encode({
         errors: [{ level: 'fatal', message: 'No connection configured' }],
         connections: []
       });
     }
 
-    const status = (await api.getSyncRulesStatus(sync_rules, system, {
-      include_content: false,
-      check_connection: connectionStatus?.connected,
-      live_status: false
-    }))!;
+    const status = (await api.getSyncRulesStatus(
+      service_context.storageEngine.activeBucketStorage,
+      apiHandler,
+      sync_rules,
+      {
+        include_content: false,
+        check_connection: connectionStatus.connected,
+        live_status: false
+      }
+    ))!;
 
     if (connectionStatus == null) {
       status.errors.push({ level: 'fatal', message: 'No connection configured' });
@@ -201,15 +207,5 @@ export const validate = routeDefinition({
     return internal_routes.ValidateResponse.encode(status);
   }
 });
-
-function mapColumnValue(value: SqliteValue) {
-  if (typeof value == 'bigint') {
-    return Number(value);
-  } else if (isJsonValue(value)) {
-    return value;
-  } else {
-    return null;
-  }
-}
 
 export const ADMIN_ROUTES = [executeSql, diagnostics, getSchema, reprocess, validate];

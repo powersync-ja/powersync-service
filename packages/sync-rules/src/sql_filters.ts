@@ -1,7 +1,9 @@
-import { Expr, ExprRef, Name, NodeLocation, QName, QNameAliased, SelectedColumn, parse } from 'pgsql-ast-parser';
+import { JSONBig } from '@powersync/service-jsonbig';
+import { Expr, ExprRef, Name, NodeLocation, QName, QNameAliased, SelectedColumn } from 'pgsql-ast-parser';
 import { nil } from 'pgsql-ast-parser/src/utils.js';
-import { ExpressionType, TYPE_NONE } from './ExpressionType.js';
+import { ExpressionType } from './ExpressionType.js';
 import { SqlRuleError } from './errors.js';
+import { REQUEST_FUNCTIONS } from './request_functions.js';
 import {
   BASIC_OPERATORS,
   OPERATOR_IN,
@@ -13,6 +15,7 @@ import {
   SQL_FUNCTIONS,
   SqlFunction,
   castOperator,
+  getOperatorFunction,
   sqliteTypeOf
 } from './sql_functions.js';
 import {
@@ -20,7 +23,6 @@ import {
   SQLITE_TRUE,
   andFilters,
   compileStaticOperator,
-  getOperatorFunction,
   isClauseError,
   isParameterMatchClause,
   isParameterValueClause,
@@ -44,8 +46,6 @@ import {
   TrueIfParametersMatch
 } from './types.js';
 import { isJsonValue } from './utils.js';
-import { JSONBig } from '@powersync/service-jsonbig';
-import { REQUEST_FUNCTIONS } from './request_functions.js';
 
 export const MATCH_CONST_FALSE: TrueIfParametersMatch = [];
 export const MATCH_CONST_TRUE: TrueIfParametersMatch = [{}];
@@ -200,8 +200,8 @@ export class SqlTools {
           evaluate(tables: QueryParameters): SqliteValue {
             return tables[table]?.[column];
           },
-          getType(schema) {
-            return schema.getType(table, column);
+          getColumnDefinition(schema) {
+            return schema.getColumn(table, column);
           }
         } satisfies RowValueClause;
       } else {
@@ -500,7 +500,8 @@ export class SqlTools {
     if (expr.type != 'ref') {
       return false;
     }
-    return this.parameter_tables.includes(expr.table?.name ?? '');
+    const tableName = expr.table?.name ?? this.default_table;
+    return this.parameter_tables.includes(tableName ?? '');
   }
 
   /**
@@ -577,21 +578,20 @@ export class SqlTools {
 
   private checkRef(table: string, ref: ExprRef) {
     if (this.schema) {
-      const type = this.schema.getType(table, ref.name);
-      if (type.typeFlags == TYPE_NONE) {
+      const type = this.schema.getColumn(table, ref.name);
+      if (type == null) {
         this.warn(`Column not found: ${ref.name}`, ref);
       }
     }
   }
 
   getParameterRefClause(expr: ExprRef): ParameterValueClause {
-    const table = expr.table!.name;
+    const table = (expr.table?.name ?? this.default_table)!;
     const column = expr.name;
     return {
       key: `${table}.${column}`,
       lookupParameterValue: (parameters) => {
-        const pt: SqliteJsonRow | undefined = (parameters as any)[table];
-        return pt?.[column] ?? null;
+        return parameters.lookup(table, column);
       },
       usesAuthenticatedRequestParameters: table == 'token_parameters',
       usesUnauthenticatedRequestParameters: table == 'user_parameters'
@@ -607,18 +607,17 @@ export class SqlTools {
    *
    * Only "value" tables are supported here, not parameter values.
    */
-  getTableName(ref: ExprRef) {
+  getTableName(ref: ExprRef): string {
     if (this.refHasSchema(ref)) {
       throw new SqlRuleError(`Specifying schema in column references is not supported`, this.sql, ref);
     }
-    if (ref.table?.name == null && this.default_table != null) {
-      return this.default_table;
-    } else if (this.value_tables.includes(ref.table?.name ?? '')) {
-      return ref.table!.name;
+    const tableName = ref.table?.name ?? this.default_table;
+    if (this.value_tables.includes(tableName ?? '')) {
+      return tableName!;
     } else if (ref.table?.name == null) {
       throw new SqlRuleError(`Table name required`, this.sql, ref);
     } else {
-      throw new SqlRuleError(`Undefined table ${ref.table?.name}`, this.sql, ref);
+      throw new SqlRuleError(`Undefined table ${tableName}`, this.sql, ref);
     }
   }
 
@@ -659,9 +658,11 @@ export class SqlTools {
           const args = argClauses.map((e) => (e as RowValueClause).evaluate(tables));
           return fnImpl.call(...args);
         },
-        getType(schema) {
-          const argTypes = argClauses.map((e) => (e as RowValueClause).getType(schema));
-          return fnImpl.getReturnType(argTypes);
+        getColumnDefinition(schema) {
+          const argTypes = argClauses.map(
+            (e) => (e as RowValueClause).getColumnDefinition(schema)?.type ?? ExpressionType.NONE
+          );
+          return { name: `${fnImpl}()`, type: fnImpl.getReturnType(argTypes) };
         }
       } satisfies RowValueClause;
     } else if (argsType == 'param') {
@@ -748,6 +749,8 @@ function staticValue(expr: Expr): SqliteValue {
     return expr.value ? SQLITE_TRUE : SQLITE_FALSE;
   } else if (expr.type == 'integer') {
     return BigInt(expr.value);
+  } else if (expr.type == 'null') {
+    return null;
   } else {
     return (expr as any).value;
   }
@@ -758,8 +761,11 @@ function staticValueClause(value: SqliteValue): StaticValueClause {
     value: value,
     // RowValueClause compatibility
     evaluate: () => value,
-    getType() {
-      return ExpressionType.fromTypeText(sqliteTypeOf(value));
+    getColumnDefinition() {
+      return {
+        name: 'literal',
+        type: ExpressionType.fromTypeText(sqliteTypeOf(value))
+      };
     },
     // ParamterValueClause compatibility
     key: JSONBig.stringify(value),

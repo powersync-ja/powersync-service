@@ -1,13 +1,19 @@
 import { router } from '@powersync/lib-services-framework';
 import type { JwtPayload } from '../auth/auth-index.js';
-import type { CorePowerSyncSystem } from '../system/CorePowerSyncSystem.js';
+import { ServiceContext } from '../system/ServiceContext.js';
+import { RouterEngine } from './RouterEngine.js';
 
+/**
+ * The {@link RouterEngine} must be provided for these routes
+ */
+export type RouterServiceContext = ServiceContext & { routerEngine: RouterEngine };
 /**
  * Common context for routes
  */
 export type Context = {
   user_id?: string;
-  system: CorePowerSyncSystem;
+
+  service_context: RouterServiceContext;
 
   token_payload?: JwtPayload;
   token_errors?: string[];
@@ -41,7 +47,6 @@ export type RequestEndpointHandlerPayload<
 };
 
 export type RouteDefinition<I = any, O = any> = RequestEndpoint<I, O>;
-
 /**
  * Helper function for making generics work well when defining routes
  */

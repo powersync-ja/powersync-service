@@ -82,26 +82,65 @@ export const ConnectionStatus = t.object({
 });
 export type ConnectionStatus = t.Encoded<typeof ConnectionStatus>;
 
-export const DatabaseSchema = t.object({
+export const ConnectionStatusV2 = t.object({
+  id: t.string,
+  uri: t.string,
+  connected: t.boolean,
+  /** Connection-level errors */
+  errors: t.array(ReplicationError)
+});
+export type ConnectionStatusV2 = t.Encoded<typeof ConnectionStatusV2>;
+
+export enum SqliteSchemaTypeText {
+  null = 'null',
+  blob = 'blob',
+  text = 'text',
+  integer = 'integer',
+  real = 'real',
+  numeric = 'numeric'
+}
+
+export const TableSchema = t.object({
   name: t.string,
-  tables: t.array(
+  columns: t.array(
     t.object({
       name: t.string,
-      columns: t.array(
-        t.object({
-          name: t.string,
-          /**
-           * Full type name, e.g. "character varying(255)[]"
-           */
-          type: t.string,
-          /**
-           * Internal postgres type, e.g. "varchar[]".
-           */
-          pg_type: t.string
-        })
-      )
+
+      /**
+       * Option 1: SQLite type flags - see ExpressionType.typeFlags.
+       * Option 2: SQLite type name in lowercase - 'text' | 'integer' | 'real' | 'numeric' | 'blob' | 'null'
+       */
+      sqlite_type: t.number.or(t.Enum(SqliteSchemaTypeText)),
+
+      /**
+       * Type name from the source database, e.g. "character varying(255)[]"
+       */
+      internal_type: t.string,
+
+      /**
+       * Description for the field if available.
+       */
+      description: t.string.optional(),
+
+      /**
+       * Full type name, e.g. "character varying(255)[]"
+       * @deprecated - use internal_type
+       */
+      type: t.string,
+
+      /**
+       * Internal postgres type, e.g. "varchar[]".
+       * @deprecated - use internal_type instead
+       */
+      pg_type: t.string
     })
   )
+});
+export type TableSchema = t.Encoded<typeof TableSchema>;
+
+export const DatabaseSchema = t.object({
+  name: t.string,
+  tables: t.array(TableSchema)
 });
 export type DatabaseSchema = t.Encoded<typeof DatabaseSchema>;
 
@@ -112,6 +151,8 @@ export const InstanceSchema = t.object({
       tag: t.string,
       schemas: t.array(DatabaseSchema)
     })
-  )
+  ),
+  defaultConnectionTag: t.string,
+  defaultSchema: t.string
 });
 export type InstanceSchema = t.Encoded<typeof InstanceSchema>;

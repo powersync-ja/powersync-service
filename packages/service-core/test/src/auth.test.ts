@@ -1,11 +1,11 @@
-import { describe, expect, test } from 'vitest';
-import { StaticKeyCollector } from '../../src/auth/StaticKeyCollector.js';
+import { CachedKeyCollector } from '@/auth/CachedKeyCollector.js';
+import { KeyResult } from '@/auth/KeyCollector.js';
+import { KeySpec } from '@/auth/KeySpec.js';
+import { KeyStore } from '@/auth/KeyStore.js';
+import { RemoteJWKSCollector } from '@/auth/RemoteJWKSCollector.js';
+import { StaticKeyCollector } from '@/auth/StaticKeyCollector.js';
 import * as jose from 'jose';
-import { KeyStore } from '../../src/auth/KeyStore.js';
-import { KeySpec } from '../../src/auth/KeySpec.js';
-import { RemoteJWKSCollector } from '../../src/auth/RemoteJWKSCollector.js';
-import { KeyResult } from '../../src/auth/KeyCollector.js';
-import { CachedKeyCollector } from '../../src/auth/CachedKeyCollector.js';
+import { describe, expect, test } from 'vitest';
 
 const publicKey: jose.JWK = {
   use: 'sig',

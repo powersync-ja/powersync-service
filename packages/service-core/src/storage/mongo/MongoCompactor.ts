@@ -4,6 +4,7 @@ import { addChecksums } from '../../util/utils.js';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey } from './models.js';
 import { CompactOptions } from '../BucketStorage.js';
+import { cacheKey } from './OperationBatch.js';
 
 interface CurrentBucketState {
   /** Bucket name */
@@ -57,7 +58,11 @@ export class MongoCompactor {
   private maxOpId: bigint | undefined;
   private buckets: string[] | undefined;
 
-  constructor(private db: PowerSyncMongo, private group_id: number, options?: MongoCompactOptions) {
+  constructor(
+    private db: PowerSyncMongo,
+    private group_id: number,
+    options?: MongoCompactOptions
+  ) {
     this.idLimitBytes = (options?.memoryLimitMB ?? DEFAULT_MEMORY_LIMIT_MB) * 1024 * 1024;
     this.moveBatchLimit = options?.moveBatchLimit ?? DEFAULT_MOVE_BATCH_LIMIT;
     this.moveBatchQueryLimit = options?.moveBatchQueryLimit ?? DEFAULT_MOVE_BATCH_QUERY_LIMIT;
@@ -89,17 +94,33 @@ export class MongoCompactor {
 
     let currentState: CurrentBucketState | null = null;
 
+    let bucketLower: string | MinKey;
+    let bucketUpper: string | MaxKey;
+
+    if (bucket == null) {
+      bucketLower = new MinKey();
+      bucketUpper = new MaxKey();
+    } else if (bucket.includes('[')) {
+      // Exact bucket name
+      bucketLower = bucket;
+      bucketUpper = bucket;
+    } else {
+      // Bucket definition name
+      bucketLower = `${bucket}[`;
+      bucketUpper = `${bucket}[\uFFFF`;
+    }
+
     // Constant lower bound
     const lowerBound: BucketDataKey = {
       g: this.group_id,
-      b: bucket ?? (new MinKey() as any),
+      b: bucketLower as string,
       o: new MinKey() as any
     };
 
     // Upper bound is adjusted for each batch
     let upperBound: BucketDataKey = {
       g: this.group_id,
-      b: bucket ?? (new MaxKey() as any),
+      b: bucketUpper as string,
       o: new MaxKey() as any
     };
 
@@ -168,7 +189,7 @@ export class MongoCompactor {
         let isPersistentPut = doc.op == 'PUT';
 
         if (doc.op == 'REMOVE' || doc.op == 'PUT') {
-          const key = `${doc.table}/${doc.row_id}/${doc.source_table}/${doc.source_key?.toHexString()}`;
+          const key = `${doc.table}/${doc.row_id}/${cacheKey(doc.source_table!, doc.source_key!)}`;
           const targetOp = currentState.seen.get(key);
           if (targetOp) {
             // Will convert to MOVE, so don't count as PUT

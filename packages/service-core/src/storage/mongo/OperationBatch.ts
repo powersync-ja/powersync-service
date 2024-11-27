@@ -1,8 +1,9 @@
-import * as bson from 'bson';
 import { ToastableSqliteRow } from '@powersync/service-sync-rules';
+import * as bson from 'bson';
 
-import * as util from '../../util/util-index.js';
 import { SaveOptions } from '../BucketStorage.js';
+import { isUUID } from './util.js';
+import { ReplicaId } from './models.js';
 
 /**
  * Maximum number of operations in a batch.
@@ -42,7 +43,16 @@ export class OperationBatch {
     return this.batch.length >= MAX_BATCH_COUNT || this.currentSize > MAX_RECORD_BATCH_SIZE;
   }
 
-  *batched(sizes: Map<string, number>): Generator<RecordOperation[]> {
+  /**
+   *
+   * @param sizes Map of source key to estimated size of the current_data document, or undefined if current_data is not persisted.
+   *
+   */
+  *batched(sizes: Map<string, number> | undefined): Generator<RecordOperation[]> {
+    if (sizes == null) {
+      yield this.batch;
+      return;
+    }
     let currentBatch: RecordOperation[] = [];
     let currentBatchSize = 0;
     for (let op of this.batch) {
@@ -63,18 +73,15 @@ export class OperationBatch {
 }
 
 export class RecordOperation {
-  public readonly afterId: bson.UUID | null;
-  public readonly beforeId: bson.UUID;
+  public readonly afterId: ReplicaId | null;
+  public readonly beforeId: ReplicaId;
   public readonly internalBeforeKey: string;
   public readonly internalAfterKey: string | null;
   public readonly estimatedSize: number;
 
   constructor(public readonly record: SaveOptions) {
-    const after = record.after;
-    const afterId = after ? util.getUuidReplicaIdentityBson(after, record.sourceTable.replicaIdColumns!) : null;
-    const beforeId = record.before
-      ? util.getUuidReplicaIdentityBson(record.before, record.sourceTable.replicaIdColumns!)
-      : afterId!;
+    const afterId = record.afterReplicaId ?? null;
+    const beforeId = record.beforeReplicaId ?? record.afterReplicaId;
     this.afterId = afterId;
     this.beforeId = beforeId;
     this.internalBeforeKey = cacheKey(record.sourceTable.id, beforeId);
@@ -84,8 +91,17 @@ export class RecordOperation {
   }
 }
 
-export function cacheKey(table: bson.ObjectId, id: bson.UUID) {
-  return `${table.toHexString()}.${id.toHexString()}`;
+/**
+ * In-memory cache key - must not be persisted.
+ */
+export function cacheKey(table: bson.ObjectId, id: ReplicaId) {
+  if (isUUID(id)) {
+    return `${table.toHexString()}.${id.toHexString()}`;
+  } else if (typeof id == 'string') {
+    return `${table.toHexString()}.${id}`;
+  } else {
+    return `${table.toHexString()}.${(bson.serialize({ id: id }) as Buffer).toString('base64')}`;
+  }
 }
 
 /**

@@ -1,0 +1,49 @@
+{
+  "name": "@powersync/service-module-mysql",
+  "repository": "https://github.com/powersync-ja/powersync-service",
+  "types": "dist/index.d.ts",
+  "version": "0.0.1",
+  "license": "FSL-1.1-Apache-2.0",
+  "main": "dist/index.js",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "build:tests": "tsc -b test/tsconfig.json",
+    "clean": "rm -rf ./dist && tsc -b --clean",
+    "test": "vitest"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./types": {
+      "import": "./dist/types/types.js",
+      "require": "./dist/types/types.js",
+      "default": "./dist/types/types.js"
+    }
+  },
+  "dependencies": {
+    "@powersync/lib-services-framework": "workspace:*",
+    "@powersync/service-core": "workspace:*",
+    "@powersync/service-sync-rules": "workspace:*",
+    "@powersync/service-types": "workspace:*",
+    "@powersync/service-jsonbig": "workspace:*",
+    "@powersync/mysql-zongji": "^0.1.0",
+    "semver": "^7.5.4",
+    "async": "^3.2.4",
+    "mysql2": "^3.11.0",
+    "ts-codec": "^1.2.2",
+    "uri-js": "^4.4.1",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/semver": "^7.5.4",
+    "@types/async": "^3.2.24",
+    "@types/uuid": "^9.0.4"
+  }
+}

@@ -1,5 +1,5 @@
 import { ColumnDefinition, TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from './ExpressionType.js';
-import { SchemaGenerator } from './SchemaGenerator.js';
+import { GenerateSchemaOptions, SchemaGenerator } from './SchemaGenerator.js';
 import { SqlSyncRules } from './SqlSyncRules.js';
 import { SourceSchema } from './types.js';
 
@@ -47,12 +47,12 @@ export class TsSchemaGenerator extends SchemaGenerator {
     }
   }
 
-  generate(source: SqlSyncRules, schema: SourceSchema): string {
+  generate(source: SqlSyncRules, schema: SourceSchema, options?: GenerateSchemaOptions): string {
     const tables = super.getAllTables(source, schema);
 
     return `${this.generateImports()}
 
-${tables.map((table) => this.generateTable(table.name, table.columns)).join('\n\n')}
+${tables.map((table) => this.generateTable(table.name, table.columns, options)).join('\n\n')}
 
 export const AppSchema = new Schema({
   ${tables.map((table) => table.name).join(',\n  ')}
@@ -81,11 +81,28 @@ ${this.generateTypeExports()}`;
     }
   }
 
-  private generateTable(name: string, columns: ColumnDefinition[]): string {
+  private generateTable(name: string, columns: ColumnDefinition[], options?: GenerateSchemaOptions): string {
+    const generated = columns.map((c, i) => {
+      const last = i == columns.length - 1;
+      const base = this.generateColumn(c);
+      let withFormatting: string;
+      if (last) {
+        withFormatting = `    ${base}`;
+      } else {
+        withFormatting = `    ${base},`;
+      }
+
+      if (options?.includeTypeComments && c.originalType != null) {
+        return `${withFormatting} // ${c.originalType}`;
+      } else {
+        return withFormatting;
+      }
+    });
+
     return `const ${name} = new Table(
   {
     // id column (text) is automatically included
-    ${columns.map((c) => this.generateColumn(c)).join(',\n    ')}
+${generated.join('\n')}
   },
   { indexes: {} }
 );`;

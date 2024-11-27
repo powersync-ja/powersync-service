@@ -28,8 +28,6 @@
     "@types/uuid": "^9.0.4",
     "@types/ws": "~8.2.0",
     "bson": "^6.6.0",
-    "rsocket-websocket-client": "1.0.0-alpha.3",
-    "typescript": "~5.2.2",
-    "vitest": "^0.34.6"
+    "rsocket-websocket-client": "1.0.0-alpha.3"
   }
 }

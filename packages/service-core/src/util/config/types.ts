@@ -1,4 +1,6 @@
-import { NormalizedPostgresConnection, configFile } from '@powersync/service-types';
+import { configFile } from '@powersync/service-types';
+import { PowerSyncConfig } from '@powersync/service-types/src/config/PowerSyncConfig.js';
+import { CompoundKeyCollector } from '../../auth/CompoundKeyCollector.js';
 import { KeySpec } from '../../auth/KeySpec.js';
 import { KeyStore } from '../../auth/KeyStore.js';
 
@@ -20,8 +22,6 @@ export type MigrationContext = {
 
 export type Runner = (config: RunnerConfig) => Promise<void>;
 
-export type ResolvedConnection = configFile.PostgresConnection & NormalizedPostgresConnection;
-
 export type SyncRulesConfig = {
   present: boolean;
   content?: string;
@@ -29,7 +29,8 @@ export type SyncRulesConfig = {
 };
 
 export type ResolvedPowerSyncConfig = {
-  connection?: ResolvedConnection;
+  base_config: PowerSyncConfig;
+  connections?: configFile.DataSourceConfig[];
   storage: configFile.StorageConfig;
   dev: {
     demo_auth: boolean;
@@ -41,7 +42,7 @@ export type ResolvedPowerSyncConfig = {
      */
     dev_key?: KeySpec;
   };
-  client_keystore: KeyStore;
+  client_keystore: KeyStore<CompoundKeyCollector>;
   /**
    * Keystore for development tokens.
    */
@@ -63,4 +64,5 @@ export type ResolvedPowerSyncConfig = {
 
   /** Prefix for postgres replication slot names. May eventually be connection-specific. */
   slot_name_prefix: string;
+  parameters: Record<string, number | string | boolean | null>;
 };

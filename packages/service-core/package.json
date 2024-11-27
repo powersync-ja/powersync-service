@@ -12,7 +12,7 @@
   "scripts": {
     "build": "tsc -b",
     "build:tests": "tsc -b test/tsconfig.json",
-    "test": "vitest --no-threads",
+    "test": "vitest",
     "clean": "rm -rf ./dist && tsc -b --clean"
   },
   "dependencies": {
@@ -23,7 +23,6 @@
     "@opentelemetry/resources": "^1.24.1",
     "@opentelemetry/sdk-metrics": "1.24.1",
     "@powersync/lib-services-framework": "workspace:*",
-    "@powersync/service-jpgwire": "workspace:*",
     "@powersync/service-jsonbig": "workspace:*",
     "@powersync/service-rsocket-router": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",
@@ -40,8 +39,8 @@
     "lru-cache": "^10.2.2",
     "mongodb": "^6.7.0",
     "node-fetch": "^3.3.2",
-    "pgwire": "github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87",
     "ts-codec": "^1.2.2",
+    "uri-js": "^4.4.1",
     "uuid": "^9.0.1",
     "winston": "^3.13.0",
     "yaml": "^2.3.2"
@@ -51,9 +50,6 @@
     "@types/lodash": "^4.17.5",
     "@types/uuid": "^9.0.4",
     "fastify": "4.23.2",
-    "fastify-plugin": "^4.5.1",
-    "typescript": "^5.2.2",
-    "vite-tsconfig-paths": "^4.3.2",
-    "vitest": "^0.34.6"
+    "fastify-plugin": "^4.5.1"
   }
 }

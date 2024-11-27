@@ -9,7 +9,7 @@ import { logger } from '@powersync/lib-services-framework';
  * replicates those sync rules at a time.
  */
 export class MongoSyncRulesLock implements ReplicationLock {
-  private readonly refreshInterval: NodeJS.Timer;
+  private readonly refreshInterval: NodeJS.Timeout;
 
   static async createLock(db: PowerSyncMongo, sync_rules: PersistedSyncRulesContent): Promise<MongoSyncRulesLock> {
     const lockId = crypto.randomBytes(8).toString('hex');
@@ -30,12 +30,16 @@ export class MongoSyncRulesLock implements ReplicationLock {
     );
 
     if (doc == null) {
-      throw new Error(`Replication slot ${sync_rules.slot_name} is locked by another process`);
+      throw new Error(`Sync rules: ${sync_rules.id} have been locked by another process for replication.`);
     }
     return new MongoSyncRulesLock(db, sync_rules.id, lockId);
   }
 
-  constructor(private db: PowerSyncMongo, public sync_rules_id: number, private lock_id: string) {
+  constructor(
+    private db: PowerSyncMongo,
+    public sync_rules_id: number,
+    private lock_id: string
+  ) {
     this.refreshInterval = setInterval(async () => {
       try {
         await this.refresh();
