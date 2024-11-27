@@ -24,13 +24,8 @@ export class KeySpec {
   options: KeyOptions;
 
   static async importKey(key: jose.JWK, options?: KeyOptions): Promise<KeySpec> {
-    let normalizedKey: jose.JWK = {
-      ...key,
-      // treat '' as wildcard kid
-      kid: key.kid == '' ? undefined : key.kid
-    };
-    const parsed = (await jose.importJWK(normalizedKey)) as jose.KeyLike;
-    return new KeySpec(normalizedKey, parsed, options);
+    const parsed = (await jose.importJWK(key)) as jose.KeyLike;
+    return new KeySpec(key, parsed, options);
   }
 
   constructor(source: jose.JWK, key: jose.KeyLike, options?: KeyOptions) {
