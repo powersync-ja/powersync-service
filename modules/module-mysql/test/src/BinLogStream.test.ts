@@ -1,6 +1,5 @@
-import { test_utils } from '@powersync/service-core-tests';
-// import { MONGO_STORAGE_FACTORY } from '@core-tests/util.js';
 import { BucketStorageFactory, Metrics } from '@powersync/service-core';
+import { test_utils } from '@powersync/service-core-tests';
 import { v4 as uuid } from 'uuid';
 import { describe, expect, test } from 'vitest';
 import { binlogStreamTest } from './BinlogStreamUtils.js';

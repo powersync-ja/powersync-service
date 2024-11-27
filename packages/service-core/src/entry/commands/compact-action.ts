@@ -1,8 +1,11 @@
 import { Command } from 'commander';
 
-import { logger } from '@powersync/lib-services-framework';
+import { container, logger } from '@powersync/lib-services-framework';
 import * as v8 from 'v8';
+import * as system from '../../system/system-index.js';
 import * as utils from '../../util/util-index.js';
+
+import { modules } from '../../index.js';
 import { extractRunnerOptions, wrapConfigCommand } from './config-command.js';
 
 const COMMAND_NAME = 'compact';
@@ -31,38 +34,38 @@ export function registerCompactAction(program: Command) {
     if (buckets != null) {
       logger.info('Compacting storage for all buckets...');
     } else {
-      logger.info(`Compacting storage for ${buckets.join(', ')}...`);
+      logger.info(`Compacting storage for ${buckets?.join(', ')}...`);
     }
-    const runnerConfig = extractRunnerOptions(options);
-    const configuration = await utils.loadConfig(runnerConfig);
-    logger.info('Successfully loaded configuration...');
-    const { storage: storageConfig } = configuration;
+    const config = await utils.loadConfig(extractRunnerOptions(options));
+    const serviceContext = new system.ServiceContextContainer(config);
+
+    // Register modules in order to allow custom module compacting
+    const moduleManager = container.getImplementation(modules.ModuleManager);
+    await moduleManager.initialize(serviceContext);
+
     logger.info('Connecting to storage...');
 
-    // TODO fix this
-    // TODO improve this for other storage types
-    // const psdb = storage.createPowerSyncMongo(storageConfig as configFile.MongoStorageConfig);
-    // const client = psdb.client;
-    // await client.connect();
-    // try {
-    //   const bucketStorage = new storage.MongoBucketStorage(psdb, {
-    //     slot_name_prefix: configuration.slot_name_prefix
-    //   });
-    //   const active = await bucketStorage.getActiveSyncRulesContent();
-    //   if (active == null) {
-    //     logger.info('No active instance to compact');
-    //     return;
-    //   }
-    //   using p = bucketStorage.getInstance(active);
-    //   logger.info('Performing compaction...');
-    //   await p.compact({ memoryLimitMB: COMPACT_MEMORY_LIMIT_MB, compactBuckets: buckets });
-    //   logger.info('Successfully compacted storage.');
-    // } catch (e) {
-    //   logger.error(`Failed to compact: ${e.toString()}`);
-    //   process.exit(1);
-    // } finally {
-    //   await client.close();
-    //   process.exit(0);
-    // }
+    try {
+      // Start the storage engine in order to create the appropriate BucketStorage
+      await serviceContext.lifeCycleEngine.start();
+      const bucketStorage = serviceContext.storageEngine.activeBucketStorage;
+
+      const active = await bucketStorage.getActiveSyncRulesContent();
+      if (active == null) {
+        logger.info('No active instance to compact');
+        return;
+      }
+      using p = bucketStorage.getInstance(active);
+      logger.info('Performing compaction...');
+      await p.compact({ memoryLimitMB: COMPACT_MEMORY_LIMIT_MB, compactBuckets: buckets });
+      logger.info('Successfully compacted storage.');
+    } catch (e) {
+      logger.error(`Failed to compact: ${e.toString()}`);
+      // Indirectly triggers lifeCycleEngine.stop
+      process.exit(1);
+    } finally {
+      // Indirectly triggers lifeCycleEngine.stop
+      process.exit(0);
+    }
   });
 }
