@@ -65,8 +65,13 @@ export class CompoundConfigCollector {
 
     const inputKeys = baseConfig.client_auth?.jwks?.keys ?? [];
     const staticCollector = await auth.StaticKeyCollector.importKeys(inputKeys);
-
     collectors.add(staticCollector);
+
+    if (baseConfig.client_auth?.supabase) {
+      // Re-use the same static keys, but with different audience and timeout
+      // for Supabase.
+      collectors.add(await auth.StaticSupabaseKeyCollector.importKeys(inputKeys));
+    }
 
     let jwks_uris = baseConfig.client_auth?.jwks_uri ?? [];
     if (typeof jwks_uris == 'string') {
