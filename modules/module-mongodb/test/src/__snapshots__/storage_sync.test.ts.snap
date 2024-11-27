@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`sync - mongodb > compacting data - invalidate checkpoint 1`] = `
+exports[`Mongo Sync Bucket Storage > compacting data - invalidate checkpoint 1`] = `
 [
   {
     "checkpoint": {
@@ -15,10 +15,10 @@ exports[`sync - mongodb > compacting data - invalidate checkpoint 1`] = `
       "write_checkpoint": undefined,
     },
   },
-]
+]f
 `;
 
-exports[`sync - mongodb > compacting data - invalidate checkpoint 2`] = `
+exports[`Mongo Sync Bucket Storage > compacting data - invalidate checkpoint 2`] = `
 [
   {
     "data": {
@@ -85,7 +85,7 @@ exports[`sync - mongodb > compacting data - invalidate checkpoint 2`] = `
 ]
 `;
 
-exports[`sync - mongodb > expired token 1`] = `
+exports[`Mongo Sync Bucket Storage > expired token 1`] = `
 [
   {
     "token_expires_in": 0,
@@ -93,7 +93,7 @@ exports[`sync - mongodb > expired token 1`] = `
 ]
 `;
 
-exports[`sync - mongodb > expiring token 1`] = `
+exports[`Mongo Sync Bucket Storage > expiring token 1`] = `
 [
   {
     "checkpoint": {
@@ -116,7 +116,7 @@ exports[`sync - mongodb > expiring token 1`] = `
 ]
 `;
 
-exports[`sync - mongodb > expiring token 2`] = `
+exports[`Mongo Sync Bucket Storage > expiring token 2`] = `
 [
   {
     "token_expires_in": 0,
@@ -124,7 +124,7 @@ exports[`sync - mongodb > expiring token 2`] = `
 ]
 `;
 
-exports[`sync - mongodb > sync global data 1`] = `
+exports[`Mongo Sync Bucket Storage > sync global data 1`] = `
 [
   {
     "checkpoint": {
@@ -175,7 +175,7 @@ exports[`sync - mongodb > sync global data 1`] = `
 ]
 `;
 
-exports[`sync - mongodb > sync legacy non-raw data 1`] = `
+exports[`Mongo Sync Bucket Storage > sync legacy non-raw data 1`] = `
 [
   {
     "checkpoint": {
@@ -222,7 +222,7 @@ exports[`sync - mongodb > sync legacy non-raw data 1`] = `
 ]
 `;
 
-exports[`sync - mongodb > sync updates to global data 1`] = `
+exports[`Mongo Sync Bucket Storage > sync updates to global data 1`] = `
 [
   {
     "checkpoint": {
@@ -245,7 +245,7 @@ exports[`sync - mongodb > sync updates to global data 1`] = `
 ]
 `;
 
-exports[`sync - mongodb > sync updates to global data 2`] = `
+exports[`Mongo Sync Bucket Storage > sync updates to global data 2`] = `
 [
   {
     "checkpoint_diff": {
@@ -288,7 +288,7 @@ exports[`sync - mongodb > sync updates to global data 2`] = `
 ]
 `;
 
-exports[`sync - mongodb > sync updates to global data 3`] = `
+exports[`Mongo Sync Bucket Storage > sync updates to global data 3`] = `
 [
   {
     "checkpoint_diff": {

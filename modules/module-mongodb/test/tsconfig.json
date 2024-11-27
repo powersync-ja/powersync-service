@@ -24,5 +24,9 @@
     {
       "path": "../../../packages/service-core/"
     }
+    ,
+    {
+      "path": "../../../packages/service-core-tests/"
+    }
   ]
 }

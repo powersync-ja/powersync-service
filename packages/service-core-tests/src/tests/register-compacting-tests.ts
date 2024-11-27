@@ -15,7 +15,7 @@ const TEST_TABLE = test_utils.makeTestTable('test', ['id']);
  * compactTests(() => new MongoStorageFactory(), { clearBatchLimit: 2, moveBatchLimit: 1, moveBatchQueryLimit: 1 }));
  * ```
  */
-export function registerCompactTests(generateStorageFactory: test_utils.StorageFactory, compactOptions: storage.CompactOptions) {
+export function registerCompactTests<CompactOptions extends storage.CompactOptions = storage.CompactOptions> (generateStorageFactory: test_utils.StorageFactory, compactOptions: CompactOptions) {
   test('compacting (1)', async () => {
     const sync_rules = test_utils.testRules(`
 bucket_definitions:

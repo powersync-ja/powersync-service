@@ -1,10 +1,17 @@
 import { OplogEntry } from '@powersync/service-core';
-import { describe, expect, test } from 'vitest';
+import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
-// This tests the reduceBucket function.
-// While this function is not used directly in the service implementation,
-// it is an important part of validating consistency in other tests.
-describe('bucket validation', () => {
+
+/**
+ * This tests the reduceBucket function.
+ * While this function is not used directly in the service implementation,
+ * it is an important part of validating consistency in other tests.
+ * @example
+ * ```TypeScript
+ * describe('bucket validation', registerBucketValidationTests);
+ * ```
+ */
+export function registerBucketValidationTests() {
   const ops1: OplogEntry[] = [
     {
       op_id: '1',
@@ -138,4 +145,6 @@ describe('bucket validation', () => {
 
     test_utils.validateBucket(bucket);
   });
-});
+}
+
+

@@ -19,7 +19,7 @@ bucket_definitions:
       - SELECT * FROM test
     `;
 
-export const SYNC_SNAPSHOT_PATH = path.resolve(__dirname, '../__snapshots/sync.test.ts.snap');
+export const SYNC_SNAPSHOT_PATH = path.resolve(__dirname, '../__snapshots/sync.test.js.snap');
 
 /**
  * @example
@@ -80,7 +80,7 @@ export function registerSyncTests(factory: test_utils.StorageFactory) {
     });
 
     const lines = await consumeCheckpointLines(stream);
-    expect(lines).toMatchFileSnapshot(SYNC_SNAPSHOT_PATH);
+    expect(lines).toMatchSnapshot();
   });
 
   test('sync legacy non-raw data', async () => {
@@ -122,7 +122,7 @@ export function registerSyncTests(factory: test_utils.StorageFactory) {
     });
 
     const lines = await consumeCheckpointLines(stream);
-    expect(lines).toMatchFileSnapshot(SYNC_SNAPSHOT_PATH);
+    expect(lines).toMatchSnapshot();
     // Specifically check the number - this is the important part of the test
     expect(lines[1].data.data[0].data.large_num).toEqual(12345678901234567890n);
   });
@@ -151,7 +151,7 @@ export function registerSyncTests(factory: test_utils.StorageFactory) {
     });
 
     const lines = await consumeCheckpointLines(stream);
-    expect(lines).toMatchFileSnapshot(SYNC_SNAPSHOT_PATH);
+    expect(lines).toMatchSnapshot();
   });
 
   test('sync updates to global data', async () => {
@@ -178,7 +178,7 @@ export function registerSyncTests(factory: test_utils.StorageFactory) {
     });
     const iter = stream[Symbol.asyncIterator]();
 
-    expect(await getCheckpointLines(iter)).toMatchFileSnapshot(SYNC_SNAPSHOT_PATH);
+    expect(await getCheckpointLines(iter)).toMatchSnapshot();
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
@@ -194,7 +194,7 @@ export function registerSyncTests(factory: test_utils.StorageFactory) {
       await batch.commit('0/1');
     });
 
-    expect(await getCheckpointLines(iter)).toMatchFileSnapshot(SYNC_SNAPSHOT_PATH);
+    expect(await getCheckpointLines(iter)).toMatchSnapshot();
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
@@ -210,7 +210,7 @@ export function registerSyncTests(factory: test_utils.StorageFactory) {
       await batch.commit('0/2');
     });
 
-    expect(await getCheckpointLines(iter)).toMatchFileSnapshot(SYNC_SNAPSHOT_PATH);
+    expect(await getCheckpointLines(iter)).toMatchSnapshot();
 
     iter.return?.();
   });
@@ -242,10 +242,10 @@ export function registerSyncTests(factory: test_utils.StorageFactory) {
     const iter = stream[Symbol.asyncIterator]();
 
     const checkpoint = await getCheckpointLines(iter);
-    expect(checkpoint).toMatchFileSnapshot(SYNC_SNAPSHOT_PATH);
+    expect(checkpoint).toMatchSnapshot();
 
     const expLines = await getCheckpointLines(iter);
-    expect(expLines).toMatchFileSnapshot(SYNC_SNAPSHOT_PATH);
+    expect(expLines).toMatchSnapshot();
   });
 
   test('compacting data - invalidate checkpoint', async () => {
@@ -304,7 +304,7 @@ export function registerSyncTests(factory: test_utils.StorageFactory) {
 
     // Only consume the first "checkpoint" message, and pause before receiving data.
     const lines = await consumeIterator(iter, { consume: false, isDone: (line) => (line as any)?.checkpoint != null });
-    expect(lines).toMatchFileSnapshot(SYNC_SNAPSHOT_PATH);
+    expect(lines).toMatchSnapshot();
     expect(lines[0]).toEqual({
       checkpoint: expect.objectContaining({
         last_op_id: '2'
@@ -345,7 +345,7 @@ export function registerSyncTests(factory: test_utils.StorageFactory) {
     // Snapshot test checks for changes in general.
     // The tests after that documents the specific things we're looking for
     // in this test.
-    expect(lines2).toMatchFileSnapshot(SYNC_SNAPSHOT_PATH);
+    expect(lines2).toMatchSnapshot();
 
     expect(lines2[0]).toEqual({
       data: expect.objectContaining({
