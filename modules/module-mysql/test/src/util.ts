@@ -22,7 +22,6 @@ Metrics.getInstance().resetCounters();
 
 export type StorageFactory = () => Promise<BucketStorageFactory>;
 
-
 export const INITIALIZED_MONGO_STORAGE_FACTORY: StorageFactory = async () => {
   const db = await connectMongo();
 

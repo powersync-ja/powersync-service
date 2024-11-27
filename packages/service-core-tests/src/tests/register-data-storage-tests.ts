@@ -1453,6 +1453,45 @@ const bucketStorage = factory.getInstance(sync_rules);
     expect(isDisposed).true;
   });
 
+  test('batch should be disposed automatically', async () => {
+    const sync_rules = test_utils.testRules(`
+      bucket_definitions:
+        global:
+          data: [] 
+          `);
+
+    using factory = await generateStorageFactory();
+    const bucketStorage = factory.getInstance(sync_rules);
+
+    let isDisposed = false;
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      batch.registerListener({
+        disposed: () => {
+          isDisposed = true;
+        }
+      });
+    });
+    expect(isDisposed).true;
+
+    isDisposed = false;
+    let errorCaught = false;
+    try {
+      await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+        batch.registerListener({
+          disposed: () => {
+            isDisposed = true;
+          }
+        });
+        throw new Error(`Testing exceptions`);
+      });
+    } catch (ex) {
+      errorCaught = true;
+      expect(ex.message.includes('Testing')).true;
+    }
+    expect(errorCaught).true;
+    expect(isDisposed).true;
+  });
+
   test('empty storage metrics', async () => {
     using f = await generateStorageFactory({ dropAll: true });
     const metrics = await f.getStorageMetrics();

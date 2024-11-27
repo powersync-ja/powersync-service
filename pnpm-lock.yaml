@@ -50,6 +50,12 @@ importers:
       typescript:
         specifier: ^5.6.2
         version: 5.6.2
+      vite-tsconfig-paths:
+        specifier: ^4.3.2
+        version: 4.3.2(typescript@5.6.2)(vite@5.3.3(@types/node@22.5.5))
+      vitest:
+        specifier: ^2.1.1
+        version: 2.1.1(@types/node@22.5.5)
       ws:
         specifier: ^8.2.3
         version: 8.18.0
@@ -136,15 +142,6 @@ importers:
       '@types/uuid':
         specifier: ^9.0.4
         version: 9.0.8
-      typescript:
-        specifier: ^5.2.2
-        version: 5.6.2
-      vite-tsconfig-paths:
-        specifier: ^4.3.2
-        version: 4.3.2(typescript@5.6.2)(vite@5.3.3(@types/node@22.5.5))
-      vitest:
-        specifier: ^2.1.1
-        version: 2.1.1(@types/node@22.5.5)
 
   modules/module-mysql:
     dependencies:
@@ -152,8 +149,8 @@ importers:
         specifier: workspace:*
         version: link:../../libs/lib-services
       '@powersync/mysql-zongji':
-        specifier: 0.0.0-dev-20241031142605
-        version: 0.0.0-dev-20241031142605
+        specifier: ^0.1.0
+        version: 0.1.0
       '@powersync/service-core':
         specifier: workspace:*
         version: link:../../packages/service-core
@@ -200,15 +197,6 @@ importers:
       '@types/uuid':
         specifier: ^9.0.4
         version: 9.0.8
-      typescript:
-        specifier: ^5.5.4
-        version: 5.6.2
-      vite-tsconfig-paths:
-        specifier: ^4.3.2
-        version: 4.3.2(typescript@5.6.2)(vite@5.3.3(@types/node@22.5.5))
-      vitest:
-        specifier: ^2.1.1
-        version: 2.1.1(@types/node@22.5.5)
 
   modules/module-postgres:
     dependencies:
@@ -255,15 +243,6 @@ importers:
       '@types/uuid':
         specifier: ^9.0.4
         version: 9.0.8
-      typescript:
-        specifier: ^5.6.2
-        version: 5.6.2
-      vite-tsconfig-paths:
-        specifier: ^4.3.2
-        version: 4.3.2(typescript@5.6.2)(vite@5.3.3(@types/node@22.5.5))
-      vitest:
-        specifier: ^2.1.1
-        version: 2.1.1(@types/node@22.5.5)
 
   packages/jpgwire:
     dependencies:
@@ -319,12 +298,6 @@ importers:
       rsocket-websocket-client:
         specifier: 1.0.0-alpha.3
         version: 1.0.0-alpha.3
-      typescript:
-        specifier: ^5.6.2
-        version: 5.6.2
-      vitest:
-        specifier: ^2.1.1
-        version: 2.1.1(@types/node@22.5.5)
 
   packages/service-core:
     dependencies:
@@ -425,15 +398,6 @@ importers:
       fastify-plugin:
         specifier: ^4.5.1
         version: 4.5.1
-      typescript:
-        specifier: ^5.6.2
-        version: 5.6.2
-      vite-tsconfig-paths:
-        specifier: ^4.3.2
-        version: 4.3.2(typescript@5.6.2)(vite@5.3.3(@types/node@22.5.5))
-      vitest:
-        specifier: ^2.1.1
-        version: 2.1.1(@types/node@22.5.5)
 
   packages/service-core-tests:
     dependencies:
@@ -605,12 +569,6 @@ importers:
       ts-node:
         specifier: ^10.9.1
         version: 10.9.2(@types/node@22.5.5)(typescript@5.6.2)
-      typescript:
-        specifier: ^5.6.2
-        version: 5.6.2
-      vitest:
-        specifier: ^2.1.1
-        version: 2.1.1(@types/node@22.5.5)
 
   test-client:
     dependencies:
@@ -1221,8 +1179,8 @@ packages:
     resolution: {integrity: sha512-UA91GwWPhFExt3IizW6bOeY/pQ0BkuNwKjk9iQW9KqxluGCrg4VenZ0/L+2Y0+ZOtme72EVvg6v0zo3AMQRCeA==}
     engines: {node: '>=12'}
 
-  '@powersync/mysql-zongji@0.0.0-dev-20241031142605':
-    resolution: {integrity: sha512-LATx5xfJjXcbvW3s9yCy2tlhhsgOuaUoUk0/EH67sgbTQQFZTfBVO/2gzdJH5GvGgONdqoPBQ7skWNwBF/dEXw==}
+  '@powersync/mysql-zongji@0.1.0':
+    resolution: {integrity: sha512-2GjOxVws+wtbb+xFUJe4Ozzkp/f0Gsna0fje9art76bmz6yfLCW4K3Mf2/M310xMnAIp8eP9hsJ6DYwwZCo1RA==}
     engines: {node: '>=20.0.0'}
 
   '@prisma/instrumentation@5.16.1':
@@ -4622,7 +4580,7 @@ snapshots:
       '@pnpm/network.ca-file': 1.0.2
       config-chain: 1.1.13
 
-  '@powersync/mysql-zongji@0.0.0-dev-20241031142605':
+  '@powersync/mysql-zongji@0.1.0':
     dependencies:
       '@vlasky/mysql': 2.18.6
       big-integer: 1.6.51
@@ -4920,7 +4878,7 @@ snapshots:
 
   agent-base@6.0.2:
     dependencies:
-      debug: 4.3.5(supports-color@5.5.0)
+      debug: 4.3.7
     transitivePeerDependencies:
       - supports-color
 
@@ -7084,7 +7042,7 @@ snapshots:
   tuf-js@1.1.7:
     dependencies:
       '@tufjs/models': 1.0.4
-      debug: 4.3.5(supports-color@5.5.0)
+      debug: 4.3.7
       make-fetch-happen: 11.1.1
     transitivePeerDependencies:
       - supports-color
@@ -7183,7 +7141,7 @@ snapshots:
 
   vite-tsconfig-paths@4.3.2(typescript@5.6.2)(vite@5.3.3(@types/node@22.5.5)):
     dependencies:
-      debug: 4.3.5(supports-color@5.5.0)
+      debug: 4.3.7
       globrex: 0.1.2
       tsconfck: 3.1.1(typescript@5.6.2)
     optionalDependencies:

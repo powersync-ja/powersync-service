@@ -23,7 +23,6 @@ export const TEST_CONNECTION_OPTIONS = types.normalizeConnectionConfig({
 
 export type StorageFactory = () => Promise<BucketStorageFactory>;
 
-
 export const INITIALIZED_MONGO_STORAGE_FACTORY: StorageFactory = async () => {
   const db = await connectMongo();
 
