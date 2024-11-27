@@ -25,6 +25,9 @@
       "path": "../sync-rules"
     },
     {
+      "path": "../service-core"
+    },
+    {
       "path": "../../libs/lib-services"
     }
   ]

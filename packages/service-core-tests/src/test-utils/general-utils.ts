@@ -2,14 +2,6 @@ import { storage, utils } from '@powersync/service-core';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
-// // The metrics need to be initialised before they can be used
-// await metrics.Metrics.initialise({
-//   disable_telemetry_sharing: true,
-//   powersync_instance_id: 'test',
-//   internal_metrics_endpoint: 'unused.for.tests.com'
-// });
-// metrics.Metrics.getInstance().resetCounters();
-
 export interface StorageOptions {
   /**
    * By default, collections are only cleared/
