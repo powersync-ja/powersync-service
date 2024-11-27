@@ -1,7 +1,7 @@
-import { OplogEntry } from '@/util/protocol-types.js';
+import { utils } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 
-export function putOp(table: string, data: Record<string, any>): Partial<OplogEntry> {
+export function putOp(table: string, data: Record<string, any>): Partial<utils.OplogEntry> {
   return {
     op: 'PUT',
     object_type: table,
@@ -10,7 +10,7 @@ export function putOp(table: string, data: Record<string, any>): Partial<OplogEn
   };
 }
 
-export function removeOp(table: string, id: string): Partial<OplogEntry> {
+export function removeOp(table: string, id: string): Partial<utils.OplogEntry> {
   return {
     op: 'REMOVE',
     object_type: table,
@@ -18,7 +18,7 @@ export function removeOp(table: string, id: string): Partial<OplogEntry> {
   };
 }
 
-export function compareIds(a: OplogEntry, b: OplogEntry) {
+export function compareIds(a: utils.OplogEntry, b: utils.OplogEntry) {
   return a.object_id!.localeCompare(b.object_id!);
 }
 
