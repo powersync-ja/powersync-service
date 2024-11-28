@@ -1,5 +1,17 @@
 # @powersync/service-core
 
+## 0.10.0
+
+### Minor Changes
+
+- 35c267f: Add "supabase_jwt_secret" config option to simplify static Supabase auth.
+
+### Patch Changes
+
+- 2c18ad2: Fix compact action
+- Updated dependencies [35c267f]
+  - @powersync/service-types@0.4.0
+
 ## 0.9.0
 
 ### Minor Changes
