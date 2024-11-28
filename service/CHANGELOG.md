@@ -1,5 +1,23 @@
 # @powersync/service-image
 
+## 1.1.0
+
+### Minor Changes
+
+- 35c267f: Add "supabase_jwt_secret" config option to simplify static Supabase auth.
+
+### Patch Changes
+
+- 2c18ad2: Fix compact action
+- Updated dependencies [2c18ad2]
+- Updated dependencies [35c267f]
+  - @powersync/service-core@0.10.0
+  - @powersync/service-types@0.4.0
+  - @powersync/service-module-mongodb@0.1.1
+  - @powersync/service-module-mysql@0.1.1
+  - @powersync/service-module-postgres@0.0.3
+  - @powersync/service-jpgwire@0.18.1
+
 ## 1.0.0
 
 ### Major Changes

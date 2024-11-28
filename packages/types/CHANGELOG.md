@@ -1,5 +1,11 @@
 # @powersync/service-types
 
+## 0.4.0
+
+### Minor Changes
+
+- 35c267f: Add "supabase_jwt_secret" config option to simplify static Supabase auth.
+
 ## 0.3.0
 
 ### Minor Changes
