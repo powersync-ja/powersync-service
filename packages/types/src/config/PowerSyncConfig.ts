@@ -115,6 +115,7 @@ export const powerSyncConfig = t.object({
       block_local_jwks: t.boolean.optional(),
       jwks: strictJwks.optional(),
       supabase: t.boolean.optional(),
+      supabase_jwt_secret: t.string.optional(),
       audience: t.array(t.string).optional()
     })
     .optional(),
