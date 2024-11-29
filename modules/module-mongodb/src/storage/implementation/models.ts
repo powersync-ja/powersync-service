@@ -70,37 +70,10 @@ export interface IdSequenceDocument {
   op_id: bigint;
 }
 
-export enum SyncRuleState {
-  /**
-   * New sync rules - needs to be processed (initial replication).
-   *
-   * While multiple sets of sync rules _can_ be in PROCESSING,
-   * it's generally pointless, so we only keep one in that state.
-   */
-  PROCESSING = 'PROCESSING',
-
-  /**
-   * Sync rule processing is done, and can be used for sync.
-   *
-   * Only one set of sync rules should be in ACTIVE state.
-   */
-  ACTIVE = 'ACTIVE',
-  /**
-   * This state is used when the sync rules has been replaced,
-   * and replication is or should be stopped.
-   */
-  STOP = 'STOP',
-  /**
-   * After sync rules have been stopped, the data needs to be
-   * deleted. Once deleted, the state is TERMINATED.
-   */
-  TERMINATED = 'TERMINATED'
-}
-
 export interface SyncRuleDocument {
   _id: number;
 
-  state: SyncRuleState;
+  state: storage.SyncRuleState;
 
   /**
    * True if initial snapshot has been replicated.

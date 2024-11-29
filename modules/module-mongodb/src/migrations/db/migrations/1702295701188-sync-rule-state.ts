@@ -1,4 +1,4 @@
-import { migrations } from '@powersync/service-core';
+import { storage as core_storage, migrations } from '@powersync/service-core';
 import { configFile } from '@powersync/service-types';
 import * as mongo from '../../../db/mongo.js';
 import * as storage from '../../../storage/storage-index.js';
@@ -41,7 +41,7 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
         replicating: true,
         auto_activate: true
       },
-      { $set: { state: storage.SyncRuleState.PROCESSING } }
+      { $set: { state: core_storage.SyncRuleState.PROCESSING } }
     );
 
     // 2. Snapshot done: `active = true, snapshot_done = true, replicating = true, auto_activate = false`
@@ -49,7 +49,7 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
       {
         active: true
       },
-      { $set: { state: storage.SyncRuleState.ACTIVE } }
+      { $set: { state: core_storage.SyncRuleState.ACTIVE } }
     );
 
     // 3. Stopped: `active = false, snapshot_done = true, replicating = false, auto_activate = false`.
@@ -59,7 +59,7 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
         replicating: { $ne: true },
         auto_activate: { $ne: true }
       },
-      { $set: { state: storage.SyncRuleState.STOP } }
+      { $set: { state: core_storage.SyncRuleState.STOP } }
     );
 
     const remaining = await db.sync_rules.find({ state: null as any }).toArray();
@@ -81,21 +81,21 @@ export const down: migrations.PowerSyncMigrationFunction = async (context) => {
   try {
     await db.sync_rules.updateMany(
       {
-        state: storage.SyncRuleState.ACTIVE
+        state: core_storage.SyncRuleState.ACTIVE
       },
       { $set: { active: true, replicating: true } }
     );
 
     await db.sync_rules.updateMany(
       {
-        state: storage.SyncRuleState.PROCESSING
+        state: core_storage.SyncRuleState.PROCESSING
       },
       { $set: { active: false, replicating: true, auto_activate: true } }
     );
 
     await db.sync_rules.updateMany(
       {
-        $or: [{ state: storage.SyncRuleState.STOP }, { state: storage.SyncRuleState.TERMINATED }]
+        $or: [{ state: core_storage.SyncRuleState.STOP }, { state: core_storage.SyncRuleState.TERMINATED }]
       },
       { $set: { active: false, replicating: false, auto_activate: false } }
     );

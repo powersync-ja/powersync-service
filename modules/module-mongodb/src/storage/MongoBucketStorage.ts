@@ -11,7 +11,7 @@ import { v4 as uuid } from 'uuid';
 
 import { createMongoLockManager } from '../locks/MonogLocks.js';
 import { PowerSyncMongo } from './implementation/db.js';
-import { SyncRuleDocument, SyncRuleState } from './implementation/models.js';
+import { SyncRuleDocument } from './implementation/models.js';
 import { MongoPersistedSyncRulesContent } from './implementation/MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage } from './implementation/MongoSyncBucketStorage.js';
 import { generateSlotName } from './implementation/util.js';
@@ -115,11 +115,11 @@ export class MongoBucketStorage
       await this.db.sync_rules.updateOne(
         {
           _id: next.id,
-          state: SyncRuleState.PROCESSING
+          state: storage.SyncRuleState.PROCESSING
         },
         {
           $set: {
-            state: SyncRuleState.STOP
+            state: storage.SyncRuleState.STOP
           }
         }
       );
@@ -133,11 +133,11 @@ export class MongoBucketStorage
       await this.db.sync_rules.updateOne(
         {
           _id: active.id,
-          state: SyncRuleState.ACTIVE
+          state: storage.SyncRuleState.ACTIVE
         },
         {
           $set: {
-            state: SyncRuleState.STOP
+            state: storage.SyncRuleState.STOP
           }
         }
       );
@@ -159,9 +159,9 @@ export class MongoBucketStorage
       // Only have a single set of sync rules with PROCESSING.
       await this.db.sync_rules.updateMany(
         {
-          state: SyncRuleState.PROCESSING
+          state: storage.SyncRuleState.PROCESSING
         },
-        { $set: { state: SyncRuleState.STOP } }
+        { $set: { state: storage.SyncRuleState.STOP } }
       );
 
       const id_doc = await this.db.op_id_sequence.findOneAndUpdate(
@@ -189,7 +189,7 @@ export class MongoBucketStorage
         last_checkpoint_lsn: null,
         no_checkpoint_before: null,
         snapshot_done: false,
-        state: SyncRuleState.PROCESSING,
+        state: storage.SyncRuleState.PROCESSING,
         slot_name: slot_name,
         last_checkpoint_ts: null,
         last_fatal_error: null,
@@ -208,7 +208,7 @@ export class MongoBucketStorage
   async getActiveSyncRulesContent(): Promise<MongoPersistedSyncRulesContent | null> {
     const doc = await this.db.sync_rules.findOne(
       {
-        state: SyncRuleState.ACTIVE
+        state: storage.SyncRuleState.ACTIVE
       },
       { sort: { _id: -1 }, limit: 1 }
     );
@@ -227,7 +227,7 @@ export class MongoBucketStorage
   async getNextSyncRulesContent(): Promise<MongoPersistedSyncRulesContent | null> {
     const doc = await this.db.sync_rules.findOne(
       {
-        state: SyncRuleState.PROCESSING
+        state: storage.SyncRuleState.PROCESSING
       },
       { sort: { _id: -1 }, limit: 1 }
     );
@@ -246,7 +246,7 @@ export class MongoBucketStorage
   async getReplicatingSyncRules(): Promise<storage.PersistedSyncRulesContent[]> {
     const docs = await this.db.sync_rules
       .find({
-        $or: [{ state: SyncRuleState.ACTIVE }, { state: SyncRuleState.PROCESSING }]
+        $or: [{ state: storage.SyncRuleState.ACTIVE }, { state: storage.SyncRuleState.PROCESSING }]
       })
       .toArray();
 
@@ -258,7 +258,7 @@ export class MongoBucketStorage
   async getStoppedSyncRules(): Promise<storage.PersistedSyncRulesContent[]> {
     const docs = await this.db.sync_rules
       .find({
-        state: SyncRuleState.STOP
+        state: storage.SyncRuleState.STOP
       })
       .toArray();
 
@@ -270,7 +270,7 @@ export class MongoBucketStorage
   async getActiveCheckpoint(): Promise<storage.ActiveCheckpoint> {
     const doc = await this.db.sync_rules.findOne(
       {
-        state: SyncRuleState.ACTIVE
+        state: storage.SyncRuleState.ACTIVE
       },
       {
         sort: { _id: -1 },
@@ -410,7 +410,7 @@ export class MongoBucketStorage
     await this.client.withSession(async (session) => {
       doc = await this.db.sync_rules.findOne(
         {
-          state: SyncRuleState.ACTIVE
+          state: storage.SyncRuleState.ACTIVE
         },
         {
           session,

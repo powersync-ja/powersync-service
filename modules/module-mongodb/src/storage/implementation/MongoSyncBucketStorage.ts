@@ -8,7 +8,7 @@ import * as timers from 'timers/promises';
 import * as db from '../../db/db-index.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
-import { BucketDataDocument, BucketDataKey, SourceKey, SyncRuleState } from './models.js';
+import { BucketDataDocument, BucketDataKey, SourceKey } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
@@ -456,7 +456,7 @@ export class MongoSyncBucketStorage
       },
       {
         $set: {
-          state: SyncRuleState.TERMINATED,
+          state: storage.SyncRuleState.TERMINATED,
           persisted_lsn: null,
           snapshot_done: false
         }
@@ -565,7 +565,7 @@ export class MongoSyncBucketStorage
             },
             {
               $set: {
-                state: SyncRuleState.ACTIVE
+                state: storage.SyncRuleState.ACTIVE
               }
             },
             { session }
@@ -574,11 +574,11 @@ export class MongoSyncBucketStorage
           await this.db.sync_rules.updateMany(
             {
               _id: { $ne: this.group_id },
-              state: SyncRuleState.ACTIVE
+              state: storage.SyncRuleState.ACTIVE
             },
             {
               $set: {
-                state: SyncRuleState.STOP
+                state: storage.SyncRuleState.STOP
               }
             },
             { session }
