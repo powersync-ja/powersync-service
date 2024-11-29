@@ -33,6 +33,7 @@ export function registerMigrationAction(program: Command) {
           }
         });
 
+        await serviceContext.migrations[Symbol.asyncDispose]();
         process.exit(0);
       } catch (e) {
         logger.error(`Migration failure`, e);

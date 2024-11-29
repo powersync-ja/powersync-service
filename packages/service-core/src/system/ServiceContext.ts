@@ -1,4 +1,4 @@
-import { LifeCycledSystem, ServiceIdentifier, container } from '@powersync/lib-services-framework';
+import { LifeCycledSystem, MigrationManager, ServiceIdentifier, container } from '@powersync/lib-services-framework';
 
 import { framework } from '../index.js';
 import * as metrics from '../metrics/Metrics.js';
@@ -33,6 +33,15 @@ export class ServiceContextContainer implements ServiceContext {
     this.storageEngine = new storage.StorageEngine({
       configuration
     });
+
+    const migrationManager = new MigrationManager();
+    container.register(framework.ContainerImplementation.MIGRATION_MANAGER, migrationManager);
+
+    this.lifeCycleEngine.withLifecycle(migrationManager, {
+      // Migrations should be executed before the system starts
+      start: () => migrationManager[Symbol.asyncDispose]()
+    });
+
     this.lifeCycleEngine.withLifecycle(this.storageEngine, {
       start: (storageEngine) => storageEngine.start(),
       stop: (storageEngine) => storageEngine.shutDown()

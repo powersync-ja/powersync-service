@@ -23,6 +23,7 @@ export type MigrationState = {
 };
 
 export type MigrationStore = {
+  init?: () => Promise<void>;
   load: () => Promise<MigrationState | undefined>;
   save: (state: MigrationState) => Promise<void>;
 };

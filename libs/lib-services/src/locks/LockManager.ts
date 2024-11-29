@@ -6,6 +6,7 @@ export class LockActiveError extends Error {
 }
 
 export type LockManager = {
+  init?: () => Promise<void>;
   acquire: () => Promise<string | null>;
   refresh: (lock_id: string) => Promise<void>;
   release: (lock_id: string) => Promise<void>;

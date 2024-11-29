@@ -19,7 +19,7 @@ class MockMigrationAgent extends AbstractMigrationAgent {
     return [];
   }
 
-  async dispose(): Promise<void> {}
+  async [Symbol.asyncDispose](): Promise<void> {}
 }
 
 describe('Migrations', () => {

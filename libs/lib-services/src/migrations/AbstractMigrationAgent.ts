@@ -25,15 +25,24 @@ type ExecuteParams = RunMigrationParams & {
   state?: defs.MigrationState;
 };
 
-export abstract class AbstractMigrationAgent<Generics extends MigrationAgentGenerics = MigrationAgentGenerics> {
+export abstract class AbstractMigrationAgent<Generics extends MigrationAgentGenerics = MigrationAgentGenerics>
+  implements AsyncDisposable
+{
   abstract get store(): defs.MigrationStore;
   abstract get locks(): LockManager;
 
   abstract loadInternalMigrations(): Promise<defs.Migration<Generics['MIGRATION_CONTEXT']>[]>;
 
-  abstract dispose(): Promise<void>;
+  abstract [Symbol.asyncDispose](): Promise<void>;
+
+  protected async init() {
+    await this.locks.init?.();
+    await this.store.init?.();
+  }
 
   async run(params: RunMigrationParams) {
+    await this.init();
+
     const { direction, migrations, migrationContext } = params;
     // Only one process should execute this at a time.
     logger.info('Acquiring lock');
