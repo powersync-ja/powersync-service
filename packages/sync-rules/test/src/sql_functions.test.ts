@@ -102,6 +102,14 @@ describe('SQL functions', () => {
     expect(fn.base64(123.4)).toEqual('MTIzLjQ=');
   });
 
+
+  test('uuid_base64', () => {
+    expect(fn.uuid_base64(null)).toEqual(null);
+    expect(fn.uuid_base64('550e8400-e29b-41d4-a716-446655440000')).toEqual('VQ6EAOKbQdSnFkRmVUQAAA==');
+    expect(fn.uuid_base64('877b8be2-5a63-48e9-8ece-5e45b1d4f4ae')).toEqual('h3uL4lpjSOmOzl5FsdT0rg==');
+    expect(() => fn.uuid_base64("non-uuid")).toThrowError();
+  });
+
   test('ifnull', () => {
     expect(fn.ifnull(null, null)).toEqual(null);
     expect(fn.ifnull('test', null)).toEqual('test');
