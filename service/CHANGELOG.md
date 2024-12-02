@@ -1,5 +1,15 @@
 # @powersync/service-image
 
+## 1.1.1
+
+### Patch Changes
+
+- Updated dependencies [2a4f020]
+  - @powersync/service-core@0.10.1
+  - @powersync/service-module-mongodb@0.1.2
+  - @powersync/service-module-mysql@0.1.2
+  - @powersync/service-module-postgres@0.0.4
+
 ## 1.1.0
 
 ### Minor Changes
