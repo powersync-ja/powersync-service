@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 0.10.1
+
+### Patch Changes
+
+- 2a4f020: Fix regression for missing HTTP probes. Reported in [issue](https://github.com/powersync-ja/powersync-service/issues/144).
+
 ## 0.10.0
 
 ### Minor Changes
