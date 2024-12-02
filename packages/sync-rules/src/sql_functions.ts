@@ -189,8 +189,8 @@ const base64: DocumentedSqlFunction = {
   detail: 'Convert a blob to base64 text'
 };
 
-const uuid_base64: DocumentedSqlFunction = {
-  debugName: 'uuid_base64',
+const uuid_blob: DocumentedSqlFunction = {
+  debugName: 'uuid_blob',
   call(value: SqliteValue) {
     const uuidText = castAsText(value);
 
@@ -201,20 +201,18 @@ const uuid_base64: DocumentedSqlFunction = {
     const isValid = uuid.validate(uuidText);
 
     if (!isValid) {
-      throw new Error(`Cannot call uuid_base64 on a non UUID value`);
+      throw new Error(`Cannot call uuid_blob on a non UUID value`);
     }
 
-    const uuidBytes = uuid.parse(uuidText);
-
-    return Buffer.from(uuidBytes).toString('base64');
+    return uuid.parse(uuidText);
   },
   parameters: [
     { name: 'uuid', type: ExpressionType.TEXT, optional: false }
   ],
   getReturnType(args) {
-    return ExpressionType.TEXT;
+    return ExpressionType.BLOB;
   },
-  detail: 'Convert the underlying UUID bytes to base64'
+  detail: 'Convert the UUID string to bytes'
 };
 
 const fn_typeof: DocumentedSqlFunction = {
@@ -515,7 +513,7 @@ export const SQL_FUNCTIONS_NAMED = {
   hex,
   length,
   base64,
-  uuid_base64,
+  uuid_blob,
   typeof: fn_typeof,
   ifnull,
   json_extract,
