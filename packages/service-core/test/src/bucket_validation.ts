@@ -1,5 +1,5 @@
 import { OplogEntry } from '@/util/protocol-types.js';
-import { addChecksums, reduceBucket } from '@/util/utils.js';
+import { reduceBucket } from '@/util/utils.js';
 import { expect } from 'vitest';
 
 /**

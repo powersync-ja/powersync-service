@@ -8,10 +8,11 @@ import * as pgwire from '@powersync/service-jpgwire';
 import { SqliteRow } from '@powersync/service-sync-rules';
 
 import { mapOpEntry, MongoBucketStorage } from '@/storage/storage-index.js';
-import { reduceBucket, validateCompactedBucket } from '@core-tests/bucket_validation.js';
+import { validateCompactedBucket } from '@core-tests/bucket_validation.js';
 import { MONGO_STORAGE_FACTORY, StorageFactory } from '@core-tests/util.js';
 import { PgManager } from '@module/replication/PgManager.js';
 import * as timers from 'node:timers/promises';
+import { reduceBucket } from '@powersync/service-core';
 
 describe('slow tests - mongodb', function () {
   // These are slow, inconsistent tests.
