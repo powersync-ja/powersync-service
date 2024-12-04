@@ -451,12 +451,15 @@ WHERE  oid = $1::regclass`,
       try {
         await db.query('BEGIN');
         try {
+          await this.snapshotTable(batch, db, result.table);
+
           // Get the current LSN.
           // The data will only be consistent once incremental replication
           // has passed that point.
+          // We have to get this LSN _after_ we have started the snapshot query.
           const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
           lsn = rs.rows[0][0];
-          await this.snapshotTable(batch, db, result.table);
+
           await db.query('COMMIT');
         } catch (e) {
           await db.query('ROLLBACK');
