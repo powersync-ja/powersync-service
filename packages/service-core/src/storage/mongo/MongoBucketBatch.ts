@@ -39,6 +39,7 @@ export interface MongoBucketBatchOptions {
   groupId: number;
   slotName: string;
   lastCheckpointLsn: string | null;
+  keepaliveOp: string | null;
   noCheckpointBeforeLsn: string;
   storeCurrentData: boolean;
 }
@@ -87,6 +88,10 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
     this.sync_rules = options.syncRules;
     this.storeCurrentData = options.storeCurrentData;
     this.batch = new OperationBatch();
+
+    if (options.keepaliveOp) {
+      this.persisted_op = BigInt(options.keepaliveOp);
+    }
   }
 
   addCustomWriteCheckpoint(checkpoint: BatchedCustomWriteCheckpointOptions): void {
@@ -587,7 +592,28 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
       return false;
     }
     if (lsn < this.no_checkpoint_before_lsn) {
-      logger.info(`Waiting until ${this.no_checkpoint_before_lsn} before creating checkpoint, currently at ${lsn}`);
+      logger.info(
+        `Waiting until ${this.no_checkpoint_before_lsn} before creating checkpoint, currently at ${lsn}. Persisted op: ${this.persisted_op}`
+      );
+
+      // Edge case: During initial replication, we have a no_checkpoint_before_lsn set,
+      // and don't actually commit the snapshot.
+      // The first commit can happen from an implicit keepalive message.
+      // That needs the persisted_op to get an accurate checkpoint, so
+      // we persist that in keepalive_op.
+
+      await this.db.sync_rules.updateOne(
+        {
+          _id: this.group_id
+        },
+        {
+          $set: {
+            keepalive_op: this.persisted_op == null ? null : String(this.persisted_op)
+          }
+        },
+        { session: this.session }
+      );
+
       return false;
     }
 
@@ -597,7 +623,8 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
       last_checkpoint_ts: now,
       last_keepalive_ts: now,
       snapshot_done: true,
-      last_fatal_error: null
+      last_fatal_error: null,
+      keepalive_op: null
     };
 
     if (this.persisted_op != null) {

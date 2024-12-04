@@ -199,6 +199,7 @@ export class MongoBucketStorage
         last_checkpoint: null,
         last_checkpoint_lsn: null,
         no_checkpoint_before: null,
+        keepalive_op: null,
         snapshot_done: false,
         state: SyncRuleState.PROCESSING,
         slot_name: slot_name,

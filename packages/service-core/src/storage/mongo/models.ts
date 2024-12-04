@@ -135,6 +135,14 @@ export interface SyncRuleDocument {
    */
   no_checkpoint_before: string | null;
 
+  /**
+   * Goes together with no_checkpoint_before.
+   *
+   * If a keepalive is triggered that creates the checkpoint > no_checkpoint_before,
+   * then the checkpoint must be equal to this keepalive_op.
+   */
+  keepalive_op: string | null;
+
   slot_name: string | null;
 
   /**
