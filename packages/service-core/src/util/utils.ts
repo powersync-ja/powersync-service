@@ -2,7 +2,7 @@ import * as sync_rules from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import crypto from 'crypto';
 import * as uuid from 'uuid';
-import { BucketChecksum, OpId } from './protocol-types.js';
+import { BucketChecksum, OpId, OplogEntry } from './protocol-types.js';
 
 import * as storage from '../storage/storage-index.js';
 
@@ -143,4 +143,62 @@ export function checkpointUserId(user_id: string | undefined, client_id: string 
     return user_id;
   }
   return `${user_id}/${client_id}`;
+}
+
+/**
+ * Reduce a bucket to the final state as stored on the client.
+ *
+ * This keeps the final state for each row as a PUT operation.
+ *
+ * All other operations are replaced with a single CLEAR operation,
+ * summing their checksums, and using a 0 as an op_id.
+ *
+ * This is the function $r(B)$, as described in /docs/bucket-properties.md.
+ *
+ * Used for tests.
+ */
+export function reduceBucket(operations: OplogEntry[]) {
+  let rowState = new Map<string, OplogEntry>();
+  let otherChecksum = 0;
+
+  for (let op of operations) {
+    const key = rowKey(op);
+    if (op.op == 'PUT') {
+      const existing = rowState.get(key);
+      if (existing) {
+        otherChecksum = addChecksums(otherChecksum, existing.checksum as number);
+      }
+      rowState.set(key, op);
+    } else if (op.op == 'REMOVE') {
+      const existing = rowState.get(key);
+      if (existing) {
+        otherChecksum = addChecksums(otherChecksum, existing.checksum as number);
+      }
+      rowState.delete(key);
+      otherChecksum = addChecksums(otherChecksum, op.checksum as number);
+    } else if (op.op == 'CLEAR') {
+      rowState.clear();
+      otherChecksum = op.checksum as number;
+    } else if (op.op == 'MOVE') {
+      otherChecksum = addChecksums(otherChecksum, op.checksum as number);
+    } else {
+      throw new Error(`Unknown operation ${op.op}`);
+    }
+  }
+
+  const puts = [...rowState.values()].sort((a, b) => {
+    return Number(BigInt(a.op_id) - BigInt(b.op_id));
+  });
+
+  let finalState: OplogEntry[] = [
+    // Special operation to indiciate the checksum remainder
+    { op_id: '0', op: 'CLEAR', checksum: otherChecksum },
+    ...puts
+  ];
+
+  return finalState;
+}
+
+function rowKey(entry: OplogEntry) {
+  return `${entry.object_type}/${entry.object_id}/${entry.subkey}`;
 }

@@ -2,6 +2,8 @@ import { compareIds, putOp, removeOp } from '@core-tests/stream_utils.js';
 import { describe, expect, test } from 'vitest';
 import { walStreamTest } from './wal_stream_utils.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, StorageFactory } from './util.js';
+import { reduceBucket } from '@powersync/service-core';
+import { setTimeout } from 'node:timers/promises';
 
 describe(
   'schema changes',
@@ -538,6 +540,84 @@ function defineTests(factory: StorageFactory) {
         REMOVE_T1,
         REMOVE_T2
       ]);
+    })
+  );
+
+  // Test consistency of table snapshots.
+  // Renames a table to trigger a snapshot.
+  // To trigger the failure, modify the snapshot implementation to
+  // introduce an arbitrary delay (in WalStream.ts):
+  //
+  //   const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
+  //   lsn = rs.rows[0][0];
+  //   await new Promise((resolve) => setTimeout(resolve, 100));
+  //   await this.snapshotTable(batch, db, result.table);
+  test(
+    'table snapshot consistency',
+    walStreamTest(factory, async (context) => {
+      const { pool } = context;
+
+      await context.updateSyncRules(BASIC_SYNC_RULES);
+
+      // Rename table not in sync rules -> in sync rules
+      await pool.query(`CREATE TABLE test_data_old(id text primary key, num integer)`);
+      await pool.query(`INSERT INTO test_data_old(id, num) VALUES('t1', 0)`);
+      await pool.query(`INSERT INTO test_data_old(id, num) VALUES('t2', 0)`);
+
+      await context.replicateSnapshot();
+      context.startStreaming();
+
+      await pool.query(
+        { statement: `ALTER TABLE test_data_old RENAME TO test_data` },
+        // This first update will trigger a snapshot
+        { statement: `UPDATE test_data SET num = 0 WHERE id = 't2'` }
+      );
+
+      // Need some delay for the snapshot to be triggered
+      await setTimeout(5);
+
+      let stop = false;
+
+      let failures: any[] = [];
+
+      // This is a tight loop that checks that t2.num >= t1.num
+      const p = (async () => {
+        let lopid = '';
+        while (!stop) {
+          const data = await context.getCurrentBucketData('global[]');
+          const last = data[data.length - 1];
+          if (last == null) {
+            continue;
+          }
+          if (last.op_id != lopid) {
+            const reduced = reduceBucket(data);
+            reduced.shift();
+            lopid = last.op_id;
+
+            const t1 = reduced.find((op) => op.object_id == 't1');
+            const t2 = reduced.find((op) => op.object_id == 't2');
+            if (t1 && t2) {
+              const d1 = JSON.parse(t1.data as string);
+              const d2 = JSON.parse(t2.data as string);
+              if (d1.num > d2.num) {
+                failures.push({ d1, d2 });
+              }
+            }
+          }
+        }
+      })();
+
+      // We always have t2.num >= t1.num
+      for (let i = 1; i <= 20; i++) {
+        await pool.query({ statement: `UPDATE test_data SET num = ${i} WHERE id = 't2'` });
+      }
+      await pool.query({ statement: `UPDATE test_data SET num = 20 WHERE id = 't1'` });
+
+      await context.getBucketData('global[]');
+      stop = true;
+      await p;
+
+      expect(failures).toEqual([]);
     })
   );
 }

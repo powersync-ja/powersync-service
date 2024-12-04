@@ -110,9 +110,24 @@ export class WalStreamTestContext implements AsyncDisposable {
     return fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
+  /**
+   * This waits for a client checkpoint.
+   */
   async getBucketData(bucket: string, start?: string, options?: { timeout?: number }) {
     start ??= '0';
-    let checkpoint = await this.getCheckpoint(options);
+    const checkpoint = await this.getCheckpoint(options);
+    const map = new Map<string, string>([[bucket, start]]);
+    const batch = this.storage!.getBucketDataBatch(checkpoint, map);
+    const batches = await fromAsync(batch);
+    return batches[0]?.batch.data ?? [];
+  }
+
+  /**
+   * This does not wait for a client checkpoint.
+   */
+  async getCurrentBucketData(bucket: string, start?: string) {
+    start ??= '0';
+    const { checkpoint } = await this.storage!.getCheckpoint();
     const map = new Map<string, string>([[bucket, start]]);
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
     const batches = await fromAsync(batch);
