@@ -293,66 +293,33 @@ WHERE  oid = $1::regclass`,
     });
 
     // We use the replication connection here, not a pool.
-    // This connection needs to stay open at least until the snapshot is used below.
-    const result = await replicationConnection.query(
-      `CREATE_REPLICATION_SLOT ${slotName} LOGICAL pgoutput EXPORT_SNAPSHOT`
-    );
-    const columns = result.columns;
-    const row = result.rows[0]!;
-    if (columns[1]?.name != 'consistent_point' || columns[2]?.name != 'snapshot_name' || row == null) {
-      throw new Error(`Invalid CREATE_REPLICATION_SLOT output: ${JSON.stringify(columns)}`);
-    }
-    // This LSN could be used in initialReplication below.
-    // But it's also safe to just use ZERO_LSN - we won't get any changes older than this lsn
-    // with streaming replication.
-    const lsn = pgwire.lsnMakeComparable(row[1]);
-    const snapshot = row[2];
-    logger.info(`Created replication slot ${slotName} at ${lsn} with snapshot ${snapshot}`);
+    // The replication slot must be created before we start snapshotting tables.
+    await replicationConnection.query(`CREATE_REPLICATION_SLOT ${slotName} LOGICAL pgoutput`);
 
-    // https://stackoverflow.com/questions/70160769/postgres-logical-replication-starting-from-given-lsn
-    await db.query('BEGIN');
-    // Use the snapshot exported above.
-    // Using SERIALIZABLE isolation level may give stronger guarantees, but that complicates
-    // the replication slot + snapshot above. And we still won't have SERIALIZABLE
-    // guarantees with streaming replication.
-    // See: ./docs/serializability.md for details.
-    //
-    // Another alternative here is to use the same pgwire connection for initial replication as well,
-    // instead of synchronizing a separate transaction to the snapshot.
-
-    try {
-      await db.query(`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`);
-      await db.query(`SET TRANSACTION READ ONLY`);
-      await db.query(`SET TRANSACTION SNAPSHOT '${snapshot}'`);
-
-      // Disable statement timeout for the duration of this transaction.
-      // On Supabase, the default is 2 minutes.
-      await db.query(`set local statement_timeout = 0`);
-
-      logger.info(`${slotName} Starting initial replication`);
-      await this.initialReplication(db, lsn);
-      logger.info(`${slotName} Initial replication done`);
-      await db.query('COMMIT');
-    } catch (e) {
-      await db.query('ROLLBACK');
-      throw e;
-    }
+    logger.info(`Created replication slot ${slotName}`);
+    await this.initialReplication(db);
   }
 
-  async initialReplication(db: pgwire.PgConnection, lsn: string) {
+  async initialReplication(db: pgwire.PgConnection) {
     const sourceTables = this.sync_rules.getSourceTables();
     await this.storage.startBatch(
       { zeroLSN: ZERO_LSN, defaultSchema: POSTGRES_DEFAULT_SCHEMA, storeCurrentData: true },
       async (batch) => {
+        const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
+        const startLsn = rs.rows[0][0];
+
         for (let tablePattern of sourceTables) {
           const tables = await this.getQualifiedTableNames(batch, db, tablePattern);
           for (let table of tables) {
             await this.snapshotTable(batch, db, table);
-            await batch.markSnapshotDone([table], lsn);
+
+            const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
+            const tableLsnNotBefore = rs.rows[0][0];
+            await batch.markSnapshotDone([table], tableLsnNotBefore);
             await touch();
           }
         }
-        await batch.commit(lsn);
+        await batch.commit(startLsn);
       }
     );
   }
