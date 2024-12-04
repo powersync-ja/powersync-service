@@ -5,32 +5,27 @@ import { BucketStorageFactory, SyncRulesBucketStorage } from '@powersync/service
 import * as pgwire from '@powersync/service-jpgwire';
 import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
 
-/**
- * Tests operating on the wal stream need to configure the stream and manage asynchronous
- * replication, which gets a little tricky.
- *
- * This wraps a test in a function that configures all the context, and tears it down afterwards.
- */
-export function walStreamTest(
-  factory: () => Promise<BucketStorageFactory>,
-  test: (context: WalStreamTestContext) => Promise<void>
-): () => Promise<void> {
-  return async () => {
-    const f = await factory();
-    const connectionManager = new PgManager(TEST_CONNECTION_OPTIONS, {});
-
-    await clearTestDb(connectionManager.pool);
-    await using context = new WalStreamTestContext(f, connectionManager);
-    await test(context);
-  };
-}
-
 export class WalStreamTestContext implements AsyncDisposable {
   private _walStream?: WalStream;
   private abortController = new AbortController();
   private streamPromise?: Promise<void>;
   public storage?: SyncRulesBucketStorage;
   private replicationConnection?: pgwire.PgConnection;
+
+  /**
+   * Tests operating on the wal stream need to configure the stream and manage asynchronous
+   * replication, which gets a little tricky.
+   *
+   * This configures all the context, and tears it down afterwards.
+   */
+  static async open(factory: () => Promise<BucketStorageFactory>) {
+    const f = await factory();
+    const connectionManager = new PgManager(TEST_CONNECTION_OPTIONS, {});
+
+    await clearTestDb(connectionManager.pool);
+
+    return new WalStreamTestContext(f, connectionManager);
+  }
 
   constructor(
     public factory: BucketStorageFactory,
