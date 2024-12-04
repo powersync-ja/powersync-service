@@ -18,7 +18,10 @@ export interface WalStreamOptions {
 }
 
 interface InitResult {
+  /** True if initial snapshot is not yet done. */
   needsInitialSync: boolean;
+  /** True if snapshot must be started from scratch with a new slot. */
+  needsNewSlot: boolean;
 }
 
 export class MissingReplicationSlotError extends Error {
@@ -173,88 +176,114 @@ export class WalStream {
     const slotName = this.slot_name;
 
     const status = await this.storage.getStatus();
-    if (status.snapshot_done && status.checkpoint_lsn) {
+    const snapshotDone = status.snapshot_done && status.checkpoint_lsn != null;
+    if (snapshotDone) {
+      // Snapshot is done, but we still need to check the replication slot status
       logger.info(`${slotName} Initial replication already done`);
+    }
 
-      let last_error = null;
+    // Check if replication slot exists
+    const rs = await this.connections.pool.query({
+      statement: 'SELECT 1 FROM pg_replication_slots WHERE slot_name = $1',
+      params: [{ type: 'varchar', value: slotName }]
+    });
+    const slotExists = rs.rows.length > 0;
 
-      // Check that replication slot exists
-      for (let i = 120; i >= 0; i--) {
-        await touch();
+    if (slotExists) {
+      // This checks that the slot is still valid
+      const r = await this.checkReplicationSlot();
+      return {
+        needsInitialSync: !snapshotDone,
+        needsNewSlot: r.needsNewSlot
+      };
+    } else {
+      return { needsInitialSync: true, needsNewSlot: true };
+    }
+  }
 
-        if (i == 0) {
-          container.reporter.captureException(last_error, {
-            level: errors.ErrorSeverity.ERROR,
+  /**
+   * If a replication slot exists, check that it is healthy.
+   */
+  private async checkReplicationSlot(): Promise<InitResult> {
+    let last_error = null;
+    const slotName = this.slot_name;
+
+    // Check that replication slot exists
+    for (let i = 120; i >= 0; i--) {
+      await touch();
+
+      if (i == 0) {
+        container.reporter.captureException(last_error, {
+          level: errors.ErrorSeverity.ERROR,
+          metadata: {
+            replication_slot: slotName
+          }
+        });
+
+        throw last_error;
+      }
+      try {
+        // We peek a large number of changes here, to make it more likely to pick up replication slot errors.
+        // For example, "publication does not exist" only occurs here if the peek actually includes changes related
+        // to the slot.
+        logger.info(`Checking ${slotName}`);
+
+        // The actual results can be quite large, so we don't actually return everything
+        // due to memory and processing overhead that would create.
+        const cursor = await this.connections.pool.stream({
+          statement: `SELECT 1 FROM pg_catalog.pg_logical_slot_peek_binary_changes($1, NULL, 1000, 'proto_version', '1', 'publication_names', $2)`,
+          params: [
+            { type: 'varchar', value: slotName },
+            { type: 'varchar', value: PUBLICATION_NAME }
+          ]
+        });
+
+        for await (let _chunk of cursor) {
+          // No-op, just exhaust the cursor
+        }
+
+        // Success
+        logger.info(`Slot ${slotName} appears healthy`);
+        return { needsInitialSync: false, needsNewSlot: false };
+      } catch (e) {
+        last_error = e;
+        logger.warn(`${slotName} Replication slot error`, e);
+
+        if (this.stopped) {
+          throw e;
+        }
+
+        // Could also be `publication "powersync" does not exist`, although this error may show up much later
+        // in some cases.
+
+        if (
+          /incorrect prev-link/.test(e.message) ||
+          /replication slot.*does not exist/.test(e.message) ||
+          /publication.*does not exist/.test(e.message)
+        ) {
+          container.reporter.captureException(e, {
+            level: errors.ErrorSeverity.WARNING,
             metadata: {
+              try_index: i,
               replication_slot: slotName
             }
           });
+          // Sample: record with incorrect prev-link 10000/10000 at 0/18AB778
+          //   Seen during development. Some internal error, fixed by re-creating slot.
+          //
+          // Sample: publication "powersync" does not exist
+          //   Happens when publication deleted or never created.
+          //   Slot must be re-created in this case.
+          logger.info(`${slotName} does not exist anymore, will create new slot`);
 
-          throw last_error;
+          return { needsInitialSync: true, needsNewSlot: true };
         }
-        try {
-          // We peek a large number of changes here, to make it more likely to pick up replication slot errors.
-          // For example, "publication does not exist" only occurs here if the peek actually includes changes related
-          // to the slot.
-          logger.info(`Checking ${slotName}`);
-
-          // The actual results can be quite large, so we don't actually return everything
-          // due to memory and processing overhead that would create.
-          const cursor = await this.connections.pool.stream({
-            statement: `SELECT 1 FROM pg_catalog.pg_logical_slot_peek_binary_changes($1, NULL, 1000, 'proto_version', '1', 'publication_names', $2)`,
-            params: [
-              { type: 'varchar', value: slotName },
-              { type: 'varchar', value: PUBLICATION_NAME }
-            ]
-          });
-
-          for await (let _chunk of cursor) {
-            // No-op, just exhaust the cursor
-          }
-
-          // Success
-          logger.info(`Slot ${slotName} appears healthy`);
-          return { needsInitialSync: false };
-        } catch (e) {
-          last_error = e;
-          logger.warn(`${slotName} Replication slot error`, e);
-
-          if (this.stopped) {
-            throw e;
-          }
-
-          // Could also be `publication "powersync" does not exist`, although this error may show up much later
-          // in some cases.
-
-          if (
-            /incorrect prev-link/.test(e.message) ||
-            /replication slot.*does not exist/.test(e.message) ||
-            /publication.*does not exist/.test(e.message)
-          ) {
-            container.reporter.captureException(e, {
-              level: errors.ErrorSeverity.WARNING,
-              metadata: {
-                try_index: i,
-                replication_slot: slotName
-              }
-            });
-            // Sample: record with incorrect prev-link 10000/10000 at 0/18AB778
-            //   Seen during development. Some internal error, fixed by re-creating slot.
-            //
-            // Sample: publication "powersync" does not exist
-            //   Happens when publication deleted or never created.
-            //   Slot must be re-created in this case.
-            logger.info(`${slotName} does not exist anymore, will create new slot`);
-
-            throw new MissingReplicationSlotError(`Replication slot ${slotName} does not exist anymore`);
-          }
-          // Try again after a pause
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-        }
+        // Try again after a pause
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
 
-    return { needsInitialSync: true };
+    throw new Error('Unreachable');
   }
 
   async estimatedCount(db: pgwire.PgConnection, table: storage.SourceTable): Promise<string> {
@@ -278,25 +307,33 @@ WHERE  oid = $1::regclass`,
    * If (partial) replication was done before on this slot, this clears the state
    * and starts again from scratch.
    */
-  async startInitialReplication(replicationConnection: pgwire.PgConnection) {
+  async startInitialReplication(replicationConnection: pgwire.PgConnection, status: InitResult) {
     // If anything here errors, the entire replication process is aborted,
-    // and all connections closed, including this one.
+    // and all connections are closed, including this one.
     const db = await this.connections.snapshotConnection();
 
     const slotName = this.slot_name;
 
-    await this.storage.clear();
+    if (status.needsNewSlot) {
+      // This happens when there is no existing replication slot, or if the
+      // existing one is unhealthy.
+      // In those cases, we have to start replication from scratch.
+      // If there is an existing healthy slot, we can skip this and continue
+      // initial replication where we left off.
+      await this.storage.clear();
 
-    await db.query({
-      statement: 'SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1',
-      params: [{ type: 'varchar', value: slotName }]
-    });
+      await db.query({
+        statement: 'SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1',
+        params: [{ type: 'varchar', value: slotName }]
+      });
 
-    // We use the replication connection here, not a pool.
-    // The replication slot must be created before we start snapshotting tables.
-    await replicationConnection.query(`CREATE_REPLICATION_SLOT ${slotName} LOGICAL pgoutput`);
+      // We use the replication connection here, not a pool.
+      // The replication slot must be created before we start snapshotting tables.
+      await replicationConnection.query(`CREATE_REPLICATION_SLOT ${slotName} LOGICAL pgoutput`);
 
-    logger.info(`Created replication slot ${slotName}`);
+      logger.info(`Created replication slot ${slotName}`);
+    }
+
     await this.initialReplication(db);
   }
 
@@ -311,6 +348,9 @@ WHERE  oid = $1::regclass`,
         for (let tablePattern of sourceTables) {
           const tables = await this.getQualifiedTableNames(batch, db, tablePattern);
           for (let table of tables) {
+            if (table.snapshotComplete) {
+              continue;
+            }
             await this.snapshotTable(batch, db, table);
 
             const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
@@ -531,7 +571,7 @@ WHERE  oid = $1::regclass`,
   async initReplication(replicationConnection: pgwire.PgConnection) {
     const result = await this.initSlot();
     if (result.needsInitialSync) {
-      await this.startInitialReplication(replicationConnection);
+      await this.startInitialReplication(replicationConnection, result);
     }
   }
 
