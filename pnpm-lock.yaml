@@ -395,6 +395,9 @@ importers:
       pgsql-ast-parser:
         specifier: ^11.1.0
         version: 11.2.0
+      uuid:
+        specifier: ^9.0.1
+        version: 9.0.1
       yaml:
         specifier: ^2.3.1
         version: 2.4.5
@@ -402,6 +405,9 @@ importers:
       '@types/node':
         specifier: ^22.5.5
         version: 22.5.5
+      '@types/uuid':
+        specifier: ^9.0.4
+        version: 9.0.8
       vitest:
         specifier: ^2.1.1
         version: 2.1.1(@types/node@22.5.5)
