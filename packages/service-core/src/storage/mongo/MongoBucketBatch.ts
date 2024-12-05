@@ -9,6 +9,7 @@ import {
   BucketStorageBatch,
   FlushedResult,
   mergeToast,
+  SaveOperationTag,
   SaveOptions
 } from '../BucketStorage.js';
 import { SourceTable } from '../SourceTable.js';
@@ -43,6 +44,10 @@ export interface MongoBucketBatchOptions {
   keepaliveOp: string | null;
   noCheckpointBeforeLsn: string;
   storeCurrentData: boolean;
+  /**
+   * Set to true for initial replication.
+   */
+  skipExistingRows: boolean;
 }
 
 export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListener> implements BucketStorageBatch {
@@ -55,6 +60,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
 
   private readonly slot_name: string;
   private readonly storeCurrentData: boolean;
+  private readonly skipExistingRows: boolean;
 
   private batch: OperationBatch | null = null;
   private write_checkpoint_batch: CustomWriteCheckpointOptions[] = [];
@@ -88,6 +94,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
     this.slot_name = options.slotName;
     this.sync_rules = options.syncRules;
     this.storeCurrentData = options.storeCurrentData;
+    this.skipExistingRows = options.skipExistingRows;
     this.batch = new OperationBatch();
 
     if (options.keepaliveOp) {
@@ -154,7 +161,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
     op_seq: MongoIdSequence
   ): Promise<OperationBatch | null> {
     let sizes: Map<string, number> | undefined = undefined;
-    if (this.storeCurrentData) {
+    if (this.storeCurrentData && !this.skipExistingRows) {
       // We skip this step if we don't store current_data, since the sizes will
       // always be small in that case.
 
@@ -210,11 +217,12 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
         return { g: this.group_id, t: r.record.sourceTable.id, k: r.beforeId };
       });
       let current_data_lookup = new Map<string, CurrentDataDocument>();
+      const projection = this.skipExistingRows ? { _id: 1 } : undefined;
       const cursor = this.db.current_data.find(
         {
           _id: { $in: lookups }
         },
-        { session }
+        { session, projection }
       );
       for await (let doc of cursor.stream()) {
         current_data_lookup.set(cacheKey(doc._id.t, doc._id.k), doc);
@@ -279,15 +287,21 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
 
     const before_key: SourceKey = { g: this.group_id, t: record.sourceTable.id, k: beforeId };
 
-    if (record.tag == 'insert' && record.skipIfExists && current_data != null) {
-      // Initial replication, and we already have the record.
-      // This may be a different version of the record, but streaming replication
-      // will take care of that.
-      // Skip the insert here.
-      return null;
+    if (this.skipExistingRows) {
+      if (record.tag == SaveOperationTag.INSERT) {
+        if (current_data != null) {
+          // Initial replication, and we already have the record.
+          // This may be a different version of the record, but streaming replication
+          // will take care of that.
+          // Skip the insert here.
+          return null;
+        }
+      } else {
+        throw new Error(`${record.tag} not supported with skipExistingRows: true`);
+      }
     }
 
-    if (record.tag == 'update') {
+    if (record.tag == SaveOperationTag.UPDATE) {
       const result = current_data;
       if (result == null) {
         // Not an error if we re-apply a transaction
@@ -307,7 +321,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
           after = mergeToast(after!, data);
         }
       }
-    } else if (record.tag == 'delete') {
+    } else if (record.tag == SaveOperationTag.DELETE) {
       const result = current_data;
       if (result == null) {
         // Not an error if we re-apply a transaction

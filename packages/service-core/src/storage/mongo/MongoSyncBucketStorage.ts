@@ -149,7 +149,8 @@ export class MongoSyncBucketStorage
       lastCheckpointLsn: checkpoint_lsn,
       noCheckpointBeforeLsn: doc?.no_checkpoint_before ?? options.zeroLSN,
       keepaliveOp: doc?.keepalive_op ?? null,
-      storeCurrentData: options.storeCurrentData
+      storeCurrentData: options.storeCurrentData,
+      skipExistingRows: options.skipExistingRows ?? false
     });
     this.iterateListeners((cb) => cb.batchStarted?.(batch));
 

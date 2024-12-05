@@ -340,7 +340,7 @@ WHERE  oid = $1::regclass`,
   async initialReplication(db: pgwire.PgConnection) {
     const sourceTables = this.sync_rules.getSourceTables();
     await this.storage.startBatch(
-      { zeroLSN: ZERO_LSN, defaultSchema: POSTGRES_DEFAULT_SCHEMA, storeCurrentData: true },
+      { zeroLSN: ZERO_LSN, defaultSchema: POSTGRES_DEFAULT_SCHEMA, storeCurrentData: true, skipExistingRows: true },
       async (batch) => {
         const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
         const startLsn = rs.rows[0][0];
@@ -413,8 +413,7 @@ WHERE  oid = $1::regclass`,
           before: undefined,
           beforeReplicaId: undefined,
           after: record,
-          afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns),
-          skipIfExists: true
+          afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns)
         });
       }
 
@@ -593,7 +592,7 @@ WHERE  oid = $1::regclass`,
     await this.storage.autoActivate();
 
     await this.storage.startBatch(
-      { zeroLSN: ZERO_LSN, defaultSchema: POSTGRES_DEFAULT_SCHEMA, storeCurrentData: true },
+      { zeroLSN: ZERO_LSN, defaultSchema: POSTGRES_DEFAULT_SCHEMA, storeCurrentData: true, skipExistingRows: false },
       async (batch) => {
         // Replication never starts in the middle of a transaction
         let inTx = false;
