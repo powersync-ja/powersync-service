@@ -206,15 +206,15 @@ function defineBatchTests(factory: StorageFactory) {
       - SELECT * FROM test_data2`);
     const { pool } = context;
 
-    await pool.query(`CREATE TABLE test_data1(id text primary key, description text)`);
-    await pool.query(`CREATE TABLE test_data2(id text primary key, description text)`);
+    await pool.query(`CREATE TABLE test_data1(id serial primary key, description text)`);
+    await pool.query(`CREATE TABLE test_data2(id serial primary key, description text)`);
 
     await pool.query(
       {
-        statement: `INSERT INTO test_data1(id, description) SELECT gen_random_uuid(), 'foo' FROM generate_series(1, 1000) i`
+        statement: `INSERT INTO test_data1(description) SELECT 'foo' FROM generate_series(1, 1000) i`
       },
       {
-        statement: `INSERT INTO test_data2(id, description) SELECT gen_random_uuid(), 'foo' FROM generate_series(1, 10000) i`
+        statement: `INSERT INTO test_data2( description) SELECT 'foo' FROM generate_series(1, 10000) i`
       }
     );
 
@@ -260,9 +260,7 @@ function defineBatchTests(factory: StorageFactory) {
     );
     const {
       rows: [[id3]]
-    } = await context2.pool.query(
-      `INSERT INTO test_data2(id, description) SELECT gen_random_uuid(), 'insert1' RETURNING id`
-    );
+    } = await context2.pool.query(`INSERT INTO test_data2(description) SELECT 'insert1' RETURNING id`);
 
     await context2.loadNextSyncRules();
     await context2.replicateSnapshot();
@@ -270,9 +268,9 @@ function defineBatchTests(factory: StorageFactory) {
     context2.startStreaming();
     const data = await context2.getBucketData('global[]', undefined, {});
 
-    const deletedRowOps = data.filter((row) => row.object_id === id1);
-    const updatedRowOps = data.filter((row) => row.object_id === id2);
-    const insertedRowOps = data.filter((row) => row.object_id === id3);
+    const deletedRowOps = data.filter((row) => row.object_type == 'test_data2' && row.object_id === String(id1));
+    const updatedRowOps = data.filter((row) => row.object_type == 'test_data2' && row.object_id === String(id2));
+    const insertedRowOps = data.filter((row) => row.object_type == 'test_data2' && row.object_id === String(id3));
 
     if (deletedRowOps.length != 0) {
       // The deleted row was part of the first replication batch,
