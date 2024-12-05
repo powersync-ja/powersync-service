@@ -38,7 +38,11 @@ export class PgManager {
   async snapshotConnection(): Promise<pgwire.PgConnection> {
     const p = pgwire.connectPgWire(this.options, { type: 'standard' });
     this.connectionPromises.push(p);
-    return await p;
+    const connection = await p;
+    // Disable statement timeout for snapshot queries.
+    // On Supabase, the default is 2 minutes.
+    await connection.query(`set session statement_timeout = 0`);
+    return connection;
   }
 
   async end(): Promise<void> {
