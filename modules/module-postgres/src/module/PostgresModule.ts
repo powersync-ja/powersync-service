@@ -47,7 +47,7 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
   }
 
   protected createRouteAPIAdapter(): api.RouteAPI {
-    return new PostgresRouteAPIAdapter(this.resolveConfig(this.decodedConfig!));
+    return PostgresRouteAPIAdapter.withConfig(this.resolveConfig(this.decodedConfig!));
   }
 
   protected createReplicator(context: system.ServiceContext): replication.AbstractReplicator {

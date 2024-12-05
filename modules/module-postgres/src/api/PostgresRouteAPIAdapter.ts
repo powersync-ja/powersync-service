@@ -10,17 +10,26 @@ import { getDebugTableInfo } from '../replication/replication-utils.js';
 import { PUBLICATION_NAME } from '../replication/WalStream.js';
 
 export class PostgresRouteAPIAdapter implements api.RouteAPI {
-  protected pool: pgwire.PgClient;
-
   connectionTag: string;
   // TODO this should probably be configurable one day
   publicationName = PUBLICATION_NAME;
 
-  constructor(protected config: types.ResolvedConnectionConfig) {
-    this.pool = pgwire.connectPgWirePool(config, {
+  static withConfig(config: types.ResolvedConnectionConfig) {
+    const pool = pgwire.connectPgWirePool(config, {
       idleTimeout: 30_000
     });
-    this.connectionTag = config.tag ?? sync_rules.DEFAULT_TAG;
+    return new PostgresRouteAPIAdapter(pool, config.tag, config);
+  }
+
+  /**
+   * @param config - Required for the service; optional for tests.
+   */
+  constructor(
+    protected pool: pgwire.PgClient,
+    connectionTag?: string,
+    private config?: types.ResolvedConnectionConfig
+  ) {
+    this.connectionTag = connectionTag ?? sync_rules.DEFAULT_TAG;
   }
 
   getParseSyncRulesOptions(): ParseSyncRulesOptions {
@@ -34,13 +43,13 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
   }
 
   async getSourceConfig(): Promise<service_types.configFile.ResolvedDataSourceConfig> {
-    return this.config;
+    return this.config!;
   }
 
   async getConnectionStatus(): Promise<service_types.ConnectionStatusV2> {
     const base = {
-      id: this.config.id,
-      uri: types.baseUri(this.config)
+      id: this.config?.id ?? '',
+      uri: this.config == null ? '' : types.baseUri(this.config)
     };
 
     try {
@@ -71,7 +80,7 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
   }
 
   async executeQuery(query: string, params: any[]): Promise<service_types.internal_routes.ExecuteSqlResponse> {
-    if (!this.config.debug_api) {
+    if (!this.config?.debug_api) {
       return service_types.internal_routes.ExecuteSqlResponse.encode({
         results: {
           columns: [],
@@ -223,9 +232,18 @@ FROM pg_replication_slots WHERE slot_name = $1 LIMIT 1;`,
   }
 
   async getReplicationHead(): Promise<string> {
-    const [{ lsn }] = pgwire.pgwireRows(
-      await pg_utils.retriedQuery(this.pool, `SELECT pg_logical_emit_message(false, 'powersync', 'ping') as lsn`)
+    // On most Postgres versions, pg_logical_emit_message() returns the correct LSN.
+    // However, on Aurora (Postgres compatible), it can return an entirely different LSN,
+    // causing the write checkpoints to never be replicated back to the client.
+    // For those, we need to use pg_current_wal_lsn() instead.
+    const { results } = await pg_utils.retriedQuery(
+      this.pool,
+      { statement: `SELECT pg_current_wal_lsn() as lsn` },
+      { statement: `SELECT pg_logical_emit_message(false, 'powersync', 'ping')` }
     );
+
+    // Specifically use the lsn from the first statement, not the second one.
+    const lsn = results[0].rows[0][0];
     return String(lsn);
   }
 

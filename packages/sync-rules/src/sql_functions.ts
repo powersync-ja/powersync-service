@@ -206,9 +206,7 @@ const uuid_blob: DocumentedSqlFunction = {
 
     return uuid.parse(uuidText);
   },
-  parameters: [
-    { name: 'uuid', type: ExpressionType.TEXT, optional: false }
-  ],
+  parameters: [{ name: 'uuid', type: ExpressionType.TEXT, optional: false }],
   getReturnType(args) {
     return ExpressionType.BLOB;
   },

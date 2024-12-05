@@ -102,19 +102,19 @@ describe('SQL functions', () => {
     expect(fn.base64(123.4)).toEqual('MTIzLjQ=');
   });
 
-
   test('uuid_blob', () => {
     expect(fn.uuid_blob(null)).toEqual(null);
     expect(fn.uuid_blob('550e8400-e29b-41d4-a716-446655440000')).toEqual(
-      new Uint8Array([85, 14, 132, 0, 226, 155, 65, 212, 167, 22, 68, 102, 85, 68, 0, 0]));
+      new Uint8Array([85, 14, 132, 0, 226, 155, 65, 212, 167, 22, 68, 102, 85, 68, 0, 0])
+    );
     expect(fn.uuid_blob('877b8be2-5a63-48e9-8ece-5e45b1d4f4ae')).toEqual(
       new Uint8Array([135, 123, 139, 226, 90, 99, 72, 233, 142, 206, 94, 69, 177, 212, 244, 174])
     );
-    expect(() => fn.uuid_blob("non-uuid")).toThrowError();
+    expect(() => fn.uuid_blob('non-uuid')).toThrowError();
 
     // Combine with base64
     const blob = fn.uuid_blob('550e8400-e29b-41d4-a716-446655440000');
-    expect(fn.base64(blob)).toEqual("VQ6EAOKbQdSnFkRmVUQAAA==");
+    expect(fn.base64(blob)).toEqual('VQ6EAOKbQdSnFkRmVUQAAA==');
   });
 
   test('ifnull', () => {
