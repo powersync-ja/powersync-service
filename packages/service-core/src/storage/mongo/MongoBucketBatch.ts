@@ -20,6 +20,7 @@ import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js'
 import { cacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
 import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, replicaIdEquals, serializeLookup } from './util.js';
+import * as timers from 'node:timers/promises';
 
 /**
  * 15MB
@@ -507,7 +508,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
             } else {
               logger.warn('Transaction error', e as Error);
             }
-            await new Promise((resolve) => setTimeout(resolve, Math.random() * 50));
+            await timers.setTimeout(Math.random() * 50);
             throw e;
           }
         },
@@ -720,9 +721,8 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
 
     if (this.batch.shouldFlush()) {
       const r = await this.flush();
-      // HACK: Give other streams a chance to also flush
-      const t = 150;
-      await new Promise((resolve) => setTimeout(resolve, t));
+      // HACK: Give other streams a  chance to also flush
+      await timers.setTimeout(5);
       return r;
     }
     return null;
