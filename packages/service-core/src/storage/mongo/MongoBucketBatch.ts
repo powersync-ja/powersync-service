@@ -165,6 +165,9 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
       // We skip this step if we don't store current_data, since the sizes will
       // always be small in that case.
 
+      // With skipExistingRows, we don't load the full documents into memory,
+      // so we can also skip the size lookup step.
+
       // Find sizes of current_data documents, to assist in intelligent batching without
       // exceeding memory limits.
       //
@@ -217,6 +220,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
         return { g: this.group_id, t: r.record.sourceTable.id, k: r.beforeId };
       });
       let current_data_lookup = new Map<string, CurrentDataDocument>();
+      // With skipExistingRows, we only need to know whether or not the row exists.
       const projection = this.skipExistingRows ? { _id: 1 } : undefined;
       const cursor = this.db.current_data.find(
         {
