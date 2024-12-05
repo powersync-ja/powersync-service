@@ -8,13 +8,49 @@ import {
   SqliteRow,
   ToastableSqliteRow
 } from '@powersync/service-sync-rules';
+import { BSON } from 'bson';
 import * as util from '../util/util-index.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
-import { BatchedCustomWriteCheckpointOptions, ReplicaId } from './storage-index.js';
+import { BatchedCustomWriteCheckpointOptions } from './storage-index.js';
 import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
 
+/**
+ * Replica id uniquely identifying a row on the source database.
+ *
+ * Can be any value serializable to BSON.
+ *
+ * If the value is an entire document, the data serialized to a v5 UUID may be a good choice here.
+ */
+export type ReplicaId = BSON.UUID | BSON.Document | any;
+
+export enum SyncRuleState {
+  /**
+   * New sync rules - needs to be processed (initial replication).
+   *
+   * While multiple sets of sync rules _can_ be in PROCESSING,
+   * it's generally pointless, so we only keep one in that state.
+   */
+  PROCESSING = 'PROCESSING',
+
+  /**
+   * Sync rule processing is done, and can be used for sync.
+   *
+   * Only one set of sync rules should be in ACTIVE state.
+   */
+  ACTIVE = 'ACTIVE',
+  /**
+   * This state is used when the sync rules has been replaced,
+   * and replication is or should be stopped.
+   */
+  STOP = 'STOP',
+  /**
+   * After sync rules have been stopped, the data needs to be
+   * deleted. Once deleted, the state is TERMINATED.
+   */
+  TERMINATED = 'TERMINATED'
+}
 export interface BucketStorageFactoryListener extends DisposableListener {
   syncStorageCreated: (storage: SyncRulesBucketStorage) => void;
   replicationEvent: (event: ReplicationEventPayload) => void;

@@ -1,7 +1,7 @@
-import { fromAsync } from '@core-tests/stream_utils.js';
 import { PgManager } from '@module/replication/PgManager.js';
 import { PUBLICATION_NAME, WalStream, WalStreamOptions } from '@module/replication/WalStream.js';
 import { BucketStorageFactory, SyncRulesBucketStorage } from '@powersync/service-core';
+import { test_utils } from '@powersync/service-core-tests';
 import * as pgwire from '@powersync/service-jpgwire';
 import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
 
@@ -107,7 +107,7 @@ export class WalStreamTestContext implements AsyncDisposable {
   async getBucketsDataBatch(buckets: Record<string, string>, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
     const map = new Map<string, string>(Object.entries(buckets));
-    return fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
+    return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
   async getBucketData(bucket: string, start?: string, options?: { timeout?: number }) {
@@ -115,7 +115,7 @@ export class WalStreamTestContext implements AsyncDisposable {
     let checkpoint = await this.getCheckpoint(options);
     const map = new Map<string, string>([[bucket, start]]);
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
-    const batches = await fromAsync(batch);
+    const batches = await test_utils.fromAsync(batch);
     return batches[0]?.batch.data ?? [];
   }
 }

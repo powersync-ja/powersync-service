@@ -41,6 +41,8 @@
     "uri-js": "^4.4.1"
   },
   "devDependencies": {
-    "@types/uuid": "^9.0.4"
+    "@types/uuid": "^9.0.4",
+    "@powersync/service-core-tests": "workspace:*",
+    "@powersync/service-module-mongodb": "workspace:*"
   }
 }

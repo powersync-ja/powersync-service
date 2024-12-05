@@ -1,5 +1,3 @@
-import * as bson from 'bson';
-
 export class LockActiveError extends Error {
   constructor() {
     super('Lock is already active');
@@ -8,9 +6,9 @@ export class LockActiveError extends Error {
 }
 
 export type LockManager = {
-  acquire: () => Promise<bson.ObjectId | null>;
-  refresh: (lock_id: bson.ObjectId) => Promise<void>;
-  release: (lock_id: bson.ObjectId) => Promise<void>;
+  acquire: () => Promise<string | null>;
+  refresh: (lock_id: string) => Promise<void>;
+  release: (lock_id: string) => Promise<void>;
 
   lock: (handler: (refresh: () => Promise<void>) => Promise<void>) => Promise<void>;
 };

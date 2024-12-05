@@ -6,20 +6,20 @@ export * as api from './api/api-index.js';
 export * from './auth/auth-index.js';
 export * as auth from './auth/auth-index.js';
 
-export * from './db/db-index.js';
-export * as db from './db/db-index.js';
-
 export * from './entry/entry-index.js';
 export * as entry from './entry/entry-index.js';
 
 // Re-export framework for easy use of Container API
 export * as framework from '@powersync/lib-services-framework';
 
+export * from './locks/locks-index.js';
+export * as locks from './locks/locks-index.js';
+
 export * from './metrics/Metrics.js';
 export * as metrics from './metrics/Metrics.js';
 
+export * from './migrations/migrations-index.js';
 export * as migrations from './migrations/migrations-index.js';
-export * from './migrations/migrations.js';
 
 export * from './modules/modules-index.js';
 export * as modules from './modules/modules-index.js';
@@ -41,3 +41,4 @@ export * as system from './system/system-index.js';
 
 export * from './util/util-index.js';
 export * as utils from './util/util-index.js';
+

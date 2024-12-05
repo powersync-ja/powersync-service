@@ -1,18 +1,21 @@
 import _ from 'lodash';
 import { ErrorReporter } from './alerts/definitions.js';
 import { NoOpReporter } from './alerts/no-op-reporter.js';
+import { MigrationManager } from './migrations/MigrationManager.js';
 import { ProbeModule, TerminationHandler, createFSProbe, createTerminationHandler } from './signals/signals-index.js';
 
 export enum ContainerImplementation {
   REPORTER = 'reporter',
   PROBES = 'probes',
-  TERMINATION_HANDLER = 'termination-handler'
+  TERMINATION_HANDLER = 'termination-handler',
+  MIGRATION_MANAGER = 'migration-manager'
 }
 
 export type ContainerImplementationTypes = {
   [ContainerImplementation.REPORTER]: ErrorReporter;
   [ContainerImplementation.PROBES]: ProbeModule;
   [ContainerImplementation.TERMINATION_HANDLER]: TerminationHandler;
+  [ContainerImplementation.MIGRATION_MANAGER]: MigrationManager;
 };
 
 export type RegisterDefaultsOptions = {
@@ -42,7 +45,8 @@ export type ServiceIdentifier<T = unknown> = string | symbol | Newable<T> | Abst
 const DEFAULT_GENERATORS: ContainerImplementationDefaultGenerators = {
   [ContainerImplementation.REPORTER]: () => NoOpReporter,
   [ContainerImplementation.PROBES]: () => createFSProbe(),
-  [ContainerImplementation.TERMINATION_HANDLER]: () => createTerminationHandler()
+  [ContainerImplementation.TERMINATION_HANDLER]: () => createTerminationHandler(),
+  [ContainerImplementation.MIGRATION_MANAGER]: () => new MigrationManager()
 };
 
 /**
@@ -71,6 +75,13 @@ export class Container {
    */
   get terminationHandler() {
     return this.getImplementation(ContainerImplementation.TERMINATION_HANDLER);
+  }
+
+  /**
+   * Manager for system migrations.
+   */
+  get migrationManager() {
+    return this.getImplementation(ContainerImplementation.MIGRATION_MANAGER);
   }
 
   constructor() {

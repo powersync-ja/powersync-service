@@ -117,6 +117,12 @@ importers:
       '@powersync/service-types':
         specifier: workspace:*
         version: link:../../packages/types
+      ix:
+        specifier: ^5.0.0
+        version: 5.0.0
+      lru-cache:
+        specifier: ^10.2.2
+        version: 10.4.3
       mongodb:
         specifier: ^6.7.0
         version: 6.8.0(socks@2.8.3)
@@ -130,6 +136,9 @@ importers:
         specifier: ^9.0.1
         version: 9.0.1
     devDependencies:
+      '@powersync/service-core-tests':
+        specifier: workspace:*
+        version: link:../../packages/service-core-tests
       '@types/uuid':
         specifier: ^9.0.4
         version: 9.0.8
@@ -173,6 +182,12 @@ importers:
         specifier: ^9.0.1
         version: 9.0.1
     devDependencies:
+      '@powersync/service-core-tests':
+        specifier: workspace:*
+        version: link:../../packages/service-core-tests
+      '@powersync/service-module-mongodb':
+        specifier: workspace:*
+        version: link:../module-mongodb
       '@types/async':
         specifier: ^3.2.24
         version: 3.2.24
@@ -219,6 +234,12 @@ importers:
         specifier: ^9.0.1
         version: 9.0.1
     devDependencies:
+      '@powersync/service-core-tests':
+        specifier: workspace:*
+        version: link:../../packages/service-core-tests
+      '@powersync/service-module-mongodb':
+        specifier: workspace:*
+        version: link:../module-mongodb
       '@types/uuid':
         specifier: ^9.0.4
         version: 9.0.8
@@ -343,9 +364,6 @@ importers:
       lru-cache:
         specifier: ^10.2.2
         version: 10.4.3
-      mongodb:
-        specifier: ^6.7.0
-        version: 6.8.0(socks@2.8.3)
       node-fetch:
         specifier: ^3.3.2
         version: 3.3.2
@@ -380,6 +398,28 @@ importers:
       fastify-plugin:
         specifier: ^4.5.1
         version: 4.5.1
+
+  packages/service-core-tests:
+    dependencies:
+      '@powersync/service-core':
+        specifier: workspace:^
+        version: link:../service-core
+      '@powersync/service-jsonbig':
+        specifier: workspace:^
+        version: link:../jsonbig
+      '@powersync/service-sync-rules':
+        specifier: workspace:^
+        version: link:../sync-rules
+      vite-tsconfig-paths:
+        specifier: ^4.3.2
+        version: 4.3.2(typescript@5.6.2)(vite@5.3.3(@types/node@22.5.5))
+      vitest:
+        specifier: ^2.1.1
+        version: 2.1.1(@types/node@22.5.5)
+    devDependencies:
+      typescript:
+        specifier: ^5.6.2
+        version: 5.6.2
 
   packages/sync-rules:
     dependencies:
@@ -554,6 +594,9 @@ importers:
       '@types/node':
         specifier: ^22.5.5
         version: 22.5.5
+      typescript:
+        specifier: ^5.6.2
+        version: 5.6.2
 
 packages:
 
