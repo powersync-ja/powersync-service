@@ -349,6 +349,7 @@ WHERE  oid = $1::regclass`,
           const tables = await this.getQualifiedTableNames(batch, db, tablePattern);
           for (let table of tables) {
             if (table.snapshotComplete) {
+              logger.info(`${this.slot_name} Skipping ${table.qualifiedName} - snapshot already done`);
               continue;
             }
             await this.snapshotTable(batch, db, table);

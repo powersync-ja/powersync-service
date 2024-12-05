@@ -658,6 +658,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
     if (this.persisted_op != null) {
       // The commit may have been skipped due to "no_checkpoint_before_lsn".
       // Apply it now if relevant
+      logger.info(`Commit due to keepalive at ${lsn} / ${this.persisted_op}`);
       return await this.commit(lsn);
     }
 
