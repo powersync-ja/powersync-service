@@ -278,6 +278,14 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
 
     const before_key: SourceKey = { g: this.group_id, t: record.sourceTable.id, k: beforeId };
 
+    if (record.tag == 'insert' && record.skipIfExists && current_data != null) {
+      // Initial replication, and we already have the record.
+      // This may be a different version of the record, but streaming replication
+      // will take care of that.
+      // Skip the insert here.
+      return null;
+    }
+
     if (record.tag == 'update') {
       const result = current_data;
       if (result == null) {

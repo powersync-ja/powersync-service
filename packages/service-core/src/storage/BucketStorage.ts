@@ -411,6 +411,11 @@ export interface SaveInsert {
   beforeReplicaId?: undefined;
   after: SqliteRow;
   afterReplicaId: ReplicaId;
+  /**
+   * Set to true during initial replication, to skip the row if we already
+   * have it.
+   */
+  skipIfExists?: boolean;
 }
 
 export interface SaveUpdate {

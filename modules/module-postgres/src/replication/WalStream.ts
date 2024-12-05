@@ -413,7 +413,8 @@ WHERE  oid = $1::regclass`,
           before: undefined,
           beforeReplicaId: undefined,
           after: record,
-          afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns)
+          afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns),
+          skipIfExists: true
         });
       }
 
