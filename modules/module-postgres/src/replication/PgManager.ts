@@ -1,6 +1,11 @@
 import * as pgwire from '@powersync/service-jpgwire';
 import { NormalizedPostgresConnectionConfig } from '../types/types.js';
 
+/**
+ * Shorter timeout for snapshot connections than for replication connections.
+ */
+const SNAPSHOT_SOCKET_TIMEOUT = 30_000;
+
 export class PgManager {
   /**
    * Do not use this for any transactions.
@@ -39,9 +44,18 @@ export class PgManager {
     const p = pgwire.connectPgWire(this.options, { type: 'standard' });
     this.connectionPromises.push(p);
     const connection = await p;
+
+    // Use an shorter timeout for snapshot connections.
+    // This is to detect broken connections early, instead of waiting
+    // for the full 6 minutes.
+    // This we are constantly using the connection, we don't need any
+    // custom keepalives.
+    (connection as any)._socket.setTimeout(SNAPSHOT_SOCKET_TIMEOUT);
+
     // Disable statement timeout for snapshot queries.
     // On Supabase, the default is 2 minutes.
     await connection.query(`set session statement_timeout = 0`);
+
     return connection;
   }
 
