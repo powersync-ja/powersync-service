@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.22.0
+
+### Minor Changes
+
+- a235c9f: Sync rules function to convert uuid to base64
+
 ## 0.21.0
 
 ### Minor Changes
