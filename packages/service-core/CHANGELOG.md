@@ -1,5 +1,17 @@
 # @powersync/service-core
 
+## 0.11.0
+
+### Minor Changes
+
+- 62e97f3: Support resuming initial replication for Postgres.
+
+### Patch Changes
+
+- 8c6ce90: Workaround for Aurora Postgres write checkpoint bug
+- Updated dependencies [a235c9f]
+  - @powersync/service-sync-rules@0.22.0
+
 ## 0.10.1
 
 ### Patch Changes
