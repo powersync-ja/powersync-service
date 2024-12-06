@@ -352,12 +352,12 @@ describe('JWT Auth', () => {
   });
 
   test('signing with EdDSA', async () => {
-    const keys = await StaticKeyCollector.importKeys([publicKeyEdDSA, sharedKey]);
+    const keys = await StaticKeyCollector.importKeys([publicKeyEdDSA]);
     const store = new KeyStore(keys);
-    const signKey = (await jose.importJWK(sharedKey)) as jose.KeyLike;
+    const signKey = (await jose.importJWK(publicKeyEdDSA)) as jose.KeyLike;
 
     const signedJwt = await new jose.SignJWT({ claim: 'test-claim' })
-      .setProtectedHeader({ alg: 'HS256', kid: 'k1' })
+      .setProtectedHeader({ alg: 'EdDSA', kid: 'k1' })
       .setSubject('f1')
       .setIssuedAt()
       .setIssuer('tester')
