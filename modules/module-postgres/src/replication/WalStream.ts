@@ -342,9 +342,6 @@ WHERE  oid = $1::regclass`,
     await this.storage.startBatch(
       { zeroLSN: ZERO_LSN, defaultSchema: POSTGRES_DEFAULT_SCHEMA, storeCurrentData: true, skipExistingRows: true },
       async (batch) => {
-        const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
-        const startLsn = rs.rows[0][0];
-
         for (let tablePattern of sourceTables) {
           const tables = await this.getQualifiedTableNames(batch, db, tablePattern);
           for (let table of tables) {
@@ -360,16 +357,20 @@ WHERE  oid = $1::regclass`,
               const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
               tableLsnNotBefore = rs.rows[0][0];
             } finally {
-              // Read-only transaction, we don't need to worry about
-              // commit / rollback.
-              await db.query('END TRANSACTION');
+              // Read-only transaction, commit does not actually do anything.
+              await db.query('COMMIT');
             }
 
             await batch.markSnapshotDone([table], tableLsnNotBefore);
             await touch();
           }
         }
-        await batch.commit(startLsn);
+
+        // Always commit the initial snapshot at zero.
+        // This makes sure we don't skip any changes applied before starting this snapshot,
+        // in the case of snapshot retries.
+        // We could alternatively commit at the replication slot LSN.
+        await batch.commit(ZERO_LSN);
       }
     );
   }
