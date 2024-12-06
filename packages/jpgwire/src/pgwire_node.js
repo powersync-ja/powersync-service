@@ -14,9 +14,14 @@ import { recordBytesRead } from './metrics.js';
 // pgwire doesn't natively support configuring timeouts, but we just hardcode a default.
 // Timeout idle connections after 6 minutes (we ping at least every 5 minutes).
 const POWERSYNC_SOCKET_DEFAULT_TIMEOUT = 360_000;
+
 // Timeout for the initial connection (pre-TLS)
 // Must be less than the timeout for a HTTP request
 const POWERSYNC_SOCKET_CONNECT_TIMEOUT = 20_000;
+
+// TCP keepalive delay in milliseconds.
+// This can help detect dead connections earlier.
+const POWERSYNC_SOCKET_KEEPALIVE_INITIAL_DELAY = 40_000;
 // END POWERSYNC
 
 const pbkdf2 = promisify(_pbkdf2);
@@ -66,7 +71,20 @@ class SocketAdapter {
   static async connect(host, port) {
     // START POWERSYNC
     // Custom timeout handling
-    const socket = net.connect({ host, port, timeout: POWERSYNC_SOCKET_DEFAULT_TIMEOUT });
+    const socket = net.connect({
+      host,
+      port,
+
+      // This closes the connection if no data was sent or received for the given time,
+      // even if the connection is still actaully alive.
+      timeout: POWERSYNC_SOCKET_DEFAULT_TIMEOUT,
+
+      // This configures TCP keepalive.
+      keepAlive: true,
+      keepAliveInitialDelay: POWERSYNC_SOCKET_KEEPALIVE_INITIAL_DELAY
+      // Unfortunately it is not possible to set tcp_keepalive_intvl or
+      // tcp_keepalive_probes here.
+    });
     try {
       const timeout = setTimeout(() => {
         socket.destroy(new Error(`Timeout while connecting to ${host}:${port}`));
@@ -102,6 +120,13 @@ class SocketAdapter {
       this._writeResume();
     });
   }
+
+  // START POWERSYNC CUSTOM TIMEOUT
+  setTimeout(timeout) {
+    this._socket.setTimeout(timeout);
+  }
+  // END POWERSYNC CUSTOM TIMEOUT
+
   async startTls(host, ca) {
     // START POWERSYNC CUSTOM OPTIONS HANDLING
     if (!Array.isArray(ca) && typeof ca[0] == 'object') {
