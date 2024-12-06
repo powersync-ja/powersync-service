@@ -1,13 +1,14 @@
-import { CachedKeyCollector } from '@/auth/CachedKeyCollector.js';
-import { KeyResult } from '@/auth/KeyCollector.js';
-import { KeySpec } from '@/auth/KeySpec.js';
-import { KeyStore } from '@/auth/KeyStore.js';
-import { RemoteJWKSCollector } from '@/auth/RemoteJWKSCollector.js';
-import { StaticKeyCollector } from '@/auth/StaticKeyCollector.js';
-import * as jose from 'jose';
 import { describe, expect, test } from 'vitest';
+import { StaticKeyCollector } from '../../src/auth/StaticKeyCollector.js';
+import * as jose from 'jose';
+import { KeyStore } from '../../src/auth/KeyStore.js';
+import { KeySpec } from '../../src/auth/KeySpec.js';
+import { RemoteJWKSCollector } from '../../src/auth/RemoteJWKSCollector.js';
+import { KeyResult } from '../../src/auth/KeyCollector.js';
+import { CachedKeyCollector } from '../../src/auth/CachedKeyCollector.js';
+import { JwtPayload } from '@/index.js';
 
-const publicKey: jose.JWK = {
+const publicKeyRSA: jose.JWK = {
   use: 'sig',
   kty: 'RSA',
   e: 'AQAB',
@@ -27,6 +28,16 @@ const sharedKey2: jose.JWK = {
   alg: 'HS256',
   kty: 'oct',
   k: Buffer.from('mysecret2', 'utf-8').toString('base64url')
+};
+
+const privateKeyEdDSA: jose.JWK = {
+  use: 'sig',
+  kty: 'OKP',
+  crv: 'Ed25519',
+  kid: 'k2',
+  x: 'nfaqgxakPaiiEdAtRGrubgh_SQ1mr6gAUx3--N-ehvo',
+  d: 'wweBqMbTrME6oChSEMYAOyYzxsGisQb-C1t0XMjb_Ng',
+  alg: 'EdDSA'
 };
 
 describe('JWT Auth', () => {
@@ -86,20 +97,20 @@ describe('JWT Auth', () => {
   });
 
   test('Algorithm validation', async () => {
-    const keys = await StaticKeyCollector.importKeys([publicKey]);
+    const keys = await StaticKeyCollector.importKeys([publicKeyRSA]);
     const store = new KeyStore(keys);
 
     // Bad attempt at signing token with rsa public key
     const spoofedKey: jose.JWK = {
       kty: 'oct',
-      kid: publicKey.kid!,
+      kid: publicKeyRSA.kid!,
       alg: 'HS256',
-      k: publicKey.n!
+      k: publicKeyRSA.n!
     };
     const signKey = (await jose.importJWK(spoofedKey)) as jose.KeyLike;
 
     const signedJwt = await new jose.SignJWT({})
-      .setProtectedHeader({ alg: 'HS256', kid: publicKey.kid! })
+      .setProtectedHeader({ alg: 'HS256', kid: publicKeyRSA.kid! })
       .setSubject('f1')
       .setIssuedAt()
       .setIssuer('tester')
@@ -116,7 +127,7 @@ describe('JWT Auth', () => {
   });
 
   test('key selection for key with kid', async () => {
-    const keys = await StaticKeyCollector.importKeys([publicKey, sharedKey, sharedKey2]);
+    const keys = await StaticKeyCollector.importKeys([publicKeyRSA, sharedKey, sharedKey2]);
     const store = new KeyStore(keys);
     const signKey = (await jose.importJWK(sharedKey)) as jose.KeyLike;
     const signKey2 = (await jose.importJWK(sharedKey2)) as jose.KeyLike;
@@ -296,30 +307,30 @@ describe('JWT Auth', () => {
 
     currentResponse = Promise.resolve({
       errors: [],
-      keys: [await KeySpec.importKey(publicKey)]
+      keys: [await KeySpec.importKey(publicKeyRSA)]
     });
 
     let key = (await cached.getKeys()).keys[0];
-    expect(key.kid).toEqual(publicKey.kid!);
+    expect(key.kid).toEqual(publicKeyRSA.kid!);
 
     currentResponse = undefined as any;
 
     key = (await cached.getKeys()).keys[0];
-    expect(key.kid).toEqual(publicKey.kid!);
+    expect(key.kid).toEqual(publicKeyRSA.kid!);
 
     cached.addTimeForTests(301_000);
     currentResponse = Promise.reject('refresh failed');
 
     // Uses the promise, refreshes in the background
     let response = await cached.getKeys();
-    expect(response.keys[0].kid).toEqual(publicKey.kid!);
+    expect(response.keys[0].kid).toEqual(publicKeyRSA.kid!);
     expect(response.errors).toEqual([]);
 
     // Wait for refresh to finish
     await cached.addTimeForTests(0);
     response = await cached.getKeys();
     // Still have the cached key, but also have the error
-    expect(response.keys[0].kid).toEqual(publicKey.kid!);
+    expect(response.keys[0].kid).toEqual(publicKeyRSA.kid!);
     expect(response.errors[0].message).toMatch('Failed to fetch');
 
     await cached.addTimeForTests(3601_000);
@@ -331,12 +342,34 @@ describe('JWT Auth', () => {
 
     currentResponse = Promise.resolve({
       errors: [],
-      keys: [await KeySpec.importKey(publicKey)]
+      keys: [await KeySpec.importKey(publicKeyRSA)]
     });
 
     // After a delay, we can refresh again
     await cached.addTimeForTests(30_000);
     key = (await cached.getKeys()).keys[0];
-    expect(key.kid).toEqual(publicKey.kid!);
+    expect(key.kid).toEqual(publicKeyRSA.kid!);
+  });
+
+  test('signing with EdDSA', async () => {
+    const keys = await StaticKeyCollector.importKeys([privateKeyEdDSA]);
+    const store = new KeyStore(keys);
+    const signKey = (await jose.importJWK(privateKeyEdDSA)) as jose.KeyLike;
+
+    const signedJwt = await new jose.SignJWT({ claim: 'test-claim' })
+      .setProtectedHeader({ alg: 'EdDSA', kid: 'k2' })
+      .setSubject('f1')
+      .setIssuedAt()
+      .setIssuer('tester')
+      .setAudience('tests')
+      .setExpirationTime('5m')
+      .sign(signKey);
+
+    const verified = (await store.verifyJwt(signedJwt, {
+      defaultAudiences: ['tests'],
+      maxAge: '6m'
+    })) as JwtPayload & { claim: string };
+
+    expect(verified.claim).toEqual('test-claim');
   });
 });

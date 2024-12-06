@@ -74,7 +74,17 @@ export const jwkHmac = t.object({
   use: t.string.optional()
 });
 
-const jwk = t.union(jwkRSA, jwkHmac);
+export const jwkOKP = t.object({
+  kty: t.literal('OKP'),
+  kid: t.string.optional(),
+  /** Other curves have security issues so only these two are supported. */
+  crv: t.literal('Ed25519').or(t.literal('Ed448')),
+  x: t.string,
+  alg: t.literal('EdDSA'),
+  use: t.string.optional()
+});
+
+const jwk = t.union(t.union(jwkRSA, jwkHmac), jwkOKP);
 
 export const strictJwks = t.object({
   keys: t.array(jwk)
