@@ -1,6 +1,7 @@
 import { OplogEntry } from '@/util/protocol-types.js';
 import { describe, expect, test } from 'vitest';
-import { reduceBucket, validateBucket } from './bucket_validation.js';
+import { validateBucket } from './bucket_validation.js';
+import { reduceBucket } from '@/index.js';
 
 // This tests the reduceBucket function.
 // While this function is not used directly in the service implementation,

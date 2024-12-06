@@ -4,6 +4,7 @@ import * as api from '../api/api-index.js';
 
 import { ADMIN_ROUTES } from './endpoints/admin.js';
 import { CHECKPOINT_ROUTES } from './endpoints/checkpointing.js';
+import { PROBES_ROUTES } from './endpoints/probes.js';
 import { syncStreamReactive } from './endpoints/socket-route.js';
 import { SYNC_RULES_ROUTES } from './endpoints/sync-rules.js';
 import { SYNC_STREAM_ROUTES } from './endpoints/sync-stream.js';
@@ -47,7 +48,7 @@ export class RouterEngine {
 
     // Default routes
     this.routes = {
-      api_routes: [...ADMIN_ROUTES, ...CHECKPOINT_ROUTES, ...SYNC_RULES_ROUTES],
+      api_routes: [...ADMIN_ROUTES, ...CHECKPOINT_ROUTES, ...SYNC_RULES_ROUTES, ...PROBES_ROUTES],
       stream_routes: [...SYNC_STREAM_ROUTES],
       socket_routes: [syncStreamReactive]
     };

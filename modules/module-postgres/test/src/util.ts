@@ -6,6 +6,7 @@ import { BucketStorageFactory, Metrics, MongoBucketStorage, OpId } from '@powers
 import * as pgwire from '@powersync/service-jpgwire';
 import { pgwireRows } from '@powersync/service-jpgwire';
 import { env } from './env.js';
+import { PostgresRouteAPIAdapter } from '@module/api/PostgresRouteAPIAdapter.js';
 
 // The metrics need to be initialized before they can be used
 await Metrics.initialise({
@@ -82,7 +83,8 @@ export async function getClientCheckpoint(
 ): Promise<OpId> {
   const start = Date.now();
 
-  const [{ lsn }] = pgwireRows(await db.query(`SELECT pg_logical_emit_message(false, 'powersync', 'ping') as lsn`));
+  const api = new PostgresRouteAPIAdapter(db);
+  const lsn = await api.getReplicationHead();
 
   // This old API needs a persisted checkpoint id.
   // Since we don't use LSNs anymore, the only way to get that is to wait.

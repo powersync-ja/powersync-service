@@ -1,5 +1,29 @@
 # @powersync/service-module-postgres
 
+## 0.1.0
+
+### Minor Changes
+
+- 62e97f3: Support resuming initial replication for Postgres.
+
+### Patch Changes
+
+- 15b2d8e: Disable SupabaseKeyCollector when a specific secret is configured.
+- 0fa01ee: Fix replication lag diagnostics for Postgres.
+- Updated dependencies [62e97f3]
+- Updated dependencies [a235c9f]
+- Updated dependencies [8c6ce90]
+  - @powersync/service-core@0.11.0
+  - @powersync/service-sync-rules@0.22.0
+  - @powersync/service-jpgwire@0.18.2
+
+## 0.0.4
+
+### Patch Changes
+
+- Updated dependencies [2a4f020]
+  - @powersync/service-core@0.10.1
+
 ## 0.0.3
 
 ### Patch Changes

@@ -30,6 +30,8 @@ export interface StorageOptions {
    * Setting this to true will drop the collections completely.
    */
   dropAll?: boolean;
+
+  doNotClear?: boolean;
 }
 export type StorageFactory = (options?: StorageOptions) => Promise<BucketStorageFactory>;
 
@@ -37,7 +39,7 @@ export const MONGO_STORAGE_FACTORY: StorageFactory = async (options?: StorageOpt
   const db = await connectMongo();
   if (options?.dropAll) {
     await db.drop();
-  } else {
+  } else if (!options?.doNotClear) {
     await db.clear();
   }
   return new MongoBucketStorage(db, { slot_name_prefix: 'test_' });

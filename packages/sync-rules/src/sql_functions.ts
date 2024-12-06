@@ -7,6 +7,7 @@ import { jsonValueToSqlite } from './utils.js';
 /// <reference types="./wkx.d.ts" />
 import wkx from '@syncpoint/wkx';
 import { ExpressionType, SqliteType, TYPE_INTEGER } from './ExpressionType.js';
+import * as uuid from 'uuid';
 
 export const BASIC_OPERATORS = new Set<string>([
   '=',
@@ -186,6 +187,30 @@ const base64: DocumentedSqlFunction = {
     return ExpressionType.TEXT;
   },
   detail: 'Convert a blob to base64 text'
+};
+
+const uuid_blob: DocumentedSqlFunction = {
+  debugName: 'uuid_blob',
+  call(value: SqliteValue) {
+    const uuidText = castAsText(value);
+
+    if (uuidText == null) {
+      return null;
+    }
+
+    const isValid = uuid.validate(uuidText);
+
+    if (!isValid) {
+      throw new Error(`Cannot call uuid_blob on a non UUID value`);
+    }
+
+    return uuid.parse(uuidText);
+  },
+  parameters: [{ name: 'uuid', type: ExpressionType.TEXT, optional: false }],
+  getReturnType(args) {
+    return ExpressionType.BLOB;
+  },
+  detail: 'Convert the UUID string to bytes'
 };
 
 const fn_typeof: DocumentedSqlFunction = {
@@ -486,6 +511,7 @@ export const SQL_FUNCTIONS_NAMED = {
   hex,
   length,
   base64,
+  uuid_blob,
   typeof: fn_typeof,
   ifnull,
   json_extract,
