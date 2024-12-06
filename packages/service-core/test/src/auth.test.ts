@@ -17,16 +17,6 @@ const publicKeyRSA: jose.JWK = {
   n: 'v7wW9w5vzvACxbo2Ldqt0IHBy0LCloQvnfIr-nhEKmqgBJeBgF2cZSGz0Fe-grRaAvhhDrxaOft2JvZlbUM8vFFnxx-52dYViDBxv8vDxmV1HeEGV69DYrGxnsOLrHQWKkPSeyxtidiwGrNVYuyC21PG1heScTYppxVSHBUh_D9di56ql16Xytv97FJHeBtEYUmyzLQsWGhfzuLBwYSSuZxia4p3-azlztHisht4Ai1KYpX0HWLjh9NGIMzimk2cNdKZjIO1Mm4Tu5S1z9dCauZdocpE5csFHyeLHY3oeXFNgl9GanyM9IAg-0T5QLJA-C6M9lUO4WuVmOtLM_iGlw'
 };
 
-// NB: Private key seed = wweBqMbTrME6oChSEMYAOyYzxsGisQb-C1t0XMjb_Ng
-const publicKeyEdDSA: jose.JWK = {
-  use: 'sig',
-  kty: 'OKP',
-  crv: 'Ed25519',
-  kid: 'pubkey2',
-  x: 'nfaqgxakPaiiEdAtRGrubgh_SQ1mr6gAUx3--N-ehvo',
-  alg: 'EdDSA'
-};
-
 const sharedKey: jose.JWK = {
   kid: 'k1',
   alg: 'HS256',
@@ -38,6 +28,16 @@ const sharedKey2: jose.JWK = {
   alg: 'HS256',
   kty: 'oct',
   k: Buffer.from('mysecret2', 'utf-8').toString('base64url')
+};
+
+const privateKeyEdDSA: jose.JWK = {
+  use: 'sig',
+  kty: 'OKP',
+  crv: 'Ed25519',
+  kid: 'k2',
+  x: 'nfaqgxakPaiiEdAtRGrubgh_SQ1mr6gAUx3--N-ehvo',
+  d: 'wweBqMbTrME6oChSEMYAOyYzxsGisQb-C1t0XMjb_Ng',
+  alg: 'EdDSA'
 };
 
 describe('JWT Auth', () => {
@@ -352,12 +352,12 @@ describe('JWT Auth', () => {
   });
 
   test('signing with EdDSA', async () => {
-    const keys = await StaticKeyCollector.importKeys([publicKeyEdDSA]);
+    const keys = await StaticKeyCollector.importKeys([privateKeyEdDSA]);
     const store = new KeyStore(keys);
-    const signKey = (await jose.importJWK(publicKeyEdDSA)) as jose.KeyLike;
+    const signKey = (await jose.importJWK(privateKeyEdDSA)) as jose.KeyLike;
 
     const signedJwt = await new jose.SignJWT({ claim: 'test-claim' })
-      .setProtectedHeader({ alg: 'EdDSA', kid: 'k1' })
+      .setProtectedHeader({ alg: 'EdDSA', kid: 'k2' })
       .setSubject('f1')
       .setIssuedAt()
       .setIssuer('tester')
