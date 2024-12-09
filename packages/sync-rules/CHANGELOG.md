@@ -1,5 +1,27 @@
 # @powersync/service-sync-rules
 
+## 0.22.0
+
+### Minor Changes
+
+- a235c9f: Sync rules function to convert uuid to base64
+
+## 0.21.0
+
+### Minor Changes
+
+- 57bd18b: Added ability to emit data replication events
+- 57bd18b: Introduced alpha support for MySQL as a datasource for replication.
+  Bunch of cleanup
+- 57bd18b: - Introduced modules to the powersync service architecture
+  - Core functionality has been moved to "engine" classes. Modules can register additional functionality with these engines.
+  - The sync API functionality used by the routes has been abstracted to an interface. API routes are now managed by the RouterEngine.
+  - Replication is managed by the ReplicationEngine and new replication data sources can be registered to the engine by modules.
+  - Refactored existing Postgres replication as a module.
+  - Removed Postgres specific code from the core service packages.
+- 57bd18b: Support json_each as a table-valued function.
+- 57bd18b: Optionally include original types in generated schemas as a comment.
+
 ## 0.20.0
 
 ### Minor Changes

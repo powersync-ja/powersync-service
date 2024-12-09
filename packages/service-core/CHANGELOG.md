@@ -1,5 +1,77 @@
 # @powersync/service-core
 
+## 0.12.0
+
+### Minor Changes
+
+- ebc62ff: Add EdDSA support for JWTs.
+
+### Patch Changes
+
+- Updated dependencies [ebc62ff]
+  - @powersync/service-types@0.5.0
+
+## 0.11.0
+
+### Minor Changes
+
+- 62e97f3: Support resuming initial replication for Postgres.
+
+### Patch Changes
+
+- 8c6ce90: Workaround for Aurora Postgres write checkpoint bug
+- Updated dependencies [a235c9f]
+  - @powersync/service-sync-rules@0.22.0
+
+## 0.10.1
+
+### Patch Changes
+
+- 2a4f020: Fix regression for missing HTTP probes. Reported in [issue](https://github.com/powersync-ja/powersync-service/issues/144).
+
+## 0.10.0
+
+### Minor Changes
+
+- 35c267f: Add "supabase_jwt_secret" config option to simplify static Supabase auth.
+
+### Patch Changes
+
+- 2c18ad2: Fix compact action
+- Updated dependencies [35c267f]
+  - @powersync/service-types@0.4.0
+
+## 0.9.0
+
+### Minor Changes
+
+- 57bd18b: Added ability to emit data replication events
+- 57bd18b: Introduced alpha support for MySQL as a datasource for replication.
+  Bunch of cleanup
+- 57bd18b: Moved Write Checkpoint APIs to SyncBucketStorage
+- 57bd18b: - Introduced modules to the powersync service architecture
+  - Core functionality has been moved to "engine" classes. Modules can register additional functionality with these engines.
+  - The sync API functionality used by the routes has been abstracted to an interface. API routes are now managed by the RouterEngine.
+  - Replication is managed by the ReplicationEngine and new replication data sources can be registered to the engine by modules.
+  - Refactored existing Postgres replication as a module.
+  - Removed Postgres specific code from the core service packages.
+
+### Patch Changes
+
+- 57bd18b: Improved sync rules storage cached parsed sync rules, accommodating different parsing options where necessary.
+- 57bd18b: Moved tag variable initialization in diagnostics route to ensure it is initialized before usage
+- Updated dependencies [57bd18b]
+- Updated dependencies [57bd18b]
+- Updated dependencies [57bd18b]
+- Updated dependencies [57bd18b]
+- Updated dependencies [57bd18b]
+- Updated dependencies [57bd18b]
+- Updated dependencies [57bd18b]
+  - @powersync/lib-services-framework@0.2.0
+  - @powersync/service-sync-rules@0.21.0
+  - @powersync/service-rsocket-router@0.0.14
+  - @powersync/service-types@0.3.0
+
 ## 0.8.8
 
 ### Patch Changes

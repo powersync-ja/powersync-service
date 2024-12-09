@@ -23,7 +23,16 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
   async initialize(context: system.ServiceContextContainer): Promise<void> {
     await super.initialize(context);
 
-    if (context.configuration.base_config.client_auth?.supabase) {
+    const client_auth = context.configuration.base_config.client_auth;
+
+    if (client_auth?.supabase && client_auth?.supabase_jwt_secret == null) {
+      // Only use the deprecated SupabaseKeyCollector when there is no
+      // secret hardcoded. Hardcoded secrets are handled elsewhere, using
+      // StaticSupabaseKeyCollector.
+
+      // Support for SupabaseKeyCollector is deprecated and support will be
+      // completely removed by Supabase soon. We can keep support a while
+      // longer for self-hosted setups, before also removing that on our side.
       this.registerSupabaseAuth(context);
     }
 
@@ -38,7 +47,7 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
   }
 
   protected createRouteAPIAdapter(): api.RouteAPI {
-    return new PostgresRouteAPIAdapter(this.resolveConfig(this.decodedConfig!));
+    return PostgresRouteAPIAdapter.withConfig(this.resolveConfig(this.decodedConfig!));
   }
 
   protected createReplicator(context: system.ServiceContext): replication.AbstractReplicator {

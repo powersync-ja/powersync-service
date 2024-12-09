@@ -65,8 +65,26 @@ export class CompoundConfigCollector {
 
     const inputKeys = baseConfig.client_auth?.jwks?.keys ?? [];
     const staticCollector = await auth.StaticKeyCollector.importKeys(inputKeys);
-
     collectors.add(staticCollector);
+
+    if (baseConfig.client_auth?.supabase && baseConfig.client_auth?.supabase_jwt_secret != null) {
+      // This replaces the old SupabaseKeyCollector, with a statically-configured key.
+      // You can get the same effect with manual HS256 key configuration, but this
+      // makes the config simpler.
+      // We also a custom audience ("authenticated"), increased max lifetime (1 week),
+      // and auto base64-url-encode the key.
+      collectors.add(
+        await auth.StaticSupabaseKeyCollector.importKeys([
+          {
+            kty: 'oct',
+            alg: 'HS256',
+            // In this case, the key is not base64-encoded yet.
+            k: Buffer.from(baseConfig.client_auth.supabase_jwt_secret, 'utf8').toString('base64url'),
+            kid: undefined // Wildcard kid - any kid can match
+          }
+        ])
+      );
+    }
 
     let jwks_uris = baseConfig.client_auth?.jwks_uri ?? [];
     if (typeof jwks_uris == 'string') {

@@ -3,6 +3,7 @@ import { BucketStorageFactory, Metrics } from '@powersync/service-core';
 
 import { MongoBucketStorage } from '@module/storage/MongoBucketStorage.js';
 import { PowerSyncMongo } from '@module/storage/storage-index.js';
+import { test_utils } from '@powersync/service-core-tests';
 import * as mongo from 'mongodb';
 import { env } from './env.js';
 
@@ -23,15 +24,16 @@ export const TEST_CONNECTION_OPTIONS = types.normalizeConnectionConfig({
 
 export type StorageFactory = () => Promise<BucketStorageFactory>;
 
-export const INITIALIZED_MONGO_STORAGE_FACTORY: StorageFactory = async () => {
+export const INITIALIZED_MONGO_STORAGE_FACTORY: StorageFactory = async (options?: test_utils.StorageOptions) => {
   const db = await connectMongo();
 
   // None of the PG tests insert data into this collection, so it was never created
   if (!(await db.db.listCollections({ name: db.bucket_parameters.collectionName }).hasNext())) {
     await db.db.createCollection('bucket_parameters');
   }
-
-  await db.clear();
+  if (!options?.doNotClear) {
+    await db.clear();
+  }
 
   return new MongoBucketStorage(db, { slot_name_prefix: 'test_' });
 };
@@ -50,7 +52,6 @@ export async function connectMongoData() {
   const dbname = new URL(env.MONGO_TEST_DATA_URL).pathname.substring(1);
   return { client, db: client.db(dbname) };
 }
-
 
 export async function connectMongo() {
   // Short timeout for tests, to fail fast when the server is not available.

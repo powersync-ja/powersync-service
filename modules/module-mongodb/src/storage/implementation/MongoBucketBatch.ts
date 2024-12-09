@@ -3,7 +3,8 @@ import * as bson from 'bson';
 import * as mongo from 'mongodb';
 
 import { container, DisposableObserver, errors, logger } from '@powersync/lib-services-framework';
-import { storage, utils } from '@powersync/service-core';
+import { SaveOperationTag, storage, utils } from '@powersync/service-core';
+import * as timers from 'node:timers/promises';
 import { PowerSyncMongo } from './db.js';
 import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
@@ -30,8 +31,13 @@ export interface MongoBucketBatchOptions {
   groupId: number;
   slotName: string;
   lastCheckpointLsn: string | null;
+  keepaliveOp: string | null;
   noCheckpointBeforeLsn: string;
   storeCurrentData: boolean;
+  /**
+   * Set to true for initial replication.
+   */
+  skipExistingRows: boolean;
 }
 
 export class MongoBucketBatch
@@ -47,6 +53,7 @@ export class MongoBucketBatch
 
   private readonly slot_name: string;
   private readonly storeCurrentData: boolean;
+  private readonly skipExistingRows: boolean;
 
   private batch: OperationBatch | null = null;
   private write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
@@ -80,7 +87,12 @@ export class MongoBucketBatch
     this.slot_name = options.slotName;
     this.sync_rules = options.syncRules;
     this.storeCurrentData = options.storeCurrentData;
+    this.skipExistingRows = options.skipExistingRows;
     this.batch = new OperationBatch();
+
+    if (options.keepaliveOp) {
+      this.persisted_op = BigInt(options.keepaliveOp);
+    }
   }
 
   addCustomWriteCheckpoint(checkpoint: storage.BatchedCustomWriteCheckpointOptions): void {
@@ -142,9 +154,12 @@ export class MongoBucketBatch
     op_seq: MongoIdSequence
   ): Promise<OperationBatch | null> {
     let sizes: Map<string, number> | undefined = undefined;
-    if (this.storeCurrentData) {
+    if (this.storeCurrentData && !this.skipExistingRows) {
       // We skip this step if we don't store current_data, since the sizes will
       // always be small in that case.
+
+      // With skipExistingRows, we don't load the full documents into memory,
+      // so we can also skip the size lookup step.
 
       // Find sizes of current_data documents, to assist in intelligent batching without
       // exceeding memory limits.
@@ -198,11 +213,13 @@ export class MongoBucketBatch
         return { g: this.group_id, t: r.record.sourceTable.id, k: r.beforeId };
       });
       let current_data_lookup = new Map<string, CurrentDataDocument>();
+      // With skipExistingRows, we only need to know whether or not the row exists.
+      const projection = this.skipExistingRows ? { _id: 1 } : undefined;
       const cursor = this.db.current_data.find(
         {
           _id: { $in: lookups }
         },
-        { session }
+        { session, projection }
       );
       for await (let doc of cursor.stream()) {
         current_data_lookup.set(cacheKey(doc._id.t, doc._id.k), doc);
@@ -267,7 +284,21 @@ export class MongoBucketBatch
 
     const before_key: SourceKey = { g: this.group_id, t: record.sourceTable.id, k: beforeId };
 
-    if (record.tag == 'update') {
+    if (this.skipExistingRows) {
+      if (record.tag == SaveOperationTag.INSERT) {
+        if (current_data != null) {
+          // Initial replication, and we already have the record.
+          // This may be a different version of the record, but streaming replication
+          // will take care of that.
+          // Skip the insert here.
+          return null;
+        }
+      } else {
+        throw new Error(`${record.tag} not supported with skipExistingRows: true`);
+      }
+    }
+
+    if (record.tag == SaveOperationTag.UPDATE) {
       const result = current_data;
       if (result == null) {
         // Not an error if we re-apply a transaction
@@ -287,7 +318,7 @@ export class MongoBucketBatch
           after = storage.mergeToast(after!, data);
         }
       }
-    } else if (record.tag == 'delete') {
+    } else if (record.tag == SaveOperationTag.DELETE) {
       const result = current_data;
       if (result == null) {
         // Not an error if we re-apply a transaction
@@ -488,7 +519,7 @@ export class MongoBucketBatch
             } else {
               logger.warn('Transaction error', e as Error);
             }
-            await new Promise((resolve) => setTimeout(resolve, Math.random() * 50));
+            await timers.setTimeout(Math.random() * 50);
             throw e;
           }
         },
@@ -581,7 +612,28 @@ export class MongoBucketBatch
       return false;
     }
     if (lsn < this.no_checkpoint_before_lsn) {
-      logger.info(`Waiting until ${this.no_checkpoint_before_lsn} before creating checkpoint, currently at ${lsn}`);
+      logger.info(
+        `Waiting until ${this.no_checkpoint_before_lsn} before creating checkpoint, currently at ${lsn}. Persisted op: ${this.persisted_op}`
+      );
+
+      // Edge case: During initial replication, we have a no_checkpoint_before_lsn set,
+      // and don't actually commit the snapshot.
+      // The first commit can happen from an implicit keepalive message.
+      // That needs the persisted_op to get an accurate checkpoint, so
+      // we persist that in keepalive_op.
+
+      await this.db.sync_rules.updateOne(
+        {
+          _id: this.group_id
+        },
+        {
+          $set: {
+            keepalive_op: this.persisted_op == null ? null : String(this.persisted_op)
+          }
+        },
+        { session: this.session }
+      );
+
       return false;
     }
 
@@ -591,7 +643,8 @@ export class MongoBucketBatch
       last_checkpoint_ts: now,
       last_keepalive_ts: now,
       snapshot_done: true,
-      last_fatal_error: null
+      last_fatal_error: null,
+      keepalive_op: null
     };
 
     if (this.persisted_op != null) {
@@ -625,6 +678,7 @@ export class MongoBucketBatch
     if (this.persisted_op != null) {
       // The commit may have been skipped due to "no_checkpoint_before_lsn".
       // Apply it now if relevant
+      logger.info(`Commit due to keepalive at ${lsn} / ${this.persisted_op}`);
       return await this.commit(lsn);
     }
 
@@ -678,9 +732,8 @@ export class MongoBucketBatch
 
     if (this.batch.shouldFlush()) {
       const r = await this.flush();
-      // HACK: Give other streams a chance to also flush
-      const t = 150;
-      await new Promise((resolve) => setTimeout(resolve, t));
+      // HACK: Give other streams a  chance to also flush
+      await timers.setTimeout(5);
       return r;
     }
     return null;

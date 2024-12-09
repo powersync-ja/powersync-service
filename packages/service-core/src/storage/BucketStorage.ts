@@ -247,6 +247,13 @@ export interface StartBatchOptions extends ParseSyncRulesOptions {
    * database, for example from MongoDB.
    */
   storeCurrentData: boolean;
+
+  /**
+   * Set to true for initial replication.
+   *
+   * This will avoid creating new operations for rows previously replicated.
+   */
+  skipExistingRows?: boolean;
 }
 
 export interface SyncRulesBucketStorageListener extends DisposableListener {

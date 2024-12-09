@@ -1,11 +1,13 @@
+import { Metrics } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
+import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
 import { populateData } from '../../dist/utils/populate_test_data.js';
 import { env } from './env.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_CONNECTION_OPTIONS } from './util.js';
-import { walStreamTest } from './wal_stream_utils.js';
+import { WalStreamTestContext } from './wal_stream_utils.js';
 
-describe('batch replication tests - mongodb', function () {
+describe('batch replication tests - mongodb', { timeout: 120_000 }, function () {
   // These are slow but consistent tests.
   // Not run on every test run, but we do run on CI, or when manually debugging issues.
   if (env.CI || env.SLOW_TESTS) {
@@ -22,166 +24,284 @@ const BASIC_SYNC_RULES = `bucket_definitions:
       - SELECT id, description, other FROM "test_data"`;
 
 function defineBatchTests(factory: test_utils.StorageFactory) {
-  test(
-    'update large record',
-    walStreamTest(factory, async (context) => {
-      // This test generates a large transaction in MongoDB, despite the replicated data
-      // not being that large.
-      // If we don't limit transaction size, we could run into this error:
-      // > -31800: transaction is too large and will not fit in the storage engine cache
-      await context.updateSyncRules(BASIC_SYNC_RULES);
-      const { pool } = context;
+  test('update large record', async () => {
+    await using context = await WalStreamTestContext.open(factory);
+    // This test generates a large transaction in MongoDB, despite the replicated data
+    // not being that large.
+    // If we don't limit transaction size, we could run into this error:
+    // > -31800: transaction is too large and will not fit in the storage engine cache
+    await context.updateSyncRules(BASIC_SYNC_RULES);
+    const { pool } = context;
 
-      await pool.query(`CREATE TABLE test_data(id text primary key, description text, other text)`);
+    await pool.query(`CREATE TABLE test_data(id text primary key, description text, other text)`);
 
-      await context.replicateSnapshot();
+    await context.replicateSnapshot();
 
-      let operation_count = await populateData({
-        num_transactions: 1,
-        per_transaction: 80,
-        size: 4_000_000,
-        connection: TEST_CONNECTION_OPTIONS
-      });
+    let operation_count = await populateData({
+      num_transactions: 1,
+      per_transaction: 80,
+      size: 4_000_000,
+      connection: TEST_CONNECTION_OPTIONS
+    });
 
+    const start = Date.now();
+
+    context.startStreaming();
+
+    const checkpoint = await context.getCheckpoint({ timeout: 100_000 });
+    const duration = Date.now() - start;
+    const used = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+    const checksum = await context.storage!.getChecksums(checkpoint, ['global[]']);
+    expect(checksum.get('global[]')!.count).toEqual(operation_count);
+    const perSecond = Math.round((operation_count / duration) * 1000);
+    console.log(`${operation_count} ops in ${duration}ms ${perSecond} ops/s. ${used}MB heap`);
+  });
+
+  test('initial replication performance', async () => {
+    await using context = await WalStreamTestContext.open(factory);
+    // Manual test to check initial replication performance and memory usage
+    await context.updateSyncRules(BASIC_SYNC_RULES);
+    const { pool } = context;
+
+    await pool.query(`CREATE TABLE test_data(id text primary key, description text, other text)`);
+
+    // Some stats (varies a lot):
+    // Old 'postgres' driver, using cursor(2)
+    // 15 ops in 19559ms 1 ops/s. 354MB RSS, 115MB heap, 137MB external
+    // 25 ops in 42984ms 1 ops/s. 377MB RSS, 129MB heap, 137MB external
+    // 35 ops in 41337ms 1 ops/s. 365MB RSS, 115MB heap, 137MB external
+
+    // streaming with pgwire
+    // 15 ops in 26423ms 1 ops/s. 379MB RSS, 128MB heap, 182MB external, 165MB ArrayBuffers
+    // 35 ops in 78897ms 0 ops/s. 539MB RSS, 52MB heap, 87MB external, 83MB ArrayBuffers
+
+    let operation_count = await populateData({
+      num_transactions: 1,
+      per_transaction: 35,
+      size: 14_000_000,
+      connection: TEST_CONNECTION_OPTIONS
+    });
+
+    global.gc?.();
+
+    // Note that we could already have high memory usage at this point
+    printMemoryUsage();
+
+    let interval = setInterval(() => {
+      printMemoryUsage();
+    }, 2000);
+    try {
       const start = Date.now();
 
+      await context.replicateSnapshot();
+      await context.storage!.autoActivate();
       context.startStreaming();
 
       const checkpoint = await context.getCheckpoint({ timeout: 100_000 });
       const duration = Date.now() - start;
-      const used = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
       const checksum = await context.storage!.getChecksums(checkpoint, ['global[]']);
       expect(checksum.get('global[]')!.count).toEqual(operation_count);
       const perSecond = Math.round((operation_count / duration) * 1000);
-      console.log(`${operation_count} ops in ${duration}ms ${perSecond} ops/s. ${used}MB heap`);
-    }),
-    { timeout: 120_000 }
-  );
-
-  test(
-    'initial replication performance',
-    walStreamTest(factory, async (context) => {
-      // Manual test to check initial replication performance and memory usage
-      await context.updateSyncRules(BASIC_SYNC_RULES);
-      const { pool } = context;
-
-      await pool.query(`CREATE TABLE test_data(id text primary key, description text, other text)`);
-
-      // Some stats (varies a lot):
-      // Old 'postgres' driver, using cursor(2)
-      // 15 ops in 19559ms 1 ops/s. 354MB RSS, 115MB heap, 137MB external
-      // 25 ops in 42984ms 1 ops/s. 377MB RSS, 129MB heap, 137MB external
-      // 35 ops in 41337ms 1 ops/s. 365MB RSS, 115MB heap, 137MB external
-
-      // streaming with pgwire
-      // 15 ops in 26423ms 1 ops/s. 379MB RSS, 128MB heap, 182MB external, 165MB ArrayBuffers
-      // 35 ops in 78897ms 0 ops/s. 539MB RSS, 52MB heap, 87MB external, 83MB ArrayBuffers
-
-      let operation_count = await populateData({
-        num_transactions: 1,
-        per_transaction: 35,
-        size: 14_000_000,
-        connection: TEST_CONNECTION_OPTIONS
-      });
-
-      global.gc?.();
-
-      // Note that we could already have high memory usage at this point
+      console.log(`${operation_count} ops in ${duration}ms ${perSecond} ops/s.`);
       printMemoryUsage();
+    } finally {
+      clearInterval(interval);
+    }
+  });
 
-      let interval = setInterval(() => {
-        printMemoryUsage();
-      }, 2000);
-      try {
-        const start = Date.now();
+  test('large number of operations', async () => {
+    await using context = await WalStreamTestContext.open(factory);
+    // This just tests performance of a large number of operations inside a transaction.
+    await context.updateSyncRules(BASIC_SYNC_RULES);
+    const { pool } = context;
 
-        await context.replicateSnapshot();
-        await context.storage!.autoActivate();
-        context.startStreaming();
+    await pool.query(`CREATE TABLE test_data(id text primary key, description text, other text)`);
 
-        const checkpoint = await context.getCheckpoint({ timeout: 100_000 });
-        const duration = Date.now() - start;
-        const checksum = await context.storage!.getChecksums(checkpoint, ['global[]']);
-        expect(checksum.get('global[]')!.count).toEqual(operation_count);
-        const perSecond = Math.round((operation_count / duration) * 1000);
-        console.log(`${operation_count} ops in ${duration}ms ${perSecond} ops/s.`);
-        printMemoryUsage();
-      } finally {
-        clearInterval(interval);
+    await context.replicateSnapshot();
+
+    const numTransactions = 20;
+    const perTransaction = 1500;
+    let operationCount = 0;
+
+    const description = 'description';
+
+    for (let i = 0; i < numTransactions; i++) {
+      const prefix = `test${i}K`;
+
+      await pool.query(
+        {
+          statement: `INSERT INTO test_data(id, description, other) SELECT $1 || i, $2 || i, 'foo' FROM generate_series(1, $3) i`,
+          params: [
+            { type: 'varchar', value: prefix },
+            { type: 'varchar', value: description },
+            { type: 'int4', value: perTransaction }
+          ]
+        },
+        {
+          statement: `UPDATE test_data SET other = other || '#' WHERE id LIKE $1 || '%'`,
+          params: [{ type: 'varchar', value: prefix }]
+        }
+      );
+      operationCount += perTransaction * 2;
+    }
+
+    const start = Date.now();
+
+    context.startStreaming();
+
+    const checkpoint = await context.getCheckpoint({ timeout: 50_000 });
+    const duration = Date.now() - start;
+    const used = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+    const checksum = await context.storage!.getChecksums(checkpoint, ['global[]']);
+    expect(checksum.get('global[]')!.count).toEqual(operationCount);
+    const perSecond = Math.round((operationCount / duration) * 1000);
+    // This number depends on the test machine, so we keep the test significantly
+    // lower than expected numbers.
+    expect(perSecond).toBeGreaterThan(1000);
+    console.log(`${operationCount} ops in ${duration}ms ${perSecond} ops/s. ${used}MB heap`);
+
+    // Truncating is fast (~10k ops/second).
+    // We'd need a really large set of data to actually run into limits when truncating,
+    // but we just test with the data we have here.
+    const truncateStart = Date.now();
+    await pool.query(`TRUNCATE test_data`);
+
+    const checkpoint2 = await context.getCheckpoint({ timeout: 20_000 });
+    const truncateDuration = Date.now() - truncateStart;
+
+    const checksum2 = await context.storage!.getChecksums(checkpoint2, ['global[]']);
+    const truncateCount = checksum2.get('global[]')!.count - checksum.get('global[]')!.count;
+    expect(truncateCount).toEqual(numTransactions * perTransaction);
+    const truncatePerSecond = Math.round((truncateCount / truncateDuration) * 1000);
+    console.log(`Truncated ${truncateCount} ops in ${truncateDuration}ms ${truncatePerSecond} ops/s. ${used}MB heap`);
+  });
+
+  test('resuming initial replication (1)', async () => {
+    // Stop early - likely to not include deleted row in first replication attempt.
+    await testResumingReplication(2000);
+  });
+  test('resuming initial replication (2)', async () => {
+    // Stop late - likely to include deleted row in first replication attempt.
+    await testResumingReplication(8000);
+  });
+
+  async function testResumingReplication(stopAfter: number) {
+    // This tests interrupting and then resuming initial replication.
+    // We interrupt replication after test_data1 has fully replicated, and
+    // test_data2 has partially replicated.
+    // This test relies on interval behavior that is not 100% deterministic:
+    // 1. We attempt to abort initial replication once a certain number of
+    //    rows have been replicated, but this is not exact. Our only requirement
+    //    is that we have not fully replicated test_data2 yet.
+    // 2. Order of replication is not deterministic, so which specific rows
+    //    have been / have not been replicated at that point is not deterministic.
+    //    We do allow for some variation in the test results to account for this.
+
+    await using context = await WalStreamTestContext.open(factory);
+
+    await context.updateSyncRules(`bucket_definitions:
+  global:
+    data:
+      - SELECT * FROM test_data1
+      - SELECT * FROM test_data2`);
+    const { pool } = context;
+
+    await pool.query(`CREATE TABLE test_data1(id serial primary key, description text)`);
+    await pool.query(`CREATE TABLE test_data2(id serial primary key, description text)`);
+
+    await pool.query(
+      {
+        statement: `INSERT INTO test_data1(description) SELECT 'foo' FROM generate_series(1, 1000) i`
+      },
+      {
+        statement: `INSERT INTO test_data2( description) SELECT 'foo' FROM generate_series(1, 10000) i`
       }
-    }),
-    { timeout: 120_000 }
-  );
+    );
 
-  test(
-    'large number of operations',
-    walStreamTest(factory, async (context) => {
-      // This just tests performance of a large number of operations inside a transaction.
-      await context.updateSyncRules(BASIC_SYNC_RULES);
-      const { pool } = context;
+    const p = context.replicateSnapshot();
 
-      await pool.query(`CREATE TABLE test_data(id text primary key, description text, other text)`);
+    let done = false;
 
-      await context.replicateSnapshot();
+    const startRowCount = (await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
+    try {
+      (async () => {
+        while (!done) {
+          const count =
+            ((await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0) -
+            startRowCount;
 
-      const numTransactions = 20;
-      const perTransaction = 1500;
-      let operationCount = 0;
-
-      const description = 'description';
-
-      for (let i = 0; i < numTransactions; i++) {
-        const prefix = `test${i}K`;
-
-        await pool.query(
-          {
-            statement: `INSERT INTO test_data(id, description, other) SELECT $1 || i, $2 || i, 'foo' FROM generate_series(1, $3) i`,
-            params: [
-              { type: 'varchar', value: prefix },
-              { type: 'varchar', value: description },
-              { type: 'int4', value: perTransaction }
-            ]
-          },
-          {
-            statement: `UPDATE test_data SET other = other || '#' WHERE id LIKE $1 || '%'`,
-            params: [{ type: 'varchar', value: prefix }]
+          if (count >= stopAfter) {
+            break;
           }
-        );
-        operationCount += perTransaction * 2;
-      }
+          await timers.setTimeout(1);
+        }
+        // This interrupts initial replication
+        await context.dispose();
+      })();
+      // This confirms that initial replication was interrupted
+      await expect(p).rejects.toThrowError();
+      done = true;
+    } finally {
+      done = true;
+    }
 
-      const start = Date.now();
+    // Bypass the usual "clear db on factory open" step.
+    await using context2 = await WalStreamTestContext.open(factory, { doNotClear: true });
 
-      context.startStreaming();
+    // This delete should be using one of the ids already replicated
+    const {
+      rows: [[id1]]
+    } = await context2.pool.query(`DELETE FROM test_data2 WHERE id = (SELECT id FROM test_data2 LIMIT 1) RETURNING id`);
+    // This update should also be using one of the ids already replicated
+    const {
+      rows: [[id2]]
+    } = await context2.pool.query(
+      `UPDATE test_data2 SET description = 'update1' WHERE id = (SELECT id FROM test_data2 LIMIT 1) RETURNING id`
+    );
+    const {
+      rows: [[id3]]
+    } = await context2.pool.query(`INSERT INTO test_data2(description) SELECT 'insert1' RETURNING id`);
 
-      const checkpoint = await context.getCheckpoint({ timeout: 50_000 });
-      const duration = Date.now() - start;
-      const used = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
-      const checksum = await context.storage!.getChecksums(checkpoint, ['global[]']);
-      expect(checksum.get('global[]')!.count).toEqual(operationCount);
-      const perSecond = Math.round((operationCount / duration) * 1000);
-      // This number depends on the test machine, so we keep the test significantly
-      // lower than expected numbers.
-      expect(perSecond).toBeGreaterThan(1000);
-      console.log(`${operationCount} ops in ${duration}ms ${perSecond} ops/s. ${used}MB heap`);
+    await context2.loadNextSyncRules();
+    await context2.replicateSnapshot();
 
-      // Truncating is fast (~10k ops/second).
-      // We'd need a really large set of data to actually run into limits when truncating,
-      // but we just test with the data we have here.
-      const truncateStart = Date.now();
-      await pool.query(`TRUNCATE test_data`);
+    context2.startStreaming();
+    const data = await context2.getBucketData('global[]', undefined, {});
 
-      const checkpoint2 = await context.getCheckpoint({ timeout: 20_000 });
-      const truncateDuration = Date.now() - truncateStart;
+    const deletedRowOps = data.filter((row) => row.object_type == 'test_data2' && row.object_id === String(id1));
+    const updatedRowOps = data.filter((row) => row.object_type == 'test_data2' && row.object_id === String(id2));
+    const insertedRowOps = data.filter((row) => row.object_type == 'test_data2' && row.object_id === String(id3));
 
-      const checksum2 = await context.storage!.getChecksums(checkpoint2, ['global[]']);
-      const truncateCount = checksum2.get('global[]')!.count - checksum.get('global[]')!.count;
-      expect(truncateCount).toEqual(numTransactions * perTransaction);
-      const truncatePerSecond = Math.round((truncateCount / truncateDuration) * 1000);
-      console.log(`Truncated ${truncateCount} ops in ${truncateDuration}ms ${truncatePerSecond} ops/s. ${used}MB heap`);
-    }),
-    { timeout: 90_000 }
-  );
+    if (deletedRowOps.length != 0) {
+      // The deleted row was part of the first replication batch,
+      // so it is removed by streaming replication.
+      expect(deletedRowOps.length).toEqual(2);
+      expect(deletedRowOps[1].op).toEqual('REMOVE');
+    } else {
+      // The deleted row was not part of the first replication batch,
+      // so it's not in the resulting ops at all.
+    }
+
+    expect(updatedRowOps.length).toEqual(2);
+    // description for the first op could be 'foo' or 'update1'.
+    // We only test the final version.
+    expect(JSON.parse(updatedRowOps[1].data as string).description).toEqual('update1');
+
+    expect(insertedRowOps.length).toEqual(2);
+    expect(JSON.parse(insertedRowOps[0].data as string).description).toEqual('insert1');
+    expect(JSON.parse(insertedRowOps[1].data as string).description).toEqual('insert1');
+
+    // 1000 of test_data1 during first replication attempt.
+    // N >= 1000 of test_data2 during first replication attempt.
+    // 10000 - N - 1 + 1 of test_data2 during second replication attempt.
+    // An additional update during streaming replication (2x total for this row).
+    // An additional insert during streaming replication (2x total for this row).
+    // If the deleted row was part of the first replication batch, it's removed by streaming replication.
+    // This adds 2 ops.
+    // We expect this to be 11002 for stopAfter: 2000, and 11004 for stopAfter: 8000.
+    // However, this is not deterministic.
+    expect(data.length).toEqual(11002 + deletedRowOps.length);
+  }
 
   function printMemoryUsage() {
     const memoryUsage = process.memoryUsage();

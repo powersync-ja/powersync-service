@@ -1,29 +1,9 @@
 import { PgManager } from '@module/replication/PgManager.js';
 import { PUBLICATION_NAME, WalStream, WalStreamOptions } from '@module/replication/WalStream.js';
-import { BucketStorageFactory, SyncRulesBucketStorage } from '@powersync/service-core';
-import { test_utils } from '@powersync/service-core-tests';
+import { BucketStorageFactory, OplogEntry, SyncRulesBucketStorage } from '@powersync/service-core';
+import { StorageOptions, test_utils } from '@powersync/service-core-tests';
 import * as pgwire from '@powersync/service-jpgwire';
 import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
-
-/**
- * Tests operating on the wal stream need to configure the stream and manage asynchronous
- * replication, which gets a little tricky.
- *
- * This wraps a test in a function that configures all the context, and tears it down afterwards.
- */
-export function walStreamTest(
-  factory: () => Promise<BucketStorageFactory>,
-  test: (context: WalStreamTestContext) => Promise<void>
-): () => Promise<void> {
-  return async () => {
-    const f = await factory();
-    const connectionManager = new PgManager(TEST_CONNECTION_OPTIONS, {});
-
-    await clearTestDb(connectionManager.pool);
-    await using context = new WalStreamTestContext(f, connectionManager);
-    await test(context);
-  };
-}
 
 export class WalStreamTestContext implements AsyncDisposable {
   private _walStream?: WalStream;
@@ -32,12 +12,36 @@ export class WalStreamTestContext implements AsyncDisposable {
   public storage?: SyncRulesBucketStorage;
   private replicationConnection?: pgwire.PgConnection;
 
+  /**
+   * Tests operating on the wal stream need to configure the stream and manage asynchronous
+   * replication, which gets a little tricky.
+   *
+   * This configures all the context, and tears it down afterwards.
+   */
+  static async open(
+    factory: (options: StorageOptions) => Promise<BucketStorageFactory>,
+    options?: { doNotClear?: boolean }
+  ) {
+    const f = await factory({ doNotClear: options?.doNotClear });
+    const connectionManager = new PgManager(TEST_CONNECTION_OPTIONS, {});
+
+    if (!options?.doNotClear) {
+      await clearTestDb(connectionManager.pool);
+    }
+
+    return new WalStreamTestContext(f, connectionManager);
+  }
+
   constructor(
     public factory: BucketStorageFactory,
     public connectionManager: PgManager
   ) {}
 
   async [Symbol.asyncDispose]() {
+    await this.dispose();
+  }
+
+  async dispose() {
     this.abortController.abort();
     await this.streamPromise;
     await this.connectionManager.destroy();
@@ -58,6 +62,16 @@ export class WalStreamTestContext implements AsyncDisposable {
 
   async updateSyncRules(content: string) {
     const syncRules = await this.factory.updateSyncRules({ content: content });
+    this.storage = this.factory.getInstance(syncRules);
+    return this.storage!;
+  }
+
+  async loadNextSyncRules() {
+    const syncRules = await this.factory.getNextSyncRulesContent();
+    if (syncRules == null) {
+      throw new Error(`Next sync rules not available`);
+    }
+
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
@@ -110,9 +124,33 @@ export class WalStreamTestContext implements AsyncDisposable {
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
+  /**
+   * This waits for a client checkpoint.
+   */
   async getBucketData(bucket: string, start?: string, options?: { timeout?: number }) {
     start ??= '0';
-    let checkpoint = await this.getCheckpoint(options);
+    const checkpoint = await this.getCheckpoint(options);
+    const map = new Map<string, string>([[bucket, start]]);
+    let data: OplogEntry[] = [];
+    while (true) {
+      const batch = this.storage!.getBucketDataBatch(checkpoint, map);
+
+      const batches = await test_utils.fromAsync(batch);
+      data = data.concat(batches[0]?.batch.data ?? []);
+      if (batches.length == 0 || !batches[0]!.batch.has_more) {
+        break;
+      }
+      map.set(bucket, batches[0]!.batch.next_after);
+    }
+    return data;
+  }
+
+  /**
+   * This does not wait for a client checkpoint.
+   */
+  async getCurrentBucketData(bucket: string, start?: string) {
+    start ??= '0';
+    const { checkpoint } = await this.storage!.getCheckpoint();
     const map = new Map<string, string>([[bucket, start]]);
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
     const batches = await test_utils.fromAsync(batch);

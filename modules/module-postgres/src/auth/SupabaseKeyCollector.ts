@@ -10,6 +10,8 @@ import * as pgwire_utils from '../utils/pgwire_utils.js';
  *
  * Unfortunately, despite the JWTs containing a kid, we have no way to lookup that kid
  * before receiving a valid token.
+ *
+ * @deprecated Supabase is removing support for "app.settings.jwt_secret".
  */
 export class SupabaseKeyCollector implements auth.KeyCollector {
   private pool: pgwire.PgClient;

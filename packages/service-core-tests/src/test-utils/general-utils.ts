@@ -8,9 +8,10 @@ export interface StorageOptions {
    * Setting this to true will drop the collections completely.
    */
   dropAll?: boolean;
+
+  doNotClear?: boolean;
 }
 export type StorageFactory = (options?: StorageOptions) => Promise<storage.BucketStorageFactory>;
-
 
 export const ZERO_LSN = '0/0';
 
@@ -42,7 +43,6 @@ export function testRules(content: string): storage.PersistedSyncRulesContent {
   };
 }
 
-
 export function makeTestTable(name: string, columns?: string[] | undefined) {
   const relId = utils.hashData('table', name, (columns ?? ['id']).join(','));
   const id = new bson.ObjectId('6544e3899293153fa7b38331');
@@ -57,7 +57,9 @@ export function makeTestTable(name: string, columns?: string[] | undefined) {
   );
 }
 
-export function getBatchData(batch:  utils.SyncBucketData[] |  storage.SyncBucketDataBatch[] |  storage.SyncBucketDataBatch) {
+export function getBatchData(
+  batch: utils.SyncBucketData[] | storage.SyncBucketDataBatch[] | storage.SyncBucketDataBatch
+) {
   const first = getFirst(batch);
   if (first == null) {
     return [];
@@ -72,7 +74,9 @@ export function getBatchData(batch:  utils.SyncBucketData[] |  storage.SyncBucke
   });
 }
 
-export function getBatchMeta(batch:   utils.SyncBucketData[] |  storage.SyncBucketDataBatch[] |  storage.SyncBucketDataBatch) {
+export function getBatchMeta(
+  batch: utils.SyncBucketData[] | storage.SyncBucketDataBatch[] | storage.SyncBucketDataBatch
+) {
   const first = getFirst(batch);
   if (first == null) {
     return null;
@@ -84,7 +88,9 @@ export function getBatchMeta(batch:   utils.SyncBucketData[] |  storage.SyncBuck
   };
 }
 
-function getFirst(batch:   utils.SyncBucketData[] |  storage.SyncBucketDataBatch[] |  storage.SyncBucketDataBatch):   utils.SyncBucketData | null {
+function getFirst(
+  batch: utils.SyncBucketData[] | storage.SyncBucketDataBatch[] | storage.SyncBucketDataBatch
+): utils.SyncBucketData | null {
   if (!Array.isArray(batch)) {
     return batch.batch;
   }
@@ -92,10 +98,10 @@ function getFirst(batch:   utils.SyncBucketData[] |  storage.SyncBucketDataBatch
     return null;
   }
   let first = batch[0];
-  if ((first as  storage.SyncBucketDataBatch).batch != null) {
-    return (first as  storage.SyncBucketDataBatch).batch;
+  if ((first as storage.SyncBucketDataBatch).batch != null) {
+    return (first as storage.SyncBucketDataBatch).batch;
   } else {
-    return first as   utils.SyncBucketData;
+    return first as utils.SyncBucketData;
   }
 }
 

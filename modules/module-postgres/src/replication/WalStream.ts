@@ -18,7 +18,10 @@ export interface WalStreamOptions {
 }
 
 interface InitResult {
+  /** True if initial snapshot is not yet done. */
   needsInitialSync: boolean;
+  /** True if snapshot must be started from scratch with a new slot. */
+  needsNewSlot: boolean;
 }
 
 export class MissingReplicationSlotError extends Error {
@@ -173,88 +176,114 @@ export class WalStream {
     const slotName = this.slot_name;
 
     const status = await this.storage.getStatus();
-    if (status.snapshot_done && status.checkpoint_lsn) {
+    const snapshotDone = status.snapshot_done && status.checkpoint_lsn != null;
+    if (snapshotDone) {
+      // Snapshot is done, but we still need to check the replication slot status
       logger.info(`${slotName} Initial replication already done`);
+    }
 
-      let last_error = null;
+    // Check if replication slot exists
+    const rs = await this.connections.pool.query({
+      statement: 'SELECT 1 FROM pg_replication_slots WHERE slot_name = $1',
+      params: [{ type: 'varchar', value: slotName }]
+    });
+    const slotExists = rs.rows.length > 0;
 
-      // Check that replication slot exists
-      for (let i = 120; i >= 0; i--) {
-        await touch();
+    if (slotExists) {
+      // This checks that the slot is still valid
+      const r = await this.checkReplicationSlot();
+      return {
+        needsInitialSync: !snapshotDone,
+        needsNewSlot: r.needsNewSlot
+      };
+    } else {
+      return { needsInitialSync: true, needsNewSlot: true };
+    }
+  }
 
-        if (i == 0) {
-          container.reporter.captureException(last_error, {
-            level: errors.ErrorSeverity.ERROR,
+  /**
+   * If a replication slot exists, check that it is healthy.
+   */
+  private async checkReplicationSlot(): Promise<InitResult> {
+    let last_error = null;
+    const slotName = this.slot_name;
+
+    // Check that replication slot exists
+    for (let i = 120; i >= 0; i--) {
+      await touch();
+
+      if (i == 0) {
+        container.reporter.captureException(last_error, {
+          level: errors.ErrorSeverity.ERROR,
+          metadata: {
+            replication_slot: slotName
+          }
+        });
+
+        throw last_error;
+      }
+      try {
+        // We peek a large number of changes here, to make it more likely to pick up replication slot errors.
+        // For example, "publication does not exist" only occurs here if the peek actually includes changes related
+        // to the slot.
+        logger.info(`Checking ${slotName}`);
+
+        // The actual results can be quite large, so we don't actually return everything
+        // due to memory and processing overhead that would create.
+        const cursor = await this.connections.pool.stream({
+          statement: `SELECT 1 FROM pg_catalog.pg_logical_slot_peek_binary_changes($1, NULL, 1000, 'proto_version', '1', 'publication_names', $2)`,
+          params: [
+            { type: 'varchar', value: slotName },
+            { type: 'varchar', value: PUBLICATION_NAME }
+          ]
+        });
+
+        for await (let _chunk of cursor) {
+          // No-op, just exhaust the cursor
+        }
+
+        // Success
+        logger.info(`Slot ${slotName} appears healthy`);
+        return { needsInitialSync: false, needsNewSlot: false };
+      } catch (e) {
+        last_error = e;
+        logger.warn(`${slotName} Replication slot error`, e);
+
+        if (this.stopped) {
+          throw e;
+        }
+
+        // Could also be `publication "powersync" does not exist`, although this error may show up much later
+        // in some cases.
+
+        if (
+          /incorrect prev-link/.test(e.message) ||
+          /replication slot.*does not exist/.test(e.message) ||
+          /publication.*does not exist/.test(e.message)
+        ) {
+          container.reporter.captureException(e, {
+            level: errors.ErrorSeverity.WARNING,
             metadata: {
+              try_index: i,
               replication_slot: slotName
             }
           });
+          // Sample: record with incorrect prev-link 10000/10000 at 0/18AB778
+          //   Seen during development. Some internal error, fixed by re-creating slot.
+          //
+          // Sample: publication "powersync" does not exist
+          //   Happens when publication deleted or never created.
+          //   Slot must be re-created in this case.
+          logger.info(`${slotName} does not exist anymore, will create new slot`);
 
-          throw last_error;
+          return { needsInitialSync: true, needsNewSlot: true };
         }
-        try {
-          // We peek a large number of changes here, to make it more likely to pick up replication slot errors.
-          // For example, "publication does not exist" only occurs here if the peek actually includes changes related
-          // to the slot.
-          logger.info(`Checking ${slotName}`);
-
-          // The actual results can be quite large, so we don't actually return everything
-          // due to memory and processing overhead that would create.
-          const cursor = await this.connections.pool.stream({
-            statement: `SELECT 1 FROM pg_catalog.pg_logical_slot_peek_binary_changes($1, NULL, 1000, 'proto_version', '1', 'publication_names', $2)`,
-            params: [
-              { type: 'varchar', value: slotName },
-              { type: 'varchar', value: PUBLICATION_NAME }
-            ]
-          });
-
-          for await (let _chunk of cursor) {
-            // No-op, just exhaust the cursor
-          }
-
-          // Success
-          logger.info(`Slot ${slotName} appears healthy`);
-          return { needsInitialSync: false };
-        } catch (e) {
-          last_error = e;
-          logger.warn(`${slotName} Replication slot error`, e);
-
-          if (this.stopped) {
-            throw e;
-          }
-
-          // Could also be `publication "powersync" does not exist`, although this error may show up much later
-          // in some cases.
-
-          if (
-            /incorrect prev-link/.test(e.message) ||
-            /replication slot.*does not exist/.test(e.message) ||
-            /publication.*does not exist/.test(e.message)
-          ) {
-            container.reporter.captureException(e, {
-              level: errors.ErrorSeverity.WARNING,
-              metadata: {
-                try_index: i,
-                replication_slot: slotName
-              }
-            });
-            // Sample: record with incorrect prev-link 10000/10000 at 0/18AB778
-            //   Seen during development. Some internal error, fixed by re-creating slot.
-            //
-            // Sample: publication "powersync" does not exist
-            //   Happens when publication deleted or never created.
-            //   Slot must be re-created in this case.
-            logger.info(`${slotName} does not exist anymore, will create new slot`);
-
-            throw new MissingReplicationSlotError(`Replication slot ${slotName} does not exist anymore`);
-          }
-          // Try again after a pause
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-        }
+        // Try again after a pause
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
 
-    return { needsInitialSync: true };
+    throw new Error('Unreachable');
   }
 
   async estimatedCount(db: pgwire.PgConnection, table: storage.SourceTable): Promise<string> {
@@ -278,81 +307,70 @@ WHERE  oid = $1::regclass`,
    * If (partial) replication was done before on this slot, this clears the state
    * and starts again from scratch.
    */
-  async startInitialReplication(replicationConnection: pgwire.PgConnection) {
+  async startInitialReplication(replicationConnection: pgwire.PgConnection, status: InitResult) {
     // If anything here errors, the entire replication process is aborted,
-    // and all connections closed, including this one.
+    // and all connections are closed, including this one.
     const db = await this.connections.snapshotConnection();
 
     const slotName = this.slot_name;
 
-    await this.storage.clear();
+    if (status.needsNewSlot) {
+      // This happens when there is no existing replication slot, or if the
+      // existing one is unhealthy.
+      // In those cases, we have to start replication from scratch.
+      // If there is an existing healthy slot, we can skip this and continue
+      // initial replication where we left off.
+      await this.storage.clear();
 
-    await db.query({
-      statement: 'SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1',
-      params: [{ type: 'varchar', value: slotName }]
-    });
+      await db.query({
+        statement: 'SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1',
+        params: [{ type: 'varchar', value: slotName }]
+      });
 
-    // We use the replication connection here, not a pool.
-    // This connection needs to stay open at least until the snapshot is used below.
-    const result = await replicationConnection.query(
-      `CREATE_REPLICATION_SLOT ${slotName} LOGICAL pgoutput EXPORT_SNAPSHOT`
-    );
-    const columns = result.columns;
-    const row = result.rows[0]!;
-    if (columns[1]?.name != 'consistent_point' || columns[2]?.name != 'snapshot_name' || row == null) {
-      throw new Error(`Invalid CREATE_REPLICATION_SLOT output: ${JSON.stringify(columns)}`);
+      // We use the replication connection here, not a pool.
+      // The replication slot must be created before we start snapshotting tables.
+      await replicationConnection.query(`CREATE_REPLICATION_SLOT ${slotName} LOGICAL pgoutput`);
+
+      logger.info(`Created replication slot ${slotName}`);
     }
-    // This LSN could be used in initialReplication below.
-    // But it's also safe to just use ZERO_LSN - we won't get any changes older than this lsn
-    // with streaming replication.
-    const lsn = pgwire.lsnMakeComparable(row[1]);
-    const snapshot = row[2];
-    logger.info(`Created replication slot ${slotName} at ${lsn} with snapshot ${snapshot}`);
 
-    // https://stackoverflow.com/questions/70160769/postgres-logical-replication-starting-from-given-lsn
-    await db.query('BEGIN');
-    // Use the snapshot exported above.
-    // Using SERIALIZABLE isolation level may give stronger guarantees, but that complicates
-    // the replication slot + snapshot above. And we still won't have SERIALIZABLE
-    // guarantees with streaming replication.
-    // See: ./docs/serializability.md for details.
-    //
-    // Another alternative here is to use the same pgwire connection for initial replication as well,
-    // instead of synchronizing a separate transaction to the snapshot.
-
-    try {
-      await db.query(`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`);
-      await db.query(`SET TRANSACTION READ ONLY`);
-      await db.query(`SET TRANSACTION SNAPSHOT '${snapshot}'`);
-
-      // Disable statement timeout for the duration of this transaction.
-      // On Supabase, the default is 2 minutes.
-      await db.query(`set local statement_timeout = 0`);
-
-      logger.info(`${slotName} Starting initial replication`);
-      await this.initialReplication(db, lsn);
-      logger.info(`${slotName} Initial replication done`);
-      await db.query('COMMIT');
-    } catch (e) {
-      await db.query('ROLLBACK');
-      throw e;
-    }
+    await this.initialReplication(db);
   }
 
-  async initialReplication(db: pgwire.PgConnection, lsn: string) {
+  async initialReplication(db: pgwire.PgConnection) {
     const sourceTables = this.sync_rules.getSourceTables();
     await this.storage.startBatch(
-      { zeroLSN: ZERO_LSN, defaultSchema: POSTGRES_DEFAULT_SCHEMA, storeCurrentData: true },
+      { zeroLSN: ZERO_LSN, defaultSchema: POSTGRES_DEFAULT_SCHEMA, storeCurrentData: true, skipExistingRows: true },
       async (batch) => {
         for (let tablePattern of sourceTables) {
           const tables = await this.getQualifiedTableNames(batch, db, tablePattern);
           for (let table of tables) {
-            await this.snapshotTable(batch, db, table);
-            await batch.markSnapshotDone([table], lsn);
+            if (table.snapshotComplete) {
+              logger.info(`${this.slot_name} Skipping ${table.qualifiedName} - snapshot already done`);
+              continue;
+            }
+            let tableLsnNotBefore: string;
+            await db.query('BEGIN');
+            try {
+              await this.snapshotTable(batch, db, table);
+
+              const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
+              tableLsnNotBefore = rs.rows[0][0];
+            } finally {
+              // Read-only transaction, commit does not actually do anything.
+              await db.query('COMMIT');
+            }
+
+            await batch.markSnapshotDone([table], tableLsnNotBefore);
             await touch();
           }
         }
-        await batch.commit(lsn);
+
+        // Always commit the initial snapshot at zero.
+        // This makes sure we don't skip any changes applied before starting this snapshot,
+        // in the case of snapshot retries.
+        // We could alternatively commit at the replication slot LSN.
+        await batch.commit(ZERO_LSN);
       }
     );
   }
@@ -368,51 +386,70 @@ WHERE  oid = $1::regclass`,
     const estimatedCount = await this.estimatedCount(db, table);
     let at = 0;
     let lastLogIndex = 0;
-    const cursor = db.stream({ statement: `SELECT * FROM ${table.escapedIdentifier}` });
+
+    // We do streaming on two levels:
+    // 1. Coarse level: DELCARE CURSOR, FETCH 10000 at a time.
+    // 2. Fine level: Stream chunks from each fetch call.
+    await db.query(`DECLARE powersync_cursor CURSOR FOR SELECT * FROM ${table.escapedIdentifier}`);
+
     let columns: { i: number; name: string }[] = [];
-    // pgwire streams rows in chunks.
-    // These chunks can be quite small (as little as 16KB), so we don't flush chunks automatically.
-
-    for await (let chunk of cursor) {
-      if (chunk.tag == 'RowDescription') {
-        let i = 0;
-        columns = chunk.payload.map((c) => {
-          return { i: i++, name: c.name };
-        });
-        continue;
-      }
-
-      const rows = chunk.rows.map((row) => {
-        let q: DatabaseInputRow = {};
-        for (let c of columns) {
-          q[c.name] = row[c.i];
-        }
-        return q;
+    let hasRemainingData = true;
+    while (hasRemainingData) {
+      // Fetch 10k at a time.
+      // The balance here is between latency overhead per FETCH call,
+      // and not spending too much time on each FETCH call.
+      // We aim for a couple of seconds on each FETCH call.
+      const cursor = db.stream({
+        statement: `FETCH 10000 FROM powersync_cursor`
       });
-      if (rows.length > 0 && at - lastLogIndex >= 5000) {
-        logger.info(`${this.slot_name} Replicating ${table.qualifiedName} ${at}/${estimatedCount}`);
-        lastLogIndex = at;
-      }
-      if (this.abort_signal.aborted) {
-        throw new Error(`Aborted initial replication of ${this.slot_name}`);
-      }
+      hasRemainingData = false;
+      // pgwire streams rows in chunks.
+      // These chunks can be quite small (as little as 16KB), so we don't flush chunks automatically.
+      // There are typically 100-200 rows per chunk.
+      for await (let chunk of cursor) {
+        if (chunk.tag == 'RowDescription') {
+          // We get a RowDescription for each FETCH call, but they should
+          // all be the same.
+          let i = 0;
+          columns = chunk.payload.map((c) => {
+            return { i: i++, name: c.name };
+          });
+          continue;
+        }
 
-      for (const record of WalStream.getQueryData(rows)) {
-        // This auto-flushes when the batch reaches its size limit
-        await batch.save({
-          tag: storage.SaveOperationTag.INSERT,
-          sourceTable: table,
-          before: undefined,
-          beforeReplicaId: undefined,
-          after: record,
-          afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns)
+        const rows = chunk.rows.map((row) => {
+          let q: DatabaseInputRow = {};
+          for (let c of columns) {
+            q[c.name] = row[c.i];
+          }
+          return q;
         });
+        if (rows.length > 0 && at - lastLogIndex >= 5000) {
+          logger.info(`${this.slot_name} Replicating ${table.qualifiedName} ${at}/${estimatedCount}`);
+          lastLogIndex = at;
+          hasRemainingData = true;
+        }
+        if (this.abort_signal.aborted) {
+          throw new Error(`Aborted initial replication of ${this.slot_name}`);
+        }
+
+        for (const record of WalStream.getQueryData(rows)) {
+          // This auto-flushes when the batch reaches its size limit
+          await batch.save({
+            tag: storage.SaveOperationTag.INSERT,
+            sourceTable: table,
+            before: undefined,
+            beforeReplicaId: undefined,
+            after: record,
+            afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns)
+          });
+        }
+
+        at += rows.length;
+        Metrics.getInstance().rows_replicated_total.add(rows.length);
+
+        await touch();
       }
-
-      at += rows.length;
-      Metrics.getInstance().rows_replicated_total.add(rows.length);
-
-      await touch();
     }
 
     await batch.flush();
@@ -451,12 +488,15 @@ WHERE  oid = $1::regclass`,
       try {
         await db.query('BEGIN');
         try {
+          await this.snapshotTable(batch, db, result.table);
+
           // Get the current LSN.
           // The data will only be consistent once incremental replication
           // has passed that point.
+          // We have to get this LSN _after_ we have started the snapshot query.
           const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
           lsn = rs.rows[0][0];
-          await this.snapshotTable(batch, db, result.table);
+
           await db.query('COMMIT');
         } catch (e) {
           await db.query('ROLLBACK');
@@ -561,7 +601,7 @@ WHERE  oid = $1::regclass`,
   async initReplication(replicationConnection: pgwire.PgConnection) {
     const result = await this.initSlot();
     if (result.needsInitialSync) {
-      await this.startInitialReplication(replicationConnection);
+      await this.startInitialReplication(replicationConnection, result);
     }
   }
 
@@ -581,7 +621,7 @@ WHERE  oid = $1::regclass`,
     await this.storage.autoActivate();
 
     await this.storage.startBatch(
-      { zeroLSN: ZERO_LSN, defaultSchema: POSTGRES_DEFAULT_SCHEMA, storeCurrentData: true },
+      { zeroLSN: ZERO_LSN, defaultSchema: POSTGRES_DEFAULT_SCHEMA, storeCurrentData: true, skipExistingRows: false },
       async (batch) => {
         // Replication never starts in the middle of a transaction
         let inTx = false;

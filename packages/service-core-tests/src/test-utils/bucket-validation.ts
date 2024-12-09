@@ -58,6 +58,11 @@ function rowKey(entry: utils.OplogEntry) {
 }
 
 /**
+import { OplogEntry } from '@/util/protocol-types.js';
+import { reduceBucket } from '@/util/utils.js';
+import { expect } from 'vitest';
+
+/**
  * Validate this property, as described in /docs/bucket-properties.md:
  *
  * $r(B_{[..id_n]}) = r(r(B_{[..id_i]}) \cup B_{[id_{i+1}..id_n]}) \;\forall\; i \in [1..n]$

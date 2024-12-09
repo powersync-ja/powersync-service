@@ -11,6 +11,7 @@ import { PgManager } from '@module/replication/PgManager.js';
 import { test_utils } from '@powersync/service-core-tests';
 import * as mongo_module from '@powersync/service-module-mongodb';
 import * as timers from 'node:timers/promises';
+import { reduceBucket } from '@powersync/service-core';
 
 describe('slow tests - mongodb', function () {
   // These are slow, inconsistent tests.

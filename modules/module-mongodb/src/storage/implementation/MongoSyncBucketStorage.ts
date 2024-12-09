@@ -109,7 +109,7 @@ export class MongoSyncBucketStorage
       {
         _id: this.group_id
       },
-      { projection: { last_checkpoint_lsn: 1, no_checkpoint_before: 1 } }
+      { projection: { last_checkpoint_lsn: 1, no_checkpoint_before: 1, keepalive_op: 1 } }
     );
     const checkpoint_lsn = doc?.last_checkpoint_lsn ?? null;
 
@@ -120,7 +120,9 @@ export class MongoSyncBucketStorage
       slotName: this.slot_name,
       lastCheckpointLsn: checkpoint_lsn,
       noCheckpointBeforeLsn: doc?.no_checkpoint_before ?? options.zeroLSN,
-      storeCurrentData: options.storeCurrentData
+      keepaliveOp: doc?.keepalive_op ?? null,
+      storeCurrentData: options.storeCurrentData,
+      skipExistingRows: options.skipExistingRows ?? false
     });
     this.iterateListeners((cb) => cb.batchStarted?.(batch));
 

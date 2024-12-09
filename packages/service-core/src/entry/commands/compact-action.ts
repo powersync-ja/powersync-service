@@ -31,7 +31,7 @@ export function registerCompactAction(program: Command) {
 
   return compactCommand.description('Compact storage').action(async (options) => {
     const buckets = options.buckets?.split(',');
-    if (buckets != null) {
+    if (buckets == null) {
       logger.info('Compacting storage for all buckets...');
     } else {
       logger.info(`Compacting storage for ${buckets?.join(', ')}...`);

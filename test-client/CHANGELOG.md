@@ -1,5 +1,47 @@
 # test-client
 
+## 0.1.15
+
+### Patch Changes
+
+- Updated dependencies [ebc62ff]
+  - @powersync/service-core@0.12.0
+
+## 0.1.14
+
+### Patch Changes
+
+- Updated dependencies [62e97f3]
+- Updated dependencies [8c6ce90]
+  - @powersync/service-core@0.11.0
+
+## 0.1.13
+
+### Patch Changes
+
+- Updated dependencies [2a4f020]
+  - @powersync/service-core@0.10.1
+
+## 0.1.12
+
+### Patch Changes
+
+- Updated dependencies [2c18ad2]
+- Updated dependencies [35c267f]
+  - @powersync/service-core@0.10.0
+
+## 0.1.11
+
+### Patch Changes
+
+- Updated dependencies [57bd18b]
+- Updated dependencies [57bd18b]
+- Updated dependencies [57bd18b]
+- Updated dependencies [57bd18b]
+- Updated dependencies [57bd18b]
+- Updated dependencies [57bd18b]
+  - @powersync/service-core@0.9.0
+
 ## 0.1.10
 
 ### Patch Changes

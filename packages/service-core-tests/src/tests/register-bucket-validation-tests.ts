@@ -146,5 +146,3 @@ export function registerBucketValidationTests() {
     test_utils.validateBucket(bucket);
   });
 }
-
-
