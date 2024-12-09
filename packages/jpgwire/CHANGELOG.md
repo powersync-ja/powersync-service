@@ -1,5 +1,13 @@
 # @powersync/service-jpgwire
 
+## 0.18.3
+
+### Patch Changes
+
+- f1e9ef3: Improve timeouts and table snapshots for Postgres initial replication.
+- Updated dependencies [ebc62ff]
+  - @powersync/service-types@0.5.0
+
 ## 0.18.2
 
 ### Patch Changes
