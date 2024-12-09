@@ -1,5 +1,16 @@
 # @powersync/service-image
 
+## 1.3.1
+
+### Patch Changes
+
+- 889ac46: Fix "BSONObj size is invalid" error during replication.
+- Updated dependencies [889ac46]
+  - @powersync/service-module-postgres@0.2.1
+  - @powersync/service-module-mongodb@0.1.5
+  - @powersync/service-core@0.12.1
+  - @powersync/service-module-mysql@0.1.5
+
 ## 1.3.0
 
 ### Minor Changes

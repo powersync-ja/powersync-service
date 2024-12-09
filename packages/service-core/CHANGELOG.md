@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 0.12.1
+
+### Patch Changes
+
+- 889ac46: Fix "BSONObj size is invalid" error during replication.
+
 ## 0.12.0
 
 ### Minor Changes
