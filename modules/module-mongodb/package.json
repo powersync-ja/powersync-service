@@ -33,7 +33,7 @@
     "@powersync/service-jsonbig": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",
     "@powersync/service-types": "workspace:*",
-    "mongodb": "^6.7.0",
+    "mongodb": "^6.11.0",
     "ts-codec": "^1.2.2",
     "uuid": "^9.0.1",
     "uri-js": "^4.4.1"

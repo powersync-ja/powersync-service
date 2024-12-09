@@ -156,3 +156,48 @@ export function isUUID(value: any): value is bson.UUID {
   const uuid = value as bson.UUID;
   return uuid._bsontype == 'Binary' && uuid.sub_type == bson.Binary.SUBTYPE_UUID;
 }
+
+/**
+ * MongoDB bulkWrite internally splits the operations into batches
+ * so that no batch exceeds 16MB. However, there are cases where
+ * the batch size is very close to 16MB, where additional metadata
+ * on the server pushes it over the limit, resulting in this error
+ * from the server:
+ *
+ * > MongoBulkWriteError: BSONObj size: 16814023 (0x1008FC7) is invalid. Size must be between 0 and 16793600(16MB) First element: insert: "bucket_data"
+ *
+ * We work around the issue by doing our own batching, limiting the
+ * batch size to 15MB. This does add additional overhead with
+ * BSON.calculateObjectSize.
+ */
+export async function safeBulkWrite<T extends mongo.Document>(
+  collection: mongo.Collection<T>,
+  operations: mongo.AnyBulkWriteOperation<T>[],
+  options: mongo.BulkWriteOptions
+) {
+  // Must be below 16MB.
+  // We could probably go a little closer, but 15MB is a safe threshold.
+  const BULK_WRITE_LIMIT = 15 * 1024 * 1024;
+
+  let batch: mongo.AnyBulkWriteOperation<T>[] = [];
+  let currentSize = 0;
+  // Estimated overhead per operation, should be smaller in reality.
+  const keySize = 8;
+  for (let op of operations) {
+    const bsonSize =
+      mongo.BSON.calculateObjectSize(op, {
+        checkKeys: false,
+        ignoreUndefined: true
+      } as any) + keySize;
+    if (batch.length > 0 && currentSize + bsonSize > BULK_WRITE_LIMIT) {
+      await collection.bulkWrite(batch, options);
+      currentSize = 0;
+      batch = [];
+    }
+    batch.push(op);
+    currentSize += bsonSize;
+  }
+  if (batch.length > 0) {
+    await collection.bulkWrite(batch, options);
+  }
+}

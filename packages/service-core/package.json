@@ -37,7 +37,7 @@
     "jose": "^4.15.1",
     "lodash": "^4.17.21",
     "lru-cache": "^10.2.2",
-    "mongodb": "^6.7.0",
+    "mongodb": "^6.11.0",
     "node-fetch": "^3.3.2",
     "ts-codec": "^1.2.2",
     "uri-js": "^4.4.1",
