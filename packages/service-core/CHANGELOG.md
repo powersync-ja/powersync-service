@@ -1,5 +1,16 @@
 # @powersync/service-core
 
+## 0.12.0
+
+### Minor Changes
+
+- ebc62ff: Add EdDSA support for JWTs.
+
+### Patch Changes
+
+- Updated dependencies [ebc62ff]
+  - @powersync/service-types@0.5.0
+
 ## 0.11.0
 
 ### Minor Changes
