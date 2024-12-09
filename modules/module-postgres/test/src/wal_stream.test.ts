@@ -1,9 +1,9 @@
-import { putOp, removeOp } from '@core-tests/stream_utils.js';
-import { MONGO_STORAGE_FACTORY } from '@core-tests/util.js';
 import { BucketStorageFactory, Metrics } from '@powersync/service-core';
+import { putOp, removeOp } from '@powersync/service-core-tests';
 import { pgwireRows } from '@powersync/service-jpgwire';
 import * as crypto from 'crypto';
 import { describe, expect, test } from 'vitest';
+import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 
 type StorageFactory = () => Promise<BucketStorageFactory>;
@@ -16,7 +16,7 @@ bucket_definitions:
 `;
 
 describe('wal stream - mongodb', { timeout: 20_000 }, function () {
-  defineWalStreamTests(MONGO_STORAGE_FACTORY);
+  defineWalStreamTests(INITIALIZED_MONGO_STORAGE_FACTORY);
 });
 
 function defineWalStreamTests(factory: StorageFactory) {

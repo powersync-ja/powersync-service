@@ -1,6 +1,6 @@
-import { normalizeMongoConfig } from '@powersync/service-core';
 import * as service_types from '@powersync/service-types';
 import * as t from 'ts-codec';
+import { normalizeMongoConfig } from '../storage/storage-index.js';
 
 export const MONGO_CONNECTION_TYPE = 'mongodb' as const;
 
