@@ -10,15 +10,6 @@ export interface SourceKey {
   k: storage.ReplicaId;
 }
 
-export interface BucketDataKey {
-  /** group_id */
-  g: number;
-  /** bucket name */
-  b: string;
-  /** op_id */
-  o: bigint;
-}
-
 export interface CurrentDataDocument {
   _id: SourceKey;
   data: bson.Binary;
@@ -39,6 +30,14 @@ export interface BucketParameterDocument {
   bucket_parameters: Record<string, SqliteJsonValue>[];
 }
 
+export interface BucketDataKey {
+  /** group_id */
+  g: number;
+  /** bucket name */
+  b: string;
+  /** op_id */
+  o: bigint;
+}
 export interface BucketDataDocument {
   _id: BucketDataKey;
   op: OpType;

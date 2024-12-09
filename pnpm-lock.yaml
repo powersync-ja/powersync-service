@@ -78,8 +78,8 @@ importers:
         specifier: ^4.17.21
         version: 4.17.21
       ts-codec:
-        specifier: ^1.2.2
-        version: 1.2.2
+        specifier: ^1.3.0
+        version: 1.3.0
       uuid:
         specifier: ^9.0.1
         version: 9.0.1
@@ -127,8 +127,8 @@ importers:
         specifier: ^6.7.0
         version: 6.8.0(socks@2.8.3)
       ts-codec:
-        specifier: ^1.2.2
-        version: 1.2.2
+        specifier: ^1.3.0
+        version: 1.3.0
       uri-js:
         specifier: ^4.4.1
         version: 4.4.1
@@ -173,8 +173,8 @@ importers:
         specifier: ^7.5.4
         version: 7.6.2
       ts-codec:
-        specifier: ^1.2.2
-        version: 1.2.2
+        specifier: ^1.3.0
+        version: 1.3.0
       uri-js:
         specifier: ^4.4.1
         version: 4.4.1
@@ -225,8 +225,8 @@ importers:
         specifier: github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
         version: https://codeload.github.com/kagis/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
       ts-codec:
-        specifier: ^1.2.2
-        version: 1.2.2
+        specifier: ^1.3.0
+        version: 1.3.0
       uri-js:
         specifier: ^4.4.1
         version: 4.4.1
@@ -277,8 +277,8 @@ importers:
         specifier: 1.0.0-alpha.3
         version: 1.0.0-alpha.3
       ts-codec:
-        specifier: ^1.2.2
-        version: 1.2.2
+        specifier: ^1.3.0
+        version: 1.3.0
       uuid:
         specifier: ^9.0.1
         version: 9.0.1
@@ -368,8 +368,8 @@ importers:
         specifier: ^3.3.2
         version: 3.3.2
       ts-codec:
-        specifier: ^1.2.2
-        version: 1.2.2
+        specifier: ^1.3.0
+        version: 1.3.0
       uri-js:
         specifier: ^4.4.1
         version: 4.4.1
@@ -449,8 +449,8 @@ importers:
   packages/types:
     dependencies:
       ts-codec:
-        specifier: ^1.2.2
-        version: 1.2.2
+        specifier: ^1.3.0
+        version: 1.3.0
       uri-js:
         specifier: ^4.4.1
         version: 4.4.1
@@ -539,8 +539,8 @@ importers:
         specifier: github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
         version: https://codeload.github.com/kagis/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
       ts-codec:
-        specifier: ^1.2.2
-        version: 1.2.2
+        specifier: ^1.3.0
+        version: 1.3.0
       uuid:
         specifier: ^9.0.1
         version: 9.0.1
@@ -3485,8 +3485,8 @@ packages:
     resolution: {integrity: sha512-aZbgViZrg1QNcG+LULa7nhZpJTZSLm/mXnHXnbAbjmN5aSa0y7V+wvv6+4WaBtpISJzThKy+PIPxc1Nq1EJ9mg==}
     engines: {node: '>= 14.0.0'}
 
-  ts-codec@1.2.2:
-    resolution: {integrity: sha512-dlAsfmeEa3AA+6rvgKLlLb6rqTMthQNH9w+B2FGM5sRu7sTd0GSbmLuW0HAmRlIeyUEZzMXk0yRmP0afribqmg==}
+  ts-codec@1.3.0:
+    resolution: {integrity: sha512-OOaGvS0UwjyOychFZwjqSm47K65lzTCSup47RDG30crZr2MGnQCHQ13duAI4OcnzuYITNN6JDdS8RrtB0g204Q==}
 
   ts-node-dev@2.0.0:
     resolution: {integrity: sha512-ywMrhCfH6M75yftYvrvNarLEY+SUXtUvU8/0Z6llrHQVBx12GiFk5sStF8UdfE/yfzk9IAq7O5EEbTQsxlBI8w==}
@@ -6980,7 +6980,7 @@ snapshots:
 
   triple-beam@1.4.1: {}
 
-  ts-codec@1.2.2: {}
+  ts-codec@1.3.0: {}
 
   ts-node-dev@2.0.0(@types/node@22.5.5)(typescript@5.6.2):
     dependencies:
