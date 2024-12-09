@@ -1,5 +1,13 @@
 # @powersync/service-module-postgres
 
+## 0.2.1
+
+### Patch Changes
+
+- 889ac46: Fix "BSONObj size is invalid" error during replication.
+- Updated dependencies [889ac46]
+  - @powersync/service-core@0.12.1
+
 ## 0.2.0
 
 ### Minor Changes
