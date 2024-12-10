@@ -55,9 +55,14 @@ export class MongoModule extends replication.ReplicationModule<types.MongoConnec
   async testConnection(config: types.MongoConnectionConfig): Promise<void> {
     this.decodeConfig(config);
     const normalisedConfig = this.resolveConfig(this.decodedConfig!);
-    const connectionManager = new MongoManager(normalisedConfig);
+    const connectionManager = new MongoManager(normalisedConfig, {
+      // Use short timeouts for testing connections.
+      // Must be < 30s, to ensure we get a proper timeout error.
+      socketTimeoutMS: 5_000,
+      serverSelectionTimeoutMS: 5_000
+    });
     try {
-      return checkSourceConfiguration(connectionManager);
+      return await checkSourceConfiguration(connectionManager);
     } finally {
       await connectionManager.end();
     }
