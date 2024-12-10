@@ -1,5 +1,12 @@
 # @powersync/service-image
 
+## 1.3.2
+
+### Patch Changes
+
+- Updated dependencies [2043447]
+  - @powersync/service-module-mongodb@0.1.6
+
 ## 1.3.1
 
 ### Patch Changes
