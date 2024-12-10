@@ -1,5 +1,11 @@
 # @powersync/service-module-mongodb
 
+## 0.1.6
+
+### Patch Changes
+
+- 2043447: Use short timeout for testing mongodb connections.
+
 ## 0.1.5
 
 ### Patch Changes
