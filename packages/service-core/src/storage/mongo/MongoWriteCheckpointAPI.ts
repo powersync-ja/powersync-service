@@ -9,6 +9,7 @@ import {
   WriteCheckpointMode
 } from '../WriteCheckpointAPI.js';
 import { PowerSyncMongo } from './db.js';
+import { safeBulkWrite } from './util.js';
 
 export type MongoCheckpointAPIOptions = {
   db: PowerSyncMongo;
@@ -134,7 +135,8 @@ export async function batchCreateCustomWriteCheckpoints(
     return;
   }
 
-  await db.custom_write_checkpoints.bulkWrite(
+  await safeBulkWrite(
+    db.custom_write_checkpoints,
     checkpoints.map((checkpointOptions) => ({
       updateOne: {
         filter: { user_id: checkpointOptions.user_id, sync_rules_id: checkpointOptions.sync_rules_id },
@@ -146,6 +148,7 @@ export async function batchCreateCustomWriteCheckpoints(
         },
         upsert: true
       }
-    }))
+    })),
+    {}
   );
 }

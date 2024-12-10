@@ -1,6 +1,6 @@
 {
   "name": "@powersync/service-image",
-  "version": "1.2.0",
+  "version": "1.3.2",
   "private": true,
   "license": "FSL-1.1-Apache-2.0",
   "type": "module",
@@ -34,7 +34,7 @@
     "ix": "^5.0.0",
     "jose": "^4.15.1",
     "lru-cache": "^10.0.1",
-    "mongodb": "^6.7.0",
+    "mongodb": "^6.11.0",
     "node-fetch": "^3.3.2",
     "pgwire": "github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87",
     "ts-codec": "^1.2.2",

@@ -8,7 +8,10 @@ export class MongoManager {
   public readonly client: mongo.MongoClient;
   public readonly db: mongo.Db;
 
-  constructor(public options: NormalizedMongoConnectionConfig) {
+  constructor(
+    public options: NormalizedMongoConnectionConfig,
+    overrides?: mongo.MongoClientOptions
+  ) {
     // The pool is lazy - no connections are opened until a query is performed.
     this.client = new mongo.MongoClient(options.uri, {
       auth: {
@@ -28,7 +31,8 @@ export class MongoManager {
       maxPoolSize: 8,
 
       maxConnecting: 3,
-      maxIdleTimeMS: 60_000
+      maxIdleTimeMS: 60_000,
+      ...overrides
     });
     this.db = this.client.db(options.database, {});
   }

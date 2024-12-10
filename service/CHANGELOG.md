@@ -1,5 +1,41 @@
 # @powersync/service-image
 
+## 1.3.2
+
+### Patch Changes
+
+- Updated dependencies [2043447]
+  - @powersync/service-module-mongodb@0.1.6
+
+## 1.3.1
+
+### Patch Changes
+
+- 889ac46: Fix "BSONObj size is invalid" error during replication.
+- Updated dependencies [889ac46]
+  - @powersync/service-module-postgres@0.2.1
+  - @powersync/service-module-mongodb@0.1.5
+  - @powersync/service-core@0.12.1
+  - @powersync/service-module-mysql@0.1.5
+
+## 1.3.0
+
+### Minor Changes
+
+- ebc62ff: Add EdDSA support for JWTs.
+- f1e9ef3: Improve timeouts and table snapshots for Postgres initial replication.
+
+### Patch Changes
+
+- Updated dependencies [ebc62ff]
+- Updated dependencies [f1e9ef3]
+  - @powersync/service-core@0.12.0
+  - @powersync/service-types@0.5.0
+  - @powersync/service-module-postgres@0.2.0
+  - @powersync/service-jpgwire@0.18.3
+  - @powersync/service-module-mongodb@0.1.4
+  - @powersync/service-module-mysql@0.1.4
+
 ## 1.2.0
 
 ### Minor Changes

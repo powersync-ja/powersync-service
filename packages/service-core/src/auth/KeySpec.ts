@@ -52,7 +52,7 @@ export class KeySpec {
     } else if (this.source.kty === 'EC') {
       return EC_ALGORITHMS.includes(jwtAlg);
     }
-
+    
     return false;
   }
 
