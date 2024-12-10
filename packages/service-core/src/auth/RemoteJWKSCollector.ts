@@ -73,7 +73,7 @@ export class RemoteJWKSCollector implements KeyCollector {
 
     let keys: KeySpec[] = [];
     for (let keyData of data.keys) {
-      if (keyData.kty != 'RSA' && keyData.kty != 'OKP') {
+      if (keyData.kty != 'RSA' && keyData.kty != 'OKP' && keyData.kty != 'EC') {
         // HS (oct) keys not allowed because they are symmetric
         continue;
       }

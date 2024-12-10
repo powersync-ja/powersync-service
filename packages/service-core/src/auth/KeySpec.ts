@@ -2,8 +2,9 @@ import * as jose from 'jose';
 
 export const HS_ALGORITHMS = ['HS256', 'HS384', 'HS512'];
 export const RSA_ALGORITHMS = ['RS256', 'RS384', 'RS512'];
+export const EC_ALGORITHMS = ['ES256', 'ES384', 'ES512'];
 export const OKP_ALGORITHMS = ['EdDSA'];
-export const SUPPORTED_ALGORITHMS = [...HS_ALGORITHMS, ...RSA_ALGORITHMS, ...OKP_ALGORITHMS];
+export const SUPPORTED_ALGORITHMS = [...HS_ALGORITHMS, ...RSA_ALGORITHMS, ...EC_ALGORITHMS, ...OKP_ALGORITHMS];
 
 export interface KeyOptions {
   /**
@@ -48,9 +49,10 @@ export class KeySpec {
       return HS_ALGORITHMS.includes(jwtAlg);
     } else if (this.source.kty === 'OKP') {
       return OKP_ALGORITHMS.includes(jwtAlg);
+    } else if (this.source.kty === 'EC') {
+      return EC_ALGORITHMS.includes(jwtAlg);
     }
-    
-    // 'EC' is unsupported
+
     return false;
   }
 
