@@ -1,5 +1,5 @@
-import { container, router } from "@powersync/lib-services-framework";
-import { routeDefinition } from "../router.js";
+import { container, router } from '@powersync/lib-services-framework';
+import { routeDefinition } from '../router.js';
 
 export enum ProbeRoutes {
   STARTUP = '/probes/startup',
@@ -16,7 +16,7 @@ export const startupCheck = routeDefinition({
     return new router.RouterResponse({
       status: state.started ? 200 : 400,
       data: {
-        ...state,
+        ...state
       }
     });
   }
@@ -28,13 +28,13 @@ export const livenessCheck = routeDefinition({
   handler: async () => {
     const state = container.probes.state();
 
-    const timeDifference = Date.now() - state.touched_at.getTime()
+    const timeDifference = Date.now() - state.touched_at.getTime();
     const status = timeDifference < 10000 ? 200 : 400;
 
     return new router.RouterResponse({
       status,
       data: {
-        ...state,
+        ...state
       }
     });
   }
@@ -49,7 +49,7 @@ export const readinessCheck = routeDefinition({
     return new router.RouterResponse({
       status: state.ready ? 200 : 400,
       data: {
-        ...state,
+        ...state
       }
     });
   }
