@@ -1,5 +1,11 @@
 # @powersync/service-module-postgres
 
+## 0.2.2
+
+### Patch Changes
+
+- 2a0eb11: Revert Postgres snapshot strategy.
+
 ## 0.2.1
 
 ### Patch Changes
