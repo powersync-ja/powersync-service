@@ -3,4 +3,4 @@
 '@powersync/service-types': minor
 ---
 
-add ECDSA support for signing keys
+Add ECDSA support for JWTs.
