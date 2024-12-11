@@ -5,6 +5,7 @@ import { pgwireRows } from '@powersync/service-jpgwire';
 import * as crypto from 'crypto';
 import { describe, expect, test } from 'vitest';
 import { WalStreamTestContext } from './wal_stream_utils.js';
+import { MissingReplicationSlotError } from '@module/replication/WalStream.js';
 
 type StorageFactory = () => Promise<BucketStorageFactory>;
 
@@ -290,5 +291,53 @@ bucket_definitions:
     // There was a transaction, but we should not replicate any actual data
     expect(endRowCount - startRowCount).toEqual(0);
     expect(endTxCount - startTxCount).toEqual(1);
+  });
+
+  test.only('reporting slot issues', async () => {
+    {
+      await using context = await WalStreamTestContext.open(factory);
+      const { pool } = context;
+      await context.updateSyncRules(`
+bucket_definitions:
+  global:
+    data:
+      - SELECT id, description FROM "test_data"`);
+
+      await pool.query(
+        `CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text, num int8)`
+      );
+      await pool.query(
+        `INSERT INTO test_data(id, description) VALUES('8133cd37-903b-4937-a022-7c8294015a3a', 'test1') returning id as test_id`
+      );
+      await context.replicateSnapshot();
+      await context.startStreaming();
+
+      const data = await context.getBucketData('global[]');
+
+      expect(data).toMatchObject([
+        putOp('test_data', {
+          id: '8133cd37-903b-4937-a022-7c8294015a3a',
+          description: 'test1'
+        })
+      ]);
+
+      expect(await context.storage!.getStatus()).toMatchObject({ active: true, snapshot_done: true });
+    }
+
+    {
+      await using context = await WalStreamTestContext.open(factory, { doNotClear: true });
+      const { pool } = context;
+      await pool.query('DROP PUBLICATION powersync');
+      await pool.query(`UPDATE test_data SET description = 'updated'`);
+      await pool.query('CREATE PUBLICATION powersync FOR ALL TABLES');
+
+      await context.loadActiveSyncRules();
+      await expect(async () => {
+        await context.replicateSnapshot();
+      }).rejects.toThrowError(MissingReplicationSlotError);
+
+      // The error is handled on a higher level, which triggers
+      // creating a new replication slot.
+    }
   });
 }
