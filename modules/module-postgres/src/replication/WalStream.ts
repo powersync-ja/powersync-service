@@ -1,11 +1,19 @@
 import { container, errors, logger } from '@powersync/lib-services-framework';
-import { getUuidReplicaIdentityBson, Metrics, SourceEntityDescriptor, storage } from '@powersync/service-core';
+import {
+  ColumnDescriptor,
+  escapeIdentifier,
+  getUuidReplicaIdentityBson,
+  Metrics,
+  SourceEntityDescriptor,
+  storage
+} from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
 import * as pg_utils from '../utils/pgwire_utils.js';
 import { PgManager } from './PgManager.js';
 import { getPgOutputRelation, getRelId } from './PgRelation.js';
 import { checkSourceConfiguration, getReplicationIdentityColumns } from './replication-utils.js';
+import { ChunkedSnapshotQuery, SimpleSnapshotQuery, SnapshotQuery } from './SnapshotQuery.js';
 
 export const ZERO_LSN = '00000000/00000000';
 export const PUBLICATION_NAME = 'powersync';
@@ -396,10 +404,22 @@ WHERE  oid = $1::regclass`,
     let at = 0;
     let lastLogIndex = 0;
 
+    let orderByKey: ColumnDescriptor | null = null;
+
+    let q: SnapshotQuery;
     // We do streaming on two levels:
     // 1. Coarse level: DELCARE CURSOR, FETCH 10000 at a time.
     // 2. Fine level: Stream chunks from each fetch call.
-    await db.query(`DECLARE powersync_cursor CURSOR FOR SELECT * FROM ${table.escapedIdentifier}`);
+    if (table.replicaIdColumns.length == 1) {
+      // Single primary key - we can use the primary key for chunking
+      orderByKey = table.replicaIdColumns[0];
+      logger.info(`Chunking ${table.qualifiedName} by ${orderByKey.name}`);
+      q = new ChunkedSnapshotQuery(db, table, orderByKey, 10_000);
+    } else {
+      // Fallback case - query the entire table
+      q = new SimpleSnapshotQuery(db, table, 10_000);
+    }
+    await q.initialize();
 
     let columns: { i: number; name: string }[] = [];
     let hasRemainingData = true;
@@ -408,9 +428,7 @@ WHERE  oid = $1::regclass`,
       // The balance here is between latency overhead per FETCH call,
       // and not spending too much time on each FETCH call.
       // We aim for a couple of seconds on each FETCH call.
-      const cursor = db.stream({
-        statement: `FETCH 10000 FROM powersync_cursor`
-      });
+      const cursor = q.nextChunk();
       hasRemainingData = false;
       // pgwire streams rows in chunks.
       // These chunks can be quite small (as little as 16KB), so we don't flush chunks automatically.
@@ -433,10 +451,12 @@ WHERE  oid = $1::regclass`,
           }
           return q;
         });
+        if (rows.length > 0) {
+          hasRemainingData = true;
+        }
         if (rows.length > 0 && at - lastLogIndex >= 5000) {
           logger.info(`${this.slot_name} Replicating ${table.qualifiedName} ${at}/${estimatedCount}`);
           lastLogIndex = at;
-          hasRemainingData = true;
         }
         if (this.abort_signal.aborted) {
           throw new Error(`Aborted initial replication of ${this.slot_name}`);

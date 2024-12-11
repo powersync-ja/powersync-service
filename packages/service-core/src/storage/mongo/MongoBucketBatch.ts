@@ -744,7 +744,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
 
     if (this.batch.shouldFlush()) {
       const r = await this.flush();
-      // HACK: Give other streams a  chance to also flush
+      // HACK: Give other streams a chance to also flush
       await timers.setTimeout(5);
       return r;
     }
