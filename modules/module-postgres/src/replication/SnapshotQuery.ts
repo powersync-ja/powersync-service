@@ -73,8 +73,8 @@ export class ChunkedSnapshotQuery {
 
       if (chunk.rows.length > 0) {
         this.lastKey = chunk.rows[chunk.rows.length - 1][primaryKeyIndex];
-        yield chunk;
       }
+      yield chunk;
     }
   }
 }
