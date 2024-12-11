@@ -293,7 +293,7 @@ bucket_definitions:
     expect(endTxCount - startTxCount).toEqual(1);
   });
 
-  test.only('reporting slot issues', async () => {
+  test('reporting slot issues', async () => {
     {
       await using context = await WalStreamTestContext.open(factory);
       const { pool } = context;
