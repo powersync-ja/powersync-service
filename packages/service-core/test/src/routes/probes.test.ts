@@ -20,7 +20,12 @@ vi.mock('@powersync/lib-services-framework', () => ({
       afterSend: () => Promise<void>;
       __micro_router_response = true;
 
-      constructor({ status, data, headers, afterSend }: {
+      constructor({
+        status,
+        data,
+        headers,
+        afterSend
+      }: {
         status?: number;
         data: any;
         headers?: Record<string, string>;
