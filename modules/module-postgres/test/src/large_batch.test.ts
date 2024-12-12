@@ -5,7 +5,8 @@ import { env } from './env.js';
 import { TEST_CONNECTION_OPTIONS } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 import * as timers from 'timers/promises';
-import { Metrics } from '@powersync/service-core';
+import { Metrics, reduceBucket } from '@powersync/service-core';
+import * as crypto from 'node:crypto';
 
 describe('batch replication tests - mongodb', { timeout: 120_000 }, function () {
   // These are slow but consistent tests.
@@ -367,6 +368,68 @@ function defineBatchTests(factory: StorageFactory) {
     // However, this is not deterministic.
     expect(data.length).toEqual(11002 + deletedRowOps.length);
   }
+
+  test.only('chunked snapshot edge case', async () => {
+    // 1. Start with 10k rows, one row with id = 10000, and a large TOAST value in another column.
+    // 2. Replicate one batch of rows (id < 10000).
+    // 3. `UPDATE table SET id = 0 WHERE id = 10000`
+    // 4. Replicate the rest of the table.
+    // 5. Logical replication picks up the UPDATE above, but it is missing the TOAST column.
+    // 6. We end up with a row that has a missing TOAST column.
+
+    try {
+      await using context = await WalStreamTestContext.open(factory);
+
+      await context.updateSyncRules(`bucket_definitions:
+  global:
+    data:
+      - SELECT * FROM test_data`);
+      const { pool } = context;
+
+      await pool.query(`CREATE TABLE test_data(id integer primary key, description text)`);
+
+      await pool.query({
+        statement: `INSERT INTO test_data(id, description) SELECT i, 'foo' FROM generate_series(1, 10000) i`
+      });
+
+      // Toast value, must be > 8kb after compression
+      const largeDescription = crypto.randomBytes(20_000).toString('hex');
+      await pool.query({
+        statement: 'UPDATE test_data SET description = $1 WHERE id = 10000',
+        params: [{ type: 'varchar', value: largeDescription }]
+      });
+
+      const p = context.replicateSnapshot();
+
+      const stopAfter = 1_000;
+      const startRowCount =
+        (await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
+
+      while (true) {
+        const count =
+          ((await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0) -
+          startRowCount;
+
+        if (count >= stopAfter) {
+          break;
+        }
+        await timers.setTimeout(1);
+      }
+      await pool.query('UPDATE test_data SET id = 0 WHERE id = 10000');
+      await p;
+
+      context.startStreaming();
+      const data = await context.getBucketData('global[]', undefined, {});
+      const reduced = reduceBucket(data);
+      expect(reduced.length).toEqual(10_001);
+
+      const movedRow = reduced.find((row) => row.object_id === '0');
+      expect(movedRow?.data).toEqual(`{"id":0,"description":"${largeDescription}"}`);
+    } catch (e) {
+      console.error(e);
+      throw e;
+    }
+  });
 
   function printMemoryUsage() {
     const memoryUsage = process.memoryUsage();

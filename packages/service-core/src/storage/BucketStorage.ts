@@ -218,6 +218,8 @@ export interface StartBatchOptions extends ParseSyncRulesOptions {
    * This will avoid creating new operations for rows previously replicated.
    */
   skipExistingRows?: boolean;
+
+  markRecordUnavailable?: BucketStorageMarkRecordUnavailable;
 }
 
 export interface SyncRulesBucketStorageListener extends DisposableListener {
@@ -326,6 +328,8 @@ export interface FlushedResult {
 export interface BucketBatchStorageListener extends DisposableListener {
   replicationEvent: (payload: ReplicationEventPayload) => void;
 }
+
+export type BucketStorageMarkRecordUnavailable = (record: SaveUpdate) => void;
 
 export interface BucketStorageBatch extends DisposableObserverClient<BucketBatchStorageListener> {
   /**

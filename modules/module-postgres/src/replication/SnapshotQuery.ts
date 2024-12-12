@@ -1,7 +1,6 @@
 import { ColumnDescriptor, SourceTable } from '@powersync/service-core';
-import { PgChunk, PgConnection, PgTypeOid, StatementParam } from '@powersync/service-jpgwire';
+import { PgChunk, PgConnection, PgType, PgTypeOid, StatementParam } from '@powersync/service-jpgwire';
 import { escapeIdentifier } from '../utils/pgwire_utils.js';
-import { logger } from '@powersync/lib-services-framework';
 import { SqliteValue } from '@powersync/service-sync-rules';
 
 export interface SnapshotQuery {
@@ -9,6 +8,20 @@ export interface SnapshotQuery {
   nextChunk(): AsyncIterableIterator<PgChunk>;
 }
 
+export type PrimaryKeyValue = Record<string, SqliteValue>;
+
+export interface MissingRow {
+  table: SourceTable;
+  key: PrimaryKeyValue;
+}
+
+/**
+ * Snapshot query using a plain SELECT * FROM table; chunked using
+ * DELCLARE CURSOR / FETCH.
+ *
+ * This supports all tables, but does not efficiently resume the snapshot
+ * if the process is restarted.
+ */
 export class SimpleSnapshotQuery {
   public constructor(
     private readonly connection: PgConnection,
@@ -25,6 +38,16 @@ export class SimpleSnapshotQuery {
   }
 }
 
+/**
+ * Performs a table snapshot query, chunking by ranges of primary key data.
+ *
+ * This may miss some rows if they are modified during the snapshot query.
+ * In that case, logical replication will pick up those rows afterwards,
+ * possibly resulting in an IdSnapshotQuery.
+ *
+ * Currently, this only supports a table with a single primary key column,
+ * of a select few types.
+ */
 export class ChunkedSnapshotQuery {
   /**
    * Primary key types that we support for chunked snapshots.
@@ -102,5 +125,53 @@ export class ChunkedSnapshotQuery {
       }
       yield chunk;
     }
+  }
+}
+
+/**
+ * This performs a snapshot query using a list of primary keys.
+ */
+export class IdSnapshotQuery {
+  private didChunk = false;
+
+  static supports(table: SourceTable) {
+    // We have the same requirements as ChunkedSnapshotQuery.
+    // This is typically only used as a fallback when ChunkedSnapshotQuery
+    // skipped some rows.
+    return ChunkedSnapshotQuery.supports(table);
+  }
+
+  public constructor(
+    private readonly connection: PgConnection,
+    private readonly table: SourceTable,
+    private readonly keys: PrimaryKeyValue[]
+  ) {}
+
+  public async initialize(): Promise<void> {
+    // No-op
+  }
+
+  public async *nextChunk(): AsyncIterableIterator<PgChunk> {
+    // Only produce one chunk
+    if (this.didChunk) {
+      return;
+    }
+    this.didChunk = true;
+
+    const keyDefinition = this.table.replicaIdColumns[0];
+    const ids = this.keys.map((record) => record[keyDefinition.name]);
+    const type = PgType.getArrayType(keyDefinition.typeId!);
+    if (type == null) {
+      throw new Error(`Cannot determine primary key array type for ${JSON.stringify(keyDefinition)}`);
+    }
+    yield* this.connection.stream({
+      statement: `SELECT * FROM ${this.table.escapedIdentifier} WHERE ${escapeIdentifier(keyDefinition.name)} = ANY($1)`,
+      params: [
+        {
+          type: type,
+          value: ids
+        }
+      ]
+    });
   }
 }
