@@ -1,6 +1,7 @@
 import { storage } from '@powersync/service-core';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
+
 export interface SourceKey {
   /** group_id */
   g: number;

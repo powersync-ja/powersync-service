@@ -124,7 +124,7 @@ export function replicaIdEquals(a: storage.ReplicaId, b: storage.ReplicaId) {
     return a.equals(b);
   } else if (a == null && b == null) {
     return true;
-  } else if (a != null || b != null) {
+  } else if ((b == null && a != null) || (a == null && b != null)) {
     return false;
   } else {
     // There are many possible primitive values, this covers them all
@@ -156,10 +156,9 @@ export function isUUID(value: any): value is bson.UUID {
   return uuid._bsontype == 'Binary' && uuid.sub_type == bson.Binary.SUBTYPE_UUID;
 }
 
-
 /**
  * Helper function for creating a MongoDB client from consumers of this package
  */
-export const createMongoClient =(url: string, options?: mongo.MongoClientOptions) => {
+export const createMongoClient = (url: string, options?: mongo.MongoClientOptions) => {
   return new mongo.MongoClient(url, options);
-}
+};

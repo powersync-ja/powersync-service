@@ -74,7 +74,7 @@ export class PersistedBatch {
 
     const dchecksum = utils.hashDelete(replicaIdToSubkey(options.table.id, options.sourceKey));
 
-    for (let k of options.evaluated) {
+    for (const k of options.evaluated) {
       const key = currentBucketKey(k);
       remaining_buckets.delete(key);
 
