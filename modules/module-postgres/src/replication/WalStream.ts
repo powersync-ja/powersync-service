@@ -192,6 +192,15 @@ export class WalStream {
     if (slotExists) {
       // This checks that the slot is still valid
       const r = await this.checkReplicationSlot();
+      if (snapshotDone && r.needsNewSlot) {
+        // We keep the current snapshot, and create a new replication slot
+        throw new MissingReplicationSlotError(`Replication slot ${slotName} is not valid anymore`);
+      }
+      // We can have:
+      //   needsInitialSync: true, needsNewSlot: true -> initial sync from scratch
+      //   needsInitialSync: true, needsNewSlot: false -> resume initial sync
+      //   needsInitialSync: false, needsNewSlot: true -> handled above
+      //   needsInitialSync: false, needsNewSlot: false -> resume streaming replication
       return {
         needsInitialSync: !snapshotDone,
         needsNewSlot: r.needsNewSlot
@@ -204,7 +213,7 @@ export class WalStream {
   /**
    * If a replication slot exists, check that it is healthy.
    */
-  private async checkReplicationSlot(): Promise<InitResult> {
+  private async checkReplicationSlot(): Promise<{ needsNewSlot: boolean }> {
     let last_error = null;
     const slotName = this.slot_name;
 
@@ -244,7 +253,7 @@ export class WalStream {
 
         // Success
         logger.info(`Slot ${slotName} appears healthy`);
-        return { needsInitialSync: false, needsNewSlot: false };
+        return { needsNewSlot: false };
       } catch (e) {
         last_error = e;
         logger.warn(`${slotName} Replication slot error`, e);
@@ -274,9 +283,9 @@ export class WalStream {
           // Sample: publication "powersync" does not exist
           //   Happens when publication deleted or never created.
           //   Slot must be re-created in this case.
-          logger.info(`${slotName} does not exist anymore, will create new slot`);
+          logger.info(`${slotName} is not valid anymore`);
 
-          return { needsInitialSync: true, needsNewSlot: true };
+          return { needsNewSlot: true };
         }
         // Try again after a pause
         await new Promise((resolve) => setTimeout(resolve, 1000));
