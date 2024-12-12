@@ -1,4 +1,4 @@
-import { SqlEventDescriptor, SqliteRow, SqlSyncRules } from '@powersync/service-sync-rules';
+import { SqlEventDescriptor, SqliteRow, SqlSyncRules, ToastableSqliteRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import * as mongo from 'mongodb';
 
@@ -7,6 +7,7 @@ import * as util from '../../util/util-index.js';
 import {
   BucketBatchStorageListener,
   BucketStorageBatch,
+  BucketStorageMarkRecordUnavailable,
   FlushedResult,
   mergeToast,
   SaveOperationTag,
@@ -48,6 +49,8 @@ export interface MongoBucketBatchOptions {
    * Set to true for initial replication.
    */
   skipExistingRows: boolean;
+
+  markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
 }
 
 export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListener> implements BucketStorageBatch {
@@ -64,6 +67,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
 
   private batch: OperationBatch | null = null;
   private write_checkpoint_batch: CustomWriteCheckpointOptions[] = [];
+  private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
 
   /**
    * Last LSN received associated with a checkpoint.
@@ -95,6 +99,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
     this.sync_rules = options.syncRules;
     this.storeCurrentData = options.storeCurrentData;
     this.skipExistingRows = options.skipExistingRows;
+    this.markRecordUnavailable = options.markRecordUnavailable;
     this.batch = new OperationBatch();
 
     if (options.keepaliveOp) {
@@ -313,9 +318,14 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
         existing_lookups = [];
         // Log to help with debugging if there was a consistency issue
         if (this.storeCurrentData) {
-          logger.warn(
-            `Cannot find previous record for update on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
-          );
+          if (this.markRecordUnavailable != null) {
+            // This will trigger a "resnapshot" of the record.
+            this.markRecordUnavailable(record);
+          } else {
+            logger.warn(
+              `Cannot find previous record for update on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
+            );
+          }
         }
       } else {
         existing_buckets = result.buckets;
@@ -744,7 +754,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
 
     if (this.batch.shouldFlush()) {
       const r = await this.flush();
-      // HACK: Give other streams a  chance to also flush
+      // HACK: Give other streams a chance to also flush
       await timers.setTimeout(5);
       return r;
     }

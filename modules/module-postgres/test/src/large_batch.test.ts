@@ -1,11 +1,11 @@
-import { MONGO_STORAGE_FACTORY, StorageFactory, StorageOptions } from '@core-tests/util.js';
+import { MONGO_STORAGE_FACTORY, StorageFactory } from '@core-tests/util.js';
+import { Metrics } from '@powersync/service-core';
+import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
 import { populateData } from '../../dist/utils/populate_test_data.js';
 import { env } from './env.js';
 import { TEST_CONNECTION_OPTIONS } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
-import * as timers from 'timers/promises';
-import { Metrics } from '@powersync/service-core';
 
 describe('batch replication tests - mongodb', { timeout: 120_000 }, function () {
   // These are slow but consistent tests.
