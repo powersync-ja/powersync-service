@@ -369,7 +369,7 @@ function defineBatchTests(factory: StorageFactory) {
     expect(data.length).toEqual(11002 + deletedRowOps.length);
   }
 
-  test.only('chunked snapshot edge case', async () => {
+  test('chunked snapshot edge case', async () => {
     // 1. Start with 10k rows, one row with id = 10000, and a large TOAST value in another column.
     // 2. Replicate one batch of rows (id < 10000).
     // 3. `UPDATE table SET id = 0 WHERE id = 10000`
@@ -377,58 +377,66 @@ function defineBatchTests(factory: StorageFactory) {
     // 5. Logical replication picks up the UPDATE above, but it is missing the TOAST column.
     // 6. We end up with a row that has a missing TOAST column.
 
-    try {
-      await using context = await WalStreamTestContext.open(factory);
+    await using context = await WalStreamTestContext.open(factory, {
+      // We need to use a smaller chunk size here, so that we can run a query in between chunks
+      walStreamOptions: { snapshotChunkSize: 100 }
+    });
 
-      await context.updateSyncRules(`bucket_definitions:
+    await context.updateSyncRules(`bucket_definitions:
   global:
     data:
       - SELECT * FROM test_data`);
-      const { pool } = context;
+    const { pool } = context;
 
-      await pool.query(`CREATE TABLE test_data(id integer primary key, description text)`);
+    await pool.query(`CREATE TABLE test_data(id integer primary key, description text)`);
 
-      await pool.query({
-        statement: `INSERT INTO test_data(id, description) SELECT i, 'foo' FROM generate_series(1, 10000) i`
-      });
+    // 1. Start with 10k rows, one row with id = 10000...
+    await pool.query({
+      statement: `INSERT INTO test_data(id, description) SELECT i, 'foo' FROM generate_series(1, 10000) i`
+    });
 
-      // Toast value, must be > 8kb after compression
-      const largeDescription = crypto.randomBytes(20_000).toString('hex');
-      await pool.query({
-        statement: 'UPDATE test_data SET description = $1 WHERE id = 10000',
-        params: [{ type: 'varchar', value: largeDescription }]
-      });
+    // ...and a large TOAST value in another column.
+    // Toast value, must be > 8kb after compression
+    const largeDescription = crypto.randomBytes(20_000).toString('hex');
+    await pool.query({
+      statement: 'UPDATE test_data SET description = $1 WHERE id = 10000',
+      params: [{ type: 'varchar', value: largeDescription }]
+    });
 
-      const p = context.replicateSnapshot();
+    // 2. Replicate one batch of rows (id < 10000).
+    // Our "stopping point" here is not quite deterministic.
+    const p = context.replicateSnapshot();
 
-      const stopAfter = 1_000;
-      const startRowCount =
-        (await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
+    const stopAfter = 1_000;
+    const startRowCount = (await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
 
-      while (true) {
-        const count =
-          ((await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0) -
-          startRowCount;
+    while (true) {
+      const count =
+        ((await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0) - startRowCount;
 
-        if (count >= stopAfter) {
-          break;
-        }
-        await timers.setTimeout(1);
+      if (count >= stopAfter) {
+        break;
       }
-      await pool.query('UPDATE test_data SET id = 0 WHERE id = 10000');
-      await p;
-
-      context.startStreaming();
-      const data = await context.getBucketData('global[]', undefined, {});
-      const reduced = reduceBucket(data);
-      expect(reduced.length).toEqual(10_001);
-
-      const movedRow = reduced.find((row) => row.object_id === '0');
-      expect(movedRow?.data).toEqual(`{"id":0,"description":"${largeDescription}"}`);
-    } catch (e) {
-      console.error(e);
-      throw e;
+      await timers.setTimeout(1);
     }
+
+    // 3. `UPDATE table SET id = 0 WHERE id = 10000`
+    await pool.query('UPDATE test_data SET id = 0 WHERE id = 10000');
+
+    // 4. Replicate the rest of the table.
+    await p;
+
+    // 5. Logical replication picks up the UPDATE above, but it is missing the TOAST column.
+    context.startStreaming();
+
+    // 6. If all went well, the "resnapshot" process would take care of this.
+    const data = await context.getBucketData('global[]', undefined, {});
+    const reduced = reduceBucket(data);
+
+    const movedRow = reduced.find((row) => row.object_id === '0');
+    expect(movedRow?.data).toEqual(`{"id":0,"description":"${largeDescription}"}`);
+
+    expect(reduced.length).toEqual(10_001);
   });
 
   function printMemoryUsage() {

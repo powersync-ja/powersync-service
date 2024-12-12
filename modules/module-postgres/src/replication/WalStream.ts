@@ -30,6 +30,15 @@ export interface WalStreamOptions {
   connections: PgManager;
   storage: storage.SyncRulesBucketStorage;
   abort_signal: AbortSignal;
+
+  /**
+   * Override snapshot chunk size, for testing.
+   *
+   * Defaults to 10_000.
+   *
+   * Note that queries are streamed, so we don't actually keep that much data in memory.
+   */
+  snapshotChunkSize?: number;
 }
 
 interface InitResult {
@@ -63,12 +72,15 @@ export class WalStream {
 
   private startedStreaming = false;
 
+  private snapshotChunkSize: number;
+
   constructor(options: WalStreamOptions) {
     this.storage = options.storage;
     this.sync_rules = options.storage.getParsedSyncRules({ defaultSchema: POSTGRES_DEFAULT_SCHEMA });
     this.group_id = options.storage.group_id;
     this.slot_name = options.storage.slot_name;
     this.connections = options.connections;
+    this.snapshotChunkSize = options.snapshotChunkSize ?? 10_000;
 
     this.abort_signal = options.abort_signal;
     this.abort_signal.addEventListener(
@@ -441,11 +453,11 @@ WHERE  oid = $1::regclass`,
       // Single primary key - we can use the primary key for chunking
       const orderByKey = table.replicaIdColumns[0];
       logger.info(`Chunking ${table.qualifiedName} by ${orderByKey.name}`);
-      q = new ChunkedSnapshotQuery(db, table, 1000);
+      q = new ChunkedSnapshotQuery(db, table, this.snapshotChunkSize);
     } else {
       // Fallback case - query the entire table
       logger.info(`Snapshot ${table.qualifiedName} without chunking`);
-      q = new SimpleSnapshotQuery(db, table, 10_000);
+      q = new SimpleSnapshotQuery(db, table, this.snapshotChunkSize);
     }
     await q.initialize();
 
