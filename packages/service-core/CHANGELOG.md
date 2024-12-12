@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 0.12.2
+
+### Patch Changes
+
+- e3a9343: Reduce noise in log output
+
 ## 0.12.1
 
 ### Patch Changes
