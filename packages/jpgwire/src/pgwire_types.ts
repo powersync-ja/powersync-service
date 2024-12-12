@@ -5,38 +5,58 @@ import { dateToSqlite, lsnMakeComparable, timestampToSqlite, timestamptzToSqlite
 import { JsonContainer } from '@powersync/service-jsonbig';
 import { DatabaseInputRow } from '@powersync/service-sync-rules';
 
+export enum PgTypeOid {
+  TEXT = 25,
+  UUID = 2950,
+  VARCHAR = 1043,
+  BOOL = 16,
+  BYTEA = 17,
+  INT2 = 21,
+  INT4 = 23,
+  OID = 26,
+  INT8 = 20,
+  FLOAT4 = 700,
+  FLOAT8 = 701,
+  DATE = 1082,
+  TIMESTAMP = 1114,
+  TIMESTAMPTZ = 1184,
+  JSON = 114,
+  JSONB = 3802,
+  PG_LSN = 3220
+}
+
 export class PgType {
   static decode(text: string, typeOid: number) {
     switch (
       typeOid // add line here when register new type
     ) {
-      case 25 /* text    */:
-      case 2950 /* uuid    */:
-      case 1043 /* varchar */:
+      case PgTypeOid.TEXT:
+      case PgTypeOid.UUID:
+      case PgTypeOid.VARCHAR:
         return text;
-      case 16 /* bool    */:
+      case PgTypeOid.BOOL:
         return text == 't';
-      case 17 /* bytea   */:
+      case PgTypeOid.BYTEA:
         return this._decodeBytea(text);
-      case 21 /* int2    */:
-      case 23 /* int4    */:
-      case 26 /* oid     */:
-      case 20 /* int8    */:
+      case PgTypeOid.INT2:
+      case PgTypeOid.INT4:
+      case PgTypeOid.OID:
+      case PgTypeOid.INT8:
         return BigInt(text);
-      case 700 /* float4  */:
-      case 701 /* float8  */:
+      case PgTypeOid.FLOAT4:
+      case PgTypeOid.FLOAT8:
         return Number(text);
-      case 1082 /* date */:
+      case PgTypeOid.DATE:
         return dateToSqlite(text);
-      case 1114 /* timestamp */:
+      case PgTypeOid.TIMESTAMP:
         return timestampToSqlite(text);
-      case 1184 /* timestamptz */:
+      case PgTypeOid.TIMESTAMPTZ:
         return timestamptzToSqlite(text);
-      case 114 /* json    */:
-      case 3802 /* jsonb   */:
+      case PgTypeOid.JSON:
+      case PgTypeOid.JSONB:
         // Don't parse the contents
         return new JsonContainer(text);
-      case 3220 /* pg_lsn  */:
+      case PgTypeOid.PG_LSN:
         return lsnMakeComparable(text);
     }
     const elemTypeid = this._elemTypeOid(typeOid);
@@ -47,9 +67,7 @@ export class PgType {
   }
   static _elemTypeOid(arrayTypeOid: number) {
     // select 'case ' || typarray || ': return ' || oid || '; // ' || typname from pg_catalog.pg_type WHERE typearray != 0;
-    switch (
-      arrayTypeOid // add line here when register new type
-    ) {
+    switch (arrayTypeOid) {
       case 1000:
         return 16; // bool
       case 1001:

@@ -1,12 +1,5 @@
 import { container, errors, logger } from '@powersync/lib-services-framework';
-import {
-  ColumnDescriptor,
-  escapeIdentifier,
-  getUuidReplicaIdentityBson,
-  Metrics,
-  SourceEntityDescriptor,
-  storage
-} from '@powersync/service-core';
+import { getUuidReplicaIdentityBson, Metrics, SourceEntityDescriptor, storage } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
 import * as pg_utils from '../utils/pgwire_utils.js';
@@ -404,17 +397,15 @@ WHERE  oid = $1::regclass`,
     let at = 0;
     let lastLogIndex = 0;
 
-    let orderByKey: ColumnDescriptor | null = null;
-
     let q: SnapshotQuery;
     // We do streaming on two levels:
     // 1. Coarse level: DELCARE CURSOR, FETCH 10000 at a time.
     // 2. Fine level: Stream chunks from each fetch call.
-    if (table.replicaIdColumns.length == 1) {
+    if (ChunkedSnapshotQuery.supports(table)) {
       // Single primary key - we can use the primary key for chunking
-      orderByKey = table.replicaIdColumns[0];
+      const orderByKey = table.replicaIdColumns[0];
       logger.info(`Chunking ${table.qualifiedName} by ${orderByKey.name}`);
-      q = new ChunkedSnapshotQuery(db, table, orderByKey, 10_000);
+      q = new ChunkedSnapshotQuery(db, table, 10_000);
     } else {
       // Fallback case - query the entire table
       q = new SimpleSnapshotQuery(db, table, 10_000);

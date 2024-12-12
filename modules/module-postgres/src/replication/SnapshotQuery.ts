@@ -1,5 +1,5 @@
 import { ColumnDescriptor, SourceTable } from '@powersync/service-core';
-import { PgChunk, PgConnection, StatementParam } from '@powersync/service-jpgwire';
+import { PgChunk, PgConnection, PgTypeOid, StatementParam } from '@powersync/service-jpgwire';
 import { escapeIdentifier } from '../utils/pgwire_utils.js';
 import { logger } from '@powersync/lib-services-framework';
 import { SqliteValue } from '@powersync/service-sync-rules';
@@ -26,14 +26,40 @@ export class SimpleSnapshotQuery {
 }
 
 export class ChunkedSnapshotQuery {
-  private lastKey: SqliteValue | null = null;
+  /**
+   * Primary key types that we support for chunked snapshots.
+   *
+   * Can expand this over time as we add more tests,
+   * and ensure there are no issues with type conversion.
+   */
+  static SUPPORTED_TYPES = [
+    PgTypeOid.TEXT,
+    PgTypeOid.VARCHAR,
+    PgTypeOid.UUID,
+    PgTypeOid.INT2,
+    PgTypeOid.INT4,
+    PgTypeOid.INT8
+  ];
+
+  static supports(table: SourceTable) {
+    if (table.replicaIdColumns.length != 1) {
+      return false;
+    }
+    const primaryKey = table.replicaIdColumns[0];
+
+    return primaryKey.typeId != null && ChunkedSnapshotQuery.SUPPORTED_TYPES.includes(Number(primaryKey.typeId));
+  }
+
+  private readonly key: ColumnDescriptor;
+  private lastKey: string | bigint | null = null;
 
   public constructor(
     private readonly connection: PgConnection,
     private readonly table: SourceTable,
-    private readonly key: ColumnDescriptor,
     private readonly chunkSize: number = 10_000
-  ) {}
+  ) {
+    this.key = table.replicaIdColumns[0];
+  }
 
   public async initialize(): Promise<void> {
     // No-op
