@@ -1,5 +1,13 @@
 # @powersync/service-module-postgres
 
+## 0.2.3
+
+### Patch Changes
+
+- e3a9343: Fix replication slot recovery
+- Updated dependencies [e3a9343]
+  - @powersync/service-core@0.12.2
+
 ## 0.2.2
 
 ### Patch Changes
