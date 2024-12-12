@@ -42,6 +42,10 @@ export const createMongoMigrationStore = (db: Db): migrations.MigrationStore => 
       };
     },
 
+    clear: async () => {
+      await collection.deleteMany({});
+    },
+
     save: async (state: migrations.MigrationState) => {
       await collection.replaceOne(
         {},

@@ -8,6 +8,7 @@ class MockMigrationAgent extends AbstractMigrationAgent {
   locks = new MockLockManager();
 
   store: MigrationStore = {
+    clear: async () => {},
     load: async () => {
       // No state stored
       return undefined;

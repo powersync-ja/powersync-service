@@ -19,11 +19,14 @@ export type MigrationAgentGenerics = {
 
 export type RunMigrationParams<Generics extends MigrationAgentGenerics = MigrationAgentGenerics> = MigrationParams & {
   migrations: defs.Migration<Generics['MIGRATION_CONTEXT']>[];
+  maxLockWaitMs?: number;
 };
 
 type ExecuteParams = RunMigrationParams & {
   state?: defs.MigrationState;
 };
+
+export const DEFAULT_MAX_LOCK_WAIT_MS = 3 * 60 * 1000; // 3 minutes
 
 export abstract class AbstractMigrationAgent<Generics extends MigrationAgentGenerics = MigrationAgentGenerics>
   implements AsyncDisposable
@@ -46,7 +49,7 @@ export abstract class AbstractMigrationAgent<Generics extends MigrationAgentGene
     const { direction, migrations, migrationContext } = params;
     // Only one process should execute this at a time.
     logger.info('Acquiring lock');
-    const lockId = await this.locks.acquire();
+    const lockId = await this.locks.acquire({ max_wait_ms: params.maxLockWaitMs ?? DEFAULT_MAX_LOCK_WAIT_MS });
 
     if (!lockId) {
       throw new Error('Could not acquire lock_id');
@@ -150,6 +153,10 @@ export abstract class AbstractMigrationAgent<Generics extends MigrationAgentGene
 
       i++;
     }
+  }
+
+  resetStore() {
+    return this.store.clear();
   }
 
   protected writeLogsToStore = async (params: WriteLogsParams): Promise<void> => {

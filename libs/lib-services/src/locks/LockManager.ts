@@ -5,9 +5,13 @@ export class LockActiveError extends Error {
   }
 }
 
+export type LockAcquireOptions = {
+  max_wait_ms?: number;
+};
+
 export type LockManager = {
   init?: () => Promise<void>;
-  acquire: () => Promise<string | null>;
+  acquire: (options?: LockAcquireOptions) => Promise<string | null>;
   refresh: (lock_id: string) => Promise<void>;
   release: (lock_id: string) => Promise<void>;
 

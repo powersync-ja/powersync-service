@@ -23,7 +23,8 @@ export abstract class AbstractPowerSyncMigrationAgent extends framework.Abstract
     const migrationsDir = this.getInternalScriptsDir();
     const files = await fs.readdir(migrationsDir);
     const migrations = files.filter((file) => {
-      return path.extname(file) === '.js';
+      // Vitest resolves ts files
+      return ['.js', '.ts'].includes(path.extname(file));
     });
 
     return await Promise.all(
