@@ -124,6 +124,18 @@ describe('SQL functions', () => {
     expect(fn.ifnull('test1', 'test2')).toEqual('test1');
   });
 
+  test('iif', () => {
+    expect(fn.iif(null, 1, 2)).toEqual(2);
+    expect(fn.iif(0, 1, 2)).toEqual(2);
+    expect(fn.iif(1, "first", "second")).toEqual("first");
+    expect(fn.iif(0.1, "is_true", "is_false")).toEqual("is_true");
+    expect(fn.iif("a", "is_true", "is_false")).toEqual("is_false");
+    expect(fn.iif(0n, "is_true", "is_false")).toEqual("is_false");
+    expect(fn.iif(2n, "is_true", "is_false")).toEqual("is_true");
+    expect(fn.iif(new Uint8Array([]), "is_true", "is_false")).toEqual("is_false");
+    expect(fn.iif(Uint8Array.of(0x61, 0x62, 0x43), "is_true", "is_false")).toEqual("is_false");
+  });
+
   test('upper', () => {
     expect(fn.upper(null)).toEqual(null);
     expect(fn.upper('abc')).toEqual('ABC');
