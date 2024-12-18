@@ -251,6 +251,23 @@ const ifnull: DocumentedSqlFunction = {
   detail: 'Returns the first non-null parameter'
 };
 
+// This is the same behavior as the iif function in SQLite
+const iif: DocumentedSqlFunction = {
+  debugName: 'iif',
+  call(x: SqliteValue, y: SqliteValue, z: SqliteValue) {
+    return sqliteBool(x) ? y : z;
+  },
+  parameters: [
+    { name: 'x', type: ExpressionType.ANY, optional: false },
+    { name: 'y', type: ExpressionType.ANY, optional: false },
+    { name: 'z', type: ExpressionType.ANY, optional: false },
+  ],
+  getReturnType() {
+    return ExpressionType.ANY;
+  },
+  detail: 'If x is true then returns y else returns z'
+};
+
 const json_extract: DocumentedSqlFunction = {
   debugName: 'json_extract',
   call(json: SqliteValue, path: SqliteValue) {
@@ -514,6 +531,7 @@ export const SQL_FUNCTIONS_NAMED = {
   uuid_blob,
   typeof: fn_typeof,
   ifnull,
+  iif,
   json_extract,
   json_array_length,
   json_valid,
