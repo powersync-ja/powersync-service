@@ -150,7 +150,8 @@ export class MongoSyncBucketStorage
       noCheckpointBeforeLsn: doc?.no_checkpoint_before ?? options.zeroLSN,
       keepaliveOp: doc?.keepalive_op ?? null,
       storeCurrentData: options.storeCurrentData,
-      skipExistingRows: options.skipExistingRows ?? false
+      skipExistingRows: options.skipExistingRows ?? false,
+      markRecordUnavailable: options.markRecordUnavailable
     });
     this.iterateListeners((cb) => cb.batchStarted?.(batch));
 
