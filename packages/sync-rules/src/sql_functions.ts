@@ -255,18 +255,7 @@ const ifnull: DocumentedSqlFunction = {
 const iif: DocumentedSqlFunction = {
   debugName: 'iif',
   call(x: SqliteValue, y: SqliteValue, z: SqliteValue) {
-    let isTrue: boolean;
-    if (Number.isNaN(x)) {
-      isTrue = false;
-    } else if (typeof x == 'number') {
-      isTrue = x !== 0;
-    } else if (typeof x == 'bigint') {
-      isTrue = x !== 0n;
-    } else {
-      isTrue = false;
-    }
-
-    return isTrue ? y : z;
+    return sqliteBool(x) ? y : z;
   },
   parameters: [
     { name: 'x', type: ExpressionType.ANY, optional: false },
