@@ -1,5 +1,17 @@
 # @powersync/service-image
 
+## 1.3.5
+
+### Patch Changes
+
+- Updated dependencies [a66be3b]
+  - @powersync/service-sync-rules@0.23.0
+  - @powersync/service-module-mongodb@0.1.8
+  - @powersync/service-module-mysql@0.1.7
+  - @powersync/service-module-postgres@0.2.4
+  - @powersync/service-jpgwire@0.18.4
+  - @powersync/service-core@0.12.3
+
 ## 1.3.4
 
 ### Patch Changes
