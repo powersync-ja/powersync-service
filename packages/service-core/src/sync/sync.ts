@@ -322,7 +322,22 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
         const response: util.StreamingSyncData = {
           data: r
         };
-        send_data = JSON.stringify(response);
+        try {
+          /**
+           * FIXME?
+           * This now uses JSONBig.stringify since the standard JSON.stringify
+           * does not know how to serialize BigInt values.
+           * The evaluated sync rules data should be JSON serializable according to
+           * the EvaluatedRow['data'] interface. However this previously relied on the bucket storage
+           * storing data as a string which had been serialized with JSONBig.
+           * Other storage implementations might store the data as BSON/BYTEA values which does not
+           * require a previous JSONBig stringify when storing.
+           */
+          send_data = JSONBig.stringify(response);
+        } catch (ex) {
+          debugger;
+          throw ex;
+        }
       } else {
         // We need to preserve the embedded data exactly, so this uses a JsonContainer
         // and JSONBig to stringify.
@@ -375,7 +390,7 @@ function transformLegacyResponse(bucketData: util.SyncBucketData): any {
     data: bucketData.data.map((entry) => {
       return {
         ...entry,
-        data: entry.data == null ? null : new JsonContainer(entry.data as string),
+        data: entry.data == null ? null : typeof entry.data == 'string' ? new JsonContainer(entry.data) : entry.data,
         checksum: BigInt(entry.checksum)
       };
     })

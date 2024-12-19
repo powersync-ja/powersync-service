@@ -514,6 +514,8 @@ async function getCheckpointLines(
  *
  * Stops the iterator afterwards.
  */
-async function consumeCheckpointLines(iterable: AsyncIterable<utils.StreamingSyncLine | string | null>): Promise<any[]> {
+async function consumeCheckpointLines(
+  iterable: AsyncIterable<utils.StreamingSyncLine | string | null>
+): Promise<any[]> {
   return getCheckpointLines(iterable[Symbol.asyncIterator](), { consume: true });
 }
