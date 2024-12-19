@@ -6,7 +6,7 @@ import { ConnectionManagerFactory } from '../replication/ConnectionManagerFactor
 import { MongoErrorRateLimiter } from '../replication/MongoErrorRateLimiter.js';
 import { MongoManager } from '../replication/MongoManager.js';
 import { checkSourceConfiguration } from '../replication/replication-utils.js';
-import { MONGO_STORAGE_TYPE, MongoStorageProvider } from '../storage/storage-index.js';
+import { MongoStorageProvider } from '../storage/storage-index.js';
 import * as types from '../types/types.js';
 
 export class MongoModule extends replication.ReplicationModule<types.MongoConnectionConfig> {
@@ -21,10 +21,10 @@ export class MongoModule extends replication.ReplicationModule<types.MongoConnec
   async initialize(context: system.ServiceContextContainer): Promise<void> {
     await super.initialize(context);
     context.storageEngine.registerProvider(new MongoStorageProvider());
-    if (context.configuration.storage.type == MONGO_STORAGE_TYPE) {
-      // FIXME types
+
+    if (types.isMongoStorageConfig(context.configuration.storage)) {
       context.migrations.registerMigrationAgent(
-        new MongoMigrationAgent(this.resolveConfig(context.configuration.storage as any))
+        new MongoMigrationAgent(this.resolveConfig(context.configuration.storage))
       );
     }
   }

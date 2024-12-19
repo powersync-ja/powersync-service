@@ -6,6 +6,9 @@ export class LockActiveError extends Error {
 }
 
 export type LockAcquireOptions = {
+  /**
+   * Optionally retry and wait for the lock to be acquired
+   */
   max_wait_ms?: number;
 };
 

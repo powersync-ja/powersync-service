@@ -1,6 +1,7 @@
 import * as service_types from '@powersync/service-types';
+import { MongoStorageConfig } from '@powersync/service-types/src/config/PowerSyncConfig.js';
 import * as t from 'ts-codec';
-import { normalizeMongoConfig } from '../storage/storage-index.js';
+import { MONGO_STORAGE_TYPE, normalizeMongoConfig } from '../storage/storage-index.js';
 
 export const MONGO_CONNECTION_TYPE = 'mongodb' as const;
 
@@ -102,4 +103,10 @@ export function normalizeConnectionConfig(options: MongoConnectionConfig): Norma
  */
 export function baseUri(options: NormalizedMongoConnectionConfig) {
   return options.uri;
+}
+
+export function isMongoStorageConfig(
+  config: service_types.configFile.GenericStorageConfig
+): config is MongoStorageConfig {
+  return config.type == MONGO_STORAGE_TYPE;
 }
