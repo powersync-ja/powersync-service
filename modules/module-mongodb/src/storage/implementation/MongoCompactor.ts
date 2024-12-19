@@ -4,6 +4,7 @@ import { AnyBulkWriteOperation, MaxKey, MinKey } from 'mongodb';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey } from './models.js';
 import { cacheKey } from './OperationBatch.js';
+import { safeBulkWrite } from './util.js';
 
 interface CurrentBucketState {
   /** Bucket name */
@@ -263,7 +264,7 @@ export class MongoCompactor {
   private async flush() {
     if (this.updates.length > 0) {
       logger.info(`Compacting ${this.updates.length} ops`);
-      await this.db.bucket_data.bulkWrite(this.updates, {
+      await safeBulkWrite(this.db.bucket_data, this.updates, {
         // Order is not important.
         // Since checksums are not affected, these operations can happen in any order,
         // and it's fine if the operations are partially applied.

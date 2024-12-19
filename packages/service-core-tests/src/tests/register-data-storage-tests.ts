@@ -126,6 +126,76 @@ bucket_definitions:
     ]);
   });
 
+  test('it should use the latest version after updates', async () => {
+    const sync_rules = testRules(
+      `
+bucket_definitions:
+  mybucket:
+    parameters:
+      - SELECT id AS todo_id
+        FROM todos
+        WHERE list_id IN token_parameters.list_id
+    data: [] 
+    `
+    );
+
+    const storage = (await factory()).getInstance(sync_rules);
+
+    const table = makeTestTable('todos', ['id', 'list_id']);
+
+    await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+      // Create two todos which initially belong to different lists
+      await batch.save({
+        sourceTable: table,
+        tag: SaveOperationTag.INSERT,
+        after: {
+          id: 'todo1',
+          list_id: 'list1'
+        },
+        afterReplicaId: rid('todo1')
+      });
+      await batch.save({
+        sourceTable: table,
+        tag: SaveOperationTag.INSERT,
+        after: {
+          id: 'todo2',
+          list_id: 'list2'
+        },
+        afterReplicaId: rid('todo2')
+      });
+    });
+
+    const result2 = await storage.startBatch(BATCH_OPTIONS, async (batch) => {
+      // Update the second todo item to now belong to list 1
+      await batch.save({
+        sourceTable: table,
+        tag: SaveOperationTag.UPDATE,
+        after: {
+          id: 'todo2',
+          list_id: 'list1'
+        },
+        afterReplicaId: rid('todo2')
+      });
+    });
+
+    // We specifically request the todo_ids for both lists.
+    // There removal operation for the association of `list2`::`todo2` should not interfere with the new
+    // association of `list1`::`todo2`
+    const parameters = await storage.getParameterSets(BigInt(result2!.flushed_op).toString(), [
+      ['mybucket', '1', 'list1'],
+      ['mybucket', '1', 'list2']
+    ]);
+
+    expect(parameters.sort((a, b) => (a.todo_id as string).localeCompare(b.todo_id as string))).toEqual([
+      {
+        todo_id: 'todo1'
+      },
+      {
+        todo_id: 'todo2'
+      }
+    ]);
+  });
+
   test('save and load parameters with different number types', async () => {
     const sync_rules = test_utils.testRules(
       `

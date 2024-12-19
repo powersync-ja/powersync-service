@@ -15,7 +15,7 @@ import {
   CurrentDataDocument,
   SourceKey
 } from './models.js';
-import { replicaIdToSubkey, serializeLookup } from './util.js';
+import { replicaIdToSubkey, safeBulkWrite, serializeLookup } from './util.js';
 
 /**
  * Maximum size of operations we write in a single transaction.
@@ -30,6 +30,13 @@ import { replicaIdToSubkey, serializeLookup } from './util.js';
  * When we reach this threshold, we commit the transaction and start a new one.
  */
 const MAX_TRANSACTION_BATCH_SIZE = 30_000_000;
+
+/**
+ * Limit number of documents to write in a single transaction.
+ *
+ * This has an effect on error message size in some cases.
+ */
+const MAX_TRANSACTION_DOC_COUNT = 2_000;
 
 /**
  * Keeps track of bulkwrite operations within a transaction.
@@ -229,26 +236,32 @@ export class PersistedBatch {
   }
 
   shouldFlushTransaction() {
-    return this.currentSize >= MAX_TRANSACTION_BATCH_SIZE;
+    return (
+      this.currentSize >= MAX_TRANSACTION_BATCH_SIZE ||
+      this.bucketData.length >= MAX_TRANSACTION_DOC_COUNT ||
+      this.currentData.length >= MAX_TRANSACTION_DOC_COUNT ||
+      this.bucketParameters.length >= MAX_TRANSACTION_DOC_COUNT
+    );
   }
 
   async flush(db: PowerSyncMongo, session: mongo.ClientSession) {
     if (this.bucketData.length > 0) {
-      await db.bucket_data.bulkWrite(this.bucketData, {
+      // calculate total size
+      await safeBulkWrite(db.bucket_data, this.bucketData, {
         session,
         // inserts only - order doesn't matter
         ordered: false
       });
     }
     if (this.bucketParameters.length > 0) {
-      await db.bucket_parameters.bulkWrite(this.bucketParameters, {
+      await safeBulkWrite(db.bucket_parameters, this.bucketParameters, {
         session,
         // inserts only - order doesn't matter
         ordered: false
       });
     }
     if (this.currentData.length > 0) {
-      await db.current_data.bulkWrite(this.currentData, {
+      await safeBulkWrite(db.current_data, this.currentData, {
         session,
         // may update and delete data within the same batch - order matters
         ordered: true

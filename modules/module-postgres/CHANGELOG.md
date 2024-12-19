@@ -1,5 +1,28 @@
 # @powersync/service-module-postgres
 
+## 0.2.3
+
+### Patch Changes
+
+- e3a9343: Fix replication slot recovery
+- Updated dependencies [320e646]
+- Updated dependencies [e3a9343]
+  - @powersync/service-core@0.12.2
+
+## 0.2.2
+
+### Patch Changes
+
+- 2a0eb11: Revert Postgres snapshot strategy.
+
+## 0.2.1
+
+### Patch Changes
+
+- 889ac46: Fix "BSONObj size is invalid" error during replication.
+- Updated dependencies [889ac46]
+  - @powersync/service-core@0.12.1
+
 ## 0.2.0
 
 ### Minor Changes

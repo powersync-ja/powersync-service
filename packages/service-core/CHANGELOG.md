@@ -1,5 +1,18 @@
 # @powersync/service-core
 
+## 0.12.2
+
+### Patch Changes
+
+- 320e646: Fix bucket parameters grouping.
+- e3a9343: Reduce noise in log output
+
+## 0.12.1
+
+### Patch Changes
+
+- 889ac46: Fix "BSONObj size is invalid" error during replication.
+
 ## 0.12.0
 
 ### Minor Changes

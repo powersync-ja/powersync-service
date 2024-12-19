@@ -602,6 +602,8 @@ export class MongoBucketBatch
     super[Symbol.dispose]();
   }
 
+  private lastWaitingLogThottled = 0;
+
   async commit(lsn: string): Promise<boolean> {
     await this.flush();
 
@@ -612,9 +614,12 @@ export class MongoBucketBatch
       return false;
     }
     if (lsn < this.no_checkpoint_before_lsn) {
-      logger.info(
-        `Waiting until ${this.no_checkpoint_before_lsn} before creating checkpoint, currently at ${lsn}. Persisted op: ${this.persisted_op}`
-      );
+      if (Date.now() - this.lastWaitingLogThottled > 5_000) {
+        logger.info(
+          `Waiting until ${this.no_checkpoint_before_lsn} before creating checkpoint, currently at ${lsn}. Persisted op: ${this.persisted_op}`
+        );
+        this.lastWaitingLogThottled = Date.now();
+      }
 
       // Edge case: During initial replication, we have a no_checkpoint_before_lsn set,
       // and don't actually commit the snapshot.

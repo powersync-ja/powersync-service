@@ -176,6 +176,71 @@ function defineBatchTests(factory: test_utils.StorageFactory) {
     console.log(`Truncated ${truncateCount} ops in ${truncateDuration}ms ${truncatePerSecond} ops/s. ${used}MB heap`);
   });
 
+  test('large number of bucket_data docs', async () => {
+    // This tests that we don't run into this error:
+    //   MongoBulkWriteError: BSONObj size: 16814023 (0x1008FC7) is invalid. Size must be between 0 and 16793600(16MB) First element: insert: "bucket_data"
+    // The test is quite sensitive to internals, since we need to
+    // generate an internal batch that is just below 16MB.
+    //
+    // For the test to work, we need a:
+    // 1. Large number of documents in the batch.
+    // 2. More bucket_data documents than current_data documents,
+    //    otherwise other batch limiting thresholds are hit.
+    // 3. A large document to make sure we get to just below the 16MB
+    //    limit.
+    // 4. Another document to make sure the internal batching overflows
+    //    to a second batch.
+
+    await using context = await WalStreamTestContext.open(factory);
+    await context.updateSyncRules(`bucket_definitions:
+  global:
+    data:
+      # Sync 4x so we get more bucket_data documents
+      - SELECT * FROM test_data
+      - SELECT * FROM test_data
+      - SELECT * FROM test_data
+      - SELECT * FROM test_data
+      `);
+    const { pool } = context;
+
+    await pool.query(`CREATE TABLE test_data(id serial primary key, description text)`);
+
+    const numDocs = 499;
+    let description = '';
+    while (description.length < 2650) {
+      description += '.';
+    }
+
+    await pool.query({
+      statement: `INSERT INTO test_data(description) SELECT $2 FROM generate_series(1, $1) i`,
+      params: [
+        { type: 'int4', value: numDocs },
+        { type: 'varchar', value: description }
+      ]
+    });
+
+    let largeDescription = '';
+
+    while (largeDescription.length < 2_768_000) {
+      largeDescription += '.';
+    }
+    await pool.query({
+      statement: 'INSERT INTO test_data(description) VALUES($1)',
+      params: [{ type: 'varchar', value: largeDescription }]
+    });
+    await pool.query({
+      statement: 'INSERT INTO test_data(description) VALUES($1)',
+      params: [{ type: 'varchar', value: 'testingthis' }]
+    });
+    await context.replicateSnapshot();
+
+    context.startStreaming();
+
+    const checkpoint = await context.getCheckpoint({ timeout: 50_000 });
+    const checksum = await context.storage!.getChecksums(checkpoint, ['global[]']);
+    expect(checksum.get('global[]')!.count).toEqual((numDocs + 2) * 4);
+  });
+
   test('resuming initial replication (1)', async () => {
     // Stop early - likely to not include deleted row in first replication attempt.
     await testResumingReplication(2000);

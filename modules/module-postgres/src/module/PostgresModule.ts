@@ -133,7 +133,7 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
     });
     const connection = await connectionManager.snapshotConnection();
     try {
-      return checkSourceConfiguration(connection, PUBLICATION_NAME);
+      return await checkSourceConfiguration(connection, PUBLICATION_NAME);
     } finally {
       await connectionManager.end();
     }

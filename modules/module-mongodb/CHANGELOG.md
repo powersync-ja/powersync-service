@@ -1,5 +1,27 @@
 # @powersync/service-module-mongodb
 
+## 0.1.7
+
+### Patch Changes
+
+- Updated dependencies [320e646]
+- Updated dependencies [e3a9343]
+  - @powersync/service-core@0.12.2
+
+## 0.1.6
+
+### Patch Changes
+
+- 2043447: Use short timeout for testing mongodb connections.
+
+## 0.1.5
+
+### Patch Changes
+
+- 889ac46: Fix "BSONObj size is invalid" error during replication.
+- Updated dependencies [889ac46]
+  - @powersync/service-core@0.12.1
+
 ## 0.1.4
 
 ### Patch Changes

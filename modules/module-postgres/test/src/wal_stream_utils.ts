@@ -76,6 +76,16 @@ export class WalStreamTestContext implements AsyncDisposable {
     return this.storage!;
   }
 
+  async loadActiveSyncRules() {
+    const syncRules = await this.factory.getActiveSyncRulesContent();
+    if (syncRules == null) {
+      throw new Error(`Active sync rules not available`);
+    }
+
+    this.storage = this.factory.getInstance(syncRules);
+    return this.storage!;
+  }
+
   get walStream() {
     if (this.storage == null) {
       throw new Error('updateSyncRules() first');

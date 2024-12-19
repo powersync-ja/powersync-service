@@ -192,6 +192,15 @@ export class WalStream {
     if (slotExists) {
       // This checks that the slot is still valid
       const r = await this.checkReplicationSlot();
+      if (snapshotDone && r.needsNewSlot) {
+        // We keep the current snapshot, and create a new replication slot
+        throw new MissingReplicationSlotError(`Replication slot ${slotName} is not valid anymore`);
+      }
+      // We can have:
+      //   needsInitialSync: true, needsNewSlot: true -> initial sync from scratch
+      //   needsInitialSync: true, needsNewSlot: false -> resume initial sync
+      //   needsInitialSync: false, needsNewSlot: true -> handled above
+      //   needsInitialSync: false, needsNewSlot: false -> resume streaming replication
       return {
         needsInitialSync: !snapshotDone,
         needsNewSlot: r.needsNewSlot
@@ -204,7 +213,7 @@ export class WalStream {
   /**
    * If a replication slot exists, check that it is healthy.
    */
-  private async checkReplicationSlot(): Promise<InitResult> {
+  private async checkReplicationSlot(): Promise<{ needsNewSlot: boolean }> {
     let last_error = null;
     const slotName = this.slot_name;
 
@@ -244,7 +253,7 @@ export class WalStream {
 
         // Success
         logger.info(`Slot ${slotName} appears healthy`);
-        return { needsInitialSync: false, needsNewSlot: false };
+        return { needsNewSlot: false };
       } catch (e) {
         last_error = e;
         logger.warn(`${slotName} Replication slot error`, e);
@@ -274,9 +283,9 @@ export class WalStream {
           // Sample: publication "powersync" does not exist
           //   Happens when publication deleted or never created.
           //   Slot must be re-created in this case.
-          logger.info(`${slotName} does not exist anymore, will create new slot`);
+          logger.info(`${slotName} is not valid anymore`);
 
-          return { needsInitialSync: true, needsNewSlot: true };
+          return { needsNewSlot: true };
         }
         // Try again after a pause
         await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -349,18 +358,10 @@ WHERE  oid = $1::regclass`,
               logger.info(`${this.slot_name} Skipping ${table.qualifiedName} - snapshot already done`);
               continue;
             }
-            let tableLsnNotBefore: string;
-            await db.query('BEGIN');
-            try {
-              await this.snapshotTable(batch, db, table);
+            await this.snapshotTable(batch, db, table);
 
-              const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
-              tableLsnNotBefore = rs.rows[0][0];
-            } finally {
-              // Read-only transaction, commit does not actually do anything.
-              await db.query('COMMIT');
-            }
-
+            const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
+            const tableLsnNotBefore = rs.rows[0][0];
             await batch.markSnapshotDone([table], tableLsnNotBefore);
             await touch();
           }
@@ -386,70 +387,51 @@ WHERE  oid = $1::regclass`,
     const estimatedCount = await this.estimatedCount(db, table);
     let at = 0;
     let lastLogIndex = 0;
-
-    // We do streaming on two levels:
-    // 1. Coarse level: DELCARE CURSOR, FETCH 10000 at a time.
-    // 2. Fine level: Stream chunks from each fetch call.
-    await db.query(`DECLARE powersync_cursor CURSOR FOR SELECT * FROM ${table.escapedIdentifier}`);
-
+    const cursor = db.stream({ statement: `SELECT * FROM ${table.escapedIdentifier}` });
     let columns: { i: number; name: string }[] = [];
-    let hasRemainingData = true;
-    while (hasRemainingData) {
-      // Fetch 10k at a time.
-      // The balance here is between latency overhead per FETCH call,
-      // and not spending too much time on each FETCH call.
-      // We aim for a couple of seconds on each FETCH call.
-      const cursor = db.stream({
-        statement: `FETCH 10000 FROM powersync_cursor`
-      });
-      hasRemainingData = false;
-      // pgwire streams rows in chunks.
-      // These chunks can be quite small (as little as 16KB), so we don't flush chunks automatically.
-      // There are typically 100-200 rows per chunk.
-      for await (let chunk of cursor) {
-        if (chunk.tag == 'RowDescription') {
-          // We get a RowDescription for each FETCH call, but they should
-          // all be the same.
-          let i = 0;
-          columns = chunk.payload.map((c) => {
-            return { i: i++, name: c.name };
-          });
-          continue;
-        }
+    // pgwire streams rows in chunks.
+    // These chunks can be quite small (as little as 16KB), so we don't flush chunks automatically.
 
-        const rows = chunk.rows.map((row) => {
-          let q: DatabaseInputRow = {};
-          for (let c of columns) {
-            q[c.name] = row[c.i];
-          }
-          return q;
+    for await (let chunk of cursor) {
+      if (chunk.tag == 'RowDescription') {
+        let i = 0;
+        columns = chunk.payload.map((c) => {
+          return { i: i++, name: c.name };
         });
-        if (rows.length > 0 && at - lastLogIndex >= 5000) {
-          logger.info(`${this.slot_name} Replicating ${table.qualifiedName} ${at}/${estimatedCount}`);
-          lastLogIndex = at;
-          hasRemainingData = true;
-        }
-        if (this.abort_signal.aborted) {
-          throw new Error(`Aborted initial replication of ${this.slot_name}`);
-        }
-
-        for (const record of WalStream.getQueryData(rows)) {
-          // This auto-flushes when the batch reaches its size limit
-          await batch.save({
-            tag: storage.SaveOperationTag.INSERT,
-            sourceTable: table,
-            before: undefined,
-            beforeReplicaId: undefined,
-            after: record,
-            afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns)
-          });
-        }
-
-        at += rows.length;
-        Metrics.getInstance().rows_replicated_total.add(rows.length);
-
-        await touch();
+        continue;
       }
+
+      const rows = chunk.rows.map((row) => {
+        let q: DatabaseInputRow = {};
+        for (let c of columns) {
+          q[c.name] = row[c.i];
+        }
+        return q;
+      });
+      if (rows.length > 0 && at - lastLogIndex >= 5000) {
+        logger.info(`${this.slot_name} Replicating ${table.qualifiedName} ${at}/${estimatedCount}`);
+        lastLogIndex = at;
+      }
+      if (this.abort_signal.aborted) {
+        throw new Error(`Aborted initial replication of ${this.slot_name}`);
+      }
+
+      for (const record of WalStream.getQueryData(rows)) {
+        // This auto-flushes when the batch reaches its size limit
+        await batch.save({
+          tag: storage.SaveOperationTag.INSERT,
+          sourceTable: table,
+          before: undefined,
+          beforeReplicaId: undefined,
+          after: record,
+          afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns)
+        });
+      }
+
+      at += rows.length;
+      Metrics.getInstance().rows_replicated_total.add(rows.length);
+
+      await touch();
     }
 
     await batch.flush();
