@@ -1,26 +1,9 @@
 import { storage, utils } from '@powersync/service-core';
-import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import * as crypto from 'crypto';
 import * as mongo from 'mongodb';
 import * as uuid from 'uuid';
 import { BucketDataDocument } from './models.js';
-
-/**
- * Lookup serialization must be number-agnostic. I.e. normalize numbers, instead of preserving numbers.
- * @param lookup
- */
-
-export function serializeLookup(lookup: SqliteJsonValue[]) {
-  const normalized = lookup.map((value) => {
-    if (typeof value == 'number' && Number.isInteger(value)) {
-      return BigInt(value);
-    } else {
-      return value;
-    }
-  });
-  return new bson.Binary(bson.serialize({ l: normalized }));
-}
 
 export function idPrefixFilter<T>(prefix: Partial<T>, rest: (keyof T)[]): mongo.Condition<T> {
   let filter = {
@@ -85,11 +68,6 @@ export async function readSingleBatch<T>(cursor: mongo.FindCursor<T>): Promise<{
   }
 }
 
-export const BSON_DESERIALIZE_OPTIONS: bson.DeserializeOptions = {
-  // use bigint instead of Long
-  useBigInt64: true
-};
-
 export function mapOpEntry(row: BucketDataDocument): utils.OplogEntry {
   if (row.op == 'PUT' || row.op == 'REMOVE') {
     return {
@@ -112,28 +90,8 @@ export function mapOpEntry(row: BucketDataDocument): utils.OplogEntry {
   }
 }
 
-/**
- * Returns true if two ReplicaId values are the same (serializes to the same BSON value).
- */
-export function replicaIdEquals(a: storage.ReplicaId, b: storage.ReplicaId) {
-  if (a === b) {
-    return true;
-  } else if (typeof a == 'string' && typeof b == 'string') {
-    return a == b;
-  } else if (isUUID(a) && isUUID(b)) {
-    return a.equals(b);
-  } else if (a == null && b == null) {
-    return true;
-  } else if ((b == null && a != null) || (a == null && b != null)) {
-    return false;
-  } else {
-    // There are many possible primitive values, this covers them all
-    return (bson.serialize({ id: a }) as Buffer).equals(bson.serialize({ id: b }));
-  }
-}
-
 export function replicaIdToSubkey(table: bson.ObjectId, id: storage.ReplicaId): string {
-  if (isUUID(id)) {
+  if (storage.isUUID(id)) {
     // Special case for UUID for backwards-compatiblity
     return `${table.toHexString()}/${id.toHexString()}`;
   } else {
@@ -141,19 +99,6 @@ export function replicaIdToSubkey(table: bson.ObjectId, id: storage.ReplicaId): 
     const repr = bson.serialize({ table, id });
     return uuid.v5(repr, utils.ID_NAMESPACE);
   }
-}
-
-/**
- * True if this is a bson.UUID.
- *
- * Works even with multiple copies of the bson package.
- */
-export function isUUID(value: any): value is bson.UUID {
-  if (value == null || typeof value != 'object') {
-    return false;
-  }
-  const uuid = value as bson.UUID;
-  return uuid._bsontype == 'Binary' && uuid.sub_type == bson.Binary.SUBTYPE_UUID;
 }
 
 /**

@@ -11,7 +11,7 @@ import { MongoIdSequence } from './MongoIdSequence.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
 import { cacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
-import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, replicaIdEquals, serializeLookup } from './util.js';
+import { idPrefixFilter } from './util.js';
 
 /**
  * 15MB
@@ -314,7 +314,10 @@ export class MongoBucketBatch
         existing_buckets = result.buckets;
         existing_lookups = result.lookups;
         if (this.storeCurrentData) {
-          const data = bson.deserialize((result.data as mongo.Binary).buffer, BSON_DESERIALIZE_OPTIONS) as SqliteRow;
+          const data = bson.deserialize(
+            (result.data as mongo.Binary).buffer,
+            storage.BSON_DESERIALIZE_OPTIONS
+          ) as SqliteRow;
           after = storage.mergeToast(after!, data);
         }
       }
@@ -370,7 +373,7 @@ export class MongoBucketBatch
     }
 
     // 2. Save bucket data
-    if (beforeId != null && (afterId == null || !replicaIdEquals(beforeId, afterId))) {
+    if (beforeId != null && (afterId == null || !storage.replicaIdEquals(beforeId, afterId))) {
       // Source ID updated
       if (sourceTable.syncData) {
         // Delete old record
@@ -476,7 +479,7 @@ export class MongoBucketBatch
           existing_lookups
         });
         new_lookups = paramEvaluated.map((p) => {
-          return serializeLookup(p.lookup);
+          return storage.serializeLookup(p.lookup);
         });
       }
     }
@@ -500,7 +503,7 @@ export class MongoBucketBatch
       };
     }
 
-    if (afterId == null || !replicaIdEquals(beforeId, afterId)) {
+    if (afterId == null || !storage.replicaIdEquals(beforeId, afterId)) {
       // Either a delete (afterId == null), or replaced the old replication id
       batch.deleteCurrentData(before_key);
     }

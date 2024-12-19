@@ -2,7 +2,6 @@ import { ToastableSqliteRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import { storage } from '@powersync/service-core';
-import { isUUID } from './util.js';
 
 /**
  * Maximum number of operations in a batch.
@@ -94,7 +93,7 @@ export class RecordOperation {
  * In-memory cache key - must not be persisted.
  */
 export function cacheKey(table: bson.ObjectId, id: storage.ReplicaId) {
-  if (isUUID(id)) {
+  if (storage.isUUID(id)) {
     return `${table.toHexString()}.${id.toHexString()}`;
   } else if (typeof id == 'string') {
     return `${table.toHexString()}.${id}`;

@@ -12,7 +12,7 @@ import { BucketDataDocument, BucketDataKey, SourceKey } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
-import { BSON_DESERIALIZE_OPTIONS, idPrefixFilter, mapOpEntry, readSingleBatch, serializeLookup } from './util.js';
+import { idPrefixFilter, mapOpEntry, readSingleBatch } from './util.js';
 
 export class MongoSyncBucketStorage
   extends DisposableObserver<storage.SyncRulesBucketStorageListener>
@@ -219,7 +219,7 @@ export class MongoSyncBucketStorage
 
   async getParameterSets(checkpoint: utils.OpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]> {
     const lookupFilter = lookups.map((lookup) => {
-      return serializeLookup(lookup);
+      return storage.serializeLookup(lookup);
     });
     const rows = await this.db.bucket_parameters
       .aggregate([
@@ -325,7 +325,7 @@ export class MongoSyncBucketStorage
 
     // Ordered by _id, meaning buckets are grouped together
     for (let rawData of data) {
-      const row = bson.deserialize(rawData, BSON_DESERIALIZE_OPTIONS) as BucketDataDocument;
+      const row = bson.deserialize(rawData, storage.BSON_DESERIALIZE_OPTIONS) as BucketDataDocument;
       const bucket = row._id.b;
 
       if (currentBatch == null || currentBatch.bucket != bucket || batchSize >= sizeLimit) {

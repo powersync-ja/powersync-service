@@ -15,7 +15,7 @@ import {
   CurrentDataDocument,
   SourceKey
 } from './models.js';
-import { replicaIdToSubkey, safeBulkWrite, serializeLookup } from './util.js';
+import { replicaIdToSubkey, safeBulkWrite } from './util.js';
 
 /**
  * Maximum size of operations we write in a single transaction.
@@ -164,7 +164,7 @@ export class PersistedBatch {
 
     // 1. Insert new entries
     for (let result of evaluated) {
-      const binLookup = serializeLookup(result.lookup);
+      const binLookup = storage.serializeLookup(result.lookup);
       const hex = binLookup.toString('base64');
       remaining_lookups.delete(hex);
 
