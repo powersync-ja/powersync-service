@@ -1376,8 +1376,6 @@ bucket_definitions:
       bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]), { limit: 4 })
     );
 
-    console.log('nani', batch1);
-
     expect(test_utils.getBatchData(batch1)).toEqual([
       { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 },
       { op_id: '2', op: 'PUT', object_id: 'test2', checksum: 730027011 },

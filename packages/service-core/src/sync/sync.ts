@@ -318,26 +318,20 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
         // Send the object as is, will most likely be encoded as a BSON document
         send_data = { data: r };
       } else if (raw_data) {
-        // Data is a raw string - we can use the more efficient JSON.stringify.
+        /**
+         * Data is a raw string - we can use the more efficient JSON.stringify.
+         * FIXME: ensure that the data is actually a string
+         */
         const response: util.StreamingSyncData = {
-          data: r
+          data: {
+            ...r,
+            data: r.data.map((entry) => ({
+              ...entry,
+              data: typeof entry.data == 'string' ? entry.data : JSONBig.stringify(entry.data)
+            }))
+          }
         };
-        try {
-          /**
-           * FIXME?
-           * This now uses JSONBig.stringify since the standard JSON.stringify
-           * does not know how to serialize BigInt values.
-           * The evaluated sync rules data should be JSON serializable according to
-           * the EvaluatedRow['data'] interface. However this previously relied on the bucket storage
-           * storing data as a string which had been serialized with JSONBig.
-           * Other storage implementations might store the data as BSON/BYTEA values which does not
-           * require a previous JSONBig stringify when storing.
-           */
-          send_data = JSONBig.stringify(response);
-        } catch (ex) {
-          debugger;
-          throw ex;
-        }
+        send_data = JSON.stringify(response);
       } else {
         // We need to preserve the embedded data exactly, so this uses a JsonContainer
         // and JSONBig to stringify.
