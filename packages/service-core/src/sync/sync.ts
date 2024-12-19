@@ -318,9 +318,18 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
         // Send the object as is, will most likely be encoded as a BSON document
         send_data = { data: r };
       } else if (raw_data) {
-        // Data is a raw string - we can use the more efficient JSON.stringify.
+        /**
+         * Data is a raw string - we can use the more efficient JSON.stringify.
+         * FIXME: ensure that the data is actually a string
+         */
         const response: util.StreamingSyncData = {
-          data: r
+          data: {
+            ...r,
+            data: r.data.map((entry) => ({
+              ...entry,
+              data: typeof entry.data == 'string' ? entry.data : JSONBig.stringify(entry.data)
+            }))
+          }
         };
         send_data = JSON.stringify(response);
       } else {
@@ -375,7 +384,7 @@ function transformLegacyResponse(bucketData: util.SyncBucketData): any {
     data: bucketData.data.map((entry) => {
       return {
         ...entry,
-        data: entry.data == null ? null : new JsonContainer(entry.data as string),
+        data: entry.data == null ? null : typeof entry.data == 'string' ? new JsonContainer(entry.data) : entry.data,
         checksum: BigInt(entry.checksum)
       };
     })

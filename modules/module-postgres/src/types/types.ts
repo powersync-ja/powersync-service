@@ -133,6 +133,12 @@ export function normalizeConnectionConfig(options: PostgresConnectionConfig): No
   };
 }
 
+export function isPostgresConfig(
+  config: service_types.configFile.DataSourceConfig
+): config is PostgresConnectionConfig {
+  return config.type == POSTGRES_CONNECTION_TYPE;
+}
+
 /**
  * Check whether the port is in a "safe" range.
  *

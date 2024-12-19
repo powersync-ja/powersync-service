@@ -1,3 +1,7 @@
+import { readExecutedGtid } from '@module/common/read-executed-gtid.js';
+import { BinLogStream, BinLogStreamOptions } from '@module/replication/BinLogStream.js';
+import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManager.js';
+import { logger } from '@powersync/lib-services-framework';
 import {
   ActiveCheckpoint,
   BucketStorageFactory,
@@ -5,13 +9,9 @@ import {
   OplogEntry,
   SyncRulesBucketStorage
 } from '@powersync/service-core';
-import { TEST_CONNECTION_OPTIONS, clearTestDb } from './util.js';
-import { fromAsync } from '@core-tests/stream_utils.js';
-import { BinLogStream, BinLogStreamOptions } from '@module/replication/BinLogStream.js';
-import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManager.js';
+import { test_utils } from '@powersync/service-core-tests';
 import mysqlPromise from 'mysql2/promise';
-import { readExecutedGtid } from '@module/common/read-executed-gtid.js';
-import { logger } from '@powersync/lib-services-framework';
+import { TEST_CONNECTION_OPTIONS, clearTestDb } from './util.js';
 
 /**
  * Tests operating on the binlog stream need to configure the stream and manage asynchronous
@@ -113,14 +113,14 @@ export class BinlogStreamTestContext {
   async getBucketsDataBatch(buckets: Record<string, string>, options?: { timeout?: number }) {
     const checkpoint = await this.getCheckpoint(options);
     const map = new Map<string, string>(Object.entries(buckets));
-    return fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
+    return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
   async getBucketData(bucket: string, start = '0', options?: { timeout?: number }): Promise<OplogEntry[]> {
     const checkpoint = await this.getCheckpoint(options);
     const map = new Map<string, string>([[bucket, start]]);
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
-    const batches = await fromAsync(batch);
+    const batches = await test_utils.fromAsync(batch);
     return batches[0]?.batch.data ?? [];
   }
 }

@@ -1,4 +1,4 @@
-FROM node:20.12.2 as builder
+FROM node:20.12.2 AS builder
 WORKDIR /app
 
 RUN npm i -g pnpm@9
@@ -46,7 +46,7 @@ RUN pnpm build:production && \
 
 # === TESTER ===
 
-FROM node:20.12.2-slim as tester
+FROM node:20.12.2-slim AS tester
 WORKDIR /app
 
 ARG GITHUB_TOKEN
