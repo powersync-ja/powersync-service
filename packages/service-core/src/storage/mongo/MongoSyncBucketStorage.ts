@@ -265,7 +265,7 @@ export class MongoSyncBucketStorage
         },
         {
           $group: {
-            _id: '$key',
+            _id: { key: '$key', lookup: '$lookup' },
             bucket_parameters: {
               $first: '$bucket_parameters'
             }
