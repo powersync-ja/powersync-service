@@ -49,7 +49,7 @@ export class KeySpec {
     } else if (this.source.kty === 'OKP') {
       return OKP_ALGORITHMS.includes(jwtAlg);
     }
-    
+
     // 'EC' is unsupported
     return false;
   }

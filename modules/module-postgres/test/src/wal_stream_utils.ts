@@ -21,7 +21,7 @@ export class WalStreamTestContext implements AsyncDisposable {
    */
   static async open(
     factory: (options: StorageOptions) => Promise<BucketStorageFactory>,
-    options?: { doNotClear?: boolean }
+    options?: { doNotClear?: boolean; walStreamOptions?: Partial<WalStreamOptions> }
   ) {
     const f = await factory({ doNotClear: options?.doNotClear });
     const connectionManager = new PgManager(TEST_CONNECTION_OPTIONS, {});
@@ -30,12 +30,13 @@ export class WalStreamTestContext implements AsyncDisposable {
       await clearTestDb(connectionManager.pool);
     }
 
-    return new WalStreamTestContext(f, connectionManager);
+    return new WalStreamTestContext(f, connectionManager, options?.walStreamOptions);
   }
 
   constructor(
     public factory: BucketStorageFactory,
-    public connectionManager: PgManager
+    public connectionManager: PgManager,
+    private walStreamOptions?: Partial<WalStreamOptions>
   ) {}
 
   async [Symbol.asyncDispose]() {
@@ -97,7 +98,8 @@ export class WalStreamTestContext implements AsyncDisposable {
     const options: WalStreamOptions = {
       storage: this.storage,
       connections: this.connectionManager,
-      abort_signal: this.abortController.signal
+      abort_signal: this.abortController.signal,
+      ...this.walStreamOptions
     };
     this._walStream = new WalStream(options);
     return this._walStream!;
