@@ -202,7 +202,7 @@ INSERT INTO test_data (
     await setupTable();
     await connectionManager.query(`
         INSERT INTO test_data(date_col, datetime_col, timestamp_col, time_col, year_col)
-        VALUES('2023-03-06', '2023-03-06 15:47', '2023-03-06 15:47', '15:47:00', '2023');
+        VALUES('2023-03-06', '2023-03-06 15:47:00+00:00', '2023-03-06 15:47:00+00:00', '15:47:00', '2023');
       `);
 
     const databaseRows = await getDatabaseRows(connectionManager, 'test_data');
@@ -222,8 +222,8 @@ INSERT INTO test_data (
   test('Date types edge cases mappings', async () => {
     await setupTable();
 
-    await connectionManager.query(`INSERT INTO test_data(timestamp_col) VALUES('1970-01-01 00:00:01')`);
-    await connectionManager.query(`INSERT INTO test_data(timestamp_col) VALUES('2038-01-19 03:14:07.499')`);
+    await connectionManager.query(`INSERT INTO test_data(timestamp_col) VALUES('1970-01-01 00:00:01+00:00')`);
+    await connectionManager.query(`INSERT INTO test_data(timestamp_col) VALUES('2038-01-19 03:14:07.499+00:00')`);
     await connectionManager.query(`INSERT INTO test_data(datetime_col) VALUES('1000-01-01 00:00:00')`);
     await connectionManager.query(`INSERT INTO test_data(datetime_col) VALUES('9999-12-31 23:59:59.499')`);
 
