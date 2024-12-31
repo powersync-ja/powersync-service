@@ -348,6 +348,18 @@ AND table_type = 'BASE TABLE';`,
     const initialReplicationCompleted = await this.checkInitialReplicated();
     if (!initialReplicationCompleted) {
       await this.startInitialReplication();
+    } else {
+      // We need to find the existing tables, to populate our table cache.
+      // This is needed for includeSchema to work correctly.
+      const sourceTables = this.syncRules.getSourceTables();
+      await this.storage.startBatch(
+        { zeroLSN: ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema, storeCurrentData: true },
+        async (batch) => {
+          for (let tablePattern of sourceTables) {
+            await this.getQualifiedTableNames(batch, tablePattern);
+          }
+        }
+      );
     }
   }
 
