@@ -588,7 +588,7 @@ AND table_type = 'BASE TABLE';`,
           beforeReplicaId: beforeUpdated
             ? getUuidReplicaIdentityBson(beforeUpdated, payload.sourceTable.replicaIdColumns)
             : undefined,
-          after: common.toSQLiteRow(payload.data, payload.columns),
+          after: after,
           afterReplicaId: getUuidReplicaIdentityBson(after, payload.sourceTable.replicaIdColumns)
         });
 
