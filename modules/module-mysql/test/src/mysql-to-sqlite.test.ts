@@ -282,8 +282,7 @@ async function getReplicatedRows(expectedTransactionsCount?: number): Promise<Sq
   const zongji = new ZongJi({
     host: TEST_CONNECTION_OPTIONS.hostname,
     user: TEST_CONNECTION_OPTIONS.username,
-    password: TEST_CONNECTION_OPTIONS.password,
-    timeZone: 'Z' // Ensure no auto timezone manipulation of the dates occur
+    password: TEST_CONNECTION_OPTIONS.password
   });
 
   const completionPromise = new Promise<SqliteRow[]>((resolve, reject) => {
