@@ -108,13 +108,31 @@ export function toSQLiteRow(row: Record<string, any>, columns: Map<string, Colum
       switch (column.typeId) {
         case mysql.Types.DATE:
           // Only parse the date part
-          result[key] = row[key].toISOString().split('T')[0];
+          {
+            const date = row[key] as Date;
+            if (isNaN(date.getTime()) && false) {
+              // Invalid dates, such as 2024-00-00.
+              // we can't do anything meaningful with this, so just use null.
+              result[key] = null;
+            } else {
+              result[key] = date.toISOString().split('T')[0];
+            }
+          }
           break;
         case mysql.Types.DATETIME:
         case ADDITIONAL_MYSQL_TYPES.DATETIME2:
         case mysql.Types.TIMESTAMP:
         case ADDITIONAL_MYSQL_TYPES.TIMESTAMP2:
-          result[key] = row[key].toISOString();
+          {
+            const date = row[key] as Date;
+            if (isNaN(date.getTime())) {
+              // Invalid dates, such as 2024-00-00.
+              // we can't do anything meaningful with this, so just use null.
+              result[key] = null;
+            } else {
+              result[key] = date.toISOString();
+            }
+          }
           break;
         case mysql.Types.JSON:
           if (typeof row[key] === 'string') {

@@ -223,25 +223,62 @@ INSERT INTO test_data (
   test('Date types edge cases mappings', async () => {
     await setupTable();
 
-    // Timezone offset is set on the pool to +00:00
-    await connectionManager.query(`INSERT INTO test_data(timestamp_col) VALUES('1970-01-01 00:00:01')`);
-    await connectionManager.query(`INSERT INTO test_data(timestamp_col) VALUES('2038-01-19 03:14:07.499')`);
-    await connectionManager.query(`INSERT INTO test_data(datetime_col) VALUES('1000-01-01 00:00:00')`);
-    await connectionManager.query(`INSERT INTO test_data(datetime_col) VALUES('9999-12-31 23:59:59.499')`);
+    const connection = await connectionManager.getConnection();
+    try {
+      // Disable strict mode, to allow dates such as '2024-00-00'.
+      await connection.query(`SET SESSION sql_mode=''`);
+      await connection.query(`SET SESSION time_zone='+00:00'`);
+
+      await connection.query(`INSERT INTO test_data(timestamp_col) VALUES('1970-01-01 00:00:01')`);
+      await connection.query(`INSERT INTO test_data(timestamp_col) VALUES('2038-01-19 03:14:07.499')`);
+      await connection.query(`INSERT INTO test_data(datetime_col) VALUES('1000-01-01 00:00:00')`);
+      await connection.query(`INSERT INTO test_data(datetime_col) VALUES('9999-12-31 23:59:59.499')`);
+      await connection.query(`INSERT INTO test_data(datetime_col) VALUES('0000-00-00 00:00:00')`);
+      await connection.query(`INSERT INTO test_data(datetime_col) VALUES('2024-00-00 00:00:00')`);
+      // TODO: This has a mismatch between querying directly and with Zongji.
+      // await connection.query(`INSERT INTO test_data(date_col) VALUES('2024-00-00')`);
+
+      const expectedResults = [
+        { timestamp_col: '1970-01-01T00:00:01.000Z' },
+        { timestamp_col: '2038-01-19T03:14:07.499Z' },
+        { datetime_col: '1000-01-01T00:00:00.000Z' },
+        { datetime_col: '9999-12-31T23:59:59.499Z' },
+        { datetime_col: null },
+        { datetime_col: null }
+        // { date_col: '2023-11-30' } or { date_col: null }?
+      ];
+
+      const databaseRows = await getDatabaseRows(connectionManager, 'test_data');
+      const replicatedRows = await getReplicatedRows(expectedResults.length);
+
+      for (let i = 0; i < expectedResults.length; i++) {
+        expect(databaseRows[i]).toMatchObject(expectedResults[i]);
+        expect(replicatedRows[i]).toMatchObject(expectedResults[i]);
+      }
+    } finally {
+      connection.release;
+    }
+  });
+
+  test.skip('Date types mappings - null', async () => {
+    await setupTable();
+    await connectionManager.query(`
+        INSERT INTO test_data(date_col, datetime_col, timestamp_col, time_col, year_col)
+        VALUES(NULL, NULL, NULL, NULL, NULL);
+      `);
 
     const databaseRows = await getDatabaseRows(connectionManager, 'test_data');
-    const replicatedRows = await getReplicatedRows(4);
-    const expectedResults = [
-      { timestamp_col: '1970-01-01T00:00:01.000Z' },
-      { timestamp_col: '2038-01-19T03:14:07.499Z' },
-      { datetime_col: '1000-01-01T00:00:00.000Z' },
-      { datetime_col: '9999-12-31T23:59:59.499Z' }
-    ];
+    const replicatedRows = await getReplicatedRows();
+    const expectedResult = {
+      date_col: null,
+      datetime_col: null,
+      timestamp_col: null,
+      time_col: null,
+      year_col: null
+    };
 
-    for (let i = 0; i < expectedResults.length; i++) {
-      expect(databaseRows[i]).toMatchObject(expectedResults[i]);
-      expect(replicatedRows[i]).toMatchObject(expectedResults[i]);
-    }
+    expect(databaseRows[0]).toMatchObject(expectedResult);
+    expect(replicatedRows[0]).toMatchObject(expectedResult);
   });
 
   test('Json types mappings', async () => {
