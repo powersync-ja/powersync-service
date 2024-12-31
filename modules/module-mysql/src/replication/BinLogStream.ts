@@ -11,7 +11,7 @@ import * as zongji_utils from './zongji/zongji-utils.js';
 import { MySQLConnectionManager } from './MySQLConnectionManager.js';
 import { isBinlogStillAvailable, ReplicatedGTID, toColumnDescriptors } from '../common/common-index.js';
 import mysqlPromise from 'mysql2/promise';
-import { createRandomServerId } from '../utils/mysql-utils.js';
+import { createRandomServerId, escapeMysqlTableName } from '../utils/mysql-utils.js';
 
 export interface BinLogStreamOptions {
   connections: MySQLConnectionManager;
@@ -296,7 +296,7 @@ AND table_type = 'BASE TABLE';`,
     // TODO count rows and log progress at certain batch sizes
 
     // MAX_EXECUTION_TIME(0) hint disables execution timeout for this query
-    const query = connection.query(`SELECT /*+ MAX_EXECUTION_TIME(0) */ * FROM ${table.schema}.${table.table}`);
+    const query = connection.query(`SELECT /*+ MAX_EXECUTION_TIME(0) */ * FROM ${escapeMysqlTableName(table)}`);
     const stream = query.stream();
 
     let columns: Map<string, ColumnDescriptor> | undefined = undefined;
