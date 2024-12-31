@@ -291,38 +291,32 @@ AND table_type = 'BASE TABLE';`,
     logger.info(`Replicating ${table.qualifiedName}`);
     // TODO count rows and log progress at certain batch sizes
 
-    let columns: Map<string, ColumnDescriptor>;
-    return new Promise<void>((resolve, reject) => {
-      // MAX_EXECUTION_TIME(0) hint disables execution timeout for this query
-      connection
-        .query(`SELECT /*+ MAX_EXECUTION_TIME(0) */ * FROM ${table.schema}.${table.table}`)
-        .on('error', (err) => {
-          reject(err);
-        })
-        .on('fields', (fields: FieldPacket[]) => {
-          // Map the columns and their types
-          columns = toColumnDescriptors(fields);
-        })
-        .on('result', async (row) => {
-          connection.pause();
-          const record = common.toSQLiteRow(row, columns);
+    // MAX_EXECUTION_TIME(0) hint disables execution timeout for this query
+    const query = connection.query(`SELECT /*+ MAX_EXECUTION_TIME(0) */ * FROM ${table.schema}.${table.table}`);
+    const stream = query.stream();
 
-          await batch.save({
-            tag: storage.SaveOperationTag.INSERT,
-            sourceTable: table,
-            before: undefined,
-            beforeReplicaId: undefined,
-            after: record,
-            afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns)
-          });
-          connection.resume();
-          Metrics.getInstance().rows_replicated_total.add(1);
-        })
-        .on('end', async function () {
-          await batch.flush();
-          resolve();
-        });
+    let columns: Map<string, ColumnDescriptor> | undefined = undefined;
+    stream.on('fields', (fields: FieldPacket[]) => {
+      // Map the columns and their types
+      columns = toColumnDescriptors(fields);
     });
+
+    for await (let row of query.stream()) {
+      if (columns == null) {
+        throw new Error(`No 'fields' event emitted`);
+      }
+      const record = common.toSQLiteRow(row, columns!);
+
+      await batch.save({
+        tag: storage.SaveOperationTag.INSERT,
+        sourceTable: table,
+        before: undefined,
+        beforeReplicaId: undefined,
+        after: record,
+        afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns)
+      });
+    }
+    await batch.flush();
   }
 
   async replicate() {
