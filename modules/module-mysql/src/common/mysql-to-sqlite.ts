@@ -99,6 +99,7 @@ export function toColumnDescriptorFromDefinition(column: ColumnDefinition): Colu
 }
 
 export function toSQLiteRow(row: Record<string, any>, columns: Map<string, ColumnDescriptor>): sync_rules.SqliteRow {
+  let result: sync_rules.DatabaseInputRow = {};
   for (let key in row) {
     // We are very much expecting the column to be there
     const column = columns.get(key)!;
@@ -107,17 +108,17 @@ export function toSQLiteRow(row: Record<string, any>, columns: Map<string, Colum
       switch (column.typeId) {
         case mysql.Types.DATE:
           // Only parse the date part
-          row[key] = row[key].toISOString().split('T')[0];
+          result[key] = row[key].toISOString().split('T')[0];
           break;
         case mysql.Types.DATETIME:
         case ADDITIONAL_MYSQL_TYPES.DATETIME2:
         case mysql.Types.TIMESTAMP:
         case ADDITIONAL_MYSQL_TYPES.TIMESTAMP2:
-          row[key] = row[key].toISOString();
+          result[key] = row[key].toISOString();
           break;
         case mysql.Types.JSON:
           if (typeof row[key] === 'string') {
-            row[key] = new JsonContainer(row[key]);
+            result[key] = new JsonContainer(row[key]);
           }
           break;
         case mysql.Types.BIT:
@@ -127,14 +128,16 @@ export function toSQLiteRow(row: Record<string, any>, columns: Map<string, Colum
         case mysql.Types.LONG_BLOB:
         case ADDITIONAL_MYSQL_TYPES.BINARY:
         case ADDITIONAL_MYSQL_TYPES.VARBINARY:
-          row[key] = new Uint8Array(Object.values(row[key]));
+          result[key] = new Uint8Array(Object.values(row[key]));
           break;
         case mysql.Types.LONGLONG:
           if (typeof row[key] === 'string') {
-            row[key] = BigInt(row[key]);
+            result[key] = BigInt(row[key]);
           } else if (typeof row[key] === 'number') {
             // Zongji returns BIGINT as a number when it can be represented as a number
-            row[key] = BigInt(row[key]);
+            result[key] = BigInt(row[key]);
+          } else {
+            result[key] = row[key];
           }
           break;
         case mysql.Types.TINY:
@@ -143,18 +146,23 @@ export function toSQLiteRow(row: Record<string, any>, columns: Map<string, Colum
         case mysql.Types.INT24:
           // Handle all integer values a BigInt
           if (typeof row[key] === 'number') {
-            row[key] = BigInt(row[key]);
+            result[key] = BigInt(row[key]);
+          } else {
+            result[key] = row[key];
           }
           break;
         case mysql.Types.SET:
           // Convert to JSON array from string
           const values = row[key].split(',');
-          row[key] = JSONBig.stringify(values);
+          result[key] = JSONBig.stringify(values);
+          break;
+        default:
+          result[key] = row[key];
           break;
       }
     }
   }
-  return sync_rules.toSyncRulesRow(row);
+  return sync_rules.toSyncRulesRow(result);
 }
 
 export function toExpressionTypeFromMySQLType(mysqlType: string | undefined): ExpressionType {
