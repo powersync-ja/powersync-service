@@ -114,8 +114,10 @@ export class BinLogStream {
       // Start the snapshot inside a transaction.
       // We use a dedicated connection for this.
       const connection = await this.connections.getStreamingConnection();
+
       const promiseConnection = (connection as mysql.Connection).promise();
       try {
+        await promiseConnection.query(`SET time_zone = '+00:00'`);
         await promiseConnection.query('BEGIN');
         try {
           gtid = await common.readExecutedGtid(promiseConnection);
@@ -258,6 +260,8 @@ AND table_type = 'BASE TABLE';`,
         'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'
       );
       await promiseConnection.query<mysqlPromise.RowDataPacket[]>('START TRANSACTION');
+      await promiseConnection.query(`SET time_zone = '+00:00'`);
+
       const sourceTables = this.syncRules.getSourceTables();
       await this.storage.startBatch(
         { zeroLSN: ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema, storeCurrentData: true },
