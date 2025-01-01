@@ -17,34 +17,25 @@ import { logger } from '@powersync/lib-services-framework';
  * Tests operating on the binlog stream need to configure the stream and manage asynchronous
  * replication, which gets a little tricky.
  *
- * This wraps a test in a function that configures all the context, and tears it down afterward.
+ * This wraps all the context required for testing, and tears it down afterward
+ * by using `await using`.
  */
-export function binlogStreamTest(
-  factory: () => Promise<BucketStorageFactory>,
-  test: (context: BinlogStreamTestContext) => Promise<void>
-): () => Promise<void> {
-  return async () => {
-    const f = await factory();
-    const connectionManager = new MySQLConnectionManager(TEST_CONNECTION_OPTIONS, {});
-
-    const connection = await connectionManager.getConnection();
-    await clearTestDb(connection);
-    connection.release();
-    const context = new BinlogStreamTestContext(f, connectionManager);
-    try {
-      await test(context);
-    } finally {
-      await context.dispose();
-    }
-  };
-}
-
 export class BinlogStreamTestContext {
   private _binlogStream?: BinLogStream;
   private abortController = new AbortController();
   private streamPromise?: Promise<void>;
   public storage?: SyncRulesBucketStorage;
   private replicationDone = false;
+
+  static async create(factory: () => Promise<BucketStorageFactory>) {
+    const f = await factory();
+    const connectionManager = new MySQLConnectionManager(TEST_CONNECTION_OPTIONS, {});
+
+    const connection = await connectionManager.getConnection();
+    await clearTestDb(connection);
+    connection.release();
+    return new BinlogStreamTestContext(f, connectionManager);
+  }
 
   constructor(
     public factory: BucketStorageFactory,
@@ -55,6 +46,10 @@ export class BinlogStreamTestContext {
     this.abortController.abort();
     await this.streamPromise;
     await this.connectionManager.end();
+  }
+
+  [Symbol.asyncDispose]() {
+    return this.dispose();
   }
 
   get connectionTag() {
