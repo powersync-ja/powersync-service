@@ -260,27 +260,6 @@ INSERT INTO test_data (
     }
   });
 
-  test.skip('Date types mappings - null', async () => {
-    await setupTable();
-    await connectionManager.query(`
-        INSERT INTO test_data(date_col, datetime_col, timestamp_col, time_col, year_col)
-        VALUES(NULL, NULL, NULL, NULL, NULL);
-      `);
-
-    const databaseRows = await getDatabaseRows(connectionManager, 'test_data');
-    const replicatedRows = await getReplicatedRows();
-    const expectedResult = {
-      date_col: null,
-      datetime_col: null,
-      timestamp_col: null,
-      time_col: null,
-      year_col: null
-    };
-
-    expect(databaseRows[0]).toMatchObject(expectedResult);
-    expect(replicatedRows[0]).toMatchObject(expectedResult);
-  });
-
   test('Json types mappings', async () => {
     await setupTable();
 
