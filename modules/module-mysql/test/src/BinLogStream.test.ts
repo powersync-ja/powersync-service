@@ -14,7 +14,7 @@ bucket_definitions:
       - SELECT id, description FROM "test_data"
 `;
 
-describe(' Binlog stream - mongodb', { timeout: 20_000 }, function () {
+describe('Binlog stream - mongodb', { timeout: 20_000 }, function () {
   defineBinlogStreamTests(MONGO_STORAGE_FACTORY);
 });
 
@@ -219,7 +219,7 @@ function defineBinlogStreamTests(factory: StorageFactory) {
       `);
 
     await connectionManager.query(
-      `CREATE TABLE test_data (id CHAR(36) PRIMARY KEY, description TEXT, date DATE, datetime DATETIME, timestamp TIMESTAMP)`
+      `CREATE TABLE test_data (id CHAR(36) PRIMARY KEY, description TEXT, date DATE, datetime DATETIME NULL, timestamp TIMESTAMP NULL)`
     );
 
     await context.replicateSnapshot();
