@@ -1,11 +1,9 @@
 import { putOp, removeOp } from '@core-tests/stream_utils.js';
-import { MONGO_STORAGE_FACTORY } from '@core-tests/util.js';
-import { BucketStorageFactory, Metrics } from '@powersync/service-core';
+import { MONGO_STORAGE_FACTORY, StorageFactory } from '@core-tests/util.js';
+import { Metrics } from '@powersync/service-core';
 import { v4 as uuid } from 'uuid';
 import { describe, expect, test } from 'vitest';
 import { BinlogStreamTestContext } from './BinlogStreamUtils.js';
-
-type StorageFactory = () => Promise<BucketStorageFactory>;
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -20,7 +18,7 @@ describe('Binlog stream - mongodb', { timeout: 20_000 }, function () {
 
 function defineBinlogStreamTests(factory: StorageFactory) {
   test('Replicate basic values', async () => {
-    await using context = await BinlogStreamTestContext.create(factory);
+    await using context = await BinlogStreamTestContext.open(factory);
     const { connectionManager } = context;
     await context.updateSyncRules(`
   bucket_definitions:
@@ -52,7 +50,7 @@ function defineBinlogStreamTests(factory: StorageFactory) {
   });
 
   test('replicating case sensitive table', async () => {
-    await using context = await BinlogStreamTestContext.create(factory);
+    await using context = await BinlogStreamTestContext.open(factory);
     const { connectionManager } = context;
     await context.updateSyncRules(`
       bucket_definitions:
@@ -120,7 +118,7 @@ function defineBinlogStreamTests(factory: StorageFactory) {
   // });
 
   test('replicating changing primary key', async () => {
-    await using context = await BinlogStreamTestContext.create(factory);
+    await using context = await BinlogStreamTestContext.open(factory);
     const { connectionManager } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
@@ -160,7 +158,7 @@ function defineBinlogStreamTests(factory: StorageFactory) {
   });
 
   test('initial sync', async () => {
-    await using context = await BinlogStreamTestContext.create(factory);
+    await using context = await BinlogStreamTestContext.open(factory);
     const { connectionManager } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
@@ -176,7 +174,7 @@ function defineBinlogStreamTests(factory: StorageFactory) {
   });
 
   test('snapshot with date values', async () => {
-    await using context = await BinlogStreamTestContext.create(factory);
+    await using context = await BinlogStreamTestContext.open(factory);
     const { connectionManager } = context;
     await context.updateSyncRules(`
       bucket_definitions:
@@ -209,7 +207,7 @@ function defineBinlogStreamTests(factory: StorageFactory) {
   });
 
   test('replication with date values', async () => {
-    await using context = await BinlogStreamTestContext.create(factory);
+    await using context = await BinlogStreamTestContext.open(factory);
     const { connectionManager } = context;
     await context.updateSyncRules(`
       bucket_definitions:
@@ -261,7 +259,7 @@ function defineBinlogStreamTests(factory: StorageFactory) {
   });
 
   test('table not in sync rules', async () => {
-    await using context = await BinlogStreamTestContext.create(factory);
+    await using context = await BinlogStreamTestContext.open(factory);
     const { connectionManager } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
@@ -286,5 +284,46 @@ function defineBinlogStreamTests(factory: StorageFactory) {
     // There was a transaction, but we should not replicate any actual data
     expect(endRowCount - startRowCount).toEqual(0);
     expect(endTxCount - startTxCount).toEqual(1);
+  });
+
+  test('Resume replication', async () => {
+    const testId1 = uuid();
+    const testId2 = uuid();
+    {
+      await using context = await BinlogStreamTestContext.open(factory);
+      const { connectionManager } = context;
+      await context.updateSyncRules(`
+  bucket_definitions:
+    global:
+      data:
+        - SELECT id, description, num FROM "test_data"`);
+
+      await connectionManager.query(`CREATE TABLE test_data (id CHAR(36) PRIMARY KEY, description TEXT, num BIGINT)`);
+
+      await context.replicateSnapshot();
+      context.startStreaming();
+      await connectionManager.query(
+        `INSERT INTO test_data(id, description, num) VALUES('${testId1}', 'test1', 1152921504606846976)`
+      );
+      const data = await context.getBucketData('global[]');
+      expect(data).toMatchObject([
+        putOp('test_data', { id: testId1, description: 'test1', num: 1152921504606846976n })
+      ]);
+    }
+    {
+      await using context = await BinlogStreamTestContext.open(factory, { doNotClear: true });
+      const { connectionManager } = context;
+      await context.loadActiveSyncRules();
+      // Does not actually do a snapshot again - just does the required intialization.
+      await context.replicateSnapshot();
+      context.startStreaming();
+      await connectionManager.query(`INSERT INTO test_data(id, description, num) VALUES('${testId2}', 'test2', 0)`);
+      const data = await context.getBucketData('global[]');
+
+      expect(data).toMatchObject([
+        putOp('test_data', { id: testId1, description: 'test1', num: 1152921504606846976n }),
+        putOp('test_data', { id: testId2, description: 'test2', num: 0n })
+      ]);
+    }
   });
 }

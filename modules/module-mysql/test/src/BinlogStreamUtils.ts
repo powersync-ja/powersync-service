@@ -12,6 +12,7 @@ import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManag
 import mysqlPromise from 'mysql2/promise';
 import { readExecutedGtid } from '@module/common/read-executed-gtid.js';
 import { logger } from '@powersync/lib-services-framework';
+import { StorageFactory } from '@core-tests/util.js';
 
 /**
  * Tests operating on the binlog stream need to configure the stream and manage asynchronous
@@ -27,13 +28,15 @@ export class BinlogStreamTestContext {
   public storage?: SyncRulesBucketStorage;
   private replicationDone = false;
 
-  static async create(factory: () => Promise<BucketStorageFactory>) {
-    const f = await factory();
+  static async open(factory: StorageFactory, options?: { doNotClear?: boolean }) {
+    const f = await factory({ doNotClear: options?.doNotClear });
     const connectionManager = new MySQLConnectionManager(TEST_CONNECTION_OPTIONS, {});
 
-    const connection = await connectionManager.getConnection();
-    await clearTestDb(connection);
-    connection.release();
+    if (!options?.doNotClear) {
+      const connection = await connectionManager.getConnection();
+      await clearTestDb(connection);
+      connection.release();
+    }
     return new BinlogStreamTestContext(f, connectionManager);
   }
 
@@ -59,6 +62,27 @@ export class BinlogStreamTestContext {
   async updateSyncRules(content: string): Promise<SyncRulesBucketStorage> {
     const syncRules = await this.factory.updateSyncRules({ content: content });
     this.storage = this.factory.getInstance(syncRules);
+    return this.storage!;
+  }
+
+  async loadNextSyncRules() {
+    const syncRules = await this.factory.getNextSyncRulesContent();
+    if (syncRules == null) {
+      throw new Error(`Next sync rules not available`);
+    }
+
+    this.storage = this.factory.getInstance(syncRules);
+    return this.storage!;
+  }
+
+  async loadActiveSyncRules() {
+    const syncRules = await this.factory.getActiveSyncRulesContent();
+    if (syncRules == null) {
+      throw new Error(`Active sync rules not available`);
+    }
+
+    this.storage = this.factory.getInstance(syncRules);
+    this.replicationDone = true;
     return this.storage!;
   }
 
