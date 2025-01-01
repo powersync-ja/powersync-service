@@ -14,13 +14,9 @@ bucket_definitions:
       - SELECT id, description FROM "test_data"
 `;
 
-describe(
-  ' Binlog stream - mongodb',
-  function () {
-    defineBinlogStreamTests(MONGO_STORAGE_FACTORY);
-  },
-  { timeout: 20_000 }
-);
+describe(' Binlog stream - mongodb', { timeout: 20_000 }, function () {
+  defineBinlogStreamTests(MONGO_STORAGE_FACTORY);
+});
 
 function defineBinlogStreamTests(factory: StorageFactory) {
   test(
@@ -254,6 +250,7 @@ function defineBinlogStreamTests(factory: StorageFactory) {
       await connectionManager.query(`
         INSERT INTO test_data(id, description, date, datetime, timestamp) VALUES('${testId}','testDates', '2023-03-06', '2023-03-06 15:47', '2023-03-06 15:47')
       `);
+      await connectionManager.query(`UPDATE test_data SET description = ? WHERE id = ?`, ['testUpdated', testId]);
 
       const data = await context.getBucketData('global[]');
       expect(data).toMatchObject([
@@ -263,13 +260,20 @@ function defineBinlogStreamTests(factory: StorageFactory) {
           date: `2023-03-06`,
           datetime: '2023-03-06T15:47:00.000Z',
           timestamp: '2023-03-06T15:47:00.000Z'
+        }),
+        putOp('test_data', {
+          id: testId,
+          description: 'testUpdated',
+          date: `2023-03-06`,
+          datetime: '2023-03-06T15:47:00.000Z',
+          timestamp: '2023-03-06T15:47:00.000Z'
         })
       ]);
       const endRowCount = (await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
       const endTxCount =
         (await Metrics.getInstance().getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
-      expect(endRowCount - startRowCount).toEqual(1);
-      expect(endTxCount - startTxCount).toEqual(1);
+      expect(endRowCount - startRowCount).toEqual(2);
+      expect(endTxCount - startTxCount).toEqual(2);
     })
   );
 
