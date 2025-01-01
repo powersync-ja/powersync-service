@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.23.0
+
+### Minor Changes
+
+- a66be3b: add iif function to the sync rules
+
 ## 0.22.0
 
 ### Minor Changes

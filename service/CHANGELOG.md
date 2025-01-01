@@ -1,5 +1,24 @@
 # @powersync/service-image
 
+## 1.3.5
+
+### Patch Changes
+
+- cb749b9: Fix timestamp replication issues for MySQL.
+- cb749b9: Fix resuming MySQL replication after a restart.
+- Updated dependencies [cb749b9]
+- Updated dependencies [0bf1309]
+- Updated dependencies [cb749b9]
+- Updated dependencies [a66be3b]
+- Updated dependencies [010f6e2]
+  - @powersync/service-module-mysql@0.1.7
+  - @powersync/service-core@0.13.0
+  - @powersync/service-types@0.6.0
+  - @powersync/service-sync-rules@0.23.0
+  - @powersync/service-module-mongodb@0.1.8
+  - @powersync/service-module-postgres@0.2.4
+  - @powersync/service-jpgwire@0.18.4
+
 ## 1.3.4
 
 ### Patch Changes
