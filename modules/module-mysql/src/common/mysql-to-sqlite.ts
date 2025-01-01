@@ -110,7 +110,7 @@ export function toSQLiteRow(row: Record<string, any>, columns: Map<string, Colum
           // Only parse the date part
           {
             const date = row[key] as Date;
-            if (isNaN(date.getTime()) && false) {
+            if (isNaN(date.getTime())) {
               // Invalid dates, such as 2024-00-00.
               // we can't do anything meaningful with this, so just use null.
               result[key] = null;
