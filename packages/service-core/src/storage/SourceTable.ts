@@ -48,6 +48,8 @@ export class SourceTable {
   }
 
   /**
+   * Use for postgres only.
+   *
    * Usage: db.query({statement: `SELECT $1::regclass`, params: [{type: 'varchar', value: table.qualifiedName}]})
    */
   get qualifiedName() {
@@ -55,6 +57,8 @@ export class SourceTable {
   }
 
   /**
+   * Use for postgres and logs only.
+   *
    * Usage: db.query(`SELECT * FROM ${table.escapedIdentifier}`)
    */
   get escapedIdentifier() {

@@ -11,7 +11,7 @@ import * as zongji_utils from './zongji/zongji-utils.js';
 import { MySQLConnectionManager } from './MySQLConnectionManager.js';
 import { isBinlogStillAvailable, ReplicatedGTID, toColumnDescriptors } from '../common/common-index.js';
 import mysqlPromise from 'mysql2/promise';
-import { createRandomServerId } from '../utils/mysql-utils.js';
+import { createRandomServerId, escapeMysqlTableName } from '../utils/mysql-utils.js';
 
 export interface BinLogStreamOptions {
   connections: MySQLConnectionManager;
@@ -114,8 +114,10 @@ export class BinLogStream {
       // Start the snapshot inside a transaction.
       // We use a dedicated connection for this.
       const connection = await this.connections.getStreamingConnection();
+
       const promiseConnection = (connection as mysql.Connection).promise();
       try {
+        await promiseConnection.query(`SET time_zone = '+00:00'`);
         await promiseConnection.query('BEGIN');
         try {
           gtid = await common.readExecutedGtid(promiseConnection);
@@ -258,6 +260,8 @@ AND table_type = 'BASE TABLE';`,
         'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'
       );
       await promiseConnection.query<mysqlPromise.RowDataPacket[]>('START TRANSACTION');
+      await promiseConnection.query(`SET time_zone = '+00:00'`);
+
       const sourceTables = this.syncRules.getSourceTables();
       await this.storage.startBatch(
         { zeroLSN: ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema, storeCurrentData: true },
@@ -291,38 +295,32 @@ AND table_type = 'BASE TABLE';`,
     logger.info(`Replicating ${table.qualifiedName}`);
     // TODO count rows and log progress at certain batch sizes
 
-    let columns: Map<string, ColumnDescriptor>;
-    return new Promise<void>((resolve, reject) => {
-      // MAX_EXECUTION_TIME(0) hint disables execution timeout for this query
-      connection
-        .query(`SELECT /*+ MAX_EXECUTION_TIME(0) */ * FROM ${table.schema}.${table.table}`)
-        .on('error', (err) => {
-          reject(err);
-        })
-        .on('fields', (fields: FieldPacket[]) => {
-          // Map the columns and their types
-          columns = toColumnDescriptors(fields);
-        })
-        .on('result', async (row) => {
-          connection.pause();
-          const record = common.toSQLiteRow(row, columns);
+    // MAX_EXECUTION_TIME(0) hint disables execution timeout for this query
+    const query = connection.query(`SELECT /*+ MAX_EXECUTION_TIME(0) */ * FROM ${escapeMysqlTableName(table)}`);
+    const stream = query.stream();
 
-          await batch.save({
-            tag: storage.SaveOperationTag.INSERT,
-            sourceTable: table,
-            before: undefined,
-            beforeReplicaId: undefined,
-            after: record,
-            afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns)
-          });
-          connection.resume();
-          Metrics.getInstance().rows_replicated_total.add(1);
-        })
-        .on('end', async function () {
-          await batch.flush();
-          resolve();
-        });
+    let columns: Map<string, ColumnDescriptor> | undefined = undefined;
+    stream.on('fields', (fields: FieldPacket[]) => {
+      // Map the columns and their types
+      columns = toColumnDescriptors(fields);
     });
+
+    for await (let row of query.stream()) {
+      if (columns == null) {
+        throw new Error(`No 'fields' event emitted`);
+      }
+      const record = common.toSQLiteRow(row, columns!);
+
+      await batch.save({
+        tag: storage.SaveOperationTag.INSERT,
+        sourceTable: table,
+        before: undefined,
+        beforeReplicaId: undefined,
+        after: record,
+        afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns)
+      });
+    }
+    await batch.flush();
   }
 
   async replicate() {
@@ -350,6 +348,18 @@ AND table_type = 'BASE TABLE';`,
     const initialReplicationCompleted = await this.checkInitialReplicated();
     if (!initialReplicationCompleted) {
       await this.startInitialReplication();
+    } else {
+      // We need to find the existing tables, to populate our table cache.
+      // This is needed for includeSchema to work correctly.
+      const sourceTables = this.syncRules.getSourceTables();
+      await this.storage.startBatch(
+        { zeroLSN: ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema, storeCurrentData: true },
+        async (batch) => {
+          for (let tablePattern of sourceTables) {
+            await this.getQualifiedTableNames(batch, tablePattern);
+          }
+        }
+      );
     }
   }
 
@@ -578,7 +588,7 @@ AND table_type = 'BASE TABLE';`,
           beforeReplicaId: beforeUpdated
             ? getUuidReplicaIdentityBson(beforeUpdated, payload.sourceTable.replicaIdColumns)
             : undefined,
-          after: common.toSQLiteRow(payload.data, payload.columns),
+          after: after,
           afterReplicaId: getUuidReplicaIdentityBson(after, payload.sourceTable.replicaIdColumns)
         });
 

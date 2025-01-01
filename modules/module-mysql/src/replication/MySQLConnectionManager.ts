@@ -62,7 +62,14 @@ export class MySQLConnectionManager {
    *  @param params
    */
   async query(query: string, params?: any[]): Promise<[RowDataPacket[], FieldPacket[]]> {
-    return this.promisePool.query<RowDataPacket[]>(query, params);
+    let connection: mysqlPromise.PoolConnection | undefined;
+    try {
+      connection = await this.promisePool.getConnection();
+      await connection.query(`SET time_zone = '+00:00'`);
+      return connection.query<RowDataPacket[]>(query, params);
+    } finally {
+      connection?.release();
+    }
   }
 
   /**

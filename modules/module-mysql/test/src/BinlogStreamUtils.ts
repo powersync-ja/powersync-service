@@ -12,39 +12,33 @@ import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManag
 import mysqlPromise from 'mysql2/promise';
 import { readExecutedGtid } from '@module/common/read-executed-gtid.js';
 import { logger } from '@powersync/lib-services-framework';
+import { StorageFactory } from '@core-tests/util.js';
 
 /**
  * Tests operating on the binlog stream need to configure the stream and manage asynchronous
  * replication, which gets a little tricky.
  *
- * This wraps a test in a function that configures all the context, and tears it down afterward.
+ * This wraps all the context required for testing, and tears it down afterward
+ * by using `await using`.
  */
-export function binlogStreamTest(
-  factory: () => Promise<BucketStorageFactory>,
-  test: (context: BinlogStreamTestContext) => Promise<void>
-): () => Promise<void> {
-  return async () => {
-    const f = await factory();
-    const connectionManager = new MySQLConnectionManager(TEST_CONNECTION_OPTIONS, {});
-
-    const connection = await connectionManager.getConnection();
-    await clearTestDb(connection);
-    connection.release();
-    const context = new BinlogStreamTestContext(f, connectionManager);
-    try {
-      await test(context);
-    } finally {
-      await context.dispose();
-    }
-  };
-}
-
 export class BinlogStreamTestContext {
   private _binlogStream?: BinLogStream;
   private abortController = new AbortController();
   private streamPromise?: Promise<void>;
   public storage?: SyncRulesBucketStorage;
   private replicationDone = false;
+
+  static async open(factory: StorageFactory, options?: { doNotClear?: boolean }) {
+    const f = await factory({ doNotClear: options?.doNotClear });
+    const connectionManager = new MySQLConnectionManager(TEST_CONNECTION_OPTIONS, {});
+
+    if (!options?.doNotClear) {
+      const connection = await connectionManager.getConnection();
+      await clearTestDb(connection);
+      connection.release();
+    }
+    return new BinlogStreamTestContext(f, connectionManager);
+  }
 
   constructor(
     public factory: BucketStorageFactory,
@@ -57,6 +51,10 @@ export class BinlogStreamTestContext {
     await this.connectionManager.end();
   }
 
+  [Symbol.asyncDispose]() {
+    return this.dispose();
+  }
+
   get connectionTag() {
     return this.connectionManager.connectionTag;
   }
@@ -64,6 +62,27 @@ export class BinlogStreamTestContext {
   async updateSyncRules(content: string): Promise<SyncRulesBucketStorage> {
     const syncRules = await this.factory.updateSyncRules({ content: content });
     this.storage = this.factory.getInstance(syncRules);
+    return this.storage!;
+  }
+
+  async loadNextSyncRules() {
+    const syncRules = await this.factory.getNextSyncRulesContent();
+    if (syncRules == null) {
+      throw new Error(`Next sync rules not available`);
+    }
+
+    this.storage = this.factory.getInstance(syncRules);
+    return this.storage!;
+  }
+
+  async loadActiveSyncRules() {
+    const syncRules = await this.factory.getActiveSyncRulesContent();
+    if (syncRules == null) {
+      throw new Error(`Active sync rules not available`);
+    }
+
+    this.storage = this.factory.getInstance(syncRules);
+    this.replicationDone = true;
     return this.storage!;
   }
 
