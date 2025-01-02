@@ -221,7 +221,7 @@ export class MongoCompactor {
               // Keep the highest seen values in this case.
             } else {
               // flatstr reduces the memory usage by flattening the string
-              currentState.seen.set(flatstr(key), doc._id.o);
+              currentState.seen.set(utils.flatstr(key), doc._id.o);
               // length + 16 for the string
               // 24 for the bigint
               // 50 for map overhead
@@ -378,15 +378,4 @@ export class MongoCompactor {
       await session.endSession();
     }
   }
-}
-
-/**
- * Flattens string to reduce memory usage (around 320 bytes -> 120 bytes),
- * at the cost of some upfront CPU usage.
- *
- * From: https://github.com/davidmarkclements/flatstr/issues/8
- */
-function flatstr(s: string) {
-  s.match(/\n/g);
-  return s;
 }

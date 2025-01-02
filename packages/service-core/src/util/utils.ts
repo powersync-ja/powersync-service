@@ -199,6 +199,17 @@ export function reduceBucket(operations: OplogEntry[]) {
   return finalState;
 }
 
+/**
+ * Flattens string to reduce memory usage (around 320 bytes -> 120 bytes),
+ * at the cost of some upfront CPU usage.
+ *
+ * From: https://github.com/davidmarkclements/flatstr/issues/8
+ */
+export function flatstr(s: string) {
+  s.match(/\n/g);
+  return s;
+}
+
 function rowKey(entry: OplogEntry) {
   return `${entry.object_type}/${entry.object_id}/${entry.subkey}`;
 }
