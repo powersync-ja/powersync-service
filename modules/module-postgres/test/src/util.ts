@@ -1,12 +1,12 @@
-import { connectMongo } from '@core-tests/util.js';
+import { PostgresRouteAPIAdapter } from '@module/api/PostgresRouteAPIAdapter.js';
 import * as types from '@module/types/types.js';
 import * as pg_utils from '@module/utils/pgwire_utils.js';
 import { logger } from '@powersync/lib-services-framework';
-import { BucketStorageFactory, Metrics, MongoBucketStorage, OpId } from '@powersync/service-core';
+import { BucketStorageFactory, Metrics, OpId } from '@powersync/service-core';
+import { test_utils } from '@powersync/service-core-tests';
 import * as pgwire from '@powersync/service-jpgwire';
-import { pgwireRows } from '@powersync/service-jpgwire';
+import * as mongo_module from '@powersync/service-module-mongodb';
 import { env } from './env.js';
-import { PostgresRouteAPIAdapter } from '@module/api/PostgresRouteAPIAdapter.js';
 
 // The metrics need to be initialized before they can be used
 await Metrics.initialise({
@@ -26,7 +26,7 @@ export const TEST_CONNECTION_OPTIONS = types.normalizeConnectionConfig({
 
 export type StorageFactory = () => Promise<BucketStorageFactory>;
 
-export const INITIALIZED_MONGO_STORAGE_FACTORY: StorageFactory = async () => {
+export const INITIALIZED_MONGO_STORAGE_FACTORY: StorageFactory = async (options?: test_utils.StorageOptions) => {
   const db = await connectMongo();
 
   // None of the PG tests insert data into this collection, so it was never created
@@ -34,12 +34,25 @@ export const INITIALIZED_MONGO_STORAGE_FACTORY: StorageFactory = async () => {
     await db.db.createCollection('bucket_parameters');
   }
 
-  await db.clear();
+  if (!options?.doNotClear) {
+    await db.clear();
+  }
 
-  return new MongoBucketStorage(db, {
+  return new mongo_module.storage.MongoBucketStorage(db, {
     slot_name_prefix: 'test_'
   });
 };
+
+export async function connectMongo() {
+  // Short timeout for tests, to fail fast when the server is not available.
+  // Slightly longer timeouts for CI, to avoid arbitrary test failures
+  const client = mongo_module.storage.createMongoClient(env.MONGO_TEST_URL, {
+    connectTimeoutMS: env.CI ? 15_000 : 5_000,
+    socketTimeoutMS: env.CI ? 15_000 : 5_000,
+    serverSelectionTimeoutMS: env.CI ? 15_000 : 2_500
+  });
+  return new mongo_module.storage.PowerSyncMongo(client);
+}
 
 export async function clearTestDb(db: pgwire.PgClient) {
   await db.query(

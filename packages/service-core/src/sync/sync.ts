@@ -318,7 +318,9 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
         // Send the object as is, will most likely be encoded as a BSON document
         send_data = { data: r };
       } else if (raw_data) {
-        // Data is a raw string - we can use the more efficient JSON.stringify.
+        /**
+         * Data is a raw string - we can use the more efficient JSON.stringify.
+         */
         const response: util.StreamingSyncData = {
           data: r
         };

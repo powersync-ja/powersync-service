@@ -30,8 +30,8 @@ export type SyncRulesConfig = {
 
 export type ResolvedPowerSyncConfig = {
   base_config: PowerSyncConfig;
-  connections?: configFile.DataSourceConfig[];
-  storage: configFile.StorageConfig;
+  connections?: configFile.GenericDataSourceConfig[];
+  storage: configFile.GenericStorageConfig;
   dev: {
     demo_auth: boolean;
     demo_password?: string;

@@ -1,9 +1,9 @@
-import { putOp, removeOp } from '@core-tests/stream_utils.js';
-import { MONGO_STORAGE_FACTORY, StorageFactory } from '@core-tests/util.js';
 import { Metrics } from '@powersync/service-core';
+import { putOp, removeOp, StorageFactory } from '@powersync/service-core-tests';
 import { v4 as uuid } from 'uuid';
 import { describe, expect, test } from 'vitest';
 import { BinlogStreamTestContext } from './BinlogStreamUtils.js';
+import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -12,9 +12,13 @@ bucket_definitions:
       - SELECT id, description FROM "test_data"
 `;
 
-describe('Binlog stream - mongodb', { timeout: 20_000 }, function () {
-  defineBinlogStreamTests(MONGO_STORAGE_FACTORY);
-});
+describe(
+  ' Binlog stream - mongodb',
+  function () {
+    defineBinlogStreamTests(INITIALIZED_MONGO_STORAGE_FACTORY);
+  },
+  { timeout: 20_000 }
+);
 
 function defineBinlogStreamTests(factory: StorageFactory) {
   test('Replicate basic values', async () => {

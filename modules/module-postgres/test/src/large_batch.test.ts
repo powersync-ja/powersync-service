@@ -1,17 +1,17 @@
-import { MONGO_STORAGE_FACTORY, StorageFactory, StorageOptions } from '@core-tests/util.js';
+import { Metrics } from '@powersync/service-core';
+import { test_utils } from '@powersync/service-core-tests';
+import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
 import { populateData } from '../../dist/utils/populate_test_data.js';
 import { env } from './env.js';
-import { TEST_CONNECTION_OPTIONS } from './util.js';
+import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_CONNECTION_OPTIONS } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
-import * as timers from 'timers/promises';
-import { Metrics } from '@powersync/service-core';
 
 describe('batch replication tests - mongodb', { timeout: 120_000 }, function () {
   // These are slow but consistent tests.
   // Not run on every test run, but we do run on CI, or when manually debugging issues.
   if (env.CI || env.SLOW_TESTS) {
-    defineBatchTests(MONGO_STORAGE_FACTORY);
+    defineBatchTests(INITIALIZED_MONGO_STORAGE_FACTORY);
   } else {
     // Need something in this file.
     test('no-op', () => {});
@@ -23,7 +23,7 @@ const BASIC_SYNC_RULES = `bucket_definitions:
     data:
       - SELECT id, description, other FROM "test_data"`;
 
-function defineBatchTests(factory: StorageFactory) {
+function defineBatchTests(factory: test_utils.StorageFactory) {
   test('update large record', async () => {
     await using context = await WalStreamTestContext.open(factory);
     // This test generates a large transaction in MongoDB, despite the replicated data
