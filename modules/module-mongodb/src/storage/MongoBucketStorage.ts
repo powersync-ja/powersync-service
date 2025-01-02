@@ -9,7 +9,7 @@ import { storage, sync, utils } from '@powersync/service-core';
 import { DisposableObserver, logger } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
 
-import { MongoLockManager } from '../locks/MongoLocks.js';
+import { MongoLockManager } from '../locks/MongoLockManager.js';
 import { PowerSyncMongo } from './implementation/db.js';
 import { SyncRuleDocument } from './implementation/models.js';
 import { MongoPersistedSyncRulesContent } from './implementation/MongoPersistedSyncRulesContent.js';

@@ -25,7 +25,9 @@ export abstract class AbstractLockManager implements LockManager {
     const start = new Date();
     do {
       handle = await this.acquireHandle();
-      if (!handle && max_wait_ms) {
+      if (handle) {
+        return handle;
+      } else if (max_wait_ms) {
         await new Promise((r) => setTimeout(r, max_wait_ms / 10));
       }
     } while (new Date().getTime() - start.getTime() < max_wait_ms);

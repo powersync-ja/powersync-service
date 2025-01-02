@@ -377,7 +377,7 @@ function transformLegacyResponse(bucketData: util.SyncBucketData): any {
     data: bucketData.data.map((entry) => {
       return {
         ...entry,
-        data: entry.data == null ? null : typeof entry.data == 'string' ? new JsonContainer(entry.data) : entry.data,
+        data: entry.data == null ? null : new JsonContainer(entry.data as string),
         checksum: BigInt(entry.checksum)
       };
     })
