@@ -1,5 +1,5 @@
 import { Metrics } from '@powersync/service-core';
-import { putOp, StorageFactory } from '@powersync/service-core-tests';
+import { putOp, removeOp, StorageFactory } from '@powersync/service-core-tests';
 import { v4 as uuid } from 'uuid';
 import { describe, expect, test } from 'vitest';
 import { BinlogStreamTestContext } from './BinlogStreamUtils.js';

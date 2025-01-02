@@ -344,7 +344,7 @@ importers:
         specifier: ^0.5.0
         version: 0.5.0
       bson:
-        specifier: 6.6.0
+        specifier: ^6.6.0
         version: 6.6.0
       commander:
         specifier: ^12.0.0
