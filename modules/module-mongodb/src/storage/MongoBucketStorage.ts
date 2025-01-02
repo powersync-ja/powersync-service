@@ -336,9 +336,9 @@ export class MongoBucketStorage
       .catch(ignoreNotExiting);
 
     return {
-      operations_size_bytes: operations_aggregate[0].storageStats.size,
-      parameters_size_bytes: parameters_aggregate[0].storageStats.size,
-      replication_size_bytes: replication_aggregate[0].storageStats.size
+      operations_size_bytes: Number(operations_aggregate[0].storageStats.size),
+      parameters_size_bytes: Number(parameters_aggregate[0].storageStats.size),
+      replication_size_bytes: Number(replication_aggregate[0].storageStats.size)
     };
   }
 

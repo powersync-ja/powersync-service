@@ -1,6 +1,6 @@
 {
   "name": "@powersync/service-types",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "license": "FSL-1.1-Apache-2.0",

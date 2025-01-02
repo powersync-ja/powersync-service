@@ -1,5 +1,19 @@
 # @powersync/service-core
 
+## 0.13.0
+
+### Minor Changes
+
+- 0bf1309: Add ECDSA support for JWTs
+
+### Patch Changes
+
+- 010f6e2: Fix reported metrics for storage size > 2GB.
+- Updated dependencies [0bf1309]
+- Updated dependencies [a66be3b]
+  - @powersync/service-types@0.6.0
+  - @powersync/service-sync-rules@0.23.0
+
 ## 0.12.2
 
 ### Patch Changes

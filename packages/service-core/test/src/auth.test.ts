@@ -40,6 +40,17 @@ const privateKeyEdDSA: jose.JWK = {
   alg: 'EdDSA'
 };
 
+const privateKeyECDSA: jose.JWK = {
+  use: 'sig',
+  kty: 'EC',
+  crv: 'P-256',
+  kid: 'k3',
+  x: 'Y37HQjG1YvlQZ16CzO7UQxgkY_us-NfPxMPcHUDN-PE',
+  y: 'W3Jqs5_qlIh2UH79l8L3ApqNu14aFetM5oc9oCjAEaw',
+  d: 'p2HQaJApdgaAemVuVsL1hscCFOTd0r9uGxRnzvAelFU',
+  alg: 'ES256'
+};
+
 describe('JWT Auth', () => {
   test('KeyStore basics', async () => {
     const keys = await StaticKeyCollector.importKeys([sharedKey]);
@@ -371,5 +382,27 @@ describe('JWT Auth', () => {
     })) as JwtPayload & { claim: string };
 
     expect(verified.claim).toEqual('test-claim');
+  });
+
+  test('signing with ECDSA', async () => {
+    const keys = await StaticKeyCollector.importKeys([privateKeyECDSA]);
+    const store = new KeyStore(keys);
+    const signKey = (await jose.importJWK(privateKeyECDSA)) as jose.KeyLike;
+
+    const signedJwt = await new jose.SignJWT({ claim: 'test-claim-2' })
+      .setProtectedHeader({ alg: 'ES256', kid: 'k3' })
+      .setSubject('f1')
+      .setIssuedAt()
+      .setIssuer('tester')
+      .setAudience('tests')
+      .setExpirationTime('5m')
+      .sign(signKey);
+
+    const verified = (await store.verifyJwt(signedJwt, {
+      defaultAudiences: ['tests'],
+      maxAge: '6m'
+    })) as JwtPayload & { claim: string };
+
+    expect(verified.claim).toEqual('test-claim-2');
   });
 });

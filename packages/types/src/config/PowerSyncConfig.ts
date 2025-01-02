@@ -84,7 +84,17 @@ export const jwkOKP = t.object({
   use: t.string.optional()
 });
 
-const jwk = t.union(t.union(jwkRSA, jwkHmac), jwkOKP);
+export const jwkEC = t.object({
+  kty: t.literal('EC'),
+  kid: t.string.optional(),
+  crv: t.literal('P-256').or(t.literal('P-384')).or(t.literal('P-512')),
+  x: t.string,
+  y: t.string,
+  alg: t.literal('ES256').or(t.literal('ES384')).or(t.literal('ES512')),
+  use: t.string.optional()
+});
+
+const jwk = t.union(t.union(t.union(jwkRSA, jwkHmac), jwkOKP), jwkEC);
 
 export const strictJwks = t.object({
   keys: t.array(jwk)

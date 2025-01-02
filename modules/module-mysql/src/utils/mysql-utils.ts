@@ -3,6 +3,7 @@ import mysql from 'mysql2';
 import mysqlPromise from 'mysql2/promise';
 import * as types from '../types/types.js';
 import { coerce, gte } from 'semver';
+import { SourceTable } from '@powersync/service-core';
 
 export type RetriedQueryOptions = {
   connection: mysqlPromise.Connection;
@@ -81,4 +82,8 @@ export function isVersionAtLeast(version: string, minimumVersion: string): boole
   const coercedMinimumVersion = coerce(minimumVersion);
 
   return gte(coercedVersion!, coercedMinimumVersion!, { loose: true });
+}
+
+export function escapeMysqlTableName(table: SourceTable): string {
+  return `\`${table.schema.replaceAll('`', '``')}\`.\`${table.table.replaceAll('`', '``')}\``;
 }
