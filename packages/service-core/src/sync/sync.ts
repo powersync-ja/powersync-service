@@ -320,16 +320,9 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
       } else if (raw_data) {
         /**
          * Data is a raw string - we can use the more efficient JSON.stringify.
-         * FIXME: ensure that the data is actually a string
          */
         const response: util.StreamingSyncData = {
-          data: {
-            ...r,
-            data: r.data.map((entry) => ({
-              ...entry,
-              data: typeof entry.data == 'string' ? entry.data : JSONBig.stringify(entry.data)
-            }))
-          }
+          data: r
         };
         send_data = JSON.stringify(response);
       } else {
