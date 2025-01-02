@@ -12,11 +12,22 @@ export type LockAcquireOptions = {
   max_wait_ms?: number;
 };
 
-export type LockManager = {
-  init?: () => Promise<void>;
-  acquire: (options?: LockAcquireOptions) => Promise<string | null>;
-  refresh: (lock_id: string) => Promise<void>;
-  release: (lock_id: string) => Promise<void>;
+export type LockHandle = {
+  refresh(): Promise<void>;
+  release(): Promise<void>;
+};
 
-  lock: (handler: (refresh: () => Promise<void>) => Promise<void>) => Promise<void>;
+export type LockCallback = (refresh: () => Promise<void>) => Promise<void>;
+
+export type LockManager = {
+  init?(): Promise<void>;
+  /**
+   * Attempts to acquire a lock handle.
+   * @returns null if the lock is in use and either no `max_wait_ms` was provided or the timeout has elapsed.
+   */
+  acquire(options?: LockAcquireOptions): Promise<LockHandle | null>;
+  /**
+   * Acquires a lock, executes the given handler callback then automatically releases the lock.
+   */
+  lock(handler: LockCallback, options?: LockAcquireOptions): Promise<void>;
 };

@@ -9,7 +9,7 @@ import { storage, sync, utils } from '@powersync/service-core';
 import { DisposableObserver, logger } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
 
-import { createMongoLockManager } from '../locks/MonogLocks.js';
+import { MongoLockManager } from '../locks/MonogLocks.js';
 import { PowerSyncMongo } from './implementation/db.js';
 import { SyncRuleDocument } from './implementation/models.js';
 import { MongoPersistedSyncRulesContent } from './implementation/MongoPersistedSyncRulesContent.js';
@@ -348,7 +348,8 @@ export class MongoBucketStorage
     });
 
     if (!instance) {
-      const manager = createMongoLockManager(this.db.locks, {
+      const manager = new MongoLockManager({
+        collection: this.db.locks,
         name: `instance-id-insertion-lock`
       });
 

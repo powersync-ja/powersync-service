@@ -4,7 +4,7 @@ import { migrations } from '@powersync/service-core';
 import { configFile } from '@powersync/service-types';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { createMongoLockManager } from '../locks/MonogLocks.js';
+import { MongoLockManager } from '../locks/MonogLocks.js';
 import { createPowerSyncMongo, PowerSyncMongo } from '../storage/storage-index.js';
 import { createMongoMigrationStore } from './mongo-migration-store.js';
 
@@ -26,7 +26,7 @@ export class MongoMigrationAgent extends migrations.AbstractPowerSyncMigrationAg
     this.client = createPowerSyncMongo(mongoConfig);
 
     this.store = createMongoMigrationStore(this.client.db);
-    this.locks = createMongoLockManager(this.client.locks, { name: MONGO_LOCK_PROCESS });
+    this.locks = new MongoLockManager({ collection: this.client.locks, name: MONGO_LOCK_PROCESS });
   }
 
   getInternalScriptsDir(): string {

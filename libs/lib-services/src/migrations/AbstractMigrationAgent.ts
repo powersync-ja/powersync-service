@@ -49,9 +49,9 @@ export abstract class AbstractMigrationAgent<Generics extends MigrationAgentGene
     const { direction, migrations, migrationContext } = params;
     // Only one process should execute this at a time.
     logger.info('Acquiring lock for migrations');
-    const lockId = await this.locks.acquire({ max_wait_ms: params.maxLockWaitMs ?? DEFAULT_MAX_LOCK_WAIT_MS });
+    const lockHandle = await this.locks.acquire({ max_wait_ms: params.maxLockWaitMs ?? DEFAULT_MAX_LOCK_WAIT_MS });
 
-    if (!lockId) {
+    if (!lockHandle) {
       throw new Error('Could not acquire lock');
     }
 
@@ -60,7 +60,7 @@ export abstract class AbstractMigrationAgent<Generics extends MigrationAgentGene
       if (isReleased) {
         return;
       }
-      await this.locks.release(lockId);
+      await lockHandle.release();
       isReleased = true;
     };
 

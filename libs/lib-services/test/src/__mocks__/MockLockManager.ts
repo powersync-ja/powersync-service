@@ -1,6 +1,7 @@
-import { LockActiveError, LockManager } from '../../../src/locks/LockManager.js';
+import { AbstractLockManager } from '../../../src/locks/AbstractLockManager.js';
+import { LockActiveError, LockHandle } from '../../../src/locks/LockManager.js';
 
-export class MockLockManager implements LockManager {
+export class MockLockManager extends AbstractLockManager {
   private currentLockId: string | null = null;
   private lockTimeout?: NodeJS.Timeout;
 
@@ -8,13 +9,17 @@ export class MockLockManager implements LockManager {
    * Acquires a lock if no other lock is active.
    * @returns A promise resolving to the lock ID if successful, or null if a lock is already active.
    */
-  async acquire(): Promise<string | null> {
+  async acquireHandle(): Promise<LockHandle | null> {
     if (this.currentLockId) {
       return null;
     }
 
-    this.currentLockId = this.generateLockId();
-    return this.currentLockId;
+    const id = this.generateLockId();
+    this.currentLockId = id;
+    return {
+      refresh: () => this.refresh(id),
+      release: () => this.release(id)
+    };
   }
 
   /**
@@ -22,7 +27,7 @@ export class MockLockManager implements LockManager {
    * @param lock_id The lock ID to refresh.
    * @throws LockActiveError if the lock ID does not match the active lock.
    */
-  async refresh(lock_id: string): Promise<void> {
+  protected async refresh(lock_id: string): Promise<void> {
     if (this.currentLockId !== lock_id) {
       throw new LockActiveError();
     }
@@ -41,7 +46,7 @@ export class MockLockManager implements LockManager {
    * @param lock_id The lock ID to release.
    * @throws LockActiveError if the lock ID does not match the active lock.
    */
-  async release(lock_id: string): Promise<void> {
+  protected async release(lock_id: string): Promise<void> {
     if (this.currentLockId !== lock_id) {
       throw new LockActiveError();
     }
@@ -50,24 +55,6 @@ export class MockLockManager implements LockManager {
     if (this.lockTimeout) {
       clearTimeout(this.lockTimeout);
       this.lockTimeout = undefined;
-    }
-  }
-
-  /**
-   * Wraps a handler function in a lock, ensuring only one execution at a time.
-   * @param handler A function to execute while the lock is active.
-   * @returns A promise that resolves once the handler completes.
-   */
-  async lock(handler: (refresh: () => Promise<void>) => Promise<void>): Promise<void> {
-    const lockId = await this.acquire();
-    if (!lockId) {
-      throw new LockActiveError();
-    }
-
-    try {
-      await handler(async () => await this.refresh(lockId));
-    } finally {
-      await this.release(lockId);
     }
   }
 

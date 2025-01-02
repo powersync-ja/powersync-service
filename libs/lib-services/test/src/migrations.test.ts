@@ -5,7 +5,7 @@ import { MigrationManager } from '../../src/migrations/MigrationManager.js';
 import { MockLockManager } from './__mocks__/MockLockManager.js';
 
 class MockMigrationAgent extends AbstractMigrationAgent {
-  locks = new MockLockManager();
+  locks = new MockLockManager({ name: 'mock_migrations' });
 
   store: MigrationStore = {
     clear: async () => {},
