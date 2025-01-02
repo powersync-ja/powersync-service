@@ -4,7 +4,7 @@ import { migrations } from '@powersync/service-core';
 import { configFile } from '@powersync/service-types';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { MongoLockManager } from '../locks/MonogLocks.js';
+import { MongoLockManager } from '../locks/MongoLocks.js';
 import { createPowerSyncMongo, PowerSyncMongo } from '../storage/storage-index.js';
 import { createMongoMigrationStore } from './mongo-migration-store.js';
 

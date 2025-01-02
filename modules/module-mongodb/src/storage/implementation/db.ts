@@ -2,7 +2,7 @@ import { storage } from '@powersync/service-core';
 import { configFile } from '@powersync/service-types';
 import * as mongo from 'mongodb';
 import * as db from '../../db/db-index.js';
-import { Lock } from '../../locks/MonogLocks.js';
+import { Lock } from '../../locks/MongoLocks.js';
 import {
   BucketDataDocument,
   BucketParameterDocument,

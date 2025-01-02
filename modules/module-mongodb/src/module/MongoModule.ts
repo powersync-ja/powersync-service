@@ -1,6 +1,6 @@
 import { api, ConfigurationFileSyncRulesProvider, replication, system, TearDownOptions } from '@powersync/service-core';
 import { MongoRouteAPIAdapter } from '../api/MongoRouteAPIAdapter.js';
-import { MongoMigrationAgent } from '../migrations/MonogMigrationAgent.js';
+import { MongoMigrationAgent } from '../migrations/MongoMigrationAgent.js';
 import { ChangeStreamReplicator } from '../replication/ChangeStreamReplicator.js';
 import { ConnectionManagerFactory } from '../replication/ConnectionManagerFactory.js';
 import { MongoErrorRateLimiter } from '../replication/MongoErrorRateLimiter.js';
