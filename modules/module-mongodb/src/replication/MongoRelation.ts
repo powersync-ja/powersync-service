@@ -38,9 +38,12 @@ export function constructAfterRecord(document: mongo.Document): SqliteRow {
 
 export function toMongoSyncRulesValue(data: any): SqliteValue {
   const autoBigNum = true;
-  if (data == null) {
-    // null or undefined
-    return data;
+  if (data === null) {
+    return null;
+  } else if (typeof data == 'undefined') {
+    // We consider `undefined` in top-level fields as missing replicated value,
+    // so use null instead.
+    return null;
   } else if (typeof data == 'string') {
     return data;
   } else if (typeof data == 'number') {
@@ -95,8 +98,13 @@ function filterJsonData(data: any, depth = 0): any {
     // This is primarily to prevent infinite recursion
     throw new Error(`json nested object depth exceeds the limit of ${DEPTH_LIMIT}`);
   }
-  if (data == null) {
-    return data; // null or undefined
+  if (data === null) {
+    return data;
+  } else if (typeof data == 'undefined') {
+    // For nested data, keep as undefined.
+    // In arrays, this is converted to null.
+    // In objects, the key is excluded.
+    return undefined;
   } else if (typeof data == 'string') {
     return data;
   } else if (typeof data == 'number') {
