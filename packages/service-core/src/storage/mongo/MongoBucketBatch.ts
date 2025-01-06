@@ -411,7 +411,7 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
     // However, it will be valid by the end of the transaction.
     //
     // In this case, we don't save the op, but we do save the current data.
-    if (afterId && after && util.isCompleteRow(after)) {
+    if (afterId && after && util.isCompleteRow(this.storeCurrentData, after)) {
       // Insert or update
       if (sourceTable.syncData) {
         const { results: evaluated, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
@@ -722,8 +722,8 @@ export class MongoBucketBatch extends DisposableObserver<BucketBatchStorageListe
           table: sourceTable,
           data: {
             op: tag,
-            after: after && util.isCompleteRow(after) ? after : undefined,
-            before: before && util.isCompleteRow(before) ? before : undefined
+            after: after && util.isCompleteRow(this.storeCurrentData, after) ? after : undefined,
+            before: before && util.isCompleteRow(this.storeCurrentData, before) ? before : undefined
           },
           event
         })
