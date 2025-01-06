@@ -86,6 +86,9 @@ describe('mongo data types', () => {
         }
       ])
       .toArray();
+
+    await mapInput.drop();
+    await db.collection('map_output').drop();
   }
 
   async function insertNested(collection: mongo.Collection) {
@@ -307,6 +310,7 @@ describe('mongo data types', () => {
     const collection = db.collection('test_data');
     await setupTable(db);
     await insert(collection);
+    await insertUndefined(db, 'test_data');
 
     const schema = await adapter.getConnectionSchema();
     const dbSchema = schema.filter((s) => s.name == TEST_CONNECTION_OPTIONS.database)[0];
