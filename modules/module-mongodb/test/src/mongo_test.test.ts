@@ -45,10 +45,47 @@ describe('mongo data types', () => {
           mongo.ObjectId.createFromHexString('66e834cc91d805df11fa0ecb'),
           'mydb',
           { foo: 'bar' }
-        ),
-        undefined: undefined
+        )
       }
     ]);
+  }
+
+  async function insertUndefined(db: mongo.Db, collection: string, array?: boolean) {
+    // MongoDB has deprecated the `undefined` value, making it really
+    // difficult to insert one into the database.
+    // mapReduce is also deprecated, but it's one way to still generate
+    // the value.
+    const mapInput = db.collection('map_input');
+    await mapInput.insertOne({ test: 'test' });
+    const fin = array ? `return { result: [undefined] }` : `return { result: undefined }`;
+    await db.command({
+      mapReduce: 'map_input',
+      map: new mongo.Code(`function () {
+          // We only need to emit once for a single result:
+          emit(5, {});
+        }`),
+      reduce: new mongo.Code(`function (key, values) {
+          // Return an object whose property is explicitly set to undefined
+          return undefined;
+        }`),
+      finalize: new mongo.Code(`function (key, reducedVal) {
+          ${fin};
+        }`),
+      out: { merge: 'map_output' }
+    });
+
+    await db
+      .collection('map_output')
+      .aggregate([
+        { $set: { undefined: '$value.result' } },
+        { $project: { undefined: 1 } },
+        {
+          $merge: {
+            into: collection
+          }
+        }
+      ])
+      .toArray();
   }
 
   async function insertNested(collection: mongo.Collection) {
@@ -118,9 +155,11 @@ describe('mongo data types', () => {
       js: '{"code":"testcode","scope":null}',
       js2: '{"code":"testcode","scope":{"foo":"bar"}}',
       pointer: '{"collection":"mycollection","oid":"66e834cc91d805df11fa0ecb","fields":{}}',
-      pointer2: '{"collection":"mycollection","oid":"66e834cc91d805df11fa0ecb","db":"mydb","fields":{"foo":"bar"}}',
-      undefined: null
+      pointer2: '{"collection":"mycollection","oid":"66e834cc91d805df11fa0ecb","db":"mydb","fields":{"foo":"bar"}}'
     });
+
+    // This must specifically be null, and not undefined.
+    expect(transformed[4].undefined).toBeNull();
   }
 
   function checkResultsNested(transformed: Record<string, any>[]) {
@@ -158,20 +197,27 @@ describe('mongo data types', () => {
       js: '[{"code":"testcode","scope":null}]',
       pointer: '[{"collection":"mycollection","oid":"66e834cc91d805df11fa0ecb","fields":{}}]',
       minKey: '[null]',
-      maxKey: '[null]',
+      maxKey: '[null]'
+    });
+
+    expect(transformed[4]).toMatchObject({
       undefined: '[null]'
     });
   }
 
   test('test direct queries', async () => {
     const { db, client } = await connectMongoData();
+
     const collection = db.collection('test_data');
     try {
       await setupTable(db);
-
       await insert(collection);
+      await insertUndefined(db, 'test_data');
 
-      const transformed = [...ChangeStream.getQueryData(await db.collection('test_data').find().toArray())];
+      const rawResults = await db.collection('test_data').find().toArray();
+      // It is tricky to save "undefined" with mongo, so we check that it succeeded.
+      expect(rawResults[4].undefined).toBeUndefined();
+      const transformed = [...ChangeStream.getQueryData(rawResults)];
 
       checkResults(transformed);
     } finally {
@@ -186,8 +232,11 @@ describe('mongo data types', () => {
       await setupTable(db);
 
       await insertNested(collection);
+      await insertUndefined(db, 'test_data_arrays', true);
 
-      const transformed = [...ChangeStream.getQueryData(await db.collection('test_data_arrays').find().toArray())];
+      const rawResults = await db.collection('test_data_arrays').find().toArray();
+      expect(rawResults[4].undefined).toEqual([undefined]);
+      const transformed = [...ChangeStream.getQueryData(rawResults)];
 
       checkResultsNested(transformed);
     } finally {
@@ -212,8 +261,9 @@ describe('mongo data types', () => {
       await stream.tryNext();
 
       await insert(collection);
+      await insertUndefined(db, 'test_data');
 
-      const transformed = await getReplicationTx(stream, 4);
+      const transformed = await getReplicationTx(stream, 5);
 
       checkResults(transformed);
     } finally {
@@ -236,8 +286,9 @@ describe('mongo data types', () => {
       await stream.tryNext();
 
       await insertNested(collection);
+      await insertUndefined(db, 'test_data_arrays', true);
 
-      const transformed = await getReplicationTx(stream, 4);
+      const transformed = await getReplicationTx(stream, 5);
 
       checkResultsNested(transformed);
     } finally {
@@ -440,6 +491,10 @@ bucket_definitions:
 async function getReplicationTx(replicationStream: mongo.ChangeStream, count: number) {
   let transformed: SqliteRow[] = [];
   for await (const doc of replicationStream) {
+    // Specifically filter out map_input / map_output collections
+    if (!(doc as any)?.ns?.coll?.startsWith('test_data')) {
+      continue;
+    }
     transformed.push(constructAfterRecord((doc as any).fullDocument));
     if (transformed.length == count) {
       break;
