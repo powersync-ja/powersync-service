@@ -146,6 +146,52 @@ importers:
         specifier: ^9.0.4
         version: 9.0.8
 
+  modules/module-mongodb-storage:
+    dependencies:
+      '@powersync/lib-services-framework':
+        specifier: workspace:*
+        version: link:../../libs/lib-services
+      '@powersync/service-core':
+        specifier: workspace:*
+        version: link:../../packages/service-core
+      '@powersync/service-jsonbig':
+        specifier: workspace:*
+        version: link:../../packages/jsonbig
+      '@powersync/service-sync-rules':
+        specifier: workspace:*
+        version: link:../../packages/sync-rules
+      '@powersync/service-types':
+        specifier: workspace:*
+        version: link:../../packages/types
+      bson:
+        specifier: 6.6.0
+        version: 6.6.0
+      ix:
+        specifier: ^5.0.0
+        version: 5.0.0
+      lru-cache:
+        specifier: ^10.2.2
+        version: 10.4.3
+      mongodb:
+        specifier: ^6.11.0
+        version: 6.11.0(socks@2.8.3)
+      ts-codec:
+        specifier: ^1.3.0
+        version: 1.3.0
+      uri-js:
+        specifier: ^4.4.1
+        version: 4.4.1
+      uuid:
+        specifier: ^9.0.1
+        version: 9.0.1
+    devDependencies:
+      '@powersync/service-core-tests':
+        specifier: workspace:*
+        version: link:../../packages/service-core-tests
+      '@types/uuid':
+        specifier: ^9.0.4
+        version: 9.0.8
+
   modules/module-mysql:
     dependencies:
       '@powersync/lib-services-framework':
