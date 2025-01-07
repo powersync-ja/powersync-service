@@ -22,10 +22,6 @@ export interface PowerSyncMongoOptions {
   database?: string;
 }
 
-export function createPowerSyncMongo(config: MongoStorageConfig) {
-  return new PowerSyncMongo(lib_mongo.db.createMongoClient(config), { database: config.database });
-}
-
 export class PowerSyncMongo {
   readonly current_data: mongo.Collection<CurrentDataDocument>;
   readonly bucket_data: mongo.Collection<BucketDataDocument>;
@@ -84,4 +80,8 @@ export class PowerSyncMongo {
   async drop() {
     await this.db.dropDatabase();
   }
+}
+
+export function createPowerSyncMongo(config: MongoStorageConfig) {
+  return new PowerSyncMongo(lib_mongo.createMongoClient(config), { database: config.database });
 }

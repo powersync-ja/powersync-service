@@ -37,6 +37,9 @@
       "path": "../modules/module-mongodb"
     },
     {
+      "path": "../modules/module-mongodb-storage"
+    },
+    {
       "path": "../modules/module-mysql"
     }
   ]

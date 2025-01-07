@@ -43,6 +43,28 @@ The service can be started using the public Docker image. See the image [notes](
 
   - A light-weight set of definitions and utilities for micro services
 
+- [libs/lib-mongodb](./libs/lib-mongodb/README.md)
+
+  - A light-weight set of common logic and types for the MongoDB replication and storage modules.
+
+## Modules
+
+- [modules/module-mongodb](./modules/module-mongodb/README.md)
+
+  - MongoDB replication module.
+
+- [modules/module-mongodb-storage](./modules/module-mongodb-storage/README.md)
+
+  - MongoDB bucket storage module.
+
+- [modules/module-mysql](./modules/module-mysql/README.md)
+
+  - MySQL replication module.
+
+- [modules/module-postgres](./modules/module-postgres/README.md)
+
+  - Postgres replication module.
+
 ## Service
 
 - [service](./service/README.md)

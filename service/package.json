@@ -18,6 +18,7 @@
     "@powersync/lib-services-framework": "workspace:*",
     "@powersync/service-module-postgres": "workspace:*",
     "@powersync/service-module-mongodb": "workspace:*",
+    "@powersync/service-module-mongodb-storage": "workspace:*",
     "@powersync/service-module-mysql": "workspace:*",
     "@powersync/service-jpgwire": "workspace:*",
     "@powersync/service-jsonbig": "workspace:*",

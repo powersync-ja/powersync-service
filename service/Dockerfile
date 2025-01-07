@@ -3,8 +3,6 @@ WORKDIR /app
 
 RUN npm i -g pnpm@9
 
-ARG GITHUB_TOKEN
-
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
 COPY service/package.json service/tsconfig.json service/
 
@@ -16,9 +14,11 @@ COPY packages/sync-rules/package.json packages/sync-rules/tsconfig.json packages
 COPY packages/types/package.json packages/types/tsconfig.json packages/types/
 
 COPY libs/lib-services/package.json libs/lib-services/tsconfig.json libs/lib-services/
+COPY libs/lib-mongodb/package.json libs/lib-mongodb/tsconfig.json libs/lib-mongodb/
 
 COPY modules/module-postgres/package.json modules/module-postgres/tsconfig.json modules/module-postgres/
 COPY modules/module-mongodb/package.json modules/module-mongodb/tsconfig.json modules/module-mongodb/
+COPY modules/module-mongodb-storage/package.json modules/module-mongodb-storage/tsconfig.json modules/module-mongodb-storage/
 COPY modules/module-mysql/package.json modules/module-mysql/tsconfig.json modules/module-mysql/
 
 RUN pnpm install --frozen-lockfile
@@ -35,9 +35,11 @@ COPY packages/rsocket-router/src packages/rsocket-router/src/
 COPY packages/types/src packages/types/src/
 
 COPY libs/lib-services/src libs/lib-services/src/
+COPY libs/lib-mongodb/src libs/lib-mongodb/src/
 
 COPY modules/module-postgres/src modules/module-postgres/src/
 COPY modules/module-mongodb/src modules/module-mongodb/src/
+COPY modules/module-mongodb-storage/src modules/module-mongodb-storage/src/
 COPY modules/module-mysql/src modules/module-mysql/src/
 
 RUN pnpm build:production && \
@@ -49,7 +51,6 @@ RUN pnpm build:production && \
 FROM node:20.12.2-slim AS tester
 WORKDIR /app
 
-ARG GITHUB_TOKEN
 
 COPY --from=builder /app/ ./
 

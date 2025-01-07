@@ -4,7 +4,7 @@ import { MongoMigrationAgent } from '../migrations/MongoMigrationAgent.js';
 import { MongoStorageProvider } from '../storage/storage-index.js';
 import * as types from '../types/types.js';
 
-export class MongoModule extends core.modules.AbstractModule {
+export class MongoStorageModule extends core.modules.AbstractModule {
   constructor() {
     super({
       name: 'MongoDB Storage'

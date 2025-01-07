@@ -65,6 +65,9 @@ importers:
       '@powersync/lib-services-framework':
         specifier: workspace:*
         version: link:../lib-services
+      bson:
+        specifier: ^6.6.0
+        version: 6.6.0
       mongodb:
         specifier: ^6.11.0
         version: 6.11.0(socks@2.8.3)
@@ -185,7 +188,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/types
       bson:
-        specifier: 6.6.0
+        specifier: ^6.6.0
         version: 6.6.0
       ix:
         specifier: ^5.0.0
@@ -557,6 +560,9 @@ importers:
       '@powersync/service-module-mongodb':
         specifier: workspace:*
         version: link:../modules/module-mongodb
+      '@powersync/service-module-mongodb-storage':
+        specifier: workspace:*
+        version: link:../modules/module-mongodb-storage
       '@powersync/service-module-mysql':
         specifier: workspace:*
         version: link:../modules/module-mysql
