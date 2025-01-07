@@ -505,7 +505,7 @@ AND table_type = 'BASE TABLE';`,
           // Only listen for changes to tables in the sync rules
           const includedTables = [...this.tableCache.values()].map((table) => table.table);
           zongji.start({
-            // We ignore the unknown/heartbeat event since it currently serves no purpose other than to keep the collection alive
+            // We ignore the unknown/heartbeat event since it currently serves no purpose other than to keep the connection alive
             includeEvents: ['tablemap', 'writerows', 'updaterows', 'deleterows', 'xid', 'rotate', 'gtidlog'],
             excludeEvents: [],
             includeSchema: { [this.defaultSchema]: includedTables },
