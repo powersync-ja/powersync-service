@@ -478,9 +478,36 @@ AND table_type = 'BASE TABLE';`,
 
           logger.info(`Reading binlog from: ${binLogPositionState.filename}:${binLogPositionState.offset}`);
 
+          // Set hearbeat interval.
+          // Zongji does not explicitly handle these - it is produced as event:unknown.
+          // That's fine - this still to keep the connection alive for setTimeout to work on the socket.
+          await new Promise((resolve, reject) => {
+            zongji.connection.query(
+              // In nanoseconds, 10^9 = 1s
+              'set @master_heartbeat_period=28*1000000000',
+              function (error: any, results: any, fields: any) {
+                if (error) {
+                  reject(error);
+                } else {
+                  resolve(results);
+                }
+              }
+            );
+          });
+
+          // The _socket member is only set after a query is run on the connection,
+          // so we set the timeout after setting the heartbeat.
+          // The timeout here must be greater than the master_heartbeat_period.
+          const socket = zongji.connection._socket!;
+          socket.setTimeout(60_000, () => {
+            socket.destroy(new Error('Socket idle timeout'));
+          });
+
           // Only listen for changes to tables in the sync rules
           const includedTables = [...this.tableCache.values()].map((table) => table.table);
+
           zongji.start({
+            // Add 'unknown' to see heartbeat events
             includeEvents: ['tablemap', 'writerows', 'updaterows', 'deleterows', 'xid', 'rotate', 'gtidlog'],
             excludeEvents: [],
             includeSchema: { [this.defaultSchema]: includedTables },
