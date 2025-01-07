@@ -537,3 +537,19 @@ export interface TerminateOptions {
    */
   clearStorage: boolean;
 }
+
+/**
+ * Helper for tests.
+ * This is not in the `service-core-tests` package in order for storage modules
+ * to provide relevant factories without requiring `service-core-tests` as a direct dependency.
+ */
+export interface TestStorageOptions {
+  /**
+   * By default, collections are only cleared/
+   * Setting this to true will drop the collections completely.
+   */
+  dropAll?: boolean;
+
+  doNotClear?: boolean;
+}
+export type TestStorageFactory = (options?: TestStorageOptions) => Promise<BucketStorageFactory>;

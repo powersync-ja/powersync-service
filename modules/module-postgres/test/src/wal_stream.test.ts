@@ -1,13 +1,11 @@
-import { BucketStorageFactory, Metrics } from '@powersync/service-core';
+import { MissingReplicationSlotError } from '@module/replication/WalStream.js';
+import { Metrics, storage } from '@powersync/service-core';
 import { putOp, removeOp } from '@powersync/service-core-tests';
 import { pgwireRows } from '@powersync/service-jpgwire';
 import * as crypto from 'crypto';
 import { describe, expect, test } from 'vitest';
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
-import { MissingReplicationSlotError } from '@module/replication/WalStream.js';
-
-type StorageFactory = () => Promise<BucketStorageFactory>;
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -20,7 +18,7 @@ describe('wal stream - mongodb', { timeout: 20_000 }, function () {
   defineWalStreamTests(INITIALIZED_MONGO_STORAGE_FACTORY);
 });
 
-function defineWalStreamTests(factory: StorageFactory) {
+function defineWalStreamTests(factory: storage.TestStorageFactory) {
   test('replicating basic values', async () => {
     await using context = await WalStreamTestContext.open(factory);
     const { pool } = context;

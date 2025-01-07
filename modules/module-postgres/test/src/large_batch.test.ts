@@ -1,5 +1,4 @@
-import { Metrics } from '@powersync/service-core';
-import { test_utils } from '@powersync/service-core-tests';
+import { Metrics, storage } from '@powersync/service-core';
 import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
 import { populateData } from '../../dist/utils/populate_test_data.js';
@@ -23,7 +22,7 @@ const BASIC_SYNC_RULES = `bucket_definitions:
     data:
       - SELECT id, description, other FROM "test_data"`;
 
-function defineBatchTests(factory: test_utils.StorageFactory) {
+function defineBatchTests(factory: storage.TestStorageFactory) {
   test('update large record', async () => {
     await using context = await WalStreamTestContext.open(factory);
     // This test generates a large transaction in MongoDB, despite the replicated data

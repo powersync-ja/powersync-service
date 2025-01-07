@@ -1,19 +1,10 @@
-import { BucketStorageFactory } from '@powersync/service-core';
+import { storage } from '@powersync/service-core';
 import * as mongo from 'mongodb';
 import { setTimeout } from 'node:timers/promises';
 import { describe, expect, test } from 'vitest';
 import { ChangeStreamTestContext, setSnapshotHistorySeconds } from './change_stream_utils.js';
 import { env } from './env.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
-
-type StorageFactory = () => Promise<BucketStorageFactory>;
-
-const BASIC_SYNC_RULES = `
-bucket_definitions:
-  global:
-    data:
-      - SELECT _id as id, description FROM "test_data"
-`;
 
 describe('change stream slow tests - mongodb', { timeout: 60_000 }, function () {
   if (env.CI || env.SLOW_TESTS) {
@@ -24,7 +15,7 @@ describe('change stream slow tests - mongodb', { timeout: 60_000 }, function () 
   }
 });
 
-function defineSlowTests(factory: StorageFactory) {
+function defineSlowTests(factory: storage.TestStorageFactory) {
   test('replicating snapshot with lots of data', async () => {
     await using context = await ChangeStreamTestContext.open(factory);
     // Test with low minSnapshotHistoryWindowInSeconds, to trigger:
@@ -97,7 +88,9 @@ bucket_definitions:
     const data = await context.getBucketData('global[]', undefined, { limit: 50_000, chunkLimitBytes: 60_000_000 });
 
     const preDocuments = data.filter((d: any) => JSON.parse(d.data! as string).description.startsWith('pre')).length;
-    const updatedDocuments = data.filter((d: any) => JSON.parse(d.data! as string).description.startsWith('updated')).length;
+    const updatedDocuments = data.filter((d: any) =>
+      JSON.parse(d.data! as string).description.startsWith('updated')
+    ).length;
 
     // If the test works properly, preDocuments should be around 2000-3000.
     // The total should be around 9000-9900.

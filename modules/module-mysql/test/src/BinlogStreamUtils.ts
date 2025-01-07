@@ -7,9 +7,10 @@ import {
   BucketStorageFactory,
   OpId,
   OplogEntry,
+  storage,
   SyncRulesBucketStorage
 } from '@powersync/service-core';
-import { StorageFactory, test_utils } from '@powersync/service-core-tests';
+import { test_utils } from '@powersync/service-core-tests';
 import mysqlPromise from 'mysql2/promise';
 import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
 
@@ -27,7 +28,7 @@ export class BinlogStreamTestContext {
   public storage?: SyncRulesBucketStorage;
   private replicationDone = false;
 
-  static async open(factory: StorageFactory, options?: { doNotClear?: boolean }) {
+  static async open(factory: storage.TestStorageFactory, options?: { doNotClear?: boolean }) {
     const f = await factory({ doNotClear: options?.doNotClear });
     const connectionManager = new MySQLConnectionManager(TEST_CONNECTION_OPTIONS, {});
 

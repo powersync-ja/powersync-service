@@ -15,7 +15,10 @@ const TEST_TABLE = test_utils.makeTestTable('test', ['id']);
  * compactTests(() => new MongoStorageFactory(), { clearBatchLimit: 2, moveBatchLimit: 1, moveBatchQueryLimit: 1 }));
  * ```
  */
-export function registerCompactTests<CompactOptions extends storage.CompactOptions = storage.CompactOptions> (generateStorageFactory: test_utils.StorageFactory, compactOptions: CompactOptions) {
+export function registerCompactTests<CompactOptions extends storage.CompactOptions = storage.CompactOptions>(
+  generateStorageFactory: storage.TestStorageFactory,
+  compactOptions: CompactOptions
+) {
   test('compacting (1)', async () => {
     const sync_rules = test_utils.testRules(`
 bucket_definitions:
@@ -23,7 +26,7 @@ bucket_definitions:
     data: [select * from test]
     `);
 
-    using factory = await generateStorageFactory()
+    using factory = await generateStorageFactory();
     const bucketStorage = factory.getInstance(sync_rules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -57,7 +60,9 @@ bucket_definitions:
 
     const checkpoint = result!.flushed_op;
 
-    const batchBefore = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
+    const batchBefore = await test_utils.oneFromAsync(
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]))
+    );
     const dataBefore = batchBefore.batch.data;
     const checksumBefore = await bucketStorage.getChecksums(checkpoint, ['global[]']);
 
@@ -84,7 +89,9 @@ bucket_definitions:
 
     await bucketStorage.compact(compactOptions);
 
-    const batchAfter = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
+    const batchAfter = await test_utils.oneFromAsync(
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]))
+    );
     const dataAfter = batchAfter.batch.data;
     const checksumAfter = await bucketStorage.getChecksums(checkpoint, ['global[]']);
 
@@ -164,7 +171,9 @@ bucket_definitions:
 
     const checkpoint = result!.flushed_op;
 
-    const batchBefore = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
+    const batchBefore = await test_utils.oneFromAsync(
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]))
+    );
     const dataBefore = batchBefore.batch.data;
     const checksumBefore = await bucketStorage.getChecksums(checkpoint, ['global[]']);
 
@@ -197,7 +206,9 @@ bucket_definitions:
 
     await bucketStorage.compact(compactOptions);
 
-    const batchAfter = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']])));
+    const batchAfter = await test_utils.oneFromAsync(
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]))
+    );
     const dataAfter = batchAfter.batch.data;
     const checksumAfter = await bucketStorage.getChecksums(checkpoint, ['global[]']);
 
@@ -276,7 +287,9 @@ bucket_definitions:
 
     await bucketStorage.compact(compactOptions);
 
-    const batchAfter = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint2, new Map([['global[]', '0']])));
+    const batchAfter = await test_utils.oneFromAsync(
+      bucketStorage.getBucketDataBatch(checkpoint2, new Map([['global[]', '0']]))
+    );
     const dataAfter = batchAfter.batch.data;
     const checksumAfter = await bucketStorage.getChecksums(checkpoint2, ['global[]']);
 

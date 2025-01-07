@@ -3,6 +3,7 @@ import * as bson from 'bson';
 import * as crypto from 'crypto';
 import * as mongo from 'mongodb';
 import * as uuid from 'uuid';
+import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument } from './models.js';
 
 export function idPrefixFilter<T>(prefix: Partial<T>, rest: (keyof T)[]): mongo.Condition<T> {
@@ -106,6 +107,20 @@ export function replicaIdToSubkey(table: bson.ObjectId, id: storage.ReplicaId): 
  */
 export const createMongoClient = (url: string, options?: mongo.MongoClientOptions) => {
   return new mongo.MongoClient(url, options);
+};
+
+/**
+ * Helper for unit tests
+ */
+export const connectMongoForTests = (url: string, isCI: boolean) => {
+  // Short timeout for tests, to fail fast when the server is not available.
+  // Slightly longer timeouts for CI, to avoid arbitrary test failures
+  const client = createMongoClient(url, {
+    connectTimeoutMS: isCI ? 15_000 : 5_000,
+    socketTimeoutMS: isCI ? 15_000 : 5_000,
+    serverSelectionTimeoutMS: isCI ? 15_000 : 2_500
+  });
+  return new PowerSyncMongo(client);
 };
 
 /**

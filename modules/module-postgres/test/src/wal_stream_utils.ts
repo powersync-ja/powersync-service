@@ -1,7 +1,7 @@
 import { PgManager } from '@module/replication/PgManager.js';
 import { PUBLICATION_NAME, WalStream, WalStreamOptions } from '@module/replication/WalStream.js';
-import { BucketStorageFactory, OplogEntry, SyncRulesBucketStorage } from '@powersync/service-core';
-import { StorageOptions, test_utils } from '@powersync/service-core-tests';
+import { BucketStorageFactory, OplogEntry, storage, SyncRulesBucketStorage } from '@powersync/service-core';
+import { test_utils } from '@powersync/service-core-tests';
 import * as pgwire from '@powersync/service-jpgwire';
 import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
 
@@ -19,7 +19,7 @@ export class WalStreamTestContext implements AsyncDisposable {
    * This configures all the context, and tears it down afterwards.
    */
   static async open(
-    factory: (options: StorageOptions) => Promise<BucketStorageFactory>,
+    factory: (options: storage.TestStorageOptions) => Promise<BucketStorageFactory>,
     options?: { doNotClear?: boolean }
   ) {
     const f = await factory({ doNotClear: options?.doNotClear });

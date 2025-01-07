@@ -26,7 +26,7 @@ const normalizeOplogData = (data: OplogEntry['data']) => {
  *
  * ```
  */
-export function registerDataStorageTests(generateStorageFactory: test_utils.StorageFactory) {
+export function registerDataStorageTests(generateStorageFactory: storage.TestStorageFactory) {
   test('save and load parameters', async () => {
     const sync_rules = test_utils.testRules(`
 bucket_definitions:

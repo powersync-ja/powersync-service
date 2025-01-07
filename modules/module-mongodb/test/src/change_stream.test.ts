@@ -1,15 +1,13 @@
 import { test_utils } from '@powersync/service-core-tests';
 
 import { PostImagesOption } from '@module/types/types.js';
-import { BucketStorageFactory } from '@powersync/service-core';
+import { storage } from '@powersync/service-core';
 import * as crypto from 'crypto';
 import * as mongo from 'mongodb';
 import { setTimeout } from 'node:timers/promises';
 import { describe, expect, test, vi } from 'vitest';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
-
-type StorageFactory = () => Promise<BucketStorageFactory>;
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -22,7 +20,7 @@ describe('change stream - mongodb', { timeout: 20_000 }, function () {
   defineChangeStreamTests(INITIALIZED_MONGO_STORAGE_FACTORY);
 });
 
-function defineChangeStreamTests(factory: StorageFactory) {
+function defineChangeStreamTests(factory: storage.TestStorageFactory) {
   test('replicating basic values', async () => {
     await using context = await ChangeStreamTestContext.open(factory);
     const { db } = context;

@@ -29,7 +29,7 @@ export const SYNC_SNAPSHOT_PATH = path.resolve(__dirname, '../__snapshots/sync.t
  * });
  * ```
  */
-export function registerSyncTests(factory: test_utils.StorageFactory) {
+export function registerSyncTests(factory: storage.TestStorageFactory) {
   const tracker = new sync.RequestTracker();
 
   test('sync global data', async () => {

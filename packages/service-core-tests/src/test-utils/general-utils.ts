@@ -2,17 +2,6 @@ import { storage, utils } from '@powersync/service-core';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
-export interface StorageOptions {
-  /**
-   * By default, collections are only cleared/
-   * Setting this to true will drop the collections completely.
-   */
-  dropAll?: boolean;
-
-  doNotClear?: boolean;
-}
-export type StorageFactory = (options?: StorageOptions) => Promise<storage.BucketStorageFactory>;
-
 export const ZERO_LSN = '0/0';
 
 export const PARSE_OPTIONS: storage.ParseSyncRulesOptions = {

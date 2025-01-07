@@ -2,57 +2,23 @@ import { PostgresRouteAPIAdapter } from '@module/api/PostgresRouteAPIAdapter.js'
 import * as types from '@module/types/types.js';
 import * as pg_utils from '@module/utils/pgwire_utils.js';
 import { logger } from '@powersync/lib-services-framework';
-import { BucketStorageFactory, Metrics, OpId } from '@powersync/service-core';
-import { test_utils } from '@powersync/service-core-tests';
+import { BucketStorageFactory, OpId } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import { env } from './env.js';
 
-// The metrics need to be initialized before they can be used
-await Metrics.initialise({
-  disable_telemetry_sharing: true,
-  powersync_instance_id: 'test',
-  internal_metrics_endpoint: 'unused.for.tests.com'
-});
-Metrics.getInstance().resetCounters();
-
 export const TEST_URI = env.PG_TEST_URL;
+
+export const INITIALIZED_MONGO_STORAGE_FACTORY = mongo_storage.MongoTestStorageFactoryGenerator({
+  url: env.MONGO_TEST_URL,
+  isCI: env.CI
+});
 
 export const TEST_CONNECTION_OPTIONS = types.normalizeConnectionConfig({
   type: 'postgresql',
   uri: TEST_URI,
   sslmode: 'disable'
 });
-
-export type StorageFactory = () => Promise<BucketStorageFactory>;
-
-export const INITIALIZED_MONGO_STORAGE_FACTORY: StorageFactory = async (options?: test_utils.StorageOptions) => {
-  const db = await connectMongo();
-
-  // None of the PG tests insert data into this collection, so it was never created
-  if (!(await db.db.listCollections({ name: db.bucket_parameters.collectionName }).hasNext())) {
-    await db.db.createCollection('bucket_parameters');
-  }
-
-  if (!options?.doNotClear) {
-    await db.clear();
-  }
-
-  return new mongo_storage.storage.MongoBucketStorage(db, {
-    slot_name_prefix: 'test_'
-  });
-};
-
-export async function connectMongo() {
-  // Short timeout for tests, to fail fast when the server is not available.
-  // Slightly longer timeouts for CI, to avoid arbitrary test failures
-  const client = mongo_storage.storage.createMongoClient(env.MONGO_TEST_URL, {
-    connectTimeoutMS: env.CI ? 15_000 : 5_000,
-    socketTimeoutMS: env.CI ? 15_000 : 5_000,
-    serverSelectionTimeoutMS: env.CI ? 15_000 : 2_500
-  });
-  return new mongo_storage.storage.PowerSyncMongo(client);
-}
 
 export async function clearTestDb(db: pgwire.PgClient) {
   await db.query(

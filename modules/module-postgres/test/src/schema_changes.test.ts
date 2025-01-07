@@ -1,8 +1,11 @@
 import { compareIds, putOp, reduceBucket, removeOp, test_utils } from '@powersync/service-core-tests';
 import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
-import { INITIALIZED_MONGO_STORAGE_FACTORY, StorageFactory } from './util.js';
+
+import { storage } from '@powersync/service-core';
+import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
+
 describe('schema changes', { timeout: 20_000 }, function () {
   defineTests(INITIALIZED_MONGO_STORAGE_FACTORY);
 });
@@ -21,7 +24,7 @@ const PUT_T3 = test_utils.putOp('test_data', { id: 't3', description: 'test3' })
 const REMOVE_T1 = test_utils.removeOp('test_data', 't1');
 const REMOVE_T2 = test_utils.removeOp('test_data', 't2');
 
-function defineTests(factory: StorageFactory) {
+function defineTests(factory: storage.TestStorageFactory) {
   test('re-create table', async () => {
     await using context = await WalStreamTestContext.open(factory);
 

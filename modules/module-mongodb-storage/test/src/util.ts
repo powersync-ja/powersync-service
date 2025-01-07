@@ -1,6 +1,6 @@
 import { PowerSyncMongo } from '@module/storage/implementation/db.js';
 import { MongoBucketStorage } from '@module/storage/MongoBucketStorage.js';
-import { StorageFactory, test_utils } from '@powersync/service-core-tests';
+import { storage } from '@powersync/service-core';
 import * as mongo from 'mongodb';
 import { env } from './env.js';
 
@@ -15,7 +15,9 @@ export async function connectMongo() {
   return new PowerSyncMongo(client);
 }
 
-export const INITIALIZED_MONGO_STORAGE_FACTORY: StorageFactory = async (options?: test_utils.StorageOptions) => {
+export const INITIALIZED_MONGO_STORAGE_FACTORY: storage.TestStorageFactory = async (
+  options?: storage.TestStorageOptions
+) => {
   const db = await connectMongo();
 
   // None of the PG tests insert data into this collection, so it was never created

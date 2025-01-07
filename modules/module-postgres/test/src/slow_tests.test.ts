@@ -14,6 +14,7 @@ import * as pgwire from '@powersync/service-jpgwire';
 import { SqliteRow } from '@powersync/service-sync-rules';
 
 import { PgManager } from '@module/replication/PgManager.js';
+import { storage } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as timers from 'node:timers/promises';
@@ -29,7 +30,7 @@ describe('slow tests - mongodb', function () {
   }
 });
 
-function defineSlowTests(factory: test_utils.StorageFactory) {
+function defineSlowTests(factory: storage.TestStorageFactory) {
   let walStream: WalStream | undefined;
   let connections: PgManager | undefined;
   let abortController: AbortController | undefined;

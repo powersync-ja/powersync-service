@@ -1,5 +1,5 @@
-import { Metrics } from '@powersync/service-core';
-import { putOp, removeOp, StorageFactory } from '@powersync/service-core-tests';
+import { Metrics, storage } from '@powersync/service-core';
+import { putOp, removeOp } from '@powersync/service-core-tests';
 import { v4 as uuid } from 'uuid';
 import { describe, expect, test } from 'vitest';
 import { BinlogStreamTestContext } from './BinlogStreamUtils.js';
@@ -20,7 +20,7 @@ describe(
   { timeout: 20_000 }
 );
 
-function defineBinlogStreamTests(factory: StorageFactory) {
+function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
   test('Replicate basic values', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
     const { connectionManager } = context;
