@@ -407,7 +407,7 @@ export class MongoBucketBatch
     // However, it will be valid by the end of the transaction.
     //
     // In this case, we don't save the op, but we do save the current data.
-    if (afterId && after && utils.isCompleteRow(after)) {
+    if (afterId && after && utils.isCompleteRow(this.storeCurrentData, after)) {
       // Insert or update
       if (sourceTable.syncData) {
         const { results: evaluated, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
@@ -718,8 +718,8 @@ export class MongoBucketBatch
           table: sourceTable,
           data: {
             op: tag,
-            after: after && utils.isCompleteRow(after) ? after : undefined,
-            before: before && utils.isCompleteRow(before) ? before : undefined
+            after: after && utils.isCompleteRow(this.storeCurrentData, after) ? after : undefined,
+            before: before && utils.isCompleteRow(this.storeCurrentData, before) ? before : undefined
           },
           event
         })
