@@ -18,8 +18,8 @@ importers:
         specifier: ^3.2.4
         version: 3.2.5
       bson:
-        specifier: ^6.6.0
-        version: 6.8.0
+        specifier: ^6.8.0
+        version: 6.10.1
       concurrently:
         specifier: ^8.2.2
         version: 8.2.2
@@ -66,8 +66,8 @@ importers:
         specifier: workspace:*
         version: link:../lib-services
       bson:
-        specifier: ^6.6.0
-        version: 6.6.0
+        specifier: ^6.8.0
+        version: 6.10.1
       mongodb:
         specifier: ^6.11.0
         version: 6.11.0(socks@2.8.3)
@@ -87,8 +87,8 @@ importers:
         specifier: ^1.2.0
         version: 1.2.0(ajv@8.16.0)
       bson:
-        specifier: ^6.6.0
-        version: 6.8.0
+        specifier: ^6.8.0
+        version: 6.10.1
       dotenv:
         specifier: ^16.4.5
         version: 16.4.5
@@ -139,8 +139,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/types
       bson:
-        specifier: 6.6.0
-        version: 6.6.0
+        specifier: ^6.8.0
+        version: 6.10.1
       mongodb:
         specifier: ^6.11.0
         version: 6.11.0(socks@2.8.3)
@@ -182,8 +182,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/types
       bson:
-        specifier: ^6.6.0
-        version: 6.6.0
+        specifier: ^6.8.0
+        version: 6.10.1
       ix:
         specifier: ^5.0.0
         version: 5.0.0
@@ -357,8 +357,8 @@ importers:
         specifier: ~8.2.0
         version: 8.2.3
       bson:
-        specifier: ^6.6.0
-        version: 6.8.0
+        specifier: ^6.8.0
+        version: 6.10.1
       rsocket-websocket-client:
         specifier: 1.0.0-alpha.3
         version: 1.0.0-alpha.3
@@ -405,8 +405,8 @@ importers:
         specifier: ^0.5.0
         version: 0.5.0
       bson:
-        specifier: ^6.6.0
-        version: 6.6.0
+        specifier: ^6.8.0
+        version: 6.10.1
       commander:
         specifier: ^12.0.0
         version: 12.1.0
@@ -579,8 +579,8 @@ importers:
         specifier: ^0.5.0
         version: 0.5.0
       bson:
-        specifier: ^6.6.0
-        version: 6.8.0
+        specifier: ^6.8.0
+        version: 6.10.1
       commander:
         specifier: ^12.0.0
         version: 12.1.0
@@ -1699,14 +1699,6 @@ packages:
 
   bson@6.10.1:
     resolution: {integrity: sha512-P92xmHDQjSKPLHqFxefqMxASNq/aWJMEZugpCjf+AF/pgcUpMMQCg7t7+ewko0/u8AapvF3luf/FoehddEK+sA==}
-    engines: {node: '>=16.20.1'}
-
-  bson@6.6.0:
-    resolution: {integrity: sha512-BVINv2SgcMjL4oYbBuCQTpE3/VKOSxrOA8Cj/wQP7izSzlBGVomdm+TcUd0Pzy0ytLSSDweCKQ6X3f5veM5LQA==}
-    engines: {node: '>=16.20.1'}
-
-  bson@6.8.0:
-    resolution: {integrity: sha512-iOJg8pr7wq2tg/zSlCCHMi3hMm5JTOxLTagf3zxhcenHsFp+c6uOs6K7W5UE7A4QIJGtqh/ZovFNMP4mOPJynQ==}
     engines: {node: '>=16.20.1'}
 
   buffer-from@1.1.2:
@@ -5104,10 +5096,6 @@ snapshots:
       fill-range: 7.1.1
 
   bson@6.10.1: {}
-
-  bson@6.6.0: {}
-
-  bson@6.8.0: {}
 
   buffer-from@1.1.2: {}
 

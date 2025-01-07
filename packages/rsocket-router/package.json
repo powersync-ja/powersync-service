@@ -27,7 +27,7 @@
   "devDependencies": {
     "@types/uuid": "^9.0.4",
     "@types/ws": "~8.2.0",
-    "bson": "^6.6.0",
+    "bson": "^6.8.0",
     "rsocket-websocket-client": "1.0.0-alpha.3"
   }
 }
