@@ -476,11 +476,36 @@ AND table_type = 'BASE TABLE';`,
             return;
           }
 
-          logger.info(`Reading binlog from: ${binLogPositionState.filename}:${binLogPositionState.offset}`);
+          // Set a heartbeat interval for the Zongji replication connection
+          // Zongji does not explicitly handle the heartbeat events - they are categorized as event:unknown
+          // The heartbeat events are enough to keep the connection alive for setTimeout to work on the socket.
+          await new Promise((resolve, reject) => {
+            zongji.connection.query(
+              // In nanoseconds, 10^9 = 1s
+              'set @master_heartbeat_period=28*1000000000',
+              function (error: any, results: any, fields: any) {
+                if (error) {
+                  reject(error);
+                } else {
+                  resolve(results);
+                }
+              }
+            );
+          });
+          logger.info('Successfully set up replication connection heartbeat...');
 
+          // The _socket member is only set after a query is run on the connection, so we set the timeout after setting the heartbeat.
+          // The timeout here must be greater than the master_heartbeat_period.
+          const socket = zongji.connection._socket!;
+          socket.setTimeout(60_000, () => {
+            socket.destroy(new Error('Replication connection timeout.'));
+          });
+
+          logger.info(`Reading binlog from: ${binLogPositionState.filename}:${binLogPositionState.offset}`);
           // Only listen for changes to tables in the sync rules
           const includedTables = [...this.tableCache.values()].map((table) => table.table);
           zongji.start({
+            // We ignore the unknown/heartbeat event since it currently serves no purpose other than to keep the collection alive
             includeEvents: ['tablemap', 'writerows', 'updaterows', 'deleterows', 'xid', 'rotate', 'gtidlog'],
             excludeEvents: [],
             includeSchema: { [this.defaultSchema]: includedTables },
@@ -492,7 +517,7 @@ AND table_type = 'BASE TABLE';`,
           // Forever young
           await new Promise<void>((resolve, reject) => {
             zongji.on('error', (error) => {
-              logger.error('Error on Binlog listener:', error);
+              logger.error('Binlog listener error:', error);
               zongji.stop();
               queue.kill();
               reject(error);
