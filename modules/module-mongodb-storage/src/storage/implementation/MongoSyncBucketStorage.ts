@@ -2,10 +2,10 @@ import { SqliteJsonRow, SqliteJsonValue, SqlSyncRules } from '@powersync/service
 import * as bson from 'bson';
 import * as mongo from 'mongodb';
 
+import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { DisposableObserver, logger } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
 import * as timers from 'timers/promises';
-import * as db from '../../db/db-index.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, SourceKey } from './models.js';
@@ -500,9 +500,9 @@ export class MongoSyncBucketStorage
       } catch (e: unknown) {
         if (e instanceof mongo.MongoServerError && e.codeName == 'MaxTimeMSExpired') {
           logger.info(
-            `${this.slot_name} Cleared batch of data in ${db.mongo.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, continuing...`
+            `${this.slot_name} Cleared batch of data in ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, continuing...`
           );
-          await timers.setTimeout(db.mongo.MONGO_CLEAR_OPERATION_TIMEOUT_MS / 5);
+          await timers.setTimeout(lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS / 5);
           continue;
         } else {
           throw e;
@@ -528,33 +528,33 @@ export class MongoSyncBucketStorage
           no_checkpoint_before: null
         }
       },
-      { maxTimeMS: db.mongo.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
     );
     await this.db.bucket_data.deleteMany(
       {
         _id: idPrefixFilter<BucketDataKey>({ g: this.group_id }, ['b', 'o'])
       },
-      { maxTimeMS: db.mongo.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
     );
     await this.db.bucket_parameters.deleteMany(
       {
         key: idPrefixFilter<SourceKey>({ g: this.group_id }, ['t', 'k'])
       },
-      { maxTimeMS: db.mongo.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
     );
 
     await this.db.current_data.deleteMany(
       {
         _id: idPrefixFilter<SourceKey>({ g: this.group_id }, ['t', 'k'])
       },
-      { maxTimeMS: db.mongo.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
     );
 
     await this.db.source_tables.deleteMany(
       {
         group_id: this.group_id
       },
-      { maxTimeMS: db.mongo.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
     );
   }
 

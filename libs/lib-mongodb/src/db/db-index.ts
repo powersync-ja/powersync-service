@@ -1,1 +1,1 @@
-export * as mongo from './mongo.js';
+export * from './mongo.js';

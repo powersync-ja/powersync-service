@@ -1,8 +1,6 @@
 import * as mongo from 'mongodb';
 import * as timers from 'timers/promises';
-
-import { configFile } from '@powersync/service-types';
-import { normalizeMongoConfig } from '../storage/storage-index.js';
+import { BaseMongoConfigDecoded, normalizeMongoConfig } from '../types/types.js';
 
 /**
  * Time for new connection to timeout.
@@ -30,7 +28,7 @@ export const MONGO_OPERATION_TIMEOUT_MS = 30_000;
  */
 export const MONGO_CLEAR_OPERATION_TIMEOUT_MS = 5_000;
 
-export function createMongoClient(config: configFile.MongoStorageConfig) {
+export function createMongoClient(config: BaseMongoConfigDecoded) {
   const normalized = normalizeMongoConfig(config);
   return new mongo.MongoClient(normalized.uri, {
     auth: {

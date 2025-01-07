@@ -23,6 +23,12 @@
     },
     {
       "path": "../../libs/lib-services"
+    },
+    {
+      "path": "../../libs/lib-mongodb"
+    },
+    {
+      "path": "../module-mongodb-storage"
     }
   ]
 }

@@ -1,32 +1,20 @@
+import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { api, ConfigurationFileSyncRulesProvider, replication, system, TearDownOptions } from '@powersync/service-core';
 import { MongoRouteAPIAdapter } from '../api/MongoRouteAPIAdapter.js';
-import { MongoMigrationAgent } from '../migrations/MongoMigrationAgent.js';
 import { ChangeStreamReplicator } from '../replication/ChangeStreamReplicator.js';
 import { ConnectionManagerFactory } from '../replication/ConnectionManagerFactory.js';
 import { MongoErrorRateLimiter } from '../replication/MongoErrorRateLimiter.js';
 import { MongoManager } from '../replication/MongoManager.js';
 import { checkSourceConfiguration } from '../replication/replication-utils.js';
-import { MongoStorageProvider } from '../storage/storage-index.js';
 import * as types from '../types/types.js';
 
 export class MongoModule extends replication.ReplicationModule<types.MongoConnectionConfig> {
   constructor() {
     super({
       name: 'MongoDB',
-      type: types.MONGO_CONNECTION_TYPE,
+      type: lib_mongo.MONGO_CONNECTION_TYPE,
       configSchema: types.MongoConnectionConfig
     });
-  }
-
-  async initialize(context: system.ServiceContextContainer): Promise<void> {
-    await super.initialize(context);
-    context.storageEngine.registerProvider(new MongoStorageProvider());
-
-    if (types.isMongoStorageConfig(context.configuration.storage)) {
-      context.migrations.registerMigrationAgent(
-        new MongoMigrationAgent(this.resolveConfig(context.configuration.storage))
-      );
-    }
   }
 
   protected createRouteAPIAdapter(): api.RouteAPI {

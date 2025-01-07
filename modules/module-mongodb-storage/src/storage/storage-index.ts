@@ -1,4 +1,3 @@
-export * from './implementation/config.js';
 export * from './implementation/db.js';
 export * from './implementation/models.js';
 export * from './implementation/MongoBucketBatch.js';

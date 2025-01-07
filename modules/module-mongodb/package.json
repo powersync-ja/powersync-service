@@ -33,16 +33,17 @@
     "@powersync/service-jsonbig": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",
     "@powersync/service-types": "workspace:*",
+    "@powersync/lib-service-mongodb": "workspace:*",
     "mongodb": "^6.11.0",
     "bson": "6.6.0",
     "ts-codec": "^1.3.0",
     "ix": "^5.0.0",
     "lru-cache": "^10.2.2",
-    "uuid": "^9.0.1",
-    "uri-js": "^4.4.1"
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
     "@types/uuid": "^9.0.4",
-    "@powersync/service-core-tests": "workspace:*"
+    "@powersync/service-core-tests": "workspace:*",
+    "@powersync/service-module-mongodb-storage": "workspace:*"
   }
 }

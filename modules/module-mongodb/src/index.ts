@@ -1,5 +1,4 @@
+export * from './api/MongoRouteAPIAdapter.js';
 export * from './module/MongoModule.js';
-
-export * as db from './db/db-index.js';
-export * as storage from './storage/storage-index.js';
-
+export * from './replication/replication-index.js';
+export * from './types/types.js';

@@ -1,8 +1,8 @@
+import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { storage } from '@powersync/service-core';
-import { configFile } from '@powersync/service-types';
 import * as mongo from 'mongodb';
-import * as db from '../../db/db-index.js';
-import { Lock } from '../../locks/MongoLockManager.js';
+
+import { MongoStorageConfig } from '../../types/types.js';
 import {
   BucketDataDocument,
   BucketParameterDocument,
@@ -22,8 +22,8 @@ export interface PowerSyncMongoOptions {
   database?: string;
 }
 
-export function createPowerSyncMongo(config: configFile.MongoStorageConfig) {
-  return new PowerSyncMongo(db.mongo.createMongoClient(config), { database: config.database });
+export function createPowerSyncMongo(config: MongoStorageConfig) {
+  return new PowerSyncMongo(lib_mongo.db.createMongoClient(config), { database: config.database });
 }
 
 export class PowerSyncMongo {
@@ -36,7 +36,7 @@ export class PowerSyncMongo {
   readonly custom_write_checkpoints: mongo.Collection<CustomWriteCheckpointDocument>;
   readonly write_checkpoints: mongo.Collection<WriteCheckpointDocument>;
   readonly instance: mongo.Collection<InstanceDocument>;
-  readonly locks: mongo.Collection<Lock>;
+  readonly locks: mongo.Collection<lib_mongo.locks.Lock>;
 
   readonly client: mongo.MongoClient;
   readonly db: mongo.Db;

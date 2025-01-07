@@ -23,6 +23,9 @@
     },
     {
       "path": "../../libs/lib-services"
+    },
+    {
+      "path": "../../libs/lib-mongodb"
     }
   ]
 }

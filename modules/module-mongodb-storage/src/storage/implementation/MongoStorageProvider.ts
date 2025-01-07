@@ -1,7 +1,7 @@
+import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { logger } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
-import { configFile } from '@powersync/service-types';
-import * as db from '../../db/db-index.js';
+import { MongoStorageConfig } from '../../types/types.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
 
@@ -22,8 +22,8 @@ export class MongoStorageProvider implements storage.BucketStorageProvider {
       );
     }
 
-    const decodedConfig = configFile.MongoStorageConfig.decode(storage as any);
-    const client = db.mongo.createMongoClient(decodedConfig);
+    const decodedConfig = MongoStorageConfig.decode(storage as any);
+    const client = lib_mongo.db.createMongoClient(decodedConfig);
 
     const database = new PowerSyncMongo(client, { database: resolvedConfig.storage.database });
 

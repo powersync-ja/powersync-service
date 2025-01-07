@@ -111,20 +111,10 @@ export const BaseStorageConfig = t.object({
  */
 export type BaseStorageConfig = t.Encoded<typeof BaseStorageConfig>;
 
-export const MongoStorageConfig = t.object({
-  type: t.literal('mongodb'),
-  uri: t.string,
-  database: t.string.optional(),
-  username: t.string.optional(),
-  password: t.string.optional()
-});
-
-export type MongoStorageConfig = t.Encoded<typeof MongoStorageConfig>;
-
 /**
  * This essentially allows any extra fields on this type
  */
-export const GenericStorageConfig = BaseStorageConfig.and(t.record(t.any)).or(MongoStorageConfig);
+export const GenericStorageConfig = BaseStorageConfig.and(t.record(t.any));
 export type GenericStorageConfig = t.Encoded<typeof GenericStorageConfig>;
 
 export const powerSyncConfig = t.object({

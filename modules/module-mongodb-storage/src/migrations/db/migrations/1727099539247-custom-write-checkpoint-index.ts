@@ -1,6 +1,6 @@
 import { migrations } from '@powersync/service-core';
-import { configFile } from '@powersync/service-types';
 import * as storage from '../../../storage/storage-index.js';
+import { MongoStorageConfig } from '../../../types/types.js';
 
 const INDEX_NAME = 'user_sync_rule_unique';
 
@@ -8,7 +8,7 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
   const {
     service_context: { configuration }
   } = context;
-  const db = storage.createPowerSyncMongo(configuration.storage as configFile.MongoStorageConfig);
+  const db = storage.createPowerSyncMongo(configuration.storage as MongoStorageConfig);
 
   try {
     await db.custom_write_checkpoints.createIndex(
@@ -28,7 +28,7 @@ export const down: migrations.PowerSyncMigrationFunction = async (context) => {
     service_context: { configuration }
   } = context;
 
-  const db = storage.createPowerSyncMongo(configuration.storage as configFile.MongoStorageConfig);
+  const db = storage.createPowerSyncMongo(configuration.storage as MongoStorageConfig);
 
   try {
     if (await db.custom_write_checkpoints.indexExists(INDEX_NAME)) {

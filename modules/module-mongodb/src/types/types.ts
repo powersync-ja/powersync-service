@@ -1,9 +1,6 @@
+import * as lib_mongo from '@powersync/lib-service-mongodb/types';
 import * as service_types from '@powersync/service-types';
-import { MongoStorageConfig } from '@powersync/service-types/src/config/PowerSyncConfig.js';
 import * as t from 'ts-codec';
-import { MONGO_STORAGE_TYPE, normalizeMongoConfig } from '../storage/storage-index.js';
-
-export const MONGO_CONNECTION_TYPE = 'mongodb' as const;
 
 export enum PostImagesOption {
   /**
@@ -54,18 +51,9 @@ export interface NormalizedMongoConnectionConfig {
   postImages: PostImagesOption;
 }
 
-export const MongoConnectionConfig = service_types.configFile.DataSourceConfig.and(
+export const MongoConnectionConfig = lib_mongo.BaseMongoConfig.and(service_types.configFile.DataSourceConfig).and(
   t.object({
-    type: t.literal(MONGO_CONNECTION_TYPE),
-    /** Unique identifier for the connection - optional when a single connection is present. */
-    id: t.string.optional(),
-    /** Tag used as reference in sync rules. Defaults to "default". Does not have to be unique. */
-    tag: t.string.optional(),
-    uri: t.string,
-    username: t.string.optional(),
-    password: t.string.optional(),
-    database: t.string.optional(),
-
+    // Replication specific settings
     post_images: t.literal('off').or(t.literal('auto_configure')).or(t.literal('read_only')).optional()
   })
 );
@@ -73,20 +61,21 @@ export const MongoConnectionConfig = service_types.configFile.DataSourceConfig.a
 /**
  * Config input specified when starting services
  */
-export type MongoConnectionConfig = t.Decoded<typeof MongoConnectionConfig>;
+export type MongoConnectionConfig = t.Encoded<typeof MongoConnectionConfig>;
+export type MongoConnectionConfigDecoded = t.Decoded<typeof MongoConnectionConfig>;
 
 /**
  * Resolved version of {@link MongoConnectionConfig}
  */
-export type ResolvedConnectionConfig = MongoConnectionConfig & NormalizedMongoConnectionConfig;
+export type ResolvedConnectionConfig = MongoConnectionConfigDecoded & NormalizedMongoConnectionConfig;
 
 /**
  * Validate and normalize connection options.
  *
  * Returns destructured options.
  */
-export function normalizeConnectionConfig(options: MongoConnectionConfig): NormalizedMongoConnectionConfig {
-  const base = normalizeMongoConfig(options);
+export function normalizeConnectionConfig(options: MongoConnectionConfigDecoded): NormalizedMongoConnectionConfig {
+  const base = lib_mongo.normalizeMongoConfig(options);
 
   return {
     ...base,
@@ -94,19 +83,4 @@ export function normalizeConnectionConfig(options: MongoConnectionConfig): Norma
     tag: options.tag ?? 'default',
     postImages: (options.post_images as PostImagesOption | undefined) ?? PostImagesOption.OFF
   };
-}
-
-/**
- * Construct a mongodb URI, without username, password or ssl options.
- *
- * Only contains hostname, port, database.
- */
-export function baseUri(options: NormalizedMongoConnectionConfig) {
-  return options.uri;
-}
-
-export function isMongoStorageConfig(
-  config: service_types.configFile.GenericStorageConfig
-): config is MongoStorageConfig {
-  return config.type == MONGO_STORAGE_TYPE;
 }

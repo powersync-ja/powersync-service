@@ -5,7 +5,7 @@ import { logger } from '@powersync/lib-services-framework';
 import { BucketStorageFactory, Metrics, OpId } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
 import * as pgwire from '@powersync/service-jpgwire';
-import * as mongo_module from '@powersync/service-module-mongodb';
+import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import { env } from './env.js';
 
 // The metrics need to be initialized before they can be used
@@ -38,7 +38,7 @@ export const INITIALIZED_MONGO_STORAGE_FACTORY: StorageFactory = async (options?
     await db.clear();
   }
 
-  return new mongo_module.storage.MongoBucketStorage(db, {
+  return new mongo_storage.storage.MongoBucketStorage(db, {
     slot_name_prefix: 'test_'
   });
 };
@@ -46,12 +46,12 @@ export const INITIALIZED_MONGO_STORAGE_FACTORY: StorageFactory = async (options?
 export async function connectMongo() {
   // Short timeout for tests, to fail fast when the server is not available.
   // Slightly longer timeouts for CI, to avoid arbitrary test failures
-  const client = mongo_module.storage.createMongoClient(env.MONGO_TEST_URL, {
+  const client = mongo_storage.storage.createMongoClient(env.MONGO_TEST_URL, {
     connectTimeoutMS: env.CI ? 15_000 : 5_000,
     socketTimeoutMS: env.CI ? 15_000 : 5_000,
     serverSelectionTimeoutMS: env.CI ? 15_000 : 2_500
   });
-  return new mongo_module.storage.PowerSyncMongo(client);
+  return new mongo_storage.storage.PowerSyncMongo(client);
 }
 
 export async function clearTestDb(db: pgwire.PgClient) {

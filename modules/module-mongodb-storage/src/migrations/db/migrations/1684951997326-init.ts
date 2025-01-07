@@ -1,14 +1,14 @@
+import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { migrations } from '@powersync/service-core';
-import { configFile } from '@powersync/service-types';
-import * as mongo from '../../../db/mongo.js';
 import * as storage from '../../../storage/storage-index.js';
+import { MongoStorageConfig } from '../../../types/types.js';
 
 export const up: migrations.PowerSyncMigrationFunction = async (context) => {
   const {
     service_context: { configuration }
   } = context;
-  const database = storage.createPowerSyncMongo(configuration.storage as configFile.MongoStorageConfig);
-  await mongo.waitForAuth(database.db);
+  const database = storage.createPowerSyncMongo(configuration.storage as MongoStorageConfig);
+  await lib_mongo.waitForAuth(database.db);
   try {
     await database.bucket_parameters.createIndex(
       {
@@ -28,7 +28,7 @@ export const down: migrations.PowerSyncMigrationFunction = async (context) => {
     service_context: { configuration }
   } = context;
 
-  const database = storage.createPowerSyncMongo(configuration.storage as configFile.MongoStorageConfig);
+  const database = storage.createPowerSyncMongo(configuration.storage as MongoStorageConfig);
   try {
     if (await database.bucket_parameters.indexExists('lookup')) {
       await database.bucket_parameters.dropIndex('lookup1');

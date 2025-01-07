@@ -1,7 +1,7 @@
+import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { storage as core_storage, migrations } from '@powersync/service-core';
-import { configFile } from '@powersync/service-types';
-import * as mongo from '../../../db/mongo.js';
 import * as storage from '../../../storage/storage-index.js';
+import { MongoStorageConfig } from '../../../types/types.js';
 
 interface LegacySyncRulesDocument extends storage.SyncRuleDocument {
   /**
@@ -28,9 +28,9 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
   const {
     service_context: { configuration }
   } = context;
-  const db = storage.createPowerSyncMongo(configuration.storage as configFile.MongoStorageConfig);
+  const db = storage.createPowerSyncMongo(configuration.storage as MongoStorageConfig);
 
-  await mongo.waitForAuth(db.db);
+  await lib_mongo.waitForAuth(db.db);
   try {
     // We keep the old flags for existing deployments still shutting down.
 
@@ -77,7 +77,7 @@ export const down: migrations.PowerSyncMigrationFunction = async (context) => {
     service_context: { configuration }
   } = context;
 
-  const db = storage.createPowerSyncMongo(configuration.storage as configFile.MongoStorageConfig);
+  const db = storage.createPowerSyncMongo(configuration.storage as MongoStorageConfig);
   try {
     await db.sync_rules.updateMany(
       {
