@@ -190,12 +190,6 @@ importers:
       bson:
         specifier: ^6.6.0
         version: 6.6.0
-      ix:
-        specifier: ^5.0.0
-        version: 5.0.0
-      lru-cache:
-        specifier: ^10.2.2
-        version: 10.4.3
       mongodb:
         specifier: ^6.11.0
         version: 6.11.0(socks@2.8.3)
