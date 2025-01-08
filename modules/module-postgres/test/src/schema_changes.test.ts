@@ -1,8 +1,9 @@
-import { compareIds, putOp, removeOp } from '@core-tests/stream_utils.js';
-import { reduceBucket } from '@powersync/service-core';
-import { setTimeout } from 'node:timers/promises';
+import { compareIds, putOp, reduceBucket, removeOp, test_utils } from '@powersync/service-core-tests';
+import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
-import { INITIALIZED_MONGO_STORAGE_FACTORY, StorageFactory } from './util.js';
+
+import { storage } from '@powersync/service-core';
+import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 
 describe('schema changes', { timeout: 20_000 }, function () {
@@ -16,14 +17,14 @@ bucket_definitions:
       - SELECT id, * FROM "test_data"
 `;
 
-const PUT_T1 = putOp('test_data', { id: 't1', description: 'test1' });
-const PUT_T2 = putOp('test_data', { id: 't2', description: 'test2' });
-const PUT_T3 = putOp('test_data', { id: 't3', description: 'test3' });
+const PUT_T1 = test_utils.putOp('test_data', { id: 't1', description: 'test1' });
+const PUT_T2 = test_utils.putOp('test_data', { id: 't2', description: 'test2' });
+const PUT_T3 = test_utils.putOp('test_data', { id: 't3', description: 'test3' });
 
-const REMOVE_T1 = removeOp('test_data', 't1');
-const REMOVE_T2 = removeOp('test_data', 't2');
+const REMOVE_T1 = test_utils.removeOp('test_data', 't1');
+const REMOVE_T2 = test_utils.removeOp('test_data', 't2');
 
-function defineTests(factory: StorageFactory) {
+function defineTests(factory: storage.TestStorageFactory) {
   test('re-create table', async () => {
     await using context = await WalStreamTestContext.open(factory);
 
@@ -544,7 +545,7 @@ function defineTests(factory: StorageFactory) {
     );
 
     // Need some delay for the snapshot to be triggered
-    await setTimeout(5);
+    await timers.setTimeout(5);
 
     let stop = false;
 

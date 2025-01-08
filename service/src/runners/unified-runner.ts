@@ -13,11 +13,6 @@ export const startUnifiedRunner = async (runnerConfig: core.utils.RunnerConfig) 
 
   const config = await core.utils.loadConfig(runnerConfig);
 
-  await core.migrations.ensureAutomaticMigrations({
-    config,
-    runner_config: runnerConfig
-  });
-
   const serviceContext = new core.system.ServiceContextContainer(config);
 
   registerServerServices(serviceContext);
@@ -30,6 +25,10 @@ export const startUnifiedRunner = async (runnerConfig: core.utils.RunnerConfig) 
 
   const moduleManager = container.getImplementation(core.modules.ModuleManager);
   await moduleManager.initialize(serviceContext);
+
+  await core.migrations.ensureAutomaticMigrations({
+    serviceContext
+  });
 
   logger.info('Starting service...');
   await serviceContext.lifeCycleEngine.start();

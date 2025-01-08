@@ -1,9 +1,9 @@
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
+import { ColumnDefinition } from './ExpressionType.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
-import { ColumnDefinition, ExpressionType } from './ExpressionType.js';
+import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import { toSyncRulesParameters } from './utils.js';
-import { SyncRulesOptions } from './SqlSyncRules.js';
 
 export interface SyncRules {
   evaluateRow(options: EvaluateRowOptions): EvaluationResult[];

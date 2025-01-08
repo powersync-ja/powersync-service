@@ -11,6 +11,12 @@ export * as errors from './errors/errors-index.js';
 
 export * from './logger/Logger.js';
 
+export * from './locks/locks-index.js';
+export * as locks from './locks/locks-index.js';
+
+export * from './migrations/migrations-index.js';
+export * as migrations from './migrations/migrations-index.js';
+
 export * from './schema/schema-index.js';
 export * as schema from './schema/schema-index.js';
 

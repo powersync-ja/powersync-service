@@ -1,18 +1,8 @@
 import * as types from '@module/types/types.js';
-import { BucketStorageFactory, Metrics, MongoBucketStorage, OpId } from '@powersync/service-core';
 
-import { env } from './env.js';
-import { logger } from '@powersync/lib-services-framework';
-import { connectMongo } from '@core-tests/util.js';
+import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as mongo from 'mongodb';
-
-// The metrics need to be initialized before they can be used
-await Metrics.initialise({
-  disable_telemetry_sharing: true,
-  powersync_instance_id: 'test',
-  internal_metrics_endpoint: 'unused.for.tests.com'
-});
-Metrics.getInstance().resetCounters();
+import { env } from './env.js';
 
 export const TEST_URI = env.MONGO_TEST_DATA_URL;
 
@@ -21,20 +11,10 @@ export const TEST_CONNECTION_OPTIONS = types.normalizeConnectionConfig({
   uri: TEST_URI
 });
 
-export type StorageFactory = () => Promise<BucketStorageFactory>;
-
-export const INITIALIZED_MONGO_STORAGE_FACTORY: StorageFactory = async () => {
-  const db = await connectMongo();
-
-  // None of the PG tests insert data into this collection, so it was never created
-  if (!(await db.db.listCollections({ name: db.bucket_parameters.collectionName }).hasNext())) {
-    await db.db.createCollection('bucket_parameters');
-  }
-
-  await db.clear();
-
-  return new MongoBucketStorage(db, { slot_name_prefix: 'test_' });
-};
+export const INITIALIZED_MONGO_STORAGE_FACTORY = mongo_storage.MongoTestStorageFactoryGenerator({
+  url: env.MONGO_TEST_URL,
+  isCI: env.CI
+});
 
 export async function clearTestDb(db: mongo.Db) {
   await db.dropDatabase();

@@ -1,10 +1,9 @@
-import { fromAsync } from '@core-tests/stream_utils.js';
 import { PgManager } from '@module/replication/PgManager.js';
 import { PUBLICATION_NAME, WalStream, WalStreamOptions } from '@module/replication/WalStream.js';
-import { BucketStorageFactory, OplogEntry, SyncRulesBucketStorage } from '@powersync/service-core';
+import { BucketStorageFactory, OplogEntry, storage, SyncRulesBucketStorage } from '@powersync/service-core';
+import { test_utils } from '@powersync/service-core-tests';
 import * as pgwire from '@powersync/service-jpgwire';
 import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
-import { StorageOptions } from '@core-tests/util.js';
 
 export class WalStreamTestContext implements AsyncDisposable {
   private _walStream?: WalStream;
@@ -20,7 +19,7 @@ export class WalStreamTestContext implements AsyncDisposable {
    * This configures all the context, and tears it down afterwards.
    */
   static async open(
-    factory: (options: StorageOptions) => Promise<BucketStorageFactory>,
+    factory: (options: storage.TestStorageOptions) => Promise<BucketStorageFactory>,
     options?: { doNotClear?: boolean }
   ) {
     const f = await factory({ doNotClear: options?.doNotClear });
@@ -132,7 +131,7 @@ export class WalStreamTestContext implements AsyncDisposable {
   async getBucketsDataBatch(buckets: Record<string, string>, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
     const map = new Map<string, string>(Object.entries(buckets));
-    return fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
+    return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
   /**
@@ -146,7 +145,7 @@ export class WalStreamTestContext implements AsyncDisposable {
     while (true) {
       const batch = this.storage!.getBucketDataBatch(checkpoint, map);
 
-      const batches = await fromAsync(batch);
+      const batches = await test_utils.fromAsync(batch);
       data = data.concat(batches[0]?.batch.data ?? []);
       if (batches.length == 0 || !batches[0]!.batch.has_more) {
         break;
@@ -164,7 +163,7 @@ export class WalStreamTestContext implements AsyncDisposable {
     const { checkpoint } = await this.storage!.getCheckpoint();
     const map = new Map<string, string>([[bucket, start]]);
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
-    const batches = await fromAsync(batch);
+    const batches = await test_utils.fromAsync(batch);
     return batches[0]?.batch.data ?? [];
   }
 }

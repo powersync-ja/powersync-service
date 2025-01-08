@@ -37,13 +37,15 @@
     "semver": "^7.5.4",
     "async": "^3.2.4",
     "mysql2": "^3.11.0",
-    "ts-codec": "^1.2.2",
+    "ts-codec": "^1.3.0",
     "uri-js": "^4.4.1",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
     "@types/semver": "^7.5.4",
     "@types/async": "^3.2.24",
-    "@types/uuid": "^9.0.4"
+    "@types/uuid": "^9.0.4",
+    "@powersync/service-core-tests": "workspace:*",
+    "@powersync/service-module-mongodb-storage": "workspace:*"
   }
 }

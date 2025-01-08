@@ -1,3 +1,2 @@
-export * from './definitions.js';
-export * from './executor.js';
-export * from './migrations.js';
+export * from './ensure-automatic-migrations.js';
+export * from './PowerSyncMigrationManager.js';

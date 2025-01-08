@@ -1,13 +1,13 @@
+import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { api, ParseSyncRulesOptions, SourceTable } from '@powersync/service-core';
-import * as mongo from 'mongodb';
-
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
+import * as mongo from 'mongodb';
 import { MongoManager } from '../replication/MongoManager.js';
 import { constructAfterRecord, createCheckpoint } from '../replication/MongoRelation.js';
+import { CHECKPOINTS_COLLECTION } from '../replication/replication-utils.js';
 import * as types from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
-import { CHECKPOINTS_COLLECTION } from '../replication/replication-utils.js';
 
 export class MongoRouteAPIAdapter implements api.RouteAPI {
   protected client: mongo.MongoClient;
@@ -45,7 +45,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
   async getConnectionStatus(): Promise<service_types.ConnectionStatusV2> {
     const base = {
       id: this.config.id,
-      uri: types.baseUri(this.config)
+      uri: lib_mongo.baseUri(this.config)
     };
 
     try {

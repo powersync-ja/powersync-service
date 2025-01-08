@@ -1,10 +1,12 @@
-import { MONGO_STORAGE_FACTORY } from '@core-tests/util.js';
 import { getDebugTablesInfo } from '@module/replication/replication-utils.js';
 import { expect, test } from 'vitest';
+
+// Not quite a walStreamTest, but it helps to manage the connection
+import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 
 test('validate tables', async () => {
-  await using context = await WalStreamTestContext.open(MONGO_STORAGE_FACTORY);
+  await using context = await WalStreamTestContext.open(INITIALIZED_MONGO_STORAGE_FACTORY);
   const { pool } = context;
 
   await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);

@@ -1,6 +1,8 @@
-import { LifeCycledSystem, ServiceIdentifier, container } from '@powersync/lib-services-framework';
+import { LifeCycledSystem, MigrationManager, ServiceIdentifier, container } from '@powersync/lib-services-framework';
 
+import { framework } from '../index.js';
 import * as metrics from '../metrics/Metrics.js';
+import { PowerSyncMigrationManager } from '../migrations/PowerSyncMigrationManager.js';
 import * as replication from '../replication/replication-index.js';
 import * as routes from '../routes/routes-index.js';
 import * as storage from '../storage/storage-index.js';
@@ -13,6 +15,7 @@ export interface ServiceContext {
   replicationEngine: replication.ReplicationEngine | null;
   routerEngine: routes.RouterEngine | null;
   storageEngine: storage.StorageEngine;
+  migrations: PowerSyncMigrationManager;
 }
 
 /**
@@ -30,13 +33,19 @@ export class ServiceContextContainer implements ServiceContext {
     this.storageEngine = new storage.StorageEngine({
       configuration
     });
+
+    const migrationManager = new MigrationManager();
+    container.register(framework.ContainerImplementation.MIGRATION_MANAGER, migrationManager);
+
+    this.lifeCycleEngine.withLifecycle(migrationManager, {
+      // Migrations should be executed before the system starts
+      start: () => migrationManager[Symbol.asyncDispose]()
+    });
+
     this.lifeCycleEngine.withLifecycle(this.storageEngine, {
       start: (storageEngine) => storageEngine.start(),
       stop: (storageEngine) => storageEngine.shutDown()
     });
-
-    // Mongo storage is available as an option by default TODO: Consider moving this to a Mongo Storage Module
-    this.storageEngine.registerProvider(new storage.MongoStorageProvider());
   }
 
   get replicationEngine(): replication.ReplicationEngine | null {
@@ -49,6 +58,10 @@ export class ServiceContextContainer implements ServiceContext {
 
   get metrics(): metrics.Metrics | null {
     return container.getOptional(metrics.Metrics);
+  }
+
+  get migrations(): PowerSyncMigrationManager {
+    return container.getImplementation(framework.ContainerImplementation.MIGRATION_MANAGER);
   }
 
   /**
