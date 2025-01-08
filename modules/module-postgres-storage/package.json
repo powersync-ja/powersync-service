@@ -1,0 +1,47 @@
+{
+  "name": "@powersync/service-module-postgres-storage",
+  "repository": "https://github.com/powersync-ja/powersync-service",
+  "types": "dist/@types/index.d.ts",
+  "version": "0.0.1",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "build:tests": "tsc -b test/tsconfig.json",
+    "clean": "rm -rf ./lib && tsc -b --clean",
+    "test": "vitest"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js",
+      "types": "./dist/@types/index.d.ts"
+    },
+    "./types": {
+      "import": "./dist/types/types.js",
+      "require": "./dist/types/types.js",
+      "default": "./dist/types/types.js",
+      "types": "./dist/@types/index.d.ts"
+    }
+  },
+  "dependencies": {
+    "@powersync/lib-services-framework": "workspace:*",
+    "@powersync/service-core": "workspace:*",
+    "@powersync/service-core-tests": "workspace:*",
+    "@powersync/service-jpgwire": "workspace:*",
+    "@powersync/service-jsonbig": "^0.17.10",
+    "@powersync/service-module-postgres": "workspace:*",
+    "@powersync/service-sync-rules": "workspace:*",
+    "@powersync/service-types": "workspace:*",
+    "ix": "^5.0.0",
+    "lru-cache": "^10.2.2",
+    "p-defer": "^4.0.1",
+    "ts-codec": "^1.3.0",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/uuid": "^9.0.4",
+    "typescript": "^5.2.2"
+  }
+}

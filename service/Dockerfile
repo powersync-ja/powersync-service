@@ -17,6 +17,7 @@ COPY libs/lib-services/package.json libs/lib-services/tsconfig.json libs/lib-ser
 COPY libs/lib-mongodb/package.json libs/lib-mongodb/tsconfig.json libs/lib-mongodb/
 
 COPY modules/module-postgres/package.json modules/module-postgres/tsconfig.json modules/module-postgres/
+COPY modules/module-postgres-storage/package.json modules/module-postgres-storage/tsconfig.json modules/module-postgres-storage/
 COPY modules/module-mongodb/package.json modules/module-mongodb/tsconfig.json modules/module-mongodb/
 COPY modules/module-mongodb-storage/package.json modules/module-mongodb-storage/tsconfig.json modules/module-mongodb-storage/
 COPY modules/module-mysql/package.json modules/module-mysql/tsconfig.json modules/module-mysql/
@@ -38,6 +39,7 @@ COPY libs/lib-services/src libs/lib-services/src/
 COPY libs/lib-mongodb/src libs/lib-mongodb/src/
 
 COPY modules/module-postgres/src modules/module-postgres/src/
+COPY modules/module-postgres-storage/src modules/module-postgres-storage/src/
 COPY modules/module-mongodb/src modules/module-mongodb/src/
 COPY modules/module-mongodb-storage/src modules/module-mongodb-storage/src/
 COPY modules/module-mysql/src modules/module-mysql/src/

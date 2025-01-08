@@ -30,8 +30,14 @@ importers:
         specifier: ^17.1.2
         version: 17.1.3
       prettier:
-        specifier: ^3.3.3
-        version: 3.3.3
+        specifier: ^3.4.1
+        version: 3.4.2
+      prettier-plugin-embed:
+        specifier: ^0.4.15
+        version: 0.4.15
+      prettier-plugin-sql:
+        specifier: ^0.18.1
+        version: 0.18.1(prettier@3.4.2)
       rsocket-core:
         specifier: 1.0.0-alpha.3
         version: 1.0.0-alpha.3
@@ -308,6 +314,55 @@ importers:
         specifier: ^9.0.4
         version: 9.0.8
 
+  modules/module-postgres-storage:
+    dependencies:
+      '@powersync/lib-services-framework':
+        specifier: workspace:*
+        version: link:../../libs/lib-services
+      '@powersync/service-core':
+        specifier: workspace:*
+        version: link:../../packages/service-core
+      '@powersync/service-core-tests':
+        specifier: workspace:*
+        version: link:../../packages/service-core-tests
+      '@powersync/service-jpgwire':
+        specifier: workspace:*
+        version: link:../../packages/jpgwire
+      '@powersync/service-jsonbig':
+        specifier: ^0.17.10
+        version: 0.17.10
+      '@powersync/service-module-postgres':
+        specifier: workspace:*
+        version: link:../module-postgres
+      '@powersync/service-sync-rules':
+        specifier: workspace:*
+        version: link:../../packages/sync-rules
+      '@powersync/service-types':
+        specifier: workspace:*
+        version: link:../../packages/types
+      ix:
+        specifier: ^5.0.0
+        version: 5.0.0
+      lru-cache:
+        specifier: ^10.2.2
+        version: 10.4.3
+      p-defer:
+        specifier: ^4.0.1
+        version: 4.0.1
+      ts-codec:
+        specifier: ^1.3.0
+        version: 1.3.0
+      uuid:
+        specifier: ^9.0.1
+        version: 9.0.1
+    devDependencies:
+      '@types/uuid':
+        specifier: ^9.0.4
+        version: 9.0.8
+      typescript:
+        specifier: ^5.2.2
+        version: 5.6.2
+
   packages/jpgwire:
     dependencies:
       '@powersync/service-jsonbig':
@@ -563,6 +618,9 @@ importers:
       '@powersync/service-module-postgres':
         specifier: workspace:*
         version: link:../modules/module-postgres
+      '@powersync/service-module-postgres-storage':
+        specifier: workspace:*
+        version: link:../modules/module-postgres-storage
       '@powersync/service-rsocket-router':
         specifier: workspace:*
         version: link:../packages/rsocket-router
@@ -1256,6 +1314,9 @@ packages:
     resolution: {integrity: sha512-2GjOxVws+wtbb+xFUJe4Ozzkp/f0Gsna0fje9art76bmz6yfLCW4K3Mf2/M310xMnAIp8eP9hsJ6DYwwZCo1RA==}
     engines: {node: '>=20.0.0'}
 
+  '@powersync/service-jsonbig@0.17.10':
+    resolution: {integrity: sha512-BgxgUewuw4HFCM9MzuzlIuRKHya6rimNPYqUItt7CO3ySUeUnX8Qn9eZpMxu9AT5Y8zqkSyxvduY36zZueNojg==}
+
   '@prisma/instrumentation@5.16.1':
     resolution: {integrity: sha512-4m5gRFWnQb8s/yTyGbMZkL7A5uJgqOWcWJxapwcAD0T0kh5sGPEVSQl/zTQvE9aduXhFAxOtC3gO+R8Hb5xO1Q==}
 
@@ -1924,6 +1985,14 @@ packages:
     resolution: {integrity: sha512-aW35yZM6Bb/4oJlZncMH2LCoZtJXTRxES17vE3hoRiowU2kWHaJKFkSBDnDR+cm9J+9QhXmREyIfv0pji9ejCQ==}
     engines: {node: '>=10'}
 
+  dedent@1.5.3:
+    resolution: {integrity: sha512-NHQtfOOW68WD8lgypbLA5oT+Bt0xXJhiYvoR6SmmNXZfpzOGXwdKWmcwG8N7PwVVWV3eF/68nmD9BaJSsTBhyQ==}
+    peerDependencies:
+      babel-plugin-macros: ^3.1.0
+    peerDependenciesMeta:
+      babel-plugin-macros:
+        optional: true
+
   deep-eql@5.0.2:
     resolution: {integrity: sha512-h5k/5U50IJJFpzfL6nO9jaaumfjO/f2NjK/oYB2Djzm4p9L+3T9qWpZqZ2hAbLPuuYq9wrU08WQyBTL5GbPk5Q==}
     engines: {node: '>=6'}
@@ -2099,6 +2168,10 @@ packages:
   find-my-way@7.7.0:
     resolution: {integrity: sha512-+SrHpvQ52Q6W9f3wJoJBbAQULJuNEEQwBvlvYwACDhBTLOTMiQ0HYWh4+vC3OivGP2ENcTI1oKlFA2OepJNjhQ==}
     engines: {node: '>=14'}
+
+  find-up-simple@1.0.0:
+    resolution: {integrity: sha512-q7Us7kcjj2VMePAa02hDAF6d+MzsdsAWEwYyOpwUtlerRBkOEPBCRZrAV4XfcSN8fHAgaD0hP7miwoay6DCprw==}
+    engines: {node: '>=18'}
 
   find-up@4.1.0:
     resolution: {integrity: sha512-PpOwAdQ/YlXQ2vj8a3h8IipDuYRi3wceVQQGYWxNINccq40Anw7BlsEXCMbt1Zt+OLA6Fq9suIpIWD0OsnISlw==}
@@ -2497,6 +2570,10 @@ packages:
     resolution: {integrity: sha512-p/nXbhSEcu3pZRdkW1OfJhpsVtW1gd4Wa1fnQc9YLiTfAjn0312eMKimbdIQzuZl9aa9xUGaRlP9T/CJE/ditQ==}
     engines: {node: '>=0.10.0'}
 
+  jsox@1.2.121:
+    resolution: {integrity: sha512-9Ag50tKhpTwS6r5wh3MJSAvpSof0UBr39Pto8OnzFT32Z/pAbxAsKHzyvsyMEHVslELvHyO/4/jaQELHk8wDcw==}
+    hasBin: true
+
   keyv@4.5.4:
     resolution: {integrity: sha512-oxVHkHR/EJf2CNXnWxRLW6mg7JyCCUcG0DtEGmL2ctUo1PNTin1PUil+r/+4r5MpVgC/fn1kjsx7mjSujKqIpw==}
 
@@ -2593,6 +2670,9 @@ packages:
   merge2@1.4.1:
     resolution: {integrity: sha512-8q7VEgMJW4J8tcfVPy8g09NcQwZdbwFEqhe/WZkoIzjn/3TGDwtOCYtXGxA3O8tPzpczCCDgv+P2P5y00ZJOOg==}
     engines: {node: '>= 8'}
+
+  micro-memoize@4.1.3:
+    resolution: {integrity: sha512-DzRMi8smUZXT7rCGikRwldEh6eO6qzKiPPopcr1+2EY3AYKpy5fu159PKWwIS9A6IWnrvPKDMcuFtyrroZa8Bw==}
 
   micromatch@4.0.7:
     resolution: {integrity: sha512-LPP/3KorzCwBxfeUuZmaR6bG2kdeHSbe0P2tY3FLRU4vYrjYz5hI4QZwV0njUx3jeuKe67YukQ1LSPZBKDqO/Q==}
@@ -2762,6 +2842,10 @@ packages:
     engines: {node: ^12.13 || ^14.13 || >=16}
     hasBin: true
 
+  node-sql-parser@4.18.0:
+    resolution: {integrity: sha512-2YEOR5qlI1zUFbGMLKNfsrR5JUvFg9LxIRVE+xJe962pfVLH0rnItqLzv96XVs1Y1UIR8FxsXAuvX/lYAWZ2BQ==}
+    engines: {node: '>=8'}
+
   nodemon@3.1.4:
     resolution: {integrity: sha512-wjPBbFhtpJwmIeY2yP7QF+UKzPfltVGtfce1g/bB15/8vCGZj8uxD62b/b9M9/WVgme0NZudpownKN+c0plXlQ==}
     engines: {node: '>=10'}
@@ -2872,6 +2956,10 @@ packages:
     resolution: {integrity: sha512-mlVgR3PGuzlo0MmTdk4cXqXWlwQDLnONTAg6sm62XkMJEiRxN3GL3SffkYvqwonbkJBcrI7Uvv5Zh9yjvn2iUw==}
     engines: {node: '>=12.20'}
 
+  p-defer@4.0.1:
+    resolution: {integrity: sha512-Mr5KC5efvAK5VUptYEIopP1bakB85k2IWXaRC0rsh1uwn1L6M0LVml8OIQ4Gudg4oyZakf7FmeRLkMMtZW1i5A==}
+    engines: {node: '>=12'}
+
   p-filter@2.1.0:
     resolution: {integrity: sha512-ZBxxZ5sL2HghephhpGAQdoskxplTwr7ICaehZwLIlfL6acuVgZPm8yBNuRAFBGEqtD/hmUeq9eqLg2ys9Xr/yw==}
     engines: {node: '>=8'}
@@ -2913,6 +3001,10 @@ packages:
 
   package-manager-detector@0.2.0:
     resolution: {integrity: sha512-E385OSk9qDcXhcM9LNSe4sdhx8a9mAPrZ4sMLW+tmxl5ZuGtPUcdFu+MPP2jbgiWAZ6Pfe5soGFMd+0Db5Vrog==}
+
+  package-up@5.0.0:
+    resolution: {integrity: sha512-MQEgDUvXCa3sGvqHg3pzHO8e9gqTCMPVrWUko3vPQGntwegmFo52mZb2abIVTjFnUcW0BcPz0D93jV5Cas1DWA==}
+    engines: {node: '>=18'}
 
   pacote@15.2.0:
     resolution: {integrity: sha512-rJVZeIwHTUta23sIZgEIM62WYwbmGbThdbnkt81ravBplQv+HjyroqnLRNH2+sLJHcGZmLRmhPwACqhfTcOmnA==}
@@ -3020,13 +3112,22 @@ packages:
     resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
     engines: {node: '>=0.10.0'}
 
+  prettier-plugin-embed@0.4.15:
+    resolution: {integrity: sha512-9pZVIp3bw2jw+Ge+iAMZ4j+sIVC9cPruZ93H2tj5Wa/3YDFDJ/uYyVWdUGfcFUnv28drhW2Bmome9xSGXsPKOw==}
+
+  prettier-plugin-sql@0.18.1:
+    resolution: {integrity: sha512-2+Nob2sg7hzLAKJoE6sfgtkhBZCqOzrWHZPvE4Kee/e80oOyI4qwy9vypeltqNBJwTtq3uiKPrCxlT03bBpOaw==}
+    engines: {node: ^14.18.0 || >=16.0.0}
+    peerDependencies:
+      prettier: ^3.0.3
+
   prettier@2.8.8:
     resolution: {integrity: sha512-tdN8qQGvNjw4CHbY+XXk0JgCXn9QiF21a55rBe5LJAU+kDyC4WQn4+awm2Xfk2lQMk5fKup9XgzTZtGkjBdP9Q==}
     engines: {node: '>=10.13.0'}
     hasBin: true
 
-  prettier@3.3.3:
-    resolution: {integrity: sha512-i2tDNA0O5IrMO757lfrdQZCc2jPNDVntV0m/+4whiDfWaTKfMNgR7Qz0NAeGz/nRqF4m5/6CLzbP4/liHt12Ew==}
+  prettier@3.4.2:
+    resolution: {integrity: sha512-e9MewbtFo+Fevyuxn/4rrcDAaq0IYxPGLvObpQjiZBMAzB9IGmzlnG9RZy3FFas+eBMu2vA0CszMeduow5dIuQ==}
     engines: {node: '>=14'}
     hasBin: true
 
@@ -3411,6 +3512,10 @@ packages:
   sprintf-js@1.1.3:
     resolution: {integrity: sha512-Oo+0REFV59/rz3gfJNKQiBlwfHaSESl1pcGyABQsnnIfWOFt6JNj5gCog2U6MLZ//IGYD+nA8nI+mTShREReaA==}
 
+  sql-formatter@15.4.9:
+    resolution: {integrity: sha512-5vmt2HlCAVozxsBZuXWkAki/KGawaK+b5GG5x+BtXOFVpN/8cqppblFUxHl4jxdA0cvo14lABhM+KBnrUapOlw==}
+    hasBin: true
+
   sqlstring@2.3.3:
     resolution: {integrity: sha512-qC9iz2FlN7DQl3+wjwn3802RTyjCx7sDvfQEXchwa6CWOx07/WVfh91gBmQ9fahw8snwGEWU3xGzOt4tFyHLxg==}
     engines: {node: '>= 0.6'}
@@ -3511,6 +3616,9 @@ packages:
 
   through@2.3.8:
     resolution: {integrity: sha512-w89qg7PI8wAdvX60bMDP+bFoD5Dvhm9oLheFp5O4a2QF0cSBGsBX4qZmadPMvVqlLJBBci+WqGGOAPvcDeNSVg==}
+
+  tiny-jsonc@1.0.1:
+    resolution: {integrity: sha512-ik6BCxzva9DoiEfDX/li0L2cWKPPENYvixUprFdl3YPi4bZZUhDnNI9YUkacrv+uIG90dnxR5mNqaoD6UhD6Bw==}
 
   tinybench@2.9.0:
     resolution: {integrity: sha512-0+DUvqWMValLmha6lr4kD8iAMK1HzV0/aKnCtWb9v9641TnP/MFb7Pc2bxoxQjTXAErryXVgUOfv2YqNllqGeg==}
@@ -3624,6 +3732,10 @@ packages:
   type-fest@2.19.0:
     resolution: {integrity: sha512-RAH822pAdBgcNMAfWnCBU3CFZcfZ/i1eZjwFU/dsLKumyuuP3niueg2UAukXYF0E2AAoc82ZSSf9J0WQBinzHA==}
     engines: {node: '>=12.20'}
+
+  type-fest@4.31.0:
+    resolution: {integrity: sha512-yCxltHW07Nkhv/1F6wWBr8kz+5BGMfP+RbRSYFnegVb0qV/UMT0G0ElBloPVerqn4M2ZV80Ir1FtCcYv1cT6vQ==}
+    engines: {node: '>=16'}
 
   typedarray-to-buffer@3.1.5:
     resolution: {integrity: sha512-zdu8XMNEDepKKR+XYOXAVPtWui0ly0NtohUscw+UmaHiAWT8hrV1rr//H6V+0DvJ3OQ19S979M0laLfX8rm82Q==}
@@ -4659,6 +4771,10 @@ snapshots:
       big-integer: 1.6.51
       iconv-lite: 0.6.3
 
+  '@powersync/service-jsonbig@0.17.10':
+    dependencies:
+      lossless-json: 2.0.11
+
   '@prisma/instrumentation@5.16.1':
     dependencies:
       '@opentelemetry/api': 1.8.0
@@ -4746,7 +4862,7 @@ snapshots:
       '@opentelemetry/semantic-conventions': 1.25.1
       '@prisma/instrumentation': 5.16.1
       '@sentry/core': 8.17.0
-      '@sentry/opentelemetry': 8.17.0(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.1(@opentelemetry/api@1.6.0))(@opentelemetry/instrumentation@0.52.1(@opentelemetry/api@1.6.0))(@opentelemetry/sdk-trace-base@1.25.1(@opentelemetry/api@1.6.0))(@opentelemetry/semantic-conventions@1.25.1)
+      '@sentry/opentelemetry': 8.17.0(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.1(@opentelemetry/api@1.6.0))(@opentelemetry/instrumentation@0.52.1(@opentelemetry/api@1.6.0))(@opentelemetry/sdk-trace-base@1.25.1(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.25.1)
       '@sentry/types': 8.17.0
       '@sentry/utils': 8.17.0
     optionalDependencies:
@@ -4754,7 +4870,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@sentry/opentelemetry@8.17.0(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.1(@opentelemetry/api@1.6.0))(@opentelemetry/instrumentation@0.52.1(@opentelemetry/api@1.6.0))(@opentelemetry/sdk-trace-base@1.25.1(@opentelemetry/api@1.6.0))(@opentelemetry/semantic-conventions@1.25.1)':
+  '@sentry/opentelemetry@8.17.0(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.1(@opentelemetry/api@1.6.0))(@opentelemetry/instrumentation@0.52.1(@opentelemetry/api@1.6.0))(@opentelemetry/sdk-trace-base@1.25.1(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.25.1)':
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/core': 1.25.1(@opentelemetry/api@1.9.0)
@@ -5361,6 +5477,8 @@ snapshots:
     dependencies:
       mimic-response: 3.1.0
 
+  dedent@1.5.3: {}
+
   deep-eql@5.0.2: {}
 
   deep-extend@0.6.0: {}
@@ -5556,6 +5674,8 @@ snapshots:
       fast-deep-equal: 3.1.3
       fast-querystring: 1.1.2
       safe-regex2: 2.0.0
+
+  find-up-simple@1.0.0: {}
 
   find-up@4.1.0:
     dependencies:
@@ -5940,6 +6060,8 @@ snapshots:
 
   jsonpointer@5.0.1: {}
 
+  jsox@1.2.121: {}
+
   keyv@4.5.4:
     dependencies:
       json-buffer: 3.0.1
@@ -6062,6 +6184,8 @@ snapshots:
   memory-pager@1.5.0: {}
 
   merge2@1.4.1: {}
+
+  micro-memoize@4.1.3: {}
 
   micromatch@4.0.7:
     dependencies:
@@ -6222,6 +6346,10 @@ snapshots:
     transitivePeerDependencies:
       - bluebird
       - supports-color
+
+  node-sql-parser@4.18.0:
+    dependencies:
+      big-integer: 1.6.51
 
   nodemon@3.1.4:
     dependencies:
@@ -6389,6 +6517,8 @@ snapshots:
 
   p-cancelable@3.0.0: {}
 
+  p-defer@4.0.1: {}
+
   p-filter@2.1.0:
     dependencies:
       p-map: 2.1.0
@@ -6427,6 +6557,10 @@ snapshots:
       semver: 7.6.2
 
   package-manager-detector@0.2.0: {}
+
+  package-up@5.0.0:
+    dependencies:
+      find-up-simple: 1.0.0
 
   pacote@15.2.0:
     dependencies:
@@ -6541,9 +6675,28 @@ snapshots:
     dependencies:
       xtend: 4.0.2
 
+  prettier-plugin-embed@0.4.15:
+    dependencies:
+      '@types/estree': 1.0.5
+      dedent: 1.5.3
+      micro-memoize: 4.1.3
+      package-up: 5.0.0
+      tiny-jsonc: 1.0.1
+      type-fest: 4.31.0
+    transitivePeerDependencies:
+      - babel-plugin-macros
+
+  prettier-plugin-sql@0.18.1(prettier@3.4.2):
+    dependencies:
+      jsox: 1.2.121
+      node-sql-parser: 4.18.0
+      prettier: 3.4.2
+      sql-formatter: 15.4.9
+      tslib: 2.6.3
+
   prettier@2.8.8: {}
 
-  prettier@3.3.3: {}
+  prettier@3.4.2: {}
 
   proc-log@3.0.0: {}
 
@@ -6927,6 +7080,12 @@ snapshots:
 
   sprintf-js@1.1.3: {}
 
+  sql-formatter@15.4.9:
+    dependencies:
+      argparse: 2.0.1
+      get-stdin: 8.0.0
+      nearley: 2.20.1
+
   sqlstring@2.3.3: {}
 
   ssri@10.0.6:
@@ -7022,6 +7181,8 @@ snapshots:
       xtend: 4.0.2
 
   through@2.3.8: {}
+
+  tiny-jsonc@1.0.1: {}
 
   tinybench@2.9.0: {}
 
@@ -7125,6 +7286,8 @@ snapshots:
   type-fest@1.4.0: {}
 
   type-fest@2.19.0: {}
+
+  type-fest@4.31.0: {}
 
   typedarray-to-buffer@3.1.5:
     dependencies:

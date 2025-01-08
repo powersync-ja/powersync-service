@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "declarationDir": "dist/@types",
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    "rootDir": "src",
+    "target": "ES2022",
+    "lib": ["ES2022", "esnext.disposable"],
+    "skipLibCheck": true
+  },
+  "include": ["src"],
+  "references": []
+}

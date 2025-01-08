@@ -20,6 +20,9 @@
       "path": "./modules/module-postgres"
     },
     {
+      "path": "./modules/module-postgres-storage"
+    },
+    {
       "path": "./modules/module-mysql"
     },
     {

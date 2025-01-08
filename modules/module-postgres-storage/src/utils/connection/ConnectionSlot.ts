@@ -1,0 +1,144 @@
+import { framework } from '@powersync/service-core';
+import * as pgwire from '@powersync/service-jpgwire';
+
+export const NOTIFICATION_CHANNEL = 'powersynccheckpoints';
+
+export interface NotificationListener extends framework.DisposableListener {
+  notification?: (payload: pgwire.PgNotification) => void;
+}
+
+export interface ConnectionSlotListener extends NotificationListener {
+  connectionAvailable?: () => void;
+  connectionError?: (exception: any) => void;
+}
+
+export type ConnectionLease = {
+  connection: pgwire.PgConnection;
+  release: () => void;
+};
+
+export const MAX_CONNECTION_ATTEMPTS = 5;
+
+export class ConnectionSlot extends framework.DisposableObserver<ConnectionSlotListener> {
+  isAvailable: boolean;
+  isPoking: boolean;
+
+  protected connection: pgwire.PgConnection | null;
+
+  constructor(protected config: pgwire.NormalizedConnectionConfig) {
+    super();
+    this.isAvailable = false;
+    this.connection = null;
+    this.isPoking = false;
+  }
+
+  get isConnected() {
+    return !!this.connection;
+  }
+
+  protected async connect() {
+    const connection = await pgwire.connectPgWire(this.config, { type: 'standard' });
+    if (this.hasNotificationListener()) {
+      await this.configureConnectionNotifications(connection);
+    }
+    return connection;
+  }
+
+  async [Symbol.asyncDispose]() {
+    await this.connection?.end();
+    return super[Symbol.dispose]();
+  }
+
+  protected async configureConnectionNotifications(connection: pgwire.PgConnection) {
+    if (connection.onnotification == this.handleNotification) {
+      return;
+    }
+
+    connection.onnotification = this.handleNotification;
+    await connection.query({
+      statement: `LISTEN ${NOTIFICATION_CHANNEL}`
+    });
+  }
+
+  registerListener(listener: Partial<ConnectionSlotListener>): () => void {
+    const dispose = super.registerListener(listener);
+    if (this.connection && this.hasNotificationListener()) {
+      this.configureConnectionNotifications(this.connection);
+    }
+    return () => {
+      dispose();
+      if (this.connection && !this.hasNotificationListener()) {
+        this.connection.onnotification = () => {};
+      }
+    };
+  }
+
+  protected handleNotification = (payload: pgwire.PgNotification) => {
+    this.iterateListeners((l) => l.notification?.(payload));
+  };
+
+  protected hasNotificationListener() {
+    return !!Object.values(this.listeners).find((l) => !!l.notification);
+  }
+
+  /**
+   * Test the connection if it can be reached.
+   */
+  async poke() {
+    if (this.isPoking || (this.isConnected && this.isAvailable == false)) {
+      return;
+    }
+    this.isPoking = true;
+    for (let retryCounter = 0; retryCounter <= MAX_CONNECTION_ATTEMPTS; retryCounter++) {
+      try {
+        const connection = this.connection ?? (await this.connect());
+
+        await connection.query({
+          statement: 'SELECT 1'
+        });
+
+        if (!this.connection) {
+          this.connection = connection;
+          this.setAvailable();
+        } else if (this.isAvailable) {
+          this.iterateListeners((cb) => cb.connectionAvailable?.());
+        }
+
+        // Connection is alive and healthy
+        break;
+      } catch (ex) {
+        // Should be valid for all cases
+        this.isAvailable = false;
+        if (this.connection) {
+          this.connection.onnotification = () => {};
+          this.connection.destroy();
+          this.connection = null;
+        }
+        if (retryCounter >= MAX_CONNECTION_ATTEMPTS) {
+          this.iterateListeners((cb) => cb.connectionError?.(ex));
+        }
+      }
+    }
+    this.isPoking = false;
+  }
+
+  protected setAvailable() {
+    this.isAvailable = true;
+    this.iterateListeners((l) => l.connectionAvailable?.());
+  }
+
+  lock(): ConnectionLease | null {
+    if (!this.isAvailable || !this.connection) {
+      return null;
+    }
+
+    this.isAvailable = false;
+
+    return {
+      connection: this.connection,
+      release: () => {
+        this.setAvailable();
+      }
+    };
+  }
+}
