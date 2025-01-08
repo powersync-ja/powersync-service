@@ -1,4 +1,6 @@
 declare module '@powersync/mysql-zongji' {
+  import { Socket } from 'net';
+
   export type ZongjiOptions = {
     host: string;
     user: string;
@@ -108,7 +110,15 @@ declare module '@powersync/mysql-zongji' {
 
   export type BinLogEvent = BinLogRotationEvent | BinLogGTIDLogEvent | BinLogXidEvent | BinLogMutationEvent;
 
+  // @vlasky/mysql Connection
+  export interface MySQLConnection {
+    _socket?: Socket;
+    /** There are other forms of this method as well - this is the most basic one. */
+    query(sql: string, callback: (error: any, results: any, fields: any) => void): void;
+  }
+
   export default class ZongJi {
+    connection: MySQLConnection;
     constructor(options: ZongjiOptions);
 
     start(options: StartOptions): void;
