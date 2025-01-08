@@ -37,7 +37,6 @@ export const POSTGRES_STORAGE_FACTORY = async (options?: storage.TestStorageOpti
   const mockServiceContext = { configuration: { storage: BASE_CONFIG } } as unknown as ServiceContext;
 
   if (!options?.doNotClear) {
-    console.log('Running down migrations to clear DB');
     await migrationManager.migrate({
       direction: framework.migrations.Direction.Down,
       migrationContext: {
