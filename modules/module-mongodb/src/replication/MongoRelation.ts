@@ -97,7 +97,7 @@ function filterJsonData(data: any, depth = 0): any {
   const autoBigNum = true;
   if (depth > DEPTH_LIMIT) {
     // This is primarily to prevent infinite recursion
-    throw new ServiceError('PSYNC_S1311', `json nested object depth exceeds the limit of ${DEPTH_LIMIT}`);
+    throw new ServiceError('PSYNC_S1004', `json nested object depth exceeds the limit of ${DEPTH_LIMIT}`);
   }
   if (data === null) {
     return data;

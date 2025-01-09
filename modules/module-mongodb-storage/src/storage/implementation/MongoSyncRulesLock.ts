@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 
-import { logger } from '@powersync/lib-services-framework';
+import { logger, ServiceError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import { PowerSyncMongo } from './db.js';
 
@@ -33,7 +33,10 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
     );
 
     if (doc == null) {
-      throw new Error(`Sync rules: ${sync_rules.id} have been locked by another process for replication.`);
+      throw new ServiceError(
+        'PSYNC_S1003',
+        `Sync rules: ${sync_rules.id} have been locked by another process for replication.`
+      );
     }
     return new MongoSyncRulesLock(db, sync_rules.id, lockId);
   }
