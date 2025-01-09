@@ -1,3 +1,4 @@
+import { ReplicationAssertionError, ServiceError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import { PgoutputRelation } from '@powersync/service-jpgwire';
 
@@ -16,7 +17,7 @@ export function getRelId(source: PgoutputRelation): number {
   // Source types are wrong here
   const relId = (source as any).relationOid as number;
   if (!relId) {
-    throw new Error(`No relation id!`);
+    throw new ReplicationAssertionError(`No relation id found`);
   }
   return relId;
 }

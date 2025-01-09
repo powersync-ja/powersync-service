@@ -3,7 +3,7 @@ import * as bson from 'bson';
 import * as mongo from 'mongodb';
 
 import * as lib_mongo from '@powersync/lib-service-mongodb';
-import { DisposableObserver, logger } from '@powersync/lib-services-framework';
+import { DisposableObserver, logger, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
 import * as timers from 'timers/promises';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
@@ -345,7 +345,7 @@ export class MongoSyncBucketStorage
 
         start ??= dataBuckets.get(bucket);
         if (start == null) {
-          throw new Error(`data for unexpected bucket: ${bucket}`);
+          throw new ServiceAssertionError(`data for unexpected bucket: ${bucket}`);
         }
         currentBatch = {
           bucket,
@@ -480,7 +480,7 @@ export class MongoSyncBucketStorage
       }
     );
     if (doc == null) {
-      throw new Error('Cannot find sync rules status');
+      throw new ServiceAssertionError('Cannot find sync rules status');
     }
 
     return {

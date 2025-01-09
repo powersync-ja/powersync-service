@@ -37,7 +37,13 @@ export class ServiceError extends Error {
     return input instanceof ServiceError || input?.is_service_error == true;
   }
 
-  private static errorMessage(data: ErrorData) {
+  private static errorMessage(data: ErrorData | ServiceErrorCode, description?: string) {
+    if (typeof data == 'string') {
+      data = {
+        code: data,
+        description: description!
+      };
+    }
     let message = `[${data.code}] ${data.description}`;
     if (data.details) {
       message += `\n  ${data.details}`;
@@ -45,9 +51,17 @@ export class ServiceError extends Error {
     return message;
   }
 
-  constructor(data: ErrorData) {
-    super(ServiceError.errorMessage(data));
+  constructor(data: ErrorData);
+  constructor(code: ServiceErrorCode, description: string);
 
+  constructor(data: ErrorData | ServiceErrorCode, description?: string) {
+    super(ServiceError.errorMessage(data, description));
+    if (typeof data == 'string') {
+      data = {
+        code: data,
+        description: description!
+      };
+    }
     this.errorData = data;
     if (data.stack) {
       this.stack = data.stack;
@@ -93,6 +107,58 @@ export class ValidationError extends ServiceError {
       status: 400,
       description: 'Validation failed',
       details: JSON.stringify(errors)
+    });
+  }
+}
+
+/**
+ * Use for replication errors that are never expected to happen in production.
+ *
+ * If it does happen, it is either:
+ * 1. A bug in the code that should be fixed.
+ * 2. An error that needs a different error code.
+ */
+export class ReplicationAssertionError extends ServiceError {
+  static readonly CODE = 'PSYNC_S1101';
+  constructor(description: string) {
+    super({
+      code: ReplicationAssertionError.CODE,
+      status: 500,
+      description: description
+    });
+  }
+}
+
+/**
+ * Use for general service errors that are never expected to happen in production.
+ *
+ * If it does happen, it is either:
+ * 1. A bug in the code that should be fixed.
+ * 2. An error that needs a different error code.
+ */
+export class ServiceAssertionError extends ServiceError {
+  static readonly CODE = 'PSYNC_S1001';
+  constructor(description: string) {
+    super({
+      code: ServiceAssertionError.CODE,
+      status: 500,
+      description: description
+    });
+  }
+}
+
+/**
+ * Indicates replication is aborted.
+ *
+ * This is not an actual error - rather just an indication
+ * that something requested the replication should stop.
+ */
+export class ReplicationAbortedError extends ServiceError {
+  static readonly CODE = 'PSYNC_S1103';
+  constructor(description?: string) {
+    super({
+      code: ReplicationAbortedError.CODE,
+      description: description ?? 'Replication aborted'
     });
   }
 }

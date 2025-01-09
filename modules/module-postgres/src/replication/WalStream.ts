@@ -1,4 +1,10 @@
-import { container, errors, logger } from '@powersync/lib-services-framework';
+import {
+  container,
+  errors,
+  logger,
+  ReplicationAbortedError,
+  ReplicationAssertionError
+} from '@powersync/lib-services-framework';
 import { getUuidReplicaIdentityBson, Metrics, SourceEntityDescriptor, storage } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
@@ -131,7 +137,7 @@ export class WalStream {
     for (let row of tableRows) {
       const name = row.table_name as string;
       if (typeof row.relid != 'bigint') {
-        throw new Error(`missing relid for ${name}`);
+        throw new ReplicationAssertionError(`Missing relid for ${name}`);
       }
       const relid = Number(row.relid as bigint);
 
@@ -292,7 +298,7 @@ export class WalStream {
       }
     }
 
-    throw new Error('Unreachable');
+    throw new ReplicationAssertionError('Unreachable');
   }
 
   async estimatedCount(db: pgwire.PgConnection, table: storage.SourceTable): Promise<string> {
@@ -413,7 +419,7 @@ WHERE  oid = $1::regclass`,
         lastLogIndex = at;
       }
       if (this.abort_signal.aborted) {
-        throw new Error(`Aborted initial replication of ${this.slot_name}`);
+        throw new ReplicationAbortedError(`Aborted initial replication of ${this.slot_name}`);
       }
 
       for (const record of WalStream.getQueryData(rows)) {
@@ -439,7 +445,7 @@ WHERE  oid = $1::regclass`,
 
   async handleRelation(batch: storage.BucketStorageBatch, descriptor: SourceEntityDescriptor, snapshot: boolean) {
     if (!descriptor.objectId && typeof descriptor.objectId != 'number') {
-      throw new Error('objectId expected');
+      throw new ReplicationAssertionError(`objectId expected, got ${typeof descriptor.objectId}`);
     }
     const result = await this.storage.resolveTable({
       group_id: this.group_id,
@@ -482,6 +488,7 @@ WHERE  oid = $1::regclass`,
           await db.query('COMMIT');
         } catch (e) {
           await db.query('ROLLBACK');
+          // TODO: Wrap with custom error type
           throw e;
         }
       } finally {
@@ -499,7 +506,7 @@ WHERE  oid = $1::regclass`,
     if (table == null) {
       // We should always receive a replication message before the relation is used.
       // If we can't find it, it's a bug.
-      throw new Error(`Missing relation cache for ${relationId}`);
+      throw new ReplicationAssertionError(`Missing relation cache for ${relationId}`);
     }
     return table;
   }
