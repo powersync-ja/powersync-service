@@ -324,7 +324,10 @@ export class PostgresBucketBatch
         last_fatal_error = ${{ type: 'varchar', value: update.last_fatal_error }},
         snapshot_done = ${{ type: 'bool', value: update.snapshot_done }},
         last_keepalive_ts = ${{ type: 1184, value: update.last_keepalive_ts }},
-        last_checkpoint = ${{ type: 'int8', value: update.last_checkpoint }},
+        last_checkpoint = COALESCE(
+          ${{ type: 'int8', value: update.last_checkpoint }},
+          last_checkpoint
+        ),
         last_checkpoint_ts = ${{ type: 1184, value: update.last_checkpoint_ts }},
         last_checkpoint_lsn = ${{ type: 'varchar', value: update.last_checkpoint_lsn }}
       WHERE

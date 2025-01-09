@@ -35,6 +35,7 @@ export class ChangeStreamTestContext {
 
   async dispose() {
     this.abortController.abort();
+    this.factory[Symbol.dispose]();
     await this.streamPromise?.catch((e) => e);
     await this.connectionManager.destroy();
   }
@@ -141,6 +142,7 @@ export async function getClientCheckpoint(
 ): Promise<OpId> {
   const start = Date.now();
   const lsn = await createCheckpoint(client, db);
+  console.log('created checkpoint pushing lsn to', lsn);
   // This old API needs a persisted checkpoint id.
   // Since we don't use LSNs anymore, the only way to get that is to wait.
 
@@ -154,9 +156,11 @@ export async function getClientCheckpoint(
       throw new Error('No sync rules available');
     }
     if (cp.lsn && cp.lsn >= lsn) {
+      console.log('active checkpoint has replicated created checkpoint', cp?.lsn);
       return cp.checkpoint;
     }
 
+    console.log('active checkpoint is still behind created checkpoint', cp?.lsn);
     await new Promise((resolve) => setTimeout(resolve, 30));
   }
 
