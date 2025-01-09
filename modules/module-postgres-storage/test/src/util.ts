@@ -1,9 +1,8 @@
-import { framework, PowerSyncMigrationManager, ServiceContext, storage } from '@powersync/service-core';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { normalizePostgresStorageConfig } from '../../src//types/types.js';
 import { PostgresMigrationAgent } from '../../src/migrations/PostgresMigrationAgent.js';
-import { PostgresBucketStorageFactory } from '../../src/storage/PostgresBucketStorageFactory.js';
+import { PostgresTestStorageFactoryGenerator } from '../../src/storage/PostgresTestStorageFactoryGenerator.js';
 import { env } from './env.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -29,34 +28,7 @@ class TestPostgresMigrationAgent extends PostgresMigrationAgent {
   }
 }
 
-export const POSTGRES_STORAGE_FACTORY = async (options?: storage.TestStorageOptions) => {
-  const migrationManager: PowerSyncMigrationManager = new framework.MigrationManager();
-  await using migrationAgent = new TestPostgresMigrationAgent(BASE_CONFIG);
-  migrationManager.registerMigrationAgent(migrationAgent);
-
-  const mockServiceContext = { configuration: { storage: BASE_CONFIG } } as unknown as ServiceContext;
-
-  if (!options?.doNotClear) {
-    await migrationManager.migrate({
-      direction: framework.migrations.Direction.Down,
-      migrationContext: {
-        service_context: mockServiceContext
-      }
-    });
-  }
-
-  // In order to run up migration after
-  await migrationAgent.resetStore();
-
-  await migrationManager.migrate({
-    direction: framework.migrations.Direction.Up,
-    migrationContext: {
-      service_context: mockServiceContext
-    }
-  });
-
-  return new PostgresBucketStorageFactory({
-    config: TEST_CONNECTION_OPTIONS,
-    slot_name_prefix: 'test_'
-  });
-};
+export const POSTGRES_STORAGE_FACTORY = PostgresTestStorageFactoryGenerator({
+  url: env.PG_STORAGE_TEST_URL,
+  migrationAgent: (config) => new TestPostgresMigrationAgent(config)
+});

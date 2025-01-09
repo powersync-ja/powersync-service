@@ -1,4 +1,5 @@
 import * as pgwire from '@powersync/service-jpgwire';
+import { pg_utils } from '@powersync/service-module-postgres';
 import * as pg_types from '@powersync/service-module-postgres/types';
 import pDefer, { DeferredPromise } from 'p-defer';
 import { AbstractPostgresConnection, sql } from './AbstractPostgresConnection.js';
@@ -67,7 +68,9 @@ export class DatabaseClient extends AbstractPostgresConnection<NotificationListe
    */
   async query(...args: pgwire.Statement[]): Promise<pgwire.PgResult> {
     await this.initialized;
-    return super.query(...[SCHEMA_STATEMENT, ...args]);
+    // Retry pool queries. Note that we can't retry queries in a transaction
+    // since a failed query will end the transaction.
+    return pg_utils.retriedQuery(this.pool, ...[SCHEMA_STATEMENT, ...args]);
   }
 
   async *stream(...args: pgwire.Statement[]): AsyncIterableIterator<pgwire.PgChunk> {

@@ -1,6 +1,5 @@
 import * as framework from '@powersync/lib-services-framework';
 import * as pgwire from '@powersync/service-jpgwire';
-import { pg_utils } from '@powersync/service-module-postgres';
 import * as t from 'ts-codec';
 
 export type DecodedSQLQueryExecutor<T extends t.Codec<any, any>> = {
@@ -18,7 +17,7 @@ export abstract class AbstractPostgresConnection<
   }
 
   query(...args: pgwire.Statement[]): Promise<pgwire.PgResult> {
-    return pg_utils.retriedQuery(this.baseConnection, ...args);
+    return this.baseConnection.query(...args);
   }
 
   /**

@@ -7,6 +7,7 @@ import {
   connectPgPool,
   getClientCheckpoint,
   INITIALIZED_MONGO_STORAGE_FACTORY,
+  INITIALIZED_POSTGRES_STORAGE_FACTORY,
   TEST_CONNECTION_OPTIONS
 } from './util.js';
 
@@ -19,11 +20,22 @@ import { test_utils } from '@powersync/service-core-tests';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as timers from 'node:timers/promises';
 
-describe('slow tests - mongodb', function () {
+describe.skipIf(!env.TEST_MONGO_STORAGE)('slow tests - mongodb', function () {
   // These are slow, inconsistent tests.
   // Not run on every test run, but we do run on CI, or when manually debugging issues.
   if (env.CI || env.SLOW_TESTS) {
     defineSlowTests(INITIALIZED_MONGO_STORAGE_FACTORY);
+  } else {
+    // Need something in this file.
+    test('no-op', () => {});
+  }
+});
+
+describe.skipIf(!env.TEST_POSTGRES_STORAGE)('slow tests - postgres', function () {
+  // These are slow, inconsistent tests.
+  // Not run on every test run, but we do run on CI, or when manually debugging issues.
+  if (env.CI || env.SLOW_TESTS) {
+    defineSlowTests(INITIALIZED_POSTGRES_STORAGE_FACTORY);
   } else {
     // Need something in this file.
     test('no-op', () => {});

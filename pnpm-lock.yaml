@@ -163,6 +163,9 @@ importers:
       '@powersync/service-module-mongodb-storage':
         specifier: workspace:*
         version: link:../module-mongodb-storage
+      '@powersync/service-module-postgres-storage':
+        specifier: workspace:*
+        version: link:../module-postgres-storage
       '@types/uuid':
         specifier: ^9.0.4
         version: 9.0.8
@@ -258,6 +261,9 @@ importers:
       '@powersync/service-module-mongodb-storage':
         specifier: workspace:*
         version: link:../module-mongodb-storage
+      '@powersync/service-module-postgres-storage':
+        specifier: workspace:*
+        version: link:../module-postgres-storage
       '@types/async':
         specifier: ^3.2.24
         version: 3.2.24
@@ -310,6 +316,9 @@ importers:
       '@powersync/service-module-mongodb-storage':
         specifier: workspace:*
         version: link:../module-mongodb-storage
+      '@powersync/service-module-postgres-storage':
+        specifier: workspace:*
+        version: link:../module-postgres-storage
       '@types/uuid':
         specifier: ^9.0.4
         version: 9.0.8
@@ -4862,7 +4871,7 @@ snapshots:
       '@opentelemetry/semantic-conventions': 1.25.1
       '@prisma/instrumentation': 5.16.1
       '@sentry/core': 8.17.0
-      '@sentry/opentelemetry': 8.17.0(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.1(@opentelemetry/api@1.6.0))(@opentelemetry/instrumentation@0.52.1(@opentelemetry/api@1.6.0))(@opentelemetry/sdk-trace-base@1.25.1(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.25.1)
+      '@sentry/opentelemetry': 8.17.0(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.1(@opentelemetry/api@1.6.0))(@opentelemetry/instrumentation@0.52.1(@opentelemetry/api@1.6.0))(@opentelemetry/sdk-trace-base@1.25.1(@opentelemetry/api@1.6.0))(@opentelemetry/semantic-conventions@1.25.1)
       '@sentry/types': 8.17.0
       '@sentry/utils': 8.17.0
     optionalDependencies:
@@ -4870,7 +4879,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@sentry/opentelemetry@8.17.0(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.1(@opentelemetry/api@1.6.0))(@opentelemetry/instrumentation@0.52.1(@opentelemetry/api@1.6.0))(@opentelemetry/sdk-trace-base@1.25.1(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.25.1)':
+  '@sentry/opentelemetry@8.17.0(@opentelemetry/api@1.9.0)(@opentelemetry/core@1.25.1(@opentelemetry/api@1.6.0))(@opentelemetry/instrumentation@0.52.1(@opentelemetry/api@1.6.0))(@opentelemetry/sdk-trace-base@1.25.1(@opentelemetry/api@1.6.0))(@opentelemetry/semantic-conventions@1.25.1)':
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/core': 1.25.1(@opentelemetry/api@1.9.0)
