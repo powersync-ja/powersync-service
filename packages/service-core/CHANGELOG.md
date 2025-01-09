@@ -1,5 +1,23 @@
 # @powersync/service-core
 
+## 0.14.0
+
+### Minor Changes
+
+- fea550f: Moved MongoDB sync bucket storage implementation to the MongoDB module.
+
+### Patch Changes
+
+- fea550f: Updated ts-codec to 1.3.0 for better decode error responses
+- 48320b5: MongoDB: Fix replication of undefined values causing missing documents
+- Updated dependencies [fea550f]
+- Updated dependencies [fea550f]
+- Updated dependencies [fea550f]
+  - @powersync/lib-services-framework@0.3.0
+  - @powersync/service-sync-rules@0.23.1
+  - @powersync/service-types@0.7.0
+  - @powersync/service-rsocket-router@0.0.15
+
 ## 0.13.0
 
 ### Minor Changes

@@ -1,5 +1,13 @@
 # @powersync/service-rsocket-router
 
+## 0.0.15
+
+### Patch Changes
+
+- Updated dependencies [fea550f]
+- Updated dependencies [fea550f]
+  - @powersync/lib-services-framework@0.3.0
+
 ## 0.0.14
 
 ### Patch Changes

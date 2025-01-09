@@ -1,5 +1,14 @@
 # test-client
 
+## 0.1.19
+
+### Patch Changes
+
+- Updated dependencies [fea550f]
+- Updated dependencies [fea550f]
+- Updated dependencies [48320b5]
+  - @powersync/service-core@0.14.0
+
 ## 0.1.18
 
 ### Patch Changes
