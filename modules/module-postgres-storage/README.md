@@ -26,11 +26,12 @@ storage:
   uri: !env PS_STORAGE_SOURCE_URI
 ```
 
+**IMPORTANT**:
 A separate Postgres server is currently required for replication connections (if using Postgres for replication) and storage. Using the same server might cause unexpected results.
 
 ### Connection credentials
 
-The Postgres bucket storage implementation requires write access to the provided Postgres database. The module will create a `powersync` schema in the provided database which will contain all the tables and data used for bucket storage. Ensure that the provided credentials specified in the `uri` or `username`, `password` configuration fields has the appropriate write access.
+The Postgres bucket storage implementation requires write access to the provided Postgres database. The module will create a `powersync` schema in the provided database which will contain all the tables and data used for bucket storage. Ensure that the provided credentials specified in the `uri` or `username`, `password` configuration fields have the appropriate write access.
 
 A sample user could be created with:
 
