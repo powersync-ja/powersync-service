@@ -1,18 +1,23 @@
+import * as lib_postgres from '@powersync/lib-service-postgres';
 import * as pgwire from '@powersync/service-jpgwire';
-import { pg_utils } from '@powersync/service-module-postgres';
-import * as pg_types from '@powersync/service-module-postgres/types';
 import pDefer, { DeferredPromise } from 'p-defer';
 import { AbstractPostgresConnection, sql } from './AbstractPostgresConnection.js';
 import { ConnectionLease, ConnectionSlot, NotificationListener } from './ConnectionSlot.js';
 import { WrappedConnection } from './WrappedConnection.js';
 
-export const TRANSACTION_CONNECTION_COUNT = 5;
-
-export const STORAGE_SCHEMA_NAME = 'powersync';
-
-const SCHEMA_STATEMENT: pgwire.Statement = {
-  statement: `SET search_path TO ${STORAGE_SCHEMA_NAME};`
+export type DatabaseClientOptions = {
+  config: lib_postgres.NormalizedBasePostgresConnectionConfig;
+  /**
+   * Optional schema which will be used as the default search path
+   */
+  schema?: string;
+  /**
+   * Notification channels to listen to.
+   */
+  notificationChannels?: string[];
 };
+
+export const TRANSACTION_CONNECTION_COUNT = 5;
 
 export class DatabaseClient extends AbstractPostgresConnection<NotificationListener> {
   closed: boolean;
@@ -23,12 +28,12 @@ export class DatabaseClient extends AbstractPostgresConnection<NotificationListe
   protected initialized: Promise<void>;
   protected queue: DeferredPromise<ConnectionLease>[];
 
-  constructor(protected config: pg_types.NormalizedPostgresConnectionConfig) {
+  constructor(protected options: DatabaseClientOptions) {
     super();
     this.closed = false;
-    this.pool = pgwire.connectPgWirePool(this.config, {});
+    this.pool = pgwire.connectPgWirePool(options.config);
     this.connections = Array.from({ length: TRANSACTION_CONNECTION_COUNT }, () => {
-      const slot = new ConnectionSlot(config);
+      const slot = new ConnectionSlot({ config: options.config, notificationChannels: options.notificationChannels });
       slot.registerListener({
         connectionAvailable: () => this.processConnectionQueue(),
         connectionError: (ex) => this.handleConnectionError(ex)
@@ -41,6 +46,16 @@ export class DatabaseClient extends AbstractPostgresConnection<NotificationListe
 
   protected get baseConnection() {
     return this.pool;
+  }
+
+  protected get schemaStatement() {
+    const { schema } = this.options;
+    if (!schema) {
+      return;
+    }
+    return {
+      statement: `SET search_path TO ${schema};`
+    };
   }
 
   registerListener(listener: Partial<NotificationListener>): () => void {
@@ -70,12 +85,20 @@ export class DatabaseClient extends AbstractPostgresConnection<NotificationListe
     await this.initialized;
     // Retry pool queries. Note that we can't retry queries in a transaction
     // since a failed query will end the transaction.
-    return pg_utils.retriedQuery(this.pool, ...[SCHEMA_STATEMENT, ...args]);
+    const { schemaStatement } = this;
+    if (schemaStatement) {
+      args.unshift(schemaStatement);
+    }
+    return lib_postgres.retriedQuery(this.pool, ...args);
   }
 
   async *stream(...args: pgwire.Statement[]): AsyncIterableIterator<pgwire.PgChunk> {
     await this.initialized;
-    yield* super.stream(...[SCHEMA_STATEMENT, ...args]);
+    const { schemaStatement } = this;
+    if (schemaStatement) {
+      args.unshift(schemaStatement);
+    }
+    yield* super.stream(...args);
   }
 
   async lockConnection<T>(callback: (db: WrappedConnection) => Promise<T>): Promise<T> {
@@ -108,12 +131,18 @@ export class DatabaseClient extends AbstractPostgresConnection<NotificationListe
    * Use the `powersync` schema as the default when resolving table names
    */
   protected async setSchema(client: pgwire.PgClient) {
-    await client.query(SCHEMA_STATEMENT);
+    const { schemaStatement } = this;
+    if (!schemaStatement) {
+      return;
+    }
+    await client.query(schemaStatement);
   }
 
   protected async initialize() {
-    // Create the schema if it doesn't exist
-    await this.pool.query({ statement: `CREATE SCHEMA IF NOT EXISTS ${STORAGE_SCHEMA_NAME}` });
+    if (this.options.schema) {
+      // Create the schema if it doesn't exist
+      await this.pool.query({ statement: `CREATE SCHEMA IF NOT EXISTS ${this.options.schema}` });
+    }
   }
 
   protected async requestConnection(): Promise<ConnectionLease> {

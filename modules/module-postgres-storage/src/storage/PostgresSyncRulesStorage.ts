@@ -1,3 +1,4 @@
+import * as lib_postgres from '@powersync/lib-service-postgres';
 import { DisposableObserver } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
@@ -7,7 +8,7 @@ import { bigint, BIGINT_MAX } from '../types/codecs.js';
 import { models, RequiredOperationBatchLimits } from '../types/types.js';
 import { replicaIdToSubkey } from '../utils/bson.js';
 import { mapOpEntry } from '../utils/bucket-data.js';
-import { DatabaseClient } from '../utils/connection/DatabaseClient.js';
+
 import { pick } from '../utils/ts-codec.js';
 import { PostgresBucketBatch } from './batch/PostgresBucketBatch.js';
 import { PostgresWriteCheckpointAPI } from './checkpoints/PostgresWriteCheckpointAPI.js';
@@ -16,7 +17,7 @@ import { PostgresCompactor } from './PostgresCompactor.js';
 
 export type PostgresSyncRulesStorageOptions = {
   factory: PostgresBucketStorageFactory;
-  db: DatabaseClient;
+  db: lib_postgres.DatabaseClient;
   sync_rules: storage.PersistedSyncRulesContent;
   write_checkpoint_mode?: storage.WriteCheckpointMode;
   batchLimits: RequiredOperationBatchLimits;
@@ -31,7 +32,7 @@ export class PostgresSyncRulesStorage
   public readonly slot_name: string;
   public readonly factory: PostgresBucketStorageFactory;
 
-  protected db: DatabaseClient;
+  protected db: lib_postgres.DatabaseClient;
   protected writeCheckpointAPI: PostgresWriteCheckpointAPI;
 
   //   TODO we might be able to share this in an abstract class

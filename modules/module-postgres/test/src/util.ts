@@ -1,6 +1,6 @@
 import { PostgresRouteAPIAdapter } from '@module/api/PostgresRouteAPIAdapter.js';
 import * as types from '@module/types/types.js';
-import * as pg_utils from '@module/utils/pgwire_utils.js';
+import * as lib_postgres from '@powersync/lib-service-postgres';
 import { logger } from '@powersync/lib-services-framework';
 import { BucketStorageFactory, OpId } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
@@ -45,7 +45,7 @@ export async function clearTestDb(db: pgwire.PgClient) {
   for (let row of tableRows) {
     const name = row.table_name;
     if (name.startsWith('test_')) {
-      await db.query(`DROP TABLE public.${pg_utils.escapeIdentifier(name)}`);
+      await db.query(`DROP TABLE public.${lib_postgres.escapeIdentifier(name)}`);
     }
   }
 }

@@ -1,3 +1,4 @@
+import * as lib_postgres from '@powersync/lib-service-postgres';
 import { container, DisposableObserver, errors, logger } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
@@ -5,17 +6,13 @@ import * as timers from 'timers/promises';
 import * as t from 'ts-codec';
 import { CurrentBucket, CurrentData, CurrentDataDecoded } from '../../types/models/CurrentData.js';
 import { models, RequiredOperationBatchLimits } from '../../types/types.js';
-import { sql } from '../../utils/connection/AbstractPostgresConnection.js';
-import { NOTIFICATION_CHANNEL } from '../../utils/connection/ConnectionSlot.js';
-import { DatabaseClient } from '../../utils/connection/DatabaseClient.js';
-import { WrappedConnection } from '../../utils/connection/WrappedConnection.js';
+import { NOTIFICATION_CHANNEL } from '../../utils/db.js';
 import { pick } from '../../utils/ts-codec.js';
 import { batchCreateCustomWriteCheckpoints } from '../checkpoints/PostgresWriteCheckpointAPI.js';
 import { cacheKey, encodedCacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PostgresPersistedBatch } from './PostgresPersistedBatch.js';
-
 export interface PostgresBucketBatchOptions {
-  db: DatabaseClient;
+  db: lib_postgres.DatabaseClient;
   sync_rules: sync_rules.SqlSyncRules;
   group_id: number;
   slot_name: string;
@@ -46,7 +43,7 @@ export class PostgresBucketBatch
 {
   public last_flushed_op: bigint | null = null;
 
-  protected db: DatabaseClient;
+  protected db: lib_postgres.DatabaseClient;
   protected group_id: number;
   protected last_checkpoint_lsn: string | null;
   protected no_checkpoint_before_lsn: string;
@@ -148,7 +145,7 @@ export class PostgresBucketBatch
 
     while (lastBatchCount == BATCH_LIMIT) {
       lastBatchCount = 0;
-      for await (const rows of this.db.streamRows<t.Encoded<typeof codec>>(sql`
+      for await (const rows of this.db.streamRows<t.Encoded<typeof codec>>(lib_postgres.sql`
         SELECT
           buckets,
           lookups,
@@ -445,7 +442,7 @@ export class PostgresBucketBatch
     });
   }
 
-  protected async replicateBatch(db: WrappedConnection, batch: OperationBatch) {
+  protected async replicateBatch(db: lib_postgres.WrappedConnection, batch: OperationBatch) {
     let sizes: Map<string, number> | undefined = undefined;
     if (this.options.store_current_data && !this.options.skip_existing_rows) {
       // We skip this step if we don't store current_data, since the sizes will
@@ -472,7 +469,7 @@ export class PostgresBucketBatch
         source_table: string;
         source_key: storage.ReplicaId;
         data_size: number;
-      }>(sql`
+      }>(lib_postgres.sql`
         WITH
           filter_data AS (
             SELECT
@@ -854,7 +851,9 @@ export class PostgresBucketBatch
     );
   }
 
-  protected async withReplicationTransaction<T>(callback: (tx: WrappedConnection) => Promise<T>): Promise<T> {
+  protected async withReplicationTransaction<T>(
+    callback: (tx: lib_postgres.WrappedConnection) => Promise<T>
+  ): Promise<T> {
     try {
       return await this.db.transaction(async (db) => {
         return await callback(db);
@@ -875,7 +874,7 @@ export class PostgresBucketBatch
  * Uses Postgres' NOTIFY functionality to update different processes when the
  * active checkpoint has been updated.
  */
-export const notifySyncRulesUpdate = async (db: DatabaseClient, update: StatefulCheckpointDecoded) => {
+export const notifySyncRulesUpdate = async (db: lib_postgres.DatabaseClient, update: StatefulCheckpointDecoded) => {
   if (update.state != storage.SyncRuleState.ACTIVE) {
     return;
   }

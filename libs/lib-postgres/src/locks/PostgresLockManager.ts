@@ -1,7 +1,6 @@
-import { framework } from '@powersync/service-core';
+import * as framework from '@powersync/lib-services-framework';
 import { v4 as uuidv4 } from 'uuid';
-import { sql } from '../utils/connection/AbstractPostgresConnection.js';
-import { DatabaseClient } from '../utils/connection/DatabaseClient.js';
+import { DatabaseClient, sql } from '../db/db-index.js';
 
 const DEFAULT_LOCK_TIMEOUT = 60_000; // 1 minute
 

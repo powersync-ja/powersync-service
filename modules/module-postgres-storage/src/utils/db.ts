@@ -1,6 +1,15 @@
-import { DatabaseClient } from './connection/DatabaseClient.js';
+import * as lib_postgres from '@powersync/lib-service-postgres';
 
-export const dropTables = async (client: DatabaseClient) => {
+export const STORAGE_SCHEMA_NAME = 'powersync';
+
+export const NOTIFICATION_CHANNEL = 'powersynccheckpoints';
+
+/**
+ * Re export for prettier to detect the tag better
+ */
+export const sql = lib_postgres.sql;
+
+export const dropTables = async (client: lib_postgres.DatabaseClient) => {
   // Lock a connection for automatic schema search paths
   await client.lockConnection(async (db) => {
     await db.sql`DROP TABLE IF EXISTS bucket_data`.execute();

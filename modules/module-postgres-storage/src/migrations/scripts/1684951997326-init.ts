@@ -1,13 +1,13 @@
 import { migrations } from '@powersync/service-core';
-import { PostgresConnectionConfig, normalizeConnectionConfig } from '@powersync/service-module-postgres/types';
-import { DatabaseClient } from '../../utils/connection/DatabaseClient.js';
+
 import { dropTables } from '../../utils/db.js';
+import { openMigrationDB } from '../migration-utils.js';
 
 export const up: migrations.PowerSyncMigrationFunction = async (context) => {
   const {
     service_context: { configuration }
   } = context;
-  await using client = new DatabaseClient(normalizeConnectionConfig(configuration.storage as PostgresConnectionConfig));
+  await using client = openMigrationDB(configuration.storage);
 
   /**
    * Request an explicit connection which will automatically set the search
@@ -137,7 +137,7 @@ export const down: migrations.PowerSyncMigrationFunction = async (context) => {
   const {
     service_context: { configuration }
   } = context;
-  await using db = new DatabaseClient(normalizeConnectionConfig(configuration.storage as PostgresConnectionConfig));
+  using client = openMigrationDB(configuration.storage);
 
-  await dropTables(db);
+  await dropTables(client);
 };

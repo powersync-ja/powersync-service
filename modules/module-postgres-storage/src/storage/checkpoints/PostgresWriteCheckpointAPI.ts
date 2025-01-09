@@ -1,16 +1,16 @@
+import * as lib_postgres from '@powersync/lib-service-postgres';
 import * as framework from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { models } from '../../types/types.js';
-import { DatabaseClient } from '../../utils/connection/DatabaseClient.js';
 
 export type PostgresCheckpointAPIOptions = {
-  db: DatabaseClient;
+  db: lib_postgres.DatabaseClient;
   mode: storage.WriteCheckpointMode;
 };
 
 export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
-  readonly db: DatabaseClient;
+  readonly db: lib_postgres.DatabaseClient;
   private _mode: storage.WriteCheckpointMode;
 
   constructor(options: PostgresCheckpointAPIOptions) {
@@ -47,8 +47,7 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
           ${{ type: 'int8', value: checkpoint }},
           ${{ type: 'int4', value: sync_rules_id }}
         )
-      ON CONFLICT DO
-      UPDATE
+      ON CONFLICT DO UPDATE
       SET
         write_checkpoint = EXCLUDED.write_checkpoint
       RETURNING
@@ -75,8 +74,7 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
           ${{ type: 'jsonb', value: checkpoint.heads }},
           ${{ type: 'int8', value: 1 }}
         )
-      ON CONFLICT (user_id) DO
-      UPDATE
+      ON CONFLICT (user_id) DO UPDATE
       SET
         write_checkpoint = write_checkpoints.write_checkpoint + 1,
         lsns = EXCLUDED.lsns
@@ -145,7 +143,7 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
 }
 
 export async function batchCreateCustomWriteCheckpoints(
-  db: DatabaseClient,
+  db: lib_postgres.DatabaseClient,
   checkpoints: storage.CustomWriteCheckpointOptions[]
 ): Promise<void> {
   if (!checkpoints.length) {
@@ -171,8 +169,7 @@ export async function batchCreateCustomWriteCheckpoints(
     )::int4
     FROM
       json_data
-    ON CONFLICT (user_id, sync_rules_id) DO
-    UPDATE
+    ON CONFLICT (user_id, sync_rules_id) DO UPDATE
     SET
       write_checkpoint = EXCLUDED.write_checkpoint;
   `.execute();

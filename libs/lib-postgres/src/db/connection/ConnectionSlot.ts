@@ -1,7 +1,5 @@
-import { framework } from '@powersync/service-core';
+import * as framework from '@powersync/lib-services-framework';
 import * as pgwire from '@powersync/service-jpgwire';
-
-export const NOTIFICATION_CHANNEL = 'powersynccheckpoints';
 
 export interface NotificationListener extends framework.DisposableListener {
   notification?: (payload: pgwire.PgNotification) => void;
@@ -17,6 +15,11 @@ export type ConnectionLease = {
   release: () => void;
 };
 
+export type ConnectionSlotOptions = {
+  config: pgwire.NormalizedConnectionConfig;
+  notificationChannels?: string[];
+};
+
 export const MAX_CONNECTION_ATTEMPTS = 5;
 
 export class ConnectionSlot extends framework.DisposableObserver<ConnectionSlotListener> {
@@ -25,7 +28,7 @@ export class ConnectionSlot extends framework.DisposableObserver<ConnectionSlotL
 
   protected connection: pgwire.PgConnection | null;
 
-  constructor(protected config: pgwire.NormalizedConnectionConfig) {
+  constructor(protected options: ConnectionSlotOptions) {
     super();
     this.isAvailable = false;
     this.connection = null;
@@ -37,7 +40,7 @@ export class ConnectionSlot extends framework.DisposableObserver<ConnectionSlotL
   }
 
   protected async connect() {
-    const connection = await pgwire.connectPgWire(this.config, { type: 'standard' });
+    const connection = await pgwire.connectPgWire(this.options.config, { type: 'standard' });
     if (this.hasNotificationListener()) {
       await this.configureConnectionNotifications(connection);
     }
@@ -51,13 +54,17 @@ export class ConnectionSlot extends framework.DisposableObserver<ConnectionSlotL
 
   protected async configureConnectionNotifications(connection: pgwire.PgConnection) {
     if (connection.onnotification == this.handleNotification) {
+      // Already configured
       return;
     }
 
     connection.onnotification = this.handleNotification;
-    await connection.query({
-      statement: `LISTEN ${NOTIFICATION_CHANNEL}`
-    });
+
+    for (const channelName of this.options.notificationChannels ?? []) {
+      await connection.query({
+        statement: `LISTEN ${channelName}`
+      });
+    }
   }
 
   registerListener(listener: Partial<ConnectionSlotListener>): () => void {

@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@powersync/lib-services-framework": "workspace:*",
+    "@powersync/lib-service-postgres": "workspace:*",
     "@powersync/service-core": "workspace:*",
     "@powersync/service-jpgwire": "workspace:*",
     "@powersync/service-jsonbig": "workspace:*",

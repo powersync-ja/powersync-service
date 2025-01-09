@@ -1,11 +1,11 @@
+import * as lib_postgres from '@powersync/lib-service-postgres';
 import { logger } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import * as t from 'ts-codec';
 import { BIGINT_MAX } from '../types/codecs.js';
 import { models } from '../types/types.js';
-import { sql } from '../utils/connection/AbstractPostgresConnection.js';
-import { DatabaseClient } from '../utils/connection/DatabaseClient.js';
+import { sql } from '../utils/db.js';
 import { pick } from '../utils/ts-codec.js';
 import { encodedCacheKey } from './batch/OperationBatch.js';
 
@@ -62,7 +62,7 @@ export class PostgresCompactor {
   private buckets: string[] | undefined;
 
   constructor(
-    private db: DatabaseClient,
+    private db: lib_postgres.DatabaseClient,
     private group_id: number,
     options?: PostgresCompactOptions
   ) {

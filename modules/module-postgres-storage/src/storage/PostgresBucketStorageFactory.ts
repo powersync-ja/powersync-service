@@ -7,9 +7,11 @@ import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 import { LRUCache } from 'lru-cache/min';
 import * as timers from 'timers/promises';
 import * as uuid from 'uuid';
-import { PostgresLockManager } from '../locks/PostgresLockManager.js';
+
+import * as lib_postgres from '@powersync/lib-service-postgres';
 import { models, NormalizedPostgresStorageConfig } from '../types/types.js';
-import { DatabaseClient } from '../utils/connection/DatabaseClient.js';
+
+import { NOTIFICATION_CHANNEL, STORAGE_SCHEMA_NAME } from '../utils/db.js';
 import { notifySyncRulesUpdate } from './batch/PostgresBucketBatch.js';
 import { PostgresSyncRulesStorage } from './PostgresSyncRulesStorage.js';
 import { PostgresPersistedSyncRulesContent } from './sync-rules/PostgresPersistedSyncRulesContent.js';
@@ -23,7 +25,7 @@ export class PostgresBucketStorageFactory
   extends framework.DisposableObserver<storage.BucketStorageFactoryListener>
   implements storage.BucketStorageFactory
 {
-  readonly db: DatabaseClient;
+  readonly db: lib_postgres.DatabaseClient;
   public readonly slot_name_prefix: string;
 
   protected notificationConnection: pg_wire.PgConnection | null;
@@ -57,7 +59,11 @@ export class PostgresBucketStorageFactory
 
   constructor(protected options: PostgresBucketStorageOptions) {
     super();
-    this.db = new DatabaseClient(options.config);
+    this.db = new lib_postgres.DatabaseClient({
+      config: options.config,
+      schema: STORAGE_SCHEMA_NAME,
+      notificationChannels: [NOTIFICATION_CHANNEL]
+    });
     this.slot_name_prefix = options.slot_name_prefix;
 
     this.notificationConnection = null;
@@ -150,7 +156,7 @@ export class PostgresBucketStorageFactory
     if (instanceRow) {
       return instanceRow.id;
     }
-    const lockManager = new PostgresLockManager({
+    const lockManager = new lib_postgres.PostgresLockManager({
       db: this.db,
       name: `instance-id-insertion-lock`
     });

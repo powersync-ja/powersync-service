@@ -1,10 +1,10 @@
+import * as lib_postgres from '@powersync/lib-service-postgres';
 import { logger } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import * as sync_rules from '@powersync/service-sync-rules';
 import { models, RequiredOperationBatchLimits } from '../../types/types.js';
 import { replicaIdToSubkey } from '../../utils/bson.js';
-import { WrappedConnection } from '../../utils/connection/WrappedConnection.js';
 
 export type SaveBucketDataOptions = {
   /**
@@ -227,7 +227,7 @@ export class PostgresPersistedBatch {
     );
   }
 
-  async flush(db: WrappedConnection) {
+  async flush(db: lib_postgres.WrappedConnection) {
     logger.info(
       `powersync_${this.group_id} Flushed ${this.bucketDataInserts.length} + ${this.parameterDataInserts.length} + ${
         this.currentDataInserts.size + this.currentDataDeletes.length
@@ -245,7 +245,7 @@ export class PostgresPersistedBatch {
     this.currentSize = 0;
   }
 
-  protected async flushBucketData(db: WrappedConnection) {
+  protected async flushBucketData(db: lib_postgres.WrappedConnection) {
     if (this.bucketDataInserts.length > 0) {
       await db.sql`
         WITH
@@ -307,7 +307,7 @@ export class PostgresPersistedBatch {
     }
   }
 
-  protected async flushParameterData(db: WrappedConnection) {
+  protected async flushParameterData(db: lib_postgres.WrappedConnection) {
     if (this.parameterDataInserts.length > 0) {
       await db.sql`
         WITH
@@ -347,7 +347,7 @@ export class PostgresPersistedBatch {
     }
   }
 
-  protected async flushCurrentData(db: WrappedConnection) {
+  protected async flushCurrentData(db: lib_postgres.WrappedConnection) {
     if (this.currentDataInserts.size > 0) {
       await db.sql`
         WITH

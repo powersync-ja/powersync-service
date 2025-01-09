@@ -1,7 +1,8 @@
 import { modules, system } from '@powersync/service-core';
-import * as pg_types from '@powersync/service-module-postgres/types';
+
 import { PostgresMigrationAgent } from '../migrations/PostgresMigrationAgent.js';
 import { PostgresStorageProvider } from '../storage/PostgresStorageProvider.js';
+import { isPostgresStorageConfig, PostgresStorageConfig } from '../types/types.js';
 
 export class PostgresStorageModule extends modules.AbstractModule {
   constructor() {
@@ -16,8 +17,10 @@ export class PostgresStorageModule extends modules.AbstractModule {
     // Register the ability to use Postgres as a BucketStorage
     storageEngine.registerProvider(new PostgresStorageProvider());
 
-    if (pg_types.isPostgresConfig(context.configuration.storage)) {
-      context.migrations.registerMigrationAgent(new PostgresMigrationAgent(context.configuration.storage));
+    if (isPostgresStorageConfig(context.configuration.storage)) {
+      context.migrations.registerMigrationAgent(
+        new PostgresMigrationAgent(PostgresStorageConfig.decode(context.configuration.storage))
+      );
     }
   }
 

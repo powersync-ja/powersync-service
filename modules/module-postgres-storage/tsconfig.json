@@ -10,5 +10,27 @@
     "skipLibCheck": true
   },
   "include": ["src"],
-  "references": []
+  "references": [
+    {
+      "path": "../../packages/types"
+    },
+    {
+      "path": "../../packages/jsonbig"
+    },
+    {
+      "path": "../../packages/jpgwire"
+    },
+    {
+      "path": "../../packages/sync-rules"
+    },
+    {
+      "path": "../../packages/service-core"
+    },
+    {
+      "path": "../../libs/lib-services"
+    },
+    {
+      "path": "../../libs/lib-postgres"
+    }
+  ]
 }

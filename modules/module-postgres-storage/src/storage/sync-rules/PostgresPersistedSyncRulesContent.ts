@@ -1,9 +1,9 @@
+import * as lib_postgres from '@powersync/lib-service-postgres';
 import { logger } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
-import { PostgresLockManager } from '../../locks/PostgresLockManager.js';
+
 import { models } from '../../types/types.js';
-import { DatabaseClient } from '../../utils/connection/DatabaseClient.js';
 
 export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncRulesContent {
   public readonly slot_name: string;
@@ -17,7 +17,7 @@ export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncR
   current_lock: storage.ReplicationLock | null = null;
 
   constructor(
-    private db: DatabaseClient,
+    private db: lib_postgres.DatabaseClient,
     row: models.SyncRulesDecoded
   ) {
     this.id = Number(row.id);
@@ -38,7 +38,7 @@ export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncR
   }
 
   async lock(): Promise<storage.ReplicationLock> {
-    const manager = new PostgresLockManager({
+    const manager = new lib_postgres.PostgresLockManager({
       db: this.db,
       name: `sync_rules_${this.id}_${this.slot_name}`
     });

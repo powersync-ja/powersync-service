@@ -1,10 +1,12 @@
+import * as lib_postgres from '@powersync/lib-service-postgres';
 import * as framework from '@powersync/lib-services-framework';
 import { migrations } from '@powersync/service-core';
-import * as pg_types from '@powersync/service-module-postgres/types';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { PostgresLockManager } from '../locks/PostgresLockManager.js';
-import { DatabaseClient } from '../utils/connection/DatabaseClient.js';
+
+import { normalizePostgresStorageConfig, PostgresStorageConfigDecoded } from '../types/types.js';
+
+import { STORAGE_SCHEMA_NAME } from '../utils/db.js';
 import { PostgresMigrationStore } from './PostgresMigrationStore.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -16,16 +18,19 @@ export class PostgresMigrationAgent extends migrations.AbstractPowerSyncMigratio
   store: framework.MigrationStore;
   locks: framework.LockManager;
 
-  protected db: DatabaseClient;
+  protected db: lib_postgres.DatabaseClient;
 
-  constructor(config: pg_types.PostgresConnectionConfig) {
+  constructor(config: PostgresStorageConfigDecoded) {
     super();
 
-    this.db = new DatabaseClient(pg_types.normalizeConnectionConfig(config));
+    this.db = new lib_postgres.DatabaseClient({
+      config: normalizePostgresStorageConfig(config),
+      schema: STORAGE_SCHEMA_NAME
+    });
     this.store = new PostgresMigrationStore({
       db: this.db
     });
-    this.locks = new PostgresLockManager({
+    this.locks = new lib_postgres.PostgresLockManager({
       name: 'migrations',
       db: this.db
     });

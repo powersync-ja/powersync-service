@@ -1,7 +1,6 @@
 import { framework, PowerSyncMigrationManager, ServiceContext, TestStorageOptions } from '@powersync/service-core';
-import { PostgresConnectionConfig } from '@powersync/service-module-postgres/types';
 import { PostgresMigrationAgent } from '../migrations/PostgresMigrationAgent.js';
-import { normalizePostgresStorageConfig } from '../types/types.js';
+import { normalizePostgresStorageConfig, PostgresStorageConfigDecoded } from '../types/types.js';
 import { PostgresBucketStorageFactory } from './PostgresBucketStorageFactory.js';
 
 export type PostgresTestStorageOptions = {
@@ -10,7 +9,7 @@ export type PostgresTestStorageOptions = {
    * Vitest can cause issues when loading .ts files for migrations.
    * This allows for providing a custom PostgresMigrationAgent.
    */
-  migrationAgent?: (config: PostgresConnectionConfig) => PostgresMigrationAgent;
+  migrationAgent?: (config: PostgresStorageConfigDecoded) => PostgresMigrationAgent;
 };
 
 export const PostgresTestStorageFactoryGenerator = (factoryOptions: PostgresTestStorageOptions) => {

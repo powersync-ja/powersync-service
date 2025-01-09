@@ -1,9 +1,9 @@
+import * as lib_postgres from '@powersync/lib-service-postgres';
 import { migrations } from '@powersync/lib-services-framework';
-import { sql } from '../utils/connection/AbstractPostgresConnection.js';
-import { DatabaseClient } from '../utils/connection/DatabaseClient.js';
+import { sql } from '../utils/db.js';
 
 export type PostgresMigrationStoreOptions = {
-  db: DatabaseClient;
+  db: lib_postgres.DatabaseClient;
 };
 
 export class PostgresMigrationStore implements migrations.MigrationStore {
@@ -59,8 +59,7 @@ export class PostgresMigrationStore implements migrations.MigrationStore {
           ${{ type: 'varchar', value: state.last_run }},
           ${{ type: 'jsonb', value: state.log }}
         )
-      ON CONFLICT (id) DO
-      UPDATE
+      ON CONFLICT (id) DO UPDATE
       SET
         last_run = EXCLUDED.last_run,
         LOG = EXCLUDED.log;
