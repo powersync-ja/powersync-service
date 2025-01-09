@@ -1,3 +1,5 @@
+import { ReplicationAssertionError } from '@powersync/lib-services-framework';
+
 /**
  * Manages op_id or similar sequence in memory.
  *
@@ -9,7 +11,7 @@ export class MongoIdSequence {
 
   constructor(last: bigint) {
     if (typeof last != 'bigint') {
-      throw new Error(`BigInt required, got ${last} ${typeof last}`);
+      throw new ReplicationAssertionError(`BigInt required, got ${last} ${typeof last}`);
     }
     this._last = last;
   }

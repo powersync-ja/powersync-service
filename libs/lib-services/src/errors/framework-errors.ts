@@ -4,10 +4,18 @@ export enum ErrorSeverity {
   ERROR = 'error'
 }
 
+type Digit = '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9';
+type Category = 'S' | 'R';
+
+// Note: This generates a type union of 20k possiblities,
+// which could potentially slow down the TypeScript compiler.
+// If it does, we could switch to a simpler `PSYNC_${Category}${number}` type.
+export type ServiceErrorCode = `PSYNC_${Category}${Digit}${Digit}${Digit}${Digit}`;
+
 export type ErrorData = {
   name?: string;
 
-  code: string;
+  code: ServiceErrorCode;
   description: string;
 
   severity?: ErrorSeverity;
@@ -20,17 +28,22 @@ export type ErrorData = {
   trace_id?: string;
 };
 
-// Maybe this could be renamed to ServiceError or something similar
-export class JourneyError extends Error {
-  is_journey_error = true;
+export class ServiceError extends Error {
+  is_service_error = true;
 
   errorData: ErrorData;
 
-  static isJourneyError(input: any): input is JourneyError {
-    return input instanceof JourneyError || input?.is_journey_error == true;
+  static isServiceError(input: any): input is ServiceError {
+    return input instanceof ServiceError || input?.is_service_error == true;
   }
 
-  private static errorMessage(data: ErrorData) {
+  private static errorMessage(data: ErrorData | ServiceErrorCode, description?: string) {
+    if (typeof data == 'string') {
+      data = {
+        code: data,
+        description: description!
+      };
+    }
     let message = `[${data.code}] ${data.description}`;
     if (data.details) {
       message += `\n  ${data.details}`;
@@ -38,9 +51,17 @@ export class JourneyError extends Error {
     return message;
   }
 
-  constructor(data: ErrorData) {
-    super(JourneyError.errorMessage(data));
+  constructor(data: ErrorData);
+  constructor(code: ServiceErrorCode, description: string);
 
+  constructor(data: ErrorData | ServiceErrorCode, description?: string) {
+    super(ServiceError.errorMessage(data, description));
+    if (typeof data == 'string') {
+      data = {
+        code: data,
+        description: description!
+      };
+    }
     this.errorData = data;
     if (data.stack) {
       this.stack = data.stack;
@@ -75,8 +96,11 @@ export class JourneyError extends Error {
   }
 }
 
-export class ValidationError extends JourneyError {
-  static CODE = 'VALIDATION_ERROR';
+/**
+ * @deprecated Use more specific errors
+ */
+export class ValidationError extends ServiceError {
+  static readonly CODE = 'PSYNC_S2001';
   constructor(errors: any) {
     super({
       code: ValidationError.CODE,
@@ -87,8 +111,60 @@ export class ValidationError extends JourneyError {
   }
 }
 
-export class AuthorizationError extends JourneyError {
-  static CODE = 'AUTHORIZATION';
+/**
+ * Use for replication errors that are never expected to happen in production.
+ *
+ * If it does happen, it is either:
+ * 1. A bug in the code that should be fixed.
+ * 2. An error that needs a different error code.
+ */
+export class ReplicationAssertionError extends ServiceError {
+  static readonly CODE = 'PSYNC_S1101';
+  constructor(description: string) {
+    super({
+      code: ReplicationAssertionError.CODE,
+      status: 500,
+      description: description
+    });
+  }
+}
+
+/**
+ * Use for general service errors that are never expected to happen in production.
+ *
+ * If it does happen, it is either:
+ * 1. A bug in the code that should be fixed.
+ * 2. An error that needs a different error code.
+ */
+export class ServiceAssertionError extends ServiceError {
+  static readonly CODE = 'PSYNC_S1001';
+  constructor(description: string) {
+    super({
+      code: ServiceAssertionError.CODE,
+      status: 500,
+      description: description
+    });
+  }
+}
+
+/**
+ * Indicates replication is aborted.
+ *
+ * This is not an actual error - rather just an indication
+ * that something requested the replication should stop.
+ */
+export class ReplicationAbortedError extends ServiceError {
+  static readonly CODE = 'PSYNC_S1103';
+  constructor(description?: string) {
+    super({
+      code: ReplicationAbortedError.CODE,
+      description: description ?? 'Replication aborted'
+    });
+  }
+}
+
+export class AuthorizationError extends ServiceError {
+  static readonly CODE = 'PSYNC_S2101';
   constructor(errors: any) {
     super({
       code: AuthorizationError.CODE,
@@ -99,8 +175,8 @@ export class AuthorizationError extends JourneyError {
   }
 }
 
-export class InternalServerError extends JourneyError {
-  static CODE = 'INTERNAL_SERVER_ERROR';
+export class InternalServerError extends ServiceError {
+  static readonly CODE = 'PSYNC_S2001';
   constructor(err: Error) {
     super({
       code: InternalServerError.CODE,
@@ -113,37 +189,15 @@ export class InternalServerError extends JourneyError {
   }
 }
 
-export class ResourceNotFound extends JourneyError {
-  static CODE = 'RESOURCE_NOT_FOUND';
+export class RouteNotFound extends ServiceError {
+  static readonly CODE = 'PSYNC_S2002';
 
-  /**
-   * @deprecated Use the (resource, id) constructor instead.
-   * @param id
-   */
-  constructor(id: string);
-  constructor(resource: string, id: string);
-
-  constructor(resource: string, id?: string) {
-    const combinedId = id ? `${resource}/${id}` : resource;
+  constructor(path: string) {
     super({
-      code: ResourceNotFound.CODE,
+      code: RouteNotFound.CODE,
       status: 404,
-      description: 'The requested resource does not exist on this server',
-      details: `The resource ${combinedId} does not exist on this server`,
-      severity: ErrorSeverity.INFO
-    });
-  }
-}
-
-export class ResourceConflict extends JourneyError {
-  static CODE = 'RESOURCE_CONFLICT';
-
-  constructor(details: string) {
-    super({
-      code: ResourceConflict.CODE,
-      status: 409,
-      description: 'The specified resource already exists on this server',
-      details: details,
+      description: 'The path does not exist on this server',
+      details: `The path ${JSON.stringify(path)} does not exist on this server`,
       severity: ErrorSeverity.INFO
     });
   }

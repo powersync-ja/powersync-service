@@ -7,7 +7,7 @@ import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import * as pg_utils from '../utils/pgwire_utils.js';
 import * as util from '../utils/pgwire_utils.js';
-import { logger } from '@powersync/lib-services-framework';
+import { logger, ServiceError } from '@powersync/lib-services-framework';
 
 export interface ReplicaIdentityResult {
   replicationColumns: storage.ColumnDescriptor[];
@@ -119,17 +119,22 @@ $$ LANGUAGE plpgsql;`
   });
   const row = pgwire.pgwireRows(rs)[0];
   if (row == null) {
-    throw new Error(
+    throw new ServiceError(
+      'PSYNC_S1141',
       `Publication '${publicationName}' does not exist. Run: \`CREATE PUBLICATION ${publicationName} FOR ALL TABLES\`, or read the documentation for details.`
     );
   }
   if (row.pubinsert == false || row.pubupdate == false || row.pubdelete == false || row.pubtruncate == false) {
-    throw new Error(
+    throw new ServiceError(
+      'PSYNC_S1142',
       `Publication '${publicationName}' does not publish all changes. Create a publication using \`WITH (publish = "insert, update, delete, truncate")\` (the default).`
     );
   }
   if (row.pubviaroot) {
-    throw new Error(`'${publicationName}' uses publish_via_partition_root, which is not supported.`);
+    throw new ServiceError(
+      'PSYNC_S1143',
+      `'${publicationName}' uses publish_via_partition_root, which is not supported.`
+    );
   }
 }
 

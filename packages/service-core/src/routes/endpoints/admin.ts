@@ -120,9 +120,9 @@ export const reprocess = routeDefinition({
 
     const active = await activeBucketStorage.getActiveSyncRules(apiHandler.getParseSyncRulesOptions());
     if (active == null) {
-      throw new errors.JourneyError({
+      throw new errors.ServiceError({
         status: 422,
-        code: 'NO_SYNC_RULES',
+        code: 'PSYNC_S4104',
         description: 'No active sync rules'
       });
     }

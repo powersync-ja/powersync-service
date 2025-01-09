@@ -76,3 +76,13 @@ export class SyncRulesErrors extends Error {
     super(SyncRulesErrors.constructMessage(errors));
   }
 }
+
+export type SyncRulesErrorCode = `PSYNC_${string}`;
+export class SyncRuleProcessingError extends Error {
+  public code: SyncRulesErrorCode;
+
+  constructor(code: SyncRulesErrorCode, message: string) {
+    super(`[${code}] ${message}`);
+    this.code = code;
+  }
+}

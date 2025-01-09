@@ -1,3 +1,4 @@
+import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import * as pgwire from '@powersync/service-jpgwire';
 
 export type MigrationFunction = (db: pgwire.PgConnection) => Promise<void>;
@@ -14,7 +15,7 @@ export class Migrations {
 
   add(id: number, name: string, up: MigrationFunction) {
     if (this.migrations.length > 0 && this.migrations[this.migrations.length - 1].id >= id) {
-      throw new Error('Migration ids must be strictly incrementing');
+      throw new ServiceAssertionError('Migration ids must be strictly incrementing');
     }
     this.migrations.push({ id, up, name });
   }

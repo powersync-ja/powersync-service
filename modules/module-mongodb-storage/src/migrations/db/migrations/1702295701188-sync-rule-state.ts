@@ -2,6 +2,7 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { storage as core_storage, migrations } from '@powersync/service-core';
 import * as storage from '../../../storage/storage-index.js';
 import { MongoStorageConfig } from '../../../types/types.js';
+import { ServiceAssertionError } from '@powersync/lib-services-framework';
 
 interface LegacySyncRulesDocument extends storage.SyncRuleDocument {
   /**
@@ -65,7 +66,7 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
     const remaining = await db.sync_rules.find({ state: null as any }).toArray();
     if (remaining.length > 0) {
       const slots = remaining.map((doc) => doc.slot_name).join(', ');
-      throw new Error(`Invalid state for sync rules: ${slots}`);
+      throw new ServiceAssertionError(`Invalid state for sync rules: ${slots}`);
     }
   } finally {
     await db.client.close();

@@ -3,7 +3,7 @@ import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
 import { Resource } from '@opentelemetry/resources';
 import { MeterProvider, MetricReader, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
-import { logger } from '@powersync/lib-services-framework';
+import { logger, ServiceAssertionError } from '@powersync/lib-services-framework';
 import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
@@ -132,7 +132,7 @@ export class Metrics {
 
   public static getInstance(): Metrics {
     if (!Metrics.instance) {
-      throw new Error('Metrics have not been initialised');
+      throw new ServiceAssertionError('Metrics have not been initialized');
     }
 
     return Metrics.instance;

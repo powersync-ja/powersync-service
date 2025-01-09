@@ -1,5 +1,5 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
-import { logger } from '@powersync/lib-services-framework';
+import { logger, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import { MongoStorageConfig } from '../../types/types.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
@@ -16,7 +16,9 @@ export class MongoStorageProvider implements storage.BucketStorageProvider {
     const { storage } = resolvedConfig;
     if (storage.type != this.type) {
       // This should not be reached since the generation should be managed externally.
-      throw new Error(`Cannot create MongoDB bucket storage with provided config ${storage.type} !== ${this.type}`);
+      throw new ServiceAssertionError(
+        `Cannot create MongoDB bucket storage with provided config ${storage.type} !== ${this.type}`
+      );
     }
 
     const decodedConfig = MongoStorageConfig.decode(storage as any);
