@@ -91,7 +91,7 @@ function defineSlowTests(factory: storage.TestStorageFactory) {
     const replicationConnection = await connections.replicationConnection();
     const pool = connections.pool;
     await clearTestDb(pool);
-    const f = (await factory()) as mongo_storage.storage.MongoBucketStorage;
+    using f = (await factory()) as mongo_storage.storage.MongoBucketStorage;
 
     const syncRuleContent = `
 bucket_definitions:
@@ -243,7 +243,7 @@ bucket_definitions:
     async () => {
       const pool = await connectPgPool();
       await clearTestDb(pool);
-      const f = await factory();
+      using f = await factory();
 
       const syncRuleContent = `
 bucket_definitions:

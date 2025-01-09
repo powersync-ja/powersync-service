@@ -49,6 +49,7 @@ export class BinlogStreamTestContext {
     this.abortController.abort();
     await this.streamPromise;
     await this.connectionManager.end();
+    this.factory[Symbol.dispose]();
   }
 
   [Symbol.asyncDispose]() {
