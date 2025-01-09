@@ -305,12 +305,16 @@ AND table_type = 'BASE TABLE';`,
       columns = toColumnDescriptors(fields);
     });
 
-    for await (let row of query.stream()) {
+    for await (let row of stream) {
+      if (this.stopped) {
+        throw new Error('Abort signal received - initial replication interrupted.');
+      }
+
       if (columns == null) {
         throw new Error(`No 'fields' event emitted`);
       }
-      const record = common.toSQLiteRow(row, columns!);
 
+      const record = common.toSQLiteRow(row, columns!);
       await batch.save({
         tag: storage.SaveOperationTag.INSERT,
         sourceTable: table,
