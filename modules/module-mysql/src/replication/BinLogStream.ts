@@ -278,7 +278,9 @@ AND table_type = 'BASE TABLE';`,
         }
       );
       logger.info(`Initial replication done`);
+      await promiseConnection.query('COMMIT');
     } catch (e) {
+      await promiseConnection.query('ROLLBACK');
       throw e;
     } finally {
       connection.release();
