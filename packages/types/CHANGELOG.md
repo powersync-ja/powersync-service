@@ -1,5 +1,11 @@
 # @powersync/service-types
 
+## 0.7.0
+
+### Minor Changes
+
+- fea550f: Moved MongoDB sync bucket storage implementation to the MongoDB module.
+
 ## 0.6.0
 
 ### Minor Changes

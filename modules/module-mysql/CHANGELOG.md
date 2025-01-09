@@ -1,5 +1,20 @@
 # @powersync/service-module-mysql
 
+## 0.1.8
+
+### Patch Changes
+
+- e25263c: Added a heartbeat mechanism to the MySQL binlog listener replication connection to detect connection timeouts.
+- 318f9f9: Resolved excessive memory consumption during MySQL initial replication.
+- Updated dependencies [fea550f]
+- Updated dependencies [fea550f]
+- Updated dependencies [48320b5]
+- Updated dependencies [fea550f]
+  - @powersync/service-core@0.14.0
+  - @powersync/lib-services-framework@0.3.0
+  - @powersync/service-sync-rules@0.23.1
+  - @powersync/service-types@0.7.0
+
 ## 0.1.7
 
 ### Patch Changes
