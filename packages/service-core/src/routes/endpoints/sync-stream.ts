@@ -26,9 +26,9 @@ export const syncStreamed = routeDefinition({
     const clientId = payload.params.client_id;
 
     if (routerEngine!.closed) {
-      throw new errors.JourneyError({
+      throw new errors.ServiceError({
         status: 503,
-        code: 'SERVICE_UNAVAILABLE',
+        code: 'PSYNC_S2003',
         description: 'Service temporarily unavailable'
       });
     }
@@ -39,9 +39,9 @@ export const syncStreamed = routeDefinition({
     // Sanity check before we start the stream
     const cp = await storageEngine.activeBucketStorage.getActiveCheckpoint();
     if (!cp.hasSyncRules()) {
-      throw new errors.JourneyError({
+      throw new errors.ServiceError({
         status: 500,
-        code: 'NO_SYNC_RULES',
+        code: 'PSYNC_S2302',
         description: 'No sync rules available'
       });
     }
