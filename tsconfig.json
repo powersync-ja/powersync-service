@@ -38,6 +38,9 @@
       "path": "./libs/lib-mongodb"
     },
     {
+      "path": "./libs/lib-postgres"
+    },
+    {
       "path": "./packages/types"
     },
     {
