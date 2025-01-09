@@ -5,7 +5,7 @@ describe('config', () => {
   test('Should resolve database', () => {
     const normalized = normalizeConnectionConfig({
       type: 'postgresql',
-      uri: 'postgresql://localhost:4321/powersync_test'
+      uri: 'postgresql://postgres:postgres@localhost:4321/powersync_test'
     });
     expect(normalized.database).equals('powersync_test');
   });
