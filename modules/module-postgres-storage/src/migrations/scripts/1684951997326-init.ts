@@ -102,7 +102,7 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
         id TEXT PRIMARY KEY,
         group_id integer NOT NULL,
         connection_id integer NOT NULL,
-        relation_id integer,
+        relation_id text,
         schema_name text NOT NULL,
         table_name text NOT NULL,
         replica_id_columns jsonb,

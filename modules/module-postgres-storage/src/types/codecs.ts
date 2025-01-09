@@ -1,5 +1,7 @@
 import * as t from 'ts-codec';
 
+export const BIGINT_MAX = BigInt('9223372036854775807');
+
 /**
  * Wraps a codec which is encoded to a JSON string
  */

@@ -17,7 +17,7 @@ export const SourceTable = t.object({
   id: t.string,
   group_id: bigint,
   connection_id: bigint,
-  relation_id: t.Null.or(bigint).or(t.string),
+  relation_id: t.Null.or(t.number).or(t.string),
   schema_name: t.string,
   table_name: t.string,
   replica_id_columns: t.Null.or(jsonb(t.array(ColumnDescriptor))),

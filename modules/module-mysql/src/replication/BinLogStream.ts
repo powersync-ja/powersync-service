@@ -6,12 +6,12 @@ import { ColumnDescriptor, framework, getUuidReplicaIdentityBson, Metrics, stora
 import mysql, { FieldPacket } from 'mysql2';
 
 import { BinLogEvent, StartOptions, TableMapEntry } from '@powersync/mysql-zongji';
-import * as common from '../common/common-index.js';
-import * as zongji_utils from './zongji/zongji-utils.js';
-import { MySQLConnectionManager } from './MySQLConnectionManager.js';
-import { isBinlogStillAvailable, ReplicatedGTID, toColumnDescriptors } from '../common/common-index.js';
 import mysqlPromise from 'mysql2/promise';
+import * as common from '../common/common-index.js';
+import { isBinlogStillAvailable, ReplicatedGTID, toColumnDescriptors } from '../common/common-index.js';
 import { createRandomServerId, escapeMysqlTableName } from '../utils/mysql-utils.js';
+import { MySQLConnectionManager } from './MySQLConnectionManager.js';
+import * as zongji_utils from './zongji/zongji-utils.js';
 
 export interface BinLogStreamOptions {
   connections: MySQLConnectionManager;
@@ -75,8 +75,19 @@ export class BinLogStream {
   }
 
   get connectionId() {
+    const { connectionId } = this.connections;
     // Default to 1 if not set
-    return this.connections.connectionId ? Number.parseInt(this.connections.connectionId) : 1;
+    if (!connectionId) {
+      return 1;
+    }
+    /**
+     * This is often `"default"` (string) which will parse to `NaN`
+     */
+    const parsed = Number.parseInt(connectionId);
+    if (isNaN(parsed)) {
+      return 1;
+    }
+    return parsed;
   }
 
   get stopped() {

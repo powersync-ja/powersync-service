@@ -2,7 +2,7 @@ import { logger } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import * as sync_rules from '@powersync/service-sync-rules';
-import { BatchLimits, models } from '../../types/types.js';
+import { models, RequiredOperationBatchLimits } from '../../types/types.js';
 import { replicaIdToSubkey } from '../../utils/bson.js';
 import { WrappedConnection } from '../../utils/connection/WrappedConnection.js';
 
@@ -28,13 +28,9 @@ export type DeleteCurrentDataOptions = {
   source_key: storage.ReplicaId;
 };
 
-export type PostgresPersistedBatchOptions = BatchLimits & {
+export type PostgresPersistedBatchOptions = RequiredOperationBatchLimits & {
   group_id: number;
 };
-
-const MAX_TRANSACTION_BATCH_SIZE = 30_000_000;
-
-const MAX_TRANSACTION_DOC_COUNT = 2_000;
 
 export class PostgresPersistedBatch {
   group_id: number;
@@ -61,8 +57,8 @@ export class PostgresPersistedBatch {
   constructor(options: PostgresPersistedBatchOptions) {
     this.group_id = options.group_id;
 
-    this.maxTransactionBatchSize = options.max_estimated_size ?? MAX_TRANSACTION_BATCH_SIZE;
-    this.maxTransactionDocCount = options.max_record_count ?? MAX_TRANSACTION_DOC_COUNT;
+    this.maxTransactionBatchSize = options.max_estimated_size;
+    this.maxTransactionDocCount = options.max_record_count;
 
     this.bucketDataInserts = [];
     this.parameterDataInserts = [];
@@ -399,8 +395,7 @@ export class PostgresPersistedBatch {
           lookups -- Already decoded
         FROM
           parsed_data
-        ON CONFLICT (group_id, source_table, source_key) DO
-        UPDATE
+        ON CONFLICT (group_id, source_table, source_key) DO UPDATE
         SET
           buckets = EXCLUDED.buckets,
           data = EXCLUDED.data,

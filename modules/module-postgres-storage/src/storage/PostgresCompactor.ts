@@ -2,6 +2,7 @@ import { logger } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import * as t from 'ts-codec';
+import { BIGINT_MAX } from '../types/codecs.js';
 import { models } from '../types/types.js';
 import { sql } from '../utils/connection/AbstractPostgresConnection.js';
 import { DatabaseClient } from '../utils/connection/DatabaseClient.js';
@@ -109,7 +110,7 @@ export class PostgresCompactor {
       bucketUpper = `${bucket}[\uFFFF`;
     }
 
-    let upperOpIdLimit = BigInt('9223372036854775807'); // 2^63 - 1
+    let upperOpIdLimit = BIGINT_MAX;
 
     while (true) {
       const batch = await this.db.sql`

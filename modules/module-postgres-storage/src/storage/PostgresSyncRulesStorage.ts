@@ -3,7 +3,7 @@ import { storage, utils } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as t from 'ts-codec';
 import * as uuid from 'uuid';
-import { bigint } from '../types/codecs.js';
+import { bigint, BIGINT_MAX } from '../types/codecs.js';
 import { models, RequiredOperationBatchLimits } from '../types/types.js';
 import { replicaIdToSubkey } from '../utils/bson.js';
 import { mapOpEntry } from '../utils/bucket-data.js';
@@ -156,7 +156,7 @@ export class PostgresSyncRulesStorage
         WHERE
           group_id = ${{ type: 'int4', value: group_id }}
           AND connection_id = ${{ type: 'int4', value: connection_id }}
-          AND relation_id = ${{ type: 'int4', value: objectId }}
+          AND relation_id = ${{ type: 'varchar', value: objectId.toString() }}
           AND schema_name = ${{ type: 'varchar', value: schema }}
           AND table_name = ${{ type: 'varchar', value: table }}
           AND replica_id_columns = ${{ type: 'jsonb', value: columns }}
@@ -181,7 +181,8 @@ export class PostgresSyncRulesStorage
               ${{ type: 'varchar', value: uuid.v4() }},
               ${{ type: 'int4', value: group_id }},
               ${{ type: 'int4', value: connection_id }},
-              ${{ type: 'int4', value: objectId }},
+              --- The objectId can be string | number, we store it as a string and decode when querying
+              ${{ type: 'varchar', value: objectId.toString() }},
               ${{ type: 'varchar', value: schema }},
               ${{ type: 'varchar', value: table }},
               ${{ type: 'jsonb', value: columns }}
@@ -217,7 +218,7 @@ export class PostgresSyncRulesStorage
           AND connection_id = ${{ type: 'int4', value: connection_id }}
           AND id != ${{ type: 'varchar', value: sourceTableRow!.id }}
           AND (
-            relation_id = ${{ type: 'int4', value: objectId }}
+            relation_id = ${{ type: 'varchar', value: objectId.toString() }}
             OR (
               schema_name = ${{ type: 'varchar', value: schema }}
               AND table_name = ${{ type: 'varchar', value: table }}
@@ -234,7 +235,7 @@ export class PostgresSyncRulesStorage
             new storage.SourceTable(
               doc.id,
               connection_tag,
-              Number(doc.relation_id ?? 0),
+              doc.relation_id ?? 0,
               doc.schema_name,
               doc.table_name,
               doc.replica_id_columns?.map((c) => ({
@@ -340,7 +341,7 @@ export class PostgresSyncRulesStorage
       return;
     }
 
-    const end = checkpoint ? BigInt(checkpoint) : BigInt(2) ** BigInt(64) - BigInt(1);
+    const end = checkpoint ?? BIGINT_MAX;
     const filters = Array.from(dataBuckets.entries()).map(([name, start]) => ({
       bucket_name: name,
       start: start
