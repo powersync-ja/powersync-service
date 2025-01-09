@@ -117,7 +117,7 @@ describe('Requests', () => {
     );
 
     // Should be a validation error
-    expect(JSON.stringify(spy.mock.calls[0])).includes('AUTHORIZATION');
+    expect(JSON.stringify(spy.mock.calls[0])).includes('PSYNC_S2101');
   });
 
   it('should get invalid route error', async () => {
@@ -130,6 +130,6 @@ describe('Requests', () => {
     await handleRoute(path, [], responder);
 
     // Should be a validation error
-    expect(JSON.stringify(spy.mock.calls[0])).includes('No route');
+    expect(JSON.stringify(spy.mock.calls[0])).includes('PSYNC_S2002');
   });
 });
