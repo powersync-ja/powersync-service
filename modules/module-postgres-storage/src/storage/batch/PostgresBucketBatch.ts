@@ -6,7 +6,7 @@ import * as timers from 'timers/promises';
 import * as t from 'ts-codec';
 import { CurrentBucket, CurrentData, CurrentDataDecoded } from '../../types/models/CurrentData.js';
 import { models, RequiredOperationBatchLimits } from '../../types/types.js';
-import { NOTIFICATION_CHANNEL } from '../../utils/db.js';
+import { NOTIFICATION_CHANNEL, sql } from '../../utils/db.js';
 import { pick } from '../../utils/ts-codec.js';
 import { batchCreateCustomWriteCheckpoints } from '../checkpoints/PostgresWriteCheckpointAPI.js';
 import { cacheKey, encodedCacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
@@ -145,26 +145,27 @@ export class PostgresBucketBatch
 
     while (lastBatchCount == BATCH_LIMIT) {
       lastBatchCount = 0;
-      for await (const rows of this.db.streamRows<t.Encoded<typeof codec>>(lib_postgres.sql`
-        SELECT
-          buckets,
-          lookups,
-          source_key
-        FROM
-          current_data
-        WHERE
-          group_id = ${{ type: 'int8', value: this.group_id }}
-          AND source_table = ${{ type: 'varchar', value: sourceTable.id }}
-        LIMIT
-          ${{ type: 'int4', value: BATCH_LIMIT }}
-      `)) {
-        lastBatchCount += rows.length;
-        processedCount += rows.length;
-        await this.withReplicationTransaction(async (db) => {
-          const persistedBatch = new PostgresPersistedBatch({
-            group_id: this.group_id,
-            ...this.options.batch_limits
-          });
+      await this.withReplicationTransaction(async (db) => {
+        const persistedBatch = new PostgresPersistedBatch({
+          group_id: this.group_id,
+          ...this.options.batch_limits
+        });
+
+        for await (const rows of db.streamRows<t.Encoded<typeof codec>>(sql`
+          SELECT
+            buckets,
+            lookups,
+            source_key
+          FROM
+            current_data
+          WHERE
+            group_id = ${{ type: 'int8', value: this.group_id }}
+            AND source_table = ${{ type: 'varchar', value: sourceTable.id }}
+          LIMIT
+            ${{ type: 'int4', value: BATCH_LIMIT }}
+        `)) {
+          lastBatchCount += rows.length;
+          processedCount += rows.length;
 
           const decodedRows = rows.map((row) => codec.decode(row));
           for (const value of decodedRows) {
@@ -181,13 +182,14 @@ export class PostgresBucketBatch
               source_key: value.source_key
             });
             persistedBatch.deleteCurrentData({
-              source_key: value.source_key,
+              // This is serialized since we got it from a DB query
+              serialized_source_key: value.source_key,
               source_table_id: sourceTable.id
             });
           }
-          await persistedBatch.flush(db);
-        });
-      }
+        }
+        await persistedBatch.flush(db);
+      });
     }
     if (processedCount == 0) {
       // The op sequence should not have progressed

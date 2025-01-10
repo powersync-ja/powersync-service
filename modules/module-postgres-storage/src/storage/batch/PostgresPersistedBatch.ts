@@ -25,7 +25,15 @@ export type SaveParameterDataOptions = {
 
 export type DeleteCurrentDataOptions = {
   source_table_id: bigint;
-  source_key: storage.ReplicaId;
+  /**
+   * ReplicaID which needs to be serialized in order to be queried
+   * or inserted into the DB
+   */
+  source_key?: storage.ReplicaId;
+  /**
+   * Optionally provide the serialized source key directly
+   */
+  serialized_source_key?: Buffer;
 };
 
 export type PostgresPersistedBatchOptions = RequiredOperationBatchLimits & {
@@ -172,7 +180,7 @@ export class PostgresPersistedBatch {
   }
 
   deleteCurrentData(options: DeleteCurrentDataOptions) {
-    const serializedReplicaId = storage.serializeReplicaId(options.source_key);
+    const serializedReplicaId = options.serialized_source_key ?? storage.serializeReplicaId(options.source_key);
     this.currentDataDeletes.push({
       group_id: this.group_id,
       source_table: options.source_table_id.toString(),
