@@ -1,4 +1,4 @@
-import { errors, logger, router, schema } from '@powersync/lib-services-framework';
+import { ErrorCode, errors, logger, router, schema } from '@powersync/lib-services-framework';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import { Readable } from 'stream';
 
@@ -28,7 +28,7 @@ export const syncStreamed = routeDefinition({
     if (routerEngine!.closed) {
       throw new errors.ServiceError({
         status: 503,
-        code: 'PSYNC_S2003',
+        code: ErrorCode.PSYNC_S2003,
         description: 'Service temporarily unavailable'
       });
     }
@@ -41,7 +41,7 @@ export const syncStreamed = routeDefinition({
     if (!cp.hasSyncRules()) {
       throw new errors.ServiceError({
         status: 500,
-        code: 'PSYNC_S2302',
+        code: ErrorCode.PSYNC_S2302,
         description: 'No sync rules available'
       });
     }

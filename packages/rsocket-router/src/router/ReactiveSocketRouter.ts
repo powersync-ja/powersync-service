@@ -62,7 +62,7 @@ export class ReactiveSocketRouter<C> {
           if (max_concurrent_connections && wss.clients.size > max_concurrent_connections) {
             const err = new errors.ServiceError({
               status: 429,
-              code: 'PSYNC_S2304',
+              code: errors.ErrorCode.PSYNC_S2304,
               description: `Maximum active concurrent connections limit has been reached`
             });
             logger.warn(err);

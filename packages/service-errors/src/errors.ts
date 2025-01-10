@@ -1,21 +1,15 @@
+import { ErrorCode } from './codes.js';
+
 export enum ErrorSeverity {
   INFO = 'info',
   WARNING = 'warning',
   ERROR = 'error'
 }
 
-type Digit = '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9';
-type Category = 'S' | 'R';
-
-// Note: This generates a type union of 20k possiblities,
-// which could potentially slow down the TypeScript compiler.
-// If it does, we could switch to a simpler `PSYNC_${Category}${number}` type.
-export type ServiceErrorCode = `PSYNC_${Category}${Digit}${Digit}${Digit}${Digit}`;
-
 export type ErrorData = {
   name?: string;
 
-  code: ServiceErrorCode;
+  code: ErrorCode;
   description: string;
 
   severity?: ErrorSeverity;
@@ -37,7 +31,7 @@ export class ServiceError extends Error {
     return input instanceof ServiceError || input?.is_service_error == true;
   }
 
-  private static errorMessage(data: ErrorData | ServiceErrorCode, description?: string) {
+  private static errorMessage(data: ErrorData | ErrorCode, description?: string) {
     if (typeof data == 'string') {
       data = {
         code: data,
@@ -52,9 +46,9 @@ export class ServiceError extends Error {
   }
 
   constructor(data: ErrorData);
-  constructor(code: ServiceErrorCode, description: string);
+  constructor(code: ErrorCode, description: string);
 
-  constructor(data: ErrorData | ServiceErrorCode, description?: string) {
+  constructor(data: ErrorData | ErrorCode, description?: string) {
     super(ServiceError.errorMessage(data, description));
     if (typeof data == 'string') {
       data = {
@@ -100,7 +94,8 @@ export class ServiceError extends Error {
  * @deprecated Use more specific errors
  */
 export class ValidationError extends ServiceError {
-  static readonly CODE = 'PSYNC_S2001';
+  static readonly CODE = ErrorCode.PSYNC_S2001;
+
   constructor(errors: any) {
     super({
       code: ValidationError.CODE,
@@ -119,7 +114,7 @@ export class ValidationError extends ServiceError {
  * 2. An error that needs a different error code.
  */
 export class ReplicationAssertionError extends ServiceError {
-  static readonly CODE = 'PSYNC_S1101';
+  static readonly CODE = ErrorCode.PSYNC_S1101;
   constructor(description: string) {
     super({
       code: ReplicationAssertionError.CODE,
@@ -137,7 +132,7 @@ export class ReplicationAssertionError extends ServiceError {
  * 2. An error that needs a different error code.
  */
 export class ServiceAssertionError extends ServiceError {
-  static readonly CODE = 'PSYNC_S1001';
+  static readonly CODE = ErrorCode.PSYNC_S0001;
   constructor(description: string) {
     super({
       code: ServiceAssertionError.CODE,
@@ -154,7 +149,8 @@ export class ServiceAssertionError extends ServiceError {
  * that something requested the replication should stop.
  */
 export class ReplicationAbortedError extends ServiceError {
-  static readonly CODE = 'PSYNC_S1103';
+  static readonly CODE = ErrorCode.PSYNC_S1103;
+
   constructor(description?: string) {
     super({
       code: ReplicationAbortedError.CODE,
@@ -164,7 +160,8 @@ export class ReplicationAbortedError extends ServiceError {
 }
 
 export class AuthorizationError extends ServiceError {
-  static readonly CODE = 'PSYNC_S2101';
+  static readonly CODE = ErrorCode.PSYNC_S2101;
+
   constructor(errors: any) {
     super({
       code: AuthorizationError.CODE,
@@ -176,7 +173,8 @@ export class AuthorizationError extends ServiceError {
 }
 
 export class InternalServerError extends ServiceError {
-  static readonly CODE = 'PSYNC_S2001';
+  static readonly CODE = ErrorCode.PSYNC_S2001;
+
   constructor(err: Error) {
     super({
       code: InternalServerError.CODE,
@@ -190,7 +188,7 @@ export class InternalServerError extends ServiceError {
 }
 
 export class RouteNotFound extends ServiceError {
-  static readonly CODE = 'PSYNC_S2002';
+  static readonly CODE = ErrorCode.PSYNC_S2002;
 
   constructor(path: string) {
     super({

@@ -8,7 +8,7 @@ import * as types from '../types/types.js';
 import * as pg_utils from '../utils/pgwire_utils.js';
 import { getDebugTableInfo } from '../replication/replication-utils.js';
 import { PUBLICATION_NAME } from '../replication/WalStream.js';
-import { ServiceError } from '@powersync/lib-services-framework';
+import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 
 export class PostgresRouteAPIAdapter implements api.RouteAPI {
   connectionTag: string;
@@ -232,7 +232,7 @@ FROM pg_replication_slots WHERE slot_name = $1 LIMIT 1;`,
 
     throw new ServiceError({
       status: 500,
-      code: 'PSYNC_S4001',
+      code: ErrorCode.PSYNC_S4001,
       description: `Could not determine replication lag for slot ${slotName}`
     });
   }

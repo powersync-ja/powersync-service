@@ -1,4 +1,4 @@
-import { errors, router, schema } from '@powersync/lib-services-framework';
+import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
 import { SqlSyncRules, StaticSchema } from '@powersync/service-sync-rules';
 import { internal_routes } from '@powersync/service-types';
 
@@ -122,7 +122,7 @@ export const reprocess = routeDefinition({
     if (active == null) {
       throw new errors.ServiceError({
         status: 422,
-        code: 'PSYNC_S4104',
+        code: ErrorCode.PSYNC_S4104,
         description: 'No active sync rules'
       });
     }

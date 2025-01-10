@@ -1,5 +1,6 @@
 import {
   container,
+  ErrorCode,
   logger,
   ReplicationAbortedError,
   ReplicationAssertionError,
@@ -187,11 +188,14 @@ export class ChangeStream {
     const snapshotTime = hello.lastWrite?.majorityOpTime?.ts as mongo.Timestamp;
     if (hello.msg == 'isdbgrid') {
       throw new ServiceError(
-        'PSYNC_S1341',
+        ErrorCode.PSYNC_S1341,
         'Sharded MongoDB Clusters are not supported yet (including MongoDB Serverless instances).'
       );
     } else if (hello.setName == null) {
-      throw new ServiceError('PSYNC_S1342', 'Standalone MongoDB instances are not supported - use a replicaset.');
+      throw new ServiceError(
+        ErrorCode.PSYNC_S1342,
+        'Standalone MongoDB instances are not supported - use a replicaset.'
+      );
     } else if (snapshotTime == null) {
       // Not known where this would happen apart from the above cases
       throw new ReplicationAssertionError('MongoDB lastWrite timestamp not found.');
@@ -376,7 +380,7 @@ export class ChangeStream {
       });
       logger.info(`Enabled postImages on ${db}.${collectionInfo.name}`);
     } else if (!enabled) {
-      throw new ServiceError('PSYNC_S1343', `postImages not enabled on ${db}.${collectionInfo.name}`);
+      throw new ServiceError(ErrorCode.PSYNC_S1343, `postImages not enabled on ${db}.${collectionInfo.name}`);
     }
   }
 

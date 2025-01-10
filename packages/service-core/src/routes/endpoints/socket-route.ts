@@ -1,4 +1,4 @@
-import { errors, logger, schema } from '@powersync/lib-services-framework';
+import { ErrorCode, errors, logger, schema } from '@powersync/lib-services-framework';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import { serialize } from 'bson';
 
@@ -36,7 +36,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         responder.onError(
           new errors.ServiceError({
             status: 503,
-            code: 'PSYNC_S2003',
+            code: ErrorCode.PSYNC_S2003,
             description: 'Service temporarily unavailable'
           })
         );
@@ -55,7 +55,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         responder.onError(
           new errors.ServiceError({
             status: 500,
-            code: 'PSYNC_S2302',
+            code: ErrorCode.PSYNC_S2302,
             description: 'No sync rules available'
           })
         );

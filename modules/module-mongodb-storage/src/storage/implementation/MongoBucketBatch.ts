@@ -5,6 +5,7 @@ import * as mongo from 'mongodb';
 import {
   container,
   DisposableObserver,
+  ErrorCode,
   errors,
   logger,
   ReplicationAssertionError,
@@ -356,7 +357,7 @@ export class MongoBucketBatch
         afterData = new bson.Binary(bson.serialize(after!));
         // We additionally make sure it's <= 15MB - we need some margin for metadata.
         if (afterData.length() > MAX_ROW_SIZE) {
-          throw new ServiceError('PSYNC_S1002', `Row too large: ${afterData.length()}`);
+          throw new ServiceError(ErrorCode.PSYNC_S1002, `Row too large: ${afterData.length()}`);
         }
       } catch (e) {
         // Replace with empty values, equivalent to TOAST values
@@ -556,7 +557,7 @@ export class MongoBucketBatch
         logger.info(`${this.slot_name} ${description} - try ${flushTry}`);
       }
       if (flushTry > 20 && Date.now() > lastTry) {
-        throw new ServiceError('PSYNC_S1402', 'Max transaction tries exceeded');
+        throw new ServiceError(ErrorCode.PSYNC_S1402, 'Max transaction tries exceeded');
       }
 
       const next_op_id_doc = await this.db.op_id_sequence.findOneAndUpdate(

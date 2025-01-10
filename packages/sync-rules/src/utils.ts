@@ -62,7 +62,11 @@ function filterJsonData(data: any, depth = 0): any {
   if (depth > DEPTH_LIMIT) {
     // This is primarily to prevent infinite recursion
     // TODO: Proper error class
-    throw new SyncRulesProcessingError('PSYNC_S1004', `json nested object depth exceeds the limit of ${DEPTH_LIMIT}`);
+    throw new SyncRulesProcessingError(
+      // FIXME: Use @powersync/service-errors
+      'PSYNC_S1004',
+      `json nested object depth exceeds the limit of ${DEPTH_LIMIT}`
+    );
   }
   if (data == null) {
     return data; // null or undefined

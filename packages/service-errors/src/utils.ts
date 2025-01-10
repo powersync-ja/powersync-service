@@ -1,4 +1,4 @@
-import { ErrorData, InternalServerError, ServiceError } from './framework-errors.js';
+import { ErrorData, InternalServerError, ServiceError } from './errors.js';
 
 export const isServiceError = (err: any): err is ServiceError => {
   const matches = ServiceError.isServiceError(err);

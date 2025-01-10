@@ -5,7 +5,7 @@ import * as errors from '../../src/errors/errors-index.js';
 class CustomServiceError extends errors.ServiceError {
   constructor() {
     super({
-      code: 'PSYNC_S9999',
+      code: ErrorCode.PSYNC_S9999,
       description: 'This is a custom error',
       details: 'this is some more detailed information'
     });
@@ -40,8 +40,8 @@ describe('errors', () => {
     expect(errors.isServiceError(standard_error)).toBe(false);
     expect(errors.isServiceError(error)).toBe(true);
 
-    expect(errors.matchesErrorCode(error, 'PSYNC_S9999')).toBe(true);
-    expect(errors.matchesErrorCode(standard_error, 'PSYNC_S9999')).toBe(false);
+    expect(errors.matchesErrorCode(error, ErrorCode.PSYNC_S9999)).toBe(true);
+    expect(errors.matchesErrorCode(standard_error, ErrorCode.PSYNC_S9999)).toBe(false);
 
     expect(errors.getErrorData(error)).toMatchSnapshot();
     expect(errors.getErrorData(standard_error)).toBe(undefined);
