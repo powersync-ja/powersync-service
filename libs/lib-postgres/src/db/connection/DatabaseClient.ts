@@ -139,7 +139,21 @@ export class DatabaseClient extends AbstractPostgresConnection<NotificationListe
   }
 
   protected async initialize() {
-    if (this.options.schema) {
+    const { schema } = this.options;
+    if (schema) {
+      // First check if it exists
+      const exists = await this.pool.query(sql`
+        SELECT
+          schema_name
+        FROM
+          information_schema.schemata
+        WHERE
+          schema_name = ${{ type: 'varchar', value: schema }};
+      `);
+
+      if (exists.rows.length) {
+        return;
+      }
       // Create the schema if it doesn't exist
       await this.pool.query({ statement: `CREATE SCHEMA IF NOT EXISTS ${this.options.schema}` });
     }

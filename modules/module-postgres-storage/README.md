@@ -33,35 +33,38 @@ A separate Postgres server is currently required for replication connections (if
 
 The Postgres bucket storage implementation requires write access to the provided Postgres database. The module will create a `powersync` schema in the provided database which will contain all the tables and data used for bucket storage. Ensure that the provided credentials specified in the `uri` or `username`, `password` configuration fields have the appropriate write access.
 
-A sample user could be created with:
+A sample user could be created with the following
+
+If a `powersync` schema should be created manually
 
 ```sql
--- Create the user with a password
 CREATE USER powersync_storage_user
 WITH
   PASSWORD 'secure_password';
 
--- Optionally create a PowerSync schema and make the user its owner
 CREATE SCHEMA IF NOT EXISTS powersync AUTHORIZATION powersync_storage_user;
 
--- OR: Allow PowerSync to create schemas in the database
-GRANT CREATE ON DATABASE example_database TO powersync_storage_user;
+GRANT CONNECT ON DATABASE postgres TO powersync_storage_user;
 
--- Set default privileges for objects created by powersync_storage_user in the database
--- (Ensures the user gets full access to tables they create in any schema)
-ALTER DEFAULT PRIVILEGES FOR ROLE powersync_storage_user
-GRANT ALL PRIVILEGES ON TABLES TO powersync_storage_user;
-
--- [if the schema was pre-created] Grant usage and privileges on the powersync schema 
 GRANT USAGE ON SCHEMA powersync TO powersync_storage_user;
 
--- [if the schema was pre-created]
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA powersync TO powersync_storage_user;
+```
+
+If the PowerSync service should create a `powersync` schema
+
+```sql
+CREATE USER powersync_storage_user
+WITH
+  PASSWORD 'secure_password';
+
+-- The user should only have access to the schema it created
+GRANT CREATE ON DATABASE postgres TO powersync_storage_user;
 ```
 
 ### Batching
 
-Replication data is persisted via batch operations. Batching ensures performant, memory optimized writes. Batches are limited in size. Increasing batch size limits can reduce the amount of server round-trips which increases performance, but will result in higher memory usage and potential server issues.
+Replication data is persisted via batch operations. Batching ensures performant, memory optimized writes. Batches are limited in size. Increasing batch size limits could reduce the amount of server round-trips which could increase performance (in some circumstances), but will result in higher memory usage and potential server issues.
 
 Batch size limits are defaulted and can optionally be configured in the configuration.
 

@@ -11,6 +11,7 @@ import { pick } from '../../utils/ts-codec.js';
 import { batchCreateCustomWriteCheckpoints } from '../checkpoints/PostgresWriteCheckpointAPI.js';
 import { cacheKey, encodedCacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PostgresPersistedBatch } from './PostgresPersistedBatch.js';
+
 export interface PostgresBucketBatchOptions {
   db: lib_postgres.DatabaseClient;
   sync_rules: sync_rules.SqlSyncRules;
