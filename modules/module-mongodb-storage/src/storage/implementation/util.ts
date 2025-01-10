@@ -1,8 +1,10 @@
-import { storage, utils } from '@powersync/service-core';
 import * as bson from 'bson';
 import * as crypto from 'crypto';
-import * as mongo from 'mongodb';
 import * as uuid from 'uuid';
+
+import { mongo } from '@powersync/lib-service-mongodb';
+import { storage, utils } from '@powersync/service-core';
+
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument } from './models.js';
 

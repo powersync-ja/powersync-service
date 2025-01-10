@@ -1,10 +1,9 @@
-import { SqliteJsonRow, SqliteJsonValue, SqlSyncRules } from '@powersync/service-sync-rules';
-import * as bson from 'bson';
-import * as mongo from 'mongodb';
-
 import * as lib_mongo from '@powersync/lib-service-mongodb';
+import { mongo } from '@powersync/lib-service-mongodb';
 import { DisposableObserver, logger } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
+import { SqliteJsonRow, SqliteJsonValue, SqlSyncRules } from '@powersync/service-sync-rules';
+import * as bson from 'bson';
 import * as timers from 'timers/promises';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';

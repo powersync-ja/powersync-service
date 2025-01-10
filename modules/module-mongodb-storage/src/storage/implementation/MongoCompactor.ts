@@ -1,6 +1,7 @@
+import { mongo } from '@powersync/lib-service-mongodb';
 import { logger } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
-import { AnyBulkWriteOperation, MaxKey, MinKey } from 'mongodb';
+
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey } from './models.js';
 import { cacheKey } from './OperationBatch.js';
@@ -49,7 +50,7 @@ const DEFAULT_MOVE_BATCH_QUERY_LIMIT = 10_000;
 const DEFAULT_MEMORY_LIMIT_MB = 64;
 
 export class MongoCompactor {
-  private updates: AnyBulkWriteOperation<BucketDataDocument>[] = [];
+  private updates: mongo.AnyBulkWriteOperation<BucketDataDocument>[] = [];
 
   private idLimitBytes: number;
   private moveBatchLimit: number;
@@ -94,12 +95,12 @@ export class MongoCompactor {
 
     let currentState: CurrentBucketState | null = null;
 
-    let bucketLower: string | MinKey;
-    let bucketUpper: string | MaxKey;
+    let bucketLower: string | mongo.MinKey;
+    let bucketUpper: string | mongo.MaxKey;
 
     if (bucket == null) {
-      bucketLower = new MinKey();
-      bucketUpper = new MaxKey();
+      bucketLower = new mongo.MinKey();
+      bucketUpper = new mongo.MaxKey();
     } else if (bucket.includes('[')) {
       // Exact bucket name
       bucketLower = bucket;
@@ -114,14 +115,14 @@ export class MongoCompactor {
     const lowerBound: BucketDataKey = {
       g: this.group_id,
       b: bucketLower as string,
-      o: new MinKey() as any
+      o: new mongo.MinKey() as any
     };
 
     // Upper bound is adjusted for each batch
     let upperBound: BucketDataKey = {
       g: this.group_id,
       b: bucketUpper as string,
-      o: new MaxKey() as any
+      o: new mongo.MaxKey() as any
     };
 
     while (true) {
@@ -287,7 +288,7 @@ export class MongoCompactor {
         $gte: {
           g: this.group_id,
           b: bucket,
-          o: new MinKey() as any
+          o: new mongo.MinKey() as any
         },
         $lte: {
           g: this.group_id,
@@ -349,7 +350,7 @@ export class MongoCompactor {
                   $gte: {
                     g: this.group_id,
                     b: bucket,
-                    o: new MinKey() as any
+                    o: new mongo.MinKey() as any
                   },
                   $lte: lastOpId!
                 }
