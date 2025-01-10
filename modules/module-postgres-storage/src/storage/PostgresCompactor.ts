@@ -320,6 +320,7 @@ export class PostgresCompactor {
           }
 
           if (!gotAnOp) {
+            await db.sql`COMMIT`.execute();
             done = true;
             return;
           }
