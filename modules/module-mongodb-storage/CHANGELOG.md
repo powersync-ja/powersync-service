@@ -1,5 +1,16 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.2.0
+
+### Minor Changes
+
+- 9709b2d: Shared MongoDB dependency between modules. This should help avoid potential multiple versions of MongoDB being present in a project.
+
+### Patch Changes
+
+- Updated dependencies [9709b2d]
+  - @powersync/lib-service-mongodb@0.3.0
+
 ## 0.1.0
 
 ### Minor Changes
