@@ -372,6 +372,7 @@ AND table_type = 'BASE TABLE';`,
         }
       );
     }
+    await this.storage.autoActivate();
   }
 
   private getTable(tableId: string): storage.SourceTable {
