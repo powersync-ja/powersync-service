@@ -1,6 +1,6 @@
+import { mongo } from '@powersync/lib-service-mongodb';
 import { storage } from '@powersync/service-core';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
-import * as mongo from 'mongodb';
 import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
 import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
 import { PowerSyncMongo } from './db.js';

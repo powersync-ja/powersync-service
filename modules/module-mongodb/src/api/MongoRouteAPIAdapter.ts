@@ -1,8 +1,9 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
+import { mongo } from '@powersync/lib-service-mongodb';
 import { api, ParseSyncRulesOptions, SourceTable } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
-import * as mongo from 'mongodb';
+
 import { MongoManager } from '../replication/MongoManager.js';
 import { constructAfterRecord, createCheckpoint } from '../replication/MongoRelation.js';
 import { CHECKPOINTS_COLLECTION } from '../replication/replication-utils.js';
@@ -225,7 +226,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
         try {
           collections = await this.client.db(db.name).listCollections().toArray();
         } catch (e) {
-          if (e instanceof mongo.MongoServerError && e.codeName == 'Unauthorized') {
+          if (lib_mongo.isMongoServerError(e) && e.codeName == 'Unauthorized') {
             // Ignore databases we're not authorized to query
             return null;
           }
@@ -267,7 +268,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
               });
             }
           } catch (e) {
-            if (e instanceof mongo.MongoServerError && e.codeName == 'Unauthorized') {
+            if (lib_mongo.isMongoServerError(e) && e.codeName == 'Unauthorized') {
               // Ignore collections we're not authorized to query
               continue;
             }

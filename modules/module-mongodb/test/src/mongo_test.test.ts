@@ -1,11 +1,12 @@
+import { mongo } from '@powersync/lib-service-mongodb';
+import { SqliteRow, SqlSyncRules } from '@powersync/service-sync-rules';
+import { describe, expect, test } from 'vitest';
+
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
 import { ChangeStream } from '@module/replication/ChangeStream.js';
 import { constructAfterRecord } from '@module/replication/MongoRelation.js';
-import { SqliteRow, SqlSyncRules } from '@powersync/service-sync-rules';
-import * as mongo from 'mongodb';
-import { describe, expect, test } from 'vitest';
-import { clearTestDb, connectMongoData, TEST_CONNECTION_OPTIONS } from './util.js';
 import { PostImagesOption } from '@module/types/types.js';
+import { clearTestDb, connectMongoData, TEST_CONNECTION_OPTIONS } from './util.js';
 
 describe('mongo data types', () => {
   async function setupTable(db: mongo.Db) {

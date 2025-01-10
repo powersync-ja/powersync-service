@@ -1,7 +1,7 @@
+import { mongo } from '@powersync/lib-service-mongodb';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import * as mongo from 'mongodb';
 
 import { logger } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
