@@ -1,7 +1,6 @@
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 import { LRUCache } from 'lru-cache/min';
-import * as mongo from 'mongodb';
 import * as timers from 'timers/promises';
 
 import { storage, sync, utils } from '@powersync/service-core';
@@ -10,6 +9,8 @@ import { DisposableObserver, logger } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
 
 import * as lib_mongo from '@powersync/lib-service-mongodb';
+import { mongo } from '@powersync/lib-service-mongodb';
+
 import { PowerSyncMongo } from './implementation/db.js';
 import { SyncRuleDocument } from './implementation/models.js';
 import { MongoPersistedSyncRulesContent } from './implementation/MongoPersistedSyncRulesContent.js';
@@ -285,7 +286,7 @@ export class MongoBucketStorage
 
   async getStorageMetrics(): Promise<storage.StorageMetrics> {
     const ignoreNotExiting = (e: unknown) => {
-      if (e instanceof mongo.MongoServerError && e.codeName == 'NamespaceNotFound') {
+      if (lib_mongo.isMongoServerError(e) && e.codeName == 'NamespaceNotFound') {
         // Collection doesn't exist - return 0
         return [{ storageStats: { size: 0 } }];
       } else {

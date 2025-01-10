@@ -1,11 +1,12 @@
+import * as crypto from 'crypto';
+import { setTimeout } from 'node:timers/promises';
+import { describe, expect, test, vi } from 'vitest';
+
+import { mongo } from '@powersync/lib-service-mongodb';
+import { storage } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
 
 import { PostImagesOption } from '@module/types/types.js';
-import { storage } from '@powersync/service-core';
-import * as crypto from 'crypto';
-import * as mongo from 'mongodb';
-import { setTimeout } from 'node:timers/promises';
-import { describe, expect, test, vi } from 'vitest';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 

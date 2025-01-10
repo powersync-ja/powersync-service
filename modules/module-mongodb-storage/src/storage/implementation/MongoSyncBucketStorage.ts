@@ -498,7 +498,7 @@ export class MongoSyncBucketStorage
         logger.info(`${this.slot_name} Done clearing data`);
         return;
       } catch (e: unknown) {
-        if (e instanceof mongo.MongoServerError && e.codeName == 'MaxTimeMSExpired') {
+        if (lib_mongo.isMongoServerError(e) && e.codeName == 'MaxTimeMSExpired') {
           logger.info(
             `${this.slot_name} Cleared batch of data in ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, continuing...`
           );
