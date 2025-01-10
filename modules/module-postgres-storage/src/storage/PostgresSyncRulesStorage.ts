@@ -487,6 +487,8 @@ export class PostgresSyncRulesStorage
       SET
         state = ${{ type: 'varchar', value: storage.SyncRuleState.TERMINATED }},
         snapshot_done = ${{ type: 'bool', value: false }}
+      WHERE
+        id = ${{ type: 'int8', value: this.group_id }}
     `.execute();
   }
 
