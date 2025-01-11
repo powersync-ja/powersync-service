@@ -398,7 +398,7 @@ export class PostgresSyncRulesStorage
             group_id = $1
             and op_id <= $2
             and (
-            ${filters.map((f, index) => `(bucket_name = $${index + 4} and op_id > $${index + 5})`).join(' OR ')}
+            ${filters.map((f, index) => `(bucket_name = $${index * 2 + 4} and op_id > $${index * 2 + 5})`).join(' OR ')}
             ) 
           ORDER BY
             bucket_name ASC,

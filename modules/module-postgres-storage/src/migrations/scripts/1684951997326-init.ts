@@ -47,9 +47,11 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
      * Rough comparison:
      * Creating these indexes causes an initial replication of 2.5million rows
      * to take about 10minutes to complete, compared to about 7.5 minutes without indexes.
+     * [For comparison MongoDB took 5min 22 seconds to replicate the same data].
      *
      * The time to fetch operations for the 2.5mil rows is 2min, 35 seconds with indexes versus
      * 2min 21 seconds without indexes (probably in the margin of error).
+     * [For comparison MongoDB took 1 minute for the same data].
      *
      * Not including them since they impact initial replication more than providing any noticeable benefit.
      */
