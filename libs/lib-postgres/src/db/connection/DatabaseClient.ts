@@ -17,9 +17,13 @@ export type DatabaseClientOptions = {
   notificationChannels?: string[];
 };
 
+export type DatabaseClientListener = NotificationListener & {
+  connectionCreated?: (connection: pgwire.PgConnection) => Promise<void>;
+};
+
 export const TRANSACTION_CONNECTION_COUNT = 5;
 
-export class DatabaseClient extends AbstractPostgresConnection<NotificationListener> {
+export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientListener> {
   closed: boolean;
 
   protected pool: pgwire.PgClient;
@@ -36,7 +40,8 @@ export class DatabaseClient extends AbstractPostgresConnection<NotificationListe
       const slot = new ConnectionSlot({ config: options.config, notificationChannels: options.notificationChannels });
       slot.registerListener({
         connectionAvailable: () => this.processConnectionQueue(),
-        connectionError: (ex) => this.handleConnectionError(ex)
+        connectionError: (ex) => this.handleConnectionError(ex),
+        connectionCreated: (connection) => this.iterateAsyncListeners(async (l) => l.connectionCreated?.(connection))
       });
       return slot;
     });
@@ -58,7 +63,7 @@ export class DatabaseClient extends AbstractPostgresConnection<NotificationListe
     };
   }
 
-  registerListener(listener: Partial<NotificationListener>): () => void {
+  registerListener(listener: Partial<DatabaseClientListener>): () => void {
     let disposeNotification: (() => void) | null = null;
     if ('notification' in listener) {
       // Pass this on to the first connection slot
@@ -81,13 +86,18 @@ export class DatabaseClient extends AbstractPostgresConnection<NotificationListe
    * This hack uses multiple statements in order to always ensure the
    * appropriate connection uses the correct schema.
    */
-  async query(...args: pgwire.Statement[]): Promise<pgwire.PgResult> {
+  query(script: string, options?: pgwire.PgSimpleQueryOptions): Promise<pgwire.PgResult>;
+  query(...args: pgwire.Statement[]): Promise<pgwire.PgResult>;
+  async query(...args: any[]): Promise<pgwire.PgResult> {
     await this.initialized;
     // Retry pool queries. Note that we can't retry queries in a transaction
     // since a failed query will end the transaction.
+
     const { schemaStatement } = this;
-    if (schemaStatement) {
+    if (typeof args[0] == 'object' && schemaStatement) {
       args.unshift(schemaStatement);
+    } else if (typeof args[0] == 'string' && schemaStatement) {
+      args[0] = `${schemaStatement.statement}; ${args[0]}`;
     }
     return lib_postgres.retriedQuery(this.pool, ...args);
   }

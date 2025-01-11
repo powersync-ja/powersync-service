@@ -16,7 +16,9 @@ export abstract class AbstractPostgresConnection<
     return this.baseConnection.stream(...args);
   }
 
-  query(...args: pgwire.Statement[]): Promise<pgwire.PgResult> {
+  query(script: string, options?: pgwire.PgSimpleQueryOptions): Promise<pgwire.PgResult>;
+  query(...args: pgwire.Statement[]): Promise<pgwire.PgResult>;
+  query(...args: any[]): Promise<pgwire.PgResult> {
     return this.baseConnection.query(...args);
   }
 

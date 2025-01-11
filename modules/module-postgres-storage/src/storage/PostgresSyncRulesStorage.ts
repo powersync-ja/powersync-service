@@ -2,13 +2,13 @@ import * as lib_postgres from '@powersync/lib-service-postgres';
 import { DisposableObserver } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
-import * as t from 'ts-codec';
 import * as uuid from 'uuid';
-import { bigint, BIGINT_MAX } from '../types/codecs.js';
+import { BIGINT_MAX } from '../types/codecs.js';
 import { models, RequiredOperationBatchLimits } from '../types/types.js';
 import { replicaIdToSubkey } from '../utils/bson.js';
 import { mapOpEntry } from '../utils/bucket-data.js';
 
+import { StatementParam } from '@powersync/service-jpgwire';
 import { pick } from '../utils/ts-codec.js';
 import { PostgresBucketBatch } from './batch/PostgresBucketBatch.js';
 import { PostgresWriteCheckpointAPI } from './checkpoints/PostgresWriteCheckpointAPI.js';
@@ -356,50 +356,70 @@ export class PostgresSyncRulesStorage
     let targetOp: bigint | null = null;
     let rowCount = 0;
 
-    for await (const rawRows of this.db.streamRows({
-      statement: /* sql */ `
-        WITH
-          filter_data AS (
-            SELECT
-              FILTER ->> 'bucket_name' AS bucket_name,
-              (FILTER ->> 'start')::BIGINT AS start_op_id
-            FROM
-              jsonb_array_elements($1::jsonb) AS FILTER
-          )
-        SELECT
-          b.*,
-          octet_length(b.data) AS data_size
-        FROM
-          bucket_data b
-          JOIN filter_data f ON b.bucket_name = f.bucket_name
-          AND b.op_id > f.start_op_id
-          AND b.op_id <= $2
-        WHERE
-          b.group_id = $3
-        ORDER BY
-          b.bucket_name ASC,
-          b.op_id ASC
-        LIMIT
-          $4
-      `,
+    /**
+     * It is possible to perform this query with JSONB join. e.g.
+     * ```sql
+     * WITH
+     * filter_data AS (
+     * SELECT
+     * FILTER ->> 'bucket_name' AS bucket_name,
+     * (FILTER ->> 'start')::BIGINT AS start_op_id
+     * FROM
+     * jsonb_array_elements($1::jsonb) AS FILTER
+     * )
+     * SELECT
+     * b.*,
+     * octet_length(b.data) AS data_size
+     * FROM
+     * bucket_data b
+     * JOIN filter_data f ON b.bucket_name = f.bucket_name
+     * AND b.op_id > f.start_op_id
+     * AND b.op_id <= $2
+     * WHERE
+     * b.group_id = $3
+     * ORDER BY
+     * b.bucket_name ASC,
+     * b.op_id ASC
+     * LIMIT
+     * $4;
+     * ```
+     * Which might be better for large volumes of buckets, but in testing the JSON method
+     * was significantly slower than the method below. Syncing 2.5 million rows in a single
+     * bucket takes 2 minutes and 11 seconds with the method below. With the JSON method
+     * 1 million rows were only synced before a 5 minute timeout.
+     */
+    for await (const rows of this.db.streamRows({
+      statement: `
+          SELECT
+            *
+          FROM
+            bucket_data 
+          WHERE
+            group_id = $1
+            and op_id <= $2
+            and (
+            ${filters.map((f, index) => `(bucket_name = $${index + 4} and op_id > $${index + 5})`).join(' OR ')}
+            ) 
+          ORDER BY
+            bucket_name ASC,
+            op_id ASC
+          LIMIT
+            $3;`,
       params: [
-        { type: 'jsonb', value: filters },
-        { type: 'int8', value: end },
         { type: 'int8', value: this.group_id },
-        { type: 'int4', value: rowLimit + 1 } // Increase the row limit by 1 in order to detect hasMore
+        { type: 'int8', value: end },
+        { type: 'int4', value: rowLimit + 1 },
+        ...filters.flatMap((f) => [
+          { type: 'varchar' as const, value: f.bucket_name },
+          { type: 'int8' as const, value: f.start } satisfies StatementParam
+        ])
       ]
     })) {
-      const rows = rawRows.map((q) => {
-        return models.BucketData.and(
-          t.object({
-            data_size: t.Null.or(bigint)
-          })
-        ).decode(q as any);
-      });
+      const decodedRows = rows.map((r) => models.BucketData.decode(r as any));
 
-      for (const row of rows) {
+      for (const row of decodedRows) {
         const { bucket_name } = row;
-        const rowSize = row.data_size ? Number(row.data_size) : 0;
+        const rowSize = row.data ? row.data.length : 0;
 
         if (
           currentBatch == null ||
@@ -457,15 +477,13 @@ export class PostgresSyncRulesStorage
         currentBatch.data.push(entry);
         currentBatch.next_after = entry.op_id;
 
-        // Obtained from pg_column_size(data) AS data_size
-        // We could optimize this and persist the column instead of calculating
-        // on query.
-        batchSize += row.data_size ? Number(row.data_size) : 0;
+        batchSize += rowSize;
 
         // Manually track the total rows yielded
         rowCount++;
       }
     }
+
     if (currentBatch != null) {
       const yieldBatch = currentBatch;
       currentBatch = null;

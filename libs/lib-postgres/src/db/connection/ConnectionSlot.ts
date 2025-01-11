@@ -8,6 +8,7 @@ export interface NotificationListener extends framework.DisposableListener {
 export interface ConnectionSlotListener extends NotificationListener {
   connectionAvailable?: () => void;
   connectionError?: (exception: any) => void;
+  connectionCreated?: (connection: pgwire.PgConnection) => Promise<void>;
 }
 
 export type ConnectionLease = {
@@ -41,6 +42,7 @@ export class ConnectionSlot extends framework.DisposableObserver<ConnectionSlotL
 
   protected async connect() {
     const connection = await pgwire.connectPgWire(this.options.config, { type: 'standard' });
+    await this.iterateAsyncListeners(async (l) => l.connectionCreated?.(connection));
     if (this.hasNotificationListener()) {
       await this.configureConnectionNotifications(connection);
     }

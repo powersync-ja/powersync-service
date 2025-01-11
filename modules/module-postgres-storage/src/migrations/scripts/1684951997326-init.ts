@@ -43,6 +43,19 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
       )
     `.execute();
 
+    /**
+     * Rough comparison:
+     * Creating these indexes causes an initial replication of 2.5million rows
+     * to take about 10minutes to complete, compared to about 7.5 minutes without indexes.
+     *
+     * The time to fetch operations for the 2.5mil rows is 2min, 35 seconds with indexes versus
+     * 2min 21 seconds without indexes (probably in the margin of error).
+     *
+     * Not including them since they impact initial replication more than providing any noticeable benefit.
+     */
+    // await db.sql`CREATE INDEX idx_bucket_data_composite ON bucket_data (group_id, bucket_name, op_id); `.execute();
+    // await db.sql`CREATE INDEX idx_bucket_data_group_id ON bucket_data (group_id);`.execute();
+
     await db.sql`CREATE TABLE instance (id TEXT PRIMARY KEY) `.execute();
 
     await db.sql`

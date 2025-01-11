@@ -66,12 +66,20 @@ export class PostgresBucketStorageFactory
     });
     this.slot_name_prefix = options.slot_name_prefix;
 
+    this.db.registerListener({
+      connectionCreated: async (connection) => this.prepareStatements(connection)
+    });
     this.notificationConnection = null;
   }
 
   async [Symbol.dispose]() {
     await this.notificationConnection?.end();
     await this.db[Symbol.asyncDispose]();
+  }
+
+  async prepareStatements(connection: pg_wire.PgConnection) {
+    // It should be possible to prepare statements for some common operations here.
+    // This has not been implemented yet.
   }
 
   getInstance(syncRules: storage.PersistedSyncRulesContent): storage.SyncRulesBucketStorage {

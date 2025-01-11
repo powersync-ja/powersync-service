@@ -108,7 +108,7 @@ export class PostgresPersistedBatch {
         target_op: null
       });
 
-      this.currentSize += k.bucket.length * 2 + data.length * 2 + hexSourceKey.length * 2 + 100;
+      this.currentSize += k.bucket.length + data.length + hexSourceKey.length + 100;
     }
 
     for (const bd of remaining_buckets.values()) {
@@ -126,7 +126,7 @@ export class PostgresPersistedBatch {
         target_op: null,
         data: null
       });
-      this.currentSize += bd.bucket.length * 2 + hexSourceKey.length * 2 + 100;
+      this.currentSize += bd.bucket.length + hexSourceKey.length + 100;
     }
   }
 
@@ -161,7 +161,7 @@ export class PostgresPersistedBatch {
         id: 0, // auto incrementing id
         lookup: hexLookup
       });
-      this.currentSize += hexLookup.length * 2 + serializedBucketParameters.length * 2 + hexSourceKey.length * 2 + 100;
+      this.currentSize += hexLookup.length + serializedBucketParameters.length + hexSourceKey.length + 100;
     }
 
     // 2. "REMOVE" entries for any lookup not touched.
@@ -175,7 +175,7 @@ export class PostgresPersistedBatch {
         id: 0, // auto incrementing id
         lookup: hexLookup
       });
-      this.currentSize += hexLookup.length * 2 + hexSourceKey.length * 2 + 100;
+      this.currentSize += hexLookup.length + hexSourceKey.length + 100;
     }
   }
 
@@ -186,7 +186,7 @@ export class PostgresPersistedBatch {
       source_table: options.source_table_id.toString(),
       source_key: serializedReplicaId.toString('hex')
     });
-    this.currentSize += serializedReplicaId.byteLength * 2 + 100;
+    this.currentSize += serializedReplicaId.byteLength + 100;
   }
 
   upsertCurrentData(options: models.CurrentDataDecoded) {
@@ -218,7 +218,7 @@ export class PostgresPersistedBatch {
     this.currentSize +=
       (options.data?.byteLength ?? 0) +
       serializedReplicaId.byteLength +
-      buckets.length * 2 +
+      buckets.length +
       options.lookups.reduce((total, l) => {
         return total + l.byteLength;
       }, 0) +
