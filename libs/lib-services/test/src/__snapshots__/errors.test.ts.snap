@@ -2,7 +2,7 @@
 
 exports[`errors > utilities should properly match a service error 1`] = `
 {
-  "code": "PSYNC_S9999",
+  "code": "PSYNC_S0001",
   "description": "This is a custom error",
   "details": "this is some more detailed information",
   "name": "CustomServiceError",

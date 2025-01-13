@@ -2,10 +2,12 @@ import { describe, test, expect } from 'vitest';
 
 import * as errors from '../../src/errors/errors-index.js';
 
+const { ErrorCode } = errors;
+
 class CustomServiceError extends errors.ServiceError {
   constructor() {
     super({
-      code: ErrorCode.PSYNC_S9999,
+      code: ErrorCode.PSYNC_S0001,
       description: 'This is a custom error',
       details: 'this is some more detailed information'
     });
@@ -26,7 +28,7 @@ describe('errors', () => {
 
     // The error stack will contain host specific path information. We only care about the header
     // anyway and that the stack is shown - indicated by the initial `at` text
-    const initial = `CustomServiceError: [PSYNC_S9999] This is a custom error
+    const initial = `CustomServiceError: [PSYNC_S0001] This is a custom error
   this is some more detailed information
     at`;
 
@@ -40,8 +42,8 @@ describe('errors', () => {
     expect(errors.isServiceError(standard_error)).toBe(false);
     expect(errors.isServiceError(error)).toBe(true);
 
-    expect(errors.matchesErrorCode(error, ErrorCode.PSYNC_S9999)).toBe(true);
-    expect(errors.matchesErrorCode(standard_error, ErrorCode.PSYNC_S9999)).toBe(false);
+    expect(errors.matchesErrorCode(error, ErrorCode.PSYNC_S0001)).toBe(true);
+    expect(errors.matchesErrorCode(standard_error, ErrorCode.PSYNC_S0001)).toBe(false);
 
     expect(errors.getErrorData(error)).toMatchSnapshot();
     expect(errors.getErrorData(standard_error)).toBe(undefined);
