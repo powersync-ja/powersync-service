@@ -56,7 +56,7 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
         slot_name TEXT,
         last_checkpoint_ts TIMESTAMP WITH TIME ZONE,
         last_keepalive_ts TIMESTAMP WITH TIME ZONE,
-        keepalive_op TEXT,
+        keepalive_op BIGINT,
         last_fatal_error TEXT,
         content TEXT NOT NULL
       );

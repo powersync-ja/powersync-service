@@ -20,7 +20,7 @@ export interface PostgresBucketBatchOptions {
   last_checkpoint_lsn: string | null;
   no_checkpoint_before_lsn: string;
   store_current_data: boolean;
-  keep_alive_op?: string | null;
+  keep_alive_op?: bigint | null;
   /**
    * Set to true for initial replication.
    */
@@ -70,7 +70,7 @@ export class PostgresBucketBatch
     this.batch = null;
     this.persisted_op = null;
     if (options.keep_alive_op) {
-      this.persisted_op = BigInt(options.keep_alive_op);
+      this.persisted_op = options.keep_alive_op;
     }
   }
 
@@ -299,7 +299,7 @@ export class PostgresBucketBatch
       await this.db.sql`
         UPDATE sync_rules
         SET
-          keepalive_op = ${{ type: 'varchar', value: this.persisted_op == null ? null : String(this.persisted_op) }}
+          keepalive_op = ${{ type: 'int8', value: this.persisted_op }}
         WHERE
           id = ${{ type: 'int4', value: this.group_id }}
       `.execute();
@@ -323,7 +323,7 @@ export class PostgresBucketBatch
     const doc = await this.db.sql`
       UPDATE sync_rules
       SET
-        keepalive_op = ${{ type: 'varchar', value: update.keepalive_op }},
+        keepalive_op = ${{ type: 'int8', value: update.keepalive_op }},
         last_fatal_error = ${{ type: 'varchar', value: update.last_fatal_error }},
         snapshot_done = ${{ type: 'bool', value: update.snapshot_done }},
         last_keepalive_ts = ${{ type: 1184, value: update.last_keepalive_ts }},

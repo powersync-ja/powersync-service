@@ -42,7 +42,7 @@ export const SyncRules = t.object({
    * If an error is stopping replication, it will be stored here.
    */
   last_fatal_error: t.Null.or(t.string),
-  keepalive_op: t.Null.or(t.string),
+  keepalive_op: t.Null.or(bigint),
   content: t.string
 });
 
