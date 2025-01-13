@@ -135,7 +135,6 @@ export class PostgresCompactor {
           ${{ type: 'int4', value: this.moveBatchQueryLimit }}
       `
         .decoded(
-          // TODO maybe a subtype
           pick(models.BucketData, ['op', 'source_table', 'table_name', 'source_key', 'row_id', 'op_id', 'bucket_name'])
         )
         .rows();

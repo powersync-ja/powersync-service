@@ -31,7 +31,6 @@ export class PostgresBucketStorageFactory
   protected notificationConnection: pg_wire.PgConnection | null;
   private sharedIterator = new sync.BroadcastIterable((signal) => this.watchActiveCheckpoint(signal));
 
-  // TODO we might be able to share this
   private readonly storageCache = new LRUCache<number, storage.SyncRulesBucketStorage>({
     max: 3,
     fetchMethod: async (id) => {

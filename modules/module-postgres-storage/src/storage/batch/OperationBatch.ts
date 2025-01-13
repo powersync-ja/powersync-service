@@ -3,9 +3,7 @@
  * There are some subtle differences in this implementation.
  */
 
-import { ToastableSqliteRow } from '@powersync/service-sync-rules';
-
-import { storage } from '@powersync/service-core';
+import { storage, utils } from '@powersync/service-core';
 import { RequiredOperationBatchLimits } from '../../types/types.js';
 
 /**
@@ -84,7 +82,7 @@ export class RecordOperation {
     this.beforeId = beforeId;
     this.internalBeforeKey = cacheKey(record.sourceTable.id, beforeId);
     this.internalAfterKey = afterId ? cacheKey(record.sourceTable.id, afterId) : null;
-    this.estimatedSize = estimateRowSize(record.before) + estimateRowSize(record.after);
+    this.estimatedSize = utils.estimateRowSize(record.before) + utils.estimateRowSize(record.after);
   }
 }
 
@@ -100,30 +98,4 @@ export function cacheKey(sourceTableId: string, id: storage.ReplicaId) {
  */
 export function encodedCacheKey(sourceTableId: string, storedKey: Buffer) {
   return `${sourceTableId}.${storedKey.toString('base64')}`;
-}
-
-/**
- * Estimate in-memory size of row.
- */
-function estimateRowSize(record: ToastableSqliteRow | undefined) {
-  if (record == null) {
-    return 12;
-  }
-  let size = 0;
-  for (let [key, value] of Object.entries(record)) {
-    size += 12 + key.length;
-    // number | string | null | bigint | Uint8Array
-    if (value == null) {
-      size += 4;
-    } else if (typeof value == 'number') {
-      size += 8;
-    } else if (typeof value == 'bigint') {
-      size += 8;
-    } else if (typeof value == 'string') {
-      size += value.length;
-    } else if (value instanceof Uint8Array) {
-      size += value.byteLength;
-    }
-  }
-  return size;
 }
