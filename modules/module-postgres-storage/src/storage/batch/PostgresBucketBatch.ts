@@ -35,8 +35,11 @@ export interface PostgresBucketBatchOptions {
 const StatefulCheckpoint = models.ActiveCheckpoint.and(t.object({ state: t.Enum(storage.SyncRuleState) }));
 type StatefulCheckpointDecoded = t.Decoded<typeof StatefulCheckpoint>;
 
-// The limits here are not as strict as MongoDB
-const MAX_ROW_SIZE = 40_000_000;
+/**
+ * 15MB. Currently matches MongoDB.
+ * This could be increased in future.
+ */
+const MAX_ROW_SIZE = 15 * 1024 * 1024;
 
 export class PostgresBucketBatch
   extends DisposableObserver<storage.BucketBatchStorageListener>
