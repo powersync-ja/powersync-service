@@ -3,6 +3,7 @@ import { createMockObserver, createMockResponder } from './utils/mock-responder.
 import { handleReactiveStream } from '../../src/router/ReactiveSocketRouter.js';
 import { deserialize, serialize } from 'bson';
 import { RS_ENDPOINT_TYPE, ReactiveEndpoint, RequestMeta, SocketResponder } from '../../src/router/types.js';
+import { ErrorCode } from '@powersync/lib-services-framework';
 
 /**
  * Mocks the process of handling reactive routes
