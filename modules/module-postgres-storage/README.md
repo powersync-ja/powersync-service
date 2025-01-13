@@ -6,7 +6,7 @@ This module provides a `BucketStorageProvider` which uses a Postgres database fo
 
 Postgres storage can be enabled by selecting the appropriate storage `type` and providing connection details for a Postgres server.
 
-The storage connection configuration extends the configuration for a Postgres replication source, thus it accepts and supports the same configurations fields.
+The storage connection configuration supports the same fields as the Postgres replication connection configuration.
 
 A sample YAML configuration could look like
 
@@ -60,29 +60,4 @@ WITH
 
 -- The user should only have access to the schema it created
 GRANT CREATE ON DATABASE postgres TO powersync_storage_user;
-```
-
-### Batching
-
-Replication data is persisted via batch operations. Batching ensures performant, memory optimized writes. Batches are limited in size. Increasing batch size limits could reduce the amount of server round-trips which could increase performance (in some circumstances), but will result in higher memory usage and potential server issues.
-
-Batch size limits are defaulted and can optionally be configured in the configuration.
-
-```yaml
-# Connection settings for sync bucket storage
-storage:
-  type: postgresql
-  # This accepts the same parameters as a Postgres replication source connection
-  uri: !env PS_STORAGE_SOURCE_URI
-  batch_limits:
-    # Maximum estimated byte size of operations in a single batch.
-    # Defaults to 5 megabytes.
-    max_estimated_size: 5000000
-    # Maximum number of records present in a single batch.
-    # Defaults to 2000 records.
-    # Increasing this limit can improve replication times for large volumes of data.
-    max_record_count: 2000
-    # Maximum byte size of size of current_data documents we lookup at a time.
-    # Defaults to 50 megabytes.
-    max_current_data_batch_size: 50000000
 ```
