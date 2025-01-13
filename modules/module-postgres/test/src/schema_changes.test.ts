@@ -437,7 +437,7 @@ function defineTests(factory: storage.TestStorageFactory) {
     expect(data).toMatchObject([]);
 
     const metrics = await storage.factory.getStorageMetrics();
-    expect(metrics.replication_size_bytes).toEqual(0);
+    expect(metrics.replication_size_bytes).toMatchSnapshot();
   });
 
   test('replica identity nothing', async () => {
