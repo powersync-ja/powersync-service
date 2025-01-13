@@ -52,37 +52,39 @@ export class PostgresLockManager extends framework.locks.AbstractLockManager {
 
   protected async _acquireId(): Promise<string | null> {
     const now = new Date();
-    const expiredTs = new Date(now.getTime() - this.timeout);
+    const nowISO = now.toISOString();
+    const expiredTs = new Date(now.getTime() - this.timeout).toISOString();
     const lockId = uuidv4();
 
     try {
       // Attempt to acquire or refresh the lock
-      const res = await this.db.query(sql`
+      const res = await this.db.queryRows<{ lock_id: string }>(sql`
         INSERT INTO
           locks (name, lock_id, ts)
         VALUES
           (
             ${{ type: 'varchar', value: this.name }},
             ${{ type: 'uuid', value: lockId }},
-            ${{ type: 1184, value: now.toISOString() }}
+            ${{ type: 1184, value: nowISO }}
           )
         ON CONFLICT (name) DO UPDATE
         SET
           lock_id = CASE
-            WHEN locks.ts <= $4 THEN $2
+            WHEN locks.ts <= ${{ type: 1184, value: expiredTs }} THEN ${{ type: 'uuid', value: lockId }}
             ELSE locks.lock_id
           END,
           ts = CASE
-            WHEN locks.ts <= $4 THEN $3
+            WHEN locks.ts <= ${{ type: 1184, value: expiredTs }} THEN ${{
+          type: 1184,
+          value: nowISO
+        }}
             ELSE locks.ts
           END
-        WHERE
-          locks.ts <= ${{ type: 1184, value: expiredTs.toISOString() }}
         RETURNING
           lock_id;
       `);
 
-      if (res.rows.length === 0) {
+      if (res.length == 0 || res[0].lock_id !== lockId) {
         // Lock is active and could not be acquired
         return null;
       }
