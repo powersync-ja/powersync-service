@@ -23,6 +23,12 @@ export type DatabaseClientListener = NotificationListener & {
 
 export const TRANSACTION_CONNECTION_COUNT = 5;
 
+/**
+ * This provides access to Postgres via the PGWire library.
+ * A connection pool is used for individual query executions while
+ * a custom pool of connections is available for transactions or other operations
+ * which require being executed on the same connection.
+ */
 export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientListener> {
   closed: boolean;
 
@@ -81,16 +87,15 @@ export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientLis
     };
   }
 
-  /**
-   * There is no direct way to set the default schema with pgwire.
-   * This hack uses multiple statements in order to always ensure the
-   * appropriate connection uses the correct schema.
-   */
   query(script: string, options?: pgwire.PgSimpleQueryOptions): Promise<pgwire.PgResult>;
   query(...args: pgwire.Statement[]): Promise<pgwire.PgResult>;
   async query(...args: any[]): Promise<pgwire.PgResult> {
     await this.initialized;
-
+    /**
+     * There is no direct way to set the default schema with pgwire.
+     * This hack uses multiple statements in order to always ensure the
+     * appropriate connection (in the pool) uses the correct schema.
+     */
     const { schemaStatement } = this;
     if (typeof args[0] == 'object' && schemaStatement) {
       args.unshift(schemaStatement);
