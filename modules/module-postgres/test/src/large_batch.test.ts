@@ -21,7 +21,6 @@ describe.skipIf(!env.TEST_MONGO_STORAGE)('batch replication tests - mongodb', { 
   }
 });
 
-// TODO verify Postgres performance
 describe.skipIf(!env.TEST_POSTGRES_STORAGE)('batch replication tests - postgres', { timeout: 240_000 }, function () {
   // These are slow but consistent tests.
   // Not run on every test run, but we do run on CI, or when manually debugging issues.

@@ -28,12 +28,14 @@ export class ConnectionSlot extends framework.DisposableObserver<ConnectionSlotL
   isPoking: boolean;
 
   protected connection: pgwire.PgConnection | null;
+  protected connectingPromise: Promise<pgwire.PgConnection> | null;
 
   constructor(protected options: ConnectionSlotOptions) {
     super();
     this.isAvailable = false;
     this.connection = null;
     this.isPoking = false;
+    this.connectingPromise = null;
   }
 
   get isConnected() {
@@ -41,7 +43,9 @@ export class ConnectionSlot extends framework.DisposableObserver<ConnectionSlotL
   }
 
   protected async connect() {
-    const connection = await pgwire.connectPgWire(this.options.config, { type: 'standard' });
+    this.connectingPromise = pgwire.connectPgWire(this.options.config, { type: 'standard' });
+    const connection = await this.connectingPromise;
+    this.connectingPromise = null;
     await this.iterateAsyncListeners(async (l) => l.connectionCreated?.(connection));
     if (this.hasNotificationListener()) {
       await this.configureConnectionNotifications(connection);
@@ -50,7 +54,8 @@ export class ConnectionSlot extends framework.DisposableObserver<ConnectionSlotL
   }
 
   async [Symbol.asyncDispose]() {
-    await this.connection?.end();
+    const connection = this.connection ?? (await this.connectingPromise);
+    await connection?.end();
     return super[Symbol.dispose]();
   }
 
@@ -83,6 +88,9 @@ export class ConnectionSlot extends framework.DisposableObserver<ConnectionSlotL
   }
 
   protected handleNotification = (payload: pgwire.PgNotification) => {
+    if (!this.options.notificationChannels?.includes(payload.channel)) {
+      return;
+    }
     this.iterateListeners((l) => l.notification?.(payload));
   };
 

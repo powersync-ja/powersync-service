@@ -82,7 +82,7 @@ export class PostgresSyncRulesStorage
       SET
         last_fatal_error = ${{ type: 'varchar', value: message }}
       WHERE
-        id = ${{ type: 'int4', value: this.group_id }};
+        id = ${{ type: 'int8', value: this.group_id }};
     `.execute();
   }
 
@@ -155,7 +155,7 @@ export class PostgresSyncRulesStorage
         FROM
           source_tables
         WHERE
-          group_id = ${{ type: 'int4', value: group_id }}
+          group_id = ${{ type: 'int8', value: group_id }}
           AND connection_id = ${{ type: 'int4', value: connection_id }}
           AND relation_id = ${{ type: 'varchar', value: objectId.toString() }}
           AND schema_name = ${{ type: 'varchar', value: schema }}
@@ -180,7 +180,7 @@ export class PostgresSyncRulesStorage
           VALUES
             (
               ${{ type: 'varchar', value: uuid.v4() }},
-              ${{ type: 'int4', value: group_id }},
+              ${{ type: 'int8', value: group_id }},
               ${{ type: 'int4', value: connection_id }},
               --- The objectId can be string | number, we store it as a string and decode when querying
               ${{ type: 'varchar', value: objectId.toString() }},
@@ -215,7 +215,7 @@ export class PostgresSyncRulesStorage
         FROM
           source_tables
         WHERE
-          group_id = ${{ type: 'int4', value: group_id }}
+          group_id = ${{ type: 'int8', value: group_id }}
           AND connection_id = ${{ type: 'int4', value: connection_id }}
           AND id != ${{ type: 'varchar', value: sourceTableRow!.id }}
           AND (
@@ -263,7 +263,7 @@ export class PostgresSyncRulesStorage
       FROM
         sync_rules
       WHERE
-        id = ${{ type: 'int4', value: this.group_id }}
+        id = ${{ type: 'int8', value: this.group_id }}
     `
       .decoded(pick(models.SyncRules, ['last_checkpoint_lsn', 'no_checkpoint_before', 'keepalive_op']))
       .first();
@@ -307,7 +307,7 @@ export class PostgresSyncRulesStorage
       FROM
         bucket_parameters
       WHERE
-        group_id = ${{ type: 'int4', value: this.group_id }}
+        group_id = ${{ type: 'int8', value: this.group_id }}
         AND lookup = ANY (
           SELECT
             decode((FILTER ->> 0)::text, 'hex') -- Decode the hex string to bytea
@@ -519,7 +519,7 @@ export class PostgresSyncRulesStorage
       FROM
         sync_rules
       WHERE
-        id = ${{ type: 'int4', value: this.group_id }}
+        id = ${{ type: 'int8', value: this.group_id }}
     `
       .decoded(pick(models.SyncRules, ['snapshot_done', 'last_checkpoint_lsn', 'state']))
       .first();
@@ -580,7 +580,7 @@ export class PostgresSyncRulesStorage
         FROM
           sync_rules
         WHERE
-          id = ${{ type: 'int4', value: this.group_id }}
+          id = ${{ type: 'int8', value: this.group_id }}
       `
         .decoded(pick(models.SyncRules, ['state']))
         .first();
@@ -591,7 +591,7 @@ export class PostgresSyncRulesStorage
           SET
             state = ${{ type: 'varchar', value: storage.SyncRuleState.ACTIVE }}
           WHERE
-            id = ${{ type: 'int4', value: this.group_id }}
+            id = ${{ type: 'int8', value: this.group_id }}
         `.execute();
       }
 
@@ -601,7 +601,7 @@ export class PostgresSyncRulesStorage
           state = ${{ type: 'varchar', value: storage.SyncRuleState.STOP }}
         WHERE
           state = ${{ type: 'varchar', value: storage.SyncRuleState.ACTIVE }}
-          AND id != ${{ type: 'int4', value: this.group_id }}
+          AND id != ${{ type: 'int8', value: this.group_id }}
       `.execute();
     });
   }

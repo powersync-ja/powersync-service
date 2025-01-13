@@ -90,8 +90,6 @@ export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientLis
   query(...args: pgwire.Statement[]): Promise<pgwire.PgResult>;
   async query(...args: any[]): Promise<pgwire.PgResult> {
     await this.initialized;
-    // Retry pool queries. Note that we can't retry queries in a transaction
-    // since a failed query will end the transaction.
 
     const { schemaStatement } = this;
     if (typeof args[0] == 'object' && schemaStatement) {
@@ -99,6 +97,9 @@ export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientLis
     } else if (typeof args[0] == 'string' && schemaStatement) {
       args[0] = `${schemaStatement.statement}; ${args[0]}`;
     }
+
+    // Retry pool queries. Note that we can't retry queries in a transaction
+    // since a failed query will end the transaction.
     return lib_postgres.retriedQuery(this.pool, ...args);
   }
 
