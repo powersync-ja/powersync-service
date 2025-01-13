@@ -13,7 +13,7 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
    * Request an explicit connection which will automatically set the search
    * path to the powersync schema
    */
-  await client.lockConnection(async (db) => {
+  await client.transaction(async (db) => {
     await db.sql`
       CREATE SEQUENCE op_id_sequence AS int8 START
       WITH
@@ -31,7 +31,7 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
         group_id integer NOT NULL,
         bucket_name TEXT NOT NULL,
         op_id bigint NOT NULL,
-        CONSTRAINT unique_id UNIQUE (group_id, bucket_name, op_id),
+        CONSTRAINT unique_id PRIMARY KEY (group_id, bucket_name, op_id),
         op text NOT NULL,
         source_table TEXT,
         source_key bytea,
@@ -42,21 +42,6 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
         target_op bigint
       )
     `.execute();
-
-    /**
-     * Rough comparison:
-     * Creating these indexes causes an initial replication of 2.5million rows
-     * to take about 10minutes to complete, compared to about 7.5 minutes without indexes.
-     * [For comparison MongoDB took 5min 22 seconds to replicate the same data].
-     *
-     * The time to fetch operations for the 2.5mil rows is 2min, 35 seconds with indexes versus
-     * 2min 21 seconds without indexes (probably in the margin of error).
-     * [For comparison MongoDB took 1 minute for the same data].
-     *
-     * Not including them since they impact initial replication more than providing any noticeable benefit.
-     */
-    // await db.sql`CREATE INDEX idx_bucket_data_composite ON bucket_data (group_id, bucket_name, op_id); `.execute();
-    // await db.sql`CREATE INDEX idx_bucket_data_group_id ON bucket_data (group_id);`.execute();
 
     await db.sql`CREATE TABLE instance (id TEXT PRIMARY KEY) `.execute();
 
@@ -101,14 +86,12 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
         group_id integer NOT NULL,
         source_table TEXT NOT NULL,
         source_key bytea NOT NULL,
-        CONSTRAINT unique_current_data_id UNIQUE (group_id, source_table, source_key),
+        CONSTRAINT unique_current_data_id PRIMARY KEY (group_id, source_table, source_key),
         buckets jsonb NOT NULL,
         data bytea NOT NULL,
         lookups bytea[] NOT NULL
       );
     `.execute();
-
-    await db.sql`CREATE INDEX current_data_lookup ON current_data (group_id, source_table, source_key)`.execute();
 
     await db.sql`
       CREATE TABLE source_tables (
@@ -135,14 +118,12 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
       )
     `.execute();
 
-    await db.sql`CREATE INDEX write_checkpoint_by_user ON write_checkpoints (user_id)`.execute();
-
     await db.sql`
       CREATE TABLE custom_write_checkpoints (
         user_id text NOT NULL,
         write_checkpoint BIGINT NOT NULL,
         sync_rules_id integer NOT NULL,
-        CONSTRAINT unique_user_sync UNIQUE (user_id, sync_rules_id)
+        CONSTRAINT unique_user_sync PRIMARY KEY (user_id, sync_rules_id)
       );
     `.execute();
   });
