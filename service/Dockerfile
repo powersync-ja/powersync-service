@@ -10,6 +10,7 @@ COPY packages/jpgwire/package.json packages/jpgwire/tsconfig.json packages/jpgwi
 COPY packages/jsonbig/package.json packages/jsonbig/tsconfig.json packages/jsonbig/
 COPY packages/rsocket-router/package.json packages/rsocket-router/tsconfig.json packages/rsocket-router/
 COPY packages/service-core/package.json packages/service-core/tsconfig.json packages/service-core/
+COPY packages/service-errors/package.json packages/service-errors/tsconfig.json packages/service-errors/
 COPY packages/sync-rules/package.json packages/sync-rules/tsconfig.json packages/sync-rules/
 COPY packages/types/package.json packages/types/tsconfig.json packages/types/
 
@@ -26,6 +27,7 @@ RUN pnpm install --frozen-lockfile
 COPY service/src service/src/
 
 COPY packages/service-core/src packages/service-core/src/
+COPY packages/service-errors/src packages/service-errors/src/
 COPY packages/jpgwire/src packages/jpgwire/src/
 COPY packages/jpgwire/ca packages/jpgwire/ca/
 COPY packages/jsonbig/src packages/jsonbig/src/
