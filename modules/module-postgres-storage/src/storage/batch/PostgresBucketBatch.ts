@@ -163,7 +163,7 @@ export class PostgresBucketBatch
           FROM
             current_data
           WHERE
-            group_id = ${{ type: 'int8', value: this.group_id }}
+            group_id = ${{ type: 'int4', value: this.group_id }}
             AND source_table = ${{ type: 'varchar', value: sourceTable.id }}
           LIMIT
             ${{ type: 'int4', value: BATCH_LIMIT }}
@@ -376,7 +376,7 @@ export class PostgresBucketBatch
         last_fatal_error = ${{ type: 'varchar', value: null }},
         last_keepalive_ts = ${{ type: 1184, value: new Date().toISOString() }}
       WHERE
-        id = ${{ type: 'int8', value: this.group_id }}
+        id = ${{ type: 'int4', value: this.group_id }}
       RETURNING
         id,
         state,
@@ -421,7 +421,7 @@ export class PostgresBucketBatch
             no_checkpoint_before = ${{ type: 'varchar', value: no_checkpoint_before_lsn }},
             last_keepalive_ts = ${{ type: 1184, value: new Date().toISOString() }}
           WHERE
-            id = ${{ type: 'int8', value: this.group_id }}
+            id = ${{ type: 'int4', value: this.group_id }}
         `.execute();
       }
     });
@@ -827,7 +827,7 @@ export class PostgresBucketBatch
       // Insert or update
       result = {
         source_key: afterId,
-        group_id: BigInt(this.group_id),
+        group_id: this.group_id,
         data: afterData!,
         source_table: sourceTable.id,
         buckets: newBuckets,
@@ -870,7 +870,7 @@ export class PostgresBucketBatch
         SET
           last_keepalive_ts = ${{ type: 1184, value: new Date().toISOString() }}
         WHERE
-          id = ${{ type: 'int8', value: this.group_id }}
+          id = ${{ type: 'int4', value: this.group_id }}
       `.execute();
     }
   }

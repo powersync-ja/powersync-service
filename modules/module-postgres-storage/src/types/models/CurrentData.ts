@@ -1,6 +1,7 @@
 import { framework } from '@powersync/service-core';
 import * as t from 'ts-codec';
-import { bigint, jsonb } from '../codecs.js';
+import { pgwire_number } from '../../utils/ts-codec.js';
+import { jsonb } from '../codecs.js';
 
 export const CurrentBucket = t.object({
   bucket: t.string,
@@ -14,7 +15,7 @@ export type CurrentBucketDecoded = t.Decoded<typeof CurrentBucket>;
 export const CurrentData = t.object({
   buckets: jsonb(t.array(CurrentBucket)),
   data: framework.codecs.buffer,
-  group_id: bigint,
+  group_id: pgwire_number,
   lookups: t.array(framework.codecs.buffer),
   source_key: framework.codecs.buffer,
   source_table: t.string

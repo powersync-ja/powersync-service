@@ -1,5 +1,6 @@
 import { framework } from '@powersync/service-core';
 import * as t from 'ts-codec';
+import { pgwire_number } from '../../utils/ts-codec.js';
 import { bigint } from '../codecs.js';
 
 export enum OpType {
@@ -10,7 +11,7 @@ export enum OpType {
 }
 
 export const BucketData = t.object({
-  group_id: bigint,
+  group_id: pgwire_number,
   bucket_name: t.string,
   op_id: bigint,
   op: t.Enum(OpType),

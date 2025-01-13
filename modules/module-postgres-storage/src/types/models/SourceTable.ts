@@ -1,4 +1,5 @@
 import * as t from 'ts-codec';
+import { pgwire_number } from '../../utils/ts-codec.js';
 import { bigint, jsonb } from '../codecs.js';
 
 export const ColumnDescriptor = t.object({
@@ -15,9 +16,9 @@ export const ColumnDescriptor = t.object({
 
 export const SourceTable = t.object({
   id: t.string,
-  group_id: bigint,
+  group_id: pgwire_number,
   connection_id: bigint,
-  relation_id: t.Null.or(t.number).or(t.string),
+  relation_id: t.Null.or(pgwire_number).or(t.string),
   schema_name: t.string,
   table_name: t.string,
   replica_id_columns: t.Null.or(jsonb(t.array(ColumnDescriptor))),

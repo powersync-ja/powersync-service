@@ -1,9 +1,10 @@
 import { framework, storage } from '@powersync/service-core';
 import * as t from 'ts-codec';
+import { pgwire_number } from '../../utils/ts-codec.js';
 import { bigint } from '../codecs.js';
 
 export const SyncRules = t.object({
-  id: bigint,
+  id: pgwire_number,
   state: t.Enum(storage.SyncRuleState),
   /**
    * True if initial snapshot has been replicated.

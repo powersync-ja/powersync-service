@@ -1,4 +1,5 @@
 import * as t from 'ts-codec';
+import { pgwire_number } from '../../utils/ts-codec.js';
 import { bigint } from '../codecs.js';
 
 /**
@@ -6,7 +7,7 @@ import { bigint } from '../codecs.js';
  *
  */
 export const ActiveCheckpoint = t.object({
-  id: bigint,
+  id: pgwire_number,
   last_checkpoint: t.Null.or(bigint),
   last_checkpoint_lsn: t.Null.or(t.string)
 });

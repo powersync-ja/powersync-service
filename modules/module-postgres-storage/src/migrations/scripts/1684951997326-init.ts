@@ -47,7 +47,7 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
 
     await db.sql`
       CREATE TABLE sync_rules (
-        id BIGSERIAL PRIMARY KEY,
+        id INTEGER PRIMARY KEY,
         state TEXT NOT NULL,
         snapshot_done BOOLEAN NOT NULL DEFAULT FALSE,
         last_checkpoint BIGINT,

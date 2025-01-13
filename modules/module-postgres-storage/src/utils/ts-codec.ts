@@ -12,3 +12,24 @@ export const pick = <T extends t.AnyObjectCodecShape, Keys extends keyof T>(code
   // Return a new codec with the narrowed shape
   return t.object(newShape) as t.ObjectCodec<Pick<T, Keys>>;
 };
+
+/**
+ * PGWire returns INTEGER columns as a `bigint`.
+ * This does a decode operation to `number`.
+ */
+export const pgwire_number = t.codec(
+  'pg_number',
+  (decoded: number) => decoded,
+  (encoded: bigint | number) => {
+    if (typeof encoded == 'number') {
+      return encoded;
+    }
+    if (typeof encoded !== 'bigint') {
+      throw new Error(`Expected either number or bigint for value`);
+    }
+    if (encoded > BigInt(Number.MAX_SAFE_INTEGER) || encoded < BigInt(Number.MIN_SAFE_INTEGER)) {
+      throw new RangeError('BigInt value is out of safe integer range for conversion to Number.');
+    }
+    return Number(encoded);
+  }
+);

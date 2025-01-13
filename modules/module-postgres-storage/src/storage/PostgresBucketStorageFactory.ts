@@ -117,7 +117,7 @@ export class PostgresBucketStorageFactory
       FROM
         bucket_data
       WHERE
-        group_id = ${{ type: 'int8', value: active_sync_rules.id }}
+        group_id = ${{ type: 'int4', value: active_sync_rules.id }}
     `.first<{ operations_size_bytes: bigint }>();
 
     const parameterData = await this.db.sql`
@@ -129,7 +129,7 @@ export class PostgresBucketStorageFactory
       FROM
         bucket_parameters
       WHERE
-        group_id = ${{ type: 'int8', value: active_sync_rules.id }}
+        group_id = ${{ type: 'int4', value: active_sync_rules.id }}
     `.first<{ parameter_size_bytes: bigint }>();
 
     const currentData = await this.db.sql`
@@ -141,7 +141,7 @@ export class PostgresBucketStorageFactory
       FROM
         current_data
       WHERE
-        group_id = ${{ type: 'int8', value: active_sync_rules.id }}
+        group_id = ${{ type: 'int4', value: active_sync_rules.id }}
     `.first<{ current_size_bytes: bigint }>();
 
     return {
