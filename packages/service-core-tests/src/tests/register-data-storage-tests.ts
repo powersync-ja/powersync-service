@@ -1507,11 +1507,7 @@ bucket_definitions:
     await storage.autoActivate();
 
     const metrics2 = await f.getStorageMetrics();
-    expect(metrics2).toEqual({
-      operations_size_bytes: 0,
-      parameters_size_bytes: 0,
-      replication_size_bytes: 0
-    });
+    expect(metrics2).toMatchSnapshot();
   });
 
   test('invalidate cached parsed sync rules', async () => {
