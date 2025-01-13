@@ -1,6 +1,6 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
+import { mongo } from '@powersync/lib-service-mongodb';
 import { storage } from '@powersync/service-core';
-import * as mongo from 'mongodb';
 
 import { MongoStorageConfig } from '../../types/types.js';
 import {

@@ -1,12 +1,13 @@
+import { mongo } from '@powersync/lib-service-mongodb';
 import { migrations } from '@powersync/lib-services-framework';
-import { Db } from 'mongodb';
+
 import * as path from 'path';
 
 /**
  * A custom store for node-migrate which is used to save and load migrations that have
  * been operated on to mongo.
  */
-export const createMongoMigrationStore = (db: Db): migrations.MigrationStore => {
+export const createMongoMigrationStore = (db: mongo.Db): migrations.MigrationStore => {
   const collection = db.collection<migrations.MigrationState>('migrations');
 
   return {

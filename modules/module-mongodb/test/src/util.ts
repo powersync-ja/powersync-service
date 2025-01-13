@@ -1,8 +1,8 @@
-import * as types from '@module/types/types.js';
-
+import { mongo } from '@powersync/lib-service-mongodb';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
-import * as mongo from 'mongodb';
+
+import * as types from '@module/types/types.js';
 import { env } from './env.js';
 
 export const TEST_URI = env.MONGO_TEST_DATA_URL;

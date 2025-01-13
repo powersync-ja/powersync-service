@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.23.1
+
+### Patch Changes
+
+- fea550f: Updated ts-codec to 1.3.0 for better decode error responses
+
 ## 0.23.0
 
 ### Minor Changes

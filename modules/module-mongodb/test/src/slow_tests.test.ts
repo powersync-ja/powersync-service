@@ -1,7 +1,9 @@
-import { storage } from '@powersync/service-core';
-import * as mongo from 'mongodb';
 import { setTimeout } from 'node:timers/promises';
 import { describe, expect, test } from 'vitest';
+
+import { mongo } from '@powersync/lib-service-mongodb';
+import { storage } from '@powersync/service-core';
+
 import { ChangeStreamTestContext, setSnapshotHistorySeconds } from './change_stream_utils.js';
 import { env } from './env.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, INITIALIZED_POSTGRES_STORAGE_FACTORY } from './util.js';

@@ -1,4 +1,5 @@
-import * as mongo from 'mongodb';
+import { mongo } from '@powersync/lib-service-mongodb';
+
 import { NormalizedMongoConnectionConfig } from '../types/types.js';
 
 export class MongoManager {

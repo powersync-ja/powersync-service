@@ -1,5 +1,38 @@
 # @powersync/service-image
 
+## 1.3.7
+
+### Patch Changes
+
+- Updated dependencies [9709b2d]
+  - @powersync/service-module-mongodb-storage@0.2.0
+  - @powersync/service-module-mongodb@0.3.0
+  - @powersync/service-module-mysql@0.1.8
+  - @powersync/service-module-postgres@0.3.0
+
+## 1.3.6
+
+### Patch Changes
+
+- 48320b5: MongoDB: Fix replication of undefined values causing missing documents
+- Updated dependencies [fea550f]
+- Updated dependencies [e25263c]
+- Updated dependencies [fea550f]
+- Updated dependencies [318f9f9]
+- Updated dependencies [fea550f]
+- Updated dependencies [48320b5]
+- Updated dependencies [fea550f]
+  - @powersync/service-core@0.14.0
+  - @powersync/lib-services-framework@0.3.0
+  - @powersync/service-sync-rules@0.23.1
+  - @powersync/service-module-mysql@0.1.8
+  - @powersync/service-module-postgres@0.3.0
+  - @powersync/service-module-mongodb@0.2.0
+  - @powersync/service-types@0.7.0
+  - @powersync/service-module-mongodb-storage@0.1.0
+  - @powersync/service-rsocket-router@0.0.15
+  - @powersync/service-jpgwire@0.18.5
+
 ## 1.3.5
 
 ### Patch Changes

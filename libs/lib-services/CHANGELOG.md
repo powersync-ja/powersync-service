@@ -1,5 +1,15 @@
 # @powersync/lib-services-framework
 
+## 0.3.0
+
+### Minor Changes
+
+- fea550f: Made migrations more pluggable
+
+### Patch Changes
+
+- fea550f: Updated ts-codec to 1.3.0 for better decode error responses
+
 ## 0.2.0
 
 ### Minor Changes

@@ -178,9 +178,6 @@ importers:
       bson:
         specifier: ^6.8.0
         version: 6.10.1
-      mongodb:
-        specifier: ^6.11.0
-        version: 6.11.0(socks@2.8.3)
       ts-codec:
         specifier: ^1.3.0
         version: 1.3.0
@@ -230,9 +227,6 @@ importers:
       lru-cache:
         specifier: ^10.2.2
         version: 10.4.3
-      mongodb:
-        specifier: ^6.11.0
-        version: 6.11.0(socks@2.8.3)
       ts-codec:
         specifier: ^1.3.0
         version: 1.3.0
