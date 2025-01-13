@@ -110,44 +110,17 @@ export class PostgresBucketStorageFactory
       };
     }
 
-    const bucketData = await this.db.sql`
+    const sizes = await this.db.sql`
       SELECT
-        --- This can differ from the octet_length
-        sum(pg_column_size(data)) AS operations_size_bytes
-      FROM
-        bucket_data
-      WHERE
-        group_id = ${{ type: 'int4', value: active_sync_rules.id }}
-    `.first<{ operations_size_bytes: bigint }>();
-
-    const parameterData = await this.db.sql`
-      SELECT
-        --- This can differ from the octet_length
-        (
-          sum(pg_column_size(bucket_parameters)) + sum(pg_column_size(lookup)) + sum(pg_column_size(source_key))
-        ) AS parameter_size_bytes
-      FROM
-        bucket_parameters
-      WHERE
-        group_id = ${{ type: 'int4', value: active_sync_rules.id }}
-    `.first<{ parameter_size_bytes: bigint }>();
-
-    const currentData = await this.db.sql`
-      SELECT
-        --- This can differ from the octet_length
-        (
-          sum(pg_column_size(data)) + sum(pg_column_size(lookups)) + sum(pg_column_size(source_key)) + sum(pg_column_size(buckets))
-        ) AS current_size_bytes
-      FROM
-        current_data
-      WHERE
-        group_id = ${{ type: 'int4', value: active_sync_rules.id }}
-    `.first<{ current_size_bytes: bigint }>();
+        pg_total_relation_size('current_data') AS current_size_bytes,
+        pg_total_relation_size('bucket_parameters') AS parameter_size_bytes,
+        pg_total_relation_size('bucket_data') AS operations_size_bytes;
+    `.first<{ current_size_bytes: bigint; parameter_size_bytes: bigint; operations_size_bytes: bigint }>();
 
     return {
-      operations_size_bytes: Number(bucketData!.operations_size_bytes),
-      parameters_size_bytes: Number(parameterData!.parameter_size_bytes),
-      replication_size_bytes: Number(currentData!.current_size_bytes)
+      operations_size_bytes: Number(sizes!.operations_size_bytes),
+      parameters_size_bytes: Number(sizes!.parameter_size_bytes),
+      replication_size_bytes: Number(sizes!.current_size_bytes)
     };
   }
 
