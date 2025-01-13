@@ -112,9 +112,9 @@ export class PostgresBucketStorageFactory
 
     const sizes = await this.db.sql`
       SELECT
-        pg_total_relation_size('current_data') AS current_size_bytes,
-        pg_total_relation_size('bucket_parameters') AS parameter_size_bytes,
-        pg_total_relation_size('bucket_data') AS operations_size_bytes;
+        pg_relation_size('current_data') AS current_size_bytes,
+        pg_relation_size('bucket_parameters') AS parameter_size_bytes,
+        pg_relation_size('bucket_data') AS operations_size_bytes;
     `.first<{ current_size_bytes: bigint; parameter_size_bytes: bigint; operations_size_bytes: bigint }>();
 
     return {
