@@ -1,7 +1,6 @@
-import { framework } from '@powersync/service-core';
 import * as t from 'ts-codec';
 import { pgwire_number } from '../../utils/ts-codec.js';
-import { bigint } from '../codecs.js';
+import { bigint, hexBuffer } from '../codecs.js';
 
 export enum OpType {
   PUT = 'PUT',
@@ -16,7 +15,7 @@ export const BucketData = t.object({
   op_id: bigint,
   op: t.Enum(OpType),
   source_table: t.Null.or(t.string),
-  source_key: t.Null.or(framework.codecs.buffer),
+  source_key: t.Null.or(hexBuffer),
   table_name: t.string.or(t.Null),
   row_id: t.string.or(t.Null),
   checksum: bigint,
