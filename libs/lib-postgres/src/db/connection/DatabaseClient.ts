@@ -77,6 +77,8 @@ export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientLis
       disposeNotification = this.connections[0].registerListener({
         notification: listener.notification
       });
+      this.pokeSlots();
+
       delete listener['notification'];
     }
 
@@ -186,13 +188,17 @@ export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientLis
     const deferred = pDefer<ConnectionLease>();
     this.queue.push(deferred);
 
+    this.pokeSlots();
+
+    return deferred.promise;
+  }
+
+  protected pokeSlots() {
     // Poke the slots to check if they are alive
     for (const slot of this.connections) {
       // No need to await this. Errors are reported asynchronously
       slot.poke();
     }
-
-    return deferred.promise;
   }
 
   protected leaseConnectionSlot(): ConnectionLease | null {
