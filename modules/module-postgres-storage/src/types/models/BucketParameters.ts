@@ -1,5 +1,4 @@
 import * as t from 'ts-codec';
-// import { JsonContainer } from '@powersync/service-jsonbig';
 import { bigint, hexBuffer, pgwire_number } from '../codecs.js';
 
 export const BucketParameters = t.object({

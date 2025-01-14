@@ -53,6 +53,21 @@ export const jsonb = <Decoded>(subCodec: t.Codec<Decoded, any>) =>
     }
   );
 
+/**
+ * Just performs a pure JSON.parse for the decoding step
+ */
+export const jsonb_raw = <Decoded>() =>
+  t.codec<Decoded, string>(
+    'jsonb_raw',
+    (decoded: Decoded) => {
+      return JSON.stringify(decoded);
+    },
+    (encoded: string | { data: string }) => {
+      const s = typeof encoded == 'object' ? encoded.data : encoded;
+      return JSON.parse(s);
+    }
+  );
+
 export const bigint = t.codec<bigint, string | number>(
   'bigint',
   (decoded: BigInt) => {
@@ -109,3 +124,13 @@ export const pgwire_number = t.codec(
     return Number(encoded);
   }
 );
+
+/**
+ * A codec which contains the same type on the input and output.
+ */
+export const IdentityCodec = <T>() =>
+  t.codec<T, T>(
+    'identity',
+    (encoded) => encoded,
+    (decoded) => decoded
+  );

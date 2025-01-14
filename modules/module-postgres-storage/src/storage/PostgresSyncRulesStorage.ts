@@ -10,6 +10,7 @@ import { replicaIdToSubkey } from '../utils/bson.js';
 import { mapOpEntry } from '../utils/bucket-data.js';
 
 import { StatementParam } from '@powersync/service-jpgwire';
+import { StoredRelationId } from '../types/models/SourceTable.js';
 import { pick } from '../utils/ts-codec.js';
 import { PostgresBucketBatch } from './batch/PostgresBucketBatch.js';
 import { PostgresWriteCheckpointAPI } from './checkpoints/PostgresWriteCheckpointAPI.js';
@@ -158,7 +159,7 @@ export class PostgresSyncRulesStorage
         WHERE
           group_id = ${{ type: 'int4', value: group_id }}
           AND connection_id = ${{ type: 'int4', value: connection_id }}
-          AND relation_id = ${{ type: 'varchar', value: objectId.toString() }}
+          AND relation_id = ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }}
           AND schema_name = ${{ type: 'varchar', value: schema }}
           AND table_name = ${{ type: 'varchar', value: table }}
           AND replica_id_columns = ${{ type: 'jsonb', value: columns }}
@@ -183,8 +184,8 @@ export class PostgresSyncRulesStorage
               ${{ type: 'varchar', value: uuid.v4() }},
               ${{ type: 'int4', value: group_id }},
               ${{ type: 'int4', value: connection_id }},
-              --- The objectId can be string | number, we store it as a string and decode when querying
-              ${{ type: 'varchar', value: objectId.toString() }},
+              --- The objectId can be string | number, we store it as jsonb value
+              ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }},
               ${{ type: 'varchar', value: schema }},
               ${{ type: 'varchar', value: table }},
               ${{ type: 'jsonb', value: columns }}
@@ -220,7 +221,7 @@ export class PostgresSyncRulesStorage
           AND connection_id = ${{ type: 'int4', value: connection_id }}
           AND id != ${{ type: 'varchar', value: sourceTableRow!.id }}
           AND (
-            relation_id = ${{ type: 'varchar', value: objectId.toString() }}
+            relation_id = ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }}
             OR (
               schema_name = ${{ type: 'varchar', value: schema }}
               AND table_name = ${{ type: 'varchar', value: table }}
@@ -237,7 +238,7 @@ export class PostgresSyncRulesStorage
             new storage.SourceTable(
               doc.id,
               connection_tag,
-              doc.relation_id ?? 0,
+              doc.relation_id?.object_id ?? 0,
               doc.schema_name,
               doc.table_name,
               doc.replica_id_columns?.map((c) => ({
