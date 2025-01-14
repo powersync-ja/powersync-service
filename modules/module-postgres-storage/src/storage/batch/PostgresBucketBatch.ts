@@ -104,12 +104,6 @@ export class PostgresBucketBatch
 
     logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
 
-    if (!sourceTable.syncData && !sourceTable.syncParameters) {
-      return null;
-    }
-
-    logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
-
     this.batch ??= new OperationBatch(this.options.batch_limits);
     this.batch.push(new RecordOperation(record));
 
