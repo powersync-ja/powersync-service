@@ -110,7 +110,6 @@ export class MongoBucketStorage
 
     // In both the below cases, we create a new sync rules instance.
     // The current one will continue erroring until the next one has finished processing.
-    // TODO: Update
     if (next != null && next.slot_name == slot_name) {
       // We need to redo the "next" sync rules
       await this.updateSyncRules({
