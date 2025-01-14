@@ -28,7 +28,6 @@ export class PostgresBucketStorageFactory
   readonly db: lib_postgres.DatabaseClient;
   public readonly slot_name_prefix: string;
 
-  protected notificationConnection: pg_wire.PgConnection | null;
   private sharedIterator = new sync.BroadcastIterable((signal) => this.watchActiveCheckpoint(signal));
 
   private readonly storageCache = new LRUCache<number, storage.SyncRulesBucketStorage>({
@@ -68,11 +67,10 @@ export class PostgresBucketStorageFactory
     this.db.registerListener({
       connectionCreated: async (connection) => this.prepareStatements(connection)
     });
-    this.notificationConnection = null;
   }
 
-  async [Symbol.dispose]() {
-    await this.notificationConnection?.end();
+  async [Symbol.asyncDispose]() {
+    super[Symbol.dispose]();
     await this.db[Symbol.asyncDispose]();
   }
 

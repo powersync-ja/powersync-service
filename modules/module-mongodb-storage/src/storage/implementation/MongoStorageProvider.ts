@@ -23,13 +23,16 @@ export class MongoStorageProvider implements storage.BucketStorageProvider {
     const client = lib_mongo.db.createMongoClient(decodedConfig);
 
     const database = new PowerSyncMongo(client, { database: resolvedConfig.storage.database });
-
+    const factory = new MongoBucketStorage(database, {
+      // TODO currently need the entire resolved config due to this
+      slot_name_prefix: resolvedConfig.slot_name_prefix
+    });
     return {
-      storage: new MongoBucketStorage(database, {
-        // TODO currently need the entire resolved config due to this
-        slot_name_prefix: resolvedConfig.slot_name_prefix
-      }),
-      shutDown: () => client.close(),
+      storage: factory,
+      shutDown: async () => {
+        await factory[Symbol.asyncDispose]();
+        await client.close();
+      },
       tearDown: () => {
         logger.info(`Tearing down storage: ${database.db.namespace}...`);
         return database.db.dropDatabase();

@@ -27,6 +27,8 @@ export class ConnectionSlot extends framework.DisposableObserver<ConnectionSlotL
   isAvailable: boolean;
   isPoking: boolean;
 
+  closed: boolean;
+
   protected connection: pgwire.PgConnection | null;
   protected connectingPromise: Promise<pgwire.PgConnection> | null;
 
@@ -36,6 +38,7 @@ export class ConnectionSlot extends framework.DisposableObserver<ConnectionSlotL
     this.connection = null;
     this.isPoking = false;
     this.connectingPromise = null;
+    this.closed = false;
   }
 
   get isConnected() {
@@ -54,13 +57,14 @@ export class ConnectionSlot extends framework.DisposableObserver<ConnectionSlotL
   }
 
   async [Symbol.asyncDispose]() {
+    this.closed = true;
     const connection = this.connection ?? (await this.connectingPromise);
     await connection?.end();
     return super[Symbol.dispose]();
   }
 
   protected async configureConnectionNotifications(connection: pgwire.PgConnection) {
-    if (connection.onnotification == this.handleNotification) {
+    if (connection.onnotification == this.handleNotification || this.closed == true) {
       // Already configured
       return;
     }
@@ -102,7 +106,7 @@ export class ConnectionSlot extends framework.DisposableObserver<ConnectionSlotL
    * Test the connection if it can be reached.
    */
   async poke() {
-    if (this.isPoking || (this.isConnected && this.isAvailable == false)) {
+    if (this.isPoking || (this.isConnected && this.isAvailable == false) || this.closed) {
       return;
     }
     this.isPoking = true;
@@ -145,7 +149,7 @@ export class ConnectionSlot extends framework.DisposableObserver<ConnectionSlotL
   }
 
   lock(): ConnectionLease | null {
-    if (!this.isAvailable || !this.connection) {
+    if (!this.isAvailable || !this.connection || this.closed) {
       return null;
     }
 

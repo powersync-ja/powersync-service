@@ -36,7 +36,7 @@ export class ChangeStreamTestContext {
 
   async dispose() {
     this.abortController.abort();
-    this.factory[Symbol.dispose]();
+    await this.factory[Symbol.asyncDispose]();
     await this.streamPromise?.catch((e) => e);
     await this.connectionManager.destroy();
   }

@@ -62,6 +62,10 @@ export class MongoBucketStorage
     this.slot_name_prefix = options.slot_name_prefix;
   }
 
+  async [Symbol.asyncDispose]() {
+    super[Symbol.dispose]();
+  }
+
   getInstance(options: storage.PersistedSyncRulesContent): MongoSyncBucketStorage {
     let { id, slot_name } = options;
     if ((typeof id as any) == 'bigint') {

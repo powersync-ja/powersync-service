@@ -46,7 +46,7 @@ export class WalStreamTestContext implements AsyncDisposable {
     await this.streamPromise;
     await this.connectionManager.destroy();
     this.storage?.[Symbol.dispose]();
-    this.factory?.[Symbol.dispose]();
+    await this.factory?.[Symbol.asyncDispose]();
   }
 
   get pool() {

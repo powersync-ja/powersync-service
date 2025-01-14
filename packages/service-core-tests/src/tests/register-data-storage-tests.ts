@@ -36,7 +36,7 @@ bucket_definitions:
     data: [] 
     `);
 
-    using factory = await generateStorageFactory();
+    await using factory = await generateStorageFactory();
     const bucketStorage = factory.getInstance(sync_rules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -84,7 +84,7 @@ bucket_definitions:
     `
     );
 
-    using factory = await generateStorageFactory();
+    await using factory = await generateStorageFactory();
     const bucketStorage = factory.getInstance(sync_rules);
 
     const result1 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -208,7 +208,7 @@ bucket_definitions:
     `
     );
 
-    using factory = await generateStorageFactory();
+    await using factory = await generateStorageFactory();
     const bucketStorage = factory.getInstance(sync_rules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -253,7 +253,7 @@ bucket_definitions:
     `
     );
 
-    using factory = await generateStorageFactory();
+    await using factory = await generateStorageFactory();
     const bucketStorage = factory.getInstance(sync_rules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -299,7 +299,7 @@ bucket_definitions:
       - SELECT id, description FROM "%"
 `
     );
-    using factory = await generateStorageFactory();
+    await using factory = await generateStorageFactory();
     const bucketStorage = factory.getInstance(sync_rules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -367,7 +367,7 @@ bucket_definitions:
     );
     const sync_rules = sync_rules_content.parsed(test_utils.PARSE_OPTIONS).sync_rules;
 
-    using factory = await generateStorageFactory();
+    await using factory = await generateStorageFactory();
     const bucketStorage = factory.getInstance(sync_rules_content);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -418,7 +418,7 @@ bucket_definitions:
     );
     const sync_rules = sync_rules_content.parsed(test_utils.PARSE_OPTIONS).sync_rules;
 
-    using factory = await generateStorageFactory();
+    await using factory = await generateStorageFactory();
     const bucketStorage = factory.getInstance(sync_rules_content);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -493,7 +493,7 @@ bucket_definitions:
     );
     const sync_rules = sync_rules_content.parsed(test_utils.PARSE_OPTIONS).sync_rules;
 
-    using factory = await generateStorageFactory();
+    await using factory = await generateStorageFactory();
     const bucketStorage = factory.getInstance(sync_rules_content);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -581,7 +581,7 @@ bucket_definitions:
       - SELECT client_id as id, description FROM "%"
 `
     );
-    using factory = await generateStorageFactory();
+    await using factory = await generateStorageFactory();
 
     const bucketStorage = factory.getInstance(sync_rules);
 
@@ -647,7 +647,7 @@ bucket_definitions:
       - SELECT id, description FROM "%"
 `
     );
-    using factory = await generateStorageFactory();
+    await using factory = await generateStorageFactory();
     const bucketStorage = factory.getInstance(sync_rules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -724,7 +724,7 @@ bucket_definitions:
       - SELECT id, description FROM "%"
 `
     );
-    using factory = await generateStorageFactory();
+    await using factory = await generateStorageFactory();
     const bucketStorage = factory.getInstance(sync_rules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -846,7 +846,7 @@ bucket_definitions:
     `
     );
 
-    using factory = await generateStorageFactory();
+    await using factory = await generateStorageFactory();
     const bucketStorage = factory.getInstance(sync_rules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -888,7 +888,7 @@ bucket_definitions:
       - SELECT id, description FROM "test"
 `
     );
-    using factory = await generateStorageFactory();
+    await using factory = await generateStorageFactory();
     const bucketStorage = factory.getInstance(sync_rules);
 
     // Pre-setup
@@ -1046,7 +1046,7 @@ bucket_definitions:
         { name: 'description', type: 'VARCHAR', typeId: 25 }
       ]);
     }
-    using factory = await generateStorageFactory();
+    await using factory = await generateStorageFactory();
     const bucketStorage = factory.getInstance(sync_rules);
 
     const sourceTable = test_utils.makeTestTable('test', ['id', 'description']);
@@ -1154,7 +1154,7 @@ bucket_definitions:
       ]);
     }
 
-    using factory = await generateStorageFactory();
+    await using factory = await generateStorageFactory();
     const bucketStorage = factory.getInstance(sync_rules);
 
     const sourceTable = test_utils.makeTestTable('test', ['id', 'description']);
@@ -1252,7 +1252,7 @@ bucket_definitions:
       - SELECT id, description FROM "%"
 `
     );
-    using factory = await generateStorageFactory();
+    await using factory = await generateStorageFactory();
     const bucketStorage = factory.getInstance(sync_rules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -1351,7 +1351,7 @@ bucket_definitions:
       - SELECT id, description FROM "%"
 `
     );
-    using factory = await generateStorageFactory();
+    await using factory = await generateStorageFactory();
     const bucketStorage = factory.getInstance(sync_rules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -1422,7 +1422,7 @@ bucket_definitions:
           data: [] 
           `);
 
-    using factory = await generateStorageFactory();
+    await using factory = await generateStorageFactory();
     const bucketStorage = factory.getInstance(sync_rules);
 
     let isDisposed = false;
@@ -1461,7 +1461,7 @@ bucket_definitions:
           data: [] 
           `);
 
-    using factory = await generateStorageFactory();
+    await using factory = await generateStorageFactory();
     const bucketStorage = factory.getInstance(sync_rules);
 
     let isDisposed = false;
@@ -1494,7 +1494,7 @@ bucket_definitions:
   });
 
   test('empty storage metrics', async () => {
-    using f = await generateStorageFactory({ dropAll: true });
+    await using f = await generateStorageFactory({ dropAll: true });
     const metrics = await f.getStorageMetrics();
     expect(metrics).toEqual({
       operations_size_bytes: 0,
@@ -1522,7 +1522,7 @@ bucket_definitions:
     `
     );
 
-    using bucketStorageFactory = await generateStorageFactory();
+    await using bucketStorageFactory = await generateStorageFactory();
     const syncBucketStorage = bucketStorageFactory.getInstance(sync_rules_content);
 
     const parsedSchema1 = syncBucketStorage.getParsedSyncRules({
