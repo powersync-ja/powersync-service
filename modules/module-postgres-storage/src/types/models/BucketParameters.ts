@@ -1,6 +1,6 @@
 import * as t from 'ts-codec';
-import { bigint, hexBuffer, jsonb, pgwire_number } from '../codecs.js';
-import { SQLiteJSONRecord } from './SQLiteJSONValue.js';
+// import { JsonContainer } from '@powersync/service-jsonbig';
+import { bigint, hexBuffer, pgwire_number } from '../codecs.js';
 
 export const BucketParameters = t.object({
   id: bigint,
@@ -8,7 +8,7 @@ export const BucketParameters = t.object({
   source_table: t.string,
   source_key: hexBuffer,
   lookup: hexBuffer,
-  bucket_parameters: jsonb(t.array(SQLiteJSONRecord))
+  bucket_parameters: t.string
 });
 
 export type BucketParameters = t.Encoded<typeof BucketParameters>;

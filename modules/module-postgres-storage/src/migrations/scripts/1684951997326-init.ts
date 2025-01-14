@@ -69,7 +69,9 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
         source_table TEXT NOT NULL,
         source_key bytea NOT NULL,
         lookup bytea NOT NULL,
-        bucket_parameters jsonb NOT NULL
+        --- Stored as text which is stringified with JSONBig
+        --- BigInts are not standard JSON, storing as JSONB seems risky
+        bucket_parameters text NOT NULL
       );
     `.execute();
 

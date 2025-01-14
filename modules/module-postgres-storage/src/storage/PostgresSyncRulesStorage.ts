@@ -1,6 +1,7 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { DisposableObserver } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
+import { JSONBig } from '@powersync/service-jsonbig';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as uuid from 'uuid';
 import { BIGINT_MAX } from '../types/codecs.js';
@@ -328,7 +329,7 @@ export class PostgresSyncRulesStorage
       .rows();
 
     const groupedParameters = rows.map((row) => {
-      return row.bucket_parameters;
+      return JSONBig.parse(row.bucket_parameters) as sync_rules.SqliteJsonRow;
     });
     return groupedParameters.flat();
   }

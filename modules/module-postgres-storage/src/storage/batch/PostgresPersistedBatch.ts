@@ -325,14 +325,14 @@ export class PostgresPersistedBatch {
               source_table,
               decode(source_key, 'hex') AS source_key, -- Decode hex to bytea
               decode(lookup, 'hex') AS lookup, -- Decode hex to bytea
-              bucket_parameters::jsonb AS bucket_parameters
+              bucket_parameters
             FROM
               jsonb_to_recordset(${{ type: 'jsonb', value: this.parameterDataInserts }}::jsonb) AS t (
                 group_id integer,
                 source_table text,
                 source_key text, -- Input as hex string
                 lookup text, -- Input as hex string
-                bucket_parameters text -- Input as stringified jsonb
+                bucket_parameters text -- Input as stringified JSON
               )
           )
         INSERT INTO
