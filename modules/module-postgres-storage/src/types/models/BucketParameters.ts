@@ -1,6 +1,5 @@
 import * as t from 'ts-codec';
-import { pgwire_number } from '../../utils/ts-codec.js';
-import { bigint, hexBuffer, jsonb } from '../codecs.js';
+import { bigint, hexBuffer, jsonb, pgwire_number } from '../codecs.js';
 import { SQLiteJSONRecord } from './SQLiteJSONValue.js';
 
 export const BucketParameters = t.object({

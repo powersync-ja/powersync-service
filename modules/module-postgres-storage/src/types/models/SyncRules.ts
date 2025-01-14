@@ -1,7 +1,6 @@
 import { framework, storage } from '@powersync/service-core';
 import * as t from 'ts-codec';
-import { pgwire_number } from '../../utils/ts-codec.js';
-import { bigint } from '../codecs.js';
+import { bigint, pgwire_number } from '../codecs.js';
 
 export const SyncRules = t.object({
   id: pgwire_number,

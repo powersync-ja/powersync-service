@@ -1,6 +1,5 @@
 import * as t from 'ts-codec';
-import { pgwire_number } from '../../utils/ts-codec.js';
-import { hexBuffer, jsonb } from '../codecs.js';
+import { hexBuffer, jsonb, pgwire_number } from '../codecs.js';
 
 export const CurrentBucket = t.object({
   bucket: t.string,

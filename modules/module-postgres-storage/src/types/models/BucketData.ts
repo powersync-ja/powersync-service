@@ -1,6 +1,5 @@
 import * as t from 'ts-codec';
-import { pgwire_number } from '../../utils/ts-codec.js';
-import { bigint, hexBuffer } from '../codecs.js';
+import { bigint, hexBuffer, pgwire_number } from '../codecs.js';
 
 export enum OpType {
   PUT = 'PUT',

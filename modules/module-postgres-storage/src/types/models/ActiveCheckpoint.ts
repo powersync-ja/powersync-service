@@ -1,6 +1,5 @@
 import * as t from 'ts-codec';
-import { pgwire_number } from '../../utils/ts-codec.js';
-import { bigint } from '../codecs.js';
+import { bigint, pgwire_number } from '../codecs.js';
 
 /**
  * Notification payload sent via Postgres' NOTIFY API.

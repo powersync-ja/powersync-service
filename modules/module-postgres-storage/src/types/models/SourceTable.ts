@@ -1,6 +1,5 @@
 import * as t from 'ts-codec';
-import { pgwire_number } from '../../utils/ts-codec.js';
-import { bigint, jsonb } from '../codecs.js';
+import { bigint, jsonb, pgwire_number } from '../codecs.js';
 
 export const ColumnDescriptor = t.object({
   name: t.string,
