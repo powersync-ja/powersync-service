@@ -35,7 +35,7 @@ const managedResetAgent = (factory: () => AbstractPowerSyncMigrationAgent) => {
 export const registerMigrationTests = (migrationAgentFactory: () => AbstractPowerSyncMigrationAgent) => {
   test('Should run migrations correctly', async () => {
     await using manager = new framework.migrations.MigrationManager() as PowerSyncMigrationManager;
-    // Disposal is executed in reverse order. The store will be reset before the manage disposes it.
+    // Disposal is executed in reverse order. The store will be reset before the manager disposes it.
     await using managedAgent = managedResetAgent(migrationAgentFactory);
 
     await managedAgent.agent.resetStore();
@@ -93,7 +93,7 @@ export const registerMigrationTests = (migrationAgentFactory: () => AbstractPowe
 
   test('Should run migrations with additions', async () => {
     await using manager = new framework.migrations.MigrationManager() as PowerSyncMigrationManager;
-    // Disposal is executed in reverse order. The store will be reset before the manage disposes it.
+    // Disposal is executed in reverse order. The store will be reset before the manager disposes it.
     await using managedAgent = managedResetAgent(migrationAgentFactory);
 
     await managedAgent.agent.resetStore();
@@ -125,6 +125,6 @@ export const registerMigrationTests = (migrationAgentFactory: () => AbstractPowe
     expect(results.length).equals(length);
 
     // The new migration should have been executed
-    expect(newResults).deep.equals([`up - ${10}`]);
+    expect(newResults).deep.equals([`up - 10`]);
   });
 };
