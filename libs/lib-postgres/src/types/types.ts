@@ -99,7 +99,7 @@ export function normalizeConnectionConfig(options: BasePostgresConnectionConfigD
     throw new Error(`database required`);
   }
 
-  const lookup = makeLookupFunction(options.reject_ip_ranges ?? []);
+  const lookup = makeLookupFunction({ reject_ip_ranges: options.reject_ip_ranges ?? [] });
 
   return {
     id: options.id ?? 'default',

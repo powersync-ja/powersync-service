@@ -8,12 +8,10 @@ import fetch from 'node-fetch';
 
 import { KeySpec } from './KeySpec.js';
 import { KeyCollector, KeyResult } from './KeyCollector.js';
+import { LookupOptions, makeLookupFunction } from '@powersync/lib-services-framework';
 
 export type RemoteJWKSCollectorOptions = {
-  /**
-   * Blocks IP Ranges from the BLOCKED_IP_RANGES array
-   */
-  block_local_ip?: boolean;
+  lookupOptions?: LookupOptions;
 };
 
 /**
@@ -97,29 +95,13 @@ export class RemoteJWKSCollector implements KeyCollector {
   }
 
   /**
-   * Resolve IP, and check that it is in an allowed range.
+   * Agent that uses a custom lookup function.
    */
   async resolveAgent(): Promise<http.Agent | https.Agent> {
-    const hostname = this.url.hostname;
-    let resolved_ip: string;
-    if (net.isIPv6(hostname)) {
-      throw new Error('IPv6 not supported yet');
-    } else if (net.isIPv4(hostname)) {
-      // All good
-      resolved_ip = hostname;
-    } else {
-      resolved_ip = (await dns.resolve4(hostname))[0];
-    }
+    const lookup = makeLookupFunction(this.options?.lookupOptions ?? { reject_ip_ranges: [] });
 
-    const parsed = ip.parse(resolved_ip);
-    if (parsed.kind() != 'ipv4' || (this.options?.block_local_ip && parsed.range() !== 'unicast')) {
-      // Do not connect to any reserved IPs, including loopback and private ranges
-      throw new Error(`IPs in this range are not supported: ${resolved_ip}`);
-    }
-
-    const options = {
-      // This is the host that the agent connects to
-      host: resolved_ip
+    const options: http.AgentOptions = {
+      lookup
     };
 
     switch (this.url.protocol) {

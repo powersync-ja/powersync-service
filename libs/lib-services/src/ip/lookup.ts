@@ -3,19 +3,20 @@ import * as dns from 'node:dns';
 import * as dnsp from 'node:dns/promises';
 import ip from 'ipaddr.js';
 
+export interface LookupOptions {
+  reject_ip_ranges: string[];
+  reject_ipv6?: boolean;
+}
+
 /**
  * Generate a custom DNS lookup function, that rejects specific IP ranges.
  *
  * @param reject_ip_ranges IPv4 and/or IPv6 subnets to reject, or 'local' to reject any IP that isn't public unicast.
  * @returns a function to use as the `lookup` option in `net.connect`.
  */
-export function makeLookupFunction(reject_ip_ranges: string[]): net.LookupFunction | undefined {
-  if (reject_ip_ranges.length == 0) {
-    return undefined;
-  }
-
+export function makeLookupFunction(lookupOptions: LookupOptions): net.LookupFunction | undefined {
   return (hostname, options, callback) => {
-    resolveIp(hostname, reject_ip_ranges)
+    resolveIp(hostname, lookupOptions)
       .then((resolvedAddress) => {
         if (options.all) {
           callback(null, [resolvedAddress]);
@@ -32,12 +33,16 @@ export function makeLookupFunction(reject_ip_ranges: string[]): net.LookupFuncti
 /**
  * Resolve IP, and check that it is in an allowed range.
  */
-export async function resolveIp(hostname: string, reject_ranges: string[]): Promise<dns.LookupAddress> {
+export async function resolveIp(hostname: string, options: LookupOptions): Promise<dns.LookupAddress> {
+  const { reject_ip_ranges: reject_ranges } = options;
   let resolvedAddress: dns.LookupAddress;
   if (net.isIPv4(hostname)) {
     // Direct ipv4 - all good so far
     resolvedAddress = { address: hostname, family: 4 };
   } else if (net.isIPv6(hostname) || net.isIPv4(hostname)) {
+    if (options.reject_ipv6) {
+      throw new Error('IPv6 not supported');
+    }
     // Direct ipv6 - all good so far
     resolvedAddress = { address: hostname, family: 6 };
   } else {

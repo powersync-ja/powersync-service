@@ -1,4 +1,4 @@
-import { logger } from '@powersync/lib-services-framework';
+import { logger, LookupOptions } from '@powersync/lib-services-framework';
 import { configFile } from '@powersync/service-types';
 import * as auth from '../../auth/auth-index.js';
 import { ConfigCollector } from './collectors/config-collector.js';
@@ -91,12 +91,25 @@ export class CompoundConfigCollector {
       jwks_uris = [jwks_uris];
     }
 
+    let jwksLookup: LookupOptions = {
+      reject_ip_ranges: []
+    };
+
+    const block_local_jwks = baseConfig.client_auth?.block_local_jwks;
+    if (block_local_jwks == true) {
+      jwksLookup = {
+        reject_ip_ranges: ['local'],
+        reject_ipv6: true
+      };
+    } else if (Array.isArray(block_local_jwks)) {
+      jwksLookup = {
+        reject_ip_ranges: block_local_jwks,
+        reject_ipv6: true
+      };
+    }
+
     for (let uri of jwks_uris) {
-      collectors.add(
-        new auth.CachedKeyCollector(
-          new auth.RemoteJWKSCollector(uri, { block_local_ip: !!baseConfig.client_auth?.block_local_jwks })
-        )
-      );
+      collectors.add(new auth.CachedKeyCollector(new auth.RemoteJWKSCollector(uri, { lookupOptions: jwksLookup })));
     }
 
     const baseDevKey = (baseConfig.client_auth?.jwks?.keys ?? []).find((key) => key.kid == POWERSYNC_DEV_KID);

@@ -286,7 +286,9 @@ describe('JWT Auth', () => {
 
     // The localhost hostname fails to resolve correctly on MacOS https://github.com/nodejs/help/issues/2163
     const invalid = new RemoteJWKSCollector('https://127.0.0.1/.well-known/jwks.json', {
-      block_local_ip: true
+      lookupOptions: {
+        reject_ip_ranges: ['local']
+      }
     });
     expect(invalid.getKeys()).rejects.toThrow('IPs in this range are not supported');
   });
