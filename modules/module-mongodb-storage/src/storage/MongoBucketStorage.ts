@@ -62,6 +62,10 @@ export class MongoBucketStorage
     this.slot_name_prefix = options.slot_name_prefix;
   }
 
+  async [Symbol.asyncDispose]() {
+    super[Symbol.dispose]();
+  }
+
   getInstance(options: storage.PersistedSyncRulesContent): MongoSyncBucketStorage {
     let { id, slot_name } = options;
     if ((typeof id as any) == 'bigint') {
@@ -106,7 +110,6 @@ export class MongoBucketStorage
 
     // In both the below cases, we create a new sync rules instance.
     // The current one will continue erroring until the next one has finished processing.
-    // TODO: Update
     if (next != null && next.slot_name == slot_name) {
       // We need to redo the "next" sync rules
       await this.updateSyncRules({

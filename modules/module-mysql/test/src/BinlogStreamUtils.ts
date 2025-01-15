@@ -49,6 +49,7 @@ export class BinlogStreamTestContext {
     this.abortController.abort();
     await this.streamPromise;
     await this.connectionManager.end();
+    await this.factory[Symbol.asyncDispose]();
   }
 
   [Symbol.asyncDispose]() {
@@ -104,6 +105,7 @@ export class BinlogStreamTestContext {
 
   async replicateSnapshot() {
     await this.binlogStream.initReplication();
+    await this.storage!.autoActivate();
     this.replicationDone = true;
   }
 

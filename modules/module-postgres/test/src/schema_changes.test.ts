@@ -3,11 +3,16 @@ import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
 
 import { storage } from '@powersync/service-core';
-import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
+import { env } from './env.js';
+import { INITIALIZED_MONGO_STORAGE_FACTORY, INITIALIZED_POSTGRES_STORAGE_FACTORY } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 
-describe('schema changes', { timeout: 20_000 }, function () {
+describe.skipIf(!env.TEST_MONGO_STORAGE)('schema changes - mongodb', { timeout: 20_000 }, function () {
   defineTests(INITIALIZED_MONGO_STORAGE_FACTORY);
+});
+
+describe.skipIf(!env.TEST_POSTGRES_STORAGE)('schema changes - postgres', { timeout: 20_000 }, function () {
+  defineTests(INITIALIZED_POSTGRES_STORAGE_FACTORY);
 });
 
 const BASIC_SYNC_RULES = `
@@ -432,7 +437,7 @@ function defineTests(factory: storage.TestStorageFactory) {
     expect(data).toMatchObject([]);
 
     const metrics = await storage.factory.getStorageMetrics();
-    expect(metrics.replication_size_bytes).toEqual(0);
+    expect(metrics.replication_size_bytes).toMatchSnapshot();
   });
 
   test('replica identity nothing', async () => {

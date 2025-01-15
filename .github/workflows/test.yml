@@ -104,6 +104,18 @@ jobs:
             -d postgres:${{ matrix.postgres-version }} \
             -c wal_level=logical
 
+      - name: Start PostgreSQL (Storage)
+        run: |
+          docker run \
+            --health-cmd pg_isready \
+            --health-interval 10s \
+            --health-timeout 5s \
+            --health-retries 5 \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=powersync_storage_test \
+            -p 5431:5432 \
+            -d postgres:${{ matrix.postgres-version }}
+
       - name: Start MongoDB
         uses: supercharge/mongodb-github-action@1.8.0
         with:
@@ -176,6 +188,18 @@ jobs:
           mongodb-version: '6.0'
           mongodb-replica-set: test-rs
 
+      - name: Start PostgreSQL (Storage)
+        run: |
+          docker run \
+            --health-cmd pg_isready \
+            --health-interval 10s \
+            --health-timeout 5s \
+            --health-retries 5 \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=powersync_storage_test \
+            -p 5431:5432 \
+            -d postgres:16
+
       - name: Setup NodeJS
         uses: actions/setup-node@v4
         with:
@@ -228,6 +252,18 @@ jobs:
         with:
           mongodb-version: ${{ matrix.mongodb-version }}
           mongodb-replica-set: test-rs
+
+      - name: Start PostgreSQL (Storage)
+        run: |
+          docker run \
+            --health-cmd pg_isready \
+            --health-interval 10s \
+            --health-timeout 5s \
+            --health-retries 5 \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=powersync_storage_test \
+            -p 5431:5432 \
+            -d postgres:16
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

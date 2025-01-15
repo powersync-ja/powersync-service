@@ -1,10 +1,11 @@
 import { PostgresRouteAPIAdapter } from '@module/api/PostgresRouteAPIAdapter.js';
 import * as types from '@module/types/types.js';
-import * as pg_utils from '@module/utils/pgwire_utils.js';
+import * as lib_postgres from '@powersync/lib-service-postgres';
 import { logger } from '@powersync/lib-services-framework';
 import { BucketStorageFactory, OpId } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
+import * as postgres_storage from '@powersync/service-module-postgres-storage';
 import { env } from './env.js';
 
 export const TEST_URI = env.PG_TEST_URL;
@@ -12,6 +13,10 @@ export const TEST_URI = env.PG_TEST_URL;
 export const INITIALIZED_MONGO_STORAGE_FACTORY = mongo_storage.MongoTestStorageFactoryGenerator({
   url: env.MONGO_TEST_URL,
   isCI: env.CI
+});
+
+export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.PostgresTestStorageFactoryGenerator({
+  url: env.PG_STORAGE_TEST_URL
 });
 
 export const TEST_CONNECTION_OPTIONS = types.normalizeConnectionConfig({
@@ -40,7 +45,7 @@ export async function clearTestDb(db: pgwire.PgClient) {
   for (let row of tableRows) {
     const name = row.table_name;
     if (name.startsWith('test_')) {
-      await db.query(`DROP TABLE public.${pg_utils.escapeIdentifier(name)}`);
+      await db.query(`DROP TABLE public.${lib_postgres.escapeIdentifier(name)}`);
     }
   }
 }

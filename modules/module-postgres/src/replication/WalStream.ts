@@ -1,8 +1,10 @@
+import * as lib_postgres from '@powersync/lib-service-postgres';
 import { container, errors, logger } from '@powersync/lib-services-framework';
 import { getUuidReplicaIdentityBson, Metrics, SourceEntityDescriptor, storage } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
 import * as pg_utils from '../utils/pgwire_utils.js';
+
 import { PgManager } from './PgManager.js';
 import { getPgOutputRelation, getRelId } from './PgRelation.js';
 import { checkSourceConfiguration, getReplicationIdentityColumns } from './replication-utils.js';
@@ -63,7 +65,7 @@ export class WalStream {
           // Ping to speed up cancellation of streaming replication
           // We're not using pg_snapshot here, since it could be in the middle of
           // an initial replication transaction.
-          const promise = pg_utils.retriedQuery(
+          const promise = lib_postgres.retriedQuery(
             this.connections.pool,
             `SELECT * FROM pg_logical_emit_message(false, 'powersync', 'ping')`
           );

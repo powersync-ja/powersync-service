@@ -26,7 +26,7 @@ bucket_definitions:
     data: [select * from test]
     `);
 
-    using factory = await generateStorageFactory();
+    await using factory = await generateStorageFactory();
     const bucketStorage = factory.getInstance(sync_rules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -128,7 +128,7 @@ bucket_definitions:
     data: [select * from test]
     `);
 
-    using factory = await generateStorageFactory();
+    await using factory = await generateStorageFactory();
     const bucketStorage = factory.getInstance(sync_rules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -238,7 +238,7 @@ bucket_definitions:
     data: [select * from test]
     `);
 
-    using factory = await generateStorageFactory();
+    await using factory = await generateStorageFactory();
     const bucketStorage = factory.getInstance(sync_rules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {

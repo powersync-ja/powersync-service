@@ -46,6 +46,7 @@
     "@types/async": "^3.2.24",
     "@types/uuid": "^9.0.4",
     "@powersync/service-core-tests": "workspace:*",
-    "@powersync/service-module-mongodb-storage": "workspace:*"
+    "@powersync/service-module-mongodb-storage": "workspace:*",
+    "@powersync/service-module-postgres-storage": "workspace:*"
   }
 }

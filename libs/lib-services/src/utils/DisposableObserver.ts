@@ -7,13 +7,18 @@ export interface DisposableListener {
   disposed: () => void;
 }
 
-export interface DisposableObserverClient<T extends DisposableListener> extends ObserverClient<T>, Disposable {
+export interface ManagedObserverClient<T extends DisposableListener> extends ObserverClient<T> {
   /**
    * Registers a listener that is automatically disposed when the parent is disposed.
    * This is useful for disposing nested listeners.
    */
   registerManagedListener: (parent: DisposableObserverClient<DisposableListener>, cb: Partial<T>) => () => void;
 }
+
+export interface DisposableObserverClient<T extends DisposableListener> extends ManagedObserverClient<T>, Disposable {}
+export interface AsyncDisposableObserverClient<T extends DisposableListener>
+  extends ManagedObserverClient<T>,
+    AsyncDisposable {}
 
 export class DisposableObserver<T extends DisposableListener>
   extends BaseObserver<T>

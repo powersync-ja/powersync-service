@@ -33,7 +33,7 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
   const tracker = new sync.RequestTracker();
 
   test('sync global data', async () => {
-    using f = await factory();
+    await using f = await factory();
 
     const syncRules = await f.updateSyncRules({
       content: BASIC_SYNC_RULES
@@ -128,7 +128,7 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
   });
 
   test('expired token', async () => {
-    const f = await factory();
+    await using f = await factory();
 
     const syncRules = await f.updateSyncRules({
       content: BASIC_SYNC_RULES
@@ -155,7 +155,7 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
   });
 
   test('sync updates to global data', async () => {
-    using f = await factory();
+    await using f = await factory();
 
     const syncRules = await f.updateSyncRules({
       content: BASIC_SYNC_RULES
@@ -216,7 +216,7 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
   });
 
   test('expiring token', async () => {
-    using f = await factory();
+    await using f = await factory();
 
     const syncRules = await f.updateSyncRules({
       content: BASIC_SYNC_RULES
@@ -254,7 +254,7 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
     // This is expected to be rare in practice, but it is important to handle
     // this case correctly to maintain consistency on the client.
 
-    using f = await factory();
+    await using f = await factory();
 
     const syncRules = await f.updateSyncRules({
       content: BASIC_SYNC_RULES
@@ -391,7 +391,7 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
   });
 
   test('write checkpoint', async () => {
-    using f = await factory();
+    await using f = await factory();
 
     const syncRules = await f.updateSyncRules({
       content: BASIC_SYNC_RULES

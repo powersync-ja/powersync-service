@@ -1,0 +1,20 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "baseUrl": "./",
+    "noEmit": true,
+    "esModuleInterop": true,
+    "declarationDir": "dist/@types",
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    "lib": ["ES2022", "esnext.disposable"],
+    "skipLibCheck": true,
+    "sourceMap": true
+  },
+  "include": ["src"],
+  "references": [
+    {
+      "path": "../"
+    }
+  ]
+}

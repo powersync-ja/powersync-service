@@ -222,3 +222,29 @@ export function flatstr(s: string) {
 function rowKey(entry: OplogEntry) {
   return `${entry.object_type}/${entry.object_id}/${entry.subkey}`;
 }
+
+/**
+ * Estimate in-memory size of row.
+ */
+export function estimateRowSize(record: sync_rules.ToastableSqliteRow | undefined) {
+  if (record == null) {
+    return 12;
+  }
+  let size = 0;
+  for (let [key, value] of Object.entries(record)) {
+    size += 12 + key.length;
+    // number | string | null | bigint | Uint8Array
+    if (value == null) {
+      size += 4;
+    } else if (typeof value == 'number') {
+      size += 8;
+    } else if (typeof value == 'bigint') {
+      size += 8;
+    } else if (typeof value == 'string') {
+      size += value.length;
+    } else if (value instanceof Uint8Array) {
+      size += value.byteLength;
+    }
+  }
+  return size;
+}

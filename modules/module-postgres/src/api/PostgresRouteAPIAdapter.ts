@@ -1,13 +1,12 @@
+import * as lib_postgres from '@powersync/lib-service-postgres';
 import { api, ParseSyncRulesOptions } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
-
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import * as replication_utils from '../replication/replication-utils.js';
-import * as types from '../types/types.js';
-import * as pg_utils from '../utils/pgwire_utils.js';
 import { getDebugTableInfo } from '../replication/replication-utils.js';
 import { PUBLICATION_NAME } from '../replication/WalStream.js';
+import * as types from '../types/types.js';
 
 export class PostgresRouteAPIAdapter implements api.RouteAPI {
   connectionTag: string;
@@ -53,7 +52,7 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
     };
 
     try {
-      await pg_utils.retriedQuery(this.pool, `SELECT 'PowerSync connection test'`);
+      await lib_postgres.retriedQuery(this.pool, `SELECT 'PowerSync connection test'`);
     } catch (e) {
       return {
         ...base,
@@ -94,7 +93,7 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
     try {
       const result = await this.pool.query({
         statement: query,
-        params: params.map(pg_utils.autoParameter)
+        params: params.map(lib_postgres.autoParameter)
       });
 
       return service_types.internal_routes.ExecuteSqlResponse.encode({
@@ -146,7 +145,7 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
       if (tablePattern.isWildcard) {
         patternResult.tables = [];
         const prefix = tablePattern.tablePrefix;
-        const results = await pg_utils.retriedQuery(this.pool, {
+        const results = await lib_postgres.retriedQuery(this.pool, {
           statement: `SELECT c.oid AS relid, c.relname AS table_name
         FROM pg_class c
         JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -169,7 +168,7 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
           patternResult.tables.push(details);
         }
       } else {
-        const results = await pg_utils.retriedQuery(this.pool, {
+        const results = await lib_postgres.retriedQuery(this.pool, {
           statement: `SELECT c.oid AS relid, c.relname AS table_name
         FROM pg_class c
         JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -215,7 +214,7 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
   async getReplicationLag(options: api.ReplicationLagOptions): Promise<number | undefined> {
     const { bucketStorage } = options;
     const slotName = bucketStorage.slot_name;
-    const results = await pg_utils.retriedQuery(this.pool, {
+    const results = await lib_postgres.retriedQuery(this.pool, {
       statement: `SELECT
   slot_name,
   confirmed_flush_lsn, 
@@ -237,7 +236,7 @@ FROM pg_replication_slots WHERE slot_name = $1 LIMIT 1;`,
     // However, on Aurora (Postgres compatible), it can return an entirely different LSN,
     // causing the write checkpoints to never be replicated back to the client.
     // For those, we need to use pg_current_wal_lsn() instead.
-    const { results } = await pg_utils.retriedQuery(
+    const { results } = await lib_postgres.retriedQuery(
       this.pool,
       { statement: `SELECT pg_current_wal_lsn() as lsn` },
       { statement: `SELECT pg_logical_emit_message(false, 'powersync', 'ping')` }
@@ -250,7 +249,7 @@ FROM pg_replication_slots WHERE slot_name = $1 LIMIT 1;`,
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {
     // https://github.com/Borvik/vscode-postgres/blob/88ec5ed061a0c9bced6c5d4ec122d0759c3f3247/src/language/server.ts
-    const results = await pg_utils.retriedQuery(
+    const results = await lib_postgres.retriedQuery(
       this.pool,
       `SELECT
 tbl.schemaname,

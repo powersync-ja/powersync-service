@@ -38,6 +38,7 @@ export class ChangeStreamTestContext {
     this.abortController.abort();
     await this.streamPromise?.catch((e) => e);
     await this.connectionManager.destroy();
+    await this.factory[Symbol.asyncDispose]();
   }
 
   async [Symbol.asyncDispose]() {
@@ -157,7 +158,6 @@ export async function getClientCheckpoint(
     if (cp.lsn && cp.lsn >= lsn) {
       return cp.checkpoint;
     }
-
     await new Promise((resolve) => setTimeout(resolve, 30));
   }
 

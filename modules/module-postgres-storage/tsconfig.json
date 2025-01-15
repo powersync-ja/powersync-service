@@ -1,0 +1,36 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "declarationDir": "dist/@types",
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    "rootDir": "src",
+    "target": "ES2022",
+    "lib": ["ES2022", "esnext.disposable"],
+    "skipLibCheck": true
+  },
+  "include": ["src"],
+  "references": [
+    {
+      "path": "../../packages/types"
+    },
+    {
+      "path": "../../packages/jsonbig"
+    },
+    {
+      "path": "../../packages/jpgwire"
+    },
+    {
+      "path": "../../packages/sync-rules"
+    },
+    {
+      "path": "../../packages/service-core"
+    },
+    {
+      "path": "../../libs/lib-services"
+    },
+    {
+      "path": "../../libs/lib-postgres"
+    }
+  ]
+}
