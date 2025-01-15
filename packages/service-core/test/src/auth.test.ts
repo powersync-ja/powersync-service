@@ -284,11 +284,23 @@ describe('JWT Auth', () => {
     expect(errors).toEqual([]);
     expect(keys.length).toBeGreaterThanOrEqual(1);
 
-    // The localhost hostname fails to resolve correctly on MacOS https://github.com/nodejs/help/issues/2163
-    const invalid = new RemoteJWKSCollector('https://127.0.0.1/.well-known/jwks.json', {
-      block_local_ip: true
+    // Domain names are resolved when retrieving keys
+    const invalid = new RemoteJWKSCollector('https://localhost/.well-known/jwks.json', {
+      lookupOptions: {
+        reject_ip_ranges: ['local']
+      }
     });
     expect(invalid.getKeys()).rejects.toThrow('IPs in this range are not supported');
+
+    // IPS throw an error immediately
+    expect(
+      () =>
+        new RemoteJWKSCollector('https://127.0.0.1/.well-known/jwks.json', {
+          lookupOptions: {
+            reject_ip_ranges: ['local']
+          }
+        })
+    ).toThrowError('IPs in this range are not supported');
   });
 
   test('http not blocking local IPs', async () => {
@@ -301,10 +313,13 @@ describe('JWT Auth', () => {
     expect(errors).toEqual([]);
     expect(keys.length).toBeGreaterThanOrEqual(1);
 
-    // The localhost hostname fails to resolve correctly on MacOS https://github.com/nodejs/help/issues/2163
     const invalid = new RemoteJWKSCollector('https://127.0.0.1/.well-known/jwks.json');
     // Should try and fetch
     expect(invalid.getKeys()).rejects.toThrow('ECONNREFUSED');
+
+    const invalid2 = new RemoteJWKSCollector('https://localhost/.well-known/jwks.json');
+    // Should try and fetch
+    expect(invalid2.getKeys()).rejects.toThrow('ECONNREFUSED');
   });
 
   test('caching', async () => {

@@ -37,6 +37,7 @@ export function createPool(config: types.NormalizedMySQLConnectionConfig, option
     cert: config.client_certificate
   };
   const hasSSLOptions = Object.values(sslOptions).some((v) => !!v);
+  // TODO: Use config.lookup for DNS resolution
   return mysql.createPool({
     host: config.hostname,
     user: config.username,

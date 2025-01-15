@@ -31,3 +31,6 @@ export * as system from './system/system-index.js';
 
 export * from './utils/utils-index.js';
 export * as utils from './utils/utils-index.js';
+
+export * from './ip/ip-index.js';
+export * as ip from './ip/ip-index.js';

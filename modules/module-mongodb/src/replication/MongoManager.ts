@@ -19,6 +19,8 @@ export class MongoManager {
         username: options.username,
         password: options.password
       },
+
+      lookup: options.lookup,
       // Time for connection to timeout
       connectTimeoutMS: 5_000,
       // Time for individual requests to timeout

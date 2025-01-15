@@ -30,7 +30,6 @@
   "dependencies": {
     "@powersync/lib-services-framework": "workspace:*",
     "@powersync/service-jpgwire": "workspace:*",
-    "@powersync/service-sync-rules": "workspace:*",
     "@powersync/service-types": "workspace:*",
     "p-defer": "^4.0.1",
     "ts-codec": "^1.3.0",
