@@ -1,5 +1,11 @@
 # @powersync/lib-services-framework
 
+## 0.4.0
+
+### Minor Changes
+
+- 9d9ff08: Improved migrations logic. Up migrations can be executed correctly after down migrations.
+
 ## 0.3.0
 
 ### Minor Changes
