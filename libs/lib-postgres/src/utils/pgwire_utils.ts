@@ -1,7 +1,6 @@
 // Adapted from https://github.com/kagis/pgwire/blob/0dc927f9f8990a903f238737326e53ba1c8d094f/mod.js#L2218
 
 import * as pgwire from '@powersync/service-jpgwire';
-import { SqliteJsonValue } from '@powersync/service-sync-rules';
 
 import { logger } from '@powersync/lib-services-framework';
 
@@ -9,7 +8,7 @@ export function escapeIdentifier(identifier: string) {
   return `"${identifier.replace(/"/g, '""').replace(/\./g, '"."')}"`;
 }
 
-export function autoParameter(arg: SqliteJsonValue | boolean): pgwire.StatementParam {
+export function autoParameter(arg: any): pgwire.StatementParam {
   if (arg == null) {
     return { type: 'varchar', value: null };
   } else if (typeof arg == 'string') {

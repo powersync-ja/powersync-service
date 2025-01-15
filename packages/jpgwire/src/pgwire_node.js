@@ -2,27 +2,11 @@
 // Based on the version in commit 9532a395d6fa03a59c2231f0ec690806c90bd338
 // Modifications marked with `START POWERSYNC ...`
 
-import net from 'net';
-import tls from 'tls';
 import { createHash, pbkdf2 as _pbkdf2, randomFillSync } from 'crypto';
-import { once } from 'events';
+
 import { promisify } from 'util';
 import { _net, SaslScramSha256 } from 'pgwire/mod.js';
-import { recordBytesRead } from './metrics.js';
-
-// START POWERSYNC
-// pgwire doesn't natively support configuring timeouts, but we just hardcode a default.
-// Timeout idle connections after 6 minutes (we ping at least every 5 minutes).
-const POWERSYNC_SOCKET_DEFAULT_TIMEOUT = 360_000;
-
-// Timeout for the initial connection (pre-TLS)
-// Must be less than the timeout for a HTTP request
-const POWERSYNC_SOCKET_CONNECT_TIMEOUT = 20_000;
-
-// TCP keepalive delay in milliseconds.
-// This can help detect dead connections earlier.
-const POWERSYNC_SOCKET_KEEPALIVE_INITIAL_DELAY = 40_000;
-// END POWERSYNC
+import { SocketAdapter } from './socket_adapter.js';
 
 const pbkdf2 = promisify(_pbkdf2);
 
@@ -46,8 +30,8 @@ Object.assign(SaslScramSha256.prototype, {
 });
 
 Object.assign(_net, {
-  connect({ hostname, port }) {
-    return SocketAdapter.connect(hostname, port);
+  connect(options) {
+    return SocketAdapter.connect(options);
   },
   reconnectable(err) {
     return ['ENOTFOUND', 'ECONNREFUSED', 'ECONNRESET'].includes(err?.code);
@@ -66,125 +50,3 @@ Object.assign(_net, {
     return sockadapt.close();
   }
 });
-
-class SocketAdapter {
-  static async connect(host, port) {
-    // START POWERSYNC
-    // Custom timeout handling
-    const socket = net.connect({
-      host,
-      port,
-
-      // This closes the connection if no data was sent or received for the given time,
-      // even if the connection is still actaully alive.
-      timeout: POWERSYNC_SOCKET_DEFAULT_TIMEOUT,
-
-      // This configures TCP keepalive.
-      keepAlive: true,
-      keepAliveInitialDelay: POWERSYNC_SOCKET_KEEPALIVE_INITIAL_DELAY
-      // Unfortunately it is not possible to set tcp_keepalive_intvl or
-      // tcp_keepalive_probes here.
-    });
-    try {
-      const timeout = setTimeout(() => {
-        socket.destroy(new Error(`Timeout while connecting to ${host}:${port}`));
-      }, POWERSYNC_SOCKET_CONNECT_TIMEOUT);
-      await once(socket, 'connect');
-      clearTimeout(timeout);
-      return new this(socket);
-    } catch (e) {
-      socket.destroy();
-      throw e;
-    }
-    // END POWERSYNC
-  }
-  constructor(socket) {
-    this._readResume = Boolean; // noop
-    this._writeResume = Boolean; // noop
-    this._readPauseAsync = (resolve) => (this._readResume = resolve);
-    this._writePauseAsync = (resolve) => (this._writeResume = resolve);
-    this._error = null;
-    /** @type {net.Socket} */
-    this._socket = socket;
-    this._socket.on('readable', (_) => this._readResume());
-    this._socket.on('end', (_) => this._readResume());
-    // START POWERSYNC
-    // Custom timeout handling
-    this._socket.on('timeout', (_) => {
-      this._socket.destroy(new Error('Socket idle timeout'));
-    });
-    // END POWERSYNC
-    this._socket.on('error', (error) => {
-      this._error = error;
-      this._readResume();
-      this._writeResume();
-    });
-  }
-
-  // START POWERSYNC CUSTOM TIMEOUT
-  setTimeout(timeout) {
-    this._socket.setTimeout(timeout);
-  }
-  // END POWERSYNC CUSTOM TIMEOUT
-
-  async startTls(host, ca) {
-    // START POWERSYNC CUSTOM OPTIONS HANDLING
-    if (!Array.isArray(ca) && typeof ca[0] == 'object') {
-      throw new Error('Invalid PowerSync TLS options');
-    }
-    const tlsOptions = ca[0];
-
-    // https://nodejs.org/docs/latest-v14.x/api/tls.html#tls_tls_connect_options_callback
-    const socket = this._socket;
-    const tlsSocket = tls.connect({ socket, host, ...tlsOptions });
-    // END POWERSYNC CUSTOM OPTIONS HANDLING
-    await once(tlsSocket, 'secureConnect');
-    // TODO check tlsSocket.authorized
-
-    // if secure connection succeeded then we take underlying socket ownership,
-    // otherwise underlying socket should be closed outside.
-    tlsSocket.on('close', (_) => socket.destroy());
-    return new this.constructor(tlsSocket);
-  }
-  /** @param {Uint8Array} out */
-  async read(out) {
-    let buf;
-    for (;;) {
-      if (this._error) throw this._error; // TODO callstack
-      if (this._socket.readableEnded) return null;
-      // POWERSYNC FIX: Read only as much data as available, instead of reading everything and
-      // unshifting back onto the socket
-      const toRead = Math.min(out.length, this._socket.readableLength);
-      buf = this._socket.read(toRead);
-
-      if (buf?.length) break;
-      if (!buf) await new Promise(this._readPauseAsync);
-    }
-
-    if (buf.length > out.length) {
-      throw new Error('Read more data than expected');
-    }
-    out.set(buf);
-    // POWERSYNC: Add metrics
-    recordBytesRead(buf.length);
-    return buf.length;
-  }
-  async write(data) {
-    // TODO assert Uint8Array
-    // TODO need to copy data?
-    if (this._error) throw this._error; // TODO callstack
-    const p = new Promise(this._writePauseAsync);
-    this._socket.write(data, this._writeResume);
-    await p;
-    if (this._error) throw this._error; // TODO callstack
-    return data.length;
-  }
-  // async closeWrite() {
-  //   if (this._error) throw this._error; // TODO callstack
-  //   const socket_end = promisify(cb => this._socket.end(cb));
-  //   await socket_end();
-  // }
-  close() {
-    this._socket.destroy(Error('socket destroyed'));
-  }
-}
