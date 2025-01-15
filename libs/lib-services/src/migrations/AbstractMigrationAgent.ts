@@ -120,6 +120,11 @@ export abstract class AbstractMigrationAgent<Generics extends MigrationAgentGene
         .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
         .find((log) => log.name == last_run);
 
+      // There should be a log entry for this
+      if (!lastLogEntry) {
+        throw new Error(`Could not find last migration log entry for ${last_run}`);
+      }
+
       // If we are migrating up:
       //  If the last run was an up migration:
       //    Then we want to start at the next migration index
@@ -132,8 +137,8 @@ export abstract class AbstractMigrationAgent<Generics extends MigrationAgentGene
       //   If the previous migration was an up migration
       //      Then we want to include the last run (up) migration
       if (
-        (params.direction === defs.Direction.Up && lastLogEntry?.direction != defs.Direction.Down) ||
-        (params.direction == defs.Direction.Down && lastLogEntry?.direction == defs.Direction.Down)
+        (params.direction === defs.Direction.Up && lastLogEntry.direction == defs.Direction.Up) ||
+        (params.direction == defs.Direction.Down && lastLogEntry.direction == defs.Direction.Down)
       ) {
         index += 1;
       }
