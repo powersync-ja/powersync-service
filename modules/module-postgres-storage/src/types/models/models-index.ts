@@ -4,6 +4,7 @@ export * from './BucketData.js';
 export * from './BucketParameters.js';
 export * from './CurrentData.js';
 export * from './Instance.js';
+export * from './Migration.js';
 export * from './SourceTable.js';
 export * from './SyncRules.js';
 export * from './WriteCheckpoint.js';

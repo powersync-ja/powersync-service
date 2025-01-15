@@ -9,10 +9,7 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo",
     "lib": ["ES2022", "esnext.disposable"],
     "skipLibCheck": true,
-    "sourceMap": true,
-    "paths": {
-      "@module/*": ["../src/*"]
-    }
+    "sourceMap": true
   },
   "include": ["src"],
   "references": [

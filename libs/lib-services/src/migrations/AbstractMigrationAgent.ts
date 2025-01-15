@@ -102,6 +102,7 @@ export abstract class AbstractMigrationAgent<Generics extends MigrationAgentGene
 
     if (params.state) {
       // Find the index of the last run
+      const { last_run, log } = params.state;
       index = migrations.findIndex((migration) => {
         return migration.name === params.state!.last_run;
       });
@@ -112,8 +113,28 @@ export abstract class AbstractMigrationAgent<Generics extends MigrationAgentGene
         );
       }
 
-      // If we are migrating down then we want to include the last run migration, otherwise we want to start at the next one
-      if (params.direction === defs.Direction.Up) {
+      // Get the last log entry for the last run migration
+      // This should technically be the last (sorted ascending) log entry.
+      // Sorting in descending order
+      const lastLogEntry = log
+        .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+        .find((log) => log.name == last_run);
+
+      // If we are migrating up:
+      //  If the last run was an up migration:
+      //    Then we want to start at the next migration index
+      //  If after a previous Down migration
+      //    Then we need to start at the current migration index
+
+      // If we are migrating down:
+      //   If the previous migration was a down migration
+      //     Then we need to start at the next index
+      //   If the previous migration was an up migration
+      //      Then we want to include the last run (up) migration
+      if (
+        (params.direction === defs.Direction.Up && lastLogEntry?.direction != defs.Direction.Down) ||
+        (params.direction == defs.Direction.Down && lastLogEntry?.direction == defs.Direction.Down)
+      ) {
         index += 1;
       }
     }

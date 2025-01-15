@@ -39,9 +39,6 @@ export const PostgresTestStorageFactoryGenerator = (factoryOptions: PostgresTest
             service_context: mockServiceContext
           }
         });
-
-        // In order to run up migration after
-        await migrationAgent.resetStore();
       }
 
       await migrationManager.migrate({

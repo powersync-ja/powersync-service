@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
+
+import { register } from '@powersync/service-core-tests';
+import { PostgresMigrationAgent } from '../../src/migrations/PostgresMigrationAgent.js';
+import { env } from './env.js';
 import { POSTGRES_STORAGE_FACTORY } from './util.js';
 
+const MIGRATION_AGENT_FACTORY = () => {
+  return new PostgresMigrationAgent({ type: 'postgresql', uri: env.PG_STORAGE_TEST_URL, sslmode: 'disable' });
+};
+
 describe('Migrations', () => {
+  register.registerMigrationTests(MIGRATION_AGENT_FACTORY);
+
   it('Should have tables declared', async () => {
     const { db } = await POSTGRES_STORAGE_FACTORY();
 
