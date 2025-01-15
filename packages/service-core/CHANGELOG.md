@@ -1,5 +1,18 @@
 # @powersync/service-core
 
+## 0.15.0
+
+### Minor Changes
+
+- 9d9ff08: Updated BucketStorageFactory to use AsyncDisposable
+- 9d9ff08: Initial release of Postgres bucket storage.
+
+### Patch Changes
+
+- Updated dependencies [9d9ff08]
+  - @powersync/lib-services-framework@0.4.0
+  - @powersync/service-rsocket-router@0.0.16
+
 ## 0.14.0
 
 ### Minor Changes
