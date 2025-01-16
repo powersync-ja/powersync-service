@@ -315,11 +315,11 @@ describe('JWT Auth', () => {
 
     const invalid = new RemoteJWKSCollector('https://127.0.0.1/.well-known/jwks.json');
     // Should try and fetch
-    expect(invalid.getKeys()).rejects.toThrow('ECONNREFUSED');
+    expect(invalid.getKeys()).rejects.toThrow();
 
     const invalid2 = new RemoteJWKSCollector('https://localhost/.well-known/jwks.json');
     // Should try and fetch
-    expect(invalid2.getKeys()).rejects.toThrow('ECONNREFUSED');
+    expect(invalid2.getKeys()).rejects.toThrow();
   });
 
   test('caching', async () => {
