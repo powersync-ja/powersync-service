@@ -30,9 +30,13 @@ export function makeHostnameLookupFunction(
  * For those, validate the IP directly using validateIpHostname().
  *
  * @param reject_ip_ranges IPv4 and/or IPv6 subnets to reject, or 'local' to reject any IP that isn't public unicast.
- * @returns a function to use as the `lookup` option in `net.connect`.
+ * @returns a function to use as the `lookup` option in `net.connect`, or undefined if no restrictions are applied.
  */
 export function makeLookupFunction(lookupOptions: LookupOptions): net.LookupFunction | undefined {
+  if (lookupOptions.reject_ip_ranges.length == 0 && !lookupOptions.reject_ipv6) {
+    // No restrictions - use the default behavior
+    return undefined;
+  }
   return (hostname, options, callback) => {
     resolveIp(hostname, lookupOptions)
       .then((resolvedAddress) => {
