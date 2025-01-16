@@ -34,9 +34,6 @@ export type ResolvedPowerSyncConfig = {
   storage: configFile.GenericStorageConfig;
   dev: {
     demo_auth: boolean;
-    demo_password?: string;
-    crud_api: boolean;
-    demo_client: boolean;
     /**
      * Only present when demo_auth == true
      */

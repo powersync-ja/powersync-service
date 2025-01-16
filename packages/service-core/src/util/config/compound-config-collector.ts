@@ -134,9 +134,6 @@ export class CompoundConfigCollector {
       api_tokens: baseConfig.api?.tokens ?? [],
       dev: {
         demo_auth: baseConfig.dev?.demo_auth ?? false,
-        demo_client: baseConfig.dev?.demo_client ?? false,
-        demo_password: baseConfig.dev?.demo_password,
-        crud_api: baseConfig.dev?.crud_api ?? false,
         dev_key: devKey
       },
       port: baseConfig.port ?? 8080,

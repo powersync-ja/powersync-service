@@ -128,8 +128,11 @@ export const powerSyncConfig = t.object({
   dev: t
     .object({
       demo_auth: t.boolean.optional(),
+      /** @deprecated */
       demo_password: t.string.optional(),
+      /** @deprecated */
       crud_api: t.boolean.optional(),
+      /** @deprecated */
       demo_client: t.boolean.optional()
     })
     .optional(),
