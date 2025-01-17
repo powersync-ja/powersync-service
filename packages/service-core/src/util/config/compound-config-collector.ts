@@ -95,17 +95,15 @@ export class CompoundConfigCollector {
       reject_ip_ranges: []
     };
 
-    const block_local_jwks = baseConfig.client_auth?.block_local_jwks;
-    if (block_local_jwks == true) {
+    if (baseConfig.client_auth?.jwks_reject_ip_ranges != null) {
       jwksLookup = {
-        reject_ip_ranges: ['local'],
-        reject_ipv6: true
+        reject_ip_ranges: baseConfig.client_auth?.jwks_reject_ip_ranges
       };
-    } else if (Array.isArray(block_local_jwks)) {
-      jwksLookup = {
-        reject_ip_ranges: block_local_jwks,
-        reject_ipv6: true
-      };
+    }
+    if (baseConfig.client_auth?.block_local_jwks) {
+      // Deprecated - recommend method is to use jwks_reject_ip_ranges
+      jwksLookup.reject_ip_ranges.push('local');
+      jwksLookup.reject_ipv6 = true;
     }
 
     for (let uri of jwks_uris) {

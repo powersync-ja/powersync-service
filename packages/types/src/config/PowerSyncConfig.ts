@@ -140,7 +140,8 @@ export const powerSyncConfig = t.object({
   client_auth: t
     .object({
       jwks_uri: t.string.or(t.array(t.string)).optional(),
-      block_local_jwks: t.boolean.or(t.array(t.string)).optional(),
+      block_local_jwks: t.boolean.optional(),
+      jwks_reject_ip_ranges: t.array(t.string).optional(),
       jwks: strictJwks.optional(),
       supabase: t.boolean.optional(),
       supabase_jwt_secret: t.string.optional(),
