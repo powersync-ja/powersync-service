@@ -5,51 +5,31 @@
  * for each.
  */
 export enum ErrorCode {
-  //
-  // PSYNC_Rxxxx: Sync rules issues
-  //
+  // # PSYNC_Rxxxx: Sync rules issues
 
   /**
    * Catch-all sync rules parsing error, if no more specific error is available
    */
   PSYNC_R0001 = 'PSYNC_R0001',
 
-  //
-  // PSYNC_R11xx: YAML syntax issues
-  //
+  // ## PSYNC_R11xx: YAML syntax issues
 
-  //
-  // PSYNC_R12xx: YAML structure (schema) issues
-  //
+  // ## PSYNC_R12xx: YAML structure (schema) issues
 
-  //
-  // PSYNC_R21xx: SQL syntax issues
-  //
+  // ## PSYNC_R21xx: SQL syntax issues
 
-  //
-  // PSYNC_R22xx: SQL supported feature issues
-  //
-  PSYNC_R2200 = 'PSYNC_R2200',
+  // ## PSYNC_R22xx: SQL supported feature issues
 
-  //
-  // PSYNC_R23xx: SQL schema mismatch issues
-  //
+  // ## PSYNC_R23xx: SQL schema mismatch issues
 
-  //
-  // PSYNC_R24xx: SQL security warnings
-  //
+  // ## PSYNC_R24xx: SQL security warnings
 
-  //
-  // PSYNC_Sxxxx: Service issues
-  //
+  // # PSYNC_Sxxxx: Service issues
 
   /**
    * Internal assertion.
    *
-   * Examples:
-   *
-   *   Migration ids must be strictly incrementing
-   *   Metrics have not been initialized
+   * If you see this error, it might indicate a bug in the service code.
    */
   PSYNC_S0001 = 'PSYNC_S0001',
 
@@ -57,13 +37,14 @@ export enum ErrorCode {
    * TEARDOWN was not acknowledged.
    *
    * This happens when the TEARDOWN argument was not supplied when running
-   * the service teardown command.
+   * the service teardown command. The TEARDOWN argument is required since
+   * this is a destructive command.
+   *
+   * Run the command with `teardown TEARDOWN` to confirm.
    */
   PSYNC_S0102 = 'PSYNC_S0102',
 
-  //
-  // PSYNC_S1xxx: Replication issues
-  //
+  // ## PSYNC_S1xxx: Replication issues
 
   /**
    * Row too large.
@@ -75,29 +56,29 @@ export enum ErrorCode {
 
   /**
    * Sync rules have been locked by another process for replication.
+   *
+   * This error is normal in some circumstances:
+   * 1. In some cases, if a process was forcefully terminated, this error may occur for up to a minute.
+   * 2. During rolling deploys, this error may occur until the old process stops replication.
+   *
+   * If the error persists for longer, this may indicate that multiple replication processes are running.
+   * Make sure there is only one replication process apart from rolling deploys.
    */
   PSYNC_S1003 = 'PSYNC_S1003',
 
   /**
    * JSON nested object depth exceeds the limit of 20.
+   *
+   * This may occur if there is very deep nesting in JSON or embedded documents.
    */
   PSYNC_S1004 = 'PSYNC_S1004',
 
-  //
-  // PSYNC_S14xx: MongoDB storage replication issues
-  //
-
-  /**
-   * Max transaction tries exceeded.
-   */
-  PSYNC_S1402 = 'PSYNC_S1402',
-
-  //
-  // PSYNC_S11xx: Postgres replication issues
-  //
+  // ## PSYNC_S11xx: Postgres replication issues
 
   /**
    * Replication assertion error.
+   *
+   * If you see this error, it might indicate a bug in the service code.
    */
   PSYNC_S1101 = 'PSYNC_S1101',
 
@@ -110,17 +91,23 @@ export enum ErrorCode {
   PSYNC_S1103 = 'PSYNC_S1103',
 
   /**
-   * cacert required for verify-ca
+   * cacert required for verify-ca.
+   *
+   * Use either verify-full, or specify a certificate with verify-ca.
    */
   PSYNC_S1104 = 'PSYNC_S1104',
 
   /**
-   * Publication does not exist. Run: `CREATE PUBLICATION powersync FOR ALL TABLES`
+   * Publication does not exist.
+   *
+   * Run: `CREATE PUBLICATION powersync FOR ALL TABLES` on the source database.
    */
   PSYNC_S1141 = 'PSYNC_S1141',
 
   /**
    * Publication does not publish all changes.
+   *
+   * Create a publication using `WITH (publish = "insert, update, delete, truncate")` (the default).
    */
   PSYNC_S1142 = 'PSYNC_S1142',
 
@@ -131,16 +118,14 @@ export enum ErrorCode {
 
   /**
    * Replication slot does not exist anymore.
+   *
+   * In most circumstances it should be re-created automatically.
    */
   PSYNC_S1160 = 'PSYNC_S1160',
 
-  //
-  // PSYNC_S12xx: MySQL replication issues
-  //
+  // ## PSYNC_S12xx: MySQL replication issues
 
-  //
-  // PSYNC_S13xx: MongoDB replication issues
-  //
+  // ## PSYNC_S13xx: MongoDB replication issues
 
   /**
    * Sharded MongoDB Clusters are not supported yet.
@@ -153,16 +138,30 @@ export enum ErrorCode {
   PSYNC_S1342 = 'PSYNC_S1342',
 
   /**
-   * postImages not enabled
+   * PostImages not enabled on a source collection.
+   *
+   * Use `post_images: auto_configure` to configure post images automatically, or enable manually:
+   *
+   *     db.runCommand({
+   *       collMod: 'collection-name',
+   *       changeStreamPreAndPostImages: { enabled: true }
+   *     });
    */
   PSYNC_S1343 = 'PSYNC_S1343',
 
-  //
-  // PSYNC_S2xxx: Service API
-  //
+  // ## PSYNC_S14xx: MongoDB storage replication issues
+
+  /**
+   * Max transaction tries exceeded.
+   */
+  PSYNC_S1402 = 'PSYNC_S1402',
+
+  // ## PSYNC_S2xxx: Service API
 
   /**
    * Generic internal server error (HTTP 500).
+   *
+   * See the error details for more info.
    */
   PSYNC_S2001 = 'PSYNC_S2001',
 
@@ -173,16 +172,17 @@ export enum ErrorCode {
 
   /**
    * 503 service unavailable due to restart.
+   *
+   * Wait a while then retry the request.
    */
   PSYNC_S2003 = 'PSYNC_S2003',
 
+  // ## PSYNC_S21xx: Auth errors originating on the client.
   //
-  // PSYNC_S21xx: Auth errors originating on the client.
   // This does not include auth configuration errors on the service.
-  //
 
   /**
-   * Generic auth error.
+   * Generic authentication error.
    */
   PSYNC_S2101 = 'PSYNC_S2101',
 
@@ -192,10 +192,9 @@ export enum ErrorCode {
   PSYNC_S2106 = 'PSYNC_S2106',
 
   /**
-   * Token must expire in a maximum of ${maxAge} seconds
-   * Unexpected token algorithm ${header.alg}
+   * Token must expire in a maximum of <n> seconds.
    *
-   * FIXME: duplicated code
+   * Use tokens with a shorter expiration period.
    */
   PSYNC_S2102 = 'PSYNC_S2102',
 
@@ -215,38 +214,50 @@ export enum ErrorCode {
    */
   PSYNC_S2105 = 'PSYNC_S2105',
 
-  //
-  // PSYNC_S22xx: Auth integration errors
-  //
+  /**
+   * Unexpected token algorithm (`alg` field).
+   *
+   * See the list of supported token algorithms.
+   */
+
+  // ## PSYNC_S22xx: Auth integration errors
 
   /**
-   * IPv6 not supported yet.
+   * IPv6 support is not enabled for the JWKS URI.
+   *
+   * Use an endpoint that supports IPv4.
    */
   PSYNC_S2202 = 'PSYNC_S2202',
 
   /**
    * IPs in this range are not supported.
+   *
+   * Make sure to use a publically-accessible JWKS URI.
    */
   PSYNC_S2203 = 'PSYNC_S2203',
 
   /**
-   * JWKS request failed.
+   * JWKS request failed. See the error response for details.
    */
   PSYNC_S2204 = 'PSYNC_S2204',
 
-  //
-  // PSYNC_S23xx: Sync API errors
-  //
+  // ## PSYNC_S23xx: Sync API errors
 
   /**
    * Internal assertion.
    *
-   * Example: No context meta data provided
+   * This error may indicate a bug in the service code.
    */
   PSYNC_S2301 = 'PSYNC_S2301',
 
   /**
    * No sync rules available.
+   *
+   * This error may happen if:
+   * 1. Sync rules have not been deployed.
+   * 2. Sync rules have been deployed, but is still busy processing.
+   *
+   * View the replicator logs to see if the sync rules are being processed.
    */
   PSYNC_S2302 = 'PSYNC_S2302',
 
@@ -262,34 +273,28 @@ export enum ErrorCode {
 
   /**
    * Unable to deserialize frame.
+   *
+   * This is a low-level websocket protocol issue.
    */
   PSYNC_S2311 = 'PSYNC_S2311',
 
-  //
-  // PSYNC_S23xx: Sync API errors - MongoDB Storage
-  //
+  // ## PSYNC_S23xx: Sync API errors - MongoDB Storage
 
   /**
    * Could not get clusterTime.
    */
   PSYNC_S2401 = 'PSYNC_S2401',
 
-  //
-  // PSYNC_S23xx: Sync API errors - Postgres Storage
-  //
+  // ## PSYNC_S23xx: Sync API errors - Postgres Storage
 
-  //
-  // PSYNC_S3xxx: Service configuration issues
-  //
+  // ## PSYNC_S3xxx: Service configuration issues
 
   /**
    * hostname required.
    */
   PSYNC_S3002 = 'PSYNC_S3002',
 
-  //
-  // PSYNC_S31xx: Auth configuration issues
-  //
+  // ## PSYNC_S31xx: Auth configuration issues
 
   /**
    * Invalid jwks_uri.
@@ -321,17 +326,12 @@ export enum ErrorCode {
    */
   PSYNC_S3203 = 'PSYNC_S3203',
 
-  //
-  // PSYNC_S4000: management / dev apis
-  //
+  // ## PSYNC_S4000: management / dev apis
 
   /**
-   * Internal Assertion
+   * Internal assertion error.
    *
-   * Examples:
-   *
-   *  Unsupported query parameter
-   *  Could not determine replication lag.
+   * This error may indicate a bug in the service code.
    */
   PSYNC_S4001 = 'PSYNC_S4001',
 
@@ -352,6 +352,8 @@ export enum ErrorCode {
 
   /**
    * Sync rules API disabled.
+   *
+   * When a sync rules file is configured, the dynamic sync rules API is disabled.
    */
   PSYNC_S4105 = 'PSYNC_S4105'
 }
