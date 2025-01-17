@@ -91,11 +91,53 @@ export enum ErrorCode {
   PSYNC_S1103 = 'PSYNC_S1103',
 
   /**
-   * cacert required for verify-ca.
+   * Explicit cacert is required for `sslmode: verify-ca`.
    *
    * Use either verify-full, or specify a certificate with verify-ca.
    */
   PSYNC_S1104 = 'PSYNC_S1104',
+
+  /**
+   * `database` is required in connection config.
+   *
+   * Specify the database explicitly, or in the `uri` field.
+   */
+  PSYNC_S1105 = 'PSYNC_S1105',
+
+  /**
+   * `hostname` is required in connection config.
+   *
+   * Specify the hostname explicitly, or in the `uri` field.
+   */
+  PSYNC_S1106 = 'PSYNC_S1106',
+
+  /**
+   * `username` is required in connection config.
+   *
+   * Specify the username explicitly, or in the `uri` field.
+   */
+  PSYNC_S1107 = 'PSYNC_S1107',
+
+  /**
+   * `password` is required in connection config.
+   *
+   * Specify the password explicitly, or in the `uri` field.
+   */
+  PSYNC_S1108 = 'PSYNC_S1108',
+
+  /**
+   * Invalid database URI.
+   *
+   * Check the URI scheme and format.
+   */
+  PSYNC_S1109 = 'PSYNC_S1109',
+
+  /**
+   * Invalid port number.
+   *
+   * Only ports in the range 1024 - 65535 are supported.
+   */
+  PSYNC_S1110 = 'PSYNC_S1110',
 
   /**
    * Publication does not exist.
@@ -315,16 +357,6 @@ export enum ErrorCode {
    * Failed to validate module configuration.
    */
   PSYNC_S3201 = 'PSYNC_S3201',
-
-  /**
-   * database required
-   */
-  PSYNC_S3202 = 'PSYNC_S3202',
-
-  /**
-   * Explicit cacert is required for sslmode=verify-ca
-   */
-  PSYNC_S3203 = 'PSYNC_S3203',
 
   // ## PSYNC_S4000: management / dev apis
 

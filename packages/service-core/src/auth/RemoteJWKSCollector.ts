@@ -8,6 +8,7 @@ import fetch from 'node-fetch';
 
 import { KeySpec } from './KeySpec.js';
 import { KeyCollector, KeyResult } from './KeyCollector.js';
+import { ErrorCode, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
 
 export type RemoteJWKSCollectorOptions = {
   /**
@@ -28,14 +29,17 @@ export class RemoteJWKSCollector implements KeyCollector {
   ) {
     try {
       this.url = new URL(url);
-    } catch (e) {
-      throw new Error(`Invalid jwks_uri: ${url}`);
+    } catch (e: any) {
+      throw new ServiceError(ErrorCode.PSYNC_S3102, `Invalid jwks_uri: ${JSON.stringify(url)} Details: ${e.message}`);
     }
 
     // We do support http here for self-hosting use cases.
     // Management service restricts this to https for hosted versions.
     if (this.url.protocol != 'https:' && this.url.protocol != 'http:') {
-      throw new Error(`Only http(s) is supported for jwks_uri, got: ${url}`);
+      throw new ServiceError(
+        ErrorCode.PSYNC_S3103,
+        `Only http(s) is supported for jwks_uri, got: ${JSON.stringify(url)}`
+      );
     }
   }
 
@@ -128,6 +132,7 @@ export class RemoteJWKSCollector implements KeyCollector {
       case 'https:':
         return new https.Agent(options);
     }
-    throw new Error('http or or https is required for protocol');
+    // Already validated the URL before, so this is not expected
+    throw new ServiceAssertionError('http or or https is required for JWKS protocol');
   }
 }

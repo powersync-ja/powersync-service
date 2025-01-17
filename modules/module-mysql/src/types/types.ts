@@ -1,3 +1,4 @@
+import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import * as service_types from '@powersync/service-types';
 import * as t from 'ts-codec';
 import * as urijs from 'uri-js';
@@ -58,7 +59,10 @@ export function normalizeConnectionConfig(options: MySQLConnectionConfig): Norma
   if (options.uri) {
     uri = urijs.parse(options.uri);
     if (uri.scheme != 'mysql') {
-      throw new Error(`Invalid URI - protocol must be mysql, got ${uri.scheme}`);
+      throw new ServiceError(
+        ErrorCode.PSYNC_S1109,
+        `Invalid URI - protocol must be mysql, got ${JSON.stringify(uri.scheme)}`
+      );
     }
   } else {
     uri = urijs.parse('mysql:///');
@@ -75,19 +79,19 @@ export function normalizeConnectionConfig(options: MySQLConnectionConfig): Norma
   const password = options.password ?? uri_password ?? '';
 
   if (hostname == '') {
-    throw new Error(`hostname required`);
+    throw new ServiceError(ErrorCode.PSYNC_S1106, `MySQL connection: hostname required`);
   }
 
   if (username == '') {
-    throw new Error(`username required`);
+    throw new ServiceError(ErrorCode.PSYNC_S1107, `MySQL connection: username required`);
   }
 
   if (password == '') {
-    throw new Error(`password required`);
+    throw new ServiceError(ErrorCode.PSYNC_S1108, `MySQL connection: password required`);
   }
 
   if (database == '') {
-    throw new Error(`database required`);
+    throw new ServiceError(ErrorCode.PSYNC_S1105, `MySQL connection: database required`);
   }
 
   return {
