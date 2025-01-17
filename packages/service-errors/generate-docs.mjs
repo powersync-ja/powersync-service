@@ -29,8 +29,8 @@ function generateMarkdownDocs(filePath) {
   //     ...
   //   }
   //
-  const docsBySection = new Map();
-  let currentSection = ''; // The active section as we walk the file
+
+  let mdOutput = '# ErrorCode Documentation\n\n';
 
   // 3. Recursively walk the AST looking for:
   //     - Single-line comment sections (// Some Section).
@@ -51,13 +51,8 @@ function generateMarkdownDocs(filePath) {
             if (commentText.trimStart().startsWith('//')) {
               // remove the leading slashes and trim
               const cleaned = commentText.replace(/^\/\/+/, '').trim();
-              if (cleaned.length > 0) {
-                // We treat each // line as a "section"
-                currentSection = cleaned;
-                if (!docsBySection.has(currentSection)) {
-                  docsBySection.set(currentSection, []);
-                }
-              }
+              mdOutput += `${cleaned}\n`;
+              mdOutput += `\n`;
             }
           }
         }
@@ -85,17 +80,13 @@ function generateMarkdownDocs(filePath) {
             .join('\n\n');
         }
 
-        // Make sure we have a section to place it in. (If no // comment has appeared yet,
-        // we'll stick them in a default "Global" section.)
-        const sectionKey = currentSection || 'Global';
-        if (!docsBySection.has(sectionKey)) {
-          docsBySection.set(sectionKey, []);
-        }
+        const docLines = docComment.split(/\r?\n/);
 
-        docsBySection.get(sectionKey).push({
-          name,
-          doc: docComment
-        });
+        mdOutput += `- **${name}**:\n`;
+        for (const line of docLines) {
+          mdOutput += `  ${line}\n`;
+        }
+        mdOutput += '\n';
       }
     }
 
@@ -119,23 +110,6 @@ function generateMarkdownDocs(filePath) {
   //   Internal assertion...
   // ...
   //
-  let mdOutput = '# ErrorCode Documentation\n\n';
-  for (const [sectionName, items] of docsBySection) {
-    mdOutput += `## ${sectionName}\n\n`;
-    for (const { name, doc } of items) {
-      mdOutput += `- **${name}**\n`;
-      if (doc.trim().length > 0) {
-        // Indent multiline docs nicely
-        const docLines = doc.split(/\r?\n/);
-        for (const line of docLines) {
-          mdOutput += `  ${line}\n`;
-        }
-        mdOutput += '\n';
-      } else {
-        mdOutput += '  *(No doc comment)*\n\n';
-      }
-    }
-  }
 
   return mdOutput;
 }
