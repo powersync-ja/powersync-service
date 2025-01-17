@@ -42,7 +42,7 @@ export function normalizeMongoConfig(options: BaseMongoConfigDecoded) {
   const password = options.password ?? userInfo?.[1];
 
   if (database == '') {
-    throw new ServiceError(ErrorCode.PSYNC_S3202, `database required`);
+    throw new ServiceError(ErrorCode.PSYNC_S1105, `MongoDB connection: database required`);
   }
 
   delete uri.userinfo;
