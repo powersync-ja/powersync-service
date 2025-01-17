@@ -1,4 +1,8 @@
-import { DisposableListener, DisposableObserverClient } from '@powersync/lib-services-framework';
+import {
+  AsyncDisposableObserverClient,
+  DisposableListener,
+  DisposableObserverClient
+} from '@powersync/lib-services-framework';
 import {
   EvaluatedParameters,
   EvaluatedRow,
@@ -56,7 +60,7 @@ export interface BucketStorageFactoryListener extends DisposableListener {
   replicationEvent: (event: ReplicationEventPayload) => void;
 }
 
-export interface BucketStorageFactory extends DisposableObserverClient<BucketStorageFactoryListener> {
+export interface BucketStorageFactory extends AsyncDisposableObserverClient<BucketStorageFactoryListener> {
   /**
    * Update sync rules from configuration, if changed.
    */

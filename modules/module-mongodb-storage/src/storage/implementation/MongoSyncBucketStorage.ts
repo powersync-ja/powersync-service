@@ -1,10 +1,9 @@
-import { SqliteJsonRow, SqliteJsonValue, SqlSyncRules } from '@powersync/service-sync-rules';
-import * as bson from 'bson';
-import * as mongo from 'mongodb';
-
 import * as lib_mongo from '@powersync/lib-service-mongodb';
+import { mongo } from '@powersync/lib-service-mongodb';
 import { DisposableObserver, logger, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
+import { SqliteJsonRow, SqliteJsonValue, SqlSyncRules } from '@powersync/service-sync-rules';
+import * as bson from 'bson';
 import * as timers from 'timers/promises';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
@@ -498,7 +497,7 @@ export class MongoSyncBucketStorage
         logger.info(`${this.slot_name} Done clearing data`);
         return;
       } catch (e: unknown) {
-        if (e instanceof mongo.MongoServerError && e.codeName == 'MaxTimeMSExpired') {
+        if (lib_mongo.isMongoServerError(e) && e.codeName == 'MaxTimeMSExpired') {
           logger.info(
             `${this.slot_name} Cleared batch of data in ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, continuing...`
           );

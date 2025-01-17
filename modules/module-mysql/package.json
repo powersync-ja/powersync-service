@@ -2,7 +2,7 @@
   "name": "@powersync/service-module-mysql",
   "repository": "https://github.com/powersync-ja/powersync-service",
   "types": "dist/index.d.ts",
-  "version": "0.1.7",
+  "version": "0.1.9",
   "license": "FSL-1.1-Apache-2.0",
   "main": "dist/index.js",
   "type": "module",
@@ -46,6 +46,7 @@
     "@types/async": "^3.2.24",
     "@types/uuid": "^9.0.4",
     "@powersync/service-core-tests": "workspace:*",
-    "@powersync/service-module-mongodb-storage": "workspace:*"
+    "@powersync/service-module-mongodb-storage": "workspace:*",
+    "@powersync/service-module-postgres-storage": "workspace:*"
   }
 }

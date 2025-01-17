@@ -1,9 +1,9 @@
+import * as lib_postgres from '@powersync/lib-service-postgres';
 import { auth } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import * as jose from 'jose';
 
 import * as types from '../types/types.js';
-import * as pgwire_utils from '../utils/pgwire_utils.js';
 
 /**
  * Fetches key from the Supabase database.
@@ -39,7 +39,7 @@ export class SupabaseKeyCollector implements auth.KeyCollector {
     let row: { jwt_secret: string };
     try {
       const rows = pgwire.pgwireRows(
-        await pgwire_utils.retriedQuery(this.pool, `SELECT current_setting('app.settings.jwt_secret') as jwt_secret`)
+        await lib_postgres.retriedQuery(this.pool, `SELECT current_setting('app.settings.jwt_secret') as jwt_secret`)
       );
       row = rows[0] as any;
     } catch (e) {

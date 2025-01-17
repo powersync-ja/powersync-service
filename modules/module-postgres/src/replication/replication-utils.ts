@@ -1,13 +1,11 @@
 import * as pgwire from '@powersync/service-jpgwire';
 
+import * as lib_postgres from '@powersync/lib-service-postgres';
+import { ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { PatternResult, storage } from '@powersync/service-core';
-import * as pgwire_utils from '../utils/pgwire_utils.js';
-import { ReplicationIdentity } from './PgRelation.js';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
-import * as pg_utils from '../utils/pgwire_utils.js';
-import * as util from '../utils/pgwire_utils.js';
-import { ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
+import { ReplicationIdentity } from './PgRelation.js';
 
 export interface ReplicaIdentityResult {
   replicationColumns: storage.ColumnDescriptor[];
@@ -20,7 +18,7 @@ export async function getPrimaryKeyColumns(
   mode: 'primary' | 'replident'
 ): Promise<storage.ColumnDescriptor[]> {
   const indexFlag = mode == 'primary' ? `i.indisprimary` : `i.indisreplident`;
-  const attrRows = await pgwire_utils.retriedQuery(db, {
+  const attrRows = await lib_postgres.retriedQuery(db, {
     statement: `SELECT a.attname as name, a.atttypid as typeid, t.typname as type, a.attnum as attnum
                                     FROM pg_index i
                                     JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey)
@@ -41,7 +39,7 @@ export async function getPrimaryKeyColumns(
 }
 
 export async function getAllColumns(db: pgwire.PgClient, relationId: number): Promise<storage.ColumnDescriptor[]> {
-  const attrRows = await pgwire_utils.retriedQuery(db, {
+  const attrRows = await lib_postgres.retriedQuery(db, {
     statement: `SELECT a.attname as name, a.atttypid as typeid, t.typname as type, a.attnum as attnum
                                     FROM pg_attribute a
                                     JOIN pg_type t ON a.atttypid = t.oid
@@ -62,7 +60,7 @@ export async function getReplicationIdentityColumns(
   db: pgwire.PgClient,
   relationId: number
 ): Promise<ReplicaIdentityResult> {
-  const rows = await pgwire_utils.retriedQuery(db, {
+  const rows = await lib_postgres.retriedQuery(db, {
     statement: `SELECT CASE relreplident
         WHEN 'd' THEN 'default'
         WHEN 'n' THEN 'nothing'
@@ -95,7 +93,7 @@ WHERE oid = $1::oid LIMIT 1`,
 
 export async function checkSourceConfiguration(db: pgwire.PgClient, publicationName: string): Promise<void> {
   // Check basic config
-  await pgwire_utils.retriedQuery(
+  await lib_postgres.retriedQuery(
     db,
     `DO $$
 BEGIN
@@ -113,7 +111,7 @@ $$ LANGUAGE plpgsql;`
   );
 
   // Check that publication exists
-  const rs = await pgwire_utils.retriedQuery(db, {
+  const rs = await lib_postgres.retriedQuery(db, {
     statement: `SELECT * FROM pg_publication WHERE pubname = $1`,
     params: [{ type: 'varchar', value: publicationName }]
   });
@@ -163,7 +161,7 @@ export async function getDebugTablesInfo(options: GetDebugTablesInfoOptions): Pr
     if (tablePattern.isWildcard) {
       patternResult.tables = [];
       const prefix = tablePattern.tablePrefix;
-      const results = await util.retriedQuery(db, {
+      const results = await lib_postgres.retriedQuery(db, {
         statement: `SELECT c.oid AS relid, c.relname AS table_name
         FROM pg_class c
         JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -194,7 +192,7 @@ export async function getDebugTablesInfo(options: GetDebugTablesInfoOptions): Pr
         patternResult.tables.push(details);
       }
     } else {
-      const results = await util.retriedQuery(db, {
+      const results = await lib_postgres.retriedQuery(db, {
         statement: `SELECT c.oid AS relid, c.relname AS table_name
         FROM pg_class c
         JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -289,14 +287,14 @@ export async function getDebugTableInfo(options: GetDebugTableInfoOptions): Prom
 
   let selectError = null;
   try {
-    await pg_utils.retriedQuery(db, `SELECT * FROM ${sourceTable.escapedIdentifier} LIMIT 1`);
+    await lib_postgres.retriedQuery(db, `SELECT * FROM ${sourceTable.escapedIdentifier} LIMIT 1`);
   } catch (e) {
     selectError = { level: 'fatal', message: e.message };
   }
 
   let replicateError = null;
 
-  const publications = await pg_utils.retriedQuery(db, {
+  const publications = await lib_postgres.retriedQuery(db, {
     statement: `SELECT tablename FROM pg_publication_tables WHERE pubname = $1 AND schemaname = $2 AND tablename = $3`,
     params: [
       { type: 'varchar', value: publicationName },

@@ -1,14 +1,25 @@
-import { storage } from '@powersync/service-core';
-import * as mongo from 'mongodb';
 import { setTimeout } from 'node:timers/promises';
 import { describe, expect, test } from 'vitest';
+
+import { mongo } from '@powersync/lib-service-mongodb';
+import { storage } from '@powersync/service-core';
+
 import { ChangeStreamTestContext, setSnapshotHistorySeconds } from './change_stream_utils.js';
 import { env } from './env.js';
-import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
+import { INITIALIZED_MONGO_STORAGE_FACTORY, INITIALIZED_POSTGRES_STORAGE_FACTORY } from './util.js';
 
-describe('change stream slow tests - mongodb', { timeout: 60_000 }, function () {
+describe.skipIf(!env.TEST_MONGO_STORAGE)('change stream slow tests - mongodb', { timeout: 60_000 }, function () {
   if (env.CI || env.SLOW_TESTS) {
     defineSlowTests(INITIALIZED_MONGO_STORAGE_FACTORY);
+  } else {
+    // Need something in this file.
+    test('no-op', () => {});
+  }
+});
+
+describe.skipIf(!env.TEST_POSTGRES_STORAGE)('change stream slow tests - postgres', { timeout: 60_000 }, function () {
+  if (env.CI || env.SLOW_TESTS) {
+    defineSlowTests(INITIALIZED_POSTGRES_STORAGE_FACTORY);
   } else {
     // Need something in this file.
     test('no-op', () => {});

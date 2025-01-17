@@ -1,5 +1,38 @@
 # @powersync/service-module-postgres
 
+## 0.4.0
+
+### Minor Changes
+
+- 9d9ff08: Initial release of Postgres bucket storage.
+
+### Patch Changes
+
+- Updated dependencies [9d9ff08]
+- Updated dependencies [9d9ff08]
+- Updated dependencies [9d9ff08]
+  - @powersync/service-core@0.15.0
+  - @powersync/lib-service-postgres@0.1.0
+  - @powersync/lib-services-framework@0.4.0
+
+## 0.3.0
+
+### Minor Changes
+
+- fea550f: Added minor typing utilities
+
+### Patch Changes
+
+- Updated dependencies [fea550f]
+- Updated dependencies [fea550f]
+- Updated dependencies [48320b5]
+- Updated dependencies [fea550f]
+  - @powersync/service-core@0.14.0
+  - @powersync/lib-services-framework@0.3.0
+  - @powersync/service-sync-rules@0.23.1
+  - @powersync/service-types@0.7.0
+  - @powersync/service-jpgwire@0.18.5
+
 ## 0.2.4
 
 ### Patch Changes

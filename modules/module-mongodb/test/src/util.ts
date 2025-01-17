@@ -1,7 +1,8 @@
-import * as types from '@module/types/types.js';
-
+import { mongo } from '@powersync/lib-service-mongodb';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
-import * as mongo from 'mongodb';
+import * as postgres_storage from '@powersync/service-module-postgres-storage';
+
+import * as types from '@module/types/types.js';
 import { env } from './env.js';
 
 export const TEST_URI = env.MONGO_TEST_DATA_URL;
@@ -14,6 +15,10 @@ export const TEST_CONNECTION_OPTIONS = types.normalizeConnectionConfig({
 export const INITIALIZED_MONGO_STORAGE_FACTORY = mongo_storage.MongoTestStorageFactoryGenerator({
   url: env.MONGO_TEST_URL,
   isCI: env.CI
+});
+
+export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.PostgresTestStorageFactoryGenerator({
+  url: env.PG_STORAGE_TEST_URL
 });
 
 export async function clearTestDb(db: mongo.Db) {

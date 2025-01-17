@@ -1,7 +1,8 @@
+import { mongo } from '@powersync/lib-service-mongodb';
 import { storage } from '@powersync/service-core';
-import { SqliteRow, SqliteValue, toSyncRulesRow } from '@powersync/service-sync-rules';
-import * as mongo from 'mongodb';
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
+import { SqliteRow, SqliteValue } from '@powersync/service-sync-rules';
+
 import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 

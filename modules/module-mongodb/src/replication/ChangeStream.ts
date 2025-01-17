@@ -1,3 +1,4 @@
+import { mongo } from '@powersync/lib-service-mongodb';
 import {
   container,
   ErrorCode,
@@ -8,7 +9,8 @@ import {
 } from '@powersync/lib-services-framework';
 import { Metrics, SaveOperationTag, SourceEntityDescriptor, SourceTable, storage } from '@powersync/service-core';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
-import * as mongo from 'mongodb';
+import { PostImagesOption } from '../types/types.js';
+import { escapeRegExp } from '../utils.js';
 import { MongoManager } from './MongoManager.js';
 import {
   constructAfterRecord,
@@ -17,9 +19,7 @@ import {
   getMongoRelation,
   mongoLsnToTimestamp
 } from './MongoRelation.js';
-import { escapeRegExp } from '../utils.js';
 import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
-import { PostImagesOption } from '../types/types.js';
 
 export const ZERO_LSN = '0000000000000000';
 

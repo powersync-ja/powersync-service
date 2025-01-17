@@ -1,7 +1,6 @@
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 import { LRUCache } from 'lru-cache/min';
-import * as mongo from 'mongodb';
 import * as timers from 'timers/promises';
 
 import { storage, sync, utils } from '@powersync/service-core';
@@ -10,6 +9,8 @@ import { DisposableObserver, ErrorCode, logger, ServiceError } from '@powersync/
 import { v4 as uuid } from 'uuid';
 
 import * as lib_mongo from '@powersync/lib-service-mongodb';
+import { mongo } from '@powersync/lib-service-mongodb';
+
 import { PowerSyncMongo } from './implementation/db.js';
 import { SyncRuleDocument } from './implementation/models.js';
 import { MongoPersistedSyncRulesContent } from './implementation/MongoPersistedSyncRulesContent.js';
@@ -61,6 +62,10 @@ export class MongoBucketStorage
     this.slot_name_prefix = options.slot_name_prefix;
   }
 
+  async [Symbol.asyncDispose]() {
+    super[Symbol.dispose]();
+  }
+
   getInstance(options: storage.PersistedSyncRulesContent): MongoSyncBucketStorage {
     let { id, slot_name } = options;
     if ((typeof id as any) == 'bigint') {
@@ -105,7 +110,6 @@ export class MongoBucketStorage
 
     // In both the below cases, we create a new sync rules instance.
     // The current one will continue erroring until the next one has finished processing.
-    // TODO: Update
     if (next != null && next.slot_name == slot_name) {
       // We need to redo the "next" sync rules
       await this.updateSyncRules({
@@ -285,7 +289,7 @@ export class MongoBucketStorage
 
   async getStorageMetrics(): Promise<storage.StorageMetrics> {
     const ignoreNotExiting = (e: unknown) => {
-      if (e instanceof mongo.MongoServerError && e.codeName == 'NamespaceNotFound') {
+      if (lib_mongo.isMongoServerError(e) && e.codeName == 'NamespaceNotFound') {
         // Collection doesn't exist - return 0
         return [{ storageStats: { size: 0 } }];
       } else {

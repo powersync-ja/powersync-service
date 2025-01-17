@@ -1,10 +1,9 @@
+import { mongo } from '@powersync/lib-service-mongodb';
 import { container } from '@powersync/lib-services-framework';
-import { ChangeStreamInvalidatedError, ChangeStream } from './ChangeStream.js';
-
 import { replication } from '@powersync/service-core';
-import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
 
-import * as mongo from 'mongodb';
+import { ChangeStream, ChangeStreamInvalidatedError } from './ChangeStream.js';
+import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
 
 export interface ChangeStreamReplicationJobOptions extends replication.AbstractReplicationJobOptions {
   connectionFactory: ConnectionManagerFactory;

@@ -1,11 +1,12 @@
+import { mongo } from '@powersync/lib-service-mongodb';
 import { ActiveCheckpoint, BucketStorageFactory, OpId, SyncRulesBucketStorage } from '@powersync/service-core';
+import { test_utils } from '@powersync/service-core-tests';
 
 import { ChangeStream, ChangeStreamOptions } from '@module/replication/ChangeStream.js';
 import { MongoManager } from '@module/replication/MongoManager.js';
 import { createCheckpoint } from '@module/replication/MongoRelation.js';
 import { NormalizedMongoConnectionConfig } from '@module/types/types.js';
-import { test_utils } from '@powersync/service-core-tests';
-import * as mongo from 'mongodb';
+
 import { TEST_CONNECTION_OPTIONS, clearTestDb } from './util.js';
 
 export class ChangeStreamTestContext {
@@ -37,6 +38,7 @@ export class ChangeStreamTestContext {
     this.abortController.abort();
     await this.streamPromise?.catch((e) => e);
     await this.connectionManager.destroy();
+    await this.factory[Symbol.asyncDispose]();
   }
 
   async [Symbol.asyncDispose]() {
@@ -156,7 +158,6 @@ export async function getClientCheckpoint(
     if (cp.lsn && cp.lsn >= lsn) {
       return cp.checkpoint;
     }
-
     await new Promise((resolve) => setTimeout(resolve, 30));
   }
 

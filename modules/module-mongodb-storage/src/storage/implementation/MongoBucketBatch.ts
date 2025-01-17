@@ -1,6 +1,6 @@
+import { mongo } from '@powersync/lib-service-mongodb';
 import { SqlEventDescriptor, SqliteRow, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import * as mongo from 'mongodb';
 
 import {
   container,

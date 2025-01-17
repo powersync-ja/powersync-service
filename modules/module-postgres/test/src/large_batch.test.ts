@@ -3,14 +3,29 @@ import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
 import { populateData } from '../../dist/utils/populate_test_data.js';
 import { env } from './env.js';
-import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_CONNECTION_OPTIONS } from './util.js';
+import {
+  INITIALIZED_MONGO_STORAGE_FACTORY,
+  INITIALIZED_POSTGRES_STORAGE_FACTORY,
+  TEST_CONNECTION_OPTIONS
+} from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 
-describe('batch replication tests - mongodb', { timeout: 120_000 }, function () {
+describe.skipIf(!env.TEST_MONGO_STORAGE)('batch replication tests - mongodb', { timeout: 120_000 }, function () {
   // These are slow but consistent tests.
   // Not run on every test run, but we do run on CI, or when manually debugging issues.
   if (env.CI || env.SLOW_TESTS) {
     defineBatchTests(INITIALIZED_MONGO_STORAGE_FACTORY);
+  } else {
+    // Need something in this file.
+    test('no-op', () => {});
+  }
+});
+
+describe.skipIf(!env.TEST_POSTGRES_STORAGE)('batch replication tests - postgres', { timeout: 240_000 }, function () {
+  // These are slow but consistent tests.
+  // Not run on every test run, but we do run on CI, or when manually debugging issues.
+  if (env.CI || env.SLOW_TESTS) {
+    defineBatchTests(INITIALIZED_POSTGRES_STORAGE_FACTORY);
   } else {
     // Need something in this file.
     test('no-op', () => {});

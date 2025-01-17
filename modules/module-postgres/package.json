@@ -5,7 +5,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "0.2.4",
+  "version": "0.4.0",
   "main": "dist/index.js",
   "license": "FSL-1.1-Apache-2.0",
   "type": "module",
@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@powersync/lib-services-framework": "workspace:*",
+    "@powersync/lib-service-postgres": "workspace:*",
     "@powersync/service-core": "workspace:*",
     "@powersync/service-jpgwire": "workspace:*",
     "@powersync/service-jsonbig": "workspace:*",
@@ -43,6 +44,7 @@
   "devDependencies": {
     "@types/uuid": "^9.0.4",
     "@powersync/service-core-tests": "workspace:*",
-    "@powersync/service-module-mongodb-storage": "workspace:*"
+    "@powersync/service-module-mongodb-storage": "workspace:*",
+    "@powersync/service-module-postgres-storage": "workspace:*"
   }
 }

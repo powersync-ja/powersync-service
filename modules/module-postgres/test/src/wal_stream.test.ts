@@ -4,7 +4,8 @@ import { putOp, removeOp } from '@powersync/service-core-tests';
 import { pgwireRows } from '@powersync/service-jpgwire';
 import * as crypto from 'crypto';
 import { describe, expect, test } from 'vitest';
-import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
+import { env } from './env.js';
+import { INITIALIZED_MONGO_STORAGE_FACTORY, INITIALIZED_POSTGRES_STORAGE_FACTORY } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 
 const BASIC_SYNC_RULES = `
@@ -14,8 +15,12 @@ bucket_definitions:
       - SELECT id, description FROM "test_data"
 `;
 
-describe('wal stream - mongodb', { timeout: 20_000 }, function () {
+describe.skipIf(!env.TEST_MONGO_STORAGE)('wal stream - mongodb', { timeout: 20_000 }, function () {
   defineWalStreamTests(INITIALIZED_MONGO_STORAGE_FACTORY);
+});
+
+describe.skipIf(!env.TEST_POSTGRES_STORAGE)('wal stream - postgres', { timeout: 20_000 }, function () {
+  defineWalStreamTests(INITIALIZED_POSTGRES_STORAGE_FACTORY);
 });
 
 function defineWalStreamTests(factory: storage.TestStorageFactory) {

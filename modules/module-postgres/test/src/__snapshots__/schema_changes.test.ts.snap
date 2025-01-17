@@ -1,0 +1,5 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`schema changes - mongodb > add to publication (not in sync rules) 1`] = `0`;
+
+exports[`schema changes - postgres > add to publication (not in sync rules) 1`] = `16384`;

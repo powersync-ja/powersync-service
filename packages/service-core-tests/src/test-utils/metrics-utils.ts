@@ -6,5 +6,9 @@ export const initMetrics = async () => {
     powersync_instance_id: 'test',
     internal_metrics_endpoint: 'unused.for.tests.com'
   });
+  await resetMetrics();
+};
+
+export const resetMetrics = async () => {
   Metrics.getInstance().resetCounters();
 };

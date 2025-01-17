@@ -23,6 +23,9 @@
       "path": "./modules/module-postgres"
     },
     {
+      "path": "./modules/module-postgres-storage"
+    },
+    {
       "path": "./modules/module-mysql"
     },
     {
@@ -36,6 +39,9 @@
     },
     {
       "path": "./libs/lib-mongodb"
+    },
+    {
+      "path": "./libs/lib-postgres"
     },
     {
       "path": "./packages/types"
