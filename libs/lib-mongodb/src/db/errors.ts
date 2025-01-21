@@ -1,14 +1,22 @@
-import { DatabaseConnectionError, ErrorCode } from '@powersync/lib-services-framework';
+import { DatabaseConnectionError, ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { isMongoServerError } from './mongo.js';
 import { MongoNetworkError, MongoServerSelectionError } from 'mongodb';
 
-export function mapConnectionError(err: any): DatabaseConnectionError {
+export function mapConnectionError(err: any): ServiceError {
   const cause = err.cause;
-  if (isMongoServerError(err)) {
+  if (ServiceError.isServiceError(err)) {
+    return err;
+  } else if (isMongoServerError(err)) {
     if (err.codeName == 'AuthenticationFailed') {
       return new DatabaseConnectionError(
         ErrorCode.PSYNC_S1306,
-        'Authentication failed. Check the username and password.',
+        'MongoDB authentication failed. Check the username and password.',
+        err
+      );
+    } else if (err.codeName == 'Unauthorized') {
+      return new DatabaseConnectionError(
+        ErrorCode.PSYNC_S1307,
+        'MongoDB authorization issue. Check that the user has the required permissions.',
         err
       );
     }

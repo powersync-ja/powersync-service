@@ -209,6 +209,13 @@ export enum ErrorCode {
   PSYNC_S1306 = 'PSYNC_1306',
 
   /**
+   * MongoDB authorization error.
+   *
+   * Check that the user has the required priviledges.
+   */
+  PSYNC_S1307 = 'PSYNC_S1307',
+
+  /**
    * Sharded MongoDB Clusters are not supported yet.
    */
   PSYNC_S1341 = 'PSYNC_S1341',
