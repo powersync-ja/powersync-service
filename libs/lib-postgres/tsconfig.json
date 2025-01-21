@@ -8,5 +8,5 @@
     "sourceMap": true
   },
   "include": ["src"],
-  "references": [{ "path": "../lib-services" }]
+  "references": [{ "path": "../lib-services" }, { "path": "../../packages/jpgwire" }]
 }

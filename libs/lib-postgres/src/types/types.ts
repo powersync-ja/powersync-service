@@ -1,25 +1,10 @@
-import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
+import { ErrorCode, makeHostnameLookupFunction, ServiceError } from '@powersync/lib-services-framework';
+import type * as jpgwire from '@powersync/service-jpgwire';
 import * as service_types from '@powersync/service-types';
 import * as t from 'ts-codec';
 import * as urijs from 'uri-js';
 
-export interface NormalizedBasePostgresConnectionConfig {
-  id: string;
-  tag: string;
-
-  hostname: string;
-  port: number;
-  database: string;
-
-  username: string;
-  password: string;
-
-  sslmode: 'verify-full' | 'verify-ca' | 'disable';
-  cacert: string | undefined;
-
-  client_certificate: string | undefined;
-  client_private_key: string | undefined;
-}
+export interface NormalizedBasePostgresConnectionConfig extends jpgwire.NormalizedConnectionConfig {}
 
 export const POSTGRES_CONNECTION_TYPE = 'postgresql' as const;
 
@@ -44,8 +29,15 @@ export const BasePostgresConnectionConfig = t.object({
   client_certificate: t.string.optional(),
   client_private_key: t.string.optional(),
 
-  /** Expose database credentials */
-  demo_database: t.boolean.optional(),
+  /** Specify to use a servername for TLS that is different from hostname. */
+  tls_servername: t.string.optional(),
+
+  /**
+   * Block connections in any of these IP ranges.
+   *
+   * Use 'local' to block anything not in public unicast ranges.
+   */
+  reject_ip_ranges: t.array(t.string).optional(),
 
   /**
    * Prefix for the slot name. Defaults to "powersync_"
@@ -113,6 +105,9 @@ export function normalizeConnectionConfig(options: BasePostgresConnectionConfigD
     throw new ServiceError(ErrorCode.PSYNC_S1105, `Postgres connection: database required`);
   }
 
+  const lookupOptions = { reject_ip_ranges: options.reject_ip_ranges ?? [] };
+  const lookup = makeHostnameLookupFunction(hostname, lookupOptions);
+
   return {
     id: options.id ?? 'default',
     tag: options.tag ?? 'default',
@@ -125,6 +120,9 @@ export function normalizeConnectionConfig(options: BasePostgresConnectionConfigD
     password,
     sslmode,
     cacert,
+
+    tls_servername: options.tls_servername ?? undefined,
+    lookup,
 
     client_certificate: options.client_certificate ?? undefined,
     client_private_key: options.client_private_key ?? undefined

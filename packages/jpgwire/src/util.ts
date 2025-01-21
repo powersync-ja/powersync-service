@@ -1,8 +1,10 @@
-import * as tls from 'tls';
+import * as datefns from 'date-fns';
+import * as net from 'node:net';
+import * as tls from 'node:tls';
 import { DEFAULT_CERTS } from './certs.js';
 import * as pgwire from './pgwire.js';
 import { PgType } from './pgwire_types.js';
-import * as datefns from 'date-fns';
+import { ConnectOptions } from './socket_adapter.js';
 
 // TODO this is duplicated, but maybe that is ok
 export interface NormalizedConnectionConfig {
@@ -18,6 +20,18 @@ export interface NormalizedConnectionConfig {
 
   sslmode: 'verify-full' | 'verify-ca' | 'disable';
   cacert: string | undefined;
+
+  /**
+   * Specify to use a servername for TLS that is different from hostname.
+   *
+   * Only relevant if sslmode = 'verify-full'.
+   */
+  tls_servername: string | undefined;
+
+  /**
+   * Hostname lookup function.
+   */
+  lookup?: net.LookupFunction;
 
   client_certificate: string | undefined;
   client_private_key: string | undefined;
@@ -41,7 +55,8 @@ export function clientTlsOptions(options: PgWireConnectionOptions): tls.Connecti
     return {};
   }
 }
-export function tlsOptions(options: PgWireConnectionOptions): false | tls.ConnectionOptions {
+
+export function makeTlsOptions(options: PgWireConnectionOptions): false | tls.ConnectionOptions {
   if (options.sslmode == 'disable') {
     return false;
   } else if (options.sslmode == 'verify-full') {
@@ -53,7 +68,7 @@ export function tlsOptions(options: PgWireConnectionOptions): false | tls.Connec
       // This may be different from the host we're connecting to if we pre-resolved
       // the IP.
       host: options.hostname,
-      servername: options.hostname,
+      servername: options.tls_servername ?? options.hostname,
       ...clientTlsOptions(options)
     };
   } else if (options.sslmode == 'verify-ca') {
@@ -74,7 +89,7 @@ export function tlsOptions(options: PgWireConnectionOptions): false | tls.Connec
 }
 
 export async function connectPgWire(config: PgWireConnectionOptions, options?: { type?: 'standard' | 'replication' }) {
-  let connectionOptions: Mutable<ExtendedPgwireOptions> = {
+  let connectionOptions: Mutable<pgwire.PgConnectKnownOptions> = {
     application_name: 'PowerSync',
 
     // tlsOptions below contains the original hostname
@@ -90,18 +105,27 @@ export async function connectPgWire(config: PgWireConnectionOptions, options?: {
     connectionOptions.replication = 'database';
   }
 
+  let tlsOptions: tls.ConnectionOptions | false = false;
+
   if (config.sslmode != 'disable') {
     connectionOptions.sslmode = 'require';
 
-    // HACK: Not standard pgwire options
-    // Just the easiest way to pass on our config to pgwire_node.js
-    connectionOptions.sslrootcert = tlsOptions(config);
+    tlsOptions = makeTlsOptions(config);
   } else {
     connectionOptions.sslmode = 'disable';
   }
-  const connection = await pgwire.pgconnect(connectionOptions as pgwire.PgConnectOptions);
+  const connection = pgwire.pgconnection(connectionOptions as pgwire.PgConnectOptions);
+
+  // HACK: Not standard pgwire options
+  // Just the easiest way to pass on our config to SocketAdapter
+  const connectOptions = (connection as any)._connectOptions as ConnectOptions;
+  connectOptions.tlsOptions = tlsOptions;
+  connectOptions.lookup = config.lookup;
+
   // HACK: Replace row decoding with our own implementation
   (connection as any)._recvDataRow = _recvDataRow;
+
+  await (connection as any).start();
   return connection;
 }
 
@@ -147,7 +171,7 @@ export function connectPgWirePool(config: PgWireConnectionOptions, options?: PgP
   const idleTimeout = options?.idleTimeout;
   const maxSize = options?.maxSize ?? 5;
 
-  let connectionOptions: Mutable<ExtendedPgwireOptions> = {
+  let connectionOptions: Mutable<pgwire.PgConnectKnownOptions> = {
     application_name: 'PowerSync',
 
     // tlsOptions below contains the original hostname
@@ -162,12 +186,11 @@ export function connectPgWirePool(config: PgWireConnectionOptions, options?: PgP
     _poolIdleTimeout: idleTimeout
   };
 
+  let tlsOptions: tls.ConnectionOptions | false = false;
   if (config.sslmode != 'disable') {
     connectionOptions.sslmode = 'require';
 
-    // HACK: Not standard pgwire options
-    // Just the easiest way to pass on our config to pgwire_node.js
-    connectionOptions.sslrootcert = tlsOptions(config);
+    tlsOptions = makeTlsOptions(config);
   } else {
     connectionOptions.sslmode = 'disable';
   }
@@ -176,20 +199,16 @@ export function connectPgWirePool(config: PgWireConnectionOptions, options?: PgP
   const originalGetConnection = (pool as any)._getConnection;
   (pool as any)._getConnection = function (this: any) {
     const con = originalGetConnection.call(this);
+
+    const connectOptions = (con as any)._connectOptions as ConnectOptions;
+    connectOptions.tlsOptions = tlsOptions;
+    connectOptions.lookup = config.lookup;
+
     // HACK: Replace row decoding with our own implementation
     (con as any)._recvDataRow = _recvDataRow;
     return con;
   };
   return pool;
-}
-
-/**
- * Hack: sslrootcert is passed through as-is to pgwire_node.
- *
- * We use that to pass in custom TLS options, without having to modify pgwire itself.
- */
-export interface ExtendedPgwireOptions extends pgwire.PgConnectKnownOptions {
-  sslrootcert?: false | tls.ConnectionOptions;
 }
 
 export function lsnMakeComparable(text: string) {

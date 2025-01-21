@@ -1,5 +1,6 @@
-import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
+import { ErrorCode, makeHostnameLookupFunction, ServiceError } from '@powersync/lib-services-framework';
 import * as service_types from '@powersync/service-types';
+import { LookupFunction } from 'node:net';
 import * as t from 'ts-codec';
 import * as urijs from 'uri-js';
 
@@ -20,6 +21,8 @@ export interface NormalizedMySQLConnectionConfig {
   cacert?: string;
   client_certificate?: string;
   client_private_key?: string;
+
+  lookup?: LookupFunction;
 }
 
 export const MySQLConnectionConfig = service_types.configFile.DataSourceConfig.and(
@@ -35,7 +38,9 @@ export const MySQLConnectionConfig = service_types.configFile.DataSourceConfig.a
 
     cacert: t.string.optional(),
     client_certificate: t.string.optional(),
-    client_private_key: t.string.optional()
+    client_private_key: t.string.optional(),
+
+    reject_ip_ranges: t.array(t.string).optional()
   })
 );
 
@@ -94,6 +99,8 @@ export function normalizeConnectionConfig(options: MySQLConnectionConfig): Norma
     throw new ServiceError(ErrorCode.PSYNC_S1105, `MySQL connection: database required`);
   }
 
+  const lookup = makeHostnameLookupFunction(hostname, { reject_ip_ranges: options.reject_ip_ranges ?? [] });
+
   return {
     id: options.id ?? 'default',
     tag: options.tag ?? 'default',
@@ -105,6 +112,8 @@ export function normalizeConnectionConfig(options: MySQLConnectionConfig): Norma
     username,
     password,
 
-    server_id: options.server_id ?? 1
+    server_id: options.server_id ?? 1,
+
+    lookup
   };
 }
