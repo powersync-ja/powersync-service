@@ -2,7 +2,7 @@
 
 import * as pgwire from '@powersync/service-jpgwire';
 
-import { logger } from '@powersync/lib-services-framework';
+import { logger, ServiceAssertionError } from '@powersync/lib-services-framework';
 
 export function escapeIdentifier(identifier: string) {
   return `"${identifier.replace(/"/g, '""').replace(/\./g, '"."')}"`;
@@ -24,7 +24,7 @@ export function autoParameter(arg: any): pgwire.StatementParam {
   } else if (typeof arg == 'bigint') {
     return { type: 'int8', value: arg };
   } else {
-    throw new Error(`Unsupported query parameter: ${typeof arg}`);
+    throw new ServiceAssertionError(`Unsupported query parameter: ${typeof arg}`);
   }
 }
 

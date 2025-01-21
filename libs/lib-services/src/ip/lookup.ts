@@ -2,6 +2,7 @@ import * as net from 'node:net';
 import * as dns from 'node:dns';
 import * as dnsp from 'node:dns/promises';
 import ip from 'ipaddr.js';
+import { ErrorCode, ServiceError } from '@powersync/service-errors';
 
 export interface LookupOptions {
   reject_ip_ranges: string[];
@@ -67,19 +68,21 @@ export function validateIpHostname(hostname: string, options: LookupOptions): vo
     return;
   }
 
-  const parsed = ip.parse(hostname);
+  const ipaddr = hostname;
+
+  const parsed = ip.parse(ipaddr);
   const rejectLocal = reject_ranges.includes('local');
   const rejectSubnets = reject_ranges.filter((range) => range != 'local');
 
   const reject = { blocked: (rejectSubnets ?? []).map((r) => ip.parseCIDR(r)) };
 
   if (options.reject_ipv6 && parsed.kind() == 'ipv6') {
-    throw new Error('IPv6 not supported');
+    throw new ServiceError(ErrorCode.PSYNC_S2202, 'IPv6 support not enabled for JWKS URI');
   }
 
   if (ip.subnetMatch(parsed, reject) == 'blocked') {
     // Ranges explicitly blocked, e.g. private IPv6 ranges
-    throw new Error(`IPs in this range are not supported: ${hostname}`);
+    throw new ServiceError(ErrorCode.PSYNC_S2203, `IPs in this range are not supported: ${ipaddr}`);
   }
 
   if (!rejectLocal) {
@@ -94,7 +97,7 @@ export function validateIpHostname(hostname: string, options: LookupOptions): vo
     return;
   } else {
     // Do not connect to any reserved IPs, including loopback and private ranges
-    throw new Error(`IPs in this range are not supported: ${hostname}`);
+    throw new ServiceError(ErrorCode.PSYNC_S2203, `IPs in this range are not supported: ${ipaddr}`);
   }
 }
 

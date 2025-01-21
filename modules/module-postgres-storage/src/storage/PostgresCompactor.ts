@@ -1,5 +1,5 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
-import { logger } from '@powersync/lib-services-framework';
+import { logger, ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import * as t from 'ts-codec';
@@ -313,7 +313,9 @@ export class PostgresCompactor {
                   }
                 }
               } else {
-                throw new Error(`Unexpected ${op.op} operation at ${this.group_id}:${bucket}:${op.op_id}`);
+                throw new ReplicationAssertionError(
+                  `Unexpected ${op.op} operation at ${this.group_id}:${bucket}:${op.op_id}`
+                );
               }
             }
           }

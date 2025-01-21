@@ -3,6 +3,7 @@ import { ErrorReporter } from './alerts/definitions.js';
 import { NoOpReporter } from './alerts/no-op-reporter.js';
 import { MigrationManager } from './migrations/MigrationManager.js';
 import { ProbeModule, TerminationHandler, createFSProbe, createTerminationHandler } from './signals/signals-index.js';
+import { ServiceAssertionError } from '@powersync/service-errors';
 
 export enum ContainerImplementation {
   REPORTER = 'reporter',
@@ -100,7 +101,7 @@ export class Container {
   getImplementation<T>(identifier: ServiceIdentifier<T>): T {
     const implementation = this.implementations.get(identifier);
     if (!implementation) {
-      throw new Error(`Implementation for ${String(identifier)} has not been registered.`);
+      throw new ServiceAssertionError(`Implementation for ${String(identifier)} has not been registered.`);
     }
     return implementation;
   }

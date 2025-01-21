@@ -105,6 +105,9 @@ export class RemoteJWKSCollector implements KeyCollector {
 
   /**
    * Agent that uses a custom lookup function.
+   *
+   * This will synchronously raise an error if the URL contains an IP in the reject list.
+   * For domain names resolving to a rejected IP, that will fail when making the request.
    */
   resolveAgent(): http.Agent | https.Agent {
     const lookupOptions = this.options?.lookupOptions ?? { reject_ip_ranges: [] };

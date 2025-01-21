@@ -1,5 +1,5 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
-import { DisposableObserver } from '@powersync/lib-services-framework';
+import { DisposableObserver, ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import * as sync_rules from '@powersync/service-sync-rules';
@@ -450,7 +450,7 @@ export class PostgresSyncRulesStorage
 
           start ??= dataBuckets.get(bucket_name);
           if (start == null) {
-            throw new Error(`data for unexpected bucket: ${bucket_name}`);
+            throw new ReplicationAssertionError(`data for unexpected bucket: ${bucket_name}`);
           }
           currentBatch = {
             bucket: bucket_name,
