@@ -200,3 +200,18 @@ export class RouteNotFound extends ServiceError {
     });
   }
 }
+
+export class DatabaseConnectionError extends ServiceError {
+  public cause: any;
+
+  constructor(code: ErrorCode, message: string, cause: any) {
+    super({
+      code: code,
+      status: 500,
+      description: message,
+      details: `cause: ${cause.message}`,
+      stack: process.env.NODE_ENV !== 'production' ? cause.stack : undefined
+    });
+    this.cause = cause;
+  }
+}

@@ -8,5 +8,5 @@
     "sourceMap": true
   },
   "include": ["src"],
-  "references": []
+  "references": [{ "path": "../lib-services" }]
 }

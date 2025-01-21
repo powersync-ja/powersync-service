@@ -66,11 +66,13 @@ export class MongoModule extends replication.ReplicationModule<types.MongoConnec
     const connectionManager = new MongoManager(normalizedConfig, {
       // Use short timeouts for testing connections.
       // Must be < 30s, to ensure we get a proper timeout error.
-      socketTimeoutMS: 5_000,
-      serverSelectionTimeoutMS: 5_000
+      socketTimeoutMS: 1_000,
+      serverSelectionTimeoutMS: 1_000
     });
     try {
       await checkSourceConfiguration(connectionManager);
+    } catch (e) {
+      throw lib_mongo.mapConnectionError(e);
     } finally {
       await connectionManager.end();
     }
