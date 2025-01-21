@@ -1,5 +1,6 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb/types';
 import * as service_types from '@powersync/service-types';
+import { LookupFunction } from 'node:net';
 import * as t from 'ts-codec';
 
 export enum PostImagesOption {
@@ -47,6 +48,8 @@ export interface NormalizedMongoConnectionConfig {
 
   username?: string;
   password?: string;
+
+  lookup?: LookupFunction;
 
   postImages: PostImagesOption;
 }

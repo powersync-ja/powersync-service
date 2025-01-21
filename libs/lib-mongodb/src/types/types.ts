@@ -1,3 +1,4 @@
+import { LookupOptions, makeHostnameLookupFunction } from '@powersync/lib-services-framework';
 import * as t from 'ts-codec';
 import * as urijs from 'uri-js';
 
@@ -8,7 +9,9 @@ export const BaseMongoConfig = t.object({
   uri: t.string,
   database: t.string.optional(),
   username: t.string.optional(),
-  password: t.string.optional()
+  password: t.string.optional(),
+
+  reject_ip_ranges: t.array(t.string).optional()
 });
 
 export type BaseMongoConfig = t.Encoded<typeof BaseMongoConfig>;
@@ -46,11 +49,18 @@ export function normalizeMongoConfig(options: BaseMongoConfigDecoded) {
 
   delete uri.userinfo;
 
+  const lookupOptions: LookupOptions = {
+    reject_ip_ranges: options.reject_ip_ranges ?? []
+  };
+  const lookup = makeHostnameLookupFunction(uri.host ?? '', lookupOptions);
+
   return {
     uri: urijs.serialize(uri),
     database,
 
     username,
-    password
+    password,
+
+    lookup
   };
 }

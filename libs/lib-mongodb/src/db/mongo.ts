@@ -1,6 +1,7 @@
 import * as mongo from 'mongodb';
 import * as timers from 'timers/promises';
 import { BaseMongoConfigDecoded, normalizeMongoConfig } from '../types/types.js';
+import { validateIpHostname } from '@powersync/lib-services-framework';
 
 /**
  * Time for new connection to timeout.
@@ -41,6 +42,8 @@ export function createMongoClient(config: BaseMongoConfigDecoded) {
     socketTimeoutMS: MONGO_SOCKET_TIMEOUT_MS,
     // How long to wait for new primary selection
     serverSelectionTimeoutMS: 30_000,
+
+    lookup: normalized.lookup,
 
     // Avoid too many connections:
     // 1. It can overwhelm the source database.

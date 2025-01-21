@@ -1,19 +1,14 @@
-import * as https from 'https';
 import * as http from 'http';
-import * as dns from 'dns/promises';
-import ip from 'ipaddr.js';
+import * as https from 'https';
 import * as jose from 'jose';
-import * as net from 'net';
 import fetch from 'node-fetch';
 
-import { KeySpec } from './KeySpec.js';
+import { LookupOptions, makeHostnameLookupFunction } from '@powersync/lib-services-framework';
 import { KeyCollector, KeyResult } from './KeyCollector.js';
+import { KeySpec } from './KeySpec.js';
 
 export type RemoteJWKSCollectorOptions = {
-  /**
-   * Blocks IP Ranges from the BLOCKED_IP_RANGES array
-   */
-  block_local_ip?: boolean;
+  lookupOptions?: LookupOptions;
 };
 
 /**
@@ -21,6 +16,7 @@ export type RemoteJWKSCollectorOptions = {
  */
 export class RemoteJWKSCollector implements KeyCollector {
   private url: URL;
+  private agent: http.Agent;
 
   constructor(
     url: string,
@@ -37,6 +33,8 @@ export class RemoteJWKSCollector implements KeyCollector {
     if (this.url.protocol != 'https:' && this.url.protocol != 'http:') {
       throw new Error(`Only http(s) is supported for jwks_uri, got: ${url}`);
     }
+
+    this.agent = this.resolveAgent();
   }
 
   async getKeys(): Promise<KeyResult> {
@@ -51,7 +49,7 @@ export class RemoteJWKSCollector implements KeyCollector {
         Accept: 'application/json'
       },
       signal: abortController.signal,
-      agent: await this.resolveAgent()
+      agent: this.agent
     });
 
     if (!res.ok) {
@@ -97,29 +95,14 @@ export class RemoteJWKSCollector implements KeyCollector {
   }
 
   /**
-   * Resolve IP, and check that it is in an allowed range.
+   * Agent that uses a custom lookup function.
    */
-  async resolveAgent(): Promise<http.Agent | https.Agent> {
-    const hostname = this.url.hostname;
-    let resolved_ip: string;
-    if (net.isIPv6(hostname)) {
-      throw new Error('IPv6 not supported yet');
-    } else if (net.isIPv4(hostname)) {
-      // All good
-      resolved_ip = hostname;
-    } else {
-      resolved_ip = (await dns.resolve4(hostname))[0];
-    }
+  resolveAgent(): http.Agent | https.Agent {
+    const lookupOptions = this.options?.lookupOptions ?? { reject_ip_ranges: [] };
+    const lookup = makeHostnameLookupFunction(this.url.hostname, lookupOptions);
 
-    const parsed = ip.parse(resolved_ip);
-    if (parsed.kind() != 'ipv4' || (this.options?.block_local_ip && parsed.range() !== 'unicast')) {
-      // Do not connect to any reserved IPs, including loopback and private ranges
-      throw new Error(`IPs in this range are not supported: ${resolved_ip}`);
-    }
-
-    const options = {
-      // This is the host that the agent connects to
-      host: resolved_ip
+    const options: http.AgentOptions = {
+      lookup
     };
 
     switch (this.url.protocol) {
