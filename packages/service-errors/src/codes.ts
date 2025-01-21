@@ -172,12 +172,12 @@ export enum ErrorCode {
   /**
    * Generic MongoServerError.
    */
-  PSYNC_S1301 = 'PSYNC_1301',
+  PSYNC_S1301 = 'PSYNC_S1301',
 
   /**
    * Generic MongoNetworkError.
    */
-  PSYNC_S1302 = 'PSYNC_1302',
+  PSYNC_S1302 = 'PSYNC_S1302',
 
   /**
    * MongoDB internal TLS error.
@@ -185,28 +185,28 @@ export enum ErrorCode {
    * If connection to a shared cluster on MongoDB Atlas, this could be an IP Acccess List issue.
    * Check that the service IP is allowed to connect to the cluster.
    */
-  PSYNC_S1303 = 'PSYNC_1303',
+  PSYNC_S1303 = 'PSYNC_S1303',
 
   /**
    * MongoDB connection DNS error.
    *
    * Check that the hostname is correct.
    */
-  PSYNC_S1304 = 'PSYNC_1304',
+  PSYNC_S1304 = 'PSYNC_S1304',
 
   /**
    * MongoDB connection timeout.
    *
    * Check that the hostname is correct, and that the service IP is allowed to connect to the cluster.
    */
-  PSYNC_S1305 = 'PSYNC_1305',
+  PSYNC_S1305 = 'PSYNC_S1305',
 
   /**
    * MongoDB authentication error.
    *
    * Check the username and password.
    */
-  PSYNC_S1306 = 'PSYNC_1306',
+  PSYNC_S1306 = 'PSYNC_S1306',
 
   /**
    * MongoDB authorization error.
