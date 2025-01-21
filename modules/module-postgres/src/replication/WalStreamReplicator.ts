@@ -2,6 +2,7 @@ import { replication, storage } from '@powersync/service-core';
 import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
 import { cleanUpReplicationSlot } from './replication-utils.js';
 import { WalStreamReplicationJob } from './WalStreamReplicationJob.js';
+import { PostgresModule } from '../module/PostgresModule.js';
 
 export interface WalStreamReplicatorOptions extends replication.AbstractReplicatorOptions {
   connectionFactory: ConnectionManagerFactory;
@@ -41,5 +42,9 @@ export class WalStreamReplicator extends replication.AbstractReplicator<WalStrea
   async stop(): Promise<void> {
     await super.stop();
     await this.connectionFactory.shutdown();
+  }
+
+  async testConnection() {
+    return await PostgresModule.testConnection(this.connectionFactory.dbConnectionConfig);
   }
 }

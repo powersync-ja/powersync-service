@@ -6,6 +6,7 @@ import { StorageEngine } from '../storage/storage-index.js';
 import { SyncRulesProvider } from '../util/config/sync-rules/sync-rules-provider.js';
 import { AbstractReplicationJob } from './AbstractReplicationJob.js';
 import { ErrorRateLimiter } from './ErrorRateLimiter.js';
+import { ConnectionTestResult } from './ReplicationModule.js';
 
 // 5 minutes
 const PING_INTERVAL = 1_000_000_000n * 300n;
@@ -225,4 +226,6 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       this.logger.warn(`Failed clean up replication config for sync rules: ${syncRuleStorage.group_id}`, e);
     }
   }
+
+  abstract testConnection(): Promise<ConnectionTestResult>;
 }
