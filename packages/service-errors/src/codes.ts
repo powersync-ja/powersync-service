@@ -158,13 +158,6 @@ export enum ErrorCode {
    */
   PSYNC_S1143 = 'PSYNC_S1143',
 
-  /**
-   * Replication slot does not exist anymore.
-   *
-   * In most circumstances it should be re-created automatically.
-   */
-  PSYNC_S1160 = 'PSYNC_S1160',
-
   // ## PSYNC_S12xx: MySQL replication issues
 
   // ## PSYNC_S13xx: MongoDB replication issues
@@ -274,40 +267,6 @@ export enum ErrorCode {
    */
   PSYNC_S2101 = 'PSYNC_S2101',
 
-  /**
-   * Parameters must be an object (`params` field in the JWT payload).
-   */
-  PSYNC_S2106 = 'PSYNC_S2106',
-
-  /**
-   * Token must expire in a maximum of <n> seconds.
-   *
-   * Use tokens with a shorter expiration period.
-   */
-  PSYNC_S2102 = 'PSYNC_S2102',
-
-  /**
-   * Could not find an appropriate key in the keystore.
-   * The key is missing or no key matched the token KID
-   */
-  PSYNC_S2103 = 'PSYNC_S2103',
-
-  /**
-   * No token provided.
-   */
-  PSYNC_S2104 = 'PSYNC_S2104',
-
-  /**
-   * Unexpected "aud" claim value.
-   */
-  PSYNC_S2105 = 'PSYNC_S2105',
-
-  /**
-   * Unexpected token algorithm (`alg` field).
-   *
-   * See the list of supported token algorithms.
-   */
-
   // ## PSYNC_S22xx: Auth integration errors
 
   /**
@@ -324,19 +283,7 @@ export enum ErrorCode {
    */
   PSYNC_S2203 = 'PSYNC_S2203',
 
-  /**
-   * JWKS request failed. See the error response for details.
-   */
-  PSYNC_S2204 = 'PSYNC_S2204',
-
   // ## PSYNC_S23xx: Sync API errors
-
-  /**
-   * Internal assertion.
-   *
-   * This error may indicate a bug in the service code.
-   */
-  PSYNC_S2301 = 'PSYNC_S2301',
 
   /**
    * No sync rules available.
@@ -350,21 +297,9 @@ export enum ErrorCode {
   PSYNC_S2302 = 'PSYNC_S2302',
 
   /**
-   * Timeout while waiting for checkpoint.
-   */
-  PSYNC_S2303 = 'PSYNC_S2303',
-
-  /**
    * Maximum active concurrent connections limit has been reached.
    */
   PSYNC_S2304 = 'PSYNC_S2304',
-
-  /**
-   * Unable to deserialize frame.
-   *
-   * This is a low-level websocket protocol issue.
-   */
-  PSYNC_S2311 = 'PSYNC_S2311',
 
   // ## PSYNC_S23xx: Sync API errors - MongoDB Storage
 
@@ -376,11 +311,6 @@ export enum ErrorCode {
   // ## PSYNC_S23xx: Sync API errors - Postgres Storage
 
   // ## PSYNC_S3xxx: Service configuration issues
-
-  /**
-   * hostname required.
-   */
-  PSYNC_S3002 = 'PSYNC_S3002',
 
   // ## PSYNC_S31xx: Auth configuration issues
 
@@ -394,10 +324,7 @@ export enum ErrorCode {
    */
   PSYNC_S3103 = 'PSYNC_S3103',
 
-  /**
-   * Replication configuration issue.
-   */
-  PSYNC_S3200 = 'PSYNC_S3200',
+  // ## PSYNC_S32xx: Replication configuration issue.
 
   /**
    * Failed to validate module configuration.
@@ -412,16 +339,6 @@ export enum ErrorCode {
    * This error may indicate a bug in the service code.
    */
   PSYNC_S4001 = 'PSYNC_S4001',
-
-  /**
-   * Auth disabled.
-   */
-  PSYNC_S4102 = 'PSYNC_S4102',
-
-  /**
-   * Authentication required.
-   */
-  PSYNC_S4103 = 'PSYNC_S4103',
 
   /**
    * No active sync rules.
