@@ -65,6 +65,12 @@ export async function checkSourceConfiguration(connectionManager: MongoManager):
         );
       }
     }
+    if (!anyCollectionActions.has('listCollections')) {
+      throw new ServiceError(
+        ErrorCode.PSYNC_S1307,
+        `MongoDB user does not have the required "listCollections" priviledge on "${db.databaseName}".`
+      );
+    }
   } else {
     // Assume auth is disabled.
     // On Atlas, at least one role/priviledge is required for each user, which will trigger the above.
