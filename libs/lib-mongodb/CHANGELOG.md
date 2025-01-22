@@ -1,5 +1,18 @@
 # @powersync/lib-service-mongodb
 
+## 0.4.0
+
+### Minor Changes
+
+- 8675236: Allow limiting IP ranges of outgoing connections
+
+### Patch Changes
+
+- f049aa9: Introduce standard error codes
+- Updated dependencies [8675236]
+- Updated dependencies [f049aa9]
+  - @powersync/lib-services-framework@0.5.0
+
 ## 0.3.1
 
 ### Patch Changes
