@@ -88,7 +88,7 @@ export abstract class ReplicationModule<TConfig extends DataSourceConfig>
     }
 
     const baseMatchingConfig = matchingConfig[0] as TConfig;
-    // If decoding fails, log the error and continue, no replication will happen for this data source
+    // If decoding fails, this will raise a hard error, and stop the service.
     this.decodeConfig(baseMatchingConfig);
 
     context.replicationEngine?.register(this.createReplicator(context));

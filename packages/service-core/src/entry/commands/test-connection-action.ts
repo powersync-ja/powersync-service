@@ -22,7 +22,7 @@ export function registerTestConnectionAction(program: Command) {
       const replication = new ReplicationEngine();
       serviceContext.register(ReplicationEngine, replication);
 
-      // Register modules in order to allow custom module compacting
+      // Register modules in order to load the correct config
       const moduleManager = container.getImplementation(modules.ModuleManager);
       await moduleManager.initialize(serviceContext);
 
