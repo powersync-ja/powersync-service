@@ -1,4 +1,4 @@
-import { errors, router, schema } from '@powersync/lib-services-framework';
+import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
 import { SqlSyncRules, SyncRulesErrors } from '@powersync/service-sync-rules';
 import type { FastifyPluginAsync } from 'fastify';
 import * as t from 'ts-codec';
@@ -43,9 +43,9 @@ export const deploySyncRules = routeDefinition({
 
     if (service_context.configuration.sync_rules.present) {
       // If sync rules are configured via the config, disable deploy via the API.
-      throw new errors.JourneyError({
+      throw new errors.ServiceError({
         status: 422,
-        code: 'API_DISABLED',
+        code: ErrorCode.PSYNC_S4105,
         description: 'Sync rules API disabled',
         details: 'Use the management API to deploy sync rules'
       });
@@ -60,9 +60,9 @@ export const deploySyncRules = routeDefinition({
         schema: undefined
       });
     } catch (e) {
-      throw new errors.JourneyError({
+      throw new errors.ServiceError({
         status: 422,
-        code: 'INVALID_SYNC_RULES',
+        code: ErrorCode.PSYNC_R0001,
         description: 'Sync rules parsing failed',
         details: e.message
       });
@@ -112,9 +112,9 @@ export const currentSyncRules = routeDefinition({
 
     const sync_rules = await activeBucketStorage.getActiveSyncRulesContent();
     if (!sync_rules) {
-      throw new errors.JourneyError({
+      throw new errors.ServiceError({
         status: 422,
-        code: 'NO_SYNC_RULES',
+        code: ErrorCode.PSYNC_S4104,
         description: 'No active sync rules'
       });
     }
@@ -159,9 +159,9 @@ export const reprocessSyncRules = routeDefinition({
     const apiHandler = payload.context.service_context.routerEngine!.getAPI();
     const sync_rules = await activeBucketStorage.getActiveSyncRules(apiHandler.getParseSyncRulesOptions());
     if (sync_rules == null) {
-      throw new errors.JourneyError({
+      throw new errors.ServiceError({
         status: 422,
-        code: 'NO_SYNC_RULES',
+        code: ErrorCode.PSYNC_S4104,
         description: 'No active sync rules'
       });
     }

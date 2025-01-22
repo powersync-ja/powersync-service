@@ -5,7 +5,7 @@ import { logger } from '@powersync/lib-services-framework';
 
 export class ConnectionManagerFactory {
   private readonly connectionManagers: PgManager[];
-  private readonly dbConnectionConfig: NormalizedPostgresConnectionConfig;
+  public readonly dbConnectionConfig: NormalizedPostgresConnectionConfig;
 
   constructor(dbConnectionConfig: NormalizedPostgresConnectionConfig) {
     this.dbConnectionConfig = dbConnectionConfig;

@@ -1,6 +1,7 @@
 import { replication, storage } from '@powersync/service-core';
 import { BinLogReplicationJob } from './BinLogReplicationJob.js';
 import { MySQLConnectionManagerFactory } from './MySQLConnectionManagerFactory.js';
+import { MySQLModule } from '../module/MySQLModule.js';
 
 export interface BinLogReplicatorOptions extends replication.AbstractReplicatorOptions {
   connectionFactory: MySQLConnectionManagerFactory;
@@ -31,5 +32,9 @@ export class BinLogReplicator extends replication.AbstractReplicator<BinLogRepli
   async stop(): Promise<void> {
     await super.stop();
     await this.connectionFactory.shutdown();
+  }
+
+  async testConnection() {
+    return await MySQLModule.testConnection(this.connectionFactory.connectionConfig);
   }
 }

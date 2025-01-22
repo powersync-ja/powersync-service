@@ -3,6 +3,7 @@ import { createMockObserver, createMockResponder } from './utils/mock-responder.
 import { handleReactiveStream } from '../../src/router/ReactiveSocketRouter.js';
 import { deserialize, serialize } from 'bson';
 import { RS_ENDPOINT_TYPE, ReactiveEndpoint, RequestMeta, SocketResponder } from '../../src/router/types.js';
+import { ErrorCode } from '@powersync/lib-services-framework';
 
 /**
  * Mocks the process of handling reactive routes
@@ -117,7 +118,7 @@ describe('Requests', () => {
     );
 
     // Should be a validation error
-    expect(JSON.stringify(spy.mock.calls[0])).includes('AUTHORIZATION');
+    expect(JSON.stringify(spy.mock.calls[0])).includes(ErrorCode.PSYNC_S2101);
   });
 
   it('should get invalid route error', async () => {
@@ -130,6 +131,6 @@ describe('Requests', () => {
     await handleRoute(path, [], responder);
 
     // Should be a validation error
-    expect(JSON.stringify(spy.mock.calls[0])).includes('No route');
+    expect(JSON.stringify(spy.mock.calls[0])).includes(ErrorCode.PSYNC_S2002);
   });
 });

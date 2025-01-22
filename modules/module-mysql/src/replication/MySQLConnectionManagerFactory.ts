@@ -5,7 +5,7 @@ import { ResolvedConnectionConfig } from '../types/types.js';
 
 export class MySQLConnectionManagerFactory {
   private readonly connectionManagers: MySQLConnectionManager[];
-  private readonly connectionConfig: ResolvedConnectionConfig;
+  public readonly connectionConfig: ResolvedConnectionConfig;
 
   constructor(connectionConfig: ResolvedConnectionConfig) {
     this.connectionConfig = connectionConfig;

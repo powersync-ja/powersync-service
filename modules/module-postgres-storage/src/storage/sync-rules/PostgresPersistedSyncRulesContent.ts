@@ -1,5 +1,5 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
-import { logger } from '@powersync/lib-services-framework';
+import { ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 
@@ -44,7 +44,10 @@ export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncR
     });
     const lockHandle = await manager.acquire();
     if (!lockHandle) {
-      throw new Error(`Sync rules: ${this.id} have been locked by another process for replication.`);
+      throw new ServiceError(
+        ErrorCode.PSYNC_S1003,
+        `Sync rules: ${this.id} have been locked by another process for replication.`
+      );
     }
 
     const interval = setInterval(async () => {

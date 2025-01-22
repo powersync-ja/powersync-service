@@ -1,5 +1,12 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
-import { api, ConfigurationFileSyncRulesProvider, replication, system, TearDownOptions } from '@powersync/service-core';
+import {
+  api,
+  ConfigurationFileSyncRulesProvider,
+  ConnectionTestResult,
+  replication,
+  system,
+  TearDownOptions
+} from '@powersync/service-core';
 import { MongoRouteAPIAdapter } from '../api/MongoRouteAPIAdapter.js';
 import { ChangeStreamReplicator } from '../replication/ChangeStreamReplicator.js';
 import { ConnectionManagerFactory } from '../replication/ConnectionManagerFactory.js';
@@ -46,22 +53,31 @@ export class MongoModule extends replication.ReplicationModule<types.MongoConnec
   }
 
   async teardown(options: TearDownOptions): Promise<void> {
-    // TODO: Implement?
+    // No-op
   }
 
-  async testConnection(config: types.MongoConnectionConfig): Promise<void> {
+  async testConnection(config: types.MongoConnectionConfig) {
     this.decodeConfig(config);
-    const normalisedConfig = this.resolveConfig(this.decodedConfig!);
-    const connectionManager = new MongoManager(normalisedConfig, {
+    const normalizedConfig = this.resolveConfig(this.decodedConfig!);
+    return await MongoModule.testConnection(normalizedConfig);
+  }
+
+  static async testConnection(normalizedConfig: types.NormalizedMongoConnectionConfig): Promise<ConnectionTestResult> {
+    const connectionManager = new MongoManager(normalizedConfig, {
       // Use short timeouts for testing connections.
       // Must be < 30s, to ensure we get a proper timeout error.
-      socketTimeoutMS: 5_000,
-      serverSelectionTimeoutMS: 5_000
+      socketTimeoutMS: 1_000,
+      serverSelectionTimeoutMS: 1_000
     });
     try {
-      return await checkSourceConfiguration(connectionManager);
+      await checkSourceConfiguration(connectionManager);
+    } catch (e) {
+      throw lib_mongo.mapConnectionError(e);
     } finally {
       await connectionManager.end();
     }
+    return {
+      connectionDescription: normalizedConfig.uri
+    };
   }
 }

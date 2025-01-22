@@ -1,4 +1,4 @@
-import { errors, router, schema } from '@powersync/lib-services-framework';
+import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
 import { SqlSyncRules, StaticSchema } from '@powersync/service-sync-rules';
 import { internal_routes } from '@powersync/service-types';
 
@@ -120,9 +120,9 @@ export const reprocess = routeDefinition({
 
     const active = await activeBucketStorage.getActiveSyncRules(apiHandler.getParseSyncRulesOptions());
     if (active == null) {
-      throw new errors.JourneyError({
+      throw new errors.ServiceError({
         status: 422,
-        code: 'NO_SYNC_RULES',
+        code: ErrorCode.PSYNC_S4104,
         description: 'No active sync rules'
       });
     }

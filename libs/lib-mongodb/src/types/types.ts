@@ -1,4 +1,4 @@
-import { LookupOptions, makeHostnameLookupFunction } from '@powersync/lib-services-framework';
+import { ErrorCode, LookupOptions, makeHostnameLookupFunction, ServiceError } from '@powersync/lib-services-framework';
 import * as t from 'ts-codec';
 import * as urijs from 'uri-js';
 
@@ -44,7 +44,7 @@ export function normalizeMongoConfig(options: BaseMongoConfigDecoded) {
   const password = options.password ?? userInfo?.[1];
 
   if (database == '') {
-    throw new Error(`database required`);
+    throw new ServiceError(ErrorCode.PSYNC_S1105, `MongoDB connection: database required`);
   }
 
   delete uri.userinfo;

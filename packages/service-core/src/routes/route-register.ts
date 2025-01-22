@@ -62,16 +62,16 @@ export function registerFastifyRoutes(
               });
             }
           } catch (ex) {
-            const journeyError = errors.JourneyError.isJourneyError(ex) ? ex : new errors.InternalServerError(ex);
-            logger.error(`Request failed`, journeyError);
+            const serviceError = errors.asServiceError(ex);
+            logger.error(`Request failed`, serviceError);
 
             response = new router.RouterResponse({
-              status: journeyError.errorData.status || 500,
+              status: serviceError.errorData.status || 500,
               headers: {
                 'Content-Type': 'application/json'
               },
               data: {
-                error: journeyError.errorData
+                error: serviceError.errorData
               }
             });
           }

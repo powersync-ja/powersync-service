@@ -4,6 +4,7 @@ import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import { SqliteRow, SqliteValue } from '@powersync/service-sync-rules';
 
 import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
+import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 
 export function getMongoRelation(source: mongo.ChangeStreamNameSpace): storage.SourceEntityDescriptor {
   return {
@@ -97,7 +98,7 @@ function filterJsonData(data: any, depth = 0): any {
   const autoBigNum = true;
   if (depth > DEPTH_LIMIT) {
     // This is primarily to prevent infinite recursion
-    throw new Error(`json nested object depth exceeds the limit of ${DEPTH_LIMIT}`);
+    throw new ServiceError(ErrorCode.PSYNC_S1004, `json nested object depth exceeds the limit of ${DEPTH_LIMIT}`);
   }
   if (data === null) {
     return data;

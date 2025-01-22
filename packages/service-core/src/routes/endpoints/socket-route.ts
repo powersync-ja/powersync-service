@@ -1,4 +1,4 @@
-import { errors, logger, schema } from '@powersync/lib-services-framework';
+import { ErrorCode, errors, logger, schema } from '@powersync/lib-services-framework';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import { serialize } from 'bson';
 
@@ -34,9 +34,9 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
 
       if (routerEngine!.closed) {
         responder.onError(
-          new errors.JourneyError({
+          new errors.ServiceError({
             status: 503,
-            code: 'SERVICE_UNAVAILABLE',
+            code: ErrorCode.PSYNC_S2003,
             description: 'Service temporarily unavailable'
           })
         );
@@ -53,9 +53,9 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       const cp = await activeBucketStorage.getActiveCheckpoint();
       if (!cp.hasSyncRules()) {
         responder.onError(
-          new errors.JourneyError({
+          new errors.ServiceError({
             status: 500,
-            code: 'NO_SYNC_RULES',
+            code: ErrorCode.PSYNC_S2302,
             description: 'No sync rules available'
           })
         );

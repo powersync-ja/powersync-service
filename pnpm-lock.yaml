@@ -114,6 +114,9 @@ importers:
 
   libs/lib-services:
     dependencies:
+      '@powersync/service-errors':
+        specifier: workspace:*
+        version: link:../../packages/service-errors
       ajv:
         specifier: ^8.12.0
         version: 8.16.0
@@ -570,6 +573,8 @@ importers:
       typescript:
         specifier: ^5.6.2
         version: 5.6.2
+
+  packages/service-errors: {}
 
   packages/sync-rules:
     dependencies:

@@ -6,6 +6,7 @@ import { registerCompactAction } from './commands/compact-action.js';
 import { registerMigrationAction } from './commands/migrate-action.js';
 import { registerStartAction } from './commands/start-action.js';
 import { registerTearDownAction } from './commands/teardown-action.js';
+import { registerTestConnectionAction } from './commands/test-connection-action.js';
 
 /**
  * Generates a Commander program which serves as the entry point
@@ -20,6 +21,7 @@ export function generateEntryProgram(startHandlers?: Record<utils.ServiceRunner,
   registerTearDownAction(entryProgram);
   registerMigrationAction(entryProgram);
   registerCompactAction(entryProgram);
+  registerTestConnectionAction(entryProgram);
 
   if (startHandlers) {
     registerStartAction(entryProgram, startHandlers);

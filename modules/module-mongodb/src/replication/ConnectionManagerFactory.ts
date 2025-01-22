@@ -4,7 +4,7 @@ import { MongoManager } from './MongoManager.js';
 
 export class ConnectionManagerFactory {
   private readonly connectionManagers: MongoManager[];
-  private readonly dbConnectionConfig: NormalizedMongoConnectionConfig;
+  public readonly dbConnectionConfig: NormalizedMongoConnectionConfig;
 
   constructor(dbConnectionConfig: NormalizedMongoConnectionConfig) {
     this.dbConnectionConfig = dbConnectionConfig;

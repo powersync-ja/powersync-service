@@ -2,7 +2,16 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { SqlEventDescriptor, SqliteRow, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
-import { container, DisposableObserver, errors, logger } from '@powersync/lib-services-framework';
+import {
+  container,
+  DisposableObserver,
+  ErrorCode,
+  errors,
+  logger,
+  ReplicationAssertionError,
+  ServiceAssertionError,
+  ServiceError
+} from '@powersync/lib-services-framework';
 import { SaveOperationTag, storage, utils } from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
 import { PowerSyncMongo } from './db.js';
@@ -140,7 +149,7 @@ export class MongoBucketBatch
     this.batch = resumeBatch;
 
     if (last_op == null) {
-      throw new Error('Unexpected last_op == null');
+      throw new ReplicationAssertionError('Unexpected last_op == null');
     }
 
     this.persisted_op = last_op;
@@ -294,7 +303,7 @@ export class MongoBucketBatch
           return null;
         }
       } else {
-        throw new Error(`${record.tag} not supported with skipExistingRows: true`);
+        throw new ReplicationAssertionError(`${record.tag} not supported with skipExistingRows: true`);
       }
     }
 
@@ -348,7 +357,7 @@ export class MongoBucketBatch
         afterData = new bson.Binary(bson.serialize(after!));
         // We additionally make sure it's <= 15MB - we need some margin for metadata.
         if (afterData.length() > MAX_ROW_SIZE) {
-          throw new Error(`Row too large: ${afterData.length()}`);
+          throw new ServiceError(ErrorCode.PSYNC_S1002, `Row too large: ${afterData.length()}`);
         }
       } catch (e) {
         // Replace with empty values, equivalent to TOAST values
@@ -548,7 +557,7 @@ export class MongoBucketBatch
         logger.info(`${this.slot_name} ${description} - try ${flushTry}`);
       }
       if (flushTry > 20 && Date.now() > lastTry) {
-        throw new Error('Max transaction tries exceeded');
+        throw new ServiceError(ErrorCode.PSYNC_S1402, 'Max transaction tries exceeded');
       }
 
       const next_op_id_doc = await this.db.op_id_sequence.findOneAndUpdate(

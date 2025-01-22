@@ -2,6 +2,7 @@ import { storage, replication } from '@powersync/service-core';
 import { ChangeStreamReplicationJob } from './ChangeStreamReplicationJob.js';
 import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
 import { MongoErrorRateLimiter } from './MongoErrorRateLimiter.js';
+import { MongoModule } from '../module/MongoModule.js';
 
 export interface ChangeStreamReplicatorOptions extends replication.AbstractReplicatorOptions {
   connectionFactory: ConnectionManagerFactory;
@@ -32,5 +33,9 @@ export class ChangeStreamReplicator extends replication.AbstractReplicator<Chang
   async stop(): Promise<void> {
     await super.stop();
     await this.connectionFactory.shutdown();
+  }
+
+  async testConnection() {
+    return await MongoModule.testConnection(this.connectionFactory.dbConnectionConfig);
   }
 }

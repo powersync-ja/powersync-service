@@ -1,16 +1,8 @@
-import { Statement, SelectFromStatement } from 'pgsql-ast-parser';
-import {
-  DatabaseInputRow,
-  SqliteRow,
-  SqliteJsonRow,
-  SqliteJsonValue,
-  SqliteValue,
-  RequestParameters,
-  RequestJwtPayload
-} from './types.js';
+import { JSONBig, JsonContainer, Replacer, stringifyRaw } from '@powersync/service-jsonbig';
+import { SelectFromStatement, Statement } from 'pgsql-ast-parser';
 import { SQLITE_FALSE, SQLITE_TRUE } from './sql_support.js';
-import { JsonContainer } from '@powersync/service-jsonbig';
-import { JSONBig, stringifyRaw, Replacer } from '@powersync/service-jsonbig';
+import { DatabaseInputRow, SqliteJsonRow, SqliteJsonValue, SqliteRow, SqliteValue } from './types.js';
+import { SyncRuleProcessingError as SyncRulesProcessingError } from './errors.js';
 
 export function isSelectStatement(q: Statement): q is SelectFromStatement {
   return q.type == 'select';
@@ -69,7 +61,12 @@ export function isJsonValue(value: SqliteValue): value is SqliteJsonValue {
 function filterJsonData(data: any, depth = 0): any {
   if (depth > DEPTH_LIMIT) {
     // This is primarily to prevent infinite recursion
-    throw new Error(`json nested object depth exceeds the limit of ${DEPTH_LIMIT}`);
+    // TODO: Proper error class
+    throw new SyncRulesProcessingError(
+      // FIXME: Use @powersync/service-errors
+      'PSYNC_S1004',
+      `json nested object depth exceeds the limit of ${DEPTH_LIMIT}`
+    );
   }
   if (data == null) {
     return data; // null or undefined

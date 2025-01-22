@@ -1,4 +1,4 @@
-import { makeHostnameLookupFunction } from '@powersync/lib-services-framework';
+import { ErrorCode, makeHostnameLookupFunction, ServiceError } from '@powersync/lib-services-framework';
 import type * as jpgwire from '@powersync/service-jpgwire';
 import * as service_types from '@powersync/service-types';
 import * as t from 'ts-codec';
@@ -58,7 +58,10 @@ export function normalizeConnectionConfig(options: BasePostgresConnectionConfigD
   if (options.uri) {
     uri = urijs.parse(options.uri);
     if (uri.scheme != 'postgresql' && uri.scheme != 'postgres') {
-      `Invalid URI - protocol must be postgresql, got ${uri.scheme}`;
+      throw new ServiceError(
+        ErrorCode.PSYNC_S1109,
+        `Invalid URI - protocol must be postgresql, got ${JSON.stringify(uri.scheme)}`
+      );
     } else if (uri.scheme != 'postgresql') {
       uri.scheme = 'postgresql';
     }
@@ -80,23 +83,26 @@ export function normalizeConnectionConfig(options: BasePostgresConnectionConfigD
   const cacert = options.cacert;
 
   if (sslmode == 'verify-ca' && cacert == null) {
-    throw new Error('Explicit cacert is required for sslmode=verify-ca');
+    throw new ServiceError(
+      ErrorCode.PSYNC_S1104,
+      'Postgres connection: Explicit cacert is required for `sslmode: verify-ca`'
+    );
   }
 
   if (hostname == '') {
-    throw new Error(`hostname required`);
+    throw new ServiceError(ErrorCode.PSYNC_S1106, `Postgres connection: hostname required`);
   }
 
   if (username == '') {
-    throw new Error(`username required`);
+    throw new ServiceError(ErrorCode.PSYNC_S1107, `Postgres connection: username required`);
   }
 
   if (password == '') {
-    throw new Error(`password required`);
+    throw new ServiceError(ErrorCode.PSYNC_S1108, `Postgres connection: password required`);
   }
 
   if (database == '') {
-    throw new Error(`database required`);
+    throw new ServiceError(ErrorCode.PSYNC_S1105, `Postgres connection: database required`);
   }
 
   const lookupOptions = { reject_ip_ranges: options.reject_ip_ranges ?? [] };
@@ -132,8 +138,8 @@ export function validatePort(port: string | number): number {
   if (typeof port == 'string') {
     port = parseInt(port);
   }
-  if (port < 1024) {
-    throw new Error(`Port ${port} not supported`);
+  if (port < 1024 || port > 65535) {
+    throw new ServiceError(ErrorCode.PSYNC_S1110, `Port ${port} not supported`);
   }
   return port;
 }

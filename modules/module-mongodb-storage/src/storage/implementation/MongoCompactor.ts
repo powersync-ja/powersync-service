@@ -1,5 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { logger } from '@powersync/lib-services-framework';
+import { logger, ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
 
 import { PowerSyncMongo } from './db.js';
@@ -335,7 +335,9 @@ export class MongoCompactor {
                   }
                 }
               } else {
-                throw new Error(`Unexpected ${op.op} operation at ${op._id.g}:${op._id.b}:${op._id.o}`);
+                throw new ReplicationAssertionError(
+                  `Unexpected ${op.op} operation at ${op._id.g}:${op._id.b}:${op._id.o}`
+                );
               }
             }
             if (!gotAnOp) {

@@ -1,4 +1,11 @@
-import { api, ConfigurationFileSyncRulesProvider, replication, system, TearDownOptions } from '@powersync/service-core';
+import {
+  api,
+  ConfigurationFileSyncRulesProvider,
+  ConnectionTestResult,
+  replication,
+  system,
+  TearDownOptions
+} from '@powersync/service-core';
 
 import { MySQLRouteAPIAdapter } from '../api/MySQLRouteAPIAdapter.js';
 import { BinLogReplicator } from '../replication/BinLogReplicator.js';
@@ -54,10 +61,14 @@ export class MySQLModule extends replication.ReplicationModule<types.MySQLConnec
     // No specific teardown required for MySQL
   }
 
-  async testConnection(config: MySQLConnectionConfig): Promise<void> {
+  async testConnection(config: MySQLConnectionConfig) {
     this.decodeConfig(config);
-    const normalisedConfig = this.resolveConfig(this.decodedConfig!);
-    const connectionManager = new MySQLConnectionManager(normalisedConfig, {});
+    const normalizedConfig = this.resolveConfig(this.decodedConfig!);
+    return await MySQLModule.testConnection(normalizedConfig);
+  }
+
+  static async testConnection(normalizedConfig: types.ResolvedConnectionConfig): Promise<ConnectionTestResult> {
+    const connectionManager = new MySQLConnectionManager(normalizedConfig, {});
     const connection = await connectionManager.getConnection();
     try {
       const errors = await checkSourceConfiguration(connection);
@@ -67,5 +78,8 @@ export class MySQLModule extends replication.ReplicationModule<types.MySQLConnec
     } finally {
       await connectionManager.end();
     }
+    return {
+      connectionDescription: normalizedConfig.hostname
+    };
   }
 }

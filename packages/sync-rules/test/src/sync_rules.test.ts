@@ -745,6 +745,29 @@ bucket_definitions:
     ]);
   });
 
+  test('null bucket definition', () => {
+    const rules = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    `,
+      { schema: BASIC_SCHEMA, ...PARSE_OPTIONS, throwOnError: false }
+    );
+
+    expect(rules.errors).toMatchObject([
+      {
+        message: "'mybucket' bucket definition must be an object",
+        type: 'fatal'
+      },
+      // Ideally this should not be displayed - it's an additional JSON schema validation error
+      // for the same issue. For now we just include both.
+      {
+        message: 'must be object',
+        type: 'fatal'
+      }
+    ]);
+  });
+
   test('dangerous query errors', () => {
     const rules = SqlSyncRules.fromYaml(
       `
