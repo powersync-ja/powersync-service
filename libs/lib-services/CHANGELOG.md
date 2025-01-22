@@ -1,5 +1,17 @@
 # @powersync/lib-services-framework
 
+## 0.5.0
+
+### Minor Changes
+
+- 8675236: Allow limiting IP ranges of outgoing connections
+
+### Patch Changes
+
+- f049aa9: Introduce standard error codes
+- Updated dependencies [f049aa9]
+  - @powersync/service-errors@0.1.1
+
 ## 0.4.0
 
 ### Minor Changes

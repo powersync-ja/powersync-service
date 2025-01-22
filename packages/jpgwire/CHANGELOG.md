@@ -1,5 +1,11 @@
 # @powersync/service-jpgwire
 
+## 0.19.0
+
+### Minor Changes
+
+- 8675236: Allow custom lookup function and tls_servername. Also reduce dependencies.
+
 ## 0.18.5
 
 ### Patch Changes

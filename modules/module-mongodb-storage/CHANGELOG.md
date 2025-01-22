@@ -1,5 +1,22 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.3.1
+
+### Patch Changes
+
+- f049aa9: Introduce standard error codes
+- Updated dependencies [f049aa9]
+- Updated dependencies [8675236]
+- Updated dependencies [f049aa9]
+- Updated dependencies [8675236]
+- Updated dependencies [8675236]
+- Updated dependencies [f049aa9]
+  - @powersync/service-core@0.16.0
+  - @powersync/service-sync-rules@0.23.2
+  - @powersync/service-types@0.7.1
+  - @powersync/lib-services-framework@0.5.0
+  - @powersync/lib-service-mongodb@0.4.0
+
 ## 0.3.0
 
 ### Minor Changes
