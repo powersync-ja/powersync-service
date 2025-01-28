@@ -1,4 +1,4 @@
-import { logger } from '@powersync/lib-services-framework';
+import { logger, ReplicationAbortedError, ReplicationAssertionError } from '@powersync/lib-services-framework';
 import * as sync_rules from '@powersync/service-sync-rules';
 import async from 'async';
 
@@ -318,11 +318,11 @@ AND table_type = 'BASE TABLE';`,
 
     for await (let row of stream) {
       if (this.stopped) {
-        throw new Error('Abort signal received - initial replication interrupted.');
+        throw new ReplicationAbortedError('Abort signal received - initial replication interrupted.');
       }
 
       if (columns == null) {
-        throw new Error(`No 'fields' event emitted`);
+        throw new ReplicationAssertionError(`No 'fields' event emitted`);
       }
 
       const record = common.toSQLiteRow(row, columns!);
@@ -383,7 +383,7 @@ AND table_type = 'BASE TABLE';`,
     if (table == null) {
       // We should always receive a replication message before the relation is used.
       // If we can't find it, it's a bug.
-      throw new Error(`Missing relation cache for ${tableId}`);
+      throw new ReplicationAssertionError(`Missing relation cache for ${tableId}`);
     }
     return table;
   }

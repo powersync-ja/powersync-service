@@ -1,3 +1,4 @@
+import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import * as t from 'ts-codec';
 
 export const BIGINT_MAX = BigInt('9223372036854775807');
@@ -98,7 +99,7 @@ export const hexBuffer = t.codec(
       return Buffer.from(encoded);
     }
     if (typeof encoded !== 'string') {
-      throw new Error(`Expected either a Buffer instance or hex encoded buffer string`);
+      throw new ReplicationAssertionError(`Expected either a Buffer instance or hex encoded buffer string`);
     }
     return Buffer.from(encoded, 'hex');
   }
@@ -116,7 +117,7 @@ export const pgwire_number = t.codec(
       return encoded;
     }
     if (typeof encoded !== 'bigint') {
-      throw new Error(`Expected either number or bigint for value`);
+      throw new ReplicationAssertionError(`Expected either number or bigint for value`);
     }
     if (encoded > BigInt(Number.MAX_SAFE_INTEGER) || encoded < BigInt(Number.MIN_SAFE_INTEGER)) {
       throw new RangeError('BigInt value is out of safe integer range for conversion to Number.');

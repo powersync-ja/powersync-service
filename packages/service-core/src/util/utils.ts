@@ -7,6 +7,7 @@ import { BucketChecksum, OpId, OplogEntry } from './protocol-types.js';
 import * as storage from '../storage/storage-index.js';
 
 import { PartialChecksum } from '../storage/ChecksumCache.js';
+import { ServiceAssertionError } from '@powersync/lib-services-framework';
 
 export type ChecksumMap = Map<string, BucketChecksum>;
 
@@ -34,7 +35,7 @@ export function timestampToOpId(ts: bigint): OpId {
   // Dynamic values are passed in in some cases, so we make extra sure that the
   // number is a bigint and not number or Long.
   if (typeof ts != 'bigint') {
-    throw new Error(`bigint expected, got: ${ts} (${typeof ts})`);
+    throw new ServiceAssertionError(`bigint expected, got: ${ts} (${typeof ts})`);
   }
   return ts.toString(10);
 }

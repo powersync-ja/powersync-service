@@ -1,4 +1,6 @@
+import { ErrorCode, makeHostnameLookupFunction, ServiceError } from '@powersync/lib-services-framework';
 import * as service_types from '@powersync/service-types';
+import { LookupFunction } from 'node:net';
 import * as t from 'ts-codec';
 import * as urijs from 'uri-js';
 
@@ -19,6 +21,8 @@ export interface NormalizedMySQLConnectionConfig {
   cacert?: string;
   client_certificate?: string;
   client_private_key?: string;
+
+  lookup?: LookupFunction;
 }
 
 export const MySQLConnectionConfig = service_types.configFile.DataSourceConfig.and(
@@ -34,7 +38,9 @@ export const MySQLConnectionConfig = service_types.configFile.DataSourceConfig.a
 
     cacert: t.string.optional(),
     client_certificate: t.string.optional(),
-    client_private_key: t.string.optional()
+    client_private_key: t.string.optional(),
+
+    reject_ip_ranges: t.array(t.string).optional()
   })
 );
 
@@ -58,7 +64,10 @@ export function normalizeConnectionConfig(options: MySQLConnectionConfig): Norma
   if (options.uri) {
     uri = urijs.parse(options.uri);
     if (uri.scheme != 'mysql') {
-      throw new Error(`Invalid URI - protocol must be mysql, got ${uri.scheme}`);
+      throw new ServiceError(
+        ErrorCode.PSYNC_S1109,
+        `Invalid URI - protocol must be mysql, got ${JSON.stringify(uri.scheme)}`
+      );
     }
   } else {
     uri = urijs.parse('mysql:///');
@@ -75,20 +84,22 @@ export function normalizeConnectionConfig(options: MySQLConnectionConfig): Norma
   const password = options.password ?? uri_password ?? '';
 
   if (hostname == '') {
-    throw new Error(`hostname required`);
+    throw new ServiceError(ErrorCode.PSYNC_S1106, `MySQL connection: hostname required`);
   }
 
   if (username == '') {
-    throw new Error(`username required`);
+    throw new ServiceError(ErrorCode.PSYNC_S1107, `MySQL connection: username required`);
   }
 
   if (password == '') {
-    throw new Error(`password required`);
+    throw new ServiceError(ErrorCode.PSYNC_S1108, `MySQL connection: password required`);
   }
 
   if (database == '') {
-    throw new Error(`database required`);
+    throw new ServiceError(ErrorCode.PSYNC_S1105, `MySQL connection: database required`);
   }
+
+  const lookup = makeHostnameLookupFunction(hostname, { reject_ip_ranges: options.reject_ip_ranges ?? [] });
 
   return {
     id: options.id ?? 'default',
@@ -101,6 +112,8 @@ export function normalizeConnectionConfig(options: MySQLConnectionConfig): Norma
     username,
     password,
 
-    server_id: options.server_id ?? 1
+    server_id: options.server_id ?? 1,
+
+    lookup
   };
 }

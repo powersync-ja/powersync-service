@@ -1,4 +1,4 @@
-import { logger } from '@powersync/lib-services-framework';
+import { logger, LookupOptions } from '@powersync/lib-services-framework';
 import { configFile } from '@powersync/service-types';
 import * as auth from '../../auth/auth-index.js';
 import { ConfigCollector } from './collectors/config-collector.js';
@@ -91,12 +91,23 @@ export class CompoundConfigCollector {
       jwks_uris = [jwks_uris];
     }
 
+    let jwksLookup: LookupOptions = {
+      reject_ip_ranges: []
+    };
+
+    if (baseConfig.client_auth?.jwks_reject_ip_ranges != null) {
+      jwksLookup = {
+        reject_ip_ranges: baseConfig.client_auth?.jwks_reject_ip_ranges
+      };
+    }
+    if (baseConfig.client_auth?.block_local_jwks) {
+      // Deprecated - recommend method is to use jwks_reject_ip_ranges
+      jwksLookup.reject_ip_ranges.push('local');
+      jwksLookup.reject_ipv6 = true;
+    }
+
     for (let uri of jwks_uris) {
-      collectors.add(
-        new auth.CachedKeyCollector(
-          new auth.RemoteJWKSCollector(uri, { block_local_ip: !!baseConfig.client_auth?.block_local_jwks })
-        )
-      );
+      collectors.add(new auth.CachedKeyCollector(new auth.RemoteJWKSCollector(uri, { lookupOptions: jwksLookup })));
     }
 
     const baseDevKey = (baseConfig.client_auth?.jwks?.keys ?? []).find((key) => key.kid == POWERSYNC_DEV_KID);
@@ -121,9 +132,6 @@ export class CompoundConfigCollector {
       api_tokens: baseConfig.api?.tokens ?? [],
       dev: {
         demo_auth: baseConfig.dev?.demo_auth ?? false,
-        demo_client: baseConfig.dev?.demo_client ?? false,
-        demo_password: baseConfig.dev?.demo_password,
-        crud_api: baseConfig.dev?.crud_api ?? false,
         dev_key: devKey
       },
       port: baseConfig.port ?? 8080,

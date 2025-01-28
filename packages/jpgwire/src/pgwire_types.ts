@@ -1,9 +1,7 @@
 // Adapted from https://github.com/kagis/pgwire/blob/0dc927f9f8990a903f238737326e53ba1c8d094f/mod.js#L2218
 
-import type { PgoutputRelation } from 'pgwire/mod.js';
-import { dateToSqlite, lsnMakeComparable, timestampToSqlite, timestamptzToSqlite } from './util.js';
 import { JsonContainer } from '@powersync/service-jsonbig';
-import { DatabaseInputRow } from '@powersync/service-sync-rules';
+import { dateToSqlite, lsnMakeComparable, timestampToSqlite, timestamptzToSqlite } from './util.js';
 
 export class PgType {
   static decode(text: string, typeOid: number) {
@@ -235,22 +233,4 @@ export class PgType {
   static _encodeBytea(bytes: Uint8Array): string {
     return '\\x' + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
   }
-}
-
-/**
- * We need a high level of control over how values are decoded, to make sure there is no loss
- * of precision in the process.
- */
-export function decodeTuple(relation: PgoutputRelation, tupleRaw: Record<string, any>): DatabaseInputRow {
-  let result: Record<string, any> = {};
-  for (let columnName in tupleRaw) {
-    const rawval = tupleRaw[columnName];
-    const typeOid = (relation as any)._tupleDecoder._typeOids.get(columnName);
-    if (typeof rawval == 'string' && typeOid) {
-      result[columnName] = PgType.decode(rawval, typeOid);
-    } else {
-      result[columnName] = rawval;
-    }
-  }
-  return result;
 }

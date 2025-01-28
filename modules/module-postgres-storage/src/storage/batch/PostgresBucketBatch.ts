@@ -1,5 +1,14 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
-import { container, DisposableObserver, errors, logger } from '@powersync/lib-services-framework';
+import {
+  container,
+  DisposableObserver,
+  ErrorCode,
+  errors,
+  logger,
+  ReplicationAssertionError,
+  ServiceAssertionError,
+  ServiceError
+} from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as timers from 'timers/promises';
@@ -258,7 +267,7 @@ export class PostgresBucketBatch
     this.batch = resumeBatch;
 
     if (lastOp == null) {
-      throw new Error('Unexpected last_op == null');
+      throw new ServiceAssertionError('Unexpected last_op == null');
     }
 
     this.persisted_op = lastOp;
@@ -633,7 +642,7 @@ export class PostgresBucketBatch
           return null;
         }
       } else {
-        throw new Error(`${record.tag} not supported with skipExistingRows: true`);
+        throw new ReplicationAssertionError(`${record.tag} not supported with skipExistingRows: true`);
       }
     }
 
@@ -682,7 +691,7 @@ export class PostgresBucketBatch
       try {
         afterData = storage.serializeBson(after);
         if (afterData!.byteLength > MAX_ROW_SIZE) {
-          throw new Error(`Row too large: ${afterData?.byteLength}`);
+          throw new ServiceError(ErrorCode.PSYNC_S1002, `Row too large: ${afterData?.byteLength}`);
         }
       } catch (e) {
         // Replace with empty values, equivalent to TOAST values

@@ -1,24 +1,10 @@
+import { ErrorCode, makeHostnameLookupFunction, ServiceError } from '@powersync/lib-services-framework';
+import type * as jpgwire from '@powersync/service-jpgwire';
 import * as service_types from '@powersync/service-types';
 import * as t from 'ts-codec';
 import * as urijs from 'uri-js';
 
-export interface NormalizedBasePostgresConnectionConfig {
-  id: string;
-  tag: string;
-
-  hostname: string;
-  port: number;
-  database: string;
-
-  username: string;
-  password: string;
-
-  sslmode: 'verify-full' | 'verify-ca' | 'disable';
-  cacert: string | undefined;
-
-  client_certificate: string | undefined;
-  client_private_key: string | undefined;
-}
+export interface NormalizedBasePostgresConnectionConfig extends jpgwire.NormalizedConnectionConfig {}
 
 export const POSTGRES_CONNECTION_TYPE = 'postgresql' as const;
 
@@ -43,8 +29,15 @@ export const BasePostgresConnectionConfig = t.object({
   client_certificate: t.string.optional(),
   client_private_key: t.string.optional(),
 
-  /** Expose database credentials */
-  demo_database: t.boolean.optional(),
+  /** Specify to use a servername for TLS that is different from hostname. */
+  tls_servername: t.string.optional(),
+
+  /**
+   * Block connections in any of these IP ranges.
+   *
+   * Use 'local' to block anything not in public unicast ranges.
+   */
+  reject_ip_ranges: t.array(t.string).optional(),
 
   /**
    * Prefix for the slot name. Defaults to "powersync_"
@@ -65,7 +58,10 @@ export function normalizeConnectionConfig(options: BasePostgresConnectionConfigD
   if (options.uri) {
     uri = urijs.parse(options.uri);
     if (uri.scheme != 'postgresql' && uri.scheme != 'postgres') {
-      `Invalid URI - protocol must be postgresql, got ${uri.scheme}`;
+      throw new ServiceError(
+        ErrorCode.PSYNC_S1109,
+        `Invalid URI - protocol must be postgresql, got ${JSON.stringify(uri.scheme)}`
+      );
     } else if (uri.scheme != 'postgresql') {
       uri.scheme = 'postgresql';
     }
@@ -87,24 +83,30 @@ export function normalizeConnectionConfig(options: BasePostgresConnectionConfigD
   const cacert = options.cacert;
 
   if (sslmode == 'verify-ca' && cacert == null) {
-    throw new Error('Explicit cacert is required for sslmode=verify-ca');
+    throw new ServiceError(
+      ErrorCode.PSYNC_S1104,
+      'Postgres connection: Explicit cacert is required for `sslmode: verify-ca`'
+    );
   }
 
   if (hostname == '') {
-    throw new Error(`hostname required`);
+    throw new ServiceError(ErrorCode.PSYNC_S1106, `Postgres connection: hostname required`);
   }
 
   if (username == '') {
-    throw new Error(`username required`);
+    throw new ServiceError(ErrorCode.PSYNC_S1107, `Postgres connection: username required`);
   }
 
   if (password == '') {
-    throw new Error(`password required`);
+    throw new ServiceError(ErrorCode.PSYNC_S1108, `Postgres connection: password required`);
   }
 
   if (database == '') {
-    throw new Error(`database required`);
+    throw new ServiceError(ErrorCode.PSYNC_S1105, `Postgres connection: database required`);
   }
+
+  const lookupOptions = { reject_ip_ranges: options.reject_ip_ranges ?? [] };
+  const lookup = makeHostnameLookupFunction(hostname, lookupOptions);
 
   return {
     id: options.id ?? 'default',
@@ -118,6 +120,9 @@ export function normalizeConnectionConfig(options: BasePostgresConnectionConfigD
     password,
     sslmode,
     cacert,
+
+    tls_servername: options.tls_servername ?? undefined,
+    lookup,
 
     client_certificate: options.client_certificate ?? undefined,
     client_private_key: options.client_private_key ?? undefined
@@ -133,8 +138,8 @@ export function validatePort(port: string | number): number {
   if (typeof port == 'string') {
     port = parseInt(port);
   }
-  if (port < 1024) {
-    throw new Error(`Port ${port} not supported`);
+  if (port < 1024 || port > 65535) {
+    throw new ServiceError(ErrorCode.PSYNC_S1110, `Port ${port} not supported`);
   }
   return port;
 }

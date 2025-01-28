@@ -128,8 +128,11 @@ export const powerSyncConfig = t.object({
   dev: t
     .object({
       demo_auth: t.boolean.optional(),
+      /** @deprecated */
       demo_password: t.string.optional(),
+      /** @deprecated */
       crud_api: t.boolean.optional(),
+      /** @deprecated */
       demo_client: t.boolean.optional()
     })
     .optional(),
@@ -138,6 +141,7 @@ export const powerSyncConfig = t.object({
     .object({
       jwks_uri: t.string.or(t.array(t.string)).optional(),
       block_local_jwks: t.boolean.optional(),
+      jwks_reject_ip_ranges: t.array(t.string).optional(),
       jwks: strictJwks.optional(),
       supabase: t.boolean.optional(),
       supabase_jwt_secret: t.string.optional(),

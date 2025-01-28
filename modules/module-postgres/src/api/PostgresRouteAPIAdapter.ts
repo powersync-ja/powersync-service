@@ -1,4 +1,5 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
+import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { api, ParseSyncRulesOptions } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import * as sync_rules from '@powersync/service-sync-rules';
@@ -228,7 +229,11 @@ FROM pg_replication_slots WHERE slot_name = $1 LIMIT 1;`,
       return Number(row.lsn_distance);
     }
 
-    throw new Error(`Could not determine replication lag for slot ${slotName}`);
+    throw new ServiceError({
+      status: 500,
+      code: ErrorCode.PSYNC_S4001,
+      description: `Could not determine replication lag for slot ${slotName}`
+    });
   }
 
   async getReplicationHead(): Promise<string> {

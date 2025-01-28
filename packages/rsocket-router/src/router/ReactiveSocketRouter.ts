@@ -60,9 +60,9 @@ export class ReactiveSocketRouter<C> {
           // wss.clients.size includes this connection, so we check for greater than
           // TODO: Share connection limit between this and http stream connections
           if (max_concurrent_connections && wss.clients.size > max_concurrent_connections) {
-            const err = new errors.JourneyError({
+            const err = new errors.ServiceError({
               status: 429,
-              code: 'SERVER_BUSY',
+              code: errors.ErrorCode.PSYNC_S2304,
               description: `Maximum active concurrent connections limit has been reached`
             });
             logger.warn(err);
@@ -144,7 +144,7 @@ export async function handleReactiveStream<Context>(
   const route = params.endpoints.find((e) => e.path == path && e.type == RS_ENDPOINT_TYPE.STREAM);
 
   if (!route) {
-    return exitWithError(new errors.ResourceNotFound('route', `No route for ${path} is configured`));
+    return exitWithError(new errors.RouteNotFound(path));
   }
 
   const { handler, authorize, validator, decoder = params.payloadDecoder } = route;

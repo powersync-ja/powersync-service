@@ -1,5 +1,14 @@
 # @powersync/service-rsocket-router
 
+## 0.0.17
+
+### Patch Changes
+
+- f049aa9: Introduce standard error codes
+- Updated dependencies [8675236]
+- Updated dependencies [f049aa9]
+  - @powersync/lib-services-framework@0.5.0
+
 ## 0.0.16
 
 ### Patch Changes

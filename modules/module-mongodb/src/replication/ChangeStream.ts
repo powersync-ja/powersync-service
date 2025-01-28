@@ -1,5 +1,12 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { container, logger } from '@powersync/lib-services-framework';
+import {
+  container,
+  ErrorCode,
+  logger,
+  ReplicationAbortedError,
+  ReplicationAssertionError,
+  ServiceError
+} from '@powersync/lib-services-framework';
 import { Metrics, SaveOperationTag, SourceEntityDescriptor, SourceTable, storage } from '@powersync/service-core';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import { PostImagesOption } from '../types/types.js';
@@ -180,12 +187,18 @@ export class ChangeStream {
     const hello = await this.defaultDb.command({ hello: 1 });
     const snapshotTime = hello.lastWrite?.majorityOpTime?.ts as mongo.Timestamp;
     if (hello.msg == 'isdbgrid') {
-      throw new Error('Sharded MongoDB Clusters are not supported yet (including MongoDB Serverless instances).');
+      throw new ServiceError(
+        ErrorCode.PSYNC_S1341,
+        'Sharded MongoDB Clusters are not supported yet (including MongoDB Serverless instances).'
+      );
     } else if (hello.setName == null) {
-      throw new Error('Standalone MongoDB instances are not supported - use a replicaset.');
+      throw new ServiceError(
+        ErrorCode.PSYNC_S1342,
+        'Standalone MongoDB instances are not supported - use a replicaset.'
+      );
     } else if (snapshotTime == null) {
       // Not known where this would happen apart from the above cases
-      throw new Error('MongoDB lastWrite timestamp not found.');
+      throw new ReplicationAssertionError('MongoDB lastWrite timestamp not found.');
     }
     // We previously used {snapshot: true} for the snapshot session.
     // While it gives nice consistency guarantees, it fails when the
@@ -294,7 +307,7 @@ export class ChangeStream {
 
     for await (let document of cursor) {
       if (this.abort_signal.aborted) {
-        throw new Error(`Aborted initial replication`);
+        throw new ReplicationAbortedError(`Aborted initial replication`);
       }
 
       at += 1;
@@ -367,7 +380,7 @@ export class ChangeStream {
       });
       logger.info(`Enabled postImages on ${db}.${collectionInfo.name}`);
     } else if (!enabled) {
-      throw new Error(`postImages not enabled on ${db}.${collectionInfo.name}`);
+      throw new ServiceError(ErrorCode.PSYNC_S1343, `postImages not enabled on ${db}.${collectionInfo.name}`);
     }
   }
 
@@ -385,7 +398,7 @@ export class ChangeStream {
 
     const snapshot = options.snapshot;
     if (!descriptor.objectId && typeof descriptor.objectId != 'string') {
-      throw new Error('objectId expected');
+      throw new ReplicationAssertionError('MongoDB replication - objectId expected');
     }
     const result = await this.storage.resolveTable({
       group_id: this.group_id,
@@ -466,7 +479,7 @@ export class ChangeStream {
         beforeReplicaId: change.documentKey._id
       });
     } else {
-      throw new Error(`Unsupported operation: ${change.operationType}`);
+      throw new ReplicationAssertionError(`Unsupported operation: ${change.operationType}`);
     }
   }
 
@@ -607,7 +620,7 @@ export class ChangeStream {
             }
           } else if (splitDocument != null) {
             // We were waiting for fragments, but got a different event
-            throw new Error(`Incomplete splitEvent: ${JSON.stringify(splitDocument.splitEvent)}`);
+            throw new ReplicationAssertionError(`Incomplete splitEvent: ${JSON.stringify(splitDocument.splitEvent)}`);
           }
 
           // console.log('event', changeDocument);

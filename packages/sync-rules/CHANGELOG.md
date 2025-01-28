@@ -1,5 +1,12 @@
 # @powersync/service-sync-rules
 
+## 0.23.2
+
+### Patch Changes
+
+- f049aa9: Improved error message for "null" bucket definitions.
+- f049aa9: Introduce standard error codes
+
 ## 0.23.1
 
 ### Patch Changes

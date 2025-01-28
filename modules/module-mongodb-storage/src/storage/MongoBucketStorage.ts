@@ -5,7 +5,7 @@ import * as timers from 'timers/promises';
 
 import { storage, sync, utils } from '@powersync/service-core';
 
-import { DisposableObserver, logger } from '@powersync/lib-services-framework';
+import { DisposableObserver, ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
 
 import * as lib_mongo from '@powersync/lib-service-mongodb';
@@ -450,7 +450,7 @@ export class MongoBucketStorage
       clusterTime = time;
     });
     if (clusterTime == null) {
-      throw new Error('Could not get clusterTime');
+      throw new ServiceError(ErrorCode.PSYNC_S2401, 'Could not get clusterTime');
     }
 
     if (signal.aborted) {

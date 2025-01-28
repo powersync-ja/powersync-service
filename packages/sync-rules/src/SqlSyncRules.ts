@@ -110,6 +110,11 @@ export class SqlSyncRules implements SyncRules {
       const { key: keyScalar, value } = entry as { key: Scalar; value: YAMLMap };
       const key = keyScalar.toString();
 
+      if (value == null || !(value instanceof YAMLMap)) {
+        rules.errors.push(this.tokenError(keyScalar, `'${key}' bucket definition must be an object`));
+        continue;
+      }
+
       const accept_potentially_dangerous_queries =
         value.get('accept_potentially_dangerous_queries', true)?.value == true;
       const queryOptions: QueryParseOptions = {

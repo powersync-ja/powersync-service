@@ -1,13 +1,19 @@
 import { DataSourceConfig } from '@powersync/service-types/dist/config/PowerSyncConfig.js';
 import * as t from 'ts-codec';
 
+import { schema } from '@powersync/lib-services-framework';
 import * as types from '@powersync/service-types';
 import * as api from '../api/api-index.js';
 import * as modules from '../modules/modules-index.js';
 import * as system from '../system/system-index.js';
-import { schema } from '@powersync/lib-services-framework';
 import { AbstractReplicator } from './AbstractReplicator.js';
-import { TearDownOptions } from '../modules/modules-index.js';
+
+export interface ConnectionTestResult {
+  /**
+   * Connection URI or hostname.
+   */
+  connectionDescription: string;
+}
 
 /**
  *  Provides a common interface for testing the connection to a DataSource.
@@ -17,7 +23,7 @@ export interface ConnectionTester<TConfig extends DataSourceConfig> {
    *  Confirm if a connection can be established to the datasource for the provided datasource configuration
    *  @param config
    */
-  testConnection(config: TConfig): Promise<void>;
+  testConnection(config: TConfig): Promise<ConnectionTestResult>;
 }
 
 export interface ReplicationModuleOptions extends modules.AbstractModuleOptions {
@@ -58,7 +64,7 @@ export abstract class ReplicationModule<TConfig extends DataSourceConfig>
    */
   protected abstract createReplicator(context: system.ServiceContext): AbstractReplicator;
 
-  public abstract testConnection(config: TConfig): Promise<void>;
+  public abstract testConnection(config: TConfig): Promise<ConnectionTestResult>;
 
   /**
    *  Register this module's Replicators and RouteAPI adapters if the required configuration is present.
@@ -81,16 +87,12 @@ export abstract class ReplicationModule<TConfig extends DataSourceConfig>
       );
     }
 
-    try {
-      const baseMatchingConfig = matchingConfig[0] as TConfig;
-      // If decoding fails, log the error and continue, no replication will happen for this data source
-      this.decodeConfig(baseMatchingConfig);
+    const baseMatchingConfig = matchingConfig[0] as TConfig;
+    // If decoding fails, this will raise a hard error, and stop the service.
+    this.decodeConfig(baseMatchingConfig);
 
-      context.replicationEngine?.register(this.createReplicator(context));
-      context.routerEngine?.registerAPI(this.createRouteAPIAdapter());
-    } catch (e) {
-      this.logger.error('Failed to initialize.', e);
-    }
+    context.replicationEngine?.register(this.createReplicator(context));
+    context.routerEngine?.registerAPI(this.createRouteAPIAdapter());
   }
 
   protected decodeConfig(config: TConfig): void {

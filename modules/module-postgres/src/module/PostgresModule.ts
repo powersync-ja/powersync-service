@@ -1,4 +1,12 @@
-import { api, auth, ConfigurationFileSyncRulesProvider, modules, replication, system } from '@powersync/service-core';
+import {
+  api,
+  auth,
+  ConfigurationFileSyncRulesProvider,
+  ConnectionTestResult,
+  modules,
+  replication,
+  system
+} from '@powersync/service-core';
 import * as jpgwire from '@powersync/service-jpgwire';
 import { PostgresRouteAPIAdapter } from '../api/PostgresRouteAPIAdapter.js';
 import { SupabaseKeyCollector } from '../auth/SupabaseKeyCollector.js';
@@ -10,6 +18,7 @@ import { PUBLICATION_NAME } from '../replication/WalStream.js';
 import { WalStreamReplicator } from '../replication/WalStreamReplicator.js';
 import * as types from '../types/types.js';
 import { PostgresConnectionConfig } from '../types/types.js';
+import { baseUri, NormalizedBasePostgresConnectionConfig } from '@powersync/lib-service-postgres';
 
 export class PostgresModule extends replication.ReplicationModule<types.PostgresConnectionConfig> {
   constructor() {
@@ -124,18 +133,26 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
       });
   }
 
-  async testConnection(config: PostgresConnectionConfig): Promise<void> {
+  async testConnection(config: PostgresConnectionConfig): Promise<ConnectionTestResult> {
     this.decodeConfig(config);
-    const normalisedConfig = this.resolveConfig(this.decodedConfig!);
-    const connectionManager = new PgManager(normalisedConfig, {
+    const normalizedConfig = this.resolveConfig(this.decodedConfig!);
+    return await this.testConnection(normalizedConfig);
+  }
+
+  static async testConnection(normalizedConfig: NormalizedBasePostgresConnectionConfig): Promise<ConnectionTestResult> {
+    // FIXME: This is not a complete implementation yet.
+    const connectionManager = new PgManager(normalizedConfig, {
       idleTimeout: 30_000,
       maxSize: 1
     });
     const connection = await connectionManager.snapshotConnection();
     try {
-      return await checkSourceConfiguration(connection, PUBLICATION_NAME);
+      await checkSourceConfiguration(connection, PUBLICATION_NAME);
     } finally {
       await connectionManager.end();
     }
+    return {
+      connectionDescription: baseUri(normalizedConfig)
+    };
   }
 }

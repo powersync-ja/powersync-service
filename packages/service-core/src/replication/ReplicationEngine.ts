@@ -1,5 +1,6 @@
 import { logger } from '@powersync/lib-services-framework';
 import { AbstractReplicator } from './AbstractReplicator.js';
+import { ConnectionTestResult } from './ReplicationModule.js';
 
 export class ReplicationEngine {
   private readonly replicators: Map<string, AbstractReplicator> = new Map();
@@ -39,5 +40,9 @@ export class ReplicationEngine {
       await replicator.stop();
     }
     logger.info('Successfully shut down Replication Engine.');
+  }
+
+  public async testConnection(): Promise<ConnectionTestResult[]> {
+    return await Promise.all([...this.replicators.values()].map((replicator) => replicator.testConnection()));
   }
 }

@@ -6,5 +6,5 @@
     "rootDir": "src"
   },
   "include": ["src"],
-  "references": []
+  "references": [{ "path": "../../packages/service-errors" }]
 }

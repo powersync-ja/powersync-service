@@ -1,5 +1,11 @@
 # @powersync/service-types
 
+## 0.7.1
+
+### Patch Changes
+
+- 8675236: Minor config changes.
+
 ## 0.7.0
 
 ### Minor Changes

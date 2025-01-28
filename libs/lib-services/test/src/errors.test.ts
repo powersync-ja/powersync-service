@@ -2,10 +2,12 @@ import { describe, test, expect } from 'vitest';
 
 import * as errors from '../../src/errors/errors-index.js';
 
-class CustomJourneyError extends errors.JourneyError {
+const { ErrorCode } = errors;
+
+class CustomServiceError extends errors.ServiceError {
   constructor() {
     super({
-      code: 'CUSTOM_JOURNEY_ERROR',
+      code: ErrorCode.PSYNC_S0001,
       description: 'This is a custom error',
       details: 'this is some more detailed information'
     });
@@ -14,34 +16,34 @@ class CustomJourneyError extends errors.JourneyError {
 
 describe('errors', () => {
   test('it should respond to instanceof checks', () => {
-    const error = new CustomJourneyError();
+    const error = new CustomServiceError();
 
     expect(error instanceof Error).toBe(true);
-    expect(error instanceof errors.JourneyError).toBe(true);
-    expect(error.name).toBe('CustomJourneyError');
+    expect(error instanceof errors.ServiceError).toBe(true);
+    expect(error.name).toBe('CustomServiceError');
   });
 
   test('it should serialize properly', () => {
-    const error = new CustomJourneyError();
+    const error = new CustomServiceError();
 
     // The error stack will contain host specific path information. We only care about the header
     // anyway and that the stack is shown - indicated by the initial `at` text
-    const initial = `CustomJourneyError: [CUSTOM_JOURNEY_ERROR] This is a custom error
+    const initial = `CustomServiceError: [PSYNC_S0001] This is a custom error
   this is some more detailed information
     at`;
 
     expect(`${error}`.startsWith(initial)).toBe(true);
   });
 
-  test('utilities should properly match a journey error', () => {
-    const standard_error = new Error('non-journey error');
-    const error = new CustomJourneyError();
+  test('utilities should properly match a service error', () => {
+    const standard_error = new Error('non-service error');
+    const error = new CustomServiceError();
 
-    expect(errors.isJourneyError(standard_error)).toBe(false);
-    expect(errors.isJourneyError(error)).toBe(true);
+    expect(errors.isServiceError(standard_error)).toBe(false);
+    expect(errors.isServiceError(error)).toBe(true);
 
-    expect(errors.matchesErrorCode(error, 'CUSTOM_JOURNEY_ERROR')).toBe(true);
-    expect(errors.matchesErrorCode(standard_error, 'CUSTOM_JOURNEY_ERROR')).toBe(false);
+    expect(errors.matchesErrorCode(error, ErrorCode.PSYNC_S0001)).toBe(true);
+    expect(errors.matchesErrorCode(standard_error, ErrorCode.PSYNC_S0001)).toBe(false);
 
     expect(errors.getErrorData(error)).toMatchSnapshot();
     expect(errors.getErrorData(standard_error)).toBe(undefined);

@@ -60,6 +60,7 @@ export class PgManager {
     // for the full 6 minutes.
     // This we are constantly using the connection, we don't need any
     // custom keepalives.
+
     (connection as any)._socket.setTimeout(SNAPSHOT_SOCKET_TIMEOUT);
 
     // Disable statement timeout for snapshot queries.
