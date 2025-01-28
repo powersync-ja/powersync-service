@@ -157,6 +157,24 @@ export class PostgresBucketStorageFactory
     return newInstanceRow!.id;
   }
 
+  async getSystemIdentifier(): Promise<storage.BucketStorageSystemIdentifier> {
+    /**
+     * No special permissions should be required to read this.
+     */
+    const result = await this.db.sql`
+      SELECT
+        system_identifier
+      FROM
+        pg_control_system();
+    `.first<{ system_identifier: bigint }>();
+    const id = result!.system_identifier.toString();
+
+    return {
+      id,
+      type: lib_postgres.POSTGRES_CONNECTION_TYPE
+    };
+  }
+
   // TODO possibly share implementation in abstract class
   async configureSyncRules(
     sync_rules: string,

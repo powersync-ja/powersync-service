@@ -84,6 +84,23 @@ export class MongoBucketStorage
     return storage;
   }
 
+  async getSystemIdentifier(): Promise<storage.BucketStorageSystemIdentifier> {
+    let id = 'N/A';
+    try {
+      const result = await this.client
+        .db('local')
+        .collection('system.replset')
+        .findOne({}, { projection: { _id: 1 } });
+      id = result?._id.toString() ?? id;
+    } catch (ex) {
+      logger.warn(`Could not query MongoDB replica set id`, ex);
+    }
+    return {
+      id,
+      type: lib_mongo.MONGO_CONNECTION_TYPE
+    };
+  }
+
   async configureSyncRules(sync_rules: string, options?: { lock?: boolean }) {
     const next = await this.getNextSyncRulesContent();
     const active = await this.getActiveSyncRulesContent();

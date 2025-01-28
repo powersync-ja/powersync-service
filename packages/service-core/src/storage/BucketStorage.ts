@@ -60,6 +60,20 @@ export interface BucketStorageFactoryListener extends DisposableListener {
   replicationEvent: (event: ReplicationEventPayload) => void;
 }
 
+export interface BucketStorageSystemIdentifier {
+  /**
+   * A unique identifier for the system used for storage.
+   * For Postgres this can be the cluster `system_identifier`.
+   * For MongoDB this can be the replica set ID.
+   */
+  id: string;
+  /**
+   * A unique type for the storage implementation.
+   * e.g. `mongodb`, `postgresql`.
+   */
+  type: string;
+}
+
 export interface BucketStorageFactory extends AsyncDisposableObserverClient<BucketStorageFactoryListener> {
   /**
    * Update sync rules from configuration, if changed.
@@ -143,6 +157,11 @@ export interface BucketStorageFactory extends AsyncDisposableObserverClient<Buck
    * Get the unique identifier for this instance of Powersync
    */
   getPowerSyncInstanceId(): Promise<string>;
+
+  /**
+   * Get a unique identifier for the system used for storage.
+   */
+  getSystemIdentifier(): Promise<BucketStorageSystemIdentifier>;
 }
 
 export interface ReplicationCheckpoint {

@@ -13,6 +13,9 @@ export const ZERO_LSN = '00000000/00000000';
 export const PUBLICATION_NAME = 'powersync';
 export const POSTGRES_DEFAULT_SCHEMA = 'public';
 
+export const KEEPALIVE_CONTENT = 'ping';
+export const KEEPALIVE_BUFFER = Buffer.from(KEEPALIVE_CONTENT);
+
 export interface WalStreamOptions {
   connections: PgManager;
   storage: storage.SyncRulesBucketStorage;
@@ -25,6 +28,22 @@ interface InitResult {
   /** True if snapshot must be started from scratch with a new slot. */
   needsNewSlot: boolean;
 }
+
+export const isKeepAliveMessage = (msg: pgwire.PgoutputMessage) => {
+  return (
+    msg.tag == 'message' &&
+    msg.prefix == 'powersync' &&
+    msg.content &&
+    Buffer.from(msg.content).equals(KEEPALIVE_BUFFER)
+  );
+};
+
+export const sendKeepAlive = async (db: pgwire.PgClient) => {
+  await lib_postgres.retriedQuery(db, {
+    statement: `SELECT * FROM pg_logical_emit_message(false, 'powersync', $1)`,
+    params: [{ type: 'varchar', value: KEEPALIVE_CONTENT }]
+  });
+};
 
 export class MissingReplicationSlotError extends Error {
   constructor(message: string) {
@@ -65,10 +84,7 @@ export class WalStream {
           // Ping to speed up cancellation of streaming replication
           // We're not using pg_snapshot here, since it could be in the middle of
           // an initial replication transaction.
-          const promise = lib_postgres.retriedQuery(
-            this.connections.pool,
-            `SELECT * FROM pg_logical_emit_message(false, 'powersync', 'ping')`
-          );
+          const promise = sendKeepAlive(this.connections.pool);
           promise.catch((e) => {
             // Failures here are okay - this only speeds up stopping the process.
             logger.warn('Failed to ping connection', e);
@@ -376,6 +392,15 @@ WHERE  oid = $1::regclass`,
         await batch.commit(ZERO_LSN);
       }
     );
+    /**
+     * Send a keepalive message after initial replication.
+     * In some edge cases we wait for a keepalive after the initial snapshot.
+     * If we don't explicitly check the contents of keepalive messages then a keepalive is detected
+     * rather quickly after initial replication - perhaps due to other WAL events.
+     * If we do explicitly check the contents of messages, we need an actual keepalive payload in order
+     * to advance the active sync rules LSN.
+     */
+    await sendKeepAlive(db);
   }
 
   static *getQueryData(results: Iterable<DatabaseInputRow>): Generator<SqliteRow> {
@@ -592,13 +617,50 @@ WHERE  oid = $1::regclass`,
   async streamChanges(replicationConnection: pgwire.PgConnection) {
     // When changing any logic here, check /docs/wal-lsns.md.
 
+    const replicationOptions: Record<string, string> = {
+      proto_version: '1',
+      publication_names: PUBLICATION_NAME
+    };
+
+    /**
+     * Viewing the contents of logical messages emitted with `pg_logical_emit_message`
+     * is only supported on Postgres >= 14.0.
+     * https://www.postgresql.org/docs/14/protocol-logical-replication.html
+     */
+    const version = await this.connections.getServerVersion();
+    const exposesLogicalMessages = version ? version.compareMain('14.0.0') >= 0 : false;
+
+    if (exposesLogicalMessages) {
+      /**
+       * Only add this option if the Postgres server supports it.
+       * Adding the option to a server that doesn't support it will throw an exception when starting logical replication.
+       * Error: `unrecognized pgoutput option: messages`
+       */
+      replicationOptions['messages'] = 'true';
+    } else {
+      const storageIdentifier = await this.storage.factory.getSystemIdentifier();
+      if (storageIdentifier.type == lib_postgres.POSTGRES_CONNECTION_TYPE) {
+        /**
+         * Check if the same cluster is being used for both the sync bucket storage and the logical replication.
+         */
+        const replicationIdentifierResult = pgwire.pgwireRows(
+          await lib_postgres.retriedQuery(this.connections.pool, `SELECT system_identifier FROM pg_control_system();`)
+        ) as Array<{ system_identifier: bigint }>;
+
+        const replicationIdentifier = replicationIdentifierResult[0].system_identifier.toString();
+        if (replicationIdentifier == storageIdentifier.id) {
+          throw new Error(
+            `Separate Postgres clusters are required for the replication source and sync bucket storage when using .`
+          );
+        }
+      }
+    }
+
     const replicationStream = replicationConnection.logicalReplication({
       slot: this.slot_name,
-      options: {
-        proto_version: '1',
-        publication_names: PUBLICATION_NAME
-      }
+      options: replicationOptions
     });
+
     this.startedStreaming = true;
 
     // Auto-activate as soon as initial replication is done
@@ -621,6 +683,15 @@ WHERE  oid = $1::regclass`,
           // chunkLastLsn may come from normal messages in the chunk,
           // or from a PrimaryKeepalive message.
           const { messages, lastLsn: chunkLastLsn } = chunk;
+
+          /**
+           * We can check if an explicit keepalive was sent if `exposesLogicalMessages == true`.
+           * If we can't check the logical messages, we should assume a keepalive if we
+           * receive an empty array of messages in a replication event.
+           */
+          const assumeKeepalive = !exposesLogicalMessages;
+          let keepaliveDetected = false;
+
           for (const msg of messages) {
             if (msg.tag == 'relation') {
               await this.handleRelation(batch, getPgOutputRelation(msg), true);
@@ -636,12 +707,25 @@ WHERE  oid = $1::regclass`,
                 logger.info(`${this.slot_name} replicating op ${count} ${msg.lsn}`);
               }
 
+              /**
+               * If we can see the contents of logical messages, then we can check if a keepalive
+               * message is present. We only perform a keepalive (below) if we explicitly detect a keepalive message.
+               * If we can't see the contents of logical messages, then we should assume a keepalive is required
+               * due to the default value of `assumeKeepalive`.
+               */
+              if (exposesLogicalMessages && isKeepAliveMessage(msg)) {
+                keepaliveDetected = true;
+              }
+
               count += 1;
               await this.writeChange(batch, msg);
             }
           }
 
-          if (!inTx) {
+          if (!inTx && (assumeKeepalive || keepaliveDetected)) {
+            // Reset the detection flag.
+            keepaliveDetected = false;
+
             // In a transaction, we ack and commit according to the transaction progress.
             // Outside transactions, we use the PrimaryKeepalive messages to advance progress.
             // Big caveat: This _must not_ be used to skip individual messages, since this LSN
