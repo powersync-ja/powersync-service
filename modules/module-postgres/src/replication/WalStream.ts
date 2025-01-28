@@ -661,7 +661,7 @@ WHERE  oid = $1::regclass`,
           throw new DatabaseConnectionError(
             ErrorCode.PSYNC_S1144,
             `Separate Postgres clusters are required for the replication source and sync bucket storage when using Postgres version ${version}.`,
-            null
+            new Error('Postgres version is below 14')
           );
         }
       }
