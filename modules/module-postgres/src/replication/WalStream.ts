@@ -1,6 +1,8 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import {
   container,
+  DatabaseConnectionError,
+  ErrorCode,
   errors,
   logger,
   ReplicationAbortedError,
@@ -656,8 +658,10 @@ WHERE  oid = $1::regclass`,
 
         const replicationIdentifier = replicationIdentifierResult[0].system_identifier.toString();
         if (replicationIdentifier == storageIdentifier.id) {
-          throw new Error(
-            `Separate Postgres clusters are required for the replication source and sync bucket storage when using .`
+          throw new DatabaseConnectionError(
+            ErrorCode.PSYNC_S1144,
+            `Separate Postgres clusters are required for the replication source and sync bucket storage when using Postgres version ${version}.`,
+            null
           );
         }
       }
