@@ -1,5 +1,5 @@
 import * as t from 'ts-codec';
-import { SqliteJsonValue } from '@powersync/service-sync-rules';
+import { BucketPriority, SqliteJsonValue } from '@powersync/service-sync-rules';
 
 export const BucketRequest = t.object({
   name: t.string,
@@ -74,7 +74,9 @@ export interface StreamingSyncCheckpointComplete {
   };
 }
 
-export interface StreamingSyncKeepalive {}
+export interface StreamingSyncKeepalive {
+  token_expires_in: number;
+}
 
 export type StreamingSyncLine =
   | StreamingSyncData
@@ -141,4 +143,10 @@ export interface BucketChecksum {
    * Count of operations - informational only.
    */
   count: number;
+
+  /**
+   * The priority of the bucket, which _may_ affect the order of synchronization operations and, for
+   * priority `0`, also allows clients to upload data while a synchronization operation is in progress.
+   */
+  priority: BucketPriority;
 }

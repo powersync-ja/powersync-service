@@ -32,6 +32,7 @@ import {
   toBooleanParameterSetClause
 } from './sql_support.js';
 import {
+  BucketPriority,
   ClauseError,
   CompiledClause,
   InputParameter,
@@ -737,6 +738,25 @@ export class SqlTools {
     return {
       argsType
     };
+  }
+
+  isBucketPriorityParameter(name: string): boolean {
+    return name == "_priority";
+  }
+
+  extractBucketPriority(expr: Expr): BucketPriority | undefined {
+    if (expr.type !== 'integer') {
+      this.error('Priority must be a simple integer literal', expr);
+      return;
+    }
+
+    const value = expr.value;
+    if (!Number.isInteger(value) || value < 0 || value > 3) {
+      this.error('Invalid value for priority, must be between 0 and 3 (inclusive).', expr);
+      return;
+    }
+
+    return value as BucketPriority;
   }
 }
 

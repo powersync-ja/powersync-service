@@ -2,7 +2,7 @@ import { SelectedColumn, SelectFromStatement } from 'pgsql-ast-parser';
 import { SqlRuleError } from './errors.js';
 import { SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, isParameterValueClause, sqliteBool } from './sql_support.js';
-import { ParameterValueClause, QueryParseOptions, RequestParameters, SqliteJsonValue } from './types.js';
+import { BucketPriority, ParameterValueClause, QueryParseOptions, RequestParameters, SqliteJsonValue } from './types.js';
 import { getBucketId, isJsonValue } from './utils.js';
 
 /**
@@ -43,6 +43,11 @@ export class StaticSqlParameterQuery {
         tools.checkSpecificNameCase(column.alias);
       }
       const name = tools.getSpecificOutputName(column);
+      if (tools.isBucketPriorityParameter(name)) {
+        query.priority = tools.extractBucketPriority(column.expr);
+        continue;
+      }
+
       const extractor = tools.compileParameterValueExtractor(column.expr);
       if (isClauseError(extractor)) {
         // Error logged already
@@ -67,6 +72,7 @@ export class StaticSqlParameterQuery {
   sql?: string;
   columns?: SelectedColumn[];
   parameter_extractors: Record<string, ParameterValueClause> = {};
+  priority?: BucketPriority;
   descriptor_name?: string;
   /** _Output_ bucket parameters */
   bucket_parameters?: string[];

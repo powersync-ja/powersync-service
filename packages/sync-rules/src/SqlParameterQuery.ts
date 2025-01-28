@@ -7,6 +7,7 @@ import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
 import { TablePattern } from './TablePattern.js';
 import { TableQuerySchema } from './TableQuerySchema.js';
 import {
+  BucketPriority,
   EvaluatedParameters,
   EvaluatedParametersResult,
   InputParameter,
@@ -129,7 +130,14 @@ export class SqlParameterQuery {
       if (column.alias != null) {
         tools.checkSpecificNameCase(column.alias);
       }
-      if (tools.isTableRef(column.expr)) {
+      if (tools.isBucketPriorityParameter(name)) {
+        if (rows.priority !== undefined) {
+          rows.errors.push(new SqlRuleError('Cannot set priority multiple times.', sql));
+          continue;
+        }
+
+        rows.priority = tools.extractBucketPriority(column.expr);
+      } else if (tools.isTableRef(column.expr)) {
         rows.lookup_columns.push(column);
         const extractor = tools.compileRowValueExtractor(column.expr);
         if (isClauseError(extractor)) {
@@ -177,6 +185,7 @@ export class SqlParameterQuery {
    * Example: SELECT *token_parameters.user_id*
    */
   parameter_extractors: Record<string, ParameterValueClause> = {};
+  priority?: BucketPriority;
 
   filter?: ParameterMatchClause;
   descriptor_name?: string;
