@@ -85,16 +85,16 @@ export class MongoBucketStorage
   }
 
   async getSystemIdentifier(): Promise<storage.BucketStorageSystemIdentifier> {
-    let id = 'N/A';
-    try {
-      const result = await this.client
-        .db('local')
-        .collection('system.replset')
-        .findOne({}, { projection: { _id: 1 } });
-      id = result?._id.toString() ?? id;
-    } catch (ex) {
-      logger.warn(`Could not query MongoDB replica set id`, ex);
+    const { setName: id } = await this.db.db.command({
+      hello: 1
+    });
+    if (id == null) {
+      throw new ServiceError(
+        ErrorCode.PSYNC_S1342,
+        'Standalone MongoDB instances are not supported - use a replicaset.'
+      );
     }
+
     return {
       id,
       type: lib_mongo.MONGO_CONNECTION_TYPE

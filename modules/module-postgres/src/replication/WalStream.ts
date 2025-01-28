@@ -48,7 +48,12 @@ export const isKeepAliveMessage = (msg: pgwire.PgoutputMessage) => {
 
 export const sendKeepAlive = async (db: pgwire.PgClient) => {
   await lib_postgres.retriedQuery(db, {
-    statement: `SELECT * FROM pg_logical_emit_message(false, 'powersync', $1)`,
+    statement: /* sql */ `
+      SELECT
+        *
+      FROM
+        pg_logical_emit_message(FALSE, 'powersync', $1)
+    `,
     params: [{ type: 'varchar', value: KEEPALIVE_CONTENT }]
   });
 };
@@ -653,7 +658,15 @@ WHERE  oid = $1::regclass`,
          * Check if the same cluster is being used for both the sync bucket storage and the logical replication.
          */
         const replicationIdentifierResult = pgwire.pgwireRows(
-          await lib_postgres.retriedQuery(this.connections.pool, `SELECT system_identifier FROM pg_control_system();`)
+          await lib_postgres.retriedQuery(
+            this.connections.pool,
+            /* sql */ `
+              SELECT
+                system_identifier
+              FROM
+                pg_control_system();
+            `
+          )
         ) as Array<{ system_identifier: bigint }>;
 
         const replicationIdentifier = replicationIdentifierResult[0].system_identifier.toString();
