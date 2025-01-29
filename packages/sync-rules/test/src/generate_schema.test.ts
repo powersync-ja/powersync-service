@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   DEFAULT_TAG,
+  DartFlutterFlowSchemaGenerator,
   DartSchemaGenerator,
   JsLegacySchemaGenerator,
   SqlSyncRules,
@@ -75,6 +76,12 @@ bucket_definitions:
   ])
 ]);
 `);
+  });
+
+  test('flutterflow', () => {
+    expect(new DartFlutterFlowSchemaGenerator().generate(rules, schema)).toEqual(
+      '{"tables":[{"name":"assets1","view_name":null,"local_only":false,"insert_only":false,"columns":[{"name":"name","type":"text"},{"name":"count","type":"integer"},{"name":"owner_id","type":"text"}],"indexes":[]},{"name":"assets2","view_name":null,"local_only":false,"insert_only":false,"columns":[{"name":"name","type":"text"},{"name":"count","type":"integer"},{"name":"other_id","type":"text"},{"name":"foo","type":"text"}],"indexes":[]}]}'
+    );
   });
 
   test('js legacy', () => {

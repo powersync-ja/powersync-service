@@ -41,15 +41,50 @@ ${generated.join('\n')}
   }
 
   private generateColumn(column: ColumnDefinition) {
-    const t = column.type;
-    if (t.typeFlags & TYPE_TEXT) {
-      return `Column.text('${column.name}')`;
-    } else if (t.typeFlags & TYPE_REAL) {
-      return `Column.real('${column.name}')`;
-    } else if (t.typeFlags & TYPE_INTEGER) {
-      return `Column.integer('${column.name}')`;
-    } else {
-      return `Column.text('${column.name}')`;
-    }
+    return `Column.${dartColumnType(column)}('${column.name}')`;
   }
 }
+
+export class DartFlutterFlowSchemaGenerator extends SchemaGenerator {
+  readonly key = 'dart-flutterflow';
+  readonly label = 'FlutterFlow';
+  readonly mediaType = 'application/json';
+  readonly fileName = 'schema.json';
+
+  generate(source: SqlSyncRules, schema: SourceSchema, options?: GenerateSchemaOptions): string {
+    return JSON.stringify({
+      tables: this.getAllTables(source, schema).map((e) => this.generateTable(e.name, e.columns))
+    });
+  }
+
+  private generateTable(name: string, columns: ColumnDefinition[]): object {
+    return {
+      name,
+      view_name: null,
+      local_only: false,
+      insert_only: false,
+      columns: columns.map(this.generateColumn),
+      indexes: []
+    };
+  }
+
+  private generateColumn(definition: ColumnDefinition): object {
+    return {
+      name: definition.name,
+      type: dartColumnType(definition)
+    };
+  }
+}
+
+const dartColumnType = (def: ColumnDefinition) => {
+  const t = def.type;
+  if (t.typeFlags & TYPE_TEXT) {
+    return 'text';
+  } else if (t.typeFlags & TYPE_REAL) {
+    return 'real';
+  } else if (t.typeFlags & TYPE_INTEGER) {
+    return 'integer';
+  } else {
+    return 'text';
+  }
+};
