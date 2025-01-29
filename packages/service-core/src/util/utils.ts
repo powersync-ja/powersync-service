@@ -77,8 +77,8 @@ export function addBucketChecksums(a: BucketChecksum, b: PartialChecksum | null)
     return a;
   } else if (b.isFullChecksum) {
     return {
-      bucket: b.bucket,
-      priority: b.priority,
+      bucket: b.bucket.id,
+      priority: b.bucket.priority,
       count: b.partialCount,
       checksum: b.partialChecksum
     };

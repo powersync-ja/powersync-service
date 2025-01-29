@@ -2,8 +2,9 @@ import { SelectedColumn, SelectFromStatement } from 'pgsql-ast-parser';
 import { SqlRuleError } from './errors.js';
 import { SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, isParameterValueClause, sqliteBool } from './sql_support.js';
-import { BucketPriority, ParameterValueClause, QueryParseOptions, RequestParameters, SqliteJsonValue } from './types.js';
+import { ParameterValueClause, QueryParseOptions, RequestParameters, SqliteJsonValue } from './types.js';
 import { getBucketId, isJsonValue } from './utils.js';
+import { BucketPriority } from './BucketDescription.js';
 
 /**
  * Represents a bucket parameter query without any tables, e.g.:

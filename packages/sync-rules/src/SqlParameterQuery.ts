@@ -7,7 +7,6 @@ import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
 import { TablePattern } from './TablePattern.js';
 import { TableQuerySchema } from './TableQuerySchema.js';
 import {
-  BucketPriority,
   EvaluatedParameters,
   EvaluatedParametersResult,
   InputParameter,
@@ -26,6 +25,7 @@ import {
 import { filterJsonRow, getBucketId, isJsonValue, isSelectStatement } from './utils.js';
 import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
+import { BucketPriority } from './BucketDescription.js';
 
 /**
  * Represents a parameter query, such as:

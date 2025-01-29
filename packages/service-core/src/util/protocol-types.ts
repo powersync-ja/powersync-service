@@ -1,5 +1,5 @@
 import * as t from 'ts-codec';
-import { BucketPriority, SqliteJsonValue } from '@powersync/service-sync-rules';
+import { BucketDescription, BucketPriority, SqliteJsonValue } from '@powersync/service-sync-rules';
 
 export const BucketRequest = t.object({
   name: t.string,
@@ -52,14 +52,14 @@ export const StreamingSyncRequest = t.object({
 export type StreamingSyncRequest = t.Decoded<typeof StreamingSyncRequest>;
 
 export interface StreamingSyncCheckpoint {
-  checkpoint: Checkpoint;
+  checkpoint: BucketChecksumWithDescription;
 }
 
 export interface StreamingSyncCheckpointDiff {
   checkpoint_diff: {
     last_op_id: OpId;
     write_checkpoint?: OpId;
-    updated_buckets: BucketChecksum[];
+    updated_buckets: BucketChecksumWithDescription[];
     removed_buckets: string[];
   };
 }
@@ -74,6 +74,13 @@ export interface StreamingSyncCheckpointComplete {
   };
 }
 
+export interface StreamingSyncCheckpointPartiallyComplete {
+  partial_checkpoint_complete: {
+    last_op_id: OpId;
+    priority: BucketPriority;
+  }
+}
+
 export interface StreamingSyncKeepalive {
   token_expires_in: number;
 }
@@ -83,6 +90,7 @@ export type StreamingSyncLine =
   | StreamingSyncCheckpoint
   | StreamingSyncCheckpointDiff
   | StreamingSyncCheckpointComplete
+  | StreamingSyncCheckpointPartiallyComplete
   | StreamingSyncKeepalive;
 
 /**
@@ -143,10 +151,7 @@ export interface BucketChecksum {
    * Count of operations - informational only.
    */
   count: number;
+}
 
-  /**
-   * The priority of the bucket, which _may_ affect the order of synchronization operations and, for
-   * priority `0`, also allows clients to upload data while a synchronization operation is in progress.
-   */
-  priority: BucketPriority;
+export interface BucketChecksumWithDescription extends BucketChecksum, BucketDescription {
 }

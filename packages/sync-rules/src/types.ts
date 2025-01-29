@@ -5,8 +5,6 @@ import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import { toSyncRulesParameters } from './utils.js';
 
-export type BucketPriority = 0 | 1 | 2 | 3;
-
 export interface SyncRules {
   evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
 

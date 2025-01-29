@@ -11,7 +11,6 @@ interface ChecksumFetchContext {
 
 export interface PartialChecksum {
   bucket: string;
-  priority: BucketPriority;
   /**
    * 32-bit unsigned hash.
    */
