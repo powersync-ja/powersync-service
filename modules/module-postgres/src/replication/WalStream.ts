@@ -762,7 +762,7 @@ WHERE  oid = $1::regclass`,
     const storageIdentifier = await this.storage.factory.getSystemIdentifier();
     if (storageIdentifier.type == lib_postgres.POSTGRES_CONNECTION_TYPE) {
       /**
-       * Check if the same cluster is being used for both the sync bucket storage and the logical replication.
+       * Check if the same server is being used for both the sync bucket storage and the logical replication.
        */
       const replicationIdentifierResult = pgwire.pgwireRows(
         await lib_postgres.retriedQuery(
@@ -780,7 +780,7 @@ WHERE  oid = $1::regclass`,
       if (replicationIdentifier == storageIdentifier.id) {
         throw new DatabaseConnectionError(
           ErrorCode.PSYNC_S1144,
-          `Separate Postgres clusters are required for the replication source and sync bucket storage when using Postgres versions below 14.0.`,
+          `Separate Postgres server are required for the replication source and sync bucket storage when using Postgres versions below 14.0.`,
           new Error('Postgres version is below 14')
         );
       }

@@ -159,12 +159,12 @@ export enum ErrorCode {
   PSYNC_S1143 = 'PSYNC_S1143',
 
   /**
-   * Invalid Postgres cluster configuration for replication and sync bucket storage.
+   * Invalid Postgres server configuration for replication and sync bucket storage.
    *
-   * The same Postgres cluster, running an unsupported version of Postgres, has been configured for both replication and sync bucket storage.
-   * Using the same Postgres cluster is only supported on Postgres 14 and above.
+   * The same Postgres server, running an unsupported version of Postgres, has been configured for both replication and sync bucket storage.
+   * Using the same Postgres server is only supported on Postgres 14 and above.
    * This error typically indicates that the Postgres version is below 14.
-   * Either upgrade the Postgres cluster to version 14 or above, or use a different Postgres cluster for sync bucket storage.
+   * Either upgrade the Postgres server to version 14 or above, or use a different Postgres server for sync bucket storage.
    */
   PSYNC_S1144 = 'PSYNC_S1144',
 
