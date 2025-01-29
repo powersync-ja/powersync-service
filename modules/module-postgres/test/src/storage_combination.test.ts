@@ -28,7 +28,8 @@ describe.skipIf(!env.TEST_POSTGRES_STORAGE)('replication storage combination - p
     if (sourceVersion!.compareMain('14.0.0') < 0) {
       await expect(context.replicateSnapshot()).rejects.toThrow();
     } else {
-      await expect(context.replicateSnapshot()).resolves.toReturn();
+      // Should resolve
+      await context.replicateSnapshot();
     }
   });
 });
