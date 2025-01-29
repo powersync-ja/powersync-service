@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.23.3
+
+### Patch Changes
+
+- 5043a82: Add schema generator for FlutterFlow library
+
 ## 0.23.2
 
 ### Patch Changes
