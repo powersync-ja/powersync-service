@@ -632,17 +632,17 @@ WHERE  oid = $1::regclass`,
   async streamChanges(replicationConnection: pgwire.PgConnection) {
     // When changing any logic here, check /docs/wal-lsns.md.
 
-    const replicationOptions: Record<string, string> = {
-      proto_version: '1',
-      publication_names: PUBLICATION_NAME
-    };
-
     /**
      * Viewing the contents of logical messages emitted with `pg_logical_emit_message`
      * is only supported on Postgres >= 14.0.
      * https://www.postgresql.org/docs/14/protocol-logical-replication.html
      */
     await this.ensureStorageCompatibility();
+
+    const replicationOptions: Record<string, string> = {
+      proto_version: '1',
+      publication_names: PUBLICATION_NAME
+    };
 
     const exposesLogicalMessages = await this.checkLogicalMessageSupport();
     if (exposesLogicalMessages) {

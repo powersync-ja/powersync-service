@@ -64,7 +64,7 @@ export interface BucketStorageSystemIdentifier {
   /**
    * A unique identifier for the system used for storage.
    * For Postgres this can be the cluster `system_identifier`.
-   * For MongoDB this can be the replica set ID.
+   * For MongoDB this can be the replica set name.
    */
   id: string;
   /**

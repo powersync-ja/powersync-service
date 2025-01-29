@@ -41,15 +41,6 @@ export class WalStreamTestContext implements AsyncDisposable {
     await this.dispose();
   }
 
-  async waitForStream() {
-    try {
-      await this.streamPromise;
-    } catch (ex) {
-      this.streamPromise = undefined;
-      throw ex;
-    }
-  }
-
   async dispose() {
     this.abortController.abort();
     await this.streamPromise;
