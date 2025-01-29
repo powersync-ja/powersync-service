@@ -780,7 +780,7 @@ WHERE  oid = $1::regclass`,
       if (replicationIdentifier == storageIdentifier.id) {
         throw new DatabaseConnectionError(
           ErrorCode.PSYNC_S1144,
-          `Separate Postgres server are required for the replication source and sync bucket storage when using Postgres versions below 14.0.`,
+          `Separate Postgres servers are required for the replication source and sync bucket storage when using Postgres versions below 14.0.`,
           new Error('Postgres version is below 14')
         );
       }

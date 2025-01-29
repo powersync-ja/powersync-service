@@ -32,7 +32,7 @@ storage:
 
 **IMPORTANT**:
 
-A separate Postgres server is required for replication connections **if using PostgreSQL versions below 14**.
+Separate Postgres servers are required for replication connections **if using PostgreSQL versions below 14**.
 
 | PostgreSQL Version | Server configuration                                                                                                              |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
