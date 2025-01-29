@@ -203,6 +203,7 @@ export class WalStream {
 
   async initSlot(): Promise<InitResult> {
     await checkSourceConfiguration(this.connections.pool, PUBLICATION_NAME);
+    await this.ensureStorageCompatibility();
 
     const slotName = this.slot_name;
 
@@ -641,9 +642,9 @@ WHERE  oid = $1::regclass`,
      * is only supported on Postgres >= 14.0.
      * https://www.postgresql.org/docs/14/protocol-logical-replication.html
      */
-    const version = await this.connections.getServerVersion();
-    const exposesLogicalMessages = version ? version.compareMain('14.0.0') >= 0 : false;
+    await this.ensureStorageCompatibility();
 
+    const exposesLogicalMessages = await this.checkLogicalMessageSupport();
     if (exposesLogicalMessages) {
       /**
        * Only add this option if the Postgres server supports it.
@@ -651,33 +652,6 @@ WHERE  oid = $1::regclass`,
        * Error: `unrecognized pgoutput option: messages`
        */
       replicationOptions['messages'] = 'true';
-    } else {
-      const storageIdentifier = await this.storage.factory.getSystemIdentifier();
-      if (storageIdentifier.type == lib_postgres.POSTGRES_CONNECTION_TYPE) {
-        /**
-         * Check if the same cluster is being used for both the sync bucket storage and the logical replication.
-         */
-        const replicationIdentifierResult = pgwire.pgwireRows(
-          await lib_postgres.retriedQuery(
-            this.connections.pool,
-            /* sql */ `
-              SELECT
-                system_identifier
-              FROM
-                pg_control_system();
-            `
-          )
-        ) as Array<{ system_identifier: bigint }>;
-
-        const replicationIdentifier = replicationIdentifierResult[0].system_identifier.toString();
-        if (replicationIdentifier == storageIdentifier.id) {
-          throw new DatabaseConnectionError(
-            ErrorCode.PSYNC_S1144,
-            `Separate Postgres clusters are required for the replication source and sync bucket storage when using Postgres version ${version}.`,
-            new Error('Postgres version is below 14')
-          );
-        }
-      }
     }
 
     const replicationStream = replicationConnection.logicalReplication({
@@ -772,6 +746,54 @@ WHERE  oid = $1::regclass`,
     }
 
     replicationStream.ack(lsn);
+  }
+
+  /**
+   * Ensures that the storage is compatible with the replication connection.
+   * @throws {DatabaseConnectionError} If the storage is not compatible with the replication connection.
+   */
+  protected async ensureStorageCompatibility() {
+    const supportsLogicalMessages = await this.checkLogicalMessageSupport();
+
+    if (supportsLogicalMessages) {
+      return;
+    }
+
+    const storageIdentifier = await this.storage.factory.getSystemIdentifier();
+    if (storageIdentifier.type == lib_postgres.POSTGRES_CONNECTION_TYPE) {
+      /**
+       * Check if the same cluster is being used for both the sync bucket storage and the logical replication.
+       */
+      const replicationIdentifierResult = pgwire.pgwireRows(
+        await lib_postgres.retriedQuery(
+          this.connections.pool,
+          /* sql */ `
+            SELECT
+              system_identifier
+            FROM
+              pg_control_system();
+          `
+        )
+      ) as Array<{ system_identifier: bigint }>;
+
+      const replicationIdentifier = replicationIdentifierResult[0].system_identifier.toString();
+      if (replicationIdentifier == storageIdentifier.id) {
+        throw new DatabaseConnectionError(
+          ErrorCode.PSYNC_S1144,
+          `Separate Postgres clusters are required for the replication source and sync bucket storage when using Postgres versions below 14.0.`,
+          new Error('Postgres version is below 14')
+        );
+      }
+    }
+  }
+
+  /**
+   * Check if the replication connection Postgres server supports
+   * viewing the contents of logical replication messages.
+   */
+  protected async checkLogicalMessageSupport() {
+    const version = await this.connections.getServerVersion();
+    return version ? version.compareMain('14.0.0') >= 0 : false;
   }
 }
 

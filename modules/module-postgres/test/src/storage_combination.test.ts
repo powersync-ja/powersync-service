@@ -25,17 +25,10 @@ describe.skipIf(!env.TEST_POSTGRES_STORAGE)('replication storage combination - p
 
     await pool.query(`CREATE TABLE test_data(id text primary key, description text, other text)`);
 
-    await context.replicateSnapshot();
-
-    // Perhaps we should check and throw when replicating the snapshot or somewhere else earlier.
-    context.startStreaming();
-
     if (sourceVersion!.compareMain('14.0.0') < 0) {
-      console.log('waiting for throw');
-      await expect(context.waitForStream()).rejects.toThrow();
-      console.log('done with throw');
+      await expect(context.replicateSnapshot).rejects.toThrow();
     } else {
-      await expect(context.waitForStream()).resolves.toReturn();
+      await expect(context.replicateSnapshot).resolves.toReturn();
     }
   });
 });
