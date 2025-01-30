@@ -720,18 +720,22 @@ WHERE  oid = $1::regclass`,
             }
           }
 
-          if (!inTx && (assumeKeepAlive || keepAliveDetected)) {
-            // Reset the detection flag.
-            keepAliveDetected = false;
+          if (!inTx) {
+            if (assumeKeepAlive || keepAliveDetected) {
+              // Reset the detection flag.
+              keepAliveDetected = false;
 
-            // In a transaction, we ack and commit according to the transaction progress.
-            // Outside transactions, we use the PrimaryKeepalive messages to advance progress.
-            // Big caveat: This _must not_ be used to skip individual messages, since this LSN
-            // may be in the middle of the next transaction.
-            // It must only be used to associate checkpoints with LSNs.
-            if (await batch.keepalive(chunkLastLsn)) {
-              await this.ack(chunkLastLsn, replicationStream);
+              // In a transaction, we ack and commit according to the transaction progress.
+              // Outside transactions, we use the PrimaryKeepalive messages to advance progress.
+              // Big caveat: This _must not_ be used to skip individual messages, since this LSN
+              // may be in the middle of the next transaction.
+              // It must only be used to associate checkpoints with LSNs.
+              await batch.keepalive(chunkLastLsn);
             }
+
+            // We receive chunks with empty messages often (about each second).
+            // Acknowledging here progresses the slot past these and frees up resources.
+            await this.ack(chunkLastLsn, replicationStream);
           }
 
           Metrics.getInstance().chunks_replicated_total.add(1);
