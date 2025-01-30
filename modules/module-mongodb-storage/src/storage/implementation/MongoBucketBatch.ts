@@ -9,7 +9,6 @@ import {
   errors,
   logger,
   ReplicationAssertionError,
-  ServiceAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
 import { SaveOperationTag, storage, utils } from '@powersync/service-core';
@@ -616,7 +615,9 @@ export class MongoBucketBatch
 
   private lastWaitingLogThottled = 0;
 
-  async commit(lsn: string): Promise<boolean> {
+  async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<boolean> {
+    const { createEmptyCheckpoints } = { ...storage.DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS, ...options };
+
     await this.flush();
 
     if (this.last_checkpoint_lsn != null && lsn < this.last_checkpoint_lsn) {
@@ -651,6 +652,10 @@ export class MongoBucketBatch
         { session: this.session }
       );
 
+      return false;
+    }
+
+    if (!createEmptyCheckpoints && this.persisted_op == null) {
       return false;
     }
 

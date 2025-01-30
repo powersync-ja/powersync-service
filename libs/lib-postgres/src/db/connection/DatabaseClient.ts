@@ -32,7 +32,8 @@ export const TRANSACTION_CONNECTION_COUNT = 5;
 export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientListener> {
   closed: boolean;
 
-  protected pool: pgwire.PgClient;
+  pool: pgwire.PgClient;
+
   protected connections: ConnectionSlot[];
 
   protected initialized: Promise<void>;

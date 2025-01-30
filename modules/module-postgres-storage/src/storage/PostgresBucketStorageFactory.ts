@@ -158,16 +158,9 @@ export class PostgresBucketStorageFactory
   }
 
   async getSystemIdentifier(): Promise<storage.BucketStorageSystemIdentifier> {
-    /**
-     * No special permissions should be required to read this.
-     */
-    const result = await this.db.sql`
-      SELECT
-        system_identifier
-      FROM
-        pg_control_system();
-    `.first<{ system_identifier: bigint }>();
-    const id = result!.system_identifier.toString();
+    const id = lib_postgres.utils.encodePostgresSystemIdentifier(
+      await lib_postgres.utils.queryPostgresSystemIdentifier(this.db.pool)
+    );
 
     return {
       id,
