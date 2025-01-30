@@ -687,8 +687,8 @@ WHERE  oid = $1::regclass`,
            * If we can't check the logical messages, we should assume a keepalive if we
            * receive an empty array of messages in a replication event.
            */
-          const assumeKeepalive = !exposesLogicalMessages;
-          let keepaliveDetected = false;
+          const assumeKeepAlive = !exposesLogicalMessages;
+          let keepAliveDetected = false;
 
           for (const msg of messages) {
             if (msg.tag == 'relation') {
@@ -712,7 +712,7 @@ WHERE  oid = $1::regclass`,
                * due to the default value of `assumeKeepalive`.
                */
               if (exposesLogicalMessages && isKeepAliveMessage(msg)) {
-                keepaliveDetected = true;
+                keepAliveDetected = true;
               }
 
               count += 1;
@@ -720,9 +720,9 @@ WHERE  oid = $1::regclass`,
             }
           }
 
-          if (!inTx && (assumeKeepalive || keepaliveDetected)) {
+          if (!inTx && (assumeKeepAlive || keepAliveDetected)) {
             // Reset the detection flag.
-            keepaliveDetected = false;
+            keepAliveDetected = false;
 
             // In a transaction, we ack and commit according to the transaction progress.
             // Outside transactions, we use the PrimaryKeepalive messages to advance progress.
