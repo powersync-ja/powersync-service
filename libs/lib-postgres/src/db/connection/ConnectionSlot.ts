@@ -50,9 +50,12 @@ export class ConnectionSlot extends framework.DisposableObserver<ConnectionSlotL
     const connection = await this.connectingPromise;
     this.connectingPromise = null;
     await this.iterateAsyncListeners(async (l) => l.connectionCreated?.(connection));
-    if (this.hasNotificationListener()) {
-      await this.configureConnectionNotifications(connection);
-    }
+
+    /**
+     * Configure the Postgres connection to listen to notifications.
+     * Subscribing to notifications, even without a registered listener, should not add much overhead.
+     */
+    await this.configureConnectionNotifications(connection);
     return connection;
   }
 
@@ -64,11 +67,6 @@ export class ConnectionSlot extends framework.DisposableObserver<ConnectionSlotL
   }
 
   protected async configureConnectionNotifications(connection: pgwire.PgConnection) {
-    if (connection.onnotification == this.handleNotification || this.closed == true) {
-      // Already configured
-      return;
-    }
-
     connection.onnotification = this.handleNotification;
 
     for (const channelName of this.options.notificationChannels ?? []) {
@@ -76,19 +74,6 @@ export class ConnectionSlot extends framework.DisposableObserver<ConnectionSlotL
         statement: `LISTEN ${channelName}`
       });
     }
-  }
-
-  registerListener(listener: Partial<ConnectionSlotListener>): () => void {
-    const dispose = super.registerListener(listener);
-    if (this.connection && this.hasNotificationListener()) {
-      this.configureConnectionNotifications(this.connection);
-    }
-    return () => {
-      dispose();
-      if (this.connection && !this.hasNotificationListener()) {
-        this.connection.onnotification = () => {};
-      }
-    };
   }
 
   protected handleNotification = (payload: pgwire.PgNotification) => {
