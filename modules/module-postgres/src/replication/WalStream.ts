@@ -17,13 +17,6 @@ import { PgManager } from './PgManager.js';
 import { getPgOutputRelation, getRelId } from './PgRelation.js';
 import { checkSourceConfiguration, getReplicationIdentityColumns } from './replication-utils.js';
 
-export const ZERO_LSN = '00000000/00000000';
-export const PUBLICATION_NAME = 'powersync';
-export const POSTGRES_DEFAULT_SCHEMA = 'public';
-
-export const KEEPALIVE_CONTENT = 'ping';
-export const KEEPALIVE_BUFFER = Buffer.from(KEEPALIVE_CONTENT);
-
 export interface WalStreamOptions {
   connections: PgManager;
   storage: storage.SyncRulesBucketStorage;
@@ -37,6 +30,22 @@ interface InitResult {
   needsNewSlot: boolean;
 }
 
+export const ZERO_LSN = '00000000/00000000';
+export const PUBLICATION_NAME = 'powersync';
+export const POSTGRES_DEFAULT_SCHEMA = 'public';
+
+export const KEEPALIVE_CONTENT = 'ping';
+export const KEEPALIVE_BUFFER = Buffer.from(KEEPALIVE_CONTENT);
+export const KEEPALIVE_STATEMENT: pgwire.Statement = {
+  statement: /* sql */ `
+    SELECT
+      *
+    FROM
+      pg_logical_emit_message(FALSE, 'powersync', $1)
+  `,
+  params: [{ type: 'varchar', value: KEEPALIVE_CONTENT }]
+} as const;
+
 export const isKeepAliveMessage = (msg: pgwire.PgoutputMessage) => {
   return (
     msg.tag == 'message' &&
@@ -47,15 +56,7 @@ export const isKeepAliveMessage = (msg: pgwire.PgoutputMessage) => {
 };
 
 export const sendKeepAlive = async (db: pgwire.PgClient) => {
-  await lib_postgres.retriedQuery(db, {
-    statement: /* sql */ `
-      SELECT
-        *
-      FROM
-        pg_logical_emit_message(FALSE, 'powersync', $1)
-    `,
-    params: [{ type: 'varchar', value: KEEPALIVE_CONTENT }]
-  });
+  await lib_postgres.retriedQuery(db, KEEPALIVE_STATEMENT);
 };
 
 export class MissingReplicationSlotError extends Error {
