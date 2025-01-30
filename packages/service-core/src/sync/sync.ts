@@ -1,5 +1,5 @@
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
-import { BucketDescription, RequestParameters } from '@powersync/service-sync-rules';
+import { BucketDescription, BucketPriority, RequestParameters } from '@powersync/service-sync-rules';
 import { Semaphore, withTimeout } from 'async-mutex';
 
 import { AbortError } from 'ix/aborterror.js';
@@ -210,19 +210,42 @@ async function* streamResponseInner(
     lastChecksums = checksumMap;
     lastWriteCheckpoint = writeCheckpoint;
 
-    // This incrementally updates dataBuckets with each individual bucket position.
-    // At the end of this, we can be sure that all buckets have data up to the checkpoint.
-    yield* bucketDataInBatches({
-      storage,
-      checkpoint,
-      bucketsToFetch,
-      dataBuckets,
-      raw_data,
-      binary_data,
-      signal,
-      tracker,
-      user_id: syncParams.user_id
-    });
+    // TODO: This is not really how bucket priorities are supposed to be implemented - we might want to listen for new write
+    // checkpoints while we're serving this one too. When we're syncing low-priority buckets of this checkpoint, we could interrupt
+    // this batch and serve the high-priority buckets of the new checkpoint first?
+    bucketsToFetch.sort((a, b) => a.priority - b.priority);
+    let firstBucketInSamePriority = 0;
+    let currentPriority = bucketsToFetch[0]!.priority;
+    const lowestPriority = bucketsToFetch.at(-1)!.priority;
+
+    const bucketDataWithPriority = (endIndex?: number) => {
+      return bucketDataInBatches({
+        storage,
+        checkpoint,
+        bucketsToFetch: bucketsToFetch.slice(firstBucketInSamePriority, endIndex),
+        dataBuckets,
+        raw_data,
+        binary_data,
+        signal,
+        tracker,
+        user_id: syncParams.user_id,
+        forPriority: currentPriority !== lowestPriority ? currentPriority : undefined,
+      });
+    }
+
+    for (let i = 0; i < bucketsToFetch.length; i++) {
+      if (bucketsToFetch[i].priority == currentPriority) {
+        continue;
+      }
+
+      // This incrementally updates dataBuckets with each individual bucket position.
+      // At the end of this, we can be sure that all buckets have data up to the checkpoint.
+      yield* bucketDataWithPriority(i);
+      firstBucketInSamePriority = i;
+      currentPriority = bucketsToFetch[i].priority;
+    }
+    // Sync highest priority
+    yield* bucketDataWithPriority();
 
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
@@ -239,6 +262,7 @@ interface BucketDataRequest {
   tracker: RequestTracker;
   signal: AbortSignal;
   user_id?: string;
+  forPriority?: BucketPriority;
 }
 
 async function* bucketDataInBatches(request: BucketDataRequest) {
@@ -360,12 +384,23 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
         // More data should be available immediately for a new checkpoint.
         yield { data: null, done: true };
       } else {
-        const line: util.StreamingSyncCheckpointComplete = {
-          checkpoint_complete: {
-            last_op_id: checkpoint
-          }
-        };
-        yield { data: line, done: true };
+        if (request.forPriority !== undefined) {
+          const line: util.StreamingSyncCheckpointPartiallyComplete = {
+            partial_checkpoint_complete: {
+              last_op_id: checkpoint,
+              priority: request.forPriority,
+            }
+          };
+          yield { data: line, done: true };
+        } else {
+          const line: util.StreamingSyncCheckpointComplete = {
+            checkpoint_complete: {
+              last_op_id: checkpoint
+            }
+          };
+          yield { data: line, done: true };
+        }
+
       }
     }
   } finally {
