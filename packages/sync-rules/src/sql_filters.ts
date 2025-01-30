@@ -32,7 +32,6 @@ import {
   toBooleanParameterSetClause
 } from './sql_support.js';
 import {
-  BucketPriority,
   ClauseError,
   CompiledClause,
   InputParameter,
@@ -47,6 +46,7 @@ import {
   TrueIfParametersMatch
 } from './types.js';
 import { isJsonValue } from './utils.js';
+import { BucketPriority } from './BucketDescription.js';
 
 export const MATCH_CONST_FALSE: TrueIfParametersMatch = [];
 export const MATCH_CONST_TRUE: TrueIfParametersMatch = [{}];

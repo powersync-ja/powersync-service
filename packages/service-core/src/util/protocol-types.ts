@@ -52,7 +52,7 @@ export const StreamingSyncRequest = t.object({
 export type StreamingSyncRequest = t.Decoded<typeof StreamingSyncRequest>;
 
 export interface StreamingSyncCheckpoint {
-  checkpoint: BucketChecksumWithDescription;
+  checkpoint: Checkpoint;
 }
 
 export interface StreamingSyncCheckpointDiff {
@@ -101,7 +101,7 @@ export type OpId = string;
 export interface Checkpoint {
   last_op_id: OpId;
   write_checkpoint?: OpId;
-  buckets: BucketChecksum[];
+  buckets: BucketChecksumWithDescription[];
 }
 
 export interface BucketState {

@@ -1,5 +1,5 @@
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
-import { RequestParameters } from '@powersync/service-sync-rules';
+import { BucketDescription, RequestParameters } from '@powersync/service-sync-rules';
 import { Semaphore, withTimeout } from 'async-mutex';
 
 import { AbortError } from 'ix/aborterror.js';
@@ -84,6 +84,11 @@ export async function* streamResponse(
   }
 }
 
+type BucketSyncState = {
+  description?: BucketDescription; // Undefined if the bucket has not yet been resolved by us.
+  start_op_id: string;
+};
+
 async function* streamResponseInner(
   storage: storage.BucketStorageFactory,
   params: util.StreamingSyncRequest,
@@ -94,7 +99,7 @@ async function* streamResponseInner(
 ): AsyncGenerator<util.StreamingSyncLine | string | null> {
   // Bucket state of bucket id -> op_id.
   // This starts with the state from the client. May contain buckets that the user do not have access to (anymore).
-  let dataBuckets = new Map<string, string>();
+  let dataBuckets = new Map<string, BucketSyncState>();
 
   let lastChecksums: util.ChecksumMap | null = null;
   let lastWriteCheckpoint: bigint | null = null;
@@ -103,7 +108,7 @@ async function* streamResponseInner(
 
   if (params.buckets) {
     for (let { name, after: start } of params.buckets) {
-      dataBuckets.set(name, start);
+      dataBuckets.set(name, { start_op_id: start });
     }
   }
 
@@ -120,7 +125,7 @@ async function* streamResponseInner(
     }
     const syncRules = storage.getParsedSyncRules(parseOptions);
 
-    const allBuckets = await syncRules.queryBucketIds({
+    const allBuckets = await syncRules.queryBucketDescriptions({
       getParameterSets(lookups) {
         return storage.getParameterSets(checkpoint, lookups);
       },
@@ -137,16 +142,19 @@ async function* streamResponseInner(
       throw new Error(`Too many buckets: ${allBuckets.length}`);
     }
 
-    let dataBucketsNew = new Map<string, string>();
+    let dataBucketsNew = new Map<string, BucketSyncState>();
     for (let bucket of allBuckets) {
-      dataBucketsNew.set(bucket, dataBuckets.get(bucket) ?? '0');
+      dataBucketsNew.set(bucket.bucket, {
+        description: bucket,
+        start_op_id: dataBuckets.get(bucket.bucket)?.start_op_id ?? '0',
+      });
     }
     dataBuckets = dataBucketsNew;
 
     const bucketList = [...dataBuckets.keys()];
     const checksumMap = await storage.getChecksums(checkpoint, bucketList);
     // Subset of buckets for which there may be new data in this batch.
-    let bucketsToFetch: string[];
+    let bucketsToFetch: BucketDescription[];
 
     if (lastChecksums) {
       const diff = util.checksumsDiff(lastChecksums, checksumMap);
@@ -159,7 +167,8 @@ async function* streamResponseInner(
         // No changes - don't send anything to the client
         continue;
       }
-      bucketsToFetch = diff.updatedBuckets.map((c) => c.bucket);
+      const updatedBucketDescriptions = diff.updatedBuckets.map((e) => ({...e, priority: dataBuckets.get(e.bucket)!.description!.priority}));
+      bucketsToFetch = updatedBucketDescriptions;
 
       let message = `Updated checkpoint: ${checkpoint} | `;
       message += `write: ${writeCheckpoint} | `;
@@ -179,7 +188,7 @@ async function* streamResponseInner(
           last_op_id: checkpoint,
           write_checkpoint: writeCheckpoint ? String(writeCheckpoint) : undefined,
           removed_buckets: diff.removedBuckets,
-          updated_buckets: diff.updatedBuckets
+          updated_buckets: updatedBucketDescriptions,
         }
       };
 
@@ -193,7 +202,7 @@ async function* streamResponseInner(
         checkpoint: {
           last_op_id: checkpoint,
           write_checkpoint: writeCheckpoint ? String(writeCheckpoint) : undefined,
-          buckets: [...checksumMap.values()]
+          buckets: [...checksumMap.values()].map((e) => ({...e, priority: dataBuckets.get(e.bucket)!.description!.priority})),
         }
       };
       yield checksum_line;
@@ -222,9 +231,9 @@ async function* streamResponseInner(
 interface BucketDataRequest {
   storage: storage.SyncRulesBucketStorage;
   checkpoint: string;
-  bucketsToFetch: string[];
+  bucketsToFetch: BucketDescription[];
   /** Bucket data position, modified by the request.  */
-  dataBuckets: Map<string, string>;
+  dataBuckets: Map<string, BucketSyncState>;
   raw_data: boolean | undefined;
   binary_data: boolean | undefined;
   tracker: RequestTracker;
@@ -293,7 +302,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
     }
     // Optimization: Only fetch buckets for which the checksums have changed since the last checkpoint
     // For the first batch, this will be all buckets.
-    const filteredBuckets = new Map(bucketsToFetch.map((bucket) => [bucket, dataBuckets.get(bucket)!]));
+    const filteredBuckets = new Map(bucketsToFetch.map((bucket) => [bucket.bucket, dataBuckets.get(bucket.bucket)?.start_op_id!]));
     const data = storage.getBucketDataBatch(checkpoint, filteredBuckets);
 
     let has_more = false;
@@ -341,7 +350,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
       }
       tracker.addOperationsSynced(r.data.length);
 
-      dataBuckets.set(r.bucket, r.next_after);
+      dataBuckets.get(r.bucket)!.start_op_id = r.next_after;
     }
 
     if (!has_more) {
@@ -384,7 +393,7 @@ function transformLegacyResponse(bucketData: util.SyncBucketData): any {
   };
 }
 
-function limitedBuckets(buckets: string[] | util.BucketChecksum[], limit: number) {
+function limitedBuckets(buckets: string[] | {bucket: string}[], limit: number) {
   buckets = buckets.map((b) => {
     if (typeof b != 'string') {
       return b.bucket;

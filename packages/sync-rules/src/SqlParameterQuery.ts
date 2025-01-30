@@ -17,15 +17,13 @@ import {
   QuerySchema,
   RequestParameters,
   RowValueClause,
-  SourceSchema,
   SqliteJsonRow,
   SqliteJsonValue,
   SqliteRow
 } from './types.js';
 import { filterJsonRow, getBucketId, isJsonValue, isSelectStatement } from './utils.js';
-import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
-import { BucketPriority } from './BucketDescription.js';
+import { BucketDescription, BucketPriority, defaultBucketPriority } from './BucketDescription.js';
 
 /**
  * Represents a parameter query, such as:
@@ -256,7 +254,7 @@ export class SqlParameterQuery {
   /**
    * Given partial parameter rows, turn into bucket ids.
    */
-  resolveBucketIds(bucketParameters: SqliteJsonRow[], parameters: RequestParameters): string[] {
+  resolveBucketDescriptions(bucketParameters: SqliteJsonRow[], parameters: RequestParameters): BucketDescription[] {
     // Filters have already been applied and gotten us the set of bucketParameters - don't attempt to filter again.
     // We _do_ need to evaluate the output columns here, using a combination of precomputed bucketParameters,
     // and values from token parameters.
@@ -279,9 +277,12 @@ export class SqlParameterQuery {
           }
         }
 
-        return getBucketId(this.descriptor_name!, this.bucket_parameters!, result);
+        return {
+          bucket: getBucketId(this.descriptor_name!, this.bucket_parameters!, result),
+          priority: this.priority ?? defaultBucketPriority,
+        };
       })
-      .filter((lookup) => lookup != null) as string[];
+      .filter((lookup) => lookup != null);
   }
 
   /**
@@ -360,21 +361,21 @@ export class SqlParameterQuery {
   }
 
   /**
-   * Given sync parameters (token and user parameters), return bucket ids.
+   * Given sync parameters (token and user parameters), return bucket ids and priorities.
    *
    * This is done in three steps:
    * 1. Given the parameters, get lookups we need to perform on the database.
    * 2. Perform the lookups, returning parameter sets (partial rows).
    * 3. Given the parameter sets, resolve bucket ids.
    */
-  async queryBucketIds(options: QueryBucketIdOptions): Promise<string[]> {
+  async queryBucketDescriptions(options: QueryBucketIdOptions): Promise<BucketDescription[]> {
     let lookups = this.getLookups(options.parameters);
     if (lookups.length == 0) {
       return [];
     }
 
     const parameters = await options.getParameterSets(lookups);
-    return this.resolveBucketIds(parameters, options.parameters);
+    return this.resolveBucketDescriptions(parameters, options.parameters);
   }
 
   get hasAuthenticatedBucketParameters(): boolean {

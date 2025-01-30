@@ -23,6 +23,7 @@ import {
   SqliteRow,
   SyncRules
 } from './types.js';
+import { BucketDescription } from './BucketDescription.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -306,10 +307,10 @@ export class SqlSyncRules implements SyncRules {
   /**
    * @deprecated For testing only.
    */
-  getStaticBucketIds(parameters: RequestParameters) {
-    let results: string[] = [];
+  getStaticBucketDescriptions(parameters: RequestParameters) {
+    let results: BucketDescription[] = [];
     for (let bucket of this.bucket_descriptors) {
-      results.push(...bucket.getStaticBucketIds(parameters));
+      results.push(...bucket.getStaticBucketDescriptions(parameters));
     }
     return results;
   }
@@ -317,10 +318,10 @@ export class SqlSyncRules implements SyncRules {
   /**
    * Note: This can error hard.
    */
-  async queryBucketIds(options: QueryBucketIdOptions): Promise<string[]> {
-    let results: string[] = [];
+  async queryBucketDescriptions(options: QueryBucketIdOptions): Promise<BucketDescription[]> {
+    let results: BucketDescription[] = [];
     for (let bucket of this.bucket_descriptors) {
-      results.push(...(await bucket.queryBucketIds(options)));
+      results.push(...(await bucket.queryBucketDescriptions(options)));
     }
     return results;
   }

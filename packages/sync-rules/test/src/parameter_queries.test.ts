@@ -85,12 +85,12 @@ describe('parameter queries', () => {
     ]);
 
     // We _do_ need to care about the bucket string representation.
-    expect(query.resolveBucketIds([{ int1: 314, float1: 3.14, float2: 314 }], normalizeTokenParameters({}))).toEqual([
-      'mybucket[314,3.14,314]'
+    expect(query.resolveBucketDescriptions([{ int1: 314, float1: 3.14, float2: 314 }], normalizeTokenParameters({}))).toEqual([
+      { bucket: 'mybucket[314,3.14,314]', priority: 1 },
     ]);
 
-    expect(query.resolveBucketIds([{ int1: 314n, float1: 3.14, float2: 314 }], normalizeTokenParameters({}))).toEqual([
-      'mybucket[314,3.14,314]'
+    expect(query.resolveBucketDescriptions([{ int1: 314n, float1: 3.14, float2: 314 }], normalizeTokenParameters({}))).toEqual([
+      { bucket: 'mybucket[314,3.14,314]', priority: 1 },
     ]);
   });
 
@@ -352,8 +352,8 @@ describe('parameter queries', () => {
     ]);
 
     expect(
-      query.resolveBucketIds([{ user_id: 'user1' }], normalizeTokenParameters({ user_id: 'user1', is_admin: true }))
-    ).toEqual(['mybucket["user1",1]']);
+      query.resolveBucketDescriptions([{ user_id: 'user1' }], normalizeTokenParameters({ user_id: 'user1', is_admin: true }))
+    ).toEqual([{ bucket: 'mybucket["user1",1]', priority: 1 },]);
   });
 
   test('case-sensitive parameter queries (1)', () => {

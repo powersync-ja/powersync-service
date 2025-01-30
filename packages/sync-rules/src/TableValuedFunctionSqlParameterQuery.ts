@@ -12,6 +12,7 @@ import {
   SqliteRow
 } from './types.js';
 import { getBucketId, isJsonValue } from './utils.js';
+import { BucketDescription, BucketPriority, defaultBucketPriority } from './BucketDescription.js';
 
 /**
  * Represents a parameter query using a table-valued function.
@@ -74,6 +75,11 @@ export class TableValuedFunctionSqlParameterQuery {
         tools.checkSpecificNameCase(column.alias);
       }
       const name = tools.getSpecificOutputName(column);
+      if (tools.isBucketPriorityParameter(name)) {
+        query.priority = tools.extractBucketPriority(column.expr);
+        continue;
+      }
+
       const extractor = tools.compileParameterValueExtractor(column.expr);
       if (isClauseError(extractor)) {
         // Error logged already
@@ -98,6 +104,7 @@ export class TableValuedFunctionSqlParameterQuery {
   sql?: string;
   columns?: SelectedColumn[];
   parameter_extractors: Record<string, ParameterValueClause> = {};
+  priority?: BucketPriority;
   descriptor_name?: string;
   /** _Output_ bucket parameters */
   bucket_parameters?: string[];
@@ -111,7 +118,7 @@ export class TableValuedFunctionSqlParameterQuery {
 
   errors: SqlRuleError[] = [];
 
-  getStaticBucketIds(parameters: RequestParameters): string[] {
+  getStaticBucketDescriptions(parameters: RequestParameters): BucketDescription[] {
     if (this.filter == null || this.callClause == null) {
       // Error in filter clause
       return [];
@@ -119,14 +126,17 @@ export class TableValuedFunctionSqlParameterQuery {
 
     const valueString = this.callClause.lookupParameterValue(parameters);
     const rows = this.function!.call([valueString]);
-    let total: string[] = [];
+    let total: BucketDescription[] = [];
     for (let row of rows) {
-      total.push(...this.getIndividualBucketIds(row, parameters));
+      const description = this.getIndividualBucketDescription(row, parameters);
+      if (description !== null) {
+        total.push(description);        
+      }
     }
     return total;
   }
 
-  private getIndividualBucketIds(row: SqliteRow, parameters: RequestParameters): string[] {
+  private getIndividualBucketDescription(row: SqliteRow, parameters: RequestParameters): BucketDescription | null {
     const mergedParams: ParameterValueSet = {
       raw_token_payload: parameters.raw_token_payload,
       raw_user_parameters: parameters.raw_user_parameters,
@@ -141,7 +151,7 @@ export class TableValuedFunctionSqlParameterQuery {
     };
     const filterValue = this.filter!.lookupParameterValue(mergedParams);
     if (sqliteBool(filterValue) === 0n) {
-      return [];
+      return null;
     }
 
     let result: Record<string, SqliteJsonValue> = {};
@@ -154,7 +164,10 @@ export class TableValuedFunctionSqlParameterQuery {
       }
     }
 
-    return [getBucketId(this.descriptor_name!, this.bucket_parameters!, result)];
+    return {
+      bucket: getBucketId(this.descriptor_name!, this.bucket_parameters!, result),
+      priority: this.priority ?? defaultBucketPriority,
+    };
   }
 
   get hasAuthenticatedBucketParameters(): boolean {

@@ -13,6 +13,8 @@
  */
 export type BucketPriority = 0 | 1 | 2 | 3;
 
+export const defaultBucketPriority: BucketPriority = 1;
+
 export interface BucketDescription {
     /**
      * The id of the bucket, which is derived from the name of the bucket's definition

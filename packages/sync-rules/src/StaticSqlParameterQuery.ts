@@ -4,7 +4,7 @@ import { SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, isParameterValueClause, sqliteBool } from './sql_support.js';
 import { ParameterValueClause, QueryParseOptions, RequestParameters, SqliteJsonValue } from './types.js';
 import { getBucketId, isJsonValue } from './utils.js';
-import { BucketPriority } from './BucketDescription.js';
+import { BucketDescription, BucketPriority, defaultBucketPriority } from './BucketDescription.js';
 
 /**
  * Represents a bucket parameter query without any tables, e.g.:
@@ -84,7 +84,7 @@ export class StaticSqlParameterQuery {
 
   errors: SqlRuleError[] = [];
 
-  getStaticBucketIds(parameters: RequestParameters): string[] {
+  getStaticBucketDescriptions(parameters: RequestParameters): BucketDescription[] {
     if (this.filter == null) {
       // Error in filter clause
       return [];
@@ -106,7 +106,10 @@ export class StaticSqlParameterQuery {
       }
     }
 
-    return [getBucketId(this.descriptor_name!, this.bucket_parameters!, result)];
+    return [{
+      bucket: getBucketId(this.descriptor_name!, this.bucket_parameters!, result),
+      priority: this.priority ?? defaultBucketPriority,
+    }];
   }
 
   get hasAuthenticatedBucketParameters(): boolean {

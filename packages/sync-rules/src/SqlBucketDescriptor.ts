@@ -1,3 +1,4 @@
+import { BucketDescription } from './BucketDescription.js';
 import { IdSequence } from './IdSequence.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SqlDataQuery } from './SqlDataQuery.js';
@@ -7,14 +8,12 @@ import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
 import { TablePattern } from './TablePattern.js';
 import { SqlRuleError } from './errors.js';
 import {
-  BucketPriority,
   EvaluateRowOptions,
   EvaluatedParametersResult,
   EvaluationResult,
   QueryBucketIdOptions,
   QueryParseOptions,
   RequestParameters,
-  SourceSchema,
   SqliteRow
 } from './types.js';
 
@@ -26,8 +25,6 @@ export interface QueryParseResult {
 
   errors: SqlRuleError[];
 }
-
-const defaultBucketPriority: BucketPriority = 1;
 
 export class SqlBucketDescriptor {
   name: string;
@@ -48,16 +45,6 @@ export class SqlBucketDescriptor {
   global_parameter_queries: StaticSqlParameterQuery[] = [];
 
   parameterIdSequence = new IdSequence();
-
-  /**
-   * The priority of the bucket, as defined by the highest-priority parameter query
-   * or `1` if no parameter query includes a priority.
-   */
-  get priority(): BucketPriority {
-    return this.parameter_queries.reduce((a, b): BucketPriority => {
-      return b.priority !== undefined && b.priority < a ? b.priority : a;
-    }, defaultBucketPriority);
-  }
 
   addDataQuery(sql: string, options: SyncRulesOptions): QueryParseResult {
     if (this.bucket_parameters == null) {
@@ -121,18 +108,18 @@ export class SqlBucketDescriptor {
     return results;
   }
 
-  getStaticBucketIds(parameters: RequestParameters) {
-    let results: string[] = [];
+  getStaticBucketDescriptions(parameters: RequestParameters): BucketDescription[] {
+    let results: BucketDescription[] = [];
     for (let query of this.global_parameter_queries) {
-      results.push(...query.getStaticBucketIds(parameters));
+      results.push(...query.getStaticBucketDescriptions(parameters));
     }
     return results;
   }
 
-  async queryBucketIds(options: QueryBucketIdOptions): Promise<string[]> {
-    let result: string[] = this.getStaticBucketIds(options.parameters);
+  async queryBucketDescriptions(options: QueryBucketIdOptions): Promise<BucketDescription[]> {
+    let result = this.getStaticBucketDescriptions(options.parameters);
     for (let query of this.parameter_queries) {
-      result.push(...(await query.queryBucketIds(options)));
+      result.push(...(await query.queryBucketDescriptions(options)));
     }
     return result;
   }

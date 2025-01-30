@@ -13,10 +13,10 @@ describe('table-valued function queries', () => {
     expect(query.errors).toEqual([]);
     expect(query.bucket_parameters).toEqual(['v']);
 
-    expect(query.getStaticBucketIds(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }))).toEqual([
-      'mybucket[1]',
-      'mybucket[2]',
-      'mybucket[3]'
+    expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }))).toEqual([
+      { bucket: 'mybucket[1]', priority: 1 },
+      { bucket: 'mybucket[2]', priority: 1 },
+      { bucket: 'mybucket[3]', priority: 1 },
     ]);
   });
 
@@ -26,10 +26,10 @@ describe('table-valued function queries', () => {
     expect(query.errors).toEqual([]);
     expect(query.bucket_parameters).toEqual(['v']);
 
-    expect(query.getStaticBucketIds(new RequestParameters({ sub: '' }, {}))).toEqual([
-      'mybucket[1]',
-      'mybucket[2]',
-      'mybucket[3]'
+    expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}))).toEqual([
+      { bucket: 'mybucket[1]', priority: 1 },
+      { bucket: 'mybucket[2]', priority: 1 },
+      { bucket: 'mybucket[3]', priority: 1 },
     ]);
   });
 
@@ -39,7 +39,7 @@ describe('table-valued function queries', () => {
     expect(query.errors).toEqual([]);
     expect(query.bucket_parameters).toEqual(['v']);
 
-    expect(query.getStaticBucketIds(new RequestParameters({ sub: '' }, {}))).toEqual([]);
+    expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}))).toEqual([]);
   });
 
   test('json_each(array param not present)', function () {
@@ -88,10 +88,10 @@ describe('table-valued function queries', () => {
     expect(query.errors).toEqual([]);
     expect(query.bucket_parameters).toEqual(['value']);
 
-    expect(query.getStaticBucketIds(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }))).toEqual([
-      'mybucket[1]',
-      'mybucket[2]',
-      'mybucket[3]'
+    expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }))).toEqual([
+      { bucket: 'mybucket[1]', priority: 1 },
+      { bucket: 'mybucket[2]', priority: 1 },
+      { bucket: 'mybucket[3]', priority: 1 },
     ]);
   });
 
@@ -104,10 +104,10 @@ describe('table-valued function queries', () => {
     expect(query.errors).toEqual([]);
     expect(query.bucket_parameters).toEqual(['value']);
 
-    expect(query.getStaticBucketIds(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }))).toEqual([
-      'mybucket[1]',
-      'mybucket[2]',
-      'mybucket[3]'
+    expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }))).toEqual([
+      { bucket: 'mybucket[1]', priority: 1 },
+      { bucket: 'mybucket[2]', priority: 1 },
+      { bucket: 'mybucket[3]', priority: 1 },
     ]);
   });
 
@@ -120,9 +120,9 @@ describe('table-valued function queries', () => {
     expect(query.errors).toEqual([]);
     expect(query.bucket_parameters).toEqual(['v']);
 
-    expect(query.getStaticBucketIds(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }))).toEqual([
-      'mybucket[2]',
-      'mybucket[3]'
+    expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }))).toEqual([
+      { bucket: 'mybucket[2]', priority: 1 },
+      { bucket: 'mybucket[3]', priority: 1 },
     ]);
   });
 
@@ -137,7 +137,7 @@ describe('table-valued function queries', () => {
     expect(query.bucket_parameters).toEqual(['project_id']);
 
     expect(
-      query.getStaticBucketIds(
+      query.getStaticBucketDescriptions(
         new RequestParameters(
           {
             sub: '',
@@ -149,7 +149,7 @@ describe('table-valued function queries', () => {
           {}
         )
       )
-    ).toEqual(['mybucket[1]']);
+    ).toEqual([{ bucket: 'mybucket[1]', priority: 1 }]);
   });
 
   describe('dangerous queries', function () {
