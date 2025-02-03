@@ -1,5 +1,19 @@
 # @powersync/service-module-postgres-storage
 
+## 0.2.0
+
+### Minor Changes
+
+- 23fb49f: Allowed using the same Postgres server for the replication source and sync bucket storage. This is only supported on Postgres versions newer than 14.0.
+- 23fb49f: Added the ability to skip creating empty sync checkpoints if no changes were present in a batch.
+
+### Patch Changes
+
+- 23fb49f: Fix bug where listening to active checkpoint notifications on an ended connection could cause a crash.
+- Updated dependencies [23fb49f]
+  - @powersync/service-core@0.17.0
+  - @powersync/service-core-tests@0.3.3
+
 ## 0.1.2
 
 ### Patch Changes
