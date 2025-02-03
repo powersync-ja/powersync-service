@@ -28,7 +28,9 @@ export class StaticSqlParameterQuery {
 
     const filter = tools.compileParameterValueExtractor(where);
     const columns = q.columns ?? [];
-    const bucket_parameters = columns.map((column) => tools.getOutputName(column));
+    const bucket_parameters = (q.columns ?? [])
+      .map((column) => tools.getOutputName(column))
+      .filter((c) => !tools.isBucketPriorityParameter(c));
 
     query.sql = sql;
     query.descriptor_name = descriptor_name;
@@ -106,10 +108,12 @@ export class StaticSqlParameterQuery {
       }
     }
 
-    return [{
-      bucket: getBucketId(this.descriptor_name!, this.bucket_parameters!, result),
-      priority: this.priority ?? defaultBucketPriority,
-    }];
+    return [
+      {
+        bucket: getBucketId(this.descriptor_name!, this.bucket_parameters!, result),
+        priority: this.priority ?? defaultBucketPriority
+      }
+    ];
   }
 
   get hasAuthenticatedBucketParameters(): boolean {

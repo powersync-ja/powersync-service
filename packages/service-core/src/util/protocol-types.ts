@@ -78,7 +78,7 @@ export interface StreamingSyncCheckpointPartiallyComplete {
   partial_checkpoint_complete: {
     last_op_id: OpId;
     priority: BucketPriority;
-  }
+  };
 }
 
 export interface StreamingSyncKeepalive {
@@ -153,5 +153,4 @@ export interface BucketChecksum {
   count: number;
 }
 
-export interface BucketChecksumWithDescription extends BucketChecksum, BucketDescription {
-}
+export interface BucketChecksumWithDescription extends BucketChecksum, BucketDescription {}

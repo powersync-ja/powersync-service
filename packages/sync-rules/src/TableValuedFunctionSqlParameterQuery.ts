@@ -130,7 +130,7 @@ export class TableValuedFunctionSqlParameterQuery {
     for (let row of rows) {
       const description = this.getIndividualBucketDescription(row, parameters);
       if (description !== null) {
-        total.push(description);        
+        total.push(description);
       }
     }
     return total;
@@ -166,7 +166,7 @@ export class TableValuedFunctionSqlParameterQuery {
 
     return {
       bucket: getBucketId(this.descriptor_name!, this.bucket_parameters!, result),
-      priority: this.priority ?? defaultBucketPriority,
+      priority: this.priority ?? defaultBucketPriority
     };
   }
 

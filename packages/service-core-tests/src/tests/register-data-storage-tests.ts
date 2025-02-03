@@ -394,13 +394,13 @@ bucket_definitions:
     const parameter_sets = await bucketStorage.getParameterSets(checkpoint, lookups);
     expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }]);
 
-    const buckets = await sync_rules.queryBucketIds({
+    const buckets = await sync_rules.queryBucketDescriptions({
       getParameterSets(lookups) {
         return bucketStorage.getParameterSets(checkpoint, lookups);
       },
       parameters
     });
-    expect(buckets).toEqual(['by_workspace["workspace1"]']);
+    expect(buckets).toEqual([{ bucket: 'by_workspace["workspace1"]', priority: 1 }]);
   });
 
   test('save and load parameters with dynamic global buckets', async () => {
@@ -466,14 +466,17 @@ bucket_definitions:
     parameter_sets.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }, { workspace_id: 'workspace3' }]);
 
-    const buckets = await sync_rules.queryBucketIds({
+    const buckets = await sync_rules.queryBucketDescriptions({
       getParameterSets(lookups) {
         return bucketStorage.getParameterSets(checkpoint, lookups);
       },
       parameters
     });
-    buckets.sort();
-    expect(buckets).toEqual(['by_public_workspace["workspace1"]', 'by_public_workspace["workspace3"]']);
+    buckets.sort((a, b) => a.bucket.localeCompare(b.bucket));
+    expect(buckets).toEqual([
+      { bucket: 'by_public_workspace["workspace1"]', priority: 1 },
+      { bucket: 'by_public_workspace["workspace3"]', priority: 1 }
+    ]);
   });
 
   test('multiple parameter queries', async () => {
@@ -562,12 +565,14 @@ bucket_definitions:
     expect(parameter_sets2).toEqual([{ workspace_id: 'workspace3' }]);
 
     // Test final values - the important part
-    const buckets = await sync_rules.queryBucketIds({
-      getParameterSets(lookups) {
-        return bucketStorage.getParameterSets(checkpoint, lookups);
-      },
-      parameters
-    });
+    const buckets = (
+      await sync_rules.queryBucketDescriptions({
+        getParameterSets(lookups) {
+          return bucketStorage.getParameterSets(checkpoint, lookups);
+        },
+        parameters
+      })
+    ).map((e) => e.bucket);
     buckets.sort();
     expect(buckets).toEqual(['by_workspace["workspace1"]', 'by_workspace["workspace3"]']);
   });

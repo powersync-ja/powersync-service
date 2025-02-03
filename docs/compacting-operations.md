@@ -75,8 +75,10 @@ The second part is compacting to CLEAR operations. For each bucket, we keep trac
 For an initial workaround, defragmenting can be performed outside powersync by touching all rows in a bucket:
 
 ```sql
-update mytable set id = id
--- Repeat the above for other tables in the same bucket if relevant
+UPDATE mytable
+SET
+  id = id
+  -- Repeat the above for other tables in the same bucket if relevant
 ```
 
 After this, the normal MOVE + CLEAR compacting will compact the bucket to only have a single operation per active row.
@@ -86,7 +88,11 @@ This would cause existing clients to re-sync every row, while reducing the numbe
 If an updated_at column or similar is present, we can use this to defragment more incrementally:
 
 ```sql
-update mytable set id = id where updated_at < now() - interval '1 week'
+UPDATE mytable
+SET
+  id = id
+WHERE
+  updated_at < now() - interval '1 week'
 ```
 
 This version avoids unnecessary defragmentation of rows modified recently.

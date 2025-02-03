@@ -11,7 +11,7 @@ This is our first approach.
 We start by creating a logical replication slot, exporting a snapshot:
 
 ```sql
-CREATE_REPLICATION_SLOT <slot> LOGICAL pgoutput EXPORT_SNAPSHOT
+CREATE_REPLICATION_SLOT < slot > LOGICAL pgoutput EXPORT_SNAPSHOT
 ```
 
 While that connection stays open, we create another connection with a transaction, and read each table:

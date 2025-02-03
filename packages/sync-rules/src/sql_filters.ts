@@ -741,7 +741,7 @@ export class SqlTools {
   }
 
   isBucketPriorityParameter(name: string): boolean {
-    return name == "_priority";
+    return name == '_priority';
   }
 
   extractBucketPriority(expr: Expr): BucketPriority | undefined {

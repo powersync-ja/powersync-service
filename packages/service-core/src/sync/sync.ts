@@ -146,7 +146,7 @@ async function* streamResponseInner(
     for (let bucket of allBuckets) {
       dataBucketsNew.set(bucket.bucket, {
         description: bucket,
-        start_op_id: dataBuckets.get(bucket.bucket)?.start_op_id ?? '0',
+        start_op_id: dataBuckets.get(bucket.bucket)?.start_op_id ?? '0'
       });
     }
     dataBuckets = dataBucketsNew;
@@ -167,7 +167,10 @@ async function* streamResponseInner(
         // No changes - don't send anything to the client
         continue;
       }
-      const updatedBucketDescriptions = diff.updatedBuckets.map((e) => ({...e, priority: dataBuckets.get(e.bucket)!.description!.priority}));
+      const updatedBucketDescriptions = diff.updatedBuckets.map((e) => ({
+        ...e,
+        priority: dataBuckets.get(e.bucket)!.description!.priority
+      }));
       bucketsToFetch = updatedBucketDescriptions;
 
       let message = `Updated checkpoint: ${checkpoint} | `;
@@ -188,7 +191,7 @@ async function* streamResponseInner(
           last_op_id: checkpoint,
           write_checkpoint: writeCheckpoint ? String(writeCheckpoint) : undefined,
           removed_buckets: diff.removedBuckets,
-          updated_buckets: updatedBucketDescriptions,
+          updated_buckets: updatedBucketDescriptions
         }
       };
 
@@ -202,7 +205,10 @@ async function* streamResponseInner(
         checkpoint: {
           last_op_id: checkpoint,
           write_checkpoint: writeCheckpoint ? String(writeCheckpoint) : undefined,
-          buckets: [...checksumMap.values()].map((e) => ({...e, priority: dataBuckets.get(e.bucket)!.description!.priority})),
+          buckets: [...checksumMap.values()].map((e) => ({
+            ...e,
+            priority: dataBuckets.get(e.bucket)!.description!.priority
+          }))
         }
       };
       yield checksum_line;
@@ -229,9 +235,9 @@ async function* streamResponseInner(
         signal,
         tracker,
         user_id: syncParams.user_id,
-        forPriority: currentPriority !== lowestPriority ? currentPriority : undefined,
+        forPriority: currentPriority !== lowestPriority ? currentPriority : undefined
       });
-    }
+    };
 
     for (let i = 0; i < bucketsToFetch.length; i++) {
       if (bucketsToFetch[i].priority == currentPriority) {
@@ -326,7 +332,9 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
     }
     // Optimization: Only fetch buckets for which the checksums have changed since the last checkpoint
     // For the first batch, this will be all buckets.
-    const filteredBuckets = new Map(bucketsToFetch.map((bucket) => [bucket.bucket, dataBuckets.get(bucket.bucket)?.start_op_id!]));
+    const filteredBuckets = new Map(
+      bucketsToFetch.map((bucket) => [bucket.bucket, dataBuckets.get(bucket.bucket)?.start_op_id!])
+    );
     const data = storage.getBucketDataBatch(checkpoint, filteredBuckets);
 
     let has_more = false;
@@ -388,7 +396,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
           const line: util.StreamingSyncCheckpointPartiallyComplete = {
             partial_checkpoint_complete: {
               last_op_id: checkpoint,
-              priority: request.forPriority,
+              priority: request.forPriority
             }
           };
           yield { data: line, done: true };
@@ -400,7 +408,6 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
           };
           yield { data: line, done: true };
         }
-
       }
     }
   } finally {
@@ -428,7 +435,7 @@ function transformLegacyResponse(bucketData: util.SyncBucketData): any {
   };
 }
 
-function limitedBuckets(buckets: string[] | {bucket: string}[], limit: number) {
+function limitedBuckets(buckets: string[] | { bucket: string }[], limit: number) {
   buckets = buckets.map((b) => {
     if (typeof b != 'string') {
       return b.bucket;

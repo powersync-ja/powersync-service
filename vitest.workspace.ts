@@ -1,4 +1,1 @@
-export default [
-    'modules/*',
-    'packages/*',
-]
+export default ['modules/*', 'packages/*'];

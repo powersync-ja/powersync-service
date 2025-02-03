@@ -16,7 +16,7 @@ describe('table-valued function queries', () => {
     expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }))).toEqual([
       { bucket: 'mybucket[1]', priority: 1 },
       { bucket: 'mybucket[2]', priority: 1 },
-      { bucket: 'mybucket[3]', priority: 1 },
+      { bucket: 'mybucket[3]', priority: 1 }
     ]);
   });
 
@@ -29,7 +29,7 @@ describe('table-valued function queries', () => {
     expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}))).toEqual([
       { bucket: 'mybucket[1]', priority: 1 },
       { bucket: 'mybucket[2]', priority: 1 },
-      { bucket: 'mybucket[3]', priority: 1 },
+      { bucket: 'mybucket[3]', priority: 1 }
     ]);
   });
 
@@ -91,7 +91,7 @@ describe('table-valued function queries', () => {
     expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }))).toEqual([
       { bucket: 'mybucket[1]', priority: 1 },
       { bucket: 'mybucket[2]', priority: 1 },
-      { bucket: 'mybucket[3]', priority: 1 },
+      { bucket: 'mybucket[3]', priority: 1 }
     ]);
   });
 
@@ -107,7 +107,7 @@ describe('table-valued function queries', () => {
     expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }))).toEqual([
       { bucket: 'mybucket[1]', priority: 1 },
       { bucket: 'mybucket[2]', priority: 1 },
-      { bucket: 'mybucket[3]', priority: 1 },
+      { bucket: 'mybucket[3]', priority: 1 }
     ]);
   });
 
@@ -122,7 +122,7 @@ describe('table-valued function queries', () => {
 
     expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }))).toEqual([
       { bucket: 'mybucket[2]', priority: 1 },
-      { bucket: 'mybucket[3]', priority: 1 },
+      { bucket: 'mybucket[3]', priority: 1 }
     ]);
   });
 

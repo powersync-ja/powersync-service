@@ -106,7 +106,9 @@ export class SqlParameterQuery {
     const where = q.where;
     const filter = tools.compileWhereClause(where);
 
-    const bucket_parameters = (q.columns ?? []).map((column) => tools.getOutputName(column));
+    const bucket_parameters = (q.columns ?? [])
+      .map((column) => tools.getOutputName(column))
+      .filter((c) => !tools.isBucketPriorityParameter(c));
     rows.sourceTable = sourceTable;
     rows.table = alias;
     rows.sql = sql;
@@ -279,7 +281,7 @@ export class SqlParameterQuery {
 
         return {
           bucket: getBucketId(this.descriptor_name!, this.bucket_parameters!, result),
-          priority: this.priority ?? defaultBucketPriority,
+          priority: this.priority ?? defaultBucketPriority
         };
       })
       .filter((lookup) => lookup != null);
