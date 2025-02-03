@@ -1,4 +1,5 @@
 import * as pgwire from '@powersync/service-jpgwire';
+import semver from 'semver';
 import { NormalizedPostgresConnectionConfig } from '../types/types.js';
 
 /**
@@ -33,6 +34,15 @@ export class PgManager {
     const p = pgwire.connectPgWire(this.options, { type: 'replication' });
     this.connectionPromises.push(p);
     return await p;
+  }
+
+  /**
+   * @returns The Postgres server version in a parsed Semver instance
+   */
+  async getServerVersion(): Promise<semver.SemVer | null> {
+    const result = await this.pool.query(`SHOW server_version;`);
+    // The result is usually of the form "16.2 (Debian 16.2-1.pgdg120+2)"
+    return semver.coerce(result.rows[0][0].split(' ')[0]);
   }
 
   /**

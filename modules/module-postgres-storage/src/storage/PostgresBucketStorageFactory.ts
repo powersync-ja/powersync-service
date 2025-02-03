@@ -157,6 +157,17 @@ export class PostgresBucketStorageFactory
     return newInstanceRow!.id;
   }
 
+  async getSystemIdentifier(): Promise<storage.BucketStorageSystemIdentifier> {
+    const id = lib_postgres.utils.encodePostgresSystemIdentifier(
+      await lib_postgres.utils.queryPostgresSystemIdentifier(this.db.pool)
+    );
+
+    return {
+      id,
+      type: lib_postgres.POSTGRES_CONNECTION_TYPE
+    };
+  }
+
   // TODO possibly share implementation in abstract class
   async configureSyncRules(
     sync_rules: string,

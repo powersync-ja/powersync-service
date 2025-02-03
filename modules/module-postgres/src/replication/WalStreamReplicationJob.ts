@@ -1,6 +1,6 @@
 import { container } from '@powersync/lib-services-framework';
 import { PgManager } from './PgManager.js';
-import { MissingReplicationSlotError, WalStream } from './WalStream.js';
+import { MissingReplicationSlotError, sendKeepAlive, WalStream } from './WalStream.js';
 
 import { replication } from '@powersync/service-core';
 import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
@@ -37,7 +37,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
    */
   async keepAlive() {
     try {
-      await this.connectionManager.pool.query(`SELECT * FROM pg_logical_emit_message(false, 'powersync', 'ping')`);
+      await sendKeepAlive(this.connectionManager.pool);
     } catch (e) {
       this.logger.warn(`KeepAlive failed, unable to post to WAL`, e);
     }

@@ -256,33 +256,6 @@ export class PostgresPersistedBatch {
   protected async flushBucketData(db: lib_postgres.WrappedConnection) {
     if (this.bucketDataInserts.length > 0) {
       await db.sql`
-        WITH
-          parsed_data AS (
-            SELECT
-              group_id,
-              bucket_name,
-              source_table,
-              decode(source_key, 'hex') AS source_key, -- Decode hex to bytea
-              table_name,
-              op,
-              row_id,
-              checksum,
-              data,
-              target_op
-            FROM
-              jsonb_to_recordset(${{ type: 'jsonb', value: this.bucketDataInserts }}::jsonb) AS t (
-                group_id integer,
-                bucket_name text,
-                source_table text,
-                source_key text, -- Input as hex string
-                table_name text,
-                op text,
-                row_id text,
-                checksum bigint,
-                data text,
-                target_op bigint
-              )
-          )
         INSERT INTO
           bucket_data (
             group_id,
@@ -303,14 +276,25 @@ export class PostgresPersistedBatch {
           nextval('op_id_sequence'),
           op,
           source_table,
-          source_key, -- Already decoded
+          decode(source_key, 'hex') AS source_key,
           table_name,
           row_id,
           checksum,
           data,
           target_op
         FROM
-          parsed_data;
+          json_to_recordset(${{ type: 'json', value: this.bucketDataInserts }}::json) AS t (
+            group_id integer,
+            bucket_name text,
+            source_table text,
+            source_key text, -- Input as hex string
+            table_name text,
+            op text,
+            row_id text,
+            checksum bigint,
+            data text,
+            target_op bigint
+          );
       `.execute();
     }
   }
@@ -318,23 +302,6 @@ export class PostgresPersistedBatch {
   protected async flushParameterData(db: lib_postgres.WrappedConnection) {
     if (this.parameterDataInserts.length > 0) {
       await db.sql`
-        WITH
-          parsed_data AS (
-            SELECT
-              group_id,
-              source_table,
-              decode(source_key, 'hex') AS source_key, -- Decode hex to bytea
-              decode(lookup, 'hex') AS lookup, -- Decode hex to bytea
-              bucket_parameters
-            FROM
-              jsonb_to_recordset(${{ type: 'jsonb', value: this.parameterDataInserts }}::jsonb) AS t (
-                group_id integer,
-                source_table text,
-                source_key text, -- Input as hex string
-                lookup text, -- Input as hex string
-                bucket_parameters text -- Input as stringified JSON
-              )
-          )
         INSERT INTO
           bucket_parameters (
             group_id,
@@ -346,11 +313,17 @@ export class PostgresPersistedBatch {
         SELECT
           group_id,
           source_table,
-          source_key, -- Already decoded
-          lookup, -- Already decoded
+          decode(source_key, 'hex') AS source_key, -- Decode hex to bytea
+          decode(lookup, 'hex') AS lookup, -- Decode hex to bytea
           bucket_parameters
         FROM
-          parsed_data;
+          json_to_recordset(${{ type: 'json', value: this.parameterDataInserts }}::json) AS t (
+            group_id integer,
+            source_table text,
+            source_key text, -- Input as hex string
+            lookup text, -- Input as hex string
+            bucket_parameters text -- Input as stringified JSON
+          )
       `.execute();
     }
   }
@@ -358,33 +331,6 @@ export class PostgresPersistedBatch {
   protected async flushCurrentData(db: lib_postgres.WrappedConnection) {
     if (this.currentDataInserts.size > 0) {
       await db.sql`
-        WITH
-          parsed_data AS (
-            SELECT
-              group_id,
-              source_table,
-              decode(source_key, 'hex') AS source_key, -- Decode hex to bytea
-              buckets::jsonb AS buckets,
-              decode(data, 'hex') AS data, -- Decode hex to bytea
-              ARRAY(
-                SELECT
-                  decode((value ->> 0)::TEXT, 'hex')
-                FROM
-                  jsonb_array_elements(lookups::jsonb) AS value
-              ) AS lookups -- Decode array of hex strings to bytea[]
-            FROM
-              jsonb_to_recordset(${{
-          type: 'jsonb',
-          value: Array.from(this.currentDataInserts.values())
-        }}::jsonb) AS t (
-                group_id integer,
-                source_table text,
-                source_key text, -- Input as hex string
-                buckets text,
-                data text, -- Input as hex string
-                lookups text -- Input as stringified JSONB array of hex strings
-              )
-          )
         INSERT INTO
           current_data (
             group_id,
@@ -397,12 +343,24 @@ export class PostgresPersistedBatch {
         SELECT
           group_id,
           source_table,
-          source_key, -- Already decoded
-          buckets,
-          data, -- Already decoded
-          lookups -- Already decoded
+          decode(source_key, 'hex') AS source_key, -- Decode hex to bytea
+          buckets::jsonb AS buckets,
+          decode(data, 'hex') AS data, -- Decode hex to bytea
+          array(
+            SELECT
+              decode(element, 'hex')
+            FROM
+              unnest(lookups) AS element
+          ) AS lookups
         FROM
-          parsed_data
+          json_to_recordset(${{ type: 'json', value: Array.from(this.currentDataInserts.values()) }}::json) AS t (
+            group_id integer,
+            source_table text,
+            source_key text, -- Input as hex string
+            buckets text,
+            data text, -- Input as hex string
+            lookups TEXT[] -- Input as stringified JSONB array of hex strings
+          )
         ON CONFLICT (group_id, source_table, source_key) DO UPDATE
         SET
           buckets = EXCLUDED.buckets,

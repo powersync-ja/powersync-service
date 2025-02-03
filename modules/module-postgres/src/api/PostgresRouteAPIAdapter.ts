@@ -6,7 +6,7 @@ import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import * as replication_utils from '../replication/replication-utils.js';
 import { getDebugTableInfo } from '../replication/replication-utils.js';
-import { PUBLICATION_NAME } from '../replication/WalStream.js';
+import { KEEPALIVE_STATEMENT, PUBLICATION_NAME } from '../replication/WalStream.js';
 import * as types from '../types/types.js';
 
 export class PostgresRouteAPIAdapter implements api.RouteAPI {
@@ -244,7 +244,7 @@ FROM pg_replication_slots WHERE slot_name = $1 LIMIT 1;`,
     const { results } = await lib_postgres.retriedQuery(
       this.pool,
       { statement: `SELECT pg_current_wal_lsn() as lsn` },
-      { statement: `SELECT pg_logical_emit_message(false, 'powersync', 'ping')` }
+      KEEPALIVE_STATEMENT
     );
 
     // Specifically use the lsn from the first statement, not the second one.

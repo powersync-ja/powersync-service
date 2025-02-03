@@ -84,6 +84,23 @@ export class MongoBucketStorage
     return storage;
   }
 
+  async getSystemIdentifier(): Promise<storage.BucketStorageSystemIdentifier> {
+    const { setName: id } = await this.db.db.command({
+      hello: 1
+    });
+    if (id == null) {
+      throw new ServiceError(
+        ErrorCode.PSYNC_S1342,
+        'Standalone MongoDB instances are not supported - use a replicaset.'
+      );
+    }
+
+    return {
+      id,
+      type: lib_mongo.MONGO_CONNECTION_TYPE
+    };
+  }
+
   async configureSyncRules(sync_rules: string, options?: { lock?: boolean }) {
     const next = await this.getNextSyncRulesContent();
     const active = await this.getActiveSyncRulesContent();

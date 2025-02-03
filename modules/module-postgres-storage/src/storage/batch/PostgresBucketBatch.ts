@@ -89,7 +89,7 @@ export class PostgresBucketBatch
 
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
     // TODO maybe share with abstract class
-    const { after, afterReplicaId, before, beforeReplicaId, sourceTable, tag } = record;
+    const { after, before, sourceTable, tag } = record;
     for (const event of this.getTableEvents(sourceTable)) {
       this.iterateListeners((cb) =>
         cb.replicationEvent?.({
@@ -245,7 +245,10 @@ export class PostgresBucketBatch
 
   private async flushInner(): Promise<storage.FlushedResult | null> {
     const batch = this.batch;
-    if (batch == null) {
+    // Don't flush empty batches
+    // This helps prevent feedback loops when using the same database for
+    // the source data and sync bucket storage
+    if (batch == null || batch.length == 0) {
       return null;
     }
 
@@ -275,7 +278,9 @@ export class PostgresBucketBatch
     return { flushed_op: String(lastOp) };
   }
 
-  async commit(lsn: string): Promise<boolean> {
+  async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<boolean> {
+    const { createEmptyCheckpoints } = { ...storage.DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS, ...options };
+
     await this.flush();
 
     if (this.last_checkpoint_lsn != null && lsn < this.last_checkpoint_lsn) {
@@ -309,6 +314,12 @@ export class PostgresBucketBatch
 
       return false;
     }
+
+    // Don't create a checkpoint if there were no changes
+    if (!createEmptyCheckpoints && this.persisted_op == null) {
+      return false;
+    }
+
     const now = new Date().toISOString();
     const update: Partial<models.SyncRules> = {
       last_checkpoint_lsn: lsn,
@@ -488,7 +499,7 @@ export class PostgresBucketBatch
               jsonb_array_elements(${{ type: 'jsonb', value: sizeLookups }}::jsonb) AS FILTER
           )
         SELECT
-          pg_column_size(c.data) AS data_size,
+          octet_length(c.data) AS data_size,
           c.source_table,
           c.source_key
         FROM
@@ -529,23 +540,20 @@ export class PostgresBucketBatch
       const current_data_lookup = new Map<string, CurrentDataDecoded>();
       for await (const currentDataRows of db.streamRows<CurrentData>({
         statement: /* sql */ `
-          WITH
-            filter_data AS (
-              SELECT
-                decode(FILTER ->> 'source_key', 'hex') AS source_key, -- Decoding from hex to bytea
-                (FILTER ->> 'source_table') AS source_table_id
-              FROM
-                jsonb_array_elements($1::jsonb) AS FILTER
-            )
           SELECT
-            --- With skipExistingRows, we only need to know whether or not the row exists.
             ${this.options.skip_existing_rows ? `c.source_table, c.source_key` : 'c.*'}
           FROM
             current_data c
-            JOIN filter_data f ON c.source_table = f.source_table_id
+            JOIN (
+              SELECT
+                decode(FILTER ->> 'source_key', 'hex') AS source_key,
+                FILTER ->> 'source_table' AS source_table_id
+              FROM
+                jsonb_array_elements($1::jsonb) AS FILTER
+            ) f ON c.source_table = f.source_table_id
             AND c.source_key = f.source_key
           WHERE
-            c.group_id = $2
+            c.group_id = $2;
         `,
         params: [
           {
@@ -553,7 +561,7 @@ export class PostgresBucketBatch
             value: lookups
           },
           {
-            type: 'int8',
+            type: 'int4',
             value: this.group_id
           }
         ]
@@ -610,7 +618,12 @@ export class PostgresBucketBatch
         await persistedBatch.flush(db);
       }
     }
-    return resumeBatch;
+
+    // Don't return empty batches
+    if (resumeBatch?.batch.length) {
+      return resumeBatch;
+    }
+    return null;
   }
 
   protected async saveOperation(

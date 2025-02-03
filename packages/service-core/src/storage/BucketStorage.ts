@@ -60,6 +60,20 @@ export interface BucketStorageFactoryListener extends DisposableListener {
   replicationEvent: (event: ReplicationEventPayload) => void;
 }
 
+export interface BucketStorageSystemIdentifier {
+  /**
+   * A unique identifier for the system used for storage.
+   * For Postgres this can be the cluster `system_identifier` and database name.
+   * For MongoDB this can be the replica set name.
+   */
+  id: string;
+  /**
+   * A unique type for the storage implementation.
+   * e.g. `mongodb`, `postgresql`.
+   */
+  type: string;
+}
+
 export interface BucketStorageFactory extends AsyncDisposableObserverClient<BucketStorageFactoryListener> {
   /**
    * Update sync rules from configuration, if changed.
@@ -143,6 +157,11 @@ export interface BucketStorageFactory extends AsyncDisposableObserverClient<Buck
    * Get the unique identifier for this instance of Powersync
    */
   getPowerSyncInstanceId(): Promise<string>;
+
+  /**
+   * Get a unique identifier for the system used for storage.
+   */
+  getSystemIdentifier(): Promise<BucketStorageSystemIdentifier>;
 }
 
 export interface ReplicationCheckpoint {
@@ -367,6 +386,20 @@ export interface BucketBatchStorageListener extends DisposableListener {
   replicationEvent: (payload: ReplicationEventPayload) => void;
 }
 
+export interface BucketBatchCommitOptions {
+  /**
+   * Creates a new checkpoint even if there were no persisted operations.
+   * Defaults to true.
+   */
+  createEmptyCheckpoints?: boolean;
+}
+
+export type ResolvedBucketBatchCommitOptions = Required<BucketBatchCommitOptions>;
+
+export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptions = {
+  createEmptyCheckpoints: true
+};
+
 export interface BucketStorageBatch extends DisposableObserverClient<BucketBatchStorageListener> {
   /**
    * Save an op, and potentially flush.
@@ -398,11 +431,11 @@ export interface BucketStorageBatch extends DisposableObserverClient<BucketBatch
   flush(): Promise<FlushedResult | null>;
 
   /**
-   * Flush and commit any saved ops. This creates a new checkpoint.
+   * Flush and commit any saved ops. This creates a new checkpoint by default.
    *
    * Only call this after a transaction.
    */
-  commit(lsn: string): Promise<boolean>;
+  commit(lsn: string, options?: BucketBatchCommitOptions): Promise<boolean>;
 
   /**
    * Advance the checkpoint LSN position, without any associated op.

@@ -31,7 +31,13 @@ storage:
 ```
 
 **IMPORTANT**:
-A separate Postgres server is currently required for replication connections (if using Postgres for replication) and storage. Using the same server might cause unexpected results.
+
+Separate Postgres servers are required for replication connections **if using PostgreSQL versions below 14**.
+
+| PostgreSQL Version | Server configuration                                                                                                                                                                                                     |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Below 14           | Separate servers are required for the source and sync bucket storage. Replication will be blocked if the same server is detected.                                                                                        |
+| 14 and above       | The source database and sync bucket storage database can be on the same server. Using the same database (with separate schemas) is supported but may lead to higher CPU usage. Using separate servers remains an option. |
 
 ### Connection credentials
 

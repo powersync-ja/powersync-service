@@ -32,7 +32,8 @@ export const TRANSACTION_CONNECTION_COUNT = 5;
 export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientListener> {
   closed: boolean;
 
-  protected pool: pgwire.PgClient;
+  pool: pgwire.PgClient;
+
   protected connections: ConnectionSlot[];
 
   protected initialized: Promise<void>;
@@ -42,8 +43,10 @@ export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientLis
     super();
     this.closed = false;
     this.pool = pgwire.connectPgWirePool(options.config);
-    this.connections = Array.from({ length: TRANSACTION_CONNECTION_COUNT }, () => {
-      const slot = new ConnectionSlot({ config: options.config, notificationChannels: options.notificationChannels });
+    this.connections = Array.from({ length: TRANSACTION_CONNECTION_COUNT }, (v, index) => {
+      // Only listen to notifications on a single (the first) connection
+      const notificationChannels = index == 0 ? options.notificationChannels : [];
+      const slot = new ConnectionSlot({ config: options.config, notificationChannels });
       slot.registerListener({
         connectionAvailable: () => this.processConnectionQueue(),
         connectionError: (ex) => this.handleConnectionError(ex),
