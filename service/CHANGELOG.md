@@ -1,5 +1,14 @@
 # @powersync/service-image
 
+## 1.3.12
+
+### Patch Changes
+
+- @powersync/service-module-postgres@0.6.1
+- @powersync/service-module-postgres-storage@0.2.1
+- @powersync/service-module-mongodb@0.4.2
+- @powersync/service-module-mysql@0.2.2
+
 ## 1.3.11
 
 ### Patch Changes
