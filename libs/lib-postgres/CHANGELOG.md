@@ -1,5 +1,11 @@
 # @powersync/lib-service-postgres
 
+## 0.3.0
+
+### Minor Changes
+
+- 223f701: Added utilities for Postgres server and database identification.
+
 ## 0.2.0
 
 ### Minor Changes
