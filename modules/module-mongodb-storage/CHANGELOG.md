@@ -1,5 +1,16 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.4.0
+
+### Minor Changes
+
+- 23fb49f: Added the ability to skip creating empty sync checkpoints if no changes were present in a batch.
+
+### Patch Changes
+
+- Updated dependencies [23fb49f]
+  - @powersync/service-core@0.17.0
+
 ## 0.3.2
 
 ### Patch Changes

@@ -1,5 +1,16 @@
 # @powersync/service-module-postgres
 
+## 0.6.0
+
+### Minor Changes
+
+- 23fb49f: Allowed using the same Postgres server for the replication source and sync bucket storage. This is only supported on Postgres versions newer than 14.0.
+
+### Patch Changes
+
+- Updated dependencies [23fb49f]
+  - @powersync/service-core@0.17.0
+
 ## 0.5.1
 
 ### Patch Changes

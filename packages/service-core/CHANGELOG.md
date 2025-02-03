@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 0.17.0
+
+### Minor Changes
+
+- 23fb49f: Added the ability to skip creating empty sync checkpoints if no changes were present in a batch.
+
 ## 0.16.1
 
 ### Patch Changes
