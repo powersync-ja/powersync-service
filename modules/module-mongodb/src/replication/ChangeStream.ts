@@ -9,19 +9,12 @@ import {
 } from '@powersync/lib-services-framework';
 import { Metrics, SaveOperationTag, SourceEntityDescriptor, SourceTable, storage } from '@powersync/service-core';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
+import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
 import { MongoManager } from './MongoManager.js';
-import {
-  constructAfterRecord,
-  createCheckpoint,
-  getMongoLsn,
-  getMongoRelation,
-  mongoLsnToTimestamp
-} from './MongoRelation.js';
+import { constructAfterRecord, createCheckpoint, getMongoRelation } from './MongoRelation.js';
 import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
-
-export const ZERO_LSN = '0000000000000000';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;
@@ -207,7 +200,7 @@ export class ChangeStream {
     const session = await this.client.startSession();
     try {
       await this.storage.startBatch(
-        { zeroLSN: ZERO_LSN, defaultSchema: this.defaultDb.databaseName, storeCurrentData: false },
+        { zeroLSN: MongoLSN.ZERO.comparable, defaultSchema: this.defaultDb.databaseName, storeCurrentData: false },
         async (batch) => {
           // Start by resolving all tables.
           // This checks postImage configuration, and that should fail as
@@ -220,14 +213,14 @@ export class ChangeStream {
 
           for (let table of allSourceTables) {
             await this.snapshotTable(batch, table, session);
-            await batch.markSnapshotDone([table], ZERO_LSN);
+            await batch.markSnapshotDone([table], MongoLSN.ZERO.comparable);
 
             await touch();
           }
 
-          const lsn = getMongoLsn(snapshotTime);
+          const lsn = new MongoLSN({ timestamp: snapshotTime });
           logger.info(`Snapshot commit at ${snapshotTime.inspect()} / ${lsn}`);
-          await batch.commit(lsn);
+          await batch.commit(lsn.comparable);
         }
       );
     } finally {
@@ -524,11 +517,14 @@ export class ChangeStream {
     await this.storage.autoActivate();
 
     await this.storage.startBatch(
-      { zeroLSN: ZERO_LSN, defaultSchema: this.defaultDb.databaseName, storeCurrentData: false },
+      { zeroLSN: MongoLSN.ZERO.comparable, defaultSchema: this.defaultDb.databaseName, storeCurrentData: false },
       async (batch) => {
-        const lastLsn = batch.lastCheckpointLsn;
-        const startAfter = mongoLsnToTimestamp(lastLsn) ?? undefined;
-        logger.info(`Resume streaming at ${startAfter?.inspect()} / ${lastLsn}`);
+        const { lastCheckpointLsn } = batch;
+        const lastLsn = lastCheckpointLsn ? MongoLSN.fromSerialized(lastCheckpointLsn) : null;
+        const startAfter = lastLsn?.timestamp;
+        const resumeAfter = lastLsn?.resumeToken;
+
+        logger.info(`Resume streaming at ${startAfter?.inspect()} / ${lastLsn}}`);
 
         const filters = this.getSourceNamespaceFilters();
 
@@ -551,12 +547,18 @@ export class ChangeStream {
         }
 
         const streamOptions: mongo.ChangeStreamOptions = {
-          startAtOperationTime: startAfter,
           showExpandedEvents: true,
           useBigInt64: true,
           maxAwaitTimeMS: 200,
           fullDocument: fullDocument
         };
+
+        if (resumeAfter) {
+          streamOptions.resumeAfter = resumeAfter;
+        } else {
+          streamOptions.startAtOperationTime = startAfter;
+        }
+
         let stream: mongo.ChangeStream<mongo.Document>;
         if (filters.multipleDatabases) {
           // Requires readAnyDatabase@admin on Atlas
@@ -576,7 +578,7 @@ export class ChangeStream {
         });
 
         // Always start with a checkpoint.
-        // This helps us to clear erorrs when restarting, even if there is
+        // This helps us to clear errors when restarting, even if there is
         // no data to replicate.
         let waitForCheckpointLsn: string | null = await createCheckpoint(this.client, this.defaultDb);
 
@@ -631,7 +633,11 @@ export class ChangeStream {
               changeDocument.operationType == 'replace') &&
             changeDocument.ns.coll == CHECKPOINTS_COLLECTION
           ) {
-            const lsn = getMongoLsn(changeDocument.clusterTime!);
+            const { comparable: lsn } = new MongoLSN({
+              timestamp: changeDocument.clusterTime!,
+              resume_token: changeDocument._id
+            });
+
             if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
               waitForCheckpointLsn = null;
             }

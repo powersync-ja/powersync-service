@@ -3,8 +3,9 @@ import { storage } from '@powersync/service-core';
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import { SqliteRow, SqliteValue } from '@powersync/service-sync-rules';
 
-import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
+import { MongoLSN } from '../common/MongoLSN.js';
+import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
 
 export function getMongoRelation(source: mongo.ChangeStreamNameSpace): storage.SourceEntityDescriptor {
   return {
@@ -13,21 +14,6 @@ export function getMongoRelation(source: mongo.ChangeStreamNameSpace): storage.S
     objectId: source.coll,
     replicationColumns: [{ name: '_id' }]
   } satisfies storage.SourceEntityDescriptor;
-}
-
-export function getMongoLsn(timestamp: mongo.Timestamp) {
-  const a = timestamp.high.toString(16).padStart(8, '0');
-  const b = timestamp.low.toString(16).padStart(8, '0');
-  return a + b;
-}
-
-export function mongoLsnToTimestamp(lsn: string | null) {
-  if (lsn == null) {
-    return null;
-  }
-  const a = parseInt(lsn.substring(0, 8), 16);
-  const b = parseInt(lsn.substring(8, 16), 16);
-  return mongo.Timestamp.fromBits(b, a);
 }
 
 export function constructAfterRecord(document: mongo.Document): SqliteRow {
@@ -174,7 +160,7 @@ export async function createCheckpoint(client: mongo.MongoClient, db: mongo.Db):
     );
     const time = session.operationTime!;
     // TODO: Use the above when we support custom write checkpoints
-    return getMongoLsn(time);
+    return new MongoLSN({ timestamp: time }).comparable;
   } finally {
     await session.endSession();
   }
