@@ -42,7 +42,7 @@ describe('SQL functions', () => {
     expect(jsonExtract(`{"foo": true}`, '$.foo', '->')).toEqual('true');
     // Null and missing are the same here; matches SQLite
     expect(jsonExtract(`{"foo": null}`, '$.foo', '->')).toBeNull();
-    expect(jsonExtract(`{"foo": true}`, '$.bar', '->')).toBeNull();
+    expect(jsonExtract(`{}`, '$.bar', '->')).toBeNull();
   });
 
   test('json_array_length', () => {
