@@ -27,7 +27,7 @@ export const JSON_EACH: TableValuedFunction = {
       throw new Error('Expected JSON string');
     }
     if (!Array.isArray(values)) {
-      throw new Error('Expected an array');
+      throw new Error(`Expected an array, got ${valueString}`);
     }
 
     return values.map((v) => {
