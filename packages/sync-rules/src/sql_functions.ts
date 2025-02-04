@@ -865,7 +865,7 @@ export function jsonExtract(sourceValue: SqliteValue, path: SqliteValue, operato
     value = value[c];
   }
   if (operator == '->') {
-    // -> must always stringify, expect when it's null
+    // -> must always stringify, except when it's null
     if (value == null) {
       return null;
     }
