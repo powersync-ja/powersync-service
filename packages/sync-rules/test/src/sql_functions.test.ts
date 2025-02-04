@@ -12,8 +12,9 @@ describe('SQL functions', () => {
     expect(fn.json_extract(JSON.stringify({ foo: 42 }), '$')).toEqual('{"foo":42}');
     expect(fn.json_extract(`{"foo": 42.0}`, '$')).toEqual('{"foo":42.0}');
     expect(fn.json_extract(`{"foo": true}`, '$')).toEqual('{"foo":true}');
-    // Null and missing are different here; matches SQLite
+    // SQLite gives null instead of 'null'. We should match that, but it's a breaking change.
     expect(fn.json_extract(`{"foo": null}`, '$.foo')).toEqual('null');
+    // Matches SQLite
     expect(fn.json_extract(`{}`, '$.foo')).toBeNull();
   });
 
@@ -26,8 +27,9 @@ describe('SQL functions', () => {
     expect(jsonExtract(`{"foo": 42.0}`, 'foo', '->>')).toEqual(42.0);
     expect(jsonExtract(`{"foo": 42.0}`, '$', '->>')).toEqual(`{"foo":42.0}`);
     expect(jsonExtract(`{"foo": true}`, '$.foo', '->>')).toEqual(1n);
-    // Null and missing are different here; matches SQLite
+    // SQLite gives null instead of 'null'. We should match that, but it's a breaking change.
     expect(jsonExtract(`{"foo": null}`, '$.foo', '->>')).toEqual('null');
+    // Matches SQLite
     expect(jsonExtract(`{}`, '$.foo', '->>')).toBeNull();
   });
 
@@ -40,9 +42,10 @@ describe('SQL functions', () => {
     expect(jsonExtract(`{"foo": 42.0}`, 'foo', '->')).toEqual('42.0');
     expect(jsonExtract(`{"foo": 42.0}`, '$', '->')).toEqual(`{"foo":42.0}`);
     expect(jsonExtract(`{"foo": true}`, '$.foo', '->')).toEqual('true');
-    // Null and missing are the same here; matches SQLite
+    // SQLite gives 'null' instead of null. We should match that, but it's a breaking change.
     expect(jsonExtract(`{"foo": null}`, '$.foo', '->')).toBeNull();
-    expect(jsonExtract(`{}`, '$.bar', '->')).toBeNull();
+    // Matches SQLite
+    expect(jsonExtract(`{}`, '$.foo', '->')).toBeNull();
   });
 
   test('json_array_length', () => {
