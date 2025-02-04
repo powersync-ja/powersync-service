@@ -12,6 +12,9 @@ describe('SQL functions', () => {
     expect(fn.json_extract(JSON.stringify({ foo: 42 }), '$')).toEqual('{"foo":42}');
     expect(fn.json_extract(`{"foo": 42.0}`, '$')).toEqual('{"foo":42.0}');
     expect(fn.json_extract(`{"foo": true}`, '$')).toEqual('{"foo":true}');
+    // Null and missing are different here; matches SQLite
+    expect(fn.json_extract(`{"foo": null}`, '$.foo')).toEqual('null');
+    expect(fn.json_extract(`{}`, '$.foo')).toBeNull();
   });
 
   test('->>', () => {
@@ -23,6 +26,9 @@ describe('SQL functions', () => {
     expect(jsonExtract(`{"foo": 42.0}`, 'foo', '->>')).toEqual(42.0);
     expect(jsonExtract(`{"foo": 42.0}`, '$', '->>')).toEqual(`{"foo":42.0}`);
     expect(jsonExtract(`{"foo": true}`, '$.foo', '->>')).toEqual(1n);
+    // Null and missing are different here; matches SQLite
+    expect(jsonExtract(`{"foo": null}`, '$.foo', '->>')).toEqual('null');
+    expect(jsonExtract(`{}`, '$.foo', '->>')).toBeNull();
   });
 
   test('->', () => {
@@ -34,6 +40,9 @@ describe('SQL functions', () => {
     expect(jsonExtract(`{"foo": 42.0}`, 'foo', '->')).toEqual('42.0');
     expect(jsonExtract(`{"foo": 42.0}`, '$', '->')).toEqual(`{"foo":42.0}`);
     expect(jsonExtract(`{"foo": true}`, '$.foo', '->')).toEqual('true');
+    // Null and missing are the same here; matches SQLite
+    expect(jsonExtract(`{"foo": null}`, '$.foo', '->')).toBeNull();
+    expect(jsonExtract(`{"foo": true}`, '$.bar', '->')).toBeNull();
   });
 
   test('json_array_length', () => {
@@ -127,13 +136,13 @@ describe('SQL functions', () => {
   test('iif', () => {
     expect(fn.iif(null, 1, 2)).toEqual(2);
     expect(fn.iif(0, 1, 2)).toEqual(2);
-    expect(fn.iif(1, "first", "second")).toEqual("first");
-    expect(fn.iif(0.1, "is_true", "is_false")).toEqual("is_true");
-    expect(fn.iif("a", "is_true", "is_false")).toEqual("is_false");
-    expect(fn.iif(0n, "is_true", "is_false")).toEqual("is_false");
-    expect(fn.iif(2n, "is_true", "is_false")).toEqual("is_true");
-    expect(fn.iif(new Uint8Array([]), "is_true", "is_false")).toEqual("is_false");
-    expect(fn.iif(Uint8Array.of(0x61, 0x62, 0x43), "is_true", "is_false")).toEqual("is_false");
+    expect(fn.iif(1, 'first', 'second')).toEqual('first');
+    expect(fn.iif(0.1, 'is_true', 'is_false')).toEqual('is_true');
+    expect(fn.iif('a', 'is_true', 'is_false')).toEqual('is_false');
+    expect(fn.iif(0n, 'is_true', 'is_false')).toEqual('is_false');
+    expect(fn.iif(2n, 'is_true', 'is_false')).toEqual('is_true');
+    expect(fn.iif(new Uint8Array([]), 'is_true', 'is_false')).toEqual('is_false');
+    expect(fn.iif(Uint8Array.of(0x61, 0x62, 0x43), 'is_true', 'is_false')).toEqual('is_false');
   });
 
   test('upper', () => {

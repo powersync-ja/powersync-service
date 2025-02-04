@@ -42,6 +42,30 @@ describe('table-valued function queries', () => {
     expect(query.getStaticBucketIds(new RequestParameters({ sub: '' }, {}))).toEqual([]);
   });
 
+  test('json_each(array param not present)', function () {
+    const sql = "SELECT json_each.value as v FROM json_each(request.parameters() -> 'array_not_present')";
+    const query = SqlParameterQuery.fromSql('mybucket', sql, {
+      ...PARSE_OPTIONS,
+      accept_potentially_dangerous_queries: true
+    }) as StaticSqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    expect(query.bucket_parameters).toEqual(['v']);
+
+    expect(query.getStaticBucketIds(new RequestParameters({ sub: '' }, {}))).toEqual([]);
+  });
+
+  test('json_each(array param not present, ifnull)', function () {
+    const sql = "SELECT json_each.value as v FROM json_each(ifnull(request.parameters() -> 'array_not_present', '[]'))";
+    const query = SqlParameterQuery.fromSql('mybucket', sql, {
+      ...PARSE_OPTIONS,
+      accept_potentially_dangerous_queries: true
+    }) as StaticSqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    expect(query.bucket_parameters).toEqual(['v']);
+
+    expect(query.getStaticBucketIds(new RequestParameters({ sub: '' }, {}))).toEqual([]);
+  });
+
   test('json_each with fn alias', function () {
     const sql = "SELECT e.value FROM json_each(request.parameters() -> 'array') e";
     const query = SqlParameterQuery.fromSql('mybucket', sql, {

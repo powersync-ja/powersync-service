@@ -260,7 +260,7 @@ const iif: DocumentedSqlFunction = {
   parameters: [
     { name: 'x', type: ExpressionType.ANY, optional: false },
     { name: 'y', type: ExpressionType.ANY, optional: false },
-    { name: 'z', type: ExpressionType.ANY, optional: false },
+    { name: 'z', type: ExpressionType.ANY, optional: false }
   ],
   getReturnType() {
     return ExpressionType.ANY;
@@ -865,7 +865,10 @@ export function jsonExtract(sourceValue: SqliteValue, path: SqliteValue, operato
     value = value[c];
   }
   if (operator == '->') {
-    // -> must always stringify
+    // -> must always stringify, expect when it's null
+    if (value == null) {
+      return null;
+    }
     return JSONBig.stringify(value);
   } else {
     // Plain scalar value - simple conversion.
