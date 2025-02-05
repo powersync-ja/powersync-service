@@ -1,11 +1,9 @@
 import * as framework from '@powersync/lib-services-framework';
-import { storage, sync, utils } from '@powersync/service-core';
+import { storage, SyncRulesBucketStorage } from '@powersync/service-core';
 import * as pg_wire from '@powersync/service-jpgwire';
 import * as sync_rules from '@powersync/service-sync-rules';
 import crypto from 'crypto';
-import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 import { LRUCache } from 'lru-cache/min';
-import * as timers from 'timers/promises';
 import * as uuid from 'uuid';
 
 import * as lib_postgres from '@powersync/lib-service-postgres';
@@ -27,8 +25,6 @@ export class PostgresBucketStorageFactory
 {
   readonly db: lib_postgres.DatabaseClient;
   public readonly slot_name_prefix: string;
-
-  private sharedIterator = new sync.BroadcastIterable((signal) => this.watchActiveCheckpoint(signal));
 
   private readonly storageCache = new LRUCache<number, storage.SyncRulesBucketStorage>({
     max: 3,
@@ -382,126 +378,12 @@ export class PostgresBucketStorageFactory
     return rows.map((row) => new PostgresPersistedSyncRulesContent(this.db, row));
   }
 
-  async getActiveCheckpoint(): Promise<storage.ActiveCheckpoint> {
-    const activeCheckpoint = await this.db.sql`
-      SELECT
-        id,
-        last_checkpoint,
-        last_checkpoint_lsn
-      FROM
-        sync_rules
-      WHERE
-        state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
-      ORDER BY
-        id DESC
-      LIMIT
-        1
-    `
-      .decoded(models.ActiveCheckpoint)
-      .first();
-
-    return this.makeActiveCheckpoint(activeCheckpoint);
-  }
-
-  async *watchWriteCheckpoint(user_id: string, signal: AbortSignal): AsyncIterable<storage.WriteCheckpoint> {
-    let lastCheckpoint: utils.OpId | null = null;
-    let lastWriteCheckpoint: bigint | null = null;
-
-    const iter = wrapWithAbort(this.sharedIterator, signal);
-    for await (const cp of iter) {
-      const { checkpoint, lsn } = cp;
-
-      // lsn changes are not important by itself.
-      // What is important is:
-      // 1. checkpoint (op_id) changes.
-      // 2. write checkpoint changes for the specific user
-      const bucketStorage = await cp.getBucketStorage();
-      if (!bucketStorage) {
-        continue;
-      }
-
-      const lsnFilters: Record<string, string> = lsn ? { 1: lsn } : {};
-
-      const currentWriteCheckpoint = await bucketStorage.lastWriteCheckpoint({
-        user_id,
-        heads: {
-          ...lsnFilters
-        }
-      });
-
-      if (currentWriteCheckpoint == lastWriteCheckpoint && checkpoint == lastCheckpoint) {
-        // No change - wait for next one
-        // In some cases, many LSNs may be produced in a short time.
-        // Add a delay to throttle the write checkpoint lookup a bit.
-        await timers.setTimeout(20 + 10 * Math.random());
-        continue;
-      }
-
-      lastWriteCheckpoint = currentWriteCheckpoint;
-      lastCheckpoint = checkpoint;
-
-      yield { base: cp, writeCheckpoint: currentWriteCheckpoint };
+  async getActiveStorage(): Promise<SyncRulesBucketStorage | null> {
+    const content = await this.getActiveSyncRulesContent();
+    if (content == null) {
+      return null;
     }
-  }
 
-  protected async *watchActiveCheckpoint(signal: AbortSignal): AsyncIterable<storage.ActiveCheckpoint> {
-    const doc = await this.db.sql`
-      SELECT
-        id,
-        last_checkpoint,
-        last_checkpoint_lsn
-      FROM
-        sync_rules
-      WHERE
-        state = ${{ type: 'varchar', value: storage.SyncRuleState.ACTIVE }}
-      LIMIT
-        1
-    `
-      .decoded(models.ActiveCheckpoint)
-      .first();
-
-    const sink = new sync.LastValueSink<string>(undefined);
-
-    const disposeListener = this.db.registerListener({
-      notification: (notification) => sink.next(notification.payload)
-    });
-
-    signal.addEventListener('aborted', async () => {
-      disposeListener();
-      sink.complete();
-    });
-
-    yield this.makeActiveCheckpoint(doc);
-
-    let lastOp: storage.ActiveCheckpoint | null = null;
-    for await (const payload of sink.withSignal(signal)) {
-      if (signal.aborted) {
-        return;
-      }
-
-      const notification = models.ActiveCheckpointNotification.decode(payload);
-      const activeCheckpoint = this.makeActiveCheckpoint(notification.active_checkpoint);
-
-      if (lastOp == null || activeCheckpoint.lsn != lastOp.lsn || activeCheckpoint.checkpoint != lastOp.checkpoint) {
-        lastOp = activeCheckpoint;
-        yield activeCheckpoint;
-      }
-    }
-  }
-
-  private makeActiveCheckpoint(row: models.ActiveCheckpointDecoded | null) {
-    return {
-      checkpoint: utils.timestampToOpId(row?.last_checkpoint ?? 0n),
-      lsn: row?.last_checkpoint_lsn ?? null,
-      hasSyncRules() {
-        return row != null;
-      },
-      getBucketStorage: async () => {
-        if (row == null) {
-          return null;
-        }
-        return (await this.storageCache.fetch(Number(row.id))) ?? null;
-      }
-    } satisfies storage.ActiveCheckpoint;
+    return this.getInstance(content);
   }
 }

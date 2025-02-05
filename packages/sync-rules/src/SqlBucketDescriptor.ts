@@ -1,4 +1,9 @@
 import { BucketDescription } from './BucketDescription.js';
+import {
+  BucketParameterQuerier,
+  mergeBucketParameterQueriers,
+  QueryBucketDescriptorOptions
+} from './BucketParameterQuerier.js';
 import { IdSequence } from './IdSequence.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SqlDataQuery } from './SqlDataQuery.js';
@@ -11,7 +16,6 @@ import {
   EvaluateRowOptions,
   EvaluatedParametersResult,
   EvaluationResult,
-  QueryBucketIdOptions,
   QueryParseOptions,
   RequestParameters,
   SqliteRow
@@ -108,20 +112,28 @@ export class SqlBucketDescriptor {
     return results;
   }
 
+  getBucketParameterQuerier(parameters: RequestParameters): BucketParameterQuerier {
+    const staticBuckets = this.getStaticBucketDescriptions(parameters);
+    const staticQuerier = {
+      staticBuckets,
+      hasDynamicBuckets: false,
+      queryDynamicBucketDescriptions: async () => []
+    } satisfies BucketParameterQuerier;
+
+    if (this.parameter_queries.length == 0) {
+      return staticQuerier;
+    }
+
+    const dynamicQueriers = this.parameter_queries.map((query) => query.getBucketParameterQuerier(parameters));
+    return mergeBucketParameterQueriers([staticQuerier, ...dynamicQueriers]);
+  }
+
   getStaticBucketDescriptions(parameters: RequestParameters): BucketDescription[] {
     let results: BucketDescription[] = [];
     for (let query of this.global_parameter_queries) {
       results.push(...query.getStaticBucketDescriptions(parameters));
     }
     return results;
-  }
-
-  async queryBucketDescriptions(options: QueryBucketIdOptions): Promise<BucketDescription[]> {
-    let result = this.getStaticBucketDescriptions(options.parameters);
-    for (let query of this.parameter_queries) {
-      result.push(...(await query.queryBucketDescriptions(options)));
-    }
-    return result;
   }
 
   getSourceTables(): Set<TablePattern> {

@@ -67,13 +67,13 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
     });
 
     const stream = sync.streamResponse({
-      storage: f,
+      bucketStorage: bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
-      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
@@ -109,13 +109,13 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
     });
 
     const stream = sync.streamResponse({
-      storage: f,
+      bucketStorage: bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: false
       },
-      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
@@ -134,17 +134,17 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
       content: BASIC_SYNC_RULES
     });
 
-    const storage = await f.getInstance(syncRules);
-    await storage.autoActivate();
+    const bucketStorage = await f.getInstance(syncRules);
+    await bucketStorage.autoActivate();
 
     const stream = sync.streamResponse({
-      storage: f,
+      bucketStorage: bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
-      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: 0 } as any
@@ -165,13 +165,13 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
     await bucketStorage.autoActivate();
 
     const stream = sync.streamResponse({
-      storage: f,
+      bucketStorage: bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
-      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
@@ -222,19 +222,19 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
       content: BASIC_SYNC_RULES
     });
 
-    const storage = await f.getInstance(syncRules);
-    await storage.autoActivate();
+    const bucketStorage = await f.getInstance(syncRules);
+    await bucketStorage.autoActivate();
 
     const exp = Date.now() / 1000 + 0.1;
 
     const stream = sync.streamResponse({
-      storage: f,
+      bucketStorage: bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
-      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: exp } as any
@@ -288,13 +288,13 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
     });
 
     const stream = sync.streamResponse({
-      storage: f,
+      bucketStorage: bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
-      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
@@ -411,13 +411,13 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
     });
 
     const params: sync.SyncStreamParameters = {
-      storage: f,
+      bucketStorage: bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
-      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: 'test' }, {}),
       token: { sub: 'test', exp: Date.now() / 1000 + 10 } as any

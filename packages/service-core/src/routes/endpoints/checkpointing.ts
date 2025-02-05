@@ -31,8 +31,9 @@ export const writeCheckpoint = routeDefinition({
 
     logger.info(`Waiting for LSN checkpoint: ${head}`);
     while (Date.now() - start < timeout) {
-      const cp = await service_context.storageEngine.activeBucketStorage.getActiveCheckpoint();
-      if (!cp.hasSyncRules()) {
+      const bucketStorage = await service_context.storageEngine.activeBucketStorage.getActiveStorage();
+      const cp = await bucketStorage?.getCheckpoint();
+      if (cp == null) {
         throw new Error('No sync rules available');
       }
       if (cp.lsn && cp.lsn >= head) {

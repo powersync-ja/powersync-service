@@ -394,11 +394,10 @@ bucket_definitions:
     const parameter_sets = await bucketStorage.getParameterSets(checkpoint, lookups);
     expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }]);
 
-    const buckets = await sync_rules.queryBucketDescriptions({
+    const buckets = await sync_rules.getBucketParameterQuerier(parameters).queryDynamicBucketDescriptions({
       getParameterSets(lookups) {
         return bucketStorage.getParameterSets(checkpoint, lookups);
-      },
-      parameters
+      }
     });
     expect(buckets).toEqual([{ bucket: 'by_workspace["workspace1"]', priority: 3 }]);
   });
@@ -466,11 +465,10 @@ bucket_definitions:
     parameter_sets.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }, { workspace_id: 'workspace3' }]);
 
-    const buckets = await sync_rules.queryBucketDescriptions({
+    const buckets = await sync_rules.getBucketParameterQuerier(parameters).queryDynamicBucketDescriptions({
       getParameterSets(lookups) {
         return bucketStorage.getParameterSets(checkpoint, lookups);
-      },
-      parameters
+      }
     });
     buckets.sort((a, b) => a.bucket.localeCompare(b.bucket));
     expect(buckets).toEqual([
@@ -566,11 +564,10 @@ bucket_definitions:
 
     // Test final values - the important part
     const buckets = (
-      await sync_rules.queryBucketDescriptions({
+      await sync_rules.getBucketParameterQuerier(parameters).queryDynamicBucketDescriptions({
         getParameterSets(lookups) {
           return bucketStorage.getParameterSets(checkpoint, lookups);
-        },
-        parameters
+        }
       })
     ).map((e) => e.bucket);
     buckets.sort();

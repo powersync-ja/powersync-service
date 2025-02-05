@@ -138,15 +138,9 @@ export interface BucketStorageFactory extends AsyncDisposableObserverClient<Buck
   getStoppedSyncRules(): Promise<PersistedSyncRulesContent[]>;
 
   /**
-   * Same as:
-   * getInstance(await getActiveSyncRules()).getCheckpoint().
+   * Get the active storage instance.
    */
-  getActiveCheckpoint(): Promise<ActiveCheckpoint>;
-
-  /**
-   * Yields the latest user write checkpoint whenever the sync checkpoint updates.
-   */
-  watchWriteCheckpoint(user_id: string, signal: AbortSignal): AsyncIterable<WriteCheckpoint>;
+  getActiveStorage(): Promise<SyncRulesBucketStorage | null>;
 
   /**
    * Get storage size of active sync rules.
@@ -169,14 +163,22 @@ export interface ReplicationCheckpoint {
   readonly lsn: string | null;
 }
 
-export interface ActiveCheckpoint extends ReplicationCheckpoint {
-  hasSyncRules(): boolean;
+export interface WatchWriteCheckpointOptions {
+  /** user_id and client_id combined. */
+  user_id: string;
 
-  getBucketStorage(): Promise<SyncRulesBucketStorage | null>;
+  signal: AbortSignal;
+
+  filter?: (event: WatchFilterEvent) => boolean;
+}
+
+export interface WatchFilterEvent {
+  bucket?: string;
+  invalidate?: boolean;
 }
 
 export interface WriteCheckpoint {
-  base: ActiveCheckpoint;
+  base: ReplicationCheckpoint;
   writeCheckpoint: bigint | null;
 }
 
@@ -303,6 +305,13 @@ export interface SyncRulesBucketStorage
   getParsedSyncRules(options: ParseSyncRulesOptions): SqlSyncRules;
 
   getParameterSets(checkpoint: util.OpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]>;
+
+  /**
+   * Yields the latest user write checkpoint whenever the sync checkpoint updates.
+   *
+   * The stream stops or errors if this is not the active sync rules (anymore).
+   */
+  watchWriteCheckpoint(options: WatchWriteCheckpointOptions): AsyncIterable<WriteCheckpoint>;
 
   /**
    * Get a "batch" of data for a checkpoint.

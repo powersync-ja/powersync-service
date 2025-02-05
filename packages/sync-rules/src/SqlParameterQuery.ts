@@ -12,7 +12,6 @@ import {
   InputParameter,
   ParameterMatchClause,
   ParameterValueClause,
-  QueryBucketIdOptions,
   QueryParseOptions,
   QuerySchema,
   RequestParameters,
@@ -24,6 +23,11 @@ import {
 import { filterJsonRow, getBucketId, isJsonValue, isSelectStatement } from './utils.js';
 import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
 import { BucketDescription, BucketPriority, defaultBucketPriority } from './BucketDescription.js';
+import {
+  BucketParameterQuerier,
+  ParameterLookupSource,
+  QueryBucketDescriptorOptions
+} from './BucketParameterQuerier.js';
 
 /**
  * Represents a parameter query, such as:
@@ -363,22 +367,26 @@ export class SqlParameterQuery {
     }
   }
 
-  /**
-   * Given sync parameters (token and user parameters), return bucket ids and priorities.
-   *
-   * This is done in three steps:
-   * 1. Given the parameters, get lookups we need to perform on the database.
-   * 2. Perform the lookups, returning parameter sets (partial rows).
-   * 3. Given the parameter sets, resolve bucket ids.
-   */
-  async queryBucketDescriptions(options: QueryBucketIdOptions): Promise<BucketDescription[]> {
-    let lookups = this.getLookups(options.parameters);
+  getBucketParameterQuerier(requestParameters: RequestParameters): BucketParameterQuerier {
+    const lookups = this.getLookups(requestParameters);
     if (lookups.length == 0) {
-      return [];
+      // This typically happens when the query is pre-filtered using a where clause
+      // on the parameters, and does not depend on the database state.
+      return {
+        staticBuckets: [],
+        hasDynamicBuckets: false,
+        queryDynamicBucketDescriptions: async () => []
+      };
     }
 
-    const parameters = await options.getParameterSets(lookups);
-    return this.resolveBucketDescriptions(parameters, options.parameters);
+    return {
+      staticBuckets: [],
+      hasDynamicBuckets: true,
+      queryDynamicBucketDescriptions: async (source: ParameterLookupSource) => {
+        const bucketParameters = await source.getParameterSets(lookups);
+        return this.resolveBucketDescriptions(bucketParameters, requestParameters);
+      }
+    };
   }
 
   get hasAuthenticatedBucketParameters(): boolean {
