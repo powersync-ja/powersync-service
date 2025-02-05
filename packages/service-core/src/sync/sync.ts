@@ -219,39 +219,28 @@ async function* streamResponseInner(
     // TODO: This is not really how bucket priorities are supposed to be implemented - we might want to listen for new write
     // checkpoints while we're serving this one too. When we're syncing low-priority buckets of this checkpoint, we could interrupt
     // this batch and serve the high-priority buckets of the new checkpoint first?
-    bucketsToFetch.sort((a, b) => a.priority - b.priority);
-    let firstBucketInSamePriority = 0;
-    let currentPriority = bucketsToFetch[0]!.priority;
-    const lowestPriority = bucketsToFetch.at(-1)!.priority;
-
-    const bucketDataWithPriority = (endIndex?: number) => {
-      return bucketDataInBatches({
+    const bucketsByPriority = [...Map.groupBy(bucketsToFetch, (bucket) => bucket.priority).entries()]
+    bucketsByPriority.sort((a, b) => b[0] - a[0]) // Inverting sort order, high priority buckets have smaller priority values
+    const lowestPriority = bucketsByPriority.at(-1)?.[0]
+    
+    // This incrementally updates dataBuckets with each individual bucket position.
+    // At the end of this, we can be sure that all buckets have data up to the checkpoint.
+    for (const [priority, buckets] of bucketsByPriority) {
+      yield* bucketDataInBatches({
         storage,
         checkpoint,
-        bucketsToFetch: bucketsToFetch.slice(firstBucketInSamePriority, endIndex),
+        bucketsToFetch: buckets,
         dataBuckets,
         raw_data,
         binary_data,
         signal,
         tracker,
         user_id: syncParams.user_id,
-        forPriority: currentPriority !== lowestPriority ? currentPriority : undefined
+        // Passing undefined will emit a full sync complete message at the end. If we pass a priority, we'll emit a partial
+        // sync complete message.
+        forPriority: priority !== lowestPriority ? priority : undefined
       });
-    };
-
-    for (let i = 0; i < bucketsToFetch.length; i++) {
-      if (bucketsToFetch[i].priority == currentPriority) {
-        continue;
-      }
-
-      // This incrementally updates dataBuckets with each individual bucket position.
-      // At the end of this, we can be sure that all buckets have data up to the checkpoint.
-      yield* bucketDataWithPriority(i);
-      firstBucketInSamePriority = i;
-      currentPriority = bucketsToFetch[i].priority;
     }
-    // Sync highest priority
-    yield* bucketDataWithPriority();
 
     await new Promise((resolve) => setTimeout(resolve, 10));
   }

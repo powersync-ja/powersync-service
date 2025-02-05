@@ -18,7 +18,8 @@
     "start:service": "pnpm --filter @powersync/service-image watch",
     "clean": "pnpm run -r clean",
     "release": "pnpm build:production && pnpm changeset publish",
-    "test": "pnpm run -r test"
+    "test": "pnpm run -r test",
+    "vitest": "vitest"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.8",
@@ -40,5 +41,13 @@
     "vite-tsconfig-paths": "^4.3.2",
     "vitest": "^2.1.1",
     "ws": "^8.2.3"
+  },
+  "pnpm": {
+    "ignoredBuiltDependencies": [
+      "esbuild"
+    ],
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   }
 }
