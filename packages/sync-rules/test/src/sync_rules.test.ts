@@ -817,7 +817,7 @@ bucket_definitions:
     expect(rules.errors).toEqual([]);
   });
 
-  test('priorities', () => {
+  test('priorities on queries', () => {
     const rules = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
@@ -836,7 +836,61 @@ bucket_definitions:
 
     expect(rules.getStaticBucketDescriptions(normalizeTokenParameters({}))).toEqual([
       { bucket: 'highprio[]', priority: 0 },
-      { bucket: 'defaultprio[]', priority: 3 },
+      { bucket: 'defaultprio[]', priority: 3 }
     ]);
+  });
+
+  test('priorities on bucket', () => {
+    const rules = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  highprio:
+    priority: 0
+    data:
+      - SELECT * FROM assets WHERE count <= 10;
+  defaultprio:
+    data:
+      - SELECT * FROM assets WHERE count > 10;
+    `,
+      { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
+    );
+
+    expect(rules.errors).toEqual([]);
+
+    expect(rules.getStaticBucketDescriptions(normalizeTokenParameters({}))).toEqual([
+      { bucket: 'highprio[]', priority: 0 },
+      { bucket: 'defaultprio[]', priority: 3 }
+    ]);
+  });
+
+  test(`invalid priority on bucket`, () => {
+    expect(() =>
+      SqlSyncRules.fromYaml(
+        `
+bucket_definitions:
+  highprio:
+    priority: instant
+    data:
+      - SELECT * FROM assets WHERE count <= 10;
+    `,
+        { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
+      )
+    ).toThrowError(/Invalid priority/);
+  });
+
+  test(`can't duplicate priority`, () => {
+    expect(() =>
+      SqlSyncRules.fromYaml(
+        `
+bucket_definitions:
+  highprio:
+    priority: 1
+    parameters: SELECT 0 as _priority;
+    data:
+      - SELECT * FROM assets WHERE count <= 10;
+    `,
+        { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
+      )
+    ).toThrowError(/Cannot set priority multiple times/);
   });
 });

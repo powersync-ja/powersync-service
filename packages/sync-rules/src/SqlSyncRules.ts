@@ -23,7 +23,7 @@ import {
   SqliteRow,
   SyncRules
 } from './types.js';
-import { BucketDescription } from './BucketDescription.js';
+import { BucketDescription, BucketPriority, isValidPriority } from './BucketDescription.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -118,9 +118,22 @@ export class SqlSyncRules implements SyncRules {
 
       const accept_potentially_dangerous_queries =
         value.get('accept_potentially_dangerous_queries', true)?.value == true;
+      let parseOptionPriority: BucketPriority | undefined = undefined;
+      if (value.has('priority')) {
+        const priorityValue = value.get('priority', true)!;
+        if (typeof priorityValue.value != 'number' || !isValidPriority(priorityValue.value)) {
+          rules.errors.push(
+            this.tokenError(priorityValue, 'Invalid priority, expected a number between 0 and 3 (inclusive).')
+          );
+        } else {
+          parseOptionPriority = priorityValue.value;
+        }
+      }
+
       const queryOptions: QueryParseOptions = {
         ...options,
-        accept_potentially_dangerous_queries
+        accept_potentially_dangerous_queries,
+        priority: parseOptionPriority
       };
       const parameters = value.get('parameters', true) as unknown;
       const dataQueries = value.get('data', true) as unknown;

@@ -37,6 +37,7 @@ export class StaticSqlParameterQuery {
     query.bucket_parameters = bucket_parameters;
     query.columns = columns;
     query.tools = tools;
+    query.priority = options?.priority;
     if (!isClauseError(filter)) {
       query.filter = filter;
     }
@@ -47,6 +48,11 @@ export class StaticSqlParameterQuery {
       }
       const name = tools.getSpecificOutputName(column);
       if (tools.isBucketPriorityParameter(name)) {
+        if (query.priority !== undefined) {
+          query.errors.push(new SqlRuleError('Cannot set priority multiple times.', sql));
+          continue;
+        }
+
         query.priority = tools.extractBucketPriority(column.expr);
         continue;
       }

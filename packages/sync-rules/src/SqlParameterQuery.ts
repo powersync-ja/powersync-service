@@ -116,6 +116,7 @@ export class SqlParameterQuery {
     rows.descriptor_name = descriptor_name;
     rows.bucket_parameters = bucket_parameters;
     rows.input_parameters = filter.inputParameters!;
+    rows.priority = options.priority;
     const expandedParams = rows.input_parameters!.filter((param) => param.expands);
     if (expandedParams.length > 1) {
       rows.errors.push(new SqlRuleError('Cannot have multiple array input parameters', sql));
