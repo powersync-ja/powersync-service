@@ -2,7 +2,7 @@ import { MongoLSN, ZERO_LSN } from '@module/common/MongoLSN.js';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { describe, expect, test } from 'vitest';
 
-describe('mongo lsn resume tokens', () => {
+describe('mongo lsn', () => {
   test('LSN with resume tokens should be comparable', () => {
     // Values without a resume token should be comparable
     expect(

@@ -218,9 +218,9 @@ export class ChangeStream {
             await touch();
           }
 
-          const lsn = new MongoLSN({ timestamp: snapshotTime });
+          const { comparable: lsn } = new MongoLSN({ timestamp: snapshotTime });
           logger.info(`Snapshot commit at ${snapshotTime.inspect()} / ${lsn}`);
-          await batch.commit(lsn.comparable);
+          await batch.commit(lsn);
         }
       );
     } finally {
@@ -524,7 +524,7 @@ export class ChangeStream {
         const startAfter = lastLsn?.timestamp;
         const resumeAfter = lastLsn?.resumeToken;
 
-        logger.info(`Resume streaming at ${startAfter?.inspect()} / ${lastLsn}}`);
+        logger.info(`Resume streaming at ${startAfter?.inspect()} / ${lastLsn}`);
 
         const filters = this.getSourceNamespaceFilters();
 
@@ -553,6 +553,9 @@ export class ChangeStream {
           fullDocument: fullDocument
         };
 
+        /**
+         * Only one of these options can be supplied at a time.
+         */
         if (resumeAfter) {
           streamOptions.resumeAfter = resumeAfter;
         } else {
@@ -591,6 +594,11 @@ export class ChangeStream {
 
           const originalChangeDocument = await stream.tryNext();
 
+          // The stream was closed, we will only ever receive `null` from it
+          if (!originalChangeDocument && stream.closed) {
+            break;
+          }
+
           if (originalChangeDocument == null || this.abort_signal.aborted) {
             continue;
           }
@@ -625,14 +633,30 @@ export class ChangeStream {
             throw new ReplicationAssertionError(`Incomplete splitEvent: ${JSON.stringify(splitDocument.splitEvent)}`);
           }
 
-          // console.log('event', changeDocument);
-
           if (
             (changeDocument.operationType == 'insert' ||
               changeDocument.operationType == 'update' ||
-              changeDocument.operationType == 'replace') &&
+              changeDocument.operationType == 'replace' ||
+              changeDocument.operationType == 'drop') &&
             changeDocument.ns.coll == CHECKPOINTS_COLLECTION
           ) {
+            /**
+             * Dropping the database does not provide an `invalidate` event.
+             * We typically would receive `drop` events for the collection which we
+             * would process below.
+             *
+             * However we don't commit the LSN after collections are dropped.
+             * The prevents the `startAfter` or `resumeToken` from advancing past the drop events.
+             * The stream also closes after the drop events.
+             * This causes an infinite loop of processing the collection drop events.
+             *
+             * This check here invalidates the change stream if our `_checkpoints` collection
+             * is dropped. This allows for detecting when the DB is dropped.
+             */
+            if (changeDocument.operationType == 'drop') {
+              throw new ChangeStreamInvalidatedError('_checkpoints collection was dropped');
+            }
+
             const { comparable: lsn } = new MongoLSN({
               timestamp: changeDocument.clusterTime!,
               resume_token: changeDocument._id
