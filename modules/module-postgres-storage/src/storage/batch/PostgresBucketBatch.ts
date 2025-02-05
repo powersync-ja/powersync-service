@@ -640,8 +640,8 @@ export class PostgresBucketBatch
 
     let existingBuckets: CurrentBucket[] = [];
     let newBuckets: CurrentBucket[] = [];
-    let existingLookups: Buffer[] = [];
-    let newLookups: Buffer[] = [];
+    let existingLookups: Buffer<ArrayBuffer>[] = [];
+    let newLookups: Buffer<ArrayBuffer>[] = [];
 
     if (this.options.skip_existing_rows) {
       if (record.tag == storage.SaveOperationTag.INSERT) {
@@ -695,7 +695,7 @@ export class PostgresBucketBatch
       }
     }
 
-    let afterData: Buffer | undefined;
+    let afterData: Buffer<ArrayBuffer> | undefined;
     if (afterId != null && !this.options.store_current_data) {
       afterData = storage.serializeBson({});
     } else if (afterId != null) {
