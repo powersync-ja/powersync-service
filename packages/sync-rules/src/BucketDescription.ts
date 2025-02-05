@@ -13,7 +13,7 @@
  */
 export type BucketPriority = 0 | 1 | 2 | 3;
 
-export const defaultBucketPriority: BucketPriority = 1;
+export const defaultBucketPriority: BucketPriority = 3;
 
 export interface BucketDescription {
   /**

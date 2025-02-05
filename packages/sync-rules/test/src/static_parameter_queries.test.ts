@@ -10,7 +10,7 @@ describe('static parameter queries', () => {
     expect(query.errors).toEqual([]);
     expect(query.bucket_parameters!).toEqual(['user_id']);
     expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
-      { bucket: 'mybucket["user1"]', priority: 1 }
+      { bucket: 'mybucket["user1"]', priority: 3 }
     ]);
   });
 
@@ -20,7 +20,7 @@ describe('static parameter queries', () => {
     expect(query.errors).toEqual([]);
     expect(query.bucket_parameters!).toEqual([]);
     expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
-      { bucket: 'mybucket[]', priority: 1 }
+      { bucket: 'mybucket[]', priority: 3 }
     ]);
   });
 
@@ -29,7 +29,7 @@ describe('static parameter queries', () => {
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'user1', is_admin: true }))).toEqual([
-      { bucket: 'mybucket["user1"]', priority: 1 }
+      { bucket: 'mybucket["user1"]', priority: 3 }
     ]);
     expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'user1', is_admin: false }))).toEqual(
       []
@@ -41,7 +41,7 @@ describe('static parameter queries', () => {
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
-      { bucket: 'mybucket["USER1"]', priority: 1 }
+      { bucket: 'mybucket["USER1"]', priority: 3 }
     ]);
     expect(query.bucket_parameters!).toEqual(['upper_id']);
   });
@@ -51,7 +51,7 @@ describe('static parameter queries', () => {
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ role: 'admin' }))).toEqual([
-      { bucket: 'mybucket[]', priority: 1 }
+      { bucket: 'mybucket[]', priority: 3 }
     ]);
     expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ role: 'user' }))).toEqual([]);
   });
@@ -61,7 +61,7 @@ describe('static parameter queries', () => {
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ id1: 't1', id2: 't1' }))).toEqual([
-      { bucket: 'mybucket[]', priority: 1 }
+      { bucket: 'mybucket[]', priority: 3 }
     ]);
     expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ id1: 't1', id2: 't2' }))).toEqual([]);
   });
@@ -75,7 +75,7 @@ describe('static parameter queries', () => {
     expect(query.errors).toEqual([]);
 
     expect(query.getStaticBucketDescriptions(normalizeTokenParameters({}, { org_id: 'test' }))).toEqual([
-      { bucket: 'mybucket["test"]', priority: 1 }
+      { bucket: 'mybucket["test"]', priority: 3 }
     ]);
   });
 
@@ -86,7 +86,7 @@ describe('static parameter queries', () => {
     expect(query.bucket_parameters).toEqual(['user_id']);
 
     expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
-      { bucket: 'mybucket["user1"]', priority: 1 }
+      { bucket: 'mybucket["user1"]', priority: 3 }
     ]);
   });
 
@@ -97,7 +97,7 @@ describe('static parameter queries', () => {
     expect(query.bucket_parameters).toEqual(['user_id']);
 
     expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
-      { bucket: 'mybucket["user1"]', priority: 1 }
+      { bucket: 'mybucket["user1"]', priority: 3 }
     ]);
   });
 
@@ -106,7 +106,7 @@ describe('static parameter queries', () => {
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}))).toEqual([
-      { bucket: 'mybucket[]', priority: 1 }
+      { bucket: 'mybucket[]', priority: 3 }
     ]);
   });
 
@@ -115,7 +115,7 @@ describe('static parameter queries', () => {
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}))).toEqual([
-      { bucket: 'mybucket[]', priority: 1 }
+      { bucket: 'mybucket[]', priority: 3 }
     ]);
   });
 
@@ -131,7 +131,7 @@ describe('static parameter queries', () => {
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}))).toEqual([
-      { bucket: 'mybucket[]', priority: 1 }
+      { bucket: 'mybucket[]', priority: 3 }
     ]);
   });
 
@@ -142,10 +142,10 @@ describe('static parameter queries', () => {
     expect(query.errors).toEqual([]);
     expect(
       query.getStaticBucketDescriptions(new RequestParameters({ sub: '', permissions: ['write', 'read:users'] }, {}))
-    ).toEqual([{ bucket: 'mybucket[1]', priority: 1 }]);
+    ).toEqual([{ bucket: 'mybucket[1]', priority: 3 }]);
     expect(
       query.getStaticBucketDescriptions(new RequestParameters({ sub: '', permissions: ['write', 'write:users'] }, {}))
-    ).toEqual([{ bucket: 'mybucket[0]', priority: 1 }]);
+    ).toEqual([{ bucket: 'mybucket[0]', priority: 3 }]);
   });
 
   test('IN for permissions in request.jwt() (2)', function () {
@@ -155,7 +155,7 @@ describe('static parameter queries', () => {
     expect(query.errors).toEqual([]);
     expect(
       query.getStaticBucketDescriptions(new RequestParameters({ sub: '', permissions: ['write', 'read:users'] }, {}))
-    ).toEqual([{ bucket: 'mybucket[]', priority: 1 }]);
+    ).toEqual([{ bucket: 'mybucket[]', priority: 3 }]);
     expect(
       query.getStaticBucketDescriptions(new RequestParameters({ sub: '', permissions: ['write', 'write:users'] }, {}))
     ).toEqual([]);
@@ -166,7 +166,7 @@ describe('static parameter queries', () => {
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '', role: 'superuser' }, {}))).toEqual([
-      { bucket: 'mybucket[]', priority: 1 }
+      { bucket: 'mybucket[]', priority: 3 }
     ]);
     expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '', role: 'superadmin' }, {}))).toEqual([]);
   });
