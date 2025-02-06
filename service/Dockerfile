@@ -1,4 +1,4 @@
-FROM node:20.12.2 AS builder
+FROM node:22.13.1 AS builder
 WORKDIR /app
 
 RUN npm i -g pnpm@9
@@ -54,7 +54,7 @@ RUN pnpm build:production && \
 
 # === TESTER ===
 
-FROM node:20.12.2-slim AS tester
+FROM node:22.13.1-slim AS tester
 WORKDIR /app
 
 
@@ -69,7 +69,7 @@ CMD pnpm test
 
 # === PROD ===
 
-FROM node:20.12.2-slim
+FROM node:22.13.1-slim
 WORKDIR /app
 
 COPY --from=builder /app/ ./

@@ -25,8 +25,8 @@ export function trackMemoryUsage() {
   for (let key of Object.keys(bufferMemory)) {
     const typedKey = key as keyof typeof bufferMemory;
     const originalFunction = Buffer[typedKey] as (...args: any[]) => Buffer;
-    Buffer[typedKey] = function (...args: any[]) {
-      const buffer = originalFunction.apply(this, args);
+    Buffer[typedKey] = function <TArrayBuffer extends ArrayBufferLike = ArrayBufferLike>(...args: any[]) {
+      const buffer = originalFunction.apply(this, args) as Buffer<TArrayBuffer>;
       bufferMemory[typedKey] += buffer.byteLength;
       bufferRegistry.register(buffer, [typedKey, buffer.byteLength]);
       return buffer;
