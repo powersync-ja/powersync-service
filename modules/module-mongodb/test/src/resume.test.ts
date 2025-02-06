@@ -1,8 +1,14 @@
 import { MongoLSN, ZERO_LSN } from '@module/common/MongoLSN.js';
-import { mongo } from '@powersync/lib-service-mongodb';
-import { describe, expect, test } from 'vitest';
 
-describe('mongo lsn', () => {
+import { MongoManager } from '@module/replication/MongoManager.js';
+import { normalizeConnectionConfig } from '@module/types/types.js';
+import { isMongoServerError, mongo } from '@powersync/lib-service-mongodb';
+import { describe, expect, test, vi } from 'vitest';
+import { ChangeStreamTestContext } from './change_stream_utils.js';
+import { env } from './env.js';
+import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
+
+describe('mongo resume', () => {
   test('LSN with resume tokens should be comparable', () => {
     // Values without a resume token should be comparable
     expect(
@@ -74,5 +80,64 @@ describe('mongo lsn', () => {
           timestamp: mongo.Timestamp.fromNumber(10)
         }).comparable.split('|')[0] // Simulate an old LSN
     ).true;
+  });
+
+  /**
+   * This test is not specific to the storage. For simplicity it only tests against MongoDB storage.
+   */
+  test.skipIf(!env.TEST_MONGO_STORAGE)('resuming with a different source database', async () => {
+    await using context = await ChangeStreamTestContext.open(INITIALIZED_MONGO_STORAGE_FACTORY);
+    const { db } = context;
+
+    await context.updateSyncRules(`
+    bucket_definitions:
+      global:
+        data:
+          - SELECT _id as id, description, num FROM "test_data"`);
+
+    await context.replicateSnapshot();
+
+    context.startStreaming();
+
+    const collection = db.collection('test_data');
+    await collection.insertOne({ description: 'test1', num: 1152921504606846976n });
+
+    // Wait for the item above to be replicated. The commit should store a resume token.
+    await vi.waitFor(
+      async () => {
+        const checkpoint = await context.storage?.getCheckpoint();
+        expect(MongoLSN.fromSerialized(checkpoint!.lsn!).resumeToken).exist;
+      },
+      { timeout: 5000 }
+    );
+
+    // Done with this context for now
+    await context.dispose();
+
+    // Use the provided MongoDB url to connect to a different source database
+    const originalUrl = env.MONGO_TEST_URL;
+    // Change this to a different database
+    const url = new URL(originalUrl);
+    const parts = url.pathname.split('/');
+    parts[1] = 'differentDB'; // Replace the database name
+    url.pathname = parts.join('/');
+
+    // Point to a new source DB
+    const connectionManager = new MongoManager(
+      normalizeConnectionConfig({
+        type: 'mongodb',
+        uri: url.toString()
+      })
+    );
+    const factory = await INITIALIZED_MONGO_STORAGE_FACTORY({ doNotClear: true });
+
+    // Create a new context without updating the sync rules
+    await using context2 = new ChangeStreamTestContext(factory, connectionManager);
+    const activeContent = await factory.getActiveSyncRulesContent();
+    context2.storage = factory.getInstance(activeContent!);
+
+    const error = await context2.startStreaming().catch((ex) => ex);
+    expect(error).exist;
+    expect(isMongoServerError(error) && error.hasErrorLabel('NonResumableChangeStreamError'));
   });
 });

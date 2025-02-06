@@ -85,7 +85,7 @@ export class ChangeStreamTestContext {
   }
 
   startStreaming() {
-    this.streamPromise = this.walStream.streamChanges();
+    return (this.streamPromise = this.walStream.streamChanges());
   }
 
   async getCheckpoint(options?: { timeout?: number }) {
