@@ -138,6 +138,7 @@ describe('mongo resume', () => {
 
     const error = await context2.startStreaming().catch((ex) => ex);
     expect(error).exist;
+    // The ChangeStreamReplicationJob will detect this and throw a ChangeStreamInvalidatedError
     expect(isMongoServerError(error) && error.hasErrorLabel('NonResumableChangeStreamError'));
   });
 });

@@ -1,6 +1,7 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import {
   container,
+  DatabaseConnectionError,
   ErrorCode,
   logger,
   ReplicationAbortedError,
@@ -34,9 +35,9 @@ interface InitResult {
  *  * Some change stream documents do not have postImages.
  *  * startAfter/resumeToken is not valid anymore.
  */
-export class ChangeStreamInvalidatedError extends Error {
-  constructor(message: string) {
-    super(message);
+export class ChangeStreamInvalidatedError extends DatabaseConnectionError {
+  constructor(message: string, cause: any) {
+    super(ErrorCode.PSYNC_S1344, message, cause);
   }
 }
 
@@ -506,7 +507,7 @@ export class ChangeStream {
         e.codeName == 'NoMatchingDocument' &&
         e.errmsg?.includes('post-image was not found')
       ) {
-        throw new ChangeStreamInvalidatedError(e.errmsg);
+        throw new ChangeStreamInvalidatedError(e.errmsg, e);
       }
       throw e;
     }
@@ -654,7 +655,10 @@ export class ChangeStream {
              * is dropped. This allows for detecting when the DB is dropped.
              */
             if (changeDocument.operationType == 'drop') {
-              throw new ChangeStreamInvalidatedError('_checkpoints collection was dropped');
+              throw new ChangeStreamInvalidatedError(
+                'Internal collections have been dropped',
+                new Error('_checkpoints collection was dropped')
+              );
             }
 
             const { comparable: lsn } = new MongoLSN({
