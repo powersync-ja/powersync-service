@@ -5,13 +5,13 @@ export type MongoLSNSpecification = {
   timestamp: mongo.Timestamp;
   /**
    * The ResumeToken type here is an alias for `unknown`.
-   * The docs mention the contents should be of the form.
-   * We use BSON serialization to store the resume token.
+   * The docs mention the contents should be of the form:
    * ```typescript
    * {
    *   "_data" : <BinData|string>
    * }
    * ```
+   * We use BSON serialization to store the resume token.
    */
   resume_token?: mongo.ResumeToken;
 };
@@ -22,7 +22,7 @@ const DELIMINATOR = '|';
 
 /**
  * Represent a Logical Sequence Number (LSN) for MongoDB replication sources.
- * This stores a combination of the cluster timestamp and optional change stream resume token.
+ * This stores a combination of the cluster timestamp and optional Change Stream resume token.
  */
 export class MongoLSN {
   static fromSerialized(comparable: string): MongoLSN {
