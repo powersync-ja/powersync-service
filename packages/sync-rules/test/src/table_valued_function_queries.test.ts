@@ -75,7 +75,7 @@ describe('table-valued function queries', () => {
     expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}))).toEqual([
       { bucket: 'mybucket["a"]', priority: 3 },
       { bucket: 'mybucket["b"]', priority: 3 },
-      { bucket: 'mybucket["c"]', priority: 3 },
+      { bucket: 'mybucket["c"]', priority: 3 }
     ]);
   });
 
