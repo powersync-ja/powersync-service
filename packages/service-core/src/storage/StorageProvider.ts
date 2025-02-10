@@ -16,6 +16,9 @@ export interface GetStorageOptions {
   resolvedConfig: util.ResolvedPowerSyncConfig;
 }
 
+/**
+ * Represents a provider that can create a storage instance for a specific storage type from configuration.
+ */
 export interface BucketStorageProvider {
   /**
    *  The storage type that this provider provides.

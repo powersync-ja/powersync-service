@@ -4,6 +4,14 @@ import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { ReplicationLock } from './ReplicationLock.js';
 import { SyncRulesBucketStorage } from './SyncRulesBucketStorage.js';
 
+/**
+ * Represents a configured storage provider.
+ *
+ * The provider can handle multiple copies of sync rules concurrently, each with their own storage.
+ * This is to handle replication of a new version of sync rules, while the old version is still active.
+ *
+ * Storage APIs for a specific copy of sync rules are provided by the `SyncRulesBucketStorage` instances.
+ */
 export interface BucketStorageFactory extends AsyncDisposableObserverClient<BucketStorageFactoryListener> {
   /**
    * Update sync rules from configuration, if changed.

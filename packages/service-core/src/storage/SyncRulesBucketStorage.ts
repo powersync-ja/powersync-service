@@ -8,6 +8,9 @@ import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
 import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
 
+/**
+ * Storage for a specific copy of sync rules.
+ */
 export interface SyncRulesBucketStorage
   extends DisposableObserverClient<SyncRulesBucketStorageListener>,
     SyncStorageWriteCheckpointAPI {
@@ -16,17 +19,58 @@ export interface SyncRulesBucketStorage
 
   readonly factory: BucketStorageFactory;
 
+  /**
+   * Resolve a table, keeping track of it internally.
+   */
   resolveTable(options: ResolveTableOptions): Promise<ResolveTableResult>;
 
+  /**
+   * Use this to get access to update storage data.
+   */
   startBatch(
     options: StartBatchOptions,
     callback: (batch: BucketStorageBatch) => Promise<void>
   ): Promise<FlushedResult | null>;
 
-  getCheckpoint(): Promise<ReplicationCheckpoint>;
-
   getParsedSyncRules(options: ParseSyncRulesOptions): SqlSyncRules;
 
+  /**
+   * Terminate the sync rules.
+   *
+   * This clears the storage, and sets state to TERMINATED.
+   *
+   * Must only be called on stopped sync rules.
+   */
+  terminate(options?: TerminateOptions): Promise<void>;
+
+  getStatus(): Promise<SyncRuleStatus>;
+
+  /**
+   * Clear the storage, without changing state.
+   */
+  clear(): Promise<void>;
+
+  autoActivate(): Promise<void>;
+
+  /**
+   * Record a replication error.
+   *
+   * This could be a recoverable error (e.g. temporary network failure),
+   * or a permanent error (e.g. missing toast data).
+   *
+   * Errors are cleared on commit.
+   */
+  reportError(e: any): Promise<void>;
+
+  compact(options?: CompactOptions): Promise<void>;
+
+  // ## Read operations
+
+  getCheckpoint(): Promise<ReplicationCheckpoint>;
+
+  /**
+   * Used to resolve "dynamic" parameter queries.
+   */
   getParameterSets(checkpoint: util.OpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]>;
 
   /**
@@ -59,36 +103,6 @@ export interface SyncRulesBucketStorage
    * Returns zero checksums for any buckets not found.
    */
   getChecksums(checkpoint: util.OpId, buckets: string[]): Promise<util.ChecksumMap>;
-
-  /**
-   * Terminate the sync rules.
-   *
-   * This clears the storage, and sets state to TERMINATED.
-   *
-   * Must only be called on stopped sync rules.
-   */
-  terminate(options?: TerminateOptions): Promise<void>;
-
-  getStatus(): Promise<SyncRuleStatus>;
-
-  /**
-   * Clear the storage, without changing state.
-   */
-  clear(): Promise<void>;
-
-  autoActivate(): Promise<void>;
-
-  /**
-   * Record a replication error.
-   *
-   * This could be a recoverable error (e.g. temporary network failure),
-   * or a permanent error (e.g. missing toast data).
-   *
-   * Errors are cleared on commit.
-   */
-  reportError(e: any): Promise<void>;
-
-  compact(options?: CompactOptions): Promise<void>;
 }
 
 export interface SyncRulesBucketStorageListener extends DisposableListener {

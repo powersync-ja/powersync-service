@@ -100,19 +100,19 @@ async function* streamResponseInner(
 ): AsyncGenerator<util.StreamingSyncLine | string | null> {
   // Bucket state of bucket id -> op_id.
   // This starts with the state from the client. May contain buckets that the user do not have access to (anymore).
-  let initialBuckets = new Map<string, BucketSyncState>();
+  let initialBucketState = new Map<string, BucketSyncState>();
 
   const { raw_data, binary_data } = params;
 
   if (params.buckets) {
     for (let { name, after: start } of params.buckets) {
-      initialBuckets.set(name, { start_op_id: start });
+      initialBucketState.set(name, { start_op_id: start });
     }
   }
 
   const checkpointUserId = util.checkpointUserId(syncParams.token_parameters.user_id as string, params.client_id);
 
-  const checksumState = new BucketChecksumState(bucketStorage, syncRules, syncParams, initialBuckets);
+  const checksumState = new BucketChecksumState({ bucketStorage, syncRules, syncParams, initialBucketState });
   const stream = bucketStorage.watchWriteCheckpoint({
     user_id: checkpointUserId,
     signal,
@@ -436,24 +436,32 @@ interface CheckpointLine {
   bucketsToFetch: BucketDescription[];
 }
 
+export interface BucketChecksumStateOptions {
+  bucketStorage: BucketChecksumStateStorage;
+  syncRules: SqlSyncRules;
+  syncParams: RequestParameters;
+  initialBucketState: Map<string, BucketSyncState>;
+}
+
+// Use a more specific type to simplify testing
+export type BucketChecksumStateStorage = Pick<storage.SyncRulesBucketStorage, 'getChecksums' | 'getParameterSets'>;
+
 export class BucketChecksumState {
+  private readonly bucketStorage: BucketChecksumStateStorage;
+
   // Bucket state of bucket id -> op_id.
   // This starts with the state from the client. May contain buckets that the user do not have access to (anymore).
-  private dataBuckets = new Map<string, BucketSyncState>();
+  public dataBuckets = new Map<string, BucketSyncState>();
 
   private lastChecksums: util.ChecksumMap | null = null;
   private lastWriteCheckpoint: bigint | null = null;
 
   private readonly parameterState: BucketParameterState;
 
-  constructor(
-    private bucketStorage: storage.SyncRulesBucketStorage,
-    syncRules: SqlSyncRules,
-    syncParams: RequestParameters,
-    initialBucketState: Map<string, BucketSyncState>
-  ) {
-    this.parameterState = new BucketParameterState(bucketStorage, syncRules, syncParams);
-    this.dataBuckets = initialBucketState;
+  constructor(options: BucketChecksumStateOptions) {
+    this.bucketStorage = options.bucketStorage;
+    this.parameterState = new BucketParameterState(options.bucketStorage, options.syncRules, options.syncParams);
+    this.dataBuckets = options.initialBucketState;
   }
 
   async buildNextCheckpointLine(next: storage.WriteCheckpoint): Promise<CheckpointLine | null> {
@@ -617,7 +625,7 @@ export interface CheckpointUpdate {
 }
 
 class BucketParameterState {
-  public readonly bucketStorage: storage.SyncRulesBucketStorage;
+  public readonly bucketStorage: BucketChecksumStateStorage;
   public readonly syncRules: SqlSyncRules;
   public readonly syncParams: RequestParameters;
   private readonly querier: BucketParameterQuerier;
@@ -627,7 +635,7 @@ class BucketParameterState {
   // First time we're called, we need to fetch all buckets.
   private invalidated: boolean = true;
 
-  constructor(bucketStorage: storage.SyncRulesBucketStorage, syncRules: SqlSyncRules, syncParams: RequestParameters) {
+  constructor(bucketStorage: BucketChecksumStateStorage, syncRules: SqlSyncRules, syncParams: RequestParameters) {
     this.bucketStorage = bucketStorage;
     this.syncRules = syncRules;
     this.syncParams = syncParams;
