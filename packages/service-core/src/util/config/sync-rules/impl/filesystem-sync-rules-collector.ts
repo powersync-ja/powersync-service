@@ -20,6 +20,7 @@ export class FileSystemSyncRulesCollector extends SyncRulesCollector {
     // Only persist the path here, and load on demand using `loadSyncRules()`.
     return {
       present: true,
+      exit_on_error: baseConfig.sync_rules?.exit_on_error ?? true,
       path: config_path ? path.resolve(path.dirname(config_path), sync_path) : sync_path
     };
   }

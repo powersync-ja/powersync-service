@@ -26,6 +26,7 @@ export type SyncRulesConfig = {
   present: boolean;
   content?: string;
   path?: string;
+  exit_on_error: boolean;
 };
 
 export type ResolvedPowerSyncConfig = {

@@ -128,7 +128,10 @@ export const reprocess = routeDefinition({
     }
 
     const new_rules = await activeBucketStorage.updateSyncRules({
-      content: active.sync_rules.content
+      content: active.sync_rules.content,
+      // These sync rules already passed validation. But if the rules are not valid anymore due
+      // to a service change, we do want to report the error here.
+      validate: true
     });
 
     const baseConfig = await apiHandler.getSourceConfig();
