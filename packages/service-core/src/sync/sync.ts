@@ -235,7 +235,6 @@ async function* streamResponseInner(
       // in while we're still busy syncing data for lower priorities, interrupt the current operation and start syncing
       // the new checkpoint.
       const abortCheckpointController = new AbortController();
-      let didCompletePartialSync = false;
       let syncedOperations = 0;
 
       const abortCheckpointSignal = AbortSignal.any([abortCheckpointController.signal, signal]);
@@ -245,7 +244,7 @@ async function* streamResponseInner(
       const lowestPriority = bucketsByPriority.at(-1)?.[0];
 
       function maybeRaceForNewCheckpoint() {
-        if (didCompletePartialSync && syncedOperations >= 1000 && nextCheckpointPromise === undefined) {
+        if (syncedOperations >= 1000 && nextCheckpointPromise === undefined) {
           nextCheckpointPromise = (async () => {
             const next = await newCheckpoints.next();
             if (!next.done) {
@@ -287,9 +286,6 @@ async function* streamResponseInner(
           // sync complete message.
           forPriority: !isLast ? priority : undefined
         });
-
-        didCompletePartialSync = true;
-        maybeRaceForNewCheckpoint();
       }
 
       if (!abortCheckpointSignal.aborted) {
