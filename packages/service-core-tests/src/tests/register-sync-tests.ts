@@ -83,6 +83,159 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
     expect(lines).toMatchSnapshot();
   });
 
+  test('sync buckets in order', async () => {
+    await using f = await factory();
+
+    const syncRules = await f.updateSyncRules({
+      content: `
+bucket_definitions:
+  b0:
+    priority: 2
+    data:
+      - SELECT * FROM test WHERE LENGTH(id) <= 2;
+  b1:
+    priority: 1
+    data:
+      - SELECT * FROM test WHERE LENGTH(id) > 2;
+    `
+    });
+
+    const bucketStorage = f.getInstance(syncRules);
+    await bucketStorage.autoActivate();
+
+    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 't1',
+          description: 'Test 1'
+        },
+        afterReplicaId: 't1'
+      });
+
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'earlier',
+          description: 'Test 2'
+        },
+        afterReplicaId: 'earlier'
+      });
+
+      await batch.commit('0/1');
+    });
+
+    const stream = sync.streamResponse({
+      storage: f,
+      params: {
+        buckets: [],
+        include_checksum: true,
+        raw_data: true
+      },
+      parseOptions: test_utils.PARSE_OPTIONS,
+      tracker,
+      syncParams: new RequestParameters({ sub: '' }, {}),
+      token: { exp: Date.now() / 1000 + 10 } as any
+    });
+
+    const lines = await consumeCheckpointLines(stream);
+    expect(lines).toMatchSnapshot();
+  });
+
+  test('sync interrupts low-priority buckets on new checkpoints', async () => {
+    await using f = await factory();
+
+    const syncRules = await f.updateSyncRules({
+      content: `
+bucket_definitions:
+  b0:
+    priority: 2
+    data:
+      - SELECT * FROM test WHERE LENGTH(id) <= 5;
+  b1:
+    priority: 1
+    data:
+      - SELECT * FROM test WHERE LENGTH(id) > 5;
+    `
+    });
+
+    const bucketStorage = f.getInstance(syncRules);
+    await bucketStorage.autoActivate();
+
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      // Initial data: Add one priority row and 10k low-priority rows.
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'highprio',
+          description: 'High priority row'
+        },
+        afterReplicaId: 'highprio'
+      });
+      for (let i = 0; i < 10_000; i++) {
+        await batch.save({
+          sourceTable: TEST_TABLE,
+          tag: storage.SaveOperationTag.INSERT,
+          after: {
+            id: `${i}`,
+            description: 'low prio'
+          },
+          afterReplicaId: `${i}`
+        });
+      }
+
+      await batch.commit('0/1');
+    });
+
+    const stream = sync.streamResponse({
+      storage: f,
+      params: {
+        buckets: [],
+        include_checksum: true,
+        raw_data: true
+      },
+      parseOptions: test_utils.PARSE_OPTIONS,
+      tracker,
+      syncParams: new RequestParameters({ sub: '' }, {}),
+      token: { exp: Date.now() / 1000 + 10 } as any
+    });
+
+    let sentCheckpoints = 0;
+    for await (const next of stream) {
+      if (typeof next === 'object' && next !== null) {
+        if ('partial_checkpoint_complete' in next) {
+          expect(sentCheckpoints).toBe(1);
+
+          await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+            // Add another high-priority row. This should interrupt the long-running low-priority sync.
+            await batch.save({
+              sourceTable: TEST_TABLE,
+              tag: storage.SaveOperationTag.INSERT,
+              after: {
+                id: 'highprio2',
+                description: 'Another high-priority row'
+              },
+              afterReplicaId: 'highprio2'
+            });
+      
+            await batch.commit('0/2');
+          });
+        }
+        if ('checkpoint' in next || 'checkpoint_diff' in next) {
+          sentCheckpoints += 1;
+        }
+        if ('checkpoint_complete' in next) {
+          break;
+        }
+      }
+    }
+
+    expect(sentCheckpoints).toBe(2);
+  });
+
   test('sync legacy non-raw data', async () => {
     const f = await factory();
 
