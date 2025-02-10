@@ -240,6 +240,19 @@ export enum ErrorCode {
    */
   PSYNC_S1343 = 'PSYNC_S1343',
 
+  /**
+   * The MongoDB Change Stream has been invalidated.
+   *
+   * Possible causes:
+   * - Some change stream documents do not have postImages.
+   * - startAfter/resumeToken is not valid anymore.
+   * - The replication connection has changed.
+   * - The database has been dropped.
+   *
+   * Replication will be stopped for this Change Stream. Replication will restart with a new Change Stream.
+   */
+  PSYNC_S1344 = 'PSYNC_S1344',
+
   // ## PSYNC_S14xx: MongoDB storage replication issues
 
   /**

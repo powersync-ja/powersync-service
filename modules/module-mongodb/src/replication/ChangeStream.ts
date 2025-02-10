@@ -1,6 +1,7 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import {
   container,
+  DatabaseConnectionError,
   ErrorCode,
   logger,
   ReplicationAbortedError,
@@ -9,19 +10,12 @@ import {
 } from '@powersync/lib-services-framework';
 import { Metrics, SaveOperationTag, SourceEntityDescriptor, SourceTable, storage } from '@powersync/service-core';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
+import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
 import { MongoManager } from './MongoManager.js';
-import {
-  constructAfterRecord,
-  createCheckpoint,
-  getMongoLsn,
-  getMongoRelation,
-  mongoLsnToTimestamp
-} from './MongoRelation.js';
+import { constructAfterRecord, createCheckpoint, getMongoRelation } from './MongoRelation.js';
 import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
-
-export const ZERO_LSN = '0000000000000000';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;
@@ -41,9 +35,9 @@ interface InitResult {
  *  * Some change stream documents do not have postImages.
  *  * startAfter/resumeToken is not valid anymore.
  */
-export class ChangeStreamInvalidatedError extends Error {
-  constructor(message: string) {
-    super(message);
+export class ChangeStreamInvalidatedError extends DatabaseConnectionError {
+  constructor(message: string, cause: any) {
+    super(ErrorCode.PSYNC_S1344, message, cause);
   }
 }
 
@@ -207,7 +201,7 @@ export class ChangeStream {
     const session = await this.client.startSession();
     try {
       await this.storage.startBatch(
-        { zeroLSN: ZERO_LSN, defaultSchema: this.defaultDb.databaseName, storeCurrentData: false },
+        { zeroLSN: MongoLSN.ZERO.comparable, defaultSchema: this.defaultDb.databaseName, storeCurrentData: false },
         async (batch) => {
           // Start by resolving all tables.
           // This checks postImage configuration, and that should fail as
@@ -220,12 +214,12 @@ export class ChangeStream {
 
           for (let table of allSourceTables) {
             await this.snapshotTable(batch, table, session);
-            await batch.markSnapshotDone([table], ZERO_LSN);
+            await batch.markSnapshotDone([table], MongoLSN.ZERO.comparable);
 
             await touch();
           }
 
-          const lsn = getMongoLsn(snapshotTime);
+          const { comparable: lsn } = new MongoLSN({ timestamp: snapshotTime });
           logger.info(`Snapshot commit at ${snapshotTime.inspect()} / ${lsn}`);
           await batch.commit(lsn);
         }
@@ -516,7 +510,7 @@ export class ChangeStream {
         e.codeName == 'NoMatchingDocument' &&
         e.errmsg?.includes('post-image was not found')
       ) {
-        throw new ChangeStreamInvalidatedError(e.errmsg);
+        throw new ChangeStreamInvalidatedError(e.errmsg, e);
       }
       throw e;
     }
@@ -527,10 +521,13 @@ export class ChangeStream {
     await this.storage.autoActivate();
 
     await this.storage.startBatch(
-      { zeroLSN: ZERO_LSN, defaultSchema: this.defaultDb.databaseName, storeCurrentData: false },
+      { zeroLSN: MongoLSN.ZERO.comparable, defaultSchema: this.defaultDb.databaseName, storeCurrentData: false },
       async (batch) => {
-        const lastLsn = batch.lastCheckpointLsn;
-        const startAfter = mongoLsnToTimestamp(lastLsn) ?? undefined;
+        const { lastCheckpointLsn } = batch;
+        const lastLsn = lastCheckpointLsn ? MongoLSN.fromSerialized(lastCheckpointLsn) : null;
+        const startAfter = lastLsn?.timestamp;
+        const resumeAfter = lastLsn?.resumeToken;
+
         logger.info(`Resume streaming at ${startAfter?.inspect()} / ${lastLsn}`);
 
         const filters = this.getSourceNamespaceFilters();
@@ -554,12 +551,21 @@ export class ChangeStream {
         }
 
         const streamOptions: mongo.ChangeStreamOptions = {
-          startAtOperationTime: startAfter,
           showExpandedEvents: true,
           useBigInt64: true,
           maxAwaitTimeMS: 200,
           fullDocument: fullDocument
         };
+
+        /**
+         * Only one of these options can be supplied at a time.
+         */
+        if (resumeAfter) {
+          streamOptions.resumeAfter = resumeAfter;
+        } else {
+          streamOptions.startAtOperationTime = startAfter;
+        }
+
         let stream: mongo.ChangeStream<mongo.Document>;
         if (filters.multipleDatabases) {
           // Requires readAnyDatabase@admin on Atlas
@@ -579,7 +585,7 @@ export class ChangeStream {
         });
 
         // Always start with a checkpoint.
-        // This helps us to clear erorrs when restarting, even if there is
+        // This helps us to clear errors when restarting, even if there is
         // no data to replicate.
         let waitForCheckpointLsn: string | null = await createCheckpoint(this.client, this.defaultDb);
 
@@ -591,6 +597,11 @@ export class ChangeStream {
           }
 
           const originalChangeDocument = await stream.tryNext();
+
+          // The stream was closed, we will only ever receive `null` from it
+          if (!originalChangeDocument && stream.closed) {
+            break;
+          }
 
           if (originalChangeDocument == null || this.abort_signal.aborted) {
             continue;
@@ -626,15 +637,38 @@ export class ChangeStream {
             throw new ReplicationAssertionError(`Incomplete splitEvent: ${JSON.stringify(splitDocument.splitEvent)}`);
           }
 
-          // console.log('event', changeDocument);
-
           if (
             (changeDocument.operationType == 'insert' ||
               changeDocument.operationType == 'update' ||
-              changeDocument.operationType == 'replace') &&
+              changeDocument.operationType == 'replace' ||
+              changeDocument.operationType == 'drop') &&
             changeDocument.ns.coll == CHECKPOINTS_COLLECTION
           ) {
-            const lsn = getMongoLsn(changeDocument.clusterTime!);
+            /**
+             * Dropping the database does not provide an `invalidate` event.
+             * We typically would receive `drop` events for the collection which we
+             * would process below.
+             *
+             * However we don't commit the LSN after collections are dropped.
+             * The prevents the `startAfter` or `resumeToken` from advancing past the drop events.
+             * The stream also closes after the drop events.
+             * This causes an infinite loop of processing the collection drop events.
+             *
+             * This check here invalidates the change stream if our `_checkpoints` collection
+             * is dropped. This allows for detecting when the DB is dropped.
+             */
+            if (changeDocument.operationType == 'drop') {
+              throw new ChangeStreamInvalidatedError(
+                'Internal collections have been dropped',
+                new Error('_checkpoints collection was dropped')
+              );
+            }
+
+            const { comparable: lsn } = new MongoLSN({
+              timestamp: changeDocument.clusterTime!,
+              resume_token: changeDocument._id
+            });
+
             if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
               waitForCheckpointLsn = null;
             }
