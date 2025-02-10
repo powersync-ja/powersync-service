@@ -158,7 +158,7 @@ export class ChangeStream {
 
   async estimatedCount(table: storage.SourceTable): Promise<string> {
     const db = this.client.db(table.schema);
-    const count = db.collection(table.table).estimatedDocumentCount();
+    const count = await db.collection(table.table).estimatedDocumentCount();
     return `~${count}`;
   }
 
@@ -292,6 +292,7 @@ export class ChangeStream {
     logger.info(`Replicating ${table.qualifiedName}`);
     const estimatedCount = await this.estimatedCount(table);
     let at = 0;
+    let lastLogIndex = 0;
 
     const db = this.client.db(table.schema);
     const collection = db.collection(table.table);
@@ -303,8 +304,6 @@ export class ChangeStream {
       if (this.abort_signal.aborted) {
         throw new ReplicationAbortedError(`Aborted initial replication`);
       }
-
-      at += 1;
 
       const record = constructAfterRecord(document);
 
@@ -319,6 +318,10 @@ export class ChangeStream {
       });
 
       at += 1;
+      if (at - lastLogIndex >= 5000) {
+        logger.info(`[${this.group_id}] Replicating ${table.qualifiedName} ${at}/${estimatedCount}`);
+        lastLogIndex = at;
+      }
       Metrics.getInstance().rows_replicated_total.add(1);
 
       await touch();
