@@ -602,12 +602,7 @@ export class BucketChecksumState {
   }
 }
 
-interface InternalBucketParameterCache {
-  querier: BucketParameterQuerier;
-  staticBuckets: Map<string, BucketDescription>;
-}
-
-interface CheckpointUpdate {
+export interface CheckpointUpdate {
   /**
    * All buckets forming part of the checkpoint.
    */

@@ -1,5 +1,5 @@
 import * as util from '../util/util-index.js';
-import { BucketStorageFactory } from './BucketStorage.js';
+import { BucketStorageFactory } from './BucketStorageFactory.js';
 
 export interface ActiveStorage {
   storage: BucketStorageFactory;

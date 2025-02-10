@@ -1,7 +1,7 @@
 import { DisposableListener, DisposableObserver, logger } from '@powersync/lib-services-framework';
 import { ResolvedPowerSyncConfig } from '../util/util-index.js';
-import { BucketStorageFactory } from './BucketStorage.js';
 import { ActiveStorage, BucketStorageProvider } from './StorageProvider.js';
+import { BucketStorageFactory } from './BucketStorageFactory.js';
 
 export type StorageEngineOptions = {
   configuration: ResolvedPowerSyncConfig;
