@@ -1,5 +1,13 @@
 # @powersync/lib-service-postgres
 
+## 0.3.1
+
+### Patch Changes
+
+- Updated dependencies [4b43cdb]
+  - @powersync/service-types@0.8.0
+  - @powersync/lib-services-framework@0.5.1
+
 ## 0.3.0
 
 ### Minor Changes

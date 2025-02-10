@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.23.4
+
+### Patch Changes
+
+- e26e434: Fix -> operator on missing values to return null.
+
 ## 0.23.3
 
 ### Patch Changes
