@@ -78,7 +78,7 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
       if (this.abortController.signal.aborted) {
         return;
       }
-      this.logger.error(`Replication error`, e);
+      this.logger.error(`${this.slotName} Replication error`, e);
       if (e.cause != null) {
         // Without this additional log, the cause may not be visible in the logs.
         this.logger.error(`cause`, e.cause);

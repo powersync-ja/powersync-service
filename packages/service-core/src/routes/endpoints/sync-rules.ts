@@ -69,7 +69,9 @@ export const deploySyncRules = routeDefinition({
     }
 
     const sync_rules = await storageEngine.activeBucketStorage.updateSyncRules({
-      content: content
+      content: content,
+      // Aready validated above
+      validate: false
     });
 
     return {
@@ -167,7 +169,10 @@ export const reprocessSyncRules = routeDefinition({
     }
 
     const new_rules = await activeBucketStorage.updateSyncRules({
-      content: sync_rules.sync_rules.content
+      content: sync_rules.sync_rules.content,
+      // These sync rules already passed validation. But if the rules are not valid anymore due
+      // to a service change, we do want to report the error here.
+      validate: true
     });
     return {
       slot_name: new_rules.slot_name

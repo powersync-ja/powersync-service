@@ -15,6 +15,7 @@ export class Base64SyncRulesCollector extends SyncRulesCollector {
 
     return {
       present: true,
+      exit_on_error: baseConfig.sync_rules?.exit_on_error ?? true,
       content: Buffer.from(sync_rules_base64, 'base64').toString()
     };
   }
