@@ -196,7 +196,8 @@ export class CompoundConfigCollector {
       }
     }
     return {
-      present: false
+      present: false,
+      exit_on_error: true
     };
   }
 }

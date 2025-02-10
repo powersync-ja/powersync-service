@@ -161,7 +161,8 @@ export const powerSyncConfig = t.object({
   sync_rules: t
     .object({
       path: t.string.optional(),
-      content: t.string.optional()
+      content: t.string.optional(),
+      exit_on_error: t.boolean.optional()
     })
     .optional(),
 

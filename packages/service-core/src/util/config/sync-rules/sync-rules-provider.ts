@@ -3,6 +3,8 @@ import fs from 'fs/promises';
 
 export interface SyncRulesProvider {
   get(): Promise<string | undefined>;
+
+  readonly exitOnError: boolean;
 }
 
 export class ConfigurationFileSyncRulesProvider implements SyncRulesProvider {
@@ -14,5 +16,9 @@ export class ConfigurationFileSyncRulesProvider implements SyncRulesProvider {
     } else if (this.config.path) {
       return await fs.readFile(this.config.path, 'utf-8');
     }
+  }
+
+  get exitOnError() {
+    return this.config.exit_on_error;
   }
 }

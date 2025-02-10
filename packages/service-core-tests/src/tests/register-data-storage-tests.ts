@@ -1502,7 +1502,7 @@ bucket_definitions:
       replication_size_bytes: 0
     });
 
-    const r = await f.configureSyncRules('bucket_definitions: {}');
+    const r = await f.configureSyncRules({ content: 'bucket_definitions: {}', validate: false });
     const storage = f.getInstance(r.persisted_sync_rules!);
     await storage.autoActivate();
 

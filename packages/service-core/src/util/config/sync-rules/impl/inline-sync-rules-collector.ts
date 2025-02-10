@@ -15,6 +15,7 @@ export class InlineSyncRulesCollector extends SyncRulesCollector {
 
     return {
       present: true,
+      exit_on_error: true,
       ...baseConfig.sync_rules
     };
   }
