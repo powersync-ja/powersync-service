@@ -400,7 +400,7 @@ bucket_definitions:
       },
       parameters
     });
-    expect(buckets).toEqual([{ bucket: 'by_workspace["workspace1"]', priority: 1 }]);
+    expect(buckets).toEqual([{ bucket: 'by_workspace["workspace1"]', priority: 3 }]);
   });
 
   test('save and load parameters with dynamic global buckets', async () => {
@@ -474,8 +474,8 @@ bucket_definitions:
     });
     buckets.sort((a, b) => a.bucket.localeCompare(b.bucket));
     expect(buckets).toEqual([
-      { bucket: 'by_public_workspace["workspace1"]', priority: 1 },
-      { bucket: 'by_public_workspace["workspace3"]', priority: 1 }
+      { bucket: 'by_public_workspace["workspace1"]', priority: 3 },
+      { bucket: 'by_public_workspace["workspace3"]', priority: 3 }
     ]);
   });
 
