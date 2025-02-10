@@ -166,13 +166,8 @@ export class MongoBucketStorage
   }
 
   async updateSyncRules(options: storage.UpdateSyncRulesOptions): Promise<MongoPersistedSyncRulesContent> {
-    // Parse and validate before applying any changes
-    const parsed = SqlSyncRules.fromYaml(options.content, {
-      // No schema-based validation at this point
-      schema: undefined,
-      defaultSchema: 'not_applicable', // Not needed for validation
-      throwOnError: true
-    });
+    // We do not validate sync rules at this point.
+    // That is done when using the sync rules, so that the diagnostics API can report the errors.
 
     let rules: MongoPersistedSyncRulesContent | undefined = undefined;
 
