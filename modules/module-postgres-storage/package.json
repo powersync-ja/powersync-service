@@ -45,6 +45,6 @@
   },
   "devDependencies": {
     "@types/uuid": "^9.0.4",
-    "typescript": "^5.2.2"
+    "typescript": "^5.7.3"
   }
 }

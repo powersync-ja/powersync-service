@@ -3,6 +3,8 @@ import * as bson from 'bson';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import { ReplicaId } from './BucketStorage.js';
 
+type NodeBuffer = Buffer<ArrayBuffer>;
+
 export const BSON_DESERIALIZE_OPTIONS: bson.DeserializeOptions = {
   // use bigint instead of Long
   useBigInt64: true
@@ -12,7 +14,7 @@ export const BSON_DESERIALIZE_OPTIONS: bson.DeserializeOptions = {
  * Lookup serialization must be number-agnostic. I.e. normalize numbers, instead of preserving numbers.
  * @param lookup
  */
-export const serializeLookupBuffer = (lookup: SqliteJsonValue[]): Buffer => {
+export const serializeLookupBuffer = (lookup: SqliteJsonValue[]): NodeBuffer => {
   const normalized = lookup.map((value) => {
     if (typeof value == 'number' && Number.isInteger(value)) {
       return BigInt(value);
@@ -20,7 +22,7 @@ export const serializeLookupBuffer = (lookup: SqliteJsonValue[]): Buffer => {
       return value;
     }
   });
-  return bson.serialize({ l: normalized }) as Buffer;
+  return bson.serialize({ l: normalized }) as NodeBuffer;
 };
 
 export const serializeLookup = (lookup: SqliteJsonValue[]) => {
@@ -40,8 +42,8 @@ export const isUUID = (value: any): value is bson.UUID => {
   return uuid._bsontype == 'Binary' && uuid.sub_type == bson.Binary.SUBTYPE_UUID;
 };
 
-export const serializeReplicaId = (id: ReplicaId): Buffer => {
-  return bson.serialize({ id }) as Buffer;
+export const serializeReplicaId = (id: ReplicaId): NodeBuffer => {
+  return bson.serialize({ id }) as NodeBuffer;
 };
 
 export const deserializeReplicaId = (id: Buffer): ReplicaId => {
@@ -53,8 +55,8 @@ export const deserializeBson = (buffer: Buffer) => {
   return bson.deserialize(buffer, BSON_DESERIALIZE_OPTIONS);
 };
 
-export const serializeBson = (document: any): Buffer => {
-  return bson.serialize(document) as Buffer;
+export const serializeBson = (document: any): NodeBuffer => {
+  return bson.serialize(document) as NodeBuffer;
 };
 
 /**
@@ -73,6 +75,6 @@ export const replicaIdEquals = (a: ReplicaId, b: ReplicaId) => {
     return false;
   } else {
     // There are many possible primitive values, this covers them all
-    return serializeReplicaId(a).equals(serializeReplicaId(b) as ArrayBuffer as Uint8Array);
+    return serializeReplicaId(a).equals(serializeReplicaId(b));
   }
 };
