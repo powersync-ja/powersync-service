@@ -1,5 +1,21 @@
 # @powersync/service-module-mysql
 
+## 0.3.0
+
+### Minor Changes
+
+- 4b43cdb: Exit replication process when sync rules are not valid; configurable with a new `sync_rules.exit_on_error` option.
+
+### Patch Changes
+
+- Updated dependencies [e26e434]
+- Updated dependencies [4b43cdb]
+- Updated dependencies [9a9e668]
+  - @powersync/service-sync-rules@0.23.4
+  - @powersync/service-core@0.18.0
+  - @powersync/service-types@0.8.0
+  - @powersync/lib-services-framework@0.5.1
+
 ## 0.2.2
 
 ### Patch Changes
