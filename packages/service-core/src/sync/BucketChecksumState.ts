@@ -7,6 +7,13 @@ import { ErrorCode, logger, ServiceAssertionError, ServiceError } from '@powersy
 import { BucketParameterQuerier } from '@powersync/service-sync-rules/src/BucketParameterQuerier.js';
 import { BucketSyncState } from './sync.js';
 
+export interface BucketChecksumStateOptions {
+  bucketStorage: BucketChecksumStateStorage;
+  syncRules: SqlSyncRules;
+  syncParams: RequestParameters;
+  initialBucketPositions?: { name: string; after: string }[];
+}
+
 /**
  * Represents the state of the checksums and data for a specific connection.
  *
@@ -19,7 +26,7 @@ export class BucketChecksumState {
    * Bucket state of bucket id -> op_id.
    * This starts with the state from the client. May contain buckets that the user do not have access to (anymore).
    */
-  public dataBuckets = new Map<string, BucketSyncState>();
+  public bucketDataPositions = new Map<string, BucketSyncState>();
 
   /**
    * Last checksums sent to the client. We keep this to calculate checkpoint diffs.
@@ -29,10 +36,20 @@ export class BucketChecksumState {
 
   private readonly parameterState: BucketParameterState;
 
+  /**
+   * Keep track of buckets that need to be downloaded. This is specifically relevant when
+   * partial checkpoints are sent.
+   */
+  private pendingBucketDownloads = new Set<string>();
+
   constructor(options: BucketChecksumStateOptions) {
     this.bucketStorage = options.bucketStorage;
     this.parameterState = new BucketParameterState(options.bucketStorage, options.syncRules, options.syncParams);
-    this.dataBuckets = options.initialBucketState;
+    this.bucketDataPositions = new Map();
+
+    for (let { name, after: start } of options.initialBucketPositions ?? []) {
+      this.bucketDataPositions.set(name, { start_op_id: start });
+    }
   }
 
   async buildNextCheckpointLine(next: storage.WriteCheckpoint): Promise<CheckpointLine | null> {
@@ -47,10 +64,10 @@ export class BucketChecksumState {
     for (let bucket of allBuckets) {
       dataBucketsNew.set(bucket.bucket, {
         description: bucket,
-        start_op_id: this.dataBuckets.get(bucket.bucket)?.start_op_id ?? '0'
+        start_op_id: this.bucketDataPositions.get(bucket.bucket)?.start_op_id ?? '0'
       });
     }
-    this.dataBuckets = dataBucketsNew;
+    this.bucketDataPositions = dataBucketsNew;
 
     let checksumMap: util.ChecksumMap;
     if (updatedBuckets != null) {
@@ -105,11 +122,28 @@ export class BucketChecksumState {
         return null;
       }
 
+      let generateBucketsToFetch = new Set<string>();
+      for (let bucket of diff.updatedBuckets) {
+        generateBucketsToFetch.add(bucket.bucket);
+      }
+      for (let bucket of this.pendingBucketDownloads) {
+        // Bucket from a previous checkpoint that hasn't been downloaded yet.
+        // If we still have this bucket, include it in the list of buckets to fetch.
+        if (checksumMap.has(bucket)) {
+          generateBucketsToFetch.add(bucket);
+        }
+      }
+
       const updatedBucketDescriptions = diff.updatedBuckets.map((e) => ({
         ...e,
-        priority: this.dataBuckets.get(e.bucket)!.description!.priority
+        priority: this.bucketDataPositions.get(e.bucket)!.description!.priority
       }));
-      bucketsToFetch = updatedBucketDescriptions;
+      bucketsToFetch = [...generateBucketsToFetch].map((b) => {
+        return {
+          bucket: b,
+          priority: this.bucketDataPositions.get(b)!.description!.priority
+        };
+      });
 
       let message = `Updated checkpoint: ${base.checkpoint} | `;
       message += `write: ${writeCheckpoint} | `;
@@ -143,7 +177,7 @@ export class BucketChecksumState {
           write_checkpoint: writeCheckpoint ? String(writeCheckpoint) : undefined,
           buckets: [...checksumMap.values()].map((e) => ({
             ...e,
-            priority: this.dataBuckets.get(e.bucket)!.description!.priority
+            priority: this.bucketDataPositions.get(e.bucket)!.description!.priority
           }))
         }
       } satisfies util.StreamingSyncCheckpoint;
@@ -151,6 +185,7 @@ export class BucketChecksumState {
 
     this.lastChecksums = checksumMap;
     this.lastWriteCheckpoint = writeCheckpoint;
+    this.pendingBucketDownloads = new Set(bucketsToFetch.map((b) => b.bucket));
 
     return {
       checkpointLine,
@@ -162,10 +197,16 @@ export class BucketChecksumState {
     return this.parameterState.checkpointFilter;
   }
 
-  getFilteredBucketStates(bucketsToFetch: BucketDescription[]): Map<string, string> {
+  /**
+   * Get bucket positions to sync, given the list of buckets.
+   *
+   * @param bucketsToFetch List of buckets to fetch, typically from buildNextCheckpointLine, or a subset of that
+   * @returns
+   */
+  getFilteredBucketPositions(bucketsToFetch: BucketDescription[]): Map<string, string> {
     const filtered = new Map<string, string>();
     for (let bucket of bucketsToFetch) {
-      const state = this.dataBuckets.get(bucket.bucket);
+      const state = this.bucketDataPositions.get(bucket.bucket);
       if (state) {
         filtered.set(bucket.bucket, state.start_op_id);
       }
@@ -173,10 +214,19 @@ export class BucketChecksumState {
     return filtered;
   }
 
-  updateState(bucket: string, nextAfter: string) {
-    const state = this.dataBuckets.get(bucket);
+  /**
+   * Update the position of bucket data the client has.
+   *
+   * @param bucket the bucket name
+   * @param nextAfter sync operations >= this value in the next batch
+   */
+  updateBucketPosition(options: { bucket: string; nextAfter: string; hasMore: boolean }) {
+    const state = this.bucketDataPositions.get(options.bucket);
     if (state) {
-      state.start_op_id = nextAfter;
+      state.start_op_id = options.nextAfter;
+    }
+    if (!options.hasMore) {
+      this.pendingBucketDownloads.delete(options.bucket);
     }
   }
 }
@@ -202,8 +252,16 @@ export class BucketParameterState {
   private readonly querier: BucketParameterQuerier;
   private readonly staticBuckets: Map<string, BucketDescription>;
 
+  /**
+   * Buckets for which we received update events.
+   */
   private pendingBuckets = new Set<string>();
-  // First time we're called, we need to fetch all buckets.
+
+  /**
+   * If true, we ignore pendingBuckets, and assume any bucket could have changed.
+   *
+   * This is also true for the first run.
+   */
   private invalidated: boolean = true;
 
   constructor(bucketStorage: BucketChecksumStateStorage, syncRules: SqlSyncRules, syncParams: RequestParameters) {
@@ -309,13 +367,6 @@ export class BucketParameterState {
 export interface CheckpointLine {
   checkpointLine: util.StreamingSyncCheckpointDiff | util.StreamingSyncCheckpoint;
   bucketsToFetch: BucketDescription[];
-}
-
-export interface BucketChecksumStateOptions {
-  bucketStorage: BucketChecksumStateStorage;
-  syncRules: SqlSyncRules;
-  syncParams: RequestParameters;
-  initialBucketState: Map<string, BucketSyncState>;
 }
 
 // Use a more specific type to simplify testing

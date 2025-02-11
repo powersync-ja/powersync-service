@@ -98,21 +98,16 @@ async function* streamResponseInner(
   tracker: RequestTracker,
   signal: AbortSignal
 ): AsyncGenerator<util.StreamingSyncLine | string | null> {
-  // Bucket state of bucket id -> op_id.
-  // This starts with the state from the client. May contain buckets that the user do not have access to (anymore).
-  let initialBucketState = new Map<string, BucketSyncState>();
-
   const { raw_data, binary_data } = params;
-
-  if (params.buckets) {
-    for (let { name, after: start } of params.buckets) {
-      initialBucketState.set(name, { start_op_id: start });
-    }
-  }
 
   const checkpointUserId = util.checkpointUserId(syncParams.token_parameters.user_id as string, params.client_id);
 
-  const checksumState = new BucketChecksumState({ bucketStorage, syncRules, syncParams, initialBucketState });
+  const checksumState = new BucketChecksumState({
+    bucketStorage,
+    syncRules,
+    syncParams,
+    initialBucketPositions: params.buckets
+  });
   const stream = bucketStorage.watchWriteCheckpoint({
     user_id: checkpointUserId,
     signal,
@@ -308,12 +303,12 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
     }
     // Optimization: Only fetch buckets for which the checksums have changed since the last checkpoint
     // For the first batch, this will be all buckets.
-    const filteredBuckets = checksumState.getFilteredBucketStates(bucketsToFetch);
-    const data = storage.getBucketDataBatch(checkpoint, filteredBuckets);
+    const filteredBuckets = checksumState.getFilteredBucketPositions(bucketsToFetch);
+    const dataBatches = storage.getBucketDataBatch(checkpoint, filteredBuckets);
 
     let has_more = false;
 
-    for await (let { batch: r, targetOp } of data) {
+    for await (let { batch: r, targetOp } of dataBatches) {
       // Abort in current batch if the connection is closed
       if (abort_connection.aborted) {
         return;
@@ -357,7 +352,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
       }
       onRowsSent(r.data.length);
 
-      checksumState.updateState(r.bucket, r.next_after);
+      checksumState.updateBucketPosition({ bucket: r.bucket, nextAfter: r.next_after, hasMore: r.has_more });
 
       // Check if syncing bucket data is supposed to stop before fetching more data
       // from storage.
