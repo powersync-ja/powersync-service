@@ -23,14 +23,7 @@ import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 import * as timers from 'timers/promises';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
-import {
-  BucketDataDocument,
-  BucketDataKey,
-  BucketParameterDocument,
-  SourceKey,
-  SyncRuleCheckpointState,
-  SyncRuleDocument
-} from './models.js';
+import { BucketDataDocument, BucketDataKey, SourceKey, SyncRuleCheckpointState, SyncRuleDocument } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
@@ -642,7 +635,7 @@ export class MongoSyncBucketStorage
   /**
    * Instance-wide watch on the latest available checkpoint (op_id + lsn).
    */
-  private async *watchActiveCheckpoint(signal: AbortSignal): AsyncIterable<BucketCheckpointEvent> {
+  private async *watchActiveCheckpoint(signal: AbortSignal): AsyncIterable<ReplicationCheckpoint> {
     // Use this form instead of (doc: SyncRuleCheckpointState | null = null),
     // otherwise we get weird "doc: never" issues.
     let doc = null as SyncRuleCheckpointState | null;
@@ -685,14 +678,14 @@ export class MongoSyncBucketStorage
       return;
     }
 
-    yield { checkpoint: this.makeActiveCheckpoint(doc), invalidate: true };
+    yield this.makeActiveCheckpoint(doc);
 
     // We only watch changes to the active sync rules.
     // If it changes to inactive, we abort and restart with the new sync rules.
 
     const pipeline = this.getChangeStreamPipeline();
 
-    const stream = this.db.db.watch(pipeline, {
+    const stream = this.db.sync_rules.watch(pipeline, {
       // Start at the cluster time where we got the initial doc, to make sure
       // we don't skip any updates.
       // This may result in the first operation being a duplicate, but we filter
@@ -719,35 +712,24 @@ export class MongoSyncBucketStorage
         continue;
       }
 
-      if (update.ns.coll == this.db.sync_rules.collectionName) {
-        const doc = await this.getOperationDoc(
-          lastDoc,
-          update as lib_mongo.mongo.ChangeStreamDocument<SyncRuleDocument>
-        );
-        if (doc == null) {
-          // Irrelevant update
-          continue;
-        }
-        if (doc.state != storage.SyncRuleState.ACTIVE) {
-          // Sync rules have changed - abort and restart.
-          // Should this error instead?
-          break;
-        }
+      const doc = await this.getOperationDoc(lastDoc, update as lib_mongo.mongo.ChangeStreamDocument<SyncRuleDocument>);
+      if (doc == null) {
+        // Irrelevant update
+        continue;
+      }
+      if (doc.state != storage.SyncRuleState.ACTIVE) {
+        // Sync rules have changed - abort and restart.
+        // Should this error instead?
+        break;
+      }
 
-        lastDoc = doc;
+      lastDoc = doc;
 
-        const op = this.makeActiveCheckpoint(doc);
-        // Check for LSN / checkpoint changes - ignore other metadata changes
-        if (lastOp == null || op.lsn != lastOp.lsn || op.checkpoint != lastOp.checkpoint) {
-          lastOp = op;
-          yield { checkpoint: op };
-        }
-      } else if (update.ns.coll == this.db.bucket_data.collectionName) {
-        const bucket = (update.documentKey._id as unknown as BucketDataKey).b;
-        yield { dataBucket: bucket };
-      } else if (update.ns.coll == this.db.bucket_parameters.collectionName && update.fullDocument != null) {
-        const bucketDefinition = getLookupBucketDefinitionName((update.fullDocument as BucketParameterDocument).lookup);
-        yield { parameterBucketDefinition: bucketDefinition };
+      const op = this.makeActiveCheckpoint(doc);
+      // Check for LSN / checkpoint changes - ignore other metadata changes
+      if (lastOp == null || op.lsn != lastOp.lsn || op.checkpoint != lastOp.checkpoint) {
+        lastOp = op;
+        yield op;
       }
     }
   }
@@ -767,53 +749,51 @@ export class MongoSyncBucketStorage
 
     const iter = wrapWithAbort(this.sharedIter, signal);
     for await (const event of iter) {
-      if (event.checkpoint) {
-        const { checkpoint, lsn } = event.checkpoint;
+      const { checkpoint, lsn } = event;
 
-        // lsn changes are not important by itself.
-        // What is important is:
-        // 1. checkpoint (op_id) changes.
-        // 2. write checkpoint changes for the specific user
+      // lsn changes are not important by itself.
+      // What is important is:
+      // 1. checkpoint (op_id) changes.
+      // 2. write checkpoint changes for the specific user
 
-        const lsnFilters: Record<string, string> = lsn ? { 1: lsn } : {};
+      const lsnFilters: Record<string, string> = lsn ? { 1: lsn } : {};
 
-        const currentWriteCheckpoint = await this.lastWriteCheckpoint({
-          user_id,
-          heads: {
-            ...lsnFilters
-          }
-        });
-
-        if (currentWriteCheckpoint == lastWriteCheckpoint && checkpoint == lastCheckpoint) {
-          // No change - wait for next one
-          // In some cases, many LSNs may be produced in a short time.
-          // Add a delay to throttle the write checkpoint lookup a bit.
-          await timers.setTimeout(20 + 10 * Math.random());
-          continue;
+      const currentWriteCheckpoint = await this.lastWriteCheckpoint({
+        user_id,
+        heads: {
+          ...lsnFilters
         }
+      });
 
-        const updates: CheckpointChanges =
-          lastCheckpoint == null
-            ? {
-                invalidateDataBuckets: true,
-                invalidateParameterBuckets: true,
-                updatedDataBuckets: [],
-                updatedParameterBucketDefinitions: []
-              }
-            : await this.getCheckpointChanges({
-                lastCheckpoint: lastCheckpoint,
-                nextCheckpoint: checkpoint
-              });
-
-        lastWriteCheckpoint = currentWriteCheckpoint;
-        lastCheckpoint = checkpoint;
-
-        yield {
-          base: event.checkpoint!,
-          writeCheckpoint: currentWriteCheckpoint,
-          update: updates
-        };
+      if (currentWriteCheckpoint == lastWriteCheckpoint && checkpoint == lastCheckpoint) {
+        // No change - wait for next one
+        // In some cases, many LSNs may be produced in a short time.
+        // Add a delay to throttle the write checkpoint lookup a bit.
+        await timers.setTimeout(20 + 10 * Math.random());
+        continue;
       }
+
+      const updates: CheckpointChanges =
+        lastCheckpoint == null
+          ? {
+              invalidateDataBuckets: true,
+              invalidateParameterBuckets: true,
+              updatedDataBuckets: [],
+              updatedParameterBucketDefinitions: []
+            }
+          : await this.getCheckpointChanges({
+              lastCheckpoint: lastCheckpoint,
+              nextCheckpoint: checkpoint
+            });
+
+      lastWriteCheckpoint = currentWriteCheckpoint;
+      lastCheckpoint = checkpoint;
+
+      yield {
+        base: event,
+        writeCheckpoint: currentWriteCheckpoint,
+        update: updates
+      };
     }
   }
 
@@ -845,74 +825,17 @@ export class MongoSyncBucketStorage
 
   private getChangeStreamPipeline() {
     const syncRulesId = this.group_id;
-    const parsedSyncRules = this.getParsedSyncRules({
-      // Not applicable here
-      defaultSchema: 'default'
-    });
-    const staticBucketDefinitions = parsedSyncRules.getStaticBucketDefinitionList();
-    const staticBucketFilters = staticBucketDefinitions.map((name) => {
-      return {
-        // Check that the docuemnt starts with bucket name
-        'documentKey._id.b': {
-          $gte: name + '[',
-          $lt: name + '[\uFFFF'
-        }
-      };
-    });
-
-    let filters: mongo.Document[] = [
-      // sync_rules events
-      {
-        'ns.coll': this.db.sync_rules.collectionName,
-        'documentKey._id': syncRulesId,
-        operationType: { $in: ['insert', 'update', 'replace'] }
-      },
-      // bucket_data events
-      {
-        'ns.coll': this.db.bucket_data.collectionName,
-        'documentKey._id.g': syncRulesId,
-        operationType: 'insert',
-        $or: staticBucketFilters
-      },
-      // bucket_parameters events
-      {
-        'ns.coll': this.db.bucket_parameters.collectionName,
-        'fullDocument.key.g': syncRulesId,
-        operationType: 'insert'
-      }
-    ];
-
-    if (staticBucketFilters.length > 0) {
-      // bucket_data events, only if there are static bucket definitions
-      filters.push({
-        'ns.coll': this.db.bucket_data.collectionName,
-        'documentKey._id.g': syncRulesId,
-        operationType: 'insert',
-        $or: staticBucketFilters
-      });
-    }
-
     const pipeline: mongo.Document[] = [
       {
         $match: {
-          $or: filters
+          'documentKey._id': syncRulesId,
+          operationType: { $in: ['insert', 'update', 'replace'] }
         }
       },
       {
         $project: {
-          // Common fields
           operationType: 1,
-          ns: 1,
-
-          // For bucket_data, this contains the bucket
-          // For sync_rules, this contains the sync_rules id
           'documentKey._id': 1,
-
-          // For bucket_parameters
-          'fullDocument.key': 1,
-          'fullDocument.lookup': 1,
-
-          // For sync_rules events
           'updateDescription.updatedFields.state': 1,
           'updateDescription.updatedFields.last_checkpoint': 1,
           'updateDescription.updatedFields.last_checkpoint_lsn': 1,
@@ -973,11 +896,4 @@ export class MongoSyncBucketStorage
         : [...new Set<string>(parameterUpdates.map((p) => getLookupBucketDefinitionName(p.lookup)))]
     };
   }
-}
-
-interface BucketCheckpointEvent {
-  checkpoint?: ReplicationCheckpoint;
-  dataBucket?: string;
-  parameterBucketDefinition?: string;
-  invalidate?: boolean;
 }
