@@ -9,6 +9,7 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   BroadcastIterable,
+  CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
   GetCheckpointChangesOptions,
   InternalOpId,
@@ -903,6 +904,7 @@ export class MongoSyncBucketStorage
   private async getParameterBucketChanges(
     options: GetCheckpointChangesOptions
   ): Promise<Pick<CheckpointChanges, 'updatedParameterBucketDefinitions' | 'invalidateParameterBuckets'>> {
+    // TODO: limit max query running time
     const parameterUpdates = await this.db.bucket_parameters
       .find(
         {
@@ -929,6 +931,9 @@ export class MongoSyncBucketStorage
     };
   }
 
+  // TODO:
+  // We can optimize this by implementing it like ChecksumCache: We can use partial cache results to do
+  // more efficient lookups in some cases.
   private checkpointChangesCache = new LRUCache<string, CheckpointChanges, { options: GetCheckpointChangesOptions }>({
     max: 50,
     maxSize: 10 * 1024 * 1024,
@@ -940,7 +945,31 @@ export class MongoSyncBucketStorage
     }
   });
 
+  private _hasDynamicBucketsCached: boolean | undefined = undefined;
+
+  private hasDynamicBucketQueries(): boolean {
+    if (this._hasDynamicBucketsCached != null) {
+      return this._hasDynamicBucketsCached;
+    }
+    const syncRules = this.getParsedSyncRules({
+      defaultSchema: 'default' // n/a
+    });
+    const hasDynamicBuckets = syncRules.hasDynamicBucketQueries();
+    this._hasDynamicBucketsCached = hasDynamicBuckets;
+    return hasDynamicBuckets;
+  }
+
   async getCheckpointChanges(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
+    if (!this.hasDynamicBucketQueries()) {
+      // Special case when we have no dynamic parameter queries.
+      // In this case, we can avoid doing any queries.
+      return {
+        invalidateDataBuckets: true,
+        updatedDataBuckets: [],
+        invalidateParameterBuckets: false,
+        updatedParameterBucketDefinitions: []
+      };
+    }
     const key = `${options.lastCheckpoint}_${options.nextCheckpoint}`;
     const result = await this.checkpointChangesCache.fetch(key, { context: { options } });
     return result!;

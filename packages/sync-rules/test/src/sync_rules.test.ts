@@ -37,6 +37,7 @@ bucket_definitions:
         bucket: 'mybucket[]'
       }
     ]);
+    expect(rules.hasDynamicBucketQueries).toBe(false);
     expect(rules.getBucketParameterQuerier(normalizeTokenParameters({}))).toMatchObject({
       staticBuckets: [{ bucket: 'mybucket[]', priority: 3 }],
       hasDynamicBuckets: false,
@@ -936,6 +937,7 @@ bucket_definitions:
     );
     const bucket = rules.bucket_descriptors[0];
     expect(bucket.bucket_parameters).toEqual(['user_id']);
+    expect(rules.hasDynamicBucketQueries).toBe(true);
 
     expect(rules.getBucketParameterQuerier(normalizeTokenParameters({ user_id: 'user1' }))).toMatchObject({
       hasDynamicBuckets: true,

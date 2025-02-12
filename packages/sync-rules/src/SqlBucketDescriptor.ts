@@ -133,6 +133,10 @@ export class SqlBucketDescriptor {
     return results;
   }
 
+  hasDynamicBucketQueries(): boolean {
+    return this.parameter_queries.length > 0;
+  }
+
   getSourceTables(): Set<TablePattern> {
     let result = new Set<TablePattern>();
     for (let query of this.parameter_queries) {
