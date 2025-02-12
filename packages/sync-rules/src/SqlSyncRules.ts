@@ -326,6 +326,10 @@ export class SqlSyncRules implements SyncRules {
     return mergeBucketParameterQueriers(queriers);
   }
 
+  hasDynamicBucketQueries() {
+    return this.bucket_descriptors.some((query) => query.hasDynamicBucketQueries());
+  }
+
   getSourceTables(): TablePattern[] {
     const sourceTables = new Map<String, TablePattern>();
     for (const bucket of this.bucket_descriptors) {
