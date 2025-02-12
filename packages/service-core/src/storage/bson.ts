@@ -29,6 +29,11 @@ export const serializeLookup = (lookup: SqliteJsonValue[]) => {
   return new bson.Binary(serializeLookupBuffer(lookup));
 };
 
+export const getLookupBucketDefinitionName = (lookup: bson.Binary) => {
+  const parsed = bson.deserialize(lookup.buffer, BSON_DESERIALIZE_OPTIONS).l as SqliteJsonValue[];
+  return parsed[0] as string;
+};
+
 /**
  * True if this is a bson.UUID.
  *

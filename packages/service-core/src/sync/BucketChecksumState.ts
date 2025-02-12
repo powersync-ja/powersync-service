@@ -280,26 +280,43 @@ export class BucketParameterState {
       this.invalidated = true;
       this.pendingBuckets.clear();
       return true;
-    } else if (event.bucket != null) {
+    } else if (event.changedDataBucket != null) {
       const querier = this.querier;
       const staticBuckets = this.staticBuckets;
       if (querier.hasDynamicBuckets) {
-        // TODO: Check if the dynamic buckets may match this one
-        this.invalidated = true;
-        this.pendingBuckets.clear();
-        return true;
+        // Check for a maybe-match on dynamic buckets
+        // We could expand this to check our last set of buckets
+        for (let def of this.querier.dynamicBucketDefinitions) {
+          if (event.changedDataBucket.startsWith(def)) {
+            return this.invalidatePendingBuckets();
+          }
+        }
       }
 
-      if (staticBuckets.has(event.bucket)) {
-        this.pendingBuckets.add(event.bucket);
+      // For static buckets we can check for an exact match
+      if (staticBuckets.has(event.changedDataBucket)) {
+        this.pendingBuckets.add(event.changedDataBucket);
         return true;
       } else {
         return false;
       }
+    } else if (event.changedParameterBucketDefinition) {
+      if (this.querier.dynamicBucketDefinitions.has(event.changedParameterBucketDefinition)) {
+        // Potential change in dynamic bucket list - invalidate
+        return this.invalidatePendingBuckets();
+      }
+      // The parameter bucket definition is not relevant for this connection
+      return false;
     } else {
       return false;
     }
   };
+
+  private invalidatePendingBuckets() {
+    this.invalidated = true;
+    this.pendingBuckets.clear();
+    return true;
+  }
 
   async getCheckpointUpdate(checkpoint: util.OpId): Promise<CheckpointUpdate> {
     const querier = this.querier;

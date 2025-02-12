@@ -1,9 +1,5 @@
 import { BucketDescription } from './BucketDescription.js';
-import {
-  BucketParameterQuerier,
-  mergeBucketParameterQueriers,
-  QueryBucketDescriptorOptions
-} from './BucketParameterQuerier.js';
+import { BucketParameterQuerier, mergeBucketParameterQueriers } from './BucketParameterQuerier.js';
 import { IdSequence } from './IdSequence.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SqlDataQuery } from './SqlDataQuery.js';
@@ -13,8 +9,8 @@ import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
 import { TablePattern } from './TablePattern.js';
 import { SqlRuleError } from './errors.js';
 import {
-  EvaluateRowOptions,
   EvaluatedParametersResult,
+  EvaluateRowOptions,
   EvaluationResult,
   QueryParseOptions,
   RequestParameters,
@@ -117,6 +113,7 @@ export class SqlBucketDescriptor {
     const staticQuerier = {
       staticBuckets,
       hasDynamicBuckets: false,
+      dynamicBucketDefinitions: new Set<string>(),
       queryDynamicBucketDescriptions: async () => []
     } satisfies BucketParameterQuerier;
 
@@ -126,6 +123,13 @@ export class SqlBucketDescriptor {
 
     const dynamicQueriers = this.parameter_queries.map((query) => query.getBucketParameterQuerier(parameters));
     return mergeBucketParameterQueriers([staticQuerier, ...dynamicQueriers]);
+  }
+
+  /**
+   * Return bucket definition names for all static buckets.
+   */
+  hasStaticBuckets(): boolean {
+    return this.global_parameter_queries.length > 0;
   }
 
   getStaticBucketDescriptions(parameters: RequestParameters): BucketDescription[] {

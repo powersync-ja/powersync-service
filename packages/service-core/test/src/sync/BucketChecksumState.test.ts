@@ -252,7 +252,7 @@ bucket_definitions:
     // Invalidate the state for global[1] - will only re-check the single bucket.
     // This is essentially inconsistent state, but is the simplest way to test that
     // the filter is working.
-    state.checkpointFilter({ bucket: 'global[1]' });
+    state.checkpointFilter({ changedDataBucket: 'global[1]' });
 
     const line2 = (await state.buildNextCheckpointLine({
       base: { checkpoint: '2', lsn: '2' },
@@ -460,8 +460,7 @@ bucket_definitions:
     state.updateBucketPosition({ bucket: 'by_project[1]', nextAfter: '1', hasMore: false });
     state.updateBucketPosition({ bucket: 'by_project[2]', nextAfter: '1', hasMore: false });
 
-    // Update bucket storage state
-    state.checkpointFilter({ invalidate: true });
+    state.checkpointFilter({ changedParameterBucketDefinition: 'by_project' });
 
     storage.getParameterSets = async (checkpoint: OpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]> => {
       expect(checkpoint).toEqual('2');
@@ -494,7 +493,7 @@ class MockBucketChecksumStateStorage implements BucketChecksumStateStorage {
 
   updateTestChecksum(checksum: BucketChecksum): void {
     this.state.set(checksum.bucket, checksum);
-    this.filter?.({ bucket: checksum.bucket });
+    this.filter?.({ changedDataBucket: checksum.bucket });
   }
 
   invalidate() {

@@ -9,6 +9,7 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   BroadcastIterable,
+  getLookupBucketDefinitionName,
   ReplicationCheckpoint,
   storage,
   utils,
@@ -16,15 +17,22 @@ import {
 } from '@powersync/service-core';
 import { SqliteJsonRow, SqliteJsonValue, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
+import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 import * as timers from 'timers/promises';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
-import { BucketDataDocument, BucketDataKey, SourceKey, SyncRuleCheckpointState, SyncRuleDocument } from './models.js';
+import {
+  BucketDataDocument,
+  BucketDataKey,
+  BucketParameterDocument,
+  SourceKey,
+  SyncRuleCheckpointState,
+  SyncRuleDocument
+} from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { idPrefixFilter, mapOpEntry, readSingleBatch } from './util.js';
-import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 
 export class MongoSyncBucketStorage
   extends DisposableObserver<storage.SyncRulesBucketStorageListener>
@@ -734,7 +742,10 @@ export class MongoSyncBucketStorage
         }
       } else if (update.ns.coll == this.db.bucket_data.collectionName) {
         const bucket = (update.documentKey._id as unknown as BucketDataKey).b;
-        yield { bucket: bucket };
+        yield { dataBucket: bucket };
+      } else if (update.ns.coll == this.db.bucket_parameters.collectionName && update.fullDocument != null) {
+        const bucketDefinition = getLookupBucketDefinitionName((update.fullDocument as BucketParameterDocument).lookup);
+        yield { parameterBucketDefinition: bucketDefinition };
       }
     }
   }
@@ -757,15 +768,24 @@ export class MongoSyncBucketStorage
     for await (const event of iter) {
       if (filter) {
         if (event.invalidate) {
-          shouldUpdate ||= filter({
-            invalidate: true
-          });
+          shouldUpdate =
+            filter({
+              invalidate: true
+            }) || shouldUpdate;
         }
 
-        if (event.bucket) {
-          shouldUpdate ||= filter({
-            bucket: event.bucket
-          });
+        if (event.dataBucket) {
+          shouldUpdate =
+            filter({
+              changedDataBucket: event.dataBucket
+            }) || shouldUpdate;
+        }
+
+        if (event.parameterBucketDefinition) {
+          shouldUpdate =
+            filter({
+              changedParameterBucketDefinition: event.parameterBucketDefinition
+            }) || shouldUpdate;
         }
       }
 
@@ -836,23 +856,57 @@ export class MongoSyncBucketStorage
 
   private getChangeStreamPipeline() {
     const syncRulesId = this.group_id;
+    const parsedSyncRules = this.getParsedSyncRules({
+      // Not applicable here
+      defaultSchema: 'default'
+    });
+    const staticBucketDefinitions = parsedSyncRules.getStaticBucketDefinitionList();
+    const staticBucketFilters = staticBucketDefinitions.map((name) => {
+      return {
+        // Check that the docuemnt starts with bucket name
+        'documentKey._id.b': {
+          $gte: name + '[',
+          $lt: name + '[\uFFFF'
+        }
+      };
+    });
+
+    let filters: mongo.Document[] = [
+      // sync_rules events
+      {
+        'ns.coll': this.db.sync_rules.collectionName,
+        'documentKey._id': syncRulesId,
+        operationType: { $in: ['insert', 'update', 'replace'] }
+      },
+      // bucket_data events
+      {
+        'ns.coll': this.db.bucket_data.collectionName,
+        'documentKey._id.g': syncRulesId,
+        operationType: 'insert',
+        $or: staticBucketFilters
+      },
+      // bucket_parameters events
+      {
+        'ns.coll': this.db.bucket_parameters.collectionName,
+        'fullDocument.key.g': syncRulesId,
+        operationType: 'insert'
+      }
+    ];
+
+    if (staticBucketFilters.length > 0) {
+      // bucket_data events, only if there are static bucket definitions
+      filters.push({
+        'ns.coll': this.db.bucket_data.collectionName,
+        'documentKey._id.g': syncRulesId,
+        operationType: 'insert',
+        $or: staticBucketFilters
+      });
+    }
+
     const pipeline: mongo.Document[] = [
       {
         $match: {
-          $or: [
-            // sync_rules events
-            {
-              'ns.coll': this.db.sync_rules.collectionName,
-              'documentKey._id': syncRulesId,
-              operationType: { $in: ['insert', 'update', 'replace'] }
-            },
-            // bucket_data events
-            {
-              'ns.coll': this.db.bucket_data.collectionName,
-              'documentKey._id.g': syncRulesId,
-              operationType: 'insert'
-            }
-          ]
+          $or: filters
         }
       },
       {
@@ -864,6 +918,10 @@ export class MongoSyncBucketStorage
           // For bucket_data, this contains the bucket
           // For sync_rules, this contains the sync_rules id
           'documentKey._id': 1,
+
+          // For bucket_parameters
+          'fullDocument.key': 1,
+          'fullDocument.lookup': 1,
 
           // For sync_rules events
           'updateDescription.updatedFields.state': 1,
@@ -882,6 +940,7 @@ export class MongoSyncBucketStorage
 
 interface BucketCheckpointEvent {
   checkpoint?: ReplicationCheckpoint;
-  bucket?: string;
+  dataBucket?: string;
+  parameterBucketDefinition?: string;
   invalidate?: boolean;
 }

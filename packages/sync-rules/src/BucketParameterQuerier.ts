@@ -18,9 +18,12 @@ export interface BucketParameterQuerier {
   /**
    * True if there are dynamic buckets, meaning queryDynamicBucketDescriptions() should be used.
    *
-   * If this is false, queryDynamicBucketDescriptions() will always return an empty array.
+   * If this is false, queryDynamicBucketDescriptions() will always return an empty array,
+   * and dynamicBucketDefinitions.size == 0.
    */
   readonly hasDynamicBuckets: boolean;
+
+  readonly dynamicBucketDefinitions: Set<string>;
 
   /**
    * These buckets depend on parameter storage, and needs to be retrieved dynamically for each checkpoint.
@@ -44,9 +47,11 @@ export interface QueryBucketDescriptorOptions extends ParameterLookupSource {
 }
 
 export function mergeBucketParameterQueriers(queriers: BucketParameterQuerier[]): BucketParameterQuerier {
+  const dynamicBucketDefinitions = new Set<string>(...queriers.flatMap((q) => [...q.dynamicBucketDefinitions]));
   return {
     staticBuckets: queriers.flatMap((q) => q.staticBuckets),
-    hasDynamicBuckets: queriers.some((q) => q.hasDynamicBuckets),
+    hasDynamicBuckets: dynamicBucketDefinitions.size > 0,
+    dynamicBucketDefinitions,
     async queryDynamicBucketDescriptions(source: ParameterLookupSource) {
       let results: BucketDescription[] = [];
       for (let q of queriers) {

@@ -1,4 +1,6 @@
 import { parse, SelectedColumn } from 'pgsql-ast-parser';
+import { BucketDescription, BucketPriority, defaultBucketPriority } from './BucketDescription.js';
+import { BucketParameterQuerier, ParameterLookupSource } from './BucketParameterQuerier.js';
 import { SqlRuleError } from './errors.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SqlTools } from './sql_filters.js';
@@ -6,6 +8,7 @@ import { checkUnsupportedFeatures, isClauseError, isParameterValueClause } from 
 import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
 import { TablePattern } from './TablePattern.js';
 import { TableQuerySchema } from './TableQuerySchema.js';
+import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
 import {
   EvaluatedParameters,
   EvaluatedParametersResult,
@@ -21,13 +24,6 @@ import {
   SqliteRow
 } from './types.js';
 import { filterJsonRow, getBucketId, isJsonValue, isSelectStatement } from './utils.js';
-import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
-import { BucketDescription, BucketPriority, defaultBucketPriority } from './BucketDescription.js';
-import {
-  BucketParameterQuerier,
-  ParameterLookupSource,
-  QueryBucketDescriptorOptions
-} from './BucketParameterQuerier.js';
 
 /**
  * Represents a parameter query, such as:
@@ -193,6 +189,10 @@ export class SqlParameterQuery {
   priority?: BucketPriority;
 
   filter?: ParameterMatchClause;
+
+  /**
+   * Bucket definition name.
+   */
   descriptor_name?: string;
 
   /** _Input_ token / user parameters */
@@ -375,6 +375,7 @@ export class SqlParameterQuery {
       return {
         staticBuckets: [],
         hasDynamicBuckets: false,
+        dynamicBucketDefinitions: new Set<string>(),
         queryDynamicBucketDescriptions: async () => []
       };
     }
@@ -382,6 +383,7 @@ export class SqlParameterQuery {
     return {
       staticBuckets: [],
       hasDynamicBuckets: true,
+      dynamicBucketDefinitions: new Set<string>(this.descriptor_name!),
       queryDynamicBucketDescriptions: async (source: ParameterLookupSource) => {
         const bucketParameters = await source.getParameterSets(lookups);
         return this.resolveBucketDescriptions(bucketParameters, requestParameters);

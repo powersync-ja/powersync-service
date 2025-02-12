@@ -222,7 +222,8 @@ export interface WatchWriteCheckpointOptions {
 }
 
 export interface WatchFilterEvent {
-  bucket?: string;
+  changedDataBucket?: string;
+  changedParameterBucketDefinition?: string;
   invalidate?: boolean;
 }
 
