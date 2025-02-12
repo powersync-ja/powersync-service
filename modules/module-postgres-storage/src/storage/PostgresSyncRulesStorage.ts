@@ -1,6 +1,14 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { DisposableObserver, ReplicationAssertionError } from '@powersync/lib-services-framework';
-import { BroadcastIterable, LastValueSink, storage, utils, WatchWriteCheckpointOptions } from '@powersync/service-core';
+import {
+  BroadcastIterable,
+  CheckpointChanges,
+  GetCheckpointChangesOptions,
+  LastValueSink,
+  storage,
+  utils,
+  WatchWriteCheckpointOptions
+} from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as uuid from 'uuid';
@@ -690,11 +698,11 @@ export class PostgresSyncRulesStorage
     return this.makeActiveCheckpoint(activeCheckpoint);
   }
 
-  async *watchWriteCheckpoint(options: WatchWriteCheckpointOptions): AsyncIterable<storage.WriteCheckpoint> {
+  async *watchWriteCheckpoint(options: WatchWriteCheckpointOptions): AsyncIterable<storage.StorageCheckpointUpdate> {
     let lastCheckpoint: utils.OpId | null = null;
     let lastWriteCheckpoint: bigint | null = null;
 
-    const { signal, user_id, filter } = options;
+    const { signal, user_id } = options;
 
     const iter = wrapWithAbort(this.sharedIterator, signal);
     for await (const cp of iter) {
@@ -724,12 +732,16 @@ export class PostgresSyncRulesStorage
       lastWriteCheckpoint = currentWriteCheckpoint;
       lastCheckpoint = checkpoint;
 
-      // We do not track individual bucket updates yet, always send an invalidation event.
-      filter?.({
-        invalidate: true
-      });
-
-      yield { base: cp, writeCheckpoint: currentWriteCheckpoint };
+      yield {
+        base: cp,
+        writeCheckpoint: currentWriteCheckpoint,
+        update: {
+          invalidateDataBuckets: true,
+          invalidateParameterBuckets: true,
+          updatedDataBuckets: [],
+          updatedParameterBucketDefinitions: []
+        }
+      };
     }
   }
 
@@ -789,6 +801,16 @@ export class PostgresSyncRulesStorage
         yield activeCheckpoint;
       }
     }
+  }
+
+  async getCheckpointChanges(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
+    // We do not track individual changes yet
+    return {
+      invalidateDataBuckets: true,
+      invalidateParameterBuckets: true,
+      updatedDataBuckets: [],
+      updatedParameterBucketDefinitions: []
+    };
   }
 
   private makeActiveCheckpoint(row: models.ActiveCheckpointDecoded | null) {

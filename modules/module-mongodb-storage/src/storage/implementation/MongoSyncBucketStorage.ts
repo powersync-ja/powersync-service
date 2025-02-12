@@ -9,6 +9,8 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   BroadcastIterable,
+  CheckpointChanges,
+  GetCheckpointChangesOptions,
   getLookupBucketDefinitionName,
   ReplicationCheckpoint,
   storage,
@@ -758,37 +760,13 @@ export class MongoSyncBucketStorage
   /**
    * User-specific watch on the latest checkpoint and/or write checkpoint.
    */
-  async *watchWriteCheckpoint(options: WatchWriteCheckpointOptions): AsyncIterable<storage.WriteCheckpoint> {
-    const { user_id, signal, filter } = options;
+  async *watchWriteCheckpoint(options: WatchWriteCheckpointOptions): AsyncIterable<storage.StorageCheckpointUpdate> {
+    const { user_id, signal } = options;
     let lastCheckpoint: utils.OpId | null = null;
     let lastWriteCheckpoint: bigint | null = null;
 
     const iter = wrapWithAbort(this.sharedIter, signal);
-    let shouldUpdate = false;
     for await (const event of iter) {
-      if (filter) {
-        if (event.invalidate) {
-          shouldUpdate =
-            filter({
-              invalidate: true
-            }) || shouldUpdate;
-        }
-
-        if (event.dataBucket) {
-          shouldUpdate =
-            filter({
-              changedDataBucket: event.dataBucket
-            }) || shouldUpdate;
-        }
-
-        if (event.parameterBucketDefinition) {
-          shouldUpdate =
-            filter({
-              changedParameterBucketDefinition: event.parameterBucketDefinition
-            }) || shouldUpdate;
-        }
-      }
-
       if (event.checkpoint) {
         const { checkpoint, lsn } = event.checkpoint;
 
@@ -814,16 +792,27 @@ export class MongoSyncBucketStorage
           continue;
         }
 
+        const updates: CheckpointChanges =
+          lastCheckpoint == null
+            ? {
+                invalidateDataBuckets: true,
+                invalidateParameterBuckets: true,
+                updatedDataBuckets: [],
+                updatedParameterBucketDefinitions: []
+              }
+            : await this.getCheckpointChanges({
+                lastCheckpoint: lastCheckpoint,
+                nextCheckpoint: checkpoint
+              });
+
         lastWriteCheckpoint = currentWriteCheckpoint;
         lastCheckpoint = checkpoint;
 
-        if (shouldUpdate || filter == null) {
-          yield {
-            base: event.checkpoint!,
-            writeCheckpoint: currentWriteCheckpoint
-          };
-          shouldUpdate = false;
-        }
+        yield {
+          base: event.checkpoint!,
+          writeCheckpoint: currentWriteCheckpoint,
+          update: updates
+        };
       }
     }
   }
@@ -935,6 +924,54 @@ export class MongoSyncBucketStorage
       }
     ];
     return pipeline;
+  }
+
+  async getCheckpointChanges(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
+    const dataBuckets = await this.db.bucket_data
+      .find(
+        {
+          '_id.g': this.group_id,
+          '_id.o': { $gt: BigInt(options.lastCheckpoint), $lte: BigInt(options.nextCheckpoint) }
+        },
+        {
+          projection: {
+            '_id.b': 1
+          },
+          limit: 1001,
+          batchSize: 1001,
+          singleBatch: true
+        }
+      )
+      .toArray();
+    const invalidateDataBuckets = dataBuckets.length > 1000;
+
+    const parameterUpdates = await this.db.bucket_parameters
+      .find(
+        {
+          _id: { $gt: BigInt(options.lastCheckpoint), $lt: BigInt(options.nextCheckpoint) },
+          'key.g': this.group_id
+        },
+        {
+          projection: {
+            lookup: 1
+          },
+          limit: 1001,
+          batchSize: 1001,
+          singleBatch: true
+        }
+      )
+      .toArray();
+    const invalidateParameterUpdates = parameterUpdates.length > 1000;
+
+    return {
+      invalidateDataBuckets,
+      updatedDataBuckets: invalidateDataBuckets ? [] : dataBuckets.map((b) => b._id.b),
+
+      invalidateParameterBuckets: invalidateParameterUpdates,
+      updatedParameterBucketDefinitions: invalidateParameterUpdates
+        ? []
+        : [...new Set<string>(parameterUpdates.map((p) => getLookupBucketDefinitionName(p.lookup)))]
+    };
   }
 }
 

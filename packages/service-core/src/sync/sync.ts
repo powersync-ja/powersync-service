@@ -110,13 +110,12 @@ async function* streamResponseInner(
   });
   const stream = bucketStorage.watchWriteCheckpoint({
     user_id: checkpointUserId,
-    signal,
-    filter: checksumState.checkpointFilter
+    signal
   });
   const newCheckpoints = stream[Symbol.asyncIterator]();
 
   try {
-    let nextCheckpointPromise: Promise<IteratorResult<storage.WriteCheckpoint>> | undefined;
+    let nextCheckpointPromise: Promise<IteratorResult<storage.StorageCheckpointUpdate>> | undefined;
 
     do {
       if (!nextCheckpointPromise) {

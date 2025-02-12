@@ -73,12 +73,14 @@ export interface SyncRulesBucketStorage
    */
   getParameterSets(checkpoint: util.OpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]>;
 
+  getCheckpointChanges(options: GetCheckpointChangesOptions): Promise<CheckpointChanges>;
+
   /**
    * Yields the latest user write checkpoint whenever the sync checkpoint updates.
    *
    * The stream stops or errors if this is not the active sync rules (anymore).
    */
-  watchWriteCheckpoint(options: WatchWriteCheckpointOptions): AsyncIterable<WriteCheckpoint>;
+  watchWriteCheckpoint(options: WatchWriteCheckpointOptions): AsyncIterable<StorageCheckpointUpdate>;
 
   /**
    * Get a "batch" of data for a checkpoint.
@@ -217,8 +219,6 @@ export interface WatchWriteCheckpointOptions {
   user_id: string;
 
   signal: AbortSignal;
-
-  filter?: (event: WatchFilterEvent) => boolean;
 }
 
 export interface WatchFilterEvent {
@@ -230,4 +230,20 @@ export interface WatchFilterEvent {
 export interface WriteCheckpoint {
   base: ReplicationCheckpoint;
   writeCheckpoint: bigint | null;
+}
+
+export interface StorageCheckpointUpdate extends WriteCheckpoint {
+  update: CheckpointChanges;
+}
+
+export interface GetCheckpointChangesOptions {
+  lastCheckpoint: util.OpId;
+  nextCheckpoint: util.OpId;
+}
+
+export interface CheckpointChanges {
+  updatedDataBuckets: string[];
+  invalidateDataBuckets: boolean;
+  updatedParameterBucketDefinitions: string[];
+  invalidateParameterBuckets: boolean;
 }

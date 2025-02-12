@@ -52,13 +52,18 @@ export class BucketChecksumState {
     }
   }
 
-  async buildNextCheckpointLine(next: storage.WriteCheckpoint): Promise<CheckpointLine | null> {
+  async buildNextCheckpointLine(next: storage.StorageCheckpointUpdate): Promise<CheckpointLine | null> {
     const { writeCheckpoint, base } = next;
     const user_id = this.parameterState.syncParams.user_id;
 
     const storage = this.bucketStorage;
 
-    const { buckets: allBuckets, updatedBuckets } = await this.parameterState.getCheckpointUpdate(base.checkpoint);
+    const update = await this.parameterState.getCheckpointUpdate(next);
+    if (update == null) {
+      return null;
+    }
+
+    const { buckets: allBuckets, updatedBuckets } = update;
 
     let dataBucketsNew = new Map<string, BucketSyncState>();
     for (let bucket of allBuckets) {
@@ -193,10 +198,6 @@ export class BucketChecksumState {
     };
   }
 
-  get checkpointFilter() {
-    return this.parameterState.checkpointFilter;
-  }
-
   /**
    * Get bucket positions to sync, given the list of buckets.
    *
@@ -252,18 +253,6 @@ export class BucketParameterState {
   private readonly querier: BucketParameterQuerier;
   private readonly staticBuckets: Map<string, BucketDescription>;
 
-  /**
-   * Buckets for which we received update events.
-   */
-  private pendingBuckets = new Set<string>();
-
-  /**
-   * If true, we ignore pendingBuckets, and assume any bucket could have changed.
-   *
-   * This is also true for the first run.
-   */
-  private invalidated: boolean = true;
-
   constructor(bucketStorage: BucketChecksumStateStorage, syncRules: SqlSyncRules, syncParams: RequestParameters) {
     this.bucketStorage = bucketStorage;
     this.syncRules = syncRules;
@@ -273,58 +262,17 @@ export class BucketParameterState {
     this.staticBuckets = new Map<string, BucketDescription>(this.querier.staticBuckets.map((b) => [b.bucket, b]));
   }
 
-  checkpointFilter = (event: storage.WatchFilterEvent): boolean => {
-    if (this.invalidated) {
-      return true;
-    } else if (event.invalidate) {
-      this.invalidated = true;
-      this.pendingBuckets.clear();
-      return true;
-    } else if (event.changedDataBucket != null) {
-      const querier = this.querier;
-      const staticBuckets = this.staticBuckets;
-      if (querier.hasDynamicBuckets) {
-        // Check for a maybe-match on dynamic buckets
-        // We could expand this to check our last set of buckets
-        for (let def of this.querier.dynamicBucketDefinitions) {
-          if (event.changedDataBucket.startsWith(def)) {
-            return this.invalidatePendingBuckets();
-          }
-        }
-      }
-
-      // For static buckets we can check for an exact match
-      if (staticBuckets.has(event.changedDataBucket)) {
-        this.pendingBuckets.add(event.changedDataBucket);
-        return true;
-      } else {
-        return false;
-      }
-    } else if (event.changedParameterBucketDefinition) {
-      if (this.querier.dynamicBucketDefinitions.has(event.changedParameterBucketDefinition)) {
-        // Potential change in dynamic bucket list - invalidate
-        return this.invalidatePendingBuckets();
-      }
-      // The parameter bucket definition is not relevant for this connection
-      return false;
-    } else {
-      return false;
-    }
-  };
-
-  private invalidatePendingBuckets() {
-    this.invalidated = true;
-    this.pendingBuckets.clear();
-    return true;
-  }
-
-  async getCheckpointUpdate(checkpoint: util.OpId): Promise<CheckpointUpdate> {
+  async getCheckpointUpdate(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate | null> {
     const querier = this.querier;
-    let update: CheckpointUpdate;
+    let update: CheckpointUpdate | null;
     if (querier.hasDynamicBuckets) {
       update = await this.getCheckpointUpdateDynamic(checkpoint);
     } else {
-      update = await this.getCheckpointUpdateStatic();
+      update = await this.getCheckpointUpdateStatic(checkpoint);
+    }
+
+    if (update == null) {
+      return null;
     }
 
     if (update.buckets.length > 1000) {
@@ -344,23 +292,34 @@ export class BucketParameterState {
   /**
    * For static buckets, we can keep track of which buckets have been updated.
    */
-  private async getCheckpointUpdateStatic(): Promise<CheckpointUpdate> {
+  private async getCheckpointUpdateStatic(
+    checkpoint: storage.StorageCheckpointUpdate
+  ): Promise<CheckpointUpdate | null> {
     const querier = this.querier;
+    const update = checkpoint.update;
 
-    // This case is optimized to track pending buckets.
-    const staticBuckets = querier.staticBuckets;
-    let updatedBuckets: Set<string> | null = this.pendingBuckets;
-    if (this.invalidated) {
-      // Invalidation event, for example on a sync rule update.
-      // We do not have the individual updated buckets in this case.
-      updatedBuckets = null;
+    if (update.invalidateDataBuckets) {
+      return {
+        buckets: querier.staticBuckets,
+        updatedBuckets: null
+      };
     }
 
-    this.pendingBuckets = new Set();
-    this.invalidated = false;
+    let updatedBuckets = new Set<string>();
+
+    for (let bucket of update.updatedDataBuckets ?? []) {
+      if (this.staticBuckets.has(bucket)) {
+        updatedBuckets.add(bucket);
+      }
+    }
+
+    if (updatedBuckets.size == 0) {
+      // No change - skip this checkpoint
+      return null;
+    }
 
     return {
-      buckets: staticBuckets,
+      buckets: querier.staticBuckets,
       updatedBuckets
     };
   }
@@ -368,13 +327,35 @@ export class BucketParameterState {
   /**
    * For dynamic buckets, we need to re-query the list of buckets every time.
    */
-  private async getCheckpointUpdateDynamic(checkpoint: util.OpId): Promise<CheckpointUpdate> {
+  private async getCheckpointUpdateDynamic(
+    checkpoint: storage.StorageCheckpointUpdate
+  ): Promise<CheckpointUpdate | null> {
     const querier = this.querier;
     const storage = this.bucketStorage;
     const staticBuckets = querier.staticBuckets;
+    const update = checkpoint.update;
+
+    let hasChange = false;
+    if (update.invalidateDataBuckets || update.updatedDataBuckets?.length > 0) {
+      hasChange = true;
+    } else if (update.invalidateParameterBuckets) {
+      hasChange = true;
+    } else {
+      for (let bucket of update.updatedParameterBucketDefinitions ?? []) {
+        if (querier.dynamicBucketDefinitions.has(bucket)) {
+          hasChange = true;
+          break;
+        }
+      }
+    }
+
+    if (!hasChange) {
+      return null;
+    }
+
     const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
       getParameterSets(lookups) {
-        return storage.getParameterSets(checkpoint, lookups);
+        return storage.getParameterSets(checkpoint.base.checkpoint, lookups);
       }
     });
     const allBuckets = [...staticBuckets, ...dynamicBuckets];
