@@ -2,6 +2,7 @@ import {
   BucketChecksum,
   BucketChecksumState,
   BucketChecksumStateStorage,
+  CHECKPOINT_INVALIDATE_ALL,
   ChecksumMap,
   OpId,
   WatchFilterEvent
@@ -56,10 +57,11 @@ bucket_definitions:
       bucketStorage: storage
     });
 
-    // This simulates a checkpoint subscription
-    storage.filter = state.checkpointFilter;
-
-    const line = (await state.buildNextCheckpointLine({ base: { checkpoint: '1', lsn: '1' }, writeCheckpoint: null }))!;
+    const line = (await state.buildNextCheckpointLine({
+      base: { checkpoint: '1', lsn: '1' },
+      writeCheckpoint: null,
+      update: CHECKPOINT_INVALIDATE_ALL
+    }))!;
     expect(line.checkpointLine).toEqual({
       checkpoint: {
         buckets: [{ bucket: 'global[]', checksum: 1, count: 1, priority: 3 }],
@@ -85,7 +87,13 @@ bucket_definitions:
     // Now we get a new line
     const line2 = (await state.buildNextCheckpointLine({
       base: { checkpoint: '2', lsn: '2' },
-      writeCheckpoint: null
+      writeCheckpoint: null,
+      update: {
+        updatedDataBuckets: ['global[]'],
+        invalidateDataBuckets: false,
+        updatedParameterBucketDefinitions: [],
+        invalidateParameterBuckets: false
+      }
     }))!;
     expect(line2.checkpointLine).toEqual({
       checkpoint_diff: {
@@ -114,9 +122,11 @@ bucket_definitions:
       bucketStorage: storage
     });
 
-    storage.filter = state.checkpointFilter;
-
-    const line = (await state.buildNextCheckpointLine({ base: { checkpoint: '1', lsn: '1' }, writeCheckpoint: null }))!;
+    const line = (await state.buildNextCheckpointLine({
+      base: { checkpoint: '1', lsn: '1' },
+      writeCheckpoint: null,
+      update: CHECKPOINT_INVALIDATE_ALL
+    }))!;
     expect(line.checkpointLine).toEqual({
       checkpoint: {
         buckets: [{ bucket: 'global[]', checksum: 1, count: 1, priority: 3 }],
@@ -146,9 +156,11 @@ bucket_definitions:
       bucketStorage: storage
     });
 
-    storage.filter = state.checkpointFilter;
-
-    const line = (await state.buildNextCheckpointLine({ base: { checkpoint: '1', lsn: '1' }, writeCheckpoint: null }))!;
+    const line = (await state.buildNextCheckpointLine({
+      base: { checkpoint: '1', lsn: '1' },
+      writeCheckpoint: null,
+      update: CHECKPOINT_INVALIDATE_ALL
+    }))!;
     expect(line.checkpointLine).toEqual({
       checkpoint: {
         buckets: [
@@ -175,7 +187,12 @@ bucket_definitions:
 
     const line2 = (await state.buildNextCheckpointLine({
       base: { checkpoint: '2', lsn: '2' },
-      writeCheckpoint: null
+      writeCheckpoint: null,
+      update: {
+        ...CHECKPOINT_INVALIDATE_ALL,
+        updatedDataBuckets: ['global[1]', 'global[2]'],
+        invalidateDataBuckets: false
+      }
     }))!;
     expect(line2.checkpointLine).toEqual({
       checkpoint_diff: {
@@ -204,10 +221,13 @@ bucket_definitions:
       bucketStorage: storage
     });
 
-    storage.filter = state.checkpointFilter;
     storage.updateTestChecksum({ bucket: 'global[]', checksum: 1, count: 1 });
 
-    const line = (await state.buildNextCheckpointLine({ base: { checkpoint: '1', lsn: '1' }, writeCheckpoint: null }))!;
+    const line = (await state.buildNextCheckpointLine({
+      base: { checkpoint: '1', lsn: '1' },
+      writeCheckpoint: null,
+      update: CHECKPOINT_INVALIDATE_ALL
+    }))!;
     expect(line.checkpointLine).toEqual({
       checkpoint: {
         buckets: [{ bucket: 'global[]', checksum: 1, count: 1, priority: 3 }],
@@ -241,7 +261,11 @@ bucket_definitions:
     // We specifically do not set this here, so that we have manual control over the events.
     // storage.filter = state.checkpointFilter;
 
-    await state.buildNextCheckpointLine({ base: { checkpoint: '1', lsn: '1' }, writeCheckpoint: null });
+    await state.buildNextCheckpointLine({
+      base: { checkpoint: '1', lsn: '1' },
+      writeCheckpoint: null,
+      update: CHECKPOINT_INVALIDATE_ALL
+    });
 
     state.updateBucketPosition({ bucket: 'global[1]', nextAfter: '1', hasMore: false });
     state.updateBucketPosition({ bucket: 'global[2]', nextAfter: '1', hasMore: false });
@@ -249,14 +273,17 @@ bucket_definitions:
     storage.updateTestChecksum({ bucket: 'global[1]', checksum: 2, count: 2 });
     storage.updateTestChecksum({ bucket: 'global[2]', checksum: 2, count: 2 });
 
-    // Invalidate the state for global[1] - will only re-check the single bucket.
-    // This is essentially inconsistent state, but is the simplest way to test that
-    // the filter is working.
-    state.checkpointFilter({ changedDataBucket: 'global[1]' });
-
     const line2 = (await state.buildNextCheckpointLine({
       base: { checkpoint: '2', lsn: '2' },
-      writeCheckpoint: null
+      writeCheckpoint: null,
+      update: {
+        ...CHECKPOINT_INVALIDATE_ALL,
+        // Invalidate the state for global[1] - will only re-check the single bucket.
+        // This is essentially inconsistent state, but is the simplest way to test that
+        // the filter is working.
+        updatedDataBuckets: ['global[1]'],
+        invalidateDataBuckets: false
+      }
     }))!;
     expect(line2.checkpointLine).toEqual({
       checkpoint_diff: {
@@ -289,17 +316,20 @@ bucket_definitions:
     storage.updateTestChecksum({ bucket: 'global[1]', checksum: 1, count: 1 });
     storage.updateTestChecksum({ bucket: 'global[2]', checksum: 1, count: 1 });
 
-    await state.buildNextCheckpointLine({ base: { checkpoint: '1', lsn: '1' }, writeCheckpoint: null });
+    await state.buildNextCheckpointLine({
+      base: { checkpoint: '1', lsn: '1' },
+      writeCheckpoint: null,
+      update: CHECKPOINT_INVALIDATE_ALL
+    });
 
     storage.updateTestChecksum({ bucket: 'global[1]', checksum: 2, count: 2 });
     storage.updateTestChecksum({ bucket: 'global[2]', checksum: 2, count: 2 });
 
-    // Invalidate the state - will re-check all buckets
-    state.checkpointFilter({ invalidate: true });
-
     const line2 = (await state.buildNextCheckpointLine({
       base: { checkpoint: '2', lsn: '2' },
-      writeCheckpoint: null
+      writeCheckpoint: null,
+      // Invalidate the state - will re-check all buckets
+      update: CHECKPOINT_INVALIDATE_ALL
     }))!;
     expect(line2.checkpointLine).toEqual({
       checkpoint_diff: {
@@ -330,9 +360,11 @@ bucket_definitions:
       bucketStorage: storage
     });
 
-    storage.filter = state.checkpointFilter;
-
-    const line = (await state.buildNextCheckpointLine({ base: { checkpoint: '3', lsn: '3' }, writeCheckpoint: null }))!;
+    const line = (await state.buildNextCheckpointLine({
+      base: { checkpoint: '3', lsn: '3' },
+      writeCheckpoint: null,
+      update: CHECKPOINT_INVALIDATE_ALL
+    }))!;
     expect(line.checkpointLine).toEqual({
       checkpoint: {
         buckets: [
@@ -353,6 +385,7 @@ bucket_definitions:
         priority: 3
       }
     ]);
+
     // This is the bucket data to be fetched
     expect(state.getFilteredBucketPositions(line.bucketsToFetch)).toEqual(
       new Map([
@@ -369,7 +402,12 @@ bucket_definitions:
 
     const line2 = (await state.buildNextCheckpointLine({
       base: { checkpoint: '4', lsn: '4' },
-      writeCheckpoint: null
+      writeCheckpoint: null,
+      update: {
+        ...CHECKPOINT_INVALIDATE_ALL,
+        invalidateDataBuckets: false,
+        updatedDataBuckets: ['global[1]']
+      }
     }))!;
     expect(line2.checkpointLine).toEqual({
       checkpoint_diff: {
@@ -419,16 +457,17 @@ bucket_definitions:
       bucketStorage: storage
     });
 
-    // This simulates a checkpoint subscription
-    storage.filter = state.checkpointFilter;
-
     storage.getParameterSets = async (checkpoint: OpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]> => {
       expect(checkpoint).toEqual('1');
       expect(lookups).toEqual([['by_project', '1', 'u1']]);
       return [{ id: 1 }, { id: 2 }];
     };
 
-    const line = (await state.buildNextCheckpointLine({ base: { checkpoint: '1', lsn: '1' }, writeCheckpoint: null }))!;
+    const line = (await state.buildNextCheckpointLine({
+      base: { checkpoint: '1', lsn: '1' },
+      writeCheckpoint: null,
+      update: CHECKPOINT_INVALIDATE_ALL
+    }))!;
     expect(line.checkpointLine).toEqual({
       checkpoint: {
         buckets: [
@@ -460,8 +499,6 @@ bucket_definitions:
     state.updateBucketPosition({ bucket: 'by_project[1]', nextAfter: '1', hasMore: false });
     state.updateBucketPosition({ bucket: 'by_project[2]', nextAfter: '1', hasMore: false });
 
-    state.checkpointFilter({ changedParameterBucketDefinition: 'by_project' });
-
     storage.getParameterSets = async (checkpoint: OpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]> => {
       expect(checkpoint).toEqual('2');
       expect(lookups).toEqual([['by_project', '1', 'u1']]);
@@ -471,7 +508,13 @@ bucket_definitions:
     // Now we get a new line
     const line2 = (await state.buildNextCheckpointLine({
       base: { checkpoint: '2', lsn: '2' },
-      writeCheckpoint: null
+      writeCheckpoint: null,
+      update: {
+        invalidateDataBuckets: false,
+        updatedDataBuckets: [],
+        updatedParameterBucketDefinitions: ['by_project'],
+        invalidateParameterBuckets: false
+      }
     }))!;
     expect(line2.checkpointLine).toEqual({
       checkpoint_diff: {

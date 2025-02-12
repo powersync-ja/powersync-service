@@ -326,20 +326,6 @@ export class SqlSyncRules implements SyncRules {
     return mergeBucketParameterQueriers(queriers);
   }
 
-  /**
-   * Return bucket definition names for all static buckets.
-   */
-  getStaticBucketDefinitionList(): string[] {
-    let results: string[] = [];
-
-    for (let query of this.bucket_descriptors) {
-      if (query.hasStaticBuckets()) {
-        results.push(query.name);
-      }
-    }
-    return results;
-  }
-
   getSourceTables(): TablePattern[] {
     const sourceTables = new Map<String, TablePattern>();
     for (const bucket of this.bucket_descriptors) {

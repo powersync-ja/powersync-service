@@ -125,13 +125,6 @@ export class SqlBucketDescriptor {
     return mergeBucketParameterQueriers([staticQuerier, ...dynamicQueriers]);
   }
 
-  /**
-   * Return bucket definition names for all static buckets.
-   */
-  hasStaticBuckets(): boolean {
-    return this.global_parameter_queries.length > 0;
-  }
-
   getStaticBucketDescriptions(parameters: RequestParameters): BucketDescription[] {
     let results: BucketDescription[] = [];
     for (let query of this.global_parameter_queries) {

@@ -47,7 +47,7 @@ export interface QueryBucketDescriptorOptions extends ParameterLookupSource {
 }
 
 export function mergeBucketParameterQueriers(queriers: BucketParameterQuerier[]): BucketParameterQuerier {
-  const dynamicBucketDefinitions = new Set<string>(...queriers.flatMap((q) => [...q.dynamicBucketDefinitions]));
+  const dynamicBucketDefinitions = new Set<string>(queriers.flatMap((q) => [...q.dynamicBucketDefinitions]));
   return {
     staticBuckets: queriers.flatMap((q) => q.staticBuckets),
     hasDynamicBuckets: dynamicBucketDefinitions.size > 0,

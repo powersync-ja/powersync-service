@@ -247,3 +247,10 @@ export interface CheckpointChanges {
   updatedParameterBucketDefinitions: string[];
   invalidateParameterBuckets: boolean;
 }
+
+export const CHECKPOINT_INVALIDATE_ALL: CheckpointChanges = {
+  updatedDataBuckets: [],
+  invalidateDataBuckets: true,
+  updatedParameterBucketDefinitions: [],
+  invalidateParameterBuckets: true
+};

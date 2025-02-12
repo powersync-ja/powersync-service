@@ -39,7 +39,8 @@ bucket_definitions:
     ]);
     expect(rules.getBucketParameterQuerier(normalizeTokenParameters({}))).toMatchObject({
       staticBuckets: [{ bucket: 'mybucket[]', priority: 3 }],
-      hasDynamicBuckets: false
+      hasDynamicBuckets: false,
+      dynamicBucketDefinitions: new Set()
     });
   });
 
@@ -71,7 +72,8 @@ bucket_definitions:
     });
     expect(rules.getBucketParameterQuerier(normalizeTokenParameters({}))).toMatchObject({
       staticBuckets: [],
-      hasDynamicBuckets: false
+      hasDynamicBuckets: false,
+      dynamicBucketDefinitions: new Set()
     });
   });
 
@@ -908,5 +910,47 @@ bucket_definitions:
         { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
       )
     ).toThrowError(/Cannot set priority multiple times/);
+  });
+
+  test('dynamic bucket definitions list', () => {
+    const rules = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    parameters:
+      - SELECT request.user_id() as user_id
+      - SELECT id as user_id FROM users WHERE id = request.user_id()
+    data: []
+
+  by_list:
+    parameters:
+      - SELECT id as list_id FROM lists WHERE owner_id = request.user_id()
+    data: []
+
+  admin_only:
+    parameters:
+      - SELECT id as list_id FROM lists WHERE (request.jwt() ->> 'is_admin' IS NULL)
+    data: []
+    `,
+      PARSE_OPTIONS
+    );
+    const bucket = rules.bucket_descriptors[0];
+    expect(bucket.bucket_parameters).toEqual(['user_id']);
+
+    expect(rules.getBucketParameterQuerier(normalizeTokenParameters({ user_id: 'user1' }))).toMatchObject({
+      hasDynamicBuckets: true,
+      dynamicBucketDefinitions: new Set([
+        'mybucket',
+        'by_list',
+        // These are not filtered out yet, due to how the lookups are structured internally
+        'admin_only'
+      ]),
+      staticBuckets: [
+        {
+          bucket: 'mybucket["user1"]',
+          priority: 3
+        }
+      ]
+    });
   });
 });

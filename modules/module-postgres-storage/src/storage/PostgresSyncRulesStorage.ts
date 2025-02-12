@@ -2,6 +2,7 @@ import * as lib_postgres from '@powersync/lib-service-postgres';
 import { DisposableObserver, ReplicationAssertionError } from '@powersync/lib-services-framework';
 import {
   BroadcastIterable,
+  CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
   GetCheckpointChangesOptions,
   LastValueSink,
@@ -735,12 +736,7 @@ export class PostgresSyncRulesStorage
       yield {
         base: cp,
         writeCheckpoint: currentWriteCheckpoint,
-        update: {
-          invalidateDataBuckets: true,
-          invalidateParameterBuckets: true,
-          updatedDataBuckets: [],
-          updatedParameterBucketDefinitions: []
-        }
+        update: CHECKPOINT_INVALIDATE_ALL
       };
     }
   }
@@ -805,12 +801,7 @@ export class PostgresSyncRulesStorage
 
   async getCheckpointChanges(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
     // We do not track individual changes yet
-    return {
-      invalidateDataBuckets: true,
-      invalidateParameterBuckets: true,
-      updatedDataBuckets: [],
-      updatedParameterBucketDefinitions: []
-    };
+    return CHECKPOINT_INVALIDATE_ALL;
   }
 
   private makeActiveCheckpoint(row: models.ActiveCheckpointDecoded | null) {

@@ -383,7 +383,7 @@ export class SqlParameterQuery {
     return {
       staticBuckets: [],
       hasDynamicBuckets: true,
-      dynamicBucketDefinitions: new Set<string>(this.descriptor_name!),
+      dynamicBucketDefinitions: new Set<string>([this.descriptor_name!]),
       queryDynamicBucketDescriptions: async (source: ParameterLookupSource) => {
         const bucketParameters = await source.getParameterSets(lookups);
         return this.resolveBucketDescriptions(bucketParameters, requestParameters);
