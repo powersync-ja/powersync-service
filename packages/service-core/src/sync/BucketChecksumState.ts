@@ -324,6 +324,9 @@ export class BucketParameterState {
     return update;
   }
 
+  /**
+   * For static buckets, we can keep track of which buckets have been updated.
+   */
   private async getCheckpointUpdateStatic(): Promise<CheckpointUpdate> {
     const querier = this.querier;
 
@@ -345,6 +348,9 @@ export class BucketParameterState {
     };
   }
 
+  /**
+   * For dynamic buckets, we need to re-query the list of buckets every time.
+   */
   private async getCheckpointUpdateDynamic(checkpoint: util.OpId): Promise<CheckpointUpdate> {
     const querier = this.querier;
     const storage = this.bucketStorage;
