@@ -9,6 +9,7 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   BroadcastIterable,
+  CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
   GetCheckpointChangesOptions,
   getLookupBucketDefinitionName,
@@ -850,50 +851,6 @@ export class MongoSyncBucketStorage
   }
 
   async getCheckpointChanges(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
-    const dataBuckets = await this.db.bucket_data
-      .find(
-        {
-          '_id.g': this.group_id,
-          '_id.o': { $gt: BigInt(options.lastCheckpoint), $lte: BigInt(options.nextCheckpoint) }
-        },
-        {
-          projection: {
-            '_id.b': 1
-          },
-          limit: 1001,
-          batchSize: 1001,
-          singleBatch: true
-        }
-      )
-      .toArray();
-    const invalidateDataBuckets = dataBuckets.length > 1000;
-
-    const parameterUpdates = await this.db.bucket_parameters
-      .find(
-        {
-          _id: { $gt: BigInt(options.lastCheckpoint), $lt: BigInt(options.nextCheckpoint) },
-          'key.g': this.group_id
-        },
-        {
-          projection: {
-            lookup: 1
-          },
-          limit: 1001,
-          batchSize: 1001,
-          singleBatch: true
-        }
-      )
-      .toArray();
-    const invalidateParameterUpdates = parameterUpdates.length > 1000;
-
-    return {
-      invalidateDataBuckets,
-      updatedDataBuckets: invalidateDataBuckets ? [] : dataBuckets.map((b) => b._id.b),
-
-      invalidateParameterBuckets: invalidateParameterUpdates,
-      updatedParameterBucketDefinitions: invalidateParameterUpdates
-        ? []
-        : [...new Set<string>(parameterUpdates.map((p) => getLookupBucketDefinitionName(p.lookup)))]
-    };
+    return CHECKPOINT_INVALIDATE_ALL;
   }
 }
