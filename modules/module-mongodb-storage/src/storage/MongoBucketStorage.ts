@@ -24,26 +24,7 @@ export class MongoBucketStorage
   // TODO: This is still Postgres specific and needs to be reworked
   public readonly slot_name_prefix: string;
 
-  private readonly storageCache = new LRUCache<number, MongoSyncBucketStorage>({
-    max: 3,
-    fetchMethod: async (id) => {
-      const doc2 = await this.db.sync_rules.findOne(
-        {
-          _id: id
-        },
-        { limit: 1 }
-      );
-      if (doc2 == null) {
-        // Deleted in the meantime?
-        return undefined;
-      }
-      const rules = new MongoPersistedSyncRulesContent(this.db, doc2);
-      return this.getInstance(rules);
-    },
-    dispose: (storage) => {
-      storage[Symbol.dispose]();
-    }
-  });
+  private activeStorageCache: MongoSyncBucketStorage | undefined;
 
   public readonly db: PowerSyncMongo;
 
@@ -293,7 +274,16 @@ export class MongoBucketStorage
       return null;
     }
 
-    return this.getInstance(content);
+    // It is important that this instance is cached.
+    // Not for the instance construction itself, but to ensure that internal caches on the instance
+    // are re-used properly.
+    if (this.activeStorageCache?.group_id == content.id) {
+      return this.activeStorageCache;
+    } else {
+      const instance = this.getInstance(content);
+      this.activeStorageCache = instance;
+      return instance;
+    }
   }
 
   async getStorageMetrics(): Promise<storage.StorageMetrics> {
