@@ -55,6 +55,14 @@ export interface RouteAPI {
   getReplicationHead(): Promise<string>;
 
   /**
+   * Get the current LSN or equivalent replication HEAD position identifier.
+   *
+   * The position is provided to the callback. After the callback returns,
+   * the replication head or a greater one will be streamed on the replication stream.
+   */
+  createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T>;
+
+  /**
    * @returns The schema for tables inside the connected database. This is typically
    *          used to validate sync rules.
    */
@@ -76,3 +84,5 @@ export interface RouteAPI {
    */
   getParseSyncRulesOptions(): ParseSyncRulesOptions;
 }
+
+export type ReplicationHeadCallback<T> = (head: string) => Promise<T>;

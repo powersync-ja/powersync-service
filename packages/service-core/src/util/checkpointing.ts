@@ -11,18 +11,21 @@ export interface CreateWriteCheckpointOptions {
 export async function createWriteCheckpoint(options: CreateWriteCheckpointOptions) {
   const full_user_id = checkpointUserId(options.userId, options.clientId);
 
-  const currentCheckpoint = await options.api.getReplicationHead();
-
   const activeSyncRules = await options.storage.getActiveSyncRulesContent();
   if (!activeSyncRules) {
     throw new ServiceError(ErrorCode.PSYNC_S2302, `Cannot create Write Checkpoint since no sync rules are active.`);
   }
 
   using syncBucketStorage = options.storage.getInstance(activeSyncRules);
-  const writeCheckpoint = await syncBucketStorage.createManagedWriteCheckpoint({
-    user_id: full_user_id,
-    heads: { '1': currentCheckpoint }
+
+  const { writeCheckpoint, currentCheckpoint } = await options.api.createReplicationHead(async (currentCheckpoint) => {
+    const writeCheckpoint = await syncBucketStorage.createManagedWriteCheckpoint({
+      user_id: full_user_id,
+      heads: { '1': currentCheckpoint }
+    });
+    return { writeCheckpoint, currentCheckpoint };
   });
+
   return {
     writeCheckpoint: String(writeCheckpoint),
     replicationHead: currentCheckpoint
