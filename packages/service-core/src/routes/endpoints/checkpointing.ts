@@ -25,7 +25,7 @@ export const writeCheckpoint = routeDefinition({
     // Since we don't use LSNs anymore, the only way to get that is to wait.
     const start = Date.now();
 
-    const head = await apiHandler.getReplicationHead();
+    const head = await apiHandler.createReplicationHead(async (head) => head);
 
     const timeout = 50_000;
 
