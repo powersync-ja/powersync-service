@@ -37,8 +37,8 @@
     "tsc-watch": "^6.2.0",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.7.3",
-    "vite-tsconfig-paths": "^4.3.2",
-    "vitest": "^2.1.1",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^3.0.5",
     "ws": "^8.2.3"
   },
   "packageManager": "pnpm@9.15.5+sha512.845196026aab1cc3f098a0474b64dfbab2afe7a1b4e91dd86895d8e4aa32a7a6d03049e2d0ad770bbe4de023a7122fb68c1a1d6e0d033c7076085f9d5d4800d4"
