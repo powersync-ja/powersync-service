@@ -1,5 +1,13 @@
 # @powersync/service-module-postgres
 
+## 0.7.1
+
+### Patch Changes
+
+- ffc8d98: Fix write checkpoint race condition
+- Updated dependencies [ffc8d98]
+  - @powersync/service-core@0.18.1
+
 ## 0.7.0
 
 ### Minor Changes
