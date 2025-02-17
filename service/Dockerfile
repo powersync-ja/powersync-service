@@ -1,8 +1,6 @@
 FROM node:22.14.0 AS builder
 WORKDIR /app
 
-RUN npm i -g pnpm@9
-
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
 COPY service/package.json service/tsconfig.json service/
 
@@ -24,6 +22,7 @@ COPY modules/module-mongodb/package.json modules/module-mongodb/tsconfig.json mo
 COPY modules/module-mongodb-storage/package.json modules/module-mongodb-storage/tsconfig.json modules/module-mongodb-storage/
 COPY modules/module-mysql/package.json modules/module-mysql/tsconfig.json modules/module-mysql/
 
+RUN corepack enable pnpm && corepack install
 RUN pnpm install --frozen-lockfile
 
 COPY service/src service/src/
@@ -60,10 +59,8 @@ WORKDIR /app
 
 COPY --from=builder /app/ ./
 
-RUN npm i -g pnpm@9
-
+RUN corepack enable pnpm && corepack install
 RUN pnpm install --frozen-lockfile
-
 
 CMD pnpm test
 
