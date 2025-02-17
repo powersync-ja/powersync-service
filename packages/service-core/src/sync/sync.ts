@@ -12,7 +12,7 @@ import { logger } from '@powersync/lib-services-framework';
 import { BucketChecksumState } from './BucketChecksumState.js';
 import { mergeAsyncIterables } from './merge.js';
 import { RequestTracker } from './RequestTracker.js';
-import { acquireSemaphoreAbortable, tokenStream, TokenStreamOptions } from './util.js';
+import { acquireSemaphoreAbortable, settledPromise, tokenStream, TokenStreamOptions } from './util.js';
 
 /**
  * Maximum number of connections actively fetching data.
@@ -115,18 +115,25 @@ async function* streamResponseInner(
   const newCheckpoints = stream[Symbol.asyncIterator]();
 
   try {
-    let nextCheckpointPromise: Promise<IteratorResult<storage.StorageCheckpointUpdate>> | undefined;
+    let nextCheckpointPromise:
+      | Promise<PromiseSettledResult<IteratorResult<storage.StorageCheckpointUpdate>>>
+      | undefined;
 
     do {
       if (!nextCheckpointPromise) {
-        nextCheckpointPromise = newCheckpoints.next();
+        // Wrap in a settledPromise, so that abort errors after the parent stopped iterating
+        // does not result in uncaught errors.
+        nextCheckpointPromise = settledPromise(newCheckpoints.next());
       }
       const next = await nextCheckpointPromise;
       nextCheckpointPromise = undefined;
-      if (next.done) {
+      if (next.status == 'rejected') {
+        throw next.reason;
+      }
+      if (next.value.done) {
         break;
       }
-      const line = await checksumState.buildNextCheckpointLine(next.value);
+      const line = await checksumState.buildNextCheckpointLine(next.value.value);
       if (line == null) {
         // No update to sync
         continue;
@@ -151,8 +158,10 @@ async function* streamResponseInner(
       function maybeRaceForNewCheckpoint() {
         if (syncedOperations >= 1000 && nextCheckpointPromise === undefined) {
           nextCheckpointPromise = (async () => {
-            const next = await newCheckpoints.next();
-            if (!next.done) {
+            const next = await settledPromise(newCheckpoints.next());
+            if (next.status == 'rejected') {
+              abortCheckpointController.abort();
+            } else if (!next.value.done) {
               // Stop the running bucketDataInBatches() iterations, making the main flow reach the new checkpoint.
               abortCheckpointController.abort();
             }
@@ -178,7 +187,7 @@ async function* streamResponseInner(
 
         yield* bucketDataInBatches({
           bucketStorage: bucketStorage,
-          checkpoint: next.value.base.checkpoint,
+          checkpoint: next.value.value.base.checkpoint,
           bucketsToFetch: buckets,
           checksumState,
           raw_data,
