@@ -204,28 +204,39 @@ bucket_definitions:
     });
 
     let sentCheckpoints = 0;
-    for await (const next of stream) {
+    let sentRows = 0;
+
+    for await (let next of stream) {
+      if (typeof next == 'string') {
+        next = JSON.parse(next);
+      }
       if (typeof next === 'object' && next !== null) {
         if ('partial_checkpoint_complete' in next) {
-          expect(sentCheckpoints).toBe(1);
+          if (sentCheckpoints == 1) {
+            // Save new data to interrupt the low-priority sync.
 
-          await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-            // Add another high-priority row. This should interrupt the long-running low-priority sync.
-            await batch.save({
-              sourceTable: TEST_TABLE,
-              tag: storage.SaveOperationTag.INSERT,
-              after: {
-                id: 'highprio2',
-                description: 'Another high-priority row'
-              },
-              afterReplicaId: 'highprio2'
+            await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+              // Add another high-priority row. This should interrupt the long-running low-priority sync.
+              await batch.save({
+                sourceTable: TEST_TABLE,
+                tag: storage.SaveOperationTag.INSERT,
+                after: {
+                  id: 'highprio2',
+                  description: 'Another high-priority row'
+                },
+                afterReplicaId: 'highprio2'
+              });
+
+              await batch.commit('0/2');
             });
-
-            await batch.commit('0/2');
-          });
+          }
         }
         if ('checkpoint' in next || 'checkpoint_diff' in next) {
           sentCheckpoints += 1;
+        }
+
+        if ('data' in next) {
+          sentRows += next.data.data.length;
         }
         if ('checkpoint_complete' in next) {
           break;
@@ -234,6 +245,7 @@ bucket_definitions:
     }
 
     expect(sentCheckpoints).toBe(2);
+    expect(sentRows).toBe(10002);
   });
 
   test('sync legacy non-raw data', async () => {
