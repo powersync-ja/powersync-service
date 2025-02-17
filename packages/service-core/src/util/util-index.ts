@@ -5,6 +5,7 @@ export * from './Mutex.js';
 export * from './protocol-types.js';
 export * from './secs.js';
 export * from './utils.js';
+export * from './checkpointing.js';
 
 export * from './config.js';
 export * from './config/compound-config-collector.js';

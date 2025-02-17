@@ -25,7 +25,7 @@ export const writeCheckpoint = routeDefinition({
     // Since we don't use LSNs anymore, the only way to get that is to wait.
     const start = Date.now();
 
-    const head = await apiHandler.getReplicationHead();
+    const head = await apiHandler.createReplicationHead(async (head) => head);
 
     const timeout = 50_000;
 
@@ -56,25 +56,14 @@ export const writeCheckpoint2 = routeDefinition({
 
     const apiHandler = service_context.routerEngine!.getAPI();
 
-    const client_id = payload.params.client_id;
-    const full_user_id = util.checkpointUserId(user_id, client_id);
-
-    const currentCheckpoint = await apiHandler.getReplicationHead();
-    const {
-      storageEngine: { activeBucketStorage }
-    } = service_context;
-
-    const activeSyncRules = await activeBucketStorage.getActiveSyncRulesContent();
-    if (!activeSyncRules) {
-      throw new framework.errors.ValidationError(`Cannot create Write Checkpoint since no sync rules are active.`);
-    }
-
-    using syncBucketStorage = activeBucketStorage.getInstance(activeSyncRules);
-    const writeCheckpoint = await syncBucketStorage.createManagedWriteCheckpoint({
-      user_id: full_user_id,
-      heads: { '1': currentCheckpoint }
+    const { replicationHead, writeCheckpoint } = await util.createWriteCheckpoint({
+      userId: user_id,
+      clientId: payload.params.client_id,
+      api: apiHandler,
+      storage: service_context.storageEngine.activeBucketStorage
     });
-    logger.info(`Write checkpoint 2: ${JSON.stringify({ currentCheckpoint, id: String(full_user_id) })}`);
+
+    logger.info(`Write checkpoint for ${user_id}/${payload.params.client_id}: ${writeCheckpoint} | ${replicationHead}`);
 
     return {
       write_checkpoint: String(writeCheckpoint)
