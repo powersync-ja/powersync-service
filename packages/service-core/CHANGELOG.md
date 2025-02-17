@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 0.18.1
+
+### Patch Changes
+
+- ffc8d98: Fix write checkpoint race condition
+
 ## 0.18.0
 
 ### Minor Changes

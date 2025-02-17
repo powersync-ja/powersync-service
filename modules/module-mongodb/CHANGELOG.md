@@ -1,5 +1,13 @@
 # @powersync/service-module-mongodb
 
+## 0.5.1
+
+### Patch Changes
+
+- ffc8d98: Fix write checkpoint race condition
+- Updated dependencies [ffc8d98]
+  - @powersync/service-core@0.18.1
+
 ## 0.5.0
 
 ### Minor Changes

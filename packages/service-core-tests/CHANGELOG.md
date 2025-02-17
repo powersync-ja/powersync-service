@@ -1,5 +1,12 @@
 # @powersync/service-core-tests
 
+## 0.4.1
+
+### Patch Changes
+
+- Updated dependencies [ffc8d98]
+  - @powersync/service-core@0.18.1
+
 ## 0.4.0
 
 ### Minor Changes
