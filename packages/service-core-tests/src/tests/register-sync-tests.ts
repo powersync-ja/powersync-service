@@ -128,13 +128,13 @@ bucket_definitions:
     });
 
     const stream = sync.streamResponse({
-      storage: f,
+      bucketStorage: bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
-      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
@@ -191,13 +191,13 @@ bucket_definitions:
     });
 
     const stream = sync.streamResponse({
-      storage: f,
+      bucketStorage: bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
-      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
@@ -220,7 +220,7 @@ bucket_definitions:
               },
               afterReplicaId: 'highprio2'
             });
-      
+
             await batch.commit('0/2');
           });
         }
