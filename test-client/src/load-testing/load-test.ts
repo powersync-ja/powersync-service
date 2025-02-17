@@ -19,8 +19,20 @@ export async function stream(i: number, credentials: Credentials, mode: Mode) {
   worker.terminate();
 }
 
+export async function streamForever(i: number, credentials: Credentials, mode: Mode) {
+  while (true) {
+    try {
+      await stream(i, credentials, mode);
+      console.log(new Date().toISOString(), i, 'Stream ended');
+    } catch (e) {
+      console.error(new Date().toISOString(), i, e.message);
+      await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random()));
+    }
+  }
+}
+
 export async function concurrentConnections(credentials: Credentials, numClients: number, mode: Mode) {
   for (let i = 0; i < numClients; i++) {
-    stream(i, credentials, mode);
+    streamForever(i, credentials, mode);
   }
 }
