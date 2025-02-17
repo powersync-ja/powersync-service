@@ -41,13 +41,5 @@
     "vite-tsconfig-paths": "^4.3.2",
     "vitest": "^2.1.1",
     "ws": "^8.2.3"
-  },
-  "pnpm": {
-    "ignoredBuiltDependencies": [
-      "esbuild"
-    ],
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
   }
 }

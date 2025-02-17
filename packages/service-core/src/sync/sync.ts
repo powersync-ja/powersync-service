@@ -140,17 +140,16 @@ async function* streamResponseInner(
       // in while we're still busy syncing data for lower priorities, interrupt the current operation and start syncing
       // the new checkpoint.
       const abortCheckpointController = new AbortController();
-      let didCompletePartialSync = false;
       let syncedOperations = 0;
 
       const abortCheckpointSignal = AbortSignal.any([abortCheckpointController.signal, signal]);
 
       const bucketsByPriority = [...Map.groupBy(bucketsToFetch, (bucket) => bucket.priority).entries()];
-      bucketsByPriority.sort((a, b) => b[0] - a[0]); // Inverting sort order, high priority buckets have smaller priority values
+      bucketsByPriority.sort((a, b) => a[0] - b[0]); // Sort from high to lower priorities
       const lowestPriority = bucketsByPriority.at(-1)?.[0];
 
       function maybeRaceForNewCheckpoint() {
-        if (didCompletePartialSync && syncedOperations >= 1000 && nextCheckpointPromise === undefined) {
+        if (syncedOperations >= 1000 && nextCheckpointPromise === undefined) {
           nextCheckpointPromise = (async () => {
             const next = await newCheckpoints.next();
             if (!next.done) {
@@ -172,11 +171,11 @@ async function* streamResponseInner(
       // This incrementally updates dataBuckets with each individual bucket position.
       // At the end of this, we can be sure that all buckets have data up to the checkpoint.
       for (const [priority, buckets] of bucketsByPriority) {
+        const isLast = priority === lowestPriority;
         if (abortCheckpointSignal.aborted) {
           break;
         }
 
-        const isLast = priority === lowestPriority;
         yield* bucketDataInBatches({
           bucketStorage: bucketStorage,
           checkpoint: next.value.base.checkpoint,
@@ -192,9 +191,6 @@ async function* streamResponseInner(
           // sync complete message.
           forPriority: !isLast ? priority : undefined
         });
-
-        didCompletePartialSync = true;
-        maybeRaceForNewCheckpoint();
       }
 
       if (!abortCheckpointSignal.aborted) {
@@ -228,7 +224,7 @@ interface BucketDataRequest {
 
 async function* bucketDataInBatches(request: BucketDataRequest) {
   let isDone = false;
-  while (!request.abort_connection.aborted && !isDone) {
+  while (!request.abort_batch.aborted && !isDone) {
     // The code below is functionally the same as this for-await loop below.
     // However, the for-await loop appears to have a memory leak, so we avoid it.
     // for await (const { done, data } of bucketDataBatch(storage, checkpoint, dataBuckets, raw_data, signal)) {
@@ -356,7 +352,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
       // Check if syncing bucket data is supposed to stop before fetching more data
       // from storage.
       if (abort_batch.aborted) {
-        break;
+        return;
       }
     }
 
