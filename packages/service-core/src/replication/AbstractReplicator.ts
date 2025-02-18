@@ -93,21 +93,27 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
   private async runLoop() {
     const syncRules = await this.syncRuleProvider.get();
+
     let configuredLock: storage.ReplicationLock | undefined = undefined;
     if (syncRules != null) {
       this.logger.info('Loaded sync rules');
       try {
         // Configure new sync rules, if they have changed.
         // In that case, also immediately take out a lock, so that another process doesn't start replication on it.
-        const { lock } = await this.storage.configureSyncRules(syncRules, {
-          lock: true
+
+        const { lock } = await this.storage.configureSyncRules({
+          content: syncRules,
+          lock: true,
+          validate: this.syncRuleProvider.exitOnError
         });
         if (lock) {
           configuredLock = lock;
         }
       } catch (e) {
-        // Log, but continue with previous sync rules
+        // Log and re-raise to exit.
+        // Should only reach this due to validation errors if exit_on_error is true.
         this.logger.error(`Failed to update sync rules from configuration`, e);
+        throw e;
       }
     } else {
       this.logger.info('No sync rules configured - configure via API');

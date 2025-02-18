@@ -1,5 +1,26 @@
 # @powersync/service-core-tests
 
+## 0.4.1
+
+### Patch Changes
+
+- Updated dependencies [ffc8d98]
+  - @powersync/service-core@0.18.1
+
+## 0.4.0
+
+### Minor Changes
+
+- 4b43cdb: Exit replication process when sync rules are not valid; configurable with a new `sync_rules.exit_on_error` option.
+
+### Patch Changes
+
+- Updated dependencies [e26e434]
+- Updated dependencies [4b43cdb]
+- Updated dependencies [9a9e668]
+  - @powersync/service-sync-rules@0.23.4
+  - @powersync/service-core@0.18.0
+
 ## 0.3.3
 
 ### Patch Changes

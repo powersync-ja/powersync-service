@@ -1,5 +1,11 @@
 # @powersync/service-types
 
+## 0.8.0
+
+### Minor Changes
+
+- 4b43cdb: Exit replication process when sync rules are not valid; configurable with a new `sync_rules.exit_on_error` option.
+
 ## 0.7.1
 
 ### Patch Changes

@@ -1,4 +1,4 @@
-import { mongo } from '@powersync/lib-service-mongodb';
+import { isMongoServerError } from '@powersync/lib-service-mongodb';
 import { container } from '@powersync/lib-services-framework';
 import { replication } from '@powersync/service-core';
 
@@ -78,15 +78,15 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
       if (this.abortController.signal.aborted) {
         return;
       }
-      this.logger.error(`Replication error`, e);
+      this.logger.error(`${this.slotName} Replication error`, e);
       if (e.cause != null) {
         // Without this additional log, the cause may not be visible in the logs.
         this.logger.error(`cause`, e.cause);
       }
       if (e instanceof ChangeStreamInvalidatedError) {
         throw e;
-      } else if (e instanceof mongo.MongoError && e.hasErrorLabel('NonResumableChangeStreamError')) {
-        throw new ChangeStreamInvalidatedError(e.message);
+      } else if (isMongoServerError(e) && e.hasErrorLabel('NonResumableChangeStreamError')) {
+        throw new ChangeStreamInvalidatedError(e.message, e);
       } else {
         // Report the error if relevant, before retrying
         container.reporter.captureException(e, {

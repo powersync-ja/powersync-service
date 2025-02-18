@@ -5,7 +5,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "0.3.3",
+  "version": "0.4.1",
   "main": "dist/index.js",
   "license": "FSL-1.1-Apache-2.0",
   "type": "module",
@@ -19,8 +19,8 @@
     "@powersync/service-sync-rules": "workspace:^"
   },
   "peerDependencies": {
-    "vite-tsconfig-paths": "^4.3.2",
-    "vitest": "^2.1.1"
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^3.0.5"
   },
   "devDependencies": {
     "typescript": "^5.7.3"

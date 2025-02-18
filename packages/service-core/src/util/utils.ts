@@ -145,16 +145,6 @@ export function isCompleteRow(storeData: boolean, row: sync_rules.ToastableSqlit
   return !hasToastedValues(row);
 }
 
-export function checkpointUserId(user_id: string | undefined, client_id: string | undefined) {
-  if (user_id == null) {
-    throw new Error('user_id is required');
-  }
-  if (client_id == null) {
-    return user_id;
-  }
-  return `${user_id}/${client_id}`;
-}
-
 /**
  * Reduce a bucket to the final state as stored on the client.
  *

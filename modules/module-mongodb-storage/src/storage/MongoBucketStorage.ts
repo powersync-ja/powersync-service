@@ -78,22 +78,19 @@ export class MongoBucketStorage
     };
   }
 
-  async configureSyncRules(sync_rules: string, options?: { lock?: boolean }) {
+  async configureSyncRules(options: storage.UpdateSyncRulesOptions) {
     const next = await this.getNextSyncRulesContent();
     const active = await this.getActiveSyncRulesContent();
 
-    if (next?.sync_rules_content == sync_rules) {
+    if (next?.sync_rules_content == options.content) {
       logger.info('Sync rules from configuration unchanged');
       return { updated: false };
-    } else if (next == null && active?.sync_rules_content == sync_rules) {
+    } else if (next == null && active?.sync_rules_content == options.content) {
       logger.info('Sync rules from configuration unchanged');
       return { updated: false };
     } else {
       logger.info('Sync rules updated from configuration');
-      const persisted_sync_rules = await this.updateSyncRules({
-        content: sync_rules,
-        lock: options?.lock
-      });
+      const persisted_sync_rules = await this.updateSyncRules(options);
       return { updated: true, persisted_sync_rules, lock: persisted_sync_rules.current_lock ?? undefined };
     }
   }
@@ -107,7 +104,8 @@ export class MongoBucketStorage
     if (next != null && next.slot_name == slot_name) {
       // We need to redo the "next" sync rules
       await this.updateSyncRules({
-        content: next.sync_rules_content
+        content: next.sync_rules_content,
+        validate: false
       });
       // Pro-actively stop replicating
       await this.db.sync_rules.updateOne(
@@ -124,7 +122,8 @@ export class MongoBucketStorage
     } else if (next == null && active?.slot_name == slot_name) {
       // Slot removed for "active" sync rules, while there is no "next" one.
       await this.updateSyncRules({
-        content: active.sync_rules_content
+        content: active.sync_rules_content,
+        validate: false
       });
 
       // Pro-actively stop replicating
@@ -143,13 +142,18 @@ export class MongoBucketStorage
   }
 
   async updateSyncRules(options: storage.UpdateSyncRulesOptions): Promise<MongoPersistedSyncRulesContent> {
-    // Parse and validate before applying any changes
-    const parsed = SqlSyncRules.fromYaml(options.content, {
-      // No schema-based validation at this point
-      schema: undefined,
-      defaultSchema: 'not_applicable', // Not needed for validation
-      throwOnError: true
-    });
+    if (options.validate) {
+      // Parse and validate before applying any changes
+      SqlSyncRules.fromYaml(options.content, {
+        // No schema-based validation at this point
+        schema: undefined,
+        defaultSchema: 'not_applicable', // Not needed for validation
+        throwOnError: true
+      });
+    } else {
+      // We do not validate sync rules at this point.
+      // That is done when using the sync rules, so that the diagnostics API can report the errors.
+    }
 
     let rules: MongoPersistedSyncRulesContent | undefined = undefined;
 

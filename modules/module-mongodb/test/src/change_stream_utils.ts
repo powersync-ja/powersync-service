@@ -58,7 +58,7 @@ export class ChangeStreamTestContext {
   }
 
   async updateSyncRules(content: string) {
-    const syncRules = await this.factory.updateSyncRules({ content: content });
+    const syncRules = await this.factory.updateSyncRules({ content: content, validate: true });
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
@@ -85,7 +85,7 @@ export class ChangeStreamTestContext {
   }
 
   startStreaming() {
-    this.streamPromise = this.walStream.streamChanges();
+    return (this.streamPromise = this.walStream.streamChanges());
   }
 
   async getCheckpoint(options?: { timeout?: number }) {

@@ -1,5 +1,5 @@
 import * as framework from '@powersync/lib-services-framework';
-import { storage, SyncRulesBucketStorage } from '@powersync/service-core';
+import { storage, SyncRulesBucketStorage, UpdateSyncRulesOptions } from '@powersync/service-core';
 import * as pg_wire from '@powersync/service-jpgwire';
 import * as sync_rules from '@powersync/service-sync-rules';
 import crypto from 'crypto';
@@ -139,10 +139,7 @@ export class PostgresBucketStorageFactory
   }
 
   // TODO possibly share implementation in abstract class
-  async configureSyncRules(
-    sync_rules: string,
-    options?: { lock?: boolean }
-  ): Promise<{
+  async configureSyncRules(options: UpdateSyncRulesOptions): Promise<{
     updated: boolean;
     persisted_sync_rules?: storage.PersistedSyncRulesContent;
     lock?: storage.ReplicationLock;
@@ -150,31 +147,32 @@ export class PostgresBucketStorageFactory
     const next = await this.getNextSyncRulesContent();
     const active = await this.getActiveSyncRulesContent();
 
-    if (next?.sync_rules_content == sync_rules) {
+    if (next?.sync_rules_content == options.content) {
       framework.logger.info('Sync rules from configuration unchanged');
       return { updated: false };
-    } else if (next == null && active?.sync_rules_content == sync_rules) {
+    } else if (next == null && active?.sync_rules_content == options.content) {
       framework.logger.info('Sync rules from configuration unchanged');
       return { updated: false };
     } else {
       framework.logger.info('Sync rules updated from configuration');
-      const persisted_sync_rules = await this.updateSyncRules({
-        content: sync_rules,
-        lock: options?.lock
-      });
+      const persisted_sync_rules = await this.updateSyncRules(options);
       return { updated: true, persisted_sync_rules, lock: persisted_sync_rules.current_lock ?? undefined };
     }
   }
 
   async updateSyncRules(options: storage.UpdateSyncRulesOptions): Promise<PostgresPersistedSyncRulesContent> {
     // TODO some shared implementation for this might be nice
-    // Parse and validate before applying any changes
-    sync_rules.SqlSyncRules.fromYaml(options.content, {
-      // No schema-based validation at this point
-      schema: undefined,
-      defaultSchema: 'not_applicable', // Not needed for validation
-      throwOnError: true
-    });
+    if (options.validate) {
+      // Parse and validate before applying any changes
+      sync_rules.SqlSyncRules.fromYaml(options.content, {
+        // No schema-based validation at this point
+        schema: undefined,
+        defaultSchema: 'not_applicable', // Not needed for validation
+        throwOnError: true
+      });
+    } else {
+      // Apply unconditionally. Any errors will be reported via the diagnostics API.
+    }
 
     return this.db.transaction(async (db) => {
       await db.sql`
@@ -236,7 +234,8 @@ export class PostgresBucketStorageFactory
     if (next != null && next.slot_name == slot_name) {
       // We need to redo the "next" sync rules
       await this.updateSyncRules({
-        content: next.sync_rules_content
+        content: next.sync_rules_content,
+        validate: false
       });
       // Pro-actively stop replicating
       await this.db.sql`
@@ -250,7 +249,8 @@ export class PostgresBucketStorageFactory
     } else if (next == null && active?.slot_name == slot_name) {
       // Slot removed for "active" sync rules, while there is no "next" one.
       await this.updateSyncRules({
-        content: active.sync_rules_content
+        content: active.sync_rules_content,
+        validate: false
       });
 
       // Pro-actively stop replicating

@@ -17,8 +17,7 @@ export interface BucketStorageFactory extends ObserverClient<BucketStorageFactor
    * Update sync rules from configuration, if changed.
    */
   configureSyncRules(
-    sync_rules: string,
-    options?: { lock?: boolean }
+    options: UpdateSyncRulesOptions
   ): Promise<{ updated: boolean; persisted_sync_rules?: PersistedSyncRulesContent; lock?: ReplicationLock }>;
 
   /**
@@ -123,6 +122,7 @@ export interface StorageMetrics {
 export interface UpdateSyncRulesOptions {
   content: string;
   lock?: boolean;
+  validate: boolean;
 }
 
 export interface BucketStorageSystemIdentifier {
