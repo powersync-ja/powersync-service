@@ -151,6 +151,9 @@ jobs:
       - name: Test
         run: pnpm test --filter='./modules/module-postgres'
 
+      - name: Test
+        run: pnpm test --filter='./modules/module-postgres-storage'
+
   run-mysql-tests:
     name: MySQL Test
     runs-on: ubuntu-latest
@@ -287,3 +290,6 @@ jobs:
 
       - name: Test
         run: pnpm test --filter='./modules/module-mongodb'
+
+      - name: Test Storage
+        run: pnpm test --filter='./modules/module-mongodb-storage'

@@ -17,14 +17,13 @@ import {
   QuerySchema,
   RequestParameters,
   RowValueClause,
-  SourceSchema,
   SqliteJsonRow,
   SqliteJsonValue,
   SqliteRow
 } from './types.js';
 import { filterJsonRow, getBucketId, isJsonValue, isSelectStatement } from './utils.js';
-import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
+import { BucketDescription, BucketPriority, defaultBucketPriority } from './BucketDescription.js';
 
 /**
  * Represents a parameter query, such as:
@@ -107,7 +106,9 @@ export class SqlParameterQuery {
     const where = q.where;
     const filter = tools.compileWhereClause(where);
 
-    const bucket_parameters = (q.columns ?? []).map((column) => tools.getOutputName(column));
+    const bucket_parameters = (q.columns ?? [])
+      .map((column) => tools.getOutputName(column))
+      .filter((c) => !tools.isBucketPriorityParameter(c));
     rows.sourceTable = sourceTable;
     rows.table = alias;
     rows.sql = sql;
@@ -115,6 +116,7 @@ export class SqlParameterQuery {
     rows.descriptor_name = descriptor_name;
     rows.bucket_parameters = bucket_parameters;
     rows.input_parameters = filter.inputParameters!;
+    rows.priority = options.priority;
     const expandedParams = rows.input_parameters!.filter((param) => param.expands);
     if (expandedParams.length > 1) {
       rows.errors.push(new SqlRuleError('Cannot have multiple array input parameters', sql));
@@ -129,7 +131,14 @@ export class SqlParameterQuery {
       if (column.alias != null) {
         tools.checkSpecificNameCase(column.alias);
       }
-      if (tools.isTableRef(column.expr)) {
+      if (tools.isBucketPriorityParameter(name)) {
+        if (rows.priority !== undefined) {
+          rows.errors.push(new SqlRuleError('Cannot set priority multiple times.', sql));
+          continue;
+        }
+
+        rows.priority = tools.extractBucketPriority(column.expr);
+      } else if (tools.isTableRef(column.expr)) {
         rows.lookup_columns.push(column);
         const extractor = tools.compileRowValueExtractor(column.expr);
         if (isClauseError(extractor)) {
@@ -177,6 +186,7 @@ export class SqlParameterQuery {
    * Example: SELECT *token_parameters.user_id*
    */
   parameter_extractors: Record<string, ParameterValueClause> = {};
+  priority?: BucketPriority;
 
   filter?: ParameterMatchClause;
   descriptor_name?: string;
@@ -247,7 +257,7 @@ export class SqlParameterQuery {
   /**
    * Given partial parameter rows, turn into bucket ids.
    */
-  resolveBucketIds(bucketParameters: SqliteJsonRow[], parameters: RequestParameters): string[] {
+  resolveBucketDescriptions(bucketParameters: SqliteJsonRow[], parameters: RequestParameters): BucketDescription[] {
     // Filters have already been applied and gotten us the set of bucketParameters - don't attempt to filter again.
     // We _do_ need to evaluate the output columns here, using a combination of precomputed bucketParameters,
     // and values from token parameters.
@@ -270,9 +280,12 @@ export class SqlParameterQuery {
           }
         }
 
-        return getBucketId(this.descriptor_name!, this.bucket_parameters!, result);
+        return {
+          bucket: getBucketId(this.descriptor_name!, this.bucket_parameters!, result),
+          priority: this.priority ?? defaultBucketPriority
+        };
       })
-      .filter((lookup) => lookup != null) as string[];
+      .filter((lookup) => lookup != null);
   }
 
   /**
@@ -351,21 +364,21 @@ export class SqlParameterQuery {
   }
 
   /**
-   * Given sync parameters (token and user parameters), return bucket ids.
+   * Given sync parameters (token and user parameters), return bucket ids and priorities.
    *
    * This is done in three steps:
    * 1. Given the parameters, get lookups we need to perform on the database.
    * 2. Perform the lookups, returning parameter sets (partial rows).
    * 3. Given the parameter sets, resolve bucket ids.
    */
-  async queryBucketIds(options: QueryBucketIdOptions): Promise<string[]> {
+  async queryBucketDescriptions(options: QueryBucketIdOptions): Promise<BucketDescription[]> {
     let lookups = this.getLookups(options.parameters);
     if (lookups.length == 0) {
       return [];
     }
 
     const parameters = await options.getParameterSets(lookups);
-    return this.resolveBucketIds(parameters, options.parameters);
+    return this.resolveBucketDescriptions(parameters, options.parameters);
   }
 
   get hasAuthenticatedBucketParameters(): boolean {

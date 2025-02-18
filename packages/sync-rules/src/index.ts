@@ -1,3 +1,4 @@
+export * from './BucketDescription.js';
 export * from './DartSchemaGenerator.js';
 export * from './errors.js';
 export * from './events/SqlEventDescriptor.js';

@@ -9,7 +9,9 @@ describe('static parameter queries', () => {
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.bucket_parameters!).toEqual(['user_id']);
-    expect(query.getStaticBucketIds(normalizeTokenParameters({ user_id: 'user1' }))).toEqual(['mybucket["user1"]']);
+    expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
+      { bucket: 'mybucket["user1"]', priority: 3 }
+    ]);
   });
 
   test('global query', function () {
@@ -17,24 +19,30 @@ describe('static parameter queries', () => {
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.bucket_parameters!).toEqual([]);
-    expect(query.getStaticBucketIds(normalizeTokenParameters({ user_id: 'user1' }))).toEqual(['mybucket[]']);
+    expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
+      { bucket: 'mybucket[]', priority: 3 }
+    ]);
   });
 
   test('query with filter', function () {
     const sql = 'SELECT token_parameters.user_id WHERE token_parameters.is_admin';
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
-    expect(query.getStaticBucketIds(normalizeTokenParameters({ user_id: 'user1', is_admin: true }))).toEqual([
-      'mybucket["user1"]'
+    expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'user1', is_admin: true }))).toEqual([
+      { bucket: 'mybucket["user1"]', priority: 3 }
     ]);
-    expect(query.getStaticBucketIds(normalizeTokenParameters({ user_id: 'user1', is_admin: false }))).toEqual([]);
+    expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'user1', is_admin: false }))).toEqual(
+      []
+    );
   });
 
   test('function in select clause', function () {
     const sql = 'SELECT upper(token_parameters.user_id) as upper_id';
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
-    expect(query.getStaticBucketIds(normalizeTokenParameters({ user_id: 'user1' }))).toEqual(['mybucket["USER1"]']);
+    expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
+      { bucket: 'mybucket["USER1"]', priority: 3 }
+    ]);
     expect(query.bucket_parameters!).toEqual(['upper_id']);
   });
 
@@ -42,16 +50,20 @@ describe('static parameter queries', () => {
     const sql = "SELECT WHERE upper(token_parameters.role) = 'ADMIN'";
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
-    expect(query.getStaticBucketIds(normalizeTokenParameters({ role: 'admin' }))).toEqual(['mybucket[]']);
-    expect(query.getStaticBucketIds(normalizeTokenParameters({ role: 'user' }))).toEqual([]);
+    expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ role: 'admin' }))).toEqual([
+      { bucket: 'mybucket[]', priority: 3 }
+    ]);
+    expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ role: 'user' }))).toEqual([]);
   });
 
   test('comparison in filter clause', function () {
     const sql = 'SELECT WHERE token_parameters.id1 = token_parameters.id2';
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
-    expect(query.getStaticBucketIds(normalizeTokenParameters({ id1: 't1', id2: 't1' }))).toEqual(['mybucket[]']);
-    expect(query.getStaticBucketIds(normalizeTokenParameters({ id1: 't1', id2: 't2' }))).toEqual([]);
+    expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ id1: 't1', id2: 't1' }))).toEqual([
+      { bucket: 'mybucket[]', priority: 3 }
+    ]);
+    expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ id1: 't1', id2: 't2' }))).toEqual([]);
   });
 
   test('request.parameters()', function () {
@@ -62,7 +74,9 @@ describe('static parameter queries', () => {
     }) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
 
-    expect(query.getStaticBucketIds(normalizeTokenParameters({}, { org_id: 'test' }))).toEqual(['mybucket["test"]']);
+    expect(query.getStaticBucketDescriptions(normalizeTokenParameters({}, { org_id: 'test' }))).toEqual([
+      { bucket: 'mybucket["test"]', priority: 3 }
+    ]);
   });
 
   test('request.jwt()', function () {
@@ -71,7 +85,9 @@ describe('static parameter queries', () => {
     expect(query.errors).toEqual([]);
     expect(query.bucket_parameters).toEqual(['user_id']);
 
-    expect(query.getStaticBucketIds(normalizeTokenParameters({ user_id: 'user1' }))).toEqual(['mybucket["user1"]']);
+    expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
+      { bucket: 'mybucket["user1"]', priority: 3 }
+    ]);
   });
 
   test('request.user_id()', function () {
@@ -80,35 +96,43 @@ describe('static parameter queries', () => {
     expect(query.errors).toEqual([]);
     expect(query.bucket_parameters).toEqual(['user_id']);
 
-    expect(query.getStaticBucketIds(normalizeTokenParameters({ user_id: 'user1' }))).toEqual(['mybucket["user1"]']);
+    expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
+      { bucket: 'mybucket["user1"]', priority: 3 }
+    ]);
   });
 
   test('static value', function () {
     const sql = `SELECT WHERE 1`;
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
-    expect(query.getStaticBucketIds(new RequestParameters({ sub: '' }, {}))).toEqual(['mybucket[]']);
+    expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}))).toEqual([
+      { bucket: 'mybucket[]', priority: 3 }
+    ]);
   });
 
   test('static expression (1)', function () {
     const sql = `SELECT WHERE 1 = 1`;
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
-    expect(query.getStaticBucketIds(new RequestParameters({ sub: '' }, {}))).toEqual(['mybucket[]']);
+    expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}))).toEqual([
+      { bucket: 'mybucket[]', priority: 3 }
+    ]);
   });
 
   test('static expression (2)', function () {
     const sql = `SELECT WHERE 1 != 1`;
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
-    expect(query.getStaticBucketIds(new RequestParameters({ sub: '' }, {}))).toEqual([]);
+    expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}))).toEqual([]);
   });
 
   test('static IN expression', function () {
     const sql = `SELECT WHERE 'admin' IN '["admin", "superuser"]'`;
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
-    expect(query.getStaticBucketIds(new RequestParameters({ sub: '' }, {}))).toEqual(['mybucket[]']);
+    expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}))).toEqual([
+      { bucket: 'mybucket[]', priority: 3 }
+    ]);
   });
 
   test('IN for permissions in request.jwt() (1)', function () {
@@ -117,11 +141,11 @@ describe('static parameter queries', () => {
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(
-      query.getStaticBucketIds(new RequestParameters({ sub: '', permissions: ['write', 'read:users'] }, {}))
-    ).toEqual(['mybucket[1]']);
+      query.getStaticBucketDescriptions(new RequestParameters({ sub: '', permissions: ['write', 'read:users'] }, {}))
+    ).toEqual([{ bucket: 'mybucket[1]', priority: 3 }]);
     expect(
-      query.getStaticBucketIds(new RequestParameters({ sub: '', permissions: ['write', 'write:users'] }, {}))
-    ).toEqual(['mybucket[0]']);
+      query.getStaticBucketDescriptions(new RequestParameters({ sub: '', permissions: ['write', 'write:users'] }, {}))
+    ).toEqual([{ bucket: 'mybucket[0]', priority: 3 }]);
   });
 
   test('IN for permissions in request.jwt() (2)', function () {
@@ -130,10 +154,10 @@ describe('static parameter queries', () => {
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(
-      query.getStaticBucketIds(new RequestParameters({ sub: '', permissions: ['write', 'read:users'] }, {}))
-    ).toEqual(['mybucket[]']);
+      query.getStaticBucketDescriptions(new RequestParameters({ sub: '', permissions: ['write', 'read:users'] }, {}))
+    ).toEqual([{ bucket: 'mybucket[]', priority: 3 }]);
     expect(
-      query.getStaticBucketIds(new RequestParameters({ sub: '', permissions: ['write', 'write:users'] }, {}))
+      query.getStaticBucketDescriptions(new RequestParameters({ sub: '', permissions: ['write', 'write:users'] }, {}))
     ).toEqual([]);
   });
 
@@ -141,8 +165,10 @@ describe('static parameter queries', () => {
     const sql = `SELECT WHERE request.jwt() ->> 'role' IN '["admin", "superuser"]'`;
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
-    expect(query.getStaticBucketIds(new RequestParameters({ sub: '', role: 'superuser' }, {}))).toEqual(['mybucket[]']);
-    expect(query.getStaticBucketIds(new RequestParameters({ sub: '', role: 'superadmin' }, {}))).toEqual([]);
+    expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '', role: 'superuser' }, {}))).toEqual([
+      { bucket: 'mybucket[]', priority: 3 }
+    ]);
+    expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '', role: 'superadmin' }, {}))).toEqual([]);
   });
 
   test('case-sensitive queries (1)', () => {

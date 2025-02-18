@@ -4,6 +4,7 @@ import { SourceTableInterface } from './SourceTableInterface.js';
 import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import { toSyncRulesParameters } from './utils.js';
+import { BucketPriority } from './BucketDescription.js';
 
 export interface SyncRules {
   evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
@@ -13,6 +14,7 @@ export interface SyncRules {
 
 export interface QueryParseOptions extends SyncRulesOptions {
   accept_potentially_dangerous_queries?: boolean;
+  priority?: BucketPriority;
 }
 
 export interface EvaluatedParameters {

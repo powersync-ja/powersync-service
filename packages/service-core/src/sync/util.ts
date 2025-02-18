@@ -2,6 +2,7 @@ import * as timers from 'timers/promises';
 
 import * as util from '../util/util-index.js';
 import { RequestTracker } from './RequestTracker.js';
+import { SemaphoreInterface } from 'async-mutex';
 
 export type TokenStreamOptions = {
   /**
@@ -98,4 +99,34 @@ export async function* transformToBytesTracked(
     tracker.addDataSynced(encoded.length);
     yield encoded;
   }
+}
+
+export function acquireSemaphoreAbortable(
+  semaphone: SemaphoreInterface,
+  abort: AbortSignal
+): Promise<[number, SemaphoreInterface.Releaser] | 'aborted'> {
+  return new Promise((resolve, reject) => {
+    let aborted = false;
+    let hasSemaphore = false;
+
+    const listener = () => {
+      if (!hasSemaphore) {
+        aborted = true;
+        abort.removeEventListener('abort', listener);
+        resolve('aborted');
+      }
+    };
+    abort.addEventListener('abort', listener);
+
+    semaphone.acquire().then((acquired) => {
+      hasSemaphore = true;
+      if (aborted) {
+        // Release semaphore, already aborted
+        acquired[1]();
+      } else {
+        abort.removeEventListener('abort', listener);
+        resolve(acquired);
+      }
+    }, reject);
+  });
 }

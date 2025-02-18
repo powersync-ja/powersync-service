@@ -9,6 +9,7 @@ exports[`sync - postgres > compacting data - invalidate checkpoint 1`] = `
           "bucket": "mybucket[]",
           "checksum": -93886621,
           "count": 2,
+          "priority": 3,
         },
       ],
       "last_op_id": "2",
@@ -44,6 +45,7 @@ exports[`sync - postgres > compacting data - invalidate checkpoint 2`] = `
           "bucket": "mybucket[]",
           "checksum": 499012468,
           "count": 4,
+          "priority": 3,
         },
       ],
       "write_checkpoint": undefined,
@@ -102,6 +104,7 @@ exports[`sync - postgres > expiring token 1`] = `
           "bucket": "mybucket[]",
           "checksum": 0,
           "count": 0,
+          "priority": 3,
         },
       ],
       "last_op_id": "0",
@@ -124,6 +127,80 @@ exports[`sync - postgres > expiring token 2`] = `
 ]
 `;
 
+exports[`sync - postgres > sync buckets in order 1`] = `
+[
+  {
+    "checkpoint": {
+      "buckets": [
+        {
+          "bucket": "b0[]",
+          "checksum": 920318466,
+          "count": 1,
+          "priority": 2,
+        },
+        {
+          "bucket": "b1[]",
+          "checksum": -1382098757,
+          "count": 1,
+          "priority": 1,
+        },
+      ],
+      "last_op_id": "2",
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "data": {
+      "after": "0",
+      "bucket": "b1[]",
+      "data": [
+        {
+          "checksum": 2912868539n,
+          "data": "{"id":"earlier","description":"Test 2"}",
+          "object_id": "earlier",
+          "object_type": "test",
+          "op": "PUT",
+          "op_id": "2",
+          "subkey": "243b0e26-87b2-578a-993c-5ac5b6f7fd64",
+        },
+      ],
+      "has_more": false,
+      "next_after": "2",
+    },
+  },
+  {
+    "partial_checkpoint_complete": {
+      "last_op_id": "2",
+      "priority": 1,
+    },
+  },
+  {
+    "data": {
+      "after": "0",
+      "bucket": "b0[]",
+      "data": [
+        {
+          "checksum": 920318466n,
+          "data": "{"id":"t1","description":"Test 1"}",
+          "object_id": "t1",
+          "object_type": "test",
+          "op": "PUT",
+          "op_id": "1",
+          "subkey": "02d285ac-4f96-5124-8fba-c6d1df992dd1",
+        },
+      ],
+      "has_more": false,
+      "next_after": "1",
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "2",
+    },
+  },
+]
+`;
+
 exports[`sync - postgres > sync global data 1`] = `
 [
   {
@@ -133,6 +210,7 @@ exports[`sync - postgres > sync global data 1`] = `
           "bucket": "mybucket[]",
           "checksum": -93886621,
           "count": 2,
+          "priority": 3,
         },
       ],
       "last_op_id": "2",
@@ -184,6 +262,7 @@ exports[`sync - postgres > sync legacy non-raw data 1`] = `
           "bucket": "mybucket[]",
           "checksum": -852817836,
           "count": 1,
+          "priority": 3,
         },
       ],
       "last_op_id": "1",
@@ -231,6 +310,7 @@ exports[`sync - postgres > sync updates to global data 1`] = `
           "bucket": "mybucket[]",
           "checksum": 0,
           "count": 0,
+          "priority": 3,
         },
       ],
       "last_op_id": "0",
@@ -256,6 +336,7 @@ exports[`sync - postgres > sync updates to global data 2`] = `
           "bucket": "mybucket[]",
           "checksum": 920318466,
           "count": 1,
+          "priority": 3,
         },
       ],
       "write_checkpoint": undefined,
@@ -299,6 +380,7 @@ exports[`sync - postgres > sync updates to global data 3`] = `
           "bucket": "mybucket[]",
           "checksum": -93886621,
           "count": 2,
+          "priority": 3,
         },
       ],
       "write_checkpoint": undefined,

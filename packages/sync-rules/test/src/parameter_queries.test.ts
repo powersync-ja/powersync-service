@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { SqlParameterQuery } from '../../src/index.js';
 import { BASIC_SCHEMA, normalizeTokenParameters, PARSE_OPTIONS } from './util.js';
+import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
 
 describe('parameter queries', () => {
   test('token_parameters IN query', function () {
@@ -84,13 +85,13 @@ describe('parameter queries', () => {
     ]);
 
     // We _do_ need to care about the bucket string representation.
-    expect(query.resolveBucketIds([{ int1: 314, float1: 3.14, float2: 314 }], normalizeTokenParameters({}))).toEqual([
-      'mybucket[314,3.14,314]'
-    ]);
+    expect(
+      query.resolveBucketDescriptions([{ int1: 314, float1: 3.14, float2: 314 }], normalizeTokenParameters({}))
+    ).toEqual([{ bucket: 'mybucket[314,3.14,314]', priority: 3 }]);
 
-    expect(query.resolveBucketIds([{ int1: 314n, float1: 3.14, float2: 314 }], normalizeTokenParameters({}))).toEqual([
-      'mybucket[314,3.14,314]'
-    ]);
+    expect(
+      query.resolveBucketDescriptions([{ int1: 314n, float1: 3.14, float2: 314 }], normalizeTokenParameters({}))
+    ).toEqual([{ bucket: 'mybucket[314,3.14,314]', priority: 3 }]);
   });
 
   test('plain token_parameter (baseline)', () => {
@@ -351,8 +352,11 @@ describe('parameter queries', () => {
     ]);
 
     expect(
-      query.resolveBucketIds([{ user_id: 'user1' }], normalizeTokenParameters({ user_id: 'user1', is_admin: true }))
-    ).toEqual(['mybucket["user1",1]']);
+      query.resolveBucketDescriptions(
+        [{ user_id: 'user1' }],
+        normalizeTokenParameters({ user_id: 'user1', is_admin: true })
+      )
+    ).toEqual([{ bucket: 'mybucket["user1",1]', priority: 3 }]);
   });
 
   test('case-sensitive parameter queries (1)', () => {
@@ -731,5 +735,49 @@ describe('parameter queries', () => {
     testDangerousQuery("SELECT id as category_id, request.parameters() ->> 'project_id' as project_id FROM categories");
     // Can be safe, but better to opt in
     testDangerousQuery("SELECT id as category_id FROM categories WHERE request.parameters() ->> 'include_categories'");
+  });
+
+  describe('bucket priorities', () => {
+    test('valid definition', function () {
+      const sql = 'SELECT id as group_id, 1 AS _priority FROM groups WHERE token_parameters.user_id IN groups.user_ids';
+      const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as SqlParameterQuery;
+      expect(query.errors).toEqual([]);
+      expect(Object.entries(query.lookup_extractors)).toHaveLength(1);
+      expect(Object.entries(query.parameter_extractors)).toHaveLength(0);
+      expect(query.bucket_parameters).toEqual(['group_id']);
+      expect(query.priority).toBe(1);
+    });
+
+    test('valid definition, static query', function () {
+      const sql = 'SELECT token_parameters.user_id, 0 AS _priority';
+      const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
+      expect(query.errors).toEqual([]);
+      expect(Object.entries(query.parameter_extractors)).toHaveLength(1);
+      expect(query.bucket_parameters).toEqual(['user_id']);
+      expect(query.priority).toBe(0);
+    });
+
+    test('invalid dynamic query', function () {
+      const sql = 'SELECT LENGTH(assets.name) AS _priority FROM assets';
+      const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as SqlParameterQuery;
+
+      expect(query.errors).toMatchObject([{ message: 'Priority must be a simple integer literal' }]);
+    });
+
+    test('invalid literal type', function () {
+      const sql = "SELECT 'very fast please' AS _priority";
+      const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
+
+      expect(query.errors).toMatchObject([{ message: 'Priority must be a simple integer literal' }]);
+    });
+
+    test('invalid literal value', function () {
+      const sql = 'SELECT 15 AS _priority';
+      const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS) as StaticSqlParameterQuery;
+
+      expect(query.errors).toMatchObject([
+        { message: 'Invalid value for priority, must be between 0 and 3 (inclusive).' }
+      ]);
+    });
   });
 });

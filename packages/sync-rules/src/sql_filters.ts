@@ -46,6 +46,7 @@ import {
   TrueIfParametersMatch
 } from './types.js';
 import { isJsonValue } from './utils.js';
+import { BucketPriority, isValidPriority } from './BucketDescription.js';
 
 export const MATCH_CONST_FALSE: TrueIfParametersMatch = [];
 export const MATCH_CONST_TRUE: TrueIfParametersMatch = [{}];
@@ -737,6 +738,25 @@ export class SqlTools {
     return {
       argsType
     };
+  }
+
+  isBucketPriorityParameter(name: string): boolean {
+    return name == '_priority';
+  }
+
+  extractBucketPriority(expr: Expr): BucketPriority | undefined {
+    if (expr.type !== 'integer') {
+      this.error('Priority must be a simple integer literal', expr);
+      return;
+    }
+
+    const value = expr.value;
+    if (!isValidPriority(value)) {
+      this.error('Invalid value for priority, must be between 0 and 3 (inclusive).', expr);
+      return;
+    }
+
+    return value as BucketPriority;
   }
 }
 

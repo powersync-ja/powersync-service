@@ -1,3 +1,4 @@
+import { BucketDescription } from './BucketDescription.js';
 import { IdSequence } from './IdSequence.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SqlDataQuery } from './SqlDataQuery.js';
@@ -13,7 +14,6 @@ import {
   QueryBucketIdOptions,
   QueryParseOptions,
   RequestParameters,
-  SourceSchema,
   SqliteRow
 } from './types.js';
 
@@ -108,18 +108,18 @@ export class SqlBucketDescriptor {
     return results;
   }
 
-  getStaticBucketIds(parameters: RequestParameters) {
-    let results: string[] = [];
+  getStaticBucketDescriptions(parameters: RequestParameters): BucketDescription[] {
+    let results: BucketDescription[] = [];
     for (let query of this.global_parameter_queries) {
-      results.push(...query.getStaticBucketIds(parameters));
+      results.push(...query.getStaticBucketDescriptions(parameters));
     }
     return results;
   }
 
-  async queryBucketIds(options: QueryBucketIdOptions): Promise<string[]> {
-    let result: string[] = this.getStaticBucketIds(options.parameters);
+  async queryBucketDescriptions(options: QueryBucketIdOptions): Promise<BucketDescription[]> {
+    let result = this.getStaticBucketDescriptions(options.parameters);
     for (let query of this.parameter_queries) {
-      result.push(...(await query.queryBucketIds(options)));
+      result.push(...(await query.queryBucketDescriptions(options)));
     }
     return result;
   }

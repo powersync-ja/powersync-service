@@ -1,5 +1,5 @@
 import * as t from 'ts-codec';
-import { SqliteJsonValue } from '@powersync/service-sync-rules';
+import { BucketDescription, BucketPriority, SqliteJsonValue } from '@powersync/service-sync-rules';
 
 export const BucketRequest = t.object({
   name: t.string,
@@ -59,7 +59,7 @@ export interface StreamingSyncCheckpointDiff {
   checkpoint_diff: {
     last_op_id: OpId;
     write_checkpoint?: OpId;
-    updated_buckets: BucketChecksum[];
+    updated_buckets: BucketChecksumWithDescription[];
     removed_buckets: string[];
   };
 }
@@ -74,13 +74,23 @@ export interface StreamingSyncCheckpointComplete {
   };
 }
 
-export interface StreamingSyncKeepalive {}
+export interface StreamingSyncCheckpointPartiallyComplete {
+  partial_checkpoint_complete: {
+    last_op_id: OpId;
+    priority: BucketPriority;
+  };
+}
+
+export interface StreamingSyncKeepalive {
+  token_expires_in: number;
+}
 
 export type StreamingSyncLine =
   | StreamingSyncData
   | StreamingSyncCheckpoint
   | StreamingSyncCheckpointDiff
   | StreamingSyncCheckpointComplete
+  | StreamingSyncCheckpointPartiallyComplete
   | StreamingSyncKeepalive;
 
 /**
@@ -91,7 +101,7 @@ export type OpId = string;
 export interface Checkpoint {
   last_op_id: OpId;
   write_checkpoint?: OpId;
-  buckets: BucketChecksum[];
+  buckets: BucketChecksumWithDescription[];
 }
 
 export interface BucketState {
@@ -142,3 +152,5 @@ export interface BucketChecksum {
    */
   count: number;
 }
+
+export interface BucketChecksumWithDescription extends BucketChecksum, BucketDescription {}

@@ -4,6 +4,7 @@ import { SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, isParameterValueClause, sqliteBool } from './sql_support.js';
 import { ParameterValueClause, QueryParseOptions, RequestParameters, SqliteJsonValue } from './types.js';
 import { getBucketId, isJsonValue } from './utils.js';
+import { BucketDescription, BucketPriority, defaultBucketPriority } from './BucketDescription.js';
 
 /**
  * Represents a bucket parameter query without any tables, e.g.:
@@ -27,13 +28,16 @@ export class StaticSqlParameterQuery {
 
     const filter = tools.compileParameterValueExtractor(where);
     const columns = q.columns ?? [];
-    const bucket_parameters = columns.map((column) => tools.getOutputName(column));
+    const bucket_parameters = (q.columns ?? [])
+      .map((column) => tools.getOutputName(column))
+      .filter((c) => !tools.isBucketPriorityParameter(c));
 
     query.sql = sql;
     query.descriptor_name = descriptor_name;
     query.bucket_parameters = bucket_parameters;
     query.columns = columns;
     query.tools = tools;
+    query.priority = options?.priority;
     if (!isClauseError(filter)) {
       query.filter = filter;
     }
@@ -43,6 +47,16 @@ export class StaticSqlParameterQuery {
         tools.checkSpecificNameCase(column.alias);
       }
       const name = tools.getSpecificOutputName(column);
+      if (tools.isBucketPriorityParameter(name)) {
+        if (query.priority !== undefined) {
+          query.errors.push(new SqlRuleError('Cannot set priority multiple times.', sql));
+          continue;
+        }
+
+        query.priority = tools.extractBucketPriority(column.expr);
+        continue;
+      }
+
       const extractor = tools.compileParameterValueExtractor(column.expr);
       if (isClauseError(extractor)) {
         // Error logged already
@@ -67,6 +81,7 @@ export class StaticSqlParameterQuery {
   sql?: string;
   columns?: SelectedColumn[];
   parameter_extractors: Record<string, ParameterValueClause> = {};
+  priority?: BucketPriority;
   descriptor_name?: string;
   /** _Output_ bucket parameters */
   bucket_parameters?: string[];
@@ -77,7 +92,7 @@ export class StaticSqlParameterQuery {
 
   errors: SqlRuleError[] = [];
 
-  getStaticBucketIds(parameters: RequestParameters): string[] {
+  getStaticBucketDescriptions(parameters: RequestParameters): BucketDescription[] {
     if (this.filter == null) {
       // Error in filter clause
       return [];
@@ -99,7 +114,12 @@ export class StaticSqlParameterQuery {
       }
     }
 
-    return [getBucketId(this.descriptor_name!, this.bucket_parameters!, result)];
+    return [
+      {
+        bucket: getBucketId(this.descriptor_name!, this.bucket_parameters!, result),
+        priority: this.priority ?? defaultBucketPriority
+      }
+    ];
   }
 
   get hasAuthenticatedBucketParameters(): boolean {

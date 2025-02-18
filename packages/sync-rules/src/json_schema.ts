@@ -20,6 +20,10 @@ export const syncRulesSchema: ajvModule.Schema = {
               description: 'If true, disables warnings on potentially dangerous queries',
               type: 'boolean'
             },
+            priority: {
+              description: 'Priority for the bucket (lower values indicate higher priority).',
+              type: 'integer'
+            },
             parameters: {
               description: 'Parameter query(ies)',
               anyOf: [
