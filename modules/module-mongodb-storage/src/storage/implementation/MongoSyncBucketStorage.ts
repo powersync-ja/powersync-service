@@ -439,7 +439,7 @@ export class MongoSyncBucketStorage
               checksum_total: { $sum: '$checksum' },
               count: {
                 $sum: {
-                  $cond: [{ $eq: ['$op_count', null] }, 1, '$op_count']
+                  $ifNull: ['$op_count', 1]
                 }
               },
               has_clear_op: {

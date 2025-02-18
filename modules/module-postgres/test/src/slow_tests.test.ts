@@ -182,11 +182,11 @@ bucket_definitions:
           if (f instanceof mongo_storage.storage.MongoBucketStorage) {
             const opsBefore = (await f.db.bucket_data.find().sort({ _id: 1 }).toArray())
               .filter((row) => row._id.o <= checkpoint)
-              .map(mongo_storage.storage.mapOpEntry);
+              .flatMap(mongo_storage.storage.mapOpEntries);
             await storage.compact({ maxOpId: checkpoint });
             const opsAfter = (await f.db.bucket_data.find().sort({ _id: 1 }).toArray())
               .filter((row) => row._id.o <= checkpoint)
-              .map(mongo_storage.storage.mapOpEntry);
+              .flatMap(mongo_storage.storage.mapOpEntries);
 
             test_utils.validateCompactedBucket(opsBefore, opsAfter);
           } else if (f instanceof postgres_storage.PostgresBucketStorageFactory) {
@@ -248,7 +248,7 @@ bucket_definitions:
         const ops = await f.db.bucket_data.find().sort({ _id: 1 }).toArray();
 
         // All a single bucket in this test
-        const bucket = ops.map((op) => mongo_storage.storage.mapOpEntry(op));
+        const bucket = ops.flatMap((op) => mongo_storage.storage.mapOpEntries(op));
         const reduced = test_utils.reduceBucket(bucket);
         expect(reduced).toMatchObject([
           {
