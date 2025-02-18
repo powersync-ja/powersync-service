@@ -3,16 +3,19 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
-import { logger } from '@powersync/lib-services-framework';
-import { storage, utils } from '@powersync/service-core';
+import { logger, ReplicationAssertionError } from '@powersync/lib-services-framework';
+import { addChecksums, storage, utils } from '@powersync/service-core';
 import { currentBucketKey } from './MongoBucketBatch.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { PowerSyncMongo } from './db.js';
 import {
   BucketDataDocument,
+  BucketDataRangeDocument,
+  BucketDataSingleDocument,
   BucketParameterDocument,
   CurrentBucket,
   CurrentDataDocument,
+  EmbeddedOpData,
   SourceKey
 } from './models.js';
 import { replicaIdToSubkey, safeBulkWrite } from './util.js';
@@ -38,6 +41,15 @@ const MAX_TRANSACTION_BATCH_SIZE = 30_000_000;
  */
 const MAX_TRANSACTION_DOC_COUNT = 2_000;
 
+const MAX_EMBEDDED_DOC_COUNT = 100;
+
+/**
+ * Must be less than 16MB/2.
+ *
+ * This is not a hard limit, but we don't do any further batching if this limit is exceeded.
+ */
+const EMBEDDED_DOC_SIZE_THRESHOLD = 1_000_000;
+
 /**
  * Keeps track of bulkwrite operations within a transaction.
  *
@@ -48,6 +60,8 @@ export class PersistedBatch {
   bucketData: mongo.AnyBulkWriteOperation<BucketDataDocument>[] = [];
   bucketParameters: mongo.AnyBulkWriteOperation<BucketParameterDocument>[] = [];
   currentData: mongo.AnyBulkWriteOperation<CurrentDataDocument>[] = [];
+  lastOpByBucket: Map<string, BucketDataDocument> = new Map();
+  bucketDataOps: number = 0;
 
   /**
    * For debug logging only.
@@ -64,6 +78,61 @@ export class PersistedBatch {
     writtenSize: number
   ) {
     this.currentSize = writtenSize;
+  }
+
+  private addBucketDataOp(doc: BucketDataSingleDocument) {
+    const bucket = doc._id.b;
+    if (doc.op === 'CLEAR') {
+      // No batching for CLEAR ops
+      this.lastOpByBucket.delete(bucket);
+      this.bucketData.push({
+        insertOne: {
+          document: doc
+        }
+      });
+      return;
+    }
+    const lastOp = this.lastOpByBucket.get(bucket);
+    this.bucketDataOps += 1;
+    if (lastOp != null && (doc.data == null || doc.data.length < EMBEDDED_DOC_SIZE_THRESHOLD)) {
+      // Merge ops
+      const rangeOp = lastOp as unknown as BucketDataRangeDocument;
+      if (lastOp.op != 'RANGE') {
+        // Convert to BucketDataRangeDocument in-place
+        rangeOp.op_count = 1;
+        rangeOp.data_range = [makeEmbeddedOp(lastOp)];
+        rangeOp.start_op_id = lastOp._id.o;
+        rangeOp.data = null;
+        rangeOp.op = 'RANGE';
+        // Unchanged at this point: _id, checksum, target_op
+      }
+
+      // Modify this in-place
+      rangeOp._id = doc._id;
+      rangeOp.checksum = addChecksums(lastOp.checksum, doc.checksum);
+      rangeOp.op_count += 1;
+      rangeOp.data_range.push(makeEmbeddedOp(doc));
+      if (rangeOp.target_op == null || (doc.target_op != null && doc.target_op > rangeOp.target_op)) {
+        rangeOp.target_op = doc.target_op;
+      }
+      if (rangeOp.data_range.length >= MAX_EMBEDDED_DOC_COUNT) {
+        // Don't do any further batching on this
+        this.lastOpByBucket.delete(bucket);
+      }
+    } else {
+      // New op for the bucket
+      this.bucketData.push({
+        insertOne: {
+          document: doc
+        }
+      });
+      if (doc.data != null && doc.data.length >= EMBEDDED_DOC_SIZE_THRESHOLD) {
+        // Don't do any further batching on this
+        this.lastOpByBucket.delete(bucket);
+      } else {
+        this.lastOpByBucket.set(bucket, doc);
+      }
+    }
   }
 
   saveBucketData(options: {
@@ -93,23 +162,19 @@ export class PersistedBatch {
       const op_id = options.op_seq.next();
       this.debugLastOpId = op_id;
 
-      this.bucketData.push({
-        insertOne: {
-          document: {
-            _id: {
-              g: this.group_id,
-              b: k.bucket,
-              o: op_id
-            },
-            op: 'PUT',
-            source_table: options.table.id,
-            source_key: options.sourceKey,
-            table: k.table,
-            row_id: k.id,
-            checksum: checksum,
-            data: recordData
-          }
-        }
+      this.addBucketDataOp({
+        _id: {
+          g: this.group_id,
+          b: k.bucket,
+          o: op_id
+        },
+        op: 'PUT',
+        source_table: options.table.id,
+        source_key: options.sourceKey,
+        table: k.table,
+        row_id: k.id,
+        checksum: checksum,
+        data: recordData
       });
     }
 
@@ -119,24 +184,21 @@ export class PersistedBatch {
       const op_id = options.op_seq.next();
       this.debugLastOpId = op_id;
 
-      this.bucketData.push({
-        insertOne: {
-          document: {
-            _id: {
-              g: this.group_id,
-              b: bd.bucket,
-              o: op_id
-            },
-            op: 'REMOVE',
-            source_table: options.table.id,
-            source_key: options.sourceKey,
-            table: bd.table,
-            row_id: bd.id,
-            checksum: dchecksum,
-            data: null
-          }
-        }
+      this.addBucketDataOp({
+        _id: {
+          g: this.group_id,
+          b: bd.bucket,
+          o: op_id
+        },
+        op: 'REMOVE',
+        source_table: options.table.id,
+        source_key: options.sourceKey,
+        table: bd.table,
+        row_id: bd.id,
+        checksum: dchecksum,
+        data: null
       });
+
       this.currentSize += 200;
     }
   }
@@ -280,4 +342,20 @@ export class PersistedBatch {
     this.currentSize = 0;
     this.debugLastOpId = null;
   }
+}
+
+function makeEmbeddedOp(op: BucketDataSingleDocument): EmbeddedOpData {
+  if (op.op === 'CLEAR') {
+    throw new ReplicationAssertionError('CLEAR operations cannot be embedded');
+  }
+  return {
+    o: op._id.o,
+    op: op.op,
+    checksum: op.checksum,
+    data: op.data,
+    source_table: op.source_table,
+    source_key: op.source_key,
+    table: op.table,
+    row_id: op.row_id
+  };
 }
