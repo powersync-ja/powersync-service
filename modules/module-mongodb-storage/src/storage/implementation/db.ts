@@ -41,7 +41,7 @@ export class PowerSyncMongo {
     this.client = client;
 
     const db = client.db(options?.database, {
-      ...storage.BSON_DESERIALIZE_OPTIONS
+      ...storage.BSON_DESERIALIZE_INTERNAL_OPTIONS
     });
     this.db = db;
 

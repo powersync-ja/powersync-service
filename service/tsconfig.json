@@ -40,6 +40,9 @@
       "path": "../modules/module-mongodb-storage"
     },
     {
+      "path": "../modules/module-postgres-storage"
+    },
+    {
       "path": "../modules/module-mysql"
     }
   ]
