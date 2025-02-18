@@ -1,6 +1,15 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
-import { DisposableObserver, ReplicationAssertionError } from '@powersync/lib-services-framework';
-import { storage, utils } from '@powersync/service-core';
+import { ReplicationAssertionError } from '@powersync/lib-services-framework';
+import {
+  BroadcastIterable,
+  CHECKPOINT_INVALIDATE_ALL,
+  CheckpointChanges,
+  GetCheckpointChangesOptions,
+  LastValueSink,
+  storage,
+  utils,
+  WatchWriteCheckpointOptions
+} from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as uuid from 'uuid';
@@ -8,7 +17,9 @@ import { BIGINT_MAX } from '../types/codecs.js';
 import { models, RequiredOperationBatchLimits } from '../types/types.js';
 import { replicaIdToSubkey } from '../utils/bson.js';
 import { mapOpEntry } from '../utils/bucket-data.js';
+import * as timers from 'timers/promises';
 
+import * as framework from '@powersync/lib-services-framework';
 import { StatementParam } from '@powersync/service-jpgwire';
 import { StoredRelationId } from '../types/models/SourceTable.js';
 import { pick } from '../utils/ts-codec.js';
@@ -16,6 +27,7 @@ import { PostgresBucketBatch } from './batch/PostgresBucketBatch.js';
 import { PostgresWriteCheckpointAPI } from './checkpoints/PostgresWriteCheckpointAPI.js';
 import { PostgresBucketStorageFactory } from './PostgresBucketStorageFactory.js';
 import { PostgresCompactor } from './PostgresCompactor.js';
+import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 
 export type PostgresSyncRulesStorageOptions = {
   factory: PostgresBucketStorageFactory;
@@ -26,13 +38,15 @@ export type PostgresSyncRulesStorageOptions = {
 };
 
 export class PostgresSyncRulesStorage
-  extends DisposableObserver<storage.SyncRulesBucketStorageListener>
+  extends framework.BaseObserver<storage.SyncRulesBucketStorageListener>
   implements storage.SyncRulesBucketStorage
 {
   public readonly group_id: number;
   public readonly sync_rules: storage.PersistedSyncRulesContent;
   public readonly slot_name: string;
   public readonly factory: PostgresBucketStorageFactory;
+
+  private sharedIterator = new BroadcastIterable((signal) => this.watchActiveCheckpoint(signal));
 
   protected db: lib_postgres.DatabaseClient;
   protected writeCheckpointAPI: PostgresWriteCheckpointAPI;
@@ -272,7 +286,7 @@ export class PostgresSyncRulesStorage
 
     const checkpoint_lsn = syncRules?.last_checkpoint_lsn ?? null;
 
-    await using batch = new PostgresBucketBatch({
+    const batch = new PostgresBucketBatch({
       db: this.db,
       sync_rules: this.sync_rules.parsed(options).sync_rules,
       group_id: this.group_id,
@@ -662,5 +676,138 @@ export class PostgresSyncRulesStorage
         ];
       })
     );
+  }
+
+  async getActiveCheckpoint(): Promise<storage.ReplicationCheckpoint> {
+    const activeCheckpoint = await this.db.sql`
+      SELECT
+        id,
+        last_checkpoint,
+        last_checkpoint_lsn
+      FROM
+        sync_rules
+      WHERE
+        state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
+      ORDER BY
+        id DESC
+      LIMIT
+        1
+    `
+      .decoded(models.ActiveCheckpoint)
+      .first();
+
+    return this.makeActiveCheckpoint(activeCheckpoint);
+  }
+
+  async *watchWriteCheckpoint(options: WatchWriteCheckpointOptions): AsyncIterable<storage.StorageCheckpointUpdate> {
+    let lastCheckpoint: utils.OpId | null = null;
+    let lastWriteCheckpoint: bigint | null = null;
+
+    const { signal, user_id } = options;
+
+    const iter = wrapWithAbort(this.sharedIterator, signal);
+    for await (const cp of iter) {
+      const { checkpoint, lsn } = cp;
+
+      // lsn changes are not important by itself.
+      // What is important is:
+      // 1. checkpoint (op_id) changes.
+      // 2. write checkpoint changes for the specific user
+      const lsnFilters: Record<string, string> = lsn ? { 1: lsn } : {};
+
+      const currentWriteCheckpoint = await this.lastWriteCheckpoint({
+        user_id,
+        heads: {
+          ...lsnFilters
+        }
+      });
+
+      if (currentWriteCheckpoint == lastWriteCheckpoint && checkpoint == lastCheckpoint) {
+        // No change - wait for next one
+        // In some cases, many LSNs may be produced in a short time.
+        // Add a delay to throttle the write checkpoint lookup a bit.
+        await timers.setTimeout(20 + 10 * Math.random());
+        continue;
+      }
+
+      lastWriteCheckpoint = currentWriteCheckpoint;
+      lastCheckpoint = checkpoint;
+
+      yield {
+        base: cp,
+        writeCheckpoint: currentWriteCheckpoint,
+        update: CHECKPOINT_INVALIDATE_ALL
+      };
+    }
+  }
+
+  protected async *watchActiveCheckpoint(signal: AbortSignal): AsyncIterable<storage.ReplicationCheckpoint> {
+    const doc = await this.db.sql`
+      SELECT
+        id,
+        last_checkpoint,
+        last_checkpoint_lsn
+      FROM
+        sync_rules
+      WHERE
+        state = ${{ type: 'varchar', value: storage.SyncRuleState.ACTIVE }}
+      LIMIT
+        1
+    `
+      .decoded(models.ActiveCheckpoint)
+      .first();
+
+    if (doc == null) {
+      // Abort the connections - clients will have to retry later.
+      throw new framework.ServiceError(framework.ErrorCode.PSYNC_S2302, 'No active sync rules available');
+    }
+
+    const sink = new LastValueSink<string>(undefined);
+
+    const disposeListener = this.db.registerListener({
+      notification: (notification) => sink.next(notification.payload)
+    });
+
+    signal.addEventListener('aborted', async () => {
+      disposeListener();
+      sink.complete();
+    });
+
+    yield this.makeActiveCheckpoint(doc);
+
+    let lastOp: storage.ReplicationCheckpoint | null = null;
+    for await (const payload of sink.withSignal(signal)) {
+      if (signal.aborted) {
+        return;
+      }
+
+      const notification = models.ActiveCheckpointNotification.decode(payload);
+      if (notification.active_checkpoint == null) {
+        continue;
+      }
+      if (Number(notification.active_checkpoint.id) != doc.id) {
+        // Active sync rules changed - abort and restart the stream
+        break;
+      }
+
+      const activeCheckpoint = this.makeActiveCheckpoint(notification.active_checkpoint);
+
+      if (lastOp == null || activeCheckpoint.lsn != lastOp.lsn || activeCheckpoint.checkpoint != lastOp.checkpoint) {
+        lastOp = activeCheckpoint;
+        yield activeCheckpoint;
+      }
+    }
+  }
+
+  async getCheckpointChanges(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
+    // We do not track individual changes yet
+    return CHECKPOINT_INVALIDATE_ALL;
+  }
+
+  private makeActiveCheckpoint(row: models.ActiveCheckpointDecoded | null) {
+    return {
+      checkpoint: utils.timestampToOpId(row?.last_checkpoint ?? 0n),
+      lsn: row?.last_checkpoint_lsn ?? null
+    } satisfies storage.ReplicationCheckpoint;
   }
 }

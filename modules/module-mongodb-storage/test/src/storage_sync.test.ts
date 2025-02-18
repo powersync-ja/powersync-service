@@ -19,7 +19,7 @@ describe('sync - mongodb', () => {
           - SELECT id, description FROM "%"
     `
     );
-    using factory = await INITIALIZED_MONGO_STORAGE_FACTORY();
+    await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY();
     const bucketStorage = factory.getInstance(sync_rules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {

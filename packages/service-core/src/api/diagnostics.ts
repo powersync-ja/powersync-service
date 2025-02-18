@@ -57,7 +57,7 @@ export async function getSyncRulesStatus(
   // This method can run under some situations if no connection is configured yet.
   // It will return a default tag in such a case. This default tag is not module specific.
   const tag = sourceConfig.tag ?? DEFAULT_TAG;
-  using systemStorage = live_status ? bucketStorage.getInstance(sync_rules) : undefined;
+  const systemStorage = live_status ? bucketStorage.getInstance(sync_rules) : undefined;
   const status = await systemStorage?.getStatus();
   let replication_lag_bytes: number | undefined = undefined;
 

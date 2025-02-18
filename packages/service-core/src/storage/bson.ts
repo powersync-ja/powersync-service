@@ -1,7 +1,7 @@
 import * as bson from 'bson';
 
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
-import { ReplicaId } from './BucketStorage.js';
+import { ReplicaId } from './BucketStorageBatch.js';
 
 type NodeBuffer = Buffer<ArrayBuffer>;
 
@@ -27,6 +27,11 @@ export const serializeLookupBuffer = (lookup: SqliteJsonValue[]): NodeBuffer => 
 
 export const serializeLookup = (lookup: SqliteJsonValue[]) => {
   return new bson.Binary(serializeLookupBuffer(lookup));
+};
+
+export const getLookupBucketDefinitionName = (lookup: bson.Binary) => {
+  const parsed = bson.deserialize(lookup.buffer, BSON_DESERIALIZE_OPTIONS).l as SqliteJsonValue[];
+  return parsed[0] as string;
 };
 
 /**

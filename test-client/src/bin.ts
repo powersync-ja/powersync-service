@@ -2,6 +2,7 @@ import { program } from 'commander';
 import { getCheckpointData } from './client.js';
 import { getCredentials } from './auth.js';
 import * as jose from 'jose';
+import { concurrentConnections } from './load-testing/load-test.js';
 
 program
   .command('fetch-operations')
@@ -28,6 +29,21 @@ program
 
     console.error(`Payload:\n${JSON.stringify(decoded, null, 2)}\nToken:`);
     console.log(credentials.token);
+  });
+
+program
+  .command('concurrent-connections')
+  .description('Load test the service by connecting a number of concurrent clients')
+  .option('-t, --token [token]', 'JWT to use for authentication')
+  .option('-e, --endpoint [endpoint]', 'endpoint URI')
+  .option('-c, --config [config]', 'path to powersync.yaml, to auto-generate a token from a HS256 key')
+  .option('-u, --sub [sub]', 'sub field for auto-generated token')
+  .option('-n, --num-clients [num-clients]', 'number of clients to connect')
+  .option('-m, --mode [mode]', 'http or websocket')
+  .action(async (options) => {
+    const credentials = await getCredentials(options);
+
+    await concurrentConnections(credentials, options['numClients'] ?? 10, options.mode ?? 'http');
   });
 
 await program.parseAsync();

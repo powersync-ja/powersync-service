@@ -62,7 +62,7 @@ export function connectPgPool() {
 
 export async function getClientCheckpoint(
   db: pgwire.PgClient,
-  bucketStorage: BucketStorageFactory,
+  storageFactory: BucketStorageFactory,
   options?: { timeout?: number }
 ): Promise<OpId> {
   const start = Date.now();
@@ -77,8 +77,9 @@ export async function getClientCheckpoint(
 
   logger.info(`Waiting for LSN checkpoint: ${lsn}`);
   while (Date.now() - start < timeout) {
-    const cp = await bucketStorage.getActiveCheckpoint();
-    if (!cp.hasSyncRules()) {
+    const storage = await storageFactory.getActiveStorage();
+    const cp = await storage?.getCheckpoint();
+    if (cp == null) {
       throw new Error('No sync rules available');
     }
     if (cp.lsn && cp.lsn >= lsn) {

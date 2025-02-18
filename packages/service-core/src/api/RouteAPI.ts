@@ -1,6 +1,6 @@
 import { SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import * as types from '@powersync/service-types';
-import { ParseSyncRulesOptions, SyncRulesBucketStorage } from '../storage/BucketStorage.js';
+import { ParseSyncRulesOptions, SyncRulesBucketStorage } from '../storage/storage-index.js';
 
 export interface PatternResult {
   schema: string;

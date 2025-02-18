@@ -1,7 +1,7 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import {
+  BaseObserver,
   container,
-  DisposableObserver,
   ErrorCode,
   errors,
   logger,
@@ -51,7 +51,7 @@ type StatefulCheckpointDecoded = t.Decoded<typeof StatefulCheckpoint>;
 const MAX_ROW_SIZE = 15 * 1024 * 1024;
 
 export class PostgresBucketBatch
-  extends DisposableObserver<storage.BucketBatchStorageListener>
+  extends BaseObserver<storage.BucketBatchStorageListener>
   implements storage.BucketStorageBatch
 {
   public last_flushed_op: bigint | null = null;
@@ -85,6 +85,10 @@ export class PostgresBucketBatch
 
   get lastCheckpointLsn() {
     return this.last_checkpoint_lsn;
+  }
+
+  async [Symbol.asyncDispose]() {
+    super.clearListeners();
   }
 
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {

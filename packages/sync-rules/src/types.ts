@@ -4,7 +4,7 @@ import { SourceTableInterface } from './SourceTableInterface.js';
 import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import { toSyncRulesParameters } from './utils.js';
-import { BucketPriority } from './BucketDescription.js';
+import { BucketDescription, BucketPriority } from './BucketDescription.js';
 
 export interface SyncRules {
   evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
@@ -341,11 +341,6 @@ export type CompiledClause = RowValueClause | ParameterMatchClause | ParameterVa
  * true if any of the filter parameter sets match
  */
 export type TrueIfParametersMatch = FilterParameters[];
-
-export interface QueryBucketIdOptions {
-  getParameterSets: (lookups: SqliteJsonValue[][]) => Promise<SqliteJsonRow[]>;
-  parameters: RequestParameters;
-}
 
 export interface SourceSchemaTable {
   table: string;

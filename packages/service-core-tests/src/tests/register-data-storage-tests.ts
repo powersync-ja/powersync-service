@@ -140,7 +140,7 @@ bucket_definitions:
     );
 
     await using factory = await generateStorageFactory();
-    await using bucketStorage = factory.getInstance(sync_rules);
+    const bucketStorage = factory.getInstance(sync_rules);
 
     const table = test_utils.makeTestTable('todos', ['id', 'list_id']);
 
@@ -394,11 +394,10 @@ bucket_definitions:
     const parameter_sets = await bucketStorage.getParameterSets(checkpoint, lookups);
     expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }]);
 
-    const buckets = await sync_rules.queryBucketDescriptions({
+    const buckets = await sync_rules.getBucketParameterQuerier(parameters).queryDynamicBucketDescriptions({
       getParameterSets(lookups) {
         return bucketStorage.getParameterSets(checkpoint, lookups);
-      },
-      parameters
+      }
     });
     expect(buckets).toEqual([{ bucket: 'by_workspace["workspace1"]', priority: 3 }]);
   });
@@ -466,11 +465,10 @@ bucket_definitions:
     parameter_sets.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }, { workspace_id: 'workspace3' }]);
 
-    const buckets = await sync_rules.queryBucketDescriptions({
+    const buckets = await sync_rules.getBucketParameterQuerier(parameters).queryDynamicBucketDescriptions({
       getParameterSets(lookups) {
         return bucketStorage.getParameterSets(checkpoint, lookups);
-      },
-      parameters
+      }
     });
     buckets.sort((a, b) => a.bucket.localeCompare(b.bucket));
     expect(buckets).toEqual([
@@ -566,11 +564,10 @@ bucket_definitions:
 
     // Test final values - the important part
     const buckets = (
-      await sync_rules.queryBucketDescriptions({
+      await sync_rules.getBucketParameterQuerier(parameters).queryDynamicBucketDescriptions({
         getParameterSets(lookups) {
           return bucketStorage.getParameterSets(checkpoint, lookups);
-        },
-        parameters
+        }
       })
     ).map((e) => e.bucket);
     buckets.sort();
@@ -1418,84 +1415,6 @@ bucket_definitions:
     expect(test_utils.getBatchData(batch3)).toEqual([]);
 
     expect(test_utils.getBatchMeta(batch3)).toEqual(null);
-  });
-
-  test('batch should be disposed automatically', async () => {
-    const sync_rules = test_utils.testRules(`
-      bucket_definitions:
-        global:
-          data: [] 
-          `);
-
-    await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules);
-
-    let isDisposed = false;
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      batch.registerListener({
-        disposed: () => {
-          isDisposed = true;
-        }
-      });
-    });
-    expect(isDisposed).true;
-
-    isDisposed = false;
-    let errorCaught = false;
-    try {
-      await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-        batch.registerListener({
-          disposed: () => {
-            isDisposed = true;
-          }
-        });
-        throw new Error(`Testing exceptions`);
-      });
-    } catch (ex) {
-      errorCaught = true;
-      expect(ex.message.includes('Testing')).true;
-    }
-    expect(errorCaught).true;
-    expect(isDisposed).true;
-  });
-
-  test('batch should be disposed automatically', async () => {
-    const sync_rules = test_utils.testRules(`
-      bucket_definitions:
-        global:
-          data: [] 
-          `);
-
-    await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules);
-
-    let isDisposed = false;
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      batch.registerListener({
-        disposed: () => {
-          isDisposed = true;
-        }
-      });
-    });
-    expect(isDisposed).true;
-
-    isDisposed = false;
-    let errorCaught = false;
-    try {
-      await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-        batch.registerListener({
-          disposed: () => {
-            isDisposed = true;
-          }
-        });
-        throw new Error(`Testing exceptions`);
-      });
-    } catch (ex) {
-      errorCaught = true;
-      expect(ex.message.includes('Testing')).true;
-    }
-    expect(errorCaught).true;
-    expect(isDisposed).true;
   });
 
   test('empty storage metrics', async () => {

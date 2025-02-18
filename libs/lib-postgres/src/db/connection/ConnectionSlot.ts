@@ -1,7 +1,7 @@
 import * as framework from '@powersync/lib-services-framework';
 import * as pgwire from '@powersync/service-jpgwire';
 
-export interface NotificationListener extends framework.DisposableListener {
+export interface NotificationListener {
   notification?: (payload: pgwire.PgNotification) => void;
 }
 
@@ -23,7 +23,7 @@ export type ConnectionSlotOptions = {
 
 export const MAX_CONNECTION_ATTEMPTS = 5;
 
-export class ConnectionSlot extends framework.DisposableObserver<ConnectionSlotListener> {
+export class ConnectionSlot extends framework.BaseObserver<ConnectionSlotListener> {
   isAvailable: boolean;
   isPoking: boolean;
 
@@ -63,7 +63,7 @@ export class ConnectionSlot extends framework.DisposableObserver<ConnectionSlotL
     this.closed = true;
     const connection = this.connection ?? (await this.connectingPromise);
     await connection?.end();
-    return super[Symbol.dispose]();
+    super.clearListeners();
   }
 
   protected async configureConnectionNotifications(connection: pgwire.PgConnection) {

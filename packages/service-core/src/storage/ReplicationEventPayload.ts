@@ -1,6 +1,6 @@
 import * as sync_rules from '@powersync/service-sync-rules';
-import { BucketStorageBatch, SaveOp } from './BucketStorage.js';
 import { SourceTable } from './SourceTable.js';
+import { BucketStorageBatch, SaveOp } from './BucketStorageBatch.js';
 
 export type EventData = {
   op: SaveOp;

@@ -51,7 +51,7 @@ async function terminateSyncRules(storageFactory: storage.BucketStorageFactory, 
 
       // Mark the sync rules as terminated
       for (let syncRules of combinedSyncRules) {
-        using syncRulesStorage = storageFactory.getInstance(syncRules);
+        const syncRulesStorage = storageFactory.getInstance(syncRules);
         // The storage will be dropped at the end of the teardown, so we don't need to clear it here
         await syncRulesStorage.terminate({ clearStorage: false });
       }

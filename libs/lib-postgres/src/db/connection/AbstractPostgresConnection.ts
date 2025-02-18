@@ -7,9 +7,7 @@ export type DecodedSQLQueryExecutor<T extends t.Codec<any, any>> = {
   rows: () => Promise<t.Decoded<T>[]>;
 };
 
-export abstract class AbstractPostgresConnection<
-  Listener extends framework.DisposableListener = framework.DisposableListener
-> extends framework.DisposableObserver<Listener> {
+export abstract class AbstractPostgresConnection<Listener = {}> extends framework.BaseObserver<Listener> {
   protected abstract baseConnection: pgwire.PgClient;
 
   stream(...args: pgwire.Statement[]): AsyncIterableIterator<pgwire.PgChunk> {

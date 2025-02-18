@@ -1,5 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { ActiveCheckpoint, BucketStorageFactory, OpId, SyncRulesBucketStorage } from '@powersync/service-core';
+import { BucketStorageFactory, OpId, ReplicationCheckpoint, SyncRulesBucketStorage } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
 
 import { ChangeStream, ChangeStreamOptions } from '@module/replication/ChangeStream.js';
@@ -138,7 +138,7 @@ export class ChangeStreamTestContext {
 export async function getClientCheckpoint(
   client: mongo.MongoClient,
   db: mongo.Db,
-  bucketStorage: BucketStorageFactory,
+  storageFactory: BucketStorageFactory,
   options?: { timeout?: number }
 ): Promise<OpId> {
   const start = Date.now();
@@ -147,14 +147,15 @@ export async function getClientCheckpoint(
   // Since we don't use LSNs anymore, the only way to get that is to wait.
 
   const timeout = options?.timeout ?? 50_000;
-  let lastCp: ActiveCheckpoint | null = null;
+  let lastCp: ReplicationCheckpoint | null = null;
 
   while (Date.now() - start < timeout) {
-    const cp = await bucketStorage.getActiveCheckpoint();
-    lastCp = cp;
-    if (!cp.hasSyncRules()) {
+    const storage = await storageFactory.getActiveStorage();
+    const cp = await storage?.getCheckpoint();
+    if (cp == null) {
       throw new Error('No sync rules available');
     }
+    lastCp = cp;
     if (cp.lsn && cp.lsn >= lsn) {
       return cp.checkpoint;
     }

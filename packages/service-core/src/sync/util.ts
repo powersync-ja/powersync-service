@@ -130,3 +130,26 @@ export function acquireSemaphoreAbortable(
     }, reject);
   });
 }
+
+/**
+ * Wrap a promise in the style of Promise.allSettled.
+ *
+ * This is specifically useful if rejections should not be treated as uncaught rejections
+ * if it is not specifically handled.
+ */
+export function settledPromise<T>(promise: Promise<T>): Promise<PromiseSettledResult<T>> {
+  return promise.then(
+    (result) => {
+      return {
+        status: 'fulfilled',
+        value: result
+      };
+    },
+    (error) => {
+      return {
+        status: 'rejected',
+        reason: error
+      };
+    }
+  );
+}

@@ -16,7 +16,6 @@ import {
   isEvaluatedParameters,
   isEvaluatedRow,
   isEvaluationError,
-  QueryBucketIdOptions,
   QueryParseOptions,
   RequestParameters,
   SourceSchema,
@@ -24,6 +23,11 @@ import {
   SyncRules
 } from './types.js';
 import { BucketDescription, BucketPriority, isValidPriority } from './BucketDescription.js';
+import {
+  BucketParameterQuerier,
+  mergeBucketParameterQueriers,
+  ParameterLookupSource
+} from './BucketParameterQuerier.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -317,26 +321,9 @@ export class SqlSyncRules implements SyncRules {
     return { results, errors };
   }
 
-  /**
-   * @deprecated For testing only.
-   */
-  getStaticBucketDescriptions(parameters: RequestParameters) {
-    let results: BucketDescription[] = [];
-    for (let bucket of this.bucket_descriptors) {
-      results.push(...bucket.getStaticBucketDescriptions(parameters));
-    }
-    return results;
-  }
-
-  /**
-   * Note: This can error hard.
-   */
-  async queryBucketDescriptions(options: QueryBucketIdOptions): Promise<BucketDescription[]> {
-    let results: BucketDescription[] = [];
-    for (let bucket of this.bucket_descriptors) {
-      results.push(...(await bucket.queryBucketDescriptions(options)));
-    }
-    return results;
+  getBucketParameterQuerier(parameters: RequestParameters): BucketParameterQuerier {
+    const queriers = this.bucket_descriptors.map((query) => query.getBucketParameterQuerier(parameters));
+    return mergeBucketParameterQueriers(queriers);
   }
 
   getSourceTables(): TablePattern[] {

@@ -3,10 +3,10 @@ import { BinLogStream, BinLogStreamOptions } from '@module/replication/BinLogStr
 import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManager.js';
 import { logger } from '@powersync/lib-services-framework';
 import {
-  ActiveCheckpoint,
   BucketStorageFactory,
   OpId,
   OplogEntry,
+  ReplicationCheckpoint,
   storage,
   SyncRulesBucketStorage
 } from '@powersync/service-core';
@@ -148,7 +148,7 @@ export class BinlogStreamTestContext {
 
 export async function getClientCheckpoint(
   connection: mysqlPromise.Connection,
-  bucketStorage: BucketStorageFactory,
+  storageFactory: BucketStorageFactory,
   options?: { timeout?: number }
 ): Promise<OpId> {
   const start = Date.now();
@@ -157,16 +157,16 @@ export async function getClientCheckpoint(
   // Since we don't use LSNs anymore, the only way to get that is to wait.
 
   const timeout = options?.timeout ?? 50_000;
-  let lastCp: ActiveCheckpoint | null = null;
+  let lastCp: ReplicationCheckpoint | null = null;
 
   logger.info('Expected Checkpoint: ' + gtid.comparable);
   while (Date.now() - start < timeout) {
-    const cp = await bucketStorage.getActiveCheckpoint();
-    lastCp = cp;
-    //logger.info('Last Checkpoint: ' + lastCp.lsn);
-    if (!cp.hasSyncRules()) {
+    const storage = await storageFactory.getActiveStorage();
+    const cp = await storage?.getCheckpoint();
+    if (cp == null) {
       throw new Error('No sync rules available');
     }
+    lastCp = cp;
     if (cp.lsn && cp.lsn >= gtid.comparable) {
       return cp.checkpoint;
     }
