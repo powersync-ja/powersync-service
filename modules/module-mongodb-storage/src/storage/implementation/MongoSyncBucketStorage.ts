@@ -392,12 +392,19 @@ export class MongoSyncBucketStorage
       }
 
       const afterBi = BigInt(currentBatch.after);
-      const entries = mapOpEntries(row).filter((entry) => {
+      let entries = mapOpEntries(row).filter((entry) => {
         const bi = BigInt(entry.op_id);
         return bi > afterBi && bi <= checkpointBigInt;
       });
-      currentBatch.data.push(...entries);
-      currentBatch.next_after = String(row._id.o);
+      if (currentBatch.data.length + entries.length > limit) {
+        currentBatch.data.push(...entries.slice(0, limit - currentBatch.data.length));
+        currentBatch.next_after = currentBatch.data[currentBatch.data.length - 1].op_id;
+        currentBatch.has_more = true;
+        break;
+      } else {
+        currentBatch.data.push(...entries);
+        currentBatch.next_after = currentBatch.data[currentBatch.data.length - 1].op_id;
+      }
 
       batchSize += rawData.byteLength;
     }
@@ -420,11 +427,14 @@ export class MongoSyncBucketStorage
     }
 
     let startMap = new Map<string, string>();
+    let endMap = new Map<string, string>();
     const filters: any[] = [];
     for (let request of batch) {
       if (request.start != null) {
         startMap.set(request.bucket, request.start);
       }
+      endMap.set(request.bucket, request.end);
+
       filters.push({
         _id: {
           $gt: {
@@ -435,9 +445,17 @@ export class MongoSyncBucketStorage
           $lte: {
             g: this.group_id,
             b: request.bucket,
-            o: BigInt(request.end)
+            o: new bson.MaxKey()
           }
-        }
+        },
+        $or: [
+          {
+            '_id.o': { $lte: BigInt(request.end) }
+          },
+          {
+            start_op_id: { $lte: BigInt(request.end) }
+          }
+        ]
       });
     }
 
@@ -466,6 +484,9 @@ export class MongoSyncBucketStorage
               min_op: {
                 // Only considers non-null values
                 $min: '$start_op_id'
+              },
+              max_op: {
+                $max: '$_id.o'
               }
             }
           }
@@ -482,7 +503,16 @@ export class MongoSyncBucketStorage
             // As long as checkpoints are never in the middle of a range, this should never happen.
             // This could theoretically happen after compacting. We could handle that case by looking
             // up the specific document and adjusting the checksum.
-            throw new ServiceAssertionError('Attempt to calculate checksum in the middle of a range');
+            throw new ServiceAssertionError('Attempt to calculate checksum in the middle of a range (1)');
+          }
+        }
+        if (doc.max_op != null) {
+          const end = endMap.get(doc._id);
+          if (end != null && BigInt(end) < BigInt(doc.max_op)) {
+            // As long as checkpoints are never in the middle of a range, this should never happen.
+            // This could theoretically happen after compacting. We could handle that case by looking
+            // up the specific document and adjusting the checksum.
+            throw new ServiceAssertionError('Attempt to calculate checksum in the middle of a range (2)');
           }
         }
         return [
