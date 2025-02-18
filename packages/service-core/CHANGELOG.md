@@ -1,5 +1,13 @@
 # @powersync/service-core
 
+## 0.18.2
+
+### Patch Changes
+
+- 15283d4: Stream changes in priority order.
+- Updated dependencies [f55e36a]
+  - @powersync/service-sync-rules@0.24.0
+
 ## 0.18.1
 
 ### Patch Changes

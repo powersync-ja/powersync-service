@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.24.0
+
+### Minor Changes
+
+- f55e36a: Replace bucket ids from queries with a description also containing a priority.
+
 ## 0.23.4
 
 ### Patch Changes
