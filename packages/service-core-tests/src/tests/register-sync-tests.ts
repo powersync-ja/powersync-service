@@ -229,6 +229,11 @@ bucket_definitions:
 
               await batch.commit('0/2');
             });
+          } else {
+            // Low-priority sync from the first checkpoint was interrupted. This should not happen before
+            // 1000 low-priority items were synchronized.
+            expect(sentCheckpoints).toBe(2);
+            expect(sentRows).toBeGreaterThan(1000);
           }
         }
         if ('checkpoint' in next || 'checkpoint_diff' in next) {
