@@ -3,7 +3,6 @@ import { storage, SyncRulesBucketStorage } from '@powersync/service-core';
 import * as pg_wire from '@powersync/service-jpgwire';
 import * as sync_rules from '@powersync/service-sync-rules';
 import crypto from 'crypto';
-import { LRUCache } from 'lru-cache/min';
 import * as uuid from 'uuid';
 
 import * as lib_postgres from '@powersync/lib-service-postgres';
@@ -26,30 +25,7 @@ export class PostgresBucketStorageFactory
   readonly db: lib_postgres.DatabaseClient;
   public readonly slot_name_prefix: string;
 
-  private readonly storageCache = new LRUCache<number, storage.SyncRulesBucketStorage>({
-    max: 3,
-    fetchMethod: async (id) => {
-      const syncRulesRow = await this.db.sql`
-        SELECT
-          *
-        FROM
-          sync_rules
-        WHERE
-          id = ${{ value: id, type: 'int4' }}
-      `
-        .decoded(models.SyncRules)
-        .first();
-      if (syncRulesRow == null) {
-        // Deleted in the meantime?
-        return undefined;
-      }
-      const rules = new PostgresPersistedSyncRulesContent(this.db, syncRulesRow);
-      return this.getInstance(rules);
-    },
-    dispose: (storage) => {
-      storage[Symbol.dispose]();
-    }
-  });
+  private activeStorageCache: storage.SyncRulesBucketStorage | undefined;
 
   constructor(protected options: PostgresBucketStorageOptions) {
     super();
@@ -384,6 +360,15 @@ export class PostgresBucketStorageFactory
       return null;
     }
 
-    return this.getInstance(content);
+    // It is important that this instance is cached.
+    // Not for the instance construction itself, but to ensure that internal caches on the instance
+    // are re-used properly.
+    if (this.activeStorageCache?.group_id == content.id) {
+      return this.activeStorageCache;
+    } else {
+      const instance = this.getInstance(content);
+      this.activeStorageCache = instance;
+      return instance;
+    }
   }
 }

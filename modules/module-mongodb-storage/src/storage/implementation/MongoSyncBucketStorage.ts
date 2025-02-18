@@ -12,7 +12,6 @@ import {
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
   GetCheckpointChangesOptions,
-  getLookupBucketDefinitionName,
   ReplicationCheckpoint,
   storage,
   utils,

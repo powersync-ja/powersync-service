@@ -1,5 +1,4 @@
 import { SqlSyncRules } from '@powersync/service-sync-rules';
-import { LRUCache } from 'lru-cache/min';
 
 import { storage } from '@powersync/service-core';
 
