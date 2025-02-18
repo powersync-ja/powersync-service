@@ -276,7 +276,16 @@ export class MongoSyncBucketStorage
     }
     let filters: mongo.Filter<BucketDataDocument>[] = [];
 
-    const end = checkpoint ? BigInt(checkpoint) : new bson.MaxKey();
+    // This filter cannot efficiently use any index. It should always filter out a small
+    // number of documents, so that should not be an issue.
+    const checkpointBigInt = BigInt(checkpoint);
+    const endFilter = {
+      $or: [
+        { '_id.o': { $lte: checkpointBigInt } },
+        // Batched ranges that overlap
+        { start_op_id: { $lte: checkpointBigInt } }
+      ]
+    };
     for (let [name, start] of dataBuckets.entries()) {
       filters.push({
         _id: {
@@ -288,7 +297,7 @@ export class MongoSyncBucketStorage
           $lte: {
             g: this.group_id,
             b: name,
-            o: end as any
+            o: new bson.MaxKey() as any
           }
         }
       });
@@ -297,9 +306,12 @@ export class MongoSyncBucketStorage
     const limit = options?.limit ?? storage.DEFAULT_DOCUMENT_BATCH_LIMIT;
     const sizeLimit = options?.chunkLimitBytes ?? storage.DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES;
 
+    // We could use an aggregation with $unwind here.
+    // We optimize for reduing overhead on the storage database rather than reducing overhead
+    // here, since it's easier to scale these processes.
     const cursor = this.db.bucket_data.find(
       {
-        $or: filters
+        $and: [{ $or: filters }, endFilter]
       },
       {
         session: undefined,
@@ -379,7 +391,11 @@ export class MongoSyncBucketStorage
         }
       }
 
-      const entries = mapOpEntries(row);
+      const afterBi = BigInt(currentBatch.after);
+      const entries = mapOpEntries(row).filter((entry) => {
+        const bi = BigInt(entry.op_id);
+        return bi > afterBi && bi <= checkpointBigInt;
+      });
       currentBatch.data.push(...entries);
       currentBatch.next_after = String(row._id.o);
 
