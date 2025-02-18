@@ -1,4 +1,4 @@
-import { AsyncDisposableObserverClient, DisposableListener } from '@powersync/lib-services-framework';
+import { ObserverClient } from '@powersync/lib-services-framework';
 import { ParseSyncRulesOptions, PersistedSyncRules, PersistedSyncRulesContent } from './PersistedSyncRulesContent.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { ReplicationLock } from './ReplicationLock.js';
@@ -12,7 +12,7 @@ import { SyncRulesBucketStorage } from './SyncRulesBucketStorage.js';
  *
  * Storage APIs for a specific copy of sync rules are provided by the `SyncRulesBucketStorage` instances.
  */
-export interface BucketStorageFactory extends AsyncDisposableObserverClient<BucketStorageFactoryListener> {
+export interface BucketStorageFactory extends ObserverClient<BucketStorageFactoryListener>, AsyncDisposable {
   /**
    * Update sync rules from configuration, if changed.
    */
@@ -96,7 +96,7 @@ export interface BucketStorageFactory extends AsyncDisposableObserverClient<Buck
   getSystemIdentifier(): Promise<BucketStorageSystemIdentifier>;
 }
 
-export interface BucketStorageFactoryListener extends DisposableListener {
+export interface BucketStorageFactoryListener {
   syncStorageCreated: (storage: SyncRulesBucketStorage) => void;
   replicationEvent: (event: ReplicationEventPayload) => void;
 }

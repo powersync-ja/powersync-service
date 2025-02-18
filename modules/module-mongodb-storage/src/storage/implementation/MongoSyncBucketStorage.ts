@@ -1,7 +1,7 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import {
-  DisposableObserver,
+  BaseObserver,
   ErrorCode,
   logger,
   ServiceAssertionError,
@@ -30,7 +30,7 @@ import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { idPrefixFilter, mapOpEntry, readSingleBatch } from './util.js';
 
 export class MongoSyncBucketStorage
-  extends DisposableObserver<storage.SyncRulesBucketStorageListener>
+  extends BaseObserver<storage.SyncRulesBucketStorageListener>
   implements storage.SyncRulesBucketStorage
 {
   private readonly db: PowerSyncMongo;

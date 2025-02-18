@@ -1,4 +1,4 @@
-import { DisposableListener, DisposableObserverClient } from '@powersync/lib-services-framework';
+import { ObserverClient } from '@powersync/lib-services-framework';
 import { EvaluatedParameters, EvaluatedRow, SqliteRow, ToastableSqliteRow } from '@powersync/service-sync-rules';
 import { BSON } from 'bson';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
@@ -9,7 +9,7 @@ export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptio
   createEmptyCheckpoints: true
 };
 
-export interface BucketStorageBatch extends DisposableObserverClient<BucketBatchStorageListener> {
+export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageListener>, AsyncDisposable {
   /**
    * Save an op, and potentially flush.
    *
@@ -139,7 +139,7 @@ export interface SaveDelete {
   afterReplicaId?: undefined;
 }
 
-export interface BucketBatchStorageListener extends DisposableListener {
+export interface BucketBatchStorageListener {
   replicationEvent: (payload: ReplicationEventPayload) => void;
 }
 

@@ -1,5 +1,5 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
-import { DisposableObserver, ReplicationAssertionError } from '@powersync/lib-services-framework';
+import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import {
   BroadcastIterable,
   CHECKPOINT_INVALIDATE_ALL,
@@ -38,7 +38,7 @@ export type PostgresSyncRulesStorageOptions = {
 };
 
 export class PostgresSyncRulesStorage
-  extends DisposableObserver<storage.SyncRulesBucketStorageListener>
+  extends framework.BaseObserver<storage.SyncRulesBucketStorageListener>
   implements storage.SyncRulesBucketStorage
 {
   public readonly group_id: number;
@@ -286,7 +286,7 @@ export class PostgresSyncRulesStorage
 
     const checkpoint_lsn = syncRules?.last_checkpoint_lsn ?? null;
 
-    await using batch = new PostgresBucketBatch({
+    const batch = new PostgresBucketBatch({
       db: this.db,
       sync_rules: this.sync_rules.parsed(options).sync_rules,
       group_id: this.group_id,

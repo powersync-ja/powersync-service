@@ -2,7 +2,7 @@ import { SqlSyncRules } from '@powersync/service-sync-rules';
 
 import { storage } from '@powersync/service-core';
 
-import { DisposableObserver, ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
+import { BaseObserver, ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
 
 import * as lib_mongo from '@powersync/lib-service-mongodb';
@@ -15,7 +15,7 @@ import { MongoSyncBucketStorage } from './implementation/MongoSyncBucketStorage.
 import { generateSlotName } from './implementation/util.js';
 
 export class MongoBucketStorage
-  extends DisposableObserver<storage.BucketStorageFactoryListener>
+  extends BaseObserver<storage.BucketStorageFactoryListener>
   implements storage.BucketStorageFactory
 {
   private readonly client: mongo.MongoClient;
@@ -41,7 +41,7 @@ export class MongoBucketStorage
   }
 
   async [Symbol.asyncDispose]() {
-    super[Symbol.dispose]();
+    // No-op
   }
 
   getInstance(options: storage.PersistedSyncRulesContent): MongoSyncBucketStorage {
@@ -53,8 +53,7 @@ export class MongoBucketStorage
     this.iterateListeners((cb) => cb.syncStorageCreated?.(storage));
     storage.registerListener({
       batchStarted: (batch) => {
-        // This nested listener will be automatically disposed when the storage is disposed
-        batch.registerManagedListener(storage, {
+        batch.registerListener({
           replicationEvent: (payload) => this.iterateListeners((cb) => cb.replicationEvent?.(payload))
         });
       }

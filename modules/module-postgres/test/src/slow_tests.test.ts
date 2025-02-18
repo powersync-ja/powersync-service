@@ -71,21 +71,13 @@ function defineSlowTests(factory: storage.TestStorageFactory) {
   // Past issues that this could reproduce intermittently:
   // * Skipping LSNs after a keepalive message
   // * Skipping LSNs when source transactions overlap
-  test(
-    'repeated replication - basic',
-    async () => {
-      await testRepeatedReplication({ compact: false, maxBatchSize: 50, numBatches: 5 });
-    },
-    { timeout: TEST_DURATION_MS + TIMEOUT_MARGIN_MS }
-  );
+  test('repeated replication - basic', { timeout: TEST_DURATION_MS + TIMEOUT_MARGIN_MS }, async () => {
+    await testRepeatedReplication({ compact: false, maxBatchSize: 50, numBatches: 5 });
+  });
 
-  test(
-    'repeated replication - compacted',
-    async () => {
-      await testRepeatedReplication({ compact: true, maxBatchSize: 100, numBatches: 2 });
-    },
-    { timeout: TEST_DURATION_MS + TIMEOUT_MARGIN_MS }
-  );
+  test('repeated replication - compacted', { timeout: TEST_DURATION_MS + TIMEOUT_MARGIN_MS }, async () => {
+    await testRepeatedReplication({ compact: true, maxBatchSize: 100, numBatches: 2 });
+  });
 
   async function testRepeatedReplication(testOptions: { compact: boolean; maxBatchSize: number; numBatches: number }) {
     const connections = new PgManager(TEST_CONNECTION_OPTIONS, {});
@@ -101,7 +93,7 @@ bucket_definitions:
       - SELECT * FROM "test_data"
 `;
     const syncRules = await f.updateSyncRules({ content: syncRuleContent });
-    using storage = f.getInstance(syncRules);
+    const storage = f.getInstance(syncRules);
     abortController = new AbortController();
     const options: WalStreamOptions = {
       abort_signal: abortController.signal,
@@ -314,116 +306,112 @@ bucket_definitions:
   //
   // If the first LSN does not correctly match with the first replication transaction,
   // we may miss some updates.
-  test(
-    'repeated initial replication',
-    async () => {
-      const pool = await connectPgPool();
-      await clearTestDb(pool);
-      await using f = await factory();
+  test('repeated initial replication', { timeout: TEST_DURATION_MS + TIMEOUT_MARGIN_MS }, async () => {
+    const pool = await connectPgPool();
+    await clearTestDb(pool);
+    await using f = await factory();
 
-      const syncRuleContent = `
+    const syncRuleContent = `
 bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "test_data"
 `;
-      const syncRules = await f.updateSyncRules({ content: syncRuleContent });
-      using storage = f.getInstance(syncRules);
+    const syncRules = await f.updateSyncRules({ content: syncRuleContent });
+    const storage = f.getInstance(syncRules);
 
-      // 1. Setup some base data that will be replicated in initial replication
-      await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);
+    // 1. Setup some base data that will be replicated in initial replication
+    await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);
 
-      let statements: pgwire.Statement[] = [];
+    let statements: pgwire.Statement[] = [];
 
-      const n = Math.floor(Math.random() * 200);
-      for (let i = 0; i < n; i++) {
-        statements.push({
-          statement: `INSERT INTO test_data(description) VALUES('test_init')`
-        });
-      }
-      await pool.query(...statements);
+    const n = Math.floor(Math.random() * 200);
+    for (let i = 0; i < n; i++) {
+      statements.push({
+        statement: `INSERT INTO test_data(description) VALUES('test_init')`
+      });
+    }
+    await pool.query(...statements);
 
-      const start = Date.now();
-      let i = 0;
+    const start = Date.now();
+    let i = 0;
 
-      while (Date.now() - start < TEST_DURATION_MS) {
-        // 2. Each iteration starts with a clean slate
-        await pool.query(`SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE active = FALSE`);
-        i += 1;
+    while (Date.now() - start < TEST_DURATION_MS) {
+      // 2. Each iteration starts with a clean slate
+      await pool.query(`SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE active = FALSE`);
+      i += 1;
 
-        const connections = new PgManager(TEST_CONNECTION_OPTIONS, {});
-        const replicationConnection = await connections.replicationConnection();
+      const connections = new PgManager(TEST_CONNECTION_OPTIONS, {});
+      const replicationConnection = await connections.replicationConnection();
 
-        abortController = new AbortController();
-        const options: WalStreamOptions = {
-          abort_signal: abortController.signal,
-          connections,
-          storage: storage
-        };
-        walStream = new WalStream(options);
+      abortController = new AbortController();
+      const options: WalStreamOptions = {
+        abort_signal: abortController.signal,
+        connections,
+        storage: storage
+      };
+      walStream = new WalStream(options);
 
-        await storage.clear();
+      await storage.clear();
 
-        // 3. Start initial replication, then streaming, but don't wait for any of this
-        let initialReplicationDone = false;
-        streamPromise = (async () => {
-          await walStream.initReplication(replicationConnection);
-          await storage.autoActivate();
+      // 3. Start initial replication, then streaming, but don't wait for any of this
+      let initialReplicationDone = false;
+      streamPromise = (async () => {
+        await walStream.initReplication(replicationConnection);
+        await storage.autoActivate();
+        initialReplicationDone = true;
+        await walStream.streamChanges(replicationConnection);
+      })()
+        .catch((e) => {
           initialReplicationDone = true;
-          await walStream.streamChanges(replicationConnection);
-        })()
-          .catch((e) => {
-            initialReplicationDone = true;
-            throw e;
-          })
-          .then((v) => {
-            return v;
-          });
+          throw e;
+        })
+        .then((v) => {
+          return v;
+        });
 
-        // 4. While initial replication is still running, write more changes
-        while (!initialReplicationDone) {
-          let statements: pgwire.Statement[] = [];
-          const n = Math.floor(Math.random() * 10) + 1;
-          for (let i = 0; i < n; i++) {
-            const description = `test${i}`;
-            statements.push({
-              statement: `INSERT INTO test_data(description) VALUES('test1') returning id as test_id`,
-              params: [{ type: 'varchar', value: description }]
-            });
-          }
-          const results = await pool.query(...statements);
-          const ids = results.results.map((sub) => {
-            return sub.rows[0][0] as string;
+      // 4. While initial replication is still running, write more changes
+      while (!initialReplicationDone) {
+        let statements: pgwire.Statement[] = [];
+        const n = Math.floor(Math.random() * 10) + 1;
+        for (let i = 0; i < n; i++) {
+          const description = `test${i}`;
+          statements.push({
+            statement: `INSERT INTO test_data(description) VALUES('test1') returning id as test_id`,
+            params: [{ type: 'varchar', value: description }]
           });
-          await new Promise((resolve) => setTimeout(resolve, Math.random() * 30));
-          const deleteStatements: pgwire.Statement[] = ids.map((id) => {
-            return {
-              statement: `DELETE FROM test_data WHERE id = $1`,
-              params: [{ type: 'uuid', value: id }]
-            };
-          });
-          await pool.query(...deleteStatements);
-          await new Promise((resolve) => setTimeout(resolve, Math.random() * 10));
         }
-
-        // 5. Once initial replication is done, wait for the streaming changes to complete syncing.
-        // getClientCheckpoint() effectively waits for the above replication to complete
-        // Race with streamingPromise to catch replication errors here.
-        let checkpoint = await Promise.race([
-          getClientCheckpoint(pool, storage.factory, { timeout: TIMEOUT_MARGIN_MS }),
-          streamPromise
-        ]);
-        if (typeof checkpoint == undefined) {
-          // This indicates an issue with the test setup - streamingPromise completed instead
-          // of getClientCheckpoint()
-          throw new Error('Test failure - streamingPromise completed');
-        }
-
-        abortController.abort();
-        await streamPromise;
-        await connections.end();
+        const results = await pool.query(...statements);
+        const ids = results.results.map((sub) => {
+          return sub.rows[0][0] as string;
+        });
+        await new Promise((resolve) => setTimeout(resolve, Math.random() * 30));
+        const deleteStatements: pgwire.Statement[] = ids.map((id) => {
+          return {
+            statement: `DELETE FROM test_data WHERE id = $1`,
+            params: [{ type: 'uuid', value: id }]
+          };
+        });
+        await pool.query(...deleteStatements);
+        await new Promise((resolve) => setTimeout(resolve, Math.random() * 10));
       }
-    },
-    { timeout: TEST_DURATION_MS + TIMEOUT_MARGIN_MS }
-  );
+
+      // 5. Once initial replication is done, wait for the streaming changes to complete syncing.
+      // getClientCheckpoint() effectively waits for the above replication to complete
+      // Race with streamingPromise to catch replication errors here.
+      let checkpoint = await Promise.race([
+        getClientCheckpoint(pool, storage.factory, { timeout: TIMEOUT_MARGIN_MS }),
+        streamPromise
+      ]);
+      if (typeof checkpoint == undefined) {
+        // This indicates an issue with the test setup - streamingPromise completed instead
+        // of getClientCheckpoint()
+        throw new Error('Test failure - streamingPromise completed');
+      }
+
+      abortController.abort();
+      await streamPromise;
+      await connections.end();
+    }
+  });
 }

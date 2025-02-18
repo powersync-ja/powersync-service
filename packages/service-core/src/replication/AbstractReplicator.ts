@@ -193,7 +193,6 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       try {
         await job.stop();
         await this.terminateSyncRules(job.storage);
-        job.storage[Symbol.dispose]();
       } catch (e) {
         // This will be retried
         this.logger.warn('Failed to terminate old replication job}', e);
@@ -204,7 +203,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     const stopped = await this.storage.getStoppedSyncRules();
     for (let syncRules of stopped) {
       try {
-        using syncRuleStorage = this.storage.getInstance(syncRules);
+        const syncRuleStorage = this.storage.getInstance(syncRules);
         await this.terminateSyncRules(syncRuleStorage);
       } catch (e) {
         this.logger.warn(`Failed clean up replication config for sync rule: ${syncRules.id}`, e);

@@ -1,4 +1,4 @@
-import { DisposableListener, DisposableObserverClient } from '@powersync/lib-services-framework';
+import { ObserverClient } from '@powersync/lib-services-framework';
 import { SqlSyncRules, SqliteJsonRow, SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
 import { BucketStorageBatch, FlushedResult } from './BucketStorageBatch.js';
@@ -12,7 +12,7 @@ import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
  * Storage for a specific copy of sync rules.
  */
 export interface SyncRulesBucketStorage
-  extends DisposableObserverClient<SyncRulesBucketStorageListener>,
+  extends ObserverClient<SyncRulesBucketStorageListener>,
     SyncStorageWriteCheckpointAPI {
   readonly group_id: number;
   readonly slot_name: string;
@@ -107,7 +107,7 @@ export interface SyncRulesBucketStorage
   getChecksums(checkpoint: util.OpId, buckets: string[]): Promise<util.ChecksumMap>;
 }
 
-export interface SyncRulesBucketStorageListener extends DisposableListener {
+export interface SyncRulesBucketStorageListener {
   batchStarted: (batch: BucketStorageBatch) => void;
 }
 

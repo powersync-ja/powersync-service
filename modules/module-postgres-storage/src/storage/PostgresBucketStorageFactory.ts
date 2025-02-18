@@ -19,7 +19,7 @@ export type PostgresBucketStorageOptions = {
 };
 
 export class PostgresBucketStorageFactory
-  extends framework.DisposableObserver<storage.BucketStorageFactoryListener>
+  extends framework.BaseObserver<storage.BucketStorageFactoryListener>
   implements storage.BucketStorageFactory
 {
   readonly db: lib_postgres.DatabaseClient;
@@ -42,7 +42,6 @@ export class PostgresBucketStorageFactory
   }
 
   async [Symbol.asyncDispose]() {
-    super[Symbol.dispose]();
     await this.db[Symbol.asyncDispose]();
   }
 
@@ -61,8 +60,7 @@ export class PostgresBucketStorageFactory
     this.iterateListeners((cb) => cb.syncStorageCreated?.(storage));
     storage.registerListener({
       batchStarted: (batch) => {
-        // This nested listener will be automatically disposed when the storage is disposed
-        batch.registerManagedListener(storage, {
+        batch.registerListener({
           replicationEvent: (payload) => this.iterateListeners((cb) => cb.replicationEvent?.(payload))
         });
       }
