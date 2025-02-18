@@ -403,8 +403,12 @@ export class MongoSyncBucketStorage
       return new Map();
     }
 
+    let startMap = new Map<string, string>();
     const filters: any[] = [];
     for (let request of batch) {
+      if (request.start != null) {
+        startMap.set(request.bucket, request.start);
+      }
       filters.push({
         _id: {
           $gt: {
@@ -433,11 +437,19 @@ export class MongoSyncBucketStorage
             $group: {
               _id: '$_id.b',
               checksum_total: { $sum: '$checksum' },
-              count: { $sum: 1 },
+              count: {
+                $sum: {
+                  $cond: [{ $eq: ['$op_count', null] }, 1, '$op_count']
+                }
+              },
               has_clear_op: {
                 $max: {
                   $cond: [{ $eq: ['$op', 'CLEAR'] }, 1, 0]
                 }
+              },
+              min_op: {
+                // Only considers non-null values
+                $min: '$start_op_id'
               }
             }
           }
@@ -448,6 +460,15 @@ export class MongoSyncBucketStorage
 
     return new Map<string, storage.PartialChecksum>(
       aggregate.map((doc) => {
+        if (doc.min_op != null) {
+          const start = startMap.get(doc._id);
+          if (start != null && BigInt(start) > BigInt(doc.min_op)) {
+            // As long as checkpoints are never in the middle of a range, this should never happen.
+            // This could theoretically happen after compacting. We could handle that case by looking
+            // up the specific document and adjusting the checksum.
+            throw new ServiceAssertionError('Attempt to calculate checksum in the middle of a range');
+          }
+        }
         return [
           doc._id,
           {
