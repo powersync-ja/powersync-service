@@ -1,5 +1,20 @@
 # @powersync/service-image
 
+## 1.4.2
+
+### Patch Changes
+
+- 8111f1f: Upgrade to Node 22.14.0.
+- Updated dependencies [15283d4]
+- Updated dependencies [f55e36a]
+  - @powersync/service-core@0.18.2
+  - @powersync/service-sync-rules@0.24.0
+  - @powersync/service-module-mongodb@0.5.2
+  - @powersync/service-module-mongodb-storage@0.5.2
+  - @powersync/service-module-mysql@0.3.2
+  - @powersync/service-module-postgres@0.7.2
+  - @powersync/service-module-postgres-storage@0.3.2
+
 ## 1.4.1
 
 ### Patch Changes
