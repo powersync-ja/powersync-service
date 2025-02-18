@@ -83,14 +83,8 @@ export class PersistedBatch {
   private addBucketDataOp(doc: BucketDataSingleDocument) {
     const bucket = doc._id.b;
     if (doc.op === 'CLEAR') {
-      // No batching for CLEAR ops
-      this.lastOpByBucket.delete(bucket);
-      this.bucketData.push({
-        insertOne: {
-          document: doc
-        }
-      });
-      return;
+      // We only support PUT and REMOVE here (these are new operations).
+      throw new ReplicationAssertionError('CLEAR operations cannot be embedded');
     }
     const lastOp = this.lastOpByBucket.get(bucket);
     this.bucketDataOps += 1;
@@ -112,13 +106,12 @@ export class PersistedBatch {
       rangeOp.checksum = addChecksums(lastOp.checksum, doc.checksum);
       rangeOp.op_count += 1;
       rangeOp.data_range.push(makeEmbeddedOp(doc));
-      if (rangeOp.target_op == null || (doc.target_op != null && doc.target_op > rangeOp.target_op)) {
-        rangeOp.target_op = doc.target_op;
-      }
       if (rangeOp.data_range.length >= MAX_EMBEDDED_DOC_COUNT) {
         // Don't do any further batching on this
         this.lastOpByBucket.delete(bucket);
       }
+      // Note that target_op is never set here since these are all new operations.
+      // target_op is only set by the compact process.
     } else {
       // New op for the bucket
       this.bucketData.push({
@@ -331,9 +324,9 @@ export class PersistedBatch {
     }
 
     logger.info(
-      `powersync_${this.group_id} Flushed ${this.bucketData.length} + ${this.bucketParameters.length} + ${
+      `powersync_${this.group_id} Flushed ${this.bucketDataOps} (${this.bucketData.length}) data + ${this.bucketParameters.length} params + ${
         this.currentData.length
-      } updates, ${Math.round(this.currentSize / 1024)}kb. Last op_id: ${this.debugLastOpId}`
+      } row updates, ${Math.round(this.currentSize / 1024)}kb. Last op_id: ${this.debugLastOpId}`
     );
 
     this.bucketData = [];

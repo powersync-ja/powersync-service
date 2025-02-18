@@ -139,10 +139,18 @@ export class MongoCompactor {
             projection: {
               _id: 1,
               op: 1,
+              checksum: 1,
               table: 1,
               row_id: 1,
               source_table: 1,
-              source_key: 1
+              source_key: 1,
+              'data_range.o': 1,
+              'data_range.op': 1,
+              'data_range.checksum': 1,
+              'data_range.table': 1,
+              'data_range.row_id': 1,
+              'data_range.source_table': 1,
+              'data_range.source_key': 1
             },
             limit: this.moveBatchQueryLimit,
             sort: { _id: -1 },
@@ -230,16 +238,78 @@ export class MongoCompactor {
               currentState.trackingSize += key.length + 140;
             }
           }
+        } else if (doc.op == 'RANGE') {
+          const reversed = doc.data_range.slice().reverse();
+          for (let embeddedOp of reversed) {
+            let isPersistentPutEmbedded = embeddedOp.op == 'PUT';
+
+            if (embeddedOp.op == 'PUT' || embeddedOp.op == 'REMOVE') {
+              const key = `${embeddedOp.table}/${embeddedOp.row_id}/${cacheKey(embeddedOp.source_table!, embeddedOp.source_key!)}`;
+              const targetOp = currentState.seen.get(key);
+              if (targetOp) {
+                // Will convert to MOVE, so don't count as PUT
+                isPersistentPutEmbedded = false;
+
+                const op = {
+                  updateOne: {
+                    filter: {
+                      _id: doc._id
+                    },
+                    arrayFilters: [{ 'element.o': embeddedOp.o }],
+                    update: {
+                      $set: {
+                        'data_range.$[element]': {
+                          o: embeddedOp.o,
+                          op: 'MOVE',
+                          checksum: embeddedOp.checksum
+                        }
+                      },
+                      $max: {
+                        target_op: targetOp
+                      }
+                    }
+                  }
+                };
+                this.updates.push(op);
+              } else {
+                if (currentState.trackingSize >= idLimitBytes) {
+                  // Reached memory limit.
+                  // Keep the highest seen values in this case.
+                } else {
+                  // flatstr reduces the memory usage by flattening the string
+                  currentState.seen.set(utils.flatstr(key), embeddedOp.o);
+                  // length + 16 for the string
+                  // 24 for the bigint
+                  // 50 for map overhead
+                  // 50 for additional overhead
+                  currentState.trackingSize += key.length + 140;
+                }
+              }
+              console.log('pp', isPersistentPutEmbedded, embeddedOp.o, currentState.lastNotPut);
+              if (isPersistentPutEmbedded) {
+                currentState.lastNotPut = null;
+                currentState.opsSincePut = 0;
+              } else {
+                // MOVE or REMOVE
+                if (currentState.lastNotPut == null) {
+                  currentState.lastNotPut = embeddedOp.o;
+                }
+                currentState.opsSincePut += 1;
+              }
+            }
+          }
         }
 
-        if (isPersistentPut) {
-          currentState.lastNotPut = null;
-          currentState.opsSincePut = 0;
-        } else if (doc.op != 'CLEAR') {
-          if (currentState.lastNotPut == null) {
-            currentState.lastNotPut = doc._id.o;
+        if (doc.op != 'RANGE') {
+          if (isPersistentPut) {
+            currentState.lastNotPut = null;
+            currentState.opsSincePut = 0;
+          } else if (doc.op != 'CLEAR') {
+            if (currentState.lastNotPut == null) {
+              currentState.lastNotPut = doc._id.o;
+            }
+            currentState.opsSincePut += 1;
           }
-          currentState.opsSincePut += 1;
         }
 
         if (this.updates.length >= this.moveBatchLimit) {
@@ -283,7 +353,8 @@ export class MongoCompactor {
    * @param op op_id of the last non-PUT operation, which will be converted to CLEAR.
    */
   private async clearBucket(bucket: string, op: bigint) {
-    const opFilter = {
+    // NOTE: This does not split any ranges.
+    const opFilter: mongo.Filter<BucketDataDocument> = {
       _id: {
         $gte: {
           g: this.group_id,
@@ -323,7 +394,7 @@ export class MongoCompactor {
             let targetOp: bigint | null = null;
             let gotAnOp = false;
             for await (let op of query.stream()) {
-              if (op.op == 'MOVE' || op.op == 'REMOVE' || op.op == 'CLEAR') {
+              if (op.op == 'MOVE' || op.op == 'REMOVE' || op.op == 'CLEAR' || op.op == 'RANGE') {
                 checksum = utils.addChecksums(checksum, op.checksum);
                 lastOpId = op._id;
                 if (op.op != 'CLEAR') {

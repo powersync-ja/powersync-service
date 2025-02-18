@@ -95,7 +95,6 @@ bucket_definitions:
     const dataAfter = batchAfter.batch.data;
     const checksumAfter = await bucketStorage.getChecksums(checkpoint, ['global[]']);
 
-    expect(batchAfter.targetOp).toEqual(3n);
     expect(dataAfter).toMatchObject([
       {
         checksum: 2634521662,
@@ -115,6 +114,7 @@ bucket_definitions:
         op_id: '3'
       }
     ]);
+    expect(batchAfter.targetOp).toEqual(3n);
 
     expect(checksumBefore.get('global[]')).toEqual(checksumAfter.get('global[]'));
 
