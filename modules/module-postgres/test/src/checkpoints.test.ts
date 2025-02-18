@@ -25,13 +25,14 @@ describe('checkpoint tests', () => {
     await context.replicateSnapshot();
 
     context.startStreaming();
+    const storage = context.storage!;
 
     const controller = new AbortController();
     try {
-      const stream = context.factory.watchWriteCheckpoint(
-        checkpointUserId('test_user', 'test_client'),
-        controller.signal
-      );
+      const stream = storage.watchWriteCheckpoint({
+        user_id: checkpointUserId('test_user', 'test_client'),
+        signal: controller.signal
+      });
 
       let lastWriteCheckpoint: bigint | null = null;
 

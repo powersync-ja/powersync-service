@@ -122,7 +122,7 @@ export interface StorageMetrics {
 export interface UpdateSyncRulesOptions {
   content: string;
   lock?: boolean;
-  validate: boolean;
+  validate?: boolean;
 }
 
 export interface BucketStorageSystemIdentifier {
