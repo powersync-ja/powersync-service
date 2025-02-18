@@ -71,25 +71,39 @@ export async function readSingleBatch<T>(cursor: mongo.FindCursor<T>): Promise<{
   }
 }
 
-export function mapOpEntry(row: BucketDataDocument): utils.OplogEntry {
+export function mapOpEntries(row: BucketDataDocument): utils.OplogEntry[] {
   if (row.op == 'PUT' || row.op == 'REMOVE') {
-    return {
-      op_id: utils.timestampToOpId(row._id.o),
-      op: row.op,
-      object_type: row.table,
-      object_id: row.row_id,
-      checksum: Number(row.checksum),
-      subkey: replicaIdToSubkey(row.source_table!, row.source_key!),
-      data: row.data
-    };
+    return [
+      {
+        op_id: utils.timestampToOpId(row._id.o),
+        op: row.op,
+        object_type: row.table,
+        object_id: row.row_id,
+        checksum: Number(row.checksum),
+        subkey: replicaIdToSubkey(row.source_table!, row.source_key!),
+        data: row.data
+      }
+    ];
+  } else if (row.op == 'RANGE') {
+    // RANGE
+    return row.data_range.map((entry) => ({
+      op_id: utils.timestampToOpId(entry.o),
+      op: entry.op,
+      object_type: entry.table,
+      object_id: entry.row_id,
+      checksum: Number(entry.checksum),
+      subkey: replicaIdToSubkey(entry.source_table!, entry.source_key!),
+      data: entry.data
+    }));
   } else {
     // MOVE, CLEAR
-
-    return {
-      op_id: utils.timestampToOpId(row._id.o),
-      op: row.op,
-      checksum: Number(row.checksum)
-    };
+    return [
+      {
+        op_id: utils.timestampToOpId(row._id.o),
+        op: row.op,
+        checksum: Number(row.checksum)
+      }
+    ];
   }
 }
 

@@ -27,7 +27,7 @@ import { BucketDataDocument, BucketDataKey, SourceKey, SyncRuleCheckpointState, 
 import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
-import { idPrefixFilter, mapOpEntry, readSingleBatch } from './util.js';
+import { idPrefixFilter, mapOpEntries, readSingleBatch } from './util.js';
 
 export class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
@@ -372,8 +372,6 @@ export class MongoSyncBucketStorage
         targetOp = null;
       }
 
-      const entry = mapOpEntry(row);
-
       if (row.target_op != null) {
         // MOVE, CLEAR
         if (targetOp == null || row.target_op > targetOp) {
@@ -381,8 +379,9 @@ export class MongoSyncBucketStorage
         }
       }
 
-      currentBatch.data.push(entry);
-      currentBatch.next_after = entry.op_id;
+      const entries = mapOpEntries(row);
+      currentBatch.data.push(...entries);
+      currentBatch.next_after = String(row._id.o);
 
       batchSize += rawData.byteLength;
     }

@@ -49,8 +49,7 @@ export interface BucketParameterDocument {
   bucket_parameters: Record<string, SqliteJsonValue>[];
 }
 
-export interface BucketDataDocument {
-  _id: BucketDataKey;
+export interface OpData {
   op: OpType;
   source_table?: bson.ObjectId;
   source_key?: ReplicaId;
@@ -58,10 +57,42 @@ export interface BucketDataDocument {
   row_id?: string;
   checksum: number;
   data: string | null;
+}
+
+export interface EmbeddedOpData extends OpData {
+  o: bigint;
+  op: 'PUT' | 'REMOVE' | 'MOVE';
+}
+
+export interface BucketDataRangeDocument {
+  _id: BucketDataKey;
+  op: 'RANGE';
+  /**
+   * Total checksum over all ops
+   */
+  checksum: number;
+  /**
+   * Present if this represents a range rather than a single document.
+   *
+   * The range is [start_op_id, _id.o], inclusive on both ends.
+   */
+  start_op_id: bigint;
+  op_count: number;
+  data: null;
+  data_range: EmbeddedOpData[];
   target_op?: bigint | null;
 }
 
+export interface BucketDataSingleDocument extends OpData {
+  _id: BucketDataKey;
+  target_op?: bigint | null;
+  start_op_id?: bigint | null;
+  op_count?: number | null;
+}
+
 export type OpType = 'PUT' | 'REMOVE' | 'MOVE' | 'CLEAR';
+export type OpTypeAll = OpType | 'RANGE';
+export type BucketDataDocument = BucketDataSingleDocument | BucketDataRangeDocument;
 
 export interface SourceTableDocument {
   _id: bson.ObjectId;
