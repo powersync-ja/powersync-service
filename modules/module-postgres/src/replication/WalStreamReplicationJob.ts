@@ -99,7 +99,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
       });
       await stream.replicate();
     } catch (e) {
-      this.logger.error(`Replication error`, e);
+      this.logger.error(`${this.slotName} Replication error`, e);
       if (e.cause != null) {
         // Example:
         // PgError.conn_ended: Unable to do postgres query on ended connection

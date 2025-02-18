@@ -2,6 +2,7 @@ name: Build and Test
 
 on:
   workflow_dispatch:
+  pull_request:
   push:
     branches:
       - '**'
@@ -51,9 +52,6 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         name: Install pnpm
-        with:
-          version: 9
-          run_install: false
 
       - name: Get pnpm store directory
         shell: bash
@@ -129,9 +127,6 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         name: Install pnpm
-        with:
-          version: 9
-          run_install: false
 
       - name: Get pnpm store directory
         shell: bash
@@ -210,9 +205,6 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         name: Install pnpm
-        with:
-          version: 9
-          run_install: false
 
       - name: Get pnpm store directory
         shell: bash
@@ -275,9 +267,6 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         name: Install pnpm
-        with:
-          version: 9
-          run_install: false
 
       - name: Get pnpm store directory
         shell: bash

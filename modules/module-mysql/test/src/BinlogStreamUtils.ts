@@ -61,7 +61,7 @@ export class BinlogStreamTestContext {
   }
 
   async updateSyncRules(content: string): Promise<SyncRulesBucketStorage> {
-    const syncRules = await this.factory.updateSyncRules({ content: content });
+    const syncRules = await this.factory.updateSyncRules({ content: content, validate: true });
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }

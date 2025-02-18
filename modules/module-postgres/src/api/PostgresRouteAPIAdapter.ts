@@ -1,6 +1,6 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
-import { api, ParseSyncRulesOptions } from '@powersync/service-core';
+import { api, ParseSyncRulesOptions, ReplicationHeadCallback } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
@@ -241,15 +241,20 @@ FROM pg_replication_slots WHERE slot_name = $1 LIMIT 1;`,
     // However, on Aurora (Postgres compatible), it can return an entirely different LSN,
     // causing the write checkpoints to never be replicated back to the client.
     // For those, we need to use pg_current_wal_lsn() instead.
-    const { results } = await lib_postgres.retriedQuery(
-      this.pool,
-      { statement: `SELECT pg_current_wal_lsn() as lsn` },
-      KEEPALIVE_STATEMENT
-    );
+    const { results } = await lib_postgres.retriedQuery(this.pool, `SELECT pg_current_wal_lsn() as lsn`);
 
-    // Specifically use the lsn from the first statement, not the second one.
     const lsn = results[0].rows[0][0];
     return String(lsn);
+  }
+
+  async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
+    const currentLsn = await this.getReplicationHead();
+
+    const r = await callback(currentLsn);
+
+    await lib_postgres.retriedQuery(this.pool, KEEPALIVE_STATEMENT);
+
+    return r;
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {

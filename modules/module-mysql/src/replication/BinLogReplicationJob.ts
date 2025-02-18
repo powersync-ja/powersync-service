@@ -70,7 +70,7 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
       if (this.abortController.signal.aborted) {
         return;
       }
-      this.logger.error(`Replication error`, e);
+      this.logger.error(`Sync rules ${this.id} Replication error`, e);
       if (e.cause != null) {
         this.logger.error(`cause`, e.cause);
       }
