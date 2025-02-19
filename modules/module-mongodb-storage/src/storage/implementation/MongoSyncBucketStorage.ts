@@ -12,6 +12,9 @@ import {
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
   GetCheckpointChangesOptions,
+  InternalOpId,
+  internalToExternalOpId,
+  ProtocolOpId,
   ReplicationCheckpoint,
   storage,
   utils,
@@ -111,7 +114,7 @@ export class MongoSyncBucketStorage
       }
     );
     return {
-      checkpoint: utils.timestampToOpId(doc?.last_checkpoint ?? 0n),
+      checkpoint: doc?.last_checkpoint ?? 0n,
       lsn: doc?.last_checkpoint_lsn ?? null
     };
   }
@@ -135,7 +138,7 @@ export class MongoSyncBucketStorage
       slotName: this.slot_name,
       lastCheckpointLsn: checkpoint_lsn,
       noCheckpointBeforeLsn: doc?.no_checkpoint_before ?? options.zeroLSN,
-      keepaliveOp: doc?.keepalive_op ?? null,
+      keepaliveOp: doc?.keepalive_op ? BigInt(doc.keepalive_op) : null,
       storeCurrentData: options.storeCurrentData,
       skipExistingRows: options.skipExistingRows ?? false
     });
@@ -144,7 +147,7 @@ export class MongoSyncBucketStorage
     await callback(batch);
     await batch.flush();
     if (batch.last_flushed_op) {
-      return { flushed_op: String(batch.last_flushed_op) };
+      return { flushed_op: batch.last_flushed_op };
     } else {
       return null;
     }
@@ -232,7 +235,7 @@ export class MongoSyncBucketStorage
     return result!;
   }
 
-  async getParameterSets(checkpoint: utils.OpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]> {
+  async getParameterSets(checkpoint: utils.InternalOpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]> {
     const lookupFilter = lookups.map((lookup) => {
       return storage.serializeLookup(lookup);
     });
@@ -242,7 +245,7 @@ export class MongoSyncBucketStorage
           $match: {
             'key.g': this.group_id,
             lookup: { $in: lookupFilter },
-            _id: { $lte: BigInt(checkpoint) }
+            _id: { $lte: checkpoint }
           }
         },
         {
@@ -267,8 +270,8 @@ export class MongoSyncBucketStorage
   }
 
   async *getBucketDataBatch(
-    checkpoint: utils.OpId,
-    dataBuckets: Map<string, string>,
+    checkpoint: utils.InternalOpId,
+    dataBuckets: Map<string, InternalOpId>,
     options?: storage.BucketDataBatchOptions
   ): AsyncIterable<storage.SyncBucketDataBatch> {
     if (dataBuckets.size == 0) {
@@ -276,14 +279,14 @@ export class MongoSyncBucketStorage
     }
     let filters: mongo.Filter<BucketDataDocument>[] = [];
 
-    const end = checkpoint ? BigInt(checkpoint) : new bson.MaxKey();
+    const end = checkpoint ?? new bson.MaxKey();
     for (let [name, start] of dataBuckets.entries()) {
       filters.push({
         _id: {
           $gt: {
             g: this.group_id,
             b: name,
-            o: BigInt(start)
+            o: start
           },
           $lte: {
             g: this.group_id,
@@ -336,7 +339,7 @@ export class MongoSyncBucketStorage
 
     let batchSize = 0;
     let currentBatch: utils.SyncBucketData | null = null;
-    let targetOp: bigint | null = null;
+    let targetOp: InternalOpId | null = null;
 
     // Ordered by _id, meaning buckets are grouped together
     for (let rawData of data) {
@@ -344,7 +347,7 @@ export class MongoSyncBucketStorage
       const bucket = row._id.b;
 
       if (currentBatch == null || currentBatch.bucket != bucket || batchSize >= sizeLimit) {
-        let start: string | undefined = undefined;
+        let start: ProtocolOpId | undefined = undefined;
         if (currentBatch != null) {
           if (currentBatch.bucket == bucket) {
             currentBatch.has_more = true;
@@ -358,9 +361,12 @@ export class MongoSyncBucketStorage
           targetOp = null;
         }
 
-        start ??= dataBuckets.get(bucket);
         if (start == null) {
-          throw new ServiceAssertionError(`data for unexpected bucket: ${bucket}`);
+          const startOpId = dataBuckets.get(bucket);
+          if (startOpId == null) {
+            throw new ServiceAssertionError(`data for unexpected bucket: ${bucket}`);
+          }
+          start = internalToExternalOpId(startOpId);
         }
         currentBatch = {
           bucket,
@@ -395,7 +401,7 @@ export class MongoSyncBucketStorage
     }
   }
 
-  async getChecksums(checkpoint: utils.OpId, buckets: string[]): Promise<utils.ChecksumMap> {
+  async getChecksums(checkpoint: utils.InternalOpId, buckets: string[]): Promise<utils.ChecksumMap> {
     return this.checksumCache.getChecksumMap(checkpoint, buckets);
   }
 
@@ -627,7 +633,7 @@ export class MongoSyncBucketStorage
 
   private makeActiveCheckpoint(doc: SyncRuleCheckpointState | null) {
     return {
-      checkpoint: utils.timestampToOpId(doc?.last_checkpoint ?? 0n),
+      checkpoint: doc?.last_checkpoint ?? 0n,
       lsn: doc?.last_checkpoint_lsn ?? null
     };
   }
@@ -744,7 +750,7 @@ export class MongoSyncBucketStorage
    */
   async *watchWriteCheckpoint(options: WatchWriteCheckpointOptions): AsyncIterable<storage.StorageCheckpointUpdate> {
     const { user_id, signal } = options;
-    let lastCheckpoint: utils.OpId | null = null;
+    let lastCheckpoint: utils.InternalOpId | null = null;
     let lastWriteCheckpoint: bigint | null = null;
 
     const iter = wrapWithAbort(this.sharedIter, signal);

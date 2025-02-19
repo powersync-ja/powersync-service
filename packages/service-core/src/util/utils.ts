@@ -2,7 +2,7 @@ import * as sync_rules from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import crypto from 'crypto';
 import * as uuid from 'uuid';
-import { BucketChecksum, OpId, OplogEntry } from './protocol-types.js';
+import { BucketChecksum, ProtocolOpId, OplogEntry } from './protocol-types.js';
 
 import * as storage from '../storage/storage-index.js';
 
@@ -10,6 +10,13 @@ import { PartialChecksum } from '../storage/ChecksumCache.js';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 
 export type ChecksumMap = Map<string, BucketChecksum>;
+
+/**
+ * op_id as used internally, for individual operations and checkpoints.
+ *
+ * This is just a type alias, but serves to document that we're working with an op_id.
+ */
+export type InternalOpId = bigint;
 
 export const ID_NAMESPACE = 'a396dd91-09fc-4017-a28d-3df722f651e9';
 
@@ -31,7 +38,11 @@ export function hashDelete(sourceKey: string) {
   return buffer.readUInt32LE(0);
 }
 
-export function timestampToOpId(ts: bigint): OpId {
+/**
+ * Internally we always use bigint for op_ids. Externally (in JSON) we use strings.
+ * This converts between the two.
+ */
+export function internalToExternalOpId(ts: InternalOpId): ProtocolOpId {
   // Dynamic values are passed in in some cases, so we make extra sure that the
   // number is a bigint and not number or Long.
   if (typeof ts != 'bigint') {

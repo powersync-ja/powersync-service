@@ -61,7 +61,7 @@ bucket_definitions:
     const checkpoint = result!.flushed_op;
 
     const batchBefore = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]))
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]))
     );
     const dataBefore = batchBefore.batch.data;
     const checksumBefore = await bucketStorage.getChecksums(checkpoint, ['global[]']);
@@ -90,7 +90,7 @@ bucket_definitions:
     await bucketStorage.compact(compactOptions);
 
     const batchAfter = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]))
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]))
     );
     const dataAfter = batchAfter.batch.data;
     const checksumAfter = await bucketStorage.getChecksums(checkpoint, ['global[]']);
@@ -172,7 +172,7 @@ bucket_definitions:
     const checkpoint = result!.flushed_op;
 
     const batchBefore = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]))
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]))
     );
     const dataBefore = batchBefore.batch.data;
     const checksumBefore = await bucketStorage.getChecksums(checkpoint, ['global[]']);
@@ -207,7 +207,7 @@ bucket_definitions:
     await bucketStorage.compact(compactOptions);
 
     const batchAfter = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]))
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]))
     );
     const dataAfter = batchAfter.batch.data;
     const checksumAfter = await bucketStorage.getChecksums(checkpoint, ['global[]']);
@@ -288,7 +288,7 @@ bucket_definitions:
     await bucketStorage.compact(compactOptions);
 
     const batchAfter = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint2, new Map([['global[]', '0']]))
+      bucketStorage.getBucketDataBatch(checkpoint2, new Map([['global[]', 0n]]))
     );
     const dataAfter = batchAfter.batch.data;
     const checksumAfter = await bucketStorage.getChecksums(checkpoint2, ['global[]']);

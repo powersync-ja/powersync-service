@@ -11,7 +11,7 @@ import {
   ReplicationAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
-import { SaveOperationTag, storage, utils } from '@powersync/service-core';
+import { InternalOpId, SaveOperationTag, storage, utils } from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
 import { PowerSyncMongo } from './db.js';
 import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
@@ -39,7 +39,7 @@ export interface MongoBucketBatchOptions {
   groupId: number;
   slotName: string;
   lastCheckpointLsn: string | null;
-  keepaliveOp: string | null;
+  keepaliveOp: InternalOpId | null;
   noCheckpointBeforeLsn: string;
   storeCurrentData: boolean;
   /**
@@ -77,12 +77,12 @@ export class MongoBucketBatch
 
   private no_checkpoint_before_lsn: string;
 
-  private persisted_op: bigint | null = null;
+  private persisted_op: InternalOpId | null = null;
 
   /**
    * For tests only - not for persistence logic.
    */
-  public last_flushed_op: bigint | null = null;
+  public last_flushed_op: InternalOpId | null = null;
 
   constructor(options: MongoBucketBatchOptions) {
     super();
@@ -98,9 +98,7 @@ export class MongoBucketBatch
     this.skipExistingRows = options.skipExistingRows;
     this.batch = new OperationBatch();
 
-    if (options.keepaliveOp) {
-      this.persisted_op = BigInt(options.keepaliveOp);
-    }
+    this.persisted_op = options.keepaliveOp ?? null;
   }
 
   addCustomWriteCheckpoint(checkpoint: storage.BatchedCustomWriteCheckpointOptions): void {
@@ -135,7 +133,7 @@ export class MongoBucketBatch
       return null;
     }
 
-    let last_op: bigint | null = null;
+    let last_op: InternalOpId | null = null;
     let resumeBatch: OperationBatch | null = null;
 
     await this.withReplicationTransaction(`Flushing ${batch.length} ops`, async (session, opSeq) => {
@@ -153,7 +151,7 @@ export class MongoBucketBatch
 
     this.persisted_op = last_op;
     this.last_flushed_op = last_op;
-    return { flushed_op: String(last_op) };
+    return { flushed_op: last_op };
   }
 
   private async replicateBatch(
@@ -779,22 +777,23 @@ export class MongoBucketBatch
   async truncate(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
     await this.flush();
 
-    let last_op: bigint | null = null;
+    let last_op: InternalOpId | null = null;
     for (let table of sourceTables) {
       last_op = await this.truncateSingle(table);
     }
 
     if (last_op) {
       this.persisted_op = last_op;
+      return {
+        flushed_op: last_op
+      };
+    } else {
+      return null;
     }
-
-    return {
-      flushed_op: String(last_op!)
-    };
   }
 
-  async truncateSingle(sourceTable: storage.SourceTable): Promise<bigint> {
-    let last_op: bigint | null = null;
+  async truncateSingle(sourceTable: storage.SourceTable): Promise<InternalOpId> {
+    let last_op: InternalOpId | null = null;
 
     // To avoid too large transactions, we limit the amount of data we delete per transaction.
     // Since we don't use the record data here, we don't have explicit size limits per batch.

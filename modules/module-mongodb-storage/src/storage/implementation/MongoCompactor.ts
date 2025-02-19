@@ -1,6 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { logger, ReplicationAssertionError } from '@powersync/lib-services-framework';
-import { storage, utils } from '@powersync/service-core';
+import { InternalOpId, storage, utils } from '@powersync/service-core';
 
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey } from './models.js';
@@ -13,7 +13,7 @@ interface CurrentBucketState {
   /**
    * Rows seen in the bucket, with the last op_id of each.
    */
-  seen: Map<string, bigint>;
+  seen: Map<string, InternalOpId>;
   /**
    * Estimated memory usage of the seen Map.
    */
@@ -22,7 +22,7 @@ interface CurrentBucketState {
   /**
    * Last (lowest) seen op_id that is not a PUT.
    */
-  lastNotPut: bigint | null;
+  lastNotPut: InternalOpId | null;
 
   /**
    * Number of REMOVE/MOVE operations seen since lastNotPut.
@@ -282,7 +282,7 @@ export class MongoCompactor {
    * @param bucket bucket name
    * @param op op_id of the last non-PUT operation, which will be converted to CLEAR.
    */
-  private async clearBucket(bucket: string, op: bigint) {
+  private async clearBucket(bucket: string, op: InternalOpId) {
     const opFilter = {
       _id: {
         $gte: {

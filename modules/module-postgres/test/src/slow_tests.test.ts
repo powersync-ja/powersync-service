@@ -178,7 +178,7 @@ bucket_definitions:
             break;
           }
 
-          const checkpoint = BigInt((await storage.getCheckpoint()).checkpoint);
+          const checkpoint = (await storage.getCheckpoint()).checkpoint;
           if (f instanceof mongo_storage.storage.MongoBucketStorage) {
             const opsBefore = (await f.db.bucket_data.find().sort({ _id: 1 }).toArray())
               .filter((row) => row._id.o <= checkpoint)

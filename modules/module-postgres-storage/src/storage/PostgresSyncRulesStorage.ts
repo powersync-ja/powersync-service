@@ -5,6 +5,8 @@ import {
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
   GetCheckpointChangesOptions,
+  InternalOpId,
+  internalToExternalOpId,
   LastValueSink,
   storage,
   utils,
@@ -148,7 +150,7 @@ export class PostgresSyncRulesStorage
       .first();
 
     return {
-      checkpoint: utils.timestampToOpId(checkpointRow?.last_checkpoint ?? 0n),
+      checkpoint: checkpointRow?.last_checkpoint ?? 0n,
       lsn: checkpointRow?.last_checkpoint_lsn ?? null
     };
   }
@@ -303,14 +305,14 @@ export class PostgresSyncRulesStorage
     await callback(batch);
     await batch.flush();
     if (batch.last_flushed_op) {
-      return { flushed_op: String(batch.last_flushed_op) };
+      return { flushed_op: batch.last_flushed_op };
     } else {
       return null;
     }
   }
 
   async getParameterSets(
-    checkpoint: utils.OpId,
+    checkpoint: utils.InternalOpId,
     lookups: sync_rules.SqliteJsonValue[][]
   ): Promise<sync_rules.SqliteJsonRow[]> {
     const rows = await this.db.sql`
@@ -333,7 +335,7 @@ export class PostgresSyncRulesStorage
         value: lookups.map((l) => storage.serializeLookupBuffer(l).toString('hex'))
       }}) AS FILTER
         )
-        AND id <= ${{ type: 'int8', value: BigInt(checkpoint) }}
+        AND id <= ${{ type: 'int8', value: checkpoint }}
       ORDER BY
         lookup,
         source_table,
@@ -350,8 +352,8 @@ export class PostgresSyncRulesStorage
   }
 
   async *getBucketDataBatch(
-    checkpoint: utils.OpId,
-    dataBuckets: Map<string, string>,
+    checkpoint: InternalOpId,
+    dataBuckets: Map<string, InternalOpId>,
     options?: storage.BucketDataBatchOptions
   ): AsyncIterable<storage.SyncBucketDataBatch> {
     if (dataBuckets.size == 0) {
@@ -369,7 +371,7 @@ export class PostgresSyncRulesStorage
 
     let batchSize = 0;
     let currentBatch: utils.SyncBucketData | null = null;
-    let targetOp: bigint | null = null;
+    let targetOp: InternalOpId | null = null;
     let rowCount = 0;
 
     /**
@@ -462,9 +464,12 @@ export class PostgresSyncRulesStorage
             }
           }
 
-          start ??= dataBuckets.get(bucket_name);
           if (start == null) {
-            throw new ReplicationAssertionError(`data for unexpected bucket: ${bucket_name}`);
+            const startOpId = dataBuckets.get(bucket_name);
+            if (startOpId == null) {
+              throw new framework.ServiceAssertionError(`data for unexpected bucket: ${bucket_name}`);
+            }
+            start = internalToExternalOpId(startOpId);
           }
           currentBatch = {
             bucket: bucket_name,
@@ -508,7 +513,7 @@ export class PostgresSyncRulesStorage
     }
   }
 
-  async getChecksums(checkpoint: utils.OpId, buckets: string[]): Promise<utils.ChecksumMap> {
+  async getChecksums(checkpoint: utils.InternalOpId, buckets: string[]): Promise<utils.ChecksumMap> {
     return this.checksumCache.getChecksumMap(checkpoint, buckets);
   }
 
@@ -700,7 +705,7 @@ export class PostgresSyncRulesStorage
   }
 
   async *watchWriteCheckpoint(options: WatchWriteCheckpointOptions): AsyncIterable<storage.StorageCheckpointUpdate> {
-    let lastCheckpoint: utils.OpId | null = null;
+    let lastCheckpoint: utils.InternalOpId | null = null;
     let lastWriteCheckpoint: bigint | null = null;
 
     const { signal, user_id } = options;
@@ -806,7 +811,7 @@ export class PostgresSyncRulesStorage
 
   private makeActiveCheckpoint(row: models.ActiveCheckpointDecoded | null) {
     return {
-      checkpoint: utils.timestampToOpId(row?.last_checkpoint ?? 0n),
+      checkpoint: row?.last_checkpoint ?? 0n,
       lsn: row?.last_checkpoint_lsn ?? null
     } satisfies storage.ReplicationCheckpoint;
   }

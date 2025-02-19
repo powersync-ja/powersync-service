@@ -87,7 +87,7 @@ export async function* streamResponse(
 
 export type BucketSyncState = {
   description?: BucketDescription; // Undefined if the bucket has not yet been resolved by us.
-  start_op_id: string;
+  start_op_id: util.InternalOpId;
 };
 
 async function* streamResponseInner(
@@ -106,7 +106,10 @@ async function* streamResponseInner(
     bucketStorage,
     syncRules,
     syncParams,
-    initialBucketPositions: params.buckets
+    initialBucketPositions: params.buckets?.map((bucket) => ({
+      name: bucket.name,
+      after: BigInt(bucket.after)
+    }))
   });
   const stream = bucketStorage.watchWriteCheckpoint({
     user_id: checkpointUserId,
@@ -213,7 +216,7 @@ async function* streamResponseInner(
 
 interface BucketDataRequest {
   bucketStorage: storage.SyncRulesBucketStorage;
-  checkpoint: string;
+  checkpoint: util.InternalOpId;
   bucketsToFetch: BucketDescription[];
   /** Contains current bucket state. Modified by the request as data is sent.  */
   checksumState: BucketChecksumState;
@@ -284,7 +287,6 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
     onRowsSent
   } = request;
 
-  const checkpointOp = BigInt(checkpoint);
   let checkpointInvalidated = false;
 
   if (syncSemaphore.isLocked()) {
@@ -320,7 +322,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
       if (r.has_more) {
         has_more = true;
       }
-      if (targetOp != null && targetOp > checkpointOp) {
+      if (targetOp != null && targetOp > checkpoint) {
         checkpointInvalidated = true;
       }
       if (r.data.length == 0) {
@@ -356,7 +358,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
       }
       onRowsSent(r.data.length);
 
-      checksumState.updateBucketPosition({ bucket: r.bucket, nextAfter: r.next_after, hasMore: r.has_more });
+      checksumState.updateBucketPosition({ bucket: r.bucket, nextAfter: BigInt(r.next_after), hasMore: r.has_more });
 
       // Check if syncing bucket data is supposed to stop before fetching more data
       // from storage.
@@ -375,7 +377,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
         if (request.forPriority !== undefined) {
           const line: util.StreamingSyncCheckpointPartiallyComplete = {
             partial_checkpoint_complete: {
-              last_op_id: checkpoint,
+              last_op_id: util.internalToExternalOpId(checkpoint),
               priority: request.forPriority
             }
           };
@@ -383,7 +385,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
         } else {
           const line: util.StreamingSyncCheckpointComplete = {
             checkpoint_complete: {
-              last_op_id: checkpoint
+              last_op_id: util.internalToExternalOpId(checkpoint)
             }
           };
           yield { data: line, done: true };
