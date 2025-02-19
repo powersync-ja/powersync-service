@@ -274,7 +274,7 @@ describe('JWT Auth', () => {
     ).rejects.toThrow('Token must expire in a maximum of');
   });
 
-  test('http', async () => {
+  test('http', { timeout: 20_000 }, async () => {
     // Not ideal to rely on an external endpoint for tests, but it is good to test that this
     // one actually works.
     const remote = new RemoteJWKSCollector(
