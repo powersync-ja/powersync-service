@@ -10,6 +10,7 @@
   "scripts": {
     "fetch-operations": "tsc -b && node dist/bin.js fetch-operations",
     "generate-token": "tsc -b && node dist/bin.js generate-token",
+    "concurrent-connections": "tsc -b && node dist/bin.js concurrent-connections",
     "build": "tsc -b",
     "clean": "rm -rf ./dist && tsc -b --clean"
   },
@@ -17,10 +18,12 @@
     "@powersync/service-core": "workspace:*",
     "commander": "^12.0.0",
     "jose": "^4.15.1",
+    "ws": "^8.18.0",
     "yaml": "^2.5.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.1",
+    "@types/ws": "~8.2.0",
     "typescript": "^5.7.3"
   }
 }

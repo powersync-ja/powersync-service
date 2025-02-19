@@ -1,11 +1,8 @@
 import { SqlSyncRules } from '@powersync/service-sync-rules';
-import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
-import { LRUCache } from 'lru-cache/min';
-import * as timers from 'timers/promises';
 
-import { storage, sync, utils } from '@powersync/service-core';
+import { storage } from '@powersync/service-core';
 
-import { DisposableObserver, ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
+import { BaseObserver, ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
 
 import * as lib_mongo from '@powersync/lib-service-mongodb';
@@ -18,7 +15,7 @@ import { MongoSyncBucketStorage } from './implementation/MongoSyncBucketStorage.
 import { generateSlotName } from './implementation/util.js';
 
 export class MongoBucketStorage
-  extends DisposableObserver<storage.BucketStorageFactoryListener>
+  extends BaseObserver<storage.BucketStorageFactoryListener>
   implements storage.BucketStorageFactory
 {
   private readonly client: mongo.MongoClient;
@@ -26,26 +23,7 @@ export class MongoBucketStorage
   // TODO: This is still Postgres specific and needs to be reworked
   public readonly slot_name_prefix: string;
 
-  private readonly storageCache = new LRUCache<number, MongoSyncBucketStorage>({
-    max: 3,
-    fetchMethod: async (id) => {
-      const doc2 = await this.db.sync_rules.findOne(
-        {
-          _id: id
-        },
-        { limit: 1 }
-      );
-      if (doc2 == null) {
-        // Deleted in the meantime?
-        return undefined;
-      }
-      const rules = new MongoPersistedSyncRulesContent(this.db, doc2);
-      return this.getInstance(rules);
-    },
-    dispose: (storage) => {
-      storage[Symbol.dispose]();
-    }
-  });
+  private activeStorageCache: MongoSyncBucketStorage | undefined;
 
   public readonly db: PowerSyncMongo;
 
@@ -63,7 +41,7 @@ export class MongoBucketStorage
   }
 
   async [Symbol.asyncDispose]() {
-    super[Symbol.dispose]();
+    // No-op
   }
 
   getInstance(options: storage.PersistedSyncRulesContent): MongoSyncBucketStorage {
@@ -75,8 +53,7 @@ export class MongoBucketStorage
     this.iterateListeners((cb) => cb.syncStorageCreated?.(storage));
     storage.registerListener({
       batchStarted: (batch) => {
-        // This nested listener will be automatically disposed when the storage is disposed
-        batch.registerManagedListener(storage, {
+        batch.registerListener({
           replicationEvent: (payload) => this.iterateListeners((cb) => cb.replicationEvent?.(payload))
         });
       }
@@ -293,19 +270,22 @@ export class MongoBucketStorage
     });
   }
 
-  async getActiveCheckpoint(): Promise<storage.ActiveCheckpoint> {
-    const doc = await this.db.sync_rules.findOne(
-      {
-        state: storage.SyncRuleState.ACTIVE
-      },
-      {
-        sort: { _id: -1 },
-        limit: 1,
-        projection: { _id: 1, last_checkpoint: 1, last_checkpoint_lsn: 1 }
-      }
-    );
+  async getActiveStorage(): Promise<MongoSyncBucketStorage | null> {
+    const content = await this.getActiveSyncRulesContent();
+    if (content == null) {
+      return null;
+    }
 
-    return this.makeActiveCheckpoint(doc);
+    // It is important that this instance is cached.
+    // Not for the instance construction itself, but to ensure that internal caches on the instance
+    // are re-used properly.
+    if (this.activeStorageCache?.group_id == content.id) {
+      return this.activeStorageCache;
+    } else {
+      const instance = this.getInstance(content);
+      this.activeStorageCache = instance;
+      return instance;
+    }
   }
 
   async getStorageMetrics(): Promise<storage.StorageMetrics> {
@@ -390,167 +370,5 @@ export class MongoBucketStorage
     }
 
     return instance!._id;
-  }
-
-  private makeActiveCheckpoint(doc: SyncRuleDocument | null) {
-    return {
-      checkpoint: utils.timestampToOpId(doc?.last_checkpoint ?? 0n),
-      lsn: doc?.last_checkpoint_lsn ?? null,
-      hasSyncRules() {
-        return doc != null;
-      },
-      getBucketStorage: async () => {
-        if (doc == null) {
-          return null;
-        }
-        return (await this.storageCache.fetch(doc._id)) ?? null;
-      }
-    } satisfies storage.ActiveCheckpoint;
-  }
-
-  /**
-   * Instance-wide watch on the latest available checkpoint (op_id + lsn).
-   */
-  private async *watchActiveCheckpoint(signal: AbortSignal): AsyncIterable<storage.ActiveCheckpoint> {
-    const pipeline: mongo.Document[] = [
-      {
-        $match: {
-          'fullDocument.state': 'ACTIVE',
-          operationType: { $in: ['insert', 'update'] }
-        }
-      },
-      {
-        $project: {
-          operationType: 1,
-          'fullDocument._id': 1,
-          'fullDocument.last_checkpoint': 1,
-          'fullDocument.last_checkpoint_lsn': 1
-        }
-      }
-    ];
-
-    // Use this form instead of (doc: SyncRuleDocument | null = null),
-    // otherwise we get weird "doc: never" issues.
-    let doc = null as SyncRuleDocument | null;
-    let clusterTime = null as mongo.Timestamp | null;
-
-    await this.client.withSession(async (session) => {
-      doc = await this.db.sync_rules.findOne(
-        {
-          state: storage.SyncRuleState.ACTIVE
-        },
-        {
-          session,
-          sort: { _id: -1 },
-          limit: 1,
-          projection: {
-            _id: 1,
-            last_checkpoint: 1,
-            last_checkpoint_lsn: 1
-          }
-        }
-      );
-      const time = session.clusterTime?.clusterTime ?? null;
-      clusterTime = time;
-    });
-    if (clusterTime == null) {
-      throw new ServiceError(ErrorCode.PSYNC_S2401, 'Could not get clusterTime');
-    }
-
-    if (signal.aborted) {
-      return;
-    }
-
-    if (doc) {
-      yield this.makeActiveCheckpoint(doc);
-    }
-
-    const stream = this.db.sync_rules.watch(pipeline, {
-      fullDocument: 'updateLookup',
-      // Start at the cluster time where we got the initial doc, to make sure
-      // we don't skip any updates.
-      // This may result in the first operation being a duplicate, but we filter
-      // it out anyway.
-      startAtOperationTime: clusterTime
-    });
-
-    signal.addEventListener(
-      'abort',
-      () => {
-        stream.close();
-      },
-      { once: true }
-    );
-
-    let lastOp: storage.ActiveCheckpoint | null = null;
-
-    for await (const update of stream.stream()) {
-      if (signal.aborted) {
-        break;
-      }
-      if (update.operationType != 'insert' && update.operationType != 'update') {
-        continue;
-      }
-      const doc = update.fullDocument!;
-      if (doc == null) {
-        continue;
-      }
-
-      const op = this.makeActiveCheckpoint(doc);
-      // Check for LSN / checkpoint changes - ignore other metadata changes
-      if (lastOp == null || op.lsn != lastOp.lsn || op.checkpoint != lastOp.checkpoint) {
-        lastOp = op;
-        yield op;
-      }
-    }
-  }
-
-  // Nothing is done here until a subscriber starts to iterate
-  private readonly sharedIter = new sync.BroadcastIterable((signal) => {
-    return this.watchActiveCheckpoint(signal);
-  });
-
-  /**
-   * User-specific watch on the latest checkpoint and/or write checkpoint.
-   */
-  async *watchWriteCheckpoint(user_id: string, signal: AbortSignal): AsyncIterable<storage.WriteCheckpoint> {
-    let lastCheckpoint: utils.OpId | null = null;
-    let lastWriteCheckpoint: bigint | null = null;
-
-    const iter = wrapWithAbort(this.sharedIter, signal);
-    for await (const cp of iter) {
-      const { checkpoint, lsn } = cp;
-
-      // lsn changes are not important by itself.
-      // What is important is:
-      // 1. checkpoint (op_id) changes.
-      // 2. write checkpoint changes for the specific user
-      const bucketStorage = await cp.getBucketStorage();
-      if (!bucketStorage) {
-        continue;
-      }
-
-      const lsnFilters: Record<string, string> = lsn ? { 1: lsn } : {};
-
-      const currentWriteCheckpoint = await bucketStorage.lastWriteCheckpoint({
-        user_id,
-        heads: {
-          ...lsnFilters
-        }
-      });
-
-      if (currentWriteCheckpoint == lastWriteCheckpoint && checkpoint == lastCheckpoint) {
-        // No change - wait for next one
-        // In some cases, many LSNs may be produced in a short time.
-        // Add a delay to throttle the write checkpoint lookup a bit.
-        await timers.setTimeout(20 + 10 * Math.random());
-        continue;
-      }
-
-      lastWriteCheckpoint = currentWriteCheckpoint;
-      lastCheckpoint = checkpoint;
-
-      yield { base: cp, writeCheckpoint: currentWriteCheckpoint };
-    }
   }
 }

@@ -1,7 +1,7 @@
 import { ServiceContextContainer } from '../system/ServiceContext.js';
 import { logger } from '@powersync/lib-services-framework';
 import winston from 'winston';
-import { PersistedSyncRulesContent } from '../storage/BucketStorage.js';
+import { PersistedSyncRulesContent } from '../storage/storage-index.js';
 
 export interface TearDownOptions {
   /**

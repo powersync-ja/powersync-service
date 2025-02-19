@@ -9,7 +9,12 @@ export interface CredentialsOptions {
   sub?: string;
 }
 
-export async function getCredentials(options: CredentialsOptions): Promise<{ endpoint: string; token: string }> {
+export interface Credentials {
+  endpoint: string;
+  token: string;
+}
+
+export async function getCredentials(options: CredentialsOptions): Promise<Credentials> {
   if (options.token != null) {
     if (options.endpoint != null) {
       return { token: options.token, endpoint: options.endpoint };

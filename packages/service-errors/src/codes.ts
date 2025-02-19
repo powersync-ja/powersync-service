@@ -324,6 +324,13 @@ export enum ErrorCode {
    */
   PSYNC_S2304 = 'PSYNC_S2304',
 
+  /**
+   * Too many buckets.
+   *
+   * There is currently a limit of 1000 buckets per active connection.
+   */
+  PSYNC_S2305 = 'PSYNC_S2305',
+
   // ## PSYNC_S23xx: Sync API errors - MongoDB Storage
 
   /**
