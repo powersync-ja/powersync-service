@@ -279,7 +279,10 @@ export class MongoSyncBucketStorage
     }
     let filters: mongo.Filter<BucketDataDocument>[] = [];
 
-    const end = checkpoint ?? new bson.MaxKey();
+    if (checkpoint == null) {
+      throw new ServiceAssertionError('checkpoint is null');
+    }
+    const end = checkpoint;
     for (let [name, start] of dataBuckets.entries()) {
       filters.push({
         _id: {

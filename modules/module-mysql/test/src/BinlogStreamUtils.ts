@@ -127,7 +127,7 @@ export class BinlogStreamTestContext {
     if (checkpoint == null) {
       // This indicates an issue with the test setup - streamingPromise completed instead
       // of getClientCheckpoint()
-      throw new Error('Test failure - streamingPromise completed');
+      throw new Error('Test failure - streamingPromise completed. Was startStreaming() called?');
     }
     return checkpoint;
   }

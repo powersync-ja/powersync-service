@@ -403,7 +403,7 @@ bucket_definitions:
         getClientCheckpoint(pool, storage.factory, { timeout: TIMEOUT_MARGIN_MS }),
         streamPromise
       ]);
-      if (typeof checkpoint == undefined) {
+      if (checkpoint == null) {
         // This indicates an issue with the test setup - streamingPromise completed instead
         // of getClientCheckpoint()
         throw new Error('Test failure - streamingPromise completed');
