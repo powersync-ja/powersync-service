@@ -67,13 +67,13 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
     });
 
     const stream = sync.streamResponse({
-      storage: f,
+      bucketStorage: bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
-      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
@@ -128,13 +128,13 @@ bucket_definitions:
     });
 
     const stream = sync.streamResponse({
-      storage: f,
+      bucketStorage: bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
-      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
@@ -191,41 +191,57 @@ bucket_definitions:
     });
 
     const stream = sync.streamResponse({
-      storage: f,
+      bucketStorage: bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
-      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
     });
 
     let sentCheckpoints = 0;
-    for await (const next of stream) {
+    let sentRows = 0;
+
+    for await (let next of stream) {
+      if (typeof next == 'string') {
+        next = JSON.parse(next);
+      }
       if (typeof next === 'object' && next !== null) {
         if ('partial_checkpoint_complete' in next) {
-          expect(sentCheckpoints).toBe(1);
+          if (sentCheckpoints == 1) {
+            // Save new data to interrupt the low-priority sync.
 
-          await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-            // Add another high-priority row. This should interrupt the long-running low-priority sync.
-            await batch.save({
-              sourceTable: TEST_TABLE,
-              tag: storage.SaveOperationTag.INSERT,
-              after: {
-                id: 'highprio2',
-                description: 'Another high-priority row'
-              },
-              afterReplicaId: 'highprio2'
+            await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+              // Add another high-priority row. This should interrupt the long-running low-priority sync.
+              await batch.save({
+                sourceTable: TEST_TABLE,
+                tag: storage.SaveOperationTag.INSERT,
+                after: {
+                  id: 'highprio2',
+                  description: 'Another high-priority row'
+                },
+                afterReplicaId: 'highprio2'
+              });
+
+              await batch.commit('0/2');
             });
-      
-            await batch.commit('0/2');
-          });
+          } else {
+            // Low-priority sync from the first checkpoint was interrupted. This should not happen before
+            // 1000 low-priority items were synchronized.
+            expect(sentCheckpoints).toBe(2);
+            expect(sentRows).toBeGreaterThan(1000);
+          }
         }
         if ('checkpoint' in next || 'checkpoint_diff' in next) {
           sentCheckpoints += 1;
+        }
+
+        if ('data' in next) {
+          sentRows += next.data.data.length;
         }
         if ('checkpoint_complete' in next) {
           break;
@@ -234,6 +250,7 @@ bucket_definitions:
     }
 
     expect(sentCheckpoints).toBe(2);
+    expect(sentRows).toBe(10002);
   });
 
   test('sync legacy non-raw data', async () => {
@@ -262,13 +279,13 @@ bucket_definitions:
     });
 
     const stream = sync.streamResponse({
-      storage: f,
+      bucketStorage: bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: false
       },
-      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
@@ -287,17 +304,17 @@ bucket_definitions:
       content: BASIC_SYNC_RULES
     });
 
-    const storage = await f.getInstance(syncRules);
-    await storage.autoActivate();
+    const bucketStorage = await f.getInstance(syncRules);
+    await bucketStorage.autoActivate();
 
     const stream = sync.streamResponse({
-      storage: f,
+      bucketStorage: bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
-      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: 0 } as any
@@ -318,13 +335,13 @@ bucket_definitions:
     await bucketStorage.autoActivate();
 
     const stream = sync.streamResponse({
-      storage: f,
+      bucketStorage: bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
-      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
@@ -375,19 +392,19 @@ bucket_definitions:
       content: BASIC_SYNC_RULES
     });
 
-    const storage = await f.getInstance(syncRules);
-    await storage.autoActivate();
+    const bucketStorage = await f.getInstance(syncRules);
+    await bucketStorage.autoActivate();
 
     const exp = Date.now() / 1000 + 0.1;
 
     const stream = sync.streamResponse({
-      storage: f,
+      bucketStorage: bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
-      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: exp } as any
@@ -441,13 +458,13 @@ bucket_definitions:
     });
 
     const stream = sync.streamResponse({
-      storage: f,
+      bucketStorage: bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
-      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: '' }, {}),
       token: { exp: Date.now() / 1000 + 10 } as any
@@ -564,13 +581,13 @@ bucket_definitions:
     });
 
     const params: sync.SyncStreamParameters = {
-      storage: f,
+      bucketStorage: bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
-      parseOptions: test_utils.PARSE_OPTIONS,
       tracker,
       syncParams: new RequestParameters({ sub: 'test' }, {}),
       token: { sub: 'test', exp: Date.now() / 1000 + 10 } as any

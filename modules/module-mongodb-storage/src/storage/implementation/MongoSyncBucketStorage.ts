@@ -1,20 +1,36 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
-import { DisposableObserver, logger, ServiceAssertionError } from '@powersync/lib-services-framework';
-import { storage, utils } from '@powersync/service-core';
+import {
+  BaseObserver,
+  ErrorCode,
+  logger,
+  ServiceAssertionError,
+  ServiceError
+} from '@powersync/lib-services-framework';
+import {
+  BroadcastIterable,
+  CHECKPOINT_INVALIDATE_ALL,
+  CheckpointChanges,
+  GetCheckpointChangesOptions,
+  ReplicationCheckpoint,
+  storage,
+  utils,
+  WatchWriteCheckpointOptions
+} from '@powersync/service-core';
 import { SqliteJsonRow, SqliteJsonValue, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
+import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 import * as timers from 'timers/promises';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
-import { BucketDataDocument, BucketDataKey, SourceKey } from './models.js';
+import { BucketDataDocument, BucketDataKey, SourceKey, SyncRuleCheckpointState, SyncRuleDocument } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { idPrefixFilter, mapOpEntry, readSingleBatch } from './util.js';
 
 export class MongoSyncBucketStorage
-  extends DisposableObserver<storage.SyncRulesBucketStorageListener>
+  extends BaseObserver<storage.SyncRulesBucketStorageListener>
   implements storage.SyncRulesBucketStorage
 {
   private readonly db: PowerSyncMongo;
@@ -607,5 +623,233 @@ export class MongoSyncBucketStorage
 
   async compact(options?: storage.CompactOptions) {
     return new MongoCompactor(this.db, this.group_id, options).compact();
+  }
+
+  private makeActiveCheckpoint(doc: SyncRuleCheckpointState | null) {
+    return {
+      checkpoint: utils.timestampToOpId(doc?.last_checkpoint ?? 0n),
+      lsn: doc?.last_checkpoint_lsn ?? null
+    };
+  }
+
+  /**
+   * Instance-wide watch on the latest available checkpoint (op_id + lsn).
+   */
+  private async *watchActiveCheckpoint(signal: AbortSignal): AsyncIterable<ReplicationCheckpoint> {
+    // Use this form instead of (doc: SyncRuleCheckpointState | null = null),
+    // otherwise we get weird "doc: never" issues.
+    let doc = null as SyncRuleCheckpointState | null;
+    let clusterTime = null as mongo.Timestamp | null;
+    const syncRulesId = this.group_id;
+
+    await this.db.client.withSession(async (session) => {
+      doc = await this.db.sync_rules.findOne(
+        {
+          _id: syncRulesId,
+          state: storage.SyncRuleState.ACTIVE
+        },
+        {
+          session,
+          sort: { _id: -1 },
+          limit: 1,
+          projection: {
+            _id: 1,
+            state: 1,
+            last_checkpoint: 1,
+            last_checkpoint_lsn: 1
+          }
+        }
+      );
+      const time = session.clusterTime?.clusterTime ?? null;
+      clusterTime = time;
+    });
+    if (clusterTime == null) {
+      throw new ServiceError(ErrorCode.PSYNC_S2401, 'Could not get clusterTime');
+    }
+
+    if (signal.aborted) {
+      return;
+    }
+
+    if (doc == null) {
+      // Sync rules not present or not active.
+      // Abort the connections - clients will have to retry later.
+      // Should this error instead?
+      return;
+    }
+
+    yield this.makeActiveCheckpoint(doc);
+
+    // We only watch changes to the active sync rules.
+    // If it changes to inactive, we abort and restart with the new sync rules.
+
+    const pipeline = this.getChangeStreamPipeline();
+
+    const stream = this.db.sync_rules.watch(pipeline, {
+      // Start at the cluster time where we got the initial doc, to make sure
+      // we don't skip any updates.
+      // This may result in the first operation being a duplicate, but we filter
+      // it out anyway.
+      startAtOperationTime: clusterTime
+    });
+
+    signal.addEventListener(
+      'abort',
+      () => {
+        stream.close();
+      },
+      { once: true }
+    );
+
+    let lastOp: storage.ReplicationCheckpoint | null = null;
+    let lastDoc: SyncRuleCheckpointState | null = doc;
+
+    for await (const update of stream.stream()) {
+      if (signal.aborted) {
+        break;
+      }
+      if (update.operationType != 'insert' && update.operationType != 'update' && update.operationType != 'replace') {
+        continue;
+      }
+
+      const doc = await this.getOperationDoc(lastDoc, update as lib_mongo.mongo.ChangeStreamDocument<SyncRuleDocument>);
+      if (doc == null) {
+        // Irrelevant update
+        continue;
+      }
+      if (doc.state != storage.SyncRuleState.ACTIVE) {
+        // Sync rules have changed - abort and restart.
+        // Should this error instead?
+        break;
+      }
+
+      lastDoc = doc;
+
+      const op = this.makeActiveCheckpoint(doc);
+      // Check for LSN / checkpoint changes - ignore other metadata changes
+      if (lastOp == null || op.lsn != lastOp.lsn || op.checkpoint != lastOp.checkpoint) {
+        lastOp = op;
+        yield op;
+      }
+    }
+  }
+
+  // Nothing is done here until a subscriber starts to iterate
+  private readonly sharedIter = new BroadcastIterable((signal) => {
+    return this.watchActiveCheckpoint(signal);
+  });
+
+  /**
+   * User-specific watch on the latest checkpoint and/or write checkpoint.
+   */
+  async *watchWriteCheckpoint(options: WatchWriteCheckpointOptions): AsyncIterable<storage.StorageCheckpointUpdate> {
+    const { user_id, signal } = options;
+    let lastCheckpoint: utils.OpId | null = null;
+    let lastWriteCheckpoint: bigint | null = null;
+
+    const iter = wrapWithAbort(this.sharedIter, signal);
+    for await (const event of iter) {
+      const { checkpoint, lsn } = event;
+
+      // lsn changes are not important by itself.
+      // What is important is:
+      // 1. checkpoint (op_id) changes.
+      // 2. write checkpoint changes for the specific user
+
+      const lsnFilters: Record<string, string> = lsn ? { 1: lsn } : {};
+
+      const currentWriteCheckpoint = await this.lastWriteCheckpoint({
+        user_id,
+        heads: {
+          ...lsnFilters
+        }
+      });
+
+      if (currentWriteCheckpoint == lastWriteCheckpoint && checkpoint == lastCheckpoint) {
+        // No change - wait for next one
+        // In some cases, many LSNs may be produced in a short time.
+        // Add a delay to throttle the write checkpoint lookup a bit.
+        await timers.setTimeout(20 + 10 * Math.random());
+        continue;
+      }
+
+      const updates: CheckpointChanges =
+        lastCheckpoint == null
+          ? {
+              invalidateDataBuckets: true,
+              invalidateParameterBuckets: true,
+              updatedDataBuckets: [],
+              updatedParameterBucketDefinitions: []
+            }
+          : await this.getCheckpointChanges({
+              lastCheckpoint: lastCheckpoint,
+              nextCheckpoint: checkpoint
+            });
+
+      lastWriteCheckpoint = currentWriteCheckpoint;
+      lastCheckpoint = checkpoint;
+
+      yield {
+        base: event,
+        writeCheckpoint: currentWriteCheckpoint,
+        update: updates
+      };
+    }
+  }
+
+  private async getOperationDoc(
+    lastDoc: SyncRuleCheckpointState,
+    update: lib_mongo.mongo.ChangeStreamDocument<SyncRuleDocument>
+  ): Promise<SyncRuleCheckpointState | null> {
+    if (update.operationType == 'insert' || update.operationType == 'replace') {
+      return update.fullDocument;
+    } else if (update.operationType == 'update') {
+      const updatedFields = update.updateDescription.updatedFields ?? {};
+      if (lastDoc._id != update.documentKey._id) {
+        throw new ServiceAssertionError(`Sync rules id mismatch: ${lastDoc._id} != ${update.documentKey._id}`);
+      }
+
+      const mergedDoc: SyncRuleCheckpointState = {
+        _id: lastDoc._id,
+        last_checkpoint: updatedFields.last_checkpoint ?? lastDoc.last_checkpoint,
+        last_checkpoint_lsn: updatedFields.last_checkpoint_lsn ?? lastDoc.last_checkpoint_lsn,
+        state: updatedFields.state ?? lastDoc.state
+      };
+
+      return mergedDoc;
+    } else {
+      // Unknown event type
+      return null;
+    }
+  }
+
+  private getChangeStreamPipeline() {
+    const syncRulesId = this.group_id;
+    const pipeline: mongo.Document[] = [
+      {
+        $match: {
+          'documentKey._id': syncRulesId,
+          operationType: { $in: ['insert', 'update', 'replace'] }
+        }
+      },
+      {
+        $project: {
+          operationType: 1,
+          'documentKey._id': 1,
+          'updateDescription.updatedFields.state': 1,
+          'updateDescription.updatedFields.last_checkpoint': 1,
+          'updateDescription.updatedFields.last_checkpoint_lsn': 1,
+          'fullDocument._id': 1,
+          'fullDocument.state': 1,
+          'fullDocument.last_checkpoint': 1,
+          'fullDocument.last_checkpoint_lsn': 1
+        }
+      }
+    ];
+    return pipeline;
+  }
+
+  async getCheckpointChanges(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
+    return CHECKPOINT_INVALIDATE_ALL;
   }
 }

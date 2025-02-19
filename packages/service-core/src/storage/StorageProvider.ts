@@ -1,5 +1,5 @@
 import * as util from '../util/util-index.js';
-import { BucketStorageFactory } from './BucketStorage.js';
+import { BucketStorageFactory } from './BucketStorageFactory.js';
 
 export interface ActiveStorage {
   storage: BucketStorageFactory;
@@ -16,6 +16,9 @@ export interface GetStorageOptions {
   resolvedConfig: util.ResolvedPowerSyncConfig;
 }
 
+/**
+ * Represents a provider that can create a storage instance for a specific storage type from configuration.
+ */
 export interface BucketStorageProvider {
   /**
    *  The storage type that this provider provides.

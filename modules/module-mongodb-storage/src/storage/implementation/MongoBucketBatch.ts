@@ -3,8 +3,8 @@ import { SqlEventDescriptor, SqliteRow, SqlSyncRules } from '@powersync/service-
 import * as bson from 'bson';
 
 import {
+  BaseObserver,
   container,
-  DisposableObserver,
   ErrorCode,
   errors,
   logger,
@@ -49,7 +49,7 @@ export interface MongoBucketBatchOptions {
 }
 
 export class MongoBucketBatch
-  extends DisposableObserver<storage.BucketBatchStorageListener>
+  extends BaseObserver<storage.BucketBatchStorageListener>
   implements storage.BucketStorageBatch
 {
   private readonly client: mongo.MongoClient;
@@ -607,7 +607,7 @@ export class MongoBucketBatch
 
   async [Symbol.asyncDispose]() {
     await this.session.endSession();
-    super[Symbol.dispose]();
+    super.clearListeners();
   }
 
   private lastWaitingLogThottled = 0;

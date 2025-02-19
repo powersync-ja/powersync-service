@@ -30,4 +30,8 @@ export class BaseObserver<T> implements ObserverClient<T> {
       await cb(this.listeners[i]);
     }
   }
+
+  clearListeners() {
+    this.listeners = {};
+  }
 }

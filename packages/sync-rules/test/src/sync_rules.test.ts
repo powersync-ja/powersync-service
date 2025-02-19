@@ -37,9 +37,11 @@ bucket_definitions:
         bucket: 'mybucket[]'
       }
     ]);
-    expect(rules.getStaticBucketDescriptions(normalizeTokenParameters({}))).toEqual([
-      { bucket: 'mybucket[]', priority: 3 }
-    ]);
+    expect(rules.getBucketParameterQuerier(normalizeTokenParameters({}))).toMatchObject({
+      staticBuckets: [{ bucket: 'mybucket[]', priority: 3 }],
+      hasDynamicBuckets: false,
+      dynamicBucketDefinitions: new Set()
+    });
   });
 
   test('parse global sync rules with filter', () => {
@@ -60,11 +62,19 @@ bucket_definitions:
     expect(param_query.filter!.lookupParameterValue(normalizeTokenParameters({ is_admin: 1n }))).toEqual(1n);
     expect(param_query.filter!.lookupParameterValue(normalizeTokenParameters({ is_admin: 0n }))).toEqual(0n);
 
-    expect(rules.getStaticBucketDescriptions(normalizeTokenParameters({ is_admin: true }))).toEqual([
-      { bucket: 'mybucket[]', priority: 3 }
-    ]);
-    expect(rules.getStaticBucketDescriptions(normalizeTokenParameters({ is_admin: false }))).toEqual([]);
-    expect(rules.getStaticBucketDescriptions(normalizeTokenParameters({}))).toEqual([]);
+    expect(rules.getBucketParameterQuerier(normalizeTokenParameters({ is_admin: true }))).toMatchObject({
+      staticBuckets: [{ bucket: 'mybucket[]', priority: 3 }],
+      hasDynamicBuckets: false
+    });
+    expect(rules.getBucketParameterQuerier(normalizeTokenParameters({ is_admin: false }))).toMatchObject({
+      staticBuckets: [],
+      hasDynamicBuckets: false
+    });
+    expect(rules.getBucketParameterQuerier(normalizeTokenParameters({}))).toMatchObject({
+      staticBuckets: [],
+      hasDynamicBuckets: false,
+      dynamicBucketDefinitions: new Set()
+    });
   });
 
   test('parse global sync rules with table filter', () => {
@@ -106,7 +116,8 @@ bucket_definitions:
     const param_query = bucket.global_parameter_queries[0];
     expect(param_query.bucket_parameters).toEqual(['user_id', 'device_id']);
     expect(
-      rules.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'user1' }, { device_id: 'device1' }))
+      rules.getBucketParameterQuerier(normalizeTokenParameters({ user_id: 'user1' }, { device_id: 'device1' }))
+        .staticBuckets
     ).toEqual([{ bucket: 'mybucket["user1","device1"]', priority: 3 }]);
 
     const data_query = bucket.data_queries[0];
@@ -151,7 +162,7 @@ bucket_definitions:
     expect(bucket.bucket_parameters).toEqual(['user_id']);
     const param_query = bucket.global_parameter_queries[0];
     expect(param_query.bucket_parameters).toEqual(['user_id']);
-    expect(rules.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
+    expect(rules.getBucketParameterQuerier(normalizeTokenParameters({ user_id: 'user1' })).staticBuckets).toEqual([
       { bucket: 'mybucket["user1"]', priority: 3 }
     ]);
 
@@ -295,9 +306,10 @@ bucket_definitions:
     );
     const bucket = rules.bucket_descriptors[0];
     expect(bucket.bucket_parameters).toEqual(['user_id']);
-    expect(rules.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
-      { bucket: 'mybucket["USER1"]', priority: 3 }
-    ]);
+    expect(rules.getBucketParameterQuerier(normalizeTokenParameters({ user_id: 'user1' }))).toMatchObject({
+      staticBuckets: [{ bucket: 'mybucket["USER1"]', priority: 3 }],
+      hasDynamicBuckets: false
+    });
 
     expect(
       rules.evaluateRow({
@@ -332,9 +344,10 @@ bucket_definitions:
     );
     const bucket = rules.bucket_descriptors[0];
     expect(bucket.bucket_parameters).toEqual(['user_id']);
-    expect(rules.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
-      { bucket: 'mybucket["USER1"]', priority: 3 }
-    ]);
+    expect(rules.getBucketParameterQuerier(normalizeTokenParameters({ user_id: 'user1' }))).toMatchObject({
+      staticBuckets: [{ bucket: 'mybucket["USER1"]', priority: 3 }],
+      hasDynamicBuckets: false
+    });
 
     expect(
       rules.evaluateRow({
@@ -504,7 +517,7 @@ bucket_definitions:
       }
     ]);
 
-    expect(rules.getStaticBucketDescriptions(normalizeTokenParameters({ is_admin: true }))).toEqual([
+    expect(rules.getBucketParameterQuerier(normalizeTokenParameters({ is_admin: true })).staticBuckets).toEqual([
       { bucket: 'mybucket[1]', priority: 3 }
     ]);
   });
@@ -548,8 +561,8 @@ bucket_definitions:
       PARSE_OPTIONS
     );
     expect(
-      rules.getStaticBucketDescriptions(normalizeTokenParameters({ int1: 314, float1: 3.14, float2: 314 }))
-    ).toEqual([{ bucket: 'mybucket[314,3.14,314]', priority: 3 }]);
+      rules.getBucketParameterQuerier(normalizeTokenParameters({ int1: 314, float1: 3.14, float2: 314 }))
+    ).toMatchObject({ staticBuckets: [{ bucket: 'mybucket[314,3.14,314]', priority: 3 }] });
 
     expect(
       rules.evaluateRow({ sourceTable: ASSETS, record: { id: 'asset1', int1: 314n, float1: 3.14, float2: 314 } })
@@ -577,9 +590,10 @@ bucket_definitions:
       PARSE_OPTIONS
     );
     expect(rules.errors).toEqual([]);
-    expect(rules.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'test' }))).toEqual([
-      { bucket: 'mybucket["TEST"]', priority: 3 }
-    ]);
+    expect(rules.getBucketParameterQuerier(normalizeTokenParameters({ user_id: 'test' }))).toMatchObject({
+      staticBuckets: [{ bucket: 'mybucket["TEST"]', priority: 3 }],
+      hasDynamicBuckets: false
+    });
   });
 
   test('custom table and id', () => {
@@ -834,10 +848,12 @@ bucket_definitions:
 
     expect(rules.errors).toEqual([]);
 
-    expect(rules.getStaticBucketDescriptions(normalizeTokenParameters({}))).toEqual([
-      { bucket: 'highprio[]', priority: 0 },
-      { bucket: 'defaultprio[]', priority: 3 }
-    ]);
+    expect(rules.getBucketParameterQuerier(normalizeTokenParameters({}))).toMatchObject({
+      staticBuckets: [
+        { bucket: 'highprio[]', priority: 0 },
+        { bucket: 'defaultprio[]', priority: 3 }
+      ]
+    });
   });
 
   test('priorities on bucket', () => {
@@ -857,10 +873,12 @@ bucket_definitions:
 
     expect(rules.errors).toEqual([]);
 
-    expect(rules.getStaticBucketDescriptions(normalizeTokenParameters({}))).toEqual([
-      { bucket: 'highprio[]', priority: 0 },
-      { bucket: 'defaultprio[]', priority: 3 }
-    ]);
+    expect(rules.getBucketParameterQuerier(normalizeTokenParameters({}))).toMatchObject({
+      staticBuckets: [
+        { bucket: 'highprio[]', priority: 0 },
+        { bucket: 'defaultprio[]', priority: 3 }
+      ]
+    });
   });
 
   test(`invalid priority on bucket`, () => {
@@ -892,5 +910,47 @@ bucket_definitions:
         { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
       )
     ).toThrowError(/Cannot set priority multiple times/);
+  });
+
+  test('dynamic bucket definitions list', () => {
+    const rules = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    parameters:
+      - SELECT request.user_id() as user_id
+      - SELECT id as user_id FROM users WHERE id = request.user_id()
+    data: []
+
+  by_list:
+    parameters:
+      - SELECT id as list_id FROM lists WHERE owner_id = request.user_id()
+    data: []
+
+  admin_only:
+    parameters:
+      - SELECT id as list_id FROM lists WHERE (request.jwt() ->> 'is_admin' IS NULL)
+    data: []
+    `,
+      PARSE_OPTIONS
+    );
+    const bucket = rules.bucket_descriptors[0];
+    expect(bucket.bucket_parameters).toEqual(['user_id']);
+
+    expect(rules.getBucketParameterQuerier(normalizeTokenParameters({ user_id: 'user1' }))).toMatchObject({
+      hasDynamicBuckets: true,
+      dynamicBucketDefinitions: new Set([
+        'mybucket',
+        'by_list',
+        // These are not filtered out yet, due to how the lookups are structured internally
+        'admin_only'
+      ]),
+      staticBuckets: [
+        {
+          bucket: 'mybucket["user1"]',
+          priority: 3
+        }
+      ]
+    });
   });
 });

@@ -1,6 +1,6 @@
-import { ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
+import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { RouteAPI } from '../api/RouteAPI.js';
-import { BucketStorageFactory } from '../storage/BucketStorage.js';
+import { BucketStorageFactory } from '../storage/storage-index.js';
 
 export interface CreateWriteCheckpointOptions {
   userId: string | undefined;
@@ -11,12 +11,10 @@ export interface CreateWriteCheckpointOptions {
 export async function createWriteCheckpoint(options: CreateWriteCheckpointOptions) {
   const full_user_id = checkpointUserId(options.userId, options.clientId);
 
-  const activeSyncRules = await options.storage.getActiveSyncRulesContent();
-  if (!activeSyncRules) {
+  const syncBucketStorage = await options.storage.getActiveStorage();
+  if (!syncBucketStorage) {
     throw new ServiceError(ErrorCode.PSYNC_S2302, `Cannot create Write Checkpoint since no sync rules are active.`);
   }
-
-  using syncBucketStorage = options.storage.getInstance(activeSyncRules);
 
   const { writeCheckpoint, currentCheckpoint } = await options.api.createReplicationHead(async (currentCheckpoint) => {
     const writeCheckpoint = await syncBucketStorage.createManagedWriteCheckpoint({

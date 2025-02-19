@@ -1,17 +1,17 @@
-import { DisposableListener, DisposableObserver, logger } from '@powersync/lib-services-framework';
+import { BaseObserver, logger } from '@powersync/lib-services-framework';
 import { ResolvedPowerSyncConfig } from '../util/util-index.js';
-import { BucketStorageFactory } from './BucketStorage.js';
 import { ActiveStorage, BucketStorageProvider } from './StorageProvider.js';
+import { BucketStorageFactory } from './BucketStorageFactory.js';
 
 export type StorageEngineOptions = {
   configuration: ResolvedPowerSyncConfig;
 };
 
-export interface StorageEngineListener extends DisposableListener {
+export interface StorageEngineListener {
   storageActivated: (storage: BucketStorageFactory) => void;
 }
 
-export class StorageEngine extends DisposableObserver<StorageEngineListener> {
+export class StorageEngine extends BaseObserver<StorageEngineListener> {
   // TODO: This will need to revisited when we actually support multiple storage providers.
   private storageProviders: Map<string, BucketStorageProvider> = new Map();
   private currentActiveStorage: ActiveStorage | null = null;
