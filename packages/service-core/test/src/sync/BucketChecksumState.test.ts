@@ -104,7 +104,7 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(state.getFilteredBucketPositions(line2.bucketsToFetch)).toEqual(new Map([['global[]', '1']]));
+    expect(state.getFilteredBucketPositions(line2.bucketsToFetch)).toEqual(new Map([['global[]', 1n]]));
   });
 
   test('global bucket with initial state', async () => {
@@ -142,7 +142,7 @@ bucket_definitions:
       }
     ]);
     // This is the main difference between this and the previous test
-    expect(state.getFilteredBucketPositions(line.bucketsToFetch)).toEqual(new Map([['global[]', '1']]));
+    expect(state.getFilteredBucketPositions(line.bucketsToFetch)).toEqual(new Map([['global[]', 1n]]));
   });
 
   test('multiple static buckets', async () => {
@@ -390,8 +390,8 @@ bucket_definitions:
     // This is the bucket data to be fetched
     expect(state.getFilteredBucketPositions(line.bucketsToFetch)).toEqual(
       new Map([
-        ['global[1]', '0'],
-        ['global[2]', '0']
+        ['global[1]', 0n],
+        ['global[2]', 0n]
       ])
     );
 
@@ -439,8 +439,8 @@ bucket_definitions:
 
     expect(state.getFilteredBucketPositions(line2.bucketsToFetch)).toEqual(
       new Map([
-        ['global[1]', '3'],
-        ['global[2]', '1']
+        ['global[1]', 3n],
+        ['global[2]', 1n]
       ])
     );
   });
@@ -495,8 +495,8 @@ bucket_definitions:
     // This is the bucket data to be fetched
     expect(state.getFilteredBucketPositions(line.bucketsToFetch)).toEqual(
       new Map([
-        ['by_project[1]', '0'],
-        ['by_project[2]', '0']
+        ['by_project[1]', 0n],
+        ['by_project[2]', 0n]
       ])
     );
 
@@ -531,7 +531,7 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(state.getFilteredBucketPositions(line2.bucketsToFetch)).toEqual(new Map([['by_project[3]', '0']]));
+    expect(state.getFilteredBucketPositions(line2.bucketsToFetch)).toEqual(new Map([['by_project[3]', 0n]]));
   });
 });
 
