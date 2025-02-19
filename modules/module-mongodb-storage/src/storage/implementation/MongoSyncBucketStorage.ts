@@ -28,6 +28,7 @@ import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { idPrefixFilter, mapOpEntry, readSingleBatch } from './util.js';
+import { LRUCache } from 'lru-cache';
 
 export class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
@@ -849,7 +850,118 @@ export class MongoSyncBucketStorage
     return pipeline;
   }
 
+  private async getDataBucketChanges(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
+    // The query below can be slow, since we don't have an index on _id.o.
+    // We could try to query the oplog for these, but that is risky.
+    // Or we could store updated buckets in a separate collection, and query those.
+    // For now, we ignore this optimization
+
+    // const dataBuckets = await this.db.bucket_data
+    //   .find(
+    //     {
+    //       '_id.g': this.group_id,
+    //       '_id.o': { $gt: BigInt(options.lastCheckpoint), $lte: BigInt(options.nextCheckpoint) }
+    //     },
+    //     {
+    //       projection: {
+    //         '_id.b': 1
+    //       },
+    //       limit: 1001,
+    //       batchSize: 1001,
+    //       singleBatch: true
+    //     }
+    //   )
+    //   .toArray();
+
+    return {
+      invalidateDataBuckets: true,
+      updatedDataBuckets: []
+    };
+  }
+
+  private async getParameterBucketChanges(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedParameterBucketDefinitions' | 'invalidateParameterBuckets'>> {
+    // TODO: limit max query running time
+    const parameterUpdates = await this.db.bucket_parameters
+      .find(
+        {
+          _id: { $gt: BigInt(options.lastCheckpoint), $lt: BigInt(options.nextCheckpoint) },
+          'key.g': this.group_id
+        },
+        {
+          projection: {
+            lookup: 1
+          },
+          limit: 1001,
+          batchSize: 1001,
+          singleBatch: true
+        }
+      )
+      .toArray();
+    const invalidateParameterUpdates = parameterUpdates.length > 1000;
+
+    return {
+      invalidateParameterBuckets: invalidateParameterUpdates,
+      updatedParameterBucketDefinitions: invalidateParameterUpdates
+        ? []
+        : [...new Set<string>(parameterUpdates.map((p) => getLookupBucketDefinitionName(p.lookup)))]
+    };
+  }
+
+  // TODO:
+  // We can optimize this by implementing it like ChecksumCache: We can use partial cache results to do
+  // more efficient lookups in some cases.
+  private checkpointChangesCache = new LRUCache<string, CheckpointChanges, { options: GetCheckpointChangesOptions }>({
+    max: 50,
+    maxSize: 10 * 1024 * 1024,
+    sizeCalculation: (value: CheckpointChanges) => {
+      return 100 + value.updatedParameterBucketDefinitions.reduce<number>((a, b) => a + b.length, 0);
+    },
+    fetchMethod: async (_key, _staleValue, options) => {
+      return this.getCheckpointChangesInternal(options.context.options);
+    }
+  });
+
+  private _hasDynamicBucketsCached: boolean | undefined = undefined;
+
+  private hasDynamicBucketQueries(): boolean {
+    if (this._hasDynamicBucketsCached != null) {
+      return this._hasDynamicBucketsCached;
+    }
+    const syncRules = this.getParsedSyncRules({
+      defaultSchema: 'default' // n/a
+    });
+    const hasDynamicBuckets = syncRules.hasDynamicBucketQueries();
+    this._hasDynamicBucketsCached = hasDynamicBuckets;
+    return hasDynamicBuckets;
+  }
+
   async getCheckpointChanges(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
-    return CHECKPOINT_INVALIDATE_ALL;
+    if (!this.hasDynamicBucketQueries()) {
+      // Special case when we have no dynamic parameter queries.
+      // In this case, we can avoid doing any queries.
+      return {
+        invalidateDataBuckets: true,
+        updatedDataBuckets: [],
+        invalidateParameterBuckets: false,
+        updatedParameterBucketDefinitions: []
+      };
+    }
+    const key = `${options.lastCheckpoint}_${options.nextCheckpoint}`;
+    const result = await this.checkpointChangesCache.fetch(key, { context: { options } });
+    return result!;
+  }
+
+  private async getCheckpointChangesInternal(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
+    const dataUpdates = await this.getDataBucketChanges(options);
+    const parameterUpdates = await this.getParameterBucketChanges(options);
+
+    return {
+      ...dataUpdates,
+      ...parameterUpdates
+    };
   }
 }
