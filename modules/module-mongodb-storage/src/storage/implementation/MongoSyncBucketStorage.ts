@@ -340,7 +340,7 @@ export class MongoSyncBucketStorage
 
     // Ordered by _id, meaning buckets are grouped together
     for (let rawData of data) {
-      const row = bson.deserialize(rawData, storage.BSON_DESERIALIZE_OPTIONS) as BucketDataDocument;
+      const row = bson.deserialize(rawData, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocument;
       const bucket = row._id.b;
 
       if (currentBatch == null || currentBatch.bucket != bucket || batchSize >= sizeLimit) {

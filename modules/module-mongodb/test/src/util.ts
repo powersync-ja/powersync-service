@@ -4,6 +4,7 @@ import * as postgres_storage from '@powersync/service-module-postgres-storage';
 
 import * as types from '@module/types/types.js';
 import { env } from './env.js';
+import { BSON_DESERIALIZE_DATA_OPTIONS } from '@powersync/service-core';
 
 export const TEST_URI = env.MONGO_TEST_DATA_URL;
 
@@ -30,7 +31,7 @@ export async function connectMongoData() {
     connectTimeoutMS: env.CI ? 15_000 : 5_000,
     socketTimeoutMS: env.CI ? 15_000 : 5_000,
     serverSelectionTimeoutMS: env.CI ? 15_000 : 2_500,
-    useBigInt64: true
+    ...BSON_DESERIALIZE_DATA_OPTIONS
   });
   const dbname = new URL(env.MONGO_TEST_DATA_URL).pathname.substring(1);
   return { client, db: client.db(dbname) };
