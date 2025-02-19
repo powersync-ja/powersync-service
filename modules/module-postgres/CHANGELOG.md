@@ -1,5 +1,22 @@
 # @powersync/service-module-postgres
 
+## 0.8.0
+
+### Minor Changes
+
+- 436eee6: Minor optimizations to new checkpoint calulations.
+
+### Patch Changes
+
+- Updated dependencies [436eee6]
+- Updated dependencies [15283d4]
+- Updated dependencies [88d4cb3]
+- Updated dependencies [f55e36a]
+  - @powersync/service-core@1.7.0
+  - @powersync/service-sync-rules@0.24.0
+  - @powersync/lib-services-framework@0.5.2
+  - @powersync/lib-service-postgres@0.3.2
+
 ## 0.7.1
 
 ### Patch Changes
