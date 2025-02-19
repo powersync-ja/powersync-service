@@ -633,8 +633,9 @@ export class PostgresSyncRulesStorage
     }
 
     const rangedBatch = batch.map((b) => ({
-      ...b,
-      start: b.start ?? 0
+      bucket: b.bucket,
+      start: String(b.start ?? 0n),
+      end: String(b.end)
     }));
 
     const results = await this.db.sql`
