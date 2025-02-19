@@ -41,7 +41,7 @@ export const serializeLookup = (lookup: SqliteJsonValue[]) => {
 };
 
 export const getLookupBucketDefinitionName = (lookup: bson.Binary) => {
-  const parsed = bson.deserialize(lookup.buffer, BSON_DESERIALIZE_OPTIONS).l as SqliteJsonValue[];
+  const parsed = bson.deserialize(lookup.buffer, BSON_DESERIALIZE_INTERNAL_OPTIONS).l as SqliteJsonValue[];
   return parsed[0] as string;
 };
 
