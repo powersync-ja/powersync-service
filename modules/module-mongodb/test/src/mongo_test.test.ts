@@ -47,6 +47,13 @@ describe('mongo data types', () => {
           'mydb',
           { foo: 'bar' }
         )
+      },
+      {
+        _id: 6 as any,
+        int4: -1,
+        int8: -9007199254740993n,
+        float: -3.14,
+        decimal: new mongo.Decimal128('-3.14')
       }
     ]);
   }
@@ -110,6 +117,13 @@ describe('mongo data types', () => {
       { _id: 2 as any, nested: [{ test: 'thing' }] },
       { _id: 3 as any, date: [new Date('2023-03-06 15:47+02')] },
       {
+        _id: 6 as any,
+        int4: [-1],
+        int8: [-9007199254740993n],
+        float: [-3.14],
+        decimal: [new mongo.Decimal128('-3.14')]
+      },
+      {
         _id: 10 as any,
         timestamp: [mongo.Timestamp.fromBits(123, 456)],
         objectId: [mongo.ObjectId.createFromHexString('66e834cc91d805df11fa0ecb')],
@@ -164,6 +178,14 @@ describe('mongo data types', () => {
 
     // This must specifically be null, and not undefined.
     expect(transformed[4].undefined).toBeNull();
+
+    expect(transformed[5]).toMatchObject({
+      _id: 6n,
+      int4: -1n,
+      int8: -9007199254740993n,
+      float: -3.14,
+      decimal: '-3.14'
+    });
   }
 
   function checkResultsNested(transformed: Record<string, any>[]) {
@@ -193,6 +215,19 @@ describe('mongo data types', () => {
     });
 
     expect(transformed[3]).toMatchObject({
+      _id: 5n,
+      undefined: '[null]'
+    });
+
+    expect(transformed[4]).toMatchObject({
+      _id: 6n,
+      int4: '[-1]',
+      int8: '[-9007199254740993]',
+      float: '[-3.14]',
+      decimal: '["-3.14"]'
+    });
+
+    expect(transformed[5]).toMatchObject({
       _id: 10n,
       objectId: '["66e834cc91d805df11fa0ecb"]',
       timestamp: '[1958505087099]',
@@ -202,10 +237,6 @@ describe('mongo data types', () => {
       pointer: '[{"collection":"mycollection","oid":"66e834cc91d805df11fa0ecb","fields":{}}]',
       minKey: '[null]',
       maxKey: '[null]'
-    });
-
-    expect(transformed[4]).toMatchObject({
-      undefined: '[null]'
     });
   }
 
@@ -218,11 +249,13 @@ describe('mongo data types', () => {
       await insert(collection);
       await insertUndefined(db, 'test_data');
 
-      const rawResults = await db.collection('test_data').find().toArray();
+      const rawResults = await db
+        .collection('test_data')
+        .find({}, { sort: { _id: 1 } })
+        .toArray();
       // It is tricky to save "undefined" with mongo, so we check that it succeeded.
       expect(rawResults[4].undefined).toBeUndefined();
       const transformed = [...ChangeStream.getQueryData(rawResults)];
-
       checkResults(transformed);
     } finally {
       await client.close();
@@ -238,8 +271,11 @@ describe('mongo data types', () => {
       await insertNested(collection);
       await insertUndefined(db, 'test_data_arrays', true);
 
-      const rawResults = await db.collection('test_data_arrays').find().toArray();
-      expect(rawResults[4].undefined).toEqual([undefined]);
+      const rawResults = await db
+        .collection('test_data_arrays')
+        .find({}, { sort: { _id: 1 } })
+        .toArray();
+      expect(rawResults[3].undefined).toEqual([undefined]);
       const transformed = [...ChangeStream.getQueryData(rawResults)];
 
       checkResultsNested(transformed);
@@ -257,7 +293,6 @@ describe('mongo data types', () => {
       await setupTable(db);
 
       const stream = db.watch([], {
-        useBigInt64: true,
         maxAwaitTimeMS: 50,
         fullDocument: 'updateLookup'
       });
@@ -267,7 +302,7 @@ describe('mongo data types', () => {
       await insert(collection);
       await insertUndefined(db, 'test_data');
 
-      const transformed = await getReplicationTx(stream, 5);
+      const transformed = await getReplicationTx(stream, 6);
 
       checkResults(transformed);
     } finally {
@@ -282,7 +317,6 @@ describe('mongo data types', () => {
       await setupTable(db);
 
       const stream = db.watch([], {
-        useBigInt64: true,
         maxAwaitTimeMS: 50,
         fullDocument: 'updateLookup'
       });
@@ -292,7 +326,7 @@ describe('mongo data types', () => {
       await insertNested(collection);
       await insertUndefined(db, 'test_data_arrays', true);
 
-      const transformed = await getReplicationTx(stream, 5);
+      const transformed = await getReplicationTx(stream, 6);
 
       checkResultsNested(transformed);
     } finally {
@@ -505,5 +539,6 @@ async function getReplicationTx(replicationStream: mongo.ChangeStream, count: nu
       break;
     }
   }
+  transformed.sort((a, b) => Number(a._id) - Number(b._id));
   return transformed;
 }

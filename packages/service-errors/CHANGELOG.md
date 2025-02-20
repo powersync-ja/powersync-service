@@ -1,5 +1,11 @@
 # @powersync/service-errors
 
+## 0.2.1
+
+### Patch Changes
+
+- 436eee6: Minor optimizations to new checkpoint calulations.
+
 ## 0.2.0
 
 ### Minor Changes

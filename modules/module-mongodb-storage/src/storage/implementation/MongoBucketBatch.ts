@@ -11,7 +11,7 @@ import {
   ReplicationAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
-import { InternalOpId, SaveOperationTag, storage, utils } from '@powersync/service-core';
+import { deserializeBson, InternalOpId, SaveOperationTag, storage, utils } from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
 import { PowerSyncMongo } from './db.js';
 import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
@@ -320,10 +320,7 @@ export class MongoBucketBatch
         existing_buckets = result.buckets;
         existing_lookups = result.lookups;
         if (this.storeCurrentData) {
-          const data = bson.deserialize(
-            (result.data as mongo.Binary).buffer,
-            storage.BSON_DESERIALIZE_OPTIONS
-          ) as SqliteRow;
+          const data = deserializeBson((result.data as mongo.Binary).buffer) as SqliteRow;
           after = storage.mergeToast(after!, data);
         }
       }
