@@ -1,5 +1,15 @@
 # @powersync/service-module-mongodb
 
+## 0.6.1
+
+### Patch Changes
+
+- b4fe4ae: Upgrade mongodb and bson packages, removing the need for some workarounds.
+- Updated dependencies [b4fe4ae]
+  - @powersync/service-core@1.7.1
+  - @powersync/lib-services-framework@0.5.3
+  - @powersync/lib-service-mongodb@0.4.3
+
 ## 0.6.0
 
 ### Minor Changes

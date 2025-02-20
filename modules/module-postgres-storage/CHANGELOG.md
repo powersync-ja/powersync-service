@@ -1,5 +1,15 @@
 # @powersync/service-module-postgres-storage
 
+## 0.4.1
+
+### Patch Changes
+
+- Updated dependencies [b4fe4ae]
+  - @powersync/service-core@1.7.1
+  - @powersync/lib-services-framework@0.5.3
+  - @powersync/service-core-tests@0.5.1
+  - @powersync/lib-service-postgres@0.3.3
+
 ## 0.4.0
 
 ### Minor Changes
