@@ -1,12 +1,11 @@
-import { BucketChecksum, OpId } from '../util/protocol-types.js';
-import { ChecksumMap, addBucketChecksums } from '../util/utils.js';
-import { LRUCache } from 'lru-cache/min';
 import { OrderedSet } from '@js-sdsl/ordered-set';
-import { BucketPriority } from '@powersync/service-sync-rules';
+import { LRUCache } from 'lru-cache/min';
+import { BucketChecksum } from '../util/protocol-types.js';
+import { addBucketChecksums, ChecksumMap, InternalOpId } from '../util/utils.js';
 
 interface ChecksumFetchContext {
   fetch(bucket: string): Promise<BucketChecksum>;
-  checkpoint: bigint;
+  checkpoint: InternalOpId;
 }
 
 export interface PartialChecksum {
@@ -28,10 +27,11 @@ export interface PartialChecksum {
    */
   isFullChecksum: boolean;
 }
+
 export interface FetchPartialBucketChecksum {
   bucket: string;
-  start?: OpId;
-  end: OpId;
+  start?: InternalOpId;
+  end: InternalOpId;
 }
 
 export type PartialChecksumMap = Map<string, PartialChecksum>;
@@ -101,8 +101,7 @@ export class ChecksumCache {
 
       dispose: (value, key) => {
         // Remove from the set of cached checkpoints for the bucket
-        const { checkpointString } = parseCacheKey(key);
-        const checkpoint = BigInt(checkpointString);
+        const { checkpoint } = parseCacheKey(key);
         const checkpointSet = this.bucketCheckpoints.get(value.bucket);
         if (checkpointSet == null) {
           return;
@@ -128,7 +127,7 @@ export class ChecksumCache {
     });
   }
 
-  async getChecksums(checkpoint: OpId, buckets: string[]): Promise<BucketChecksum[]> {
+  async getChecksums(checkpoint: InternalOpId, buckets: string[]): Promise<BucketChecksum[]> {
     const checksums = await this.getChecksumMap(checkpoint, buckets);
     // Return results in the same order as the request
     return buckets.map((bucket) => checksums.get(bucket)!);
@@ -141,7 +140,7 @@ export class ChecksumCache {
    *
    * @returns a Map with exactly one entry for each bucket requested
    */
-  async getChecksumMap(checkpoint: OpId, buckets: string[]): Promise<ChecksumMap> {
+  async getChecksumMap(checkpoint: InternalOpId, buckets: string[]): Promise<ChecksumMap> {
     // Buckets that don't have a cached checksum for this checkpoint yet
     let toFetch = new Set<string>();
 
@@ -235,7 +234,7 @@ export class ChecksumCache {
                 // Partial checksum found - make a partial checksum request
                 bucketRequest = {
                   bucket,
-                  start: cp.toString(),
+                  start: cp,
                   end: checkpoint
                 };
                 add.set(bucket, cached);
@@ -315,11 +314,11 @@ export class ChecksumCache {
   }
 }
 
-function makeCacheKey(checkpoint: bigint | string, bucket: string) {
+function makeCacheKey(checkpoint: InternalOpId | string, bucket: string) {
   return `${checkpoint}/${bucket}`;
 }
 
 function parseCacheKey(key: string) {
   const index = key.indexOf('/');
-  return { checkpointString: key.substring(0, index), bucket: key.substring(index + 1) };
+  return { checkpoint: BigInt(key.substring(0, index)), bucket: key.substring(index + 1) };
 }

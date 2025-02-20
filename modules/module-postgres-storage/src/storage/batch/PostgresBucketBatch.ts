@@ -9,7 +9,7 @@ import {
   ServiceAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
-import { storage, utils } from '@powersync/service-core';
+import { InternalOpId, storage, utils } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as timers from 'timers/promises';
 import * as t from 'ts-codec';
@@ -29,7 +29,7 @@ export interface PostgresBucketBatchOptions {
   last_checkpoint_lsn: string | null;
   no_checkpoint_before_lsn: string;
   store_current_data: boolean;
-  keep_alive_op?: bigint | null;
+  keep_alive_op?: InternalOpId | null;
   /**
    * Set to true for initial replication.
    */
@@ -54,14 +54,14 @@ export class PostgresBucketBatch
   extends BaseObserver<storage.BucketBatchStorageListener>
   implements storage.BucketStorageBatch
 {
-  public last_flushed_op: bigint | null = null;
+  public last_flushed_op: InternalOpId | null = null;
 
   protected db: lib_postgres.DatabaseClient;
   protected group_id: number;
   protected last_checkpoint_lsn: string | null;
   protected no_checkpoint_before_lsn: string;
 
-  protected persisted_op: bigint | null;
+  protected persisted_op: InternalOpId | null;
 
   protected write_checkpoint_batch: storage.CustomWriteCheckpointOptions[];
   protected readonly sync_rules: sync_rules.SqlSyncRules;
@@ -132,18 +132,19 @@ export class PostgresBucketBatch
   async truncate(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
     await this.flush();
 
-    let last_op: bigint | null = null;
+    let last_op: InternalOpId | null = null;
     for (let table of sourceTables) {
       last_op = await this.truncateSingle(table);
     }
 
     if (last_op) {
       this.persisted_op = last_op;
+      return {
+        flushed_op: last_op
+      };
+    } else {
+      return null;
     }
-
-    return {
-      flushed_op: String(last_op!)
-    };
   }
 
   protected async truncateSingle(sourceTable: storage.SourceTable) {
@@ -279,7 +280,7 @@ export class PostgresBucketBatch
 
     this.persisted_op = lastOp;
     this.last_flushed_op = lastOp;
-    return { flushed_op: String(lastOp) };
+    return { flushed_op: lastOp };
   }
 
   async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<boolean> {

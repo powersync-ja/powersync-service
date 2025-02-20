@@ -4,6 +4,7 @@ import { BSON } from 'bson';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { SourceTable } from './SourceTable.js';
 import { BatchedCustomWriteCheckpointOptions } from './storage-index.js';
+import { InternalOpId } from '../util/utils.js';
 
 export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptions = {
   createEmptyCheckpoints: true
@@ -144,7 +145,7 @@ export interface BucketBatchStorageListener {
 }
 
 export interface FlushedResult {
-  flushed_op: string;
+  flushed_op: InternalOpId;
 }
 
 export interface BucketBatchCommitOptions {

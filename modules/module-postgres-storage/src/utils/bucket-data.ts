@@ -5,7 +5,7 @@ import { replicaIdToSubkey } from './bson.js';
 export const mapOpEntry = (entry: models.BucketDataDecoded) => {
   if (entry.op == models.OpType.PUT || entry.op == models.OpType.REMOVE) {
     return {
-      op_id: utils.timestampToOpId(entry.op_id),
+      op_id: utils.internalToExternalOpId(entry.op_id),
       op: entry.op,
       object_type: entry.table_name ?? undefined,
       object_id: entry.row_id ?? undefined,
@@ -17,7 +17,7 @@ export const mapOpEntry = (entry: models.BucketDataDecoded) => {
     // MOVE, CLEAR
 
     return {
-      op_id: utils.timestampToOpId(entry.op_id),
+      op_id: utils.internalToExternalOpId(entry.op_id),
       op: entry.op,
       checksum: Number(entry.checksum)
     };
