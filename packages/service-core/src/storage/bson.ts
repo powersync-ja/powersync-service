@@ -14,11 +14,10 @@ export const BSON_DESERIALIZE_INTERNAL_OPTIONS: bson.DeserializeOptions = {
 };
 
 /**
- * Use for data from external sources.
+ * Use for data from external sources, which could contain arbitrary fields.
  */
 export const BSON_DESERIALIZE_DATA_OPTIONS: bson.DeserializeOptions = {
-  // Temporarily disable due to https://jira.mongodb.org/browse/NODE-6764
-  useBigInt64: false
+  useBigInt64: true
 };
 
 /**
@@ -67,16 +66,11 @@ export const deserializeReplicaId = (id: Buffer): ReplicaId => {
   return deserialized.id;
 };
 
+/**
+ * Deserialize BSON - can be used for BSON containing arbitrary user data.
+ */
 export const deserializeBson = (buffer: Uint8Array): bson.Document => {
-  const doc = bson.deserialize(buffer, BSON_DESERIALIZE_DATA_OPTIONS);
-  // Temporary workaround due to https://jira.mongodb.org/browse/NODE-6764
-  for (let key in doc) {
-    const value = doc[key];
-    if (value instanceof bson.Long) {
-      doc[key] = value.toBigInt();
-    }
-  }
-  return doc;
+  return bson.deserialize(buffer, BSON_DESERIALIZE_DATA_OPTIONS);
 };
 
 export const serializeBson = (document: any): NodeBuffer => {

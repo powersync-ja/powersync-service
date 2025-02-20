@@ -319,13 +319,7 @@ export class MongoSyncBucketStorage
         // 1. We can calculate the document size accurately without serializing again.
         // 2. We can delay parsing the results until it's needed.
         // We manually use bson.deserialize below
-        raw: true,
-
-        // Since we're using raw: true and parsing ourselves later, we don't need bigint
-        // support here.
-        // Disabling due to https://jira.mongodb.org/browse/NODE-6165, and the fact that this
-        // is one of our most common queries.
-        useBigInt64: false
+        raw: true
       }
     ) as unknown as mongo.FindCursor<Buffer>;
 

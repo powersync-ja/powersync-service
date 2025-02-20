@@ -15,7 +15,7 @@ import {
   CurrentDataDocument,
   SourceKey
 } from './models.js';
-import { replicaIdToSubkey, safeBulkWrite } from './util.js';
+import { replicaIdToSubkey } from './util.js';
 
 /**
  * Maximum size of operations we write in a single transaction.
@@ -246,22 +246,21 @@ export class PersistedBatch {
 
   async flush(db: PowerSyncMongo, session: mongo.ClientSession) {
     if (this.bucketData.length > 0) {
-      // calculate total size
-      await safeBulkWrite(db.bucket_data, this.bucketData, {
+      await db.bucket_data.bulkWrite(this.bucketData, {
         session,
         // inserts only - order doesn't matter
         ordered: false
       });
     }
     if (this.bucketParameters.length > 0) {
-      await safeBulkWrite(db.bucket_parameters, this.bucketParameters, {
+      await db.bucket_parameters.bulkWrite(this.bucketParameters, {
         session,
         // inserts only - order doesn't matter
         ordered: false
       });
     }
     if (this.currentData.length > 0) {
-      await safeBulkWrite(db.current_data, this.currentData, {
+      await db.current_data.bulkWrite(this.currentData, {
         session,
         // may update and delete data within the same batch - order matters
         ordered: true
