@@ -1,5 +1,20 @@
 # @powersync/service-image
 
+## 1.7.1
+
+### Patch Changes
+
+- b4fe4ae: Upgrade mongodb and bson packages, removing the need for some workarounds.
+- Updated dependencies [b4fe4ae]
+  - @powersync/service-module-mongodb-storage@0.6.1
+  - @powersync/service-rsocket-router@0.0.20
+  - @powersync/service-module-mongodb@0.6.1
+  - @powersync/service-core@1.7.1
+  - @powersync/lib-services-framework@0.5.3
+  - @powersync/service-module-mysql@0.4.1
+  - @powersync/service-module-postgres@0.8.1
+  - @powersync/service-module-postgres-storage@0.4.1
+
 ## 1.7.0
 
 ### Patch Changes

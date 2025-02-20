@@ -1,5 +1,14 @@
 # @powersync/service-core
 
+## 1.7.1
+
+### Patch Changes
+
+- b4fe4ae: Upgrade mongodb and bson packages, removing the need for some workarounds.
+- Updated dependencies [b4fe4ae]
+  - @powersync/service-rsocket-router@0.0.20
+  - @powersync/lib-services-framework@0.5.3
+
 ## 1.7.0
 
 ### Minor Changes
