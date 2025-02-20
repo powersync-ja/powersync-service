@@ -126,7 +126,7 @@ export async function batchCreateCustomWriteCheckpoints(
     return;
   }
 
-  db.custom_write_checkpoints.bulkWrite(
+  await db.custom_write_checkpoints.bulkWrite(
     checkpoints.map((checkpointOptions) => ({
       updateOne: {
         filter: { user_id: checkpointOptions.user_id, sync_rules_id: checkpointOptions.sync_rules_id },
