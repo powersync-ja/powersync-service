@@ -642,8 +642,6 @@ export class ChangeStream {
             throw new ReplicationAssertionError(`Incomplete splitEvent: ${JSON.stringify(splitDocument.splitEvent)}`);
           }
 
-          console.log('event', changeDocument);
-
           if (
             !filters.multipleDatabases &&
             'ns' in changeDocument &&
@@ -651,10 +649,10 @@ export class ChangeStream {
             changeDocument.ns.db.endsWith(`_${this.defaultDb.databaseName}`)
           ) {
             // When all of the following conditions are met:
-            // 1. We're replicating from a Flex instance.
+            // 1. We're replicating from an Atlas Flex instance.
             // 2. There were changestream events recorded while the PowerSync service is paused.
             // 3. We're only replicating from a single database.
-            // Then we've obeserved an ns with for example {db: '67b83e86cd20730f1e766dde_ps'},
+            // Then we've observed an ns with for example {db: '67b83e86cd20730f1e766dde_ps'},
             // instead of the expected {db: 'ps'}.
             // We correct this.
             changeDocument.ns.db = this.defaultDb.databaseName;
