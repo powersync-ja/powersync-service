@@ -14,7 +14,7 @@ import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
 import { MongoManager } from './MongoManager.js';
-import { constructAfterRecord, createCheckpoint, getMongoRelation } from './MongoRelation.js';
+import { constructAfterRecord, createCheckpoint, getCacheIdentifier, getMongoRelation } from './MongoRelation.js';
 import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
 
 export interface ChangeStreamOptions {
@@ -130,12 +130,7 @@ export class ChangeStream {
     for (let collection of collections) {
       const table = await this.handleRelation(
         batch,
-        {
-          name: collection.name,
-          schema,
-          objectId: collection.name,
-          replicationColumns: [{ name: '_id' }]
-        } as SourceEntityDescriptor,
+        getMongoRelation({ db: schema, coll: collection.name }),
         // This is done as part of the initial setup - snapshot is handled elsewhere
         { snapshot: false, collectionInfo: collection }
       );
@@ -333,9 +328,11 @@ export class ChangeStream {
 
   private async getRelation(
     batch: storage.BucketStorageBatch,
-    descriptor: SourceEntityDescriptor
+    descriptor: SourceEntityDescriptor,
+    options: { snapshot: boolean }
   ): Promise<SourceTable> {
-    const existing = this.relation_cache.get(descriptor.objectId);
+    const cacheId = getCacheIdentifier(descriptor);
+    const existing = this.relation_cache.get(cacheId);
     if (existing != null) {
       return existing;
     }
@@ -344,7 +341,7 @@ export class ChangeStream {
     // missing values.
     const collection = await this.getCollectionInfo(descriptor.schema, descriptor.name);
 
-    return this.handleRelation(batch, descriptor, { snapshot: false, collectionInfo: collection });
+    return this.handleRelation(batch, descriptor, { snapshot: options.snapshot, collectionInfo: collection });
   }
 
   private async getCollectionInfo(db: string, name: string): Promise<mongo.CollectionInfo | undefined> {
@@ -406,8 +403,14 @@ export class ChangeStream {
     });
     this.relation_cache.set(descriptor.objectId, result.table);
 
-    // Drop conflicting tables. This includes for example renamed tables.
-    await batch.drop(result.dropTables);
+    // Drop conflicting collections.
+    // This is generally not expected for MongoDB source dbs, so we log an error.
+    if (result.dropTables.length > 0) {
+      logger.error(
+        `Conflicting collections found for ${JSON.stringify(descriptor)}. Dropping: ${result.dropTables.map((t) => t.id).join(', ')}`
+      );
+      await batch.drop(result.dropTables);
+    }
 
     // Snapshot if:
     // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
@@ -596,7 +599,6 @@ export class ChangeStream {
           }
 
           const originalChangeDocument = await stream.tryNext();
-
           // The stream was closed, we will only ever receive `null` from it
           if (!originalChangeDocument && stream.closed) {
             break;
@@ -682,28 +684,42 @@ export class ChangeStream {
               waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb);
             }
             const rel = getMongoRelation(changeDocument.ns);
-            const table = await this.getRelation(batch, rel);
+            const table = await this.getRelation(batch, rel, {
+              // In most cases, we should not need to snapshot this. But if this is the first time we see the collection
+              // for whatever reason, then we do need to snapshot it.
+              snapshot: true
+            });
             if (table.syncAny) {
               await this.writeChange(batch, table, changeDocument);
             }
           } else if (changeDocument.operationType == 'drop') {
             const rel = getMongoRelation(changeDocument.ns);
-            const table = await this.getRelation(batch, rel);
+            const table = await this.getRelation(batch, rel, {
+              // We're "dropping" this collection, so never snapshot it.
+              snapshot: false
+            });
             if (table.syncAny) {
               await batch.drop([table]);
-              this.relation_cache.delete(table.objectId);
+              this.relation_cache.delete(getCacheIdentifier(rel));
             }
           } else if (changeDocument.operationType == 'rename') {
             const relFrom = getMongoRelation(changeDocument.ns);
             const relTo = getMongoRelation(changeDocument.to);
-            const tableFrom = await this.getRelation(batch, relFrom);
+            const tableFrom = await this.getRelation(batch, relFrom, {
+              // We're "dropping" this collection, so never snapshot it.
+              snapshot: false
+            });
             if (tableFrom.syncAny) {
               await batch.drop([tableFrom]);
-              this.relation_cache.delete(tableFrom.objectId);
+              this.relation_cache.delete(getCacheIdentifier(relFrom));
             }
             // Here we do need to snapshot the new table
             const collection = await this.getCollectionInfo(relTo.schema, relTo.name);
-            await this.handleRelation(batch, relTo, { snapshot: true, collectionInfo: collection });
+            await this.handleRelation(batch, relTo, {
+              // This is a new (renamed) collection, so always snapshot it.
+              snapshot: true,
+              collectionInfo: collection
+            });
           }
         }
       }

@@ -11,9 +11,17 @@ export function getMongoRelation(source: mongo.ChangeStreamNameSpace): storage.S
   return {
     name: source.coll,
     schema: source.db,
-    objectId: source.coll,
+    // Not relevant for MongoDB - we use db + coll name as the identifier
+    objectId: undefined,
     replicationColumns: [{ name: '_id' }]
   } satisfies storage.SourceEntityDescriptor;
+}
+
+/**
+ * For in-memory cache only.
+ */
+export function getCacheIdentifier(source: storage.SourceEntityDescriptor): string {
+  return `${source.schema}.${source.name}`;
 }
 
 export function constructAfterRecord(document: mongo.Document): SqliteRow {
