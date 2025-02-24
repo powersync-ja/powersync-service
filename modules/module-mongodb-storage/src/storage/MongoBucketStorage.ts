@@ -100,7 +100,8 @@ export class MongoBucketStorage
     const active = await this.getActiveSyncRulesContent();
 
     // In both the below cases, we create a new sync rules instance.
-    // The current one will continue erroring until the next one has finished processing.
+    // In the case that next != null && active.slot_name == slot_name, we ignore this.
+    // That will happen when this is called again after the new sync rules have been created.
     if (next != null && next.slot_name == slot_name) {
       // We need to redo the "next" sync rules
       await this.updateSyncRules({
@@ -126,18 +127,9 @@ export class MongoBucketStorage
         validate: false
       });
 
-      // Pro-actively stop replicating
-      await this.db.sync_rules.updateOne(
-        {
-          _id: active.id,
-          state: storage.SyncRuleState.ACTIVE
-        },
-        {
-          $set: {
-            state: storage.SyncRuleState.STOP
-          }
-        }
-      );
+      // In this case we keep the old one as active, so that that existing clients can still get the latest
+      // data while we replicate the new ones.
+      // The current one will continue erroring until the next one has finished processing.
     }
   }
 
