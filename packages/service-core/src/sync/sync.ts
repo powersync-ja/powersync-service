@@ -205,8 +205,8 @@ async function* streamResponseInner(
           abort_connection: signal,
           abort_batch: abortCheckpointSignal,
           user_id: syncParams.user_id,
-          // Passing undefined will emit a full sync complete message at the end. If we pass a priority, we'll emit a partial
-          // sync complete message.
+          // Passing null here will emit a full sync complete message at the end. If we pass a priority, we'll emit a partial
+          // sync complete message instead.
           forPriority: !isLast ? priority : null
         });
       }
