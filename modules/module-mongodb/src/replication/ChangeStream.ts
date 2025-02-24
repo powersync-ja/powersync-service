@@ -595,6 +595,8 @@ export class ChangeStream {
 
         let splitDocument: mongo.ChangeStreamDocument | null = null;
 
+        let flexDbNameWorkaroundLogged = false;
+
         while (true) {
           if (this.abort_signal.aborted) {
             break;
@@ -638,6 +640,31 @@ export class ChangeStream {
           } else if (splitDocument != null) {
             // We were waiting for fragments, but got a different event
             throw new ReplicationAssertionError(`Incomplete splitEvent: ${JSON.stringify(splitDocument.splitEvent)}`);
+          }
+
+          console.log('event', changeDocument);
+
+          if (
+            !filters.multipleDatabases &&
+            'ns' in changeDocument &&
+            changeDocument.ns.db != this.defaultDb.databaseName &&
+            changeDocument.ns.db.endsWith(`_${this.defaultDb.databaseName}`)
+          ) {
+            // When all of the following conditions are met:
+            // 1. We're replicating from a Flex instance.
+            // 2. There were changestream events recorded while the PowerSync service is paused.
+            // 3. We're only replicating from a single database.
+            // Then we've obeserved an ns with for example {db: '67b83e86cd20730f1e766dde_ps'},
+            // instead of the expected {db: 'ps'}.
+            // We correct this.
+            changeDocument.ns.db = this.defaultDb.databaseName;
+
+            if (!flexDbNameWorkaroundLogged) {
+              flexDbNameWorkaroundLogged = true;
+              logger.warn(
+                `${this.logPrefix} Incorrect DB name in change stream: ${changeDocument.ns.db}. Changed to ${this.defaultDb.databaseName}.`
+              );
+            }
           }
 
           if (
