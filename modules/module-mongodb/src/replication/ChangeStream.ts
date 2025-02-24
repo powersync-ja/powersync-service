@@ -714,6 +714,8 @@ export class ChangeStream {
             const table = await this.getRelation(batch, rel, {
               // In most cases, we should not need to snapshot this. But if this is the first time we see the collection
               // for whatever reason, then we do need to snapshot it.
+              // This may result in some duplicate operations when a collection is created for the first time after
+              // sync rules was deployed.
               snapshot: true
             });
             if (table.syncAny) {
