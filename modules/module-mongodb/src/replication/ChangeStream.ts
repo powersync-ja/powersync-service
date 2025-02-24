@@ -395,9 +395,6 @@ export class ChangeStream {
     }
 
     const snapshot = options.snapshot;
-    if (!descriptor.objectId && typeof descriptor.objectId != 'string') {
-      throw new ReplicationAssertionError('MongoDB replication - objectId expected');
-    }
     const result = await this.storage.resolveTable({
       group_id: this.group_id,
       connection_id: this.connection_id,
@@ -405,7 +402,7 @@ export class ChangeStream {
       entity_descriptor: descriptor,
       sync_rules: this.sync_rules
     });
-    this.relation_cache.set(descriptor.objectId, result.table);
+    this.relation_cache.set(getCacheIdentifier(descriptor), result.table);
 
     // Drop conflicting collections.
     // This is generally not expected for MongoDB source dbs, so we log an error.
@@ -422,6 +419,7 @@ export class ChangeStream {
     // 3. The table is used in sync rules.
     const shouldSnapshot = snapshot && !result.table.snapshotComplete && result.table.syncAny;
     if (shouldSnapshot) {
+      logger.info(`${this.logPrefix} New collection: ${descriptor.schema}.${descriptor.name}`);
       // Truncate this table, in case a previous snapshot was interrupted.
       await batch.truncate([result.table]);
 
