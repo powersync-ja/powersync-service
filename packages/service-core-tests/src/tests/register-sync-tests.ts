@@ -253,6 +253,69 @@ bucket_definitions:
     expect(sentRows).toBe(10002);
   });
 
+  test('sends checkpoint complete line for empty checkpoint', async () => {
+    await using f = await factory();
+
+    const syncRules = await f.updateSyncRules({
+      content: BASIC_SYNC_RULES
+    });
+    const bucketStorage = f.getInstance(syncRules);
+    await bucketStorage.autoActivate();
+
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 't1',
+          description: 'sync'
+        },
+        afterReplicaId: 't1'
+      });
+      await batch.commit('0/1');
+    });
+
+    const stream = sync.streamResponse({
+      bucketStorage: bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      params: {
+        buckets: [],
+        include_checksum: true,
+        raw_data: true
+      },
+      tracker,
+      syncParams: new RequestParameters({ sub: '' }, {}),
+      token: { exp: Date.now() / 1000 + 100000 } as any
+    });
+
+    const lines: any[] = [];
+    let receivedCompletions = 0;
+
+    for await (let next of stream) {
+      if (typeof next == 'string') {
+        next = JSON.parse(next);
+      }
+      lines.push(next);
+
+      if (typeof next === 'object' && next !== null) {
+        if ('checkpoint_complete' in next) {
+          receivedCompletions++;
+          if (receivedCompletions == 1) {
+            // Trigger an empty bucket update.
+            await bucketStorage.createManagedWriteCheckpoint({user_id: '', heads: {'1': '1/0'}});
+            await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+              await batch.commit('1/0');
+            });
+          } else {
+            break;
+          }
+        }
+      }
+    }
+
+    expect(lines).toMatchSnapshot();
+  });
+
   test('sync legacy non-raw data', async () => {
     const f = await factory();
 

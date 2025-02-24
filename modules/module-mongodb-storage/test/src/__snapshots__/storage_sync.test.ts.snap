@@ -127,6 +127,62 @@ exports[`sync - mongodb > expiring token 2`] = `
 ]
 `;
 
+exports[`sync - mongodb > sends checkpoint complete line for empty checkpoint 1`] = `
+[
+  {
+    "checkpoint": {
+      "buckets": [
+        {
+          "bucket": "mybucket[]",
+          "checksum": -1221282404,
+          "count": 1,
+          "priority": 3,
+        },
+      ],
+      "last_op_id": "1",
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "data": {
+      "after": "0",
+      "bucket": "mybucket[]",
+      "data": [
+        {
+          "checksum": 3073684892,
+          "data": "{"id":"t1","description":"sync"}",
+          "object_id": "t1",
+          "object_type": "test",
+          "op": "PUT",
+          "op_id": "1",
+          "subkey": "e5aa2ddc-1328-58fa-a000-0b5ed31eaf1a",
+        },
+      ],
+      "has_more": false,
+      "next_after": "1",
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "1",
+    },
+  },
+  {
+    "checkpoint_diff": {
+      "last_op_id": "1",
+      "removed_buckets": [],
+      "updated_buckets": [],
+      "write_checkpoint": "1",
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "1",
+    },
+  },
+]
+`;
+
 exports[`sync - mongodb > sync buckets in order 1`] = `
 [
   {
