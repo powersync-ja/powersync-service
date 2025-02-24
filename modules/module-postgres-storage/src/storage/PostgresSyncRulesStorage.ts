@@ -166,21 +166,39 @@ export class PostgresSyncRulesStorage
       type_oid: typeof column.typeId !== 'undefined' ? Number(column.typeId) : column.typeId
     }));
     return this.db.transaction(async (db) => {
-      let sourceTableRow = await db.sql`
-        SELECT
-          *
-        FROM
-          source_tables
-        WHERE
-          group_id = ${{ type: 'int4', value: group_id }}
-          AND connection_id = ${{ type: 'int4', value: connection_id }}
-          AND relation_id = ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }}
-          AND schema_name = ${{ type: 'varchar', value: schema }}
-          AND table_name = ${{ type: 'varchar', value: table }}
-          AND replica_id_columns = ${{ type: 'jsonb', value: columns }}
-      `
-        .decoded(models.SourceTable)
-        .first();
+      let sourceTableRow: SourceTableDecoded | null;
+      if (objectId != null) {
+        sourceTableRow = await db.sql`
+          SELECT
+            *
+          FROM
+            source_tables
+          WHERE
+            group_id = ${{ type: 'int4', value: group_id }}
+            AND connection_id = ${{ type: 'int4', value: connection_id }}
+            AND relation_id = ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }}
+            AND schema_name = ${{ type: 'varchar', value: schema }}
+            AND table_name = ${{ type: 'varchar', value: table }}
+            AND replica_id_columns = ${{ type: 'jsonb', value: columns }}
+        `
+          .decoded(models.SourceTable)
+          .first();
+      } else {
+        sourceTableRow = await db.sql`
+          SELECT
+            *
+          FROM
+            source_tables
+          WHERE
+            group_id = ${{ type: 'int4', value: group_id }}
+            AND connection_id = ${{ type: 'int4', value: connection_id }}
+            AND schema_name = ${{ type: 'varchar', value: schema }}
+            AND table_name = ${{ type: 'varchar', value: table }}
+            AND replica_id_columns = ${{ type: 'jsonb', value: columns }}
+        `
+          .decoded(models.SourceTable)
+          .first();
+      }
 
       if (sourceTableRow == null) {
         const row = await db.sql`
@@ -199,7 +217,7 @@ export class PostgresSyncRulesStorage
               ${{ type: 'varchar', value: uuid.v4() }},
               ${{ type: 'int4', value: group_id }},
               ${{ type: 'int4', value: connection_id }},
-              --- The objectId can be string | number, we store it as jsonb value
+              --- The objectId can be string | number | undefined, we store it as jsonb value
               ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }},
               ${{ type: 'varchar', value: schema }},
               ${{ type: 'varchar', value: table }},
