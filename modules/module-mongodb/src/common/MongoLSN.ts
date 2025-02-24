@@ -49,17 +49,21 @@ export class MongoLSN {
     return this.options.timestamp;
   }
 
+  get timestampHex() {
+    const { timestamp } = this;
+    const a = timestamp.high.toString(16).padStart(8, '0');
+    const b = timestamp.low.toString(16).padStart(8, '0');
+    return `${a}${b}`;
+  }
+
   get resumeToken() {
     return this.options.resume_token;
   }
 
   get comparable() {
-    const { timestamp, resumeToken } = this;
+    const { timestampHex, resumeToken } = this;
 
-    const a = timestamp.high.toString(16).padStart(8, '0');
-    const b = timestamp.low.toString(16).padStart(8, '0');
-
-    const segments = [`${a}${b}`];
+    const segments = [timestampHex];
 
     if (resumeToken) {
       segments.push(storage.serializeBson({ resumeToken }).toString('base64'));

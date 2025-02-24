@@ -663,15 +663,15 @@ export class ChangeStream {
               );
             }
 
-            const { comparable: lsn } = new MongoLSN({
+            const lsn = new MongoLSN({
               timestamp: changeDocument.clusterTime!,
               resume_token: changeDocument._id
             });
 
-            if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
+            if (waitForCheckpointLsn != null && lsn.timestampHex >= waitForCheckpointLsn) {
               waitForCheckpointLsn = null;
             }
-            await batch.commit(lsn);
+            await batch.commit(lsn.comparable);
           } else if (
             changeDocument.operationType == 'insert' ||
             changeDocument.operationType == 'update' ||
