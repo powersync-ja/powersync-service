@@ -89,6 +89,10 @@ export class ChangeStream {
     return this.connections.options.postImages == PostImagesOption.AUTO_CONFIGURE;
   }
 
+  private get logPrefix() {
+    return `[powersync_${this.group_id}]`;
+  }
+
   /**
    * This resolves a pattern, persists the related metadata, and returns
    * the resulting SourceTables.
@@ -124,7 +128,7 @@ export class ChangeStream {
       .toArray();
 
     if (!tablePattern.isWildcard && collections.length == 0) {
-      logger.warn(`Collection ${schema}.${tablePattern.name} not found`);
+      logger.warn(`${this.logPrefix} Collection ${schema}.${tablePattern.name} not found`);
     }
 
     for (let collection of collections) {
@@ -144,7 +148,7 @@ export class ChangeStream {
   async initSlot(): Promise<InitResult> {
     const status = await this.storage.getStatus();
     if (status.snapshot_done && status.checkpoint_lsn) {
-      logger.info(`Initial replication already done`);
+      logger.info(`${this.logPrefix} Initial replication already done`);
       return { needsInitialSync: false };
     }
 
@@ -215,7 +219,7 @@ export class ChangeStream {
           }
 
           const { comparable: lsn } = new MongoLSN({ timestamp: snapshotTime });
-          logger.info(`Snapshot commit at ${snapshotTime.inspect()} / ${lsn}`);
+          logger.info(`${this.logPrefix} Snapshot commit at ${snapshotTime.inspect()} / ${lsn}`);
           await batch.commit(lsn);
         }
       );
@@ -284,7 +288,7 @@ export class ChangeStream {
     table: storage.SourceTable,
     session?: mongo.ClientSession
   ) {
-    logger.info(`Replicating ${table.qualifiedName}`);
+    logger.info(`${this.logPrefix} Replicating ${table.qualifiedName}`);
     const estimatedCount = await this.estimatedCount(table);
     let at = 0;
     let lastLogIndex = 0;
@@ -314,7 +318,7 @@ export class ChangeStream {
 
       at += 1;
       if (at - lastLogIndex >= 5000) {
-        logger.info(`[${this.group_id}] Replicating ${table.qualifiedName} ${at}/${estimatedCount}`);
+        logger.info(`${this.logPrefix}  Replicating ${table.qualifiedName} ${at}/${estimatedCount}`);
         lastLogIndex = at;
       }
       Metrics.getInstance().rows_replicated_total.add(1);
@@ -323,7 +327,7 @@ export class ChangeStream {
     }
 
     await batch.flush();
-    logger.info(`Replicated ${at} documents for ${table.qualifiedName}`);
+    logger.info(`${this.logPrefix} Replicated ${at} documents for ${table.qualifiedName}`);
   }
 
   private async getRelation(
@@ -372,7 +376,7 @@ export class ChangeStream {
         collMod: collectionInfo.name,
         changeStreamPreAndPostImages: { enabled: true }
       });
-      logger.info(`Enabled postImages on ${db}.${collectionInfo.name}`);
+      logger.info(`${this.logPrefix} Enabled postImages on ${db}.${collectionInfo.name}`);
     } else if (!enabled) {
       throw new ServiceError(ErrorCode.PSYNC_S1343, `postImages not enabled on ${db}.${collectionInfo.name}`);
     }
@@ -437,7 +441,7 @@ export class ChangeStream {
     change: mongo.ChangeStreamDocument
   ): Promise<storage.FlushedResult | null> {
     if (!table.syncAny) {
-      logger.debug(`Collection ${table.qualifiedName} not used in sync rules - skipping`);
+      logger.debug(`${this.logPrefix} Collection ${table.qualifiedName} not used in sync rules - skipping`);
       return null;
     }
 
@@ -531,7 +535,7 @@ export class ChangeStream {
         const startAfter = lastLsn?.timestamp;
         const resumeAfter = lastLsn?.resumeToken;
 
-        logger.info(`Resume streaming at ${startAfter?.inspect()} / ${lastLsn}`);
+        logger.info(`${this.logPrefix} Resume streaming at ${startAfter?.inspect()} / ${lastLsn}`);
 
         const filters = this.getSourceNamespaceFilters();
 
