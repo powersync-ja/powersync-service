@@ -193,15 +193,15 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
     this.replicationJobs = newJobs;
 
-    // Terminate any orphaned jobs that no longer have sync rules
+    // Stop any orphaned jobs that no longer have sync rules.
+    // Termination happens below
     for (let job of existingJobs.values()) {
       // Old - stop and clean up
       try {
         await job.stop();
-        await this.terminateSyncRules(job.storage);
       } catch (e) {
         // This will be retried
-        this.logger.warn('Failed to terminate old replication job}', e);
+        this.logger.warn('Failed to stop old replication job}', e);
       }
     }
 
@@ -223,13 +223,9 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
   protected async terminateSyncRules(syncRuleStorage: storage.SyncRulesBucketStorage) {
     this.logger.info(`Terminating sync rules: ${syncRuleStorage.group_id}...`);
-    try {
-      await this.cleanUp(syncRuleStorage);
-      await syncRuleStorage.terminate();
-      this.logger.info(`Successfully terminated sync rules: ${syncRuleStorage.group_id}`);
-    } catch (e) {
-      this.logger.warn(`Failed clean up replication config for sync rules: ${syncRuleStorage.group_id}`, e);
-    }
+    await this.cleanUp(syncRuleStorage);
+    await syncRuleStorage.terminate();
+    this.logger.info(`Successfully terminated sync rules: ${syncRuleStorage.group_id}`);
   }
 
   abstract testConnection(): Promise<ConnectionTestResult>;

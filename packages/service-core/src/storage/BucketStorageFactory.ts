@@ -39,10 +39,8 @@ export interface BucketStorageFactory extends ObserverClient<BucketStorageFactor
    * the latest ones.
    *
    * Replication should be restarted after this.
-   *
-   * @param slot_name The removed slot
    */
-  slotRemoved(slot_name: string): Promise<void>;
+  restartReplication(sync_rules_group_id: number): Promise<void>;
 
   /**
    * Get the sync rules used for querying.

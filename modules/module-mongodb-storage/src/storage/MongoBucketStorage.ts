@@ -95,14 +95,11 @@ export class MongoBucketStorage
     }
   }
 
-  async slotRemoved(slot_name: string) {
+  async restartReplication(sync_rules_group_id: number) {
     const next = await this.getNextSyncRulesContent();
     const active = await this.getActiveSyncRulesContent();
 
-    // In both the below cases, we create a new sync rules instance.
-    // In the case that next != null && active.slot_name == slot_name, we ignore this.
-    // That will happen when this is called again after the new sync rules have been created.
-    if (next != null && next.slot_name == slot_name) {
+    if (next != null && next.id == sync_rules_group_id) {
       // We need to redo the "next" sync rules
       await this.updateSyncRules({
         content: next.sync_rules_content,
@@ -120,7 +117,7 @@ export class MongoBucketStorage
           }
         }
       );
-    } else if (next == null && active?.slot_name == slot_name) {
+    } else if (next == null && active?.id == sync_rules_group_id) {
       // Slot removed for "active" sync rules, while there is no "next" one.
       await this.updateSyncRules({
         content: active.sync_rules_content,
@@ -130,6 +127,20 @@ export class MongoBucketStorage
       // In this case we keep the old one as active for clients, so that that existing clients
       // can still get the latest data while we replicate the new ones.
       // It will however not replicate anymore.
+
+      await this.db.sync_rules.updateOne(
+        {
+          _id: active.id,
+          state: storage.SyncRuleState.ACTIVE
+        },
+        {
+          $set: {
+            state: storage.SyncRuleState.ERRORED
+          }
+        }
+      );
+    } else if (next != null && active?.id == sync_rules_group_id) {
+      // Already have next sync rules, but need to stop replicating the active one.
 
       await this.db.sync_rules.updateOne(
         {
