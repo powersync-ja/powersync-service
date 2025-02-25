@@ -239,6 +239,7 @@ bucket_definitions:
             - SELECT _id as id, description FROM "test_DATA"
       `);
 
+    await db.createCollection('test_DATA');
     await context.replicateSnapshot();
 
     context.startStreaming();
@@ -261,6 +262,7 @@ bucket_definitions:
           data:
             - SELECT _id as id, name, description FROM "test_data"
       `);
+    await db.createCollection('test_data');
 
     await context.replicateSnapshot();
     context.startStreaming();
@@ -371,6 +373,8 @@ bucket_definitions:
           - SELECT _id as id, name, other FROM "test_data"`);
     const { db } = context;
 
+    await db.createCollection('test_data');
+
     await context.replicateSnapshot();
 
     const collection = db.collection('test_data');
@@ -451,6 +455,8 @@ bucket_definitions:
 
     const data = await context.getBucketData('global[]');
     expect(data).toMatchObject([
+      // An extra op here, since this triggers a snapshot in addition to getting the event.
+      test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' }),
       test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test1' }),
       test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' })
     ]);

@@ -21,13 +21,14 @@ import * as timers from 'timers/promises';
 
 import * as framework from '@powersync/lib-services-framework';
 import { StatementParam } from '@powersync/service-jpgwire';
-import { StoredRelationId } from '../types/models/SourceTable.js';
+import { SourceTableDecoded, StoredRelationId } from '../types/models/SourceTable.js';
 import { pick } from '../utils/ts-codec.js';
 import { PostgresBucketBatch } from './batch/PostgresBucketBatch.js';
 import { PostgresWriteCheckpointAPI } from './checkpoints/PostgresWriteCheckpointAPI.js';
 import { PostgresBucketStorageFactory } from './PostgresBucketStorageFactory.js';
 import { PostgresCompactor } from './PostgresCompactor.js';
 import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
+import { Decoded } from 'ts-codec';
 
 export type PostgresSyncRulesStorageOptions = {
   factory: PostgresBucketStorageFactory;
@@ -165,21 +166,39 @@ export class PostgresSyncRulesStorage
       type_oid: typeof column.typeId !== 'undefined' ? Number(column.typeId) : column.typeId
     }));
     return this.db.transaction(async (db) => {
-      let sourceTableRow = await db.sql`
-        SELECT
-          *
-        FROM
-          source_tables
-        WHERE
-          group_id = ${{ type: 'int4', value: group_id }}
-          AND connection_id = ${{ type: 'int4', value: connection_id }}
-          AND relation_id = ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }}
-          AND schema_name = ${{ type: 'varchar', value: schema }}
-          AND table_name = ${{ type: 'varchar', value: table }}
-          AND replica_id_columns = ${{ type: 'jsonb', value: columns }}
-      `
-        .decoded(models.SourceTable)
-        .first();
+      let sourceTableRow: SourceTableDecoded | null;
+      if (objectId != null) {
+        sourceTableRow = await db.sql`
+          SELECT
+            *
+          FROM
+            source_tables
+          WHERE
+            group_id = ${{ type: 'int4', value: group_id }}
+            AND connection_id = ${{ type: 'int4', value: connection_id }}
+            AND relation_id = ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }}
+            AND schema_name = ${{ type: 'varchar', value: schema }}
+            AND table_name = ${{ type: 'varchar', value: table }}
+            AND replica_id_columns = ${{ type: 'jsonb', value: columns }}
+        `
+          .decoded(models.SourceTable)
+          .first();
+      } else {
+        sourceTableRow = await db.sql`
+          SELECT
+            *
+          FROM
+            source_tables
+          WHERE
+            group_id = ${{ type: 'int4', value: group_id }}
+            AND connection_id = ${{ type: 'int4', value: connection_id }}
+            AND schema_name = ${{ type: 'varchar', value: schema }}
+            AND table_name = ${{ type: 'varchar', value: table }}
+            AND replica_id_columns = ${{ type: 'jsonb', value: columns }}
+        `
+          .decoded(models.SourceTable)
+          .first();
+      }
 
       if (sourceTableRow == null) {
         const row = await db.sql`
@@ -198,7 +217,7 @@ export class PostgresSyncRulesStorage
               ${{ type: 'varchar', value: uuid.v4() }},
               ${{ type: 'int4', value: group_id }},
               ${{ type: 'int4', value: connection_id }},
-              --- The objectId can be string | number, we store it as jsonb value
+              --- The objectId can be string | number | undefined, we store it as jsonb value
               ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }},
               ${{ type: 'varchar', value: schema }},
               ${{ type: 'varchar', value: table }},
@@ -225,25 +244,47 @@ export class PostgresSyncRulesStorage
       sourceTable.syncData = options.sync_rules.tableSyncsData(sourceTable);
       sourceTable.syncParameters = options.sync_rules.tableSyncsParameters(sourceTable);
 
-      const truncatedTables = await db.sql`
-        SELECT
-          *
-        FROM
-          source_tables
-        WHERE
-          group_id = ${{ type: 'int4', value: group_id }}
-          AND connection_id = ${{ type: 'int4', value: connection_id }}
-          AND id != ${{ type: 'varchar', value: sourceTableRow!.id }}
-          AND (
-            relation_id = ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }}
-            OR (
+      let truncatedTables: SourceTableDecoded[] = [];
+      if (objectId != null) {
+        // relation_id present - check for renamed tables
+        truncatedTables = await db.sql`
+          SELECT
+            *
+          FROM
+            source_tables
+          WHERE
+            group_id = ${{ type: 'int4', value: group_id }}
+            AND connection_id = ${{ type: 'int4', value: connection_id }}
+            AND id != ${{ type: 'varchar', value: sourceTableRow!.id }}
+            AND (
+              relation_id = ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }}
+              OR (
+                schema_name = ${{ type: 'varchar', value: schema }}
+                AND table_name = ${{ type: 'varchar', value: table }}
+              )
+            )
+        `
+          .decoded(models.SourceTable)
+          .rows();
+      } else {
+        // relation_id not present - only check for changed replica_id_columns
+        truncatedTables = await db.sql`
+          SELECT
+            *
+          FROM
+            source_tables
+          WHERE
+            group_id = ${{ type: 'int4', value: group_id }}
+            AND connection_id = ${{ type: 'int4', value: connection_id }}
+            AND id != ${{ type: 'varchar', value: sourceTableRow!.id }}
+            AND (
               schema_name = ${{ type: 'varchar', value: schema }}
               AND table_name = ${{ type: 'varchar', value: table }}
             )
-          )
-      `
-        .decoded(models.SourceTable)
-        .rows();
+        `
+          .decoded(models.SourceTable)
+          .rows();
+      }
 
       return {
         table: sourceTable,

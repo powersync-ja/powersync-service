@@ -2,7 +2,7 @@ import * as t from 'ts-codec';
 import { bigint, jsonb, jsonb_raw, pgwire_number } from '../codecs.js';
 
 export type StoredRelationId = {
-  object_id: string | number;
+  object_id: string | number | undefined;
 };
 
 export const ColumnDescriptor = t.object({
