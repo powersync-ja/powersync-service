@@ -13,9 +13,13 @@ export interface ColumnDescriptor {
 // TODO: This needs to be consolidated with SourceTable into something new.
 export interface SourceEntityDescriptor {
   /**
-   *  The internal id of the data source structure in the database
+   * The internal id of the data source structure in the database.
+   *
+   * If undefined, the schema and name are used as the identifier.
+   *
+   * If specified, this is specifically used to detect renames.
    */
-  objectId: number | string;
+  objectId: number | string | undefined;
   schema: string;
   name: string;
   replicationColumns: ColumnDescriptor[];

@@ -35,7 +35,7 @@ export class SourceTable {
   constructor(
     public readonly id: any,
     public readonly connectionTag: string,
-    public readonly objectId: number | string,
+    public readonly objectId: number | string | undefined,
     public readonly schema: string,
     public readonly table: string,
 
