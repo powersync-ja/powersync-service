@@ -13,6 +13,7 @@ import {
   CheckpointChanges,
   GetCheckpointChangesOptions,
   ReplicationCheckpoint,
+  SourceTable,
   storage,
   utils,
   WatchWriteCheckpointOptions
@@ -23,7 +24,14 @@ import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 import * as timers from 'timers/promises';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
-import { BucketDataDocument, BucketDataKey, SourceKey, SyncRuleCheckpointState, SyncRuleDocument } from './models.js';
+import {
+  BucketDataDocument,
+  BucketDataKey,
+  SourceKey,
+  SourceTableDocument,
+  SyncRuleCheckpointState,
+  SyncRuleDocument
+} from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
@@ -163,17 +171,17 @@ export class MongoSyncBucketStorage
     let result: storage.ResolveTableResult | null = null;
     await this.db.client.withSession(async (session) => {
       const col = this.db.source_tables;
-      let doc = await col.findOne(
-        {
-          group_id: group_id,
-          connection_id: connection_id,
-          relation_id: objectId,
-          schema_name: schema,
-          table_name: table,
-          replica_id_columns2: columns
-        },
-        { session }
-      );
+      let filter: Partial<SourceTableDocument> = {
+        group_id: group_id,
+        connection_id: connection_id,
+        schema_name: schema,
+        table_name: table,
+        replica_id_columns2: columns
+      };
+      if (objectId != null) {
+        filter.relation_id = objectId;
+      }
+      let doc = await col.findOne(filter, { session });
       if (doc == null) {
         doc = {
           _id: new bson.ObjectId(),
@@ -202,31 +210,40 @@ export class MongoSyncBucketStorage
       sourceTable.syncData = options.sync_rules.tableSyncsData(sourceTable);
       sourceTable.syncParameters = options.sync_rules.tableSyncsParameters(sourceTable);
 
+      let dropTables: storage.SourceTable[] = [];
+      // Detect tables that are either renamed, or have different replica_id_columns
+      let truncateFilter = [{ schema_name: schema, table_name: table }] as any[];
+      if (objectId != null) {
+        // Only detect renames if the source uses relation ids.
+        truncateFilter.push({ relation_id: objectId });
+      }
       const truncate = await col
         .find(
           {
             group_id: group_id,
             connection_id: connection_id,
             _id: { $ne: doc._id },
-            $or: [{ relation_id: objectId }, { schema_name: schema, table_name: table }]
+            $or: truncateFilter
           },
           { session }
         )
         .toArray();
+      dropTables = truncate.map(
+        (doc) =>
+          new storage.SourceTable(
+            doc._id,
+            connection_tag,
+            doc.relation_id,
+            doc.schema_name,
+            doc.table_name,
+            doc.replica_id_columns2?.map((c) => ({ name: c.name, typeOid: c.type_oid, type: c.type })) ?? [],
+            doc.snapshot_done ?? true
+          )
+      );
+
       result = {
         table: sourceTable,
-        dropTables: truncate.map(
-          (doc) =>
-            new storage.SourceTable(
-              doc._id,
-              connection_tag,
-              doc.relation_id ?? 0,
-              doc.schema_name,
-              doc.table_name,
-              doc.replica_id_columns2?.map((c) => ({ name: c.name, typeOid: c.type_oid, type: c.type })) ?? [],
-              doc.snapshot_done ?? true
-            )
-        )
+        dropTables: dropTables
       };
     });
     return result!;
