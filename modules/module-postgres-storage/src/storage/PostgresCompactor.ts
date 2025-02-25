@@ -99,15 +99,21 @@ export class PostgresCompactor {
 
     let bucketLower: string | null = null;
     let bucketUpper: string | null = null;
+    // 0xFFFF fails to compare correctly. Querying with bucket_name < `\uffff` returns no results
+    // This seems to be due to 0xFFFF being a `Noncharacter` in Unicode.
+    const MAX_CHAR = String.fromCodePoint(0xfffd);
 
-    if (bucket?.includes('[')) {
+    if (bucket == null) {
+      bucketLower = '';
+      bucketUpper = MAX_CHAR;
+    } else if (bucket?.includes('[')) {
       // Exact bucket name
       bucketLower = bucket;
       bucketUpper = bucket;
     } else if (bucket) {
       // Bucket definition name
       bucketLower = `${bucket}[`;
-      bucketUpper = `${bucket}[\uFFFF`;
+      bucketUpper = `${bucket}[${MAX_CHAR}`;
     }
 
     let upperOpIdLimit = BIGINT_MAX;
@@ -126,10 +132,16 @@ export class PostgresCompactor {
           bucket_data
         WHERE
           group_id = ${{ type: 'int4', value: this.group_id }}
-          AND bucket_name LIKE COALESCE(${{ type: 'varchar', value: bucketLower }}, '%')
-          AND op_id < ${{ type: 'int8', value: upperOpIdLimit }}
+          AND bucket_name >= ${{ type: 'varchar', value: bucketLower }}
+          AND (
+            (
+              bucket_name = ${{ type: 'varchar', value: bucketUpper }}
+              AND op_id < ${{ type: 'int8', value: upperOpIdLimit }}
+            )
+            OR bucket_name < ${{ type: 'varchar', value: bucketUpper }}
+          )
         ORDER BY
-          bucket_name,
+          bucket_name DESC,
           op_id DESC
         LIMIT
           ${{ type: 'int4', value: this.moveBatchQueryLimit }}
@@ -145,7 +157,9 @@ export class PostgresCompactor {
       }
 
       // Set upperBound for the next batch
-      upperOpIdLimit = batch[batch.length - 1].op_id;
+      const lastBatchItem = batch[batch.length - 1];
+      upperOpIdLimit = lastBatchItem.op_id;
+      bucketUpper = lastBatchItem.bucket_name;
 
       for (const doc of batch) {
         if (currentState == null || doc.bucket_name != currentState.bucket) {
