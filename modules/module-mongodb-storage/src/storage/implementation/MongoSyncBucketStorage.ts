@@ -9,11 +9,10 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   BroadcastIterable,
-  CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
   GetCheckpointChangesOptions,
+  getLookupBucketDefinitionName,
   ReplicationCheckpoint,
-  SourceTable,
   storage,
   utils,
   WatchWriteCheckpointOptions
@@ -21,6 +20,7 @@ import {
 import { SqliteJsonRow, SqliteJsonValue, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
+import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
@@ -36,7 +36,6 @@ import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { idPrefixFilter, mapOpEntry, readSingleBatch } from './util.js';
-import { LRUCache } from 'lru-cache';
 
 export class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
