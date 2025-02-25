@@ -1,6 +1,6 @@
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 
-import { storage } from '@powersync/service-core';
+import { GetIntanceOptions, storage } from '@powersync/service-core';
 
 import { BaseObserver, ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
@@ -44,13 +44,15 @@ export class MongoBucketStorage
     // No-op
   }
 
-  getInstance(options: storage.PersistedSyncRulesContent): MongoSyncBucketStorage {
-    let { id, slot_name } = options;
+  getInstance(syncRules: storage.PersistedSyncRulesContent, options?: GetIntanceOptions): MongoSyncBucketStorage {
+    let { id, slot_name } = syncRules;
     if ((typeof id as any) == 'bigint') {
       id = Number(id);
     }
-    const storage = new MongoSyncBucketStorage(this, id, options, slot_name);
-    this.iterateListeners((cb) => cb.syncStorageCreated?.(storage));
+    const storage = new MongoSyncBucketStorage(this, id, syncRules, slot_name);
+    if (!options?.skipLifecycleHooks) {
+      this.iterateListeners((cb) => cb.syncStorageCreated?.(storage));
+    }
     storage.registerListener({
       batchStarted: (batch) => {
         batch.registerListener({

@@ -209,7 +209,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     const stopped = await this.storage.getStoppedSyncRules();
     for (let syncRules of stopped) {
       try {
-        const syncRuleStorage = this.storage.getInstance(syncRules);
+        const syncRuleStorage = this.storage.getInstance(syncRules, { skipLifecycleHooks: true });
         await this.terminateSyncRules(syncRuleStorage);
       } catch (e) {
         this.logger.warn(`Failed clean up replication config for sync rule: ${syncRules.id}`, e);

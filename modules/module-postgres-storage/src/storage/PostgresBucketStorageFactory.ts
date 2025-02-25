@@ -1,5 +1,5 @@
 import * as framework from '@powersync/lib-services-framework';
-import { storage, SyncRulesBucketStorage, UpdateSyncRulesOptions } from '@powersync/service-core';
+import { GetIntanceOptions, storage, SyncRulesBucketStorage, UpdateSyncRulesOptions } from '@powersync/service-core';
 import * as pg_wire from '@powersync/service-jpgwire';
 import * as sync_rules from '@powersync/service-sync-rules';
 import crypto from 'crypto';
@@ -50,14 +50,19 @@ export class PostgresBucketStorageFactory
     // This has not been implemented yet.
   }
 
-  getInstance(syncRules: storage.PersistedSyncRulesContent): storage.SyncRulesBucketStorage {
+  getInstance(
+    syncRules: storage.PersistedSyncRulesContent,
+    options?: GetIntanceOptions
+  ): storage.SyncRulesBucketStorage {
     const storage = new PostgresSyncRulesStorage({
       factory: this,
       db: this.db,
       sync_rules: syncRules,
       batchLimits: this.options.config.batch_limits
     });
-    this.iterateListeners((cb) => cb.syncStorageCreated?.(storage));
+    if (!options?.skipLifecycleHooks) {
+      this.iterateListeners((cb) => cb.syncStorageCreated?.(storage));
+    }
     storage.registerListener({
       batchStarted: (batch) => {
         batch.registerListener({
