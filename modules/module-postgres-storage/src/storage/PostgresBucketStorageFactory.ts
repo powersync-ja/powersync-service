@@ -330,7 +330,6 @@ export class PostgresBucketStorageFactory
         sync_rules
       WHERE
         state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
-        OR state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
         OR state = ${{ value: storage.SyncRuleState.PROCESSING, type: 'varchar' }}
     `
       .decoded(models.SyncRules)

@@ -253,7 +253,7 @@ export class MongoBucketStorage
   async getReplicatingSyncRules(): Promise<storage.PersistedSyncRulesContent[]> {
     const docs = await this.db.sync_rules
       .find({
-        state: { $in: [storage.SyncRuleState.PROCESSING, storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
+        state: { $in: [storage.SyncRuleState.PROCESSING, storage.SyncRuleState.ACTIVE] }
       })
       .toArray();
 
