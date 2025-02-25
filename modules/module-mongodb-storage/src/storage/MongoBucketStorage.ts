@@ -127,9 +127,21 @@ export class MongoBucketStorage
         validate: false
       });
 
-      // In this case we keep the old one as active, so that that existing clients can still get the latest
-      // data while we replicate the new ones.
-      // The current one will continue erroring until the next one has finished processing.
+      // In this case we keep the old one as active for clients, so that that existing clients
+      // can still get the latest data while we replicate the new ones.
+      // It will however not replicate anymore.
+
+      await this.db.sync_rules.updateOne(
+        {
+          _id: active.id,
+          state: storage.SyncRuleState.ACTIVE
+        },
+        {
+          $set: {
+            state: storage.SyncRuleState.ERRORED
+          }
+        }
+      );
     }
   }
 
@@ -203,7 +215,7 @@ export class MongoBucketStorage
   async getActiveSyncRulesContent(): Promise<MongoPersistedSyncRulesContent | null> {
     const doc = await this.db.sync_rules.findOne(
       {
-        state: storage.SyncRuleState.ACTIVE
+        state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
       },
       { sort: { _id: -1 }, limit: 1 }
     );
@@ -241,7 +253,7 @@ export class MongoBucketStorage
   async getReplicatingSyncRules(): Promise<storage.PersistedSyncRulesContent[]> {
     const docs = await this.db.sync_rules
       .find({
-        $or: [{ state: storage.SyncRuleState.ACTIVE }, { state: storage.SyncRuleState.PROCESSING }]
+        state: { $in: [storage.SyncRuleState.PROCESSING, storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
       })
       .toArray();
 

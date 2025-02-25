@@ -24,7 +24,16 @@ export enum SyncRuleState {
    * After sync rules have been stopped, the data needs to be
    * deleted. Once deleted, the state is TERMINATED.
    */
-  TERMINATED = 'TERMINATED'
+  TERMINATED = 'TERMINATED',
+
+  /**
+   * Sync rules has run into a permanent replication error. It
+   * is still the "active" sync rules for syncing to users,
+   * but should not replicate anymore.
+   *
+   * It will transition to STOP when a new sync rules is activated.
+   */
+  ERRORED = 'ERRORED'
 }
 
 export const DEFAULT_DOCUMENT_BATCH_LIMIT = 1000;
