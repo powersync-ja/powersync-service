@@ -616,7 +616,10 @@ export class PostgresSyncRulesStorage
         SET
           state = ${{ type: 'varchar', value: storage.SyncRuleState.STOP }}
         WHERE
-          state = ${{ type: 'varchar', value: storage.SyncRuleState.ACTIVE }}
+          (
+            state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
+            OR state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
+          )
           AND id != ${{ type: 'int4', value: this.group_id }}
       `.execute();
     });
@@ -688,6 +691,7 @@ export class PostgresSyncRulesStorage
         sync_rules
       WHERE
         state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
+        OR state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
       ORDER BY
         id DESC
       LIMIT
@@ -750,7 +754,8 @@ export class PostgresSyncRulesStorage
       FROM
         sync_rules
       WHERE
-        state = ${{ type: 'varchar', value: storage.SyncRuleState.ACTIVE }}
+        state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
+        OR state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
       LIMIT
         1
     `

@@ -253,11 +253,11 @@ export class PostgresBucketStorageFactory
         validate: false
       });
 
-      // Pro-actively stop replicating
+      // Pro-actively stop replicating, but still serve clients with existing data
       await this.db.sql`
         UPDATE sync_rules
         SET
-          state = ${{ value: storage.SyncRuleState.STOP, type: 'varchar' }}
+          state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
         WHERE
           id = ${{ value: active.id, type: 'int4' }}
           AND state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
@@ -279,6 +279,7 @@ export class PostgresBucketStorageFactory
         sync_rules
       WHERE
         state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
+        OR state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
       ORDER BY
         id DESC
       LIMIT
@@ -329,6 +330,7 @@ export class PostgresBucketStorageFactory
         sync_rules
       WHERE
         state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
+        OR state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
         OR state = ${{ value: storage.SyncRuleState.PROCESSING, type: 'varchar' }}
     `
       .decoded(models.SyncRules)

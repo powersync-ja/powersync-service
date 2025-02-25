@@ -12,7 +12,7 @@ export enum SyncRuleState {
   /**
    * Sync rule processing is done, and can be used for sync.
    *
-   * Only one set of sync rules should be in ACTIVE state.
+   * Only one set of sync rules should be in ACTIVE or ERRORED state.
    */
   ACTIVE = 'ACTIVE',
   /**
