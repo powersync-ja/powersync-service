@@ -14,6 +14,7 @@ import {
   DEFAULT_MAX_BUCKETS_PER_CONNECTION,
   DEFAULT_MAX_CONCURRENT_CONNECTIONS,
   DEFAULT_MAX_DATA_FETCH_CONCURRENCY,
+  DEFAULT_MAX_PARAMETER_QUERY_RESULTS,
   DEFAULT_MAX_POOL_SIZE
 } from './defaults.js';
 
@@ -160,6 +161,9 @@ export class CompoundConfigCollector {
       api_parameters: {
         max_buckets_per_connection:
           baseConfig.api?.parameters?.max_buckets_per_connection ?? DEFAULT_MAX_BUCKETS_PER_CONNECTION,
+
+        max_parameter_query_results:
+          baseConfig.api?.parameters?.max_parameter_query_results ?? DEFAULT_MAX_PARAMETER_QUERY_RESULTS,
         max_concurrent_connections:
           baseConfig.api?.parameters?.max_concurrent_connections ?? DEFAULT_MAX_CONCURRENT_CONNECTIONS,
         max_data_fetch_concurrency:

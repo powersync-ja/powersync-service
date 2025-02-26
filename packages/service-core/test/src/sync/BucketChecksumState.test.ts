@@ -5,6 +5,7 @@ import {
   CHECKPOINT_INVALIDATE_ALL,
   ChecksumMap,
   OpId,
+  SyncContext,
   WatchFilterEvent
 } from '@/index.js';
 import { RequestParameters, SqliteJsonRow, SqliteJsonValue, SqlSyncRules } from '@powersync/service-sync-rules';
@@ -46,12 +47,19 @@ bucket_definitions:
     { defaultSchema: 'public' }
   );
 
+  const syncContext = new SyncContext({
+    maxBuckets: 100,
+    maxParameterQueryResults: 100,
+    maxDataFetchConcurrency: 10
+  });
+
   test('global bucket with update', async () => {
     const storage = new MockBucketChecksumStateStorage();
     // Set intial state
     storage.updateTestChecksum({ bucket: 'global[]', checksum: 1, count: 1 });
 
     const state = new BucketChecksumState({
+      syncContext,
       syncParams: new RequestParameters({ sub: '' }, {}),
       syncRules: SYNC_RULES_GLOBAL,
       bucketStorage: storage
@@ -115,6 +123,7 @@ bucket_definitions:
     storage.updateTestChecksum({ bucket: 'global[]', checksum: 1, count: 1 });
 
     const state = new BucketChecksumState({
+      syncContext,
       // Client sets the initial state here
       initialBucketPositions: [{ name: 'global[]', after: '1' }],
       syncParams: new RequestParameters({ sub: '' }, {}),
@@ -151,6 +160,7 @@ bucket_definitions:
     storage.updateTestChecksum({ bucket: 'global[2]', checksum: 1, count: 1 });
 
     const state = new BucketChecksumState({
+      syncContext,
       syncParams: new RequestParameters({ sub: '' }, {}),
       syncRules: SYNC_RULES_GLOBAL_TWO,
       bucketStorage: storage
@@ -214,6 +224,7 @@ bucket_definitions:
     const storage = new MockBucketChecksumStateStorage();
 
     const state = new BucketChecksumState({
+      syncContext,
       // Client sets the initial state here
       initialBucketPositions: [{ name: 'something_here[]', after: '1' }],
       syncParams: new RequestParameters({ sub: '' }, {}),
@@ -253,6 +264,7 @@ bucket_definitions:
     storage.updateTestChecksum({ bucket: 'global[2]', checksum: 1, count: 1 });
 
     const state = new BucketChecksumState({
+      syncContext,
       syncParams: new RequestParameters({ sub: '' }, {}),
       syncRules: SYNC_RULES_GLOBAL_TWO,
       bucketStorage: storage
@@ -304,6 +316,7 @@ bucket_definitions:
     const storage = new MockBucketChecksumStateStorage();
 
     const state = new BucketChecksumState({
+      syncContext,
       syncParams: new RequestParameters({ sub: '' }, {}),
       syncRules: SYNC_RULES_GLOBAL_TWO,
       bucketStorage: storage
@@ -355,6 +368,7 @@ bucket_definitions:
     storage.updateTestChecksum({ bucket: 'global[2]', checksum: 3, count: 3 });
 
     const state = new BucketChecksumState({
+      syncContext,
       syncParams: new RequestParameters({ sub: '' }, {}),
       syncRules: SYNC_RULES_GLOBAL_TWO,
       bucketStorage: storage
@@ -452,6 +466,7 @@ bucket_definitions:
     storage.updateTestChecksum({ bucket: 'by_project[3]', checksum: 1, count: 1 });
 
     const state = new BucketChecksumState({
+      syncContext,
       syncParams: new RequestParameters({ sub: 'u1' }, {}),
       syncRules: SYNC_RULES_DYNAMIC,
       bucketStorage: storage

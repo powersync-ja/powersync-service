@@ -168,7 +168,12 @@ export const powerSyncConfig = t.object({
           // More buckets increase latency and memory usage. While the actual number is controlled by sync rules,
           // having a hard limit ensures that the service errors instead of crashing when a sync rule is misconfigured.
           // Default of 1000.
-          max_buckets_per_connection: t.number.optional()
+          max_buckets_per_connection: t.number.optional(),
+
+          // Related to max_buckets_per_connection, but this limit applies directly on the parameter
+          // query results, _before_ we convert it into an unique set.
+          // Default of 1000.
+          max_parameter_query_results: t.number.optional()
         })
         .optional()
     })

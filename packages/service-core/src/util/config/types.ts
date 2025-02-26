@@ -63,6 +63,7 @@ export type ResolvedPowerSyncConfig = {
     max_concurrent_connections: number;
     max_data_fetch_concurrency: number;
     max_buckets_per_connection: number;
+    max_parameter_query_results: number;
   };
 
   /** Prefix for postgres replication slot names. May eventually be connection-specific. */
