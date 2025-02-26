@@ -15,10 +15,7 @@ const TEST_TABLE = test_utils.makeTestTable('test', ['id']);
  * compactTests(() => new MongoStorageFactory(), { clearBatchLimit: 2, moveBatchLimit: 1, moveBatchQueryLimit: 1 }));
  * ```
  */
-export function registerCompactTests<CompactOptions extends storage.CompactOptions = storage.CompactOptions>(
-  generateStorageFactory: storage.TestStorageFactory,
-  compactOptions: CompactOptions
-) {
+export function registerCompactTests(generateStorageFactory: storage.TestStorageFactory) {
   test('compacting (1)', async () => {
     const sync_rules = test_utils.testRules(`
 bucket_definitions:
@@ -87,7 +84,11 @@ bucket_definitions:
       }
     ]);
 
-    await bucketStorage.compact(compactOptions);
+    await bucketStorage.compact({
+      clearBatchLimit: 2,
+      moveBatchLimit: 1,
+      moveBatchQueryLimit: 1
+    });
 
     const batchAfter = await test_utils.oneFromAsync(
       bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]))
@@ -204,7 +205,11 @@ bucket_definitions:
       }
     ]);
 
-    await bucketStorage.compact(compactOptions);
+    await bucketStorage.compact({
+      clearBatchLimit: 2,
+      moveBatchLimit: 1,
+      moveBatchQueryLimit: 1
+    });
 
     const batchAfter = await test_utils.oneFromAsync(
       bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]))
@@ -285,7 +290,11 @@ bucket_definitions:
     });
     const checkpoint2 = result2!.flushed_op;
 
-    await bucketStorage.compact(compactOptions);
+    await bucketStorage.compact({
+      clearBatchLimit: 2,
+      moveBatchLimit: 1,
+      moveBatchQueryLimit: 1
+    });
 
     const batchAfter = await test_utils.oneFromAsync(
       bucketStorage.getBucketDataBatch(checkpoint2, new Map([['global[]', '0']]))
@@ -313,7 +322,10 @@ bucket_definitions:
     const sync_rules = test_utils.testRules(/* yaml */
     ` bucket_definitions:
         grouped:
-          parameters: select b from test
+          # The parameter query here is not important
+          # We specifically don't want to create bucket_parameter records here
+          # since the op_ids for bucket_data could vary between storage implementations.
+          parameters: select 'b' as b
           data:
             - select * from test where b = bucket.b`);
 
@@ -325,10 +337,10 @@ bucket_definitions:
        * Repeatedly create operations which fall into different buckets.
        * The bucket operations are purposely interleaved as the op_id increases.
        * A large amount of operations are created here.
-       * The default window of compacting operations is 10_000. This means the initial window will
+       * The configured window of compacting operations is 100. This means the initial window will
        * contain operations from multiple buckets.
        */
-      for (let count = 0; count < 8_000; count++) {
+      for (let count = 0; count < 100; count++) {
         await batch.save({
           sourceTable: TEST_TABLE,
           tag: storage.SaveOperationTag.INSERT,
@@ -388,7 +400,11 @@ bucket_definitions:
 
     const checkpoint = result!.flushed_op;
 
-    await bucketStorage.compact(compactOptions);
+    await bucketStorage.compact({
+      clearBatchLimit: 2,
+      moveBatchLimit: 1,
+      moveBatchQueryLimit: 100 // Larger limit for a larger window of operations
+    });
 
     const batchAfter = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(
@@ -404,24 +420,26 @@ bucket_definitions:
     // The op_ids will vary between MongoDB and Postgres storage
     expect(dataAfter).toMatchObject(
       expect.arrayContaining([
-        expect.objectContaining({ op: 'CLEAR', checksum: -2120931643 }),
-        expect.objectContaining({
+        { op_id: '497', op: 'CLEAR', checksum: -937074151 },
+        {
+          op_id: '499',
           op: 'PUT',
           object_type: 'test',
           object_id: 't1',
           checksum: 52221819,
           subkey: '6544e3899293153fa7b38331/117ab485-4b42-58a2-ab32-0053a22c3423',
           data: '{"id":"t1","b":"b1","value":"final"}'
-        }),
-        expect.objectContaining({ op: 'CLEAR', checksum: -1067381173 }),
-        expect.objectContaining({
+        },
+        { op_id: '498', op: 'CLEAR', checksum: -234380197 },
+        {
+          op_id: '500',
           op: 'PUT',
           object_type: 'test',
           object_id: 't2',
           checksum: 2126669493,
           subkey: '6544e3899293153fa7b38331/ec27c691-b47a-5d92-927a-9944feb89eee',
           data: '{"id":"t2","b":"b2","value":"final"}'
-        })
+        }
       ])
     );
   });
