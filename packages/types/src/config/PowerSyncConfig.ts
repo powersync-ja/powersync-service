@@ -103,7 +103,10 @@ export const strictJwks = t.object({
 export type StrictJwk = t.Decoded<typeof jwk>;
 
 export const BaseStorageConfig = t.object({
-  type: t.string
+  type: t.string,
+  // Maximum number of conncetions to the storage database, per process.
+  // Defaults to 8.
+  max_pool_size: t.number.optional()
 });
 
 /**
@@ -151,7 +154,23 @@ export const powerSyncConfig = t.object({
 
   api: t
     .object({
-      tokens: t.array(t.string).optional()
+      tokens: t.array(t.string).optional(),
+      parameters: t
+        .object({
+          // Maximum number of connections (http streams or websockets) per API process.
+          // Default of 200.
+          max_concurrent_connections: t.number.optional(),
+          // This should not be siginificantly more than storage.max_pool_size, otherwise it would block on the
+          // pool. Increasing this can significantly increase memory usage in some cases.
+          // Default of 10.
+          max_data_fetch_concurrency: t.number.optional(),
+          // Maximum number of buckets for each connection.
+          // More buckets increase latency and memory usage. While the actual number is controlled by sync rules,
+          // having a hard limit ensures that the service errors instead of crashing when a sync rule is misconfigured.
+          // Default of 1000.
+          max_buckets_per_connection: t.number.optional()
+        })
+        .optional()
     })
     .optional(),
 

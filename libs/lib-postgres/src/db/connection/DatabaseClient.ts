@@ -42,7 +42,9 @@ export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientLis
   constructor(protected options: DatabaseClientOptions) {
     super();
     this.closed = false;
-    this.pool = pgwire.connectPgWirePool(options.config);
+    this.pool = pgwire.connectPgWirePool(options.config, {
+      maxSize: options.config.max_pool_size
+    });
     this.connections = Array.from({ length: TRANSACTION_CONNECTION_COUNT }, (v, index) => {
       // Only listen to notifications on a single (the first) connection
       const notificationChannels = index == 0 ? options.notificationChannels : [];

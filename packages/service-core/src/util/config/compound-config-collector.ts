@@ -10,6 +10,12 @@ import { FileSystemSyncRulesCollector } from './sync-rules/impl/filesystem-sync-
 import { InlineSyncRulesCollector } from './sync-rules/impl/inline-sync-rules-collector.js';
 import { SyncRulesCollector } from './sync-rules/sync-collector.js';
 import { ResolvedPowerSyncConfig, RunnerConfig, SyncRulesConfig } from './types.js';
+import {
+  DEFAULT_MAX_BUCKETS_PER_CONNECTION,
+  DEFAULT_MAX_CONCURRENT_CONNECTIONS,
+  DEFAULT_MAX_DATA_FETCH_CONCURRENCY,
+  DEFAULT_MAX_POOL_SIZE
+} from './defaults.js';
 
 export type CompoundConfigCollectorOptions = {
   /**
@@ -124,7 +130,12 @@ export class CompoundConfigCollector {
     let config: ResolvedPowerSyncConfig = {
       base_config: baseConfig,
       connections: baseConfig.replication?.connections || [],
-      storage: baseConfig.storage,
+      storage: {
+        ...baseConfig.storage,
+        parameters: {
+          max_pool_size: baseConfig.storage?.parameters?.max_pool_size ?? DEFAULT_MAX_POOL_SIZE
+        }
+      },
       client_keystore: keyStore,
       // Dev tokens only use the static keys, no external key sources
       // We may restrict this even further to only the powersync-dev key.
@@ -145,6 +156,14 @@ export class CompoundConfigCollector {
         disable_telemetry_sharing: baseConfig.telemetry?.disable_telemetry_sharing ?? false,
         internal_service_endpoint:
           baseConfig.telemetry?.internal_service_endpoint ?? 'https://pulse.journeyapps.com/v1/metrics'
+      },
+      api_parameters: {
+        max_buckets_per_connection:
+          baseConfig.api?.parameters?.max_buckets_per_connection ?? DEFAULT_MAX_BUCKETS_PER_CONNECTION,
+        max_concurrent_connections:
+          baseConfig.api?.parameters?.max_concurrent_connections ?? DEFAULT_MAX_CONCURRENT_CONNECTIONS,
+        max_data_fetch_concurrency:
+          baseConfig.api?.parameters?.max_data_fetch_concurrency ?? DEFAULT_MAX_DATA_FETCH_CONCURRENCY
       },
       // TODO maybe move this out of the connection or something
       // slot_name_prefix: connections[0]?.slot_name_prefix ?? 'powersync_'
