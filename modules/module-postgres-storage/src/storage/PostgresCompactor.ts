@@ -92,9 +92,7 @@ export class PostgresCompactor {
 
     let bucketLower: string | null = null;
     let bucketUpper: string | null = null;
-    // 0xFFFF fails to compare correctly. Querying with bucket_name < `\uffff` returns no results
-    // This seems to be due to 0xFFFF being a `Noncharacter` in Unicode.
-    const MAX_CHAR = String.fromCodePoint(0xfffd);
+    const MAX_CHAR = String.fromCodePoint(0xffff);
 
     if (bucket == null) {
       bucketLower = '';
@@ -131,7 +129,7 @@ export class PostgresCompactor {
               bucket_name = ${{ type: 'varchar', value: bucketUpper }}
               AND op_id < ${{ type: 'int8', value: upperOpIdLimit }}
             )
-            OR bucket_name < ${{ type: 'varchar', value: bucketUpper }}
+            OR bucket_name < ${{ type: 'varchar', value: bucketUpper }} COLLATE "C" -- Use binary comparison
           )
         ORDER BY
           bucket_name DESC,
