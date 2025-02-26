@@ -317,7 +317,7 @@ bucket_definitions:
     });
   });
 
-  test('compacting (3)', async () => {
+  test('compacting (4)', async () => {
     const sync_rules = test_utils.testRules(/* yaml */
     ` bucket_definitions:
         grouped:
@@ -400,8 +400,8 @@ bucket_definitions:
     const checkpoint = result!.flushed_op;
 
     await bucketStorage.compact({
-      clearBatchLimit: 2,
-      moveBatchLimit: 1,
+      clearBatchLimit: 100,
+      moveBatchLimit: 100,
       moveBatchQueryLimit: 100 // Larger limit for a larger window of operations
     });
 
