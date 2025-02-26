@@ -179,6 +179,15 @@ export interface CompactOptions {
    * These can be individual bucket names, or bucket definition names.
    */
   compactBuckets?: string[];
+
+  /** Minimum of 2 */
+  clearBatchLimit?: number;
+
+  /** Minimum of 1 */
+  moveBatchLimit?: number;
+
+  /** Minimum of 1 */
+  moveBatchQueryLimit?: number;
 }
 
 export interface TerminateOptions {
