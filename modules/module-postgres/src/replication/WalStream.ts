@@ -239,6 +239,11 @@ export class WalStream {
         needsNewSlot: r.needsNewSlot
       };
     } else {
+      if (snapshotDone) {
+        // This will create a new slot, while keeping the current sync rules active
+        throw new MissingReplicationSlotError(`Replication slot ${slotName} is missing`);
+      }
+      // This will clear data and re-create the same slot
       return { needsInitialSync: true, needsNewSlot: true };
     }
   }
