@@ -53,6 +53,7 @@ export type RequiredOperationBatchLimits = Required<OperationBatchLimits>;
 
 export type NormalizedPostgresStorageConfig = pg_wire.NormalizedConnectionConfig & {
   batch_limits: RequiredOperationBatchLimits;
+  max_pool_size: number;
 };
 
 export const normalizePostgresStorageConfig = (

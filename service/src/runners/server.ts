@@ -4,8 +4,8 @@ import fastify from 'fastify';
 import { container, logger } from '@powersync/lib-services-framework';
 import * as core from '@powersync/service-core';
 
+import { ReactiveSocketRouter } from '@powersync/service-rsocket-router';
 import { MetricModes, registerMetrics } from '../metrics.js';
-import { SocketRouter } from '../routes/router.js';
 
 /**
  * Configures the server portion on a {@link ServiceContext}
@@ -27,10 +27,23 @@ export function registerServerServices(serviceContext: core.system.ServiceContex
 
         core.routes.configureFastifyServer(server, {
           service_context: serviceContext,
-          routes: { api: { routes: routes.api_routes }, sync_stream: { routes: routes.stream_routes } }
+          routes: {
+            api: { routes: routes.api_routes },
+            sync_stream: {
+              routes: routes.stream_routes,
+              queue_options: {
+                concurrency: serviceContext.configuration.api_parameters.max_concurrent_connections,
+                max_queue_depth: 0
+              }
+            }
+          }
         });
 
-        core.routes.configureRSocket(SocketRouter, {
+        const socketRouter = new ReactiveSocketRouter<core.routes.Context>({
+          max_concurrent_connections: serviceContext.configuration.api_parameters.max_concurrent_connections
+        });
+
+        core.routes.configureRSocket(socketRouter, {
           server: server.server,
           service_context: serviceContext,
           route_generators: routes.socket_routes

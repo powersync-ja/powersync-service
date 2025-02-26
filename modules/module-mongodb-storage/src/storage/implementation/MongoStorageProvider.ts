@@ -22,7 +22,9 @@ export class MongoStorageProvider implements storage.BucketStorageProvider {
     }
 
     const decodedConfig = MongoStorageConfig.decode(storage as any);
-    const client = lib_mongo.db.createMongoClient(decodedConfig);
+    const client = lib_mongo.db.createMongoClient(decodedConfig, {
+      maxPoolSize: resolvedConfig.storage.max_pool_size ?? 8
+    });
 
     const database = new PowerSyncMongo(client, { database: resolvedConfig.storage.database });
     const factory = new MongoBucketStorage(database, {

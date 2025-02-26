@@ -82,6 +82,6 @@ export class PowerSyncMongo {
   }
 }
 
-export function createPowerSyncMongo(config: MongoStorageConfig) {
-  return new PowerSyncMongo(lib_mongo.createMongoClient(config), { database: config.database });
+export function createPowerSyncMongo(config: MongoStorageConfig, options?: lib_mongo.MongoConnectionOptions) {
+  return new PowerSyncMongo(lib_mongo.createMongoClient(config, options), { database: config.database });
 }

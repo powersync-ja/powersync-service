@@ -10,6 +10,7 @@ import { SYNC_RULES_ROUTES } from './endpoints/sync-rules.js';
 import { SYNC_STREAM_ROUTES } from './endpoints/sync-stream.js';
 import { SocketRouteGenerator } from './router-socket.js';
 import { RouteDefinition } from './router.js';
+import { SyncContext } from '../sync/SyncContext.js';
 
 export type RouterSetupResponse = {
   onShutdown: () => Promise<void>;

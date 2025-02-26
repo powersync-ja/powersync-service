@@ -4,7 +4,9 @@ import * as service_types from '@powersync/service-types';
 import * as t from 'ts-codec';
 import * as urijs from 'uri-js';
 
-export interface NormalizedBasePostgresConnectionConfig extends jpgwire.NormalizedConnectionConfig {}
+export interface NormalizedBasePostgresConnectionConfig extends jpgwire.NormalizedConnectionConfig {
+  max_pool_size: number;
+}
 
 export const POSTGRES_CONNECTION_TYPE = 'postgresql' as const;
 
@@ -42,7 +44,9 @@ export const BasePostgresConnectionConfig = t.object({
   /**
    * Prefix for the slot name. Defaults to "powersync_"
    */
-  slot_name_prefix: t.string.optional()
+  slot_name_prefix: t.string.optional(),
+
+  max_pool_size: t.number.optional()
 });
 
 export type BasePostgresConnectionConfig = t.Encoded<typeof BasePostgresConnectionConfig>;
@@ -125,7 +129,9 @@ export function normalizeConnectionConfig(options: BasePostgresConnectionConfigD
     lookup,
 
     client_certificate: options.client_certificate ?? undefined,
-    client_private_key: options.client_private_key ?? undefined
+    client_private_key: options.client_private_key ?? undefined,
+
+    max_pool_size: options.max_pool_size ?? 8
   } satisfies NormalizedBasePostgresConnectionConfig;
 }
 

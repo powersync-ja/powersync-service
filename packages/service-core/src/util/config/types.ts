@@ -1,5 +1,4 @@
 import { configFile } from '@powersync/service-types';
-import { PowerSyncConfig } from '@powersync/service-types/src/config/PowerSyncConfig.js';
 import { CompoundKeyCollector } from '../../auth/CompoundKeyCollector.js';
 import { KeySpec } from '../../auth/KeySpec.js';
 import { KeyStore } from '../../auth/KeyStore.js';
@@ -30,7 +29,7 @@ export type SyncRulesConfig = {
 };
 
 export type ResolvedPowerSyncConfig = {
-  base_config: PowerSyncConfig;
+  base_config: configFile.PowerSyncConfig;
   connections?: configFile.GenericDataSourceConfig[];
   storage: configFile.GenericStorageConfig;
   dev: {
@@ -58,6 +57,13 @@ export type ResolvedPowerSyncConfig = {
   telemetry: {
     disable_telemetry_sharing: boolean;
     internal_service_endpoint: string;
+  };
+
+  api_parameters: {
+    max_concurrent_connections: number;
+    max_data_fetch_concurrency: number;
+    max_buckets_per_connection: number;
+    max_parameter_query_results: number;
   };
 
   /** Prefix for postgres replication slot names. May eventually be connection-specific. */
