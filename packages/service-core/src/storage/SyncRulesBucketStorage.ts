@@ -71,7 +71,7 @@ export interface SyncRulesBucketStorage
   /**
    * Used to resolve "dynamic" parameter queries.
    */
-  getParameterSets(checkpoint: util.OpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]>;
+  getParameterSets(checkpoint: util.InternalOpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]>;
 
   getCheckpointChanges(options: GetCheckpointChangesOptions): Promise<CheckpointChanges>;
 
@@ -94,8 +94,8 @@ export interface SyncRulesBucketStorage
    * @param options batch size options
    */
   getBucketDataBatch(
-    checkpoint: util.OpId,
-    dataBuckets: Map<string, string>,
+    checkpoint: util.InternalOpId,
+    dataBuckets: Map<string, util.InternalOpId>,
     options?: BucketDataBatchOptions
   ): AsyncIterable<SyncBucketDataBatch>;
 
@@ -104,7 +104,7 @@ export interface SyncRulesBucketStorage
    *
    * Returns zero checksums for any buckets not found.
    */
-  getChecksums(checkpoint: util.OpId, buckets: string[]): Promise<util.ChecksumMap>;
+  getChecksums(checkpoint: util.InternalOpId, buckets: string[]): Promise<util.ChecksumMap>;
 }
 
 export interface SyncRulesBucketStorageListener {
@@ -169,7 +169,7 @@ export interface CompactOptions {
    * This can also be used to create a "safe buffer" of recent operations that should
    * not be compacted, to avoid invalidating checkpoints in use.
    */
-  maxOpId?: bigint;
+  maxOpId?: util.InternalOpId;
 
   /**
    * If specified, compact only the specific buckets.
@@ -215,11 +215,11 @@ export interface BucketDataBatchOptions {
 
 export interface SyncBucketDataBatch {
   batch: util.SyncBucketData;
-  targetOp: bigint | null;
+  targetOp: util.InternalOpId | null;
 }
 
 export interface ReplicationCheckpoint {
-  readonly checkpoint: util.OpId;
+  readonly checkpoint: util.InternalOpId;
   readonly lsn: string | null;
 }
 
@@ -238,7 +238,7 @@ export interface WatchFilterEvent {
 
 export interface WriteCheckpoint {
   base: ReplicationCheckpoint;
-  writeCheckpoint: bigint | null;
+  writeCheckpoint: util.InternalOpId | null;
 }
 
 export interface StorageCheckpointUpdate extends WriteCheckpoint {
@@ -246,8 +246,8 @@ export interface StorageCheckpointUpdate extends WriteCheckpoint {
 }
 
 export interface GetCheckpointChangesOptions {
-  lastCheckpoint: util.OpId;
-  nextCheckpoint: util.OpId;
+  lastCheckpoint: util.InternalOpId;
+  nextCheckpoint: util.InternalOpId;
 }
 
 export interface CheckpointChanges {

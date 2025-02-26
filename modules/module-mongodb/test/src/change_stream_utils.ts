@@ -1,5 +1,11 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { BucketStorageFactory, OpId, ReplicationCheckpoint, SyncRulesBucketStorage } from '@powersync/service-core';
+import {
+  BucketStorageFactory,
+  InternalOpId,
+  ProtocolOpId,
+  ReplicationCheckpoint,
+  SyncRulesBucketStorage
+} from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
 
 import { ChangeStream, ChangeStreamOptions } from '@module/replication/ChangeStream.js';
@@ -93,28 +99,31 @@ export class ChangeStreamTestContext {
       getClientCheckpoint(this.client, this.db, this.factory, { timeout: options?.timeout ?? 15_000 }),
       this.streamPromise
     ]);
-    if (typeof checkpoint == 'undefined') {
+    if (checkpoint == null) {
       // This indicates an issue with the test setup - streamingPromise completed instead
       // of getClientCheckpoint()
       throw new Error('Test failure - streamingPromise completed');
     }
-    return checkpoint as string;
+    return checkpoint;
   }
 
-  async getBucketsDataBatch(buckets: Record<string, string>, options?: { timeout?: number }) {
+  async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, string>(Object.entries(buckets));
+    const map = new Map<string, InternalOpId>(Object.entries(buckets));
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
   async getBucketData(
     bucket: string,
-    start?: string,
+    start?: ProtocolOpId | InternalOpId | undefined,
     options?: { timeout?: number; limit?: number; chunkLimitBytes?: number }
   ) {
-    start ??= '0';
+    start ??= 0n;
+    if (typeof start == 'string') {
+      start = BigInt(start);
+    }
     let checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, string>([[bucket, start]]);
+    const map = new Map<string, InternalOpId>([[bucket, start]]);
     const batch = this.storage!.getBucketDataBatch(checkpoint, map, {
       limit: options?.limit,
       chunkLimitBytes: options?.chunkLimitBytes
@@ -140,7 +149,7 @@ export async function getClientCheckpoint(
   db: mongo.Db,
   storageFactory: BucketStorageFactory,
   options?: { timeout?: number }
-): Promise<OpId> {
+): Promise<InternalOpId> {
   const start = Date.now();
   const lsn = await createCheckpoint(client, db);
   // This old API needs a persisted checkpoint id.

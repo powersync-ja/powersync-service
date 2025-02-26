@@ -74,7 +74,7 @@ describe('sync - mongodb', () => {
     const options: storage.BucketDataBatchOptions = {};
 
     const batch1 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]), options)
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]), options)
     );
     expect(test_utils.getBatchData(batch1)).toEqual([
       { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 },
@@ -87,7 +87,7 @@ describe('sync - mongodb', () => {
     });
 
     const batch2 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', batch1[0].batch.next_after]]), options)
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', BigInt(batch1[0].batch.next_after)]]), options)
     );
     expect(test_utils.getBatchData(batch2)).toEqual([
       { op_id: '3', op: 'PUT', object_id: 'large2', checksum: 1607205872 }
@@ -99,7 +99,7 @@ describe('sync - mongodb', () => {
     });
 
     const batch3 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', batch2[0].batch.next_after]]), options)
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', BigInt(batch2[0].batch.next_after)]]), options)
     );
     expect(test_utils.getBatchData(batch3)).toEqual([
       { op_id: '4', op: 'PUT', object_id: 'test3', checksum: 1359888332 }
