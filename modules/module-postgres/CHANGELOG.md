@@ -1,5 +1,19 @@
 # @powersync/service-module-postgres
 
+## 0.8.1
+
+### Patch Changes
+
+- 88ab679: Keep serving current data when restarting replication due to errors.
+- Updated dependencies [b4fe4ae]
+- Updated dependencies [88ab679]
+- Updated dependencies [2f75fd7]
+- Updated dependencies [346382e]
+- Updated dependencies [9b1868d]
+  - @powersync/service-core@1.7.1
+  - @powersync/lib-services-framework@0.5.3
+  - @powersync/lib-service-postgres@0.3.3
+
 ## 0.8.0
 
 ### Minor Changes

@@ -1,5 +1,18 @@
 # @powersync/service-module-mysql
 
+## 0.4.1
+
+### Patch Changes
+
+- 2f75fd7: Improve handling of some edge cases which could trigger truncating of synced tables.
+- Updated dependencies [b4fe4ae]
+- Updated dependencies [88ab679]
+- Updated dependencies [2f75fd7]
+- Updated dependencies [346382e]
+- Updated dependencies [9b1868d]
+  - @powersync/service-core@1.7.1
+  - @powersync/lib-services-framework@0.5.3
+
 ## 0.4.0
 
 ### Minor Changes
