@@ -317,8 +317,7 @@ bucket_definitions:
     });
   });
 
-  // TODO: maybe only run this test for Postgres. MongoDB is extremely slow. This might indicate an issue with Postgres.
-  test('compacting (3)', { timeout: Infinity }, async () => {
+  test('compacting (3)', async () => {
     const sync_rules = test_utils.testRules(/* yaml */
     ` bucket_definitions:
         grouped:
