@@ -1,5 +1,5 @@
 import * as framework from '@powersync/lib-services-framework';
-import { storage, SyncRulesBucketStorage, UpdateSyncRulesOptions } from '@powersync/service-core';
+import { GetIntanceOptions, storage, SyncRulesBucketStorage, UpdateSyncRulesOptions } from '@powersync/service-core';
 import * as pg_wire from '@powersync/service-jpgwire';
 import * as sync_rules from '@powersync/service-sync-rules';
 import crypto from 'crypto';
@@ -50,14 +50,19 @@ export class PostgresBucketStorageFactory
     // This has not been implemented yet.
   }
 
-  getInstance(syncRules: storage.PersistedSyncRulesContent): storage.SyncRulesBucketStorage {
+  getInstance(
+    syncRules: storage.PersistedSyncRulesContent,
+    options?: GetIntanceOptions
+  ): storage.SyncRulesBucketStorage {
     const storage = new PostgresSyncRulesStorage({
       factory: this,
       db: this.db,
       sync_rules: syncRules,
       batchLimits: this.options.config.batch_limits
     });
-    this.iterateListeners((cb) => cb.syncStorageCreated?.(storage));
+    if (!options?.skipLifecycleHooks) {
+      this.iterateListeners((cb) => cb.syncStorageCreated?.(storage));
+    }
     storage.registerListener({
       batchStarted: (batch) => {
         batch.registerListener({
@@ -225,13 +230,13 @@ export class PostgresBucketStorageFactory
     });
   }
 
-  async slotRemoved(slot_name: string): Promise<void> {
+  async restartReplication(sync_rules_group_id: number): Promise<void> {
     const next = await this.getNextSyncRulesContent();
     const active = await this.getActiveSyncRulesContent();
 
     // In both the below cases, we create a new sync rules instance.
-    // The current one will continue erroring until the next one has finished processing.
-    if (next != null && next.slot_name == slot_name) {
+    // The current one will continue serving sync requests until the next one has finished processing.
+    if (next != null && next.id == sync_rules_group_id) {
       // We need to redo the "next" sync rules
       await this.updateSyncRules({
         content: next.sync_rules_content,
@@ -246,18 +251,30 @@ export class PostgresBucketStorageFactory
           id = ${{ value: next.id, type: 'int4' }}
           AND state = ${{ value: storage.SyncRuleState.PROCESSING, type: 'varchar' }}
       `.execute();
-    } else if (next == null && active?.slot_name == slot_name) {
+    } else if (next == null && active?.id == sync_rules_group_id) {
       // Slot removed for "active" sync rules, while there is no "next" one.
       await this.updateSyncRules({
         content: active.sync_rules_content,
         validate: false
       });
 
-      // Pro-actively stop replicating
+      // Pro-actively stop replicating, but still serve clients with existing data
       await this.db.sql`
         UPDATE sync_rules
         SET
-          state = ${{ value: storage.SyncRuleState.STOP, type: 'varchar' }}
+          state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
+        WHERE
+          id = ${{ value: active.id, type: 'int4' }}
+          AND state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
+      `.execute();
+    } else if (next != null && active?.id == sync_rules_group_id) {
+      // Already have "next" sync rules - don't update any.
+
+      // Pro-actively stop replicating, but still serve clients with existing data
+      await this.db.sql`
+        UPDATE sync_rules
+        SET
+          state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
         WHERE
           id = ${{ value: active.id, type: 'int4' }}
           AND state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
@@ -279,6 +296,7 @@ export class PostgresBucketStorageFactory
         sync_rules
       WHERE
         state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
+        OR state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
       ORDER BY
         id DESC
       LIMIT

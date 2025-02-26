@@ -23,7 +23,7 @@ export interface BucketStorageFactory extends ObserverClient<BucketStorageFactor
   /**
    * Get a storage instance to query sync data for specific sync rules.
    */
-  getInstance(options: PersistedSyncRulesContent): SyncRulesBucketStorage;
+  getInstance(syncRules: PersistedSyncRulesContent, options?: GetIntanceOptions): SyncRulesBucketStorage;
 
   /**
    * Deploy new sync rules.
@@ -39,10 +39,8 @@ export interface BucketStorageFactory extends ObserverClient<BucketStorageFactor
    * the latest ones.
    *
    * Replication should be restarted after this.
-   *
-   * @param slot_name The removed slot
    */
-  slotRemoved(slot_name: string): Promise<void>;
+  restartReplication(sync_rules_group_id: number): Promise<void>;
 
   /**
    * Get the sync rules used for querying.
@@ -123,6 +121,18 @@ export interface UpdateSyncRulesOptions {
   content: string;
   lock?: boolean;
   validate?: boolean;
+}
+
+export interface GetIntanceOptions {
+  /**
+   * Set to true to skip trigger any events for creating the instance.
+   *
+   * This is used when creating the instance only for clearing data.
+   *
+   * When this is used, note that some functionality such as write checkpoint mode
+   * may not be configured correctly.
+   */
+  skipLifecycleHooks?: boolean;
 }
 
 export interface BucketStorageSystemIdentifier {

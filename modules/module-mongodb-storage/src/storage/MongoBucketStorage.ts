@@ -1,6 +1,6 @@
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 
-import { storage } from '@powersync/service-core';
+import { GetIntanceOptions, storage } from '@powersync/service-core';
 
 import { BaseObserver, ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
@@ -44,13 +44,15 @@ export class MongoBucketStorage
     // No-op
   }
 
-  getInstance(options: storage.PersistedSyncRulesContent): MongoSyncBucketStorage {
-    let { id, slot_name } = options;
+  getInstance(syncRules: storage.PersistedSyncRulesContent, options?: GetIntanceOptions): MongoSyncBucketStorage {
+    let { id, slot_name } = syncRules;
     if ((typeof id as any) == 'bigint') {
       id = Number(id);
     }
-    const storage = new MongoSyncBucketStorage(this, id, options, slot_name);
-    this.iterateListeners((cb) => cb.syncStorageCreated?.(storage));
+    const storage = new MongoSyncBucketStorage(this, id, syncRules, slot_name);
+    if (!options?.skipLifecycleHooks) {
+      this.iterateListeners((cb) => cb.syncStorageCreated?.(storage));
+    }
     storage.registerListener({
       batchStarted: (batch) => {
         batch.registerListener({
@@ -95,13 +97,11 @@ export class MongoBucketStorage
     }
   }
 
-  async slotRemoved(slot_name: string) {
+  async restartReplication(sync_rules_group_id: number) {
     const next = await this.getNextSyncRulesContent();
     const active = await this.getActiveSyncRulesContent();
 
-    // In both the below cases, we create a new sync rules instance.
-    // The current one will continue erroring until the next one has finished processing.
-    if (next != null && next.slot_name == slot_name) {
+    if (next != null && next.id == sync_rules_group_id) {
       // We need to redo the "next" sync rules
       await this.updateSyncRules({
         content: next.sync_rules_content,
@@ -119,14 +119,17 @@ export class MongoBucketStorage
           }
         }
       );
-    } else if (next == null && active?.slot_name == slot_name) {
+    } else if (next == null && active?.id == sync_rules_group_id) {
       // Slot removed for "active" sync rules, while there is no "next" one.
       await this.updateSyncRules({
         content: active.sync_rules_content,
         validate: false
       });
 
-      // Pro-actively stop replicating
+      // In this case we keep the old one as active for clients, so that that existing clients
+      // can still get the latest data while we replicate the new ones.
+      // It will however not replicate anymore.
+
       await this.db.sync_rules.updateOne(
         {
           _id: active.id,
@@ -134,7 +137,21 @@ export class MongoBucketStorage
         },
         {
           $set: {
-            state: storage.SyncRuleState.STOP
+            state: storage.SyncRuleState.ERRORED
+          }
+        }
+      );
+    } else if (next != null && active?.id == sync_rules_group_id) {
+      // Already have next sync rules, but need to stop replicating the active one.
+
+      await this.db.sync_rules.updateOne(
+        {
+          _id: active.id,
+          state: storage.SyncRuleState.ACTIVE
+        },
+        {
+          $set: {
+            state: storage.SyncRuleState.ERRORED
           }
         }
       );
@@ -211,7 +228,7 @@ export class MongoBucketStorage
   async getActiveSyncRulesContent(): Promise<MongoPersistedSyncRulesContent | null> {
     const doc = await this.db.sync_rules.findOne(
       {
-        state: storage.SyncRuleState.ACTIVE
+        state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
       },
       { sort: { _id: -1 }, limit: 1 }
     );
@@ -249,7 +266,7 @@ export class MongoBucketStorage
   async getReplicatingSyncRules(): Promise<storage.PersistedSyncRulesContent[]> {
     const docs = await this.db.sync_rules
       .find({
-        $or: [{ state: storage.SyncRuleState.ACTIVE }, { state: storage.SyncRuleState.PROCESSING }]
+        state: { $in: [storage.SyncRuleState.PROCESSING, storage.SyncRuleState.ACTIVE] }
       })
       .toArray();
 
