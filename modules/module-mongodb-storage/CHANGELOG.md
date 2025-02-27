@@ -1,5 +1,22 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.6.1
+
+### Patch Changes
+
+- b4fe4ae: Upgrade mongodb and bson packages, removing the need for some workarounds.
+- 88ab679: Keep serving current data when restarting replication due to errors.
+- 2f75fd7: Improve handling of some edge cases which could trigger truncating of synced tables.
+- 346382e: Unified compacting options between storage providers.
+- Updated dependencies [b4fe4ae]
+- Updated dependencies [88ab679]
+- Updated dependencies [2f75fd7]
+- Updated dependencies [346382e]
+- Updated dependencies [9b1868d]
+  - @powersync/service-core@1.7.1
+  - @powersync/lib-services-framework@0.5.3
+  - @powersync/lib-service-mongodb@0.4.3
+
 ## 0.6.0
 
 ### Minor Changes

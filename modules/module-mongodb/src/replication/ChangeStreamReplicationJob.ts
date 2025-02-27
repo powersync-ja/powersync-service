@@ -40,8 +40,8 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
       this.logger.error(`Replication failed`, e);
 
       if (e instanceof ChangeStreamInvalidatedError) {
-        // This stops replication on this slot, and creates a new slot
-        await this.options.storage.factory.slotRemoved(this.slotName);
+        // This stops replication and restarts with a new instance
+        await this.options.storage.factory.restartReplication(this.storage.group_id);
       }
     } finally {
       this.abortController.abort();
