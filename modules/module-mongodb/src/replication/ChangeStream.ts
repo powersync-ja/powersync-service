@@ -178,21 +178,23 @@ export class ChangeStream {
 
     // We need to get the snapshot time before taking the initial snapshot.
     const hello = await this.defaultDb.command({ hello: 1 });
-    const snapshotTime = hello.lastWrite?.majorityOpTime?.ts as mongo.Timestamp;
-    if (hello.msg == 'isdbgrid') {
-      throw new ServiceError(
-        ErrorCode.PSYNC_S1341,
-        'Sharded MongoDB Clusters are not supported yet (including MongoDB Serverless instances).'
-      );
-    } else if (hello.setName == null) {
+    // Use the clusterTime for sharded clusters
+    const snapshotTime: mongo.Timestamp = hello.lastWrite?.majorityOpTime?.ts ?? hello.$clusterTime?.clusterTime;
+
+    // Sharded cluster don't provide a setName, but we do support them.
+    // We don't support standalone instances
+    if (hello.msg != 'isdbgrid' && hello.setName == null) {
       throw new ServiceError(
         ErrorCode.PSYNC_S1342,
         'Standalone MongoDB instances are not supported - use a replicaset.'
       );
-    } else if (snapshotTime == null) {
+    }
+
+    if (snapshotTime == null) {
       // Not known where this would happen apart from the above cases
       throw new ReplicationAssertionError('MongoDB lastWrite timestamp not found.');
     }
+
     // We previously used {snapshot: true} for the snapshot session.
     // While it gives nice consistency guarantees, it fails when the
     // snapshot takes longer than 5 minutes, due to minSnapshotHistoryWindowInSeconds
