@@ -6,8 +6,10 @@ import * as util from '../util/util-index.js';
 import { ErrorCode, logger, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
 import { BucketParameterQuerier } from '@powersync/service-sync-rules/src/BucketParameterQuerier.js';
 import { BucketSyncState } from './sync.js';
+import { SyncContext } from './SyncContext.js';
 
 export interface BucketChecksumStateOptions {
+  syncContext: SyncContext;
   bucketStorage: BucketChecksumStateStorage;
   syncRules: SqlSyncRules;
   syncParams: RequestParameters;
@@ -20,6 +22,7 @@ export interface BucketChecksumStateOptions {
  * Handles incrementally re-computing checkpoints.
  */
 export class BucketChecksumState {
+  private readonly context: SyncContext;
   private readonly bucketStorage: BucketChecksumStateStorage;
 
   /**
@@ -43,8 +46,14 @@ export class BucketChecksumState {
   private pendingBucketDownloads = new Set<string>();
 
   constructor(options: BucketChecksumStateOptions) {
+    this.context = options.syncContext;
     this.bucketStorage = options.bucketStorage;
-    this.parameterState = new BucketParameterState(options.bucketStorage, options.syncRules, options.syncParams);
+    this.parameterState = new BucketParameterState(
+      options.syncContext,
+      options.bucketStorage,
+      options.syncRules,
+      options.syncParams
+    );
     this.bucketDataPositions = new Map();
 
     for (let { name, after: start } of options.initialBucketPositions ?? []) {
@@ -73,6 +82,12 @@ export class BucketChecksumState {
       });
     }
     this.bucketDataPositions = dataBucketsNew;
+    if (dataBucketsNew.size > this.context.maxBuckets) {
+      throw new ServiceError(
+        ErrorCode.PSYNC_S2305,
+        `Too many buckets: ${dataBucketsNew.size} (limit of ${this.context.maxBuckets})`
+      );
+    }
 
     let checksumMap: util.ChecksumMap;
     if (updatedBuckets != null) {
@@ -247,13 +262,20 @@ export interface CheckpointUpdate {
 }
 
 export class BucketParameterState {
+  private readonly context: SyncContext;
   public readonly bucketStorage: BucketChecksumStateStorage;
   public readonly syncRules: SqlSyncRules;
   public readonly syncParams: RequestParameters;
   private readonly querier: BucketParameterQuerier;
   private readonly staticBuckets: Map<string, BucketDescription>;
 
-  constructor(bucketStorage: BucketChecksumStateStorage, syncRules: SqlSyncRules, syncParams: RequestParameters) {
+  constructor(
+    context: SyncContext,
+    bucketStorage: BucketChecksumStateStorage,
+    syncRules: SqlSyncRules,
+    syncParams: RequestParameters
+  ) {
+    this.context = context;
     this.bucketStorage = bucketStorage;
     this.syncRules = syncRules;
     this.syncParams = syncParams;
@@ -275,9 +297,13 @@ export class BucketParameterState {
       return null;
     }
 
-    if (update.buckets.length > 1000) {
-      // TODO: Limit number of buckets even before we get to this point
-      const error = new ServiceError(ErrorCode.PSYNC_S2305, `Too many buckets: ${update.buckets.length}`);
+    if (update.buckets.length > this.context.maxParameterQueryResults) {
+      // TODO: Limit number of results even before we get to this point
+      // This limit applies _before_ we get the unique set
+      const error = new ServiceError(
+        ErrorCode.PSYNC_S2305,
+        `Too many parameter query results: ${update.buckets.length} (limit of ${this.context.maxParameterQueryResults})`
+      );
       logger.error(error.message, {
         checkpoint: checkpoint,
         user_id: this.syncParams.user_id,
