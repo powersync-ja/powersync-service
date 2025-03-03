@@ -270,7 +270,7 @@ export class MongoBucketBatch
       }
     }
 
-    return resumeBatch;
+    return resumeBatch?.hasData() ? resumeBatch : null;
   }
 
   private saveOperation(
