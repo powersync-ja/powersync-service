@@ -1,5 +1,5 @@
 import * as bson from 'bson';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeAll, describe, expect, test } from 'vitest';
 import { WalStream, WalStreamOptions } from '../../src/replication/WalStream.js';
 import { env } from './env.js';
 import {
@@ -15,8 +15,8 @@ import * as pgwire from '@powersync/service-jpgwire';
 import { SqliteRow } from '@powersync/service-sync-rules';
 
 import { PgManager } from '@module/replication/PgManager.js';
-import { storage } from '@powersync/service-core';
-import { test_utils } from '@powersync/service-core-tests';
+import { createCoreReplicationMetrics, initializeCoreReplicationMetrics, storage } from '@powersync/service-core';
+import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
 import * as timers from 'node:timers/promises';
@@ -48,6 +48,11 @@ function defineSlowTests(factory: storage.TestStorageFactory) {
   let connections: PgManager | undefined;
   let abortController: AbortController | undefined;
   let streamPromise: Promise<void> | undefined;
+
+  beforeAll(async () => {
+    createCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
+    initializeCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
+  });
 
   afterEach(async () => {
     // This cleans up, similar to WalStreamTestContext.dispose().
@@ -106,7 +111,8 @@ bucket_definitions:
     const options: WalStreamOptions = {
       abort_signal: abortController.signal,
       connections,
-      storage: storage
+      storage: storage,
+      metrics: METRICS_HELPER.metricsEngine
     };
     walStream = new WalStream(options);
 
@@ -358,7 +364,8 @@ bucket_definitions:
         const options: WalStreamOptions = {
           abort_signal: abortController.signal,
           connections,
-          storage: storage
+          storage: storage,
+          metrics: METRICS_HELPER.metricsEngine
         };
         walStream = new WalStream(options);
 

@@ -1,7 +1,14 @@
 import { PgManager } from '@module/replication/PgManager.js';
 import { PUBLICATION_NAME, WalStream, WalStreamOptions } from '@module/replication/WalStream.js';
-import { BucketStorageFactory, OplogEntry, storage, SyncRulesBucketStorage } from '@powersync/service-core';
-import { test_utils } from '@powersync/service-core-tests';
+import {
+  BucketStorageFactory,
+  createCoreReplicationMetrics,
+  initializeCoreReplicationMetrics,
+  OplogEntry,
+  storage,
+  SyncRulesBucketStorage
+} from '@powersync/service-core';
+import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import * as pgwire from '@powersync/service-jpgwire';
 import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
 
@@ -35,7 +42,10 @@ export class WalStreamTestContext implements AsyncDisposable {
   constructor(
     public factory: BucketStorageFactory,
     public connectionManager: PgManager
-  ) {}
+  ) {
+    createCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
+    initializeCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
+  }
 
   async [Symbol.asyncDispose]() {
     await this.dispose();
@@ -96,6 +106,7 @@ export class WalStreamTestContext implements AsyncDisposable {
     }
     const options: WalStreamOptions = {
       storage: this.storage,
+      metrics: METRICS_HELPER.metricsEngine,
       connections: this.connectionManager,
       abort_signal: this.abortController.signal
     };

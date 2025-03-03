@@ -1,4 +1,4 @@
-import { storage, sync, utils } from '@powersync/service-core';
+import { createCoreAPIMetrics, storage, sync, utils } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import path from 'path';
@@ -6,6 +6,7 @@ import * as timers from 'timers/promises';
 import { fileURLToPath } from 'url';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
+import { METRICS_HELPER } from '../test-utils/test-utils-index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,7 +31,8 @@ export const SYNC_SNAPSHOT_PATH = path.resolve(__dirname, '../__snapshots/sync.t
  * ```
  */
 export function registerSyncTests(factory: storage.TestStorageFactory) {
-  const tracker = new sync.RequestTracker();
+  createCoreAPIMetrics(METRICS_HELPER.metricsEngine);
+  const tracker = new sync.RequestTracker(METRICS_HELPER.metricsEngine);
 
   test('sync global data', async () => {
     await using f = await factory();
@@ -220,7 +222,7 @@ bucket_definitions:
               },
               afterReplicaId: 'highprio2'
             });
-      
+
             await batch.commit('0/2');
           });
         }
