@@ -1,5 +1,5 @@
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
-import { BucketDescription, BucketPriority, RequestParameters } from '@powersync/service-sync-rules';
+import { BucketDescription, BucketPriority, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
 import { Semaphore, withTimeout } from 'async-mutex';
 
 import { AbortError } from 'ix/aborterror.js';
@@ -9,9 +9,10 @@ import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
 import { logger } from '@powersync/lib-services-framework';
+import { BucketChecksumState } from './BucketChecksumState.js';
 import { mergeAsyncIterables } from './merge.js';
 import { RequestTracker } from './RequestTracker.js';
-import { TokenStreamOptions, acquireSemaphoreAbortable, tokenStream } from './util.js';
+import { acquireSemaphoreAbortable, settledPromise, tokenStream, TokenStreamOptions } from './util.js';
 
 /**
  * Maximum number of connections actively fetching data.
@@ -32,11 +33,11 @@ const syncSemaphore = withTimeout(
 );
 
 export interface SyncStreamParameters {
-  storage: storage.BucketStorageFactory;
+  bucketStorage: storage.SyncRulesBucketStorage;
+  syncRules: SqlSyncRules;
   params: util.StreamingSyncRequest;
   syncParams: RequestParameters;
   token: auth.JwtPayload;
-  parseOptions: storage.ParseSyncRulesOptions;
   /**
    * If this signal is aborted, the stream response ends as soon as possible, without error.
    */
@@ -49,7 +50,7 @@ export interface SyncStreamParameters {
 export async function* streamResponse(
   options: SyncStreamParameters
 ): AsyncIterable<util.StreamingSyncLine | string | null> {
-  const { storage, params, syncParams, token, tokenStreamOptions, tracker, signal, parseOptions } = options;
+  const { bucketStorage, syncRules, params, syncParams, token, tokenStreamOptions, tracker, signal } = options;
   // We also need to be able to abort, so we create our own controller.
   const controller = new AbortController();
   if (signal) {
@@ -65,7 +66,7 @@ export async function* streamResponse(
     }
   }
   const ki = tokenStream(token, controller.signal, tokenStreamOptions);
-  const stream = streamResponseInner(storage, params, syncParams, tracker, parseOptions, controller.signal);
+  const stream = streamResponseInner(bucketStorage, syncRules, params, syncParams, tracker, controller.signal);
   // Merge the two streams, and abort as soon as one of the streams end.
   const merged = mergeAsyncIterables([stream, ki], controller.signal);
 
@@ -84,152 +85,63 @@ export async function* streamResponse(
   }
 }
 
-type BucketSyncState = {
+export type BucketSyncState = {
   description?: BucketDescription; // Undefined if the bucket has not yet been resolved by us.
   start_op_id: string;
 };
 
 async function* streamResponseInner(
-  storage: storage.BucketStorageFactory,
+  bucketStorage: storage.SyncRulesBucketStorage,
+  syncRules: SqlSyncRules,
   params: util.StreamingSyncRequest,
   syncParams: RequestParameters,
   tracker: RequestTracker,
-  parseOptions: storage.ParseSyncRulesOptions,
   signal: AbortSignal
 ): AsyncGenerator<util.StreamingSyncLine | string | null> {
-  // Bucket state of bucket id -> op_id.
-  // This starts with the state from the client. May contain buckets that the user do not have access to (anymore).
-  let dataBuckets = new Map<string, BucketSyncState>();
-
-  let lastChecksums: util.ChecksumMap | null = null;
-  let lastWriteCheckpoint: bigint | null = null;
-
   const { raw_data, binary_data } = params;
 
-  if (params.buckets) {
-    for (let { name, after: start } of params.buckets) {
-      dataBuckets.set(name, { start_op_id: start });
-    }
-  }
-
   const checkpointUserId = util.checkpointUserId(syncParams.token_parameters.user_id as string, params.client_id);
-  const stream = storage.watchWriteCheckpoint(checkpointUserId, signal);
+
+  const checksumState = new BucketChecksumState({
+    bucketStorage,
+    syncRules,
+    syncParams,
+    initialBucketPositions: params.buckets
+  });
+  const stream = bucketStorage.watchWriteCheckpoint({
+    user_id: checkpointUserId,
+    signal
+  });
   const newCheckpoints = stream[Symbol.asyncIterator]();
 
   try {
-    let nextCheckpointPromise: Promise<IteratorResult<storage.WriteCheckpoint>> | undefined;
+    let nextCheckpointPromise:
+      | Promise<PromiseSettledResult<IteratorResult<storage.StorageCheckpointUpdate>>>
+      | undefined;
 
     do {
       if (!nextCheckpointPromise) {
-        nextCheckpointPromise = newCheckpoints.next();
+        // Wrap in a settledPromise, so that abort errors after the parent stopped iterating
+        // does not result in uncaught errors.
+        nextCheckpointPromise = settledPromise(newCheckpoints.next());
       }
       const next = await nextCheckpointPromise;
       nextCheckpointPromise = undefined;
-      if (next.done) {
+      if (next.status == 'rejected') {
+        throw next.reason;
+      }
+      if (next.value.done) {
         break;
       }
-
-      const { base, writeCheckpoint } = next.value;
-      const checkpoint = base.checkpoint;
-
-      const storage = await base.getBucketStorage();
-      if (storage == null) {
-        // Sync rules deleted in the meantime - try again with the next checkpoint.
+      const line = await checksumState.buildNextCheckpointLine(next.value.value);
+      if (line == null) {
+        // No update to sync
         continue;
       }
-      const syncRules = storage.getParsedSyncRules(parseOptions);
 
-      const allBuckets = await syncRules.queryBucketDescriptions({
-        getParameterSets(lookups) {
-          return storage.getParameterSets(checkpoint, lookups);
-        },
-        parameters: syncParams
-      });
+      const { checkpointLine, bucketsToFetch } = line;
 
-      if (allBuckets.length > 1000) {
-        logger.error(`Too many buckets`, {
-          checkpoint,
-          user_id: syncParams.user_id,
-          buckets: allBuckets.length
-        });
-        // TODO: Limit number of buckets even before we get to this point
-        throw new Error(`Too many buckets: ${allBuckets.length}`);
-      }
-
-      let dataBucketsNew = new Map<string, BucketSyncState>();
-      for (let bucket of allBuckets) {
-        dataBucketsNew.set(bucket.bucket, {
-          description: bucket,
-          start_op_id: dataBuckets.get(bucket.bucket)?.start_op_id ?? '0'
-        });
-      }
-      dataBuckets = dataBucketsNew;
-
-      const bucketList = [...dataBuckets.keys()];
-      const checksumMap = await storage.getChecksums(checkpoint, bucketList);
-      // Subset of buckets for which there may be new data in this batch.
-      let bucketsToFetch: BucketDescription[];
-
-      if (lastChecksums) {
-        const diff = util.checksumsDiff(lastChecksums, checksumMap);
-
-        if (
-          lastWriteCheckpoint == writeCheckpoint &&
-          diff.removedBuckets.length == 0 &&
-          diff.updatedBuckets.length == 0
-        ) {
-          // No changes - don't send anything to the client
-          continue;
-        }
-        const updatedBucketDescriptions = diff.updatedBuckets.map((e) => ({
-          ...e,
-          priority: dataBuckets.get(e.bucket)!.description!.priority
-        }));
-        bucketsToFetch = updatedBucketDescriptions;
-
-        let message = `Updated checkpoint: ${checkpoint} | `;
-        message += `write: ${writeCheckpoint} | `;
-        message += `buckets: ${allBuckets.length} | `;
-        message += `updated: ${limitedBuckets(diff.updatedBuckets, 20)} | `;
-        message += `removed: ${limitedBuckets(diff.removedBuckets, 20)}`;
-        logger.info(message, {
-          checkpoint,
-          user_id: syncParams.user_id,
-          buckets: allBuckets.length,
-          updated: diff.updatedBuckets.length,
-          removed: diff.removedBuckets.length
-        });
-
-        const checksum_line: util.StreamingSyncCheckpointDiff = {
-          checkpoint_diff: {
-            last_op_id: checkpoint,
-            write_checkpoint: writeCheckpoint ? String(writeCheckpoint) : undefined,
-            removed_buckets: diff.removedBuckets,
-            updated_buckets: updatedBucketDescriptions
-          }
-        };
-
-        yield checksum_line;
-      } else {
-        let message = `New checkpoint: ${checkpoint} | write: ${writeCheckpoint} | `;
-        message += `buckets: ${allBuckets.length} ${limitedBuckets(allBuckets, 20)}`;
-        logger.info(message, { checkpoint, user_id: syncParams.user_id, buckets: allBuckets.length });
-        bucketsToFetch = allBuckets;
-        const checksum_line: util.StreamingSyncCheckpoint = {
-          checkpoint: {
-            last_op_id: checkpoint,
-            write_checkpoint: writeCheckpoint ? String(writeCheckpoint) : undefined,
-            buckets: [...checksumMap.values()].map((e) => ({
-              ...e,
-              priority: dataBuckets.get(e.bucket)!.description!.priority
-            }))
-          }
-        };
-        yield checksum_line;
-      }
-      lastChecksums = checksumMap;
-      lastWriteCheckpoint = writeCheckpoint;
-
+      yield checkpointLine;
       // Start syncing data for buckets up to the checkpoint. As soon as we have completed at least one priority and
       // at least 1000 operations, we also start listening for new checkpoints concurrently. When a new checkpoint comes
       // in while we're still busy syncing data for lower priorities, interrupt the current operation and start syncing
@@ -243,11 +155,22 @@ async function* streamResponseInner(
       bucketsByPriority.sort((a, b) => a[0] - b[0]); // Sort from high to lower priorities
       const lowestPriority = bucketsByPriority.at(-1)?.[0];
 
+      // Ensure that we have at least one priority batch: After sending the checkpoint line, clients expect to
+      // receive a sync complete message after the synchronization is done (which happens in the last
+      // bucketDataInBatches iteration). Without any batch, the line is missing and clients might not complete their
+      // sync properly.
+      const priorityBatches: [BucketPriority | null, BucketDescription[]][] = bucketsByPriority;
+      if (priorityBatches.length == 0) {
+        priorityBatches.push([null, []]);
+      }
+
       function maybeRaceForNewCheckpoint() {
         if (syncedOperations >= 1000 && nextCheckpointPromise === undefined) {
           nextCheckpointPromise = (async () => {
-            const next = await newCheckpoints.next();
-            if (!next.done) {
+            const next = await settledPromise(newCheckpoints.next());
+            if (next.status == 'rejected') {
+              abortCheckpointController.abort();
+            } else if (!next.value.done) {
               // Stop the running bucketDataInBatches() iterations, making the main flow reach the new checkpoint.
               abortCheckpointController.abort();
             }
@@ -265,26 +188,26 @@ async function* streamResponseInner(
 
       // This incrementally updates dataBuckets with each individual bucket position.
       // At the end of this, we can be sure that all buckets have data up to the checkpoint.
-      for (const [priority, buckets] of bucketsByPriority) {
+      for (const [priority, buckets] of priorityBatches) {
         const isLast = priority === lowestPriority;
         if (abortCheckpointSignal.aborted) {
           break;
         }
 
         yield* bucketDataInBatches({
-          storage,
-          checkpoint,
+          bucketStorage: bucketStorage,
+          checkpoint: next.value.value.base.checkpoint,
           bucketsToFetch: buckets,
-          dataBuckets,
+          checksumState,
           raw_data,
           binary_data,
           onRowsSent: markOperationsSent,
           abort_connection: signal,
           abort_batch: abortCheckpointSignal,
           user_id: syncParams.user_id,
-          // Passing undefined will emit a full sync complete message at the end. If we pass a priority, we'll emit a partial
-          // sync complete message.
-          forPriority: !isLast ? priority : undefined
+          // Passing null here will emit a full sync complete message at the end. If we pass a priority, we'll emit a partial
+          // sync complete message instead.
+          forPriority: !isLast ? priority : null
         });
       }
 
@@ -298,11 +221,11 @@ async function* streamResponseInner(
 }
 
 interface BucketDataRequest {
-  storage: storage.SyncRulesBucketStorage;
+  bucketStorage: storage.SyncRulesBucketStorage;
   checkpoint: string;
   bucketsToFetch: BucketDescription[];
-  /** Bucket data position, modified by the request.  */
-  dataBuckets: Map<string, BucketSyncState>;
+  /** Contains current bucket state. Modified by the request as data is sent.  */
+  checksumState: BucketChecksumState;
   raw_data: boolean | undefined;
   binary_data: boolean | undefined;
   /** Signals that the connection was aborted and that streaming should stop ASAP. */
@@ -313,7 +236,7 @@ interface BucketDataRequest {
    */
   abort_batch: AbortSignal;
   user_id?: string;
-  forPriority?: BucketPriority;
+  forPriority: BucketPriority | null;
   onRowsSent: (amount: number) => void;
 }
 
@@ -359,10 +282,10 @@ interface BucketDataBatchResult {
  */
 async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<BucketDataBatchResult, void> {
   const {
-    storage,
+    bucketStorage: storage,
     checkpoint,
     bucketsToFetch,
-    dataBuckets,
+    checksumState,
     raw_data,
     binary_data,
     abort_connection,
@@ -393,14 +316,12 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
     }
     // Optimization: Only fetch buckets for which the checksums have changed since the last checkpoint
     // For the first batch, this will be all buckets.
-    const filteredBuckets = new Map(
-      bucketsToFetch.map((bucket) => [bucket.bucket, dataBuckets.get(bucket.bucket)?.start_op_id!])
-    );
-    const data = storage.getBucketDataBatch(checkpoint, filteredBuckets);
+    const filteredBuckets = checksumState.getFilteredBucketPositions(bucketsToFetch);
+    const dataBatches = storage.getBucketDataBatch(checkpoint, filteredBuckets);
 
     let has_more = false;
 
-    for await (let { batch: r, targetOp } of data) {
+    for await (let { batch: r, targetOp } of dataBatches) {
       // Abort in current batch if the connection is closed
       if (abort_connection.aborted) {
         return;
@@ -444,7 +365,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
       }
       onRowsSent(r.data.length);
 
-      dataBuckets.get(r.bucket)!.start_op_id = r.next_after;
+      checksumState.updateBucketPosition({ bucket: r.bucket, nextAfter: r.next_after, hasMore: r.has_more });
 
       // Check if syncing bucket data is supposed to stop before fetching more data
       // from storage.
@@ -460,7 +381,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
         // More data should be available immediately for a new checkpoint.
         yield { data: null, done: true };
       } else {
-        if (request.forPriority !== undefined) {
+        if (request.forPriority != null) {
           const line: util.StreamingSyncCheckpointPartiallyComplete = {
             partial_checkpoint_complete: {
               last_op_id: checkpoint,
@@ -501,19 +422,4 @@ function transformLegacyResponse(bucketData: util.SyncBucketData): any {
       };
     })
   };
-}
-
-function limitedBuckets(buckets: string[] | { bucket: string }[], limit: number) {
-  buckets = buckets.map((b) => {
-    if (typeof b != 'string') {
-      return b.bucket;
-    } else {
-      return b;
-    }
-  });
-  if (buckets.length <= limit) {
-    return JSON.stringify(buckets);
-  }
-  const limited = buckets.slice(0, limit);
-  return `${JSON.stringify(limited)}...`;
 }

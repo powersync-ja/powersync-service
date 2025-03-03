@@ -50,14 +50,13 @@ export function registerCompactAction(program: Command) {
       await serviceContext.lifeCycleEngine.start();
       const bucketStorage = serviceContext.storageEngine.activeBucketStorage;
 
-      const active = await bucketStorage.getActiveSyncRulesContent();
+      const active = await bucketStorage.getActiveStorage();
       if (active == null) {
         logger.info('No active instance to compact');
         return;
       }
-      using p = bucketStorage.getInstance(active);
       logger.info('Performing compaction...');
-      await p.compact({ memoryLimitMB: COMPACT_MEMORY_LIMIT_MB, compactBuckets: buckets });
+      await active.compact({ memoryLimitMB: COMPACT_MEMORY_LIMIT_MB, compactBuckets: buckets });
       logger.info('Successfully compacted storage.');
     } catch (e) {
       logger.error(`Failed to compact: ${e.toString()}`);

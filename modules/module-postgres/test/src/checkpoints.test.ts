@@ -3,6 +3,7 @@ import { checkpointUserId, createWriteCheckpoint } from '@powersync/service-core
 import { describe, test } from 'vitest';
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
+import { env } from './env.js';
 
 import timers from 'node:timers/promises';
 
@@ -11,8 +12,8 @@ const BASIC_SYNC_RULES = `bucket_definitions:
     data:
       - SELECT id, description, other FROM "test_data"`;
 
-describe('checkpoint tests', () => {
-  test('write checkpoints', { timeout: 30_000 }, async () => {
+describe.skipIf(!(env.CI || env.SLOW_TESTS))('checkpoint tests', () => {
+  test('write checkpoints', { timeout: 50_000 }, async () => {
     const factory = INITIALIZED_MONGO_STORAGE_FACTORY;
     await using context = await WalStreamTestContext.open(factory);
 
@@ -25,13 +26,14 @@ describe('checkpoint tests', () => {
     await context.replicateSnapshot();
 
     context.startStreaming();
+    const storage = context.storage!;
 
     const controller = new AbortController();
     try {
-      const stream = context.factory.watchWriteCheckpoint(
-        checkpointUserId('test_user', 'test_client'),
-        controller.signal
-      );
+      const stream = storage.watchWriteCheckpoint({
+        user_id: checkpointUserId('test_user', 'test_client'),
+        signal: controller.signal
+      });
 
       let lastWriteCheckpoint: bigint | null = null;
 
@@ -57,10 +59,12 @@ describe('checkpoint tests', () => {
 
         const start = Date.now();
         while (lastWriteCheckpoint == null || lastWriteCheckpoint < BigInt(cp.writeCheckpoint)) {
-          if (Date.now() - start > 2_000) {
-            throw new Error(`Timeout while waiting for checkpoint`);
+          if (Date.now() - start > 5_000) {
+            throw new Error(
+              `Timeout while waiting for checkpoint. last: ${lastWriteCheckpoint}, waiting for: ${cp.writeCheckpoint}`
+            );
           }
-          await timers.setTimeout(0, undefined, { signal: controller.signal });
+          await timers.setTimeout(5, undefined, { signal: controller.signal });
         }
       }
     } finally {

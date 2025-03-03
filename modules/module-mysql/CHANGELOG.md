@@ -1,5 +1,34 @@
 # @powersync/service-module-mysql
 
+## 0.4.1
+
+### Patch Changes
+
+- 2f75fd7: Improve handling of some edge cases which could trigger truncating of synced tables.
+- Updated dependencies [b4fe4ae]
+- Updated dependencies [88ab679]
+- Updated dependencies [2f75fd7]
+- Updated dependencies [346382e]
+- Updated dependencies [9b1868d]
+  - @powersync/service-core@1.7.1
+  - @powersync/lib-services-framework@0.5.3
+
+## 0.4.0
+
+### Minor Changes
+
+- 436eee6: Minor optimizations to new checkpoint calulations.
+
+### Patch Changes
+
+- Updated dependencies [436eee6]
+- Updated dependencies [15283d4]
+- Updated dependencies [88d4cb3]
+- Updated dependencies [f55e36a]
+  - @powersync/service-core@1.7.0
+  - @powersync/service-sync-rules@0.24.0
+  - @powersync/lib-services-framework@0.5.2
+
 ## 0.3.1
 
 ### Patch Changes

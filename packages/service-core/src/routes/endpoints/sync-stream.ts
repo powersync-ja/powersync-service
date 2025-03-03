@@ -36,15 +36,18 @@ export const syncStreamed = routeDefinition({
     const params: util.StreamingSyncRequest = payload.params;
     const syncParams = new RequestParameters(payload.context.token_payload!, payload.params.parameters ?? {});
 
-    // Sanity check before we start the stream
-    const cp = await storageEngine.activeBucketStorage.getActiveCheckpoint();
-    if (!cp.hasSyncRules()) {
+    const bucketStorage = await storageEngine.activeBucketStorage.getActiveStorage();
+
+    if (bucketStorage == null) {
       throw new errors.ServiceError({
         status: 500,
         code: ErrorCode.PSYNC_S2302,
         description: 'No sync rules available'
       });
     }
+
+    const syncRules = bucketStorage.getParsedSyncRules(routerEngine!.getAPI().getParseSyncRulesOptions());
+
     const controller = new AbortController();
     const tracker = new sync.RequestTracker(metricsEngine);
     try {
@@ -53,8 +56,8 @@ export const syncStreamed = routeDefinition({
         sync.transformToBytesTracked(
           sync.ndjson(
             sync.streamResponse({
-              storage: storageEngine.activeBucketStorage,
-              parseOptions: routerEngine!.getAPI().getParseSyncRulesOptions(),
+              bucketStorage,
+              syncRules: syncRules,
               params,
               syncParams,
               token: payload.context.token_payload!,

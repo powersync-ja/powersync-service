@@ -15,7 +15,7 @@ import {
   CurrentDataDocument,
   SourceKey
 } from './models.js';
-import { replicaIdToSubkey, safeBulkWrite } from './util.js';
+import { replicaIdToSubkey } from './util.js';
 
 /**
  * Maximum size of operations we write in a single transaction.
@@ -245,33 +245,34 @@ export class PersistedBatch {
   }
 
   async flush(db: PowerSyncMongo, session: mongo.ClientSession) {
+    const startAt = performance.now();
     if (this.bucketData.length > 0) {
-      // calculate total size
-      await safeBulkWrite(db.bucket_data, this.bucketData, {
+      await db.bucket_data.bulkWrite(this.bucketData, {
         session,
         // inserts only - order doesn't matter
         ordered: false
       });
     }
     if (this.bucketParameters.length > 0) {
-      await safeBulkWrite(db.bucket_parameters, this.bucketParameters, {
+      await db.bucket_parameters.bulkWrite(this.bucketParameters, {
         session,
         // inserts only - order doesn't matter
         ordered: false
       });
     }
     if (this.currentData.length > 0) {
-      await safeBulkWrite(db.current_data, this.currentData, {
+      await db.current_data.bulkWrite(this.currentData, {
         session,
         // may update and delete data within the same batch - order matters
         ordered: true
       });
     }
 
+    const duration = performance.now() - startAt;
     logger.info(
       `powersync_${this.group_id} Flushed ${this.bucketData.length} + ${this.bucketParameters.length} + ${
         this.currentData.length
-      } updates, ${Math.round(this.currentSize / 1024)}kb. Last op_id: ${this.debugLastOpId}`
+      } updates, ${Math.round(this.currentSize / 1024)}kb in ${duration.toFixed(0)}ms. Last op_id: ${this.debugLastOpId}`
     );
 
     this.bucketData = [];

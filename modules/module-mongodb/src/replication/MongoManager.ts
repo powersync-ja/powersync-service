@@ -1,11 +1,9 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 
 import { NormalizedMongoConnectionConfig } from '../types/types.js';
+import { BSON_DESERIALIZE_DATA_OPTIONS } from '@powersync/service-core';
 
 export class MongoManager {
-  /**
-   * Do not use this for any transactions.
-   */
   public readonly client: mongo.MongoClient;
   public readonly db: mongo.Db;
 
@@ -35,6 +33,9 @@ export class MongoManager {
 
       maxConnecting: 3,
       maxIdleTimeMS: 60_000,
+
+      ...BSON_DESERIALIZE_DATA_OPTIONS,
+
       ...overrides
     });
     this.db = this.client.db(options.database, {});

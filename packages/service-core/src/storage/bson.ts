@@ -1,12 +1,22 @@
 import * as bson from 'bson';
 
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
-import { ReplicaId } from './BucketStorage.js';
+import { ReplicaId } from './BucketStorageBatch.js';
 
 type NodeBuffer = Buffer<ArrayBuffer>;
 
-export const BSON_DESERIALIZE_OPTIONS: bson.DeserializeOptions = {
+/**
+ * Use for internal (bucket storage) data, where we control each field.
+ */
+export const BSON_DESERIALIZE_INTERNAL_OPTIONS: bson.DeserializeOptions = {
   // use bigint instead of Long
+  useBigInt64: true
+};
+
+/**
+ * Use for data from external sources, which could contain arbitrary fields.
+ */
+export const BSON_DESERIALIZE_DATA_OPTIONS: bson.DeserializeOptions = {
   useBigInt64: true
 };
 
@@ -27,6 +37,11 @@ export const serializeLookupBuffer = (lookup: SqliteJsonValue[]): NodeBuffer => 
 
 export const serializeLookup = (lookup: SqliteJsonValue[]) => {
   return new bson.Binary(serializeLookupBuffer(lookup));
+};
+
+export const getLookupBucketDefinitionName = (lookup: bson.Binary) => {
+  const parsed = bson.deserialize(lookup.buffer, BSON_DESERIALIZE_INTERNAL_OPTIONS).l as SqliteJsonValue[];
+  return parsed[0] as string;
 };
 
 /**
@@ -51,8 +66,11 @@ export const deserializeReplicaId = (id: Buffer): ReplicaId => {
   return deserialized.id;
 };
 
-export const deserializeBson = (buffer: Buffer) => {
-  return bson.deserialize(buffer, BSON_DESERIALIZE_OPTIONS);
+/**
+ * Deserialize BSON - can be used for BSON containing arbitrary user data.
+ */
+export const deserializeBson = (buffer: Uint8Array): bson.Document => {
+  return bson.deserialize(buffer, BSON_DESERIALIZE_DATA_OPTIONS);
 };
 
 export const serializeBson = (document: any): NodeBuffer => {

@@ -1,5 +1,45 @@
 # @powersync/service-image
 
+## 1.7.1
+
+### Patch Changes
+
+- b4fe4ae: Upgrade mongodb and bson packages, removing the need for some workarounds.
+- Updated dependencies [b4fe4ae]
+- Updated dependencies [88ab679]
+- Updated dependencies [2f75fd7]
+- Updated dependencies [346382e]
+- Updated dependencies [346382e]
+- Updated dependencies [9b1868d]
+  - @powersync/service-module-mongodb-storage@0.6.1
+  - @powersync/service-rsocket-router@0.0.20
+  - @powersync/service-module-mongodb@0.6.1
+  - @powersync/service-core@1.7.1
+  - @powersync/lib-services-framework@0.5.3
+  - @powersync/service-module-postgres-storage@0.4.1
+  - @powersync/service-module-postgres@0.8.1
+  - @powersync/service-module-mysql@0.4.1
+
+## 1.7.0
+
+### Patch Changes
+
+- 8111f1f: Upgrade to Node 22.14.0.
+- 88d4cb3: Fix signed integer overflow issue for int64 values from MongoDB.
+- Updated dependencies [436eee6]
+- Updated dependencies [15283d4]
+- Updated dependencies [88d4cb3]
+- Updated dependencies [f55e36a]
+  - @powersync/service-module-postgres-storage@0.4.0
+  - @powersync/service-module-mongodb-storage@0.6.0
+  - @powersync/service-module-postgres@0.8.0
+  - @powersync/service-module-mongodb@0.6.0
+  - @powersync/service-core@1.7.0
+  - @powersync/service-module-mysql@0.4.0
+  - @powersync/service-sync-rules@0.24.0
+  - @powersync/lib-services-framework@0.5.2
+  - @powersync/service-rsocket-router@0.0.19
+
 ## 1.4.1
 
 ### Patch Changes

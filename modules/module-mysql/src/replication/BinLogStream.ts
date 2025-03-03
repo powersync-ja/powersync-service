@@ -118,7 +118,8 @@ export class BinLogStream {
       entity_descriptor: entity,
       sync_rules: this.syncRules
     });
-    this.tableCache.set(entity.objectId, result.table);
+    // objectId is always defined for mysql
+    this.tableCache.set(entity.objectId!, result.table);
 
     // Drop conflicting tables. This includes for example renamed tables.
     await batch.drop(result.dropTables);

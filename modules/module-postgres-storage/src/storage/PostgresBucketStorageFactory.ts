@@ -1,11 +1,8 @@
 import * as framework from '@powersync/lib-services-framework';
-import { storage, sync, UpdateSyncRulesOptions, utils } from '@powersync/service-core';
+import { GetIntanceOptions, storage, SyncRulesBucketStorage, UpdateSyncRulesOptions } from '@powersync/service-core';
 import * as pg_wire from '@powersync/service-jpgwire';
 import * as sync_rules from '@powersync/service-sync-rules';
 import crypto from 'crypto';
-import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
-import { LRUCache } from 'lru-cache/min';
-import * as timers from 'timers/promises';
 import * as uuid from 'uuid';
 
 import * as lib_postgres from '@powersync/lib-service-postgres';
@@ -22,38 +19,13 @@ export type PostgresBucketStorageOptions = {
 };
 
 export class PostgresBucketStorageFactory
-  extends framework.DisposableObserver<storage.BucketStorageFactoryListener>
+  extends framework.BaseObserver<storage.BucketStorageFactoryListener>
   implements storage.BucketStorageFactory
 {
   readonly db: lib_postgres.DatabaseClient;
   public readonly slot_name_prefix: string;
 
-  private sharedIterator = new sync.BroadcastIterable((signal) => this.watchActiveCheckpoint(signal));
-
-  private readonly storageCache = new LRUCache<number, storage.SyncRulesBucketStorage>({
-    max: 3,
-    fetchMethod: async (id) => {
-      const syncRulesRow = await this.db.sql`
-        SELECT
-          *
-        FROM
-          sync_rules
-        WHERE
-          id = ${{ value: id, type: 'int4' }}
-      `
-        .decoded(models.SyncRules)
-        .first();
-      if (syncRulesRow == null) {
-        // Deleted in the meantime?
-        return undefined;
-      }
-      const rules = new PostgresPersistedSyncRulesContent(this.db, syncRulesRow);
-      return this.getInstance(rules);
-    },
-    dispose: (storage) => {
-      storage[Symbol.dispose]();
-    }
-  });
+  private activeStorageCache: storage.SyncRulesBucketStorage | undefined;
 
   constructor(protected options: PostgresBucketStorageOptions) {
     super();
@@ -70,7 +42,6 @@ export class PostgresBucketStorageFactory
   }
 
   async [Symbol.asyncDispose]() {
-    super[Symbol.dispose]();
     await this.db[Symbol.asyncDispose]();
   }
 
@@ -79,18 +50,22 @@ export class PostgresBucketStorageFactory
     // This has not been implemented yet.
   }
 
-  getInstance(syncRules: storage.PersistedSyncRulesContent): storage.SyncRulesBucketStorage {
+  getInstance(
+    syncRules: storage.PersistedSyncRulesContent,
+    options?: GetIntanceOptions
+  ): storage.SyncRulesBucketStorage {
     const storage = new PostgresSyncRulesStorage({
       factory: this,
       db: this.db,
       sync_rules: syncRules,
       batchLimits: this.options.config.batch_limits
     });
-    this.iterateListeners((cb) => cb.syncStorageCreated?.(storage));
+    if (!options?.skipLifecycleHooks) {
+      this.iterateListeners((cb) => cb.syncStorageCreated?.(storage));
+    }
     storage.registerListener({
       batchStarted: (batch) => {
-        // This nested listener will be automatically disposed when the storage is disposed
-        batch.registerManagedListener(storage, {
+        batch.registerListener({
           replicationEvent: (payload) => this.iterateListeners((cb) => cb.replicationEvent?.(payload))
         });
       }
@@ -255,13 +230,13 @@ export class PostgresBucketStorageFactory
     });
   }
 
-  async slotRemoved(slot_name: string): Promise<void> {
+  async restartReplication(sync_rules_group_id: number): Promise<void> {
     const next = await this.getNextSyncRulesContent();
     const active = await this.getActiveSyncRulesContent();
 
     // In both the below cases, we create a new sync rules instance.
-    // The current one will continue erroring until the next one has finished processing.
-    if (next != null && next.slot_name == slot_name) {
+    // The current one will continue serving sync requests until the next one has finished processing.
+    if (next != null && next.id == sync_rules_group_id) {
       // We need to redo the "next" sync rules
       await this.updateSyncRules({
         content: next.sync_rules_content,
@@ -276,18 +251,30 @@ export class PostgresBucketStorageFactory
           id = ${{ value: next.id, type: 'int4' }}
           AND state = ${{ value: storage.SyncRuleState.PROCESSING, type: 'varchar' }}
       `.execute();
-    } else if (next == null && active?.slot_name == slot_name) {
+    } else if (next == null && active?.id == sync_rules_group_id) {
       // Slot removed for "active" sync rules, while there is no "next" one.
       await this.updateSyncRules({
         content: active.sync_rules_content,
         validate: false
       });
 
-      // Pro-actively stop replicating
+      // Pro-actively stop replicating, but still serve clients with existing data
       await this.db.sql`
         UPDATE sync_rules
         SET
-          state = ${{ value: storage.SyncRuleState.STOP, type: 'varchar' }}
+          state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
+        WHERE
+          id = ${{ value: active.id, type: 'int4' }}
+          AND state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
+      `.execute();
+    } else if (next != null && active?.id == sync_rules_group_id) {
+      // Already have "next" sync rules - don't update any.
+
+      // Pro-actively stop replicating, but still serve clients with existing data
+      await this.db.sql`
+        UPDATE sync_rules
+        SET
+          state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
         WHERE
           id = ${{ value: active.id, type: 'int4' }}
           AND state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
@@ -309,6 +296,7 @@ export class PostgresBucketStorageFactory
         sync_rules
       WHERE
         state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
+        OR state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
       ORDER BY
         id DESC
       LIMIT
@@ -382,126 +370,21 @@ export class PostgresBucketStorageFactory
     return rows.map((row) => new PostgresPersistedSyncRulesContent(this.db, row));
   }
 
-  async getActiveCheckpoint(): Promise<storage.ActiveCheckpoint> {
-    const activeCheckpoint = await this.db.sql`
-      SELECT
-        id,
-        last_checkpoint,
-        last_checkpoint_lsn
-      FROM
-        sync_rules
-      WHERE
-        state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
-      ORDER BY
-        id DESC
-      LIMIT
-        1
-    `
-      .decoded(models.ActiveCheckpoint)
-      .first();
-
-    return this.makeActiveCheckpoint(activeCheckpoint);
-  }
-
-  async *watchWriteCheckpoint(user_id: string, signal: AbortSignal): AsyncIterable<storage.WriteCheckpoint> {
-    let lastCheckpoint: utils.OpId | null = null;
-    let lastWriteCheckpoint: bigint | null = null;
-
-    const iter = wrapWithAbort(this.sharedIterator, signal);
-    for await (const cp of iter) {
-      const { checkpoint, lsn } = cp;
-
-      // lsn changes are not important by itself.
-      // What is important is:
-      // 1. checkpoint (op_id) changes.
-      // 2. write checkpoint changes for the specific user
-      const bucketStorage = await cp.getBucketStorage();
-      if (!bucketStorage) {
-        continue;
-      }
-
-      const lsnFilters: Record<string, string> = lsn ? { 1: lsn } : {};
-
-      const currentWriteCheckpoint = await bucketStorage.lastWriteCheckpoint({
-        user_id,
-        heads: {
-          ...lsnFilters
-        }
-      });
-
-      if (currentWriteCheckpoint == lastWriteCheckpoint && checkpoint == lastCheckpoint) {
-        // No change - wait for next one
-        // In some cases, many LSNs may be produced in a short time.
-        // Add a delay to throttle the write checkpoint lookup a bit.
-        await timers.setTimeout(20 + 10 * Math.random());
-        continue;
-      }
-
-      lastWriteCheckpoint = currentWriteCheckpoint;
-      lastCheckpoint = checkpoint;
-
-      yield { base: cp, writeCheckpoint: currentWriteCheckpoint };
+  async getActiveStorage(): Promise<SyncRulesBucketStorage | null> {
+    const content = await this.getActiveSyncRulesContent();
+    if (content == null) {
+      return null;
     }
-  }
 
-  protected async *watchActiveCheckpoint(signal: AbortSignal): AsyncIterable<storage.ActiveCheckpoint> {
-    const doc = await this.db.sql`
-      SELECT
-        id,
-        last_checkpoint,
-        last_checkpoint_lsn
-      FROM
-        sync_rules
-      WHERE
-        state = ${{ type: 'varchar', value: storage.SyncRuleState.ACTIVE }}
-      LIMIT
-        1
-    `
-      .decoded(models.ActiveCheckpoint)
-      .first();
-
-    const sink = new sync.LastValueSink<string>(undefined);
-
-    const disposeListener = this.db.registerListener({
-      notification: (notification) => sink.next(notification.payload)
-    });
-
-    signal.addEventListener('aborted', async () => {
-      disposeListener();
-      sink.complete();
-    });
-
-    yield this.makeActiveCheckpoint(doc);
-
-    let lastOp: storage.ActiveCheckpoint | null = null;
-    for await (const payload of sink.withSignal(signal)) {
-      if (signal.aborted) {
-        return;
-      }
-
-      const notification = models.ActiveCheckpointNotification.decode(payload);
-      const activeCheckpoint = this.makeActiveCheckpoint(notification.active_checkpoint);
-
-      if (lastOp == null || activeCheckpoint.lsn != lastOp.lsn || activeCheckpoint.checkpoint != lastOp.checkpoint) {
-        lastOp = activeCheckpoint;
-        yield activeCheckpoint;
-      }
+    // It is important that this instance is cached.
+    // Not for the instance construction itself, but to ensure that internal caches on the instance
+    // are re-used properly.
+    if (this.activeStorageCache?.group_id == content.id) {
+      return this.activeStorageCache;
+    } else {
+      const instance = this.getInstance(content);
+      this.activeStorageCache = instance;
+      return instance;
     }
-  }
-
-  private makeActiveCheckpoint(row: models.ActiveCheckpointDecoded | null) {
-    return {
-      checkpoint: utils.timestampToOpId(row?.last_checkpoint ?? 0n),
-      lsn: row?.last_checkpoint_lsn ?? null,
-      hasSyncRules() {
-        return row != null;
-      },
-      getBucketStorage: async () => {
-        if (row == null) {
-          return null;
-        }
-        return (await this.storageCache.fetch(Number(row.id))) ?? null;
-      }
-    } satisfies storage.ActiveCheckpoint;
   }
 }

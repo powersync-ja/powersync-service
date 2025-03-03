@@ -60,8 +60,8 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
       this.logger.error(`Replication failed on ${this.slotName}`, e);
 
       if (e instanceof MissingReplicationSlotError) {
-        // This stops replication on this slot, and creates a new slot
-        await this.options.storage.factory.slotRemoved(this.slotName);
+        // This stops replication on this slot and restarts with a new slot
+        await this.options.storage.factory.restartReplication(this.storage.group_id);
       }
     } finally {
       this.abortController.abort();

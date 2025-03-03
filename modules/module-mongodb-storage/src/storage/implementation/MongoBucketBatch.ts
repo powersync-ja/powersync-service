@@ -3,15 +3,15 @@ import { SqlEventDescriptor, SqliteRow, SqlSyncRules } from '@powersync/service-
 import * as bson from 'bson';
 
 import {
+  BaseObserver,
   container,
-  DisposableObserver,
   ErrorCode,
   errors,
   logger,
   ReplicationAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
-import { SaveOperationTag, storage, utils } from '@powersync/service-core';
+import { deserializeBson, SaveOperationTag, storage, utils } from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
 import { PowerSyncMongo } from './db.js';
 import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
@@ -49,7 +49,7 @@ export interface MongoBucketBatchOptions {
 }
 
 export class MongoBucketBatch
-  extends DisposableObserver<storage.BucketBatchStorageListener>
+  extends BaseObserver<storage.BucketBatchStorageListener>
   implements storage.BucketStorageBatch
 {
   private readonly client: mongo.MongoClient;
@@ -270,7 +270,7 @@ export class MongoBucketBatch
       }
     }
 
-    return resumeBatch;
+    return resumeBatch?.hasData() ? resumeBatch : null;
   }
 
   private saveOperation(
@@ -322,10 +322,7 @@ export class MongoBucketBatch
         existing_buckets = result.buckets;
         existing_lookups = result.lookups;
         if (this.storeCurrentData) {
-          const data = bson.deserialize(
-            (result.data as mongo.Binary).buffer,
-            storage.BSON_DESERIALIZE_OPTIONS
-          ) as SqliteRow;
+          const data = deserializeBson((result.data as mongo.Binary).buffer) as SqliteRow;
           after = storage.mergeToast(after!, data);
         }
       }
@@ -610,7 +607,7 @@ export class MongoBucketBatch
 
   async [Symbol.asyncDispose]() {
     await this.session.endSession();
-    super[Symbol.dispose]();
+    super.clearListeners();
   }
 
   private lastWaitingLogThottled = 0;

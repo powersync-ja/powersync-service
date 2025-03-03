@@ -5,7 +5,6 @@ import { storage, utils } from '@powersync/service-core';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey } from './models.js';
 import { cacheKey } from './OperationBatch.js';
-import { safeBulkWrite } from './util.js';
 
 interface CurrentBucketState {
   /** Bucket name */
@@ -33,14 +32,7 @@ interface CurrentBucketState {
 /**
  * Additional options, primarily for testing.
  */
-export interface MongoCompactOptions extends storage.CompactOptions {
-  /** Minimum of 2 */
-  clearBatchLimit?: number;
-  /** Minimum of 1 */
-  moveBatchLimit?: number;
-  /** Minimum of 1 */
-  moveBatchQueryLimit?: number;
-}
+export interface MongoCompactOptions extends storage.CompactOptions {}
 
 const DEFAULT_CLEAR_BATCH_LIMIT = 5000;
 const DEFAULT_MOVE_BATCH_LIMIT = 2000;
@@ -265,7 +257,7 @@ export class MongoCompactor {
   private async flush() {
     if (this.updates.length > 0) {
       logger.info(`Compacting ${this.updates.length} ops`);
-      await safeBulkWrite(this.db.bucket_data, this.updates, {
+      await this.db.bucket_data.bulkWrite(this.updates, {
         // Order is not important.
         // Since checksums are not affected, these operations can happen in any order,
         // and it's fine if the operations are partially applied.

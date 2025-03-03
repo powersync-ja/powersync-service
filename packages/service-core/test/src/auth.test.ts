@@ -274,7 +274,7 @@ describe('JWT Auth', () => {
     ).rejects.toThrow('Token must expire in a maximum of');
   });
 
-  test('http', async () => {
+  test('http', { timeout: 20_000 }, async () => {
     // Not ideal to rely on an external endpoint for tests, but it is good to test that this
     // one actually works.
     const remote = new RemoteJWKSCollector(
@@ -290,9 +290,9 @@ describe('JWT Auth', () => {
         reject_ip_ranges: ['local']
       }
     });
-    expect(invalid.getKeys()).rejects.toThrow('IPs in this range are not supported');
+    await expect(invalid.getKeys()).rejects.toThrow('IPs in this range are not supported');
 
-    // IPS throw an error immediately
+    // IPs throw an error immediately
     expect(
       () =>
         new RemoteJWKSCollector('https://127.0.0.1/.well-known/jwks.json', {
@@ -315,11 +315,11 @@ describe('JWT Auth', () => {
 
     const invalid = new RemoteJWKSCollector('https://127.0.0.1/.well-known/jwks.json');
     // Should try and fetch
-    expect(invalid.getKeys()).rejects.toThrow();
+    await expect(invalid.getKeys()).rejects.toThrow();
 
     const invalid2 = new RemoteJWKSCollector('https://localhost/.well-known/jwks.json');
     // Should try and fetch
-    expect(invalid2.getKeys()).rejects.toThrow();
+    await expect(invalid2.getKeys()).rejects.toThrow();
   });
 
   test('caching', async () => {

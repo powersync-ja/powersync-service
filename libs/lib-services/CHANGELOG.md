@@ -1,5 +1,18 @@
 # @powersync/lib-services-framework
 
+## 0.5.3
+
+### Patch Changes
+
+- b4fe4ae: Upgrade mongodb and bson packages, removing the need for some workarounds.
+
+## 0.5.2
+
+### Patch Changes
+
+- Updated dependencies [436eee6]
+  - @powersync/service-errors@0.2.1
+
 ## 0.5.1
 
 ### Patch Changes

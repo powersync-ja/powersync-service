@@ -49,9 +49,9 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       const {
         storageEngine: { activeBucketStorage }
       } = service_context;
-      // Sanity check before we start the stream
-      const cp = await activeBucketStorage.getActiveCheckpoint();
-      if (!cp.hasSyncRules()) {
+
+      const bucketStorage = await activeBucketStorage.getActiveStorage();
+      if (bucketStorage == null) {
         responder.onError(
           new errors.ServiceError({
             status: 500,
@@ -63,6 +63,8 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         return;
       }
 
+      const syncRules = bucketStorage.getParsedSyncRules(routerEngine!.getAPI().getParseSyncRulesOptions());
+
       const removeStopHandler = routerEngine!.addStopHandler(() => {
         controller.abort();
       });
@@ -71,8 +73,8 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       const tracker = new sync.RequestTracker(metricsEngine);
       try {
         for await (const data of sync.streamResponse({
-          storage: activeBucketStorage,
-          parseOptions: routerEngine!.getAPI().getParseSyncRulesOptions(),
+          bucketStorage: bucketStorage,
+          syncRules: syncRules,
           params: {
             ...params,
             binary_data: true // always true for web sockets
