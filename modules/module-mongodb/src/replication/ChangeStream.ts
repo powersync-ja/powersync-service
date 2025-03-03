@@ -8,7 +8,14 @@ import {
   ReplicationAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
-import { Metrics, SaveOperationTag, SourceEntityDescriptor, SourceTable, storage } from '@powersync/service-core';
+import {
+  BSON_DESERIALIZE_DATA_OPTIONS,
+  Metrics,
+  SaveOperationTag,
+  SourceEntityDescriptor,
+  SourceTable,
+  storage
+} from '@powersync/service-core';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
@@ -193,39 +200,31 @@ export class ChangeStream {
       // Not known where this would happen apart from the above cases
       throw new ReplicationAssertionError('MongoDB lastWrite timestamp not found.');
     }
-    // We previously used {snapshot: true} for the snapshot session.
-    // While it gives nice consistency guarantees, it fails when the
-    // snapshot takes longer than 5 minutes, due to minSnapshotHistoryWindowInSeconds
-    // expiring the snapshot.
-    const session = await this.client.startSession();
-    try {
-      await this.storage.startBatch(
-        { zeroLSN: MongoLSN.ZERO.comparable, defaultSchema: this.defaultDb.databaseName, storeCurrentData: false },
-        async (batch) => {
-          // Start by resolving all tables.
-          // This checks postImage configuration, and that should fail as
-          // earlier as possible.
-          let allSourceTables: SourceTable[] = [];
-          for (let tablePattern of sourceTables) {
-            const tables = await this.resolveQualifiedTableNames(batch, tablePattern);
-            allSourceTables.push(...tables);
-          }
 
-          for (let table of allSourceTables) {
-            await this.snapshotTable(batch, table, session);
-            await batch.markSnapshotDone([table], MongoLSN.ZERO.comparable);
-
-            await touch();
-          }
-
-          const { comparable: lsn } = new MongoLSN({ timestamp: snapshotTime });
-          logger.info(`${this.logPrefix} Snapshot commit at ${snapshotTime.inspect()} / ${lsn}`);
-          await batch.commit(lsn);
+    await this.storage.startBatch(
+      { zeroLSN: MongoLSN.ZERO.comparable, defaultSchema: this.defaultDb.databaseName, storeCurrentData: false },
+      async (batch) => {
+        // Start by resolving all tables.
+        // This checks postImage configuration, and that should fail as
+        // earlier as possible.
+        let allSourceTables: SourceTable[] = [];
+        for (let tablePattern of sourceTables) {
+          const tables = await this.resolveQualifiedTableNames(batch, tablePattern);
+          allSourceTables.push(...tables);
         }
-      );
-    } finally {
-      session.endSession();
-    }
+
+        for (let table of allSourceTables) {
+          await this.snapshotTable(batch, table);
+          await batch.markSnapshotDone([table], MongoLSN.ZERO.comparable);
+
+          await touch();
+        }
+
+        const { comparable: lsn } = new MongoLSN({ timestamp: snapshotTime });
+        logger.info(`${this.logPrefix} Snapshot commit at ${snapshotTime.inspect()} / ${lsn}`);
+        await batch.commit(lsn);
+      }
+    );
   }
 
   private async setupCheckpointsCollection() {
@@ -283,46 +282,42 @@ export class ChangeStream {
     }
   }
 
-  private async snapshotTable(
-    batch: storage.BucketStorageBatch,
-    table: storage.SourceTable,
-    session?: mongo.ClientSession
-  ) {
+  private async snapshotTable(batch: storage.BucketStorageBatch, table: storage.SourceTable) {
     logger.info(`${this.logPrefix} Replicating ${table.qualifiedName}`);
     const estimatedCount = await this.estimatedCount(table);
     let at = 0;
-    let lastLogIndex = 0;
-
     const db = this.client.db(table.schema);
     const collection = db.collection(table.table);
-    const query = collection.find({}, { session, readConcern: { level: 'majority' } });
+    const cursor = collection.find({}, { batchSize: 6_000, readConcern: 'majority' });
 
-    const cursor = query.stream();
+    let lastBatch = performance.now();
+    while (await cursor.hasNext()) {
+      const docBatch = cursor.readBufferedDocuments();
+      for (let document of docBatch) {
+        if (this.abort_signal.aborted) {
+          throw new ReplicationAbortedError(`Aborted initial replication`);
+        }
 
-    for await (let document of cursor) {
-      if (this.abort_signal.aborted) {
-        throw new ReplicationAbortedError(`Aborted initial replication`);
+        const record = constructAfterRecord(document);
+
+        // This auto-flushes when the batch reaches its size limit
+        await batch.save({
+          tag: SaveOperationTag.INSERT,
+          sourceTable: table,
+          before: undefined,
+          beforeReplicaId: undefined,
+          after: record,
+          afterReplicaId: document._id
+        });
       }
 
-      const record = constructAfterRecord(document);
-
-      // This auto-flushes when the batch reaches its size limit
-      await batch.save({
-        tag: SaveOperationTag.INSERT,
-        sourceTable: table,
-        before: undefined,
-        beforeReplicaId: undefined,
-        after: record,
-        afterReplicaId: document._id
-      });
-
-      at += 1;
-      if (at - lastLogIndex >= 5000) {
-        logger.info(`${this.logPrefix}  Replicating ${table.qualifiedName} ${at}/${estimatedCount}`);
-        lastLogIndex = at;
-      }
-      Metrics.getInstance().rows_replicated_total.add(1);
-
+      at += docBatch.length;
+      Metrics.getInstance().rows_replicated_total.add(docBatch.length);
+      const duration = performance.now() - lastBatch;
+      lastBatch = performance.now();
+      logger.info(
+        `${this.logPrefix} Replicating ${table.qualifiedName} ${at}/${estimatedCount} in ${duration.toFixed(0)}ms`
+      );
       await touch();
     }
 
