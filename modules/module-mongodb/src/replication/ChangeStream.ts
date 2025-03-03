@@ -291,8 +291,14 @@ export class ChangeStream {
     const cursor = collection.find({}, { batchSize: 6_000, readConcern: 'majority' });
 
     let lastBatch = performance.now();
-    while (await cursor.hasNext()) {
+    // hasNext() is the call that triggers fetching of the next batch,
+    // then we read it with readBufferedDocuments(). This gives us semi-explicit
+    // control over the fetching of each batch, and avoids a separate promise per document
+    let hasNextPromise = cursor.hasNext();
+    while (await hasNextPromise) {
       const docBatch = cursor.readBufferedDocuments();
+      // Pre-fetch next batch, so that we can read and write concurrently
+      hasNextPromise = cursor.hasNext();
       for (let document of docBatch) {
         if (this.abort_signal.aborted) {
           throw new ReplicationAbortedError(`Aborted initial replication`);
@@ -320,6 +326,8 @@ export class ChangeStream {
       );
       await touch();
     }
+    // In case the loop was interrupted, make sure we await the last promise.
+    await hasNextPromise;
 
     await batch.flush();
     logger.info(`${this.logPrefix} Replicated ${at} documents for ${table.qualifiedName}`);
