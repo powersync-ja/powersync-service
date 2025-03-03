@@ -1,6 +1,6 @@
 import { MetricsEngine } from '../metrics/MetricsEngine.js';
-import { BucketStorageFactory, StorageMetrics } from './BucketStorage.js';
 import { logger } from '@powersync/lib-services-framework';
+import { BucketStorageFactory, StorageMetrics } from './BucketStorageFactory.js';
 
 export enum StorageMetricType {
   // Size of current replication data stored in PowerSync

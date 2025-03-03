@@ -1,7 +1,13 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { BucketStorageFactory, OpId, createCoreReplicationMetrics,
-  initializeCoreReplicationMetrics, ReplicationCheckpoint, SyncRulesBucketStorage } from '@powersync/service-core';
-import { test_utils } from '@powersync/service-core-tests';
+import {
+  BucketStorageFactory,
+  OpId,
+  createCoreReplicationMetrics,
+  initializeCoreReplicationMetrics,
+  ReplicationCheckpoint,
+  SyncRulesBucketStorage
+} from '@powersync/service-core';
+import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 
 import { ChangeStream, ChangeStreamOptions } from '@module/replication/ChangeStream.js';
 import { MongoManager } from '@module/replication/MongoManager.js';
