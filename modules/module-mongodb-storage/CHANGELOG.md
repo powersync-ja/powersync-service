@@ -1,5 +1,12 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.6.2
+
+### Patch Changes
+
+- 0dd746a: Improve intial replication performance for MongoDB by avoiding sessions.
+  - @powersync/service-core@1.7.2
+
 ## 0.6.1
 
 ### Patch Changes
