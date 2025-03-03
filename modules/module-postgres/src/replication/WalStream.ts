@@ -8,7 +8,13 @@ import {
   ReplicationAbortedError,
   ReplicationAssertionError
 } from '@powersync/lib-services-framework';
-import { getUuidReplicaIdentityBson, Metrics, SourceEntityDescriptor, storage } from '@powersync/service-core';
+import {
+  getUuidReplicaIdentityBson,
+  MetricsEngine,
+  ReplicationMetricType,
+  SourceEntityDescriptor,
+  storage
+} from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
 import * as pg_utils from '../utils/pgwire_utils.js';
@@ -20,6 +26,7 @@ import { checkSourceConfiguration, getReplicationIdentityColumns } from './repli
 export interface WalStreamOptions {
   connections: PgManager;
   storage: storage.SyncRulesBucketStorage;
+  metrics: MetricsEngine;
   abort_signal: AbortSignal;
 }
 
@@ -72,7 +79,7 @@ export class WalStream {
   connection_id = 1;
 
   private readonly storage: storage.SyncRulesBucketStorage;
-
+  private readonly metrics: MetricsEngine;
   private readonly slot_name: string;
 
   private connections: PgManager;
@@ -85,6 +92,7 @@ export class WalStream {
 
   constructor(options: WalStreamOptions) {
     this.storage = options.storage;
+    this.metrics = options.metrics;
     this.sync_rules = options.storage.getParsedSyncRules({ defaultSchema: POSTGRES_DEFAULT_SCHEMA });
     this.group_id = options.storage.group_id;
     this.slot_name = options.storage.slot_name;
@@ -471,7 +479,7 @@ WHERE  oid = $1::regclass`,
       }
 
       at += rows.length;
-      Metrics.getInstance().rows_replicated_total.add(rows.length);
+      this.metrics.getCounter(ReplicationMetricType.ROWS_REPLICATED_TOTAL).add(rows.length);
 
       await touch();
     }
@@ -562,7 +570,7 @@ WHERE  oid = $1::regclass`,
       }
 
       if (msg.tag == 'insert') {
-        Metrics.getInstance().rows_replicated_total.add(1);
+        this.metrics.getCounter(ReplicationMetricType.ROWS_REPLICATED_TOTAL).add(1);
         const baseRecord = pg_utils.constructAfterRecord(msg);
         return await batch.save({
           tag: storage.SaveOperationTag.INSERT,
@@ -573,7 +581,7 @@ WHERE  oid = $1::regclass`,
           afterReplicaId: getUuidReplicaIdentityBson(baseRecord, table.replicaIdColumns)
         });
       } else if (msg.tag == 'update') {
-        Metrics.getInstance().rows_replicated_total.add(1);
+        this.metrics.getCounter(ReplicationMetricType.ROWS_REPLICATED_TOTAL).add(1);
         // "before" may be null if the replica id columns are unchanged
         // It's fine to treat that the same as an insert.
         const before = pg_utils.constructBeforeRecord(msg);
@@ -587,7 +595,7 @@ WHERE  oid = $1::regclass`,
           afterReplicaId: getUuidReplicaIdentityBson(after, table.replicaIdColumns)
         });
       } else if (msg.tag == 'delete') {
-        Metrics.getInstance().rows_replicated_total.add(1);
+        this.metrics.getCounter(ReplicationMetricType.ROWS_REPLICATED_TOTAL).add(1);
         const before = pg_utils.constructBeforeRecord(msg)!;
 
         return await batch.save({
@@ -697,7 +705,7 @@ WHERE  oid = $1::regclass`,
             } else if (msg.tag == 'begin') {
               inTx = true;
             } else if (msg.tag == 'commit') {
-              Metrics.getInstance().transactions_replicated_total.add(1);
+              this.metrics.getCounter(ReplicationMetricType.TRANSACTIONS_REPLICATED_TOTAL).add(1);
               inTx = false;
               await batch.commit(msg.lsn!, { createEmptyCheckpoints });
               await this.ack(msg.lsn!, replicationStream);
@@ -739,7 +747,7 @@ WHERE  oid = $1::regclass`,
             await this.ack(chunkLastLsn, replicationStream);
           }
 
-          Metrics.getInstance().chunks_replicated_total.add(1);
+          this.metrics.getCounter(ReplicationMetricType.CHUNKS_REPLICATED_TOTAL).add(1);
         }
       }
     );

@@ -8,7 +8,14 @@ import {
   ReplicationAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
-import { Metrics, SaveOperationTag, SourceEntityDescriptor, SourceTable, storage } from '@powersync/service-core';
+import {
+  MetricsEngine,
+  ReplicationMetricType,
+  SaveOperationTag,
+  SourceEntityDescriptor,
+  SourceTable,
+  storage
+} from '@powersync/service-core';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
@@ -20,6 +27,7 @@ import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
 export interface ChangeStreamOptions {
   connections: MongoManager;
   storage: storage.SyncRulesBucketStorage;
+  metrics: MetricsEngine;
   abort_signal: AbortSignal;
 }
 
@@ -52,6 +60,7 @@ export class ChangeStream {
   private connections: MongoManager;
   private readonly client: mongo.MongoClient;
   private readonly defaultDb: mongo.Db;
+  private readonly metrics: MetricsEngine;
 
   private abort_signal: AbortSignal;
 
@@ -59,6 +68,7 @@ export class ChangeStream {
 
   constructor(options: ChangeStreamOptions) {
     this.storage = options.storage;
+    this.metrics = options.metrics;
     this.group_id = options.storage.group_id;
     this.connections = options.connections;
     this.client = this.connections.client;
@@ -322,7 +332,7 @@ export class ChangeStream {
         logger.info(`[${this.group_id}] Replicating ${table.qualifiedName} ${at}/${estimatedCount}`);
         lastLogIndex = at;
       }
-      Metrics.getInstance().rows_replicated_total.add(1);
+      this.metrics.getCounter(ReplicationMetricType.ROWS_REPLICATED_TOTAL).add(1);
 
       await touch();
     }
@@ -438,7 +448,7 @@ export class ChangeStream {
       return null;
     }
 
-    Metrics.getInstance().rows_replicated_total.add(1);
+    this.metrics.getCounter(ReplicationMetricType.ROWS_REPLICATED_TOTAL).add(1);
     if (change.operationType == 'insert') {
       const baseRecord = constructAfterRecord(change.fullDocument);
       return await batch.save({

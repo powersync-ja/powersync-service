@@ -2,7 +2,14 @@ import { logger, ReplicationAbortedError, ReplicationAssertionError } from '@pow
 import * as sync_rules from '@powersync/service-sync-rules';
 import async from 'async';
 
-import { ColumnDescriptor, framework, getUuidReplicaIdentityBson, Metrics, storage } from '@powersync/service-core';
+import {
+  ColumnDescriptor,
+  framework,
+  getUuidReplicaIdentityBson,
+  MetricsEngine,
+  ReplicationMetricType,
+  storage
+} from '@powersync/service-core';
 import mysql, { FieldPacket } from 'mysql2';
 
 import { BinLogEvent, StartOptions, TableMapEntry } from '@powersync/mysql-zongji';
@@ -16,6 +23,7 @@ import * as zongji_utils from './zongji/zongji-utils.js';
 export interface BinLogStreamOptions {
   connections: MySQLConnectionManager;
   storage: storage.SyncRulesBucketStorage;
+  metrics: MetricsEngine;
   abortSignal: AbortSignal;
 }
 
@@ -62,7 +70,7 @@ export class BinLogStream {
 
   private tableCache = new Map<string | number, storage.SourceTable>();
 
-  constructor(protected options: BinLogStreamOptions) {
+  constructor(private options: BinLogStreamOptions) {
     this.storage = options.storage;
     this.connections = options.connections;
     this.syncRules = options.storage.getParsedSyncRules({ defaultSchema: this.defaultSchema });
@@ -72,6 +80,10 @@ export class BinLogStream {
 
   get connectionTag() {
     return this.connections.connectionTag;
+  }
+
+  private get metrics() {
+    return this.options.metrics;
   }
 
   get connectionId() {
@@ -334,6 +346,8 @@ AND table_type = 'BASE TABLE';`,
         after: record,
         afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns)
       });
+
+      this.metrics.getCounter(ReplicationMetricType.ROWS_REPLICATED_TOTAL).add(1);
     }
     await batch.flush();
   }
@@ -460,7 +474,7 @@ AND table_type = 'BASE TABLE';`,
                 });
                 break;
               case zongji_utils.eventIsXid(evt):
-                Metrics.getInstance().transactions_replicated_total.add(1);
+                this.metrics.getCounter(ReplicationMetricType.TRANSACTIONS_REPLICATED_TOTAL).add(1);
                 // Need to commit with a replicated GTID with updated next position
                 await batch.commit(
                   new common.ReplicatedGTID({
@@ -602,7 +616,7 @@ AND table_type = 'BASE TABLE';`,
   ): Promise<storage.FlushedResult | null> {
     switch (payload.type) {
       case storage.SaveOperationTag.INSERT:
-        Metrics.getInstance().rows_replicated_total.add(1);
+        this.metrics.getCounter(ReplicationMetricType.ROWS_REPLICATED_TOTAL).add(1);
         const record = common.toSQLiteRow(payload.data, payload.columns);
         return await batch.save({
           tag: storage.SaveOperationTag.INSERT,
@@ -613,7 +627,7 @@ AND table_type = 'BASE TABLE';`,
           afterReplicaId: getUuidReplicaIdentityBson(record, payload.sourceTable.replicaIdColumns)
         });
       case storage.SaveOperationTag.UPDATE:
-        Metrics.getInstance().rows_replicated_total.add(1);
+        this.metrics.getCounter(ReplicationMetricType.ROWS_REPLICATED_TOTAL).add(1);
         // "before" may be null if the replica id columns are unchanged
         // It's fine to treat that the same as an insert.
         const beforeUpdated = payload.previous_data
@@ -633,7 +647,7 @@ AND table_type = 'BASE TABLE';`,
         });
 
       case storage.SaveOperationTag.DELETE:
-        Metrics.getInstance().rows_replicated_total.add(1);
+        this.metrics.getCounter(ReplicationMetricType.ROWS_REPLICATED_TOTAL).add(1);
         const beforeDeleted = common.toSQLiteRow(payload.data, payload.columns);
 
         return await batch.save({

@@ -20,6 +20,7 @@ export class WalStreamReplicator extends replication.AbstractReplicator<WalStrea
     return new WalStreamReplicationJob({
       id: this.createJobId(options.storage.group_id),
       storage: options.storage,
+      metrics: this.metrics,
       connectionFactory: this.connectionFactory,
       lock: options.lock,
       rateLimiter: this.rateLimiter

@@ -37,10 +37,13 @@ export class MongoModule extends replication.ReplicationModule<types.MongoConnec
       id: this.getDefaultId(normalisedConfig.database ?? ''),
       syncRuleProvider: syncRuleProvider,
       storageEngine: context.storageEngine,
+      metricsEngine: context.metricsEngine,
       connectionFactory: connectionFactory,
       rateLimiter: new MongoErrorRateLimiter()
     });
   }
+
+  async onInitialized(context: system.ServiceContextContainer): Promise<void> {}
 
   /**
    * Combines base config with normalized connection settings
