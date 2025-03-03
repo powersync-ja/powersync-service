@@ -173,6 +173,7 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('${testId}','test1')`);
 
     await context.replicateSnapshot();
+    context.startStreaming();
 
     const data = await context.getBucketData('global[]');
     expect(data).toMatchObject([putOp('test_data', { id: testId, description: 'test1' })]);
@@ -198,6 +199,7 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
       `);
 
     await context.replicateSnapshot();
+    context.startStreaming();
 
     const data = await context.getBucketData('global[]');
     expect(data).toMatchObject([

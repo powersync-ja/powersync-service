@@ -4,7 +4,7 @@ import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules
 import * as bson from 'bson';
 
 import { logger } from '@powersync/lib-services-framework';
-import { storage, utils } from '@powersync/service-core';
+import { InternalOpId, storage, utils } from '@powersync/service-core';
 import { currentBucketKey } from './MongoBucketBatch.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { PowerSyncMongo } from './db.js';
@@ -52,7 +52,7 @@ export class PersistedBatch {
   /**
    * For debug logging only.
    */
-  debugLastOpId: bigint | null = null;
+  debugLastOpId: InternalOpId | null = null;
 
   /**
    * Very rough estimate of transaction size.
