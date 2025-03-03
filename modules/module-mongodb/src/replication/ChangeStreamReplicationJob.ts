@@ -71,6 +71,7 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
       const stream = new ChangeStream({
         abort_signal: this.abortController.signal,
         storage: this.options.storage,
+        metrics: this.options.metrics,
         connections: connectionManager
       });
       await stream.replicate();

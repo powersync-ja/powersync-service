@@ -5,6 +5,7 @@ import {
   ConnectionTestResult,
   modules,
   replication,
+  ReplicationMetricType,
   system
 } from '@powersync/service-core';
 import * as jpgwire from '@powersync/service-jpgwire';
@@ -29,9 +30,7 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
     });
   }
 
-  async initialize(context: system.ServiceContextContainer): Promise<void> {
-    await super.initialize(context);
-
+  async onInitialized(context: system.ServiceContextContainer): Promise<void> {
     const client_auth = context.configuration.base_config.client_auth;
 
     if (client_auth?.supabase && client_auth?.supabase_jwt_secret == null) {
@@ -46,13 +45,11 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
     }
 
     // Record replicated bytes using global jpgwire metrics.
-    if (context.metrics) {
-      jpgwire.setMetricsRecorder({
-        addBytesRead(bytes) {
-          context.metrics!.data_replicated_bytes.add(bytes);
-        }
-      });
-    }
+    jpgwire.setMetricsRecorder({
+      addBytesRead(bytes) {
+        context.metricsEngine.getCounter(ReplicationMetricType.DATA_REPLICATED_BYTES).add(bytes);
+      }
+    });
   }
 
   protected createRouteAPIAdapter(): api.RouteAPI {
@@ -68,6 +65,7 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
       id: this.getDefaultId(normalisedConfig.database),
       syncRuleProvider: syncRuleProvider,
       storageEngine: context.storageEngine,
+      metricsEngine: context.metricsEngine,
       connectionFactory: connectionFactory,
       rateLimiter: new PostgresErrorRateLimiter()
     });

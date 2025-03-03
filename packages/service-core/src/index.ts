@@ -12,8 +12,8 @@ export * as entry from './entry/entry-index.js';
 // Re-export framework for easy use of Container API
 export * as framework from '@powersync/lib-services-framework';
 
-export * from './metrics/Metrics.js';
-export * as metrics from './metrics/Metrics.js';
+export * from './metrics/metrics-index.js';
+export * as metrics from './metrics/metrics-index.js';
 
 export * from './migrations/migrations-index.js';
 export * as migrations from './migrations/migrations-index.js';

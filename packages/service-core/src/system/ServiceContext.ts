@@ -1,7 +1,7 @@
 import { LifeCycledSystem, MigrationManager, ServiceIdentifier, container } from '@powersync/lib-services-framework';
 
 import { framework } from '../index.js';
-import * as metrics from '../metrics/Metrics.js';
+import * as metrics from '../metrics/MetricsEngine.js';
 import { PowerSyncMigrationManager } from '../migrations/PowerSyncMigrationManager.js';
 import * as replication from '../replication/replication-index.js';
 import * as routes from '../routes/routes-index.js';
@@ -11,7 +11,7 @@ import * as utils from '../util/util-index.js';
 export interface ServiceContext {
   configuration: utils.ResolvedPowerSyncConfig;
   lifeCycleEngine: LifeCycledSystem;
-  metrics: metrics.Metrics | null;
+  metricsEngine: metrics.MetricsEngine;
   replicationEngine: replication.ReplicationEngine | null;
   routerEngine: routes.RouterEngine | null;
   storageEngine: storage.StorageEngine;
@@ -32,6 +32,11 @@ export class ServiceContextContainer implements ServiceContext {
 
     this.storageEngine = new storage.StorageEngine({
       configuration
+    });
+
+    this.lifeCycleEngine.withLifecycle(this.storageEngine, {
+      start: (storageEngine) => storageEngine.start(),
+      stop: (storageEngine) => storageEngine.shutDown()
     });
 
     const migrationManager = new MigrationManager();
@@ -56,8 +61,8 @@ export class ServiceContextContainer implements ServiceContext {
     return container.getOptional(routes.RouterEngine);
   }
 
-  get metrics(): metrics.Metrics | null {
-    return container.getOptional(metrics.Metrics);
+  get metricsEngine(): metrics.MetricsEngine {
+    return container.getImplementation(metrics.MetricsEngine);
   }
 
   get migrations(): PowerSyncMigrationManager {
