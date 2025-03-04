@@ -613,7 +613,7 @@ export class MongoSyncBucketStorage
           await this.db.sync_rules.updateMany(
             {
               _id: { $ne: this.group_id },
-              state: storage.SyncRuleState.ACTIVE
+              state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
             },
             {
               $set: {
@@ -666,7 +666,7 @@ export class MongoSyncBucketStorage
       doc = await this.db.sync_rules.findOne(
         {
           _id: syncRulesId,
-          state: storage.SyncRuleState.ACTIVE
+          state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
         },
         {
           session,
@@ -737,7 +737,7 @@ export class MongoSyncBucketStorage
         // Irrelevant update
         continue;
       }
-      if (doc.state != storage.SyncRuleState.ACTIVE) {
+      if (doc.state != storage.SyncRuleState.ACTIVE && doc.state != storage.SyncRuleState.ERRORED) {
         // Sync rules have changed - abort and restart.
         // Should this error instead?
         break;

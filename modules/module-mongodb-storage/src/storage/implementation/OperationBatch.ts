@@ -41,6 +41,10 @@ export class OperationBatch {
     return this.batch.length >= MAX_BATCH_COUNT || this.currentSize > MAX_RECORD_BATCH_SIZE;
   }
 
+  hasData() {
+    return this.length > 0;
+  }
+
   /**
    *
    * @param sizes Map of source key to estimated size of the current_data document, or undefined if current_data is not persisted.

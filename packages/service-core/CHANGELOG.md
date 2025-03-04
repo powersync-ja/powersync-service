@@ -1,5 +1,20 @@
 # @powersync/service-core
 
+## 1.7.2
+
+## 1.7.1
+
+### Patch Changes
+
+- b4fe4ae: Upgrade mongodb and bson packages, removing the need for some workarounds.
+- 88ab679: Keep serving current data when restarting replication due to errors.
+- 2f75fd7: Improve handling of some edge cases which could trigger truncating of synced tables.
+- 346382e: Unified compacting options between storage providers.
+- 9b1868d: Fix missing checkpoint complete line for empty sync iterations.
+- Updated dependencies [b4fe4ae]
+  - @powersync/service-rsocket-router@0.0.20
+  - @powersync/lib-services-framework@0.5.3
+
 ## 1.7.0
 
 ### Minor Changes

@@ -32,14 +32,7 @@ interface CurrentBucketState {
 /**
  * Additional options, primarily for testing.
  */
-export interface MongoCompactOptions extends storage.CompactOptions {
-  /** Minimum of 2 */
-  clearBatchLimit?: number;
-  /** Minimum of 1 */
-  moveBatchLimit?: number;
-  /** Minimum of 1 */
-  moveBatchQueryLimit?: number;
-}
+export interface MongoCompactOptions extends storage.CompactOptions {}
 
 const DEFAULT_CLEAR_BATCH_LIMIT = 5000;
 const DEFAULT_MOVE_BATCH_LIMIT = 2000;

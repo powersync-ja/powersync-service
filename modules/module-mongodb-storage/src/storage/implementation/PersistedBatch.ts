@@ -245,6 +245,7 @@ export class PersistedBatch {
   }
 
   async flush(db: PowerSyncMongo, session: mongo.ClientSession) {
+    const startAt = performance.now();
     if (this.bucketData.length > 0) {
       await db.bucket_data.bulkWrite(this.bucketData, {
         session,
@@ -267,10 +268,11 @@ export class PersistedBatch {
       });
     }
 
+    const duration = performance.now() - startAt;
     logger.info(
       `powersync_${this.group_id} Flushed ${this.bucketData.length} + ${this.bucketParameters.length} + ${
         this.currentData.length
-      } updates, ${Math.round(this.currentSize / 1024)}kb. Last op_id: ${this.debugLastOpId}`
+      } updates, ${Math.round(this.currentSize / 1024)}kb in ${duration.toFixed(0)}ms. Last op_id: ${this.debugLastOpId}`
     );
 
     this.bucketData = [];

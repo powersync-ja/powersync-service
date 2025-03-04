@@ -1,5 +1,27 @@
 # @powersync/service-core-tests
 
+## 0.6.1
+
+### Patch Changes
+
+- @powersync/service-core@1.7.2
+
+## 0.6.0
+
+### Minor Changes
+
+- 346382e: Added compacting test for interleaved bucket operations.
+
+### Patch Changes
+
+- 346382e: Unified compacting options between storage providers.
+- Updated dependencies [b4fe4ae]
+- Updated dependencies [88ab679]
+- Updated dependencies [2f75fd7]
+- Updated dependencies [346382e]
+- Updated dependencies [9b1868d]
+  - @powersync/service-core@1.7.1
+
 ## 0.5.0
 
 ### Minor Changes

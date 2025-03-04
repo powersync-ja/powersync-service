@@ -35,14 +35,7 @@ interface CurrentBucketState {
 /**
  * Additional options, primarily for testing.
  */
-export interface PostgresCompactOptions extends storage.CompactOptions {
-  /** Minimum of 2 */
-  clearBatchLimit?: number;
-  /** Minimum of 1 */
-  moveBatchLimit?: number;
-  /** Minimum of 1 */
-  moveBatchQueryLimit?: number;
-}
+export interface PostgresCompactOptions extends storage.CompactOptions {}
 
 const DEFAULT_CLEAR_BATCH_LIMIT = 5000;
 const DEFAULT_MOVE_BATCH_LIMIT = 2000;
@@ -99,15 +92,19 @@ export class PostgresCompactor {
 
     let bucketLower: string | null = null;
     let bucketUpper: string | null = null;
+    const MAX_CHAR = String.fromCodePoint(0xffff);
 
-    if (bucket?.includes('[')) {
+    if (bucket == null) {
+      bucketLower = '';
+      bucketUpper = MAX_CHAR;
+    } else if (bucket?.includes('[')) {
       // Exact bucket name
       bucketLower = bucket;
       bucketUpper = bucket;
     } else if (bucket) {
       // Bucket definition name
       bucketLower = `${bucket}[`;
-      bucketUpper = `${bucket}[\uFFFF`;
+      bucketUpper = `${bucket}[${MAX_CHAR}`;
     }
 
     let upperOpIdLimit = BIGINT_MAX;
@@ -126,10 +123,16 @@ export class PostgresCompactor {
           bucket_data
         WHERE
           group_id = ${{ type: 'int4', value: this.group_id }}
-          AND bucket_name LIKE COALESCE(${{ type: 'varchar', value: bucketLower }}, '%')
-          AND op_id < ${{ type: 'int8', value: upperOpIdLimit }}
+          AND bucket_name >= ${{ type: 'varchar', value: bucketLower }}
+          AND (
+            (
+              bucket_name = ${{ type: 'varchar', value: bucketUpper }}
+              AND op_id < ${{ type: 'int8', value: upperOpIdLimit }}
+            )
+            OR bucket_name < ${{ type: 'varchar', value: bucketUpper }} COLLATE "C" -- Use binary comparison
+          )
         ORDER BY
-          bucket_name,
+          bucket_name DESC,
           op_id DESC
         LIMIT
           ${{ type: 'int4', value: this.moveBatchQueryLimit }}
@@ -145,7 +148,9 @@ export class PostgresCompactor {
       }
 
       // Set upperBound for the next batch
-      upperOpIdLimit = batch[batch.length - 1].op_id;
+      const lastBatchItem = batch[batch.length - 1];
+      upperOpIdLimit = lastBatchItem.op_id;
+      bucketUpper = lastBatchItem.bucket_name;
 
       for (const doc of batch) {
         if (currentState == null || doc.bucket_name != currentState.bucket) {
