@@ -409,8 +409,8 @@ bucket_definitions:
       bucketStorage.getBucketDataBatch(
         checkpoint,
         new Map([
-          ['grouped["b1"]', '0'],
-          ['grouped["b2"]', '0']
+          ['grouped["b1"]', 0n],
+          ['grouped["b2"]', 0n]
         ])
       )
     );
