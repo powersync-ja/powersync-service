@@ -21,14 +21,14 @@ export const startStreamRunner = async (runnerConfig: core.utils.RunnerConfig) =
 
   const config = await core.utils.loadConfig(runnerConfig);
 
-  // Self hosted version allows for automatic migrations
+  // Self-hosted version allows for automatic migrations
   const serviceContext = new core.system.ServiceContextContainer(config);
 
   registerReplicationServices(serviceContext);
 
   await registerMetrics({
     service_context: serviceContext,
-    modes: [MetricModes.REPLICATION]
+    modes: [MetricModes.REPLICATION, MetricModes.STORAGE]
   });
 
   const moduleManager = container.getImplementation(core.modules.ModuleManager);

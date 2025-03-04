@@ -10,7 +10,8 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   BSON_DESERIALIZE_DATA_OPTIONS,
-  Metrics,
+  MetricsEngine,
+  ReplicationMetricType,
   SaveOperationTag,
   SourceEntityDescriptor,
   SourceTable,
@@ -27,6 +28,7 @@ import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
 export interface ChangeStreamOptions {
   connections: MongoManager;
   storage: storage.SyncRulesBucketStorage;
+  metrics: MetricsEngine;
   abort_signal: AbortSignal;
 }
 
@@ -59,6 +61,7 @@ export class ChangeStream {
   private connections: MongoManager;
   private readonly client: mongo.MongoClient;
   private readonly defaultDb: mongo.Db;
+  private readonly metrics: MetricsEngine;
 
   private abort_signal: AbortSignal;
 
@@ -66,6 +69,7 @@ export class ChangeStream {
 
   constructor(options: ChangeStreamOptions) {
     this.storage = options.storage;
+    this.metrics = options.metrics;
     this.group_id = options.storage.group_id;
     this.connections = options.connections;
     this.client = this.connections.client;
@@ -318,7 +322,7 @@ export class ChangeStream {
       }
 
       at += docBatch.length;
-      Metrics.getInstance().rows_replicated_total.add(docBatch.length);
+      this.metrics.getCounter(ReplicationMetricType.ROWS_REPLICATED_TOTAL).add(docBatch.length);
       const duration = performance.now() - lastBatch;
       lastBatch = performance.now();
       logger.info(
@@ -446,7 +450,7 @@ export class ChangeStream {
       return null;
     }
 
-    Metrics.getInstance().rows_replicated_total.add(1);
+    this.metrics.getCounter(ReplicationMetricType.ROWS_REPLICATED_TOTAL).add(1);
     if (change.operationType == 'insert') {
       const baseRecord = constructAfterRecord(change.fullDocument);
       return await batch.save({

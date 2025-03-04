@@ -4,13 +4,15 @@ import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManag
 import { logger } from '@powersync/lib-services-framework';
 import {
   BucketStorageFactory,
+  createCoreReplicationMetrics,
+  initializeCoreReplicationMetrics,
   OpId,
   OplogEntry,
   ReplicationCheckpoint,
   storage,
   SyncRulesBucketStorage
 } from '@powersync/service-core';
-import { test_utils } from '@powersync/service-core-tests';
+import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import mysqlPromise from 'mysql2/promise';
 import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
 
@@ -43,7 +45,10 @@ export class BinlogStreamTestContext {
   constructor(
     public factory: BucketStorageFactory,
     public connectionManager: MySQLConnectionManager
-  ) {}
+  ) {
+    createCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
+    initializeCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
+  }
 
   async dispose() {
     this.abortController.abort();
@@ -96,6 +101,7 @@ export class BinlogStreamTestContext {
     }
     const options: BinLogStreamOptions = {
       storage: this.storage,
+      metrics: METRICS_HELPER.metricsEngine,
       connections: this.connectionManager,
       abortSignal: this.abortController.signal
     };
