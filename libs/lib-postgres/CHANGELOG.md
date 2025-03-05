@@ -1,5 +1,17 @@
 # @powersync/lib-service-postgres
 
+## 0.4.0
+
+### Minor Changes
+
+- 698467c: Use bigint everywhere internally for OpId.
+- ba7baeb: Make some service limits configurable.
+
+### Patch Changes
+
+- Updated dependencies [ba7baeb]
+  - @powersync/service-types@0.9.0
+
 ## 0.3.3
 
 ### Patch Changes
