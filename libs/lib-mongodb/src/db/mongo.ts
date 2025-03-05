@@ -29,7 +29,11 @@ export const MONGO_OPERATION_TIMEOUT_MS = 30_000;
  */
 export const MONGO_CLEAR_OPERATION_TIMEOUT_MS = 5_000;
 
-export function createMongoClient(config: BaseMongoConfigDecoded) {
+export interface MongoConnectionOptions {
+  maxPoolSize: number;
+}
+
+export function createMongoClient(config: BaseMongoConfigDecoded, options?: MongoConnectionOptions) {
   const normalized = normalizeMongoConfig(config);
   return new mongo.MongoClient(normalized.uri, {
     auth: {
@@ -48,7 +52,7 @@ export function createMongoClient(config: BaseMongoConfigDecoded) {
     // Avoid too many connections:
     // 1. It can overwhelm the source database.
     // 2. Processing too many queries in parallel can cause the process to run out of memory.
-    maxPoolSize: 8,
+    maxPoolSize: options?.maxPoolSize ?? 8,
 
     maxConnecting: 3,
     maxIdleTimeMS: 60_000
