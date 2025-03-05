@@ -268,6 +268,7 @@ export class BucketParameterState {
   public readonly syncParams: RequestParameters;
   private readonly querier: BucketParameterQuerier;
   private readonly staticBuckets: Map<string, BucketDescription>;
+  private cachedDynamicBuckets: BucketDescription[] | null = null;
 
   constructor(
     context: SyncContext,
@@ -361,29 +362,39 @@ export class BucketParameterState {
     const staticBuckets = querier.staticBuckets;
     const update = checkpoint.update;
 
-    let hasChange = false;
+    let hasDataChange = false;
+    let hasParameterChange = false;
     if (update.invalidateDataBuckets || update.updatedDataBuckets?.length > 0) {
-      hasChange = true;
-    } else if (update.invalidateParameterBuckets) {
-      hasChange = true;
+      hasDataChange = true;
+    }
+
+    if (update.invalidateParameterBuckets) {
+      hasParameterChange = true;
     } else {
-      for (let bucket of update.updatedParameterBucketDefinitions ?? []) {
+      for (let bucket of update.updatedParameterBucketDefinitions) {
+        // This is a very coarse check, but helps
         if (querier.dynamicBucketDefinitions.has(bucket)) {
-          hasChange = true;
+          hasParameterChange = true;
           break;
         }
       }
     }
 
-    if (!hasChange) {
+    if (!hasDataChange && !hasParameterChange) {
       return null;
     }
 
-    const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
-      getParameterSets(lookups) {
-        return storage.getParameterSets(checkpoint.base.checkpoint, lookups);
-      }
-    });
+    let dynamicBuckets: BucketDescription[];
+    if (hasParameterChange || this.cachedDynamicBuckets == null) {
+      dynamicBuckets = await querier.queryDynamicBucketDescriptions({
+        getParameterSets(lookups) {
+          return storage.getParameterSets(checkpoint.base.checkpoint, lookups);
+        }
+      });
+      this.cachedDynamicBuckets = dynamicBuckets;
+    } else {
+      dynamicBuckets = this.cachedDynamicBuckets;
+    }
     const allBuckets = [...staticBuckets, ...dynamicBuckets];
 
     return {

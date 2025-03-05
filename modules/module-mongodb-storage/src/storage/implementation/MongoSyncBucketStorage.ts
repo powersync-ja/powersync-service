@@ -38,6 +38,7 @@ import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { idPrefixFilter, mapOpEntry, readSingleBatch } from './util.js';
+import { LRUCache } from 'lru-cache';
 
 export class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
@@ -868,25 +869,40 @@ export class MongoSyncBucketStorage
     return pipeline;
   }
 
-  async getCheckpointChanges(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
-    const dataBuckets = await this.db.bucket_data
-      .find(
-        {
-          '_id.g': this.group_id,
-          '_id.o': { $gt: BigInt(options.lastCheckpoint), $lte: BigInt(options.nextCheckpoint) }
-        },
-        {
-          projection: {
-            '_id.b': 1
-          },
-          limit: 1001,
-          batchSize: 1001,
-          singleBatch: true
-        }
-      )
-      .toArray();
-    const invalidateDataBuckets = dataBuckets.length > 1000;
+  private async getDataBucketChanges(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
+    // The query below can be slow, since we don't have an index on _id.o.
+    // We could try to query the oplog for these, but that is risky.
+    // Or we could store updated buckets in a separate collection, and query those.
+    // For now, we ignore this optimization
 
+    // const dataBuckets = await this.db.bucket_data
+    //   .find(
+    //     {
+    //       '_id.g': this.group_id,
+    //       '_id.o': { $gt: BigInt(options.lastCheckpoint), $lte: BigInt(options.nextCheckpoint) }
+    //     },
+    //     {
+    //       projection: {
+    //         '_id.b': 1
+    //       },
+    //       limit: 1001,
+    //       batchSize: 1001,
+    //       singleBatch: true
+    //     }
+    //   )
+    //   .toArray();
+
+    return {
+      invalidateDataBuckets: true,
+      updatedDataBuckets: []
+    };
+  }
+
+  private async getParameterBucketChanges(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedParameterBucketDefinitions' | 'invalidateParameterBuckets'>> {
     const parameterUpdates = await this.db.bucket_parameters
       .find(
         {
@@ -906,13 +922,37 @@ export class MongoSyncBucketStorage
     const invalidateParameterUpdates = parameterUpdates.length > 1000;
 
     return {
-      invalidateDataBuckets,
-      updatedDataBuckets: invalidateDataBuckets ? [] : dataBuckets.map((b) => b._id.b),
-
       invalidateParameterBuckets: invalidateParameterUpdates,
       updatedParameterBucketDefinitions: invalidateParameterUpdates
         ? []
         : [...new Set<string>(parameterUpdates.map((p) => getLookupBucketDefinitionName(p.lookup)))]
+    };
+  }
+
+  private checkpointChangesCache = new LRUCache<string, CheckpointChanges, { options: GetCheckpointChangesOptions }>({
+    max: 50,
+    maxSize: 10 * 1024 * 1024,
+    sizeCalculation: (value: CheckpointChanges) => {
+      return value.updatedParameterBucketDefinitions.reduce<number>((a, b) => a + b.length, 0);
+    },
+    fetchMethod: async (_key, _staleValue, options) => {
+      return this.getCheckpointChangesInternal(options.context.options);
+    }
+  });
+
+  async getCheckpointChanges(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
+    const key = `${options.lastCheckpoint}_${options.nextCheckpoint}`;
+    const result = await this.checkpointChangesCache.fetch(key, { context: { options } });
+    return result!;
+  }
+
+  private async getCheckpointChangesInternal(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
+    const dataUpdates = await this.getDataBucketChanges(options);
+    const parameterUpdates = await this.getParameterBucketChanges(options);
+
+    return {
+      ...dataUpdates,
+      ...parameterUpdates
     };
   }
 }
