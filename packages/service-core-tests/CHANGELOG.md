@@ -1,5 +1,20 @@
 # @powersync/service-core-tests
 
+## 0.7.0
+
+### Minor Changes
+
+- 698467c: Use bigint everywhere internally for OpId.
+- ba7baeb: Make some service limits configurable.
+
+### Patch Changes
+
+- Updated dependencies [0298720]
+- Updated dependencies [698467c]
+- Updated dependencies [ba7baeb]
+  - @powersync/service-sync-rules@0.24.1
+  - @powersync/service-core@1.8.0
+
 ## 0.6.1
 
 ### Patch Changes

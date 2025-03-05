@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.24.1
+
+### Patch Changes
+
+- 0298720: Include local `attachments_queue` table when exporting schema for FlutterFlow.
+
 ## 0.24.0
 
 ### Minor Changes

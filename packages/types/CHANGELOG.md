@@ -1,5 +1,11 @@
 # @powersync/service-types
 
+## 0.9.0
+
+### Minor Changes
+
+- ba7baeb: Make some service limits configurable.
+
 ## 0.8.0
 
 ### Minor Changes

@@ -1,5 +1,21 @@
 # @powersync/service-module-postgres
 
+## 0.9.0
+
+### Minor Changes
+
+- 698467c: Use bigint everywhere internally for OpId.
+
+### Patch Changes
+
+- Updated dependencies [0298720]
+- Updated dependencies [698467c]
+- Updated dependencies [ba7baeb]
+  - @powersync/service-sync-rules@0.24.1
+  - @powersync/service-core@1.8.0
+  - @powersync/lib-service-postgres@0.4.0
+  - @powersync/service-types@0.9.0
+
 ## 0.8.2
 
 ### Patch Changes

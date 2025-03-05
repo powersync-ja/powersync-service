@@ -1,5 +1,11 @@
 # @powersync/lib-service-mongodb
 
+## 0.5.0
+
+### Minor Changes
+
+- ba7baeb: Make some service limits configurable.
+
 ## 0.4.3
 
 ### Patch Changes
