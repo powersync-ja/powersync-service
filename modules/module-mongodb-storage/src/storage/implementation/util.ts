@@ -74,7 +74,7 @@ export async function readSingleBatch<T>(cursor: mongo.FindCursor<T>): Promise<{
 export function mapOpEntry(row: BucketDataDocument): utils.OplogEntry {
   if (row.op == 'PUT' || row.op == 'REMOVE') {
     return {
-      op_id: utils.timestampToOpId(row._id.o),
+      op_id: utils.internalToExternalOpId(row._id.o),
       op: row.op,
       object_type: row.table,
       object_id: row.row_id,
@@ -86,7 +86,7 @@ export function mapOpEntry(row: BucketDataDocument): utils.OplogEntry {
     // MOVE, CLEAR
 
     return {
-      op_id: utils.timestampToOpId(row._id.o),
+      op_id: utils.internalToExternalOpId(row._id.o),
       op: row.op,
       checksum: Number(row.checksum)
     };

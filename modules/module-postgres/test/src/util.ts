@@ -2,7 +2,7 @@ import { PostgresRouteAPIAdapter } from '@module/api/PostgresRouteAPIAdapter.js'
 import * as types from '@module/types/types.js';
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { logger } from '@powersync/lib-services-framework';
-import { BucketStorageFactory, OpId } from '@powersync/service-core';
+import { BucketStorageFactory, InternalOpId, TestStorageOptions } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
@@ -64,7 +64,7 @@ export async function getClientCheckpoint(
   db: pgwire.PgClient,
   storageFactory: BucketStorageFactory,
   options?: { timeout?: number }
-): Promise<OpId> {
+): Promise<InternalOpId> {
   const start = Date.now();
 
   const api = new PostgresRouteAPIAdapter(db);

@@ -487,11 +487,6 @@ AND table_type = 'BASE TABLE';`,
             }
           });
 
-          if (this.stopped) {
-            // Powersync is shutting down, don't start replicating
-            return;
-          }
-
           // Set a heartbeat interval for the Zongji replication connection
           // Zongji does not explicitly handle the heartbeat events - they are categorized as event:unknown
           // The heartbeat events are enough to keep the connection alive for setTimeout to work on the socket.
@@ -516,6 +511,11 @@ AND table_type = 'BASE TABLE';`,
           socket.setTimeout(60_000, () => {
             socket.destroy(new Error('Replication connection timeout.'));
           });
+
+          if (this.stopped) {
+            // Powersync is shutting down, don't start replicating
+            return;
+          }
 
           logger.info(`Reading binlog from: ${binLogPositionState.filename}:${binLogPositionState.offset}`);
           // Only listen for changes to tables in the sync rules
@@ -551,16 +551,19 @@ AND table_type = 'BASE TABLE';`,
               reject(error);
             });
 
-            this.abortSignal.addEventListener(
-              'abort',
-              () => {
-                logger.info('Abort signal received, stopping replication...');
-                zongji.stop();
-                queue.kill();
-                resolve();
-              },
-              { once: true }
-            );
+            const stop = () => {
+              logger.info('Abort signal received, stopping replication...');
+              zongji.stop();
+              queue.kill();
+              resolve();
+            };
+
+            this.abortSignal.addEventListener('abort', stop, { once: true });
+
+            if (this.stopped) {
+              // Generally this should have been picked up early, but we add this here as a failsafe.
+              stop();
+            }
           });
         }
       );

@@ -1,6 +1,6 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { logger, ReplicationAssertionError } from '@powersync/lib-services-framework';
-import { storage, utils } from '@powersync/service-core';
+import { InternalOpId, storage, utils } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import * as t from 'ts-codec';
 import { BIGINT_MAX } from '../types/codecs.js';
@@ -15,7 +15,7 @@ interface CurrentBucketState {
   /**
    * Rows seen in the bucket, with the last op_id of each.
    */
-  seen: Map<string, bigint>;
+  seen: Map<string, InternalOpId>;
   /**
    * Estimated memory usage of the seen Map.
    */
@@ -24,7 +24,7 @@ interface CurrentBucketState {
   /**
    * Last (lowest) seen op_id that is not a PUT.
    */
-  lastNotPut: bigint | null;
+  lastNotPut: InternalOpId | null;
 
   /**
    * Number of REMOVE/MOVE operations seen since lastNotPut.
@@ -51,7 +51,7 @@ export class PostgresCompactor {
   private moveBatchLimit: number;
   private moveBatchQueryLimit: number;
   private clearBatchLimit: number;
-  private maxOpId: bigint | undefined;
+  private maxOpId: InternalOpId | undefined;
   private buckets: string[] | undefined;
 
   constructor(
@@ -264,7 +264,7 @@ export class PostgresCompactor {
    * @param bucket bucket name
    * @param op op_id of the last non-PUT operation, which will be converted to CLEAR.
    */
-  private async clearBucket(bucket: string, op: bigint) {
+  private async clearBucket(bucket: string, op: InternalOpId) {
     /**
      * This entire method could be implemented as a Postgres function, but this might make debugging
      * a bit more challenging.
@@ -280,8 +280,8 @@ export class PostgresCompactor {
 
         try {
           let checksum = 0;
-          let lastOpId: bigint | null = null;
-          let targetOp: bigint | null = null;
+          let lastOpId: InternalOpId | null = null;
+          let targetOp: InternalOpId | null = null;
           let gotAnOp = false;
 
           const codec = pick(models.BucketData, ['op', 'source_table', 'source_key', 'op_id', 'checksum', 'target_op']);

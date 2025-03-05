@@ -13,7 +13,7 @@ export interface BucketChecksumStateOptions {
   bucketStorage: BucketChecksumStateStorage;
   syncRules: SqlSyncRules;
   syncParams: RequestParameters;
-  initialBucketPositions?: { name: string; after: string }[];
+  initialBucketPositions?: { name: string; after: util.InternalOpId }[];
 }
 
 /**
@@ -78,7 +78,7 @@ export class BucketChecksumState {
     for (let bucket of allBuckets) {
       dataBucketsNew.set(bucket.bucket, {
         description: bucket,
-        start_op_id: this.bucketDataPositions.get(bucket.bucket)?.start_op_id ?? '0'
+        start_op_id: this.bucketDataPositions.get(bucket.bucket)?.start_op_id ?? 0n
       });
     }
     this.bucketDataPositions = dataBucketsNew;
@@ -180,7 +180,7 @@ export class BucketChecksumState {
 
       checkpointLine = {
         checkpoint_diff: {
-          last_op_id: base.checkpoint,
+          last_op_id: util.internalToExternalOpId(base.checkpoint),
           write_checkpoint: writeCheckpoint ? String(writeCheckpoint) : undefined,
           removed_buckets: diff.removedBuckets,
           updated_buckets: updatedBucketDescriptions
@@ -193,7 +193,7 @@ export class BucketChecksumState {
       bucketsToFetch = allBuckets;
       checkpointLine = {
         checkpoint: {
-          last_op_id: base.checkpoint,
+          last_op_id: util.internalToExternalOpId(base.checkpoint),
           write_checkpoint: writeCheckpoint ? String(writeCheckpoint) : undefined,
           buckets: [...checksumMap.values()].map((e) => ({
             ...e,
@@ -219,8 +219,8 @@ export class BucketChecksumState {
    * @param bucketsToFetch List of buckets to fetch, typically from buildNextCheckpointLine, or a subset of that
    * @returns
    */
-  getFilteredBucketPositions(bucketsToFetch: BucketDescription[]): Map<string, string> {
-    const filtered = new Map<string, string>();
+  getFilteredBucketPositions(bucketsToFetch: BucketDescription[]): Map<string, util.InternalOpId> {
+    const filtered = new Map<string, util.InternalOpId>();
     for (let bucket of bucketsToFetch) {
       const state = this.bucketDataPositions.get(bucket.bucket);
       if (state) {
@@ -236,7 +236,7 @@ export class BucketChecksumState {
    * @param bucket the bucket name
    * @param nextAfter sync operations >= this value in the next batch
    */
-  updateBucketPosition(options: { bucket: string; nextAfter: string; hasMore: boolean }) {
+  updateBucketPosition(options: { bucket: string; nextAfter: util.InternalOpId; hasMore: boolean }) {
     const state = this.bucketDataPositions.get(options.bucket);
     if (state) {
       state.start_op_id = options.nextAfter;
