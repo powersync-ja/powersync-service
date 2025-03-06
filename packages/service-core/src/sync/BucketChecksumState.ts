@@ -6,12 +6,14 @@ import * as util from '../util/util-index.js';
 import { ErrorCode, logger, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
 import { BucketParameterQuerier } from '@powersync/service-sync-rules/src/BucketParameterQuerier.js';
 import { BucketSyncState } from './sync.js';
+import { SyncContext } from './SyncContext.js';
 
 export interface BucketChecksumStateOptions {
+  syncContext: SyncContext;
   bucketStorage: BucketChecksumStateStorage;
   syncRules: SqlSyncRules;
   syncParams: RequestParameters;
-  initialBucketPositions?: { name: string; after: string }[];
+  initialBucketPositions?: { name: string; after: util.InternalOpId }[];
 }
 
 /**
@@ -20,6 +22,7 @@ export interface BucketChecksumStateOptions {
  * Handles incrementally re-computing checkpoints.
  */
 export class BucketChecksumState {
+  private readonly context: SyncContext;
   private readonly bucketStorage: BucketChecksumStateStorage;
 
   /**
@@ -43,8 +46,14 @@ export class BucketChecksumState {
   private pendingBucketDownloads = new Set<string>();
 
   constructor(options: BucketChecksumStateOptions) {
+    this.context = options.syncContext;
     this.bucketStorage = options.bucketStorage;
-    this.parameterState = new BucketParameterState(options.bucketStorage, options.syncRules, options.syncParams);
+    this.parameterState = new BucketParameterState(
+      options.syncContext,
+      options.bucketStorage,
+      options.syncRules,
+      options.syncParams
+    );
     this.bucketDataPositions = new Map();
 
     for (let { name, after: start } of options.initialBucketPositions ?? []) {
@@ -69,10 +78,16 @@ export class BucketChecksumState {
     for (let bucket of allBuckets) {
       dataBucketsNew.set(bucket.bucket, {
         description: bucket,
-        start_op_id: this.bucketDataPositions.get(bucket.bucket)?.start_op_id ?? '0'
+        start_op_id: this.bucketDataPositions.get(bucket.bucket)?.start_op_id ?? 0n
       });
     }
     this.bucketDataPositions = dataBucketsNew;
+    if (dataBucketsNew.size > this.context.maxBuckets) {
+      throw new ServiceError(
+        ErrorCode.PSYNC_S2305,
+        `Too many buckets: ${dataBucketsNew.size} (limit of ${this.context.maxBuckets})`
+      );
+    }
 
     let checksumMap: util.ChecksumMap;
     if (updatedBuckets != null) {
@@ -165,7 +180,7 @@ export class BucketChecksumState {
 
       checkpointLine = {
         checkpoint_diff: {
-          last_op_id: base.checkpoint,
+          last_op_id: util.internalToExternalOpId(base.checkpoint),
           write_checkpoint: writeCheckpoint ? String(writeCheckpoint) : undefined,
           removed_buckets: diff.removedBuckets,
           updated_buckets: updatedBucketDescriptions
@@ -178,7 +193,7 @@ export class BucketChecksumState {
       bucketsToFetch = allBuckets;
       checkpointLine = {
         checkpoint: {
-          last_op_id: base.checkpoint,
+          last_op_id: util.internalToExternalOpId(base.checkpoint),
           write_checkpoint: writeCheckpoint ? String(writeCheckpoint) : undefined,
           buckets: [...checksumMap.values()].map((e) => ({
             ...e,
@@ -204,8 +219,8 @@ export class BucketChecksumState {
    * @param bucketsToFetch List of buckets to fetch, typically from buildNextCheckpointLine, or a subset of that
    * @returns
    */
-  getFilteredBucketPositions(bucketsToFetch: BucketDescription[]): Map<string, string> {
-    const filtered = new Map<string, string>();
+  getFilteredBucketPositions(bucketsToFetch: BucketDescription[]): Map<string, util.InternalOpId> {
+    const filtered = new Map<string, util.InternalOpId>();
     for (let bucket of bucketsToFetch) {
       const state = this.bucketDataPositions.get(bucket.bucket);
       if (state) {
@@ -221,7 +236,7 @@ export class BucketChecksumState {
    * @param bucket the bucket name
    * @param nextAfter sync operations >= this value in the next batch
    */
-  updateBucketPosition(options: { bucket: string; nextAfter: string; hasMore: boolean }) {
+  updateBucketPosition(options: { bucket: string; nextAfter: util.InternalOpId; hasMore: boolean }) {
     const state = this.bucketDataPositions.get(options.bucket);
     if (state) {
       state.start_op_id = options.nextAfter;
@@ -247,13 +262,20 @@ export interface CheckpointUpdate {
 }
 
 export class BucketParameterState {
+  private readonly context: SyncContext;
   public readonly bucketStorage: BucketChecksumStateStorage;
   public readonly syncRules: SqlSyncRules;
   public readonly syncParams: RequestParameters;
   private readonly querier: BucketParameterQuerier;
   private readonly staticBuckets: Map<string, BucketDescription>;
 
-  constructor(bucketStorage: BucketChecksumStateStorage, syncRules: SqlSyncRules, syncParams: RequestParameters) {
+  constructor(
+    context: SyncContext,
+    bucketStorage: BucketChecksumStateStorage,
+    syncRules: SqlSyncRules,
+    syncParams: RequestParameters
+  ) {
+    this.context = context;
     this.bucketStorage = bucketStorage;
     this.syncRules = syncRules;
     this.syncParams = syncParams;
@@ -275,9 +297,13 @@ export class BucketParameterState {
       return null;
     }
 
-    if (update.buckets.length > 1000) {
-      // TODO: Limit number of buckets even before we get to this point
-      const error = new ServiceError(ErrorCode.PSYNC_S2305, `Too many buckets: ${update.buckets.length}`);
+    if (update.buckets.length > this.context.maxParameterQueryResults) {
+      // TODO: Limit number of results even before we get to this point
+      // This limit applies _before_ we get the unique set
+      const error = new ServiceError(
+        ErrorCode.PSYNC_S2305,
+        `Too many parameter query results: ${update.buckets.length} (limit of ${this.context.maxParameterQueryResults})`
+      );
       logger.error(error.message, {
         checkpoint: checkpoint,
         user_id: this.syncParams.user_id,

@@ -1,6 +1,5 @@
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import { BucketDescription, BucketPriority, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
-import { Semaphore, withTimeout } from 'async-mutex';
 
 import { AbortError } from 'ix/aborterror.js';
 
@@ -11,28 +10,12 @@ import * as util from '../util/util-index.js';
 import { logger } from '@powersync/lib-services-framework';
 import { BucketChecksumState } from './BucketChecksumState.js';
 import { mergeAsyncIterables } from './merge.js';
-import { RequestTracker } from './RequestTracker.js';
 import { acquireSemaphoreAbortable, settledPromise, tokenStream, TokenStreamOptions } from './util.js';
-
-/**
- * Maximum number of connections actively fetching data.
- */
-const MAX_ACTIVE_CONNECTIONS = 10;
-
-/**
- * Maximum duration to wait for the mutex to become available.
- *
- * This gives an explicit error if there are mutex issues, rather than just hanging.
- */
-const MUTEX_ACQUIRE_TIMEOUT = 30_000;
-
-const syncSemaphore = withTimeout(
-  new Semaphore(MAX_ACTIVE_CONNECTIONS),
-  MUTEX_ACQUIRE_TIMEOUT,
-  new Error(`Timeout while waiting for data`)
-);
+import { SyncContext } from './SyncContext.js';
+import { RequestTracker } from './RequestTracker.js';
 
 export interface SyncStreamParameters {
+  syncContext: SyncContext;
   bucketStorage: storage.SyncRulesBucketStorage;
   syncRules: SqlSyncRules;
   params: util.StreamingSyncRequest;
@@ -50,7 +33,8 @@ export interface SyncStreamParameters {
 export async function* streamResponse(
   options: SyncStreamParameters
 ): AsyncIterable<util.StreamingSyncLine | string | null> {
-  const { bucketStorage, syncRules, params, syncParams, token, tokenStreamOptions, tracker, signal } = options;
+  const { syncContext, bucketStorage, syncRules, params, syncParams, token, tokenStreamOptions, tracker, signal } =
+    options;
   // We also need to be able to abort, so we create our own controller.
   const controller = new AbortController();
   if (signal) {
@@ -66,7 +50,15 @@ export async function* streamResponse(
     }
   }
   const ki = tokenStream(token, controller.signal, tokenStreamOptions);
-  const stream = streamResponseInner(bucketStorage, syncRules, params, syncParams, tracker, controller.signal);
+  const stream = streamResponseInner(
+    syncContext,
+    bucketStorage,
+    syncRules,
+    params,
+    syncParams,
+    tracker,
+    controller.signal
+  );
   // Merge the two streams, and abort as soon as one of the streams end.
   const merged = mergeAsyncIterables([stream, ki], controller.signal);
 
@@ -87,10 +79,11 @@ export async function* streamResponse(
 
 export type BucketSyncState = {
   description?: BucketDescription; // Undefined if the bucket has not yet been resolved by us.
-  start_op_id: string;
+  start_op_id: util.InternalOpId;
 };
 
 async function* streamResponseInner(
+  syncContext: SyncContext,
   bucketStorage: storage.SyncRulesBucketStorage,
   syncRules: SqlSyncRules,
   params: util.StreamingSyncRequest,
@@ -103,10 +96,14 @@ async function* streamResponseInner(
   const checkpointUserId = util.checkpointUserId(syncParams.token_parameters.user_id as string, params.client_id);
 
   const checksumState = new BucketChecksumState({
+    syncContext,
     bucketStorage,
     syncRules,
     syncParams,
-    initialBucketPositions: params.buckets
+    initialBucketPositions: params.buckets?.map((bucket) => ({
+      name: bucket.name,
+      after: BigInt(bucket.after)
+    }))
   });
   const stream = bucketStorage.watchWriteCheckpoint({
     user_id: checkpointUserId,
@@ -195,6 +192,7 @@ async function* streamResponseInner(
         }
 
         yield* bucketDataInBatches({
+          syncContext: syncContext,
           bucketStorage: bucketStorage,
           checkpoint: next.value.value.base.checkpoint,
           bucketsToFetch: buckets,
@@ -221,8 +219,9 @@ async function* streamResponseInner(
 }
 
 interface BucketDataRequest {
+  syncContext: SyncContext;
   bucketStorage: storage.SyncRulesBucketStorage;
-  checkpoint: string;
+  checkpoint: util.InternalOpId;
   bucketsToFetch: BucketDescription[];
   /** Contains current bucket state. Modified by the request as data is sent.  */
   checksumState: BucketChecksumState;
@@ -282,6 +281,7 @@ interface BucketDataBatchResult {
  */
 async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<BucketDataBatchResult, void> {
   const {
+    syncContext,
     bucketStorage: storage,
     checkpoint,
     bucketsToFetch,
@@ -293,13 +293,12 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
     onRowsSent
   } = request;
 
-  const checkpointOp = BigInt(checkpoint);
   let checkpointInvalidated = false;
 
-  if (syncSemaphore.isLocked()) {
+  if (syncContext.syncSemaphore.isLocked()) {
     logger.info('Sync concurrency limit reached, waiting for lock', { user_id: request.user_id });
   }
-  const acquired = await acquireSemaphoreAbortable(syncSemaphore, AbortSignal.any([abort_batch]));
+  const acquired = await acquireSemaphoreAbortable(syncContext.syncSemaphore, AbortSignal.any([abort_batch]));
   if (acquired === 'aborted') {
     return;
   }
@@ -329,7 +328,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
       if (r.has_more) {
         has_more = true;
       }
-      if (targetOp != null && targetOp > checkpointOp) {
+      if (targetOp != null && targetOp > checkpoint) {
         checkpointInvalidated = true;
       }
       if (r.data.length == 0) {
@@ -365,7 +364,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
       }
       onRowsSent(r.data.length);
 
-      checksumState.updateBucketPosition({ bucket: r.bucket, nextAfter: r.next_after, hasMore: r.has_more });
+      checksumState.updateBucketPosition({ bucket: r.bucket, nextAfter: BigInt(r.next_after), hasMore: r.has_more });
 
       // Check if syncing bucket data is supposed to stop before fetching more data
       // from storage.
@@ -384,7 +383,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
         if (request.forPriority != null) {
           const line: util.StreamingSyncCheckpointPartiallyComplete = {
             partial_checkpoint_complete: {
-              last_op_id: checkpoint,
+              last_op_id: util.internalToExternalOpId(checkpoint),
               priority: request.forPriority
             }
           };
@@ -392,7 +391,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
         } else {
           const line: util.StreamingSyncCheckpointComplete = {
             checkpoint_complete: {
-              last_op_id: checkpoint
+              last_op_id: util.internalToExternalOpId(checkpoint)
             }
           };
           yield { data: line, done: true };

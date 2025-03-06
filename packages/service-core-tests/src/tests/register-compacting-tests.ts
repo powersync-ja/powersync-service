@@ -58,7 +58,7 @@ bucket_definitions:
     const checkpoint = result!.flushed_op;
 
     const batchBefore = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]))
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]))
     );
     const dataBefore = batchBefore.batch.data;
     const checksumBefore = await bucketStorage.getChecksums(checkpoint, ['global[]']);
@@ -91,7 +91,7 @@ bucket_definitions:
     });
 
     const batchAfter = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]))
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]))
     );
     const dataAfter = batchAfter.batch.data;
     const checksumAfter = await bucketStorage.getChecksums(checkpoint, ['global[]']);
@@ -173,7 +173,7 @@ bucket_definitions:
     const checkpoint = result!.flushed_op;
 
     const batchBefore = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]))
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]))
     );
     const dataBefore = batchBefore.batch.data;
     const checksumBefore = await bucketStorage.getChecksums(checkpoint, ['global[]']);
@@ -212,7 +212,7 @@ bucket_definitions:
     });
 
     const batchAfter = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]))
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]))
     );
     const dataAfter = batchAfter.batch.data;
     const checksumAfter = await bucketStorage.getChecksums(checkpoint, ['global[]']);
@@ -297,7 +297,7 @@ bucket_definitions:
     });
 
     const batchAfter = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint2, new Map([['global[]', '0']]))
+      bucketStorage.getBucketDataBatch(checkpoint2, new Map([['global[]', 0n]]))
     );
     const dataAfter = batchAfter.batch.data;
     const checksumAfter = await bucketStorage.getChecksums(checkpoint2, ['global[]']);
@@ -409,8 +409,8 @@ bucket_definitions:
       bucketStorage.getBucketDataBatch(
         checkpoint,
         new Map([
-          ['grouped["b1"]', '0'],
-          ['grouped["b2"]', '0']
+          ['grouped["b1"]', 0n],
+          ['grouped["b2"]', 0n]
         ])
       )
     );

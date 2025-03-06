@@ -1,4 +1,4 @@
-import { ColumnDefinition, TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from './ExpressionType.js';
+import { ColumnDefinition, ExpressionType, TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from './ExpressionType.js';
 import { GenerateSchemaOptions, SchemaGenerator } from './SchemaGenerator.js';
 import { SqlSyncRules } from './SqlSyncRules.js';
 import { SourceSchema } from './types.js';
@@ -52,16 +52,50 @@ export class DartFlutterFlowSchemaGenerator extends SchemaGenerator {
   readonly fileName = 'schema.json';
 
   generate(source: SqlSyncRules, schema: SourceSchema, options?: GenerateSchemaOptions): string {
-    return JSON.stringify({
-      tables: this.getAllTables(source, schema).map((e) => this.generateTable(e.name, e.columns))
-    });
+    const serializedTables = this.getAllTables(source, schema).map((e) => this.generateTable(e.name, e.columns));
+    // Not all FlutterFlow apps will use the attachments queue table, but it needs to be part of the app schema if used
+    // and does no harm otherwise. So, we just include it by default.
+    serializedTables.push(
+      this.generateTable(
+        'attachments_queue',
+        [
+          {
+            name: 'filename',
+            type: ExpressionType.TEXT
+          },
+          {
+            name: 'local_uri',
+            type: ExpressionType.TEXT
+          },
+          {
+            name: 'timestamp',
+            type: ExpressionType.INTEGER
+          },
+          {
+            name: 'size',
+            type: ExpressionType.INTEGER
+          },
+          {
+            name: 'media_type',
+            type: ExpressionType.TEXT
+          },
+          {
+            name: 'state',
+            type: ExpressionType.INTEGER
+          }
+        ],
+        true
+      )
+    );
+
+    return JSON.stringify({ tables: serializedTables });
   }
 
-  private generateTable(name: string, columns: ColumnDefinition[]): object {
+  private generateTable(name: string, columns: ColumnDefinition[], localOnly = false): object {
     return {
       name,
       view_name: null,
-      local_only: false,
+      local_only: localOnly,
       insert_only: false,
       columns: columns.map(this.generateColumn),
       indexes: []

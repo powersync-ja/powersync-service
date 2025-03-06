@@ -1,5 +1,19 @@
 # @powersync/service-core
 
+## 1.8.0
+
+### Minor Changes
+
+- 698467c: Use bigint everywhere internally for OpId.
+- ba7baeb: Make some service limits configurable.
+
+### Patch Changes
+
+- Updated dependencies [0298720]
+- Updated dependencies [ba7baeb]
+  - @powersync/service-sync-rules@0.24.1
+  - @powersync/service-types@0.9.0
+
 ## 1.7.2
 
 ## 1.7.1

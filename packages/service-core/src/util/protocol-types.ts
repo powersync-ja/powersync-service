@@ -57,8 +57,8 @@ export interface StreamingSyncCheckpoint {
 
 export interface StreamingSyncCheckpointDiff {
   checkpoint_diff: {
-    last_op_id: OpId;
-    write_checkpoint?: OpId;
+    last_op_id: ProtocolOpId;
+    write_checkpoint?: ProtocolOpId;
     updated_buckets: BucketChecksumWithDescription[];
     removed_buckets: string[];
   };
@@ -70,13 +70,13 @@ export interface StreamingSyncData {
 
 export interface StreamingSyncCheckpointComplete {
   checkpoint_complete: {
-    last_op_id: OpId;
+    last_op_id: ProtocolOpId;
   };
 }
 
 export interface StreamingSyncCheckpointPartiallyComplete {
   partial_checkpoint_complete: {
-    last_op_id: OpId;
+    last_op_id: ProtocolOpId;
     priority: BucketPriority;
   };
 }
@@ -96,11 +96,11 @@ export type StreamingSyncLine =
 /**
  * 64-bit unsigned number, as a base-10 string.
  */
-export type OpId = string;
+export type ProtocolOpId = string;
 
 export interface Checkpoint {
-  last_op_id: OpId;
-  write_checkpoint?: OpId;
+  last_op_id: ProtocolOpId;
+  write_checkpoint?: ProtocolOpId;
   buckets: BucketChecksumWithDescription[];
 }
 
@@ -123,15 +123,15 @@ export interface SyncBucketData {
   /**
    * The `after` specified in the request.
    */
-  after: OpId;
+  after: ProtocolOpId;
   /**
    * Use this for the next request.
    */
-  next_after: OpId;
+  next_after: ProtocolOpId;
 }
 
 export interface OplogEntry {
-  op_id: OpId;
+  op_id: ProtocolOpId;
   op: 'PUT' | 'REMOVE' | 'MOVE' | 'CLEAR';
   object_type?: string;
   object_id?: string;

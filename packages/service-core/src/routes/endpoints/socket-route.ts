@@ -14,7 +14,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
     validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
     handler: async ({ context, params, responder, observer, initialN, signal: upstreamSignal }) => {
       const { service_context } = context;
-      const { routerEngine, metricsEngine } = service_context;
+      const { routerEngine, metricsEngine, syncContext } = service_context;
 
       // Create our own controller that we can abort directly
       const controller = new AbortController();
@@ -74,6 +74,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       const tracker = new sync.RequestTracker(metricsEngine);
       try {
         for await (const data of sync.streamResponse({
+          syncContext: syncContext,
           bucketStorage: bucketStorage,
           syncRules: syncRules,
           params: {

@@ -6,8 +6,9 @@ import {
   BucketStorageFactory,
   createCoreReplicationMetrics,
   initializeCoreReplicationMetrics,
-  OpId,
+  InternalOpId,
   OplogEntry,
+  ProtocolOpId,
   ReplicationCheckpoint,
   storage,
   SyncRulesBucketStorage
@@ -122,30 +123,38 @@ export class BinlogStreamTestContext {
     this.streamPromise = this.binlogStream.streamChanges();
   }
 
-  async getCheckpoint(options?: { timeout?: number }): Promise<string> {
+  async getCheckpoint(options?: { timeout?: number }): Promise<InternalOpId> {
     const connection = await this.connectionManager.getConnection();
     let checkpoint = await Promise.race([
       getClientCheckpoint(connection, this.factory, { timeout: options?.timeout ?? 60_000 }),
       this.streamPromise
     ]);
     connection.release();
-    if (typeof checkpoint == undefined) {
+    if (checkpoint == null) {
       // This indicates an issue with the test setup - streamingPromise completed instead
       // of getClientCheckpoint()
-      throw new Error('Test failure - streamingPromise completed');
+      throw new Error('Test failure - streamingPromise completed. Was startStreaming() called?');
     }
-    return checkpoint as string;
+    return checkpoint;
   }
 
-  async getBucketsDataBatch(buckets: Record<string, string>, options?: { timeout?: number }) {
+  async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     const checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, string>(Object.entries(buckets));
+    const map = new Map<string, InternalOpId>(Object.entries(buckets));
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
-  async getBucketData(bucket: string, start = '0', options?: { timeout?: number }): Promise<OplogEntry[]> {
+  async getBucketData(
+    bucket: string,
+    start?: ProtocolOpId | InternalOpId | undefined,
+    options?: { timeout?: number }
+  ): Promise<OplogEntry[]> {
+    start = start ?? 0n;
+    if (typeof start == 'string') {
+      start = BigInt(start);
+    }
     const checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, string>([[bucket, start]]);
+    const map = new Map<string, InternalOpId>([[bucket, start]]);
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
     const batches = await test_utils.fromAsync(batch);
     return batches[0]?.batch.data ?? [];
@@ -156,7 +165,7 @@ export async function getClientCheckpoint(
   connection: mysqlPromise.Connection,
   storageFactory: BucketStorageFactory,
   options?: { timeout?: number }
-): Promise<OpId> {
+): Promise<InternalOpId> {
   const start = Date.now();
   const gtid = await readExecutedGtid(connection);
   // This old API needs a persisted checkpoint id.

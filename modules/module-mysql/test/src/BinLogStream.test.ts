@@ -176,6 +176,7 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED_TOTAL)) ?? 0;
 
     await context.replicateSnapshot();
+    context.startStreaming();
 
     const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED_TOTAL)) ?? 0;
     const data = await context.getBucketData('global[]');
@@ -203,6 +204,7 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
       `);
 
     await context.replicateSnapshot();
+    context.startStreaming();
 
     const data = await context.getBucketData('global[]');
     expect(data).toMatchObject([

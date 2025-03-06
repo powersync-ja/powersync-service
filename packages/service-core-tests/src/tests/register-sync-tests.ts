@@ -33,6 +33,11 @@ export const SYNC_SNAPSHOT_PATH = path.resolve(__dirname, '../__snapshots/sync.t
 export function registerSyncTests(factory: storage.TestStorageFactory) {
   createCoreAPIMetrics(METRICS_HELPER.metricsEngine);
   const tracker = new sync.RequestTracker(METRICS_HELPER.metricsEngine);
+  const syncContext = new sync.SyncContext({
+    maxBuckets: 10,
+    maxParameterQueryResults: 10,
+    maxDataFetchConcurrency: 2
+  });
 
   test('sync global data', async () => {
     await using f = await factory();
@@ -69,6 +74,7 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
     });
 
     const stream = sync.streamResponse({
+      syncContext,
       bucketStorage: bucketStorage,
       syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
@@ -130,7 +136,8 @@ bucket_definitions:
     });
 
     const stream = sync.streamResponse({
-      bucketStorage: bucketStorage,
+      syncContext,
+      bucketStorage,
       syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
@@ -193,7 +200,8 @@ bucket_definitions:
     });
 
     const stream = sync.streamResponse({
-      bucketStorage: bucketStorage,
+      syncContext,
+      bucketStorage,
       syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
@@ -278,7 +286,8 @@ bucket_definitions:
     });
 
     const stream = sync.streamResponse({
-      bucketStorage: bucketStorage,
+      syncContext,
+      bucketStorage,
       syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
@@ -304,7 +313,7 @@ bucket_definitions:
           receivedCompletions++;
           if (receivedCompletions == 1) {
             // Trigger an empty bucket update.
-            await bucketStorage.createManagedWriteCheckpoint({user_id: '', heads: {'1': '1/0'}});
+            await bucketStorage.createManagedWriteCheckpoint({ user_id: '', heads: { '1': '1/0' } });
             await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
               await batch.commit('1/0');
             });
@@ -344,7 +353,8 @@ bucket_definitions:
     });
 
     const stream = sync.streamResponse({
-      bucketStorage: bucketStorage,
+      syncContext,
+      bucketStorage,
       syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
@@ -373,7 +383,8 @@ bucket_definitions:
     await bucketStorage.autoActivate();
 
     const stream = sync.streamResponse({
-      bucketStorage: bucketStorage,
+      syncContext,
+      bucketStorage,
       syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
@@ -400,7 +411,8 @@ bucket_definitions:
     await bucketStorage.autoActivate();
 
     const stream = sync.streamResponse({
-      bucketStorage: bucketStorage,
+      syncContext,
+      bucketStorage,
       syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
@@ -463,7 +475,8 @@ bucket_definitions:
     const exp = Date.now() / 1000 + 0.1;
 
     const stream = sync.streamResponse({
-      bucketStorage: bucketStorage,
+      syncContext,
+      bucketStorage,
       syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
@@ -523,7 +536,8 @@ bucket_definitions:
     });
 
     const stream = sync.streamResponse({
-      bucketStorage: bucketStorage,
+      syncContext,
+      bucketStorage,
       syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
@@ -646,7 +660,8 @@ bucket_definitions:
     });
 
     const params: sync.SyncStreamParameters = {
-      bucketStorage: bucketStorage,
+      syncContext,
+      bucketStorage,
       syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],

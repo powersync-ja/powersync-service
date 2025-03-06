@@ -4,6 +4,7 @@ import {
   BucketStorageFactory,
   createCoreReplicationMetrics,
   initializeCoreReplicationMetrics,
+  InternalOpId,
   OplogEntry,
   storage,
   SyncRulesBucketStorage
@@ -131,27 +132,30 @@ export class WalStreamTestContext implements AsyncDisposable {
       getClientCheckpoint(this.pool, this.factory, { timeout: options?.timeout ?? 15_000 }),
       this.streamPromise
     ]);
-    if (typeof checkpoint == undefined) {
+    if (checkpoint == null) {
       // This indicates an issue with the test setup - streamingPromise completed instead
       // of getClientCheckpoint()
       throw new Error('Test failure - streamingPromise completed');
     }
-    return checkpoint as string;
+    return checkpoint;
   }
 
-  async getBucketsDataBatch(buckets: Record<string, string>, options?: { timeout?: number }) {
+  async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, string>(Object.entries(buckets));
+    const map = new Map<string, InternalOpId>(Object.entries(buckets));
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
   /**
    * This waits for a client checkpoint.
    */
-  async getBucketData(bucket: string, start?: string, options?: { timeout?: number }) {
-    start ??= '0';
+  async getBucketData(bucket: string, start?: InternalOpId | string | undefined, options?: { timeout?: number }) {
+    start ??= 0n;
+    if (typeof start == 'string') {
+      start = BigInt(start);
+    }
     const checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, string>([[bucket, start]]);
+    const map = new Map<string, InternalOpId>([[bucket, start]]);
     let data: OplogEntry[] = [];
     while (true) {
       const batch = this.storage!.getBucketDataBatch(checkpoint, map);
@@ -161,7 +165,7 @@ export class WalStreamTestContext implements AsyncDisposable {
       if (batches.length == 0 || !batches[0]!.batch.has_more) {
         break;
       }
-      map.set(bucket, batches[0]!.batch.next_after);
+      map.set(bucket, BigInt(batches[0]!.batch.next_after));
     }
     return data;
   }
@@ -169,10 +173,13 @@ export class WalStreamTestContext implements AsyncDisposable {
   /**
    * This does not wait for a client checkpoint.
    */
-  async getCurrentBucketData(bucket: string, start?: string) {
-    start ??= '0';
+  async getCurrentBucketData(bucket: string, start?: InternalOpId | string | undefined) {
+    start ??= 0n;
+    if (typeof start == 'string') {
+      start = BigInt(start);
+    }
     const { checkpoint } = await this.storage!.getCheckpoint();
-    const map = new Map<string, string>([[bucket, start]]);
+    const map = new Map<string, InternalOpId>([[bucket, start]]);
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
     const batches = await test_utils.fromAsync(batch);
     return batches[0]?.batch.data ?? [];

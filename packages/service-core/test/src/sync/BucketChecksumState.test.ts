@@ -4,7 +4,8 @@ import {
   BucketChecksumStateStorage,
   CHECKPOINT_INVALIDATE_ALL,
   ChecksumMap,
-  OpId,
+  InternalOpId,
+  SyncContext,
   WatchFilterEvent
 } from '@/index.js';
 import { RequestParameters, SqliteJsonRow, SqliteJsonValue, SqlSyncRules } from '@powersync/service-sync-rules';
@@ -46,19 +47,26 @@ bucket_definitions:
     { defaultSchema: 'public' }
   );
 
+  const syncContext = new SyncContext({
+    maxBuckets: 100,
+    maxParameterQueryResults: 100,
+    maxDataFetchConcurrency: 10
+  });
+
   test('global bucket with update', async () => {
     const storage = new MockBucketChecksumStateStorage();
     // Set intial state
     storage.updateTestChecksum({ bucket: 'global[]', checksum: 1, count: 1 });
 
     const state = new BucketChecksumState({
+      syncContext,
       syncParams: new RequestParameters({ sub: '' }, {}),
       syncRules: SYNC_RULES_GLOBAL,
       bucketStorage: storage
     });
 
     const line = (await state.buildNextCheckpointLine({
-      base: { checkpoint: '1', lsn: '1' },
+      base: { checkpoint: 1n, lsn: '1' },
       writeCheckpoint: null,
       update: CHECKPOINT_INVALIDATE_ALL
     }))!;
@@ -76,17 +84,17 @@ bucket_definitions:
       }
     ]);
     // This is the bucket data to be fetched
-    expect(state.getFilteredBucketPositions(line.bucketsToFetch)).toEqual(new Map([['global[]', '0']]));
+    expect(state.getFilteredBucketPositions(line.bucketsToFetch)).toEqual(new Map([['global[]', 0n]]));
 
     // This similuates the bucket data being sent
-    state.updateBucketPosition({ bucket: 'global[]', nextAfter: '1', hasMore: false });
+    state.updateBucketPosition({ bucket: 'global[]', nextAfter: 1n, hasMore: false });
 
     // Update bucket storage state
     storage.updateTestChecksum({ bucket: 'global[]', checksum: 2, count: 2 });
 
     // Now we get a new line
     const line2 = (await state.buildNextCheckpointLine({
-      base: { checkpoint: '2', lsn: '2' },
+      base: { checkpoint: 2n, lsn: '2' },
       writeCheckpoint: null,
       update: {
         updatedDataBuckets: ['global[]'],
@@ -103,7 +111,7 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(state.getFilteredBucketPositions(line2.bucketsToFetch)).toEqual(new Map([['global[]', '1']]));
+    expect(state.getFilteredBucketPositions(line2.bucketsToFetch)).toEqual(new Map([['global[]', 1n]]));
   });
 
   test('global bucket with initial state', async () => {
@@ -115,15 +123,16 @@ bucket_definitions:
     storage.updateTestChecksum({ bucket: 'global[]', checksum: 1, count: 1 });
 
     const state = new BucketChecksumState({
+      syncContext,
       // Client sets the initial state here
-      initialBucketPositions: [{ name: 'global[]', after: '1' }],
+      initialBucketPositions: [{ name: 'global[]', after: 1n }],
       syncParams: new RequestParameters({ sub: '' }, {}),
       syncRules: SYNC_RULES_GLOBAL,
       bucketStorage: storage
     });
 
     const line = (await state.buildNextCheckpointLine({
-      base: { checkpoint: '1', lsn: '1' },
+      base: { checkpoint: 1n, lsn: '1' },
       writeCheckpoint: null,
       update: CHECKPOINT_INVALIDATE_ALL
     }))!;
@@ -141,7 +150,7 @@ bucket_definitions:
       }
     ]);
     // This is the main difference between this and the previous test
-    expect(state.getFilteredBucketPositions(line.bucketsToFetch)).toEqual(new Map([['global[]', '1']]));
+    expect(state.getFilteredBucketPositions(line.bucketsToFetch)).toEqual(new Map([['global[]', 1n]]));
   });
 
   test('multiple static buckets', async () => {
@@ -151,13 +160,14 @@ bucket_definitions:
     storage.updateTestChecksum({ bucket: 'global[2]', checksum: 1, count: 1 });
 
     const state = new BucketChecksumState({
+      syncContext,
       syncParams: new RequestParameters({ sub: '' }, {}),
       syncRules: SYNC_RULES_GLOBAL_TWO,
       bucketStorage: storage
     });
 
     const line = (await state.buildNextCheckpointLine({
-      base: { checkpoint: '1', lsn: '1' },
+      base: { checkpoint: 1n, lsn: '1' },
       writeCheckpoint: null,
       update: CHECKPOINT_INVALIDATE_ALL
     }))!;
@@ -186,7 +196,7 @@ bucket_definitions:
     storage.updateTestChecksum({ bucket: 'global[2]', checksum: 2, count: 2 });
 
     const line2 = (await state.buildNextCheckpointLine({
-      base: { checkpoint: '2', lsn: '2' },
+      base: { checkpoint: 2n, lsn: '2' },
       writeCheckpoint: null,
       update: {
         ...CHECKPOINT_INVALIDATE_ALL,
@@ -214,8 +224,9 @@ bucket_definitions:
     const storage = new MockBucketChecksumStateStorage();
 
     const state = new BucketChecksumState({
+      syncContext,
       // Client sets the initial state here
-      initialBucketPositions: [{ name: 'something_here[]', after: '1' }],
+      initialBucketPositions: [{ name: 'something_here[]', after: 1n }],
       syncParams: new RequestParameters({ sub: '' }, {}),
       syncRules: SYNC_RULES_GLOBAL,
       bucketStorage: storage
@@ -224,7 +235,7 @@ bucket_definitions:
     storage.updateTestChecksum({ bucket: 'global[]', checksum: 1, count: 1 });
 
     const line = (await state.buildNextCheckpointLine({
-      base: { checkpoint: '1', lsn: '1' },
+      base: { checkpoint: 1n, lsn: '1' },
       writeCheckpoint: null,
       update: CHECKPOINT_INVALIDATE_ALL
     }))!;
@@ -241,7 +252,7 @@ bucket_definitions:
         priority: 3
       }
     ]);
-    expect(state.getFilteredBucketPositions(line.bucketsToFetch)).toEqual(new Map([['global[]', '0']]));
+    expect(state.getFilteredBucketPositions(line.bucketsToFetch)).toEqual(new Map([['global[]', 0n]]));
   });
 
   test('invalidating individual bucket', async () => {
@@ -253,6 +264,7 @@ bucket_definitions:
     storage.updateTestChecksum({ bucket: 'global[2]', checksum: 1, count: 1 });
 
     const state = new BucketChecksumState({
+      syncContext,
       syncParams: new RequestParameters({ sub: '' }, {}),
       syncRules: SYNC_RULES_GLOBAL_TWO,
       bucketStorage: storage
@@ -262,19 +274,19 @@ bucket_definitions:
     // storage.filter = state.checkpointFilter;
 
     await state.buildNextCheckpointLine({
-      base: { checkpoint: '1', lsn: '1' },
+      base: { checkpoint: 1n, lsn: '1' },
       writeCheckpoint: null,
       update: CHECKPOINT_INVALIDATE_ALL
     });
 
-    state.updateBucketPosition({ bucket: 'global[1]', nextAfter: '1', hasMore: false });
-    state.updateBucketPosition({ bucket: 'global[2]', nextAfter: '1', hasMore: false });
+    state.updateBucketPosition({ bucket: 'global[1]', nextAfter: 1n, hasMore: false });
+    state.updateBucketPosition({ bucket: 'global[2]', nextAfter: 1n, hasMore: false });
 
     storage.updateTestChecksum({ bucket: 'global[1]', checksum: 2, count: 2 });
     storage.updateTestChecksum({ bucket: 'global[2]', checksum: 2, count: 2 });
 
     const line2 = (await state.buildNextCheckpointLine({
-      base: { checkpoint: '2', lsn: '2' },
+      base: { checkpoint: 2n, lsn: '2' },
       writeCheckpoint: null,
       update: {
         ...CHECKPOINT_INVALIDATE_ALL,
@@ -304,6 +316,7 @@ bucket_definitions:
     const storage = new MockBucketChecksumStateStorage();
 
     const state = new BucketChecksumState({
+      syncContext,
       syncParams: new RequestParameters({ sub: '' }, {}),
       syncRules: SYNC_RULES_GLOBAL_TWO,
       bucketStorage: storage
@@ -317,7 +330,7 @@ bucket_definitions:
     storage.updateTestChecksum({ bucket: 'global[2]', checksum: 1, count: 1 });
 
     await state.buildNextCheckpointLine({
-      base: { checkpoint: '1', lsn: '1' },
+      base: { checkpoint: 1n, lsn: '1' },
       writeCheckpoint: null,
       update: CHECKPOINT_INVALIDATE_ALL
     });
@@ -326,7 +339,7 @@ bucket_definitions:
     storage.updateTestChecksum({ bucket: 'global[2]', checksum: 2, count: 2 });
 
     const line2 = (await state.buildNextCheckpointLine({
-      base: { checkpoint: '2', lsn: '2' },
+      base: { checkpoint: 2n, lsn: '2' },
       writeCheckpoint: null,
       // Invalidate the state - will re-check all buckets
       update: CHECKPOINT_INVALIDATE_ALL
@@ -355,13 +368,14 @@ bucket_definitions:
     storage.updateTestChecksum({ bucket: 'global[2]', checksum: 3, count: 3 });
 
     const state = new BucketChecksumState({
+      syncContext,
       syncParams: new RequestParameters({ sub: '' }, {}),
       syncRules: SYNC_RULES_GLOBAL_TWO,
       bucketStorage: storage
     });
 
     const line = (await state.buildNextCheckpointLine({
-      base: { checkpoint: '3', lsn: '3' },
+      base: { checkpoint: 3n, lsn: '3' },
       writeCheckpoint: null,
       update: CHECKPOINT_INVALIDATE_ALL
     }))!;
@@ -389,19 +403,19 @@ bucket_definitions:
     // This is the bucket data to be fetched
     expect(state.getFilteredBucketPositions(line.bucketsToFetch)).toEqual(
       new Map([
-        ['global[1]', '0'],
-        ['global[2]', '0']
+        ['global[1]', 0n],
+        ['global[2]', 0n]
       ])
     );
 
     // No data changes here.
     // We simulate partial data sent, before a checkpoint is interrupted.
-    state.updateBucketPosition({ bucket: 'global[1]', nextAfter: '3', hasMore: false });
-    state.updateBucketPosition({ bucket: 'global[2]', nextAfter: '1', hasMore: true });
+    state.updateBucketPosition({ bucket: 'global[1]', nextAfter: 3n, hasMore: false });
+    state.updateBucketPosition({ bucket: 'global[2]', nextAfter: 1n, hasMore: true });
     storage.updateTestChecksum({ bucket: 'global[1]', checksum: 4, count: 4 });
 
     const line2 = (await state.buildNextCheckpointLine({
-      base: { checkpoint: '4', lsn: '4' },
+      base: { checkpoint: 4n, lsn: '4' },
       writeCheckpoint: null,
       update: {
         ...CHECKPOINT_INVALIDATE_ALL,
@@ -438,8 +452,8 @@ bucket_definitions:
 
     expect(state.getFilteredBucketPositions(line2.bucketsToFetch)).toEqual(
       new Map([
-        ['global[1]', '3'],
-        ['global[2]', '1']
+        ['global[1]', 3n],
+        ['global[2]', 1n]
       ])
     );
   });
@@ -452,19 +466,23 @@ bucket_definitions:
     storage.updateTestChecksum({ bucket: 'by_project[3]', checksum: 1, count: 1 });
 
     const state = new BucketChecksumState({
+      syncContext,
       syncParams: new RequestParameters({ sub: 'u1' }, {}),
       syncRules: SYNC_RULES_DYNAMIC,
       bucketStorage: storage
     });
 
-    storage.getParameterSets = async (checkpoint: OpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]> => {
-      expect(checkpoint).toEqual('1');
+    storage.getParameterSets = async (
+      checkpoint: InternalOpId,
+      lookups: SqliteJsonValue[][]
+    ): Promise<SqliteJsonRow[]> => {
+      expect(checkpoint).toEqual(1n);
       expect(lookups).toEqual([['by_project', '1', 'u1']]);
       return [{ id: 1 }, { id: 2 }];
     };
 
     const line = (await state.buildNextCheckpointLine({
-      base: { checkpoint: '1', lsn: '1' },
+      base: { checkpoint: 1n, lsn: '1' },
       writeCheckpoint: null,
       update: CHECKPOINT_INVALIDATE_ALL
     }))!;
@@ -491,23 +509,26 @@ bucket_definitions:
     // This is the bucket data to be fetched
     expect(state.getFilteredBucketPositions(line.bucketsToFetch)).toEqual(
       new Map([
-        ['by_project[1]', '0'],
-        ['by_project[2]', '0']
+        ['by_project[1]', 0n],
+        ['by_project[2]', 0n]
       ])
     );
 
-    state.updateBucketPosition({ bucket: 'by_project[1]', nextAfter: '1', hasMore: false });
-    state.updateBucketPosition({ bucket: 'by_project[2]', nextAfter: '1', hasMore: false });
+    state.updateBucketPosition({ bucket: 'by_project[1]', nextAfter: 1n, hasMore: false });
+    state.updateBucketPosition({ bucket: 'by_project[2]', nextAfter: 1n, hasMore: false });
 
-    storage.getParameterSets = async (checkpoint: OpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]> => {
-      expect(checkpoint).toEqual('2');
+    storage.getParameterSets = async (
+      checkpoint: InternalOpId,
+      lookups: SqliteJsonValue[][]
+    ): Promise<SqliteJsonRow[]> => {
+      expect(checkpoint).toEqual(2n);
       expect(lookups).toEqual([['by_project', '1', 'u1']]);
       return [{ id: 1 }, { id: 2 }, { id: 3 }];
     };
 
     // Now we get a new line
     const line2 = (await state.buildNextCheckpointLine({
-      base: { checkpoint: '2', lsn: '2' },
+      base: { checkpoint: 2n, lsn: '2' },
       writeCheckpoint: null,
       update: {
         invalidateDataBuckets: false,
@@ -524,7 +545,7 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(state.getFilteredBucketPositions(line2.bucketsToFetch)).toEqual(new Map([['by_project[3]', '0']]));
+    expect(state.getFilteredBucketPositions(line2.bucketsToFetch)).toEqual(new Map([['by_project[3]', 0n]]));
   });
 });
 
@@ -543,7 +564,7 @@ class MockBucketChecksumStateStorage implements BucketChecksumStateStorage {
     this.filter?.({ invalidate: true });
   }
 
-  async getChecksums(checkpoint: OpId, buckets: string[]): Promise<ChecksumMap> {
+  async getChecksums(checkpoint: InternalOpId, buckets: string[]): Promise<ChecksumMap> {
     return new Map<string, BucketChecksum>(
       buckets.map((bucket) => {
         const checksum = this.state.get(bucket);
@@ -559,7 +580,7 @@ class MockBucketChecksumStateStorage implements BucketChecksumStateStorage {
     );
   }
 
-  async getParameterSets(checkpoint: OpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]> {
+  async getParameterSets(checkpoint: InternalOpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]> {
     throw new Error('Method not implemented.');
   }
 }

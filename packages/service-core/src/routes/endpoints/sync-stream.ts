@@ -21,7 +21,7 @@ export const syncStreamed = routeDefinition({
   validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
   handler: async (payload) => {
     const { service_context } = payload.context;
-    const { routerEngine, storageEngine, metricsEngine } = service_context;
+    const { routerEngine, storageEngine, metricsEngine, syncContext } = service_context;
     const headers = payload.request.headers;
     const userAgent = headers['x-user-agent'] ?? headers['user-agent'];
     const clientId = payload.params.client_id;
@@ -57,6 +57,7 @@ export const syncStreamed = routeDefinition({
         sync.transformToBytesTracked(
           sync.ndjson(
             sync.streamResponse({
+              syncContext: syncContext,
               bucketStorage,
               syncRules: syncRules,
               params,

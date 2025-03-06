@@ -7,6 +7,7 @@ import * as replication from '../replication/replication-index.js';
 import * as routes from '../routes/routes-index.js';
 import * as storage from '../storage/storage-index.js';
 import * as utils from '../util/util-index.js';
+import { SyncContext } from '../sync/SyncContext.js';
 
 export interface ServiceContext {
   configuration: utils.ResolvedPowerSyncConfig;
@@ -16,6 +17,7 @@ export interface ServiceContext {
   routerEngine: routes.RouterEngine | null;
   storageEngine: storage.StorageEngine;
   migrations: PowerSyncMigrationManager;
+  syncContext: SyncContext;
 }
 
 /**
@@ -26,6 +28,7 @@ export interface ServiceContext {
 export class ServiceContextContainer implements ServiceContext {
   lifeCycleEngine: LifeCycledSystem;
   storageEngine: storage.StorageEngine;
+  syncContext: SyncContext;
 
   constructor(public configuration: utils.ResolvedPowerSyncConfig) {
     this.lifeCycleEngine = new LifeCycledSystem();
@@ -37,6 +40,12 @@ export class ServiceContextContainer implements ServiceContext {
     this.lifeCycleEngine.withLifecycle(this.storageEngine, {
       start: (storageEngine) => storageEngine.start(),
       stop: (storageEngine) => storageEngine.shutDown()
+    });
+
+    this.syncContext = new SyncContext({
+      maxDataFetchConcurrency: configuration.api_parameters.max_data_fetch_concurrency,
+      maxBuckets: configuration.api_parameters.max_buckets_per_connection,
+      maxParameterQueryResults: configuration.api_parameters.max_parameter_query_results
     });
 
     const migrationManager = new MigrationManager();

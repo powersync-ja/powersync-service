@@ -182,7 +182,7 @@ bucket_definitions:
     // We specifically request the todo_ids for both lists.
     // There removal operation for the association of `list2`::`todo2` should not interfere with the new
     // association of `list1`::`todo2`
-    const parameters = await bucketStorage.getParameterSets(BigInt(result2!.flushed_op).toString(), [
+    const parameters = await bucketStorage.getParameterSets(result2!.flushed_op, [
       ['mybucket', '1', 'list1'],
       ['mybucket', '1', 'list2']
     ]);
@@ -323,9 +323,7 @@ bucket_definitions:
 
     const checkpoint = result!.flushed_op;
 
-    const batch = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]))
-    );
+    const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]])));
     const data = batch[0].batch.data.map((d) => {
       return {
         op: d.op,
@@ -622,9 +620,7 @@ bucket_definitions:
       });
     });
     const checkpoint = result!.flushed_op;
-    const batch = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]))
-    );
+    const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]])));
     const data = batch[0].batch.data.map((d) => {
       return {
         op: d.op,
@@ -688,9 +684,7 @@ bucket_definitions:
 
     const checkpoint = result!.flushed_op;
 
-    const batch = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]))
-    );
+    const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]])));
     const data = batch[0].batch.data.map((d) => {
       return {
         op: d.op,
@@ -805,9 +799,7 @@ bucket_definitions:
 
     const checkpoint = result!.flushed_op;
 
-    const batch = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]))
-    );
+    const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]])));
 
     const data = batch[0].batch.data.map((d) => {
       return {
@@ -918,7 +910,7 @@ bucket_definitions:
       });
     });
 
-    const checkpoint1 = result1?.flushed_op ?? '0';
+    const checkpoint1 = result1?.flushed_op ?? 0n;
 
     // Test batch
     const result2 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -1066,7 +1058,7 @@ bucket_definitions:
       });
     });
 
-    const checkpoint1 = result1?.flushed_op ?? '0';
+    const checkpoint1 = result1?.flushed_op ?? 0n;
 
     const result2 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       // Unchanged, but has a before id
@@ -1174,7 +1166,7 @@ bucket_definitions:
       });
     });
 
-    const checkpoint1 = result1?.flushed_op ?? '0';
+    const checkpoint1 = result1?.flushed_op ?? 0n;
 
     const result2 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       // Unchanged, but has a before id
@@ -1311,7 +1303,7 @@ bucket_definitions:
     };
 
     const batch1 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]), options)
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]), options)
     );
     expect(test_utils.getBatchData(batch1)).toEqual([
       { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 },
@@ -1324,7 +1316,7 @@ bucket_definitions:
     });
 
     const batch2 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', batch1[0].batch.next_after]]), options)
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', BigInt(batch1[0].batch.next_after)]]), options)
     );
     expect(test_utils.getBatchData(batch2)).toEqual([
       { op_id: '3', op: 'PUT', object_id: 'large2', checksum: 1795508474 },
@@ -1337,7 +1329,7 @@ bucket_definitions:
     });
 
     const batch3 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', batch2[0].batch.next_after]]), options)
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', BigInt(batch2[0].batch.next_after)]]), options)
     );
     expect(test_utils.getBatchData(batch3)).toEqual([]);
     expect(test_utils.getBatchMeta(batch3)).toEqual(null);
@@ -1375,7 +1367,7 @@ bucket_definitions:
     const checkpoint = result!.flushed_op;
 
     const batch1 = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', '0']]), { limit: 4 })
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]), { limit: 4 })
     );
 
     expect(test_utils.getBatchData(batch1)).toEqual([
@@ -1392,7 +1384,7 @@ bucket_definitions:
     });
 
     const batch2 = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', batch1.batch.next_after]]), {
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', BigInt(batch1.batch.next_after)]]), {
         limit: 4
       })
     );
@@ -1408,7 +1400,7 @@ bucket_definitions:
     });
 
     const batch3 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', batch2.batch.next_after]]), {
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', BigInt(batch2.batch.next_after)]]), {
         limit: 4
       })
     );
