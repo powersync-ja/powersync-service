@@ -8,15 +8,7 @@ import {
   ReplicationAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
-import {
-  BSON_DESERIALIZE_DATA_OPTIONS,
-  MetricsEngine,
-  ReplicationMetricType,
-  SaveOperationTag,
-  SourceEntityDescriptor,
-  SourceTable,
-  storage
-} from '@powersync/service-core';
+import { MetricsEngine, SaveOperationTag, SourceEntityDescriptor, SourceTable, storage } from '@powersync/service-core';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
@@ -24,6 +16,7 @@ import { escapeRegExp } from '../utils.js';
 import { MongoManager } from './MongoManager.js';
 import { constructAfterRecord, createCheckpoint, getCacheIdentifier, getMongoRelation } from './MongoRelation.js';
 import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
+import { ReplicationMetric } from '@powersync/service-types';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;
@@ -322,7 +315,7 @@ export class ChangeStream {
       }
 
       at += docBatch.length;
-      this.metrics.getCounter(ReplicationMetricType.ROWS_REPLICATED_TOTAL).add(docBatch.length);
+      this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED_TOTAL).add(docBatch.length);
       const duration = performance.now() - lastBatch;
       lastBatch = performance.now();
       logger.info(
@@ -450,7 +443,7 @@ export class ChangeStream {
       return null;
     }
 
-    this.metrics.getCounter(ReplicationMetricType.ROWS_REPLICATED_TOTAL).add(1);
+    this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED_TOTAL).add(1);
     if (change.operationType == 'insert') {
       const baseRecord = constructAfterRecord(change.fullDocument);
       return await batch.save({

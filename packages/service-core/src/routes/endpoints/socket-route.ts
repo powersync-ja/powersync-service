@@ -6,7 +6,8 @@ import * as sync from '../../sync/sync-index.js';
 import * as util from '../../util/util-index.js';
 import { SocketRouteGenerator } from '../router-socket.js';
 import { SyncRoutes } from './sync-stream.js';
-import { APIMetricType } from '../../api/api-metrics.js';
+
+import { APIMetric } from '@powersync/service-types';
 
 export const syncStreamReactive: SocketRouteGenerator = (router) =>
   router.reactiveStream<util.StreamingSyncRequest, any>(SyncRoutes.STREAM, {
@@ -69,7 +70,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         controller.abort();
       });
 
-      metricsEngine.getUpDownCounter(APIMetricType.CONCURRENT_CONNECTIONS).add(1);
+      metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(1);
       const tracker = new sync.RequestTracker(metricsEngine);
       try {
         for await (const data of sync.streamResponse({
@@ -146,7 +147,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
           operations_synced: tracker.operationsSynced,
           data_synced_bytes: tracker.dataSyncedBytes
         });
-        metricsEngine.getUpDownCounter(APIMetricType.CONCURRENT_CONNECTIONS).add(-1);
+        metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
       }
     }
   });

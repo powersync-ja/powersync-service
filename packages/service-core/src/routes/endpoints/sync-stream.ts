@@ -7,7 +7,8 @@ import * as util from '../../util/util-index.js';
 
 import { authUser } from '../auth.js';
 import { routeDefinition } from '../router.js';
-import { APIMetricType } from '../../api/api-metrics.js';
+
+import { APIMetric } from '@powersync/service-types';
 
 export enum SyncRoutes {
   STREAM = '/sync/stream'
@@ -51,7 +52,7 @@ export const syncStreamed = routeDefinition({
     const controller = new AbortController();
     const tracker = new sync.RequestTracker(metricsEngine);
     try {
-      metricsEngine.getUpDownCounter(APIMetricType.CONCURRENT_CONNECTIONS).add(1);
+      metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(1);
       const stream = Readable.from(
         sync.transformToBytesTracked(
           sync.ndjson(
@@ -95,7 +96,7 @@ export const syncStreamed = routeDefinition({
         data: stream,
         afterSend: async () => {
           controller.abort();
-          metricsEngine.getUpDownCounter(APIMetricType.CONCURRENT_CONNECTIONS).add(-1);
+          metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
           logger.info(`Sync stream complete`, {
             user_id: syncParams.user_id,
             client_id: clientId,
@@ -107,7 +108,7 @@ export const syncStreamed = routeDefinition({
       });
     } catch (ex) {
       controller.abort();
-      metricsEngine.getUpDownCounter(APIMetricType.CONCURRENT_CONNECTIONS).add(-1);
+      metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
     }
   }
 });

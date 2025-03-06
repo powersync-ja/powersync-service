@@ -1,5 +1,6 @@
 import { MetricsEngine } from '../metrics/MetricsEngine.js';
-import { APIMetricType } from '../api/api-metrics.js';
+
+import { APIMetric } from '@powersync/service-types';
 
 /**
  * Record sync stats per request stream.
@@ -15,12 +16,12 @@ export class RequestTracker {
   addOperationsSynced(operations: number) {
     this.operationsSynced += operations;
 
-    this.metrics.getCounter(APIMetricType.OPERATIONS_SYNCED_TOTAL).add(operations);
+    this.metrics.getCounter(APIMetric.OPERATIONS_SYNCED_TOTAL).add(operations);
   }
 
   addDataSynced(bytes: number) {
     this.dataSyncedBytes += bytes;
 
-    this.metrics.getCounter(APIMetricType.DATA_SYNCED_BYTES).add(bytes);
+    this.metrics.getCounter(APIMetric.DATA_SYNCED_BYTES).add(bytes);
   }
 }

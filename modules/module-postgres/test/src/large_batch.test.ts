@@ -1,4 +1,4 @@
-import { ReplicationMetricType, storage } from '@powersync/service-core';
+import { storage } from '@powersync/service-core';
 import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
 import { populateData } from '../../dist/utils/populate_test_data.js';
@@ -10,6 +10,7 @@ import {
 } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 import { METRICS_HELPER } from '@powersync/service-core-tests';
+import { ReplicationMetric } from '@powersync/service-types';
 
 describe.skipIf(!env.TEST_MONGO_STORAGE)('batch replication tests - mongodb', { timeout: 120_000 }, function () {
   // These are slow but consistent tests.
@@ -302,13 +303,12 @@ function defineBatchTests(factory: storage.TestStorageFactory) {
 
     let done = false;
 
-    const startRowCount =
-      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetricType.ROWS_REPLICATED_TOTAL)) ?? 0;
+    const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED_TOTAL)) ?? 0;
     try {
       (async () => {
         while (!done) {
           const count =
-            ((await METRICS_HELPER.getMetricValueForTests(ReplicationMetricType.ROWS_REPLICATED_TOTAL)) ?? 0) -
+            ((await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED_TOTAL)) ?? 0) -
             startRowCount;
 
           if (count >= stopAfter) {

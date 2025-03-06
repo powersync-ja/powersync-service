@@ -1,10 +1,11 @@
-import { ReplicationMetricType, storage } from '@powersync/service-core';
+import { storage } from '@powersync/service-core';
 import { METRICS_HELPER, putOp, removeOp } from '@powersync/service-core-tests';
 import { v4 as uuid } from 'uuid';
 import { describe, expect, test } from 'vitest';
 import { BinlogStreamTestContext } from './BinlogStreamUtils.js';
 import { env } from './env.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, INITIALIZED_POSTGRES_STORAGE_FACTORY } from './util.js';
+import { ReplicationMetric } from '@powersync/service-types';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -35,10 +36,9 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
 
     await context.replicateSnapshot();
 
-    const startRowCount =
-      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetricType.ROWS_REPLICATED_TOTAL)) ?? 0;
+    const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED_TOTAL)) ?? 0;
     const startTxCount =
-      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetricType.TRANSACTIONS_REPLICATED_TOTAL)) ?? 0;
+      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED_TOTAL)) ?? 0;
 
     context.startStreaming();
     const testId = uuid();
@@ -48,9 +48,9 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     const data = await context.getBucketData('global[]');
 
     expect(data).toMatchObject([putOp('test_data', { id: testId, description: 'test1', num: 1152921504606846976n })]);
-    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetricType.ROWS_REPLICATED_TOTAL)) ?? 0;
+    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED_TOTAL)) ?? 0;
     const endTxCount =
-      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetricType.TRANSACTIONS_REPLICATED_TOTAL)) ?? 0;
+      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED_TOTAL)) ?? 0;
     expect(endRowCount - startRowCount).toEqual(1);
     expect(endTxCount - startTxCount).toEqual(1);
   });
@@ -69,10 +69,9 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
 
     await context.replicateSnapshot();
 
-    const startRowCount =
-      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetricType.ROWS_REPLICATED_TOTAL)) ?? 0;
+    const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED_TOTAL)) ?? 0;
     const startTxCount =
-      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetricType.TRANSACTIONS_REPLICATED_TOTAL)) ?? 0;
+      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED_TOTAL)) ?? 0;
 
     context.startStreaming();
 
@@ -82,9 +81,9 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     const data = await context.getBucketData('global[]');
 
     expect(data).toMatchObject([putOp('test_DATA', { id: testId, description: 'test1' })]);
-    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetricType.ROWS_REPLICATED_TOTAL)) ?? 0;
+    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED_TOTAL)) ?? 0;
     const endTxCount =
-      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetricType.TRANSACTIONS_REPLICATED_TOTAL)) ?? 0;
+      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED_TOTAL)) ?? 0;
     expect(endRowCount - startRowCount).toEqual(1);
     expect(endTxCount - startTxCount).toEqual(1);
   });
@@ -174,12 +173,11 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     const testId = uuid();
     await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('${testId}','test1')`);
 
-    const startRowCount =
-      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetricType.ROWS_REPLICATED_TOTAL)) ?? 0;
+    const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED_TOTAL)) ?? 0;
 
     await context.replicateSnapshot();
 
-    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetricType.ROWS_REPLICATED_TOTAL)) ?? 0;
+    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED_TOTAL)) ?? 0;
     const data = await context.getBucketData('global[]');
     expect(data).toMatchObject([putOp('test_data', { id: testId, description: 'test1' })]);
     expect(endRowCount - startRowCount).toEqual(1);
@@ -234,10 +232,9 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
 
     await context.replicateSnapshot();
 
-    const startRowCount =
-      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetricType.ROWS_REPLICATED_TOTAL)) ?? 0;
+    const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED_TOTAL)) ?? 0;
     const startTxCount =
-      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetricType.TRANSACTIONS_REPLICATED_TOTAL)) ?? 0;
+      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED_TOTAL)) ?? 0;
 
     context.startStreaming();
 
@@ -264,9 +261,9 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
         timestamp: '2023-03-06T15:47:00.000Z'
       })
     ]);
-    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetricType.ROWS_REPLICATED_TOTAL)) ?? 0;
+    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED_TOTAL)) ?? 0;
     const endTxCount =
-      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetricType.TRANSACTIONS_REPLICATED_TOTAL)) ?? 0;
+      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED_TOTAL)) ?? 0;
     expect(endRowCount - startRowCount).toEqual(2);
     expect(endTxCount - startTxCount).toEqual(2);
   });
@@ -280,10 +277,9 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
 
     await context.replicateSnapshot();
 
-    const startRowCount =
-      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetricType.ROWS_REPLICATED_TOTAL)) ?? 0;
+    const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED_TOTAL)) ?? 0;
     const startTxCount =
-      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetricType.TRANSACTIONS_REPLICATED_TOTAL)) ?? 0;
+      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED_TOTAL)) ?? 0;
 
     context.startStreaming();
 
@@ -291,9 +287,9 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     const data = await context.getBucketData('global[]');
 
     expect(data).toMatchObject([]);
-    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetricType.ROWS_REPLICATED_TOTAL)) ?? 0;
+    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED_TOTAL)) ?? 0;
     const endTxCount =
-      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetricType.TRANSACTIONS_REPLICATED_TOTAL)) ?? 0;
+      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED_TOTAL)) ?? 0;
 
     // There was a transaction, but we should not replicate any actual data
     expect(endRowCount - startRowCount).toEqual(0);

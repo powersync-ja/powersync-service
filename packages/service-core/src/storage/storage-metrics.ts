@@ -1,40 +1,32 @@
 import { MetricsEngine } from '../metrics/MetricsEngine.js';
 import { logger } from '@powersync/lib-services-framework';
 import { BucketStorageFactory, StorageMetrics } from './BucketStorageFactory.js';
-
-export enum StorageMetricType {
-  // Size of current replication data stored in PowerSync
-  REPLICATION_SIZE_BYTES = 'powersync_replication_storage_size_bytes',
-  // Size of operations data stored in PowerSync
-  OPERATION_SIZE_BYTES = 'powersync_operation_storage_size_bytes',
-  // Size of parameter data stored in PowerSync
-  PARAMETER_SIZE_BYTES = 'powersync_parameter_storage_size_bytes'
-}
+import { StorageMetric } from '@powersync/service-types';
 
 export function createCoreStorageMetrics(engine: MetricsEngine): void {
   engine.createObservableGauge({
-    name: StorageMetricType.REPLICATION_SIZE_BYTES,
+    name: StorageMetric.REPLICATION_SIZE_BYTES,
     description: 'Size of current data stored in PowerSync',
     unit: 'bytes'
   });
 
   engine.createObservableGauge({
-    name: StorageMetricType.OPERATION_SIZE_BYTES,
+    name: StorageMetric.OPERATION_SIZE_BYTES,
     description: 'Size of operations stored in PowerSync',
     unit: 'bytes'
   });
 
   engine.createObservableGauge({
-    name: StorageMetricType.PARAMETER_SIZE_BYTES,
+    name: StorageMetric.PARAMETER_SIZE_BYTES,
     description: 'Size of parameter data stored in PowerSync',
     unit: 'bytes'
   });
 }
 
 export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: BucketStorageFactory): void {
-  const replication_storage_size_bytes = engine.getObservableGauge(StorageMetricType.REPLICATION_SIZE_BYTES);
-  const operation_storage_size_bytes = engine.getObservableGauge(StorageMetricType.OPERATION_SIZE_BYTES);
-  const parameter_storage_size_bytes = engine.getObservableGauge(StorageMetricType.PARAMETER_SIZE_BYTES);
+  const replication_storage_size_bytes = engine.getObservableGauge(StorageMetric.REPLICATION_SIZE_BYTES);
+  const operation_storage_size_bytes = engine.getObservableGauge(StorageMetric.OPERATION_SIZE_BYTES);
+  const parameter_storage_size_bytes = engine.getObservableGauge(StorageMetric.PARAMETER_SIZE_BYTES);
 
   const MINIMUM_INTERVAL = 60_000;
 

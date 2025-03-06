@@ -5,7 +5,6 @@ import {
   ConnectionTestResult,
   modules,
   replication,
-  ReplicationMetricType,
   system
 } from '@powersync/service-core';
 import * as jpgwire from '@powersync/service-jpgwire';
@@ -20,6 +19,7 @@ import { WalStreamReplicator } from '../replication/WalStreamReplicator.js';
 import * as types from '../types/types.js';
 import { PostgresConnectionConfig } from '../types/types.js';
 import { baseUri, NormalizedBasePostgresConnectionConfig } from '@powersync/lib-service-postgres';
+import { ReplicationMetric } from '@powersync/service-types';
 
 export class PostgresModule extends replication.ReplicationModule<types.PostgresConnectionConfig> {
   constructor() {
@@ -47,7 +47,7 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
     // Record replicated bytes using global jpgwire metrics.
     jpgwire.setMetricsRecorder({
       addBytesRead(bytes) {
-        context.metricsEngine.getCounter(ReplicationMetricType.DATA_REPLICATED_BYTES).add(bytes);
+        context.metricsEngine.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES).add(bytes);
       }
     });
   }

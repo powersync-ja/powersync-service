@@ -8,13 +8,7 @@ import {
   ReplicationAbortedError,
   ReplicationAssertionError
 } from '@powersync/lib-services-framework';
-import {
-  getUuidReplicaIdentityBson,
-  MetricsEngine,
-  ReplicationMetricType,
-  SourceEntityDescriptor,
-  storage
-} from '@powersync/service-core';
+import { getUuidReplicaIdentityBson, MetricsEngine, SourceEntityDescriptor, storage } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
 import * as pg_utils from '../utils/pgwire_utils.js';
@@ -22,6 +16,7 @@ import * as pg_utils from '../utils/pgwire_utils.js';
 import { PgManager } from './PgManager.js';
 import { getPgOutputRelation, getRelId } from './PgRelation.js';
 import { checkSourceConfiguration, getReplicationIdentityColumns } from './replication-utils.js';
+import { ReplicationMetric } from '@powersync/service-types';
 
 export interface WalStreamOptions {
   connections: PgManager;
@@ -484,7 +479,7 @@ WHERE  oid = $1::regclass`,
       }
 
       at += rows.length;
-      this.metrics.getCounter(ReplicationMetricType.ROWS_REPLICATED_TOTAL).add(rows.length);
+      this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED_TOTAL).add(rows.length);
 
       await touch();
     }
@@ -575,7 +570,7 @@ WHERE  oid = $1::regclass`,
       }
 
       if (msg.tag == 'insert') {
-        this.metrics.getCounter(ReplicationMetricType.ROWS_REPLICATED_TOTAL).add(1);
+        this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED_TOTAL).add(1);
         const baseRecord = pg_utils.constructAfterRecord(msg);
         return await batch.save({
           tag: storage.SaveOperationTag.INSERT,
@@ -586,7 +581,7 @@ WHERE  oid = $1::regclass`,
           afterReplicaId: getUuidReplicaIdentityBson(baseRecord, table.replicaIdColumns)
         });
       } else if (msg.tag == 'update') {
-        this.metrics.getCounter(ReplicationMetricType.ROWS_REPLICATED_TOTAL).add(1);
+        this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED_TOTAL).add(1);
         // "before" may be null if the replica id columns are unchanged
         // It's fine to treat that the same as an insert.
         const before = pg_utils.constructBeforeRecord(msg);
@@ -600,7 +595,7 @@ WHERE  oid = $1::regclass`,
           afterReplicaId: getUuidReplicaIdentityBson(after, table.replicaIdColumns)
         });
       } else if (msg.tag == 'delete') {
-        this.metrics.getCounter(ReplicationMetricType.ROWS_REPLICATED_TOTAL).add(1);
+        this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED_TOTAL).add(1);
         const before = pg_utils.constructBeforeRecord(msg)!;
 
         return await batch.save({
@@ -710,7 +705,7 @@ WHERE  oid = $1::regclass`,
             } else if (msg.tag == 'begin') {
               inTx = true;
             } else if (msg.tag == 'commit') {
-              this.metrics.getCounter(ReplicationMetricType.TRANSACTIONS_REPLICATED_TOTAL).add(1);
+              this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED_TOTAL).add(1);
               inTx = false;
               await batch.commit(msg.lsn!, { createEmptyCheckpoints });
               await this.ack(msg.lsn!, replicationStream);
@@ -752,7 +747,7 @@ WHERE  oid = $1::regclass`,
             await this.ack(chunkLastLsn, replicationStream);
           }
 
-          this.metrics.getCounter(ReplicationMetricType.CHUNKS_REPLICATED_TOTAL).add(1);
+          this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED_TOTAL).add(1);
         }
       }
     );
