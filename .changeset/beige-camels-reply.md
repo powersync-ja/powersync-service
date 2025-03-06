@@ -6,6 +6,7 @@
 '@powersync/service-module-mongodb': minor
 '@powersync/service-core': minor
 '@powersync/service-module-mysql': minor
+'@powersync/service-types': minor
 ---
 
 Refactored Metrics to use a MetricsEngine which is telemetry framework agnostic.
