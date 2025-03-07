@@ -13,17 +13,17 @@ export function createCoreReplicationMetrics(engine: MetricsEngine): void {
   });
 
   engine.createCounter({
-    name: ReplicationMetric.ROWS_REPLICATED_TOTAL,
+    name: ReplicationMetric.ROWS_REPLICATED,
     description: 'Total number of replicated rows'
   });
 
   engine.createCounter({
-    name: ReplicationMetric.TRANSACTIONS_REPLICATED_TOTAL,
+    name: ReplicationMetric.TRANSACTIONS_REPLICATED,
     description: 'Total number of replicated transactions'
   });
 
   engine.createCounter({
-    name: ReplicationMetric.CHUNKS_REPLICATED_TOTAL,
+    name: ReplicationMetric.CHUNKS_REPLICATED,
     description: 'Total number of replication chunks'
   });
 }
@@ -34,9 +34,9 @@ export function createCoreReplicationMetrics(engine: MetricsEngine): void {
  */
 export function initializeCoreReplicationMetrics(engine: MetricsEngine): void {
   const data_replicated_bytes = engine.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES);
-  const rows_replicated_total = engine.getCounter(ReplicationMetric.ROWS_REPLICATED_TOTAL);
-  const transactions_replicated_total = engine.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED_TOTAL);
-  const chunks_replicated_total = engine.getCounter(ReplicationMetric.CHUNKS_REPLICATED_TOTAL);
+  const rows_replicated_total = engine.getCounter(ReplicationMetric.ROWS_REPLICATED);
+  const transactions_replicated_total = engine.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED);
+  const chunks_replicated_total = engine.getCounter(ReplicationMetric.CHUNKS_REPLICATED);
 
   data_replicated_bytes.add(0);
   rows_replicated_total.add(0);

@@ -41,9 +41,8 @@ bucket_definitions:
 
     await context.replicateSnapshot();
 
-    const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED_TOTAL)) ?? 0;
-    const startTxCount =
-      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED_TOTAL)) ?? 0;
+    const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
+    const startTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
 
     context.startStreaming();
 
@@ -56,9 +55,8 @@ bucket_definitions:
     const data = await context.getBucketData('global[]');
 
     expect(data).toMatchObject([putOp('test_data', { id: test_id, description: 'test1', num: 1152921504606846976n })]);
-    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED_TOTAL)) ?? 0;
-    const endTxCount =
-      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED_TOTAL)) ?? 0;
+    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
+    const endTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
     expect(endRowCount - startRowCount).toEqual(1);
     expect(endTxCount - startTxCount).toEqual(1);
   });
@@ -78,9 +76,8 @@ bucket_definitions:
 
     await context.replicateSnapshot();
 
-    const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED_TOTAL)) ?? 0;
-    const startTxCount =
-      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED_TOTAL)) ?? 0;
+    const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
+    const startTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
 
     context.startStreaming();
 
@@ -91,9 +88,8 @@ bucket_definitions:
     const data = await context.getBucketData('global[]');
 
     expect(data).toMatchObject([putOp('test_DATA', { id: test_id, description: 'test1' })]);
-    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED_TOTAL)) ?? 0;
-    const endTxCount =
-      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED_TOTAL)) ?? 0;
+    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
+    const endTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
     expect(endRowCount - startRowCount).toEqual(1);
     expect(endTxCount - startTxCount).toEqual(1);
   });
@@ -275,9 +271,8 @@ bucket_definitions:
 
     await context.replicateSnapshot();
 
-    const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED_TOTAL)) ?? 0;
-    const startTxCount =
-      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED_TOTAL)) ?? 0;
+    const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
+    const startTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
 
     context.startStreaming();
 
@@ -288,9 +283,8 @@ bucket_definitions:
     const data = await context.getBucketData('global[]');
 
     expect(data).toMatchObject([]);
-    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED_TOTAL)) ?? 0;
-    const endTxCount =
-      (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED_TOTAL)) ?? 0;
+    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
+    const endTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
 
     // There was a transaction, but we should not replicate any actual data
     expect(endRowCount - startRowCount).toEqual(0);

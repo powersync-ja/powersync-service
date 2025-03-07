@@ -13,7 +13,7 @@ export function createCoreAPIMetrics(engine: MetricsEngine): void {
   });
 
   engine.createCounter({
-    name: APIMetric.OPERATIONS_SYNCED_TOTAL,
+    name: APIMetric.OPERATIONS_SYNCED,
     description: 'Number of operations synced'
   });
 

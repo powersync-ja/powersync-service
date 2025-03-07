@@ -303,13 +303,12 @@ function defineBatchTests(factory: storage.TestStorageFactory) {
 
     let done = false;
 
-    const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED_TOTAL)) ?? 0;
+    const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
     try {
       (async () => {
         while (!done) {
           const count =
-            ((await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED_TOTAL)) ?? 0) -
-            startRowCount;
+            ((await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0) - startRowCount;
 
           if (count >= stopAfter) {
             break;

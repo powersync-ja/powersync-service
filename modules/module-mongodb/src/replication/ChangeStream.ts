@@ -315,7 +315,7 @@ export class ChangeStream {
       }
 
       at += docBatch.length;
-      this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED_TOTAL).add(docBatch.length);
+      this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(docBatch.length);
       const duration = performance.now() - lastBatch;
       lastBatch = performance.now();
       logger.info(
@@ -443,7 +443,7 @@ export class ChangeStream {
       return null;
     }
 
-    this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED_TOTAL).add(1);
+    this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
     if (change.operationType == 'insert') {
       const baseRecord = constructAfterRecord(change.fullDocument);
       return await batch.save({

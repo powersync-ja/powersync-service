@@ -2,7 +2,7 @@ export enum APIMetric {
   // Uncompressed size of synced data from PowerSync to Clients
   DATA_SYNCED_BYTES = 'powersync_data_synced_bytes_total',
   // Number of operations synced
-  OPERATIONS_SYNCED_TOTAL = 'powersync_operations_synced_total',
+  OPERATIONS_SYNCED = 'powersync_operations_synced_total',
   // Number of concurrent sync connections
   CONCURRENT_CONNECTIONS = 'powersync_concurrent_connections'
 }
@@ -11,11 +11,11 @@ export enum ReplicationMetric {
   // Uncompressed size of replicated data from data source to PowerSync
   DATA_REPLICATED_BYTES = 'powersync_data_replicated_bytes_total',
   // Total number of replicated rows. Not used for pricing.
-  ROWS_REPLICATED_TOTAL = 'powersync_rows_replicated_total',
+  ROWS_REPLICATED = 'powersync_rows_replicated_total',
   // Total number of replicated transactions. Not used for pricing.
-  TRANSACTIONS_REPLICATED_TOTAL = 'powersync_transactions_replicated_total',
+  TRANSACTIONS_REPLICATED = 'powersync_transactions_replicated_total',
   // Total number of replication chunks. Not used for pricing.
-  CHUNKS_REPLICATED_TOTAL = 'powersync_chunks_replicated_total'
+  CHUNKS_REPLICATED = 'powersync_chunks_replicated_total'
 }
 
 export enum StorageMetric {

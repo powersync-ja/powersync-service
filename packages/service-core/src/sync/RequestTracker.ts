@@ -16,7 +16,7 @@ export class RequestTracker {
   addOperationsSynced(operations: number) {
     this.operationsSynced += operations;
 
-    this.metrics.getCounter(APIMetric.OPERATIONS_SYNCED_TOTAL).add(operations);
+    this.metrics.getCounter(APIMetric.OPERATIONS_SYNCED).add(operations);
   }
 
   addDataSynced(bytes: number) {

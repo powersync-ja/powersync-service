@@ -348,7 +348,7 @@ AND table_type = 'BASE TABLE';`,
         afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns)
       });
 
-      this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED_TOTAL).add(1);
+      this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
     }
     await batch.flush();
   }
@@ -475,7 +475,7 @@ AND table_type = 'BASE TABLE';`,
                 });
                 break;
               case zongji_utils.eventIsXid(evt):
-                this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED_TOTAL).add(1);
+                this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
                 // Need to commit with a replicated GTID with updated next position
                 await batch.commit(
                   new common.ReplicatedGTID({
@@ -620,7 +620,7 @@ AND table_type = 'BASE TABLE';`,
   ): Promise<storage.FlushedResult | null> {
     switch (payload.type) {
       case storage.SaveOperationTag.INSERT:
-        this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED_TOTAL).add(1);
+        this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
         const record = common.toSQLiteRow(payload.data, payload.columns);
         return await batch.save({
           tag: storage.SaveOperationTag.INSERT,
@@ -631,7 +631,7 @@ AND table_type = 'BASE TABLE';`,
           afterReplicaId: getUuidReplicaIdentityBson(record, payload.sourceTable.replicaIdColumns)
         });
       case storage.SaveOperationTag.UPDATE:
-        this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED_TOTAL).add(1);
+        this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
         // "before" may be null if the replica id columns are unchanged
         // It's fine to treat that the same as an insert.
         const beforeUpdated = payload.previous_data
@@ -651,7 +651,7 @@ AND table_type = 'BASE TABLE';`,
         });
 
       case storage.SaveOperationTag.DELETE:
-        this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED_TOTAL).add(1);
+        this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
         const beforeDeleted = common.toSQLiteRow(payload.data, payload.columns);
 
         return await batch.save({
