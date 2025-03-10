@@ -24,7 +24,7 @@ import { idPrefixFilter } from './util.js';
 /**
  * 15MB
  */
-const MAX_ROW_SIZE = 15 * 1024 * 1024;
+export const MAX_ROW_SIZE = 15 * 1024 * 1024;
 
 // Currently, we can only have a single flush() at a time, since it locks the op_id sequence.
 // While the MongoDB transaction retry mechanism handles this okay, using an in-process Mutex
