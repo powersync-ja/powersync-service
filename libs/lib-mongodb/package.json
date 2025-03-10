@@ -30,7 +30,7 @@
   "dependencies": {
     "@powersync/lib-services-framework": "workspace:*",
     "bson": "^6.10.3",
-    "mongodb": "^6.13.0",
+    "mongodb": "^6.14.1",
     "ts-codec": "^1.3.0",
     "uri-js": "^4.4.1"
   },
