@@ -5,7 +5,7 @@ import * as bson from 'bson';
 
 import { logger } from '@powersync/lib-services-framework';
 import { InternalOpId, storage, utils } from '@powersync/service-core';
-import { currentBucketKey } from './MongoBucketBatch.js';
+import { currentBucketKey, MAX_ROW_SIZE } from './MongoBucketBatch.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { PowerSyncMongo } from './db.js';
 import {
@@ -83,11 +83,20 @@ export class PersistedBatch {
 
     for (const k of options.evaluated) {
       const key = currentBucketKey(k);
-      remaining_buckets.delete(key);
 
       // INSERT
       const recordData = JSONBig.stringify(k.data);
       const checksum = utils.hashData(k.table, k.id, recordData);
+      if (recordData.length > MAX_ROW_SIZE) {
+        // In many cases, the raw data size would have been too large already. But there are cases where
+        // the BSON size is small enough, but the JSON size is too large.
+        // In these cases, we can't store the data, so we skip it, or generate a REMOVE operation if the row
+        // was synced previously.
+        logger.error(`powersync_${this.group_id} Row ${key} too large: ${recordData.length} bytes. Removing.`);
+        continue;
+      }
+
+      remaining_buckets.delete(key);
       this.currentSize += recordData.length + 200;
 
       const op_id = options.op_seq.next();
