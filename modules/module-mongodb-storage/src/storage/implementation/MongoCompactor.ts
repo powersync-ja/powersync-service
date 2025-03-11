@@ -314,10 +314,12 @@ export class MongoCompactor {
             let lastOpId: BucketDataKey | null = null;
             let targetOp: bigint | null = null;
             let gotAnOp = false;
+            let numberOfOpsToClear = 0;
             for await (let op of query.stream()) {
               if (op.op == 'MOVE' || op.op == 'REMOVE' || op.op == 'CLEAR') {
                 checksum = utils.addChecksums(checksum, op.checksum);
                 lastOpId = op._id;
+                numberOfOpsToClear += 1;
                 if (op.op != 'CLEAR') {
                   gotAnOp = true;
                 }
@@ -337,7 +339,7 @@ export class MongoCompactor {
               return;
             }
 
-            logger.info(`Flushing CLEAR at ${lastOpId?.o}`);
+            logger.info(`Flushing CLEAR for ${numberOfOpsToClear} ops at ${lastOpId?.o}`);
             await this.db.bucket_data.deleteMany(
               {
                 _id: {
@@ -359,6 +361,22 @@ export class MongoCompactor {
                 checksum: checksum,
                 data: null,
                 target_op: targetOp
+              },
+              { session }
+            );
+
+            // Note: This does not update anything if there is no existing state
+            await this.db.bucket_state.updateOne(
+              {
+                _id: {
+                  g: this.group_id,
+                  b: bucket
+                }
+              },
+              {
+                $inc: {
+                  op_count: 1 - numberOfOpsToClear
+                }
               },
               { session }
             );

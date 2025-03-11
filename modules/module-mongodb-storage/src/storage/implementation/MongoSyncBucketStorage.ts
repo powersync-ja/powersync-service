@@ -903,11 +903,6 @@ export class MongoSyncBucketStorage
       invalidateDataBuckets: invalidateDataBuckets,
       updatedDataBuckets: invalidateDataBuckets ? [] : buckets
     };
-
-    // return {
-    //   invalidateDataBuckets: true,
-    //   updatedDataBuckets: []
-    // };
   }
 
   private async getParameterBucketChanges(
