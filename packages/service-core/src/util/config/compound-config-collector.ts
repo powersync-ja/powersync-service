@@ -170,8 +170,7 @@ export class CompoundConfigCollector {
           baseConfig.api?.parameters?.max_data_fetch_concurrency ?? DEFAULT_MAX_DATA_FETCH_CONCURRENCY
       },
       // TODO maybe move this out of the connection or something
-      // slot_name_prefix: connections[0]?.slot_name_prefix ?? 'powersync_'
-      slot_name_prefix: 'powersync_',
+      slot_name_prefix: baseConfig.replication?.connections?.[0]?.slot_name_prefix ?? 'powersync_',
       parameters: baseConfig.parameters ?? {}
     };
 
