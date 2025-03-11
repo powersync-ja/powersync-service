@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 1.8.1
+
+### Patch Changes
+
+- 7348ea0: Use slot_name_prefix from the replication connection again.
+
 ## 1.8.0
 
 ### Minor Changes
