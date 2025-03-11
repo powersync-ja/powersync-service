@@ -947,7 +947,9 @@ export class MongoSyncBucketStorage
     max: 50,
     maxSize: 10 * 1024 * 1024,
     sizeCalculation: (value: CheckpointChanges) => {
-      return 100 + [...value.updatedParameterLookups].reduce<number>((a, b) => a + b.length, 0);
+      const paramSize = [...value.updatedParameterLookups].reduce<number>((a, b) => a + b.length, 0);
+      const bucketSize = [...value.updatedDataBuckets].reduce<number>((a, b) => a + b.length, 0);
+      return 100 + paramSize + bucketSize;
     },
     fetchMethod: async (_key, _staleValue, options) => {
       return this.getCheckpointChangesInternal(options.context.options);
