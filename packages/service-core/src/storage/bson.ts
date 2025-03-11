@@ -25,22 +25,20 @@ export const BSON_DESERIALIZE_DATA_OPTIONS: bson.DeserializeOptions = {
  * @param lookup
  */
 export const serializeLookupBuffer = (lookup: SqliteJsonValue[]): NodeBuffer => {
-  const normalized = lookup.map((value) => {
-    if (typeof value == 'number' && Number.isInteger(value)) {
-      return BigInt(value);
-    } else {
-      return value;
-    }
-  });
-  return bson.serialize({ l: normalized }) as NodeBuffer;
+  return bson.serialize({ l: lookup }) as NodeBuffer;
 };
 
 export const serializeLookup = (lookup: SqliteJsonValue[]) => {
   return new bson.Binary(serializeLookupBuffer(lookup));
 };
 
-export const getLookupBucketDefinitionName = (lookup: bson.Binary) => {
+export const deserializeParameterLookup = (lookup: bson.Binary) => {
   const parsed = bson.deserialize(lookup.buffer, BSON_DESERIALIZE_INTERNAL_OPTIONS).l as SqliteJsonValue[];
+  return parsed;
+};
+
+export const getLookupBucketDefinitionName = (lookup: bson.Binary) => {
+  const parsed = deserializeParameterLookup(lookup);
   return parsed[0] as string;
 };
 

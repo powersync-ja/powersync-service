@@ -7,6 +7,8 @@ import { ErrorCode, logger, ServiceAssertionError, ServiceError } from '@powersy
 import { BucketParameterQuerier } from '@powersync/service-sync-rules/src/BucketParameterQuerier.js';
 import { BucketSyncState } from './sync.js';
 import { SyncContext } from './SyncContext.js';
+import { JSONBig } from '@powersync/service-jsonbig';
+import { hasIntersection } from './util.js';
 
 export interface BucketChecksumStateOptions {
   syncContext: SyncContext;
@@ -269,6 +271,9 @@ export class BucketParameterState {
   private readonly querier: BucketParameterQuerier;
   private readonly staticBuckets: Map<string, BucketDescription>;
   private cachedDynamicBuckets: BucketDescription[] | null = null;
+  private cachedDynamicBucketSet: Set<string> | null = null;
+
+  private readonly lookups: Set<string>;
 
   constructor(
     context: SyncContext,
@@ -283,6 +288,7 @@ export class BucketParameterState {
 
     this.querier = syncRules.getBucketParameterQuerier(this.syncParams);
     this.staticBuckets = new Map<string, BucketDescription>(this.querier.staticBuckets.map((b) => [b.bucket, b]));
+    this.lookups = new Set<string>(this.querier.parameterQueryLookups.map((l) => JSONBig.stringify(l)));
   }
 
   async getCheckpointUpdate(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate | null> {
@@ -362,46 +368,61 @@ export class BucketParameterState {
     const staticBuckets = querier.staticBuckets;
     const update = checkpoint.update;
 
-    let hasDataChange = false;
     let hasParameterChange = false;
-    if (update.invalidateDataBuckets || update.updatedDataBuckets?.length > 0) {
-      hasDataChange = true;
+    let invalidateDataBuckets = false;
+    // If hasParameterChange == true, then invalidateDataBuckets = true
+    // If invalidateDataBuckets == true, we ignore updatedBuckets
+    let updatedBuckets = new Set<string>();
+
+    if (update.invalidateDataBuckets) {
+      invalidateDataBuckets = true;
     }
 
     if (update.invalidateParameterBuckets) {
       hasParameterChange = true;
     } else {
-      for (let bucket of update.updatedParameterBucketDefinitions) {
-        // This is a very coarse check, but helps
-        if (querier.dynamicBucketDefinitions.has(bucket)) {
-          hasParameterChange = true;
-          break;
-        }
+      if (hasIntersection(this.lookups, update.updatedParameterLookups)) {
+        // This is a very coarse re-check of all queries
+        hasParameterChange = true;
       }
     }
 
-    if (!hasDataChange && !hasParameterChange) {
-      return null;
-    }
-
     let dynamicBuckets: BucketDescription[];
-    if (hasParameterChange || this.cachedDynamicBuckets == null) {
+    if (hasParameterChange || this.cachedDynamicBuckets == null || this.cachedDynamicBucketSet == null) {
       dynamicBuckets = await querier.queryDynamicBucketDescriptions({
         getParameterSets(lookups) {
           return storage.getParameterSets(checkpoint.base.checkpoint, lookups);
         }
       });
       this.cachedDynamicBuckets = dynamicBuckets;
+      this.cachedDynamicBucketSet = new Set<string>(dynamicBuckets.map((b) => b.bucket));
+      invalidateDataBuckets = true;
     } else {
       dynamicBuckets = this.cachedDynamicBuckets;
+
+      if (!invalidateDataBuckets) {
+        // TODO: Do set intersection instead
+        for (let bucket of update.updatedDataBuckets ?? []) {
+          if (this.staticBuckets.has(bucket) || this.cachedDynamicBucketSet.has(bucket)) {
+            updatedBuckets.add(bucket);
+          }
+        }
+      }
     }
     const allBuckets = [...staticBuckets, ...dynamicBuckets];
 
-    return {
-      buckets: allBuckets,
-      // We cannot track individual bucket updates for dynamic lookups yet
-      updatedBuckets: null
-    };
+    if (invalidateDataBuckets) {
+      return {
+        buckets: allBuckets,
+        // We cannot track individual bucket updates for dynamic lookups yet
+        updatedBuckets: null
+      };
+    } else {
+      return {
+        buckets: allBuckets,
+        updatedBuckets: updatedBuckets
+      };
+    }
   }
 }
 

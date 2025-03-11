@@ -253,13 +253,14 @@ export interface GetCheckpointChangesOptions {
 export interface CheckpointChanges {
   updatedDataBuckets: string[];
   invalidateDataBuckets: boolean;
-  updatedParameterBucketDefinitions: string[];
+  /** Serialized using JSONBig */
+  updatedParameterLookups: Set<string>;
   invalidateParameterBuckets: boolean;
 }
 
 export const CHECKPOINT_INVALIDATE_ALL: CheckpointChanges = {
   updatedDataBuckets: [],
   invalidateDataBuckets: true,
-  updatedParameterBucketDefinitions: [],
+  updatedParameterLookups: new Set<string>(),
   invalidateParameterBuckets: true
 };

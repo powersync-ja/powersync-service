@@ -19,11 +19,11 @@ export interface BucketParameterQuerier {
    * True if there are dynamic buckets, meaning queryDynamicBucketDescriptions() should be used.
    *
    * If this is false, queryDynamicBucketDescriptions() will always return an empty array,
-   * and dynamicBucketDefinitions.size == 0.
+   * and parameterQueryLookups.length == 0.
    */
   readonly hasDynamicBuckets: boolean;
 
-  readonly dynamicBucketDefinitions: Set<string>;
+  readonly parameterQueryLookups: SqliteJsonValue[][];
 
   /**
    * These buckets depend on parameter storage, and needs to be retrieved dynamically for each checkpoint.
@@ -47,11 +47,11 @@ export interface QueryBucketDescriptorOptions extends ParameterLookupSource {
 }
 
 export function mergeBucketParameterQueriers(queriers: BucketParameterQuerier[]): BucketParameterQuerier {
-  const dynamicBucketDefinitions = new Set<string>(queriers.flatMap((q) => [...q.dynamicBucketDefinitions]));
+  const parameterQueryLookups = queriers.flatMap((q) => q.parameterQueryLookups);
   return {
     staticBuckets: queriers.flatMap((q) => q.staticBuckets),
-    hasDynamicBuckets: dynamicBucketDefinitions.size > 0,
-    dynamicBucketDefinitions,
+    hasDynamicBuckets: parameterQueryLookups.length > 0,
+    parameterQueryLookups: parameterQueryLookups,
     async queryDynamicBucketDescriptions(source: ParameterLookupSource) {
       let results: BucketDescription[] = [];
       for (let q of queriers) {

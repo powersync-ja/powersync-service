@@ -113,7 +113,7 @@ export class SqlBucketDescriptor {
     const staticQuerier = {
       staticBuckets,
       hasDynamicBuckets: false,
-      dynamicBucketDefinitions: new Set<string>(),
+      parameterQueryLookups: [],
       queryDynamicBucketDescriptions: async () => []
     } satisfies BucketParameterQuerier;
 

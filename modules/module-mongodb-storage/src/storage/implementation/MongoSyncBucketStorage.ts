@@ -18,7 +18,9 @@ import {
   ReplicationCheckpoint,
   storage,
   utils,
-  WatchWriteCheckpointOptions
+  WatchWriteCheckpointOptions,
+  CHECKPOINT_INVALIDATE_ALL,
+  deserializeParameterLookup
 } from '@powersync/service-core';
 import { SqliteJsonRow, SqliteJsonValue, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
@@ -39,6 +41,7 @@ import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { idPrefixFilter, mapOpEntry, readSingleBatch } from './util.js';
+import { JSONBig } from '@powersync/service-jsonbig';
 
 export class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
@@ -795,12 +798,7 @@ export class MongoSyncBucketStorage
 
       const updates: CheckpointChanges =
         lastCheckpoint == null
-          ? {
-              invalidateDataBuckets: true,
-              invalidateParameterBuckets: true,
-              updatedDataBuckets: [],
-              updatedParameterBucketDefinitions: []
-            }
+          ? CHECKPOINT_INVALIDATE_ALL
           : await this.getCheckpointChanges({
               lastCheckpoint: lastCheckpoint,
               nextCheckpoint: checkpoint
@@ -877,7 +875,7 @@ export class MongoSyncBucketStorage
     // Or we could store updated buckets in a separate collection, and query those.
     // For now, we ignore this optimization
 
-    // const dataBuckets = await this.db.bucket_data
+    // const dataBucketDocuments = await this.db.bucket_data
     //   .find(
     //     {
     //       '_id.g': this.group_id,
@@ -894,6 +892,14 @@ export class MongoSyncBucketStorage
     //   )
     //   .toArray();
 
+    // const buckets = dataBucketDocuments.map((doc) => doc._id.b);
+    // const invalidateDataBuckets = buckets.length > 1000;
+
+    // return {
+    //   invalidateDataBuckets: invalidateDataBuckets,
+    //   updatedDataBuckets: invalidateDataBuckets ? [] : buckets
+    // };
+
     return {
       invalidateDataBuckets: true,
       updatedDataBuckets: []
@@ -902,7 +908,7 @@ export class MongoSyncBucketStorage
 
   private async getParameterBucketChanges(
     options: GetCheckpointChangesOptions
-  ): Promise<Pick<CheckpointChanges, 'updatedParameterBucketDefinitions' | 'invalidateParameterBuckets'>> {
+  ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
     // TODO: limit max query running time
     const parameterUpdates = await this.db.bucket_parameters
       .find(
@@ -924,9 +930,9 @@ export class MongoSyncBucketStorage
 
     return {
       invalidateParameterBuckets: invalidateParameterUpdates,
-      updatedParameterBucketDefinitions: invalidateParameterUpdates
-        ? []
-        : [...new Set<string>(parameterUpdates.map((p) => getLookupBucketDefinitionName(p.lookup)))]
+      updatedParameterLookups: invalidateParameterUpdates
+        ? new Set<string>()
+        : new Set<string>(parameterUpdates.map((p) => JSONBig.stringify(deserializeParameterLookup(p.lookup))))
     };
   }
 
@@ -937,7 +943,7 @@ export class MongoSyncBucketStorage
     max: 50,
     maxSize: 10 * 1024 * 1024,
     sizeCalculation: (value: CheckpointChanges) => {
-      return 100 + value.updatedParameterBucketDefinitions.reduce<number>((a, b) => a + b.length, 0);
+      return 100 + [...value.updatedParameterLookups].reduce<number>((a, b) => a + b.length, 0);
     },
     fetchMethod: async (_key, _staleValue, options) => {
       return this.getCheckpointChangesInternal(options.context.options);
@@ -966,7 +972,7 @@ export class MongoSyncBucketStorage
         invalidateDataBuckets: true,
         updatedDataBuckets: [],
         invalidateParameterBuckets: false,
-        updatedParameterBucketDefinitions: []
+        updatedParameterLookups: new Set<string>()
       };
     }
     const key = `${options.lastCheckpoint}_${options.nextCheckpoint}`;

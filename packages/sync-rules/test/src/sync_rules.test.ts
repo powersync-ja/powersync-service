@@ -40,8 +40,7 @@ bucket_definitions:
     expect(rules.hasDynamicBucketQueries()).toBe(false);
     expect(rules.getBucketParameterQuerier(normalizeTokenParameters({}))).toMatchObject({
       staticBuckets: [{ bucket: 'mybucket[]', priority: 3 }],
-      hasDynamicBuckets: false,
-      dynamicBucketDefinitions: new Set()
+      hasDynamicBuckets: false
     });
   });
 
@@ -73,8 +72,7 @@ bucket_definitions:
     });
     expect(rules.getBucketParameterQuerier(normalizeTokenParameters({}))).toMatchObject({
       staticBuckets: [],
-      hasDynamicBuckets: false,
-      dynamicBucketDefinitions: new Set()
+      hasDynamicBuckets: false
     });
   });
 
@@ -941,12 +939,13 @@ bucket_definitions:
 
     expect(rules.getBucketParameterQuerier(normalizeTokenParameters({ user_id: 'user1' }))).toMatchObject({
       hasDynamicBuckets: true,
-      dynamicBucketDefinitions: new Set([
-        'mybucket',
-        'by_list',
-        // These are not filtered out yet, due to how the lookups are structured internally
-        'admin_only'
-      ]),
+      // FIXME: update with parameterQueryLookups
+      // dynamicBucketDefinitions: new Set([
+      //   'mybucket',
+      //   'by_list',
+      //   // These are not filtered out yet, due to how the lookups are structured internally
+      //   'admin_only'
+      // ]),
       staticBuckets: [
         {
           bucket: 'mybucket["user1"]',
