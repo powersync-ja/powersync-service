@@ -32,6 +32,7 @@ import { PowerSyncMongo } from './db.js';
 import {
   BucketDataDocument,
   BucketDataKey,
+  BucketStateDocument,
   SourceKey,
   SourceTableDocument,
   SyncRuleCheckpointState,
@@ -588,6 +589,13 @@ export class MongoSyncBucketStorage
       { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
     );
 
+    await this.db.bucket_state.deleteMany(
+      {
+        _id: idPrefixFilter<BucketStateDocument['_id']>({ g: this.group_id }, ['b'])
+      },
+      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+    );
+
     await this.db.source_tables.deleteMany(
       {
         group_id: this.group_id
@@ -870,40 +878,36 @@ export class MongoSyncBucketStorage
   private async getDataBucketChanges(
     options: GetCheckpointChangesOptions
   ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
-    // The query below can be slow, since we don't have an index on _id.o.
-    // We could try to query the oplog for these, but that is risky.
-    // Or we could store updated buckets in a separate collection, and query those.
-    // For now, we ignore this optimization
+    const bucketStateUpdates = await this.db.bucket_state
+      .find(
+        {
+          // We have an index on (_id.g, last_op).
+          '_id.g': this.group_id,
+          last_op: { $gt: BigInt(options.lastCheckpoint) }
+        },
+        {
+          projection: {
+            '_id.b': 1
+          },
+          limit: 1001,
+          batchSize: 1001,
+          singleBatch: true
+        }
+      )
+      .toArray();
 
-    // const dataBucketDocuments = await this.db.bucket_data
-    //   .find(
-    //     {
-    //       '_id.g': this.group_id,
-    //       '_id.o': { $gt: BigInt(options.lastCheckpoint), $lte: BigInt(options.nextCheckpoint) }
-    //     },
-    //     {
-    //       projection: {
-    //         '_id.b': 1
-    //       },
-    //       limit: 1001,
-    //       batchSize: 1001,
-    //       singleBatch: true
-    //     }
-    //   )
-    //   .toArray();
-
-    // const buckets = dataBucketDocuments.map((doc) => doc._id.b);
-    // const invalidateDataBuckets = buckets.length > 1000;
-
-    // return {
-    //   invalidateDataBuckets: invalidateDataBuckets,
-    //   updatedDataBuckets: invalidateDataBuckets ? [] : buckets
-    // };
+    const buckets = bucketStateUpdates.map((doc) => doc._id.b);
+    const invalidateDataBuckets = buckets.length > 1000;
 
     return {
-      invalidateDataBuckets: true,
-      updatedDataBuckets: []
+      invalidateDataBuckets: invalidateDataBuckets,
+      updatedDataBuckets: invalidateDataBuckets ? [] : buckets
     };
+
+    // return {
+    //   invalidateDataBuckets: true,
+    //   updatedDataBuckets: []
+    // };
   }
 
   private async getParameterBucketChanges(
