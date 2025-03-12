@@ -8,6 +8,7 @@ import {
   SyncContext,
   WatchFilterEvent
 } from '@/index.js';
+import { JSONBig } from '@powersync/service-jsonbig';
 import { RequestParameters, SqliteJsonRow, SqliteJsonValue, SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 
@@ -99,7 +100,7 @@ bucket_definitions:
       update: {
         updatedDataBuckets: ['global[]'],
         invalidateDataBuckets: false,
-        updatedParameterBucketDefinitions: [],
+        updatedParameterLookups: new Set(),
         invalidateParameterBuckets: false
       }
     }))!;
@@ -533,7 +534,7 @@ bucket_definitions:
       update: {
         invalidateDataBuckets: false,
         updatedDataBuckets: [],
-        updatedParameterBucketDefinitions: ['by_project'],
+        updatedParameterLookups: new Set([JSONBig.stringify(['by_project', '1', 'u1'])]),
         invalidateParameterBuckets: false
       }
     }))!;
