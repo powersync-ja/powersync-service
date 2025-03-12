@@ -273,7 +273,6 @@ AND table_type = 'BASE TABLE';`,
       );
       await promiseConnection.query<mysqlPromise.RowDataPacket[]>('START TRANSACTION');
       await promiseConnection.query(`SET time_zone = '+00:00'`);
-      await this.connections.end();
 
       const sourceTables = this.syncRules.getSourceTables();
       await this.storage.startBatch(
