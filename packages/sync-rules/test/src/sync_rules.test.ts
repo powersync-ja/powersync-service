@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { SqlSyncRules } from '../../src/index.js';
+import { ParameterLookup, SqlSyncRules } from '../../src/index.js';
 
 import { ASSETS, BASIC_SCHEMA, PARSE_OPTIONS, TestSourceTable, USERS, normalizeTokenParameters } from './util.js';
 
@@ -93,7 +93,7 @@ bucket_definitions:
     expect(rules.evaluateParameterRow(USERS, { id: 'user1', is_admin: 1 })).toEqual([
       {
         bucket_parameters: [{}],
-        lookup: ['mybucket', '1', 'user1']
+        lookup: ParameterLookup.normalized('mybucket', '1', ['user1'])
       }
     ]);
     expect(rules.evaluateParameterRow(USERS, { id: 'user1', is_admin: 0 })).toEqual([]);
