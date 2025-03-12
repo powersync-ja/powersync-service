@@ -939,13 +939,12 @@ bucket_definitions:
 
     expect(rules.getBucketParameterQuerier(normalizeTokenParameters({ user_id: 'user1' }))).toMatchObject({
       hasDynamicBuckets: true,
-      // FIXME: update with parameterQueryLookups
-      // dynamicBucketDefinitions: new Set([
-      //   'mybucket',
-      //   'by_list',
-      //   // These are not filtered out yet, due to how the lookups are structured internally
-      //   'admin_only'
-      // ]),
+      parameterQueryLookups: [
+        ParameterLookup.normalized('mybucket', '2', ['user1']),
+        ParameterLookup.normalized('by_list', '1', ['user1']),
+        // These are not filtered out yet, due to how the lookups are structured internally
+        ParameterLookup.normalized('admin_only', '1', [1])
+      ],
       staticBuckets: [
         {
           bucket: 'mybucket["user1"]',
