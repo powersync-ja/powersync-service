@@ -9,7 +9,7 @@ import {
   WatchFilterEvent
 } from '@/index.js';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { RequestParameters, SqliteJsonRow, SqliteJsonValue, SqlSyncRules } from '@powersync/service-sync-rules';
+import { RequestParameters, SqliteJsonRow, ParameterLookup, SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 
 describe('BucketChecksumState', () => {
@@ -475,10 +475,10 @@ bucket_definitions:
 
     storage.getParameterSets = async (
       checkpoint: InternalOpId,
-      lookups: SqliteJsonValue[][]
+      lookups: ParameterLookup[]
     ): Promise<SqliteJsonRow[]> => {
       expect(checkpoint).toEqual(1n);
-      expect(lookups).toEqual([['by_project', '1', 'u1']]);
+      expect(lookups).toEqual([ParameterLookup.normalized('by_project', '1', ['u1'])]);
       return [{ id: 1 }, { id: 2 }];
     };
 
@@ -520,10 +520,10 @@ bucket_definitions:
 
     storage.getParameterSets = async (
       checkpoint: InternalOpId,
-      lookups: SqliteJsonValue[][]
+      lookups: ParameterLookup[]
     ): Promise<SqliteJsonRow[]> => {
       expect(checkpoint).toEqual(2n);
-      expect(lookups).toEqual([['by_project', '1', 'u1']]);
+      expect(lookups).toEqual([ParameterLookup.normalized('by_project', '1', ['u1'])]);
       return [{ id: 1 }, { id: 2 }, { id: 3 }];
     };
 
@@ -581,7 +581,7 @@ class MockBucketChecksumStateStorage implements BucketChecksumStateStorage {
     );
   }
 
-  async getParameterSets(checkpoint: InternalOpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]> {
+  async getParameterSets(checkpoint: InternalOpId, lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
     throw new Error('Method not implemented.');
   }
 }

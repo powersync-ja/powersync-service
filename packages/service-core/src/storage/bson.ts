@@ -1,6 +1,6 @@
 import * as bson from 'bson';
 
-import { SqliteJsonValue } from '@powersync/service-sync-rules';
+import { ParameterLookup, SqliteJsonValue } from '@powersync/service-sync-rules';
 import { ReplicaId } from './BucketStorageBatch.js';
 
 type NodeBuffer = Buffer<ArrayBuffer>;
@@ -24,11 +24,11 @@ export const BSON_DESERIALIZE_DATA_OPTIONS: bson.DeserializeOptions = {
  * Lookup serialization must be number-agnostic. I.e. normalize numbers, instead of preserving numbers.
  * @param lookup
  */
-export const serializeLookupBuffer = (lookup: SqliteJsonValue[]): NodeBuffer => {
-  return bson.serialize({ l: lookup }) as NodeBuffer;
+export const serializeLookupBuffer = (lookup: ParameterLookup): NodeBuffer => {
+  return bson.serialize({ l: lookup.values }) as NodeBuffer;
 };
 
-export const serializeLookup = (lookup: SqliteJsonValue[]) => {
+export const serializeLookup = (lookup: ParameterLookup) => {
   return new bson.Binary(serializeLookupBuffer(lookup));
 };
 

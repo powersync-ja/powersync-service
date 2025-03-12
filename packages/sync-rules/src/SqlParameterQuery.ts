@@ -1,6 +1,6 @@
 import { parse, SelectedColumn } from 'pgsql-ast-parser';
 import { BucketDescription, BucketPriority, defaultBucketPriority } from './BucketDescription.js';
-import { BucketParameterQuerier, ParameterLookupSource } from './BucketParameterQuerier.js';
+import { BucketParameterQuerier, ParameterLookup, ParameterLookupSource } from './BucketParameterQuerier.js';
 import { SqlRuleError } from './errors.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SqlTools } from './sql_filters.js';
@@ -230,7 +230,7 @@ export class SqlParameterQuery {
         let lookup: SqliteJsonValue[] = [this.descriptor_name!, this.id!];
         lookup.push(
           ...this.input_parameters!.map((param) => {
-            return param.filteredRowToLookupValue(filterParamSet);
+            return normalizeParameterValue(param.filteredRowToLookupValue(filterParamSet));
           })
         );
 
@@ -238,7 +238,7 @@ export class SqlParameterQuery {
 
         const role: EvaluatedParameters = {
           bucket_parameters: data.map((row) => filterJsonRow(row)),
-          lookup: lookup
+          lookup: new ParameterLookup(lookup)
         };
         result.push(role);
       }
@@ -297,7 +297,7 @@ export class SqlParameterQuery {
    *
    * Each lookup is [bucket definition name, parameter query index, ...lookup values]
    */
-  getLookups(parameters: RequestParameters): SqliteJsonValue[][] {
+  getLookups(parameters: RequestParameters): ParameterLookup[] {
     if (!this.expanded_input_parameter) {
       let lookup: SqliteJsonValue[] = [this.descriptor_name!, this.id!];
 
@@ -318,7 +318,7 @@ export class SqlParameterQuery {
       if (!valid) {
         return [];
       }
-      return [lookup];
+      return [new ParameterLookup(lookup)];
     } else {
       const arrayString = this.expanded_input_parameter.parametersToLookupValue(parameters);
 
@@ -362,9 +362,9 @@ export class SqlParameterQuery {
             return null;
           }
 
-          return lookup;
+          return new ParameterLookup(lookup);
         })
-        .filter((lookup) => lookup != null) as SqliteJsonValue[][];
+        .filter((lookup) => lookup != null) as ParameterLookup[];
     }
   }
 

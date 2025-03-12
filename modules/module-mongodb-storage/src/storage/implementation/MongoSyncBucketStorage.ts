@@ -14,7 +14,6 @@ import {
   InternalOpId,
   internalToExternalOpId,
   ProtocolOpId,
-  getLookupBucketDefinitionName,
   ReplicationCheckpoint,
   storage,
   utils,
@@ -22,7 +21,7 @@ import {
   CHECKPOINT_INVALIDATE_ALL,
   deserializeParameterLookup
 } from '@powersync/service-core';
-import { SqliteJsonRow, SqliteJsonValue, SqlSyncRules } from '@powersync/service-sync-rules';
+import { SqliteJsonRow, ParameterLookup, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 import { LRUCache } from 'lru-cache';
@@ -158,7 +157,7 @@ export class MongoSyncBucketStorage
 
     await callback(batch);
     await batch.flush();
-    if (batch.last_flushed_op) {
+    if (batch.last_flushed_op != null) {
       return { flushed_op: batch.last_flushed_op };
     } else {
       return null;
@@ -256,7 +255,7 @@ export class MongoSyncBucketStorage
     return result!;
   }
 
-  async getParameterSets(checkpoint: utils.InternalOpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]> {
+  async getParameterSets(checkpoint: utils.InternalOpId, lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
     const lookupFilter = lookups.map((lookup) => {
       return storage.serializeLookup(lookup);
     });

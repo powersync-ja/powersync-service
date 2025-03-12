@@ -1,5 +1,5 @@
 import { ObserverClient } from '@powersync/lib-services-framework';
-import { SqlSyncRules, SqliteJsonRow, SqliteJsonValue } from '@powersync/service-sync-rules';
+import { ParameterLookup, SqlSyncRules, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
 import { BucketStorageBatch, FlushedResult } from './BucketStorageBatch.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
@@ -71,7 +71,7 @@ export interface SyncRulesBucketStorage
   /**
    * Used to resolve "dynamic" parameter queries.
    */
-  getParameterSets(checkpoint: util.InternalOpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]>;
+  getParameterSets(checkpoint: util.InternalOpId, lookups: ParameterLookup[]): Promise<SqliteJsonRow[]>;
 
   getCheckpointChanges(options: GetCheckpointChangesOptions): Promise<CheckpointChanges>;
 
