@@ -1,6 +1,6 @@
 import { parse, SelectedColumn } from 'pgsql-ast-parser';
 import { BucketDescription, BucketPriority, defaultBucketPriority } from './BucketDescription.js';
-import { BucketParameterQuerier, ParameterLookupSource } from './BucketParameterQuerier.js';
+import { BucketParameterQuerier, ParameterLookup, ParameterLookupSource } from './BucketParameterQuerier.js';
 import { SqlRuleError } from './errors.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SqlTools } from './sql_filters.js';
@@ -23,7 +23,7 @@ import {
   SqliteJsonValue,
   SqliteRow
 } from './types.js';
-import { filterJsonRow, getBucketId, isJsonValue, isSelectStatement } from './utils.js';
+import { filterJsonRow, getBucketId, isJsonValue, isSelectStatement, normalizeParameterValue } from './utils.js';
 
 /**
  * Represents a parameter query, such as:
@@ -230,7 +230,7 @@ export class SqlParameterQuery {
         let lookup: SqliteJsonValue[] = [this.descriptor_name!, this.id!];
         lookup.push(
           ...this.input_parameters!.map((param) => {
-            return param.filteredRowToLookupValue(filterParamSet);
+            return normalizeParameterValue(param.filteredRowToLookupValue(filterParamSet));
           })
         );
 
@@ -238,7 +238,7 @@ export class SqlParameterQuery {
 
         const role: EvaluatedParameters = {
           bucket_parameters: data.map((row) => filterJsonRow(row)),
-          lookup: lookup
+          lookup: new ParameterLookup(lookup)
         };
         result.push(role);
       }
@@ -297,7 +297,7 @@ export class SqlParameterQuery {
    *
    * Each lookup is [bucket definition name, parameter query index, ...lookup values]
    */
-  getLookups(parameters: RequestParameters): SqliteJsonValue[][] {
+  getLookups(parameters: RequestParameters): ParameterLookup[] {
     if (!this.expanded_input_parameter) {
       let lookup: SqliteJsonValue[] = [this.descriptor_name!, this.id!];
 
@@ -308,7 +308,7 @@ export class SqlParameterQuery {
           const value = param.parametersToLookupValue(parameters);
 
           if (isJsonValue(value)) {
-            return value;
+            return normalizeParameterValue(value);
           } else {
             valid = false;
             return null;
@@ -318,7 +318,7 @@ export class SqlParameterQuery {
       if (!valid) {
         return [];
       }
-      return [lookup];
+      return [new ParameterLookup(lookup)];
     } else {
       const arrayString = this.expanded_input_parameter.parametersToLookupValue(parameters);
 
@@ -339,17 +339,18 @@ export class SqlParameterQuery {
         .map((expandedValue) => {
           let lookup: SqliteJsonValue[] = [this.descriptor_name!, this.id!];
           let valid = true;
+          const normalizedExpandedValue = normalizeParameterValue(expandedValue);
           lookup.push(
             ...this.input_parameters!.map((param): SqliteJsonValue => {
               if (param == this.expanded_input_parameter) {
                 // Expand array value
-                return expandedValue;
+                return normalizedExpandedValue;
               } else {
                 // Scalar value
                 const value = param.parametersToLookupValue(parameters);
 
                 if (isJsonValue(value)) {
-                  return value;
+                  return normalizeParameterValue(value);
                 } else {
                   valid = false;
                   return null;
@@ -361,9 +362,9 @@ export class SqlParameterQuery {
             return null;
           }
 
-          return lookup;
+          return new ParameterLookup(lookup);
         })
-        .filter((lookup) => lookup != null) as SqliteJsonValue[][];
+        .filter((lookup) => lookup != null) as ParameterLookup[];
     }
   }
 
@@ -375,7 +376,7 @@ export class SqlParameterQuery {
       return {
         staticBuckets: [],
         hasDynamicBuckets: false,
-        dynamicBucketDefinitions: new Set<string>(),
+        parameterQueryLookups: [],
         queryDynamicBucketDescriptions: async () => []
       };
     }
@@ -383,7 +384,7 @@ export class SqlParameterQuery {
     return {
       staticBuckets: [],
       hasDynamicBuckets: true,
-      dynamicBucketDefinitions: new Set<string>([this.descriptor_name!]),
+      parameterQueryLookups: lookups,
       queryDynamicBucketDescriptions: async (source: ParameterLookupSource) => {
         const bucketParameters = await source.getParameterSets(lookups);
         return this.resolveBucketDescriptions(bucketParameters, requestParameters);

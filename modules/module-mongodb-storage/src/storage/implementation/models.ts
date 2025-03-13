@@ -75,6 +75,15 @@ export interface SourceTableDocument {
   snapshot_done: boolean | undefined;
 }
 
+export interface BucketStateDocument {
+  _id: {
+    g: number;
+    b: string;
+  };
+  last_op: bigint;
+  op_count: number;
+}
+
 export interface IdSequenceDocument {
   _id: string;
   op_id: bigint;

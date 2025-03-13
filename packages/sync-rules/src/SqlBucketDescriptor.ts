@@ -113,7 +113,7 @@ export class SqlBucketDescriptor {
     const staticQuerier = {
       staticBuckets,
       hasDynamicBuckets: false,
-      dynamicBucketDefinitions: new Set<string>(),
+      parameterQueryLookups: [],
       queryDynamicBucketDescriptions: async () => []
     } satisfies BucketParameterQuerier;
 
@@ -131,6 +131,10 @@ export class SqlBucketDescriptor {
       results.push(...query.getStaticBucketDescriptions(parameters));
     }
     return results;
+  }
+
+  hasDynamicBucketQueries(): boolean {
+    return this.parameter_queries.length > 0;
   }
 
   getSourceTables(): Set<TablePattern> {

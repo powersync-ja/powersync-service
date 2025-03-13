@@ -9,27 +9,29 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   BroadcastIterable,
-  CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
   ProtocolOpId,
   ReplicationCheckpoint,
-  SourceTable,
   storage,
   utils,
-  WatchWriteCheckpointOptions
+  WatchWriteCheckpointOptions,
+  CHECKPOINT_INVALIDATE_ALL,
+  deserializeParameterLookup
 } from '@powersync/service-core';
-import { SqliteJsonRow, SqliteJsonValue, SqlSyncRules } from '@powersync/service-sync-rules';
+import { SqliteJsonRow, ParameterLookup, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
+import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
 import {
   BucketDataDocument,
   BucketDataKey,
+  BucketStateDocument,
   SourceKey,
   SourceTableDocument,
   SyncRuleCheckpointState,
@@ -39,6 +41,7 @@ import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { idPrefixFilter, mapOpEntry, readSingleBatch } from './util.js';
+import { JSONBig } from '@powersync/service-jsonbig';
 
 export class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
@@ -154,7 +157,7 @@ export class MongoSyncBucketStorage
 
     await callback(batch);
     await batch.flush();
-    if (batch.last_flushed_op) {
+    if (batch.last_flushed_op != null) {
       return { flushed_op: batch.last_flushed_op };
     } else {
       return null;
@@ -252,7 +255,7 @@ export class MongoSyncBucketStorage
     return result!;
   }
 
-  async getParameterSets(checkpoint: utils.InternalOpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]> {
+  async getParameterSets(checkpoint: utils.InternalOpId, lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
     const lookupFilter = lookups.map((lookup) => {
       return storage.serializeLookup(lookup);
     });
@@ -585,6 +588,13 @@ export class MongoSyncBucketStorage
       { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
     );
 
+    await this.db.bucket_state.deleteMany(
+      {
+        _id: idPrefixFilter<BucketStateDocument['_id']>({ g: this.group_id }, ['b'])
+      },
+      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+    );
+
     await this.db.source_tables.deleteMany(
       {
         group_id: this.group_id
@@ -795,12 +805,7 @@ export class MongoSyncBucketStorage
 
       const updates: CheckpointChanges =
         lastCheckpoint == null
-          ? {
-              invalidateDataBuckets: true,
-              invalidateParameterBuckets: true,
-              updatedDataBuckets: [],
-              updatedParameterBucketDefinitions: []
-            }
+          ? CHECKPOINT_INVALIDATE_ALL
           : await this.getCheckpointChanges({
               lastCheckpoint: lastCheckpoint,
               nextCheckpoint: checkpoint
@@ -869,7 +874,119 @@ export class MongoSyncBucketStorage
     return pipeline;
   }
 
+  private async getDataBucketChanges(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
+    const bucketStateUpdates = await this.db.bucket_state
+      .find(
+        {
+          // We have an index on (_id.g, last_op).
+          '_id.g': this.group_id,
+          last_op: { $gt: BigInt(options.lastCheckpoint) }
+        },
+        {
+          projection: {
+            '_id.b': 1
+          },
+          limit: 1001,
+          batchSize: 1001,
+          singleBatch: true
+        }
+      )
+      .toArray();
+
+    const buckets = bucketStateUpdates.map((doc) => doc._id.b);
+    const invalidateDataBuckets = buckets.length > 1000;
+
+    return {
+      invalidateDataBuckets: invalidateDataBuckets,
+      updatedDataBuckets: invalidateDataBuckets ? [] : buckets
+    };
+  }
+
+  private async getParameterBucketChanges(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
+    // TODO: limit max query running time
+    const parameterUpdates = await this.db.bucket_parameters
+      .find(
+        {
+          _id: { $gt: BigInt(options.lastCheckpoint), $lt: BigInt(options.nextCheckpoint) },
+          'key.g': this.group_id
+        },
+        {
+          projection: {
+            lookup: 1
+          },
+          limit: 1001,
+          batchSize: 1001,
+          singleBatch: true
+        }
+      )
+      .toArray();
+    const invalidateParameterUpdates = parameterUpdates.length > 1000;
+
+    return {
+      invalidateParameterBuckets: invalidateParameterUpdates,
+      updatedParameterLookups: invalidateParameterUpdates
+        ? new Set<string>()
+        : new Set<string>(parameterUpdates.map((p) => JSONBig.stringify(deserializeParameterLookup(p.lookup))))
+    };
+  }
+
+  // TODO:
+  // We can optimize this by implementing it like ChecksumCache: We can use partial cache results to do
+  // more efficient lookups in some cases.
+  private checkpointChangesCache = new LRUCache<string, CheckpointChanges, { options: GetCheckpointChangesOptions }>({
+    max: 50,
+    maxSize: 10 * 1024 * 1024,
+    sizeCalculation: (value: CheckpointChanges) => {
+      const paramSize = [...value.updatedParameterLookups].reduce<number>((a, b) => a + b.length, 0);
+      const bucketSize = [...value.updatedDataBuckets].reduce<number>((a, b) => a + b.length, 0);
+      return 100 + paramSize + bucketSize;
+    },
+    fetchMethod: async (_key, _staleValue, options) => {
+      return this.getCheckpointChangesInternal(options.context.options);
+    }
+  });
+
+  private _hasDynamicBucketsCached: boolean | undefined = undefined;
+
+  private hasDynamicBucketQueries(): boolean {
+    if (this._hasDynamicBucketsCached != null) {
+      return this._hasDynamicBucketsCached;
+    }
+    const syncRules = this.getParsedSyncRules({
+      defaultSchema: 'default' // n/a
+    });
+    const hasDynamicBuckets = syncRules.hasDynamicBucketQueries();
+    this._hasDynamicBucketsCached = hasDynamicBuckets;
+    return hasDynamicBuckets;
+  }
+
   async getCheckpointChanges(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
-    return CHECKPOINT_INVALIDATE_ALL;
+    if (!this.hasDynamicBucketQueries()) {
+      // Special case when we have no dynamic parameter queries.
+      // In this case, we can avoid doing any queries.
+      return {
+        invalidateDataBuckets: true,
+        updatedDataBuckets: [],
+        invalidateParameterBuckets: false,
+        updatedParameterLookups: new Set<string>()
+      };
+    }
+    const key = `${options.lastCheckpoint}_${options.nextCheckpoint}`;
+    const result = await this.checkpointChangesCache.fetch(key, { context: { options } });
+    return result!;
+  }
+
+  private async getCheckpointChangesInternal(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
+    const dataUpdates = await this.getDataBucketChanges(options);
+    const parameterUpdates = await this.getParameterBucketChanges(options);
+
+    return {
+      ...dataUpdates,
+      ...parameterUpdates
+    };
   }
 }

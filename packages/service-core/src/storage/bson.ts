@@ -1,6 +1,6 @@
 import * as bson from 'bson';
 
-import { SqliteJsonValue } from '@powersync/service-sync-rules';
+import { ParameterLookup, SqliteJsonValue } from '@powersync/service-sync-rules';
 import { ReplicaId } from './BucketStorageBatch.js';
 
 type NodeBuffer = Buffer<ArrayBuffer>;
@@ -24,23 +24,21 @@ export const BSON_DESERIALIZE_DATA_OPTIONS: bson.DeserializeOptions = {
  * Lookup serialization must be number-agnostic. I.e. normalize numbers, instead of preserving numbers.
  * @param lookup
  */
-export const serializeLookupBuffer = (lookup: SqliteJsonValue[]): NodeBuffer => {
-  const normalized = lookup.map((value) => {
-    if (typeof value == 'number' && Number.isInteger(value)) {
-      return BigInt(value);
-    } else {
-      return value;
-    }
-  });
-  return bson.serialize({ l: normalized }) as NodeBuffer;
+export const serializeLookupBuffer = (lookup: ParameterLookup): NodeBuffer => {
+  return bson.serialize({ l: lookup.values }) as NodeBuffer;
 };
 
-export const serializeLookup = (lookup: SqliteJsonValue[]) => {
+export const serializeLookup = (lookup: ParameterLookup) => {
   return new bson.Binary(serializeLookupBuffer(lookup));
 };
 
-export const getLookupBucketDefinitionName = (lookup: bson.Binary) => {
+export const deserializeParameterLookup = (lookup: bson.Binary) => {
   const parsed = bson.deserialize(lookup.buffer, BSON_DESERIALIZE_INTERNAL_OPTIONS).l as SqliteJsonValue[];
+  return parsed;
+};
+
+export const getLookupBucketDefinitionName = (lookup: bson.Binary) => {
+  const parsed = deserializeParameterLookup(lookup);
   return parsed[0] as string;
 };
 

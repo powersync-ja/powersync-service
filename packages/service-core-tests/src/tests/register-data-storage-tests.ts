@@ -1,5 +1,5 @@
 import { getUuidReplicaIdentityBson, OplogEntry, storage } from '@powersync/service-core';
-import { RequestParameters } from '@powersync/service-sync-rules';
+import { ParameterLookup, RequestParameters } from '@powersync/service-sync-rules';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 
@@ -65,7 +65,9 @@ bucket_definitions:
       });
     });
 
-    const parameters = await bucketStorage.getParameterSets(result!.flushed_op, [['mybucket', '1', 'user1']]);
+    const parameters = await bucketStorage.getParameterSets(result!.flushed_op, [
+      ParameterLookup.normalized('mybucket', '1', ['user1'])
+    ]);
     expect(parameters).toEqual([
       {
         group_id: 'group1a'
@@ -110,7 +112,9 @@ bucket_definitions:
       });
     });
 
-    const parameters = await bucketStorage.getParameterSets(result2!.flushed_op, [['mybucket', '1', 'user1']]);
+    const parameters = await bucketStorage.getParameterSets(result2!.flushed_op, [
+      ParameterLookup.normalized('mybucket', '1', ['user1'])
+    ]);
     expect(parameters).toEqual([
       {
         group_id: 'group2'
@@ -118,7 +122,9 @@ bucket_definitions:
     ]);
 
     // Use the checkpoint to get older data if relevant
-    const parameters2 = await bucketStorage.getParameterSets(result1!.flushed_op, [['mybucket', '1', 'user1']]);
+    const parameters2 = await bucketStorage.getParameterSets(result1!.flushed_op, [
+      ParameterLookup.normalized('mybucket', '1', ['user1'])
+    ]);
     expect(parameters2).toEqual([
       {
         group_id: 'group1'
@@ -183,8 +189,8 @@ bucket_definitions:
     // There removal operation for the association of `list2`::`todo2` should not interfere with the new
     // association of `list1`::`todo2`
     const parameters = await bucketStorage.getParameterSets(result2!.flushed_op, [
-      ['mybucket', '1', 'list1'],
-      ['mybucket', '1', 'list2']
+      ParameterLookup.normalized('mybucket', '1', ['list1']),
+      ParameterLookup.normalized('mybucket', '1', ['list2'])
     ]);
 
     expect(parameters.sort((a, b) => (a.todo_id as string).localeCompare(b.todo_id as string))).toEqual([
@@ -230,11 +236,17 @@ bucket_definitions:
 
     const checkpoint = result!.flushed_op;
 
-    const parameters1 = await bucketStorage.getParameterSets(checkpoint, [['mybucket', '1', 314n, 314, 3.14]]);
+    const parameters1 = await bucketStorage.getParameterSets(checkpoint, [
+      ParameterLookup.normalized('mybucket', '1', [314n, 314, 3.14])
+    ]);
     expect(parameters1).toEqual([TEST_PARAMS]);
-    const parameters2 = await bucketStorage.getParameterSets(checkpoint, [['mybucket', '1', 314, 314n, 3.14]]);
+    const parameters2 = await bucketStorage.getParameterSets(checkpoint, [
+      ParameterLookup.normalized('mybucket', '1', [314, 314n, 3.14])
+    ]);
     expect(parameters2).toEqual([TEST_PARAMS]);
-    const parameters3 = await bucketStorage.getParameterSets(checkpoint, [['mybucket', '1', 314n, 314, 3]]);
+    const parameters3 = await bucketStorage.getParameterSets(checkpoint, [
+      ParameterLookup.normalized('mybucket', '1', [314n, 314, 3])
+    ]);
     expect(parameters3).toEqual([]);
   });
 
@@ -286,7 +298,9 @@ bucket_definitions:
 
     const checkpoint = result!.flushed_op;
 
-    const parameters1 = await bucketStorage.getParameterSets(checkpoint, [['mybucket', '1', 1152921504606846976n]]);
+    const parameters1 = await bucketStorage.getParameterSets(checkpoint, [
+      ParameterLookup.normalized('mybucket', '1', [1152921504606846976n])
+    ]);
     expect(parameters1).toEqual([TEST_PARAMS]);
   });
 
@@ -387,7 +401,7 @@ bucket_definitions:
     const q1 = sync_rules.bucket_descriptors[0].parameter_queries[0];
 
     const lookups = q1.getLookups(parameters);
-    expect(lookups).toEqual([['by_workspace', '1', 'u1']]);
+    expect(lookups).toEqual([ParameterLookup.normalized('by_workspace', '1', ['u1'])]);
 
     const parameter_sets = await bucketStorage.getParameterSets(checkpoint, lookups);
     expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }]);
@@ -457,7 +471,7 @@ bucket_definitions:
     const q1 = sync_rules.bucket_descriptors[0].parameter_queries[0];
 
     const lookups = q1.getLookups(parameters);
-    expect(lookups).toEqual([['by_public_workspace', '1']]);
+    expect(lookups).toEqual([ParameterLookup.normalized('by_public_workspace', '1', [])]);
 
     const parameter_sets = await bucketStorage.getParameterSets(checkpoint, lookups);
     parameter_sets.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
@@ -546,7 +560,7 @@ bucket_definitions:
     // Test intermediate values - could be moved to sync_rules.test.ts
     const q1 = sync_rules.bucket_descriptors[0].parameter_queries[0];
     const lookups1 = q1.getLookups(parameters);
-    expect(lookups1).toEqual([['by_workspace', '1']]);
+    expect(lookups1).toEqual([ParameterLookup.normalized('by_workspace', '1', [])]);
 
     const parameter_sets1 = await bucketStorage.getParameterSets(checkpoint, lookups1);
     parameter_sets1.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
@@ -554,7 +568,7 @@ bucket_definitions:
 
     const q2 = sync_rules.bucket_descriptors[0].parameter_queries[1];
     const lookups2 = q2.getLookups(parameters);
-    expect(lookups2).toEqual([['by_workspace', '2', 'u1']]);
+    expect(lookups2).toEqual([ParameterLookup.normalized('by_workspace', '2', ['u1'])]);
 
     const parameter_sets2 = await bucketStorage.getParameterSets(checkpoint, lookups2);
     parameter_sets2.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
@@ -861,7 +875,9 @@ bucket_definitions:
 
     const { checkpoint } = await bucketStorage.getCheckpoint();
 
-    const parameters = await bucketStorage.getParameterSets(checkpoint, [['mybucket', '1', 'user1']]);
+    const parameters = await bucketStorage.getParameterSets(checkpoint, [
+      ParameterLookup.normalized('mybucket', '1', ['user1'])
+    ]);
     expect(parameters).toEqual([]);
   });
 

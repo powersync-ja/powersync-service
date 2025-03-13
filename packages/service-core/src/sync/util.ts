@@ -153,3 +153,15 @@ export function settledPromise<T>(promise: Promise<T>): Promise<PromiseSettledRe
     }
   );
 }
+
+export function hasIntersection<T>(a: Set<T>, b: Set<T>) {
+  if (a.size > b.size) {
+    [a, b] = [b, a];
+  }
+  // Now, a is always smaller than b, so iterate over a
+  for (let value of a) {
+    if (b.has(value)) {
+      return true;
+    }
+  }
+}
