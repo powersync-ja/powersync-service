@@ -1,5 +1,16 @@
 # @powersync/service-module-postgres
 
+## 0.10.0
+
+### Minor Changes
+
+- f049f68: [Postgres] Only flush once per replicated chunk, increasing transaction replication throughput.
+
+### Patch Changes
+
+- Updated dependencies [f049f68]
+  - @powersync/service-core@1.9.0
+
 ## 0.9.1
 
 ### Patch Changes

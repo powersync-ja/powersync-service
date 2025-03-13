@@ -1,5 +1,12 @@
 # @powersync/service-module-mysql
 
+## 0.5.2
+
+### Patch Changes
+
+- Updated dependencies [f049f68]
+  - @powersync/service-core@1.9.0
+
 ## 0.5.1
 
 ### Patch Changes
