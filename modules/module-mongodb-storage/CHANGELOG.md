@@ -1,5 +1,15 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.7.1
+
+### Patch Changes
+
+- 7d1cd98: Skip large rows, rather than causing hard replication errors
+- Updated dependencies [7348ea0]
+- Updated dependencies [7d1cd98]
+  - @powersync/service-core@1.8.1
+  - @powersync/lib-service-mongodb@0.5.1
+
 ## 0.7.0
 
 ### Minor Changes
