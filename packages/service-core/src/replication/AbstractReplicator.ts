@@ -7,6 +7,7 @@ import { SyncRulesProvider } from '../util/config/sync-rules/sync-rules-provider
 import { AbstractReplicationJob } from './AbstractReplicationJob.js';
 import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 import { ConnectionTestResult } from './ReplicationModule.js';
+import { MetricsEngine } from '../metrics/MetricsEngine.js';
 
 // 5 minutes
 const PING_INTERVAL = 1_000_000_000n * 300n;
@@ -19,6 +20,7 @@ export interface CreateJobOptions {
 export interface AbstractReplicatorOptions {
   id: string;
   storageEngine: StorageEngine;
+  metricsEngine: MetricsEngine;
   syncRuleProvider: SyncRulesProvider;
   /**
    * This limits the effect of retries when there is a persistent issue.
@@ -33,6 +35,7 @@ export interface AbstractReplicatorOptions {
  */
 export abstract class AbstractReplicator<T extends AbstractReplicationJob = AbstractReplicationJob> {
   protected logger: winston.Logger;
+
   /**
    *  Map of replication jobs by sync rule id. Usually there is only one running job, but there could be two when
    *  transitioning to a new set of sync rules.
@@ -70,6 +73,10 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
   protected get rateLimiter() {
     return this.options.rateLimiter;
+  }
+
+  protected get metrics() {
+    return this.options.metricsEngine;
   }
 
   public async start(): Promise<void> {

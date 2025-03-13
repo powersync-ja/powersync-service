@@ -20,7 +20,7 @@ export const startUnifiedRunner = async (runnerConfig: core.utils.RunnerConfig) 
 
   await registerMetrics({
     service_context: serviceContext,
-    modes: [MetricModes.API, MetricModes.REPLICATION]
+    modes: [MetricModes.API, MetricModes.REPLICATION, MetricModes.STORAGE]
   });
 
   const moduleManager = container.getImplementation(core.modules.ModuleManager);

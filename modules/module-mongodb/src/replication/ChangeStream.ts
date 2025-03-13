@@ -8,14 +8,7 @@ import {
   ReplicationAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
-import {
-  BSON_DESERIALIZE_DATA_OPTIONS,
-  Metrics,
-  SaveOperationTag,
-  SourceEntityDescriptor,
-  SourceTable,
-  storage
-} from '@powersync/service-core';
+import { MetricsEngine, SaveOperationTag, SourceEntityDescriptor, SourceTable, storage } from '@powersync/service-core';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
@@ -23,10 +16,12 @@ import { escapeRegExp } from '../utils.js';
 import { MongoManager } from './MongoManager.js';
 import { constructAfterRecord, createCheckpoint, getCacheIdentifier, getMongoRelation } from './MongoRelation.js';
 import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
+import { ReplicationMetric } from '@powersync/service-types';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;
   storage: storage.SyncRulesBucketStorage;
+  metrics: MetricsEngine;
   abort_signal: AbortSignal;
 }
 
@@ -59,6 +54,7 @@ export class ChangeStream {
   private connections: MongoManager;
   private readonly client: mongo.MongoClient;
   private readonly defaultDb: mongo.Db;
+  private readonly metrics: MetricsEngine;
 
   private abort_signal: AbortSignal;
 
@@ -66,6 +62,7 @@ export class ChangeStream {
 
   constructor(options: ChangeStreamOptions) {
     this.storage = options.storage;
+    this.metrics = options.metrics;
     this.group_id = options.storage.group_id;
     this.connections = options.connections;
     this.client = this.connections.client;
@@ -318,7 +315,7 @@ export class ChangeStream {
       }
 
       at += docBatch.length;
-      Metrics.getInstance().rows_replicated_total.add(docBatch.length);
+      this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(docBatch.length);
       const duration = performance.now() - lastBatch;
       lastBatch = performance.now();
       logger.info(
@@ -446,7 +443,7 @@ export class ChangeStream {
       return null;
     }
 
-    Metrics.getInstance().rows_replicated_total.add(1);
+    this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
     if (change.operationType == 'insert') {
       const baseRecord = constructAfterRecord(change.fullDocument);
       return await batch.save({
