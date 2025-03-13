@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 1.9.0
+
+### Minor Changes
+
+- f049f68: [Postgres] Only flush once per replicated chunk, increasing transaction replication throughput.
+
 ## 1.8.1
 
 ### Patch Changes
