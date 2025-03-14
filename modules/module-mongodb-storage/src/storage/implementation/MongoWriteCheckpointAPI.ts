@@ -1,6 +1,8 @@
 import * as framework from '@powersync/lib-services-framework';
 import { storage, WatchUserWriteCheckpointOptions } from '@powersync/service-core';
 import { PowerSyncMongo } from './db.js';
+import { CustomWriteCheckpointDocument, WriteCheckpointDocument } from './models.js';
+import { mongo } from '@powersync/lib-service-mongodb';
 
 export type MongoCheckpointAPIOptions = {
   db: PowerSyncMongo;
@@ -108,11 +110,32 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     options: WatchUserWriteCheckpointOptions
   ): AsyncIterable<storage.WriteCheckpointResult> {
     // TODO: Share a single changestream across all users
+
+    let doc = null as WriteCheckpointDocument | null;
+    let clusterTime = null as mongo.Timestamp | null;
+
+    await this.db.client.withSession(async (session) => {
+      doc = await this.db.write_checkpoints.findOne(
+        {
+          user_id: user_id
+        },
+        {
+          session
+        }
+      );
+      const time = session.clusterTime?.clusterTime ?? null;
+      clusterTime = time;
+    });
+    if (clusterTime == null) {
+      throw new framework.ServiceAssertionError('Could not get clusterTime');
+    }
+
     const { user_id, signal } = options;
     const stream = this.db.write_checkpoints.watch(
       [{ $match: { 'fullDocument.user_id': user_id, operationType: { $in: ['insert', 'update', 'replace'] } } }],
       {
-        fullDocument: 'updateLookup'
+        fullDocument: 'updateLookup',
+        startAtOperationTime: clusterTime
       }
     );
 
@@ -125,14 +148,28 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
       return;
     }
 
+    let lastId = -1n;
+
+    if (doc != null) {
+      yield {
+        id: doc.client_id,
+        lsn: doc.lsns['1']
+      };
+      lastId = doc.client_id;
+    }
+
     for await (let event of stream) {
       if (!('fullDocument' in event) || event.fullDocument == null) {
         continue;
       }
-      yield {
-        id: event.fullDocument.client_id,
-        lsn: event.fullDocument.lsns['1']
-      };
+      // Guard against out-of-order events
+      if (event.fullDocument.client_id > lastId) {
+        yield {
+          id: event.fullDocument.client_id,
+          lsn: event.fullDocument.lsns['1']
+        };
+        lastId = event.fullDocument.client_id;
+      }
     }
   }
 
@@ -140,6 +177,27 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     options: WatchUserWriteCheckpointOptions
   ): AsyncIterable<storage.WriteCheckpointResult> {
     const { user_id, sync_rules_id, signal } = options;
+
+    let doc = null as CustomWriteCheckpointDocument | null;
+    let clusterTime = null as mongo.Timestamp | null;
+
+    await this.db.client.withSession(async (session) => {
+      doc = await this.db.custom_write_checkpoints.findOne(
+        {
+          user_id: user_id,
+          sync_rules_id: sync_rules_id
+        },
+        {
+          session
+        }
+      );
+      const time = session.clusterTime?.clusterTime ?? null;
+      clusterTime = time;
+    });
+    if (clusterTime == null) {
+      throw new framework.ServiceAssertionError('Could not get clusterTime');
+    }
+
     const stream = this.db.custom_write_checkpoints.watch(
       [
         {
@@ -151,7 +209,8 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
         }
       ],
       {
-        fullDocument: 'updateLookup'
+        fullDocument: 'updateLookup',
+        startAtOperationTime: clusterTime
       }
     );
 
@@ -164,14 +223,28 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
       return;
     }
 
+    let lastId = -1n;
+
+    if (doc != null) {
+      yield {
+        id: doc.checkpoint,
+        lsn: null
+      };
+      lastId = doc.checkpoint;
+    }
+
     for await (let event of stream) {
       if (!('fullDocument' in event) || event.fullDocument == null) {
         continue;
       }
-      yield {
-        id: event.fullDocument.checkpoint,
-        lsn: null
-      };
+      // Guard against out-of-order events
+      if (event.fullDocument.checkpoint > lastId) {
+        yield {
+          id: event.fullDocument.checkpoint,
+          lsn: null
+        };
+        lastId = event.fullDocument.checkpoint;
+      }
     }
   }
 
