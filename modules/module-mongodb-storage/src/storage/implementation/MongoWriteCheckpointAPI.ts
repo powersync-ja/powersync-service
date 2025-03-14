@@ -1,10 +1,10 @@
-import * as framework from '@powersync/lib-services-framework';
-import { IterableSource, storage, WatchUserWriteCheckpointOptions } from '@powersync/service-core';
-import { PowerSyncMongo } from './db.js';
-import { CustomWriteCheckpointDocument, WriteCheckpointDocument } from './models.js';
 import { mongo } from '@powersync/lib-service-mongodb';
+import * as framework from '@powersync/lib-services-framework';
+import { storage, WatchUserWriteCheckpointOptions } from '@powersync/service-core';
 import { AbortError } from 'ix/aborterror.js';
 import { AsyncSink } from 'ix/asynciterable/asynciterablex.js';
+import { PowerSyncMongo } from './db.js';
+import { CustomWriteCheckpointDocument, WriteCheckpointDocument } from './models.js';
 
 import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 
