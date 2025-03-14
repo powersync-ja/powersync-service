@@ -9,21 +9,23 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   BroadcastIterable,
+  CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
+  deserializeParameterLookup,
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
+  mergeAsyncIterables,
   ProtocolOpId,
   ReplicationCheckpoint,
   storage,
   utils,
   WatchWriteCheckpointOptions,
-  CHECKPOINT_INVALIDATE_ALL,
-  deserializeParameterLookup
+  WriteCheckpointResult
 } from '@powersync/service-core';
-import { SqliteJsonRow, ParameterLookup, SqlSyncRules } from '@powersync/service-sync-rules';
+import { JSONBig } from '@powersync/service-jsonbig';
+import { ParameterLookup, SqliteJsonRow, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
@@ -41,7 +43,6 @@ import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { idPrefixFilter, mapOpEntry, readSingleBatch } from './util.js';
-import { JSONBig } from '@powersync/service-jsonbig';
 
 export class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
@@ -772,28 +773,58 @@ export class MongoSyncBucketStorage
   /**
    * User-specific watch on the latest checkpoint and/or write checkpoint.
    */
-  async *watchWriteCheckpoint(options: WatchWriteCheckpointOptions): AsyncIterable<storage.StorageCheckpointUpdate> {
-    const { user_id, signal } = options;
+  async *watchCheckpointChanges(options: WatchWriteCheckpointOptions): AsyncIterable<storage.StorageCheckpointUpdate> {
+    const { signal } = options;
     let lastCheckpoint: utils.InternalOpId | null = null;
     let lastWriteCheckpoint: bigint | null = null;
+    let lastWriteCheckpointDoc: WriteCheckpointResult | null = null;
+    let nextWriteCheckpoint: bigint | null = null;
+    let lastCheckpointEvent: ReplicationCheckpoint | null = null;
 
-    const iter = wrapWithAbort(this.sharedIter, signal);
+    const writeCheckpointIter = this.writeCheckpointAPI.watchUserWriteCheckpoint({
+      user_id: options.user_id,
+      signal,
+      sync_rules_id: this.group_id
+    });
+    const iter = mergeAsyncIterables<ReplicationCheckpoint | storage.WriteCheckpointResult>(
+      [this.sharedIter, writeCheckpointIter],
+      signal
+    );
+
     for await (const event of iter) {
-      const { checkpoint, lsn } = event;
+      if ('checkpoint' in event) {
+        const { lsn } = event;
+        lastCheckpointEvent = event;
+      } else {
+        lastWriteCheckpointDoc = event;
+      }
+
+      if (lastCheckpointEvent == null) {
+        continue;
+      }
 
       // lsn changes are not important by itself.
       // What is important is:
       // 1. checkpoint (op_id) changes.
       // 2. write checkpoint changes for the specific user
 
-      const lsnFilters: Record<string, string> = lsn ? { 1: lsn } : {};
+      const lsn = lastCheckpointEvent?.lsn;
 
-      const currentWriteCheckpoint = await this.lastWriteCheckpoint({
-        user_id,
-        heads: {
-          ...lsnFilters
+      if (
+        lastWriteCheckpointDoc != null &&
+        (lastWriteCheckpointDoc.lsn == null || (lsn != null && lsn > lastWriteCheckpointDoc.lsn))
+      ) {
+        const writeCheckpoint = lastWriteCheckpointDoc.id;
+        if (nextWriteCheckpoint == null || writeCheckpoint > nextWriteCheckpoint) {
+          nextWriteCheckpoint = writeCheckpoint;
         }
-      });
+        // We used the doc - clear it
+        lastWriteCheckpointDoc = null;
+      }
+
+      const { checkpoint } = lastCheckpointEvent;
+
+      const currentWriteCheckpoint = nextWriteCheckpoint;
 
       if (currentWriteCheckpoint == lastWriteCheckpoint && checkpoint == lastCheckpoint) {
         // No change - wait for next one
@@ -815,7 +846,7 @@ export class MongoSyncBucketStorage
       lastCheckpoint = checkpoint;
 
       yield {
-        base: event,
+        base: lastCheckpointEvent,
         writeCheckpoint: currentWriteCheckpoint,
         update: updates
       };

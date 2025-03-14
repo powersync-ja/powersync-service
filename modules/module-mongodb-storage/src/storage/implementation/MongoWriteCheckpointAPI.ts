@@ -1,5 +1,5 @@
 import * as framework from '@powersync/lib-services-framework';
-import { storage } from '@powersync/service-core';
+import { storage, WatchUserWriteCheckpointOptions } from '@powersync/service-core';
 import { PowerSyncMongo } from './db.js';
 
 export type MongoCheckpointAPIOptions = {
@@ -90,6 +90,88 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
           );
         }
         return this.lastManagedWriteCheckpoint(filters);
+    }
+  }
+
+  async *watchUserWriteCheckpoint(
+    options: WatchUserWriteCheckpointOptions
+  ): AsyncIterable<storage.WriteCheckpointResult> {
+    switch (this.writeCheckpointMode) {
+      case storage.WriteCheckpointMode.CUSTOM:
+        return this.watchCustomWriteCheckpoint(options);
+      case storage.WriteCheckpointMode.MANAGED:
+        return this.watchManagedWriteCheckpoint(options);
+    }
+  }
+
+  async *watchManagedWriteCheckpoint(
+    options: WatchUserWriteCheckpointOptions
+  ): AsyncIterable<storage.WriteCheckpointResult> {
+    // TODO: Share a single changestream across all users
+    const { user_id, signal } = options;
+    const stream = this.db.write_checkpoints.watch(
+      [{ $match: { 'fullDocument.user_id': user_id, operationType: { $in: ['insert', 'update', 'replace'] } } }],
+      {
+        fullDocument: 'updateLookup'
+      }
+    );
+
+    signal.onabort = () => {
+      stream.close();
+    };
+
+    if (signal.aborted) {
+      stream.close();
+      return;
+    }
+
+    for await (let event of stream) {
+      if (!('fullDocument' in event) || event.fullDocument == null) {
+        continue;
+      }
+      yield {
+        id: event.fullDocument.client_id,
+        lsn: event.fullDocument.lsns['1']
+      };
+    }
+  }
+
+  async *watchCustomWriteCheckpoint(
+    options: WatchUserWriteCheckpointOptions
+  ): AsyncIterable<storage.WriteCheckpointResult> {
+    const { user_id, sync_rules_id, signal } = options;
+    const stream = this.db.custom_write_checkpoints.watch(
+      [
+        {
+          $match: {
+            'fullDocument.user_id': user_id,
+            'fullDocument.sync_rules_id': sync_rules_id,
+            operationType: { $in: ['insert', 'update', 'replace'] }
+          }
+        }
+      ],
+      {
+        fullDocument: 'updateLookup'
+      }
+    );
+
+    signal.onabort = () => {
+      stream.close();
+    };
+
+    if (signal.aborted) {
+      stream.close();
+      return;
+    }
+
+    for await (let event of stream) {
+      if (!('fullDocument' in event) || event.fullDocument == null) {
+        continue;
+      }
+      yield {
+        id: event.fullDocument.checkpoint,
+        lsn: null
+      };
     }
   }
 

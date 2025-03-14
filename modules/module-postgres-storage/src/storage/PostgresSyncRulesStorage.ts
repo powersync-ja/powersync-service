@@ -748,7 +748,7 @@ export class PostgresSyncRulesStorage
     return this.makeActiveCheckpoint(activeCheckpoint);
   }
 
-  async *watchWriteCheckpoint(options: WatchWriteCheckpointOptions): AsyncIterable<storage.StorageCheckpointUpdate> {
+  async *watchCheckpointChanges(options: WatchWriteCheckpointOptions): AsyncIterable<storage.StorageCheckpointUpdate> {
     let lastCheckpoint: utils.InternalOpId | null = null;
     let lastWriteCheckpoint: bigint | null = null;
 
