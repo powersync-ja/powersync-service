@@ -105,7 +105,7 @@ async function* streamResponseInner(
       after: BigInt(bucket.after)
     }))
   });
-  const stream = bucketStorage.watchWriteCheckpoint({
+  const stream = bucketStorage.watchCheckpointChanges({
     user_id: checkpointUserId,
     signal
   });
