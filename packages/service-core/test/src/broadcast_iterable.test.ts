@@ -1,4 +1,4 @@
-import { BroadcastIterable, IterableSource } from '@/sync/BroadcastIterable.js';
+import { BroadcastIterable, IterableSource } from '@/streams/BroadcastIterable.js';
 import { AsyncIterableX, interval } from 'ix/asynciterable/index.js';
 import { delayEach } from 'ix/asynciterable/operators/delayeach.js';
 import { take } from 'ix/asynciterable/operators/take.js';
