@@ -5,10 +5,10 @@ import { take } from 'ix/asynciterable/operators/take.js';
 import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 import { toArray } from 'ix/asynciterable/toarray.js';
 import * as timers from 'timers/promises';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 describe('BroadcastIterable', () => {
-  test('should iterate', async () => {
+  it('should iterate', async () => {
     const range = AsyncIterableX.from([1, 2, 3]);
     const broadcast = new BroadcastIterable(() => range);
 
@@ -17,7 +17,7 @@ describe('BroadcastIterable', () => {
     expect(broadcast.active).toBe(false);
   });
 
-  test('should skip values if sink is slow', async () => {
+  it('should skip values if sink is slow', async () => {
     const range = AsyncIterableX.from([1, 2, 3]);
     const broadcast = new BroadcastIterable(() => range);
 
@@ -30,7 +30,7 @@ describe('BroadcastIterable', () => {
     expect(broadcast.active).toBe(false);
   });
 
-  test('should abort', async () => {
+  it('should abort', async () => {
     const range = AsyncIterableX.from([1, 2, 3]);
     let recordedSignal: AbortSignal | undefined;
     const broadcast = new BroadcastIterable((signal) => {
@@ -46,7 +46,7 @@ describe('BroadcastIterable', () => {
     expect(recordedSignal!.aborted).toEqual(true);
   });
 
-  test('should handle indefinite sources', async () => {
+  it('should handle indefinite sources', async () => {
     const source: IterableSource<number> = (signal) => {
       return wrapWithAbort(interval(1), signal);
     };
@@ -65,7 +65,7 @@ describe('BroadcastIterable', () => {
     expect(broadcast.active).toBe(false);
   });
 
-  test('should handle multiple subscribers', async () => {
+  it('should handle multiple subscribers', async () => {
     let sourceIndex = 0;
     const source = async function* (signal: AbortSignal) {
       // Test value out by 1000 means it may have used the wrong iteration of the source
@@ -111,7 +111,7 @@ describe('BroadcastIterable', () => {
     expect(results3[4]).toBeLessThan(2145);
   });
 
-  test('should handle errors on multiple subscribers', async () => {
+  it('should handle errors on multiple subscribers', async () => {
     let sourceIndex = 0;
     const source = async function* (signal: AbortSignal) {
       // Test value out by 1000 means it may have used the wrong iteration of the source

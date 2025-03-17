@@ -14,7 +14,16 @@ export interface DemultiplexerValue<T> {
 }
 
 export interface DemultiplexerSource<T> {
+  /**
+   * The async iterator providing a stream of values.
+   */
   iterator: AsyncIterable<DemultiplexerValue<T>>;
+
+  /**
+   * Fetches the first value for a given key.
+   *
+   * This is used to get an initial value for each subscription.
+   */
   getFirstValue(key: string): Promise<T>;
 }
 
@@ -144,7 +153,7 @@ export class Demultiplexer<T> {
     try {
       const firstValue = await source.getFirstValue(key);
       yield firstValue;
-      yield* wrapWithAbort(sink, signal);
+      yield* sink.withSignal(signal);
     } finally {
       this.removeSink(key, sink);
     }
