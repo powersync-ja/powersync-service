@@ -815,12 +815,12 @@ export class PostgresSyncRulesStorage
     const sink = new LastValueSink<string>(undefined);
 
     const disposeListener = this.db.registerListener({
-      notification: (notification) => sink.next(notification.payload)
+      notification: (notification) => sink.write(notification.payload)
     });
 
     signal.addEventListener('aborted', async () => {
       disposeListener();
-      sink.complete();
+      sink.end();
     });
 
     yield this.makeActiveCheckpoint(doc);

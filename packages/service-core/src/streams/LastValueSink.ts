@@ -17,7 +17,7 @@ export class LastValueSink<T> implements AsyncIterable<T> {
     }
   }
 
-  next(value: T) {
+  write(value: T) {
     this.push({
       value,
       done: false,
@@ -25,7 +25,7 @@ export class LastValueSink<T> implements AsyncIterable<T> {
     });
   }
 
-  complete() {
+  end() {
     this.push({
       value: undefined,
       done: true,

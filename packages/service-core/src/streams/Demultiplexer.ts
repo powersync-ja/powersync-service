@@ -1,6 +1,6 @@
 import { AbortError } from 'ix/aborterror.js';
-import { AsyncSink } from 'ix/asynciterable/asynciterablex.js';
 import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
+import { LastValueSink } from './LastValueSink.js';
 
 export interface DemultiplexerValue<T> {
   /**
@@ -28,17 +28,16 @@ export type DemultiplexerSourceFactory<T> = (signal: AbortSignal) => Demultiplex
  * 1. We only start subscribing when there is a downstream subscriber.
  * 2. When all downstream subscriptions have ended, we end the source subscription.
  *
- * The Demultiplexer does not handle backpressure. If subscribers are slow, a queue may build up
- * for each.
+ * For each subscriber, if backpressure builds up, we only keep the _last_ value.
  */
 export class Demultiplexer<T> {
-  private subscribers: Map<string, Set<AsyncSink<T>>> | undefined = undefined;
+  private subscribers: Map<string, Set<LastValueSink<T>>> | undefined = undefined;
   private abortController: AbortController | undefined = undefined;
   private currentSource: DemultiplexerSource<T> | undefined = undefined;
 
   constructor(private source: DemultiplexerSourceFactory<T>) {}
 
-  private start(filter: string, sink: AsyncSink<T>) {
+  private start(filter: string, sink: LastValueSink<T>) {
     const abortController = new AbortController();
     const listeners = new Map();
     listeners.set(filter, new Set([sink]));
@@ -55,7 +54,7 @@ export class Demultiplexer<T> {
   private async loop(
     source: DemultiplexerSource<T>,
     abortController: AbortController,
-    sinks: Map<string, Set<AsyncSink<T>>>
+    sinks: Map<string, Set<LastValueSink<T>>>
   ) {
     try {
       for await (let doc of source.iterator) {
@@ -98,7 +97,7 @@ export class Demultiplexer<T> {
     }
   }
 
-  private removeSink(key: string, sink: AsyncSink<T>) {
+  private removeSink(key: string, sink: LastValueSink<T>) {
     const existing = this.subscribers?.get(key);
     if (existing == null) {
       return;
@@ -118,7 +117,7 @@ export class Demultiplexer<T> {
     }
   }
 
-  private addSink(key: string, sink: AsyncSink<T>) {
+  private addSink(key: string, sink: LastValueSink<T>) {
     if (this.currentSource == null) {
       return this.start(key, sink);
     } else {
@@ -139,7 +138,7 @@ export class Demultiplexer<T> {
    * @param signal
    */
   async *subscribe(key: string, signal: AbortSignal): AsyncIterable<T> {
-    const sink = new AsyncSink<T>();
+    const sink = new LastValueSink<T>(undefined);
     // Important that we register the sink before calling getFirstValue().
     const source = this.addSink(key, sink);
     try {
