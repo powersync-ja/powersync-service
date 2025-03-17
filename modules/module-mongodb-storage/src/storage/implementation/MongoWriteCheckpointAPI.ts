@@ -1,9 +1,14 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import * as framework from '@powersync/lib-services-framework';
-import { storage, WatchUserWriteCheckpointOptions, WriteCheckpointResult } from '@powersync/service-core';
+import {
+  Demultiplexer,
+  DemultiplexerValue,
+  storage,
+  WatchUserWriteCheckpointOptions,
+  WriteCheckpointResult
+} from '@powersync/service-core';
 import { PowerSyncMongo } from './db.js';
 import { CustomWriteCheckpointDocument, WriteCheckpointDocument } from './models.js';
-import { Demultiplexer, DemultiplexerValue } from '@powersync/service-core/src/streams/Demultiplexer.js';
 
 export type MongoCheckpointAPIOptions = {
   db: PowerSyncMongo;
