@@ -1,5 +1,14 @@
 # @powersync/service-module-mysql
 
+## 0.5.2
+
+### Patch Changes
+
+- 8601d6c: [MySQL] Fix errors being hidden by ROLLBACK failure
+- Updated dependencies [f049f68]
+- Updated dependencies [8601d6c]
+  - @powersync/service-core@1.9.0
+
 ## 0.5.1
 
 ### Patch Changes
