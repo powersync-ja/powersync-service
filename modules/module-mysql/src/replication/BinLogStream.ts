@@ -136,7 +136,7 @@ export class BinLogStream {
           await this.snapshotTable(connection.connection, batch, result.table);
           await promiseConnection.query('COMMIT');
         } catch (e) {
-          await promiseConnection.query('ROLLBACK');
+          await tryRollback(promiseConnection);
           throw e;
         }
       } finally {
@@ -292,7 +292,7 @@ AND table_type = 'BASE TABLE';`,
       logger.info(`Initial replication done`);
       await promiseConnection.query('COMMIT');
     } catch (e) {
-      await promiseConnection.query('ROLLBACK');
+      await tryRollback(promiseConnection);
       throw e;
     } finally {
       connection.release();
@@ -651,5 +651,13 @@ AND table_type = 'BASE TABLE';`,
       default:
         return null;
     }
+  }
+}
+
+async function tryRollback(promiseConnection: mysqlPromise.Connection) {
+  try {
+    await promiseConnection.query('ROLLBACK');
+  } catch (e) {
+    logger.error('Failed to rollback transaction', e);
   }
 }

@@ -1,5 +1,14 @@
 # @powersync/service-module-mongodb
 
+## 0.7.2
+
+### Patch Changes
+
+- 535e708: Increase connection timeouts for MongoDB "Test Connection".
+- Updated dependencies [f049f68]
+- Updated dependencies [8601d6c]
+  - @powersync/service-core@1.9.0
+
 ## 0.7.1
 
 ### Patch Changes
