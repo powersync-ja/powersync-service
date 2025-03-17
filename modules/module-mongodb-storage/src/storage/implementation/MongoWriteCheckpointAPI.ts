@@ -1,6 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import * as framework from '@powersync/lib-services-framework';
-import { storage, WatchUserWriteCheckpointOptions } from '@powersync/service-core';
+import { storage, WatchUserWriteCheckpointOptions, WriteCheckpointResult } from '@powersync/service-core';
 import { AbortError } from 'ix/aborterror.js';
 import { AsyncSink } from 'ix/asynciterable/asynciterablex.js';
 import { PowerSyncMongo } from './db.js';
@@ -99,18 +99,18 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     }
   }
 
-  async *watchUserWriteCheckpoint(
-    options: WatchUserWriteCheckpointOptions
-  ): AsyncIterable<storage.WriteCheckpointResult> {
+  watchUserWriteCheckpoint(options: WatchUserWriteCheckpointOptions): AsyncIterable<storage.WriteCheckpointResult> {
     switch (this.writeCheckpointMode) {
       case storage.WriteCheckpointMode.CUSTOM:
         return this.watchCustomWriteCheckpoint(options);
       case storage.WriteCheckpointMode.MANAGED:
         return this.watchManagedWriteCheckpoint(options);
+      default:
+        throw new Error('Invalid write checkpoint mode');
     }
   }
 
-  private sharedIter = new FilteredIterable<WriteCheckpointDocument>((signal) => {
+  private sharedIter = new FilteredIterable<WriteCheckpointResult>((signal) => {
     const clusterTimePromise = (async () => {
       const hello = await this.db.db.command({ hello: 1 });
       // Note: This is not valid on sharded clusters.
@@ -162,7 +162,17 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
           );
         }
 
-        return doc;
+        if (doc == null) {
+          return {
+            id: null,
+            lsn: null
+          };
+        }
+
+        return {
+          id: doc.client_id,
+          lsn: doc.lsns['1']
+        };
       }
     };
   });
@@ -170,7 +180,7 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
   private async *watchAllManagedWriteCheckpoints(
     clusterTimePromise: Promise<mongo.BSON.Timestamp>,
     signal: AbortSignal
-  ): AsyncGenerator<FilterIterableValue<WriteCheckpointDocument>> {
+  ): AsyncGenerator<FilterIterableValue<WriteCheckpointResult>> {
     const clusterTime = await clusterTimePromise;
 
     const stream = this.db.write_checkpoints.watch(
@@ -205,7 +215,10 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
       const user_id = event.fullDocument.user_id;
       yield {
         key: user_id,
-        value: event.fullDocument
+        value: {
+          id: event.fullDocument.client_id,
+          lsn: event.fullDocument.lsns['1']
+        }
       };
     }
   }
@@ -219,12 +232,11 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
 
     for await (let doc of stream) {
       // Guard against out-of-order events
-      if (doc.client_id > lastId) {
-        yield {
-          id: doc.client_id,
-          lsn: doc.lsns['1']
-        };
-        lastId = doc.client_id;
+      if (lastId == -1n || (doc.id != null && doc.id > lastId)) {
+        yield doc;
+        if (doc.id != null) {
+          lastId = doc.id;
+        }
       }
     }
   }
@@ -361,7 +373,7 @@ export interface FilterIterableValue<T> {
 
 interface FilteredIterableSource<T> {
   iterator: AsyncIterable<FilterIterableValue<T>>;
-  getFirstValue(key: string): Promise<T | null>;
+  getFirstValue(key: string): Promise<T>;
 }
 
 type FilteredIterableSourceFactory<T> = (signal: AbortSignal) => FilteredIterableSource<T>;
@@ -473,9 +485,7 @@ export class FilteredIterable<T> {
     const source = this.addSink(key, sink);
     try {
       const firstValue = await source.getFirstValue(key);
-      if (firstValue != null) {
-        yield firstValue;
-      }
+      yield firstValue;
       yield* wrapWithAbort(sink, signal);
     } finally {
       this.removeSink(key, sink);

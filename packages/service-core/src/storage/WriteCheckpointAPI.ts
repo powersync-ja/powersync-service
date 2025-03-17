@@ -51,7 +51,13 @@ export interface ManagedWriteCheckpointFilters extends BaseWriteCheckpointIdenti
 }
 
 export interface WriteCheckpointResult {
-  id: bigint;
+  /**
+   * Write checkpoint id (also referred to as client_id).
+   *
+   * If null, there is no write checkpoint for the client.
+   */
+  id: bigint | null;
+
   /**
    * LSN for the checkpoint.
    *

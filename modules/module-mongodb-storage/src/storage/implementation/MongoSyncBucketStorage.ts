@@ -780,6 +780,7 @@ export class MongoSyncBucketStorage
     let lastWriteCheckpointDoc: WriteCheckpointResult | null = null;
     let nextWriteCheckpoint: bigint | null = null;
     let lastCheckpointEvent: ReplicationCheckpoint | null = null;
+    let receivedWriteCheckpoint = false;
 
     const writeCheckpointIter = this.writeCheckpointAPI.watchUserWriteCheckpoint({
       user_id: options.user_id,
@@ -793,13 +794,14 @@ export class MongoSyncBucketStorage
 
     for await (const event of iter) {
       if ('checkpoint' in event) {
-        const { lsn } = event;
         lastCheckpointEvent = event;
       } else {
         lastWriteCheckpointDoc = event;
+        receivedWriteCheckpoint = true;
       }
 
-      if (lastCheckpointEvent == null) {
+      if (lastCheckpointEvent == null || !receivedWriteCheckpoint) {
+        // We need to wait until we received at least on checkpoint, and one write checkpoint.
         continue;
       }
 
@@ -812,10 +814,10 @@ export class MongoSyncBucketStorage
 
       if (
         lastWriteCheckpointDoc != null &&
-        (lastWriteCheckpointDoc.lsn == null || (lsn != null && lsn > lastWriteCheckpointDoc.lsn))
+        (lastWriteCheckpointDoc.lsn == null || (lsn != null && lsn >= lastWriteCheckpointDoc.lsn))
       ) {
         const writeCheckpoint = lastWriteCheckpointDoc.id;
-        if (nextWriteCheckpoint == null || writeCheckpoint > nextWriteCheckpoint) {
+        if (nextWriteCheckpoint == null || (writeCheckpoint != null && writeCheckpoint > nextWriteCheckpoint)) {
           nextWriteCheckpoint = writeCheckpoint;
         }
         // We used the doc - clear it
