@@ -330,9 +330,6 @@ export class PersistedBatch {
           update: {
             $set: {
               last_op: state.lastOp
-            },
-            $inc: {
-              op_count: state.incrementCount
             }
           },
           upsert: true

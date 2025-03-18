@@ -373,11 +373,6 @@ export class MongoCompactor {
                   b: bucket
                 }
               },
-              {
-                $inc: {
-                  op_count: 1 - numberOfOpsToClear
-                }
-              },
               { session }
             );
           },
