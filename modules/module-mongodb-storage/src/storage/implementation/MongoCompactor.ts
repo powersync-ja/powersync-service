@@ -364,17 +364,6 @@ export class MongoCompactor {
               },
               { session }
             );
-
-            // Note: This does not update anything if there is no existing state
-            await this.db.bucket_state.updateOne(
-              {
-                _id: {
-                  g: this.group_id,
-                  b: bucket
-                }
-              },
-              { session }
-            );
           },
           {
             writeConcern: { w: 'majority' },
