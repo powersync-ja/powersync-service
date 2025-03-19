@@ -24,7 +24,7 @@ describe('utils', () => {
     testInstersection(new Set([]), new Set([]), false);
   });
 
-  function testGetInstersection(a: Set<any>, b: Set<any>, expected: any[]) {
+  function testGetIntersection(a: Set<any>, b: Set<any>, expected: any[]) {
     expect([...getIntersection(a, b)]).toEqual(expected);
     expect([...getIntersection(b, a)]).toEqual(expected);
     const mapA = new Map([...a].map((v) => [v, 1]));
@@ -35,14 +35,14 @@ describe('utils', () => {
   }
 
   test('getIntersection', async () => {
-    testGetInstersection(new Set(['a']), new Set(['a']), ['a']);
-    testGetInstersection(new Set(['a', 'b', 'c']), new Set(['a', 'b', 'c']), ['a', 'b', 'c']);
-    testGetInstersection(new Set(['a', 'b', 'c']), new Set(['d', 'e']), []);
-    testGetInstersection(new Set(['a', 'b', 'c']), new Set(['d', 'c', 'e']), ['c']);
-    testGetInstersection(new Set(['a', 'b', 'c']), new Set(['c', 'e']), ['c']);
-    testGetInstersection(new Set(['a', 'b', 'c', 2]), new Set([1, 2, 3]), [2]);
-    testGetInstersection(new Set(['a', 'b', 'c', 4]), new Set([1, 2, 3]), []);
-    testGetInstersection(new Set([]), new Set([1, 2, 3]), []);
-    testGetInstersection(new Set([]), new Set([]), []);
+    testGetIntersection(new Set(['a']), new Set(['a']), ['a']);
+    testGetIntersection(new Set(['a', 'b', 'c']), new Set(['a', 'b', 'c']), ['a', 'b', 'c']);
+    testGetIntersection(new Set(['a', 'b', 'c']), new Set(['d', 'e']), []);
+    testGetIntersection(new Set(['a', 'b', 'c']), new Set(['d', 'c', 'e']), ['c']);
+    testGetIntersection(new Set(['a', 'b', 'c']), new Set(['c', 'e']), ['c']);
+    testGetIntersection(new Set(['a', 'b', 'c', 2]), new Set([1, 2, 3]), [2]);
+    testGetIntersection(new Set(['a', 'b', 'c', 4]), new Set([1, 2, 3]), []);
+    testGetIntersection(new Set([]), new Set([1, 2, 3]), []);
+    testGetIntersection(new Set([]), new Set([]), []);
   });
 });
