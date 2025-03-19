@@ -91,7 +91,7 @@ export class BucketChecksumState {
     }
 
     let checksumMap: util.ChecksumMap;
-    if (updatedBuckets != null) {
+    if (updatedBuckets != INVALIDATE_ALL_BUCKETS) {
       if (this.lastChecksums == null) {
         throw new ServiceAssertionError(`Bucket diff received without existing checksums`);
       }
@@ -251,6 +251,8 @@ export class BucketChecksumState {
   }
 }
 
+const INVALIDATE_ALL_BUCKETS = Symbol('INVALIDATE_ALL_BUCKETS');
+
 export interface CheckpointUpdate {
   /**
    * All buckets forming part of the checkpoint.
@@ -262,7 +264,7 @@ export interface CheckpointUpdate {
    *
    * If null, assume that any bucket in `buckets` may have been updated.
    */
-  updatedBuckets: Set<string> | null;
+  updatedBuckets: Set<string> | typeof INVALIDATE_ALL_BUCKETS;
 }
 
 export class BucketParameterState {
@@ -330,7 +332,7 @@ export class BucketParameterState {
     if (update.invalidateDataBuckets) {
       return {
         buckets: querier.staticBuckets,
-        updatedBuckets: null
+        updatedBuckets: INVALIDATE_ALL_BUCKETS
       };
     }
 
@@ -397,7 +399,7 @@ export class BucketParameterState {
       return {
         buckets: allBuckets,
         // We cannot track individual bucket updates for dynamic lookups yet
-        updatedBuckets: null
+        updatedBuckets: INVALIDATE_ALL_BUCKETS
       };
     } else {
       return {
