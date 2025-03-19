@@ -83,7 +83,7 @@ describe('Probe Routes', () => {
   });
 
   describe('livenessCheck', () => {
-    const mockedContext = { service_context: { replicationEngine: {} } } as any;
+    const mockedContext = { context: { service_context: { replicationEngine: {} } } } as any;
     it('has the correct route definitions', () => {
       expect(livenessCheck.path).toBe('/probes/liveness');
       expect(livenessCheck.method).toBe('GET');
