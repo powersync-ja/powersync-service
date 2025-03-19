@@ -25,11 +25,27 @@ export const startupCheck = routeDefinition({
 export const livenessCheck = routeDefinition({
   path: ProbeRoutes.LIVENESS,
   method: router.HTTPMethod.GET,
-  handler: async () => {
+  handler: async (params) => {
     const state = container.probes.state();
 
+    /**
+     * The HTTP probes currently only function in the API and UNIFIED
+     * modes.
+     *
+     * For the API mode, we don't really touch the state, but any response from
+     * the request indicates the service is alive.
+     *
+     * For the UNIFIED mode we update the touched_at time while the Replicator engine is running.
+     * If the replication engine is present and the timeDifference from the last
+     * touched_at is large, we report that the service is not live.
+     *
+     * This is only an incremental improvement. In future these values should be configurable.
+     */
+
+    const isAPIOnly = !params.context.service_context.replicationEngine;
     const timeDifference = Date.now() - state.touched_at.getTime();
-    const status = timeDifference < 10000 ? 200 : 400;
+
+    const status = isAPIOnly ? 200 : timeDifference < 10000 ? 200 : 400;
 
     return new router.RouterResponse({
       status,
