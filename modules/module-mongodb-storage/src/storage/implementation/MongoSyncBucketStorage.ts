@@ -877,6 +877,7 @@ export class MongoSyncBucketStorage
   private async getDataBucketChanges(
     options: GetCheckpointChangesOptions
   ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
+    const limit = 1000;
     const bucketStateUpdates = await this.db.bucket_state
       .find(
         {
@@ -888,15 +889,15 @@ export class MongoSyncBucketStorage
           projection: {
             '_id.b': 1
           },
-          limit: 1001,
-          batchSize: 1001,
+          limit: limit + 1,
+          batchSize: limit + 1,
           singleBatch: true
         }
       )
       .toArray();
 
     const buckets = bucketStateUpdates.map((doc) => doc._id.b);
-    const invalidateDataBuckets = buckets.length > 1000;
+    const invalidateDataBuckets = buckets.length > limit;
 
     return {
       invalidateDataBuckets: invalidateDataBuckets,
@@ -907,23 +908,24 @@ export class MongoSyncBucketStorage
   private async getParameterBucketChanges(
     options: GetCheckpointChangesOptions
   ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
+    const limit = 1000;
     const parameterUpdates = await this.db.bucket_parameters
       .find(
         {
-          _id: { $gt: BigInt(options.lastCheckpoint), $lt: BigInt(options.nextCheckpoint) },
+          _id: { $gt: BigInt(options.lastCheckpoint), $lte: BigInt(options.nextCheckpoint) },
           'key.g': this.group_id
         },
         {
           projection: {
             lookup: 1
           },
-          limit: 1001,
-          batchSize: 1001,
+          limit: limit + 1,
+          batchSize: limit + 1,
           singleBatch: true
         }
       )
       .toArray();
-    const invalidateParameterUpdates = parameterUpdates.length > 1000;
+    const invalidateParameterUpdates = parameterUpdates.length > limit;
 
     return {
       invalidateParameterBuckets: invalidateParameterUpdates,
