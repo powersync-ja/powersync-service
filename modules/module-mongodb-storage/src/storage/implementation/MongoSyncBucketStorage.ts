@@ -907,7 +907,6 @@ export class MongoSyncBucketStorage
   private async getParameterBucketChanges(
     options: GetCheckpointChangesOptions
   ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
-    // TODO: limit max query running time
     const parameterUpdates = await this.db.bucket_parameters
       .find(
         {
@@ -934,13 +933,22 @@ export class MongoSyncBucketStorage
     };
   }
 
-  // TODO:
+  // If we processed all connections together for each checkpoint, we could do a single lookup for all connections.
+  // In practice, specific connections may fall behind. So instead, we just cache the results of each specific lookup.
+  // TODO (later):
   // We can optimize this by implementing it like ChecksumCache: We can use partial cache results to do
   // more efficient lookups in some cases.
   private checkpointChangesCache = new LRUCache<string, CheckpointChanges, { options: GetCheckpointChangesOptions }>({
+    // Limit to 50 cache entries, or 10MB, whichever comes first.
+    // Some rough calculations:
+    // If we process 10 checkpoints per second, and a connection may be 2 seconds behind, we could have
+    // up to 20 relevant checkpoints. That gives us 20*20 = 400 potentially-relevant cache entries.
+    // That is a worst-case scenario, so we don't actually store that many. In real life, the cache keys
+    // would likely be clustered around a few values, rather than spread over all 400 potential values.
     max: 50,
     maxSize: 10 * 1024 * 1024,
     sizeCalculation: (value: CheckpointChanges) => {
+      // Estimate of memory usage
       const paramSize = [...value.updatedParameterLookups].reduce<number>((a, b) => a + b.length, 0);
       const bucketSize = [...value.updatedDataBuckets].reduce<number>((a, b) => a + b.length, 0);
       return 100 + paramSize + bucketSize;
@@ -950,31 +958,7 @@ export class MongoSyncBucketStorage
     }
   });
 
-  private _hasDynamicBucketsCached: boolean | undefined = undefined;
-
-  private hasDynamicBucketQueries(): boolean {
-    if (this._hasDynamicBucketsCached != null) {
-      return this._hasDynamicBucketsCached;
-    }
-    const syncRules = this.getParsedSyncRules({
-      defaultSchema: 'default' // n/a
-    });
-    const hasDynamicBuckets = syncRules.hasDynamicBucketQueries();
-    this._hasDynamicBucketsCached = hasDynamicBuckets;
-    return hasDynamicBuckets;
-  }
-
   async getCheckpointChanges(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
-    if (!this.hasDynamicBucketQueries()) {
-      // Special case when we have no dynamic parameter queries.
-      // In this case, we can avoid doing any queries.
-      return {
-        invalidateDataBuckets: true,
-        updatedDataBuckets: [],
-        invalidateParameterBuckets: false,
-        updatedParameterLookups: new Set<string>()
-      };
-    }
     const key = `${options.lastCheckpoint}_${options.nextCheckpoint}`;
     const result = await this.checkpointChangesCache.fetch(key, { context: { options } });
     return result!;

@@ -73,6 +73,16 @@ export interface SyncRulesBucketStorage
    */
   getParameterSets(checkpoint: util.InternalOpId, lookups: ParameterLookup[]): Promise<SqliteJsonRow[]>;
 
+  /**
+   * Given two checkpoints, return the changes in bucket data and parameters that may have occurred
+   * in that period.
+   *
+   * This is a best-effort optimization:
+   * 1. This may include more changes than what actually occurred.
+   * 2. This may return invalidateDataBuckets or invalidateParameterBuckets instead of of returning
+   *    specific changes.
+   * @param options
+   */
   getCheckpointChanges(options: GetCheckpointChangesOptions): Promise<CheckpointChanges>;
 
   /**
