@@ -900,7 +900,7 @@ export class MongoSyncBucketStorage
 
     return {
       invalidateDataBuckets: invalidateDataBuckets,
-      updatedDataBuckets: invalidateDataBuckets ? [] : buckets
+      updatedDataBuckets: invalidateDataBuckets ? new Set<string>() : new Set(buckets)
     };
   }
 

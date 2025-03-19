@@ -4,11 +4,11 @@ import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
 import { ErrorCode, logger, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
+import { JSONBig } from '@powersync/service-jsonbig';
 import { BucketParameterQuerier } from '@powersync/service-sync-rules/src/BucketParameterQuerier.js';
 import { BucketSyncState } from './sync.js';
 import { SyncContext } from './SyncContext.js';
-import { JSONBig } from '@powersync/service-jsonbig';
-import { hasIntersection } from './util.js';
+import { getIntersection, hasIntersection } from './util.js';
 
 export interface BucketChecksumStateOptions {
   syncContext: SyncContext;
@@ -338,13 +338,7 @@ export class BucketParameterState {
       };
     }
 
-    let updatedBuckets = new Set<string>();
-
-    for (let bucket of update.updatedDataBuckets ?? []) {
-      if (this.staticBuckets.has(bucket)) {
-        updatedBuckets.add(bucket);
-      }
-    }
+    const updatedBuckets = new Set<string>(getIntersection(this.staticBuckets, update.updatedDataBuckets));
 
     if (updatedBuckets.size == 0) {
       // No change - skip this checkpoint
@@ -401,11 +395,11 @@ export class BucketParameterState {
       dynamicBuckets = this.cachedDynamicBuckets;
 
       if (!invalidateDataBuckets) {
-        // TODO: Do set intersection instead
-        for (let bucket of update.updatedDataBuckets ?? []) {
-          if (this.staticBuckets.has(bucket) || this.cachedDynamicBucketSet.has(bucket)) {
-            updatedBuckets.add(bucket);
-          }
+        for (let bucket of getIntersection(this.staticBuckets, update.updatedDataBuckets)) {
+          updatedBuckets.add(bucket);
+        }
+        for (let bucket of getIntersection(this.cachedDynamicBucketSet, update.updatedDataBuckets)) {
+          updatedBuckets.add(bucket);
         }
       }
     }

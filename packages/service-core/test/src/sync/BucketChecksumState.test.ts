@@ -98,7 +98,7 @@ bucket_definitions:
       base: { checkpoint: 2n, lsn: '2' },
       writeCheckpoint: null,
       update: {
-        updatedDataBuckets: ['global[]'],
+        updatedDataBuckets: new Set(['global[]']),
         invalidateDataBuckets: false,
         updatedParameterLookups: new Set(),
         invalidateParameterBuckets: false
@@ -201,7 +201,7 @@ bucket_definitions:
       writeCheckpoint: null,
       update: {
         ...CHECKPOINT_INVALIDATE_ALL,
-        updatedDataBuckets: ['global[1]', 'global[2]'],
+        updatedDataBuckets: new Set(['global[1]', 'global[2]']),
         invalidateDataBuckets: false
       }
     }))!;
@@ -294,7 +294,7 @@ bucket_definitions:
         // Invalidate the state for global[1] - will only re-check the single bucket.
         // This is essentially inconsistent state, but is the simplest way to test that
         // the filter is working.
-        updatedDataBuckets: ['global[1]'],
+        updatedDataBuckets: new Set(['global[1]']),
         invalidateDataBuckets: false
       }
     }))!;
@@ -421,7 +421,7 @@ bucket_definitions:
       update: {
         ...CHECKPOINT_INVALIDATE_ALL,
         invalidateDataBuckets: false,
-        updatedDataBuckets: ['global[1]']
+        updatedDataBuckets: new Set(['global[1]'])
       }
     }))!;
     expect(line2.checkpointLine).toEqual({
@@ -533,7 +533,7 @@ bucket_definitions:
       writeCheckpoint: null,
       update: {
         invalidateDataBuckets: false,
-        updatedDataBuckets: [],
+        updatedDataBuckets: new Set(),
         updatedParameterLookups: new Set([JSONBig.stringify(['by_project', '1', 'u1'])]),
         invalidateParameterBuckets: false
       }
