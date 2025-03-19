@@ -62,7 +62,7 @@ export function isEvaluatedRow(e: EvaluationResult): e is EvaluatedRow {
 }
 
 export function isEvaluatedParameters(e: EvaluatedParametersResult): e is EvaluatedParameters {
-  return Array.isArray((e as EvaluatedParameters).lookup?.values);
+  return 'lookup' in e;
 }
 
 export type EvaluationResult = EvaluatedRow | EvaluationError;
