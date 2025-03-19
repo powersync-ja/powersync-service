@@ -154,14 +154,16 @@ export function settledPromise<T>(promise: Promise<T>): Promise<PromiseSettledRe
   );
 }
 
+/**
+ * Check if two sets have any element(s) in common.
+ */
 export function hasIntersection<T>(a: Set<T>, b: Set<T>) {
-  if (a.size > b.size) {
-    [a, b] = [b, a];
-  }
-  // Now, a is always smaller than b, so iterate over a
-  for (let value of a) {
-    if (b.has(value)) {
+  const [small, large] = a.size > b.size ? [b, a] : [a, b];
+  // Always iterate over the smaller set to reduce the number of lookups
+  for (let value of small) {
+    if (large.has(value)) {
       return true;
     }
   }
+  return false;
 }
