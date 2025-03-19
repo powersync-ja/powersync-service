@@ -70,10 +70,9 @@ export class BucketChecksumState {
     const storage = this.bucketStorage;
 
     const update = await this.parameterState.getCheckpointUpdate(next);
-    if (update == null) {
+    if (update == null && this.lastWriteCheckpoint == writeCheckpoint) {
       return null;
     }
-
     const { buckets: allBuckets, updatedBuckets } = update;
 
     let dataBucketsNew = new Map<string, BucketSyncState>();
@@ -115,9 +114,11 @@ export class BucketChecksumState {
         }
       }
 
-      let updatedChecksums = await storage.getChecksums(base.checkpoint, checksumLookups);
-      for (let [bucket, value] of updatedChecksums.entries()) {
-        newChecksums.set(bucket, value);
+      if (checksumLookups.length > 0) {
+        let updatedChecksums = await storage.getChecksums(base.checkpoint, checksumLookups);
+        for (let [bucket, value] of updatedChecksums.entries()) {
+          newChecksums.set(bucket, value);
+        }
       }
       checksumMap = newChecksums;
     } else {
@@ -125,6 +126,7 @@ export class BucketChecksumState {
       const bucketList = [...dataBucketsNew.keys()];
       checksumMap = await storage.getChecksums(base.checkpoint, bucketList);
     }
+
     // Subset of buckets for which there may be new data in this batch.
     let bucketsToFetch: BucketDescription[];
 
@@ -291,17 +293,13 @@ export class BucketParameterState {
     this.lookups = new Set<string>(this.querier.parameterQueryLookups.map((l) => JSONBig.stringify(l.values)));
   }
 
-  async getCheckpointUpdate(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate | null> {
+  async getCheckpointUpdate(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate> {
     const querier = this.querier;
-    let update: CheckpointUpdate | null;
+    let update: CheckpointUpdate;
     if (querier.hasDynamicBuckets) {
       update = await this.getCheckpointUpdateDynamic(checkpoint);
     } else {
       update = await this.getCheckpointUpdateStatic(checkpoint);
-    }
-
-    if (update == null) {
-      return null;
     }
 
     if (update.buckets.length > this.context.maxParameterQueryResults) {
@@ -325,9 +323,7 @@ export class BucketParameterState {
   /**
    * For static buckets, we can keep track of which buckets have been updated.
    */
-  private async getCheckpointUpdateStatic(
-    checkpoint: storage.StorageCheckpointUpdate
-  ): Promise<CheckpointUpdate | null> {
+  private async getCheckpointUpdateStatic(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate> {
     const querier = this.querier;
     const update = checkpoint.update;
 
@@ -339,12 +335,6 @@ export class BucketParameterState {
     }
 
     const updatedBuckets = new Set<string>(getIntersection(this.staticBuckets, update.updatedDataBuckets));
-
-    if (updatedBuckets.size == 0) {
-      // No change - skip this checkpoint
-      return null;
-    }
-
     return {
       buckets: querier.staticBuckets,
       updatedBuckets
@@ -354,9 +344,7 @@ export class BucketParameterState {
   /**
    * For dynamic buckets, we need to re-query the list of buckets every time.
    */
-  private async getCheckpointUpdateDynamic(
-    checkpoint: storage.StorageCheckpointUpdate
-  ): Promise<CheckpointUpdate | null> {
+  private async getCheckpointUpdateDynamic(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate> {
     const querier = this.querier;
     const storage = this.bucketStorage;
     const staticBuckets = querier.staticBuckets;
