@@ -1,5 +1,38 @@
 # @powersync/service-image
 
+## 1.9.0
+
+### Minor Changes
+
+- f049f68: [Postgres] Only flush once per replicated chunk, increasing transaction replication throughput.
+
+### Patch Changes
+
+- 8601d6c: [MySQL] Fix errors being hidden by ROLLBACK failure
+- Updated dependencies [f049f68]
+- Updated dependencies [8601d6c]
+- Updated dependencies [535e708]
+  - @powersync/service-module-postgres@0.10.0
+  - @powersync/service-core@1.9.0
+  - @powersync/service-module-mysql@0.5.2
+  - @powersync/service-module-mongodb@0.7.2
+  - @powersync/service-module-mongodb-storage@0.7.2
+  - @powersync/service-module-postgres-storage@0.5.2
+
+## 1.8.1
+
+### Patch Changes
+
+- 7d1cd98: Skip large rows, rather than causing hard replication errors
+- Updated dependencies [7348ea0]
+- Updated dependencies [7d1cd98]
+  - @powersync/service-core@1.8.1
+  - @powersync/service-module-mongodb-storage@0.7.1
+  - @powersync/service-module-mongodb@0.7.1
+  - @powersync/service-module-mysql@0.5.1
+  - @powersync/service-module-postgres@0.9.1
+  - @powersync/service-module-postgres-storage@0.5.1
+
 ## 1.8.0
 
 ### Minor Changes

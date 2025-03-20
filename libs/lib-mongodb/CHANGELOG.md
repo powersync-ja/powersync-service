@@ -1,5 +1,11 @@
 # @powersync/lib-service-mongodb
 
+## 0.5.1
+
+### Patch Changes
+
+- 7d1cd98: Skip large rows, rather than causing hard replication errors
+
 ## 0.5.0
 
 ### Minor Changes

@@ -1,5 +1,21 @@
 # @powersync/service-core
 
+## 1.9.0
+
+### Minor Changes
+
+- f049f68: [Postgres] Only flush once per replicated chunk, increasing transaction replication throughput.
+
+### Patch Changes
+
+- 8601d6c: [MySQL] Fix errors being hidden by ROLLBACK failure
+
+## 1.8.1
+
+### Patch Changes
+
+- 7348ea0: Use slot_name_prefix from the replication connection again.
+
 ## 1.8.0
 
 ### Minor Changes

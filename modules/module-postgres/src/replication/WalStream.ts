@@ -676,8 +676,10 @@ WHERE  oid = $1::regclass`,
     await this.storage.startBatch(
       { zeroLSN: ZERO_LSN, defaultSchema: POSTGRES_DEFAULT_SCHEMA, storeCurrentData: true, skipExistingRows: false },
       async (batch) => {
-        // Replication never starts in the middle of a transaction
-        let inTx = false;
+        // We don't handle any plain keepalive messages while we have transactions.
+        // While we have transactions, we use that to advance the position.
+        // Replication never starts in the middle of a transaction, so this starts as false.
+        let skipKeepalive = false;
         let count = 0;
 
         for await (const chunk of replicationStream.pgoutputDecode()) {
@@ -698,17 +700,24 @@ WHERE  oid = $1::regclass`,
            */
           const assumeKeepAlive = !exposesLogicalMessages;
           let keepAliveDetected = false;
+          const lastCommit = messages.findLast((msg) => msg.tag == 'commit');
 
           for (const msg of messages) {
             if (msg.tag == 'relation') {
               await this.handleRelation(batch, getPgOutputRelation(msg), true);
             } else if (msg.tag == 'begin') {
-              inTx = true;
+              // This may span multiple transactions in the same chunk, or even across chunks.
+              skipKeepalive = true;
             } else if (msg.tag == 'commit') {
               this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
-              inTx = false;
-              await batch.commit(msg.lsn!, { createEmptyCheckpoints });
-              await this.ack(msg.lsn!, replicationStream);
+              if (msg == lastCommit) {
+                // Only commit if this is the last commit in the chunk.
+                // This effectively lets us batch multiple transactions within the same chunk
+                // into a single flush, increasing throughput for many small transactions.
+                skipKeepalive = false;
+                await batch.commit(msg.lsn!, { createEmptyCheckpoints });
+                await this.ack(msg.lsn!, replicationStream);
+              }
             } else {
               if (count % 100 == 0) {
                 logger.info(`${this.slot_name} replicating op ${count} ${msg.lsn}`);
@@ -729,7 +738,7 @@ WHERE  oid = $1::regclass`,
             }
           }
 
-          if (!inTx) {
+          if (!skipKeepalive) {
             if (assumeKeepAlive || keepAliveDetected) {
               // Reset the detection flag.
               keepAliveDetected = false;
