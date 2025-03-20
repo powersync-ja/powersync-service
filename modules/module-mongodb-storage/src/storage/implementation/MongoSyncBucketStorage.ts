@@ -705,8 +705,7 @@ export class MongoSyncBucketStorage
     if (doc == null) {
       // Sync rules not present or not active.
       // Abort the connections - clients will have to retry later.
-      // Should this error instead?
-      return;
+      throw new ServiceError(ErrorCode.PSYNC_S2302, 'No active sync rules available');
     }
 
     yield this.makeActiveCheckpoint(doc);
@@ -750,7 +749,7 @@ export class MongoSyncBucketStorage
       }
       if (doc.state != storage.SyncRuleState.ACTIVE && doc.state != storage.SyncRuleState.ERRORED) {
         // Sync rules have changed - abort and restart.
-        // Should this error instead?
+        // We do a soft close of the stream here - no error
         break;
       }
 
