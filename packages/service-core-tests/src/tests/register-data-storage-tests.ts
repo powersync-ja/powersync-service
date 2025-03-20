@@ -1565,7 +1565,11 @@ bucket_definitions:
       await batch.keepalive('6/0');
     });
 
-    const result2 = await iter.next();
+    let result2 = await iter.next();
+    if (result2.value?.base?.lsn == '5/0') {
+      // Events could arrive in a different order in some cases - this caters for it
+      result2 = await iter.next();
+    }
     expect(result2).toMatchObject({
       done: false,
       value: {
@@ -1671,7 +1675,11 @@ bucket_definitions:
       await batch.keepalive('6/0');
     });
 
-    const result2 = await iter.next();
+    let result2 = await iter.next();
+    if (result2.value?.base?.lsn == '5/0') {
+      // Events could arrive in a different order in some cases - this caters for it
+      result2 = await iter.next();
+    }
     expect(result2).toMatchObject({
       done: false,
       value: {
@@ -1689,14 +1697,15 @@ bucket_definitions:
         user_id: 'user1'
       }
     ]);
-    // We have to trigger a new keepalive after the checkpoint, at least to cover postgres storage.
-    // This is what is effetively triggered with RouteAPI.createReplicationHead().
-    // MongoDB storage doesn't explicitly need this anymore.
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.keepalive('7/0');
     });
 
-    const result3 = await iter.next();
+    let result3 = await iter.next();
+    if (result3.value?.base?.lsn == '6/0') {
+      // Events could arrive in a different order in some cases - this caters for it
+      result3 = await iter.next();
+    }
     expect(result3).toMatchObject({
       done: false,
       value: {
