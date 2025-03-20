@@ -6,4 +6,4 @@
 '@powersync/service-image': minor
 ---
 
-[MongoDB Storage] Stream write checkpoint changes intead of polling, reducing overhead for large numbers of concurrent connections
+[MongoDB Storage] Stream write checkpoint changes instead of polling, reducing overhead for large numbers of concurrent connections
