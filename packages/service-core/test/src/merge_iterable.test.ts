@@ -1,4 +1,4 @@
-import { mergeAsyncIterablesNew, mergeAsyncIterablesOld } from '@/sync/merge.js';
+import { mergeAsyncIterablesNew, mergeAsyncIterablesOld } from '@/streams/merge.js';
 import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
 

@@ -90,7 +90,7 @@ export interface SyncRulesBucketStorage
    *
    * The stream stops or errors if this is not the active sync rules (anymore).
    */
-  watchWriteCheckpoint(options: WatchWriteCheckpointOptions): AsyncIterable<StorageCheckpointUpdate>;
+  watchCheckpointChanges(options: WatchWriteCheckpointOptions): AsyncIterable<StorageCheckpointUpdate>;
 
   /**
    * Get a "batch" of data for a checkpoint.

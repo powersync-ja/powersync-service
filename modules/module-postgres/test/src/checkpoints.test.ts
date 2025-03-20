@@ -30,7 +30,7 @@ describe.skipIf(!(env.CI || env.SLOW_TESTS))('checkpoint tests', () => {
 
     const controller = new AbortController();
     try {
-      const stream = storage.watchWriteCheckpoint({
+      const stream = storage.watchCheckpointChanges({
         user_id: checkpointUserId('test_user', 'test_client'),
         signal: controller.signal
       });
