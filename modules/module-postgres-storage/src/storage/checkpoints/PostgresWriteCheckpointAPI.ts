@@ -30,34 +30,6 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     return batchCreateCustomWriteCheckpoints(this.db, checkpoints);
   }
 
-  async createCustomWriteCheckpoint(options: storage.CustomWriteCheckpointOptions): Promise<bigint> {
-    if (this.writeCheckpointMode !== storage.WriteCheckpointMode.CUSTOM) {
-      throw new framework.errors.ValidationError(
-        `Creating a custom Write Checkpoint when the current Write Checkpoint mode is set to "${this.writeCheckpointMode}"`
-      );
-    }
-
-    const { checkpoint, user_id, sync_rules_id } = options;
-    const row = await this.db.sql`
-      INSERT INTO
-        custom_write_checkpoints (user_id, write_checkpoint, sync_rules_id)
-      VALUES
-        (
-          ${{ type: 'varchar', value: user_id }},
-          ${{ type: 'int8', value: checkpoint }},
-          ${{ type: 'int4', value: sync_rules_id }}
-        )
-      ON CONFLICT DO UPDATE
-      SET
-        write_checkpoint = EXCLUDED.write_checkpoint
-      RETURNING
-        *;
-    `
-      .decoded(models.CustomWriteCheckpoint)
-      .first();
-    return row!.write_checkpoint;
-  }
-
   async createManagedWriteCheckpoint(checkpoint: storage.ManagedWriteCheckpointOptions): Promise<bigint> {
     if (this.writeCheckpointMode !== storage.WriteCheckpointMode.MANAGED) {
       throw new framework.errors.ValidationError(

@@ -113,13 +113,6 @@ export class PostgresSyncRulesStorage
     );
   }
 
-  createCustomWriteCheckpoint(checkpoint: storage.BatchedCustomWriteCheckpointOptions): Promise<bigint> {
-    return this.writeCheckpointAPI.createCustomWriteCheckpoint({
-      ...checkpoint,
-      sync_rules_id: this.group_id
-    });
-  }
-
   lastWriteCheckpoint(filters: storage.SyncStorageLastWriteCheckpointFilters): Promise<bigint | null> {
     return this.writeCheckpointAPI.lastWriteCheckpoint({
       ...filters,

@@ -36,29 +36,6 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     return batchCreateCustomWriteCheckpoints(this.db, checkpoints);
   }
 
-  async createCustomWriteCheckpoint(options: storage.CustomWriteCheckpointOptions): Promise<bigint> {
-    if (this.writeCheckpointMode !== storage.WriteCheckpointMode.CUSTOM) {
-      throw new framework.errors.ValidationError(
-        `Creating a custom Write Checkpoint when the current Write Checkpoint mode is set to "${this.writeCheckpointMode}"`
-      );
-    }
-
-    const { checkpoint, user_id, sync_rules_id } = options;
-    const doc = await this.db.custom_write_checkpoints.findOneAndUpdate(
-      {
-        user_id: user_id,
-        sync_rules_id
-      },
-      {
-        $set: {
-          checkpoint
-        }
-      },
-      { upsert: true, returnDocument: 'after' }
-    );
-    return doc!.checkpoint;
-  }
-
   async createManagedWriteCheckpoint(checkpoint: storage.ManagedWriteCheckpointOptions): Promise<bigint> {
     if (this.writeCheckpointMode !== storage.WriteCheckpointMode.MANAGED) {
       throw new framework.errors.ValidationError(

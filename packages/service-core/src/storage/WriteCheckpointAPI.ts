@@ -94,7 +94,6 @@ export interface BaseWriteCheckpointAPI {
  */
 export interface SyncStorageWriteCheckpointAPI extends BaseWriteCheckpointAPI {
   batchCreateCustomWriteCheckpoints(checkpoints: BatchedCustomWriteCheckpointOptions[]): Promise<void>;
-  createCustomWriteCheckpoint(checkpoint: BatchedCustomWriteCheckpointOptions): Promise<bigint>;
   lastWriteCheckpoint(filters: SyncStorageLastWriteCheckpointFilters): Promise<bigint | null>;
 }
 
@@ -104,7 +103,6 @@ export interface SyncStorageWriteCheckpointAPI extends BaseWriteCheckpointAPI {
  */
 export interface WriteCheckpointAPI extends BaseWriteCheckpointAPI {
   batchCreateCustomWriteCheckpoints(checkpoints: CustomWriteCheckpointOptions[]): Promise<void>;
-  createCustomWriteCheckpoint(checkpoint: CustomWriteCheckpointOptions): Promise<bigint>;
   lastWriteCheckpoint(filters: LastWriteCheckpointFilters): Promise<bigint | null>;
 
   watchUserWriteCheckpoint(options: WatchUserWriteCheckpointOptions): AsyncIterable<WriteCheckpointResult>;
