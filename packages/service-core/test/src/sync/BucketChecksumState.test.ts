@@ -8,7 +8,8 @@ import {
   SyncContext,
   WatchFilterEvent
 } from '@/index.js';
-import { RequestParameters, SqliteJsonRow, SqliteJsonValue, SqlSyncRules } from '@powersync/service-sync-rules';
+import { JSONBig } from '@powersync/service-jsonbig';
+import { RequestParameters, SqliteJsonRow, ParameterLookup, SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 
 describe('BucketChecksumState', () => {
@@ -97,9 +98,9 @@ bucket_definitions:
       base: { checkpoint: 2n, lsn: '2' },
       writeCheckpoint: null,
       update: {
-        updatedDataBuckets: ['global[]'],
+        updatedDataBuckets: new Set(['global[]']),
         invalidateDataBuckets: false,
-        updatedParameterBucketDefinitions: [],
+        updatedParameterLookups: new Set(),
         invalidateParameterBuckets: false
       }
     }))!;
@@ -200,7 +201,7 @@ bucket_definitions:
       writeCheckpoint: null,
       update: {
         ...CHECKPOINT_INVALIDATE_ALL,
-        updatedDataBuckets: ['global[1]', 'global[2]'],
+        updatedDataBuckets: new Set(['global[1]', 'global[2]']),
         invalidateDataBuckets: false
       }
     }))!;
@@ -293,7 +294,7 @@ bucket_definitions:
         // Invalidate the state for global[1] - will only re-check the single bucket.
         // This is essentially inconsistent state, but is the simplest way to test that
         // the filter is working.
-        updatedDataBuckets: ['global[1]'],
+        updatedDataBuckets: new Set(['global[1]']),
         invalidateDataBuckets: false
       }
     }))!;
@@ -420,7 +421,7 @@ bucket_definitions:
       update: {
         ...CHECKPOINT_INVALIDATE_ALL,
         invalidateDataBuckets: false,
-        updatedDataBuckets: ['global[1]']
+        updatedDataBuckets: new Set(['global[1]'])
       }
     }))!;
     expect(line2.checkpointLine).toEqual({
@@ -474,10 +475,10 @@ bucket_definitions:
 
     storage.getParameterSets = async (
       checkpoint: InternalOpId,
-      lookups: SqliteJsonValue[][]
+      lookups: ParameterLookup[]
     ): Promise<SqliteJsonRow[]> => {
       expect(checkpoint).toEqual(1n);
-      expect(lookups).toEqual([['by_project', '1', 'u1']]);
+      expect(lookups).toEqual([ParameterLookup.normalized('by_project', '1', ['u1'])]);
       return [{ id: 1 }, { id: 2 }];
     };
 
@@ -519,10 +520,10 @@ bucket_definitions:
 
     storage.getParameterSets = async (
       checkpoint: InternalOpId,
-      lookups: SqliteJsonValue[][]
+      lookups: ParameterLookup[]
     ): Promise<SqliteJsonRow[]> => {
       expect(checkpoint).toEqual(2n);
-      expect(lookups).toEqual([['by_project', '1', 'u1']]);
+      expect(lookups).toEqual([ParameterLookup.normalized('by_project', '1', ['u1'])]);
       return [{ id: 1 }, { id: 2 }, { id: 3 }];
     };
 
@@ -532,8 +533,8 @@ bucket_definitions:
       writeCheckpoint: null,
       update: {
         invalidateDataBuckets: false,
-        updatedDataBuckets: [],
-        updatedParameterBucketDefinitions: ['by_project'],
+        updatedDataBuckets: new Set(),
+        updatedParameterLookups: new Set([JSONBig.stringify(['by_project', '1', 'u1'])]),
         invalidateParameterBuckets: false
       }
     }))!;
@@ -580,7 +581,7 @@ class MockBucketChecksumStateStorage implements BucketChecksumStateStorage {
     );
   }
 
-  async getParameterSets(checkpoint: InternalOpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]> {
+  async getParameterSets(checkpoint: InternalOpId, lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
     throw new Error('Method not implemented.');
   }
 }

@@ -1,5 +1,4 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
-import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import {
   BroadcastIterable,
   CHECKPOINT_INVALIDATE_ALL,
@@ -14,23 +13,22 @@ import {
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import * as sync_rules from '@powersync/service-sync-rules';
+import * as timers from 'timers/promises';
 import * as uuid from 'uuid';
 import { BIGINT_MAX } from '../types/codecs.js';
 import { models, RequiredOperationBatchLimits } from '../types/types.js';
 import { replicaIdToSubkey } from '../utils/bson.js';
 import { mapOpEntry } from '../utils/bucket-data.js';
-import * as timers from 'timers/promises';
 
 import * as framework from '@powersync/lib-services-framework';
 import { StatementParam } from '@powersync/service-jpgwire';
+import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 import { SourceTableDecoded, StoredRelationId } from '../types/models/SourceTable.js';
 import { pick } from '../utils/ts-codec.js';
 import { PostgresBucketBatch } from './batch/PostgresBucketBatch.js';
 import { PostgresWriteCheckpointAPI } from './checkpoints/PostgresWriteCheckpointAPI.js';
 import { PostgresBucketStorageFactory } from './PostgresBucketStorageFactory.js';
 import { PostgresCompactor } from './PostgresCompactor.js';
-import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
-import { Decoded } from 'ts-codec';
 
 export type PostgresSyncRulesStorageOptions = {
   factory: PostgresBucketStorageFactory;
@@ -354,7 +352,7 @@ export class PostgresSyncRulesStorage
 
   async getParameterSets(
     checkpoint: utils.InternalOpId,
-    lookups: sync_rules.SqliteJsonValue[][]
+    lookups: sync_rules.ParameterLookup[]
   ): Promise<sync_rules.SqliteJsonRow[]> {
     const rows = await this.db.sql`
       SELECT DISTINCT

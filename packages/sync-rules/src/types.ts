@@ -5,6 +5,7 @@ import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import { toSyncRulesParameters } from './utils.js';
 import { BucketDescription, BucketPriority } from './BucketDescription.js';
+import { ParameterLookup } from './BucketParameterQuerier.js';
 
 export interface SyncRules {
   evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
@@ -18,7 +19,7 @@ export interface QueryParseOptions extends SyncRulesOptions {
 }
 
 export interface EvaluatedParameters {
-  lookup: SqliteJsonValue[];
+  lookup: ParameterLookup;
 
   /**
    * Parameters used to generate bucket id. May be incomplete.
@@ -61,7 +62,7 @@ export function isEvaluatedRow(e: EvaluationResult): e is EvaluatedRow {
 }
 
 export function isEvaluatedParameters(e: EvaluatedParametersResult): e is EvaluatedParameters {
-  return Array.isArray((e as any).lookup);
+  return 'lookup' in e;
 }
 
 export type EvaluationResult = EvaluatedRow | EvaluationError;

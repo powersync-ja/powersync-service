@@ -1,5 +1,5 @@
 import { ObserverClient } from '@powersync/lib-services-framework';
-import { SqlSyncRules, SqliteJsonRow, SqliteJsonValue } from '@powersync/service-sync-rules';
+import { ParameterLookup, SqlSyncRules, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
 import { BucketStorageBatch, FlushedResult } from './BucketStorageBatch.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
@@ -71,8 +71,18 @@ export interface SyncRulesBucketStorage
   /**
    * Used to resolve "dynamic" parameter queries.
    */
-  getParameterSets(checkpoint: util.InternalOpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]>;
+  getParameterSets(checkpoint: util.InternalOpId, lookups: ParameterLookup[]): Promise<SqliteJsonRow[]>;
 
+  /**
+   * Given two checkpoints, return the changes in bucket data and parameters that may have occurred
+   * in that period.
+   *
+   * This is a best-effort optimization:
+   * 1. This may include more changes than what actually occurred.
+   * 2. This may return invalidateDataBuckets or invalidateParameterBuckets instead of of returning
+   *    specific changes.
+   * @param options
+   */
   getCheckpointChanges(options: GetCheckpointChangesOptions): Promise<CheckpointChanges>;
 
   /**
@@ -251,15 +261,16 @@ export interface GetCheckpointChangesOptions {
 }
 
 export interface CheckpointChanges {
-  updatedDataBuckets: string[];
+  updatedDataBuckets: Set<string>;
   invalidateDataBuckets: boolean;
-  updatedParameterBucketDefinitions: string[];
+  /** Serialized using JSONBig */
+  updatedParameterLookups: Set<string>;
   invalidateParameterBuckets: boolean;
 }
 
 export const CHECKPOINT_INVALIDATE_ALL: CheckpointChanges = {
-  updatedDataBuckets: [],
+  updatedDataBuckets: new Set<string>(),
   invalidateDataBuckets: true,
-  updatedParameterBucketDefinitions: [],
+  updatedParameterLookups: new Set<string>(),
   invalidateParameterBuckets: true
 };

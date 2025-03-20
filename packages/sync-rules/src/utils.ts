@@ -170,3 +170,13 @@ export const JSONBucketNameSerialize = {
     return stringifyRaw(value, replacer, space)!;
   }
 };
+
+/**
+ * Lookup serialization must be number-agnostic. I.e. normalize numbers, instead of preserving numbers.
+ */
+export function normalizeParameterValue(value: SqliteJsonValue): SqliteJsonValue {
+  if (typeof value == 'number' && Number.isInteger(value)) {
+    return BigInt(value);
+  }
+  return value;
+}

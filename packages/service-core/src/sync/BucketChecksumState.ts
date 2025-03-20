@@ -4,9 +4,11 @@ import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
 import { ErrorCode, logger, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
+import { JSONBig } from '@powersync/service-jsonbig';
 import { BucketParameterQuerier } from '@powersync/service-sync-rules/src/BucketParameterQuerier.js';
 import { BucketSyncState } from './sync.js';
 import { SyncContext } from './SyncContext.js';
+import { getIntersection, hasIntersection } from './util.js';
 
 export interface BucketChecksumStateOptions {
   syncContext: SyncContext;
@@ -68,10 +70,9 @@ export class BucketChecksumState {
     const storage = this.bucketStorage;
 
     const update = await this.parameterState.getCheckpointUpdate(next);
-    if (update == null) {
+    if (update == null && this.lastWriteCheckpoint == writeCheckpoint) {
       return null;
     }
-
     const { buckets: allBuckets, updatedBuckets } = update;
 
     let dataBucketsNew = new Map<string, BucketSyncState>();
@@ -90,7 +91,7 @@ export class BucketChecksumState {
     }
 
     let checksumMap: util.ChecksumMap;
-    if (updatedBuckets != null) {
+    if (updatedBuckets != INVALIDATE_ALL_BUCKETS) {
       if (this.lastChecksums == null) {
         throw new ServiceAssertionError(`Bucket diff received without existing checksums`);
       }
@@ -113,9 +114,11 @@ export class BucketChecksumState {
         }
       }
 
-      let updatedChecksums = await storage.getChecksums(base.checkpoint, checksumLookups);
-      for (let [bucket, value] of updatedChecksums.entries()) {
-        newChecksums.set(bucket, value);
+      if (checksumLookups.length > 0) {
+        let updatedChecksums = await storage.getChecksums(base.checkpoint, checksumLookups);
+        for (let [bucket, value] of updatedChecksums.entries()) {
+          newChecksums.set(bucket, value);
+        }
       }
       checksumMap = newChecksums;
     } else {
@@ -123,6 +126,7 @@ export class BucketChecksumState {
       const bucketList = [...dataBucketsNew.keys()];
       checksumMap = await storage.getChecksums(base.checkpoint, bucketList);
     }
+
     // Subset of buckets for which there may be new data in this batch.
     let bucketsToFetch: BucketDescription[];
 
@@ -247,6 +251,8 @@ export class BucketChecksumState {
   }
 }
 
+const INVALIDATE_ALL_BUCKETS = Symbol('INVALIDATE_ALL_BUCKETS');
+
 export interface CheckpointUpdate {
   /**
    * All buckets forming part of the checkpoint.
@@ -258,7 +264,7 @@ export interface CheckpointUpdate {
    *
    * If null, assume that any bucket in `buckets` may have been updated.
    */
-  updatedBuckets: Set<string> | null;
+  updatedBuckets: Set<string> | typeof INVALIDATE_ALL_BUCKETS;
 }
 
 export class BucketParameterState {
@@ -268,6 +274,10 @@ export class BucketParameterState {
   public readonly syncParams: RequestParameters;
   private readonly querier: BucketParameterQuerier;
   private readonly staticBuckets: Map<string, BucketDescription>;
+  private cachedDynamicBuckets: BucketDescription[] | null = null;
+  private cachedDynamicBucketSet: Set<string> | null = null;
+
+  private readonly lookups: Set<string>;
 
   constructor(
     context: SyncContext,
@@ -282,19 +292,16 @@ export class BucketParameterState {
 
     this.querier = syncRules.getBucketParameterQuerier(this.syncParams);
     this.staticBuckets = new Map<string, BucketDescription>(this.querier.staticBuckets.map((b) => [b.bucket, b]));
+    this.lookups = new Set<string>(this.querier.parameterQueryLookups.map((l) => JSONBig.stringify(l.values)));
   }
 
-  async getCheckpointUpdate(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate | null> {
+  async getCheckpointUpdate(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate> {
     const querier = this.querier;
-    let update: CheckpointUpdate | null;
+    let update: CheckpointUpdate;
     if (querier.hasDynamicBuckets) {
       update = await this.getCheckpointUpdateDynamic(checkpoint);
     } else {
       update = await this.getCheckpointUpdateStatic(checkpoint);
-    }
-
-    if (update == null) {
-      return null;
     }
 
     if (update.buckets.length > this.context.maxParameterQueryResults) {
@@ -318,32 +325,18 @@ export class BucketParameterState {
   /**
    * For static buckets, we can keep track of which buckets have been updated.
    */
-  private async getCheckpointUpdateStatic(
-    checkpoint: storage.StorageCheckpointUpdate
-  ): Promise<CheckpointUpdate | null> {
+  private async getCheckpointUpdateStatic(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate> {
     const querier = this.querier;
     const update = checkpoint.update;
 
     if (update.invalidateDataBuckets) {
       return {
         buckets: querier.staticBuckets,
-        updatedBuckets: null
+        updatedBuckets: INVALIDATE_ALL_BUCKETS
       };
     }
 
-    let updatedBuckets = new Set<string>();
-
-    for (let bucket of update.updatedDataBuckets ?? []) {
-      if (this.staticBuckets.has(bucket)) {
-        updatedBuckets.add(bucket);
-      }
-    }
-
-    if (updatedBuckets.size == 0) {
-      // No change - skip this checkpoint
-      return null;
-    }
-
+    const updatedBuckets = new Set<string>(getIntersection(this.staticBuckets, update.updatedDataBuckets));
     return {
       buckets: querier.staticBuckets,
       updatedBuckets
@@ -353,44 +346,67 @@ export class BucketParameterState {
   /**
    * For dynamic buckets, we need to re-query the list of buckets every time.
    */
-  private async getCheckpointUpdateDynamic(
-    checkpoint: storage.StorageCheckpointUpdate
-  ): Promise<CheckpointUpdate | null> {
+  private async getCheckpointUpdateDynamic(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate> {
     const querier = this.querier;
     const storage = this.bucketStorage;
     const staticBuckets = querier.staticBuckets;
     const update = checkpoint.update;
 
-    let hasChange = false;
-    if (update.invalidateDataBuckets || update.updatedDataBuckets?.length > 0) {
-      hasChange = true;
-    } else if (update.invalidateParameterBuckets) {
-      hasChange = true;
+    let hasParameterChange = false;
+    let invalidateDataBuckets = false;
+    // If hasParameterChange == true, then invalidateDataBuckets = true
+    // If invalidateDataBuckets == true, we ignore updatedBuckets
+    let updatedBuckets = new Set<string>();
+
+    if (update.invalidateDataBuckets) {
+      invalidateDataBuckets = true;
+    }
+
+    if (update.invalidateParameterBuckets) {
+      hasParameterChange = true;
     } else {
-      for (let bucket of update.updatedParameterBucketDefinitions ?? []) {
-        if (querier.dynamicBucketDefinitions.has(bucket)) {
-          hasChange = true;
-          break;
+      if (hasIntersection(this.lookups, update.updatedParameterLookups)) {
+        // This is a very coarse re-check of all queries
+        hasParameterChange = true;
+      }
+    }
+
+    let dynamicBuckets: BucketDescription[];
+    if (hasParameterChange || this.cachedDynamicBuckets == null || this.cachedDynamicBucketSet == null) {
+      dynamicBuckets = await querier.queryDynamicBucketDescriptions({
+        getParameterSets(lookups) {
+          return storage.getParameterSets(checkpoint.base.checkpoint, lookups);
+        }
+      });
+      this.cachedDynamicBuckets = dynamicBuckets;
+      this.cachedDynamicBucketSet = new Set<string>(dynamicBuckets.map((b) => b.bucket));
+      invalidateDataBuckets = true;
+    } else {
+      dynamicBuckets = this.cachedDynamicBuckets;
+
+      if (!invalidateDataBuckets) {
+        for (let bucket of getIntersection(this.staticBuckets, update.updatedDataBuckets)) {
+          updatedBuckets.add(bucket);
+        }
+        for (let bucket of getIntersection(this.cachedDynamicBucketSet, update.updatedDataBuckets)) {
+          updatedBuckets.add(bucket);
         }
       }
     }
-
-    if (!hasChange) {
-      return null;
-    }
-
-    const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
-      getParameterSets(lookups) {
-        return storage.getParameterSets(checkpoint.base.checkpoint, lookups);
-      }
-    });
     const allBuckets = [...staticBuckets, ...dynamicBuckets];
 
-    return {
-      buckets: allBuckets,
-      // We cannot track individual bucket updates for dynamic lookups yet
-      updatedBuckets: null
-    };
+    if (invalidateDataBuckets) {
+      return {
+        buckets: allBuckets,
+        // We cannot track individual bucket updates for dynamic lookups yet
+        updatedBuckets: INVALIDATE_ALL_BUCKETS
+      };
+    } else {
+      return {
+        buckets: allBuckets,
+        updatedBuckets: updatedBuckets
+      };
+    }
   }
 }
 

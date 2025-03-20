@@ -1,8 +1,8 @@
 import * as timers from 'timers/promises';
 
+import { SemaphoreInterface } from 'async-mutex';
 import * as util from '../util/util-index.js';
 import { RequestTracker } from './RequestTracker.js';
-import { SemaphoreInterface } from 'async-mutex';
 
 export type TokenStreamOptions = {
   /**
@@ -152,4 +152,37 @@ export function settledPromise<T>(promise: Promise<T>): Promise<PromiseSettledRe
       };
     }
   );
+}
+
+export type MapOrSet<T> = Map<T, any> | Set<T>;
+
+/**
+ * Check if two sets have any element(s) in common.
+ */
+export function hasIntersection<T>(a: MapOrSet<T>, b: MapOrSet<T>) {
+  for (let _ of getIntersection(a, b)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Return the intersection of two sets or maps.
+ */
+export function* getIntersection<T>(a: MapOrSet<T>, b: MapOrSet<T>): IterableIterator<T> {
+  // Iterate over the smaller set to reduce the number of lookups
+  if (a.size < b.size) {
+    for (let key of a.keys()) {
+      if (b.has(key)) {
+        yield key;
+      }
+    }
+    return false;
+  } else {
+    for (let key of b.keys()) {
+      if (a.has(key)) {
+        yield key;
+      }
+    }
+  }
 }
