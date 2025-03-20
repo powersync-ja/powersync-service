@@ -357,6 +357,74 @@ exports[`sync - postgres > sync legacy non-raw data 1`] = `
 ]
 `;
 
+exports[`sync - postgres > sync updates to data query only 1`] = `
+[
+  {
+    "checkpoint": {
+      "buckets": [
+        {
+          "bucket": "by_user["user1"]",
+          "checksum": 0,
+          "count": 0,
+          "priority": 3,
+        },
+      ],
+      "last_op_id": "1",
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "1",
+    },
+  },
+]
+`;
+
+exports[`sync - postgres > sync updates to data query only 2`] = `
+[
+  {
+    "checkpoint_diff": {
+      "last_op_id": "2",
+      "removed_buckets": [],
+      "updated_buckets": [
+        {
+          "bucket": "by_user["user1"]",
+          "checksum": 1418351250,
+          "count": 1,
+          "priority": 3,
+        },
+      ],
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "data": {
+      "after": "0",
+      "bucket": "by_user["user1"]",
+      "data": [
+        {
+          "checksum": 1418351250n,
+          "data": "{"id":"list1","user_id":"user1","name":"User 1"}",
+          "object_id": "list1",
+          "object_type": "lists",
+          "op": "PUT",
+          "op_id": "2",
+          "subkey": "5ad0aa14-3d5e-5428-ad5b-2c33927d991c",
+        },
+      ],
+      "has_more": false,
+      "next_after": "2",
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "2",
+    },
+  },
+]
+`;
+
 exports[`sync - postgres > sync updates to global data 1`] = `
 [
   {
@@ -464,6 +532,109 @@ exports[`sync - postgres > sync updates to global data 3`] = `
   {
     "checkpoint_complete": {
       "last_op_id": "2",
+    },
+  },
+]
+`;
+
+exports[`sync - postgres > sync updates to parameter query + data 1`] = `
+[
+  {
+    "checkpoint": {
+      "buckets": [],
+      "last_op_id": "0",
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "0",
+    },
+  },
+]
+`;
+
+exports[`sync - postgres > sync updates to parameter query + data 2`] = `
+[
+  {
+    "checkpoint_diff": {
+      "last_op_id": "2",
+      "removed_buckets": [],
+      "updated_buckets": [
+        {
+          "bucket": "by_user["user1"]",
+          "checksum": 1418351250,
+          "count": 1,
+          "priority": 3,
+        },
+      ],
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "data": {
+      "after": "0",
+      "bucket": "by_user["user1"]",
+      "data": [
+        {
+          "checksum": 1418351250n,
+          "data": "{"id":"list1","user_id":"user1","name":"User 1"}",
+          "object_id": "list1",
+          "object_type": "lists",
+          "op": "PUT",
+          "op_id": "1",
+          "subkey": "5ad0aa14-3d5e-5428-ad5b-2c33927d991c",
+        },
+      ],
+      "has_more": false,
+      "next_after": "1",
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "2",
+    },
+  },
+]
+`;
+
+exports[`sync - postgres > sync updates to parameter query only 1`] = `
+[
+  {
+    "checkpoint": {
+      "buckets": [],
+      "last_op_id": "0",
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "0",
+    },
+  },
+]
+`;
+
+exports[`sync - postgres > sync updates to parameter query only 2`] = `
+[
+  {
+    "checkpoint_diff": {
+      "last_op_id": "1",
+      "removed_buckets": [],
+      "updated_buckets": [
+        {
+          "bucket": "by_user["user1"]",
+          "checksum": 0,
+          "count": 0,
+          "priority": 3,
+        },
+      ],
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "1",
     },
   },
 ]

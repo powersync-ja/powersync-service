@@ -1,4 +1,11 @@
-import { createCoreAPIMetrics, storage, sync, utils } from '@powersync/service-core';
+import {
+  createCoreAPIMetrics,
+  storage,
+  StreamingSyncCheckpoint,
+  StreamingSyncCheckpointDiff,
+  sync,
+  utils
+} from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import path from 'path';
@@ -400,7 +407,7 @@ bucket_definitions:
     expect(lines).toMatchSnapshot();
   });
 
-  test('sync updates to global data', async () => {
+  test('sync updates to global data', async (context) => {
     await using f = await factory();
 
     const syncRules = await f.updateSyncRules({
@@ -424,6 +431,9 @@ bucket_definitions:
       token: { exp: Date.now() / 1000 + 10 } as any
     });
     const iter = stream[Symbol.asyncIterator]();
+    context.onTestFinished(() => {
+      iter.return?.();
+    });
 
     expect(await getCheckpointLines(iter)).toMatchSnapshot();
 
@@ -458,11 +468,221 @@ bucket_definitions:
     });
 
     expect(await getCheckpointLines(iter)).toMatchSnapshot();
-
-    iter.return?.();
   });
 
-  test('expiring token', async () => {
+  test('sync updates to parameter query only', async (context) => {
+    await using f = await factory();
+
+    const syncRules = await f.updateSyncRules({
+      content: `bucket_definitions:
+  by_user:
+    parameters: select users.id as user_id from users where users.id = request.user_id()
+    data:
+      - select * from lists where user_id = bucket.user_id
+`
+    });
+
+    const usersTable = test_utils.makeTestTable('users', ['id']);
+    const listsTable = test_utils.makeTestTable('lists', ['id']);
+
+    const bucketStorage = await f.getInstance(syncRules);
+    await bucketStorage.autoActivate();
+
+    const stream = sync.streamResponse({
+      syncContext,
+      bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      params: {
+        buckets: [],
+        include_checksum: true,
+        raw_data: true
+      },
+      tracker,
+      syncParams: new RequestParameters({ sub: 'user1' }, {}),
+      token: { exp: Date.now() / 1000 + 100 } as any
+    });
+    const iter = stream[Symbol.asyncIterator]();
+    context.onTestFinished(() => {
+      iter.return?.();
+    });
+
+    // Initial empty checkpoint
+    const checkpoint1 = await getCheckpointLines(iter);
+    expect((checkpoint1[0] as StreamingSyncCheckpoint).checkpoint?.buckets?.map((b) => b.bucket)).toEqual([]);
+    expect(checkpoint1).toMatchSnapshot();
+
+    // Add user
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.save({
+        sourceTable: usersTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'user1',
+          name: 'User 1'
+        },
+        afterReplicaId: 'user1'
+      });
+
+      await batch.commit('0/1');
+    });
+
+    const checkpoint2 = await getCheckpointLines(iter);
+    expect(
+      (checkpoint2[0] as StreamingSyncCheckpointDiff).checkpoint_diff?.updated_buckets?.map((b) => b.bucket)
+    ).toEqual(['by_user["user1"]']);
+    expect(checkpoint2).toMatchSnapshot();
+  });
+
+  test('sync updates to data query only', async (context) => {
+    await using f = await factory();
+
+    const syncRules = await f.updateSyncRules({
+      content: `bucket_definitions:
+  by_user:
+    parameters: select users.id as user_id from users where users.id = request.user_id()
+    data:
+      - select * from lists where user_id = bucket.user_id
+`
+    });
+
+    const usersTable = test_utils.makeTestTable('users', ['id']);
+    const listsTable = test_utils.makeTestTable('lists', ['id']);
+
+    const bucketStorage = await f.getInstance(syncRules);
+    await bucketStorage.autoActivate();
+
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.save({
+        sourceTable: usersTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'user1',
+          name: 'User 1'
+        },
+        afterReplicaId: 'user1'
+      });
+
+      await batch.commit('0/1');
+    });
+
+    const stream = sync.streamResponse({
+      syncContext,
+      bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      params: {
+        buckets: [],
+        include_checksum: true,
+        raw_data: true
+      },
+      tracker,
+      syncParams: new RequestParameters({ sub: 'user1' }, {}),
+      token: { exp: Date.now() / 1000 + 100 } as any
+    });
+    const iter = stream[Symbol.asyncIterator]();
+    context.onTestFinished(() => {
+      iter.return?.();
+    });
+
+    const checkpoint1 = await getCheckpointLines(iter);
+    expect((checkpoint1[0] as StreamingSyncCheckpoint).checkpoint?.buckets?.map((b) => b.bucket)).toEqual([
+      'by_user["user1"]'
+    ]);
+    expect(checkpoint1).toMatchSnapshot();
+
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.save({
+        sourceTable: listsTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'list1',
+          user_id: 'user1',
+          name: 'User 1'
+        },
+        afterReplicaId: 'list1'
+      });
+
+      await batch.commit('0/1');
+    });
+
+    const checkpoint2 = await getCheckpointLines(iter);
+    expect(
+      (checkpoint2[0] as StreamingSyncCheckpointDiff).checkpoint_diff?.updated_buckets?.map((b) => b.bucket)
+    ).toEqual(['by_user["user1"]']);
+    expect(checkpoint2).toMatchSnapshot();
+  });
+
+  test('sync updates to parameter query + data', async (context) => {
+    await using f = await factory();
+
+    const syncRules = await f.updateSyncRules({
+      content: `bucket_definitions:
+  by_user:
+    parameters: select users.id as user_id from users where users.id = request.user_id()
+    data:
+      - select * from lists where user_id = bucket.user_id
+`
+    });
+
+    const usersTable = test_utils.makeTestTable('users', ['id']);
+    const listsTable = test_utils.makeTestTable('lists', ['id']);
+
+    const bucketStorage = await f.getInstance(syncRules);
+    await bucketStorage.autoActivate();
+
+    const stream = sync.streamResponse({
+      syncContext,
+      bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      params: {
+        buckets: [],
+        include_checksum: true,
+        raw_data: true
+      },
+      tracker,
+      syncParams: new RequestParameters({ sub: 'user1' }, {}),
+      token: { exp: Date.now() / 1000 + 100 } as any
+    });
+    const iter = stream[Symbol.asyncIterator]();
+    context.onTestFinished(() => {
+      iter.return?.();
+    });
+
+    // Initial empty checkpoint
+    expect(await getCheckpointLines(iter)).toMatchSnapshot();
+
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.save({
+        sourceTable: listsTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'list1',
+          user_id: 'user1',
+          name: 'User 1'
+        },
+        afterReplicaId: 'list1'
+      });
+
+      await batch.save({
+        sourceTable: usersTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'user1',
+          name: 'User 1'
+        },
+        afterReplicaId: 'user1'
+      });
+
+      await batch.commit('0/1');
+    });
+
+    const checkpoint2 = await getCheckpointLines(iter);
+    expect(
+      (checkpoint2[0] as StreamingSyncCheckpointDiff).checkpoint_diff?.updated_buckets?.map((b) => b.bucket)
+    ).toEqual(['by_user["user1"]']);
+    expect(checkpoint2).toMatchSnapshot();
+  });
+
+  test('expiring token', async (context) => {
     await using f = await factory();
 
     const syncRules = await f.updateSyncRules({
@@ -488,6 +708,9 @@ bucket_definitions:
       token: { exp: exp } as any
     });
     const iter = stream[Symbol.asyncIterator]();
+    context.onTestFinished(() => {
+      iter.return?.();
+    });
 
     const checkpoint = await getCheckpointLines(iter);
     expect(checkpoint).toMatchSnapshot();
@@ -496,7 +719,7 @@ bucket_definitions:
     expect(expLines).toMatchSnapshot();
   });
 
-  test('compacting data - invalidate checkpoint', async () => {
+  test('compacting data - invalidate checkpoint', async (context) => {
     // This tests a case of a compact operation invalidating a checkpoint in the
     // middle of syncing data.
     // This is expected to be rare in practice, but it is important to handle
@@ -550,6 +773,9 @@ bucket_definitions:
     });
 
     const iter = stream[Symbol.asyncIterator]();
+    context.onTestFinished(() => {
+      iter.return?.();
+    });
 
     // Only consume the first "checkpoint" message, and pause before receiving data.
     const lines = await consumeIterator(iter, { consume: false, isDone: (line) => (line as any)?.checkpoint != null });

@@ -9,27 +9,29 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   BroadcastIterable,
-  CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
   ProtocolOpId,
   ReplicationCheckpoint,
-  SourceTable,
   storage,
   utils,
-  WatchWriteCheckpointOptions
+  WatchWriteCheckpointOptions,
+  CHECKPOINT_INVALIDATE_ALL,
+  deserializeParameterLookup
 } from '@powersync/service-core';
-import { SqliteJsonRow, SqliteJsonValue, SqlSyncRules } from '@powersync/service-sync-rules';
+import { SqliteJsonRow, ParameterLookup, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
+import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
 import {
   BucketDataDocument,
   BucketDataKey,
+  BucketStateDocument,
   SourceKey,
   SourceTableDocument,
   SyncRuleCheckpointState,
@@ -39,6 +41,7 @@ import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { idPrefixFilter, mapOpEntry, readSingleBatch } from './util.js';
+import { JSONBig } from '@powersync/service-jsonbig';
 
 export class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
@@ -154,7 +157,7 @@ export class MongoSyncBucketStorage
 
     await callback(batch);
     await batch.flush();
-    if (batch.last_flushed_op) {
+    if (batch.last_flushed_op != null) {
       return { flushed_op: batch.last_flushed_op };
     } else {
       return null;
@@ -252,7 +255,7 @@ export class MongoSyncBucketStorage
     return result!;
   }
 
-  async getParameterSets(checkpoint: utils.InternalOpId, lookups: SqliteJsonValue[][]): Promise<SqliteJsonRow[]> {
+  async getParameterSets(checkpoint: utils.InternalOpId, lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
     const lookupFilter = lookups.map((lookup) => {
       return storage.serializeLookup(lookup);
     });
@@ -585,6 +588,13 @@ export class MongoSyncBucketStorage
       { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
     );
 
+    await this.db.bucket_state.deleteMany(
+      {
+        _id: idPrefixFilter<BucketStateDocument['_id']>({ g: this.group_id }, ['b'])
+      },
+      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+    );
+
     await this.db.source_tables.deleteMany(
       {
         group_id: this.group_id
@@ -795,12 +805,7 @@ export class MongoSyncBucketStorage
 
       const updates: CheckpointChanges =
         lastCheckpoint == null
-          ? {
-              invalidateDataBuckets: true,
-              invalidateParameterBuckets: true,
-              updatedDataBuckets: [],
-              updatedParameterBucketDefinitions: []
-            }
+          ? CHECKPOINT_INVALIDATE_ALL
           : await this.getCheckpointChanges({
               lastCheckpoint: lastCheckpoint,
               nextCheckpoint: checkpoint
@@ -869,7 +874,105 @@ export class MongoSyncBucketStorage
     return pipeline;
   }
 
+  private async getDataBucketChanges(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
+    const limit = 1000;
+    const bucketStateUpdates = await this.db.bucket_state
+      .find(
+        {
+          // We have an index on (_id.g, last_op).
+          '_id.g': this.group_id,
+          last_op: { $gt: BigInt(options.lastCheckpoint) }
+        },
+        {
+          projection: {
+            '_id.b': 1
+          },
+          limit: limit + 1,
+          batchSize: limit + 1,
+          singleBatch: true
+        }
+      )
+      .toArray();
+
+    const buckets = bucketStateUpdates.map((doc) => doc._id.b);
+    const invalidateDataBuckets = buckets.length > limit;
+
+    return {
+      invalidateDataBuckets: invalidateDataBuckets,
+      updatedDataBuckets: invalidateDataBuckets ? new Set<string>() : new Set(buckets)
+    };
+  }
+
+  private async getParameterBucketChanges(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
+    const limit = 1000;
+    const parameterUpdates = await this.db.bucket_parameters
+      .find(
+        {
+          _id: { $gt: BigInt(options.lastCheckpoint), $lte: BigInt(options.nextCheckpoint) },
+          'key.g': this.group_id
+        },
+        {
+          projection: {
+            lookup: 1
+          },
+          limit: limit + 1,
+          batchSize: limit + 1,
+          singleBatch: true
+        }
+      )
+      .toArray();
+    const invalidateParameterUpdates = parameterUpdates.length > limit;
+
+    return {
+      invalidateParameterBuckets: invalidateParameterUpdates,
+      updatedParameterLookups: invalidateParameterUpdates
+        ? new Set<string>()
+        : new Set<string>(parameterUpdates.map((p) => JSONBig.stringify(deserializeParameterLookup(p.lookup))))
+    };
+  }
+
+  // If we processed all connections together for each checkpoint, we could do a single lookup for all connections.
+  // In practice, specific connections may fall behind. So instead, we just cache the results of each specific lookup.
+  // TODO (later):
+  // We can optimize this by implementing it like ChecksumCache: We can use partial cache results to do
+  // more efficient lookups in some cases.
+  private checkpointChangesCache = new LRUCache<string, CheckpointChanges, { options: GetCheckpointChangesOptions }>({
+    // Limit to 50 cache entries, or 10MB, whichever comes first.
+    // Some rough calculations:
+    // If we process 10 checkpoints per second, and a connection may be 2 seconds behind, we could have
+    // up to 20 relevant checkpoints. That gives us 20*20 = 400 potentially-relevant cache entries.
+    // That is a worst-case scenario, so we don't actually store that many. In real life, the cache keys
+    // would likely be clustered around a few values, rather than spread over all 400 potential values.
+    max: 50,
+    maxSize: 10 * 1024 * 1024,
+    sizeCalculation: (value: CheckpointChanges) => {
+      // Estimate of memory usage
+      const paramSize = [...value.updatedParameterLookups].reduce<number>((a, b) => a + b.length, 0);
+      const bucketSize = [...value.updatedDataBuckets].reduce<number>((a, b) => a + b.length, 0);
+      return 100 + paramSize + bucketSize;
+    },
+    fetchMethod: async (_key, _staleValue, options) => {
+      return this.getCheckpointChangesInternal(options.context.options);
+    }
+  });
+
   async getCheckpointChanges(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
-    return CHECKPOINT_INVALIDATE_ALL;
+    const key = `${options.lastCheckpoint}_${options.nextCheckpoint}`;
+    const result = await this.checkpointChangesCache.fetch(key, { context: { options } });
+    return result!;
+  }
+
+  private async getCheckpointChangesInternal(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
+    const dataUpdates = await this.getDataBucketChanges(options);
+    const parameterUpdates = await this.getParameterBucketChanges(options);
+
+    return {
+      ...dataUpdates,
+      ...parameterUpdates
+    };
   }
 }

@@ -1,5 +1,6 @@
 import { BucketDescription } from './BucketDescription.js';
 import { RequestParameters, SqliteJsonRow, SqliteJsonValue } from './types.js';
+import { normalizeParameterValue } from './utils.js';
 
 /**
  * Represents a set of parameter queries for a specific request.
@@ -19,11 +20,11 @@ export interface BucketParameterQuerier {
    * True if there are dynamic buckets, meaning queryDynamicBucketDescriptions() should be used.
    *
    * If this is false, queryDynamicBucketDescriptions() will always return an empty array,
-   * and dynamicBucketDefinitions.size == 0.
+   * and parameterQueryLookups.length == 0.
    */
   readonly hasDynamicBuckets: boolean;
 
-  readonly dynamicBucketDefinitions: Set<string>;
+  readonly parameterQueryLookups: ParameterLookup[];
 
   /**
    * These buckets depend on parameter storage, and needs to be retrieved dynamically for each checkpoint.
@@ -39,7 +40,7 @@ export interface BucketParameterQuerier {
 }
 
 export interface ParameterLookupSource {
-  getParameterSets: (lookups: SqliteJsonValue[][]) => Promise<SqliteJsonRow[]>;
+  getParameterSets: (lookups: ParameterLookup[]) => Promise<SqliteJsonRow[]>;
 }
 
 export interface QueryBucketDescriptorOptions extends ParameterLookupSource {
@@ -47,11 +48,11 @@ export interface QueryBucketDescriptorOptions extends ParameterLookupSource {
 }
 
 export function mergeBucketParameterQueriers(queriers: BucketParameterQuerier[]): BucketParameterQuerier {
-  const dynamicBucketDefinitions = new Set<string>(queriers.flatMap((q) => [...q.dynamicBucketDefinitions]));
+  const parameterQueryLookups = queriers.flatMap((q) => q.parameterQueryLookups);
   return {
     staticBuckets: queriers.flatMap((q) => q.staticBuckets),
-    hasDynamicBuckets: dynamicBucketDefinitions.size > 0,
-    dynamicBucketDefinitions,
+    hasDynamicBuckets: parameterQueryLookups.length > 0,
+    parameterQueryLookups: parameterQueryLookups,
     async queryDynamicBucketDescriptions(source: ParameterLookupSource) {
       let results: BucketDescription[] = [];
       for (let q of queriers) {
@@ -62,4 +63,26 @@ export function mergeBucketParameterQueriers(queriers: BucketParameterQuerier[])
       return results;
     }
   };
+}
+
+/**
+ * Represents an equality filter from a parameter query.
+ *
+ * Other query types are not supported yet.
+ */
+export class ParameterLookup {
+  // bucket definition name, parameter query index, ...lookup values
+  readonly values: SqliteJsonValue[];
+
+  static normalized(bucketDefinitionName: string, queryIndex: string, values: SqliteJsonValue[]): ParameterLookup {
+    return new ParameterLookup([bucketDefinitionName, queryIndex, ...values.map(normalizeParameterValue)]);
+  }
+
+  /**
+   *
+   * @param values must be pre-normalized (any integer converted into bigint)
+   */
+  constructor(values: SqliteJsonValue[]) {
+    this.values = values;
+  }
 }

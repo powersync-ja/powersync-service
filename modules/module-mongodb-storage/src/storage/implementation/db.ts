@@ -6,6 +6,7 @@ import { MongoStorageConfig } from '../../types/types.js';
 import {
   BucketDataDocument,
   BucketParameterDocument,
+  BucketStateDocument,
   CurrentDataDocument,
   CustomWriteCheckpointDocument,
   IdSequenceDocument,
@@ -33,6 +34,7 @@ export class PowerSyncMongo {
   readonly write_checkpoints: mongo.Collection<WriteCheckpointDocument>;
   readonly instance: mongo.Collection<InstanceDocument>;
   readonly locks: mongo.Collection<lib_mongo.locks.Lock>;
+  readonly bucket_state: mongo.Collection<BucketStateDocument>;
 
   readonly client: mongo.MongoClient;
   readonly db: mongo.Db;
@@ -55,6 +57,7 @@ export class PowerSyncMongo {
     this.write_checkpoints = db.collection('write_checkpoints');
     this.instance = db.collection('instance');
     this.locks = this.db.collection('locks');
+    this.bucket_state = this.db.collection('bucket_state');
   }
 
   /**
@@ -70,6 +73,7 @@ export class PowerSyncMongo {
     await this.write_checkpoints.deleteMany({});
     await this.instance.deleteOne({});
     await this.locks.deleteMany({});
+    await this.bucket_state.deleteMany({});
   }
 
   /**

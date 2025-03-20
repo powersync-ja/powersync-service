@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { SqlSyncRules } from '../../src/index.js';
+import { ParameterLookup, SqlSyncRules } from '../../src/index.js';
 
 import { ASSETS, BASIC_SCHEMA, PARSE_OPTIONS, TestSourceTable, USERS, normalizeTokenParameters } from './util.js';
 
@@ -37,10 +37,10 @@ bucket_definitions:
         bucket: 'mybucket[]'
       }
     ]);
+    expect(rules.hasDynamicBucketQueries()).toBe(false);
     expect(rules.getBucketParameterQuerier(normalizeTokenParameters({}))).toMatchObject({
       staticBuckets: [{ bucket: 'mybucket[]', priority: 3 }],
-      hasDynamicBuckets: false,
-      dynamicBucketDefinitions: new Set()
+      hasDynamicBuckets: false
     });
   });
 
@@ -72,8 +72,7 @@ bucket_definitions:
     });
     expect(rules.getBucketParameterQuerier(normalizeTokenParameters({}))).toMatchObject({
       staticBuckets: [],
-      hasDynamicBuckets: false,
-      dynamicBucketDefinitions: new Set()
+      hasDynamicBuckets: false
     });
   });
 
@@ -94,7 +93,7 @@ bucket_definitions:
     expect(rules.evaluateParameterRow(USERS, { id: 'user1', is_admin: 1 })).toEqual([
       {
         bucket_parameters: [{}],
-        lookup: ['mybucket', '1', 'user1']
+        lookup: ParameterLookup.normalized('mybucket', '1', ['user1'])
       }
     ]);
     expect(rules.evaluateParameterRow(USERS, { id: 'user1', is_admin: 0 })).toEqual([]);
@@ -936,15 +935,16 @@ bucket_definitions:
     );
     const bucket = rules.bucket_descriptors[0];
     expect(bucket.bucket_parameters).toEqual(['user_id']);
+    expect(rules.hasDynamicBucketQueries()).toBe(true);
 
     expect(rules.getBucketParameterQuerier(normalizeTokenParameters({ user_id: 'user1' }))).toMatchObject({
       hasDynamicBuckets: true,
-      dynamicBucketDefinitions: new Set([
-        'mybucket',
-        'by_list',
+      parameterQueryLookups: [
+        ParameterLookup.normalized('mybucket', '2', ['user1']),
+        ParameterLookup.normalized('by_list', '1', ['user1']),
         // These are not filtered out yet, due to how the lookups are structured internally
-        'admin_only'
-      ]),
+        ParameterLookup.normalized('admin_only', '1', [1])
+      ],
       staticBuckets: [
         {
           bucket: 'mybucket["user1"]',

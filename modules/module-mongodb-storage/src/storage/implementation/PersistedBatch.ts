@@ -11,6 +11,7 @@ import { PowerSyncMongo } from './db.js';
 import {
   BucketDataDocument,
   BucketParameterDocument,
+  BucketStateDocument,
   CurrentBucket,
   CurrentDataDocument,
   SourceKey
@@ -48,6 +49,7 @@ export class PersistedBatch {
   bucketData: mongo.AnyBulkWriteOperation<BucketDataDocument>[] = [];
   bucketParameters: mongo.AnyBulkWriteOperation<BucketParameterDocument>[] = [];
   currentData: mongo.AnyBulkWriteOperation<CurrentDataDocument>[] = [];
+  bucketStates: Map<string, BucketStateUpdate> = new Map();
 
   /**
    * For debug logging only.
@@ -64,6 +66,19 @@ export class PersistedBatch {
     writtenSize: number
   ) {
     this.currentSize = writtenSize;
+  }
+
+  private incrementBucket(bucket: string, op_id: InternalOpId) {
+    let existingState = this.bucketStates.get(bucket);
+    if (existingState) {
+      existingState.lastOp = op_id;
+      existingState.incrementCount += 1;
+    } else {
+      this.bucketStates.set(bucket, {
+        lastOp: op_id,
+        incrementCount: 1
+      });
+    }
   }
 
   saveBucketData(options: {
@@ -120,6 +135,7 @@ export class PersistedBatch {
           }
         }
       });
+      this.incrementBucket(k.bucket, op_id);
     }
 
     for (let bd of remaining_buckets.values()) {
@@ -147,6 +163,7 @@ export class PersistedBatch {
         }
       });
       this.currentSize += 200;
+      this.incrementBucket(bd.bucket, op_id);
     }
   }
 
@@ -277,6 +294,14 @@ export class PersistedBatch {
       });
     }
 
+    if (this.bucketStates.size > 0) {
+      await db.bucket_state.bulkWrite(this.getBucketStateUpdates(), {
+        session,
+        // Per-bucket operation - order doesn't matter
+        ordered: false
+      });
+    }
+
     const duration = performance.now() - startAt;
     logger.info(
       `powersync_${this.group_id} Flushed ${this.bucketData.length} + ${this.bucketParameters.length} + ${
@@ -287,7 +312,34 @@ export class PersistedBatch {
     this.bucketData = [];
     this.bucketParameters = [];
     this.currentData = [];
+    this.bucketStates.clear();
     this.currentSize = 0;
     this.debugLastOpId = null;
   }
+
+  private getBucketStateUpdates(): mongo.AnyBulkWriteOperation<BucketStateDocument>[] {
+    return Array.from(this.bucketStates.entries()).map(([bucket, state]) => {
+      return {
+        updateOne: {
+          filter: {
+            _id: {
+              g: this.group_id,
+              b: bucket
+            }
+          },
+          update: {
+            $set: {
+              last_op: state.lastOp
+            }
+          },
+          upsert: true
+        }
+      } satisfies mongo.AnyBulkWriteOperation<BucketStateDocument>;
+    });
+  }
+}
+
+interface BucketStateUpdate {
+  lastOp: InternalOpId;
+  incrementCount: number;
 }

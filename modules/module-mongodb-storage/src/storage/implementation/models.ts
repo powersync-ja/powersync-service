@@ -75,6 +75,24 @@ export interface SourceTableDocument {
   snapshot_done: boolean | undefined;
 }
 
+/**
+ * Record the state of each bucket.
+ *
+ * Right now, this is just used to track when buckets are updated, for efficient incremental sync.
+ * In the future, this could be used to track operation counts, both for diagnostic purposes, and for
+ * determining when a compact and/or defragment could be beneficial.
+ *
+ * Note: There is currently no migration to populate this collection from existing data - it is only
+ * populated by new updates.
+ */
+export interface BucketStateDocument {
+  _id: {
+    g: number;
+    b: string;
+  };
+  last_op: bigint;
+}
+
 export interface IdSequenceDocument {
   _id: string;
   op_id: bigint;
