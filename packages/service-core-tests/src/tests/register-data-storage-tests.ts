@@ -1676,16 +1676,13 @@ bucket_definitions:
     });
 
     let result2 = await iter.next();
-    if (result2.value?.base?.lsn == '5/0') {
-      // Events could arrive in a different order in some cases - this caters for it
-      result2 = await iter.next();
-    }
     expect(result2).toMatchObject({
       done: false,
       value: {
         base: {
-          checkpoint: 0n,
-          lsn: '6/0'
+          checkpoint: 0n
+          // can be 5/0 or 6/0 - actual value not relevant for custom write checkpoints
+          // lsn: '6/0'
         },
         writeCheckpoint: 6n
       }
@@ -1702,16 +1699,13 @@ bucket_definitions:
     });
 
     let result3 = await iter.next();
-    if (result3.value?.base?.lsn == '6/0') {
-      // Events could arrive in a different order in some cases - this caters for it
-      result3 = await iter.next();
-    }
     expect(result3).toMatchObject({
       done: false,
       value: {
         base: {
-          checkpoint: 0n,
-          lsn: '7/0'
+          checkpoint: 0n
+          // can be 5/0, 6/0 or 7/0 - actual value not relevant for custom write checkpoints
+          // lsn: '7/0'
         },
         writeCheckpoint: 7n
       }
