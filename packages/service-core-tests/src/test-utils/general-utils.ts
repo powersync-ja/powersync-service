@@ -32,8 +32,8 @@ export function testRules(content: string): storage.PersistedSyncRulesContent {
   };
 }
 
-export function makeTestTable(name: string, columns?: string[] | undefined) {
-  const relId = utils.hashData('table', name, (columns ?? ['id']).join(','));
+export function makeTestTable(name: string, replicaIdColumns?: string[] | undefined) {
+  const relId = utils.hashData('table', name, (replicaIdColumns ?? ['id']).join(','));
   const id = new bson.ObjectId('6544e3899293153fa7b38331');
   return new storage.SourceTable(
     id,
@@ -41,7 +41,7 @@ export function makeTestTable(name: string, columns?: string[] | undefined) {
     relId,
     'public',
     name,
-    (columns ?? ['id']).map((column) => ({ name: column, type: 'VARCHAR', typeId: 25 })),
+    (replicaIdColumns ?? ['id']).map((column) => ({ name: column, type: 'VARCHAR', typeId: 25 })),
     true
   );
 }
