@@ -1,5 +1,20 @@
 # @powersync/service-module-postgres
 
+## 0.11.0
+
+### Minor Changes
+
+- 833e8f2: [MongoDB Storage] Stream write checkpoint changes instead of polling, reducing overhead for large numbers of concurrent connections
+
+### Patch Changes
+
+- Updated dependencies [833e8f2]
+- Updated dependencies [833e8f2]
+- Updated dependencies [bfece49]
+- Updated dependencies [2cb5252]
+  - @powersync/service-core@1.10.0
+  - @powersync/service-sync-rules@0.25.0
+
 ## 0.10.0
 
 ### Minor Changes
