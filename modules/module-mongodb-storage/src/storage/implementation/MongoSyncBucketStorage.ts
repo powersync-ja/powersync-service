@@ -87,13 +87,6 @@ export class MongoSyncBucketStorage
     );
   }
 
-  createCustomWriteCheckpoint(checkpoint: storage.BatchedCustomWriteCheckpointOptions): Promise<bigint> {
-    return this.writeCheckpointAPI.createCustomWriteCheckpoint({
-      ...checkpoint,
-      sync_rules_id: this.group_id
-    });
-  }
-
   createManagedWriteCheckpoint(checkpoint: storage.ManagedWriteCheckpointOptions): Promise<bigint> {
     return this.writeCheckpointAPI.createManagedWriteCheckpoint(checkpoint);
   }

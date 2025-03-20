@@ -1560,7 +1560,7 @@ bucket_definitions:
     });
     // We have to trigger a new keepalive after the checkpoint, at least to cover postgres storage.
     // This is what is effetively triggered with RouteAPI.createReplicationHead().
-    // MongoDB storage doesn't need this.
+    // MongoDB storage doesn't explicitly need this anymore.
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.keepalive('6/0');
     });
@@ -1574,6 +1574,137 @@ bucket_definitions:
           lsn: '6/0'
         },
         writeCheckpoint: writeCheckpoint
+      }
+    });
+  });
+
+  test('custom write checkpoints - checkpoint after write', async (context) => {
+    await using factory = await generateStorageFactory();
+    const r = await factory.configureSyncRules({
+      content: `
+bucket_definitions:
+  mybucket:
+    data: []
+    `,
+      validate: false
+    });
+    const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
+    await bucketStorage.autoActivate();
+    bucketStorage.setWriteCheckpointMode(storage.WriteCheckpointMode.CUSTOM);
+
+    const abortController = new AbortController();
+    context.onTestFinished(() => abortController.abort());
+    const iter = bucketStorage
+      .watchCheckpointChanges({ user_id: 'user1', signal: abortController.signal })
+      [Symbol.asyncIterator]();
+
+    await bucketStorage.batchCreateCustomWriteCheckpoints([
+      {
+        checkpoint: 5n,
+        user_id: 'user1'
+      }
+    ]);
+
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.keepalive('5/0');
+    });
+
+    const result = await iter.next();
+    expect(result).toMatchObject({
+      done: false,
+      value: {
+        base: {
+          checkpoint: 0n,
+          lsn: '5/0'
+        },
+        writeCheckpoint: 5n
+      }
+    });
+  });
+
+  test('custom write checkpoints - write after checkpoint', async (context) => {
+    await using factory = await generateStorageFactory();
+    const r = await factory.configureSyncRules({
+      content: `
+bucket_definitions:
+  mybucket:
+    data: []
+    `,
+      validate: false
+    });
+    const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
+    await bucketStorage.autoActivate();
+    bucketStorage.setWriteCheckpointMode(storage.WriteCheckpointMode.CUSTOM);
+
+    const abortController = new AbortController();
+    context.onTestFinished(() => abortController.abort());
+    const iter = bucketStorage
+      .watchCheckpointChanges({ user_id: 'user1', signal: abortController.signal })
+      [Symbol.asyncIterator]();
+
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.keepalive('5/0');
+    });
+
+    const result = await iter.next();
+    expect(result).toMatchObject({
+      done: false,
+      value: {
+        base: {
+          checkpoint: 0n,
+          lsn: '5/0'
+        },
+        writeCheckpoint: null
+      }
+    });
+
+    await bucketStorage.batchCreateCustomWriteCheckpoints([
+      {
+        checkpoint: 6n,
+        user_id: 'user1'
+      }
+    ]);
+    // We have to trigger a new keepalive after the checkpoint, at least to cover postgres storage.
+    // This is what is effetively triggered with RouteAPI.createReplicationHead().
+    // MongoDB storage doesn't explicitly need this anymore.
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.keepalive('6/0');
+    });
+
+    const result2 = await iter.next();
+    expect(result2).toMatchObject({
+      done: false,
+      value: {
+        base: {
+          checkpoint: 0n,
+          lsn: '6/0'
+        },
+        writeCheckpoint: 6n
+      }
+    });
+
+    await bucketStorage.batchCreateCustomWriteCheckpoints([
+      {
+        checkpoint: 7n,
+        user_id: 'user1'
+      }
+    ]);
+    // We have to trigger a new keepalive after the checkpoint, at least to cover postgres storage.
+    // This is what is effetively triggered with RouteAPI.createReplicationHead().
+    // MongoDB storage doesn't explicitly need this anymore.
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.keepalive('7/0');
+    });
+
+    const result3 = await iter.next();
+    expect(result3).toMatchObject({
+      done: false,
+      value: {
+        base: {
+          checkpoint: 0n,
+          lsn: '7/0'
+        },
+        writeCheckpoint: 7n
       }
     });
   });

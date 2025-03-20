@@ -278,6 +278,11 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
         lsn: null
       };
       lastId = doc.checkpoint;
+    } else {
+      yield {
+        id: null,
+        lsn: null
+      };
     }
 
     for await (let event of stream) {
@@ -324,7 +329,7 @@ export async function batchCreateCustomWriteCheckpoints(
   db: PowerSyncMongo,
   checkpoints: storage.CustomWriteCheckpointOptions[]
 ): Promise<void> {
-  if (!checkpoints.length) {
+  if (checkpoints.length == 0) {
     return;
   }
 

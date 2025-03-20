@@ -1,7 +1,7 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import * as framework from '@powersync/lib-services-framework';
-import { storage } from '@powersync/service-core';
-import { JSONBig } from '@powersync/service-jsonbig';
+import { storage, sync } from '@powersync/service-core';
+import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import { models } from '../../types/types.js';
 
 export type PostgresCheckpointAPIOptions = {
@@ -129,11 +129,22 @@ export async function batchCreateCustomWriteCheckpoints(
     return;
   }
 
+  // Needs to be encoded using plain JSON.stringify
+  const mappedCheckpoints = checkpoints.map((cp) => {
+    return {
+      user_id: cp.user_id,
+      // Cannot encode bigint directly using JSON.stringify.
+      // The ::int8 in the query below will take care of casting back to a number
+      checkpoint: String(cp.checkpoint),
+      sync_rules_id: cp.sync_rules_id
+    };
+  });
+
   await db.sql`
     WITH
       json_data AS (
         SELECT
-          jsonb_array_elements(${{ type: 'jsonb', value: JSONBig.stringify(checkpoints) }}) AS
+          jsonb_array_elements(${{ type: 'jsonb', value: mappedCheckpoints }}) AS
         CHECKPOINT
       )
     INSERT INTO
