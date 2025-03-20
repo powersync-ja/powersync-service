@@ -69,7 +69,8 @@ export class MongoSyncBucketStorage
     this.db = factory.db;
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
       db: this.db,
-      mode: writeCheckpointMode
+      mode: writeCheckpointMode,
+      sync_rules_id: group_id
     });
   }
 

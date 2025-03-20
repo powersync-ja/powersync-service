@@ -13,15 +13,18 @@ import { CustomWriteCheckpointDocument, WriteCheckpointDocument } from './models
 export type MongoCheckpointAPIOptions = {
   db: PowerSyncMongo;
   mode: storage.WriteCheckpointMode;
+  sync_rules_id: number;
 };
 
 export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
   readonly db: PowerSyncMongo;
   private _mode: storage.WriteCheckpointMode;
+  private sync_rules_id: number;
 
   constructor(options: MongoCheckpointAPIOptions) {
     this.db = options.db;
     this._mode = options.mode;
+    this.sync_rules_id = options.sync_rules_id;
   }
 
   get writeCheckpointMode() {
@@ -89,14 +92,8 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     }
   }
 
-  private sharedIter = new Demultiplexer<WriteCheckpointResult>((signal) => {
-    const clusterTimePromise = (async () => {
-      const hello = await this.db.db.command({ hello: 1 });
-      // Note: This is not valid on sharded clusters.
-      const startClusterTime = hello.lastWrite?.majorityOpTime?.ts as mongo.Timestamp;
-      startClusterTime;
-      return startClusterTime;
-    })();
+  private sharedManagedIter = new Demultiplexer<WriteCheckpointResult>((signal) => {
+    const clusterTimePromise = this.getClusterTime();
 
     return {
       iterator: this.watchAllManagedWriteCheckpoints(clusterTimePromise, signal),
@@ -170,13 +167,6 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
       }
     );
 
-    const hello = await this.db.db.command({ hello: 1 });
-    // Note: This is not valid on sharded clusters.
-    const startClusterTime = hello.lastWrite?.majorityOpTime?.ts as mongo.Timestamp;
-    if (startClusterTime == null) {
-      throw new framework.ServiceAssertionError('Could not get clusterTime');
-    }
-
     signal.onabort = () => {
       stream.close();
     };
@@ -202,55 +192,75 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     }
   }
 
-  async *watchManagedWriteCheckpoint(
-    options: WatchUserWriteCheckpointOptions
-  ): AsyncIterable<storage.WriteCheckpointResult> {
-    const stream = this.sharedIter.subscribe(options.user_id, options.signal);
-
-    let lastId = -1n;
-
-    for await (let doc of stream) {
-      // Guard against out-of-order events
-      if (lastId == -1n || (doc.id != null && doc.id > lastId)) {
-        yield doc;
-        if (doc.id != null) {
-          lastId = doc.id;
-        }
-      }
-    }
+  watchManagedWriteCheckpoint(options: WatchUserWriteCheckpointOptions): AsyncIterable<storage.WriteCheckpointResult> {
+    const stream = this.sharedManagedIter.subscribe(options.user_id, options.signal);
+    return this.orderedStream(stream);
   }
 
-  async *watchCustomWriteCheckpoint(
-    options: WatchUserWriteCheckpointOptions
-  ): AsyncIterable<storage.WriteCheckpointResult> {
-    const { user_id, sync_rules_id, signal } = options;
+  private sharedCustomIter = new Demultiplexer<WriteCheckpointResult>((signal) => {
+    const clusterTimePromise = this.getClusterTime();
 
-    let doc = null as CustomWriteCheckpointDocument | null;
-    let clusterTime = null as mongo.Timestamp | null;
+    return {
+      iterator: this.watchAllCustomWriteCheckpoints(clusterTimePromise, signal),
+      getFirstValue: async (user_id: string) => {
+        // We cater for the same potential race conditions as for managed write checkpoints.
 
-    await this.db.client.withSession(async (session) => {
-      doc = await this.db.custom_write_checkpoints.findOne(
-        {
-          user_id: user_id,
-          sync_rules_id: sync_rules_id
-        },
-        {
-          session
+        const changeStreamStart = await clusterTimePromise;
+
+        let doc = null as CustomWriteCheckpointDocument | null;
+        let clusterTime = null as mongo.Timestamp | null;
+
+        await this.db.client.withSession(async (session) => {
+          doc = await this.db.custom_write_checkpoints.findOne(
+            {
+              user_id: user_id,
+              sync_rules_id: this.sync_rules_id
+            },
+            {
+              session
+            }
+          );
+          const time = session.clusterTime?.clusterTime ?? null;
+          clusterTime = time;
+        });
+        if (clusterTime == null) {
+          throw new framework.ServiceAssertionError('Could not get clusterTime for write checkpoint');
         }
-      );
-      const time = session.clusterTime?.clusterTime ?? null;
-      clusterTime = time;
-    });
-    if (clusterTime == null) {
-      throw new framework.ServiceAssertionError('Could not get clusterTime');
-    }
+
+        if (clusterTime.lessThan(changeStreamStart)) {
+          throw new framework.ServiceAssertionError(
+            'clusterTime for write checkpoint is older than changestream start'
+          );
+        }
+
+        if (doc == null) {
+          // No write checkpoint, but we still need to return a result
+          return {
+            id: null,
+            lsn: null
+          };
+        }
+
+        return {
+          id: doc.checkpoint,
+          // custom write checkpoints are not tied to a LSN
+          lsn: null
+        };
+      }
+    };
+  });
+
+  private async *watchAllCustomWriteCheckpoints(
+    clusterTimePromise: Promise<mongo.BSON.Timestamp>,
+    signal: AbortSignal
+  ): AsyncGenerator<DemultiplexerValue<WriteCheckpointResult>> {
+    const clusterTime = await clusterTimePromise;
 
     const stream = this.db.custom_write_checkpoints.watch(
       [
         {
           $match: {
-            'fullDocument.user_id': user_id,
-            'fullDocument.sync_rules_id': sync_rules_id,
+            'fullDocument.sync_rules_id': this.sync_rules_id,
             operationType: { $in: ['insert', 'update', 'replace'] }
           }
         }
@@ -270,34 +280,30 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
       return;
     }
 
-    let lastId = -1n;
-
-    if (doc != null) {
-      yield {
-        id: doc.checkpoint,
-        lsn: null
-      };
-      lastId = doc.checkpoint;
-    } else {
-      yield {
-        id: null,
-        lsn: null
-      };
-    }
-
     for await (let event of stream) {
       if (!('fullDocument' in event) || event.fullDocument == null) {
         continue;
       }
-      // Guard against out-of-order events
-      if (event.fullDocument.checkpoint > lastId) {
-        yield {
+
+      const user_id = event.fullDocument.user_id;
+      yield {
+        key: user_id,
+        value: {
           id: event.fullDocument.checkpoint,
+          // Custom write checkpoints are not tied to a specific LSN
           lsn: null
-        };
-        lastId = event.fullDocument.checkpoint;
-      }
+        }
+      };
     }
+  }
+
+  watchCustomWriteCheckpoint(options: WatchUserWriteCheckpointOptions): AsyncIterable<storage.WriteCheckpointResult> {
+    if (options.sync_rules_id != this.sync_rules_id) {
+      throw new framework.ServiceAssertionError('sync_rules_id does not match');
+    }
+
+    const stream = this.sharedCustomIter.subscribe(options.user_id, options.signal);
+    return this.orderedStream(stream);
   }
 
   protected async lastCustomWriteCheckpoint(filters: storage.CustomWriteCheckpointFilters) {
@@ -322,6 +328,30 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
       'lsns.1': { $lte: lsn }
     });
     return lastWriteCheckpoint?.client_id ?? null;
+  }
+
+  private async getClusterTime(): Promise<mongo.Timestamp> {
+    const hello = await this.db.db.command({ hello: 1 });
+    // Note: This is not valid on sharded clusters.
+    const startClusterTime = hello.lastWrite?.majorityOpTime?.ts as mongo.Timestamp;
+    return startClusterTime;
+  }
+
+  /**
+   * Makes a write checkpoint stream an orderered one - any out-of-order events are discarded.
+   */
+  private async *orderedStream(stream: AsyncIterable<storage.WriteCheckpointResult>) {
+    let lastId = -1n;
+
+    for await (let event of stream) {
+      // Guard against out-of-order events
+      if (lastId == -1n || (event.id != null && event.id > lastId)) {
+        yield event;
+        if (event.id != null) {
+          lastId = event.id;
+        }
+      }
+    }
   }
 }
 
