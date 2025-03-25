@@ -41,13 +41,14 @@ export function toColumnDescriptors(columns: mysql.FieldPacket[] | TableMapEntry
 
 export function toColumnDescriptorFromFieldPacket(column: mysql.FieldPacket): ColumnDescriptor {
   let typeId = column.type!;
-  const BINARY_FLAG = 128;
   const MYSQL_ENUM_FLAG = 256;
   const MYSQL_SET_FLAG = 2048;
+  const MYSQL_BINARY_ENCODING = 'binary';
 
   switch (column.type) {
+    // STRING is overloaded to also include Binary, Enum and Set types
     case mysql.Types.STRING:
-      if (((column.flags as number) & BINARY_FLAG) !== 0) {
+      if (column.encoding === MYSQL_BINARY_ENCODING) {
         typeId = ADDITIONAL_MYSQL_TYPES.BINARY;
       } else if (((column.flags as number) & MYSQL_ENUM_FLAG) !== 0) {
         typeId = mysql.Types.ENUM;
@@ -55,12 +56,13 @@ export function toColumnDescriptorFromFieldPacket(column: mysql.FieldPacket): Co
         typeId = mysql.Types.SET;
       }
       break;
-
+    // VAR_STRING represents both VARCHAR and VARBINARY types
     case mysql.Types.VAR_STRING:
-      typeId = ((column.flags as number) & BINARY_FLAG) !== 0 ? ADDITIONAL_MYSQL_TYPES.VARBINARY : column.type;
+      typeId = column.encoding === MYSQL_BINARY_ENCODING ? ADDITIONAL_MYSQL_TYPES.VARBINARY : column.type;
       break;
+    // BLOB is also used to represent the TEXT type when the encoding is not binary
     case mysql.Types.BLOB:
-      typeId = ((column.flags as number) & BINARY_FLAG) === 0 ? ADDITIONAL_MYSQL_TYPES.TEXT : column.type;
+      typeId = column.encoding !== MYSQL_BINARY_ENCODING ? ADDITIONAL_MYSQL_TYPES.TEXT : column.type;
       break;
   }
 
@@ -77,13 +79,16 @@ export function toColumnDescriptorFromDefinition(column: ColumnDefinition): Colu
   let typeId = column.type;
 
   switch (column.type) {
+    // STRING is overloaded to also include Binary types, ENUM and SET is already identified upstream in Zongji
     case mysql.Types.STRING:
       typeId = !column.charset ? ADDITIONAL_MYSQL_TYPES.BINARY : column.type;
       break;
+    // VAR_STRING represents both VARCHAR and VARBINARY types
     case mysql.Types.VAR_STRING:
     case mysql.Types.VARCHAR:
       typeId = !column.charset ? ADDITIONAL_MYSQL_TYPES.VARBINARY : column.type;
       break;
+    // BLOB is also used to represent the TEXT type when a charset is specified
     case mysql.Types.BLOB:
       typeId = column.charset ? ADDITIONAL_MYSQL_TYPES.TEXT : column.type;
       break;
