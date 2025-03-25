@@ -1,0 +1,17 @@
+services:
+  mysql:
+    image: mysql:5.7
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: mydatabase
+      MYSQL_USER: myuser
+      MYSQL_PASSWORD: mypassword
+    ports:
+      - '3306:3306'
+    volumes:
+      - ./init-scripts/my.cnf:/etc/mysql/my.cnf
+      - ./init-scripts/mysql_57.sql:/docker-entrypoint-initdb.d/init_user.sql
+      - mysql_data_57:/var/lib/mysql
+
+volumes:
+  mysql_data_57:
