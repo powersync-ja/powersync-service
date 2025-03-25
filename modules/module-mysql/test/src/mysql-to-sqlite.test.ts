@@ -40,6 +40,7 @@ describe('MySQL Data Types', () => {
 
     char_col CHAR(10),
     varchar_col VARCHAR(255),
+    varchar_binary_encoding_col VARCHAR(255) COLLATE utf8mb4_bin,
     binary_col BINARY(16),
     varbinary_col VARBINARY(256),
     tinyblob_col TINYBLOB,
@@ -145,6 +146,7 @@ INSERT INTO test_data (
 INSERT INTO test_data (
     char_col,
     varchar_col,
+    varchar_binary_encoding_col,
     binary_col,
     varbinary_col,
     tinyblob_col,
@@ -159,6 +161,7 @@ INSERT INTO test_data (
 ) VALUES (
     'CharData',               -- CHAR(10) with padding spaces
     'Variable character data',-- VARCHAR(255)
+    'Variable character data with binary encoding', -- VARCHAR(255) with binary encoding
     'ShortBin',        -- BINARY(16)
     'VariableBinaryData',     -- VARBINARY(256)
     'TinyBlobData',           -- TINYBLOB
@@ -177,6 +180,7 @@ INSERT INTO test_data (
     const expectedResult = {
       char_col: 'CharData',
       varchar_col: 'Variable character data',
+      varchar_binary_encoding_col: 'Variable character data with binary encoding',
       binary_col: new Uint8Array([83, 104, 111, 114, 116, 66, 105, 110, 0, 0, 0, 0, 0, 0, 0, 0]), // Pad with 0
       varbinary_col: new Uint8Array([
         0x56, 0x61, 0x72, 0x69, 0x61, 0x62, 0x6c, 0x65, 0x42, 0x69, 0x6e, 0x61, 0x72, 0x79, 0x44, 0x61, 0x74, 0x61

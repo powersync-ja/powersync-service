@@ -44,6 +44,7 @@ export function toColumnDescriptorFromFieldPacket(column: mysql.FieldPacket): Co
   const BINARY_FLAG = 128;
   const MYSQL_ENUM_FLAG = 256;
   const MYSQL_SET_FLAG = 2048;
+  const MYSQL_BINARY_CHARSET = 63;
 
   switch (column.type) {
     case mysql.Types.STRING:
@@ -57,7 +58,7 @@ export function toColumnDescriptorFromFieldPacket(column: mysql.FieldPacket): Co
       break;
 
     case mysql.Types.VAR_STRING:
-      typeId = ((column.flags as number) & BINARY_FLAG) !== 0 ? ADDITIONAL_MYSQL_TYPES.VARBINARY : column.type;
+      typeId = column.characterSet === MYSQL_BINARY_CHARSET ? ADDITIONAL_MYSQL_TYPES.VARBINARY : column.type;
       break;
     case mysql.Types.BLOB:
       typeId = ((column.flags as number) & BINARY_FLAG) === 0 ? ADDITIONAL_MYSQL_TYPES.TEXT : column.type;
