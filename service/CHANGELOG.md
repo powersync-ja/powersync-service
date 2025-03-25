@@ -1,5 +1,26 @@
 # @powersync/service-image
 
+## 1.10.0
+
+### Minor Changes
+
+- 833e8f2: [MongoDB Storage] Stream write checkpoint changes instead of polling, reducing overhead for large numbers of concurrent connections
+
+### Patch Changes
+
+- 833e8f2: [Postgres Storage] Fix issue when creating custom write checkpoints
+- Updated dependencies [833e8f2]
+- Updated dependencies [833e8f2]
+- Updated dependencies [bfece49]
+- Updated dependencies [2cb5252]
+  - @powersync/service-module-postgres-storage@0.6.0
+  - @powersync/service-core@1.10.0
+  - @powersync/service-module-mongodb-storage@0.8.0
+  - @powersync/service-module-postgres@0.11.0
+  - @powersync/service-sync-rules@0.25.0
+  - @powersync/service-module-mongodb@0.7.3
+  - @powersync/service-module-mysql@0.5.3
+
 ## 1.9.0
 
 ### Minor Changes

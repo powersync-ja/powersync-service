@@ -1,10 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import Fastify, { FastifyInstance } from 'fastify';
 import { container } from '@powersync/lib-services-framework';
-import * as auth from '../../../src/routes/auth.js';
-import * as system from '../../../src/system/system-index.js';
+import Fastify, { FastifyInstance } from 'fastify';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { configureFastifyServer } from '../../../src/index.js';
+import * as auth from '../../../src/routes/auth.js';
 import { ProbeRoutes } from '../../../src/routes/endpoints/probes.js';
+import * as system from '../../../src/system/system-index.js';
 
 vi.mock('@powersync/lib-services-framework', async () => {
   const actual = (await vi.importActual('@powersync/lib-services-framework')) as any;
@@ -25,7 +25,7 @@ describe('Probe Routes Integration', () => {
 
   beforeEach(async () => {
     app = Fastify();
-    mockSystem = { routerEngine: {} } as system.ServiceContext;
+    mockSystem = { routerEngine: {}, replicationEngine: {} } as system.ServiceContext;
     await configureFastifyServer(app, { service_context: mockSystem });
     await app.ready();
   });

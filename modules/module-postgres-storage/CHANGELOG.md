@@ -1,5 +1,22 @@
 # @powersync/service-module-postgres-storage
 
+## 0.6.0
+
+### Minor Changes
+
+- bfece49: Cache parameter queries and buckets to reduce incremental sync overhead
+
+### Patch Changes
+
+- 833e8f2: [Postgres Storage] Fix issue when creating custom write checkpoints
+- Updated dependencies [833e8f2]
+- Updated dependencies [833e8f2]
+- Updated dependencies [bfece49]
+- Updated dependencies [2cb5252]
+  - @powersync/service-core@1.10.0
+  - @powersync/service-core-tests@0.8.0
+  - @powersync/service-sync-rules@0.25.0
+
 ## 0.5.2
 
 ### Patch Changes

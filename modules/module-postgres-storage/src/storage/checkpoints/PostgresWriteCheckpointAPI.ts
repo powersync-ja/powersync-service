@@ -1,7 +1,7 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import * as framework from '@powersync/lib-services-framework';
-import { storage } from '@powersync/service-core';
-import { JSONBig } from '@powersync/service-jsonbig';
+import { storage, sync } from '@powersync/service-core';
+import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import { models } from '../../types/types.js';
 
 export type PostgresCheckpointAPIOptions = {
@@ -30,34 +30,6 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     return batchCreateCustomWriteCheckpoints(this.db, checkpoints);
   }
 
-  async createCustomWriteCheckpoint(options: storage.CustomWriteCheckpointOptions): Promise<bigint> {
-    if (this.writeCheckpointMode !== storage.WriteCheckpointMode.CUSTOM) {
-      throw new framework.errors.ValidationError(
-        `Creating a custom Write Checkpoint when the current Write Checkpoint mode is set to "${this.writeCheckpointMode}"`
-      );
-    }
-
-    const { checkpoint, user_id, sync_rules_id } = options;
-    const row = await this.db.sql`
-      INSERT INTO
-        custom_write_checkpoints (user_id, write_checkpoint, sync_rules_id)
-      VALUES
-        (
-          ${{ type: 'varchar', value: user_id }},
-          ${{ type: 'int8', value: checkpoint }},
-          ${{ type: 'int4', value: sync_rules_id }}
-        )
-      ON CONFLICT DO UPDATE
-      SET
-        write_checkpoint = EXCLUDED.write_checkpoint
-      RETURNING
-        *;
-    `
-      .decoded(models.CustomWriteCheckpoint)
-      .first();
-    return row!.write_checkpoint;
-  }
-
   async createManagedWriteCheckpoint(checkpoint: storage.ManagedWriteCheckpointOptions): Promise<bigint> {
     if (this.writeCheckpointMode !== storage.WriteCheckpointMode.MANAGED) {
       throw new framework.errors.ValidationError(
@@ -84,6 +56,13 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
       .decoded(models.WriteCheckpoint)
       .first();
     return row!.write_checkpoint;
+  }
+
+  watchUserWriteCheckpoint(
+    options: storage.WatchUserWriteCheckpointOptions
+  ): AsyncIterable<storage.WriteCheckpointResult> {
+    // Not used for Postgres currently
+    throw new Error('Method not implemented.');
   }
 
   async lastWriteCheckpoint(filters: storage.LastWriteCheckpointFilters): Promise<bigint | null> {
@@ -150,11 +129,22 @@ export async function batchCreateCustomWriteCheckpoints(
     return;
   }
 
+  // Needs to be encoded using plain JSON.stringify
+  const mappedCheckpoints = checkpoints.map((cp) => {
+    return {
+      user_id: cp.user_id,
+      // Cannot encode bigint directly using JSON.stringify.
+      // The ::int8 in the query below will take care of casting back to a number
+      checkpoint: String(cp.checkpoint),
+      sync_rules_id: cp.sync_rules_id
+    };
+  });
+
   await db.sql`
     WITH
       json_data AS (
         SELECT
-          jsonb_array_elements(${{ type: 'jsonb', value: JSONBig.stringify(checkpoints) }}) AS
+          jsonb_array_elements(${{ type: 'jsonb', value: mappedCheckpoints }}) AS
         CHECKPOINT
       )
     INSERT INTO

@@ -1,7 +1,7 @@
 import { throwIfAborted } from 'ix/aborterror.js';
 import { AsyncIterableX } from 'ix/asynciterable/index.js';
 import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
-import { safeRace } from './safeRace.js';
+import { safeRace } from '../sync/safeRace.js';
 
 /**
  * Merge multiple source AsyncIterables into one output AsyncIterable.

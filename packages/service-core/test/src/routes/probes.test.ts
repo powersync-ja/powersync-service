@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { container } from '@powersync/lib-services-framework';
-import { startupCheck, livenessCheck, readinessCheck } from '../../../src/routes/endpoints/probes.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { livenessCheck, readinessCheck, startupCheck } from '../../../src/routes/endpoints/probes.js';
 
 // Mock the container
 vi.mock('@powersync/lib-services-framework', () => ({
@@ -83,6 +83,7 @@ describe('Probe Routes', () => {
   });
 
   describe('livenessCheck', () => {
+    const mockedContext = { context: { service_context: { replicationEngine: {} } } } as any;
     it('has the correct route definitions', () => {
       expect(livenessCheck.path).toBe('/probes/liveness');
       expect(livenessCheck.method).toBe('GET');
@@ -97,7 +98,7 @@ describe('Probe Routes', () => {
 
       vi.mocked(container.probes.state).mockReturnValue(mockState);
 
-      const response = await livenessCheck.handler();
+      const response = await livenessCheck.handler(mockedContext);
 
       expect(response.status).toBe(200);
       expect(response.data).toEqual(mockState);
@@ -112,7 +113,7 @@ describe('Probe Routes', () => {
 
       vi.mocked(container.probes.state).mockReturnValue(mockState);
 
-      const response = await livenessCheck.handler();
+      const response = await livenessCheck.handler(mockedContext);
 
       expect(response.status).toBe(400);
       expect(response.data).toEqual(mockState);

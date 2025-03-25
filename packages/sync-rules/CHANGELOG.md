@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.25.0
+
+### Minor Changes
+
+- bfece49: Cache parameter queries and buckets to reduce incremental sync overhead
+
 ## 0.24.1
 
 ### Patch Changes

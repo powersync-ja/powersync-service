@@ -113,13 +113,6 @@ export class PostgresSyncRulesStorage
     );
   }
 
-  createCustomWriteCheckpoint(checkpoint: storage.BatchedCustomWriteCheckpointOptions): Promise<bigint> {
-    return this.writeCheckpointAPI.createCustomWriteCheckpoint({
-      ...checkpoint,
-      sync_rules_id: this.group_id
-    });
-  }
-
   lastWriteCheckpoint(filters: storage.SyncStorageLastWriteCheckpointFilters): Promise<bigint | null> {
     return this.writeCheckpointAPI.lastWriteCheckpoint({
       ...filters,
@@ -748,7 +741,7 @@ export class PostgresSyncRulesStorage
     return this.makeActiveCheckpoint(activeCheckpoint);
   }
 
-  async *watchWriteCheckpoint(options: WatchWriteCheckpointOptions): AsyncIterable<storage.StorageCheckpointUpdate> {
+  async *watchCheckpointChanges(options: WatchWriteCheckpointOptions): AsyncIterable<storage.StorageCheckpointUpdate> {
     let lastCheckpoint: utils.InternalOpId | null = null;
     let lastWriteCheckpoint: bigint | null = null;
 
@@ -815,12 +808,12 @@ export class PostgresSyncRulesStorage
     const sink = new LastValueSink<string>(undefined);
 
     const disposeListener = this.db.registerListener({
-      notification: (notification) => sink.next(notification.payload)
+      notification: (notification) => sink.write(notification.payload)
     });
 
     signal.addEventListener('aborted', async () => {
       disposeListener();
-      sink.complete();
+      sink.end();
     });
 
     yield this.makeActiveCheckpoint(doc);

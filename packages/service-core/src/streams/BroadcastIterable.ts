@@ -52,13 +52,13 @@ export class BroadcastIterable<T> implements AsyncIterable<T> {
         }
         this.last = doc;
         for (let sink of sinks) {
-          sink.next(doc);
+          sink.write(doc);
         }
       }
 
       // End of stream
       for (let sink of sinks) {
-        sink.complete();
+        sink.end();
       }
     } catch (e) {
       // Just in case the error is not from the source

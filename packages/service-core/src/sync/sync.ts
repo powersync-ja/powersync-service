@@ -9,7 +9,7 @@ import * as util from '../util/util-index.js';
 
 import { logger } from '@powersync/lib-services-framework';
 import { BucketChecksumState } from './BucketChecksumState.js';
-import { mergeAsyncIterables } from './merge.js';
+import { mergeAsyncIterables } from '../streams/streams-index.js';
 import { acquireSemaphoreAbortable, settledPromise, tokenStream, TokenStreamOptions } from './util.js';
 import { SyncContext } from './SyncContext.js';
 import { RequestTracker } from './RequestTracker.js';
@@ -105,7 +105,7 @@ async function* streamResponseInner(
       after: BigInt(bucket.after)
     }))
   });
-  const stream = bucketStorage.watchWriteCheckpoint({
+  const stream = bucketStorage.watchCheckpointChanges({
     user_id: checkpointUserId,
     signal
   });
