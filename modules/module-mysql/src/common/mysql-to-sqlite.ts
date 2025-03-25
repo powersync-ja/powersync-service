@@ -41,14 +41,13 @@ export function toColumnDescriptors(columns: mysql.FieldPacket[] | TableMapEntry
 
 export function toColumnDescriptorFromFieldPacket(column: mysql.FieldPacket): ColumnDescriptor {
   let typeId = column.type!;
-  const BINARY_FLAG = 128;
   const MYSQL_ENUM_FLAG = 256;
   const MYSQL_SET_FLAG = 2048;
-  const MYSQL_BINARY_CHARSET = 63;
+  const MYSQL_BINARY_ENCODING = 'binary';
 
   switch (column.type) {
     case mysql.Types.STRING:
-      if (((column.flags as number) & BINARY_FLAG) !== 0) {
+      if (column.encoding === MYSQL_BINARY_ENCODING) {
         typeId = ADDITIONAL_MYSQL_TYPES.BINARY;
       } else if (((column.flags as number) & MYSQL_ENUM_FLAG) !== 0) {
         typeId = mysql.Types.ENUM;
@@ -58,10 +57,10 @@ export function toColumnDescriptorFromFieldPacket(column: mysql.FieldPacket): Co
       break;
 
     case mysql.Types.VAR_STRING:
-      typeId = column.characterSet === MYSQL_BINARY_CHARSET ? ADDITIONAL_MYSQL_TYPES.VARBINARY : column.type;
+      typeId = column.encoding === MYSQL_BINARY_ENCODING ? ADDITIONAL_MYSQL_TYPES.VARBINARY : column.type;
       break;
     case mysql.Types.BLOB:
-      typeId = ((column.flags as number) & BINARY_FLAG) === 0 ? ADDITIONAL_MYSQL_TYPES.TEXT : column.type;
+      typeId = column.encoding !== MYSQL_BINARY_ENCODING ? ADDITIONAL_MYSQL_TYPES.TEXT : column.type;
       break;
   }
 
