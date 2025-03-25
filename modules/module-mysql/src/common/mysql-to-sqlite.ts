@@ -46,6 +46,7 @@ export function toColumnDescriptorFromFieldPacket(column: mysql.FieldPacket): Co
   const MYSQL_BINARY_ENCODING = 'binary';
 
   switch (column.type) {
+    // STRING is overloaded to also include Binary, Enum and Set types
     case mysql.Types.STRING:
       if (column.encoding === MYSQL_BINARY_ENCODING) {
         typeId = ADDITIONAL_MYSQL_TYPES.BINARY;
@@ -55,10 +56,11 @@ export function toColumnDescriptorFromFieldPacket(column: mysql.FieldPacket): Co
         typeId = mysql.Types.SET;
       }
       break;
-
+    // VAR_STRING represents both VARCHAR and VARBINARY types
     case mysql.Types.VAR_STRING:
       typeId = column.encoding === MYSQL_BINARY_ENCODING ? ADDITIONAL_MYSQL_TYPES.VARBINARY : column.type;
       break;
+    // BLOB is also used to represent the TEXT type when the encoding is not binary
     case mysql.Types.BLOB:
       typeId = column.encoding !== MYSQL_BINARY_ENCODING ? ADDITIONAL_MYSQL_TYPES.TEXT : column.type;
       break;
@@ -77,13 +79,16 @@ export function toColumnDescriptorFromDefinition(column: ColumnDefinition): Colu
   let typeId = column.type;
 
   switch (column.type) {
+    // STRING is overloaded to also include Binary types, ENUM and SET is already identified upstream in Zongji
     case mysql.Types.STRING:
       typeId = !column.charset ? ADDITIONAL_MYSQL_TYPES.BINARY : column.type;
       break;
+    // VAR_STRING represents both VARCHAR and VARBINARY types
     case mysql.Types.VAR_STRING:
     case mysql.Types.VARCHAR:
       typeId = !column.charset ? ADDITIONAL_MYSQL_TYPES.VARBINARY : column.type;
       break;
+    // BLOB is also used to represent the TEXT type when a charset is specified
     case mysql.Types.BLOB:
       typeId = column.charset ? ADDITIONAL_MYSQL_TYPES.TEXT : column.type;
       break;
