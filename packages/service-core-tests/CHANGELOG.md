@@ -1,5 +1,11 @@
 # @powersync/service-core-tests
 
+## 0.8.1
+
+### Patch Changes
+
+- @powersync/service-core@1.10.1
+
 ## 0.8.0
 
 ### Minor Changes

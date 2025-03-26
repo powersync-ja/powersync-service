@@ -1,5 +1,12 @@
 # @powersync/service-module-mysql
 
+## 0.5.4
+
+### Patch Changes
+
+- a6dee95: Fixed mysql varchar column identification for binary encoded varchar columns
+  - @powersync/service-core@1.10.1
+
 ## 0.5.3
 
 ### Patch Changes
