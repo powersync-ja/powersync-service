@@ -1,6 +1,5 @@
 import { container, logger } from '@powersync/lib-services-framework';
 import * as core from '@powersync/service-core';
-import { MetricModes, registerMetrics } from '../metrics.js';
 
 /**
  * Configures the replication portion on a {@link serviceContext}
@@ -26,9 +25,9 @@ export const startStreamRunner = async (runnerConfig: core.utils.RunnerConfig) =
 
   registerReplicationServices(serviceContext);
 
-  await registerMetrics({
+  await core.metrics.registerMetrics({
     service_context: serviceContext,
-    modes: [MetricModes.REPLICATION, MetricModes.STORAGE]
+    modes: [core.metrics.MetricModes.REPLICATION, core.metrics.MetricModes.STORAGE]
   });
 
   const moduleManager = container.getImplementation(core.modules.ModuleManager);

@@ -1,12 +1,9 @@
-import * as core from '@powersync/service-core';
-import {
-  createCoreAPIMetrics,
-  createCoreReplicationMetrics,
-  createCoreStorageMetrics,
-  initializeCoreAPIMetrics,
-  initializeCoreReplicationMetrics,
-  initializeCoreStorageMetrics
-} from '@powersync/service-core';
+import { ServiceContextContainer } from '../system/ServiceContext.js';
+import { createOpenTelemetryMetricsFactory } from './open-telemetry/util.js';
+import { MetricsEngine } from './MetricsEngine.js';
+import { createCoreAPIMetrics, initializeCoreAPIMetrics } from '../api/api-metrics.js';
+import { createCoreReplicationMetrics, initializeCoreReplicationMetrics } from '../replication/replication-metrics.js';
+import { createCoreStorageMetrics, initializeCoreStorageMetrics } from '../storage/storage-metrics.js';
 
 export enum MetricModes {
   API = 'api',
@@ -15,19 +12,19 @@ export enum MetricModes {
 }
 
 export type MetricsRegistrationOptions = {
-  service_context: core.system.ServiceContextContainer;
+  service_context: ServiceContextContainer;
   modes: MetricModes[];
 };
 
 export const registerMetrics = async (options: MetricsRegistrationOptions) => {
   const { service_context, modes } = options;
 
-  const metricsFactory = core.metrics.createOpenTelemetryMetricsFactory(service_context);
-  const metricsEngine = new core.metrics.MetricsEngine({
+  const metricsFactory = createOpenTelemetryMetricsFactory(service_context);
+  const metricsEngine = new MetricsEngine({
     factory: metricsFactory,
     disable_telemetry_sharing: service_context.configuration.telemetry.disable_telemetry_sharing
   });
-  service_context.register(core.metrics.MetricsEngine, metricsEngine);
+  service_context.register(MetricsEngine, metricsEngine);
 
   if (modes.includes(MetricModes.API)) {
     createCoreAPIMetrics(metricsEngine);

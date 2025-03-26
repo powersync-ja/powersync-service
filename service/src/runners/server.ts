@@ -5,7 +5,6 @@ import { container, logger } from '@powersync/lib-services-framework';
 import * as core from '@powersync/service-core';
 
 import { ReactiveSocketRouter } from '@powersync/service-rsocket-router';
-import { MetricModes, registerMetrics } from '../metrics.js';
 
 /**
  * Configures the server portion on a {@link ServiceContext}
@@ -82,9 +81,9 @@ export async function startServer(runnerConfig: core.utils.RunnerConfig) {
 
   registerServerServices(serviceContext);
 
-  await registerMetrics({
+  await core.metrics.registerMetrics({
     service_context: serviceContext,
-    modes: [MetricModes.API]
+    modes: [core.metrics.MetricModes.API]
   });
 
   const moduleManager = container.getImplementation(core.modules.ModuleManager);
