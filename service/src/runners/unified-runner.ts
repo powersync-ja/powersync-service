@@ -3,15 +3,16 @@ import * as core from '@powersync/service-core';
 
 import { registerServerServices } from './server.js';
 import { registerReplicationServices } from './stream-worker.js';
+import { logBooting } from '../util/version.js';
 
 /**
  * Starts an API server
  */
 export const startUnifiedRunner = async (runnerConfig: core.utils.RunnerConfig) => {
-  logger.info('Booting');
+  logBooting('Unified Container');
 
   const config = await core.utils.loadConfig(runnerConfig);
-
+  core.utils.setTags(config.metadata);
   const serviceContext = new core.system.ServiceContextContainer(config);
 
   registerServerServices(serviceContext);
