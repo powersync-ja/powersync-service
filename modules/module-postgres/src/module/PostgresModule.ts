@@ -44,12 +44,15 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
       this.registerSupabaseAuth(context);
     }
 
-    // Record replicated bytes using global jpgwire metrics.
-    jpgwire.setMetricsRecorder({
-      addBytesRead(bytes) {
-        context.metricsEngine.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES).add(bytes);
-      }
-    });
+    // Record replicated bytes using global jpgwire metrics. Only registered if this module is replicating
+    if (context.replicationEngine) {
+      jpgwire.setMetricsRecorder({
+        addBytesRead(bytes) {
+          context.metricsEngine.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES).add(bytes);
+        }
+      });
+      this.logger.info('Successfully set up connection metrics recorder for PostgresModule.');
+    }
   }
 
   protected createRouteAPIAdapter(): api.RouteAPI {
