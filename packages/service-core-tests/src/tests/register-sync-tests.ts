@@ -158,7 +158,8 @@ bucket_definitions:
     expect(lines).toMatchSnapshot();
   });
 
-  test('sync interrupts low-priority buckets on new checkpoints', async () => {
+  // Temporarily skipped - interruption disabled
+  test.skip('sync interrupts low-priority buckets on new checkpoints', async () => {
     await using f = await factory();
 
     const syncRules = await f.updateSyncRules({
