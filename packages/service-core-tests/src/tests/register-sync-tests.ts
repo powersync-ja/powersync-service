@@ -1,5 +1,5 @@
 import {
-  CheckpointLine,
+  createCoreAPIMetrics,
   storage,
   StreamingSyncCheckpoint,
   StreamingSyncCheckpointDiff,
@@ -13,6 +13,7 @@ import * as timers from 'timers/promises';
 import { fileURLToPath } from 'url';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
+import { METRICS_HELPER } from '../test-utils/test-utils-index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,7 +38,8 @@ export const SYNC_SNAPSHOT_PATH = path.resolve(__dirname, '../__snapshots/sync.t
  * ```
  */
 export function registerSyncTests(factory: storage.TestStorageFactory) {
-  const tracker = new sync.RequestTracker();
+  createCoreAPIMetrics(METRICS_HELPER.metricsEngine);
+  const tracker = new sync.RequestTracker(METRICS_HELPER.metricsEngine);
   const syncContext = new sync.SyncContext({
     maxBuckets: 10,
     maxParameterQueryResults: 10,
