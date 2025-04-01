@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 1.10.2
+
+### Patch Changes
+
+- a9b79a5: Fix hanging sync connections due to checkpoint interruptions.
+
 ## 1.10.1
 
 ## 1.10.0

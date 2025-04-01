@@ -180,7 +180,14 @@ async function* streamResponseInner(
       function markOperationsSent(operations: number) {
         syncedOperations += operations;
         tracker.addOperationsSynced(operations);
-        maybeRaceForNewCheckpoint();
+        // Disable interrupting checkpoints for now.
+        // There is a bug with interrupting checkpoints where:
+        // 1. User is in the middle of syncing a large batch of data (for example initial sync).
+        // 2. A new checkpoint comes in, which interrupts the batch.
+        // 3. However, the new checkpoint does not contain any new data for this connection, so nothing further is synced.
+        // This then causes the client to wait indefinitely for the remaining data or checkpoint_complete message. That is
+        // only resolved when a new checkpoint comes in that does have data for this connection, or the connection is restarted.
+        // maybeRaceForNewCheckpoint();
       }
 
       // This incrementally updates dataBuckets with each individual bucket position.
