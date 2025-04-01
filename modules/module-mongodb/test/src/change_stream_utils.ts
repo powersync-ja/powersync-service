@@ -1,12 +1,14 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import {
   BucketStorageFactory,
+  createCoreReplicationMetrics,
+  initializeCoreReplicationMetrics,
   InternalOpId,
   ProtocolOpId,
   ReplicationCheckpoint,
   SyncRulesBucketStorage
 } from '@powersync/service-core';
-import { test_utils } from '@powersync/service-core-tests';
+import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 
 import { ChangeStream, ChangeStreamOptions } from '@module/replication/ChangeStream.js';
 import { MongoManager } from '@module/replication/MongoManager.js';
@@ -38,7 +40,10 @@ export class ChangeStreamTestContext {
   constructor(
     public factory: BucketStorageFactory,
     public connectionManager: MongoManager
-  ) {}
+  ) {
+    createCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
+    initializeCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
+  }
 
   async dispose() {
     this.abortController.abort();
@@ -78,6 +83,7 @@ export class ChangeStreamTestContext {
     }
     const options: ChangeStreamOptions = {
       storage: this.storage,
+      metrics: METRICS_HELPER.metricsEngine,
       connections: this.connectionManager,
       abort_signal: this.abortController.signal
     };

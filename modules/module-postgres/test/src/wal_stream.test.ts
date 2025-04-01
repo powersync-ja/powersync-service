@@ -1,12 +1,13 @@
 import { MissingReplicationSlotError } from '@module/replication/WalStream.js';
-import { Metrics, storage } from '@powersync/service-core';
-import { putOp, removeOp } from '@powersync/service-core-tests';
+import { storage } from '@powersync/service-core';
+import { METRICS_HELPER, putOp, removeOp } from '@powersync/service-core-tests';
 import { pgwireRows } from '@powersync/service-jpgwire';
 import * as crypto from 'crypto';
 import { describe, expect, test } from 'vitest';
 import { env } from './env.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, INITIALIZED_POSTGRES_STORAGE_FACTORY } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
+import { ReplicationMetric } from '@powersync/service-types';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -40,9 +41,8 @@ bucket_definitions:
 
     await context.replicateSnapshot();
 
-    const startRowCount = (await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
-    const startTxCount =
-      (await Metrics.getInstance().getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
+    const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
+    const startTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
 
     context.startStreaming();
 
@@ -55,9 +55,8 @@ bucket_definitions:
     const data = await context.getBucketData('global[]');
 
     expect(data).toMatchObject([putOp('test_data', { id: test_id, description: 'test1', num: 1152921504606846976n })]);
-    const endRowCount = (await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
-    const endTxCount =
-      (await Metrics.getInstance().getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
+    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
+    const endTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
     expect(endRowCount - startRowCount).toEqual(1);
     expect(endTxCount - startTxCount).toEqual(1);
   });
@@ -77,9 +76,8 @@ bucket_definitions:
 
     await context.replicateSnapshot();
 
-    const startRowCount = (await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
-    const startTxCount =
-      (await Metrics.getInstance().getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
+    const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
+    const startTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
 
     context.startStreaming();
 
@@ -90,9 +88,8 @@ bucket_definitions:
     const data = await context.getBucketData('global[]');
 
     expect(data).toMatchObject([putOp('test_DATA', { id: test_id, description: 'test1' })]);
-    const endRowCount = (await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
-    const endTxCount =
-      (await Metrics.getInstance().getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
+    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
+    const endTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
     expect(endRowCount - startRowCount).toEqual(1);
     expect(endTxCount - startTxCount).toEqual(1);
   });
@@ -274,9 +271,8 @@ bucket_definitions:
 
     await context.replicateSnapshot();
 
-    const startRowCount = (await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
-    const startTxCount =
-      (await Metrics.getInstance().getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
+    const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
+    const startTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
 
     context.startStreaming();
 
@@ -287,9 +283,8 @@ bucket_definitions:
     const data = await context.getBucketData('global[]');
 
     expect(data).toMatchObject([]);
-    const endRowCount = (await Metrics.getInstance().getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
-    const endTxCount =
-      (await Metrics.getInstance().getMetricValueForTests('powersync_transactions_replicated_total')) ?? 0;
+    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
+    const endTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
 
     // There was a transaction, but we should not replicate any actual data
     expect(endRowCount - startRowCount).toEqual(0);

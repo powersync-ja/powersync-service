@@ -19,6 +19,7 @@ export class BinLogReplicator extends replication.AbstractReplicator<BinLogRepli
     return new BinLogReplicationJob({
       id: this.createJobId(options.storage.group_id),
       storage: options.storage,
+      metrics: this.metrics,
       lock: options.lock,
       connectionFactory: this.connectionFactory,
       rateLimiter: this.rateLimiter
