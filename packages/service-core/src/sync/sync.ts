@@ -112,8 +112,8 @@ async function* streamResponseInner(
   const newCheckpoints = stream[Symbol.asyncIterator]();
 
   type CheckpointAndLine = {
-    checkpoint: bigint,
-    line: CheckpointLine | null,
+    checkpoint: bigint;
+    line: CheckpointLine | null;
   };
 
   async function waitForNewCheckpointLine(): Promise<IteratorResult<CheckpointAndLine>> {
@@ -127,9 +127,7 @@ async function* streamResponseInner(
   }
 
   try {
-    let nextCheckpointPromise:
-      | Promise<PromiseSettledResult<IteratorResult<CheckpointAndLine>>>
-      | undefined;
+    let nextCheckpointPromise: Promise<PromiseSettledResult<IteratorResult<CheckpointAndLine>>> | undefined;
 
     do {
       if (!nextCheckpointPromise) {
