@@ -190,7 +190,7 @@ async function* streamResponseInner(
                   continue;
                 }
 
-                // A new sync line can be emitted. Stop running the bucketDataInBatches() iterations, makeing the
+                // A new sync line can be emitted. Stop running the bucketDataInBatches() iterations, making the
                 // main flow reach the new checkpoint.
                 abortCheckpointController.abort();
               }

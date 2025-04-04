@@ -332,7 +332,14 @@ bucket_definitions:
     });
 
     let sentCheckpoints = 0;
+    let completedCheckpoints = 0;
     let sentRows = 0;
+
+    // Expected flow:
+    //  1. Stream starts, we receive a checkpoint followed by the one high-prio row and a partial completion.
+    //  2. We insert a new row that is not part of a bucket relevant to this stream.
+    //  3. This means that no interruption happens and we receive all the low-priority data, followed by a checkpoint.
+    //  4. After the checkpoint, add a new row that _is_ relevant for this sync, which should trigger a new iteration.
 
     for await (let next of stream) {
       if (typeof next == 'string') {
@@ -356,9 +363,8 @@ bucket_definitions:
               await batch.commit('0/2');
             });
           } else {
-            // Low-priority sync from the first checkpoint was interrupted. This should not happen, the new
-            // row doesn't affect this stream.
-            assert.fail('Did not expect second partial_checkpoint_complete message');
+            expect(sentCheckpoints).toBe(2);
+            expect(sentRows).toBe(10002);
           }
         }
         if ('checkpoint' in next || 'checkpoint_diff' in next) {
@@ -369,13 +375,34 @@ bucket_definitions:
           sentRows += next.data.data.length;
         }
         if ('checkpoint_complete' in next) {
-          break;
+          completedCheckpoints++;
+          if (completedCheckpoints == 2) {
+            break;
+          }
+          if (completedCheckpoints == 1) {
+            expect(sentRows).toBe(10001);
+            
+            await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+              // Add a high-priority row that affects this sync stream.
+              await batch.save({
+                sourceTable: TEST_TABLE,
+                tag: storage.SaveOperationTag.INSERT,
+                after: {
+                  id: 'highprio3',
+                  description: 'user_one'
+                },
+                afterReplicaId: 'highprio3'
+              });
+
+              await batch.commit('0/3');
+            });
+          }
         }
       }
     }
 
-    expect(sentCheckpoints).toBe(1);
-    expect(sentRows).toBe(10001);
+    expect(sentCheckpoints).toBe(2);
+    expect(sentRows).toBe(10002);
   });
 
   test('sends checkpoint complete line for empty checkpoint', async () => {
