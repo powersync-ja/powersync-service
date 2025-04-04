@@ -63,6 +63,15 @@ export class BucketChecksumState {
     }
   }
 
+  /**
+   * Build a new checkpoint line for an underlying storage checkpoint update if any buckets have changed.
+   * 
+   * When this returns null, the call is idempotent (meaning that no internal state is updated until a line
+   * is generated).
+   * 
+   * @param next The updated checkpoint
+   * @returns A {@link CheckpointLine} if any of the buckets watched by this connected was updated, or otherwise `null`.
+   */
   async buildNextCheckpointLine(next: storage.StorageCheckpointUpdate): Promise<CheckpointLine | null> {
     const { writeCheckpoint, base } = next;
     const user_id = this.parameterState.syncParams.user_id;
