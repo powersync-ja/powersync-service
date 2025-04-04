@@ -11,7 +11,7 @@ import { RequestParameters } from '@powersync/service-sync-rules';
 import path from 'path';
 import * as timers from 'timers/promises';
 import { fileURLToPath } from 'url';
-import { assert, expect, test } from 'vitest';
+import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { METRICS_HELPER } from '../test-utils/test-utils-index.js';
 
@@ -381,7 +381,7 @@ bucket_definitions:
           }
           if (completedCheckpoints == 1) {
             expect(sentRows).toBe(10001);
-            
+
             await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
               // Add a high-priority row that affects this sync stream.
               await batch.save({
