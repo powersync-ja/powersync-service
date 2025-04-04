@@ -179,16 +179,24 @@ async function* streamResponseInner(
       function maybeRaceForNewCheckpoint() {
         if (syncedOperations >= 1000 && nextCheckpointPromise === undefined) {
           nextCheckpointPromise = (async () => {
-            const next = await settledPromise(waitForNewCheckpointLine());
-            if (next.status == 'rejected') {
-              abortCheckpointController.abort();
-            } else if (!next.value.done && next.value.value.line != null) {
-              // A new sync line can be emitted, Stop running the bucketDataInBatches() iterations, makeing the
-              // main flow reach the new checkpoint.
-              abortCheckpointController.abort();
-            }
+            while (true) {
+              const next = await settledPromise(waitForNewCheckpointLine());
+              if (next.status == 'rejected') {
+                abortCheckpointController.abort();
+              } else if (!next.value.done) {
+                if (next.value.value.line == null) {
+                  // There's a new checkpoint that doesn't affect this sync stream. Keep listening, but don't
+                  // interrupt this batch.
+                  continue;
+                }
 
-            return next;
+                // A new sync line can be emitted. Stop running the bucketDataInBatches() iterations, makeing the
+                // main flow reach the new checkpoint.
+                abortCheckpointController.abort();
+              }
+
+              return next;
+            }
           })();
         }
       }
