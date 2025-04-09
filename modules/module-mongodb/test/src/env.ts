@@ -7,5 +7,5 @@ export const env = utils.collectEnvironmentVariables({
   CI: utils.type.boolean.default('false'),
   SLOW_TESTS: utils.type.boolean.default('false'),
   TEST_MONGO_STORAGE: utils.type.boolean.default('true'),
-  TEST_POSTGRES_STORAGE: utils.type.boolean.default('false')
+  TEST_POSTGRES_STORAGE: utils.type.boolean.default('true')
 });

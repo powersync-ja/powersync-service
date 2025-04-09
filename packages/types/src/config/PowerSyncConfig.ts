@@ -104,7 +104,7 @@ export type StrictJwk = t.Decoded<typeof jwk>;
 
 export const BaseStorageConfig = t.object({
   type: t.string,
-  // Maximum number of conncetions to the storage database, per process.
+  // Maximum number of connections to the storage database, per process.
   // Defaults to 8.
   max_pool_size: t.number.optional()
 });
@@ -200,6 +200,8 @@ export const powerSyncConfig = t.object({
 
   telemetry: t
     .object({
+      // When set, metrics will be available on this port for scraping by Prometheus.
+      prometheus_port: portCodec.optional(),
       disable_telemetry_sharing: t.boolean,
       internal_service_endpoint: t.string.optional()
     })

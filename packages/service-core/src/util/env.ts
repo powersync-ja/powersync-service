@@ -19,10 +19,6 @@ export const env = utils.collectEnvironmentVariables({
    * Runner to be started in this process
    */
   PS_RUNNER_TYPE: utils.type.string.default(ServiceRunner.UNIFIED),
-  /**
-   * Port for metrics
-   */
-  METRICS_PORT: utils.type.number.optional(),
 
   NODE_ENV: utils.type.string.optional()
 });

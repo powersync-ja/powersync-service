@@ -1,11 +1,11 @@
 import { MeterProvider, MetricReader, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
-import { env } from '../../util/env.js';
 import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import { Resource } from '@opentelemetry/resources';
 import { ServiceContext } from '../../system/ServiceContext.js';
 import { OpenTelemetryMetricsFactory } from './OpenTelemetryMetricsFactory.js';
 import { MetricsFactory } from '../metrics-interfaces.js';
+import { logger } from '@powersync/lib-services-framework';
 
 export interface RuntimeMetadata {
   [key: string]: string | number | undefined;
@@ -15,12 +15,18 @@ export function createOpenTelemetryMetricsFactory(context: ServiceContext): Metr
   const { configuration, lifeCycleEngine, storageEngine } = context;
   const configuredExporters: MetricReader[] = [];
 
-  if (env.METRICS_PORT) {
-    const prometheusExporter = new PrometheusExporter({ port: env.METRICS_PORT, preventServerStart: true });
+  if (configuration.telemetry.prometheus_port) {
+    const prometheusExporter = new PrometheusExporter({
+      port: configuration.telemetry.prometheus_port,
+      preventServerStart: true
+    });
     configuredExporters.push(prometheusExporter);
 
     lifeCycleEngine.withLifecycle(prometheusExporter, {
-      start: () => prometheusExporter.startServer()
+      start: async () => {
+        await prometheusExporter.startServer();
+        logger.info(`Prometheus metric export enabled on port:${configuration.telemetry.prometheus_port}`);
+      }
     });
   }
 
