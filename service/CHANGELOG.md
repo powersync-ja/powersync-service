@@ -1,5 +1,17 @@
 # @powersync/service-image
 
+## 1.11.0
+
+### Patch Changes
+
+- Updated dependencies [d1b83ce]
+  - @powersync/service-module-postgres-storage@0.7.0
+  - @powersync/service-module-mongodb-storage@0.9.0
+  - @powersync/service-module-postgres@0.12.0
+  - @powersync/service-module-mongodb@0.8.0
+  - @powersync/service-core@1.11.0
+  - @powersync/service-module-mysql@0.6.0
+
 ## 1.10.2
 
 ### Patch Changes
