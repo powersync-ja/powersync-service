@@ -55,6 +55,7 @@ export type ResolvedPowerSyncConfig = {
   };
 
   telemetry: {
+    prometheus_port?: number;
     disable_telemetry_sharing: boolean;
     internal_service_endpoint: string;
   };

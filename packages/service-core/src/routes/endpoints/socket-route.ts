@@ -2,18 +2,19 @@ import { ErrorCode, errors, logger, schema } from '@powersync/lib-services-frame
 import { RequestParameters } from '@powersync/service-sync-rules';
 import { serialize } from 'bson';
 
-import { Metrics } from '../../metrics/Metrics.js';
 import * as sync from '../../sync/sync-index.js';
 import * as util from '../../util/util-index.js';
 import { SocketRouteGenerator } from '../router-socket.js';
 import { SyncRoutes } from './sync-stream.js';
+
+import { APIMetric } from '@powersync/service-types';
 
 export const syncStreamReactive: SocketRouteGenerator = (router) =>
   router.reactiveStream<util.StreamingSyncRequest, any>(SyncRoutes.STREAM, {
     validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
     handler: async ({ context, params, responder, observer, initialN, signal: upstreamSignal }) => {
       const { service_context } = context;
-      const { routerEngine, syncContext } = service_context;
+      const { routerEngine, metricsEngine, syncContext } = service_context;
 
       // Create our own controller that we can abort directly
       const controller = new AbortController();
@@ -69,8 +70,8 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         controller.abort();
       });
 
-      Metrics.getInstance().concurrent_connections.add(1);
-      const tracker = new sync.RequestTracker();
+      metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(1);
+      const tracker = new sync.RequestTracker(metricsEngine);
       try {
         for await (const data of sync.streamResponse({
           syncContext: syncContext,
@@ -147,7 +148,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
           operations_synced: tracker.operationsSynced,
           data_synced_bytes: tracker.dataSyncedBytes
         });
-        Metrics.getInstance().concurrent_connections.add(-1);
+        metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
       }
     }
   });
