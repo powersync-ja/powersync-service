@@ -25,9 +25,7 @@ export class MySQLModule extends replication.ReplicationModule<types.MySQLConnec
     });
   }
 
-  async initialize(context: system.ServiceContextContainer): Promise<void> {
-    await super.initialize(context);
-  }
+  async onInitialized(context: system.ServiceContextContainer): Promise<void> {}
 
   protected createRouteAPIAdapter(): api.RouteAPI {
     return new MySQLRouteAPIAdapter(this.resolveConfig(this.decodedConfig!));
@@ -42,6 +40,7 @@ export class MySQLModule extends replication.ReplicationModule<types.MySQLConnec
       id: this.getDefaultId(normalisedConfig.database),
       syncRuleProvider: syncRuleProvider,
       storageEngine: context.storageEngine,
+      metricsEngine: context.metricsEngine,
       connectionFactory: connectionFactory,
       rateLimiter: new MySQLErrorRateLimiter()
     });

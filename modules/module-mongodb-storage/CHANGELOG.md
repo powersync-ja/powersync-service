@@ -1,5 +1,17 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.9.0
+
+### Minor Changes
+
+- d1b83ce: Refactored Metrics to use a MetricsEngine which is telemetry framework agnostic.
+
+### Patch Changes
+
+- Updated dependencies [d1b83ce]
+  - @powersync/service-core@1.11.0
+  - @powersync/service-types@0.10.0
+
 ## 0.8.2
 
 ### Patch Changes

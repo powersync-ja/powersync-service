@@ -5,9 +5,10 @@ import { Readable } from 'stream';
 import * as sync from '../../sync/sync-index.js';
 import * as util from '../../util/util-index.js';
 
-import { Metrics } from '../../metrics/Metrics.js';
 import { authUser } from '../auth.js';
 import { routeDefinition } from '../router.js';
+
+import { APIMetric } from '@powersync/service-types';
 
 export enum SyncRoutes {
   STREAM = '/sync/stream'
@@ -20,7 +21,7 @@ export const syncStreamed = routeDefinition({
   validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
   handler: async (payload) => {
     const { service_context } = payload.context;
-    const { routerEngine, storageEngine, syncContext } = service_context;
+    const { routerEngine, storageEngine, metricsEngine, syncContext } = service_context;
     const headers = payload.request.headers;
     const userAgent = headers['x-user-agent'] ?? headers['user-agent'];
     const clientId = payload.params.client_id;
@@ -49,9 +50,9 @@ export const syncStreamed = routeDefinition({
     const syncRules = bucketStorage.getParsedSyncRules(routerEngine!.getAPI().getParseSyncRulesOptions());
 
     const controller = new AbortController();
-    const tracker = new sync.RequestTracker();
+    const tracker = new sync.RequestTracker(metricsEngine);
     try {
-      Metrics.getInstance().concurrent_connections.add(1);
+      metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(1);
       const stream = Readable.from(
         sync.transformToBytesTracked(
           sync.ndjson(
@@ -96,7 +97,7 @@ export const syncStreamed = routeDefinition({
         data: stream,
         afterSend: async () => {
           controller.abort();
-          Metrics.getInstance().concurrent_connections.add(-1);
+          metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
           logger.info(`Sync stream complete`, {
             user_id: syncParams.user_id,
             client_id: clientId,
@@ -108,7 +109,7 @@ export const syncStreamed = routeDefinition({
       });
     } catch (ex) {
       controller.abort();
-      Metrics.getInstance().concurrent_connections.add(-1);
+      metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
     }
   }
 });

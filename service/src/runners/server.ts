@@ -5,7 +5,7 @@ import { container, logger } from '@powersync/lib-services-framework';
 import * as core from '@powersync/service-core';
 
 import { ReactiveSocketRouter } from '@powersync/service-rsocket-router';
-import { MetricModes, registerMetrics } from '../metrics.js';
+import { logBooting } from '../util/version.js';
 
 /**
  * Configures the server portion on a {@link ServiceContext}
@@ -75,23 +75,23 @@ export function registerServerServices(serviceContext: core.system.ServiceContex
  * Starts an API server
  */
 export async function startServer(runnerConfig: core.utils.RunnerConfig) {
-  logger.info('Booting');
+  logBooting('API Container');
 
   const config = await core.utils.loadConfig(runnerConfig);
+  core.utils.setTags(config.metadata);
   const serviceContext = new core.system.ServiceContextContainer(config);
 
   registerServerServices(serviceContext);
 
-  await registerMetrics({
+  await core.metrics.registerMetrics({
     service_context: serviceContext,
-    modes: [MetricModes.API]
+    modes: [core.metrics.MetricModes.API]
   });
 
   const moduleManager = container.getImplementation(core.modules.ModuleManager);
   await moduleManager.initialize(serviceContext);
 
   logger.info('Starting service...');
-
   await serviceContext.lifeCycleEngine.start();
   logger.info('Service started.');
 

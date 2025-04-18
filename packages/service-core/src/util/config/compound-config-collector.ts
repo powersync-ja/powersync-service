@@ -154,6 +154,7 @@ export class CompoundConfigCollector {
       metadata: baseConfig.metadata ?? {},
       migrations: baseConfig.migrations,
       telemetry: {
+        prometheus_port: baseConfig.telemetry?.prometheus_port,
         disable_telemetry_sharing: baseConfig.telemetry?.disable_telemetry_sharing ?? false,
         internal_service_endpoint:
           baseConfig.telemetry?.internal_service_endpoint ?? 'https://pulse.journeyapps.com/v1/metrics'

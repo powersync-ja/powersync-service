@@ -1,5 +1,19 @@
 # @powersync/service-module-postgres-storage
 
+## 0.7.0
+
+### Minor Changes
+
+- d1b83ce: Refactored Metrics to use a MetricsEngine which is telemetry framework agnostic.
+
+### Patch Changes
+
+- Updated dependencies [d1b83ce]
+  - @powersync/service-core-tests@0.9.0
+  - @powersync/service-core@1.11.0
+  - @powersync/service-types@0.10.0
+  - @powersync/lib-service-postgres@0.4.1
+
 ## 0.6.2
 
 ### Patch Changes
