@@ -4,8 +4,10 @@ import {
   DartFlutterFlowSchemaGenerator,
   DartSchemaGenerator,
   JsLegacySchemaGenerator,
+  KotlinSchemaGenerator,
   SqlSyncRules,
   StaticSchema,
+  SwiftSchemaGenerator,
   TsSchemaGenerator
 } from '../../src/index.js';
 
@@ -175,5 +177,91 @@ export const AppSchema = new Schema({
 export type Database = (typeof AppSchema)['types'];
 `
     );
+  });
+
+  test('kotlin', () => {
+    expect(new KotlinSchemaGenerator().generate(rules, schema)).toEqual(`val schema = Schema(
+  Table(
+    name = "assets1",
+    columns = listOf(
+        Column.text("name"),
+        Column.integer("count"),
+        Column.text("owner_id")
+    )
+  ),
+  Table(
+    name = "assets2",
+    columns = listOf(
+        Column.text("name"),
+        Column.integer("count"),
+        Column.text("other_id"),
+        Column.text("foo")
+    )
+  )
+)`);
+
+    expect(new KotlinSchemaGenerator().generate(rules, schema, { includeTypeComments: true }))
+      .toEqual(`val schema = Schema(
+  Table(
+    name = "assets1",
+    columns = listOf(
+        Column.text("name"), // text
+        Column.integer("count"), // int4
+        Column.text("owner_id") // uuid
+    )
+  ),
+  Table(
+    name = "assets2",
+    columns = listOf(
+        Column.text("name"), // text
+        Column.integer("count"), // int4
+        Column.text("other_id"), // uuid
+        Column.text("foo")
+    )
+  )
+)`);
+  });
+
+  test('swift', () => {
+    expect(new SwiftSchemaGenerator().generate(rules, schema)).toEqual(`let schema = Schema(
+  Table(
+    name: "assets1",
+    columns: [
+        .text("name"),
+        .integer("count"),
+        .text("owner_id")
+    ]
+  ),
+  Table(
+    name: "assets2",
+    columns: [
+        .text("name"),
+        .integer("count"),
+        .text("other_id"),
+        .text("foo")
+    ]
+  )
+)`);
+
+    expect(new SwiftSchemaGenerator().generate(rules, schema, { includeTypeComments: true }))
+      .toEqual(`let schema = Schema(
+  Table(
+    name: "assets1",
+    columns: [
+        .text("name"), // text
+        .integer("count"), // int4
+        .text("owner_id") // uuid
+    ]
+  ),
+  Table(
+    name: "assets2",
+    columns: [
+        .text("name"), // text
+        .integer("count"), // int4
+        .text("other_id"), // uuid
+        .text("foo")
+    ]
+  )
+)`);
   });
 });
