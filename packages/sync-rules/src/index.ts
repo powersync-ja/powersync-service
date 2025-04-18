@@ -1,6 +1,7 @@
 export * from './BucketDescription.js';
 export * from './BucketParameterQuerier.js';
 export * from './DartSchemaGenerator.js';
+export * from './DotNetSchemaGenerator.js';
 export * from './errors.js';
 export * from './events/SqlEventDescriptor.js';
 export * from './events/SqlEventSourceQuery.js';

@@ -3,6 +3,7 @@ import {
   DEFAULT_TAG,
   DartFlutterFlowSchemaGenerator,
   DartSchemaGenerator,
+  DotNetSchemaGenerator,
   JsLegacySchemaGenerator,
   KotlinSchemaGenerator,
   SqlSyncRules,
@@ -263,5 +264,57 @@ export type Database = (typeof AppSchema)['types'];
     ]
   )
 )`);
+  });
+
+  test('dotnet', () => {
+    expect(new DotNetSchemaGenerator().generate(rules, schema)).toEqual(`class AppSchema
+{
+  public static Table Assets1 = new Table(new Dictionary<string, ColumnType>
+  {
+      { "name", ColumnType.TEXT },
+      { "count", ColumnType.INTEGER },
+      { "owner_id", ColumnType.TEXT }
+  });
+
+  public static Table Assets2 = new Table(new Dictionary<string, ColumnType>
+  {
+      { "name", ColumnType.TEXT },
+      { "count", ColumnType.INTEGER },
+      { "other_id", ColumnType.TEXT },
+      { "foo", ColumnType.TEXT }
+  });
+
+  public static Schema PowerSyncSchema = new Schema(new Dictionary<string, Table>
+  {
+    {"assets1", Assets1},
+    {"assets2", Assets2}
+  });
+}`);
+
+    console.log(new DotNetSchemaGenerator().generate(rules, schema, { includeTypeComments: true }));
+
+    expect(new DotNetSchemaGenerator().generate(rules, schema, { includeTypeComments: true })).toEqual(`class AppSchema
+{
+  public static Table Assets1 = new Table(new Dictionary<string, ColumnType>
+  {
+      { "name", ColumnType.TEXT }, // text
+      { "count", ColumnType.INTEGER }, // int4
+      { "owner_id", ColumnType.TEXT } // uuid
+  });
+
+  public static Table Assets2 = new Table(new Dictionary<string, ColumnType>
+  {
+      { "name", ColumnType.TEXT }, // text
+      { "count", ColumnType.INTEGER }, // int4
+      { "other_id", ColumnType.TEXT }, // uuid
+      { "foo", ColumnType.TEXT }
+  });
+
+  public static Schema PowerSyncSchema = new Schema(new Dictionary<string, Table>
+  {
+    {"assets1", Assets1},
+    {"assets2", Assets2}
+  });
+}`);
   });
 });
