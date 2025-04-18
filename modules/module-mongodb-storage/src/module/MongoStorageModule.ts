@@ -7,7 +7,7 @@ import * as types from '../types/types.js';
 export class MongoStorageModule extends core.modules.AbstractModule {
   constructor() {
     super({
-      name: 'MongoDB Storage'
+      name: 'MongoDB Bucket Storage'
     });
   }
 
