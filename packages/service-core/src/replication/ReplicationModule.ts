@@ -64,6 +64,14 @@ export abstract class ReplicationModule<TConfig extends DataSourceConfig>
    */
   protected abstract createReplicator(context: system.ServiceContext): AbstractReplicator;
 
+  /**
+   *  Any additional initialization specific to the module should be added here. Will be called if necessary after the
+   *  main initialization has been completed
+   *  @param context
+   *  @protected
+   */
+  protected abstract onInitialized(context: system.ServiceContext): Promise<void>;
+
   public abstract testConnection(config: TConfig): Promise<ConnectionTestResult>;
 
   /**
@@ -93,6 +101,8 @@ export abstract class ReplicationModule<TConfig extends DataSourceConfig>
 
     context.replicationEngine?.register(this.createReplicator(context));
     context.routerEngine?.registerAPI(this.createRouteAPIAdapter());
+
+    await this.onInitialized(context);
   }
 
   protected decodeConfig(config: TConfig): void {

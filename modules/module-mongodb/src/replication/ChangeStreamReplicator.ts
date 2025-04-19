@@ -20,6 +20,7 @@ export class ChangeStreamReplicator extends replication.AbstractReplicator<Chang
     return new ChangeStreamReplicationJob({
       id: this.createJobId(options.storage.group_id),
       storage: options.storage,
+      metrics: this.metrics,
       connectionFactory: this.connectionFactory,
       lock: options.lock,
       rateLimiter: new MongoErrorRateLimiter()

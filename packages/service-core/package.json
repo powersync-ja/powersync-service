@@ -5,7 +5,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "1.10.2",
+  "version": "1.11.0",
   "main": "dist/index.js",
   "license": "FSL-1.1-Apache-2.0",
   "type": "module",
@@ -17,11 +17,11 @@
   },
   "dependencies": {
     "@js-sdsl/ordered-set": "^4.4.2",
-    "@opentelemetry/api": "~1.8.0",
-    "@opentelemetry/exporter-metrics-otlp-http": "^0.51.1",
-    "@opentelemetry/exporter-prometheus": "^0.51.1",
-    "@opentelemetry/resources": "^1.24.1",
-    "@opentelemetry/sdk-metrics": "1.24.1",
+    "@opentelemetry/api": "~1.9.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.57.2",
+    "@opentelemetry/exporter-prometheus": "^0.57.2",
+    "@opentelemetry/resources": "^1.30.1",
+    "@opentelemetry/sdk-metrics": "1.30.1",
     "@powersync/lib-services-framework": "workspace:*",
     "@powersync/service-jsonbig": "workspace:*",
     "@powersync/service-rsocket-router": "workspace:*",
