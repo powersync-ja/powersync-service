@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 1.10.3
+
+### Patch Changes
+
+- 4f7bd0f: Fix slow clearing of bucket_parameters collection.
+
 ## 1.10.2
 
 ### Patch Changes

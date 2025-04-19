@@ -1,5 +1,13 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.8.3
+
+### Patch Changes
+
+- 4f7bd0f: Fix slow clearing of bucket_parameters collection.
+- Updated dependencies [4f7bd0f]
+  - @powersync/service-core@1.10.3
+
 ## 0.8.2
 
 ### Patch Changes

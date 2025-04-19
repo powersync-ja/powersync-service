@@ -1,5 +1,18 @@
 # @powersync/service-image
 
+## 1.10.3
+
+### Patch Changes
+
+- 4f7bd0f: Fix slow clearing of bucket_parameters collection.
+- Updated dependencies [4f7bd0f]
+  - @powersync/service-module-mongodb-storage@0.8.3
+  - @powersync/service-core@1.10.3
+  - @powersync/service-module-mongodb@0.7.6
+  - @powersync/service-module-mysql@0.5.6
+  - @powersync/service-module-postgres@0.11.3
+  - @powersync/service-module-postgres-storage@0.6.3
+
 ## 1.10.2
 
 ### Patch Changes
