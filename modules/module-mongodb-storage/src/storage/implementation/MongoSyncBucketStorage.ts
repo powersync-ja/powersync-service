@@ -571,7 +571,7 @@ export class MongoSyncBucketStorage
     );
     await this.db.bucket_parameters.deleteMany(
       {
-        key: idPrefixFilter<SourceKey>({ g: this.group_id }, ['t', 'k'])
+        'key.g': this.group_id
       },
       { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
     );
