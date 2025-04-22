@@ -5,14 +5,16 @@ import { GenerateSchemaOptions, SchemaGenerator } from './SchemaGenerator.js';
 
 export class DotNetSchemaGenerator extends SchemaGenerator {
   readonly key = 'dotnet';
-  readonly label = 'DotNet';
+  readonly label = '.Net';
   readonly mediaType = 'text/x-csharp';
   readonly fileName = 'Schema.cs';
 
   generate(source: SqlSyncRules, schema: SourceSchema, options?: GenerateSchemaOptions): string {
     const tables = super.getAllTables(source, schema);
 
-    return `class AppSchema
+    return `using PowerSync.Common.DB.Schema;
+
+class AppSchema
 {
   ${tables.map((table) => this.generateTable(table.name, table.columns, options)).join('\n\n  ')}
 

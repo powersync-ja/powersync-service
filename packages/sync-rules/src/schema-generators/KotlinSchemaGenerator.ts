@@ -1,4 +1,4 @@
-import { ColumnDefinition, TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from '../ExpressionType.js';
+import { ColumnDefinition } from '../ExpressionType.js';
 import { SqlSyncRules } from '../SqlSyncRules.js';
 import { SourceSchema } from '../types.js';
 import { GenerateSchemaOptions, SchemaGenerator } from './SchemaGenerator.js';
@@ -12,7 +12,11 @@ export class KotlinSchemaGenerator extends SchemaGenerator {
   generate(source: SqlSyncRules, schema: SourceSchema, options?: GenerateSchemaOptions): string {
     const tables = super.getAllTables(source, schema);
 
-    return `val schema = Schema(
+    return `import com.powersync.db.schema.Column
+import com.powersync.db.schema.Schema
+import com.powersync.db.schema.Table
+
+val schema = Schema(
   ${tables.map((table) => this.generateTable(table.name, table.columns, options)).join(',\n  ')}
 )`;
   }
@@ -43,19 +47,6 @@ ${generated.join('\n')}
   }
 
   private generateColumn(column: ColumnDefinition): string {
-    return `Column.${kotlinColumnType(column)}("${column.name}")`;
+    return `Column.${this.columnType(column)}("${column.name}")`;
   }
 }
-
-const kotlinColumnType = (def: ColumnDefinition): string => {
-  const t = def.type;
-  if (t.typeFlags & TYPE_TEXT) {
-    return 'text';
-  } else if (t.typeFlags & TYPE_REAL) {
-    return 'real';
-  } else if (t.typeFlags & TYPE_INTEGER) {
-    return 'integer';
-  } else {
-    return 'text';
-  }
-};

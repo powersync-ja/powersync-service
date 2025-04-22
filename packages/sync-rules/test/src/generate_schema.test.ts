@@ -181,7 +181,11 @@ export type Database = (typeof AppSchema)['types'];
   });
 
   test('kotlin', () => {
-    expect(new KotlinSchemaGenerator().generate(rules, schema)).toEqual(`val schema = Schema(
+    expect(new KotlinSchemaGenerator().generate(rules, schema)).toEqual(`import com.powersync.db.schema.Column
+import com.powersync.db.schema.Schema
+import com.powersync.db.schema.Table
+
+val schema = Schema(
   Table(
     name = "assets1",
     columns = listOf(
@@ -202,7 +206,11 @@ export type Database = (typeof AppSchema)['types'];
 )`);
 
     expect(new KotlinSchemaGenerator().generate(rules, schema, { includeTypeComments: true }))
-      .toEqual(`val schema = Schema(
+      .toEqual(`import com.powersync.db.schema.Column
+import com.powersync.db.schema.Schema
+import com.powersync.db.schema.Table
+
+val schema = Schema(
   Table(
     name = "assets1",
     columns = listOf(
@@ -224,7 +232,9 @@ export type Database = (typeof AppSchema)['types'];
   });
 
   test('swift', () => {
-    expect(new SwiftSchemaGenerator().generate(rules, schema)).toEqual(`let schema = Schema(
+    expect(new SwiftSchemaGenerator().generate(rules, schema)).toEqual(`import PowerSync
+
+let schema = Schema(
   Table(
     name: "assets1",
     columns: [
@@ -244,8 +254,9 @@ export type Database = (typeof AppSchema)['types'];
   )
 )`);
 
-    expect(new SwiftSchemaGenerator().generate(rules, schema, { includeTypeComments: true }))
-      .toEqual(`let schema = Schema(
+    expect(new SwiftSchemaGenerator().generate(rules, schema, { includeTypeComments: true })).toEqual(`import PowerSync
+
+let schema = Schema(
   Table(
     name: "assets1",
     columns: [
@@ -267,7 +278,9 @@ export type Database = (typeof AppSchema)['types'];
   });
 
   test('dotnet', () => {
-    expect(new DotNetSchemaGenerator().generate(rules, schema)).toEqual(`class AppSchema
+    expect(new DotNetSchemaGenerator().generate(rules, schema)).toEqual(`using PowerSync.Common.DB.Schema;
+
+class AppSchema
 {
   public static Table Assets1 = new Table(new Dictionary<string, ColumnType>
   {
@@ -291,9 +304,10 @@ export type Database = (typeof AppSchema)['types'];
   });
 }`);
 
-    console.log(new DotNetSchemaGenerator().generate(rules, schema, { includeTypeComments: true }));
+    expect(new DotNetSchemaGenerator().generate(rules, schema, { includeTypeComments: true }))
+      .toEqual(`using PowerSync.Common.DB.Schema;
 
-    expect(new DotNetSchemaGenerator().generate(rules, schema, { includeTypeComments: true })).toEqual(`class AppSchema
+class AppSchema
 {
   public static Table Assets1 = new Table(new Dictionary<string, ColumnType>
   {

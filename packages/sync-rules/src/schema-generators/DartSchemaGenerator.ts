@@ -1,4 +1,4 @@
-import { ColumnDefinition, ExpressionType, TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from '../ExpressionType.js';
+import { ColumnDefinition, ExpressionType } from '../ExpressionType.js';
 import { SqlSyncRules } from '../SqlSyncRules.js';
 import { SourceSchema } from '../types.js';
 import { GenerateSchemaOptions, SchemaGenerator } from './SchemaGenerator.js';
@@ -41,7 +41,7 @@ ${generated.join('\n')}
   }
 
   private generateColumn(column: ColumnDefinition) {
-    return `Column.${dartColumnType(column)}('${column.name}')`;
+    return `Column.${this.columnType(column)}('${column.name}')`;
   }
 }
 
@@ -97,7 +97,7 @@ export class DartFlutterFlowSchemaGenerator extends SchemaGenerator {
       view_name: null,
       local_only: localOnly,
       insert_only: false,
-      columns: columns.map(this.generateColumn),
+      columns: columns.map((c) => this.generateColumn(c)),
       indexes: []
     };
   }
@@ -105,20 +105,7 @@ export class DartFlutterFlowSchemaGenerator extends SchemaGenerator {
   private generateColumn(definition: ColumnDefinition): object {
     return {
       name: definition.name,
-      type: dartColumnType(definition)
+      type: this.columnType(definition)
     };
   }
 }
-
-const dartColumnType = (def: ColumnDefinition) => {
-  const t = def.type;
-  if (t.typeFlags & TYPE_TEXT) {
-    return 'text';
-  } else if (t.typeFlags & TYPE_REAL) {
-    return 'real';
-  } else if (t.typeFlags & TYPE_INTEGER) {
-    return 'integer';
-  } else {
-    return 'text';
-  }
-};
