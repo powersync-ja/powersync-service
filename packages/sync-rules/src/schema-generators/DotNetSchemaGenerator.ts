@@ -1,7 +1,7 @@
-import { ColumnDefinition, TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from './ExpressionType.js';
+import { ColumnDefinition, TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from '../ExpressionType.js';
+import { SqlSyncRules } from '../SqlSyncRules.js';
+import { SourceSchema } from '../types.js';
 import { GenerateSchemaOptions, SchemaGenerator } from './SchemaGenerator.js';
-import { SqlSyncRules } from './SqlSyncRules.js';
-import { SourceSchema } from './types.js';
 
 export class DotNetSchemaGenerator extends SchemaGenerator {
   readonly key = 'dotnet';

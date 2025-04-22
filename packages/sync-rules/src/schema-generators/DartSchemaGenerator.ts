@@ -1,7 +1,7 @@
-import { ColumnDefinition, ExpressionType, TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from './ExpressionType.js';
+import { ColumnDefinition, ExpressionType, TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from '../ExpressionType.js';
+import { SqlSyncRules } from '../SqlSyncRules.js';
+import { SourceSchema } from '../types.js';
 import { GenerateSchemaOptions, SchemaGenerator } from './SchemaGenerator.js';
-import { SqlSyncRules } from './SqlSyncRules.js';
-import { SourceSchema } from './types.js';
 
 export class DartSchemaGenerator extends SchemaGenerator {
   readonly key = 'dart';

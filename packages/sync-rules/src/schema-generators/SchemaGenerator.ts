@@ -1,6 +1,6 @@
-import { ColumnDefinition } from './ExpressionType.js';
-import { SqlSyncRules } from './SqlSyncRules.js';
-import { SourceSchema } from './types.js';
+import { ColumnDefinition } from '../ExpressionType.js';
+import { SqlSyncRules } from '../SqlSyncRules.js';
+import { SourceSchema } from '../types.js';
 
 export interface GenerateSchemaOptions {
   includeTypeComments?: boolean;
