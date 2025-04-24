@@ -3,9 +3,12 @@ import {
   DEFAULT_TAG,
   DartFlutterFlowSchemaGenerator,
   DartSchemaGenerator,
+  DotNetSchemaGenerator,
   JsLegacySchemaGenerator,
+  KotlinSchemaGenerator,
   SqlSyncRules,
   StaticSchema,
+  SwiftSchemaGenerator,
   TsSchemaGenerator
 } from '../../src/index.js';
 
@@ -175,5 +178,157 @@ export const AppSchema = new Schema({
 export type Database = (typeof AppSchema)['types'];
 `
     );
+  });
+
+  test('kotlin', () => {
+    expect(new KotlinSchemaGenerator().generate(rules, schema)).toEqual(`import com.powersync.db.schema.Column
+import com.powersync.db.schema.Schema
+import com.powersync.db.schema.Table
+
+val schema = Schema(
+  Table(
+    name = "assets1",
+    columns = listOf(
+        Column.text("name"),
+        Column.integer("count"),
+        Column.text("owner_id")
+    )
+  ),
+  Table(
+    name = "assets2",
+    columns = listOf(
+        Column.text("name"),
+        Column.integer("count"),
+        Column.text("other_id"),
+        Column.text("foo")
+    )
+  )
+)`);
+
+    expect(new KotlinSchemaGenerator().generate(rules, schema, { includeTypeComments: true }))
+      .toEqual(`import com.powersync.db.schema.Column
+import com.powersync.db.schema.Schema
+import com.powersync.db.schema.Table
+
+val schema = Schema(
+  Table(
+    name = "assets1",
+    columns = listOf(
+        Column.text("name"), // text
+        Column.integer("count"), // int4
+        Column.text("owner_id") // uuid
+    )
+  ),
+  Table(
+    name = "assets2",
+    columns = listOf(
+        Column.text("name"), // text
+        Column.integer("count"), // int4
+        Column.text("other_id"), // uuid
+        Column.text("foo")
+    )
+  )
+)`);
+  });
+
+  test('swift', () => {
+    expect(new SwiftSchemaGenerator().generate(rules, schema)).toEqual(`import PowerSync
+
+let schema = Schema(
+  Table(
+    name: "assets1",
+    columns: [
+        .text("name"),
+        .integer("count"),
+        .text("owner_id")
+    ]
+  ),
+  Table(
+    name: "assets2",
+    columns: [
+        .text("name"),
+        .integer("count"),
+        .text("other_id"),
+        .text("foo")
+    ]
+  )
+)`);
+
+    expect(new SwiftSchemaGenerator().generate(rules, schema, { includeTypeComments: true })).toEqual(`import PowerSync
+
+let schema = Schema(
+  Table(
+    name: "assets1",
+    columns: [
+        .text("name"), // text
+        .integer("count"), // int4
+        .text("owner_id") // uuid
+    ]
+  ),
+  Table(
+    name: "assets2",
+    columns: [
+        .text("name"), // text
+        .integer("count"), // int4
+        .text("other_id"), // uuid
+        .text("foo")
+    ]
+  )
+)`);
+  });
+
+  test('dotnet', () => {
+    expect(new DotNetSchemaGenerator().generate(rules, schema)).toEqual(`using PowerSync.Common.DB.Schema;
+
+class AppSchema
+{
+  public static Table Assets1 = new Table(new Dictionary<string, ColumnType>
+  {
+      { "name", ColumnType.TEXT },
+      { "count", ColumnType.INTEGER },
+      { "owner_id", ColumnType.TEXT }
+  });
+
+  public static Table Assets2 = new Table(new Dictionary<string, ColumnType>
+  {
+      { "name", ColumnType.TEXT },
+      { "count", ColumnType.INTEGER },
+      { "other_id", ColumnType.TEXT },
+      { "foo", ColumnType.TEXT }
+  });
+
+  public static Schema PowerSyncSchema = new Schema(new Dictionary<string, Table>
+  {
+    {"assets1", Assets1},
+    {"assets2", Assets2}
+  });
+}`);
+
+    expect(new DotNetSchemaGenerator().generate(rules, schema, { includeTypeComments: true }))
+      .toEqual(`using PowerSync.Common.DB.Schema;
+
+class AppSchema
+{
+  public static Table Assets1 = new Table(new Dictionary<string, ColumnType>
+  {
+      { "name", ColumnType.TEXT }, // text
+      { "count", ColumnType.INTEGER }, // int4
+      { "owner_id", ColumnType.TEXT } // uuid
+  });
+
+  public static Table Assets2 = new Table(new Dictionary<string, ColumnType>
+  {
+      { "name", ColumnType.TEXT }, // text
+      { "count", ColumnType.INTEGER }, // int4
+      { "other_id", ColumnType.TEXT }, // uuid
+      { "foo", ColumnType.TEXT }
+  });
+
+  public static Schema PowerSyncSchema = new Schema(new Dictionary<string, Table>
+  {
+    {"assets1", Assets1},
+    {"assets2", Assets2}
+  });
+}`);
   });
 });
