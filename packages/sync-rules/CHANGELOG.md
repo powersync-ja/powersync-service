@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.26.0
+
+### Minor Changes
+
+- ac6ae0d: Added Schema generators for Kotlin, Swift and DotNet
+
 ## 0.25.0
 
 ### Minor Changes
