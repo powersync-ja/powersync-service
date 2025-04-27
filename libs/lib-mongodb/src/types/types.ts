@@ -73,8 +73,10 @@ export function normalizeMongoConfig(options: BaseMongoConfigDecoded): Normalize
   return {
     uri: uri.toString(),
     database,
+
     username,
     password,
+
     lookup
   };
 }
