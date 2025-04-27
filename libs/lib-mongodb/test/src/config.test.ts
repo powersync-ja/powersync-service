@@ -90,7 +90,7 @@ describe('config', () => {
             type: 'mongodb',
             uri
           })
-        ).toThrow('MongoDB connection: database required');
+        ).toThrow('[PSYNC_S1105] MongoDB connection: database required');
       });
     });
 
@@ -100,7 +100,7 @@ describe('config', () => {
           type: 'mongodb',
           uri: 'not-a-uri'
         })
-      ).toThrow(`[PSYNC_S1109] MongoDB connection: invalid URI`);
+      ).toThrow('[PSYNC_S1109] MongoDB connection: invalid URI');
     });
 
     test('Should throw error when URI has invalid host', () => {
@@ -109,7 +109,7 @@ describe('config', () => {
           type: 'mongodb',
           uri: 'mongodb://'
         })
-      ).toThrow(`[PSYNC_S1109] MongoDB connection: invalid URI`);
+      ).toThrow('[PSYNC_S1109] MongoDB connection: invalid URI');
     });
   });
 });
