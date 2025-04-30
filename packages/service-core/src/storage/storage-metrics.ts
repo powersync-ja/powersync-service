@@ -47,21 +47,21 @@ export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: Buc
   replication_storage_size_bytes.setValueProvider(async () => {
     const metrics = await getMetrics();
     if (metrics) {
-      return metrics.replication_size_bytes ?? 0;
+      return metrics.replication_size_bytes;
     }
   });
 
   operation_storage_size_bytes.setValueProvider(async () => {
     const metrics = await getMetrics();
     if (metrics) {
-      return metrics.operations_size_bytes ?? 0;
+      return metrics.operations_size_bytes;
     }
   });
 
   parameter_storage_size_bytes.setValueProvider(async () => {
     const metrics = await getMetrics();
     if (metrics) {
-      return metrics.parameters_size_bytes ?? 0;
+      return metrics.parameters_size_bytes;
     }
   });
 }
