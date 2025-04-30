@@ -1,4 +1,4 @@
-import { isMongoNetworkTimeoutError, mongo } from '@powersync/lib-service-mongodb';
+import { isMongoNetworkTimeoutError, isMongoServerError, mongo } from '@powersync/lib-service-mongodb';
 import {
   container,
   DatabaseConnectionError,
@@ -605,13 +605,7 @@ export class ChangeStream {
           }
 
           const originalChangeDocument = await stream.tryNext().catch((e) => {
-            if (isMongoNetworkTimeoutError(e)) {
-              // This typically has an unhelpful message like "connection 2 to 159.41.94.47:27017 timed out".
-              // We wrap the error to make it more useful.
-              throw new DatabaseConnectionError(ErrorCode.PSYNC_S1345, `Timeout while reading MongoDB ChangeStream`, e);
-            } else {
-              throw new DatabaseConnectionError(ErrorCode.PSYNC_S1346, `Error reading MongoDB ChangeStream`, e);
-            }
+            throw mapChangeStreamError(e);
           });
           // The stream was closed, we will only ever receive `null` from it
           if (!originalChangeDocument && stream.closed) {
@@ -792,4 +786,22 @@ async function touch() {
   // FIXME: We need a timeout of around 5+ minutes in Kubernetes if we do start checking the timestamp,
   // or reduce PING_INTERVAL here.
   return container.probes.touch();
+}
+
+function mapChangeStreamError(e: any) {
+  if (isMongoNetworkTimeoutError(e)) {
+    // This typically has an unhelpful message like "connection 2 to 159.41.94.47:27017 timed out".
+    // We wrap the error to make it more useful.
+    throw new DatabaseConnectionError(ErrorCode.PSYNC_S1345, `Timeout while reading MongoDB ChangeStream`, e);
+  } else if (
+    isMongoServerError(e) &&
+    e.codeName == 'NoMatchingDocument' &&
+    e.errmsg?.includes('post-image was not found')
+  ) {
+    throw new ChangeStreamInvalidatedError(e.errmsg, e);
+  } else if (isMongoServerError(e) && e.hasErrorLabel('NonResumableChangeStreamError')) {
+    throw new ChangeStreamInvalidatedError(e.message, e);
+  } else {
+    throw new DatabaseConnectionError(ErrorCode.PSYNC_S1346, `Error reading MongoDB ChangeStream`, e);
+  }
 }
