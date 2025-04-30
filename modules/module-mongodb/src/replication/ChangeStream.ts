@@ -23,6 +23,13 @@ export interface ChangeStreamOptions {
   storage: storage.SyncRulesBucketStorage;
   metrics: MetricsEngine;
   abort_signal: AbortSignal;
+  /**
+   * Override maxAwaitTimeMS for testing.
+   *
+   * In most cases, the default of 10_000 is fine. However, for MongoDB 6.0, this can cause a delay
+   * in closing the stream. To cover that case, reduce the timeout for tests.
+   */
+  maxAwaitTimeMS?: number;
 }
 
 interface InitResult {
@@ -56,6 +63,8 @@ export class ChangeStream {
   private readonly defaultDb: mongo.Db;
   private readonly metrics: MetricsEngine;
 
+  private readonly maxAwaitTimeMS: number;
+
   private abort_signal: AbortSignal;
 
   private relation_cache = new Map<string | number, storage.SourceTable>();
@@ -65,6 +74,7 @@ export class ChangeStream {
     this.metrics = options.metrics;
     this.group_id = options.storage.group_id;
     this.connections = options.connections;
+    this.maxAwaitTimeMS = options.maxAwaitTimeMS ?? 10_000;
     this.client = this.connections.client;
     this.defaultDb = this.connections.db;
     this.sync_rules = options.storage.getParsedSyncRules({
@@ -557,7 +567,7 @@ export class ChangeStream {
 
         const streamOptions: mongo.ChangeStreamOptions = {
           showExpandedEvents: true,
-          maxAwaitTimeMS: 10_000,
+          maxAwaitTimeMS: this.maxAwaitTimeMS,
           fullDocument: fullDocument
         };
 
