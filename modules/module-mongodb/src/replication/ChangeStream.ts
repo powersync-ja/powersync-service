@@ -1,4 +1,4 @@
-import { mongo } from '@powersync/lib-service-mongodb';
+import { isMongoNetworkTimeoutError, mongo } from '@powersync/lib-service-mongodb';
 import {
   container,
   DatabaseConnectionError,
@@ -10,13 +10,13 @@ import {
 } from '@powersync/lib-services-framework';
 import { MetricsEngine, SaveOperationTag, SourceEntityDescriptor, SourceTable, storage } from '@powersync/service-core';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
+import { ReplicationMetric } from '@powersync/service-types';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
 import { MongoManager } from './MongoManager.js';
 import { constructAfterRecord, createCheckpoint, getCacheIdentifier, getMongoRelation } from './MongoRelation.js';
 import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
-import { ReplicationMetric } from '@powersync/service-types';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;
@@ -604,7 +604,15 @@ export class ChangeStream {
             break;
           }
 
-          const originalChangeDocument = await stream.tryNext();
+          const originalChangeDocument = await stream.tryNext().catch((e) => {
+            if (isMongoNetworkTimeoutError(e)) {
+              // This typically has an unhelpful message like "connection 2 to 159.41.94.47:27017 timed out".
+              // We wrap the error to make it more useful.
+              throw new DatabaseConnectionError(ErrorCode.PSYNC_S1345, `Timeout while reading MongoDB ChangeStream`, e);
+            } else {
+              throw new DatabaseConnectionError(ErrorCode.PSYNC_S1346, `Error reading MongoDB ChangeStream`, e);
+            }
+          });
           // The stream was closed, we will only ever receive `null` from it
           if (!originalChangeDocument && stream.closed) {
             break;
