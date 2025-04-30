@@ -597,6 +597,8 @@ export class ChangeStream {
 
         let flexDbNameWorkaroundLogged = false;
 
+        let lastEmptyResume = performance.now();
+
         while (true) {
           if (this.abort_signal.aborted) {
             break;
@@ -608,9 +610,30 @@ export class ChangeStream {
             break;
           }
 
-          if (originalChangeDocument == null || this.abort_signal.aborted) {
+          if (this.abort_signal.aborted) {
+            break;
+          }
+
+          if (originalChangeDocument == null) {
+            // We get a new null document after `maxAwaitTimeMS` if there were no other events.
+            // In this case, stream.resumeToken is the resume token associated with the last response.
+            // stream.resumeToken is not updated if stream.tryNext() returns data, while stream.next()
+            // does update it.
+            // From observed behavior, the actual resumeToken changes around once every 10 seconds.
+            // If we don't update it on empty events, we do keep consistency, but resuming the stream
+            // with old tokens may cause connection timeouts.
+            // We throttle this further by only persisting a keepalive once a minute.
+            // We add an additional check for waitForCheckpointLsn == null, to make sure we're not
+            // doing a keepalive in the middle of a transaction.
+            if (waitForCheckpointLsn == null && performance.now() - lastEmptyResume > 60_000) {
+              const { comparable: lsn } = MongoLSN.fromResumeToken(stream.resumeToken);
+              await batch.keepalive(lsn);
+              await touch();
+              lastEmptyResume = performance.now();
+            }
             continue;
           }
+
           await touch();
 
           if (startAfter != null && originalChangeDocument.clusterTime?.lte(startAfter)) {
