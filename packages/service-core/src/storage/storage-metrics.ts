@@ -34,7 +34,7 @@ export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: Buc
   let cacheTimestamp = 0;
 
   const getMetrics = () => {
-    if (cachedRequest == null || Date.now() - cacheTimestamp > MINIMUM_INTERVAL) {
+    if (!cachedRequest || Date.now() - cacheTimestamp > MINIMUM_INTERVAL) {
       cachedRequest = storage.getStorageMetrics().catch((e) => {
         logger.error(`Failed to get storage metrics`, e);
         return null;
@@ -47,21 +47,21 @@ export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: Buc
   replication_storage_size_bytes.setValueProvider(async () => {
     const metrics = await getMetrics();
     if (metrics) {
-      return metrics.replication_size_bytes;
+      return metrics.replication_size_bytes ?? 0;
     }
   });
 
   operation_storage_size_bytes.setValueProvider(async () => {
     const metrics = await getMetrics();
     if (metrics) {
-      return metrics.operations_size_bytes;
+      return metrics.operations_size_bytes ?? 0;
     }
   });
 
   parameter_storage_size_bytes.setValueProvider(async () => {
     const metrics = await getMetrics();
     if (metrics) {
-      return metrics.parameters_size_bytes;
+      return metrics.parameters_size_bytes ?? 0;
     }
   });
 }
