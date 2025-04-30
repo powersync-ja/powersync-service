@@ -254,7 +254,7 @@ export enum ErrorCode {
   PSYNC_S1344 = 'PSYNC_S1344',
 
   /**
-   * Failed to read MongoDB Change Stream to to a timeout.
+   * Failed to read MongoDB Change Stream due to a timeout.
    *
    * This may happen if there is a significant delay on the source database in reading the change stream.
    *

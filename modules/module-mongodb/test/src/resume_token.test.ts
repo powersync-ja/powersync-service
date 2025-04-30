@@ -1,6 +1,4 @@
-// Write tests for parseResumeTokenTimestamp
 import { parseResumeTokenTimestamp } from '@module/common/MongoLSN.js';
-import { mongo } from '@powersync/lib-service-mongodb';
 import { describe, expect, it } from 'vitest';
 
 describe('parseResumeTokenTimestamp', () => {
