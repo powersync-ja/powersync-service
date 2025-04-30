@@ -86,8 +86,6 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
       }
       if (e instanceof ChangeStreamInvalidatedError) {
         throw e;
-      } else if (isMongoServerError(e) && e.hasErrorLabel('NonResumableChangeStreamError')) {
-        throw new ChangeStreamInvalidatedError(e.message, e);
       } else {
         // Report the error if relevant, before retrying
         container.reporter.captureException(e, {

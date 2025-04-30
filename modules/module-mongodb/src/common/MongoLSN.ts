@@ -41,6 +41,14 @@ export class MongoLSN {
     };
   }
 
+  static fromResumeToken(resumeToken: mongo.ResumeToken): MongoLSN {
+    const timestamp = parseResumeTokenTimestamp(resumeToken);
+    return new MongoLSN({
+      timestamp,
+      resume_token: resumeToken
+    });
+  }
+
   static ZERO = MongoLSN.fromSerialized(ZERO_LSN);
 
   constructor(protected options: MongoLSNSpecification) {}
@@ -71,4 +79,24 @@ export class MongoLSN {
   toString() {
     return this.comparable;
   }
+}
+
+/**
+ * Given a resumeToken in the form {_data: 'hex data'}, this parses the cluster timestamp.
+ * All other data in the token is ignored.
+ *
+ * @param resumeToken
+ * @returns a parsed timestamp
+ */
+export function parseResumeTokenTimestamp(resumeToken: mongo.ResumeToken): mongo.Timestamp {
+  const hex = (resumeToken as any)._data as string;
+  const buffer = Buffer.from(hex, 'hex');
+  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  if (view.getUint8(0) != 130) {
+    throw new Error(`Invalid resume token: ${hex}`);
+  }
+  const t = view.getUint32(1);
+  const i = view.getUint32(5);
+
+  return mongo.Timestamp.fromBits(i, t);
 }

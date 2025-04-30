@@ -8,6 +8,7 @@ import { describe, expect, test, vi } from 'vitest';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
 import { env } from './env.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, INITIALIZED_POSTGRES_STORAGE_FACTORY } from './util.js';
+import { ChangeStreamInvalidatedError } from '@module/replication/ChangeStream.js';
 
 describe('mongo lsn', () => {
   test('LSN with resume tokens should be comparable', () => {
@@ -145,8 +146,7 @@ function defineResumeTest(factoryGenerator: (options?: TestStorageOptions) => Pr
     context2.storage = factory.getInstance(activeContent!);
 
     const error = await context2.startStreaming().catch((ex) => ex);
-    expect(error).exist;
     // The ChangeStreamReplicationJob will detect this and throw a ChangeStreamInvalidatedError
-    expect(isMongoServerError(error) && error.hasErrorLabel('NonResumableChangeStreamError'));
+    expect(error).toBeInstanceOf(ChangeStreamInvalidatedError);
   });
 }

@@ -85,7 +85,10 @@ export class ChangeStreamTestContext {
       storage: this.storage,
       metrics: METRICS_HELPER.metricsEngine,
       connections: this.connectionManager,
-      abort_signal: this.abortController.signal
+      abort_signal: this.abortController.signal,
+      // Specifically reduce this from the default for tests on MongoDB <= 6.0, otherwise it can take
+      // a long time to abort the stream.
+      maxAwaitTimeMS: 200
     };
     this._walStream = new ChangeStream(options);
     return this._walStream!;

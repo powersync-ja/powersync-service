@@ -253,6 +253,22 @@ export enum ErrorCode {
    */
   PSYNC_S1344 = 'PSYNC_S1344',
 
+  /**
+   * Failed to read MongoDB Change Stream due to a timeout.
+   *
+   * This may happen if there is a significant delay on the source database in reading the change stream.
+   *
+   * If this is not resolved after retries, replication may need to be restarted from scratch.
+   */
+  PSYNC_S1345 = 'PSYNC_S1345',
+
+  /**
+   * Failed to read MongoDB Change Stream.
+   *
+   * See the error cause for more details.
+   */
+  PSYNC_S1346 = 'PSYNC_S1346',
+
   // ## PSYNC_S14xx: MongoDB storage replication issues
 
   /**

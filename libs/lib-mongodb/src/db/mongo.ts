@@ -88,3 +88,7 @@ export async function waitForAuth(db: mongo.Db) {
 export const isMongoServerError = (error: any): error is mongo.MongoServerError => {
   return error instanceof mongo.MongoServerError || error?.name == 'MongoServerError';
 };
+
+export const isMongoNetworkTimeoutError = (error: any): error is mongo.MongoNetworkTimeoutError => {
+  return error instanceof mongo.MongoNetworkTimeoutError || error?.name == 'MongoNetworkTimeoutError';
+};

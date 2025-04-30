@@ -1,4 +1,4 @@
-import { mongo } from '@powersync/lib-service-mongodb';
+import { isMongoNetworkTimeoutError, isMongoServerError, mongo } from '@powersync/lib-service-mongodb';
 import {
   container,
   DatabaseConnectionError,
@@ -10,19 +10,26 @@ import {
 } from '@powersync/lib-services-framework';
 import { MetricsEngine, SaveOperationTag, SourceEntityDescriptor, SourceTable, storage } from '@powersync/service-core';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
+import { ReplicationMetric } from '@powersync/service-types';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
 import { MongoManager } from './MongoManager.js';
 import { constructAfterRecord, createCheckpoint, getCacheIdentifier, getMongoRelation } from './MongoRelation.js';
 import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
-import { ReplicationMetric } from '@powersync/service-types';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;
   storage: storage.SyncRulesBucketStorage;
   metrics: MetricsEngine;
   abort_signal: AbortSignal;
+  /**
+   * Override maxAwaitTimeMS for testing.
+   *
+   * In most cases, the default of 10_000 is fine. However, for MongoDB 6.0, this can cause a delay
+   * in closing the stream. To cover that case, reduce the timeout for tests.
+   */
+  maxAwaitTimeMS?: number;
 }
 
 interface InitResult {
@@ -56,6 +63,8 @@ export class ChangeStream {
   private readonly defaultDb: mongo.Db;
   private readonly metrics: MetricsEngine;
 
+  private readonly maxAwaitTimeMS: number;
+
   private abort_signal: AbortSignal;
 
   private relation_cache = new Map<string | number, storage.SourceTable>();
@@ -65,6 +74,7 @@ export class ChangeStream {
     this.metrics = options.metrics;
     this.group_id = options.storage.group_id;
     this.connections = options.connections;
+    this.maxAwaitTimeMS = options.maxAwaitTimeMS ?? 10_000;
     this.client = this.connections.client;
     this.defaultDb = this.connections.db;
     this.sync_rules = options.storage.getParsedSyncRules({
@@ -557,7 +567,7 @@ export class ChangeStream {
 
         const streamOptions: mongo.ChangeStreamOptions = {
           showExpandedEvents: true,
-          maxAwaitTimeMS: 200,
+          maxAwaitTimeMS: this.maxAwaitTimeMS,
           fullDocument: fullDocument
         };
 
@@ -597,20 +607,45 @@ export class ChangeStream {
 
         let flexDbNameWorkaroundLogged = false;
 
+        let lastEmptyResume = performance.now();
+
         while (true) {
           if (this.abort_signal.aborted) {
             break;
           }
 
-          const originalChangeDocument = await stream.tryNext();
+          const originalChangeDocument = await stream.tryNext().catch((e) => {
+            throw mapChangeStreamError(e);
+          });
           // The stream was closed, we will only ever receive `null` from it
           if (!originalChangeDocument && stream.closed) {
             break;
           }
 
-          if (originalChangeDocument == null || this.abort_signal.aborted) {
+          if (this.abort_signal.aborted) {
+            break;
+          }
+
+          if (originalChangeDocument == null) {
+            // We get a new null document after `maxAwaitTimeMS` if there were no other events.
+            // In this case, stream.resumeToken is the resume token associated with the last response.
+            // stream.resumeToken is not updated if stream.tryNext() returns data, while stream.next()
+            // does update it.
+            // From observed behavior, the actual resumeToken changes around once every 10 seconds.
+            // If we don't update it on empty events, we do keep consistency, but resuming the stream
+            // with old tokens may cause connection timeouts.
+            // We throttle this further by only persisting a keepalive once a minute.
+            // We add an additional check for waitForCheckpointLsn == null, to make sure we're not
+            // doing a keepalive in the middle of a transaction.
+            if (waitForCheckpointLsn == null && performance.now() - lastEmptyResume > 60_000) {
+              const { comparable: lsn } = MongoLSN.fromResumeToken(stream.resumeToken);
+              await batch.keepalive(lsn);
+              await touch();
+              lastEmptyResume = performance.now();
+            }
             continue;
           }
+
           await touch();
 
           if (startAfter != null && originalChangeDocument.clusterTime?.lte(startAfter)) {
@@ -761,4 +796,22 @@ async function touch() {
   // FIXME: We need a timeout of around 5+ minutes in Kubernetes if we do start checking the timestamp,
   // or reduce PING_INTERVAL here.
   return container.probes.touch();
+}
+
+function mapChangeStreamError(e: any) {
+  if (isMongoNetworkTimeoutError(e)) {
+    // This typically has an unhelpful message like "connection 2 to 159.41.94.47:27017 timed out".
+    // We wrap the error to make it more useful.
+    throw new DatabaseConnectionError(ErrorCode.PSYNC_S1345, `Timeout while reading MongoDB ChangeStream`, e);
+  } else if (
+    isMongoServerError(e) &&
+    e.codeName == 'NoMatchingDocument' &&
+    e.errmsg?.includes('post-image was not found')
+  ) {
+    throw new ChangeStreamInvalidatedError(e.errmsg, e);
+  } else if (isMongoServerError(e) && e.hasErrorLabel('NonResumableChangeStreamError')) {
+    throw new ChangeStreamInvalidatedError(e.message, e);
+  } else {
+    throw new DatabaseConnectionError(ErrorCode.PSYNC_S1346, `Error reading MongoDB ChangeStream`, e);
+  }
 }
