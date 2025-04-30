@@ -557,7 +557,7 @@ export class ChangeStream {
 
         const streamOptions: mongo.ChangeStreamOptions = {
           showExpandedEvents: true,
-          maxAwaitTimeMS: 200,
+          maxAwaitTimeMS: 10_000,
           fullDocument: fullDocument
         };
 
