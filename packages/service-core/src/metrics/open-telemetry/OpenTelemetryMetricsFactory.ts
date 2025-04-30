@@ -35,7 +35,7 @@ export class OpenTelemetryMetricsFactory implements MetricsFactory {
         gauge.addCallback(async (result) => {
           const value = await valueProvider();
 
-          if (value) {
+          if (value != undefined) {
             result.observe(value);
           }
         });
