@@ -69,5 +69,10 @@ export type ResolvedPowerSyncConfig = {
 
   /** Prefix for postgres replication slot names. May eventually be connection-specific. */
   slot_name_prefix: string;
+  service: {
+    health_checks: {
+      probe_modes: configFile.ProbeType[];
+    };
+  };
   parameters: Record<string, number | string | boolean | null>;
 };

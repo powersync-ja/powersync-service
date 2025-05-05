@@ -1,15 +1,11 @@
 import { logger, LookupOptions } from '@powersync/lib-services-framework';
 import { configFile } from '@powersync/service-types';
+import { ProbeType } from '@powersync/service-types/src/config/PowerSyncConfig.js';
 import * as auth from '../../auth/auth-index.js';
 import { ConfigCollector } from './collectors/config-collector.js';
 import { Base64ConfigCollector } from './collectors/impl/base64-config-collector.js';
 import { FallbackConfigCollector } from './collectors/impl/fallback-config-collector.js';
 import { FileSystemConfigCollector } from './collectors/impl/filesystem-config-collector.js';
-import { Base64SyncRulesCollector } from './sync-rules/impl/base64-sync-rules-collector.js';
-import { FileSystemSyncRulesCollector } from './sync-rules/impl/filesystem-sync-rules-collector.js';
-import { InlineSyncRulesCollector } from './sync-rules/impl/inline-sync-rules-collector.js';
-import { SyncRulesCollector } from './sync-rules/sync-collector.js';
-import { ResolvedPowerSyncConfig, RunnerConfig, SyncRulesConfig } from './types.js';
 import {
   DEFAULT_MAX_BUCKETS_PER_CONNECTION,
   DEFAULT_MAX_CONCURRENT_CONNECTIONS,
@@ -17,6 +13,11 @@ import {
   DEFAULT_MAX_PARAMETER_QUERY_RESULTS,
   DEFAULT_MAX_POOL_SIZE
 } from './defaults.js';
+import { Base64SyncRulesCollector } from './sync-rules/impl/base64-sync-rules-collector.js';
+import { FileSystemSyncRulesCollector } from './sync-rules/impl/filesystem-sync-rules-collector.js';
+import { InlineSyncRulesCollector } from './sync-rules/impl/inline-sync-rules-collector.js';
+import { SyncRulesCollector } from './sync-rules/sync-collector.js';
+import { ResolvedPowerSyncConfig, RunnerConfig, SyncRulesConfig } from './types.js';
 
 export type CompoundConfigCollectorOptions = {
   /**
@@ -158,6 +159,11 @@ export class CompoundConfigCollector {
         disable_telemetry_sharing: baseConfig.telemetry?.disable_telemetry_sharing ?? false,
         internal_service_endpoint:
           baseConfig.telemetry?.internal_service_endpoint ?? 'https://pulse.journeyapps.com/v1/metrics'
+      },
+      service: {
+        health_checks: {
+          probe_modes: baseConfig.service?.health_checks?.probe_modes ?? [ProbeType.LEGACY_DEFAULT]
+        }
       },
       api_parameters: {
         max_buckets_per_connection:

@@ -19,6 +19,21 @@ export const portParser = {
   })
 };
 
+/**
+ * Health check probe types
+ */
+export enum ProbeType {
+  FILESYSTEM = 'filesystem',
+  HTTP = 'http',
+  /**
+   * @deprecated
+   * This applies legacy defaults. This should  not be used directly.
+   * This enables HTTP probes when the service is started in the API or UNIFIED mode.
+   * The FILESYTEM probe is always registered by default.
+   */
+  LEGACY_DEFAULT = 'legacy_default'
+}
+
 export const DataSourceConfig = t.object({
   // Unique string identifier for the data source
   type: t.string,
@@ -204,6 +219,16 @@ export const powerSyncConfig = t.object({
       prometheus_port: portCodec.optional(),
       disable_telemetry_sharing: t.boolean,
       internal_service_endpoint: t.string.optional()
+    })
+    .optional(),
+
+  service: t
+    .object({
+      health_checks: t
+        .object({
+          probe_modes: t.array(t.Enum(ProbeType)).optional()
+        })
+        .optional()
     })
     .optional(),
 

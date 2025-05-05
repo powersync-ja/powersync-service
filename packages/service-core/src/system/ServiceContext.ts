@@ -6,8 +6,8 @@ import { PowerSyncMigrationManager } from '../migrations/PowerSyncMigrationManag
 import * as replication from '../replication/replication-index.js';
 import * as routes from '../routes/routes-index.js';
 import * as storage from '../storage/storage-index.js';
-import * as utils from '../util/util-index.js';
 import { SyncContext } from '../sync/SyncContext.js';
+import * as utils from '../util/util-index.js';
 
 export interface ServiceContext {
   configuration: utils.ResolvedPowerSyncConfig;
@@ -20,17 +20,39 @@ export interface ServiceContext {
   syncContext: SyncContext;
 }
 
+export enum ServiceContextMode {
+  API = utils.ServiceRunner.API,
+  SYNC = utils.ServiceRunner.SYNC,
+  UNIFIED = utils.ServiceRunner.UNIFIED,
+  COMPACT = 'compact',
+  MIGRATION = 'migration',
+  TEARDOWN = 'teardown',
+  TEST_CONNECTION = 'test-connection'
+}
+
+export interface ServiceContextOptions {
+  mode: ServiceContextMode;
+  configuration: utils.ResolvedPowerSyncConfig;
+}
+
 /**
  * Context which allows for registering and getting implementations
  * of various service engines.
  * This controls registering, initializing and the lifecycle of various services.
  */
 export class ServiceContextContainer implements ServiceContext {
+  configuration: utils.ResolvedPowerSyncConfig;
   lifeCycleEngine: LifeCycledSystem;
   storageEngine: storage.StorageEngine;
   syncContext: SyncContext;
+  routerEngine: routes.RouterEngine;
+  mode: ServiceContextMode;
 
-  constructor(public configuration: utils.ResolvedPowerSyncConfig) {
+  constructor(options: ServiceContextOptions) {
+    this.mode = options.mode;
+    const { configuration } = options;
+    this.configuration = configuration;
+
     this.lifeCycleEngine = new LifeCycledSystem();
 
     this.storageEngine = new storage.StorageEngine({
@@ -40,6 +62,11 @@ export class ServiceContextContainer implements ServiceContext {
     this.lifeCycleEngine.withLifecycle(this.storageEngine, {
       start: (storageEngine) => storageEngine.start(),
       stop: (storageEngine) => storageEngine.shutDown()
+    });
+
+    this.routerEngine = new routes.RouterEngine();
+    this.lifeCycleEngine.withLifecycle(this.routerEngine, {
+      stop: (routerEngine) => routerEngine.shutDown()
     });
 
     this.syncContext = new SyncContext({
@@ -55,19 +82,10 @@ export class ServiceContextContainer implements ServiceContext {
       // Migrations should be executed before the system starts
       start: () => migrationManager[Symbol.asyncDispose]()
     });
-
-    this.lifeCycleEngine.withLifecycle(this.storageEngine, {
-      start: (storageEngine) => storageEngine.start(),
-      stop: (storageEngine) => storageEngine.shutDown()
-    });
   }
 
   get replicationEngine(): replication.ReplicationEngine | null {
     return container.getOptional(replication.ReplicationEngine);
-  }
-
-  get routerEngine(): routes.RouterEngine | null {
-    return container.getOptional(routes.RouterEngine);
   }
 
   get metricsEngine(): metrics.MetricsEngine {

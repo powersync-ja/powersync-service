@@ -37,7 +37,10 @@ export function registerCompactAction(program: Command) {
       logger.info(`Compacting storage for ${buckets?.join(', ')}...`);
     }
     const config = await utils.loadConfig(extractRunnerOptions(options));
-    const serviceContext = new system.ServiceContextContainer(config);
+    const serviceContext = new system.ServiceContextContainer({
+      mode: system.ServiceContextMode.COMPACT,
+      configuration: config
+    });
 
     // Register modules in order to allow custom module compacting
     const moduleManager = container.getImplementation(modules.ModuleManager);

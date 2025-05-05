@@ -17,7 +17,10 @@ export function registerTestConnectionAction(program: Command) {
   return testConnectionCommand.description('Test connection').action(async (options) => {
     try {
       const config = await utils.loadConfig(extractRunnerOptions(options));
-      const serviceContext = new system.ServiceContextContainer(config);
+      const serviceContext = new system.ServiceContextContainer({
+        mode: system.ServiceContextMode.TEST_CONNECTION,
+        configuration: config
+      });
 
       const replication = new ReplicationEngine();
       serviceContext.register(ReplicationEngine, replication);
