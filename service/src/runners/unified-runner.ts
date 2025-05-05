@@ -1,9 +1,8 @@
 import { container, logger } from '@powersync/lib-services-framework';
 import * as core from '@powersync/service-core';
 
-import { registerServerServices } from './server.js';
-import { registerReplicationServices } from './stream-worker.js';
 import { logBooting } from '../util/version.js';
+import { registerReplicationServices } from './stream-worker.js';
 
 /**
  * Starts an API server
@@ -12,16 +11,12 @@ export const startUnifiedRunner = async (runnerConfig: core.utils.RunnerConfig) 
   logBooting('Unified Container');
 
   const config = await core.utils.loadConfig(runnerConfig);
-  core.utils.setTags(config.metadata);
-  const serviceContext = new core.system.ServiceContextContainer(config);
-
-  registerServerServices(serviceContext);
-  registerReplicationServices(serviceContext);
-
-  await core.metrics.registerMetrics({
-    service_context: serviceContext,
-    modes: [core.metrics.MetricModes.API, core.metrics.MetricModes.REPLICATION, core.metrics.MetricModes.STORAGE]
+  const serviceContext = new core.system.ServiceContextContainer({
+    mode: core.system.ServiceContextMode.UNIFIED,
+    configuration: config
   });
+
+  registerReplicationServices(serviceContext);
 
   const moduleManager = container.getImplementation(core.modules.ModuleManager);
   await moduleManager.initialize(serviceContext);

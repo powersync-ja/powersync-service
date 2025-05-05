@@ -18,6 +18,7 @@
     "@powersync/service-module-mongodb-storage": "workspace:*",
     "@powersync/service-module-mysql": "workspace:*",
     "@powersync/service-rsocket-router": "workspace:*",
+    "@powersync/service-module-core": "workspace:*",
     "@sentry/node": "^8.9.2"
   },
   "devDependencies": {

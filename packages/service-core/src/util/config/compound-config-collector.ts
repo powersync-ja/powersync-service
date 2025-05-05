@@ -1,6 +1,5 @@
 import { logger, LookupOptions } from '@powersync/lib-services-framework';
 import { configFile } from '@powersync/service-types';
-import { ProbeType } from '@powersync/service-types/src/config/PowerSyncConfig.js';
 import * as auth from '../../auth/auth-index.js';
 import { ConfigCollector } from './collectors/config-collector.js';
 import { Base64ConfigCollector } from './collectors/impl/base64-config-collector.js';
@@ -161,8 +160,8 @@ export class CompoundConfigCollector {
           baseConfig.telemetry?.internal_service_endpoint ?? 'https://pulse.journeyapps.com/v1/metrics'
       },
       service: {
-        health_checks: {
-          probe_modes: baseConfig.service?.health_checks?.probe_modes ?? [ProbeType.LEGACY_DEFAULT]
+        healthcheck: {
+          probe_modes: baseConfig.service?.health_checks?.probe_modes ?? [configFile.ProbeType.LEGACY_DEFAULT]
         }
       },
       api_parameters: {

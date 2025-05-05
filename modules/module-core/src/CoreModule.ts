@@ -13,6 +13,8 @@ export class CoreModule extends core.modules.AbstractModule {
   }
 
   public async initialize(context: core.ServiceContextContainer): Promise<void> {
+    this.configureTags(context);
+
     if ([core.system.ServiceContextMode.API, core.system.ServiceContextMode.UNIFIED].includes(context.mode)) {
       // Service should include API routes
       this.registerAPIRoutes(context);
@@ -27,8 +29,11 @@ export class CoreModule extends core.modules.AbstractModule {
     await this.configureMetrics(context);
   }
 
+  protected configureTags(context: core.ServiceContextContainer) {
+    core.utils.setTags(context.configuration.metadata);
+  }
+
   protected registerAPIRoutes(context: core.ServiceContextContainer) {
-    // Register API routes
     context.routerEngine.registerRoutes({
       api_routes: [
         ...core.routes.endpoints.ADMIN_ROUTES,
@@ -41,7 +46,7 @@ export class CoreModule extends core.modules.AbstractModule {
   }
 
   /**
-   * Registers the HTTP server which will handle routes once the router engine is started
+   * Configures the HTTP server which will handle routes once the router engine is started
    */
   protected configureRouterImplementation(context: core.ServiceContextContainer) {
     context.lifeCycleEngine.withLifecycle(context.routerEngine, {
@@ -106,7 +111,7 @@ export class CoreModule extends core.modules.AbstractModule {
   protected configureHealthChecks(context: core.ServiceContextContainer) {
     const {
       configuration: {
-        service: { health_checks }
+        service: { healthcheck }
       }
     } = context;
 
@@ -117,20 +122,18 @@ export class CoreModule extends core.modules.AbstractModule {
      * Probe types must explicitly be selected if not using LEGACY_DEFAULT
      */
     const enableHTTPProbes =
-      health_checks.probe_modes.includes(configFile.ProbeType.HTTP) ||
+      healthcheck.probe_modes.includes(configFile.ProbeType.HTTP) ||
       ([core.system.ServiceContextMode.API, core.system.ServiceContextMode.UNIFIED].includes(context.mode) &&
-        health_checks.probe_modes.includes(configFile.ProbeType.LEGACY_DEFAULT));
+        healthcheck.probe_modes.includes(configFile.ProbeType.LEGACY_DEFAULT));
+    const enableFSProbes =
+      healthcheck.probe_modes.includes(configFile.ProbeType.FILESYSTEM) ||
+      healthcheck.probe_modes.includes(configFile.ProbeType.LEGACY_DEFAULT);
 
     if (enableHTTPProbes) {
       context.routerEngine.registerRoutes({
         api_routes: core.routes.endpoints.PROBES_ROUTES
       });
     }
-
-    const enableFSProbes =
-      health_checks.probe_modes.includes(configFile.ProbeType.FILESYSTEM) ||
-      health_checks.probe_modes.includes(configFile.ProbeType.LEGACY_DEFAULT);
-
     if (enableFSProbes) {
       context.register(framework.ContainerImplementation.PROBES, framework.createFSProbe());
     }

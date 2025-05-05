@@ -9,16 +9,9 @@ export async function startServer(runnerConfig: core.utils.RunnerConfig) {
   logBooting('API Container');
 
   const config = await core.utils.loadConfig(runnerConfig);
-  core.utils.setTags(config.metadata);
-
   const serviceContext = new core.system.ServiceContextContainer({
     mode: core.system.ServiceContextMode.API,
     configuration: config
-  });
-
-  await core.metrics.registerMetrics({
-    service_context: serviceContext,
-    modes: [core.metrics.MetricModes.API]
   });
 
   const moduleManager = container.getImplementation(core.modules.ModuleManager);

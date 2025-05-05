@@ -654,6 +654,9 @@ importers:
       '@powersync/service-core':
         specifier: workspace:*
         version: link:../packages/service-core
+      '@powersync/service-module-core':
+        specifier: workspace:*
+        version: link:../modules/module-core
       '@powersync/service-module-mongodb':
         specifier: workspace:*
         version: link:../modules/module-mongodb
