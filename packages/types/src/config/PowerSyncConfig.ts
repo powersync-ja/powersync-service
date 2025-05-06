@@ -2,6 +2,11 @@ import dedent from 'dedent';
 import * as t from 'ts-codec';
 
 /**
+ * The meta tags here are used in the generated JSON schema.
+ * The JSON schema can be used to help self hosted users edit the YAML config file.
+ */
+
+/**
  * Users might specify ports as strings if using YAML custom tag environment substitutions
  */
 export const portCodec = t
