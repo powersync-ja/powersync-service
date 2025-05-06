@@ -69,10 +69,18 @@ export type ResolvedPowerSyncConfig = {
 
   /** Prefix for postgres replication slot names. May eventually be connection-specific. */
   slot_name_prefix: string;
-  service: {
-    healthcheck: {
-      probe_modes: configFile.ProbeType[];
+
+  healthcheck: {
+    probes: {
+      filesystem: boolean;
+      http: boolean;
+      /**
+       * @deprecated This maintains backwards compatibility with the legacy default.
+       * Explicit probe configuration should be used instead.
+       */
+      legacy: boolean;
     };
   };
+
   parameters: Record<string, number | string | boolean | null>;
 };

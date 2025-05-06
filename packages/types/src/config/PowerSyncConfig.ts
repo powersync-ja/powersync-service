@@ -1,3 +1,4 @@
+import dedent from 'dedent';
 import * as t from 'ts-codec';
 
 /**
@@ -18,21 +19,6 @@ export const portParser = {
     anyOf: [{ type: 'number' }, { type: 'string' }]
   })
 };
-
-/**
- * Health check probe types
- */
-export enum ProbeType {
-  FILESYSTEM = 'filesystem',
-  HTTP = 'http',
-  /**
-   * @deprecated
-   * This applies legacy defaults. This should  not be used directly.
-   * This enables HTTP probes when the service is started in the API or UNIFIED mode.
-   * The FILESYTEM probe is always registered by default.
-   */
-  LEGACY_DEFAULT = 'legacy_default'
-}
 
 export const DataSourceConfig = t.object({
   // Unique string identifier for the data source
@@ -172,23 +158,37 @@ export const powerSyncConfig = t.object({
       tokens: t.array(t.string).optional(),
       parameters: t
         .object({
-          // Maximum number of connections (http streams or websockets) per API process.
-          // Default of 200.
-          max_concurrent_connections: t.number.optional(),
-          // This should not be siginificantly more than storage.max_pool_size, otherwise it would block on the
-          // pool. Increasing this can significantly increase memory usage in some cases.
-          // Default of 10.
-          max_data_fetch_concurrency: t.number.optional(),
-          // Maximum number of buckets for each connection.
-          // More buckets increase latency and memory usage. While the actual number is controlled by sync rules,
-          // having a hard limit ensures that the service errors instead of crashing when a sync rule is misconfigured.
-          // Default of 1000.
-          max_buckets_per_connection: t.number.optional(),
+          max_concurrent_connections: t.number.optional().meta({
+            description: dedent`
+              Maximum number of connections (http streams or websockets) per API process.
+              Default of 200.
+            `
+          }),
 
-          // Related to max_buckets_per_connection, but this limit applies directly on the parameter
-          // query results, _before_ we convert it into an unique set.
-          // Default of 1000.
-          max_parameter_query_results: t.number.optional()
+          max_data_fetch_concurrency: t.number.optional().meta({
+            description: dedent`
+              This should not be siginificantly more than storage.max_pool_size, otherwise it would block on the
+              pool. Increasing this can significantly increase memory usage in some cases.
+              Default of 10.
+            `
+          }),
+
+          max_buckets_per_connection: t.number.optional().meta({
+            description: dedent`
+              Maximum number of buckets for each connection.
+              More buckets increase latency and memory usage. While the actual number is controlled by sync rules,
+              having a hard limit ensures that the service errors instead of crashing when a sync rule is misconfigured.
+              Default of 1000.
+            `
+          }),
+
+          max_parameter_query_results: t.number.optional().meta({
+            description: dedent`
+              Related to max_buckets_per_connection, but this limit applies directly on the parameter
+              query results, _before_ we convert it into an unique set.
+              Default of 1000.
+            `
+          })
         })
         .optional()
     })
@@ -222,15 +222,31 @@ export const powerSyncConfig = t.object({
     })
     .optional(),
 
-  service: t
+  healthcheck: t
     .object({
-      health_checks: t
+      probes: t
         .object({
-          probe_modes: t.array(t.Enum(ProbeType)).optional()
+          filesystem: t.boolean.optional().meta({
+            description: dedent`
+              Enables exposing healthcheck status via filesystem files.
+            `
+          }),
+          http: t.boolean.optional().meta({
+            description: dedent`
+              Enables exposing healthcheck status via HTTP endpoints.
+            `
+          }),
+          legacy: t.boolean.optional().meta({
+            description: dedent`
+              Deprecated. 
+              Enables HTTP probes for both API and UNIFIED service modes. FileSystem probes are always enabled.
+            `
+          })
         })
-        .optional()
+        .meta({ description: 'Mechanisms for exposing health check data.' })
     })
-    .optional(),
+    .optional()
+    .meta({ description: 'Service health check configuration' }),
 
   parameters: t.record(t.number.or(t.string).or(t.boolean).or(t.Null)).optional()
 });

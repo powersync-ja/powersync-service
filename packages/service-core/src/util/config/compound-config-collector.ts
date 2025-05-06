@@ -159,10 +159,22 @@ export class CompoundConfigCollector {
         internal_service_endpoint:
           baseConfig.telemetry?.internal_service_endpoint ?? 'https://pulse.journeyapps.com/v1/metrics'
       },
-      service: {
-        healthcheck: {
-          probe_modes: baseConfig.service?.health_checks?.probe_modes ?? [configFile.ProbeType.LEGACY_DEFAULT]
-        }
+      healthcheck: {
+        /**
+         * Default to legacy mode if no probes config is provided.
+         * If users provide a config, all options require explicit opt-in.
+         */
+        probes: baseConfig.healthcheck?.probes
+          ? {
+              filesystem: baseConfig.healthcheck.probes.filesystem ?? false,
+              http: baseConfig.healthcheck.probes.http ?? false,
+              legacy: baseConfig.healthcheck.probes.legacy ?? false
+            }
+          : {
+              filesystem: false,
+              http: false,
+              legacy: true
+            }
       },
       api_parameters: {
         max_buckets_per_connection:

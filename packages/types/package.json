@@ -10,9 +10,11 @@
   "repository": "https://github.com/powersync-ja/powersync-service",
   "scripts": {
     "clean": "rm -r ./dist && tsc -b --clean",
-    "build": "tsc -b"
+    "build:tsc": "tsc -b",
+    "build": "pnpm build:tsc && node scripts/compile-schema.js"
   },
   "dependencies": {
+    "dedent": "^1.6.0",
     "ts-codec": "^1.3.0",
     "uri-js": "^4.4.1"
   }

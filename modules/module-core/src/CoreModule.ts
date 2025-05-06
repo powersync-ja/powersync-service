@@ -2,7 +2,6 @@ import cors from '@fastify/cors';
 import * as framework from '@powersync/lib-services-framework';
 import * as core from '@powersync/service-core';
 import { ReactiveSocketRouter } from '@powersync/service-rsocket-router';
-import { configFile } from '@powersync/service-types';
 import fastify from 'fastify';
 
 export class CoreModule extends core.modules.AbstractModule {
@@ -111,9 +110,13 @@ export class CoreModule extends core.modules.AbstractModule {
   protected configureHealthChecks(context: core.ServiceContextContainer) {
     const {
       configuration: {
-        service: { healthcheck }
+        healthcheck: { probes }
       }
     } = context;
+
+    const exposesAPI = [core.system.ServiceContextMode.API, core.system.ServiceContextMode.UNIFIED].includes(
+      context.mode
+    );
 
     /**
      * Maintains backwards compatibility if LEGACY_DEFAULT is present by:
@@ -121,20 +124,13 @@ export class CoreModule extends core.modules.AbstractModule {
      *  - Always enabling filesystem probes always exposing HTTP probes
      * Probe types must explicitly be selected if not using LEGACY_DEFAULT
      */
-    const enableHTTPProbes =
-      healthcheck.probe_modes.includes(configFile.ProbeType.HTTP) ||
-      ([core.system.ServiceContextMode.API, core.system.ServiceContextMode.UNIFIED].includes(context.mode) &&
-        healthcheck.probe_modes.includes(configFile.ProbeType.LEGACY_DEFAULT));
-    const enableFSProbes =
-      healthcheck.probe_modes.includes(configFile.ProbeType.FILESYSTEM) ||
-      healthcheck.probe_modes.includes(configFile.ProbeType.LEGACY_DEFAULT);
-
-    if (enableHTTPProbes) {
+    if (probes.http || (exposesAPI && probes.legacy)) {
       context.routerEngine.registerRoutes({
         api_routes: core.routes.endpoints.PROBES_ROUTES
       });
     }
-    if (enableFSProbes) {
+
+    if (probes.legacy || probes.filesystem) {
       context.register(framework.ContainerImplementation.PROBES, framework.createFSProbe());
     }
   }
