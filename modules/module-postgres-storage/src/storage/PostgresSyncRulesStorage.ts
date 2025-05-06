@@ -392,19 +392,26 @@ export class PostgresSyncRulesStorage
       return;
     }
 
+    // Internal naming:
+    // We do a query for one "batch", which may be returend in multiple "chunks".
+    // Each chunk is limited to single bucket, and is limited in length and size.
+    // There are also overall batch length and size limits.
+    // Each batch query batch are streamed in separate sets of rows, which may or may
+    // not match up with chunks.
+
     const end = checkpoint ?? BIGINT_MAX;
     const filters = Array.from(dataBuckets.entries()).map(([name, start]) => ({
       bucket_name: name,
       start: start
     }));
 
-    const rowLimit = options?.limit ?? storage.DEFAULT_DOCUMENT_BATCH_LIMIT;
-    const sizeLimit = options?.chunkLimitBytes ?? storage.DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES;
+    const batchRowLimit = options?.limit ?? storage.DEFAULT_DOCUMENT_BATCH_LIMIT;
+    const chunkSizeLimitBytes = options?.chunkLimitBytes ?? storage.DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES;
 
-    let batchSize = 0;
-    let currentBatch: utils.SyncBucketData | null = null;
+    let chunkSizeBytes = 0;
+    let currentChunk: utils.SyncBucketData | null = null;
     let targetOp: InternalOpId | null = null;
-    let rowCount = 0;
+    let batchRowCount = 0;
 
     /**
      * It is possible to perform this query with JSONB join. e.g.
@@ -458,7 +465,7 @@ export class PostgresSyncRulesStorage
       params: [
         { type: 'int4', value: this.group_id },
         { type: 'int8', value: end },
-        { type: 'int4', value: rowLimit + 1 },
+        { type: 'int4', value: batchRowLimit },
         ...filters.flatMap((f) => [
           { type: 'varchar' as const, value: f.bucket_name },
           { type: 'int8' as const, value: f.start } satisfies StatementParam
@@ -469,28 +476,27 @@ export class PostgresSyncRulesStorage
 
       for (const row of decodedRows) {
         const { bucket_name } = row;
-        const rowSize = row.data ? row.data.length : 0;
+        const rowSizeBytes = row.data ? row.data.length : 0;
 
-        if (
-          currentBatch == null ||
-          currentBatch.bucket != bucket_name ||
-          batchSize >= sizeLimit ||
-          (currentBatch?.data.length && batchSize + rowSize > sizeLimit) ||
-          currentBatch.data.length >= rowLimit
-        ) {
+        const sizeExceeded =
+          chunkSizeBytes >= chunkSizeLimitBytes ||
+          (currentChunk?.data.length && chunkSizeBytes + rowSizeBytes > chunkSizeLimitBytes) ||
+          (currentChunk?.data.length ?? 0) >= batchRowLimit;
+
+        if (currentChunk == null || currentChunk.bucket != bucket_name || sizeExceeded) {
           let start: string | undefined = undefined;
-          if (currentBatch != null) {
-            if (currentBatch.bucket == bucket_name) {
-              currentBatch.has_more = true;
+          if (currentChunk != null) {
+            if (currentChunk.bucket == bucket_name) {
+              currentChunk.has_more = true;
+              start = currentChunk.next_after;
             }
 
-            const yieldBatch = currentBatch;
-            start = currentBatch.after;
-            currentBatch = null;
-            batchSize = 0;
-            yield { batch: yieldBatch, targetOp: targetOp };
+            const yieldChunk = currentChunk;
+            currentChunk = null;
+            chunkSizeBytes = 0;
+            yield { batch: yieldChunk, targetOp: targetOp };
             targetOp = null;
-            if (rowCount >= rowLimit) {
+            if (batchRowCount >= batchRowLimit) {
               // We've yielded all the requested rows
               break;
             }
@@ -503,11 +509,13 @@ export class PostgresSyncRulesStorage
             }
             start = internalToExternalOpId(startOpId);
           }
-          currentBatch = {
+          currentChunk = {
             bucket: bucket_name,
             after: start,
+            // this is updated when we yield the batch
             has_more: false,
             data: [],
+            // this is updated incrementally
             next_after: start
           };
           targetOp = null;
@@ -527,20 +535,25 @@ export class PostgresSyncRulesStorage
           }
         }
 
-        currentBatch.data.push(entry);
-        currentBatch.next_after = entry.op_id;
+        currentChunk.data.push(entry);
+        currentChunk.next_after = entry.op_id;
 
-        batchSize += rowSize;
+        chunkSizeBytes += rowSizeBytes;
 
         // Manually track the total rows yielded
-        rowCount++;
+        batchRowCount++;
       }
     }
 
-    if (currentBatch != null) {
-      const yieldBatch = currentBatch;
-      currentBatch = null;
-      yield { batch: yieldBatch, targetOp: targetOp };
+    if (currentChunk != null) {
+      const yieldChunk = currentChunk;
+      currentChunk = null;
+      // This is the final chunk in the batch.
+      // There may be more data if and only if the batch we retrieved isn't complete.
+      if (batchRowCount >= batchRowLimit) {
+        yieldChunk.has_more = true;
+      }
+      yield { batch: yieldChunk, targetOp: targetOp };
       targetOp = null;
     }
   }

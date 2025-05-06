@@ -315,8 +315,13 @@ export class MongoSyncBucketStorage
       });
     }
 
-    const limit = options?.limit ?? storage.DEFAULT_DOCUMENT_BATCH_LIMIT;
-    const sizeLimit = options?.chunkLimitBytes ?? storage.DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES;
+    // Internal naming:
+    // We do a query for one "batch", which may consist of multiple "chunks".
+    // Each chunk is limited to single bucket, and is limited in length and size.
+    // There are also overall batch length and size limits.
+
+    const batchLimit = options?.limit ?? storage.DEFAULT_DOCUMENT_BATCH_LIMIT;
+    const chunkSizeLimitBytes = options?.chunkLimitBytes ?? storage.DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES;
 
     const cursor = this.db.bucket_data.find(
       {
@@ -325,10 +330,10 @@ export class MongoSyncBucketStorage
       {
         session: undefined,
         sort: { _id: 1 },
-        limit: limit,
+        limit: batchLimit,
         // Increase batch size above the default 101, so that we can fill an entire batch in
         // one go.
-        batchSize: limit,
+        batchSize: batchLimit,
         // Raw mode is returns an array of Buffer instead of parsed documents.
         // We use it so that:
         // 1. We can calculate the document size accurately without serializing again.
@@ -343,14 +348,14 @@ export class MongoSyncBucketStorage
     // to the lower of the batch count and size limits.
     // This is similar to using `singleBatch: true` in the find options, but allows
     // detecting "hasMore".
-    let { data, hasMore } = await readSingleBatch(cursor);
-    if (data.length == limit) {
+    let { data, hasMore: batchHasMore } = await readSingleBatch(cursor);
+    if (data.length == batchLimit) {
       // Limit reached - could have more data, despite the cursor being drained.
-      hasMore = true;
+      batchHasMore = true;
     }
 
-    let batchSize = 0;
-    let currentBatch: utils.SyncBucketData | null = null;
+    let chunkSizeBytes = 0;
+    let currentChunk: utils.SyncBucketData | null = null;
     let targetOp: InternalOpId | null = null;
 
     // Ordered by _id, meaning buckets are grouped together
@@ -358,17 +363,21 @@ export class MongoSyncBucketStorage
       const row = bson.deserialize(rawData, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocument;
       const bucket = row._id.b;
 
-      if (currentBatch == null || currentBatch.bucket != bucket || batchSize >= sizeLimit) {
+      if (currentChunk == null || currentChunk.bucket != bucket || chunkSizeBytes >= chunkSizeLimitBytes) {
+        // We need to start a new chunk
         let start: ProtocolOpId | undefined = undefined;
-        if (currentBatch != null) {
-          if (currentBatch.bucket == bucket) {
-            currentBatch.has_more = true;
+        if (currentChunk != null) {
+          // There is an existing chunk we need to yield
+          if (currentChunk.bucket == bucket) {
+            // Current and new chunk have the same bucket, so need has_more on the current one
+            // if currentChunk.bucket != bucket, the we reached the end of the previous bucket.
+            currentChunk.has_more = true;
+            start = currentChunk.next_after;
           }
 
-          const yieldBatch = currentBatch;
-          start = currentBatch.after;
-          currentBatch = null;
-          batchSize = 0;
+          const yieldBatch = currentChunk;
+          currentChunk = null;
+          chunkSizeBytes = 0;
           yield { batch: yieldBatch, targetOp: targetOp };
           targetOp = null;
         }
@@ -380,10 +389,10 @@ export class MongoSyncBucketStorage
           }
           start = internalToExternalOpId(startOpId);
         }
-        currentBatch = {
+        currentChunk = {
           bucket,
           after: start,
-          has_more: hasMore,
+          has_more: false,
           data: [],
           next_after: start
         };
@@ -399,16 +408,21 @@ export class MongoSyncBucketStorage
         }
       }
 
-      currentBatch.data.push(entry);
-      currentBatch.next_after = entry.op_id;
+      currentChunk.data.push(entry);
+      currentChunk.next_after = entry.op_id;
 
-      batchSize += rawData.byteLength;
+      chunkSizeBytes += rawData.byteLength;
     }
 
-    if (currentBatch != null) {
-      const yieldBatch = currentBatch;
-      currentBatch = null;
-      yield { batch: yieldBatch, targetOp: targetOp };
+    if (currentChunk != null) {
+      const yieldChunk = currentChunk;
+      currentChunk = null;
+      // This is the final chunk in the batch.
+      // There may be more data if and only if the batch we retrieved isn't complete.
+      if (batchHasMore) {
+        yieldChunk.has_more = true;
+      }
+      yield { batch: yieldChunk, targetOp: targetOp };
       targetOp = null;
     }
   }
