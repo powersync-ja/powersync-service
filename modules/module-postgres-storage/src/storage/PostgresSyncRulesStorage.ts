@@ -387,7 +387,7 @@ export class PostgresSyncRulesStorage
     checkpoint: InternalOpId,
     dataBuckets: Map<string, InternalOpId>,
     options?: storage.BucketDataBatchOptions
-  ): AsyncIterable<storage.SyncBucketDataBatch> {
+  ): AsyncIterable<storage.SyncBucketDataChunk> {
     if (dataBuckets.size == 0) {
       return;
     }
@@ -494,7 +494,7 @@ export class PostgresSyncRulesStorage
             const yieldChunk = currentChunk;
             currentChunk = null;
             chunkSizeBytes = 0;
-            yield { batch: yieldChunk, targetOp: targetOp };
+            yield { chunkData: yieldChunk, targetOp: targetOp };
             targetOp = null;
             if (batchRowCount >= batchRowLimit) {
               // We've yielded all the requested rows
@@ -550,10 +550,10 @@ export class PostgresSyncRulesStorage
       currentChunk = null;
       // This is the final chunk in the batch.
       // There may be more data if and only if the batch we retrieved isn't complete.
-      if (batchRowCount >= batchRowLimit) {
-        yieldChunk.has_more = true;
-      }
-      yield { batch: yieldChunk, targetOp: targetOp };
+      // If batchRowCount == batchRowLimit, we don't actually know whether there is more data,
+      // but it is safe to return true in that case.
+      yieldChunk.has_more = batchRowCount >= batchRowLimit;
+      yield { chunkData: yieldChunk, targetOp: targetOp };
       targetOp = null;
     }
   }

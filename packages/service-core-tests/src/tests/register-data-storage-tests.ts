@@ -344,7 +344,7 @@ bucket_definitions:
     const checkpoint = result!.flushed_op;
 
     const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]])));
-    const data = batch[0].batch.data.map((d) => {
+    const data = batch[0].chunkData.data.map((d) => {
       return {
         op: d.op,
         object_id: d.object_id,
@@ -641,7 +641,7 @@ bucket_definitions:
     });
     const checkpoint = result!.flushed_op;
     const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]])));
-    const data = batch[0].batch.data.map((d) => {
+    const data = batch[0].chunkData.data.map((d) => {
       return {
         op: d.op,
         object_id: d.object_id
@@ -705,7 +705,7 @@ bucket_definitions:
     const checkpoint = result!.flushed_op;
 
     const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]])));
-    const data = batch[0].batch.data.map((d) => {
+    const data = batch[0].chunkData.data.map((d) => {
       return {
         op: d.op,
         object_id: d.object_id,
@@ -821,7 +821,7 @@ bucket_definitions:
 
     const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]])));
 
-    const data = batch[0].batch.data.map((d) => {
+    const data = batch[0].chunkData.data.map((d) => {
       return {
         op: d.op,
         object_id: d.object_id,
@@ -1020,7 +1020,7 @@ bucket_definitions:
       bucketStorage.getBucketDataBatch(checkpoint2, new Map([['global[]', checkpoint1]]))
     );
 
-    const data = batch[0].batch.data.map((d) => {
+    const data = batch[0].chunkData.data.map((d) => {
       return {
         op: d.op,
         object_id: d.object_id,
@@ -1119,7 +1119,7 @@ bucket_definitions:
     const batch = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(checkpoint3, new Map([['global[]', checkpoint1]]))
     );
-    const data = batch[0].batch.data.map((d) => {
+    const data = batch[0].chunkData.data.map((d) => {
       return {
         op: d.op,
         object_id: d.object_id,
@@ -1227,7 +1227,7 @@ bucket_definitions:
     const batch = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(checkpoint3, new Map([['global[]', checkpoint1]]))
     );
-    const data = batch[0].batch.data.map((d) => {
+    const data = batch[0].chunkData.data.map((d) => {
       return {
         op: d.op,
         object_id: d.object_id,
@@ -1338,7 +1338,11 @@ bucket_definitions:
     });
 
     const batch2 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', BigInt(batch1[0].batch.next_after)]]), options)
+      bucketStorage.getBucketDataBatch(
+        checkpoint,
+        new Map([['global[]', BigInt(batch1[0].chunkData.next_after)]]),
+        options
+      )
     );
     expect(test_utils.getBatchData(batch2)).toEqual([
       { op_id: '3', op: 'PUT', object_id: 'large2', checksum: 1795508474 },
@@ -1351,7 +1355,11 @@ bucket_definitions:
     });
 
     const batch3 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', BigInt(batch2[0].batch.next_after)]]), options)
+      bucketStorage.getBucketDataBatch(
+        checkpoint,
+        new Map([['global[]', BigInt(batch2[0].chunkData.next_after)]]),
+        options
+      )
     );
     expect(test_utils.getBatchData(batch3)).toEqual([]);
     expect(test_utils.getBatchMeta(batch3)).toEqual(null);
@@ -1406,7 +1414,7 @@ bucket_definitions:
     });
 
     const batch2 = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', BigInt(batch1.batch.next_after)]]), {
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', BigInt(batch1.chunkData.next_after)]]), {
         limit: 4
       })
     );
@@ -1422,7 +1430,7 @@ bucket_definitions:
     });
 
     const batch3 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', BigInt(batch2.batch.next_after)]]), {
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', BigInt(batch2.chunkData.next_after)]]), {
         limit: 4
       })
     );
@@ -1481,8 +1489,8 @@ bucket_definitions:
       const batch = await setup({ limit: 5 });
       expect(batch.length).toEqual(2);
 
-      expect(batch[0].batch.bucket).toEqual('global1[]');
-      expect(batch[1].batch.bucket).toEqual('global2[]');
+      expect(batch[0].chunkData.bucket).toEqual('global1[]');
+      expect(batch[1].chunkData.bucket).toEqual('global2[]');
 
       expect(test_utils.getBatchData(batch[0])).toEqual([
         { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 }
@@ -1512,8 +1520,8 @@ bucket_definitions:
       const batch = await setup({ limit: 11 });
       expect(batch.length).toEqual(2);
 
-      expect(batch[0].batch.bucket).toEqual('global1[]');
-      expect(batch[1].batch.bucket).toEqual('global2[]');
+      expect(batch[0].chunkData.bucket).toEqual('global1[]');
+      expect(batch[1].chunkData.bucket).toEqual('global2[]');
 
       expect(test_utils.getBatchData(batch[0])).toEqual([
         { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 }
@@ -1549,9 +1557,9 @@ bucket_definitions:
       const batch = await setup({ limit: 3, chunkLimitBytes: 50 });
 
       expect(batch.length).toEqual(3);
-      expect(batch[0].batch.bucket).toEqual('global1[]');
-      expect(batch[1].batch.bucket).toEqual('global2[]');
-      expect(batch[2].batch.bucket).toEqual('global2[]');
+      expect(batch[0].chunkData.bucket).toEqual('global1[]');
+      expect(batch[1].chunkData.bucket).toEqual('global2[]');
+      expect(batch[2].chunkData.bucket).toEqual('global2[]');
 
       expect(test_utils.getBatchData(batch[0])).toEqual([
         { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 }

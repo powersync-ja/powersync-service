@@ -288,7 +288,7 @@ export class MongoSyncBucketStorage
     checkpoint: utils.InternalOpId,
     dataBuckets: Map<string, InternalOpId>,
     options?: storage.BucketDataBatchOptions
-  ): AsyncIterable<storage.SyncBucketDataBatch> {
+  ): AsyncIterable<storage.SyncBucketDataChunk> {
     if (dataBuckets.size == 0) {
       return;
     }
@@ -369,16 +369,17 @@ export class MongoSyncBucketStorage
         if (currentChunk != null) {
           // There is an existing chunk we need to yield
           if (currentChunk.bucket == bucket) {
-            // Current and new chunk have the same bucket, so need has_more on the current one
-            // if currentChunk.bucket != bucket, the we reached the end of the previous bucket.
+            // Current and new chunk have the same bucket, so need has_more on the current one.
+            // If currentChunk.bucket != bucket, then we reached the end of the previous bucket,
+            // and has_more = false in that case.
             currentChunk.has_more = true;
             start = currentChunk.next_after;
           }
 
-          const yieldBatch = currentChunk;
+          const yieldChunk = currentChunk;
           currentChunk = null;
           chunkSizeBytes = 0;
-          yield { batch: yieldBatch, targetOp: targetOp };
+          yield { chunkData: yieldChunk, targetOp: targetOp };
           targetOp = null;
         }
 
@@ -419,10 +420,8 @@ export class MongoSyncBucketStorage
       currentChunk = null;
       // This is the final chunk in the batch.
       // There may be more data if and only if the batch we retrieved isn't complete.
-      if (batchHasMore) {
-        yieldChunk.has_more = true;
-      }
-      yield { batch: yieldChunk, targetOp: targetOp };
+      yieldChunk.has_more = batchHasMore;
+      yield { chunkData: yieldChunk, targetOp: targetOp };
       targetOp = null;
     }
   }
