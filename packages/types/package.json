@@ -8,6 +8,10 @@
     "access": "public"
   },
   "repository": "https://github.com/powersync-ja/powersync-service",
+  "files": [
+    "dist/**/*",
+    "schema/*"
+  ],
   "scripts": {
     "clean": "rm -r ./dist && tsc -b --clean",
     "build:tsc": "tsc -b",

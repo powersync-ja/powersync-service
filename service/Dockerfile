@@ -37,6 +37,7 @@ COPY packages/sync-rules/src packages/sync-rules/src/
 COPY packages/sync-rules/scripts packages/sync-rules/scripts/
 COPY packages/rsocket-router/src packages/rsocket-router/src/
 COPY packages/types/src packages/types/src/
+COPY packages/types/scripts packages/types/scripts/
 
 COPY libs/lib-services/src libs/lib-services/src/
 COPY libs/lib-mongodb/src libs/lib-mongodb/src/

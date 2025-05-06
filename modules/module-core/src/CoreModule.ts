@@ -136,22 +136,17 @@ export class CoreModule extends core.modules.AbstractModule {
   }
 
   protected async configureMetrics(context: core.ServiceContextContainer) {
-    // Could maybe do this in the core metrics registration function
     const apiMetrics = [core.metrics.MetricModes.API];
     const streamMetrics = [core.metrics.MetricModes.REPLICATION, core.metrics.MetricModes.STORAGE];
-    const metricsModeMap: Record<core.system.ServiceContextMode, core.metrics.MetricModes[]> = {
+    const metricsModeMap: Partial<Record<core.system.ServiceContextMode, core.metrics.MetricModes[]>> = {
       [core.system.ServiceContextMode.API]: apiMetrics,
       [core.system.ServiceContextMode.SYNC]: streamMetrics,
-      [core.system.ServiceContextMode.UNIFIED]: [...apiMetrics, ...streamMetrics],
-      [core.system.ServiceContextMode.COMPACT]: [],
-      [core.system.ServiceContextMode.MIGRATION]: [],
-      [core.system.ServiceContextMode.TEARDOWN]: [],
-      [core.system.ServiceContextMode.TEST_CONNECTION]: []
+      [core.system.ServiceContextMode.UNIFIED]: [...apiMetrics, ...streamMetrics]
     };
 
     await core.metrics.registerMetrics({
       service_context: context,
-      modes: metricsModeMap[context.mode]
+      modes: metricsModeMap[context.mode] ?? []
     });
   }
 

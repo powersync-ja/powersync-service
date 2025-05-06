@@ -119,10 +119,6 @@ export const jwkHmac = t
     kty: t.literal('oct').meta({
       description: 'Key type identifier, must be "oct" for HMAC keys.'
     }),
-    /**
-     * undefined kid indicates it can match any JWT, with or without a kid.
-     * Use a kid wherever possible.
-     */
     kid: t.string
       .meta({
         description:
@@ -229,8 +225,6 @@ export const BaseStorageConfig = t
     type: t.string.meta({
       description: 'The type of storage backend to use (e.g., "postgresql", "mongodb").'
     }),
-    // Maximum number of connections to the storage database, per process.
-    // Defaults to 8.
     max_pool_size: t.number
       .meta({
         description: 'Maximum number of connections to the storage database, per process. Defaults to 8.'
@@ -489,16 +483,12 @@ export const powerSyncConfig = t
           .object({
             filesystem: t.boolean
               .meta({
-                description: dedent`
-              Enables exposing healthcheck status via filesystem files.
-            `
+                description: `Enables exposing healthcheck status via filesystem files.`
               })
               .optional(),
             http: t.boolean
               .meta({
-                description: dedent`
-              Enables exposing healthcheck status via HTTP endpoints.
-            `
+                description: `Enables exposing healthcheck status via HTTP endpoints.`
               })
               .optional(),
             legacy: t.boolean
