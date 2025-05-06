@@ -11,7 +11,7 @@
   "scripts": {
     "clean": "rm -r ./dist && tsc -b --clean",
     "build:tsc": "tsc -b",
-    "build": "pnpm build:tsc && node scripts/compile-schema.js"
+    "build": "pnpm build:tsc && node scripts/compile-schema.mjs"
   },
   "dependencies": {
     "dedent": "^1.6.0",

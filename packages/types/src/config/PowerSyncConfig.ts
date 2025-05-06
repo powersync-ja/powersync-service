@@ -253,3 +253,9 @@ export const powerSyncConfig = t.object({
 
 export type PowerSyncConfig = t.Decoded<typeof powerSyncConfig>;
 export type SerializedPowerSyncConfig = t.Encoded<typeof powerSyncConfig>;
+
+export const PowerSyncConfigSchema = t.generateJSONSchema(powerSyncConfig, {
+  // This is required due to the generics used in data source specification
+  allowAdditional: true,
+  parsers: [portParser]
+});
