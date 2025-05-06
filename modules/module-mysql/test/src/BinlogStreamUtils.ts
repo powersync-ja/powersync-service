@@ -157,7 +157,7 @@ export class BinlogStreamTestContext {
     const map = new Map<string, InternalOpId>([[bucket, start]]);
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
     const batches = await test_utils.fromAsync(batch);
-    return batches[0]?.batch.data ?? [];
+    return batches[0]?.chunkData.data ?? [];
   }
 }
 

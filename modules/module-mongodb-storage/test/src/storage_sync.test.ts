@@ -87,7 +87,11 @@ describe('sync - mongodb', () => {
     });
 
     const batch2 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', BigInt(batch1[0].batch.next_after)]]), options)
+      bucketStorage.getBucketDataBatch(
+        checkpoint,
+        new Map([['global[]', BigInt(batch1[0].chunkData.next_after)]]),
+        options
+      )
     );
     expect(test_utils.getBatchData(batch2)).toEqual([
       { op_id: '3', op: 'PUT', object_id: 'large2', checksum: 1607205872 }
@@ -99,7 +103,11 @@ describe('sync - mongodb', () => {
     });
 
     const batch3 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', BigInt(batch2[0].batch.next_after)]]), options)
+      bucketStorage.getBucketDataBatch(
+        checkpoint,
+        new Map([['global[]', BigInt(batch2[0].chunkData.next_after)]]),
+        options
+      )
     );
     expect(test_utils.getBatchData(batch3)).toEqual([
       { op_id: '4', op: 'PUT', object_id: 'test3', checksum: 1359888332 }
