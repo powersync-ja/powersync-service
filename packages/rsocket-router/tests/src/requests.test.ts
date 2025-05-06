@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createMockObserver, createMockResponder } from './utils/mock-responder.js';
-import { handleReactiveStream } from '../../src/router/ReactiveSocketRouter.js';
+import { handleReactiveStream, ReactiveStreamRequest } from '../../src/router/ReactiveSocketRouter.js';
 import { deserialize, serialize } from 'bson';
 import { RS_ENDPOINT_TYPE, ReactiveEndpoint, RequestMeta, SocketResponder } from '../../src/router/types.js';
-import { ErrorCode } from '@powersync/lib-services-framework';
+import { EndpointHandlerPayload, ErrorCode } from '@powersync/lib-services-framework';
 
 /**
  * Mocks the process of handling reactive routes
@@ -12,24 +12,27 @@ import { ErrorCode } from '@powersync/lib-services-framework';
  * @param responder a mock responder
  * @returns
  */
-async function handleRoute(path: string, endpoints: ReactiveEndpoint[], responder: SocketResponder) {
+async function handleRoute(path: string, endpoints: ReactiveEndpoint[], responder: SocketResponder, request?: Partial<ReactiveStreamRequest>) {
   return handleReactiveStream<{}>(
     {},
     {
       payload: {
         data: Buffer.from(serialize({})),
-        metadata: Buffer.from(serialize({ path }))
+        metadata: Buffer.from(serialize({ path })),
       },
       initialN: 1,
-      responder
+      dataMimeType: 'application/bson',
+      metadataMimeType: 'application/bson',
+      responder,
+      ...request,
     },
     createMockObserver(),
     new AbortController(),
     {
       contextProvider: async () => ({}),
       endpoints,
-      metaDecoder: async (buffer) => deserialize(buffer) as RequestMeta,
-      payloadDecoder: async (buffer) => buffer && deserialize(buffer)
+      metaDecoder: async (buffer) => deserialize(buffer.contents) as RequestMeta,
+      payloadDecoder: async (buffer) => buffer && deserialize(buffer.contents)
     }
   );
 }
@@ -132,5 +135,54 @@ describe('Requests', () => {
 
     // Should be a validation error
     expect(JSON.stringify(spy.mock.calls[0])).includes(ErrorCode.PSYNC_S2002);
+  });
+
+  it('should forward mime types', async () => {
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
+    const responder = createMockResponder();
+    const encodeJson = (value: any) => encoder.encode(JSON.stringify(value));
+    const path = '/test-route';
+
+    const fn = vi.fn(async (p: EndpointHandlerPayload<any, any>) => {
+      expect(p.params).toStrictEqual({'hello': 'world'});
+      return undefined;
+    });
+
+    await handleReactiveStream<{}>(
+      {},
+      {
+        payload: {
+          data: Buffer.from(encodeJson({'hello': 'world'})),
+          metadata: Buffer.from(encodeJson({ path })),
+        },
+        metadataMimeType: 'application/json',
+        dataMimeType: 'application/json',
+        initialN: 1,
+        responder,
+      },
+      createMockObserver(),
+      new AbortController(),
+      {
+        contextProvider: async () => ({}),
+        endpoints: [
+          {
+            path,
+            type: RS_ENDPOINT_TYPE.STREAM,
+            handler: fn,
+          }
+        ],
+        metaDecoder: async (buffer) => {
+          expect(buffer.mimeType, 'application/json');
+          return JSON.parse(decoder.decode(buffer.contents));
+        },
+        payloadDecoder: async (buffer) => {
+          expect(buffer!.mimeType, 'application/json');
+          return JSON.parse(decoder.decode(buffer!.contents));
+        }
+      }
+    );
+
+    expect(fn).toHaveBeenCalled();
   });
 });

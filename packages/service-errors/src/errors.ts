@@ -159,6 +159,19 @@ export class ReplicationAbortedError extends ServiceError {
   }
 }
 
+export class UnsupportedMediaType extends ServiceError {
+  static readonly CODE = ErrorCode.PSYNC_S2004;
+
+  constructor(errors: any) {
+    super({
+      code: UnsupportedMediaType.CODE,
+      status: 415,
+      description: 'Unsupported Media Type',
+      details: errors
+    });
+  }
+}
+
 export class AuthorizationError extends ServiceError {
   /**
    * String describing the token. Does not contain the full token, but may help with debugging.

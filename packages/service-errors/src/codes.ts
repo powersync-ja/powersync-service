@@ -297,6 +297,13 @@ export enum ErrorCode {
    */
   PSYNC_S2003 = 'PSYNC_S2003',
 
+  /**
+   * 415 unsupported media type.
+   * 
+   * This code always indicates an issue with the client.
+   */
+  PSYNC_S2004 = 'PSYNC_S2004',
+
   // ## PSYNC_S21xx: Auth errors originating on the client.
   //
   // This does not include auth configuration errors on the service.

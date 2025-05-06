@@ -75,7 +75,13 @@ export class ReactiveSocketRouter<C> {
             throw new errors.AuthorizationError(ErrorCode.PSYNC_S2101, 'No context meta data provided');
           }
 
-          const context = await params.contextProvider(payload.metadata!);
+          const metadataMimeType = payload.metadataMimeType;
+          const dataMimeType = payload.dataMimeType;
+
+          const context = await params.contextProvider({
+            mimeType: payload.metadataMimeType,
+            contents: payload.metadata!
+          });
 
           return {
             // RequestStream is currently the only supported connection type
@@ -84,13 +90,17 @@ export class ReactiveSocketRouter<C> {
               const abortController = new AbortController();
 
               // TODO: Consider limiting the number of active streams per connection to prevent abuse
-              handleReactiveStream(context, { payload, initialN, responder }, observer, abortController, params).catch(
-                (ex) => {
-                  logger.error(ex);
-                  responder.onError(ex);
-                  responder.onComplete();
-                }
-              );
+              handleReactiveStream(
+                context,
+                { payload, initialN, responder, dataMimeType, metadataMimeType },
+                observer,
+                abortController,
+                params
+              ).catch((ex) => {
+                logger.error(ex);
+                responder.onError(ex);
+                responder.onComplete();
+              });
               return {
                 cancel: () => {
                   abortController.abort();
@@ -113,13 +123,17 @@ export class ReactiveSocketRouter<C> {
   }
 }
 
+export interface ReactiveStreamRequest {
+  payload: Payload;
+  metadataMimeType: string;
+  dataMimeType: string;
+  initialN: number;
+  responder: SocketResponder;
+}
+
 export async function handleReactiveStream<Context>(
   context: Context,
-  request: {
-    payload: Payload;
-    initialN: number;
-    responder: SocketResponder;
-  },
+  request: ReactiveStreamRequest,
   observer: SocketRouterObserver,
   abortController: AbortController,
   params: CommonParams<Context>
@@ -137,7 +151,10 @@ export async function handleReactiveStream<Context>(
     return exitWithError(new errors.ValidationError('Metadata is not provided'));
   }
 
-  const meta = await params.metaDecoder(metadata);
+  const meta = await params.metaDecoder({
+    mimeType: request.metadataMimeType,
+    contents: metadata
+  });
 
   const { path } = meta;
 
@@ -148,7 +165,14 @@ export async function handleReactiveStream<Context>(
   }
 
   const { handler, authorize, validator, decoder = params.payloadDecoder } = route;
-  const requestPayload = await decoder(payload.data || undefined);
+  const requestPayload = await decoder(
+    payload.data
+      ? {
+          contents: payload.data,
+          mimeType: request.dataMimeType
+        }
+      : undefined
+  );
 
   if (validator) {
     const isValid = validator.validate(requestPayload);
