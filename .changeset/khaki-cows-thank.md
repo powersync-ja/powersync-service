@@ -2,7 +2,7 @@
 '@powersync/service-image': minor
 ---
 
-- Added typecasting to `!env` YAML custom tag function. YAML config environment variable substitution now support casting string environment variables to `number` and `boolean` types.
+- Added typecasting to `!env` YAML custom tag function. YAML config environment variable substitution now supports casting string environment variables to `number` and `boolean` types.
 
 ```yaml
 replication:
