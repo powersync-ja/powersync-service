@@ -4,7 +4,7 @@ import * as pgwire from '@powersync/service-jpgwire';
 import * as jose from 'jose';
 
 import * as types from '../types/types.js';
-import { AuthorizationError2, ErrorCode } from '@powersync/lib-services-framework';
+import { AuthorizationError, ErrorCode } from '@powersync/lib-services-framework';
 
 /**
  * Fetches key from the Supabase database.
@@ -45,7 +45,7 @@ export class SupabaseKeyCollector implements auth.KeyCollector {
       row = rows[0] as any;
     } catch (e) {
       if (e.message?.includes('unrecognized configuration parameter')) {
-        throw new AuthorizationError2(
+        throw new AuthorizationError(
           ErrorCode.PSYNC_S2201,
           'No JWT secret found in Supabase database. Manually configure the secret.'
         );
@@ -58,7 +58,7 @@ export class SupabaseKeyCollector implements auth.KeyCollector {
       return {
         keys: [],
         errors: [
-          new AuthorizationError2(
+          new AuthorizationError(
             ErrorCode.PSYNC_S2201,
             'No JWT secret found in Supabase database. Manually configure the secret.'
           )

@@ -72,7 +72,7 @@ export class ReactiveSocketRouter<C> {
           // Throwing an exception in this context will be returned to the client side request
           if (!payload.metadata) {
             // Meta data is required for endpoint handler path matching
-            throw new errors.AuthorizationError('No context meta data provided');
+            throw new errors.AuthorizationError(ErrorCode.PSYNC_S2101, 'No context meta data provided');
           }
 
           const context = await params.contextProvider(payload.metadata!);
@@ -167,7 +167,7 @@ export async function handleReactiveStream<Context>(
     });
     if (!isAuthorized.authorized) {
       return exitWithError(
-        isAuthorized.error ?? new errors.AuthorizationError2(ErrorCode.PSYNC_S2101, 'Authorization failed')
+        isAuthorized.error ?? new errors.AuthorizationError(ErrorCode.PSYNC_S2101, 'Authorization failed')
       );
     }
   }

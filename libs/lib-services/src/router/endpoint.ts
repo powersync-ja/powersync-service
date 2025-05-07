@@ -17,7 +17,7 @@ export const executeEndpoint = async <I, O, C, P extends EndpointHandlerPayload<
   const authorizer_response = await endpoint.authorize?.(payload);
   if (authorizer_response && !authorizer_response.authorized) {
     if (authorizer_response.error == null) {
-      throw new errors.AuthorizationError2(errors.ErrorCode.PSYNC_S2101, 'Authorization failed');
+      throw new errors.AuthorizationError(errors.ErrorCode.PSYNC_S2101, 'Authorization failed');
     }
     throw authorizer_response.error;
   }

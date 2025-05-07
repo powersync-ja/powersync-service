@@ -1,4 +1,4 @@
-import { logger, errors, AuthorizationError2, ErrorCode } from '@powersync/lib-services-framework';
+import { logger, errors, AuthorizationError, ErrorCode } from '@powersync/lib-services-framework';
 import * as jose from 'jose';
 import secs from '../util/secs.js';
 import { JwtPayload } from './JwtPayload.js';
@@ -69,7 +69,7 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
         return audiences.includes(a);
       })
     ) {
-      throw new AuthorizationError2(
+      throw new AuthorizationError(
         ErrorCode.PSYNC_S2105,
         `Unexpected "aud" claim value: ${JSON.stringify(tokenPayload.aud)}`,
         { sensitiveDetails: `Current configuration allows these audience values: ${JSON.stringify(audiences)}` }
@@ -82,7 +82,7 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
     // is too far into the future.
     const maxAge = keyOptions.maxLifetimeSeconds ?? secs(options.maxAge);
     if (tokenDuration > maxAge) {
-      throw new AuthorizationError2(
+      throw new AuthorizationError(
         ErrorCode.PSYNC_S2104,
         `Token must expire in a maximum of ${maxAge} seconds, got ${tokenDuration}s`
       );
@@ -90,7 +90,7 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
 
     const parameters = tokenPayload.parameters;
     if (parameters != null && (Array.isArray(parameters) || typeof parameters != 'object')) {
-      throw new AuthorizationError2(ErrorCode.PSYNC_S2101, `Payload parameters must be an object`);
+      throw new AuthorizationError(ErrorCode.PSYNC_S2101, `Payload parameters must be an object`);
     }
 
     return tokenPayload as JwtPayload;
@@ -119,7 +119,7 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
       for (let key of keys) {
         if (key.kid == kid) {
           if (!key.matchesAlgorithm(header.alg)) {
-            throw new AuthorizationError2(ErrorCode.PSYNC_S2101, `Unexpected token algorithm ${header.alg}`, {
+            throw new AuthorizationError(ErrorCode.PSYNC_S2101, `Unexpected token algorithm ${header.alg}`, {
               sensitiveDetails: `Key kid: ${key.source.kid}, alg: ${key.source.alg}, kty: ${key.source.kty}`
             });
           }
@@ -154,7 +154,7 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
         logger.error(`Failed to refresh keys`, e);
       });
 
-      throw new AuthorizationError2(
+      throw new AuthorizationError(
         ErrorCode.PSYNC_S2101,
         'Could not find an appropriate key in the keystore. The key is missing or no key matched the token KID',
         {

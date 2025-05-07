@@ -160,19 +160,6 @@ export class ReplicationAbortedError extends ServiceError {
 }
 
 export class AuthorizationError extends ServiceError {
-  static readonly CODE = ErrorCode.PSYNC_S2101;
-
-  constructor(errors: any) {
-    super({
-      code: AuthorizationError.CODE,
-      status: 401,
-      description: 'Authorization failed',
-      details: errors
-    });
-  }
-}
-
-export class AuthorizationError2 extends ServiceError {
   constructor(
     code: ErrorCode,
     description: string,

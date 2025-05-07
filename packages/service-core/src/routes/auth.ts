@@ -4,7 +4,7 @@ import * as auth from '../auth/auth-index.js';
 import { ServiceContext } from '../system/ServiceContext.js';
 import * as util from '../util/util-index.js';
 import { BasicRouterRequest, Context, RequestEndpointHandlerPayload } from './router.js';
-import { AuthorizationError2, AuthorizationResponse, ErrorCode, ServiceError } from '@powersync/lib-services-framework';
+import { AuthorizationError, AuthorizationResponse, ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 
 export function endpoint(req: BasicRouterRequest) {
   const protocol = req.headers['x-forwarded-proto'] ?? req.protocol;
@@ -105,7 +105,7 @@ export async function authorizeUser(context: Context, authHeader: string = ''): 
   if (token == null) {
     return {
       authorized: false,
-      error: new AuthorizationError2(ErrorCode.PSYNC_S2106, 'Authentication required')
+      error: new AuthorizationError(ErrorCode.PSYNC_S2106, 'Authentication required')
     };
   }
 

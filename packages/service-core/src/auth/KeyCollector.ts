@@ -1,4 +1,4 @@
-import { AuthorizationError2 } from '@powersync/lib-services-framework';
+import { AuthorizationError } from '@powersync/lib-services-framework';
 import { KeySpec } from './KeySpec.js';
 
 export interface KeyCollector {
@@ -22,6 +22,6 @@ export interface KeyCollector {
 }
 
 export interface KeyResult {
-  errors: AuthorizationError2[];
+  errors: AuthorizationError[];
   keys: KeySpec[];
 }

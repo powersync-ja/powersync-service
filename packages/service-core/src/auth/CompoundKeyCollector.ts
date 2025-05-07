@@ -1,7 +1,7 @@
 import * as jose from 'jose';
 import { KeySpec } from './KeySpec.js';
 import { KeyCollector, KeyResult } from './KeyCollector.js';
-import { AuthorizationError2 } from '@powersync/lib-services-framework';
+import { AuthorizationError } from '@powersync/lib-services-framework';
 
 export class CompoundKeyCollector implements KeyCollector {
   private collectors: KeyCollector[];
@@ -16,7 +16,7 @@ export class CompoundKeyCollector implements KeyCollector {
 
   async getKeys(): Promise<KeyResult> {
     let keys: KeySpec[] = [];
-    let errors: AuthorizationError2[] = [];
+    let errors: AuthorizationError[] = [];
     const promises = this.collectors.map((collector) =>
       collector.getKeys().then((result) => {
         keys.push(...result.keys);

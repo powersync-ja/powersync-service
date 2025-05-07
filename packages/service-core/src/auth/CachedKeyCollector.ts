@@ -3,7 +3,7 @@ import timers from 'timers/promises';
 import { KeySpec } from './KeySpec.js';
 import { LeakyBucket } from './LeakyBucket.js';
 import { KeyCollector, KeyResult } from './KeyCollector.js';
-import { AuthorizationError2 } from '@powersync/lib-services-framework';
+import { AuthorizationError } from '@powersync/lib-services-framework';
 import { mapAuthConfigError } from './utils.js';
 
 /**
@@ -41,7 +41,7 @@ export class CachedKeyCollector implements KeyCollector {
    */
   private keyExpiry = 3600000;
 
-  private currentErrors: AuthorizationError2[] = [];
+  private currentErrors: AuthorizationError[] = [];
   /**
    * Indicates a "fatal" error that should be retried.
    */

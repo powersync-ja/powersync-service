@@ -4,7 +4,7 @@ import * as jose from 'jose';
 import fetch from 'node-fetch';
 
 import {
-  AuthorizationError2,
+  AuthorizationError,
   ErrorCode,
   LookupOptions,
   makeHostnameLookupFunction,
@@ -63,7 +63,7 @@ export class RemoteJWKSCollector implements KeyCollector {
     });
 
     if (!res.ok) {
-      throw new AuthorizationError2(ErrorCode.PSYNC_S2204, `JWKS request failed with ${res.statusText}`, {
+      throw new AuthorizationError(ErrorCode.PSYNC_S2204, `JWKS request failed with ${res.statusText}`, {
         sensitiveDetails: `JWKS URL: ${this.url}`
       });
     }
@@ -81,7 +81,7 @@ export class RemoteJWKSCollector implements KeyCollector {
       return {
         keys: [],
         errors: [
-          new AuthorizationError2(ErrorCode.PSYNC_S2204, `JWKS request failed with ${res.statusText}`, {
+          new AuthorizationError(ErrorCode.PSYNC_S2204, `JWKS request failed with ${res.statusText}`, {
             sensitiveDetails: `JWKS URL: ${this.url}. Response:\n${JSON.stringify(data, null, 2)}`
           })
         ]
