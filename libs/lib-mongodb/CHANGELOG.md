@@ -1,5 +1,12 @@
 # @powersync/lib-service-mongodb
 
+## 0.5.2
+
+### Patch Changes
+
+- 08f6ae8: [MongoDB] Fix resume token handling when no events are received
+  - @powersync/lib-services-framework@0.5.4
+
 ## 0.5.1
 
 ### Patch Changes

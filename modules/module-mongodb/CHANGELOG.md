@@ -1,5 +1,17 @@
 # @powersync/service-module-mongodb
 
+## 0.8.3
+
+### Patch Changes
+
+- 08f6ae8: [MongoDB] Fix resume token handling when no events are received
+- Updated dependencies [08f6ae8]
+- Updated dependencies [23ec406]
+- Updated dependencies [64e51d1]
+  - @powersync/lib-service-mongodb@0.5.2
+  - @powersync/service-core@1.11.3
+  - @powersync/lib-services-framework@0.5.4
+
 ## 0.8.2
 
 ### Patch Changes
