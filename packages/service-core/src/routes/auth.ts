@@ -4,6 +4,7 @@ import * as auth from '../auth/auth-index.js';
 import { ServiceContext } from '../system/ServiceContext.js';
 import * as util from '../util/util-index.js';
 import { BasicRouterRequest, Context, RequestEndpointHandlerPayload } from './router.js';
+import { AuthorizationError2, AuthorizationResponse, ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 
 export function endpoint(req: BasicRouterRequest) {
   const protocol = req.headers['x-forwarded-proto'] ?? req.protocol;
@@ -95,25 +96,25 @@ export function getTokenFromHeader(authHeader: string = ''): string | null {
   return token ?? null;
 }
 
-export const authUser = async (payload: RequestEndpointHandlerPayload) => {
+export const authUser = async (payload: RequestEndpointHandlerPayload): Promise<AuthorizationResponse> => {
   return authorizeUser(payload.context, payload.request.headers.authorization as string);
 };
 
-export async function authorizeUser(context: Context, authHeader: string = '') {
+export async function authorizeUser(context: Context, authHeader: string = ''): Promise<AuthorizationResponse> {
   const token = getTokenFromHeader(authHeader);
   if (token == null) {
     return {
       authorized: false,
-      errors: ['Authentication required']
+      error: new AuthorizationError2(ErrorCode.PSYNC_S2115, 'Authentication required')
     };
   }
 
-  const { context: tokenContext, errors } = await generateContext(context.service_context, token);
+  const { context: tokenContext, tokenError } = await generateContext(context.service_context, token);
 
   if (!tokenContext) {
     return {
       authorized: false,
-      errors
+      error: tokenError
     };
   }
 
@@ -138,10 +139,20 @@ export async function generateContext(serviceContext: ServiceContext, token: str
       }
     };
   } catch (err) {
-    return {
-      context: null,
-      errors: [err.message]
-    };
+    if (err instanceof ServiceError) {
+      return {
+        context: null,
+        tokenError: err
+      };
+    } else {
+      return {
+        context: null,
+        tokenError: new AuthorizationError2(ErrorCode.PSYNC_S2101, 'Authentication error', {
+          details: err.message,
+          cause: err
+        })
+      };
+    }
   }
 }
 

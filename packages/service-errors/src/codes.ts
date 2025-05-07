@@ -306,6 +306,39 @@ export enum ErrorCode {
    */
   PSYNC_S2101 = 'PSYNC_S2101',
 
+  /**
+   * Could not verify the auth token signature.
+   *
+   * Typical causes include:
+   * 1. Token kid is not found in the keystore.
+   * 2. Signature does not match the kid in the keystore.
+   */
+  PSYNC_S2111 = 'PSYNC_S2111',
+
+  /**
+   * Token has expired. Check the expiry date on the token.
+   */
+  PSYNC_S2112 = 'PSYNC_S2112',
+
+  /**
+   * Token expiration date is too long. Issue shorter-lived tokens.
+   */
+  PSYNC_S2113 = 'PSYNC_S2113',
+
+  /**
+   * Token audience does not match expected values.
+   *
+   * Check the aud value on the token, compared to the audience values allowed in the service config.
+   */
+  PSYNC_S2114 = 'PSYNC_S2114',
+
+  /**
+   * No token provided. An auth token is required for every request.
+   *
+   * The Auhtorization header must start with "Token" or "Bearer", followed by the JWT.
+   */
+  PSYNC_S2115 = 'PSYNC_S2115',
+
   // ## PSYNC_S22xx: Auth integration errors
 
   /**

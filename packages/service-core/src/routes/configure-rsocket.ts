@@ -1,7 +1,7 @@
 import { deserialize } from 'bson';
 import * as http from 'http';
 
-import { errors, logger } from '@powersync/lib-services-framework';
+import { ErrorCode, errors, logger } from '@powersync/lib-services-framework';
 import { ReactiveSocketRouter, RSocketRequestMeta } from '@powersync/service-rsocket-router';
 
 import { ServiceContext } from '../system/ServiceContext.js';
@@ -22,19 +22,19 @@ export function configureRSocket(router: ReactiveSocketRouter<Context>, options:
   const { route_generators = DEFAULT_SOCKET_ROUTES, server, service_context } = options;
 
   router.applyWebSocketEndpoints(server, {
-    contextProvider: async (data: Buffer) => {
+    contextProvider: async (data: Buffer): Promise<Context & { token: string }> => {
       const { token, user_agent } = RSocketContextMeta.decode(deserialize(data) as any);
 
       if (!token) {
-        throw new errors.AuthorizationError('No token provided');
+        throw new errors.AuthorizationError2(ErrorCode.PSYNC_S2115, 'No token provided');
       }
 
       try {
         const extracted_token = getTokenFromHeader(token);
         if (extracted_token != null) {
-          const { context, errors: token_errors } = await generateContext(options.service_context, extracted_token);
+          const { context, tokenError } = await generateContext(options.service_context, extracted_token);
           if (context?.token_payload == null) {
-            throw new errors.AuthorizationError(token_errors ?? 'Authentication required');
+            throw new errors.AuthorizationError2(ErrorCode.PSYNC_S2115, 'Authentication required');
           }
 
           if (!service_context.routerEngine) {
@@ -45,11 +45,12 @@ export function configureRSocket(router: ReactiveSocketRouter<Context>, options:
             token,
             user_agent,
             ...context,
-            token_errors: token_errors,
+            token_error: tokenError,
             service_context: service_context as RouterServiceContext
           };
         } else {
-          throw new errors.AuthorizationError('No token provided');
+          // Token field is present, but did not contain a token.
+          throw new errors.AuthorizationError2(ErrorCode.PSYNC_S2115, 'No valid token provided');
         }
       } catch (ex) {
         logger.error(ex);

@@ -172,6 +172,22 @@ export class AuthorizationError extends ServiceError {
   }
 }
 
+export class AuthorizationError2 extends ServiceError {
+  constructor(
+    code: ErrorCode,
+    description: string,
+    options?: Partial<ErrorData> & { sensitiveDetails?: string; cause?: any }
+  ) {
+    super({
+      code,
+      status: 401,
+      description,
+      ...options
+    });
+    this.cause = this.cause;
+  }
+}
+
 export class InternalServerError extends ServiceError {
   static readonly CODE = ErrorCode.PSYNC_S2001;
 
