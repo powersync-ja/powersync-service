@@ -117,11 +117,11 @@ export interface SyncBucketData {
   bucket: string;
   data: OplogEntry[];
   /**
-   * True if the response does not contain all the data for this bucket, and another request must be made.
+   * True if there _could_ be more data for this bucket, and another request must be made.
    */
   has_more: boolean;
   /**
-   * The `after` specified in the request.
+   * The `after` specified in the request, or the next_after from the previous batch returned.
    */
   after: ProtocolOpId;
   /**

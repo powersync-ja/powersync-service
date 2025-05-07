@@ -60,7 +60,7 @@ bucket_definitions:
     const batchBefore = await test_utils.oneFromAsync(
       bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]))
     );
-    const dataBefore = batchBefore.batch.data;
+    const dataBefore = batchBefore.chunkData.data;
     const checksumBefore = await bucketStorage.getChecksums(checkpoint, ['global[]']);
 
     expect(dataBefore).toMatchObject([
@@ -93,7 +93,7 @@ bucket_definitions:
     const batchAfter = await test_utils.oneFromAsync(
       bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]))
     );
-    const dataAfter = batchAfter.batch.data;
+    const dataAfter = batchAfter.chunkData.data;
     const checksumAfter = await bucketStorage.getChecksums(checkpoint, ['global[]']);
 
     expect(batchAfter.targetOp).toEqual(3n);
@@ -175,7 +175,7 @@ bucket_definitions:
     const batchBefore = await test_utils.oneFromAsync(
       bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]))
     );
-    const dataBefore = batchBefore.batch.data;
+    const dataBefore = batchBefore.chunkData.data;
     const checksumBefore = await bucketStorage.getChecksums(checkpoint, ['global[]']);
 
     expect(dataBefore).toMatchObject([
@@ -214,7 +214,7 @@ bucket_definitions:
     const batchAfter = await test_utils.oneFromAsync(
       bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]))
     );
-    const dataAfter = batchAfter.batch.data;
+    const dataAfter = batchAfter.chunkData.data;
     const checksumAfter = await bucketStorage.getChecksums(checkpoint, ['global[]']);
 
     expect(batchAfter.targetOp).toEqual(4n);
@@ -299,7 +299,7 @@ bucket_definitions:
     const batchAfter = await test_utils.oneFromAsync(
       bucketStorage.getBucketDataBatch(checkpoint2, new Map([['global[]', 0n]]))
     );
-    const dataAfter = batchAfter.batch.data;
+    const dataAfter = batchAfter.chunkData.data;
     const checksumAfter = await bucketStorage.getChecksums(checkpoint2, ['global[]']);
 
     expect(batchAfter.targetOp).toEqual(4n);
@@ -414,7 +414,7 @@ bucket_definitions:
         ])
       )
     );
-    const dataAfter = batchAfter.flatMap((b) => b.batch.data);
+    const dataAfter = batchAfter.flatMap((b) => b.chunkData.data);
 
     // The op_ids will vary between MongoDB and Postgres storage
     expect(dataAfter).toMatchObject(
