@@ -415,7 +415,7 @@ export const powerSyncConfig = t
       .object({
         path: t.string
           .meta({
-            description: 'Path to the sync rules file or directory.'
+            description: 'Path to the sync rules YAML file.'
           })
           .optional(),
         content: t.string
