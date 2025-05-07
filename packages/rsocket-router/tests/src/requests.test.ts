@@ -12,19 +12,24 @@ import { EndpointHandlerPayload, ErrorCode } from '@powersync/lib-services-frame
  * @param responder a mock responder
  * @returns
  */
-async function handleRoute(path: string, endpoints: ReactiveEndpoint[], responder: SocketResponder, request?: Partial<ReactiveStreamRequest>) {
+async function handleRoute(
+  path: string,
+  endpoints: ReactiveEndpoint[],
+  responder: SocketResponder,
+  request?: Partial<ReactiveStreamRequest>
+) {
   return handleReactiveStream<{}>(
     {},
     {
       payload: {
         data: Buffer.from(serialize({})),
-        metadata: Buffer.from(serialize({ path })),
+        metadata: Buffer.from(serialize({ path }))
       },
       initialN: 1,
       dataMimeType: 'application/bson',
       metadataMimeType: 'application/bson',
       responder,
-      ...request,
+      ...request
     },
     createMockObserver(),
     new AbortController(),
@@ -145,7 +150,7 @@ describe('Requests', () => {
     const path = '/test-route';
 
     const fn = vi.fn(async (p: EndpointHandlerPayload<any, any>) => {
-      expect(p.params).toStrictEqual({'hello': 'world'});
+      expect(p.params).toStrictEqual({ hello: 'world' });
       return undefined;
     });
 
@@ -153,13 +158,13 @@ describe('Requests', () => {
       {},
       {
         payload: {
-          data: Buffer.from(encodeJson({'hello': 'world'})),
-          metadata: Buffer.from(encodeJson({ path })),
+          data: Buffer.from(encodeJson({ hello: 'world' })),
+          metadata: Buffer.from(encodeJson({ path }))
         },
         metadataMimeType: 'application/json',
         dataMimeType: 'application/json',
         initialN: 1,
-        responder,
+        responder
       },
       createMockObserver(),
       new AbortController(),
@@ -169,7 +174,7 @@ describe('Requests', () => {
           {
             path,
             type: RS_ENDPOINT_TYPE.STREAM,
-            handler: fn,
+            handler: fn
           }
         ],
         metaDecoder: async (buffer) => {

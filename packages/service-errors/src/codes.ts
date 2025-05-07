@@ -299,7 +299,7 @@ export enum ErrorCode {
 
   /**
    * 415 unsupported media type.
-   * 
+   *
    * This code always indicates an issue with the client.
    */
   PSYNC_S2004 = 'PSYNC_S2004',
