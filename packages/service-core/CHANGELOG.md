@@ -1,5 +1,15 @@
 # @powersync/service-core
 
+## 1.11.3
+
+### Patch Changes
+
+- 08f6ae8: [MongoDB] Fix resume token handling when no events are received
+- 23ec406: Fix has_more and other data batch metadata
+- 64e51d1: Fixed opentelemetry observable gauge value provider ignoring 0 values
+  - @powersync/lib-services-framework@0.5.4
+  - @powersync/service-rsocket-router@0.0.21
+
 ## 1.11.2
 
 ### Patch Changes

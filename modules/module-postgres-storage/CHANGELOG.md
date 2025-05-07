@@ -1,5 +1,18 @@
 # @powersync/service-module-postgres-storage
 
+## 0.7.3
+
+### Patch Changes
+
+- 23ec406: Fix has_more and other data batch metadata
+- Updated dependencies [08f6ae8]
+- Updated dependencies [23ec406]
+- Updated dependencies [64e51d1]
+  - @powersync/service-core@1.11.3
+  - @powersync/service-core-tests@0.9.3
+  - @powersync/lib-services-framework@0.5.4
+  - @powersync/lib-service-postgres@0.4.2
+
 ## 0.7.2
 
 ### Patch Changes

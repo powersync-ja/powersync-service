@@ -1,5 +1,11 @@
 # @powersync/service-errors
 
+## 0.2.2
+
+### Patch Changes
+
+- 08f6ae8: [MongoDB] Fix resume token handling when no events are received
+
 ## 0.2.1
 
 ### Patch Changes

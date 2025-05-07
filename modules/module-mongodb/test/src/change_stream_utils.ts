@@ -138,7 +138,7 @@ export class ChangeStreamTestContext {
       chunkLimitBytes: options?.chunkLimitBytes
     });
     const batches = await test_utils.fromAsync(batch);
-    return batches[0]?.batch.data ?? [];
+    return batches[0]?.chunkData.data ?? [];
   }
 
   async getChecksums(buckets: string[], options?: { timeout?: number }) {

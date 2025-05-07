@@ -1,6 +1,12 @@
-import { getUuidReplicaIdentityBson, OplogEntry, storage } from '@powersync/service-core';
+import {
+  BucketDataBatchOptions,
+  getUuidReplicaIdentityBson,
+  InternalOpId,
+  OplogEntry,
+  storage
+} from '@powersync/service-core';
 import { ParameterLookup, RequestParameters } from '@powersync/service-sync-rules';
-import { expect, test } from 'vitest';
+import { expect, test, describe, beforeEach } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 
 export const TEST_TABLE = test_utils.makeTestTable('test', ['id']);
@@ -338,7 +344,7 @@ bucket_definitions:
     const checkpoint = result!.flushed_op;
 
     const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]])));
-    const data = batch[0].batch.data.map((d) => {
+    const data = batch[0].chunkData.data.map((d) => {
       return {
         op: d.op,
         object_id: d.object_id,
@@ -635,7 +641,7 @@ bucket_definitions:
     });
     const checkpoint = result!.flushed_op;
     const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]])));
-    const data = batch[0].batch.data.map((d) => {
+    const data = batch[0].chunkData.data.map((d) => {
       return {
         op: d.op,
         object_id: d.object_id
@@ -699,7 +705,7 @@ bucket_definitions:
     const checkpoint = result!.flushed_op;
 
     const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]])));
-    const data = batch[0].batch.data.map((d) => {
+    const data = batch[0].chunkData.data.map((d) => {
       return {
         op: d.op,
         object_id: d.object_id,
@@ -815,7 +821,7 @@ bucket_definitions:
 
     const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]])));
 
-    const data = batch[0].batch.data.map((d) => {
+    const data = batch[0].chunkData.data.map((d) => {
       return {
         op: d.op,
         object_id: d.object_id,
@@ -1014,7 +1020,7 @@ bucket_definitions:
       bucketStorage.getBucketDataBatch(checkpoint2, new Map([['global[]', checkpoint1]]))
     );
 
-    const data = batch[0].batch.data.map((d) => {
+    const data = batch[0].chunkData.data.map((d) => {
       return {
         op: d.op,
         object_id: d.object_id,
@@ -1113,7 +1119,7 @@ bucket_definitions:
     const batch = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(checkpoint3, new Map([['global[]', checkpoint1]]))
     );
-    const data = batch[0].batch.data.map((d) => {
+    const data = batch[0].chunkData.data.map((d) => {
       return {
         op: d.op,
         object_id: d.object_id,
@@ -1221,7 +1227,7 @@ bucket_definitions:
     const batch = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(checkpoint3, new Map([['global[]', checkpoint1]]))
     );
-    const data = batch[0].batch.data.map((d) => {
+    const data = batch[0].chunkData.data.map((d) => {
       return {
         op: d.op,
         object_id: d.object_id,
@@ -1332,7 +1338,11 @@ bucket_definitions:
     });
 
     const batch2 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', BigInt(batch1[0].batch.next_after)]]), options)
+      bucketStorage.getBucketDataBatch(
+        checkpoint,
+        new Map([['global[]', BigInt(batch1[0].chunkData.next_after)]]),
+        options
+      )
     );
     expect(test_utils.getBatchData(batch2)).toEqual([
       { op_id: '3', op: 'PUT', object_id: 'large2', checksum: 1795508474 },
@@ -1345,7 +1355,11 @@ bucket_definitions:
     });
 
     const batch3 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', BigInt(batch2[0].batch.next_after)]]), options)
+      bucketStorage.getBucketDataBatch(
+        checkpoint,
+        new Map([['global[]', BigInt(batch2[0].chunkData.next_after)]]),
+        options
+      )
     );
     expect(test_utils.getBatchData(batch3)).toEqual([]);
     expect(test_utils.getBatchMeta(batch3)).toEqual(null);
@@ -1400,7 +1414,7 @@ bucket_definitions:
     });
 
     const batch2 = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', BigInt(batch1.batch.next_after)]]), {
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', BigInt(batch1.chunkData.next_after)]]), {
         limit: 4
       })
     );
@@ -1416,13 +1430,166 @@ bucket_definitions:
     });
 
     const batch3 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', BigInt(batch2.batch.next_after)]]), {
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', BigInt(batch2.chunkData.next_after)]]), {
         limit: 4
       })
     );
     expect(test_utils.getBatchData(batch3)).toEqual([]);
 
     expect(test_utils.getBatchMeta(batch3)).toEqual(null);
+  });
+
+  describe('batch has_more', () => {
+    const setup = async (options: BucketDataBatchOptions) => {
+      const sync_rules = test_utils.testRules(
+        `
+  bucket_definitions:
+    global1:
+      data:
+        - SELECT id, description FROM test WHERE bucket = 'global1'
+    global2:
+      data:
+        - SELECT id, description FROM test WHERE bucket = 'global2'
+  `
+      );
+      await using factory = await generateStorageFactory();
+      const bucketStorage = factory.getInstance(sync_rules);
+
+      const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+        const sourceTable = TEST_TABLE;
+
+        for (let i = 1; i <= 10; i++) {
+          await batch.save({
+            sourceTable,
+            tag: storage.SaveOperationTag.INSERT,
+            after: {
+              id: `test${i}`,
+              description: `test${i}`,
+              bucket: i == 1 ? 'global1' : 'global2'
+            },
+            afterReplicaId: `test${i}`
+          });
+        }
+      });
+
+      const checkpoint = result!.flushed_op;
+      return await test_utils.fromAsync(
+        bucketStorage.getBucketDataBatch(
+          checkpoint,
+          new Map([
+            ['global1[]', 0n],
+            ['global2[]', 0n]
+          ]),
+          options
+        )
+      );
+    };
+
+    test('batch has_more (1)', async () => {
+      const batch = await setup({ limit: 5 });
+      expect(batch.length).toEqual(2);
+
+      expect(batch[0].chunkData.bucket).toEqual('global1[]');
+      expect(batch[1].chunkData.bucket).toEqual('global2[]');
+
+      expect(test_utils.getBatchData(batch[0])).toEqual([
+        { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 }
+      ]);
+
+      expect(test_utils.getBatchData(batch[1])).toEqual([
+        { op_id: '2', op: 'PUT', object_id: 'test2', checksum: 730027011 },
+        { op_id: '3', op: 'PUT', object_id: 'test3', checksum: 1359888332 },
+        { op_id: '4', op: 'PUT', object_id: 'test4', checksum: 2049153252 },
+        { op_id: '5', op: 'PUT', object_id: 'test5', checksum: 3686902721 }
+      ]);
+
+      expect(test_utils.getBatchMeta(batch[0])).toEqual({
+        after: '0',
+        has_more: false,
+        next_after: '1'
+      });
+
+      expect(test_utils.getBatchMeta(batch[1])).toEqual({
+        after: '0',
+        has_more: true,
+        next_after: '5'
+      });
+    });
+
+    test('batch has_more (2)', async () => {
+      const batch = await setup({ limit: 11 });
+      expect(batch.length).toEqual(2);
+
+      expect(batch[0].chunkData.bucket).toEqual('global1[]');
+      expect(batch[1].chunkData.bucket).toEqual('global2[]');
+
+      expect(test_utils.getBatchData(batch[0])).toEqual([
+        { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 }
+      ]);
+
+      expect(test_utils.getBatchData(batch[1])).toEqual([
+        { op_id: '2', op: 'PUT', object_id: 'test2', checksum: 730027011 },
+        { op_id: '3', op: 'PUT', object_id: 'test3', checksum: 1359888332 },
+        { op_id: '4', op: 'PUT', object_id: 'test4', checksum: 2049153252 },
+        { op_id: '5', op: 'PUT', object_id: 'test5', checksum: 3686902721 },
+        { op_id: '6', op: 'PUT', object_id: 'test6', checksum: 1974820016 },
+        { op_id: '7', op: 'PUT', object_id: 'test7', checksum: 2477637855 },
+        { op_id: '8', op: 'PUT', object_id: 'test8', checksum: 3644033632 },
+        { op_id: '9', op: 'PUT', object_id: 'test9', checksum: 1011055869 },
+        { op_id: '10', op: 'PUT', object_id: 'test10', checksum: 1331456365 }
+      ]);
+
+      expect(test_utils.getBatchMeta(batch[0])).toEqual({
+        after: '0',
+        has_more: false,
+        next_after: '1'
+      });
+
+      expect(test_utils.getBatchMeta(batch[1])).toEqual({
+        after: '0',
+        has_more: false,
+        next_after: '10'
+      });
+    });
+
+    test('batch has_more (3)', async () => {
+      // 50 bytes is more than 1 row, less than 2 rows
+      const batch = await setup({ limit: 3, chunkLimitBytes: 50 });
+
+      expect(batch.length).toEqual(3);
+      expect(batch[0].chunkData.bucket).toEqual('global1[]');
+      expect(batch[1].chunkData.bucket).toEqual('global2[]');
+      expect(batch[2].chunkData.bucket).toEqual('global2[]');
+
+      expect(test_utils.getBatchData(batch[0])).toEqual([
+        { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 }
+      ]);
+
+      expect(test_utils.getBatchData(batch[1])).toEqual([
+        { op_id: '2', op: 'PUT', object_id: 'test2', checksum: 730027011 }
+      ]);
+      expect(test_utils.getBatchData(batch[2])).toEqual([
+        { op_id: '3', op: 'PUT', object_id: 'test3', checksum: 1359888332 }
+      ]);
+
+      expect(test_utils.getBatchMeta(batch[0])).toEqual({
+        after: '0',
+        has_more: false,
+        next_after: '1'
+      });
+
+      expect(test_utils.getBatchMeta(batch[1])).toEqual({
+        after: '0',
+        has_more: true,
+        next_after: '2'
+      });
+
+      expect(test_utils.getBatchMeta(batch[2])).toEqual({
+        after: '2',
+        has_more: true,
+        next_after: '3'
+      });
+    });
   });
 
   test('empty storage metrics', async () => {
