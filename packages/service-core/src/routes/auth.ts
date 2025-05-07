@@ -105,7 +105,7 @@ export async function authorizeUser(context: Context, authHeader: string = ''): 
   if (token == null) {
     return {
       authorized: false,
-      error: new AuthorizationError2(ErrorCode.PSYNC_S2115, 'Authentication required')
+      error: new AuthorizationError2(ErrorCode.PSYNC_S2106, 'Authentication required')
     };
   }
 
@@ -139,20 +139,10 @@ export async function generateContext(serviceContext: ServiceContext, token: str
       }
     };
   } catch (err) {
-    if (err instanceof ServiceError) {
-      return {
-        context: null,
-        tokenError: err
-      };
-    } else {
-      return {
-        context: null,
-        tokenError: new AuthorizationError2(ErrorCode.PSYNC_S2101, 'Authentication error', {
-          details: err.message,
-          cause: err
-        })
-      };
-    }
+    return {
+      context: null,
+      tokenError: auth.mapAuthError(err)
+    };
   }
 }
 

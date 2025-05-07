@@ -4,6 +4,7 @@ import * as jose from 'jose';
 import fetch from 'node-fetch';
 
 import {
+  AuthorizationError2,
   ErrorCode,
   LookupOptions,
   makeHostnameLookupFunction,
@@ -62,7 +63,9 @@ export class RemoteJWKSCollector implements KeyCollector {
     });
 
     if (!res.ok) {
-      throw new jose.errors.JWKSInvalid(`JWKS request failed with ${res.statusText}`);
+      throw new AuthorizationError2(ErrorCode.PSYNC_S2204, `JWKS request failed with ${res.statusText}`, {
+        sensitiveDetails: `JWKS URL: ${this.url}`
+      });
     }
 
     const data = (await res.json()) as any;
@@ -75,7 +78,14 @@ export class RemoteJWKSCollector implements KeyCollector {
       !Array.isArray(data.keys) ||
       !(data.keys as any[]).every((key) => typeof key == 'object' && !Array.isArray(key))
     ) {
-      return { keys: [], errors: [new jose.errors.JWKSInvalid(`No keys in found in JWKS response`)] };
+      return {
+        keys: [],
+        errors: [
+          new AuthorizationError2(ErrorCode.PSYNC_S2204, `JWKS request failed with ${res.statusText}`, {
+            sensitiveDetails: `JWKS URL: ${this.url}. Response:\n${JSON.stringify(data, null, 2)}`
+          })
+        ]
+      };
     }
 
     let keys: KeySpec[] = [];

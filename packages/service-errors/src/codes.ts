@@ -313,33 +313,38 @@ export enum ErrorCode {
    * 1. Token kid is not found in the keystore.
    * 2. Signature does not match the kid in the keystore.
    */
-  PSYNC_S2111 = 'PSYNC_S2111',
+  PSYNC_S2102 = 'PSYNC_S2102',
 
   /**
    * Token has expired. Check the expiry date on the token.
    */
-  PSYNC_S2112 = 'PSYNC_S2112',
+  PSYNC_S2103 = 'PSYNC_S2103',
 
   /**
-   * Token expiration date is too long. Issue shorter-lived tokens.
+   * Token expiration period is too long. Issue shorter-lived tokens.
    */
-  PSYNC_S2113 = 'PSYNC_S2113',
+  PSYNC_S2104 = 'PSYNC_S2104',
 
   /**
    * Token audience does not match expected values.
    *
    * Check the aud value on the token, compared to the audience values allowed in the service config.
    */
-  PSYNC_S2114 = 'PSYNC_S2114',
+  PSYNC_S2105 = 'PSYNC_S2105',
 
   /**
    * No token provided. An auth token is required for every request.
    *
    * The Auhtorization header must start with "Token" or "Bearer", followed by the JWT.
    */
-  PSYNC_S2115 = 'PSYNC_S2115',
+  PSYNC_S2106 = 'PSYNC_S2106',
 
   // ## PSYNC_S22xx: Auth integration errors
+
+  /**
+   * Generic auth configuration error. See the message for details.
+   */
+  PSYNC_S2201 = 'PSYNC_S2201',
 
   /**
    * IPv6 support is not enabled for the JWKS URI.
@@ -354,6 +359,11 @@ export enum ErrorCode {
    * Make sure to use a publically-accessible JWKS URI.
    */
   PSYNC_S2203 = 'PSYNC_S2203',
+
+  /**
+   * JWKS request failed.
+   */
+  PSYNC_S2204 = 'PSYNC_S2204',
 
   // ## PSYNC_S23xx: Sync API errors
 

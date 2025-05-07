@@ -26,7 +26,7 @@ export function configureRSocket(router: ReactiveSocketRouter<Context>, options:
       const { token, user_agent } = RSocketContextMeta.decode(deserialize(data) as any);
 
       if (!token) {
-        throw new errors.AuthorizationError2(ErrorCode.PSYNC_S2115, 'No token provided');
+        throw new errors.AuthorizationError2(ErrorCode.PSYNC_S2106, 'No token provided');
       }
 
       try {
@@ -34,7 +34,7 @@ export function configureRSocket(router: ReactiveSocketRouter<Context>, options:
         if (extracted_token != null) {
           const { context, tokenError } = await generateContext(options.service_context, extracted_token);
           if (context?.token_payload == null) {
-            throw new errors.AuthorizationError2(ErrorCode.PSYNC_S2115, 'Authentication required');
+            throw new errors.AuthorizationError2(ErrorCode.PSYNC_S2106, 'Authentication required');
           }
 
           if (!service_context.routerEngine) {
@@ -50,7 +50,7 @@ export function configureRSocket(router: ReactiveSocketRouter<Context>, options:
           };
         } else {
           // Token field is present, but did not contain a token.
-          throw new errors.AuthorizationError2(ErrorCode.PSYNC_S2115, 'No valid token provided');
+          throw new errors.AuthorizationError2(ErrorCode.PSYNC_S2106, 'No valid token provided');
         }
       } catch (ex) {
         logger.error(ex);

@@ -1,9 +1,10 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
-import { auth } from '@powersync/service-core';
+import { auth, KeyResult } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import * as jose from 'jose';
 
 import * as types from '../types/types.js';
+import { AuthorizationError2, ErrorCode } from '@powersync/lib-services-framework';
 
 /**
  * Fetches key from the Supabase database.
@@ -11,7 +12,7 @@ import * as types from '../types/types.js';
  * Unfortunately, despite the JWTs containing a kid, we have no way to lookup that kid
  * before receiving a valid token.
  *
- * @deprecated Supabase is removing support for "app.settings.jwt_secret".
+ * @deprecated Supabase is removing support for "app.settings.jwt_secret". This is likely to not function anymore, except in some self-hosted setups.
  */
 export class SupabaseKeyCollector implements auth.KeyCollector {
   private pool: pgwire.PgClient;
@@ -35,7 +36,7 @@ export class SupabaseKeyCollector implements auth.KeyCollector {
     return this.pool.end();
   }
 
-  async getKeys() {
+  async getKeys(): Promise<KeyResult> {
     let row: { jwt_secret: string };
     try {
       const rows = pgwire.pgwireRows(
@@ -44,7 +45,10 @@ export class SupabaseKeyCollector implements auth.KeyCollector {
       row = rows[0] as any;
     } catch (e) {
       if (e.message?.includes('unrecognized configuration parameter')) {
-        throw new jose.errors.JOSEError(`Generate a new JWT secret on Supabase. Cause: ${e.message}`);
+        throw new AuthorizationError2(
+          ErrorCode.PSYNC_S2201,
+          'No JWT secret found in Supabase database. Manually configure the secret.'
+        );
       } else {
         throw e;
       }
@@ -53,7 +57,12 @@ export class SupabaseKeyCollector implements auth.KeyCollector {
     if (secret == null) {
       return {
         keys: [],
-        errors: [new jose.errors.JWKSNoMatchingKey()]
+        errors: [
+          new AuthorizationError2(
+            ErrorCode.PSYNC_S2201,
+            'No JWT secret found in Supabase database. Manually configure the secret.'
+          )
+        ]
       };
     } else {
       const key: jose.JWK = {
