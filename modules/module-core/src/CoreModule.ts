@@ -118,6 +118,30 @@ export class CoreModule extends core.modules.AbstractModule {
       context.serviceMode
     );
 
+    if (context.serviceMode == core.system.ServiceContextMode.API) {
+      /**
+       * In the pure API mode we don't currently have any other code which touches the probes.
+       * This configures a timer which will touch every 5 seconds.
+       */
+      let timer: NodeJS.Timeout | null = null;
+      context.lifeCycleEngine.withLifecycle(null, {
+        start: () => {
+          setInterval(() => {
+            context
+              .get<framework.ProbeModule>(framework.ContainerImplementation.PROBES)
+              .touch()
+              .catch((ex) => this.logger.error(`Caught error while updating liveness probe: ${ex}`));
+          }, 5_000);
+        },
+        stop: () => {
+          if (timer) {
+            clearInterval(timer);
+            timer = null;
+          }
+        }
+      });
+    }
+
     /**
      * Maintains backwards compatibility if LEGACY_DEFAULT is present by:
      *  - Enabling HTTP probes if the service started in API or UNIFIED mode
