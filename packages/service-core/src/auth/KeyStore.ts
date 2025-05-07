@@ -4,6 +4,7 @@ import secs from '../util/secs.js';
 import { JwtPayload } from './JwtPayload.js';
 import { KeyCollector } from './KeyCollector.js';
 import { KeyOptions, KeySpec, SUPPORTED_ALGORITHMS } from './KeySpec.js';
+import { mapAuthError } from './utils.js';
 
 /**
  * KeyStore to get keys and verify tokens.
@@ -98,16 +99,20 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
 
   private async verifyInternal(token: string, options: jose.JWTVerifyOptions) {
     let keyOptions: KeyOptions | undefined = undefined;
-    const result = await jose.jwtVerify(
-      token,
-      async (header) => {
-        let key = await this.getCachedKey(token, header);
-        keyOptions = key.options;
-        return key.key;
-      },
-      options
-    );
-    return { result, keyOptions: keyOptions! };
+    try {
+      const result = await jose.jwtVerify(
+        token,
+        async (header) => {
+          let key = await this.getCachedKey(token, header);
+          keyOptions = key.options;
+          return key.key;
+        },
+        options
+      );
+      return { result, keyOptions: keyOptions! };
+    } catch (e) {
+      throw mapAuthError(e);
+    }
   }
 
   private async getCachedKey(token: string, header: jose.JWTHeaderParameters): Promise<KeySpec> {
