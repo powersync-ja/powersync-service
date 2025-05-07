@@ -1,5 +1,18 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.9.3
+
+### Patch Changes
+
+- 23ec406: Fix has_more and other data batch metadata
+- 64e51d1: Fixed opentelemetry observable gauge value provider ignoring 0 values
+- Updated dependencies [08f6ae8]
+- Updated dependencies [23ec406]
+- Updated dependencies [64e51d1]
+  - @powersync/lib-service-mongodb@0.5.2
+  - @powersync/service-core@1.11.3
+  - @powersync/lib-services-framework@0.5.4
+
 ## 0.9.2
 
 ### Patch Changes

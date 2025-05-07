@@ -1,5 +1,23 @@
 # @powersync/service-image
 
+## 1.11.3
+
+### Patch Changes
+
+- 08f6ae8: [MongoDB] Fix resume token handling when no events are received
+- 23ec406: Fix has_more and other data batch metadata
+- Updated dependencies [08f6ae8]
+- Updated dependencies [23ec406]
+- Updated dependencies [64e51d1]
+  - @powersync/service-module-mongodb@0.8.3
+  - @powersync/service-core@1.11.3
+  - @powersync/service-module-postgres-storage@0.7.3
+  - @powersync/service-module-mongodb-storage@0.9.3
+  - @powersync/lib-services-framework@0.5.4
+  - @powersync/service-module-mysql@0.6.3
+  - @powersync/service-module-postgres@0.12.3
+  - @powersync/service-rsocket-router@0.0.21
+
 ## 1.11.2
 
 ### Patch Changes

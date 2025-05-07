@@ -1,5 +1,11 @@
 # @powersync/lib-service-postgres
 
+## 0.4.2
+
+### Patch Changes
+
+- @powersync/lib-services-framework@0.5.4
+
 ## 0.4.1
 
 ### Patch Changes
