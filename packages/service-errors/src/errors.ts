@@ -160,18 +160,30 @@ export class ReplicationAbortedError extends ServiceError {
 }
 
 export class AuthorizationError extends ServiceError {
+  /**
+   * String describing the token. Does not contain the full token, but may help with debugging.
+   * Safe for logs.
+   */
+  tokenDetails: string | undefined;
+  /**
+   * String describing related configuration. Should never be returned to the client.
+   * Safe for logs.
+   */
+  configurationDetails: string | undefined;
+
   constructor(
     code: ErrorCode,
     description: string,
-    options?: Partial<ErrorData> & { sensitiveDetails?: string; cause?: any }
+    options?: { tokenDetails?: string; configurationDetails?: string; cause?: any }
   ) {
     super({
       code,
       status: 401,
-      description,
-      ...options
+      description
     });
     this.cause = this.cause;
+    this.tokenDetails = options?.tokenDetails;
+    this.configurationDetails = options?.configurationDetails;
   }
 }
 

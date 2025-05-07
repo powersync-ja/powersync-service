@@ -64,7 +64,7 @@ export class RemoteJWKSCollector implements KeyCollector {
 
     if (!res.ok) {
       throw new AuthorizationError(ErrorCode.PSYNC_S2204, `JWKS request failed with ${res.statusText}`, {
-        sensitiveDetails: `JWKS URL: ${this.url}`
+        configurationDetails: `JWKS URL: ${this.url}`
       });
     }
 
@@ -82,7 +82,7 @@ export class RemoteJWKSCollector implements KeyCollector {
         keys: [],
         errors: [
           new AuthorizationError(ErrorCode.PSYNC_S2204, `JWKS request failed with ${res.statusText}`, {
-            sensitiveDetails: `JWKS URL: ${this.url}. Response:\n${JSON.stringify(data, null, 2)}`
+            configurationDetails: `JWKS URL: ${this.url}. Response:\n${JSON.stringify(data, null, 2)}`
           })
         ]
       };

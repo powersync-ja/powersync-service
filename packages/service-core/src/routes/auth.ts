@@ -141,7 +141,7 @@ export async function generateContext(serviceContext: ServiceContext, token: str
   } catch (err) {
     return {
       context: null,
-      tokenError: auth.mapAuthError(err)
+      tokenError: auth.mapAuthError(err, token)
     };
   }
 }

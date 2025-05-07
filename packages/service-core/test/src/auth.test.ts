@@ -105,6 +105,24 @@ describe('JWT Auth', () => {
         maxAge: '5m'
       })
     ).rejects.toThrow('[PSYNC_S2101] JWT payload is missing a required claim "sub"');
+
+    // expired token
+    const d = Math.round(Date.now() / 1000);
+    const signedJwt3 = await new jose.SignJWT({})
+      .setProtectedHeader({ alg: 'HS256', kid: 'k1' })
+      .setSubject('f1')
+      .setIssuedAt(d - 500)
+      .setIssuer('tester')
+      .setAudience('tests')
+      .setExpirationTime(d - 400)
+      .sign(signKey);
+
+    await expect(
+      store.verifyJwt(signedJwt3, {
+        defaultAudiences: ['tests'],
+        maxAge: '5m'
+      })
+    ).rejects.toThrow('[PSYNC_S2103] JWT has expired');
   });
 
   test('Algorithm validation', async () => {
@@ -356,7 +374,6 @@ describe('JWT Auth', () => {
     await cached.addTimeForTests(0);
     response = await cached.getKeys();
     // Still have the cached key, but also have the error
-    console.log('e', response.errors[0]);
     expect(response.keys[0].kid).toEqual(publicKeyRSA.kid!);
     expect(response.errors[0].message).toMatch('[PSYNC_S2201] refresh failed');
 

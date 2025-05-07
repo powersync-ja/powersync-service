@@ -73,7 +73,7 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
       throw new AuthorizationError(
         ErrorCode.PSYNC_S2105,
         `Unexpected "aud" claim value: ${JSON.stringify(tokenPayload.aud)}`,
-        { sensitiveDetails: `Current configuration allows these audience values: ${JSON.stringify(audiences)}` }
+        { configurationDetails: `Current configuration allows these audience values: ${JSON.stringify(audiences)}` }
       );
     }
 
@@ -111,7 +111,7 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
       );
       return { result, keyOptions: keyOptions! };
     } catch (e) {
-      throw mapAuthError(e);
+      throw mapAuthError(e, token);
     }
   }
 
@@ -125,7 +125,7 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
         if (key.kid == kid) {
           if (!key.matchesAlgorithm(header.alg)) {
             throw new AuthorizationError(ErrorCode.PSYNC_S2101, `Unexpected token algorithm ${header.alg}`, {
-              sensitiveDetails: `Key kid: ${key.source.kid}, alg: ${key.source.alg}, kty: ${key.source.kty}`
+              // Token details automatically populated elsewhere
             });
           }
           return key;
@@ -163,7 +163,8 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
         ErrorCode.PSYNC_S2101,
         'Could not find an appropriate key in the keystore. The key is missing or no key matched the token KID',
         {
-          sensitiveDetails: `Token kid: ${kid}, token algorithm: ${header.alg}, known kid values: ${keys.map((key) => key.kid ?? '*').join(', ')}`
+          configurationDetails: `Known kid values: ${keys.map((key) => key.kid ?? '*').join(', ')}`
+          // tokenDetails automatically populated later
         }
       );
     }
