@@ -481,17 +481,17 @@ export const powerSyncConfig = t
       .object({
         probes: t
           .object({
-            filesystem: t.boolean
+            use_filesystem: t.boolean
               .meta({
                 description: `Enables exposing healthcheck status via filesystem files.`
               })
               .optional(),
-            http: t.boolean
+            use_http: t.boolean
               .meta({
                 description: `Enables exposing healthcheck status via HTTP endpoints.`
               })
               .optional(),
-            legacy: t.boolean
+            use_legacy: t.boolean
               .meta({
                 description: dedent`
               Deprecated. 

@@ -166,14 +166,14 @@ export class CompoundConfigCollector {
          */
         probes: baseConfig.healthcheck?.probes
           ? {
-              filesystem: baseConfig.healthcheck.probes.filesystem ?? false,
-              http: baseConfig.healthcheck.probes.http ?? false,
-              legacy: baseConfig.healthcheck.probes.legacy ?? false
+              use_filesystem: baseConfig.healthcheck.probes.use_filesystem ?? false,
+              use_http: baseConfig.healthcheck.probes.use_http ?? false,
+              use_legacy: baseConfig.healthcheck.probes.use_legacy ?? false
             }
           : {
-              filesystem: false,
-              http: false,
-              legacy: true
+              use_filesystem: false,
+              use_http: false,
+              use_legacy: true
             }
       },
       api_parameters: {

@@ -44,7 +44,7 @@ describe('Config', () => {
       config_base64: Buffer.from(yamlConfig, 'utf-8').toString('base64')
     });
 
-    expect(config.healthcheck.probes.http).toBe(true);
+    expect(config.healthcheck.probes.use_http).toBe(true);
   });
 
   it('should substitute number env variables in YAML config', {}, async () => {

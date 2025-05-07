@@ -14,10 +14,11 @@ export interface ServiceContext {
   lifeCycleEngine: LifeCycledSystem;
   metricsEngine: metrics.MetricsEngine;
   replicationEngine: replication.ReplicationEngine | null;
-  routerEngine: routes.RouterEngine | null;
+  routerEngine: routes.RouterEngine;
   storageEngine: storage.StorageEngine;
   migrations: PowerSyncMigrationManager;
   syncContext: SyncContext;
+  serviceMode: ServiceContextMode;
 }
 
 export enum ServiceContextMode {
@@ -31,7 +32,7 @@ export enum ServiceContextMode {
 }
 
 export interface ServiceContextOptions {
-  mode: ServiceContextMode;
+  serviceMode: ServiceContextMode;
   configuration: utils.ResolvedPowerSyncConfig;
 }
 
@@ -46,10 +47,10 @@ export class ServiceContextContainer implements ServiceContext {
   storageEngine: storage.StorageEngine;
   syncContext: SyncContext;
   routerEngine: routes.RouterEngine;
-  mode: ServiceContextMode;
+  serviceMode: ServiceContextMode;
 
   constructor(options: ServiceContextOptions) {
-    this.mode = options.mode;
+    this.serviceMode = options.serviceMode;
     const { configuration } = options;
     this.configuration = configuration;
 

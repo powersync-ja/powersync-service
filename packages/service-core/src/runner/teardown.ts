@@ -15,7 +15,7 @@ export async function teardown(runnerConfig: utils.RunnerConfig) {
     logger.info(`Tearing down PowerSync instance...`);
     const config = await utils.loadConfig(runnerConfig);
     const serviceContext = new system.ServiceContextContainer({
-      mode: system.ServiceContextMode.TEARDOWN,
+      serviceMode: system.ServiceContextMode.TEARDOWN,
       configuration: config
     });
 

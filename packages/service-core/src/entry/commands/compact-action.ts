@@ -38,7 +38,7 @@ export function registerCompactAction(program: Command) {
     }
     const config = await utils.loadConfig(extractRunnerOptions(options));
     const serviceContext = new system.ServiceContextContainer({
-      mode: system.ServiceContextMode.COMPACT,
+      serviceMode: system.ServiceContextMode.COMPACT,
       configuration: config
     });
 

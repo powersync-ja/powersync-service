@@ -10,7 +10,7 @@ export async function startServer(runnerConfig: core.utils.RunnerConfig) {
 
   const config = await core.utils.loadConfig(runnerConfig);
   const serviceContext = new core.system.ServiceContextContainer({
-    mode: core.system.ServiceContextMode.API,
+    serviceMode: core.system.ServiceContextMode.API,
     configuration: config
   });
 

@@ -19,7 +19,7 @@ export const executeSql = routeDefinition({
       }
     } = payload;
 
-    const apiHandler = payload.context.service_context.routerEngine!.getAPI();
+    const apiHandler = payload.context.service_context.routerEngine.getAPI();
 
     const sourceConfig = await apiHandler.getSourceConfig();
     if (!sourceConfig.debug_api) {
@@ -47,7 +47,7 @@ export const diagnostics = routeDefinition({
     const { service_context } = context;
     const include_content = payload.params.sync_rules_content ?? false;
 
-    const apiHandler = service_context.routerEngine!.getAPI();
+    const apiHandler = service_context.routerEngine.getAPI();
 
     const status = await apiHandler.getConnectionStatus();
     if (!status) {
@@ -94,7 +94,7 @@ export const getSchema = routeDefinition({
   authorize: authApi,
   validator: schema.createTsCodecValidator(internal_routes.GetSchemaRequest, { allowAdditional: true }),
   handler: async (payload) => {
-    const apiHandler = payload.context.service_context.routerEngine!.getAPI();
+    const apiHandler = payload.context.service_context.routerEngine.getAPI();
 
     return internal_routes.GetSchemaResponse.encode(await api.getConnectionsSchema(apiHandler));
   }
@@ -112,7 +112,7 @@ export const reprocess = routeDefinition({
     const {
       storageEngine: { activeBucketStorage }
     } = service_context;
-    const apiHandler = service_context.routerEngine!.getAPI();
+    const apiHandler = service_context.routerEngine.getAPI();
     const next = await activeBucketStorage.getNextSyncRules(apiHandler.getParseSyncRulesOptions());
     if (next != null) {
       throw new Error(`Busy processing sync rules - cannot reprocess`);
@@ -159,7 +159,7 @@ export const validate = routeDefinition({
       context: { service_context }
     } = payload;
     const content = payload.params.sync_rules;
-    const apiHandler = service_context.routerEngine!.getAPI();
+    const apiHandler = service_context.routerEngine.getAPI();
 
     const schemaData = await api.getConnectionsSchema(apiHandler);
     const schema = new StaticSchema(schemaData.connections);

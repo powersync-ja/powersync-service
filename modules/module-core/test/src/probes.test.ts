@@ -24,7 +24,7 @@ const createTestContainer = async (options: TestContainerOptions) => {
 
   const serviceContext = new system.ServiceContextContainer({
     configuration: collectedConfig,
-    mode: options.mode
+    serviceMode: options.mode
   });
 
   await moduleManager.initialize(serviceContext);
@@ -89,7 +89,7 @@ describe('Probes', () => {
           type: memory
         healthcheck:
           probes:
-            http: true
+            use_http: true
       `,
       mode: system.ServiceContextMode.SYNC
     });
@@ -148,7 +148,7 @@ describe('Probes', () => {
           type: memory
         healthcheck:
           probes:
-            http: true
+            use_http: true
       `,
       mode: system.ServiceContextMode.API
     });

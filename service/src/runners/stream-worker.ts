@@ -22,7 +22,7 @@ export const startStreamRunner = async (runnerConfig: core.utils.RunnerConfig) =
   const config = await core.utils.loadConfig(runnerConfig);
   // Self-hosted version allows for automatic migrations
   const serviceContext = new core.system.ServiceContextContainer({
-    mode: core.system.ServiceContextMode.SYNC,
+    serviceMode: core.system.ServiceContextMode.SYNC,
     configuration: config
   });
 

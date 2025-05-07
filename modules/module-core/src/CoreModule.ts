@@ -14,7 +14,7 @@ export class CoreModule extends core.modules.AbstractModule {
   public async initialize(context: core.ServiceContextContainer): Promise<void> {
     this.configureTags(context);
 
-    if ([core.system.ServiceContextMode.API, core.system.ServiceContextMode.UNIFIED].includes(context.mode)) {
+    if ([core.system.ServiceContextMode.API, core.system.ServiceContextMode.UNIFIED].includes(context.serviceMode)) {
       // Service should include API routes
       this.registerAPIRoutes(context);
     }
@@ -115,7 +115,7 @@ export class CoreModule extends core.modules.AbstractModule {
     } = context;
 
     const exposesAPI = [core.system.ServiceContextMode.API, core.system.ServiceContextMode.UNIFIED].includes(
-      context.mode
+      context.serviceMode
     );
 
     /**
@@ -124,13 +124,13 @@ export class CoreModule extends core.modules.AbstractModule {
      *  - Always enabling filesystem probes always exposing HTTP probes
      * Probe types must explicitly be selected if not using LEGACY_DEFAULT
      */
-    if (probes.http || (exposesAPI && probes.legacy)) {
+    if (probes.use_http || (exposesAPI && probes.use_legacy)) {
       context.routerEngine.registerRoutes({
         api_routes: core.routes.endpoints.PROBES_ROUTES
       });
     }
 
-    if (probes.legacy || probes.filesystem) {
+    if (probes.use_legacy || probes.use_filesystem) {
       context.register(framework.ContainerImplementation.PROBES, framework.createFSProbe());
     }
   }
@@ -146,7 +146,7 @@ export class CoreModule extends core.modules.AbstractModule {
 
     await core.metrics.registerMetrics({
       service_context: context,
-      modes: metricsModeMap[context.mode] ?? []
+      modes: metricsModeMap[context.serviceMode] ?? []
     });
   }
 

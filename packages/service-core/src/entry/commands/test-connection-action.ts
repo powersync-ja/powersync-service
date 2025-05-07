@@ -18,7 +18,7 @@ export function registerTestConnectionAction(program: Command) {
     try {
       const config = await utils.loadConfig(extractRunnerOptions(options));
       const serviceContext = new system.ServiceContextContainer({
-        mode: system.ServiceContextMode.TEST_CONNECTION,
+        serviceMode: system.ServiceContextMode.TEST_CONNECTION,
         configuration: config
       });
 

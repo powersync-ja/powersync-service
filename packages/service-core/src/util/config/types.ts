@@ -72,13 +72,13 @@ export type ResolvedPowerSyncConfig = {
 
   healthcheck: {
     probes: {
-      filesystem: boolean;
-      http: boolean;
+      use_filesystem: boolean;
+      use_http: boolean;
       /**
        * @deprecated This maintains backwards compatibility with the legacy default.
        * Explicit probe configuration should be used instead.
        */
-      legacy: boolean;
+      use_legacy: boolean;
     };
   };
 

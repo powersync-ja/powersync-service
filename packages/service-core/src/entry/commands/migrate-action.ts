@@ -19,7 +19,7 @@ export function registerMigrationAction(program: Command) {
     .action(async (direction: migrations.Direction, options) => {
       const config = await utils.loadConfig(extractRunnerOptions(options));
       const serviceContext = new system.ServiceContextContainer({
-        mode: system.ServiceContextMode.MIGRATION,
+        serviceMode: system.ServiceContextMode.MIGRATION,
         configuration: config
       });
 
