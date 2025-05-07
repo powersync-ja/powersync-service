@@ -35,7 +35,7 @@ describe('Config', () => {
         type: mongodb
       healthcheck:
         probes:
-          http: !env_boolean PS_MONGO_HEALTHCHECK
+          use_http: !env PS_MONGO_HEALTHCHECK::boolean
     `;
 
     const collector = new CompoundConfigCollector();
@@ -58,7 +58,7 @@ describe('Config', () => {
         type: mongodb
       api:
         parameters:
-          max_buckets_per_connection: !env_number PS_MAX_BUCKETS
+          max_buckets_per_connection: !env PS_MAX_BUCKETS::number
     `;
 
     const collector = new CompoundConfigCollector();

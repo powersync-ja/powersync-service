@@ -4,7 +4,7 @@ import { configFile } from '@powersync/service-types';
 
 import { schema } from '@powersync/lib-services-framework';
 import { RunnerConfig } from '../types.js';
-import { YamlEnvTag, YamlEnvTagBoolean, YamlEnvTagNumber } from './impl/yaml-env.js';
+import { YamlEnvTag } from './impl/yaml-env.js';
 
 export enum ConfigFileFormat {
   YAML = 'yaml',
@@ -89,7 +89,7 @@ export abstract class ConfigCollector {
       schema: 'core',
       keepSourceTokens: true,
       lineCounter,
-      customTags: [YamlEnvTag, YamlEnvTagBoolean, YamlEnvTagNumber]
+      customTags: [YamlEnvTag]
     });
 
     if (parsed.errors.length) {
