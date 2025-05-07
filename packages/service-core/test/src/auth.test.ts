@@ -308,7 +308,7 @@ describe('JWT Auth', () => {
         reject_ip_ranges: ['local']
       }
     });
-    await expect(invalid.getKeys()).rejects.toThrow('IPs in this range are not supported');
+    await expect(invalid.getKeys()).rejects.toThrow('[PSYNC_S2204] JWKS request failed');
 
     // IPs throw an error immediately
     expect(

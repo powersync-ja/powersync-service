@@ -47,30 +47,43 @@ export class RemoteJWKSCollector implements KeyCollector {
     this.agent = this.resolveAgent();
   }
 
-  async getKeys(): Promise<KeyResult> {
+  private async getJwksData(): Promise<any> {
     const abortController = new AbortController();
     const timeout = setTimeout(() => {
       abortController.abort();
     }, 30_000);
 
-    const res = await fetch(this.url, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json'
-      },
-      signal: abortController.signal,
-      agent: this.agent
-    });
-
-    if (!res.ok) {
-      throw new AuthorizationError(ErrorCode.PSYNC_S2204, `JWKS request failed with ${res.statusText}`, {
-        configurationDetails: `JWKS URL: ${this.url}`
+    try {
+      const res = await fetch(this.url, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json'
+        },
+        signal: abortController.signal,
+        agent: this.agent
       });
+
+      if (!res.ok) {
+        throw new AuthorizationError(ErrorCode.PSYNC_S2204, `JWKS request failed with ${res.statusText}`, {
+          configurationDetails: `JWKS URL: ${this.url}`
+        });
+      }
+
+      return (await res.json()) as any;
+    } catch (e) {
+      throw new AuthorizationError(ErrorCode.PSYNC_S2204, `JWKS request failed`, {
+        configurationDetails: `JWKS URL: ${this.url}`,
+        // This covers most cases of FetchError
+        // `cause: e` could lose the error message
+        cause: { message: e.message, code: e.code }
+      });
+    } finally {
+      clearTimeout(timeout);
     }
+  }
 
-    const data = (await res.json()) as any;
-
-    clearTimeout(timeout);
+  async getKeys(): Promise<KeyResult> {
+    const data = await this.getJwksData();
 
     // https://github.com/panva/jose/blob/358e864a0cccf1e0f9928a959f91f18f3f06a7de/src/jwks/local.ts#L36
     if (
@@ -81,7 +94,7 @@ export class RemoteJWKSCollector implements KeyCollector {
       return {
         keys: [],
         errors: [
-          new AuthorizationError(ErrorCode.PSYNC_S2204, `JWKS request failed with ${res.statusText}`, {
+          new AuthorizationError(ErrorCode.PSYNC_S2204, `Invalid JWKS response`, {
             configurationDetails: `JWKS URL: ${this.url}. Response:\n${JSON.stringify(data, null, 2)}`
           })
         ]

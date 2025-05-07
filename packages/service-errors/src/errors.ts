@@ -181,7 +181,7 @@ export class AuthorizationError extends ServiceError {
       status: 401,
       description
     });
-    this.cause = this.cause;
+    this.cause = options?.cause;
     this.tokenDetails = options?.tokenDetails;
     this.configurationDetails = options?.configurationDetails;
   }

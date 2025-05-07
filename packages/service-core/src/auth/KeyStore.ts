@@ -50,7 +50,8 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
       clockTolerance: 60,
       // More specific algorithm checking is done when selecting the key to use.
       algorithms: SUPPORTED_ALGORITHMS,
-      requiredClaims: ['aud', 'sub', 'iat', 'exp']
+      // 'aud' presence is checked below, so we can add more details to the error message.
+      requiredClaims: ['sub', 'iat', 'exp']
     });
 
     let audiences = options.defaultAudiences;
@@ -61,8 +62,12 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
 
     const tokenPayload = result.payload;
 
-    let aud = tokenPayload.aud!;
-    if (!Array.isArray(aud)) {
+    let aud = tokenPayload.aud;
+    if (aud == null) {
+      throw new AuthorizationError(ErrorCode.PSYNC_S2105, `JWT payload is missing a required claim "aud"`, {
+        configurationDetails: `Current configuration allows these audience values: ${JSON.stringify(audiences)}`
+      });
+    } else if (!Array.isArray(aud)) {
       aud = [aud];
     }
     if (
@@ -125,6 +130,7 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
         if (key.kid == kid) {
           if (!key.matchesAlgorithm(header.alg)) {
             throw new AuthorizationError(ErrorCode.PSYNC_S2101, `Unexpected token algorithm ${header.alg}`, {
+              configurationDetails: `Key kid: ${key.source.kid}, alg: ${key.source.alg}, kty: ${key.source.kty}`
               // Token details automatically populated elsewhere
             });
           }
