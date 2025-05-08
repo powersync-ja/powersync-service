@@ -18,6 +18,14 @@ import {
   SocketResponder
 } from './types.js';
 
+export interface ReactiveStreamRequest {
+  payload: Payload;
+  metadataMimeType: string;
+  dataMimeType: string;
+  initialN: number;
+  responder: SocketResponder;
+}
+
 export class ReactiveSocketRouter<C> {
   constructor(protected options?: ReactiveSocketRouterOptions<C>) {}
 
@@ -121,14 +129,6 @@ export class ReactiveSocketRouter<C> {
 
     return rSocketServer.bind();
   }
-}
-
-export interface ReactiveStreamRequest {
-  payload: Payload;
-  metadataMimeType: string;
-  dataMimeType: string;
-  initialN: number;
-  responder: SocketResponder;
 }
 
 export async function handleReactiveStream<Context>(
