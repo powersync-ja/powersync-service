@@ -1,5 +1,15 @@
 # @powersync/service-errors
 
+## 0.3.0
+
+### Minor Changes
+
+- 9dc4e01: Improve authentication error messages and logs
+
+### Patch Changes
+
+- d869876: Allow RSocket request payload to be encoded as JSON
+
 ## 0.2.2
 
 ### Patch Changes
