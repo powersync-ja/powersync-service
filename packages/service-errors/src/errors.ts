@@ -160,15 +160,30 @@ export class ReplicationAbortedError extends ServiceError {
 }
 
 export class AuthorizationError extends ServiceError {
-  static readonly CODE = ErrorCode.PSYNC_S2101;
+  /**
+   * String describing the token. Does not contain the full token, but may help with debugging.
+   * Safe for logs.
+   */
+  tokenDetails: string | undefined;
+  /**
+   * String describing related configuration. Should never be returned to the client.
+   * Safe for logs.
+   */
+  configurationDetails: string | undefined;
 
-  constructor(errors: any) {
+  constructor(
+    code: ErrorCode,
+    description: string,
+    options?: { tokenDetails?: string; configurationDetails?: string; cause?: any }
+  ) {
     super({
-      code: AuthorizationError.CODE,
+      code,
       status: 401,
-      description: 'Authorization failed',
-      details: errors
+      description
     });
+    this.cause = options?.cause;
+    this.tokenDetails = options?.tokenDetails;
+    this.configurationDetails = options?.configurationDetails;
   }
 }
 
