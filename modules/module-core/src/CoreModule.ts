@@ -126,7 +126,7 @@ export class CoreModule extends core.modules.AbstractModule {
       let timer: NodeJS.Timeout | null = null;
       context.lifeCycleEngine.withLifecycle(null, {
         start: () => {
-          setInterval(() => {
+          timer = setInterval(() => {
             context
               .get<framework.ProbeModule>(framework.ContainerImplementation.PROBES)
               .touch()
