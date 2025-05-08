@@ -1878,4 +1878,54 @@ bucket_definitions:
       }
     });
   });
+
+  test('op_id initialization edge case', async () => {
+    // Test syncing a batch of data that is small in count,
+    // but large enough in size to be split over multiple returned chunks.
+    // Similar to the above test, but splits over 1MB chunks.
+    const sync_rules = test_utils.testRules(
+      `
+  bucket_definitions:
+    global:
+      data:
+        - SELECT id FROM test
+        - SELECT id FROM test_ignore WHERE false
+  `
+    );
+    await using factory = await generateStorageFactory();
+    const bucketStorage = factory.getInstance(sync_rules);
+
+    const sourceTable = test_utils.makeTestTable('test', ['id']);
+    const sourceTableIgnore = test_utils.makeTestTable('test_ignore', ['id']);
+
+    const result1 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      // This saves a record to current_data, but not bucket_data.
+      // This causes a checkpoint to be created without increasing the op_id sequence.
+      await batch.save({
+        sourceTable: sourceTableIgnore,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'test1'
+        },
+        afterReplicaId: test_utils.rid('test1')
+      });
+    });
+
+    const checkpoint1 = result1!.flushed_op;
+
+    const result2 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.save({
+        sourceTable: sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'test2'
+        },
+        afterReplicaId: test_utils.rid('test2')
+      });
+    });
+
+    const checkpoint2 = result2!.flushed_op;
+    // we expect 0n and 1n, or 1n and 2n.
+    expect(checkpoint2).toBeGreaterThan(checkpoint1);
+  });
 }
