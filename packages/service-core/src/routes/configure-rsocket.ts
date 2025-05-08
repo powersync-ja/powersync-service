@@ -2,7 +2,7 @@ import { deserialize } from 'bson';
 import * as http from 'http';
 
 import { ErrorCode, errors, logger } from '@powersync/lib-services-framework';
-import { ReactiveSocketRouter, RSocketRequestMeta } from '@powersync/service-rsocket-router';
+import { ReactiveSocketRouter, RSocketRequestMeta, TypedBuffer } from '@powersync/service-rsocket-router';
 
 import { ServiceContext } from '../system/ServiceContext.js';
 import { generateContext, getTokenFromHeader } from './auth.js';
@@ -22,8 +22,8 @@ export function configureRSocket(router: ReactiveSocketRouter<Context>, options:
   const { route_generators = DEFAULT_SOCKET_ROUTES, server, service_context } = options;
 
   router.applyWebSocketEndpoints(server, {
-    contextProvider: async (data: Buffer): Promise<Context & { token: string }> => {
-      const { token, user_agent } = RSocketContextMeta.decode(deserialize(data) as any);
+    contextProvider: async (data: TypedBuffer): Promise<Context & { token: string }> => {
+      const { token, user_agent } = RSocketContextMeta.decode(decodeTyped(data) as any);
 
       if (!token) {
         throw new errors.AuthorizationError(ErrorCode.PSYNC_S2106, 'No token provided');
@@ -54,9 +54,21 @@ export function configureRSocket(router: ReactiveSocketRouter<Context>, options:
       }
     },
     endpoints: route_generators.map((generator) => generator(router)),
-    metaDecoder: async (meta: Buffer) => {
-      return RSocketRequestMeta.decode(deserialize(meta) as any);
+    metaDecoder: async (meta: TypedBuffer) => {
+      return RSocketRequestMeta.decode(decodeTyped(meta) as any);
     },
-    payloadDecoder: async (rawData?: Buffer) => rawData && deserialize(rawData)
+    payloadDecoder: async (rawData?: TypedBuffer) => rawData && decodeTyped(rawData)
   });
+}
+
+function decodeTyped(data: TypedBuffer) {
+  switch (data.mimeType) {
+    case 'application/json':
+      const decoder = new TextDecoder();
+      return JSON.parse(decoder.decode(data.contents));
+    case 'application/bson':
+      return deserialize(data.contents);
+  }
+
+  throw new errors.UnsupportedMediaType(`Expected JSON or BSON request, got ${data.mimeType}`);
 }
