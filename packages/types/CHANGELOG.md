@@ -1,5 +1,12 @@
 # @powersync/service-types
 
+## 0.11.0
+
+### Minor Changes
+
+- c672380: Added JSON schema export for base PowerSyncConfig
+- ca0a566: Added healthcheck types to PowerSyncConfig
+
 ## 0.10.0
 
 ### Minor Changes

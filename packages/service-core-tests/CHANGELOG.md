@@ -1,5 +1,16 @@
 # @powersync/service-core-tests
 
+## 0.9.4
+
+### Patch Changes
+
+- 05b9593: [Postgres Storage] Fix op_id_sequence initialization edge case
+- Updated dependencies [ca0a566]
+- Updated dependencies [9dc4e01]
+- Updated dependencies [c672380]
+- Updated dependencies [d869876]
+  - @powersync/service-core@1.12.0
+
 ## 0.9.3
 
 ### Patch Changes

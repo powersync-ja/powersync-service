@@ -1,5 +1,18 @@
 # @powersync/service-rsocket-router
 
+## 0.1.0
+
+### Minor Changes
+
+- 9dc4e01: Improve authentication error messages and logs
+
+### Patch Changes
+
+- d869876: Allow RSocket request payload to be encoded as JSON
+- Updated dependencies [9dc4e01]
+- Updated dependencies [ca0a566]
+  - @powersync/lib-services-framework@0.6.0
+
 ## 0.0.21
 
 ### Patch Changes

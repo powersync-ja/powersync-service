@@ -1,5 +1,24 @@
 # @powersync/service-module-postgres
 
+## 0.13.0
+
+### Minor Changes
+
+- 9dc4e01: Improve authentication error messages and logs
+
+### Patch Changes
+
+- Updated dependencies [ca0a566]
+- Updated dependencies [9dc4e01]
+- Updated dependencies [c672380]
+- Updated dependencies [ca0a566]
+- Updated dependencies [ca0a566]
+- Updated dependencies [d869876]
+  - @powersync/service-core@1.12.0
+  - @powersync/lib-services-framework@0.6.0
+  - @powersync/service-types@0.11.0
+  - @powersync/lib-service-postgres@0.4.3
+
 ## 0.12.3
 
 ### Patch Changes
