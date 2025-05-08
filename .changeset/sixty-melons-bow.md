@@ -4,4 +4,4 @@
 '@powersync/service-image': patch
 ---
 
-[Postgres Storage] Fix op_id_sequence intialization edge case
+[Postgres Storage] Fix op_id_sequence initialization edge case
