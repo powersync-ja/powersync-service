@@ -208,13 +208,7 @@ export class PostgresBucketBatch
       return null;
     }
 
-    const currentSequence = await this.db.sql`
-      SELECT
-        LAST_VALUE AS value
-      FROM
-        op_id_sequence;
-    `.first<{ value: bigint }>();
-    return currentSequence!.value;
+    return this.getLastOpIdSequence(this.db);
   }
 
   async drop(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
@@ -262,13 +256,7 @@ export class PostgresBucketBatch
     const lastOp = await this.withReplicationTransaction(async (db) => {
       resumeBatch = await this.replicateBatch(db, batch);
 
-      const sequence = await db.sql`
-        SELECT
-          LAST_VALUE AS value
-        FROM
-          op_id_sequence;
-      `.first<{ value: bigint }>();
-      return sequence!.value;
+      return this.getLastOpIdSequence(db);
     });
 
     // null if done, set if we need another flush
@@ -894,6 +882,23 @@ export class PostgresBucketBatch
           id = ${{ type: 'int4', value: this.group_id }}
       `.execute();
     }
+  }
+
+  private async getLastOpIdSequence(db: lib_postgres.AbstractPostgresConnection) {
+    // When no op_id has been generated, last_value = 1 and nextval() will be 1.
+    // To cater for this case, we check is_called, and default to 0 if no value has been generated.
+    const sequence = await db.sql`
+      SELECT
+        (
+          CASE
+            WHEN is_called THEN last_value
+            ELSE 0
+          END
+        ) AS value
+      FROM
+        op_id_sequence;
+    `.first<{ value: bigint }>();
+    return sequence!.value;
   }
 }
 
