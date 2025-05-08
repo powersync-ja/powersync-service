@@ -479,6 +479,30 @@ importers:
         specifier: 1.0.0-alpha.3
         version: 1.0.0-alpha.3
 
+  packages/schema:
+    devDependencies:
+      '@powersync/service-module-mongodb':
+        specifier: workspace:*
+        version: link:../../modules/module-mongodb
+      '@powersync/service-module-mongodb-storage':
+        specifier: workspace:*
+        version: link:../../modules/module-mongodb-storage
+      '@powersync/service-module-mysql':
+        specifier: workspace:*
+        version: link:../../modules/module-mysql
+      '@powersync/service-module-postgres':
+        specifier: workspace:*
+        version: link:../../modules/module-postgres
+      '@powersync/service-module-postgres-storage':
+        specifier: workspace:*
+        version: link:../../modules/module-postgres-storage
+      '@powersync/service-types':
+        specifier: workspace:*
+        version: link:../types
+      ts-codec:
+        specifier: ^1.3.0
+        version: 1.3.0
+
   packages/service-core:
     dependencies:
       '@js-sdsl/ordered-set':
