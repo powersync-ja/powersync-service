@@ -1,3 +1,4 @@
+import { ServiceError } from '@powersync/service-errors';
 import { MicroValidator } from '../schema/definitions.js';
 
 /**
@@ -22,7 +23,7 @@ export type AuthorizationResponse =
     }
   | {
       authorized: false;
-      errors?: any[];
+      error?: ServiceError | undefined;
     };
 
 /**

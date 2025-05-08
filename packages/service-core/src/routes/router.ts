@@ -1,4 +1,4 @@
-import { router } from '@powersync/lib-services-framework';
+import { router, ServiceError } from '@powersync/lib-services-framework';
 import type { JwtPayload } from '../auth/auth-index.js';
 import { ServiceContext } from '../system/ServiceContext.js';
 import { RouterEngine } from './RouterEngine.js';
@@ -16,7 +16,7 @@ export type Context = {
   service_context: RouterServiceContext;
 
   token_payload?: JwtPayload;
-  token_errors?: string[];
+  token_error?: ServiceError;
   /**
    * Only on websocket endpoints.
    */

@@ -3,6 +3,8 @@ import timers from 'timers/promises';
 import { KeySpec } from './KeySpec.js';
 import { LeakyBucket } from './LeakyBucket.js';
 import { KeyCollector, KeyResult } from './KeyCollector.js';
+import { AuthorizationError } from '@powersync/lib-services-framework';
+import { mapAuthConfigError } from './utils.js';
 
 /**
  * Manages caching and refreshing for a key collector.
@@ -39,7 +41,7 @@ export class CachedKeyCollector implements KeyCollector {
    */
   private keyExpiry = 3600000;
 
-  private currentErrors: jose.errors.JOSEError[] = [];
+  private currentErrors: AuthorizationError[] = [];
   /**
    * Indicates a "fatal" error that should be retried.
    */
@@ -103,11 +105,7 @@ export class CachedKeyCollector implements KeyCollector {
     } catch (e) {
       this.error = true;
       // No result - keep previous keys
-      if (e instanceof jose.errors.JOSEError) {
-        this.currentErrors = [e];
-      } else {
-        this.currentErrors = [new jose.errors.JOSEError(e.message ?? 'Failed to fetch keys')];
-      }
+      this.currentErrors = [mapAuthConfigError(e)];
     }
   }
 
