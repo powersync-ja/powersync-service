@@ -1,0 +1,30 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "declarationDir": "dist",
+    "rootDir": "src",
+    "skipLibCheck": true
+  },
+  "include": ["src"],
+  "references": [
+    {
+      "path": "../types"
+    },
+    {
+      "path": "../../modules/module-postgres"
+    },
+    {
+      "path": "../../modules/module-postgres-storage"
+    },
+    {
+      "path": "../../modules/module-mongodb"
+    },
+    {
+      "path": "../../modules/module-mongodb-storage"
+    },
+    {
+      "path": "../../modules/module-mysql"
+    }
+  ]
+}
