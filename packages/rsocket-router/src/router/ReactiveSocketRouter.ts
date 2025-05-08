@@ -3,7 +3,7 @@
  * to expose reactive websocket stream in an interface similar to
  * other Journey micro routers.
  */
-import { errors, logger } from '@powersync/lib-services-framework';
+import { ErrorCode, errors, logger } from '@powersync/lib-services-framework';
 import * as http from 'http';
 import { Payload, RSocketServer } from 'rsocket-core';
 import * as ws from 'ws';
@@ -72,7 +72,7 @@ export class ReactiveSocketRouter<C> {
           // Throwing an exception in this context will be returned to the client side request
           if (!payload.metadata) {
             // Meta data is required for endpoint handler path matching
-            throw new errors.AuthorizationError('No context meta data provided');
+            throw new errors.AuthorizationError(ErrorCode.PSYNC_S2101, 'No context meta data provided');
           }
 
           const context = await params.contextProvider(payload.metadata!);
@@ -166,7 +166,9 @@ export async function handleReactiveStream<Context>(
       responder
     });
     if (!isAuthorized.authorized) {
-      return exitWithError(new errors.AuthorizationError(isAuthorized.errors));
+      return exitWithError(
+        isAuthorized.error ?? new errors.AuthorizationError(ErrorCode.PSYNC_S2101, 'Authorization failed')
+      );
     }
   }
 
