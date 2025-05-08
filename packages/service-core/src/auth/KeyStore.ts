@@ -1,9 +1,10 @@
-import { logger } from '@powersync/lib-services-framework';
+import { logger, errors, AuthorizationError, ErrorCode } from '@powersync/lib-services-framework';
 import * as jose from 'jose';
 import secs from '../util/secs.js';
 import { JwtPayload } from './JwtPayload.js';
 import { KeyCollector } from './KeyCollector.js';
 import { KeyOptions, KeySpec, SUPPORTED_ALGORITHMS } from './KeySpec.js';
+import { mapAuthError } from './utils.js';
 
 /**
  * KeyStore to get keys and verify tokens.
@@ -49,7 +50,8 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
       clockTolerance: 60,
       // More specific algorithm checking is done when selecting the key to use.
       algorithms: SUPPORTED_ALGORITHMS,
-      requiredClaims: ['aud', 'sub', 'iat', 'exp']
+      // 'aud' presence is checked below, so we can add more details to the error message.
+      requiredClaims: ['sub', 'iat', 'exp']
     });
 
     let audiences = options.defaultAudiences;
@@ -60,8 +62,12 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
 
     const tokenPayload = result.payload;
 
-    let aud = tokenPayload.aud!;
-    if (!Array.isArray(aud)) {
+    let aud = tokenPayload.aud;
+    if (aud == null) {
+      throw new AuthorizationError(ErrorCode.PSYNC_S2105, `JWT payload is missing a required claim "aud"`, {
+        configurationDetails: `Current configuration allows these audience values: ${JSON.stringify(audiences)}`
+      });
+    } else if (!Array.isArray(aud)) {
       aud = [aud];
     }
     if (
@@ -69,7 +75,11 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
         return audiences.includes(a);
       })
     ) {
-      throw new jose.errors.JWTClaimValidationFailed('unexpected "aud" claim value', 'aud', 'check_failed');
+      throw new AuthorizationError(
+        ErrorCode.PSYNC_S2105,
+        `Unexpected "aud" claim value: ${JSON.stringify(tokenPayload.aud)}`,
+        { configurationDetails: `Current configuration allows these audience values: ${JSON.stringify(audiences)}` }
+      );
     }
 
     const tokenDuration = tokenPayload.exp! - tokenPayload.iat!;
@@ -78,12 +88,15 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
     // is too far into the future.
     const maxAge = keyOptions.maxLifetimeSeconds ?? secs(options.maxAge);
     if (tokenDuration > maxAge) {
-      throw new jose.errors.JWTInvalid(`Token must expire in a maximum of ${maxAge} seconds, got ${tokenDuration}`);
+      throw new AuthorizationError(
+        ErrorCode.PSYNC_S2104,
+        `Token must expire in a maximum of ${maxAge} seconds, got ${tokenDuration}s`
+      );
     }
 
     const parameters = tokenPayload.parameters;
     if (parameters != null && (Array.isArray(parameters) || typeof parameters != 'object')) {
-      throw new jose.errors.JWTInvalid('parameters must be an object');
+      throw new AuthorizationError(ErrorCode.PSYNC_S2101, `Payload parameters must be an object`);
     }
 
     return tokenPayload as JwtPayload;
@@ -91,16 +104,20 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
 
   private async verifyInternal(token: string, options: jose.JWTVerifyOptions) {
     let keyOptions: KeyOptions | undefined = undefined;
-    const result = await jose.jwtVerify(
-      token,
-      async (header) => {
-        let key = await this.getCachedKey(token, header);
-        keyOptions = key.options;
-        return key.key;
-      },
-      options
-    );
-    return { result, keyOptions: keyOptions! };
+    try {
+      const result = await jose.jwtVerify(
+        token,
+        async (header) => {
+          let key = await this.getCachedKey(token, header);
+          keyOptions = key.options;
+          return key.key;
+        },
+        options
+      );
+      return { result, keyOptions: keyOptions! };
+    } catch (e) {
+      throw mapAuthError(e, token);
+    }
   }
 
   private async getCachedKey(token: string, header: jose.JWTHeaderParameters): Promise<KeySpec> {
@@ -112,7 +129,10 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
       for (let key of keys) {
         if (key.kid == kid) {
           if (!key.matchesAlgorithm(header.alg)) {
-            throw new jose.errors.JOSEAlgNotAllowed(`Unexpected token algorithm ${header.alg}`);
+            throw new AuthorizationError(ErrorCode.PSYNC_S2101, `Unexpected token algorithm ${header.alg}`, {
+              configurationDetails: `Key kid: ${key.source.kid}, alg: ${key.source.alg}, kty: ${key.source.kty}`
+              // Token details automatically populated elsewhere
+            });
           }
           return key;
         }
@@ -145,8 +165,13 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
         logger.error(`Failed to refresh keys`, e);
       });
 
-      throw new jose.errors.JOSEError(
-        'Could not find an appropriate key in the keystore. The key is missing or no key matched the token KID'
+      throw new AuthorizationError(
+        ErrorCode.PSYNC_S2101,
+        'Could not find an appropriate key in the keystore. The key is missing or no key matched the token KID',
+        {
+          configurationDetails: `Known kid values: ${keys.map((key) => key.kid ?? '*').join(', ')}`
+          // tokenDetails automatically populated later
+        }
       );
     }
   }
