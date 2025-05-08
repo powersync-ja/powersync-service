@@ -160,8 +160,7 @@ bucket_definitions:
     expect(lines).toMatchSnapshot();
   });
 
-  // Temporarily skipped - interruption disabled
-  test.skip('sync interrupts low-priority buckets on new checkpoints', async () => {
+  test('sync interrupts low-priority buckets on new checkpoints', async () => {
     await using f = await factory();
 
     const syncRules = await f.updateSyncRules({
@@ -263,6 +262,141 @@ bucket_definitions:
         }
         if ('checkpoint_complete' in next) {
           break;
+        }
+      }
+    }
+
+    expect(sentCheckpoints).toBe(2);
+    expect(sentRows).toBe(10002);
+  });
+
+  test('sync interruptions with unrelated data', async () => {
+    await using f = await factory();
+
+    const syncRules = await f.updateSyncRules({
+      content: `
+bucket_definitions:
+  b0:
+    priority: 2
+    data:
+      - SELECT * FROM test WHERE LENGTH(id) <= 5;
+  b1:
+    priority: 1
+    parameters: SELECT request.user_id() as user_id
+    data:
+      - SELECT * FROM test WHERE LENGTH(id) > 5 AND description = bucket.user_id;
+    `
+    });
+
+    const bucketStorage = f.getInstance(syncRules);
+    await bucketStorage.autoActivate();
+
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      // Initial data: Add one priority row and 10k low-priority rows.
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'highprio',
+          description: 'user_one'
+        },
+        afterReplicaId: 'highprio'
+      });
+      for (let i = 0; i < 10_000; i++) {
+        await batch.save({
+          sourceTable: TEST_TABLE,
+          tag: storage.SaveOperationTag.INSERT,
+          after: {
+            id: `${i}`,
+            description: 'low prio'
+          },
+          afterReplicaId: `${i}`
+        });
+      }
+
+      await batch.commit('0/1');
+    });
+
+    const stream = sync.streamResponse({
+      syncContext,
+      bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      params: {
+        buckets: [],
+        include_checksum: true,
+        raw_data: true
+      },
+      tracker,
+      syncParams: new RequestParameters({ sub: 'user_one' }, {}),
+      token: { sub: 'user_one', exp: Date.now() / 1000 + 100000 } as any
+    });
+
+    let sentCheckpoints = 0;
+    let completedCheckpoints = 0;
+    let sentRows = 0;
+
+    // Expected flow:
+    //  1. Stream starts, we receive a checkpoint followed by the one high-prio row and a partial completion.
+    //  2. We insert a new row that is not part of a bucket relevant to this stream.
+    //  3. This means that no interruption happens and we receive all the low-priority data, followed by a checkpoint.
+    //  4. After the checkpoint, add a new row that _is_ relevant for this sync, which should trigger a new iteration.
+
+    for await (let next of stream) {
+      if (typeof next == 'string') {
+        next = JSON.parse(next);
+      }
+      if (typeof next === 'object' && next !== null) {
+        if ('partial_checkpoint_complete' in next) {
+          if (sentCheckpoints == 1) {
+            await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+              // Add a high-priority row that doesn't affect this sync stream.
+              await batch.save({
+                sourceTable: TEST_TABLE,
+                tag: storage.SaveOperationTag.INSERT,
+                after: {
+                  id: 'highprio2',
+                  description: 'user_two'
+                },
+                afterReplicaId: 'highprio2'
+              });
+
+              await batch.commit('0/2');
+            });
+          } else {
+            expect(sentCheckpoints).toBe(2);
+            expect(sentRows).toBe(10002);
+          }
+        }
+        if ('checkpoint' in next || 'checkpoint_diff' in next) {
+          sentCheckpoints += 1;
+        }
+
+        if ('data' in next) {
+          sentRows += next.data.data.length;
+        }
+        if ('checkpoint_complete' in next) {
+          completedCheckpoints++;
+          if (completedCheckpoints == 2) {
+            break;
+          }
+          if (completedCheckpoints == 1) {
+            expect(sentRows).toBe(10001);
+
+            await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+              // Add a high-priority row that affects this sync stream.
+              await batch.save({
+                sourceTable: TEST_TABLE,
+                tag: storage.SaveOperationTag.INSERT,
+                after: {
+                  id: 'highprio3',
+                  description: 'user_one'
+                },
+                afterReplicaId: 'highprio3'
+              });
+
+              await batch.commit('0/3');
+            });
+          }
         }
       }
     }

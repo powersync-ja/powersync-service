@@ -8,7 +8,7 @@ import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
 import { logger } from '@powersync/lib-services-framework';
-import { BucketChecksumState } from './BucketChecksumState.js';
+import { BucketChecksumState, CheckpointLine } from './BucketChecksumState.js';
 import { mergeAsyncIterables } from '../streams/streams-index.js';
 import { acquireSemaphoreAbortable, settledPromise, tokenStream, TokenStreamOptions } from './util.js';
 import { SyncContext } from './SyncContext.js';
@@ -111,16 +111,29 @@ async function* streamResponseInner(
   });
   const newCheckpoints = stream[Symbol.asyncIterator]();
 
+  type CheckpointAndLine = {
+    checkpoint: bigint;
+    line: CheckpointLine | null;
+  };
+
+  async function waitForNewCheckpointLine(): Promise<IteratorResult<CheckpointAndLine>> {
+    const next = await newCheckpoints.next();
+    if (next.done) {
+      return { done: true, value: undefined };
+    }
+
+    const line = await checksumState.buildNextCheckpointLine(next.value);
+    return { done: false, value: { checkpoint: next.value.base.checkpoint, line } };
+  }
+
   try {
-    let nextCheckpointPromise:
-      | Promise<PromiseSettledResult<IteratorResult<storage.StorageCheckpointUpdate>>>
-      | undefined;
+    let nextCheckpointPromise: Promise<PromiseSettledResult<IteratorResult<CheckpointAndLine>>> | undefined;
 
     do {
       if (!nextCheckpointPromise) {
         // Wrap in a settledPromise, so that abort errors after the parent stopped iterating
         // does not result in uncaught errors.
-        nextCheckpointPromise = settledPromise(newCheckpoints.next());
+        nextCheckpointPromise = settledPromise(waitForNewCheckpointLine());
       }
       const next = await nextCheckpointPromise;
       nextCheckpointPromise = undefined;
@@ -130,7 +143,7 @@ async function* streamResponseInner(
       if (next.value.done) {
         break;
       }
-      const line = await checksumState.buildNextCheckpointLine(next.value.value);
+      const line = next.value.value.line;
       if (line == null) {
         // No update to sync
         continue;
@@ -164,15 +177,24 @@ async function* streamResponseInner(
       function maybeRaceForNewCheckpoint() {
         if (syncedOperations >= 1000 && nextCheckpointPromise === undefined) {
           nextCheckpointPromise = (async () => {
-            const next = await settledPromise(newCheckpoints.next());
-            if (next.status == 'rejected') {
-              abortCheckpointController.abort();
-            } else if (!next.value.done) {
-              // Stop the running bucketDataInBatches() iterations, making the main flow reach the new checkpoint.
-              abortCheckpointController.abort();
-            }
+            while (true) {
+              const next = await settledPromise(waitForNewCheckpointLine());
+              if (next.status == 'rejected') {
+                abortCheckpointController.abort();
+              } else if (!next.value.done) {
+                if (next.value.value.line == null) {
+                  // There's a new checkpoint that doesn't affect this sync stream. Keep listening, but don't
+                  // interrupt this batch.
+                  continue;
+                }
 
-            return next;
+                // A new sync line can be emitted. Stop running the bucketDataInBatches() iterations, making the
+                // main flow reach the new checkpoint.
+                abortCheckpointController.abort();
+              }
+
+              return next;
+            }
           })();
         }
       }
@@ -187,7 +209,7 @@ async function* streamResponseInner(
         // 3. However, the new checkpoint does not contain any new data for this connection, so nothing further is synced.
         // This then causes the client to wait indefinitely for the remaining data or checkpoint_complete message. That is
         // only resolved when a new checkpoint comes in that does have data for this connection, or the connection is restarted.
-        // maybeRaceForNewCheckpoint();
+        maybeRaceForNewCheckpoint();
       }
 
       // This incrementally updates dataBuckets with each individual bucket position.
@@ -201,7 +223,7 @@ async function* streamResponseInner(
         yield* bucketDataInBatches({
           syncContext: syncContext,
           bucketStorage: bucketStorage,
-          checkpoint: next.value.value.base.checkpoint,
+          checkpoint: next.value.value.checkpoint,
           bucketsToFetch: buckets,
           checksumState,
           raw_data,
