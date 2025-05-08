@@ -6,7 +6,8 @@ import { RouterEngine } from './RouterEngine.js';
 /**
  * The {@link RouterEngine} must be provided for these routes
  */
-export type RouterServiceContext = ServiceContext & { routerEngine: RouterEngine };
+export type RouterServiceContext = ServiceContext;
+
 /**
  * Common context for routes
  */

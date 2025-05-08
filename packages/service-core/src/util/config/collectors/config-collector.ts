@@ -4,23 +4,12 @@ import { schema } from '@powersync/lib-services-framework';
 import { configFile } from '@powersync/service-types';
 
 import { RunnerConfig } from '../types.js';
+import { YamlEnvTag } from './impl/yaml-env.js';
 
 export enum ConfigFileFormat {
   YAML = 'yaml',
   JSON = 'json'
 }
-
-/**
- * Environment variables can be substituted into the YAML config
- * when parsing if the environment variable name starts with this prefix.
- * Attempting to substitute any other environment variable will throw an exception.
- *
- * Example of substitution:
- * storage:
- *    type: mongodb
- *    uri: !env PS_MONGO_URI
- */
-const YAML_ENV_PREFIX = 'PS_';
 
 // ts-codec itself doesn't give great validation errors, so we use json schema for that
 const configSchemaValidator = schema.parseJSONSchema(configFile.PowerSyncConfigJSONSchema).validator();
@@ -100,27 +89,7 @@ export abstract class ConfigCollector {
       schema: 'core',
       keepSourceTokens: true,
       lineCounter,
-      customTags: [
-        {
-          tag: '!env',
-          resolve(envName: string, onError: (error: string) => void) {
-            if (!envName.startsWith(YAML_ENV_PREFIX)) {
-              onError(
-                `Attempting to substitute environment variable ${envName} is not allowed. Variables must start with "${YAML_ENV_PREFIX}"`
-              );
-              return envName;
-            }
-            const value = process.env[envName];
-            if (typeof value == 'undefined') {
-              onError(
-                `Attempted to substitute environment variable "${envName}" which is undefined. Set this variable on the environment.`
-              );
-              return envName;
-            }
-            return value;
-          }
-        }
-      ]
+      customTags: [YamlEnvTag]
     });
 
     if (parsed.errors.length) {

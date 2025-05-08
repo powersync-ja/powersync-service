@@ -33,7 +33,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         }
       });
 
-      if (routerEngine!.closed) {
+      if (routerEngine.closed) {
         responder.onError(
           new errors.ServiceError({
             status: 503,
@@ -64,9 +64,9 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         return;
       }
 
-      const syncRules = bucketStorage.getParsedSyncRules(routerEngine!.getAPI().getParseSyncRulesOptions());
+      const syncRules = bucketStorage.getParsedSyncRules(routerEngine.getAPI().getParseSyncRulesOptions());
 
-      const removeStopHandler = routerEngine!.addStopHandler(() => {
+      const removeStopHandler = routerEngine.addStopHandler(() => {
         controller.abort();
       });
 

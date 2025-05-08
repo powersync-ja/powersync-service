@@ -158,6 +158,27 @@ importers:
         specifier: ^3.0.5
         version: 3.0.5(@types/node@22.13.1)(yaml@2.5.0)
 
+  modules/module-core:
+    dependencies:
+      '@fastify/cors':
+        specifier: 8.4.1
+        version: 8.4.1
+      '@powersync/lib-services-framework':
+        specifier: workspace:*
+        version: link:../../libs/lib-services
+      '@powersync/service-core':
+        specifier: workspace:*
+        version: link:../../packages/service-core
+      '@powersync/service-rsocket-router':
+        specifier: workspace:*
+        version: link:../../packages/rsocket-router
+      '@powersync/service-types':
+        specifier: workspace:*
+        version: link:../../packages/types
+      fastify:
+        specifier: 4.23.2
+        version: 4.23.2
+
   modules/module-mongodb:
     dependencies:
       '@powersync/lib-service-mongodb':
@@ -654,15 +675,15 @@ importers:
 
   service:
     dependencies:
-      '@fastify/cors':
-        specifier: 8.4.1
-        version: 8.4.1
       '@powersync/lib-services-framework':
         specifier: workspace:*
         version: link:../libs/lib-services
       '@powersync/service-core':
         specifier: workspace:*
         version: link:../packages/service-core
+      '@powersync/service-module-core':
+        specifier: workspace:*
+        version: link:../modules/module-core
       '@powersync/service-module-mongodb':
         specifier: workspace:*
         version: link:../modules/module-mongodb
@@ -684,9 +705,6 @@ importers:
       '@sentry/node':
         specifier: ^8.9.2
         version: 8.17.0
-      fastify:
-        specifier: 4.23.2
-        version: 4.23.2
     devDependencies:
       '@sentry/types':
         specifier: ^8.9.2

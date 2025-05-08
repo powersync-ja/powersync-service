@@ -477,6 +477,34 @@ export const powerSyncConfig = t
       })
       .optional(),
 
+    healthcheck: t
+      .object({
+        probes: t
+          .object({
+            use_filesystem: t.boolean
+              .meta({
+                description: `Enables exposing healthcheck status via filesystem files.`
+              })
+              .optional(),
+            use_http: t.boolean
+              .meta({
+                description: `Enables exposing healthcheck status via HTTP endpoints.`
+              })
+              .optional(),
+            use_legacy: t.boolean
+              .meta({
+                description: dedent`
+              Deprecated. 
+              Enables HTTP probes for both API and UNIFIED service modes. FileSystem probes are always enabled.
+            `
+              })
+              .optional()
+          })
+          .meta({ description: 'Mechanisms for exposing health check data.' })
+          .optional()
+      })
+      .optional(),
+
     parameters: t
       .record(t.number.or(t.string).or(t.boolean).or(t.Null))
       .meta({

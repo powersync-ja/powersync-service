@@ -1,6 +1,7 @@
 import { container, ContainerImplementation } from '@powersync/lib-services-framework';
 import * as core from '@powersync/service-core';
 
+import { CoreModule } from '@powersync/service-module-core';
 import { MongoModule } from '@powersync/service-module-mongodb';
 import { MongoStorageModule } from '@powersync/service-module-mongodb-storage';
 import { MySQLModule } from '@powersync/service-module-mysql';
@@ -17,10 +18,11 @@ container.register(ContainerImplementation.REPORTER, createSentryReporter());
 
 const moduleManager = new core.modules.ModuleManager();
 moduleManager.register([
-  new PostgresModule(),
-  new MySQLModule(),
+  new CoreModule(),
   new MongoModule(),
   new MongoStorageModule(),
+  new MySQLModule(),
+  new PostgresModule(),
   new PostgresStorageModule()
 ]);
 // This is a bit of a hack. Commands such as the teardown command or even migrations might

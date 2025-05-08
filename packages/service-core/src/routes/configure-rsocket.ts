@@ -37,10 +37,6 @@ export function configureRSocket(router: ReactiveSocketRouter<Context>, options:
             throw new errors.AuthorizationError(ErrorCode.PSYNC_S2106, 'Authentication required');
           }
 
-          if (!service_context.routerEngine) {
-            throw new Error(`RouterEngine has not been registered`);
-          }
-
           return {
             token,
             user_agent,
