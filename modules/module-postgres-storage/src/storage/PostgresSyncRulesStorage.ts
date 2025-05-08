@@ -336,7 +336,7 @@ export class PostgresSyncRulesStorage
 
     await callback(batch);
     await batch.flush();
-    if (batch.last_flushed_op) {
+    if (batch.last_flushed_op != null) {
       return { flushed_op: batch.last_flushed_op };
     } else {
       return null;
