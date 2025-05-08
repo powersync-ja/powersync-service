@@ -47,8 +47,16 @@ export type IReactiveStream<I = any, O = any, C = any> = Omit<
    * Decodes raw payload buffer to [I].
    * Falls back to router level decoder if not specified.
    */
-  decoder?: (rawData?: Buffer) => Promise<I>;
+  decoder?: (rawData?: TypedBuffer) => Promise<I>;
 };
+
+/**
+ * A {@link Buffer} with an associated mimeType inferred from the RSocket `SETUP` frame.
+ */
+export interface TypedBuffer {
+  mimeType: string;
+  contents: Buffer;
+}
 
 export type IReactiveStreamInput<I, O, C> = Omit<IReactiveStream<I, O, C>, 'path' | 'type' | 'method'>;
 
@@ -56,7 +64,7 @@ export type ReactiveEndpoint = IReactiveStream;
 
 export type CommonParams<C> = {
   endpoints: Array<ReactiveEndpoint>;
-  contextProvider: (metaData: Buffer) => Promise<C>;
-  metaDecoder: (meta: Buffer) => Promise<RequestMeta>;
-  payloadDecoder: (rawData?: Buffer) => Promise<any>;
+  contextProvider: (metaData: TypedBuffer) => Promise<C>;
+  metaDecoder: (meta: TypedBuffer) => Promise<RequestMeta>;
+  payloadDecoder: (rawData?: TypedBuffer) => Promise<any>;
 };
