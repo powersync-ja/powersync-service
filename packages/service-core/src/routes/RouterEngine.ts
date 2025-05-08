@@ -81,7 +81,7 @@ export class RouterEngine {
     logger.info('Starting Router Engine...');
 
     if (!this.hasRoutes) {
-      logger.warn('No routes have been registered. Router Engine will not continue.');
+      logger.info('Router Engine will not start an HTTP server as no routes have been registered.');
       return;
     }
 
