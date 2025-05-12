@@ -1,4 +1,4 @@
-import { ErrorCode, errors, logger, schema } from '@powersync/lib-services-framework';
+import { ErrorCode, errors, schema } from '@powersync/lib-services-framework';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import { serialize } from 'bson';
 
@@ -13,8 +13,15 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
   router.reactiveStream<util.StreamingSyncRequest, any>(SyncRoutes.STREAM, {
     validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
     handler: async ({ context, params, responder, observer, initialN, signal: upstreamSignal }) => {
-      const { service_context } = context;
+      const { service_context, logger } = context;
       const { routerEngine, metricsEngine, syncContext } = service_context;
+
+      logger.defaultMeta = {
+        ...logger.defaultMeta,
+        user_id: context.token_payload?.sub,
+        client_id: params.client_id,
+        user_agent: context.user_agent
+      };
 
       // Create our own controller that we can abort directly
       const controller = new AbortController();
@@ -88,7 +95,8 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
             keep_alive: false
           },
           tracker,
-          signal
+          signal,
+          logger
         })) {
           if (signal.aborted) {
             break;
@@ -142,9 +150,6 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         removeStopHandler();
         disposer();
         logger.info(`Sync stream complete`, {
-          user_id: syncParams.user_id,
-          client_id: params.client_id,
-          user_agent: context.user_agent,
           operations_synced: tracker.operationsSynced,
           data_synced_bytes: tracker.dataSyncedBytes
         });

@@ -87,7 +87,7 @@ export function registerFastifyRoutes(
           try {
             await reply.send(response.data);
           } finally {
-            await response.afterSend?.();
+            await response.afterSend?.({ clientClosed: request.socket.closed });
             requestLogger.info(`${e.method} ${request.url}`, {
               duration_ms: Math.round(new Date().valueOf() - startTime.valueOf() + Number.EPSILON),
               status: response.status,

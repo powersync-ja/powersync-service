@@ -20,11 +20,17 @@ export const syncStreamed = routeDefinition({
   authorize: authUser,
   validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
   handler: async (payload) => {
-    const { service_context } = payload.context;
+    const { service_context, logger } = payload.context;
     const { routerEngine, storageEngine, metricsEngine, syncContext } = service_context;
     const headers = payload.request.headers;
     const userAgent = headers['x-user-agent'] ?? headers['user-agent'];
     const clientId = payload.params.client_id;
+    logger.defaultMeta = {
+      ...logger.defaultMeta,
+      user_agent: userAgent,
+      client_id: clientId,
+      user_id: payload.context.user_id
+    };
 
     if (routerEngine.closed) {
       throw new errors.ServiceError({
@@ -64,7 +70,8 @@ export const syncStreamed = routeDefinition({
               syncParams,
               token: payload.context.token_payload!,
               tracker,
-              signal: controller.signal
+              signal: controller.signal,
+              logger
             })
           ),
           tracker
@@ -72,16 +79,26 @@ export const syncStreamed = routeDefinition({
         { objectMode: false, highWaterMark: 16 * 1024 }
       );
 
+      let closeReason: string | undefined = undefined;
+
       const deregister = routerEngine.addStopHandler(() => {
         // This error is not currently propagated to the client
         controller.abort();
+        closeReason ??= 'process shutdown';
         stream.destroy(new Error('Shutting down system'));
       });
+
+      stream.on('end', () => {
+        // Auth failure or switch to new sync rules
+        closeReason ??= 'service closing stream';
+      });
+
       stream.on('close', () => {
         deregister();
       });
 
       stream.on('error', (error) => {
+        closeReason ??= 'stream error';
         controller.abort();
         // Note: This appears as a 200 response in the logs.
         if (error.message != 'Shutting down system') {
@@ -95,13 +112,13 @@ export const syncStreamed = routeDefinition({
           'Content-Type': 'application/x-ndjson'
         },
         data: stream,
-        afterSend: async () => {
+        afterSend: async (details) => {
+          if (details.clientClosed) {
+            closeReason ??= 'client closing stream';
+          }
           controller.abort();
           metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
-          logger.info(`Sync stream complete`, {
-            user_id: syncParams.user_id,
-            client_id: clientId,
-            user_agent: userAgent,
+          logger.info(`Sync stream complete due to ${closeReason ?? 'unknown'}`, {
             operations_synced: tracker.operationsSynced,
             data_synced_bytes: tracker.dataSyncedBytes
           });

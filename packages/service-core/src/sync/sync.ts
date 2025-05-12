@@ -7,7 +7,7 @@ import * as auth from '../auth/auth-index.js';
 import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
-import { logger } from '@powersync/lib-services-framework';
+import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
 import { BucketChecksumState } from './BucketChecksumState.js';
 import { mergeAsyncIterables } from '../streams/streams-index.js';
 import { acquireSemaphoreAbortable, settledPromise, tokenStream, TokenStreamOptions } from './util.js';
@@ -21,6 +21,7 @@ export interface SyncStreamParameters {
   params: util.StreamingSyncRequest;
   syncParams: RequestParameters;
   token: auth.JwtPayload;
+  logger?: Logger;
   /**
    * If this signal is aborted, the stream response ends as soon as possible, without error.
    */
@@ -35,6 +36,8 @@ export async function* streamResponse(
 ): AsyncIterable<util.StreamingSyncLine | string | null> {
   const { syncContext, bucketStorage, syncRules, params, syncParams, token, tokenStreamOptions, tracker, signal } =
     options;
+  const logger = options.logger ?? defaultLogger;
+
   // We also need to be able to abort, so we create our own controller.
   const controller = new AbortController();
   if (signal) {
@@ -57,7 +60,8 @@ export async function* streamResponse(
     params,
     syncParams,
     tracker,
-    controller.signal
+    controller.signal,
+    logger
   );
   // Merge the two streams, and abort as soon as one of the streams end.
   const merged = mergeAsyncIterables([stream, ki], controller.signal);
@@ -89,7 +93,8 @@ async function* streamResponseInner(
   params: util.StreamingSyncRequest,
   syncParams: RequestParameters,
   tracker: RequestTracker,
-  signal: AbortSignal
+  signal: AbortSignal,
+  logger: Logger
 ): AsyncGenerator<util.StreamingSyncLine | string | null> {
   const { raw_data, binary_data } = params;
 
@@ -103,7 +108,8 @@ async function* streamResponseInner(
     initialBucketPositions: params.buckets?.map((bucket) => ({
       name: bucket.name,
       after: BigInt(bucket.after)
-    }))
+    })),
+    logger: logger
   });
   const stream = bucketStorage.watchCheckpointChanges({
     user_id: checkpointUserId,
@@ -212,7 +218,8 @@ async function* streamResponseInner(
           user_id: syncParams.user_id,
           // Passing null here will emit a full sync complete message at the end. If we pass a priority, we'll emit a partial
           // sync complete message instead.
-          forPriority: !isLast ? priority : null
+          forPriority: !isLast ? priority : null,
+          logger
         });
       }
 
@@ -244,6 +251,7 @@ interface BucketDataRequest {
   user_id?: string;
   forPriority: BucketPriority | null;
   onRowsSent: (amount: number) => void;
+  logger: Logger;
 }
 
 async function* bucketDataInBatches(request: BucketDataRequest) {
@@ -297,7 +305,8 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
     binary_data,
     abort_connection,
     abort_batch,
-    onRowsSent
+    onRowsSent,
+    logger
   } = request;
 
   let checkpointInvalidated = false;
