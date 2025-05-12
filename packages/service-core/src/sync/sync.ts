@@ -152,6 +152,8 @@ async function* streamResponseInner(
       const { checkpointLine, bucketsToFetch } = line;
 
       yield checkpointLine;
+      line.advance();
+
       // Start syncing data for buckets up to the checkpoint. As soon as we have completed at least one priority and
       // at least 1000 operations, we also start listening for new checkpoints concurrently. When a new checkpoint comes
       // in while we're still busy syncing data for lower priorities, interrupt the current operation and start syncing
@@ -225,7 +227,7 @@ async function* streamResponseInner(
           bucketStorage: bucketStorage,
           checkpoint: next.value.value.checkpoint,
           bucketsToFetch: buckets,
-          checksumState,
+          checkpointLine: line,
           raw_data,
           binary_data,
           onRowsSent: markOperationsSent,
@@ -251,9 +253,10 @@ interface BucketDataRequest {
   syncContext: SyncContext;
   bucketStorage: storage.SyncRulesBucketStorage;
   checkpoint: util.InternalOpId;
+  /** Contains current bucket state. Modified by the request as data is sent. */
+  checkpointLine: CheckpointLine;
+  /** Subset of checkpointLine.bucketsToFetch, filtered by priority. */
   bucketsToFetch: BucketDescription[];
-  /** Contains current bucket state. Modified by the request as data is sent.  */
-  checksumState: BucketChecksumState;
   raw_data: boolean | undefined;
   binary_data: boolean | undefined;
   /** Signals that the connection was aborted and that streaming should stop ASAP. */
@@ -314,7 +317,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
     bucketStorage: storage,
     checkpoint,
     bucketsToFetch,
-    checksumState,
+    checkpointLine,
     raw_data,
     binary_data,
     abort_connection,
@@ -344,7 +347,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
     }
     // Optimization: Only fetch buckets for which the checksums have changed since the last checkpoint
     // For the first batch, this will be all buckets.
-    const filteredBuckets = checksumState.getFilteredBucketPositions(bucketsToFetch);
+    const filteredBuckets = checkpointLine.getFilteredBucketPositions(bucketsToFetch);
     const dataBatches = storage.getBucketDataBatch(checkpoint, filteredBuckets);
 
     let has_more = false;
@@ -393,7 +396,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
       }
       onRowsSent(r.data.length);
 
-      checksumState.updateBucketPosition({ bucket: r.bucket, nextAfter: BigInt(r.next_after), hasMore: r.has_more });
+      checkpointLine.updateBucketPosition({ bucket: r.bucket, nextAfter: BigInt(r.next_after), hasMore: r.has_more });
 
       // Check if syncing bucket data is supposed to stop before fetching more data
       // from storage.
