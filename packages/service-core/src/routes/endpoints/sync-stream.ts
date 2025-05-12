@@ -26,7 +26,7 @@ export const syncStreamed = routeDefinition({
     const userAgent = headers['x-user-agent'] ?? headers['user-agent'];
     const clientId = payload.params.client_id;
 
-    if (routerEngine!.closed) {
+    if (routerEngine.closed) {
       throw new errors.ServiceError({
         status: 503,
         code: ErrorCode.PSYNC_S2003,
@@ -47,7 +47,7 @@ export const syncStreamed = routeDefinition({
       });
     }
 
-    const syncRules = bucketStorage.getParsedSyncRules(routerEngine!.getAPI().getParseSyncRulesOptions());
+    const syncRules = bucketStorage.getParsedSyncRules(routerEngine.getAPI().getParseSyncRulesOptions());
 
     const controller = new AbortController();
     const tracker = new sync.RequestTracker(metricsEngine);
@@ -72,7 +72,7 @@ export const syncStreamed = routeDefinition({
         { objectMode: false, highWaterMark: 16 * 1024 }
       );
 
-      const deregister = routerEngine!.addStopHandler(() => {
+      const deregister = routerEngine.addStopHandler(() => {
         // This error is not currently propagated to the client
         controller.abort();
         stream.destroy(new Error('Shutting down system'));

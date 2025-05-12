@@ -9,7 +9,7 @@ import { PROBES_ROUTES } from './endpoints/probes.js';
 import { SYNC_RULES_ROUTES } from './endpoints/sync-rules.js';
 import { SYNC_STREAM_ROUTES } from './endpoints/sync-stream.js';
 import { createRequestQueueHook, CreateRequestQueueParams } from './hooks.js';
-import { RouteDefinition, RouterServiceContext } from './router.js';
+import { RouteDefinition } from './router.js';
 
 /**
  * A list of route definitions to be registered as endpoints.
@@ -59,14 +59,9 @@ export function configureFastifyServer(server: fastify.FastifyInstance, options:
   const { service_context, routes = DEFAULT_ROUTE_OPTIONS } = options;
 
   const generateContext = async () => {
-    const { routerEngine } = service_context;
-    if (!routerEngine) {
-      throw new Error(`RouterEngine has not been registered`);
-    }
-
     return {
       user_id: undefined,
-      service_context: service_context as RouterServiceContext
+      service_context: service_context
     };
   };
 

@@ -18,7 +18,10 @@ export function registerMigrationAction(program: Command) {
     .argument('<direction>', 'Migration direction. `up` or `down`')
     .action(async (direction: migrations.Direction, options) => {
       const config = await utils.loadConfig(extractRunnerOptions(options));
-      const serviceContext = new system.ServiceContextContainer(config);
+      const serviceContext = new system.ServiceContextContainer({
+        serviceMode: system.ServiceContextMode.MIGRATION,
+        configuration: config
+      });
 
       // Register modules in order to allow custom module migrations
       const moduleManager = container.getImplementation(modules.ModuleManager);

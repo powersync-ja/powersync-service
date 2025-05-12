@@ -13,6 +13,7 @@
     "build": "tsc -b"
   },
   "dependencies": {
+    "dedent": "^1.6.0",
     "ts-codec": "^1.3.0",
     "uri-js": "^4.4.1"
   }

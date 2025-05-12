@@ -253,6 +253,22 @@ export enum ErrorCode {
    */
   PSYNC_S1344 = 'PSYNC_S1344',
 
+  /**
+   * Failed to read MongoDB Change Stream due to a timeout.
+   *
+   * This may happen if there is a significant delay on the source database in reading the change stream.
+   *
+   * If this is not resolved after retries, replication may need to be restarted from scratch.
+   */
+  PSYNC_S1345 = 'PSYNC_S1345',
+
+  /**
+   * Failed to read MongoDB Change Stream.
+   *
+   * See the error cause for more details.
+   */
+  PSYNC_S1346 = 'PSYNC_S1346',
+
   // ## PSYNC_S14xx: MongoDB storage replication issues
 
   /**
@@ -281,6 +297,13 @@ export enum ErrorCode {
    */
   PSYNC_S2003 = 'PSYNC_S2003',
 
+  /**
+   * 415 unsupported media type.
+   *
+   * This code always indicates an issue with the client.
+   */
+  PSYNC_S2004 = 'PSYNC_S2004',
+
   // ## PSYNC_S21xx: Auth errors originating on the client.
   //
   // This does not include auth configuration errors on the service.
@@ -290,7 +313,45 @@ export enum ErrorCode {
    */
   PSYNC_S2101 = 'PSYNC_S2101',
 
+  /**
+   * Could not verify the auth token signature.
+   *
+   * Typical causes include:
+   * 1. Token kid is not found in the keystore.
+   * 2. Signature does not match the kid in the keystore.
+   */
+  PSYNC_S2102 = 'PSYNC_S2102',
+
+  /**
+   * Token has expired. Check the expiry date on the token.
+   */
+  PSYNC_S2103 = 'PSYNC_S2103',
+
+  /**
+   * Token expiration period is too long. Issue shorter-lived tokens.
+   */
+  PSYNC_S2104 = 'PSYNC_S2104',
+
+  /**
+   * Token audience does not match expected values.
+   *
+   * Check the aud value on the token, compared to the audience values allowed in the service config.
+   */
+  PSYNC_S2105 = 'PSYNC_S2105',
+
+  /**
+   * No token provided. An auth token is required for every request.
+   *
+   * The Auhtorization header must start with "Token" or "Bearer", followed by the JWT.
+   */
+  PSYNC_S2106 = 'PSYNC_S2106',
+
   // ## PSYNC_S22xx: Auth integration errors
+
+  /**
+   * Generic auth configuration error. See the message for details.
+   */
+  PSYNC_S2201 = 'PSYNC_S2201',
 
   /**
    * IPv6 support is not enabled for the JWKS URI.
@@ -305,6 +366,11 @@ export enum ErrorCode {
    * Make sure to use a publically-accessible JWKS URI.
    */
   PSYNC_S2203 = 'PSYNC_S2203',
+
+  /**
+   * JWKS request failed.
+   */
+  PSYNC_S2204 = 'PSYNC_S2204',
 
   // ## PSYNC_S23xx: Sync API errors
 

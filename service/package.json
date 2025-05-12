@@ -1,6 +1,6 @@
 {
   "name": "@powersync/service-image",
-  "version": "1.11.2",
+  "version": "1.11.3",
   "private": true,
   "license": "FSL-1.1-Apache-2.0",
   "type": "module",
@@ -10,7 +10,6 @@
     "clean": "rm -rf ./lib && tsc -b --clean"
   },
   "dependencies": {
-    "@fastify/cors": "8.4.1",
     "@powersync/service-core": "workspace:*",
     "@powersync/lib-services-framework": "workspace:*",
     "@powersync/service-module-postgres": "workspace:*",
@@ -19,8 +18,8 @@
     "@powersync/service-module-mongodb-storage": "workspace:*",
     "@powersync/service-module-mysql": "workspace:*",
     "@powersync/service-rsocket-router": "workspace:*",
-    "@sentry/node": "^8.9.2",
-    "fastify": "4.23.2"
+    "@powersync/service-module-core": "workspace:*",
+    "@sentry/node": "^8.9.2"
   },
   "devDependencies": {
     "@sentry/types": "^8.9.2",

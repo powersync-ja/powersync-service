@@ -47,7 +47,7 @@ export function makeTestTable(name: string, replicaIdColumns?: string[] | undefi
 }
 
 export function getBatchData(
-  batch: utils.SyncBucketData[] | storage.SyncBucketDataBatch[] | storage.SyncBucketDataBatch
+  batch: utils.SyncBucketData[] | storage.SyncBucketDataChunk[] | storage.SyncBucketDataChunk
 ) {
   const first = getFirst(batch);
   if (first == null) {
@@ -64,7 +64,7 @@ export function getBatchData(
 }
 
 export function getBatchMeta(
-  batch: utils.SyncBucketData[] | storage.SyncBucketDataBatch[] | storage.SyncBucketDataBatch
+  batch: utils.SyncBucketData[] | storage.SyncBucketDataChunk[] | storage.SyncBucketDataChunk
 ) {
   const first = getFirst(batch);
   if (first == null) {
@@ -78,17 +78,17 @@ export function getBatchMeta(
 }
 
 function getFirst(
-  batch: utils.SyncBucketData[] | storage.SyncBucketDataBatch[] | storage.SyncBucketDataBatch
+  batch: utils.SyncBucketData[] | storage.SyncBucketDataChunk[] | storage.SyncBucketDataChunk
 ): utils.SyncBucketData | null {
   if (!Array.isArray(batch)) {
-    return batch.batch;
+    return batch.chunkData;
   }
   if (batch.length == 0) {
     return null;
   }
   let first = batch[0];
-  if ((first as storage.SyncBucketDataBatch).batch != null) {
-    return (first as storage.SyncBucketDataBatch).batch;
+  if ((first as storage.SyncBucketDataChunk).chunkData != null) {
+    return (first as storage.SyncBucketDataChunk).chunkData;
   } else {
     return first as utils.SyncBucketData;
   }

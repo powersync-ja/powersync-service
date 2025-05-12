@@ -161,11 +161,11 @@ export class WalStreamTestContext implements AsyncDisposable {
       const batch = this.storage!.getBucketDataBatch(checkpoint, map);
 
       const batches = await test_utils.fromAsync(batch);
-      data = data.concat(batches[0]?.batch.data ?? []);
-      if (batches.length == 0 || !batches[0]!.batch.has_more) {
+      data = data.concat(batches[0]?.chunkData.data ?? []);
+      if (batches.length == 0 || !batches[0]!.chunkData.has_more) {
         break;
       }
-      map.set(bucket, BigInt(batches[0]!.batch.next_after));
+      map.set(bucket, BigInt(batches[0]!.chunkData.next_after));
     }
     return data;
   }
@@ -182,6 +182,6 @@ export class WalStreamTestContext implements AsyncDisposable {
     const map = new Map<string, InternalOpId>([[bucket, start]]);
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
     const batches = await test_utils.fromAsync(batch);
-    return batches[0]?.batch.data ?? [];
+    return batches[0]?.chunkData.data ?? [];
   }
 }
