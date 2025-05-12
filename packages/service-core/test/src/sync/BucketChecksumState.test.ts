@@ -71,6 +71,7 @@ bucket_definitions:
       writeCheckpoint: null,
       update: CHECKPOINT_INVALIDATE_ALL
     }))!;
+    line.advance();
     expect(line.checkpointLine).toEqual({
       checkpoint: {
         buckets: [{ bucket: 'global[]', checksum: 1, count: 1, priority: 3 }],
@@ -105,6 +106,7 @@ bucket_definitions:
         invalidateParameterBuckets: false
       }
     }))!;
+    line2.advance();
     expect(line2.checkpointLine).toEqual({
       checkpoint_diff: {
         removed_buckets: [],
@@ -138,6 +140,7 @@ bucket_definitions:
       writeCheckpoint: null,
       update: CHECKPOINT_INVALIDATE_ALL
     }))!;
+    line.advance();
     expect(line.checkpointLine).toEqual({
       checkpoint: {
         buckets: [{ bucket: 'global[]', checksum: 1, count: 1, priority: 3 }],
@@ -242,6 +245,7 @@ bucket_definitions:
       writeCheckpoint: null,
       update: CHECKPOINT_INVALIDATE_ALL
     }))!;
+    line.advance();
     expect(line.checkpointLine).toEqual({
       checkpoint: {
         buckets: [{ bucket: 'global[]', checksum: 1, count: 1, priority: 3 }],
@@ -384,6 +388,7 @@ bucket_definitions:
       writeCheckpoint: null,
       update: CHECKPOINT_INVALIDATE_ALL
     }))!;
+    line.advance();
     expect(line.checkpointLine).toEqual({
       checkpoint: {
         buckets: [
@@ -429,6 +434,7 @@ bucket_definitions:
         updatedDataBuckets: new Set(['global[1]'])
       }
     }))!;
+    line2.advance();
     expect(line2.checkpointLine).toEqual({
       checkpoint_diff: {
         removed_buckets: [],
@@ -512,6 +518,7 @@ bucket_definitions:
         priority: 3
       }
     ]);
+    line.advance();
     // This is the bucket data to be fetched
     expect(line.getFilteredBucketPositions()).toEqual(
       new Map([
@@ -544,6 +551,7 @@ bucket_definitions:
         invalidateParameterBuckets: false
       }
     }))!;
+    line2.advance();
     expect(line2.checkpointLine).toEqual({
       checkpoint_diff: {
         removed_buckets: [],

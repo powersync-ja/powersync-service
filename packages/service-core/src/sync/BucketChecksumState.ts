@@ -265,6 +265,9 @@ export class BucketChecksumState {
       },
 
       getFilteredBucketPositions: (buckets?: BucketDescription[]): Map<string, util.InternalOpId> => {
+        if (!hasAdvanced) {
+          throw new ServiceAssertionError('Call line.advance() before getFilteredBucketPositions()');
+        }
         buckets ??= bucketsToFetch;
         const filtered = new Map<string, util.InternalOpId>();
 
