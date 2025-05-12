@@ -22,10 +22,12 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         client_id: params.client_id,
         user_agent: context.user_agent
       };
+      let closeReason: string | undefined = undefined;
 
       // Create our own controller that we can abort directly
       const controller = new AbortController();
       upstreamSignal.addEventListener('abort', () => {
+        closeReason ??= 'client closing stream';
         controller.abort();
       });
       if (upstreamSignal.aborted) {
@@ -74,6 +76,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       const syncRules = bucketStorage.getParsedSyncRules(routerEngine.getAPI().getParseSyncRulesOptions());
 
       const removeStopHandler = routerEngine.addStopHandler(() => {
+        closeReason ??= 'process shutdown';
         controller.abort();
       });
 
@@ -139,6 +142,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
             });
           }
         }
+        closeReason ??= 'service closing stream';
       } catch (ex) {
         // Convert to our standard form before responding.
         // This ensures the error can be serialized.
@@ -149,7 +153,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         responder.onComplete();
         removeStopHandler();
         disposer();
-        logger.info(`Sync stream complete`, {
+        logger.info(`Sync stream complete due to ${closeReason ?? 'unknown'}`, {
           operations_synced: tracker.operationsSynced,
           data_synced_bytes: tracker.dataSyncedBytes
         });
