@@ -1,4 +1,9 @@
-import { ErrorCode, LookupOptions, makeHostnameLookupFunction, ServiceError } from '@powersync/lib-services-framework';
+import {
+  ErrorCode,
+  LookupOptions,
+  makeMultiHostnameLookupFunction,
+  ServiceError
+} from '@powersync/lib-services-framework';
 import * as t from 'ts-codec';
 import ConnectionURI from 'mongodb-connection-string-url';
 import { LookupFunction } from 'node:net';
@@ -68,7 +73,7 @@ export function normalizeMongoConfig(options: BaseMongoConfigDecoded): Normalize
   const lookupOptions: LookupOptions = {
     reject_ip_ranges: options.reject_ip_ranges ?? []
   };
-  const lookup = makeHostnameLookupFunction(uri.hosts[0] ?? '', lookupOptions);
+  const lookup = makeMultiHostnameLookupFunction(uri.hosts, lookupOptions);
 
   return {
     uri: uri.toString(),

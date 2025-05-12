@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { normalizeMongoConfig } from '../../src/types/types.js';
+import { LookupAddress } from 'node:dns';
+import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 
 describe('config', () => {
   test('Should normalize a simple URI', () => {
@@ -80,6 +82,68 @@ describe('config', () => {
     expect(normalized.database).equals('powersync_test');
     expect(normalized.username).equals('user2');
     expect(normalized.password).equals('pass2');
+  });
+
+  test('Should make a lookup function for a single IP host', async () => {
+    let err: ServiceError | undefined;
+    try {
+      normalizeMongoConfig({
+        type: 'mongodb',
+        uri: 'mongodb://127.0.0.1/powersync_test',
+        reject_ip_ranges: ['127.0.0.1/0']
+      });
+    } catch (e) {
+      err = e as ServiceError;
+    }
+
+    expect(err?.toJSON().code).toEqual(ErrorCode.PSYNC_S2203);
+  });
+
+  test('Should make a lookup function for a single hostname', async () => {
+    const lookup = normalizeMongoConfig({
+      type: 'mongodb',
+      uri: 'mongodb://host/powersync_test',
+      reject_ip_ranges: ['host']
+    }).lookup;
+
+    const result = await new Promise((resolve, reject) => {
+      lookup!('host', {}, (e, address) => {
+        resolve(e);
+      });
+    });
+
+    expect(result instanceof Error).toBe(true);
+  });
+
+  test('Should make a lookup function for multiple IP hosts', async () => {
+    let err: ServiceError | undefined;
+    try {
+      normalizeMongoConfig({
+        type: 'mongodb',
+        uri: 'mongodb://127.0.0.1,127.0.0.2/powersync_test',
+        reject_ip_ranges: ['127.0.0.1/0']
+      });
+    } catch (e) {
+      err = e as ServiceError;
+    }
+
+    expect(err?.toJSON().code).toEqual(ErrorCode.PSYNC_S2203);
+  });
+
+  test('Should make a lookup function for multiple hosts', async () => {
+    const lookup = normalizeMongoConfig({
+      type: 'mongodb',
+      uri: 'mongodb://host1,host2/powersync_test',
+      reject_ip_ranges: ['host1']
+    }).lookup;
+
+    const result = await new Promise((resolve, reject) => {
+      lookup!('host1', {}, (e, address) => {
+        resolve(e);
+      });
+    });
+
+    expect(result instanceof Error).toBe(true);
   });
 
   describe('errors', () => {

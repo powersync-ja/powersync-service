@@ -10,6 +10,34 @@ export interface LookupOptions {
 }
 
 /**
+ * Generate a custom DNS lookup function for multiple hosts, that rejects specific IP ranges.
+ *
+ * If one of the hostnames is an IP, this synchronously validates it.
+ *
+ * @returns a function to use as the `lookup` option in `net.connect`.
+ */
+export function makeMultiHostnameLookupFunction(
+  hostnames: string[],
+  lookupOptions: LookupOptions
+): net.LookupFunction | undefined {
+  const lookups = hostnames.reduce<Record<string, net.LookupFunction>>((acc, h) => {
+    const lookup = makeHostnameLookupFunction(h, lookupOptions);
+
+    if (lookup) {
+      acc[h] = lookup;
+    }
+
+    return acc;
+  }, {});
+
+  return (hostname, options, callback) => {
+    const lookup = lookups[hostname];
+
+    return lookup?.(hostname, options, callback);
+  };
+}
+
+/**
  * Generate a custom DNS lookup function, that rejects specific IP ranges.
  *
  * If hostname is an IP, this synchronously validates it.
