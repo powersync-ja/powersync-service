@@ -77,11 +77,6 @@ export async function* streamResponse(
   }
 }
 
-export type BucketSyncState = {
-  description?: BucketDescription; // Undefined if the bucket has not yet been resolved by us.
-  start_op_id: util.InternalOpId;
-};
-
 async function* streamResponseInner(
   syncContext: SyncContext,
   bucketStorage: storage.SyncRulesBucketStorage,
@@ -151,8 +146,9 @@ async function* streamResponseInner(
 
       const { checkpointLine, bucketsToFetch } = line;
 
-      yield checkpointLine;
+      // Since yielding can block, we update the state just before yielding the line.
       line.advance();
+      yield checkpointLine;
 
       // Start syncing data for buckets up to the checkpoint. As soon as we have completed at least one priority and
       // at least 1000 operations, we also start listening for new checkpoints concurrently. When a new checkpoint comes
