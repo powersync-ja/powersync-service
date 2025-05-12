@@ -25,6 +25,8 @@ export const syncStreamed = routeDefinition({
     const headers = payload.request.headers;
     const userAgent = headers['x-user-agent'] ?? headers['user-agent'];
     const clientId = payload.params.client_id;
+    const streamStart = Date.now();
+
     logger.defaultMeta = {
       ...logger.defaultMeta,
       user_agent: userAgent,
@@ -118,8 +120,10 @@ export const syncStreamed = routeDefinition({
           }
           controller.abort();
           metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
-          logger.info(`Sync stream complete due to ${closeReason ?? 'unknown'}`, {
-            ...tracker.getLogMeta()
+          logger.info(`Sync stream complete`, {
+            ...tracker.getLogMeta(),
+            stream_ms: Date.now() - streamStart,
+            close_reason: closeReason ?? 'unknown'
           });
         }
       });

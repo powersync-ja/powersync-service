@@ -22,6 +22,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         client_id: params.client_id,
         user_agent: context.user_agent
       };
+      const streamStart = Date.now();
       let closeReason: string | undefined = undefined;
 
       // Create our own controller that we can abort directly
@@ -153,8 +154,10 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         responder.onComplete();
         removeStopHandler();
         disposer();
-        logger.info(`Sync stream complete due to ${closeReason ?? 'unknown'}`, {
-          ...tracker.getLogMeta()
+        logger.info(`Sync stream complete`, {
+          ...tracker.getLogMeta(),
+          stream_ms: Date.now() - streamStart,
+          close_reason: closeReason ?? 'unknown'
         });
         metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
       }
