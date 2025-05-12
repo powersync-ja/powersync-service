@@ -23,6 +23,10 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         user_agent: context.user_agent
       };
       const streamStart = Date.now();
+
+      // Best effort guess on why the stream was closed.
+      // We use the `??=` operator everywhere, so that we catch the first relevant
+      // event, which is usually the most specific.
       let closeReason: string | undefined = undefined;
 
       // Create our own controller that we can abort directly
@@ -149,6 +153,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         // This ensures the error can be serialized.
         const error = new errors.InternalServerError(ex);
         logger.error('Sync stream error', error);
+        closeReason ??= 'stream error';
         responder.onError(error);
       } finally {
         responder.onComplete();

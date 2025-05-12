@@ -81,6 +81,9 @@ export const syncStreamed = routeDefinition({
         { objectMode: false, highWaterMark: 16 * 1024 }
       );
 
+      // Best effort guess on why the stream was closed.
+      // We use the `??=` operator everywhere, so that we catch the first relevant
+      // event, which is usually the most specific.
       let closeReason: string | undefined = undefined;
 
       const deregister = routerEngine.addStopHandler(() => {
