@@ -8,7 +8,7 @@ import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
 import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
-import { BucketChecksumState } from './BucketChecksumState.js';
+import { BucketChecksumState, CheckpointLine } from './BucketChecksumState.js';
 import { mergeAsyncIterables } from '../streams/streams-index.js';
 import { acquireSemaphoreAbortable, settledPromise, tokenStream, TokenStreamOptions } from './util.js';
 import { SyncContext } from './SyncContext.js';
@@ -81,11 +81,6 @@ export async function* streamResponse(
   }
 }
 
-export type BucketSyncState = {
-  description?: BucketDescription; // Undefined if the bucket has not yet been resolved by us.
-  start_op_id: util.InternalOpId;
-};
-
 async function* streamResponseInner(
   syncContext: SyncContext,
   bucketStorage: storage.SyncRulesBucketStorage,
@@ -117,16 +112,29 @@ async function* streamResponseInner(
   });
   const newCheckpoints = stream[Symbol.asyncIterator]();
 
+  type CheckpointAndLine = {
+    checkpoint: bigint;
+    line: CheckpointLine | null;
+  };
+
+  async function waitForNewCheckpointLine(): Promise<IteratorResult<CheckpointAndLine>> {
+    const next = await newCheckpoints.next();
+    if (next.done) {
+      return { done: true, value: undefined };
+    }
+
+    const line = await checksumState.buildNextCheckpointLine(next.value);
+    return { done: false, value: { checkpoint: next.value.base.checkpoint, line } };
+  }
+
   try {
-    let nextCheckpointPromise:
-      | Promise<PromiseSettledResult<IteratorResult<storage.StorageCheckpointUpdate>>>
-      | undefined;
+    let nextCheckpointPromise: Promise<PromiseSettledResult<IteratorResult<CheckpointAndLine>>> | undefined;
 
     do {
       if (!nextCheckpointPromise) {
         // Wrap in a settledPromise, so that abort errors after the parent stopped iterating
         // does not result in uncaught errors.
-        nextCheckpointPromise = settledPromise(newCheckpoints.next());
+        nextCheckpointPromise = settledPromise(waitForNewCheckpointLine());
       }
       const next = await nextCheckpointPromise;
       nextCheckpointPromise = undefined;
@@ -136,7 +144,7 @@ async function* streamResponseInner(
       if (next.value.done) {
         break;
       }
-      const line = await checksumState.buildNextCheckpointLine(next.value.value);
+      const line = next.value.value.line;
       if (line == null) {
         // No update to sync
         continue;
@@ -144,7 +152,10 @@ async function* streamResponseInner(
 
       const { checkpointLine, bucketsToFetch } = line;
 
+      // Since yielding can block, we update the state just before yielding the line.
+      line.advance();
       yield checkpointLine;
+
       // Start syncing data for buckets up to the checkpoint. As soon as we have completed at least one priority and
       // at least 1000 operations, we also start listening for new checkpoints concurrently. When a new checkpoint comes
       // in while we're still busy syncing data for lower priorities, interrupt the current operation and start syncing
@@ -170,15 +181,24 @@ async function* streamResponseInner(
       function maybeRaceForNewCheckpoint() {
         if (syncedOperations >= 1000 && nextCheckpointPromise === undefined) {
           nextCheckpointPromise = (async () => {
-            const next = await settledPromise(newCheckpoints.next());
-            if (next.status == 'rejected') {
-              abortCheckpointController.abort();
-            } else if (!next.value.done) {
-              // Stop the running bucketDataInBatches() iterations, making the main flow reach the new checkpoint.
-              abortCheckpointController.abort();
-            }
+            while (true) {
+              const next = await settledPromise(waitForNewCheckpointLine());
+              if (next.status == 'rejected') {
+                abortCheckpointController.abort();
+              } else if (!next.value.done) {
+                if (next.value.value.line == null) {
+                  // There's a new checkpoint that doesn't affect this sync stream. Keep listening, but don't
+                  // interrupt this batch.
+                  continue;
+                }
 
-            return next;
+                // A new sync line can be emitted. Stop running the bucketDataInBatches() iterations, making the
+                // main flow reach the new checkpoint.
+                abortCheckpointController.abort();
+              }
+
+              return next;
+            }
           })();
         }
       }
@@ -186,14 +206,7 @@ async function* streamResponseInner(
       function markOperationsSent(stats: OperationsSentStats) {
         syncedOperations += stats.total;
         tracker.addOperationsSynced(stats);
-        // Disable interrupting checkpoints for now.
-        // There is a bug with interrupting checkpoints where:
-        // 1. User is in the middle of syncing a large batch of data (for example initial sync).
-        // 2. A new checkpoint comes in, which interrupts the batch.
-        // 3. However, the new checkpoint does not contain any new data for this connection, so nothing further is synced.
-        // This then causes the client to wait indefinitely for the remaining data or checkpoint_complete message. That is
-        // only resolved when a new checkpoint comes in that does have data for this connection, or the connection is restarted.
-        // maybeRaceForNewCheckpoint();
+        maybeRaceForNewCheckpoint();
       }
 
       // This incrementally updates dataBuckets with each individual bucket position.
@@ -207,9 +220,9 @@ async function* streamResponseInner(
         yield* bucketDataInBatches({
           syncContext: syncContext,
           bucketStorage: bucketStorage,
-          checkpoint: next.value.value.base.checkpoint,
+          checkpoint: next.value.value.checkpoint,
           bucketsToFetch: buckets,
-          checksumState,
+          checkpointLine: line,
           raw_data,
           binary_data,
           onRowsSent: markOperationsSent,
@@ -236,9 +249,10 @@ interface BucketDataRequest {
   syncContext: SyncContext;
   bucketStorage: storage.SyncRulesBucketStorage;
   checkpoint: util.InternalOpId;
+  /** Contains current bucket state. Modified by the request as data is sent. */
+  checkpointLine: CheckpointLine;
+  /** Subset of checkpointLine.bucketsToFetch, filtered by priority. */
   bucketsToFetch: BucketDescription[];
-  /** Contains current bucket state. Modified by the request as data is sent.  */
-  checksumState: BucketChecksumState;
   raw_data: boolean | undefined;
   binary_data: boolean | undefined;
   /** Signals that the connection was aborted and that streaming should stop ASAP. */
@@ -300,7 +314,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
     bucketStorage: storage,
     checkpoint,
     bucketsToFetch,
-    checksumState,
+    checkpointLine,
     raw_data,
     binary_data,
     abort_connection,
@@ -331,7 +345,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
     }
     // Optimization: Only fetch buckets for which the checksums have changed since the last checkpoint
     // For the first batch, this will be all buckets.
-    const filteredBuckets = checksumState.getFilteredBucketPositions(bucketsToFetch);
+    const filteredBuckets = checkpointLine.getFilteredBucketPositions(bucketsToFetch);
     const dataBatches = storage.getBucketDataBatch(checkpoint, filteredBuckets);
 
     let has_more = false;
@@ -380,7 +394,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
       }
       onRowsSent(statsForBatch(r));
 
-      checksumState.updateBucketPosition({ bucket: r.bucket, nextAfter: BigInt(r.next_after), hasMore: r.has_more });
+      checkpointLine.updateBucketPosition({ bucket: r.bucket, nextAfter: BigInt(r.next_after), hasMore: r.has_more });
 
       // Check if syncing bucket data is supposed to stop before fetching more data
       // from storage.

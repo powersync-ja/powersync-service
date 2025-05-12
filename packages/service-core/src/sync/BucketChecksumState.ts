@@ -12,7 +12,6 @@ import {
 } from '@powersync/lib-services-framework';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { BucketParameterQuerier } from '@powersync/service-sync-rules/src/BucketParameterQuerier.js';
-import { BucketSyncState } from './sync.js';
 import { SyncContext } from './SyncContext.js';
 import { getIntersection, hasIntersection } from './util.js';
 
@@ -24,6 +23,10 @@ export interface BucketChecksumStateOptions {
   logger?: Logger;
   initialBucketPositions?: { name: string; after: util.InternalOpId }[];
 }
+
+type BucketSyncState = {
+  start_op_id: util.InternalOpId;
+};
 
 /**
  * Represents the state of the checksums and data for a specific connection.
@@ -37,8 +40,10 @@ export class BucketChecksumState {
   /**
    * Bucket state of bucket id -> op_id.
    * This starts with the state from the client. May contain buckets that the user do not have access to (anymore).
+   *
+   * This is always updated in-place.
    */
-  public bucketDataPositions = new Map<string, BucketSyncState>();
+  public readonly bucketDataPositions = new Map<string, BucketSyncState>();
 
   /**
    * Last checksums sent to the client. We keep this to calculate checkpoint diffs.
@@ -74,6 +79,17 @@ export class BucketChecksumState {
     }
   }
 
+  /**
+   * Build a new checkpoint line for an underlying storage checkpoint update if any buckets have changed.
+   *
+   * This call is idempotent - no internal state is updated directly when this is called.
+   *
+   * When the checkpoint line is sent to the client, call `CheckpointLine.advance()` to update the internal state.
+   * A line may be safely discarded (not sent to the client) if `advance()` is not called.
+   *
+   * @param next The updated checkpoint
+   * @returns A {@link CheckpointLine} if any of the buckets watched by this connected was updated, or otherwise `null`.
+   */
   async buildNextCheckpointLine(next: storage.StorageCheckpointUpdate): Promise<CheckpointLine | null> {
     const { writeCheckpoint, base } = next;
     const user_id = this.parameterState.syncParams.user_id;
@@ -81,23 +97,15 @@ export class BucketChecksumState {
     const storage = this.bucketStorage;
 
     const update = await this.parameterState.getCheckpointUpdate(next);
-    if (update == null && this.lastWriteCheckpoint == writeCheckpoint) {
-      return null;
-    }
     const { buckets: allBuckets, updatedBuckets } = update;
 
-    let dataBucketsNew = new Map<string, BucketSyncState>();
-    for (let bucket of allBuckets) {
-      dataBucketsNew.set(bucket.bucket, {
-        description: bucket,
-        start_op_id: this.bucketDataPositions.get(bucket.bucket)?.start_op_id ?? 0n
-      });
-    }
-    this.bucketDataPositions = dataBucketsNew;
-    if (dataBucketsNew.size > this.context.maxBuckets) {
+    /** Set of all buckets in this checkpoint. */
+    const bucketDescriptionMap = new Map(allBuckets.map((b) => [b.bucket, b]));
+
+    if (bucketDescriptionMap.size > this.context.maxBuckets) {
       throw new ServiceError(
         ErrorCode.PSYNC_S2305,
-        `Too many buckets: ${dataBucketsNew.size} (limit of ${this.context.maxBuckets})`
+        `Too many buckets: ${bucketDescriptionMap.size} (limit of ${this.context.maxBuckets})`
       );
     }
 
@@ -111,7 +119,7 @@ export class BucketChecksumState {
       let checksumLookups: string[] = [];
 
       let newChecksums = new Map<string, util.BucketChecksum>();
-      for (let bucket of dataBucketsNew.keys()) {
+      for (let bucket of bucketDescriptionMap.keys()) {
         if (!updatedBuckets.has(bucket)) {
           const existing = this.lastChecksums.get(bucket);
           if (existing == null) {
@@ -134,7 +142,7 @@ export class BucketChecksumState {
       checksumMap = newChecksums;
     } else {
       // Re-check all buckets
-      const bucketList = [...dataBucketsNew.keys()];
+      const bucketList = [...bucketDescriptionMap.keys()];
       checksumMap = await storage.getChecksums(base.checkpoint, bucketList);
     }
 
@@ -142,6 +150,9 @@ export class BucketChecksumState {
     let bucketsToFetch: BucketDescription[];
 
     let checkpointLine: util.StreamingSyncCheckpointDiff | util.StreamingSyncCheckpoint;
+
+    // Log function that is deferred until the checkpoint line is sent to the client.
+    let deferredLog: () => void;
 
     if (this.lastChecksums) {
       // TODO: If updatedBuckets is present, we can use that to more efficiently calculate a diff,
@@ -171,27 +182,29 @@ export class BucketChecksumState {
 
       const updatedBucketDescriptions = diff.updatedBuckets.map((e) => ({
         ...e,
-        priority: this.bucketDataPositions.get(e.bucket)!.description!.priority
+        priority: bucketDescriptionMap.get(e.bucket)!.priority
       }));
       bucketsToFetch = [...generateBucketsToFetch].map((b) => {
         return {
           bucket: b,
-          priority: this.bucketDataPositions.get(b)!.description!.priority
+          priority: bucketDescriptionMap.get(b)!.priority
         };
       });
 
-      let message = `Updated checkpoint: ${base.checkpoint} | `;
-      message += `write: ${writeCheckpoint} | `;
-      message += `buckets: ${allBuckets.length} | `;
-      message += `updated: ${limitedBuckets(diff.updatedBuckets, 20)} | `;
-      message += `removed: ${limitedBuckets(diff.removedBuckets, 20)}`;
-      this.logger.info(message, {
-        checkpoint: base.checkpoint,
-        user_id: user_id,
-        buckets: allBuckets.length,
-        updated: diff.updatedBuckets.length,
-        removed: diff.removedBuckets.length
-      });
+      deferredLog = () => {
+        let message = `Updated checkpoint: ${base.checkpoint} | `;
+        message += `write: ${writeCheckpoint} | `;
+        message += `buckets: ${allBuckets.length} | `;
+        message += `updated: ${limitedBuckets(diff.updatedBuckets, 20)} | `;
+        message += `removed: ${limitedBuckets(diff.removedBuckets, 20)}`;
+        this.logger.info(message, {
+          checkpoint: base.checkpoint,
+          user_id: user_id,
+          buckets: allBuckets.length,
+          updated: diff.updatedBuckets.length,
+          removed: diff.removedBuckets.length
+        });
+      };
 
       checkpointLine = {
         checkpoint_diff: {
@@ -202,9 +215,11 @@ export class BucketChecksumState {
         }
       } satisfies util.StreamingSyncCheckpointDiff;
     } else {
-      let message = `New checkpoint: ${base.checkpoint} | write: ${writeCheckpoint} | `;
-      message += `buckets: ${allBuckets.length} ${limitedBuckets(allBuckets, 20)}`;
-      this.logger.info(message, { checkpoint: base.checkpoint, user_id: user_id, buckets: allBuckets.length });
+      deferredLog = () => {
+        let message = `New checkpoint: ${base.checkpoint} | write: ${writeCheckpoint} | `;
+        message += `buckets: ${allBuckets.length} ${limitedBuckets(allBuckets, 20)}`;
+        this.logger.info(message, { checkpoint: base.checkpoint, user_id: user_id, buckets: allBuckets.length });
+      };
       bucketsToFetch = allBuckets;
       checkpointLine = {
         checkpoint: {
@@ -212,53 +227,89 @@ export class BucketChecksumState {
           write_checkpoint: writeCheckpoint ? String(writeCheckpoint) : undefined,
           buckets: [...checksumMap.values()].map((e) => ({
             ...e,
-            priority: this.bucketDataPositions.get(e.bucket)!.description!.priority
+            priority: bucketDescriptionMap.get(e.bucket)!.priority
           }))
         }
       } satisfies util.StreamingSyncCheckpoint;
     }
 
-    this.lastChecksums = checksumMap;
-    this.lastWriteCheckpoint = writeCheckpoint;
-    this.pendingBucketDownloads = new Set(bucketsToFetch.map((b) => b.bucket));
+    const pendingBucketDownloads = new Set(bucketsToFetch.map((b) => b.bucket));
+
+    let hasAdvanced = false;
 
     return {
       checkpointLine,
-      bucketsToFetch
-    };
-  }
+      bucketsToFetch,
+      advance: () => {
+        hasAdvanced = true;
+        // bucketDataPositions must be updated in-place - it represents the current state of
+        // the connection, not of the checkpoint line.
+        // The following could happen:
+        // 1. A = buildCheckpointLine()
+        // 2. A.advance()
+        // 3. B = buildCheckpointLine()
+        // 4. A.updateBucketPosition()
+        // 5. B.advance()
+        // In that case, it is important that the updated bucket position for A takes effect
+        // for checkpoint B.
+        let bucketsToRemove: string[] = [];
+        for (let bucket of this.bucketDataPositions.keys()) {
+          if (!bucketDescriptionMap.has(bucket)) {
+            bucketsToRemove.push(bucket);
+          }
+        }
+        for (let bucket of bucketsToRemove) {
+          this.bucketDataPositions.delete(bucket);
+        }
+        for (let bucket of allBuckets) {
+          if (!this.bucketDataPositions.has(bucket.bucket)) {
+            // Bucket the client hasn't seen before - initialize with 0.
+            this.bucketDataPositions.set(bucket.bucket, { start_op_id: 0n });
+          }
+          // If the bucket position is already present, we keep the current position.
+        }
 
-  /**
-   * Get bucket positions to sync, given the list of buckets.
-   *
-   * @param bucketsToFetch List of buckets to fetch, typically from buildNextCheckpointLine, or a subset of that
-   * @returns
-   */
-  getFilteredBucketPositions(bucketsToFetch: BucketDescription[]): Map<string, util.InternalOpId> {
-    const filtered = new Map<string, util.InternalOpId>();
-    for (let bucket of bucketsToFetch) {
-      const state = this.bucketDataPositions.get(bucket.bucket);
-      if (state) {
-        filtered.set(bucket.bucket, state.start_op_id);
+        this.lastChecksums = checksumMap;
+        this.lastWriteCheckpoint = writeCheckpoint;
+        this.pendingBucketDownloads = pendingBucketDownloads;
+        deferredLog();
+      },
+
+      getFilteredBucketPositions: (buckets?: BucketDescription[]): Map<string, util.InternalOpId> => {
+        if (!hasAdvanced) {
+          throw new ServiceAssertionError('Call line.advance() before getFilteredBucketPositions()');
+        }
+        buckets ??= bucketsToFetch;
+        const filtered = new Map<string, util.InternalOpId>();
+
+        for (let bucket of buckets) {
+          const state = this.bucketDataPositions.get(bucket.bucket);
+          if (state) {
+            filtered.set(bucket.bucket, state.start_op_id);
+          }
+        }
+        return filtered;
+      },
+
+      updateBucketPosition: (options: { bucket: string; nextAfter: util.InternalOpId; hasMore: boolean }) => {
+        if (!hasAdvanced) {
+          throw new ServiceAssertionError('Call line.advance() before updateBucketPosition()');
+        }
+        const state = this.bucketDataPositions.get(options.bucket);
+        if (state) {
+          state.start_op_id = options.nextAfter;
+        } else {
+          // If we hit this, another checkpoint has removed the bucket in the meantime, meaning
+          // line.advance() has been called on it. In that case we don't need the bucket state anymore.
+          // It is generally not expected to happen, but we still cover the case.
+        }
+        if (!options.hasMore) {
+          // This specifically updates the per-checkpoint line. Completing a download for one line,
+          // does not remove it from the next line, since it could have new updates there.
+          pendingBucketDownloads.delete(options.bucket);
+        }
       }
-    }
-    return filtered;
-  }
-
-  /**
-   * Update the position of bucket data the client has.
-   *
-   * @param bucket the bucket name
-   * @param nextAfter sync operations >= this value in the next batch
-   */
-  updateBucketPosition(options: { bucket: string; nextAfter: util.InternalOpId; hasMore: boolean }) {
-    const state = this.bucketDataPositions.get(options.bucket);
-    if (state) {
-      state.start_op_id = options.nextAfter;
-    }
-    if (!options.hasMore) {
-      this.pendingBucketDownloads.delete(options.bucket);
-    }
+    };
   }
 }
 
@@ -427,6 +478,26 @@ export class BucketParameterState {
 export interface CheckpointLine {
   checkpointLine: util.StreamingSyncCheckpointDiff | util.StreamingSyncCheckpoint;
   bucketsToFetch: BucketDescription[];
+
+  /**
+   * Call when a checkpoint line is being sent to a client, to update the internal state.
+   */
+  advance: () => void;
+
+  /**
+   * Get bucket positions to sync, given the list of buckets.
+   *
+   * @param bucketsToFetch List of buckets to fetch - either this.bucketsToFetch, or a subset of it. Defaults to this.bucketsToFetch.
+   */
+  getFilteredBucketPositions(bucketsToFetch?: BucketDescription[]): Map<string, util.InternalOpId>;
+
+  /**
+   * Update the position of bucket data the client has, after it was sent to the client.
+   *
+   * @param bucket the bucket name
+   * @param nextAfter sync operations >= this value in the next batch
+   */
+  updateBucketPosition(options: { bucket: string; nextAfter: util.InternalOpId; hasMore: boolean }): void;
 }
 
 // Use a more specific type to simplify testing
