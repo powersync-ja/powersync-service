@@ -107,7 +107,7 @@ export interface SyncRulesBucketStorage
     checkpoint: util.InternalOpId,
     dataBuckets: Map<string, util.InternalOpId>,
     options?: BucketDataBatchOptions
-  ): AsyncIterable<SyncBucketDataBatch>;
+  ): AsyncIterable<SyncBucketDataChunk>;
 
   /**
    * Compute checksums for a given list of buckets.
@@ -223,8 +223,8 @@ export interface BucketDataBatchOptions {
   chunkLimitBytes?: number;
 }
 
-export interface SyncBucketDataBatch {
-  batch: util.SyncBucketData;
+export interface SyncBucketDataChunk {
+  chunkData: util.SyncBucketData;
   targetOp: util.InternalOpId | null;
 }
 

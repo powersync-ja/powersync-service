@@ -34,7 +34,7 @@ export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: Buc
   let cacheTimestamp = 0;
 
   const getMetrics = () => {
-    if (cachedRequest == null || Date.now() - cacheTimestamp > MINIMUM_INTERVAL) {
+    if (!cachedRequest || Date.now() - cacheTimestamp > MINIMUM_INTERVAL) {
       cachedRequest = storage.getStorageMetrics().catch((e) => {
         logger.error(`Failed to get storage metrics`, e);
         return null;

@@ -75,21 +75,21 @@ describe('JWT Auth', () => {
         defaultAudiences: ['other'],
         maxAge: '6m'
       })
-    ).rejects.toThrow('unexpected "aud" claim value');
+    ).rejects.toThrow('[PSYNC_S2105] Unexpected "aud" claim value: "tests"');
 
     await expect(
       store.verifyJwt(signedJwt, {
         defaultAudiences: [],
         maxAge: '6m'
       })
-    ).rejects.toThrow('unexpected "aud" claim value');
+    ).rejects.toThrow('[PSYNC_S2105] Unexpected "aud" claim value: "tests"');
 
     await expect(
       store.verifyJwt(signedJwt, {
         defaultAudiences: ['tests'],
         maxAge: '1m'
       })
-    ).rejects.toThrow('Token must expire in a maximum of');
+    ).rejects.toThrow('[PSYNC_S2104] Token must expire in a maximum of 60 seconds, got 300s');
 
     const signedJwt2 = await new jose.SignJWT({})
       .setProtectedHeader({ alg: 'HS256', kid: 'k1' })
@@ -104,7 +104,25 @@ describe('JWT Auth', () => {
         defaultAudiences: ['tests'],
         maxAge: '5m'
       })
-    ).rejects.toThrow('missing required "sub" claim');
+    ).rejects.toThrow('[PSYNC_S2101] JWT payload is missing a required claim "sub"');
+
+    // expired token
+    const d = Math.round(Date.now() / 1000);
+    const signedJwt3 = await new jose.SignJWT({})
+      .setProtectedHeader({ alg: 'HS256', kid: 'k1' })
+      .setSubject('f1')
+      .setIssuedAt(d - 500)
+      .setIssuer('tester')
+      .setAudience('tests')
+      .setExpirationTime(d - 400)
+      .sign(signKey);
+
+    await expect(
+      store.verifyJwt(signedJwt3, {
+        defaultAudiences: ['tests'],
+        maxAge: '5m'
+      })
+    ).rejects.toThrow('[PSYNC_S2103] JWT has expired');
   });
 
   test('Algorithm validation', async () => {
@@ -159,7 +177,7 @@ describe('JWT Auth', () => {
         maxAge: '6m'
       })
     ).rejects.toThrow(
-      'Could not find an appropriate key in the keystore. The key is missing or no key matched the token KID'
+      '[PSYNC_S2101] Could not find an appropriate key in the keystore. The key is missing or no key matched the token KID'
     );
 
     // Wrong kid
@@ -178,7 +196,7 @@ describe('JWT Auth', () => {
         maxAge: '6m'
       })
     ).rejects.toThrow(
-      'Could not find an appropriate key in the keystore. The key is missing or no key matched the token KID'
+      '[PSYNC_S2101] Could not find an appropriate key in the keystore. The key is missing or no key matched the token KID'
     );
 
     // No kid, matches sharedKey2
@@ -255,7 +273,7 @@ describe('JWT Auth', () => {
         defaultAudiences: ['tests'],
         maxAge: '6m'
       })
-    ).rejects.toThrow('unexpected "aud" claim value');
+    ).rejects.toThrow('[PSYNC_S2105] Unexpected "aud" claim value: "tests"');
 
     const signedJwt3 = await new jose.SignJWT({})
       .setProtectedHeader({ alg: 'HS256', kid: 'k1' })
@@ -290,7 +308,7 @@ describe('JWT Auth', () => {
         reject_ip_ranges: ['local']
       }
     });
-    await expect(invalid.getKeys()).rejects.toThrow('IPs in this range are not supported');
+    await expect(invalid.getKeys()).rejects.toThrow('[PSYNC_S2204] JWKS request failed');
 
     // IPs throw an error immediately
     expect(
@@ -345,7 +363,7 @@ describe('JWT Auth', () => {
     expect(key.kid).toEqual(publicKeyRSA.kid!);
 
     cached.addTimeForTests(301_000);
-    currentResponse = Promise.reject('refresh failed');
+    currentResponse = Promise.reject(new Error('refresh failed'));
 
     // Uses the promise, refreshes in the background
     let response = await cached.getKeys();
@@ -357,14 +375,14 @@ describe('JWT Auth', () => {
     response = await cached.getKeys();
     // Still have the cached key, but also have the error
     expect(response.keys[0].kid).toEqual(publicKeyRSA.kid!);
-    expect(response.errors[0].message).toMatch('Failed to fetch');
+    expect(response.errors[0].message).toMatch('[PSYNC_S2201] refresh failed');
 
     await cached.addTimeForTests(3601_000);
     response = await cached.getKeys();
 
     // Now the keys have expired, and the request still fails
     expect(response.keys).toEqual([]);
-    expect(response.errors[0].message).toMatch('Failed to fetch');
+    expect(response.errors[0].message).toMatch('[PSYNC_S2201] refresh failed');
 
     currentResponse = Promise.resolve({
       errors: [],

@@ -1,8 +1,8 @@
 import { deserialize } from 'bson';
 import * as http from 'http';
 
-import { errors, logger } from '@powersync/lib-services-framework';
-import { ReactiveSocketRouter, RSocketRequestMeta } from '@powersync/service-rsocket-router';
+import { ErrorCode, errors, logger } from '@powersync/lib-services-framework';
+import { ReactiveSocketRouter, RSocketRequestMeta, TypedBuffer } from '@powersync/service-rsocket-router';
 
 import { ServiceContext } from '../system/ServiceContext.js';
 import { generateContext, getTokenFromHeader } from './auth.js';
@@ -22,34 +22,31 @@ export function configureRSocket(router: ReactiveSocketRouter<Context>, options:
   const { route_generators = DEFAULT_SOCKET_ROUTES, server, service_context } = options;
 
   router.applyWebSocketEndpoints(server, {
-    contextProvider: async (data: Buffer) => {
-      const { token, user_agent } = RSocketContextMeta.decode(deserialize(data) as any);
+    contextProvider: async (data: TypedBuffer): Promise<Context & { token: string }> => {
+      const { token, user_agent } = RSocketContextMeta.decode(decodeTyped(data) as any);
 
       if (!token) {
-        throw new errors.AuthorizationError('No token provided');
+        throw new errors.AuthorizationError(ErrorCode.PSYNC_S2106, 'No token provided');
       }
 
       try {
         const extracted_token = getTokenFromHeader(token);
         if (extracted_token != null) {
-          const { context, errors: token_errors } = await generateContext(options.service_context, extracted_token);
+          const { context, tokenError } = await generateContext(options.service_context, extracted_token);
           if (context?.token_payload == null) {
-            throw new errors.AuthorizationError(token_errors ?? 'Authentication required');
-          }
-
-          if (!service_context.routerEngine) {
-            throw new Error(`RouterEngine has not been registered`);
+            throw new errors.AuthorizationError(ErrorCode.PSYNC_S2106, 'Authentication required');
           }
 
           return {
             token,
             user_agent,
             ...context,
-            token_errors: token_errors,
+            token_error: tokenError,
             service_context: service_context as RouterServiceContext
           };
         } else {
-          throw new errors.AuthorizationError('No token provided');
+          // Token field is present, but did not contain a token.
+          throw new errors.AuthorizationError(ErrorCode.PSYNC_S2106, 'No valid token provided');
         }
       } catch (ex) {
         logger.error(ex);
@@ -57,9 +54,21 @@ export function configureRSocket(router: ReactiveSocketRouter<Context>, options:
       }
     },
     endpoints: route_generators.map((generator) => generator(router)),
-    metaDecoder: async (meta: Buffer) => {
-      return RSocketRequestMeta.decode(deserialize(meta) as any);
+    metaDecoder: async (meta: TypedBuffer) => {
+      return RSocketRequestMeta.decode(decodeTyped(meta) as any);
     },
-    payloadDecoder: async (rawData?: Buffer) => rawData && deserialize(rawData)
+    payloadDecoder: async (rawData?: TypedBuffer) => rawData && decodeTyped(rawData)
   });
+}
+
+function decodeTyped(data: TypedBuffer) {
+  switch (data.mimeType) {
+    case 'application/json':
+      const decoder = new TextDecoder();
+      return JSON.parse(decoder.decode(data.contents));
+    case 'application/bson':
+      return deserialize(data.contents);
+  }
+
+  throw new errors.UnsupportedMediaType(`Expected JSON or BSON request, got ${data.mimeType}`);
 }

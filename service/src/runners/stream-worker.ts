@@ -20,17 +20,13 @@ export const startStreamRunner = async (runnerConfig: core.utils.RunnerConfig) =
   logBooting('Replication Container');
 
   const config = await core.utils.loadConfig(runnerConfig);
-  core.utils.setTags(config.metadata);
-
   // Self-hosted version allows for automatic migrations
-  const serviceContext = new core.system.ServiceContextContainer(config);
+  const serviceContext = new core.system.ServiceContextContainer({
+    serviceMode: core.system.ServiceContextMode.SYNC,
+    configuration: config
+  });
 
   registerReplicationServices(serviceContext);
-
-  await core.metrics.registerMetrics({
-    service_context: serviceContext,
-    modes: [core.metrics.MetricModes.REPLICATION, core.metrics.MetricModes.STORAGE]
-  });
 
   const moduleManager = container.getImplementation(core.modules.ModuleManager);
   await moduleManager.initialize(serviceContext);

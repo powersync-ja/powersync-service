@@ -18,7 +18,7 @@ export const writeCheckpoint = routeDefinition({
     const {
       context: { service_context }
     } = payload;
-    const apiHandler = service_context.routerEngine!.getAPI();
+    const apiHandler = service_context.routerEngine.getAPI();
 
     // This old API needs a persisted checkpoint id.
     // Since we don't use LSNs anymore, the only way to get that is to wait.
@@ -54,7 +54,7 @@ export const writeCheckpoint2 = routeDefinition({
   handler: async (payload) => {
     const { user_id, service_context } = payload.context;
 
-    const apiHandler = service_context.routerEngine!.getAPI();
+    const apiHandler = service_context.routerEngine.getAPI();
 
     const { replicationHead, writeCheckpoint } = await util.createWriteCheckpoint({
       userId: user_id,

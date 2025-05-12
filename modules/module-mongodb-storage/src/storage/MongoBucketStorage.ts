@@ -306,7 +306,7 @@ export class MongoBucketStorage
   }
 
   async getStorageMetrics(): Promise<storage.StorageMetrics> {
-    const ignoreNotExiting = (e: unknown) => {
+    const ignoreNotExisting = (e: unknown) => {
       if (lib_mongo.isMongoServerError(e) && e.codeName == 'NamespaceNotFound') {
         // Collection doesn't exist - return 0
         return [{ storageStats: { size: 0 } }];
@@ -333,7 +333,7 @@ export class MongoBucketStorage
         }
       ])
       .toArray()
-      .catch(ignoreNotExiting);
+      .catch(ignoreNotExisting);
 
     const parameters_aggregate = await this.db.bucket_parameters
       .aggregate([
@@ -344,7 +344,7 @@ export class MongoBucketStorage
         }
       ])
       .toArray()
-      .catch(ignoreNotExiting);
+      .catch(ignoreNotExisting);
 
     const replication_aggregate = await this.db.current_data
       .aggregate([
@@ -355,7 +355,7 @@ export class MongoBucketStorage
         }
       ])
       .toArray()
-      .catch(ignoreNotExiting);
+      .catch(ignoreNotExisting);
 
     return {
       operations_size_bytes: Number(operations_aggregate[0].storageStats.size),

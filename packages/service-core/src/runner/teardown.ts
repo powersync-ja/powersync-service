@@ -14,7 +14,11 @@ export async function teardown(runnerConfig: utils.RunnerConfig) {
   try {
     logger.info(`Tearing down PowerSync instance...`);
     const config = await utils.loadConfig(runnerConfig);
-    const serviceContext = new system.ServiceContextContainer(config);
+    const serviceContext = new system.ServiceContextContainer({
+      serviceMode: system.ServiceContextMode.TEARDOWN,
+      configuration: config
+    });
+
     const moduleManager = container.getImplementation(modules.ModuleManager);
     await moduleManager.initialize(serviceContext);
     // This is mostly done to ensure that the storage is ready

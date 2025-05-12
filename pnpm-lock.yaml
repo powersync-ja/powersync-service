@@ -158,6 +158,27 @@ importers:
         specifier: ^3.0.5
         version: 3.0.5(@types/node@22.13.1)(yaml@2.5.0)
 
+  modules/module-core:
+    dependencies:
+      '@fastify/cors':
+        specifier: 8.4.1
+        version: 8.4.1
+      '@powersync/lib-services-framework':
+        specifier: workspace:*
+        version: link:../../libs/lib-services
+      '@powersync/service-core':
+        specifier: workspace:*
+        version: link:../../packages/service-core
+      '@powersync/service-rsocket-router':
+        specifier: workspace:*
+        version: link:../../packages/rsocket-router
+      '@powersync/service-types':
+        specifier: workspace:*
+        version: link:../../packages/types
+      fastify:
+        specifier: 4.23.2
+        version: 4.23.2
+
   modules/module-mongodb:
     dependencies:
       '@powersync/lib-service-mongodb':
@@ -458,6 +479,30 @@ importers:
         specifier: 1.0.0-alpha.3
         version: 1.0.0-alpha.3
 
+  packages/schema:
+    devDependencies:
+      '@powersync/service-module-mongodb':
+        specifier: workspace:*
+        version: link:../../modules/module-mongodb
+      '@powersync/service-module-mongodb-storage':
+        specifier: workspace:*
+        version: link:../../modules/module-mongodb-storage
+      '@powersync/service-module-mysql':
+        specifier: workspace:*
+        version: link:../../modules/module-mysql
+      '@powersync/service-module-postgres':
+        specifier: workspace:*
+        version: link:../../modules/module-postgres
+      '@powersync/service-module-postgres-storage':
+        specifier: workspace:*
+        version: link:../../modules/module-postgres-storage
+      '@powersync/service-types':
+        specifier: workspace:*
+        version: link:../types
+      ts-codec:
+        specifier: ^1.3.0
+        version: 1.3.0
+
   packages/service-core:
     dependencies:
       '@js-sdsl/ordered-set':
@@ -618,6 +663,9 @@ importers:
 
   packages/types:
     dependencies:
+      dedent:
+        specifier: ^1.6.0
+        version: 1.6.0
       ts-codec:
         specifier: ^1.3.0
         version: 1.3.0
@@ -627,15 +675,15 @@ importers:
 
   service:
     dependencies:
-      '@fastify/cors':
-        specifier: 8.4.1
-        version: 8.4.1
       '@powersync/lib-services-framework':
         specifier: workspace:*
         version: link:../libs/lib-services
       '@powersync/service-core':
         specifier: workspace:*
         version: link:../packages/service-core
+      '@powersync/service-module-core':
+        specifier: workspace:*
+        version: link:../modules/module-core
       '@powersync/service-module-mongodb':
         specifier: workspace:*
         version: link:../modules/module-mongodb
@@ -657,9 +705,6 @@ importers:
       '@sentry/node':
         specifier: ^8.9.2
         version: 8.17.0
-      fastify:
-        specifier: 4.23.2
-        version: 4.23.2
     devDependencies:
       '@sentry/types':
         specifier: ^8.9.2
@@ -2010,6 +2055,14 @@ packages:
       babel-plugin-macros:
         optional: true
 
+  dedent@1.6.0:
+    resolution: {integrity: sha512-F1Z+5UCFpmQUzJa11agbyPVMbpgT/qA3/SKyJ1jyBgm7dUcUEa8v9JwDkerSQXfakBwFljIxhOJqGkjUwZ9FSA==}
+    peerDependencies:
+      babel-plugin-macros: ^3.1.0
+    peerDependenciesMeta:
+      babel-plugin-macros:
+        optional: true
+
   deep-eql@5.0.2:
     resolution: {integrity: sha512-h5k/5U50IJJFpzfL6nO9jaaumfjO/f2NjK/oYB2Djzm4p9L+3T9qWpZqZ2hAbLPuuYq9wrU08WQyBTL5GbPk5Q==}
     engines: {node: '>=6'}
@@ -2856,6 +2909,7 @@ packages:
   node-domexception@1.0.0:
     resolution: {integrity: sha512-/jKZoMpw0F8GRwl4/eLROPA3cfcXtLApP0QzLmUT/HuPCZWyB7IY9ZrMeKw2O/nFIqPQB3PVM9aYm0F312AXDQ==}
     engines: {node: '>=10.5.0'}
+    deprecated: Use your platform's native DOMException instead
 
   node-fetch@3.3.2:
     resolution: {integrity: sha512-dRB78srN/l6gqWulah9SrxeYnxeddIG30+GOqK/9OlLVyLg3HPnr6SqOWTWOXKRwC2eGYCkZ59NNuSgvSrpgOA==}
@@ -5479,6 +5533,8 @@ snapshots:
       mimic-response: 3.1.0
 
   dedent@1.5.3: {}
+
+  dedent@1.6.0: {}
 
   deep-eql@5.0.2: {}
 

@@ -348,7 +348,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
 
     let has_more = false;
 
-    for await (let { batch: r, targetOp } of dataBatches) {
+    for await (let { chunkData: r, targetOp } of dataBatches) {
       // Abort in current batch if the connection is closed
       if (abort_connection.aborted) {
         return;

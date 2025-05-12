@@ -53,7 +53,7 @@ export const deploySyncRules = routeDefinition({
     const content = payload.params.content;
 
     try {
-      const apiHandler = service_context.routerEngine!.getAPI();
+      const apiHandler = service_context.routerEngine.getAPI();
       SqlSyncRules.fromYaml(payload.params.content, {
         ...apiHandler.getParseSyncRulesOptions(),
         // We don't do any schema-level validation at this point
@@ -94,7 +94,7 @@ export const validateSyncRules = routeDefinition({
   handler: async (payload) => {
     const content = payload.params.content;
     const { service_context } = payload.context;
-    const apiHandler = service_context.routerEngine!.getAPI();
+    const apiHandler = service_context.routerEngine.getAPI();
 
     const info = await debugSyncRules(apiHandler, content);
 
@@ -121,7 +121,7 @@ export const currentSyncRules = routeDefinition({
       });
     }
 
-    const apiHandler = service_context.routerEngine!.getAPI();
+    const apiHandler = service_context.routerEngine.getAPI();
     const info = await debugSyncRules(apiHandler, sync_rules.sync_rules_content);
     const next = await activeBucketStorage.getNextSyncRulesContent();
 
@@ -158,7 +158,7 @@ export const reprocessSyncRules = routeDefinition({
     const {
       storageEngine: { activeBucketStorage }
     } = payload.context.service_context;
-    const apiHandler = payload.context.service_context.routerEngine!.getAPI();
+    const apiHandler = payload.context.service_context.routerEngine.getAPI();
     const sync_rules = await activeBucketStorage.getActiveSyncRules(apiHandler.getParseSyncRulesOptions());
     if (sync_rules == null) {
       throw new errors.ServiceError({

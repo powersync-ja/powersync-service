@@ -1,9 +1,14 @@
+import { ServiceAssertionError } from '@powersync/service-errors';
 import _ from 'lodash';
 import { ErrorReporter } from './alerts/definitions.js';
 import { NoOpReporter } from './alerts/no-op-reporter.js';
 import { MigrationManager } from './migrations/MigrationManager.js';
-import { ProbeModule, TerminationHandler, createFSProbe, createTerminationHandler } from './signals/signals-index.js';
-import { ServiceAssertionError } from '@powersync/service-errors';
+import {
+  ProbeModule,
+  TerminationHandler,
+  createInMemoryProbe,
+  createTerminationHandler
+} from './signals/signals-index.js';
 
 export enum ContainerImplementation {
   REPORTER = 'reporter',
@@ -45,7 +50,7 @@ export type ServiceIdentifier<T = unknown> = string | symbol | Newable<T> | Abst
 
 const DEFAULT_GENERATORS: ContainerImplementationDefaultGenerators = {
   [ContainerImplementation.REPORTER]: () => NoOpReporter,
-  [ContainerImplementation.PROBES]: () => createFSProbe(),
+  [ContainerImplementation.PROBES]: () => createInMemoryProbe(),
   [ContainerImplementation.TERMINATION_HANDLER]: () => createTerminationHandler(),
   [ContainerImplementation.MIGRATION_MANAGER]: () => new MigrationManager()
 };

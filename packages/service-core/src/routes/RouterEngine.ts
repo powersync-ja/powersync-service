@@ -2,15 +2,8 @@ import { logger } from '@powersync/lib-services-framework';
 
 import * as api from '../api/api-index.js';
 
-import { ADMIN_ROUTES } from './endpoints/admin.js';
-import { CHECKPOINT_ROUTES } from './endpoints/checkpointing.js';
-import { PROBES_ROUTES } from './endpoints/probes.js';
-import { syncStreamReactive } from './endpoints/socket-route.js';
-import { SYNC_RULES_ROUTES } from './endpoints/sync-rules.js';
-import { SYNC_STREAM_ROUTES } from './endpoints/sync-stream.js';
 import { SocketRouteGenerator } from './router-socket.js';
 import { RouteDefinition } from './router.js';
-import { SyncContext } from '../sync/SyncContext.js';
 
 export type RouterSetupResponse = {
   onShutdown: () => Promise<void>;
@@ -47,12 +40,23 @@ export class RouterEngine {
     this.cleanupHandler = null;
     this.closed = false;
 
-    // Default routes
     this.routes = {
-      api_routes: [...ADMIN_ROUTES, ...CHECKPOINT_ROUTES, ...SYNC_RULES_ROUTES, ...PROBES_ROUTES],
-      stream_routes: [...SYNC_STREAM_ROUTES],
-      socket_routes: [syncStreamReactive]
+      api_routes: [],
+      stream_routes: [],
+      socket_routes: []
     };
+  }
+
+  public registerRoutes(routes: Partial<RouterEngineRoutes>) {
+    this.routes.api_routes.push(...(routes.api_routes ?? []));
+    this.routes.stream_routes.push(...(routes.stream_routes ?? []));
+    this.routes.socket_routes.push(...(routes.socket_routes ?? []));
+  }
+
+  public get hasRoutes() {
+    return (
+      this.routes.api_routes.length > 0 || this.routes.stream_routes.length > 0 || this.routes.socket_routes.length > 0
+    );
   }
 
   public registerAPI(api: api.RouteAPI) {
@@ -75,6 +79,12 @@ export class RouterEngine {
    */
   async start(setup: RouterSetup) {
     logger.info('Starting Router Engine...');
+
+    if (!this.hasRoutes) {
+      logger.info('Router Engine will not start an HTTP server as no routes have been registered.');
+      return;
+    }
+
     const { onShutdown } = await setup(this.routes);
     this.cleanupHandler = onShutdown;
     logger.info('Successfully started Router Engine.');
