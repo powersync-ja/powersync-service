@@ -1,4 +1,5 @@
 import type fastify from 'fastify';
+import * as uuid from 'uuid';
 
 import { errors, HTTPMethod, logger, router } from '@powersync/lib-services-framework';
 import { Context, ContextProvider, RequestEndpoint, RequestEndpointHandlerPayload } from './router.js';
@@ -25,9 +26,12 @@ export function registerFastifyRoutes(
         handler: async (request, reply) => {
           const startTime = new Date();
           let response: router.RouterResponse;
+          const requestLogger = logger.child({
+            route: e.path,
+            rid: `h/${uuid.v7()}`
+          });
           try {
-            const context = await contextProvider(request);
-
+            const context = await contextProvider(request, { logger: requestLogger });
             let combined = {
               ...(request.params as any),
               ...(request.query as any)
@@ -63,7 +67,7 @@ export function registerFastifyRoutes(
             }
           } catch (ex) {
             const serviceError = errors.asServiceError(ex);
-            logger.error(`Request failed`, serviceError);
+            requestLogger.error(`Request failed`, serviceError);
 
             response = new router.RouterResponse({
               status: serviceError.errorData.status || 500,
@@ -84,12 +88,11 @@ export function registerFastifyRoutes(
             await reply.send(response.data);
           } finally {
             await response.afterSend?.();
-            logger.info(`${e.method} ${request.url}`, {
+            requestLogger.info(`${e.method} ${request.url}`, {
               duration_ms: Math.round(new Date().valueOf() - startTime.valueOf() + Number.EPSILON),
               status: response.status,
               method: e.method,
-              path: request.url,
-              route: e.path
+              path: request.url
             });
           }
         }

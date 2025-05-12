@@ -3,7 +3,7 @@
  * to expose reactive websocket stream in an interface similar to
  * other Journey micro routers.
  */
-import { ErrorCode, errors, logger } from '@powersync/lib-services-framework';
+import { ErrorCode, errors, logger, Logger } from '@powersync/lib-services-framework';
 import * as http from 'http';
 import { Payload, RSocketServer } from 'rsocket-core';
 import * as ws from 'ws';
@@ -26,7 +26,11 @@ export interface ReactiveStreamRequest {
   responder: SocketResponder;
 }
 
-export class ReactiveSocketRouter<C> {
+export interface SocketBaseContext {
+  logger: Logger;
+}
+
+export class ReactiveSocketRouter<C extends SocketBaseContext> {
   constructor(protected options?: ReactiveSocketRouterOptions<C>) {}
 
   reactiveStream<I, O>(path: string, stream: IReactiveStreamInput<I, O, C>): IReactiveStream<I, O, C> {
@@ -105,7 +109,7 @@ export class ReactiveSocketRouter<C> {
                 abortController,
                 params
               ).catch((ex) => {
-                logger.error(ex);
+                context.logger.error(ex);
                 responder.onError(ex);
                 responder.onComplete();
               });
@@ -131,7 +135,7 @@ export class ReactiveSocketRouter<C> {
   }
 }
 
-export async function handleReactiveStream<Context>(
+export async function handleReactiveStream<Context extends SocketBaseContext>(
   context: Context,
   request: ReactiveStreamRequest,
   observer: SocketRouterObserver,
@@ -210,7 +214,7 @@ export async function handleReactiveStream<Context>(
     responder.onError(ex);
     responder.onComplete();
   } finally {
-    logger.info(`STREAM ${path}`, {
+    context.logger.info(`STREAM ${path}`, {
       duration_ms: Math.round(new Date().valueOf() - startTime.valueOf() + Number.EPSILON)
     });
   }
