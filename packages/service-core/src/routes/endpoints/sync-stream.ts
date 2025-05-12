@@ -119,8 +119,7 @@ export const syncStreamed = routeDefinition({
           controller.abort();
           metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
           logger.info(`Sync stream complete due to ${closeReason ?? 'unknown'}`, {
-            operations_synced: tracker.operationsSynced,
-            data_synced_bytes: tracker.dataSyncedBytes
+            ...tracker.getLogMeta()
           });
         }
       });

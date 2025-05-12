@@ -154,8 +154,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         removeStopHandler();
         disposer();
         logger.info(`Sync stream complete due to ${closeReason ?? 'unknown'}`, {
-          operations_synced: tracker.operationsSynced,
-          data_synced_bytes: tracker.dataSyncedBytes
+          ...tracker.getLogMeta()
         });
         metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
       }

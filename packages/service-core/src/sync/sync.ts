@@ -12,7 +12,7 @@ import { BucketChecksumState } from './BucketChecksumState.js';
 import { mergeAsyncIterables } from '../streams/streams-index.js';
 import { acquireSemaphoreAbortable, settledPromise, tokenStream, TokenStreamOptions } from './util.js';
 import { SyncContext } from './SyncContext.js';
-import { RequestTracker } from './RequestTracker.js';
+import { OperationsSentStats, RequestTracker, statsForBatch } from './RequestTracker.js';
 
 export interface SyncStreamParameters {
   syncContext: SyncContext;
@@ -183,9 +183,9 @@ async function* streamResponseInner(
         }
       }
 
-      function markOperationsSent(operations: number) {
-        syncedOperations += operations;
-        tracker.addOperationsSynced(operations);
+      function markOperationsSent(stats: OperationsSentStats) {
+        syncedOperations += stats.total;
+        tracker.addOperationsSynced(stats);
         // Disable interrupting checkpoints for now.
         // There is a bug with interrupting checkpoints where:
         // 1. User is in the middle of syncing a large batch of data (for example initial sync).
@@ -250,7 +250,7 @@ interface BucketDataRequest {
   abort_batch: AbortSignal;
   user_id?: string;
   forPriority: BucketPriority | null;
-  onRowsSent: (amount: number) => void;
+  onRowsSent: (stats: OperationsSentStats) => void;
   logger: Logger;
 }
 
@@ -378,7 +378,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
         // iterator memory in case if large data sent.
         yield { data: null, done: false };
       }
-      onRowsSent(r.data.length);
+      onRowsSent(statsForBatch(r));
 
       checksumState.updateBucketPosition({ bucket: r.bucket, nextAfter: BigInt(r.next_after), hasMore: r.has_more });
 
