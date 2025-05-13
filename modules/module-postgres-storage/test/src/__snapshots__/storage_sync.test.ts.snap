@@ -309,6 +309,153 @@ exports[`sync - postgres > sync global data 1`] = `
 ]
 `;
 
+exports[`sync - postgres > sync interrupts low-priority buckets on new checkpoints (2) 1`] = `
+[
+  {
+    "checkpoint": {
+      "buckets": [
+        {
+          "bucket": "b0a[]",
+          "checksum": -659831575,
+          "count": 2000,
+          "priority": 2,
+        },
+        {
+          "bucket": "b0b[]",
+          "checksum": -659831575,
+          "count": 2000,
+          "priority": 2,
+        },
+        {
+          "bucket": "b1[]",
+          "checksum": -1096116670,
+          "count": 1,
+          "priority": 1,
+        },
+      ],
+      "last_op_id": "4001",
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "data": {
+      "after": "0",
+      "bucket": "b1[]",
+      "data": undefined,
+      "has_more": false,
+      "next_after": "1",
+    },
+  },
+  {
+    "partial_checkpoint_complete": {
+      "last_op_id": "4001",
+      "priority": 1,
+    },
+  },
+  {
+    "data": {
+      "after": "0",
+      "bucket": "b0a[]",
+      "data": undefined,
+      "has_more": true,
+      "next_after": "2000",
+    },
+  },
+  {
+    "data": {
+      "after": "2000",
+      "bucket": "b0a[]",
+      "data": undefined,
+      "has_more": true,
+      "next_after": "4000",
+    },
+  },
+  {
+    "checkpoint_diff": {
+      "last_op_id": "4004",
+      "removed_buckets": [],
+      "updated_buckets": [
+        {
+          "bucket": "b0a[]",
+          "checksum": 883076828,
+          "count": 2001,
+          "priority": 2,
+        },
+        {
+          "bucket": "b0b[]",
+          "checksum": 883076828,
+          "count": 2001,
+          "priority": 2,
+        },
+        {
+          "bucket": "b1[]",
+          "checksum": 1841937527,
+          "count": 2,
+          "priority": 1,
+        },
+      ],
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "data": {
+      "after": "1",
+      "bucket": "b1[]",
+      "data": undefined,
+      "has_more": false,
+      "next_after": "4002",
+    },
+  },
+  {
+    "partial_checkpoint_complete": {
+      "last_op_id": "4004",
+      "priority": 1,
+    },
+  },
+  {
+    "data": {
+      "after": "4000",
+      "bucket": "b0a[]",
+      "data": undefined,
+      "has_more": false,
+      "next_after": "4003",
+    },
+  },
+  {
+    "data": {
+      "after": "0",
+      "bucket": "b0b[]",
+      "data": undefined,
+      "has_more": true,
+      "next_after": "1999",
+    },
+  },
+  {
+    "data": {
+      "after": "1999",
+      "bucket": "b0b[]",
+      "data": undefined,
+      "has_more": true,
+      "next_after": "3999",
+    },
+  },
+  {
+    "data": {
+      "after": "3999",
+      "bucket": "b0b[]",
+      "data": undefined,
+      "has_more": false,
+      "next_after": "4004",
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "4004",
+    },
+  },
+]
+`;
+
 exports[`sync - postgres > sync legacy non-raw data 1`] = `
 [
   {
