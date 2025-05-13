@@ -1,5 +1,28 @@
 # @powersync/service-module-postgres-storage
 
+## 0.7.4
+
+### Patch Changes
+
+- 94f657d: Add additional log metadata to sync requests.
+- 05b9593: [Postgres Storage] Fix op_id_sequence initialization edge case
+- Updated dependencies [ca0a566]
+- Updated dependencies [9dc4e01]
+- Updated dependencies [94f657d]
+- Updated dependencies [05c24d2]
+- Updated dependencies [d154682]
+- Updated dependencies [c672380]
+- Updated dependencies [ca0a566]
+- Updated dependencies [ca0a566]
+- Updated dependencies [05b9593]
+- Updated dependencies [d869876]
+  - @powersync/service-core@1.12.0
+  - @powersync/lib-services-framework@0.6.0
+  - @powersync/service-sync-rules@0.26.1
+  - @powersync/lib-service-postgres@0.4.3
+  - @powersync/service-types@0.11.0
+  - @powersync/service-core-tests@0.9.4
+
 ## 0.7.3
 
 ### Patch Changes

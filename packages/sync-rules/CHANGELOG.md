@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.26.1
+
+### Patch Changes
+
+- 94f657d: Add additional log metadata to sync requests.
+
 ## 0.26.0
 
 ### Minor Changes
