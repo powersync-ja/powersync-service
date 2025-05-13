@@ -1,9 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createMockObserver, createMockResponder } from './utils/mock-responder.js';
-import { handleReactiveStream, ReactiveStreamRequest } from '../../src/router/ReactiveSocketRouter.js';
+import {
+  handleReactiveStream,
+  ReactiveStreamRequest,
+  SocketBaseContext
+} from '../../src/router/ReactiveSocketRouter.js';
 import { deserialize, serialize } from 'bson';
 import { RS_ENDPOINT_TYPE, ReactiveEndpoint, RequestMeta, SocketResponder } from '../../src/router/types.js';
-import { EndpointHandlerPayload, ErrorCode } from '@powersync/lib-services-framework';
+import { EndpointHandlerPayload, ErrorCode, logger } from '@powersync/lib-services-framework';
 
 /**
  * Mocks the process of handling reactive routes
@@ -18,8 +22,10 @@ async function handleRoute(
   responder: SocketResponder,
   request?: Partial<ReactiveStreamRequest>
 ) {
-  return handleReactiveStream<{}>(
-    {},
+  return handleReactiveStream<SocketBaseContext>(
+    {
+      logger
+    },
     {
       payload: {
         data: Buffer.from(serialize({})),
@@ -34,7 +40,7 @@ async function handleRoute(
     createMockObserver(),
     new AbortController(),
     {
-      contextProvider: async () => ({}),
+      contextProvider: async () => ({ logger }),
       endpoints,
       metaDecoder: async (buffer) => deserialize(buffer.contents) as RequestMeta,
       payloadDecoder: async (buffer) => buffer && deserialize(buffer.contents)
@@ -154,8 +160,8 @@ describe('Requests', () => {
       return undefined;
     });
 
-    await handleReactiveStream<{}>(
-      {},
+    await handleReactiveStream<SocketBaseContext>(
+      { logger },
       {
         payload: {
           data: Buffer.from(encodeJson({ hello: 'world' })),
@@ -169,7 +175,7 @@ describe('Requests', () => {
       createMockObserver(),
       new AbortController(),
       {
-        contextProvider: async () => ({}),
+        contextProvider: async () => ({ logger }),
         endpoints: [
           {
             path,
