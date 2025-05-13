@@ -405,6 +405,152 @@ bucket_definitions:
     expect(sentRows).toBe(10002);
   });
 
+  test('sync interrupts low-priority buckets on new checkpoints (2)', async () => {
+    await using f = await factory();
+
+    // bucket0a -> send all data
+    // then interrupt checkpoint with new data for all buckets
+    // -> data for all buckets should be sent in the new checkpoint
+
+    const syncRules = await f.updateSyncRules({
+      content: `
+bucket_definitions:
+  b0a:
+    priority: 2
+    data:
+      - SELECT * FROM test WHERE LENGTH(id) <= 5;
+  b0b:
+    priority: 2
+    data:
+      - SELECT * FROM test WHERE LENGTH(id) <= 5;
+  b1:
+    priority: 1
+    data:
+      - SELECT * FROM test WHERE LENGTH(id) > 5;
+    `
+    });
+
+    const bucketStorage = f.getInstance(syncRules);
+    await bucketStorage.autoActivate();
+
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      // Initial data: Add one priority row and 10k low-priority rows.
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'highprio',
+          description: 'High priority row'
+        },
+        afterReplicaId: 'highprio'
+      });
+      for (let i = 0; i < 2_000; i++) {
+        await batch.save({
+          sourceTable: TEST_TABLE,
+          tag: storage.SaveOperationTag.INSERT,
+          after: {
+            id: `${i}`,
+            description: 'low prio'
+          },
+          afterReplicaId: `${i}`
+        });
+      }
+
+      await batch.commit('0/1');
+    });
+
+    const stream = sync.streamResponse({
+      syncContext,
+      bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      params: {
+        buckets: [],
+        include_checksum: true,
+        raw_data: true
+      },
+      tracker,
+      syncParams: new RequestParameters({ sub: '' }, {}),
+      token: { exp: Date.now() / 1000 + 10 } as any
+    });
+
+    let sentRows = 0;
+    let lines: any[] = [];
+
+    for await (let next of stream) {
+      if (typeof next == 'string') {
+        next = JSON.parse(next);
+      }
+      if (typeof next === 'object' && next !== null) {
+        if ('partial_checkpoint_complete' in next) {
+          lines.push(next);
+        }
+        if ('checkpoint' in next || 'checkpoint_diff' in next) {
+          lines.push(next);
+        }
+
+        if ('data' in next) {
+          lines.push({ data: { ...next.data, data: undefined } });
+          sentRows += next.data.data.length;
+
+          if (sentRows == 1001) {
+            // Save new data to interrupt the low-priority sync.
+            await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+              // Add another high-priority row. This should interrupt the long-running low-priority sync.
+              await batch.save({
+                sourceTable: TEST_TABLE,
+                tag: storage.SaveOperationTag.INSERT,
+                after: {
+                  id: 'highprio2',
+                  description: 'Another high-priority row'
+                },
+                afterReplicaId: 'highprio2'
+              });
+
+              // Also add a low-priority row
+              await batch.save({
+                sourceTable: TEST_TABLE,
+                tag: storage.SaveOperationTag.INSERT,
+                after: {
+                  id: '2001',
+                  description: 'Another low-priority row'
+                },
+                afterReplicaId: '2001'
+              });
+
+              await batch.commit('0/2');
+            });
+
+            // pause for a bit to give the stream time to interrupt the checkpoint
+            await timers.setTimeout(500);
+          }
+        }
+        if ('checkpoint_complete' in next) {
+          lines.push(next);
+          break;
+        }
+      }
+    }
+
+    // Expected lines (full details in snapshot):
+    //
+    // checkpoint (4001)
+    // data (b1[] 0 -> 1)
+    // partial_checkpoint_complete (4001, priority 1)
+    // data (b0a[], 0 -> 2000)
+    // ## adds new data, interrupting the checkpoint
+    // data (b0a[], 2000 -> 4000) # expected - stream is already busy with this by the time it receives the interruption
+    // checkpoint_diff (4004)
+    // data (b1[], 1 -> 4002)
+    // partial_checkpoint_complete (4004, priority 1)
+    // data (b0a[], 4000 -> 4003)
+    // data (b0b[], 0 -> 1999)
+    // data (b0b[], 1999 -> 3999)
+    // data (b0b[], 3999 -> 4004)
+    // checkpoint_complete (4004)
+    expect(lines).toMatchSnapshot();
+    expect(sentRows).toBe(4004);
+  });
+
   test('sends checkpoint complete line for empty checkpoint', async () => {
     await using f = await factory();
 
