@@ -20,21 +20,12 @@ export function makeMultiHostnameLookupFunction(
   hostnames: string[],
   lookupOptions: LookupOptions
 ): net.LookupFunction | undefined {
-  const lookups = hostnames.reduce<Record<string, net.LookupFunction>>((acc, h) => {
-    const lookup = makeHostnameLookupFunction(h, lookupOptions);
+  // If any of the hostnames are IPs, validate them synchronously
+  for (let host of hostnames) {
+    validateIpHostname(host, lookupOptions);
+  }
 
-    if (lookup) {
-      acc[h] = lookup;
-    }
-
-    return acc;
-  }, {});
-
-  return (hostname, options, callback) => {
-    const lookup = lookups[hostname];
-
-    return lookup?.(hostname, options, callback);
-  };
+  return makeLookupFunction(lookupOptions);
 }
 
 /**
