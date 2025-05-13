@@ -1,4 +1,4 @@
-import { ErrorCode, errors, logger, schema } from '@powersync/lib-services-framework';
+import { ErrorCode, errors, schema } from '@powersync/lib-services-framework';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import { serialize } from 'bson';
 
@@ -13,12 +13,26 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
   router.reactiveStream<util.StreamingSyncRequest, any>(SyncRoutes.STREAM, {
     validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
     handler: async ({ context, params, responder, observer, initialN, signal: upstreamSignal }) => {
-      const { service_context } = context;
+      const { service_context, logger } = context;
       const { routerEngine, metricsEngine, syncContext } = service_context;
+
+      logger.defaultMeta = {
+        ...logger.defaultMeta,
+        user_id: context.token_payload?.sub,
+        client_id: params.client_id,
+        user_agent: context.user_agent
+      };
+      const streamStart = Date.now();
+
+      // Best effort guess on why the stream was closed.
+      // We use the `??=` operator everywhere, so that we catch the first relevant
+      // event, which is usually the most specific.
+      let closeReason: string | undefined = undefined;
 
       // Create our own controller that we can abort directly
       const controller = new AbortController();
       upstreamSignal.addEventListener('abort', () => {
+        closeReason ??= 'client closing stream';
         controller.abort();
       });
       if (upstreamSignal.aborted) {
@@ -67,6 +81,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       const syncRules = bucketStorage.getParsedSyncRules(routerEngine.getAPI().getParseSyncRulesOptions());
 
       const removeStopHandler = routerEngine.addStopHandler(() => {
+        closeReason ??= 'process shutdown';
         controller.abort();
       });
 
@@ -88,7 +103,8 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
             keep_alive: false
           },
           tracker,
-          signal
+          signal,
+          logger
         })) {
           if (signal.aborted) {
             break;
@@ -131,22 +147,22 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
             });
           }
         }
+        closeReason ??= 'service closing stream';
       } catch (ex) {
         // Convert to our standard form before responding.
         // This ensures the error can be serialized.
         const error = new errors.InternalServerError(ex);
         logger.error('Sync stream error', error);
+        closeReason ??= 'stream error';
         responder.onError(error);
       } finally {
         responder.onComplete();
         removeStopHandler();
         disposer();
         logger.info(`Sync stream complete`, {
-          user_id: syncParams.user_id,
-          client_id: params.client_id,
-          user_agent: context.user_agent,
-          operations_synced: tracker.operationsSynced,
-          data_synced_bytes: tracker.dataSyncedBytes
+          ...tracker.getLogMeta(),
+          stream_ms: Date.now() - streamStart,
+          close_reason: closeReason ?? 'unknown'
         });
         metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
       }

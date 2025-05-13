@@ -9,7 +9,7 @@ export type RouterResponseParams<T> = {
   /**
    * Hook to be called after the response has been sent
    */
-  afterSend?: () => Promise<void>;
+  afterSend?: (details: { clientClosed: boolean }) => Promise<void>;
 };
 
 /**
@@ -21,7 +21,7 @@ export class RouterResponse<T = unknown> {
   status: number;
   data: T;
   headers: Record<string, string>;
-  afterSend: () => Promise<void>;
+  afterSend: (details: { clientClosed: boolean }) => Promise<void>;
 
   __micro_router_response = true;
 

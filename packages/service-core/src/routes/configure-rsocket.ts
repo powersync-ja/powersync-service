@@ -1,5 +1,6 @@
 import { deserialize } from 'bson';
 import * as http from 'http';
+import * as uuid from 'uuid';
 
 import { ErrorCode, errors, logger } from '@powersync/lib-services-framework';
 import { ReactiveSocketRouter, RSocketRequestMeta, TypedBuffer } from '@powersync/service-rsocket-router';
@@ -23,6 +24,10 @@ export function configureRSocket(router: ReactiveSocketRouter<Context>, options:
 
   router.applyWebSocketEndpoints(server, {
     contextProvider: async (data: TypedBuffer): Promise<Context & { token: string }> => {
+      const connectionLogger = logger.child({
+        // timestamp-based uuid - useful for requests
+        rid: `s/${uuid.v7()}`
+      });
       const { token, user_agent } = RSocketContextMeta.decode(decodeTyped(data) as any);
 
       if (!token) {
@@ -42,14 +47,15 @@ export function configureRSocket(router: ReactiveSocketRouter<Context>, options:
             user_agent,
             ...context,
             token_error: tokenError,
-            service_context: service_context as RouterServiceContext
+            service_context: service_context as RouterServiceContext,
+            logger: connectionLogger
           };
         } else {
           // Token field is present, but did not contain a token.
           throw new errors.AuthorizationError(ErrorCode.PSYNC_S2106, 'No valid token provided');
         }
       } catch (ex) {
-        logger.error(ex);
+        connectionLogger.error(ex);
         throw ex;
       }
     },

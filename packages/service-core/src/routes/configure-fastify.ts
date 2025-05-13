@@ -1,4 +1,6 @@
 import type fastify from 'fastify';
+import * as uuid from 'uuid';
+
 import { registerFastifyRoutes } from './route-register.js';
 
 import * as system from '../system/system-index.js';
@@ -9,7 +11,7 @@ import { PROBES_ROUTES } from './endpoints/probes.js';
 import { SYNC_RULES_ROUTES } from './endpoints/sync-rules.js';
 import { SYNC_STREAM_ROUTES } from './endpoints/sync-stream.js';
 import { createRequestQueueHook, CreateRequestQueueParams } from './hooks.js';
-import { RouteDefinition } from './router.js';
+import { ContextProvider, RouteDefinition } from './router.js';
 
 /**
  * A list of route definitions to be registered as endpoints.
@@ -58,10 +60,11 @@ export const DEFAULT_ROUTE_OPTIONS = {
 export function configureFastifyServer(server: fastify.FastifyInstance, options: FastifyServerConfig) {
   const { service_context, routes = DEFAULT_ROUTE_OPTIONS } = options;
 
-  const generateContext = async () => {
+  const generateContext: ContextProvider = async (request, options) => {
     return {
       user_id: undefined,
-      service_context: service_context
+      service_context: service_context,
+      logger: options.logger
     };
   };
 

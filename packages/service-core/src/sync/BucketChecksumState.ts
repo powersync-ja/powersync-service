@@ -3,7 +3,13 @@ import { BucketDescription, RequestParameters, SqlSyncRules } from '@powersync/s
 import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
-import { ErrorCode, logger, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
+import {
+  ErrorCode,
+  Logger,
+  ServiceAssertionError,
+  ServiceError,
+  logger as defaultLogger
+} from '@powersync/lib-services-framework';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { BucketParameterQuerier } from '@powersync/service-sync-rules/src/BucketParameterQuerier.js';
 import { SyncContext } from './SyncContext.js';
@@ -14,6 +20,7 @@ export interface BucketChecksumStateOptions {
   bucketStorage: BucketChecksumStateStorage;
   syncRules: SqlSyncRules;
   syncParams: RequestParameters;
+  logger?: Logger;
   initialBucketPositions?: { name: string; after: util.InternalOpId }[];
 }
 
@@ -52,14 +59,18 @@ export class BucketChecksumState {
    */
   private pendingBucketDownloads = new Set<string>();
 
+  private readonly logger: Logger;
+
   constructor(options: BucketChecksumStateOptions) {
     this.context = options.syncContext;
     this.bucketStorage = options.bucketStorage;
+    this.logger = options.logger ?? defaultLogger;
     this.parameterState = new BucketParameterState(
       options.syncContext,
       options.bucketStorage,
       options.syncRules,
-      options.syncParams
+      options.syncParams,
+      this.logger
     );
     this.bucketDataPositions = new Map();
 
@@ -186,7 +197,7 @@ export class BucketChecksumState {
         message += `buckets: ${allBuckets.length} | `;
         message += `updated: ${limitedBuckets(diff.updatedBuckets, 20)} | `;
         message += `removed: ${limitedBuckets(diff.removedBuckets, 20)}`;
-        logger.info(message, {
+        this.logger.info(message, {
           checkpoint: base.checkpoint,
           user_id: user_id,
           buckets: allBuckets.length,
@@ -207,7 +218,7 @@ export class BucketChecksumState {
       deferredLog = () => {
         let message = `New checkpoint: ${base.checkpoint} | write: ${writeCheckpoint} | `;
         message += `buckets: ${allBuckets.length} ${limitedBuckets(allBuckets, 20)}`;
-        logger.info(message, { checkpoint: base.checkpoint, user_id: user_id, buckets: allBuckets.length });
+        this.logger.info(message, { checkpoint: base.checkpoint, user_id: user_id, buckets: allBuckets.length });
       };
       bucketsToFetch = allBuckets;
       checkpointLine = {
@@ -325,6 +336,7 @@ export class BucketParameterState {
   public readonly syncParams: RequestParameters;
   private readonly querier: BucketParameterQuerier;
   private readonly staticBuckets: Map<string, BucketDescription>;
+  private readonly logger: Logger;
   private cachedDynamicBuckets: BucketDescription[] | null = null;
   private cachedDynamicBucketSet: Set<string> | null = null;
 
@@ -334,12 +346,14 @@ export class BucketParameterState {
     context: SyncContext,
     bucketStorage: BucketChecksumStateStorage,
     syncRules: SqlSyncRules,
-    syncParams: RequestParameters
+    syncParams: RequestParameters,
+    logger: Logger
   ) {
     this.context = context;
     this.bucketStorage = bucketStorage;
     this.syncRules = syncRules;
     this.syncParams = syncParams;
+    this.logger = logger;
 
     this.querier = syncRules.getBucketParameterQuerier(this.syncParams);
     this.staticBuckets = new Map<string, BucketDescription>(this.querier.staticBuckets.map((b) => [b.bucket, b]));
@@ -362,7 +376,7 @@ export class BucketParameterState {
         ErrorCode.PSYNC_S2305,
         `Too many parameter query results: ${update.buckets.length} (limit of ${this.context.maxParameterQueryResults})`
       );
-      logger.error(error.message, {
+      this.logger.error(error.message, {
         checkpoint: checkpoint,
         user_id: this.syncParams.user_id,
         buckets: update.buckets.length

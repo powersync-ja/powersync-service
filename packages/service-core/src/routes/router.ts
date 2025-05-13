@@ -1,4 +1,4 @@
-import { router, ServiceError } from '@powersync/lib-services-framework';
+import { router, ServiceError, Logger } from '@powersync/lib-services-framework';
 import type { JwtPayload } from '../auth/auth-index.js';
 import { ServiceContext } from '../system/ServiceContext.js';
 import { RouterEngine } from './RouterEngine.js';
@@ -22,6 +22,8 @@ export type Context = {
    * Only on websocket endpoints.
    */
   user_agent?: string;
+
+  logger: Logger;
 };
 
 export type BasicRouterRequest = {
@@ -30,7 +32,11 @@ export type BasicRouterRequest = {
   hostname: string;
 };
 
-export type ContextProvider = (request: BasicRouterRequest) => Promise<Context>;
+export type ConextProviderOptions = {
+  logger: Logger;
+};
+
+export type ContextProvider = (request: BasicRouterRequest, options: ConextProviderOptions) => Promise<Context>;
 
 export type RequestEndpoint<
   I,
