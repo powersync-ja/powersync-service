@@ -1,5 +1,19 @@
 # @powersync/lib-service-mongodb
 
+## 0.6.0
+
+### Minor Changes
+
+- d154682: [MongoDB] Add support for plain "mongodb://" URIs for replica sets (multiple hostnames).
+
+### Patch Changes
+
+- Updated dependencies [9dc4e01]
+- Updated dependencies [94f657d]
+- Updated dependencies [d154682]
+- Updated dependencies [ca0a566]
+  - @powersync/lib-services-framework@0.6.0
+
 ## 0.5.2
 
 ### Patch Changes

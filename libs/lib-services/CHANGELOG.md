@@ -1,5 +1,20 @@
 # @powersync/lib-services-framework
 
+## 0.6.0
+
+### Minor Changes
+
+- 9dc4e01: Improve authentication error messages and logs
+- 94f657d: Add additional log metadata to sync requests.
+- ca0a566: Switched default health check probe mechanism from filesystem to in-memory implementation. Consumers now need to manually opt-in to filesystem probes.
+
+### Patch Changes
+
+- d154682: [MongoDB] Add support for plain "mongodb://" URIs for replica sets (multiple hostnames).
+- Updated dependencies [9dc4e01]
+- Updated dependencies [d869876]
+  - @powersync/service-errors@0.3.0
+
 ## 0.5.4
 
 ### Patch Changes
