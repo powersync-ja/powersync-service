@@ -185,7 +185,7 @@ export enum ErrorCode {
   /**
    * MongoDB internal TLS error.
    *
-   * If connection to a shared cluster on MongoDB Atlas, this could be an IP Acccess List issue.
+   * If connection to a shared cluster on MongoDB Atlas, this could be an IP Access List issue.
    * Check that the service IP is allowed to connect to the cluster.
    */
   PSYNC_S1303 = 'PSYNC_S1303',
@@ -214,7 +214,7 @@ export enum ErrorCode {
   /**
    * MongoDB authorization error.
    *
-   * Check that the user has the required priviledges.
+   * Check that the user has the required privileges.
    */
   PSYNC_S1307 = 'PSYNC_S1307',
 
@@ -224,7 +224,7 @@ export enum ErrorCode {
   PSYNC_S1341 = 'PSYNC_S1341',
 
   /**
-   * Standalone MongoDB instances are not supported - use a replicaset.
+   * Standalone MongoDB instances are not supported - use a replica-set.
    */
   PSYNC_S1342 = 'PSYNC_S1342',
 
@@ -342,7 +342,7 @@ export enum ErrorCode {
   /**
    * No token provided. An auth token is required for every request.
    *
-   * The Auhtorization header must start with "Token" or "Bearer", followed by the JWT.
+   * The Authorization header must start with "Token" or "Bearer", followed by the JWT.
    */
   PSYNC_S2106 = 'PSYNC_S2106',
 
@@ -363,7 +363,7 @@ export enum ErrorCode {
   /**
    * IPs in this range are not supported.
    *
-   * Make sure to use a publically-accessible JWKS URI.
+   * Make sure to use a publicly-accessible JWKS URI.
    */
   PSYNC_S2203 = 'PSYNC_S2203',
 
@@ -427,7 +427,7 @@ export enum ErrorCode {
    */
   PSYNC_S3201 = 'PSYNC_S3201',
 
-  // ## PSYNC_S4000: management / dev apis
+  // ## PSYNC_S4000: Management / Dev APIs
 
   /**
    * Internal assertion error.
