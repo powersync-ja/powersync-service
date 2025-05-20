@@ -1,5 +1,5 @@
 import { parse } from 'pgsql-ast-parser';
-import { BaseSqlDataQuery } from '../BaseSqlDataQuery.js';
+import { BaseSqlDataQuery, BaseSqlDataQueryOptions, RowValueExtractor } from '../BaseSqlDataQuery.js';
 import { SqlRuleError } from '../errors.js';
 import { ExpressionType } from '../ExpressionType.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
@@ -25,9 +25,8 @@ export type EvaluatedEventRowWithErrors = {
  * Defines how a Replicated Row is mapped to source parameters for events.
  */
 export class SqlEventSourceQuery extends BaseSqlDataQuery {
-  static fromSql(descriptor_name: string, sql: string, options: SyncRulesOptions) {
+  static fromSql(descriptor_name: string, sql: string, options: SyncRulesOptions, ruleId: string) {
     const parsed = parse(sql, { locationTracking: true });
-    const rows = new SqlEventSourceQuery();
     const schema = options.schema;
 
     if (parsed.length > 1) {
@@ -38,7 +37,9 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
       throw new SqlRuleError('Only SELECT statements are supported', sql, q._location);
     }
 
-    rows.errors.push(...checkUnsupportedFeatures(sql, q));
+    let errors: SqlRuleError[] = [];
+
+    errors.push(...checkUnsupportedFeatures(sql, q));
 
     if (q.from == null || q.from.length != 1 || q.from[0].type != 'table') {
       throw new SqlRuleError('Must SELECT from a single table', sql, q.from?.[0]._location);
@@ -62,7 +63,7 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
         );
         e.type = 'warning';
 
-        rows.errors.push(e);
+        errors.push(e);
       } else {
         querySchema = new TableQuerySchema(tables, alias);
       }
@@ -76,13 +77,7 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
       schema: querySchema
     });
 
-    rows.sourceTable = sourceTable;
-    rows.table = alias;
-    rows.sql = sql;
-    rows.descriptor_name = descriptor_name;
-    rows.columns = q.columns ?? [];
-    rows.tools = tools;
-
+    let extractors: RowValueExtractor[] = [];
     for (let column of q.columns ?? []) {
       const name = tools.getOutputName(column);
       if (name != '*') {
@@ -91,7 +86,7 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
           // Error logged already
           continue;
         }
-        rows.extractors.push({
+        extractors.push({
           extract: (tables, output) => {
             output[name] = clause.evaluate(tables);
           },
@@ -101,7 +96,7 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
           }
         });
       } else {
-        rows.extractors.push({
+        extractors.push({
           extract: (tables, output) => {
             const row = tables[alias];
             for (let key in row) {
@@ -119,8 +114,24 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
         });
       }
     }
-    rows.errors.push(...tools.errors);
-    return rows;
+    errors.push(...tools.errors);
+
+    return new SqlEventSourceQuery({
+      sourceTable,
+      table: alias,
+      sql,
+      descriptor_name,
+      columns: q.columns ?? [],
+      extractors: extractors,
+      tools,
+      bucket_parameters: [],
+      ruleId: ruleId,
+      errors: errors
+    });
+  }
+
+  constructor(options: BaseSqlDataQueryOptions) {
+    super(options);
   }
 
   evaluateRowWithErrors(table: SourceTableInterface, row: SqliteRow): EvaluatedEventRowWithErrors {

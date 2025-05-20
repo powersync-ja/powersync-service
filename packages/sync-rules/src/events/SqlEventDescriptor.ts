@@ -22,7 +22,7 @@ export class SqlEventDescriptor {
   }
 
   addSourceQuery(sql: string, options: SyncRulesOptions): QueryParseResult {
-    const source = SqlEventSourceQuery.fromSql(this.name, sql, options);
+    const source = SqlEventSourceQuery.fromSql(this.name, sql, options, this.idSequence.nextId());
 
     // Each source query should be for a unique table
     const existingSourceQuery = this.source_queries.find((q) => q.table == source.table);
@@ -33,7 +33,6 @@ export class SqlEventDescriptor {
       };
     }
 
-    source.ruleId = this.idSequence.nextId();
     this.source_queries.push(source);
 
     return {

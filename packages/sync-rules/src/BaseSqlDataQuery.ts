@@ -6,37 +6,64 @@ import { SqlTools } from './sql_filters.js';
 import { TablePattern } from './TablePattern.js';
 import { QueryParameters, QuerySchema, SourceSchema, SourceSchemaTable, SqliteJsonRow, SqliteRow } from './types.js';
 import { filterJsonRow } from './utils.js';
+import { extendErrors } from 'ajv/dist/compile/errors.js';
 
 export interface RowValueExtractor {
   extract(tables: QueryParameters, into: SqliteRow): void;
   getTypes(schema: QuerySchema, into: Record<string, ColumnDefinition>): void;
 }
 
+export interface BaseSqlDataQueryOptions {
+  sourceTable: TablePattern;
+  table: string;
+  sql: string;
+  columns: SelectedColumn[];
+  extractors: RowValueExtractor[];
+  descriptor_name: string;
+  bucket_parameters: string[];
+  tools: SqlTools;
+
+  ruleId: string;
+
+  errors?: SqlRuleError[];
+}
+
 export class BaseSqlDataQuery {
-  sourceTable?: TablePattern;
-  table?: string;
-  sql?: string;
-  columns?: SelectedColumn[];
-  extractors: RowValueExtractor[] = [];
-  descriptor_name?: string;
-  bucket_parameters?: string[];
-  tools?: SqlTools;
+  readonly sourceTable: TablePattern;
+  readonly table: string;
+  readonly sql: string;
+  readonly columns: SelectedColumn[];
+  readonly extractors: RowValueExtractor[] = [];
+  readonly descriptor_name: string;
+  readonly bucket_parameters: string[];
+  readonly tools: SqlTools;
 
-  ruleId?: string;
+  readonly ruleId: string;
 
-  errors: SqlRuleError[] = [];
+  readonly errors: SqlRuleError[];
 
-  constructor() {}
+  constructor(options: BaseSqlDataQueryOptions) {
+    this.sourceTable = options.sourceTable;
+    this.table = options.table;
+    this.sql = options.sql;
+    this.columns = options.columns;
+    this.extractors = options.extractors;
+    this.descriptor_name = options.descriptor_name;
+    this.bucket_parameters = options.bucket_parameters;
+    this.tools = options.tools;
+    this.ruleId = options.ruleId;
+    this.errors = options.errors ?? [];
+  }
 
   applies(table: SourceTableInterface) {
-    return this.sourceTable?.matches(table);
+    return this.sourceTable.matches(table);
   }
 
   addSpecialParameters(table: SourceTableInterface, row: SqliteRow) {
-    if (this.sourceTable!.isWildcard) {
+    if (this.sourceTable.isWildcard) {
       return {
         ...row,
-        _table_suffix: this.sourceTable!.suffix(table.table)
+        _table_suffix: this.sourceTable.suffix(table.table)
       };
     } else {
       return row;
@@ -48,17 +75,17 @@ export class BaseSqlDataQuery {
       // Wildcard without alias - use source
       return sourceTable;
     } else {
-      return this.table!;
+      return this.table;
     }
   }
 
   isUnaliasedWildcard() {
-    return this.sourceTable!.isWildcard && this.table == this.sourceTable!.tablePattern;
+    return this.sourceTable.isWildcard && this.table == this.sourceTable.tablePattern;
   }
 
   columnOutputNames(): string[] {
-    return this.columns!.map((c) => {
-      return this.tools!.getOutputName(c);
+    return this.columns.map((c) => {
+      return this.tools.getOutputName(c);
     });
   }
 
@@ -67,7 +94,7 @@ export class BaseSqlDataQuery {
 
     if (this.isUnaliasedWildcard()) {
       // Separate results
-      for (let schemaTable of schema.getTables(this.sourceTable!)) {
+      for (let schemaTable of schema.getTables(this.sourceTable)) {
         let output: Record<string, ColumnDefinition> = {};
 
         this.getColumnOutputsFor(schemaTable, output);
@@ -80,7 +107,7 @@ export class BaseSqlDataQuery {
     } else {
       // Merged results
       let output: Record<string, ColumnDefinition> = {};
-      for (let schemaTable of schema.getTables(this.sourceTable!)) {
+      for (let schemaTable of schema.getTables(this.sourceTable)) {
         this.getColumnOutputsFor(schemaTable, output);
       }
       result.push({
@@ -103,7 +130,7 @@ export class BaseSqlDataQuery {
   protected getColumnOutputsFor(schemaTable: SourceSchemaTable, output: Record<string, ColumnDefinition>) {
     const querySchema: QuerySchema = {
       getColumn: (table, column) => {
-        if (table == this.table!) {
+        if (table == this.table) {
           return schemaTable.getColumn(column);
         } else {
           // TODO: bucket parameters?
@@ -111,7 +138,7 @@ export class BaseSqlDataQuery {
         }
       },
       getColumns: (table) => {
-        if (table == this.table!) {
+        if (table == this.table) {
           return schemaTable.getColumns();
         } else {
           return [];

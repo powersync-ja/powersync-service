@@ -50,9 +50,7 @@ export class SqlBucketDescriptor {
     if (this.bucket_parameters == null) {
       throw new Error('Bucket parameters must be defined');
     }
-    const dataRows = SqlDataQuery.fromSql(this.name, this.bucket_parameters, sql, options);
-
-    dataRows.ruleId = this.idSequence.nextId();
+    const dataRows = SqlDataQuery.fromSql(this.name, this.bucket_parameters, sql, options, this.idSequence.nextId());
 
     this.data_queries.push(dataRows);
 

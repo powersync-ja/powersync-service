@@ -13,7 +13,8 @@ describe('data queries', () => {
         bucket: 'mybucket["org1"]',
         table: 'assets',
         id: 'asset1',
-        data: { id: 'asset1', org_id: 'org1' }
+        data: { id: 'asset1', org_id: 'org1' },
+        ruleId: ''
       }
     ]);
 
@@ -83,7 +84,8 @@ describe('data queries', () => {
         bucket: 'mybucket["org1"]',
         table: 'others',
         id: 'asset1',
-        data: { id: 'asset1', org_id: 'org1' }
+        data: { id: 'asset1', org_id: 'org1' },
+        ruleId: ''
       }
     ]);
   });
