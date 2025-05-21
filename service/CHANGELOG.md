@@ -1,5 +1,65 @@
 # @powersync/service-image
 
+## 1.12.0
+
+### Minor Changes
+
+- 9dc4e01: Improve authentication error messages and logs
+- 94f657d: Add additional log metadata to sync requests.
+- d154682: [MongoDB] Add support for plain "mongodb://" URIs for replica sets (multiple hostnames).
+- a602fb2: Support WebSocket requests to be encoded as JSON, which will enable more SDKs to use WebSockets as a transport protocol when receiving sync lines.
+- ca0a566: - Added typecasting to `!env` YAML custom tag function. YAML config environment variable substitution now supports casting string environment variables to `number` and `boolean` types.
+
+  ```yaml
+  replication:
+    connections: []
+
+  storage:
+    type: mongodb
+
+  api:
+    parameters:
+      max_buckets_per_connection: !env PS_MAX_BUCKETS::number
+
+  healthcheck:
+    probes:
+      use_http: !env PS_MONGO_HEALTHCHECK::boolean
+  ```
+
+  - Added the ability to customize healthcheck probe exposure in the configuration. Backwards compatibility is maintained if no `healthcheck->probes` config is provided.
+
+  ```yaml
+  healthcheck:
+    probes:
+      # Health status can be accessed by reading files (previously always enabled)
+      use_filesystem: true
+      # Health status can be accessed via HTTP requests (previously enabled for API and UNIFIED service modes)
+      use_http: true
+  ```
+
+### Patch Changes
+
+- 05b9593: [Postgres Storage] Fix op_id_sequence initialization edge case
+- Updated dependencies [ca0a566]
+- Updated dependencies [9dc4e01]
+- Updated dependencies [94f657d]
+- Updated dependencies [05c24d2]
+- Updated dependencies [d154682]
+- Updated dependencies [c672380]
+- Updated dependencies [ca0a566]
+- Updated dependencies [05b9593]
+- Updated dependencies [ca0a566]
+- Updated dependencies [d869876]
+  - @powersync/service-core@1.12.0
+  - @powersync/service-module-postgres@0.13.0
+  - @powersync/service-rsocket-router@0.1.0
+  - @powersync/lib-services-framework@0.6.0
+  - @powersync/service-module-postgres-storage@0.7.4
+  - @powersync/service-module-mongodb-storage@0.9.4
+  - @powersync/service-module-mongodb@0.9.0
+  - @powersync/service-module-mysql@0.6.4
+  - @powersync/service-module-core@0.1.0
+
 ## 1.11.3
 
 ### Patch Changes

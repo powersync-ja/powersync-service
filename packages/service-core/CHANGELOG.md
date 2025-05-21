@@ -1,5 +1,51 @@
 # @powersync/service-core
 
+## 1.12.0
+
+### Minor Changes
+
+- ca0a566: - Added `ServiceContextMode` to `ServiceContext`. This conveys the mode in which the PowerSync service was started in.
+
+  - `RouterEngine` is now always present on `ServiceContext`. The router will only configure actual servers, when started, if routes have been registered.
+  - Added typecasting to `!env` YAML custom tag function. YAML config environment variable substitution now supports casting string environment variables to `number` and `boolean` types.
+
+  ```yaml
+  replication:
+    connections: []
+
+  storage:
+    type: mongodb
+
+  api:
+    parameters:
+      max_buckets_per_connection: !env PS_MAX_BUCKETS::number
+
+  healthcheck:
+    probes:
+      use_http: !env PS_MONGO_HEALTHCHECK::boolean
+  ```
+
+- 9dc4e01: Improve authentication error messages and logs
+- 94f657d: Add additional log metadata to sync requests.
+- d154682: [MongoDB] Add support for plain "mongodb://" URIs for replica sets (multiple hostnames).
+- c672380: Added JSON schema export for base PowerSyncConfig
+- d869876: Allow RSocket request payload to be encoded as JSON
+
+### Patch Changes
+
+- 05c24d2: Restore support for interrupting low-priority syncs for new checkpoints.
+- Updated dependencies [9dc4e01]
+- Updated dependencies [94f657d]
+- Updated dependencies [d154682]
+- Updated dependencies [c672380]
+- Updated dependencies [ca0a566]
+- Updated dependencies [ca0a566]
+- Updated dependencies [d869876]
+  - @powersync/service-rsocket-router@0.1.0
+  - @powersync/lib-services-framework@0.6.0
+  - @powersync/service-sync-rules@0.26.1
+  - @powersync/service-types@0.11.0
+
 ## 1.11.3
 
 ### Patch Changes

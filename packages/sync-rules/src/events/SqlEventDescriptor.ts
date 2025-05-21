@@ -12,12 +12,9 @@ import { EvaluatedEventRowWithErrors, SqlEventSourceQuery } from './SqlEventSour
  */
 export class SqlEventDescriptor {
   name: string;
-  source_queries: SqlEventSourceQuery[] = [];
+  sourceQueries: SqlEventSourceQuery[] = [];
 
-  constructor(
-    name: string,
-    public idSequence: IdSequence
-  ) {
+  constructor(name: string) {
     this.name = name;
   }
 
@@ -25,7 +22,7 @@ export class SqlEventDescriptor {
     const source = SqlEventSourceQuery.fromSql(this.name, sql, options);
 
     // Each source query should be for a unique table
-    const existingSourceQuery = this.source_queries.find((q) => q.table == source.table);
+    const existingSourceQuery = this.sourceQueries.find((q) => q.table == source.table);
     if (existingSourceQuery) {
       return {
         parsed: false,
@@ -33,8 +30,7 @@ export class SqlEventDescriptor {
       };
     }
 
-    source.ruleId = this.idSequence.nextId();
-    this.source_queries.push(source);
+    this.sourceQueries.push(source);
 
     return {
       parsed: true,
@@ -44,7 +40,7 @@ export class SqlEventDescriptor {
 
   evaluateRowWithErrors(options: EvaluateRowOptions): EvaluatedEventRowWithErrors {
     // There should only be 1 payload result per source query
-    const matchingQuery = this.source_queries.find((q) => q.applies(options.sourceTable));
+    const matchingQuery = this.sourceQueries.find((q) => q.applies(options.sourceTable));
     if (!matchingQuery) {
       return {
         errors: [{ error: `No marching source query found for table ${options.sourceTable.table}` }]
@@ -56,13 +52,13 @@ export class SqlEventDescriptor {
 
   getSourceTables(): Set<TablePattern> {
     let result = new Set<TablePattern>();
-    for (let query of this.source_queries) {
+    for (let query of this.sourceQueries) {
       result.add(query.sourceTable!);
     }
     return result;
   }
 
   tableTriggersEvent(table: SourceTableInterface): boolean {
-    return this.source_queries.some((query) => query.applies(table));
+    return this.sourceQueries.some((query) => query.applies(table));
   }
 }

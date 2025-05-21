@@ -6,7 +6,7 @@ import { ASSETS, BASIC_SCHEMA, PARSE_OPTIONS, TestSourceTable, USERS, normalizeT
 describe('sync rules', () => {
   test('parse empty sync rules', () => {
     const rules = SqlSyncRules.fromYaml('bucket_definitions: {}', PARSE_OPTIONS);
-    expect(rules.bucket_descriptors).toEqual([]);
+    expect(rules.bucketDescriptors).toEqual([]);
   });
 
   test('parse global sync rules', () => {
@@ -19,15 +19,14 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const bucket = rules.bucket_descriptors[0];
+    const bucket = rules.bucketDescriptors[0];
     expect(bucket.name).toEqual('mybucket');
-    expect(bucket.bucket_parameters).toEqual([]);
-    const dataQuery = bucket.data_queries[0];
-    expect(dataQuery.bucket_parameters).toEqual([]);
+    expect(bucket.bucketParameters).toEqual([]);
+    const dataQuery = bucket.dataQueries[0];
+    expect(dataQuery.bucketParameters).toEqual([]);
     expect(dataQuery.columnOutputNames()).toEqual(['id', 'description']);
     expect(rules.evaluateRow({ sourceTable: ASSETS, record: { id: 'asset1', description: 'test' } })).toEqual([
       {
-        ruleId: '1',
         table: 'assets',
         id: 'asset1',
         data: {
@@ -54,9 +53,9 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const bucket = rules.bucket_descriptors[0];
-    expect(bucket.bucket_parameters).toEqual([]);
-    const param_query = bucket.global_parameter_queries[0];
+    const bucket = rules.bucketDescriptors[0];
+    expect(bucket.bucketParameters).toEqual([]);
+    const param_query = bucket.globalParameterQueries[0];
 
     // Internal API, subject to change
     expect(param_query.filter!.lookupParameterValue(normalizeTokenParameters({ is_admin: 1n }))).toEqual(1n);
@@ -86,13 +85,13 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const bucket = rules.bucket_descriptors[0];
-    expect(bucket.bucket_parameters).toEqual([]);
-    const param_query = bucket.parameter_queries[0];
-    expect(param_query.bucket_parameters).toEqual([]);
+    const bucket = rules.bucketDescriptors[0];
+    expect(bucket.bucketParameters).toEqual([]);
+    const param_query = bucket.parameterQueries[0];
+    expect(param_query.bucketParameters).toEqual([]);
     expect(rules.evaluateParameterRow(USERS, { id: 'user1', is_admin: 1 })).toEqual([
       {
-        bucket_parameters: [{}],
+        bucketParameters: [{}],
         lookup: ParameterLookup.normalized('mybucket', '1', ['user1'])
       }
     ]);
@@ -110,17 +109,17 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const bucket = rules.bucket_descriptors[0];
-    expect(bucket.bucket_parameters).toEqual(['user_id', 'device_id']);
-    const param_query = bucket.global_parameter_queries[0];
-    expect(param_query.bucket_parameters).toEqual(['user_id', 'device_id']);
+    const bucket = rules.bucketDescriptors[0];
+    expect(bucket.bucketParameters).toEqual(['user_id', 'device_id']);
+    const param_query = bucket.globalParameterQueries[0];
+    expect(param_query.bucketParameters).toEqual(['user_id', 'device_id']);
     expect(
       rules.getBucketParameterQuerier(normalizeTokenParameters({ user_id: 'user1' }, { device_id: 'device1' }))
         .staticBuckets
     ).toEqual([{ bucket: 'mybucket["user1","device1"]', priority: 3 }]);
 
-    const data_query = bucket.data_queries[0];
-    expect(data_query.bucket_parameters).toEqual(['user_id', 'device_id']);
+    const data_query = bucket.dataQueries[0];
+    expect(data_query.bucketParameters).toEqual(['user_id', 'device_id']);
     expect(
       rules.evaluateRow({
         sourceTable: ASSETS,
@@ -128,7 +127,6 @@ bucket_definitions:
       })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket["user1","device1"]',
         id: 'asset1',
         data: {
@@ -157,16 +155,16 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const bucket = rules.bucket_descriptors[0];
-    expect(bucket.bucket_parameters).toEqual(['user_id']);
-    const param_query = bucket.global_parameter_queries[0];
-    expect(param_query.bucket_parameters).toEqual(['user_id']);
+    const bucket = rules.bucketDescriptors[0];
+    expect(bucket.bucketParameters).toEqual(['user_id']);
+    const param_query = bucket.globalParameterQueries[0];
+    expect(param_query.bucketParameters).toEqual(['user_id']);
     expect(rules.getBucketParameterQuerier(normalizeTokenParameters({ user_id: 'user1' })).staticBuckets).toEqual([
       { bucket: 'mybucket["user1"]', priority: 3 }
     ]);
 
-    const data_query = bucket.data_queries[0];
-    expect(data_query.bucket_parameters).toEqual(['user_id']);
+    const data_query = bucket.dataQueries[0];
+    expect(data_query.bucketParameters).toEqual(['user_id']);
     expect(
       rules.evaluateRow({
         sourceTable: ASSETS,
@@ -174,7 +172,6 @@ bucket_definitions:
       })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket["user1"]',
         id: 'asset1',
         data: {
@@ -191,7 +188,6 @@ bucket_definitions:
       })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket["user1"]',
         id: 'asset1',
         data: {
@@ -303,8 +299,8 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const bucket = rules.bucket_descriptors[0];
-    expect(bucket.bucket_parameters).toEqual(['user_id']);
+    const bucket = rules.bucketDescriptors[0];
+    expect(bucket.bucketParameters).toEqual(['user_id']);
     expect(rules.getBucketParameterQuerier(normalizeTokenParameters({ user_id: 'user1' }))).toMatchObject({
       staticBuckets: [{ bucket: 'mybucket["USER1"]', priority: 3 }],
       hasDynamicBuckets: false
@@ -317,7 +313,6 @@ bucket_definitions:
       })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket["USER1"]',
         id: 'asset1',
         data: {
@@ -341,8 +336,8 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const bucket = rules.bucket_descriptors[0];
-    expect(bucket.bucket_parameters).toEqual(['user_id']);
+    const bucket = rules.bucketDescriptors[0];
+    expect(bucket.bucketParameters).toEqual(['user_id']);
     expect(rules.getBucketParameterQuerier(normalizeTokenParameters({ user_id: 'user1' }))).toMatchObject({
       staticBuckets: [{ bucket: 'mybucket["USER1"]', priority: 3 }],
       hasDynamicBuckets: false
@@ -355,7 +350,6 @@ bucket_definitions:
       })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket["USER1"]',
         id: 'asset1',
         data: {
@@ -384,7 +378,6 @@ bucket_definitions:
       })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket[]',
         id: 'asset1',
         data: {
@@ -423,7 +416,6 @@ bucket_definitions:
       })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket["region1"]',
         id: 'asset1',
         data: {
@@ -433,7 +425,6 @@ bucket_definitions:
         table: 'assets'
       },
       {
-        ruleId: '1',
         bucket: 'mybucket["region2"]',
         id: 'asset1',
         data: {
@@ -462,7 +453,6 @@ bucket_definitions:
       rules.evaluateRow({ sourceTable: ASSETS, record: { id: 'asset1', description: 'test', role: 'admin' } })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket[1]',
         id: 'asset1',
         data: {
@@ -479,7 +469,6 @@ bucket_definitions:
       rules.evaluateRow({ sourceTable: ASSETS, record: { id: 'asset2', description: 'test', role: 'normal' } })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket[1]',
         id: 'asset2',
         data: {
@@ -491,7 +480,6 @@ bucket_definitions:
         table: 'assets'
       },
       {
-        ruleId: '2',
         bucket: 'mybucket[1]',
         id: 'asset2',
         data: {
@@ -503,7 +491,6 @@ bucket_definitions:
         table: 'assets'
       },
       {
-        ruleId: '2',
         bucket: 'mybucket[0]',
         id: 'asset2',
         data: {
@@ -534,7 +521,6 @@ bucket_definitions:
 
     expect(rules.evaluateRow({ sourceTable: ASSETS, record: { id: 'asset1' } })).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket[]',
         id: 'asset1',
         data: {
@@ -567,7 +553,6 @@ bucket_definitions:
       rules.evaluateRow({ sourceTable: ASSETS, record: { id: 'asset1', int1: 314n, float1: 3.14, float2: 314 } })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket[314,3.14,314]',
         id: 'asset1',
         data: {
@@ -601,8 +586,8 @@ bucket_definitions:
 bucket_definitions:
   mybucket:
     data:
-      - SELECT client_id AS id, description FROM assets_123 as assets WHERE assets.archived = false
-      - SELECT other_id AS id, description FROM assets_123 as assets
+      - SELECT client_id AS id, description, '1' as rule FROM assets_123 as assets WHERE assets.archived = false
+      - SELECT other_id AS id, description, '2' as rule FROM assets_123 as assets
     `,
       PARSE_OPTIONS
     );
@@ -614,22 +599,22 @@ bucket_definitions:
       })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket[]',
         id: 'asset1',
         data: {
           id: 'asset1',
-          description: 'test'
+          description: 'test',
+          rule: '1'
         },
         table: 'assets'
       },
       {
-        ruleId: '2',
         bucket: 'mybucket[]',
         id: 'other1',
         data: {
           id: 'other1',
-          description: 'test'
+          description: 'test',
+          rule: '2'
         },
         table: 'assets'
       }
@@ -654,7 +639,6 @@ bucket_definitions:
       })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket[]',
         id: 'asset1',
         data: {
@@ -688,7 +672,6 @@ bucket_definitions:
       })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket[]',
         id: 'asset1',
         data: {
@@ -708,11 +691,11 @@ bucket_definitions:
 bucket_definitions:
   mybucket:
     data:
-      - SELECT id FROM "assets" # Yes
-      - SELECT id FROM "test_schema"."assets" # yes
-      - SELECT id FROM "default.test_schema"."assets" # yes
-      - SELECT id FROM "other"."assets" # no
-      - SELECT id FROM "other.test_schema"."assets" # no
+      - SELECT id FROM "assets" as assets1 # Yes
+      - SELECT id FROM "test_schema"."assets" as assets2 # yes
+      - SELECT id FROM "default.test_schema"."assets" as assets3 # yes
+      - SELECT id FROM "other"."assets" as assets4 # no
+      - SELECT id FROM "other.test_schema"."assets" as assets5 # no
     `,
       PARSE_OPTIONS
     );
@@ -724,31 +707,28 @@ bucket_definitions:
       })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket[]',
         id: 'asset1',
         data: {
           id: 'asset1'
         },
-        table: 'assets'
+        table: 'assets1'
       },
       {
-        ruleId: '2',
         bucket: 'mybucket[]',
         id: 'asset1',
         data: {
           id: 'asset1'
         },
-        table: 'assets'
+        table: 'assets2'
       },
       {
-        ruleId: '3',
         bucket: 'mybucket[]',
         id: 'asset1',
         data: {
           id: 'asset1'
         },
-        table: 'assets'
+        table: 'assets3'
       }
     ]);
   });
@@ -933,8 +913,8 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const bucket = rules.bucket_descriptors[0];
-    expect(bucket.bucket_parameters).toEqual(['user_id']);
+    const bucket = rules.bucketDescriptors[0];
+    expect(bucket.bucketParameters).toEqual(['user_id']);
     expect(rules.hasDynamicBucketQueries()).toBe(true);
 
     expect(rules.getBucketParameterQuerier(normalizeTokenParameters({ user_id: 'user1' }))).toMatchObject({

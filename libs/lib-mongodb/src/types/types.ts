@@ -1,6 +1,12 @@
-import { ErrorCode, LookupOptions, makeHostnameLookupFunction, ServiceError } from '@powersync/lib-services-framework';
+import {
+  ErrorCode,
+  LookupOptions,
+  makeMultiHostnameLookupFunction,
+  ServiceError
+} from '@powersync/lib-services-framework';
 import * as t from 'ts-codec';
-import * as urijs from 'uri-js';
+import ConnectionURI from 'mongodb-connection-string-url';
+import { LookupFunction } from 'node:net';
 
 export const MONGO_CONNECTION_TYPE = 'mongodb' as const;
 
@@ -16,6 +22,14 @@ export const BaseMongoConfig = t.object({
 
 export type BaseMongoConfig = t.Encoded<typeof BaseMongoConfig>;
 export type BaseMongoConfigDecoded = t.Decoded<typeof BaseMongoConfig>;
+
+export type NormalizedMongoConfig = {
+  uri: string;
+  database: string;
+  username: string;
+  password: string;
+  lookup: LookupFunction | undefined;
+};
 
 /**
  * Construct a mongodb URI, without username, password or ssl options.
@@ -33,29 +47,36 @@ export function baseUri(options: BaseMongoConfig) {
  *
  * For use by both storage and mongo module.
  */
-export function normalizeMongoConfig(options: BaseMongoConfigDecoded) {
-  let uri = urijs.parse(options.uri);
+export function normalizeMongoConfig(options: BaseMongoConfigDecoded): NormalizedMongoConfig {
+  let uri: ConnectionURI;
 
-  const database = options.database ?? uri.path?.substring(1) ?? '';
+  try {
+    uri = new ConnectionURI(options.uri);
+  } catch (error) {
+    throw new ServiceError(
+      ErrorCode.PSYNC_S1109,
+      `MongoDB connection: invalid URI ${error instanceof Error ? `- ${error.message}` : ''}`
+    );
+  }
 
-  const userInfo = uri.userinfo?.split(':');
+  const database = options.database ?? uri.pathname.split('/')[1] ?? '';
+  const username = options.username ?? uri.username;
+  const password = options.password ?? uri.password;
 
-  const username = options.username ?? userInfo?.[0];
-  const password = options.password ?? userInfo?.[1];
+  uri.password = '';
+  uri.username = '';
 
   if (database == '') {
     throw new ServiceError(ErrorCode.PSYNC_S1105, `MongoDB connection: database required`);
   }
 
-  delete uri.userinfo;
-
   const lookupOptions: LookupOptions = {
     reject_ip_ranges: options.reject_ip_ranges ?? []
   };
-  const lookup = makeHostnameLookupFunction(uri.host ?? '', lookupOptions);
+  const lookup = makeMultiHostnameLookupFunction(uri.hosts, lookupOptions);
 
   return {
-    uri: urijs.serialize(uri),
+    uri: uri.toString(),
     database,
 
     username,

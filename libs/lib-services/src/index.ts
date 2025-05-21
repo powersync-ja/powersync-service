@@ -9,7 +9,7 @@ export * from './container.js';
 export * from './errors/errors-index.js';
 export * as errors from './errors/errors-index.js';
 
-export * from './logger/Logger.js';
+export * from './logger/logger-index.js';
 
 export * from './locks/locks-index.js';
 export * as locks from './locks/locks-index.js';

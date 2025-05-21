@@ -77,12 +77,12 @@ importers:
       mongodb:
         specifier: ^6.14.1
         version: 6.14.2(socks@2.8.3)
+      mongodb-connection-string-url:
+        specifier: ^3.0.2
+        version: 3.0.2
       ts-codec:
         specifier: ^1.3.0
         version: 1.3.0
-      uri-js:
-        specifier: ^4.4.1
-        version: 4.4.1
 
   libs/lib-postgres:
     dependencies:
@@ -105,12 +105,8 @@ importers:
         specifier: ^4.4.1
         version: 4.4.1
       uuid:
-        specifier: ^9.0.1
-        version: 9.0.1
-    devDependencies:
-      '@types/uuid':
-        specifier: ^9.0.4
-        version: 9.0.8
+        specifier: ^11.1.0
+        version: 11.1.0
 
   libs/lib-services:
     dependencies:
@@ -139,8 +135,8 @@ importers:
         specifier: ^1.3.0
         version: 1.3.0
       uuid:
-        specifier: ^9.0.1
-        version: 9.0.1
+        specifier: ^11.1.0
+        version: 11.1.0
       winston:
         specifier: ^3.13.0
         version: 3.13.1
@@ -151,9 +147,6 @@ importers:
       '@types/lodash':
         specifier: ^4.17.5
         version: 4.17.6
-      '@types/uuid':
-        specifier: ^9.0.4
-        version: 9.0.8
       vitest:
         specifier: ^3.0.5
         version: 3.0.5(@types/node@22.13.1)(yaml@2.5.0)
@@ -206,8 +199,8 @@ importers:
         specifier: ^1.3.0
         version: 1.3.0
       uuid:
-        specifier: ^9.0.1
-        version: 9.0.1
+        specifier: ^11.1.0
+        version: 11.1.0
     devDependencies:
       '@powersync/service-core-tests':
         specifier: workspace:*
@@ -218,9 +211,6 @@ importers:
       '@powersync/service-module-postgres-storage':
         specifier: workspace:*
         version: link:../module-postgres-storage
-      '@types/uuid':
-        specifier: ^9.0.4
-        version: 9.0.8
 
   modules/module-mongodb-storage:
     dependencies:
@@ -255,15 +245,12 @@ importers:
         specifier: ^1.3.0
         version: 1.3.0
       uuid:
-        specifier: ^9.0.1
-        version: 9.0.1
+        specifier: ^11.1.0
+        version: 11.1.0
     devDependencies:
       '@powersync/service-core-tests':
         specifier: workspace:*
         version: link:../../packages/service-core-tests
-      '@types/uuid':
-        specifier: ^9.0.4
-        version: 9.0.8
 
   modules/module-mysql:
     dependencies:
@@ -301,8 +288,8 @@ importers:
         specifier: ^4.4.1
         version: 4.4.1
       uuid:
-        specifier: ^9.0.1
-        version: 9.0.1
+        specifier: ^11.1.0
+        version: 11.1.0
     devDependencies:
       '@powersync/service-core-tests':
         specifier: workspace:*
@@ -319,9 +306,6 @@ importers:
       '@types/semver':
         specifier: ^7.5.4
         version: 7.5.8
-      '@types/uuid':
-        specifier: ^9.0.4
-        version: 9.0.8
 
   modules/module-postgres:
     dependencies:
@@ -362,8 +346,8 @@ importers:
         specifier: ^4.4.1
         version: 4.4.1
       uuid:
-        specifier: ^9.0.1
-        version: 9.0.1
+        specifier: ^11.1.0
+        version: 11.1.0
     devDependencies:
       '@powersync/service-core-tests':
         specifier: workspace:*
@@ -377,9 +361,6 @@ importers:
       '@types/semver':
         specifier: ^7.5.4
         version: 7.5.8
-      '@types/uuid':
-        specifier: ^9.0.4
-        version: 9.0.8
 
   modules/module-postgres-storage:
     dependencies:
@@ -420,12 +401,9 @@ importers:
         specifier: ^1.3.0
         version: 1.3.0
       uuid:
-        specifier: ^9.0.1
-        version: 9.0.1
+        specifier: ^11.1.0
+        version: 11.1.0
     devDependencies:
-      '@types/uuid':
-        specifier: ^9.0.4
-        version: 9.0.8
       typescript:
         specifier: ^5.7.3
         version: 5.7.3
@@ -460,15 +438,12 @@ importers:
         specifier: ^1.3.0
         version: 1.3.0
       uuid:
-        specifier: ^9.0.1
-        version: 9.0.1
+        specifier: ^11.1.0
+        version: 11.1.0
       ws:
         specifier: ^8.17.0
         version: 8.18.0
     devDependencies:
-      '@types/uuid':
-        specifier: ^9.0.4
-        version: 9.0.8
       '@types/ws':
         specifier: ~8.2.0
         version: 8.2.3
@@ -578,8 +553,8 @@ importers:
         specifier: ^4.4.1
         version: 4.4.1
       uuid:
-        specifier: ^9.0.1
-        version: 9.0.1
+        specifier: ^11.1.0
+        version: 11.1.0
       winston:
         specifier: ^3.13.0
         version: 3.13.1
@@ -593,9 +568,6 @@ importers:
       '@types/lodash':
         specifier: ^4.17.5
         version: 4.17.6
-      '@types/uuid':
-        specifier: ^9.0.4
-        version: 9.0.8
       fastify:
         specifier: 4.23.2
         version: 4.23.2
@@ -645,8 +617,8 @@ importers:
         specifier: ^11.1.0
         version: 11.2.0
       uuid:
-        specifier: ^9.0.1
-        version: 9.0.1
+        specifier: ^11.1.0
+        version: 11.1.0
       yaml:
         specifier: ^2.3.1
         version: 2.4.5
@@ -654,9 +626,6 @@ importers:
       '@types/node':
         specifier: ^22.5.5
         version: 22.5.5
-      '@types/uuid':
-        specifier: ^9.0.4
-        version: 9.0.8
       vitest:
         specifier: ^3.0.5
         version: 3.0.5(@types/node@22.5.5)(yaml@2.4.5)
@@ -1583,9 +1552,6 @@ packages:
 
   '@types/triple-beam@1.3.5':
     resolution: {integrity: sha512-6WaYesThRMCl19iryMYP7/x2OVgCtbIVflDGFpWnb9irXI3UjYE4AzmYuiUKY1AJstGijoY+MgUszMgRxIYTYw==}
-
-  '@types/uuid@9.0.8':
-    resolution: {integrity: sha512-jg+97EGIcY9AGHJJRaaPVgetKDsrTgbRjQ5Msgjh/DQKEFl0DtyRr/VCOyD1T2R1MNeWPK/u7JoGhlDZnKBAfA==}
 
   '@types/webidl-conversions@7.0.3':
     resolution: {integrity: sha512-CiJJvcRtIgzadHCYXw7dqEnMNRjhGZlYK05Mj9OyktqV8uVT8fD2BFOB7S1uwBE3Kj2Z+4UyPmFw/Ixgw/LAlA==}
@@ -2835,8 +2801,8 @@ packages:
   module-details-from-path@1.0.3:
     resolution: {integrity: sha512-ySViT69/76t8VhE1xXHK6Ch4NcDd26gx0MzKXLO+F7NOtnqH68d9zF94nT8ZWSxXh8ELOERsnJO/sWt1xZYw5A==}
 
-  mongodb-connection-string-url@3.0.1:
-    resolution: {integrity: sha512-XqMGwRX0Lgn05TDB4PyG2h2kKO/FfWJyCzYQbIhXUxz7ETt0I/FqHjUeqj37irJ+Dl1ZtU82uYyj14u2XsZKfg==}
+  mongodb-connection-string-url@3.0.2:
+    resolution: {integrity: sha512-rMO7CGo/9BFwyZABcKAWL8UJwH/Kc2x0g72uhDWzG48URRax5TCIcJ7Rc3RZqffZzO/Gwff/jyKwCU9TN8gehA==}
 
   mongodb@6.14.2:
     resolution: {integrity: sha512-kMEHNo0F3P6QKDq17zcDuPeaywK/YaJVCEQRzPF3TOM/Bl9MFg64YE5Tu7ifj37qZJMhwU1tl2Ioivws5gRG5Q==}
@@ -3877,8 +3843,8 @@ packages:
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
-  uuid@9.0.1:
-    resolution: {integrity: sha512-b+1eJOlsR9K8HJpow9Ok3fiWOWSIcIzXodvv0rQjVoOVNpWMpxf1wZNpt4y9h10odCNrqnYp1OBzRktckBe3sA==}
+  uuid@11.1.0:
+    resolution: {integrity: sha512-0/A9rDy9P7cJ+8w1c9WD9V//9Wj15Ce2MPz8Ri6032usz+NfePxx5AcN3bN+r6ZL6jEo066/yNYB3tn4pQEx+A==}
     hasBin: true
 
   v8-compile-cache-lib@3.0.1:
@@ -5033,8 +4999,6 @@ snapshots:
   '@types/strip-json-comments@0.0.30': {}
 
   '@types/triple-beam@1.3.5': {}
-
-  '@types/uuid@9.0.8': {}
 
   '@types/webidl-conversions@7.0.3': {}
 
@@ -6333,7 +6297,7 @@ snapshots:
 
   module-details-from-path@1.0.3: {}
 
-  mongodb-connection-string-url@3.0.1:
+  mongodb-connection-string-url@3.0.2:
     dependencies:
       '@types/whatwg-url': 11.0.5
       whatwg-url: 13.0.0
@@ -6342,7 +6306,7 @@ snapshots:
     dependencies:
       '@mongodb-js/saslprep': 1.1.9
       bson: 6.10.3
-      mongodb-connection-string-url: 3.0.1
+      mongodb-connection-string-url: 3.0.2
     optionalDependencies:
       socks: 2.8.3
 
@@ -7431,7 +7395,7 @@ snapshots:
 
   util-deprecate@1.0.2: {}
 
-  uuid@9.0.1: {}
+  uuid@11.1.0: {}
 
   v8-compile-cache-lib@3.0.1: {}
 

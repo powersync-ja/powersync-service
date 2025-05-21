@@ -7,12 +7,12 @@ import * as auth from '../auth/auth-index.js';
 import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
-import { logger } from '@powersync/lib-services-framework';
-import { BucketChecksumState } from './BucketChecksumState.js';
+import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
+import { BucketChecksumState, CheckpointLine } from './BucketChecksumState.js';
 import { mergeAsyncIterables } from '../streams/streams-index.js';
 import { acquireSemaphoreAbortable, settledPromise, tokenStream, TokenStreamOptions } from './util.js';
 import { SyncContext } from './SyncContext.js';
-import { RequestTracker } from './RequestTracker.js';
+import { OperationsSentStats, RequestTracker, statsForBatch } from './RequestTracker.js';
 
 export interface SyncStreamParameters {
   syncContext: SyncContext;
@@ -21,6 +21,7 @@ export interface SyncStreamParameters {
   params: util.StreamingSyncRequest;
   syncParams: RequestParameters;
   token: auth.JwtPayload;
+  logger?: Logger;
   /**
    * If this signal is aborted, the stream response ends as soon as possible, without error.
    */
@@ -35,6 +36,8 @@ export async function* streamResponse(
 ): AsyncIterable<util.StreamingSyncLine | string | null> {
   const { syncContext, bucketStorage, syncRules, params, syncParams, token, tokenStreamOptions, tracker, signal } =
     options;
+  const logger = options.logger ?? defaultLogger;
+
   // We also need to be able to abort, so we create our own controller.
   const controller = new AbortController();
   if (signal) {
@@ -57,7 +60,8 @@ export async function* streamResponse(
     params,
     syncParams,
     tracker,
-    controller.signal
+    controller.signal,
+    logger
   );
   // Merge the two streams, and abort as soon as one of the streams end.
   const merged = mergeAsyncIterables([stream, ki], controller.signal);
@@ -77,11 +81,6 @@ export async function* streamResponse(
   }
 }
 
-export type BucketSyncState = {
-  description?: BucketDescription; // Undefined if the bucket has not yet been resolved by us.
-  start_op_id: util.InternalOpId;
-};
-
 async function* streamResponseInner(
   syncContext: SyncContext,
   bucketStorage: storage.SyncRulesBucketStorage,
@@ -89,11 +88,12 @@ async function* streamResponseInner(
   params: util.StreamingSyncRequest,
   syncParams: RequestParameters,
   tracker: RequestTracker,
-  signal: AbortSignal
+  signal: AbortSignal,
+  logger: Logger
 ): AsyncGenerator<util.StreamingSyncLine | string | null> {
   const { raw_data, binary_data } = params;
 
-  const checkpointUserId = util.checkpointUserId(syncParams.token_parameters.user_id as string, params.client_id);
+  const checkpointUserId = util.checkpointUserId(syncParams.tokenParameters.user_id as string, params.client_id);
 
   const checksumState = new BucketChecksumState({
     syncContext,
@@ -103,7 +103,8 @@ async function* streamResponseInner(
     initialBucketPositions: params.buckets?.map((bucket) => ({
       name: bucket.name,
       after: BigInt(bucket.after)
-    }))
+    })),
+    logger: logger
   });
   const stream = bucketStorage.watchCheckpointChanges({
     user_id: checkpointUserId,
@@ -111,16 +112,29 @@ async function* streamResponseInner(
   });
   const newCheckpoints = stream[Symbol.asyncIterator]();
 
+  type CheckpointAndLine = {
+    checkpoint: bigint;
+    line: CheckpointLine | null;
+  };
+
+  async function waitForNewCheckpointLine(): Promise<IteratorResult<CheckpointAndLine>> {
+    const next = await newCheckpoints.next();
+    if (next.done) {
+      return { done: true, value: undefined };
+    }
+
+    const line = await checksumState.buildNextCheckpointLine(next.value);
+    return { done: false, value: { checkpoint: next.value.base.checkpoint, line } };
+  }
+
   try {
-    let nextCheckpointPromise:
-      | Promise<PromiseSettledResult<IteratorResult<storage.StorageCheckpointUpdate>>>
-      | undefined;
+    let nextCheckpointPromise: Promise<PromiseSettledResult<IteratorResult<CheckpointAndLine>>> | undefined;
 
     do {
       if (!nextCheckpointPromise) {
         // Wrap in a settledPromise, so that abort errors after the parent stopped iterating
         // does not result in uncaught errors.
-        nextCheckpointPromise = settledPromise(newCheckpoints.next());
+        nextCheckpointPromise = settledPromise(waitForNewCheckpointLine());
       }
       const next = await nextCheckpointPromise;
       nextCheckpointPromise = undefined;
@@ -130,7 +144,7 @@ async function* streamResponseInner(
       if (next.value.done) {
         break;
       }
-      const line = await checksumState.buildNextCheckpointLine(next.value.value);
+      const line = next.value.value.line;
       if (line == null) {
         // No update to sync
         continue;
@@ -138,7 +152,10 @@ async function* streamResponseInner(
 
       const { checkpointLine, bucketsToFetch } = line;
 
+      // Since yielding can block, we update the state just before yielding the line.
+      line.advance();
       yield checkpointLine;
+
       // Start syncing data for buckets up to the checkpoint. As soon as we have completed at least one priority and
       // at least 1000 operations, we also start listening for new checkpoints concurrently. When a new checkpoint comes
       // in while we're still busy syncing data for lower priorities, interrupt the current operation and start syncing
@@ -164,30 +181,32 @@ async function* streamResponseInner(
       function maybeRaceForNewCheckpoint() {
         if (syncedOperations >= 1000 && nextCheckpointPromise === undefined) {
           nextCheckpointPromise = (async () => {
-            const next = await settledPromise(newCheckpoints.next());
-            if (next.status == 'rejected') {
-              abortCheckpointController.abort();
-            } else if (!next.value.done) {
-              // Stop the running bucketDataInBatches() iterations, making the main flow reach the new checkpoint.
-              abortCheckpointController.abort();
-            }
+            while (true) {
+              const next = await settledPromise(waitForNewCheckpointLine());
+              if (next.status == 'rejected') {
+                abortCheckpointController.abort();
+              } else if (!next.value.done) {
+                if (next.value.value.line == null) {
+                  // There's a new checkpoint that doesn't affect this sync stream. Keep listening, but don't
+                  // interrupt this batch.
+                  continue;
+                }
 
-            return next;
+                // A new sync line can be emitted. Stop running the bucketDataInBatches() iterations, making the
+                // main flow reach the new checkpoint.
+                abortCheckpointController.abort();
+              }
+
+              return next;
+            }
           })();
         }
       }
 
-      function markOperationsSent(operations: number) {
-        syncedOperations += operations;
-        tracker.addOperationsSynced(operations);
-        // Disable interrupting checkpoints for now.
-        // There is a bug with interrupting checkpoints where:
-        // 1. User is in the middle of syncing a large batch of data (for example initial sync).
-        // 2. A new checkpoint comes in, which interrupts the batch.
-        // 3. However, the new checkpoint does not contain any new data for this connection, so nothing further is synced.
-        // This then causes the client to wait indefinitely for the remaining data or checkpoint_complete message. That is
-        // only resolved when a new checkpoint comes in that does have data for this connection, or the connection is restarted.
-        // maybeRaceForNewCheckpoint();
+      function markOperationsSent(stats: OperationsSentStats) {
+        syncedOperations += stats.total;
+        tracker.addOperationsSynced(stats);
+        maybeRaceForNewCheckpoint();
       }
 
       // This incrementally updates dataBuckets with each individual bucket position.
@@ -201,18 +220,19 @@ async function* streamResponseInner(
         yield* bucketDataInBatches({
           syncContext: syncContext,
           bucketStorage: bucketStorage,
-          checkpoint: next.value.value.base.checkpoint,
+          checkpoint: next.value.value.checkpoint,
           bucketsToFetch: buckets,
-          checksumState,
+          checkpointLine: line,
           raw_data,
           binary_data,
           onRowsSent: markOperationsSent,
           abort_connection: signal,
           abort_batch: abortCheckpointSignal,
-          user_id: syncParams.user_id,
+          user_id: syncParams.userId,
           // Passing null here will emit a full sync complete message at the end. If we pass a priority, we'll emit a partial
           // sync complete message instead.
-          forPriority: !isLast ? priority : null
+          forPriority: !isLast ? priority : null,
+          logger
         });
       }
 
@@ -229,9 +249,10 @@ interface BucketDataRequest {
   syncContext: SyncContext;
   bucketStorage: storage.SyncRulesBucketStorage;
   checkpoint: util.InternalOpId;
+  /** Contains current bucket state. Modified by the request as data is sent. */
+  checkpointLine: CheckpointLine;
+  /** Subset of checkpointLine.bucketsToFetch, filtered by priority. */
   bucketsToFetch: BucketDescription[];
-  /** Contains current bucket state. Modified by the request as data is sent.  */
-  checksumState: BucketChecksumState;
   raw_data: boolean | undefined;
   binary_data: boolean | undefined;
   /** Signals that the connection was aborted and that streaming should stop ASAP. */
@@ -243,7 +264,8 @@ interface BucketDataRequest {
   abort_batch: AbortSignal;
   user_id?: string;
   forPriority: BucketPriority | null;
-  onRowsSent: (amount: number) => void;
+  onRowsSent: (stats: OperationsSentStats) => void;
+  logger: Logger;
 }
 
 async function* bucketDataInBatches(request: BucketDataRequest) {
@@ -292,12 +314,13 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
     bucketStorage: storage,
     checkpoint,
     bucketsToFetch,
-    checksumState,
+    checkpointLine,
     raw_data,
     binary_data,
     abort_connection,
     abort_batch,
-    onRowsSent
+    onRowsSent,
+    logger
   } = request;
 
   let checkpointInvalidated = false;
@@ -322,7 +345,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
     }
     // Optimization: Only fetch buckets for which the checksums have changed since the last checkpoint
     // For the first batch, this will be all buckets.
-    const filteredBuckets = checksumState.getFilteredBucketPositions(bucketsToFetch);
+    const filteredBuckets = checkpointLine.getFilteredBucketPositions(bucketsToFetch);
     const dataBatches = storage.getBucketDataBatch(checkpoint, filteredBuckets);
 
     let has_more = false;
@@ -369,9 +392,9 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
         // iterator memory in case if large data sent.
         yield { data: null, done: false };
       }
-      onRowsSent(r.data.length);
+      onRowsSent(statsForBatch(r));
 
-      checksumState.updateBucketPosition({ bucket: r.bucket, nextAfter: BigInt(r.next_after), hasMore: r.has_more });
+      checkpointLine.updateBucketPosition({ bucket: r.bucket, nextAfter: BigInt(r.next_after), hasMore: r.has_more });
 
       // Check if syncing bucket data is supposed to stop before fetching more data
       // from storage.

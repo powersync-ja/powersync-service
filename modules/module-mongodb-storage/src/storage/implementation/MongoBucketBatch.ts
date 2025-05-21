@@ -895,7 +895,7 @@ export class MongoBucketBatch
    * Gets relevant {@link SqlEventDescriptor}s for the given {@link SourceTable}
    */
   protected getTableEvents(table: storage.SourceTable): SqlEventDescriptor[] {
-    return this.sync_rules.event_descriptors.filter((evt) =>
+    return this.sync_rules.eventDescriptors.filter((evt) =>
       [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table))
     );
   }
