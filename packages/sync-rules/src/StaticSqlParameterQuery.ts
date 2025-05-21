@@ -8,17 +8,12 @@ import { getBucketId, isJsonValue } from './utils.js';
 
 export interface StaticSqlParameterQueryOptions {
   sql: string;
-  columns: SelectedColumn[];
   parameterExtractors: Record<string, ParameterValueClause>;
   priority: BucketPriority;
   descriptorName: string;
-  /** _Output_ bucket parameters */
   bucketParameters: string[];
   id: string;
-  tools: SqlTools;
-
   filter: ParameterValueClause | undefined;
-
   errors?: SqlRuleError[];
 }
 
@@ -86,9 +81,7 @@ export class StaticSqlParameterQuery {
       sql,
       descriptorName,
       bucketParameters,
-      columns,
       parameterExtractors,
-      tools,
       priority: priority ?? DEFAULT_BUCKET_PRIORITY,
       filter: isClauseError(filter) ? undefined : filter,
       id: queryId,
@@ -105,29 +98,50 @@ export class StaticSqlParameterQuery {
     return query;
   }
 
+  /**
+   * Raw source sql query, for debugging purposes.
+   */
   readonly sql: string;
-  readonly columns: SelectedColumn[];
-  readonly parameterExtractors: Record<string, ParameterValueClause>;
-  readonly priority: BucketPriority;
-  readonly descriptorName: string;
-  /** _Output_ bucket parameters */
-  readonly bucketParameters: string[];
-  readonly id: string;
-  readonly tools: SqlTools;
 
+  /**
+   * Matches the keys in `bucketParameters`.
+   *
+   * This is used to map request parameters -> bucket parameters.
+   */
+  readonly parameterExtractors: Record<string, ParameterValueClause>;
+
+  readonly priority: BucketPriority;
+
+  /**
+   * Bucket definition name.
+   */
+  readonly descriptorName: string;
+
+  /**
+   * _Output_ bucket parameters, excluding the `bucket.` prefix.
+   *
+   * Each one will be present in the `parameterExtractors` map.
+   */
+  readonly bucketParameters: string[];
+
+  readonly id: string;
+
+  /**
+   * The query filter (WHERE clause). Given request parameters, the filter will determine whether or not this query returns a row.
+   *
+   * undefined if the clause is not valid.
+   */
   readonly filter: ParameterValueClause | undefined;
 
   readonly errors: SqlRuleError[];
 
   constructor(options: StaticSqlParameterQueryOptions) {
     this.sql = options.sql;
-    this.columns = options.columns;
     this.parameterExtractors = options.parameterExtractors;
     this.priority = options.priority;
     this.descriptorName = options.descriptorName;
     this.bucketParameters = options.bucketParameters;
     this.id = options.id;
-    this.tools = options.tools;
     this.filter = options.filter;
     this.errors = options.errors ?? [];
   }

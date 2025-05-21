@@ -6,7 +6,6 @@ import { SqlTools } from './sql_filters.js';
 import { TablePattern } from './TablePattern.js';
 import { QueryParameters, QuerySchema, SourceSchema, SourceSchemaTable, SqliteJsonRow, SqliteRow } from './types.js';
 import { filterJsonRow } from './utils.js';
-import { extendErrors } from 'ajv/dist/compile/errors.js';
 
 export interface RowValueExtractor {
   extract(tables: QueryParameters, into: SqliteRow): void;
@@ -29,14 +28,50 @@ export interface BaseSqlDataQueryOptions {
 }
 
 export class BaseSqlDataQuery {
+  /**
+   * Source table or table pattern.
+   */
   readonly sourceTable: TablePattern;
+
+  /**
+   * The table name or alias used in the query.
+   *
+   * This is used for the output table name.
+   */
   readonly table: string;
+
+  /**
+   * The source SQL query, for debugging purposes.
+   */
   readonly sql: string;
+
+  /**
+   * Query columns, for debugging purposes.
+   */
   readonly columns: SelectedColumn[];
+
+  /**
+   * Extracts input row into output row. This is the column list in the SELECT part of the query.
+   *
+   * This may include plain column names, wildcards, and basic expressions.
+   */
   readonly extractors: RowValueExtractor[] = [];
+
+  /**
+   * Bucket definition name.
+   */
   readonly descriptorName: string;
+  /**
+   * Bucket parameter names, without the `bucket.` prefix.
+   *
+   * These are received from the associated parameter query (if any), and must match the filters
+   * used in the data query.
+   */
   readonly bucketParameters: string[];
-  readonly tools: SqlTools;
+  /**
+   * Used to generate debugging info.
+   */
+  private readonly tools: SqlTools;
 
   readonly ruleId: string;
 

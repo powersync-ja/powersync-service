@@ -18,8 +18,6 @@ export interface SqlDataQueryOptions extends BaseSqlDataQueryOptions {
 }
 
 export class SqlDataQuery extends BaseSqlDataQuery {
-  readonly filter: ParameterMatchClause;
-
   static fromSql(
     descriptorName: string,
     bucketParameters: string[],
@@ -179,6 +177,15 @@ export class SqlDataQuery extends BaseSqlDataQuery {
       extractors
     });
   }
+
+  /**
+   * The query WHERE clause.
+   *
+   * For a given row, this returns a set of bucket parameter values that could cause the filter to match.
+   *
+   * We use this to determine the buckets that a data row belong to.
+   */
+  readonly filter: ParameterMatchClause;
 
   constructor(options: SqlDataQueryOptions) {
     super(options);

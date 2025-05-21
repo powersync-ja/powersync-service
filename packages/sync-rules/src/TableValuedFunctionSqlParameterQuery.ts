@@ -16,14 +16,12 @@ import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY } from './Bu
 
 export interface TableValuedFunctionSqlParameterQueryOptions {
   sql: string;
-  columns: SelectedColumn[];
   parameterExtractors: Record<string, ParameterValueClause>;
   priority: BucketPriority;
   descriptorName: string;
   /** _Output_ bucket parameters */
   bucketParameters: string[];
   id: string;
-  tools: SqlTools;
 
   filter: ParameterValueClause | undefined;
   callClause: ParameterValueClause | undefined;
@@ -103,9 +101,7 @@ export class TableValuedFunctionSqlParameterQuery {
       sql,
       descriptorName,
       bucketParameters,
-      columns,
       parameterExtractors,
-      tools,
       filter: isClauseError(filter) ? undefined : filter,
       callClause: isClauseError(callClause) ? undefined : callClause,
       function: functionImpl,
@@ -126,32 +122,71 @@ export class TableValuedFunctionSqlParameterQuery {
     return query;
   }
 
+  /**
+   * Raw source sql query, for debugging purposes.
+   */
   readonly sql: string;
-  readonly columns: SelectedColumn[];
-  readonly parameterExtractors: Record<string, ParameterValueClause>;
-  readonly priority: BucketPriority;
-  readonly descriptorName: string;
-  /** _Output_ bucket parameters */
-  readonly bucketParameters: string[];
-  readonly id: string;
-  readonly tools: SqlTools;
 
+  /**
+   * Matches the keys in `bucketParameters`.
+   *
+   * This is used to map (request parameters + individual function call result row) -> bucket parameters.
+   */
+  readonly parameterExtractors: Record<string, ParameterValueClause>;
+
+  readonly priority: BucketPriority;
+
+  /**
+   * Bucket definition name.
+   */
+  readonly descriptorName: string;
+
+  /**
+   * _Output_ bucket parameters, excluding the `bucket.` prefix.
+   *
+   * Each one will be present in the `parameterExtractors` map.
+   */
+  readonly bucketParameters: string[];
+
+  readonly id: string;
+
+  /**
+   * The WHERE clause. This is applied on (request parameters + individual function call result row).
+   *
+   * This is used to determine whether or not this query returns a row.
+   *
+   * undefined if the clause is not valid.
+   */
   readonly filter: ParameterValueClause | undefined;
+
+  /**
+   * This is the argument to the table-valued function. It is evaluated on the request parameters.
+   *
+   * Only a single argument is supported currently.
+   */
   readonly callClause: ParameterValueClause | undefined;
+
+  /**
+   * The table-valued function that will be called, with the output of `callClause`.
+   */
   readonly function: TableValuedFunction;
+
+  /**
+   * The name or alias of the "table" with the function call results.
+   *
+   * Only used internally.
+   */
   readonly callTableName: string;
 
   readonly errors: SqlRuleError[];
 
   constructor(options: TableValuedFunctionSqlParameterQueryOptions) {
     this.sql = options.sql;
-    this.columns = options.columns;
     this.parameterExtractors = options.parameterExtractors;
     this.priority = options.priority;
     this.descriptorName = options.descriptorName;
     this.bucketParameters = options.bucketParameters;
     this.id = options.id;
-    this.tools = options.tools;
 
     this.filter = options.filter;
     this.callClause = options.callClause;

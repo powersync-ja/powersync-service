@@ -257,7 +257,7 @@ export class SqlParameterQuery {
   readonly expandedInputParameter: InputParameter | undefined;
 
   /**
-   * _Output_ bucket parameters.
+   * _Output_ bucket parameters, excluding the `bucket.` prefix.
    *
    * Each one of these will be present in either lookupExtractors or parameterExtractors.
    */
