@@ -404,7 +404,7 @@ bucket_definitions:
 
     const parameters = new RequestParameters({ sub: 'u1' }, {});
 
-    const q1 = sync_rules.bucket_descriptors[0].parameter_queries[0];
+    const q1 = sync_rules.bucket_descriptors[0].parameterQueries[0];
 
     const lookups = q1.getLookups(parameters);
     expect(lookups).toEqual([ParameterLookup.normalized('by_workspace', '1', ['u1'])]);
@@ -474,7 +474,7 @@ bucket_definitions:
 
     const parameters = new RequestParameters({ sub: 'unknown' }, {});
 
-    const q1 = sync_rules.bucket_descriptors[0].parameter_queries[0];
+    const q1 = sync_rules.bucket_descriptors[0].parameterQueries[0];
 
     const lookups = q1.getLookups(parameters);
     expect(lookups).toEqual([ParameterLookup.normalized('by_public_workspace', '1', [])]);
@@ -564,7 +564,7 @@ bucket_definitions:
     const parameters = new RequestParameters({ sub: 'u1' }, {});
 
     // Test intermediate values - could be moved to sync_rules.test.ts
-    const q1 = sync_rules.bucket_descriptors[0].parameter_queries[0];
+    const q1 = sync_rules.bucket_descriptors[0].parameterQueries[0];
     const lookups1 = q1.getLookups(parameters);
     expect(lookups1).toEqual([ParameterLookup.normalized('by_workspace', '1', [])]);
 
@@ -572,7 +572,7 @@ bucket_definitions:
     parameter_sets1.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     expect(parameter_sets1).toEqual([{ workspace_id: 'workspace1' }]);
 
-    const q2 = sync_rules.bucket_descriptors[0].parameter_queries[1];
+    const q2 = sync_rules.bucket_descriptors[0].parameterQueries[1];
     const lookups2 = q2.getLookups(parameters);
     expect(lookups2).toEqual([ParameterLookup.normalized('by_workspace', '2', ['u1'])]);
 

@@ -8,7 +8,7 @@ describe('static parameter queries', () => {
     const sql = 'SELECT token_parameters.user_id';
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS, '1') as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
-    expect(query.bucket_parameters!).toEqual(['user_id']);
+    expect(query.bucketParameters!).toEqual(['user_id']);
     expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
       { bucket: 'mybucket["user1"]', priority: 3 }
     ]);
@@ -18,7 +18,7 @@ describe('static parameter queries', () => {
     const sql = 'SELECT';
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS, '1') as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
-    expect(query.bucket_parameters!).toEqual([]);
+    expect(query.bucketParameters!).toEqual([]);
     expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
       { bucket: 'mybucket[]', priority: 3 }
     ]);
@@ -43,7 +43,7 @@ describe('static parameter queries', () => {
     expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
       { bucket: 'mybucket["USER1"]', priority: 3 }
     ]);
-    expect(query.bucket_parameters!).toEqual(['upper_id']);
+    expect(query.bucketParameters!).toEqual(['upper_id']);
   });
 
   test('function in filter clause', function () {
@@ -88,7 +88,7 @@ describe('static parameter queries', () => {
     const sql = "SELECT request.jwt() ->> 'sub' as user_id";
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS, '1') as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
-    expect(query.bucket_parameters).toEqual(['user_id']);
+    expect(query.bucketParameters).toEqual(['user_id']);
 
     expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
       { bucket: 'mybucket["user1"]', priority: 3 }
@@ -99,7 +99,7 @@ describe('static parameter queries', () => {
     const sql = 'SELECT request.user_id() as user_id';
     const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS, '1') as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
-    expect(query.bucket_parameters).toEqual(['user_id']);
+    expect(query.bucketParameters).toEqual(['user_id']);
 
     expect(query.getStaticBucketDescriptions(normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
       { bucket: 'mybucket["user1"]', priority: 3 }

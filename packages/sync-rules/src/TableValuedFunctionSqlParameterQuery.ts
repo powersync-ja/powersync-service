@@ -17,11 +17,11 @@ import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY } from './Bu
 export interface TableValuedFunctionSqlParameterQueryOptions {
   sql: string;
   columns: SelectedColumn[];
-  parameter_extractors: Record<string, ParameterValueClause>;
+  parameterExtractors: Record<string, ParameterValueClause>;
   priority: BucketPriority;
-  descriptor_name: string;
+  descriptorName: string;
   /** _Output_ bucket parameters */
-  bucket_parameters: string[];
+  bucketParameters: string[];
   id: string;
   tools: SqlTools;
 
@@ -44,7 +44,7 @@ export interface TableValuedFunctionSqlParameterQueryOptions {
  */
 export class TableValuedFunctionSqlParameterQuery {
   static fromSql(
-    descriptor_name: string,
+    descriptorName: string,
     sql: string,
     call: FromCall,
     q: SelectFromStatement,
@@ -64,8 +64,8 @@ export class TableValuedFunctionSqlParameterQuery {
 
     const tools = new SqlTools({
       table: callTable,
-      parameter_tables: ['token_parameters', 'user_parameters', callTable],
-      supports_parameter_expressions: true,
+      parameterTables: ['token_parameters', 'user_parameters', callTable],
+      supportsParameterExpressions: true,
       sql
     });
     const where = q.where;
@@ -73,11 +73,11 @@ export class TableValuedFunctionSqlParameterQuery {
     const filter = tools.compileParameterValueExtractor(where);
     const callClause = tools.compileParameterValueExtractor(callExpression);
     const columns = q.columns ?? [];
-    const bucket_parameters = columns.map((column) => tools.getOutputName(column));
+    const bucketParameters = columns.map((column) => tools.getOutputName(column));
 
     const functionImpl = TABLE_VALUED_FUNCTIONS[call.function.name]!;
     let priority = options.priority;
-    let parameter_extractors: Record<string, ParameterValueClause> = {};
+    let parameterExtractors: Record<string, ParameterValueClause> = {};
 
     for (let column of columns) {
       if (column.alias != null) {
@@ -94,17 +94,17 @@ export class TableValuedFunctionSqlParameterQuery {
         // Error logged already
         continue;
       }
-      parameter_extractors[name] = extractor;
+      parameterExtractors[name] = extractor;
     }
 
     errors.push(...tools.errors);
 
     const query = new TableValuedFunctionSqlParameterQuery({
       sql,
-      descriptor_name,
-      bucket_parameters,
+      descriptorName,
+      bucketParameters,
       columns,
-      parameter_extractors,
+      parameterExtractors,
       tools,
       filter: isClauseError(filter) ? undefined : filter,
       callClause: isClauseError(callClause) ? undefined : callClause,
@@ -128,11 +128,11 @@ export class TableValuedFunctionSqlParameterQuery {
 
   readonly sql: string;
   readonly columns: SelectedColumn[];
-  readonly parameter_extractors: Record<string, ParameterValueClause>;
+  readonly parameterExtractors: Record<string, ParameterValueClause>;
   readonly priority: BucketPriority;
-  readonly descriptor_name: string;
+  readonly descriptorName: string;
   /** _Output_ bucket parameters */
-  readonly bucket_parameters: string[];
+  readonly bucketParameters: string[];
   readonly id: string;
   readonly tools: SqlTools;
 
@@ -146,10 +146,10 @@ export class TableValuedFunctionSqlParameterQuery {
   constructor(options: TableValuedFunctionSqlParameterQueryOptions) {
     this.sql = options.sql;
     this.columns = options.columns;
-    this.parameter_extractors = options.parameter_extractors;
+    this.parameterExtractors = options.parameterExtractors;
     this.priority = options.priority;
-    this.descriptor_name = options.descriptor_name;
-    this.bucket_parameters = options.bucket_parameters;
+    this.descriptorName = options.descriptorName;
+    this.bucketParameters = options.bucketParameters;
     this.id = options.id;
     this.tools = options.tools;
 
@@ -198,8 +198,8 @@ export class TableValuedFunctionSqlParameterQuery {
     }
 
     let result: Record<string, SqliteJsonValue> = {};
-    for (let name of this.bucket_parameters) {
-      const value = this.parameter_extractors[name].lookupParameterValue(mergedParams);
+    for (let name of this.bucketParameters) {
+      const value = this.parameterExtractors[name].lookupParameterValue(mergedParams);
       if (isJsonValue(value)) {
         result[`bucket.${name}`] = value;
       } else {
@@ -208,7 +208,7 @@ export class TableValuedFunctionSqlParameterQuery {
     }
 
     return {
-      bucket: getBucketId(this.descriptor_name, this.bucket_parameters, result),
+      bucket: getBucketId(this.descriptorName, this.bucketParameters, result),
       priority: this.priority
     };
   }
@@ -220,7 +220,7 @@ export class TableValuedFunctionSqlParameterQuery {
 
     // select request.user_id() as user_id
     const authenticatedExtractor =
-      Object.values(this.parameter_extractors).find(
+      Object.values(this.parameterExtractors).find(
         (clause) => isParameterValueClause(clause) && clause.usesAuthenticatedRequestParameters
       ) != null;
 
@@ -236,7 +236,7 @@ export class TableValuedFunctionSqlParameterQuery {
 
     // select request.parameters() ->> 'project_id'
     const unauthenticatedExtractor =
-      Object.values(this.parameter_extractors).find(
+      Object.values(this.parameterExtractors).find(
         (clause) => isParameterValueClause(clause) && clause.usesUnauthenticatedRequestParameters
       ) != null;
 

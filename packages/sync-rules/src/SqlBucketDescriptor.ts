@@ -29,7 +29,7 @@ export interface QueryParseResult {
 
 export class SqlBucketDescriptor {
   name: string;
-  bucket_parameters?: string[];
+  bucketParameters?: string[];
 
   constructor(
     name: string,
@@ -41,19 +41,19 @@ export class SqlBucketDescriptor {
   /**
    * source table -> queries
    */
-  data_queries: SqlDataQuery[] = [];
-  parameter_queries: SqlParameterQuery[] = [];
-  global_parameter_queries: (StaticSqlParameterQuery | TableValuedFunctionSqlParameterQuery)[] = [];
+  dataQueries: SqlDataQuery[] = [];
+  parameterQueries: SqlParameterQuery[] = [];
+  globalParameterQueries: (StaticSqlParameterQuery | TableValuedFunctionSqlParameterQuery)[] = [];
 
   parameterIdSequence = new IdSequence();
 
   addDataQuery(sql: string, options: SyncRulesOptions): QueryParseResult {
-    if (this.bucket_parameters == null) {
+    if (this.bucketParameters == null) {
       throw new Error('Bucket parameters must be defined');
     }
-    const dataRows = SqlDataQuery.fromSql(this.name, this.bucket_parameters, sql, options, this.idSequence.nextId());
+    const dataRows = SqlDataQuery.fromSql(this.name, this.bucketParameters, sql, options, this.idSequence.nextId());
 
-    this.data_queries.push(dataRows);
+    this.dataQueries.push(dataRows);
 
     return {
       parsed: true,
@@ -63,19 +63,19 @@ export class SqlBucketDescriptor {
 
   addParameterQuery(sql: string, options: QueryParseOptions): QueryParseResult {
     const parameterQuery = SqlParameterQuery.fromSql(this.name, sql, options, this.parameterIdSequence.nextId());
-    if (this.bucket_parameters == null) {
-      this.bucket_parameters = parameterQuery.bucket_parameters;
+    if (this.bucketParameters == null) {
+      this.bucketParameters = parameterQuery.bucketParameters;
     } else {
       if (
-        new Set([...parameterQuery.bucket_parameters!, ...this.bucket_parameters]).size != this.bucket_parameters.length
+        new Set([...parameterQuery.bucketParameters!, ...this.bucketParameters]).size != this.bucketParameters.length
       ) {
         throw new Error('Bucket parameters must match for each parameter query within a bucket');
       }
     }
     if (parameterQuery instanceof SqlParameterQuery) {
-      this.parameter_queries.push(parameterQuery);
+      this.parameterQueries.push(parameterQuery);
     } else {
-      this.global_parameter_queries.push(parameterQuery);
+      this.globalParameterQueries.push(parameterQuery);
     }
 
     return {
@@ -86,7 +86,7 @@ export class SqlBucketDescriptor {
 
   evaluateRow(options: EvaluateRowOptions): EvaluationResult[] {
     let results: EvaluationResult[] = [];
-    for (let query of this.data_queries) {
+    for (let query of this.dataQueries) {
       if (!query.applies(options.sourceTable)) {
         continue;
       }
@@ -98,7 +98,7 @@ export class SqlBucketDescriptor {
 
   evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[] {
     let results: EvaluatedParametersResult[] = [];
-    for (let query of this.parameter_queries) {
+    for (let query of this.parameterQueries) {
       if (query.applies(sourceTable)) {
         results.push(...query.evaluateParameterRow(row));
       }
@@ -115,32 +115,32 @@ export class SqlBucketDescriptor {
       queryDynamicBucketDescriptions: async () => []
     } satisfies BucketParameterQuerier;
 
-    if (this.parameter_queries.length == 0) {
+    if (this.parameterQueries.length == 0) {
       return staticQuerier;
     }
 
-    const dynamicQueriers = this.parameter_queries.map((query) => query.getBucketParameterQuerier(parameters));
+    const dynamicQueriers = this.parameterQueries.map((query) => query.getBucketParameterQuerier(parameters));
     return mergeBucketParameterQueriers([staticQuerier, ...dynamicQueriers]);
   }
 
   getStaticBucketDescriptions(parameters: RequestParameters): BucketDescription[] {
     let results: BucketDescription[] = [];
-    for (let query of this.global_parameter_queries) {
+    for (let query of this.globalParameterQueries) {
       results.push(...query.getStaticBucketDescriptions(parameters));
     }
     return results;
   }
 
   hasDynamicBucketQueries(): boolean {
-    return this.parameter_queries.length > 0;
+    return this.parameterQueries.length > 0;
   }
 
   getSourceTables(): Set<TablePattern> {
     let result = new Set<TablePattern>();
-    for (let query of this.parameter_queries) {
+    for (let query of this.parameterQueries) {
       result.add(query.sourceTable!);
     }
-    for (let query of this.data_queries) {
+    for (let query of this.dataQueries) {
       result.add(query.sourceTable!);
     }
 
@@ -150,7 +150,7 @@ export class SqlBucketDescriptor {
   }
 
   tableSyncsData(table: SourceTableInterface): boolean {
-    for (let query of this.data_queries) {
+    for (let query of this.dataQueries) {
       if (query.applies(table)) {
         return true;
       }
@@ -159,7 +159,7 @@ export class SqlBucketDescriptor {
   }
 
   tableSyncsParameters(table: SourceTableInterface): boolean {
-    for (let query of this.parameter_queries) {
+    for (let query of this.parameterQueries) {
       if (query.applies(table)) {
         return true;
       }

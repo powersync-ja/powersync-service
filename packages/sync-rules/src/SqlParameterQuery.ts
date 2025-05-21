@@ -30,18 +30,18 @@ export interface SqlParameterQueryOptions {
   table: string;
   sql: string;
   columns: SelectedColumn[];
-  lookup_columns: SelectedColumn[];
-  static_columns: SelectedColumn[];
+  lookupColumns: SelectedColumn[];
+  staticColumns: SelectedColumn[];
 
   /**
    * Example: SELECT *user.id* FROM users WHERE ...
    */
-  lookup_extractors: Record<string, RowValueClause>;
+  lookupExtractors: Record<string, RowValueClause>;
 
   /**
    * Example: SELECT *token_parameters.user_id*
    */
-  parameter_extractors: Record<string, ParameterValueClause>;
+  parameterExtractors: Record<string, ParameterValueClause>;
   priority: BucketPriority;
 
   filter: ParameterMatchClause;
@@ -49,20 +49,20 @@ export interface SqlParameterQueryOptions {
   /**
    * Bucket definition name.
    */
-  descriptor_name: string;
+  descriptorName: string;
 
   /** _Input_ token / user parameters */
-  input_parameters: InputParameter[];
+  inputParameters: InputParameter[];
 
   /** If specified, an input parameter that expands to an array. */
-  expanded_input_parameter: InputParameter;
+  expandedInputParameter: InputParameter | undefined;
 
   /**
    * _Output_ bucket parameters.
    *
    * Each one of these will be present in either lookup_extractors or static_extractors.
    */
-  bucket_parameters: string[];
+  bucketParameters: string[];
 
   id: string;
   tools: SqlTools;
@@ -78,7 +78,7 @@ export interface SqlParameterQueryOptions {
  */
 export class SqlParameterQuery {
   static fromSql(
-    descriptor_name: string,
+    descriptorName: string,
     sql: string,
     options: QueryParseOptions,
     queryId: string
@@ -97,7 +97,7 @@ export class SqlParameterQuery {
 
     if (q.from == null) {
       // E.g. SELECT token_parameters.user_id as user_id WHERE token_parameters.is_admin
-      return StaticSqlParameterQuery.fromSql(descriptor_name, sql, q, options, queryId);
+      return StaticSqlParameterQuery.fromSql(descriptorName, sql, q, options, queryId);
     }
 
     let errors: SqlRuleError[] = [];
@@ -108,7 +108,7 @@ export class SqlParameterQuery {
       throw new SqlRuleError('Must SELECT from a single table', sql, q.from?.[0]._location);
     } else if (q.from[0].type == 'call') {
       const from = q.from[0];
-      return TableValuedFunctionSqlParameterQuery.fromSql(descriptor_name, sql, from, q, options, queryId);
+      return TableValuedFunctionSqlParameterQuery.fromSql(descriptorName, sql, from, q, options, queryId);
     } else if (q.from[0].type == 'statement') {
       throw new SqlRuleError('Subqueries are not supported yet', sql, q.from?.[0]._location);
     }
@@ -141,25 +141,25 @@ export class SqlParameterQuery {
 
     const tools = new SqlTools({
       table: alias,
-      parameter_tables: ['token_parameters', 'user_parameters'],
+      parameterTables: ['token_parameters', 'user_parameters'],
       sql,
-      supports_expanding_parameters: true,
-      supports_parameter_expressions: true,
+      supportsExpandingParameters: true,
+      supportsParameterExpressions: true,
       schema: querySchema
     });
     tools.checkSpecificNameCase(tableRef);
     const where = q.where;
     const filter = tools.compileWhereClause(where);
 
-    const bucket_parameters = (q.columns ?? [])
+    const bucketParameters = (q.columns ?? [])
       .map((column) => tools.getOutputName(column))
       .filter((c) => !tools.isBucketPriorityParameter(c));
 
     let priority: BucketPriority | undefined = options.priority;
-    let lookup_columns: SelectedColumn[] = [];
-    let lookup_extractors: Record<string, RowValueClause> = {};
-    let static_columns: SelectedColumn[] = [];
-    let parameter_extractors: Record<string, ParameterValueClause> = {};
+    let lookupColumns: SelectedColumn[] = [];
+    let lookupExtractors: Record<string, RowValueClause> = {};
+    let staticColumns: SelectedColumn[] = [];
+    let parameterExtractors: Record<string, ParameterValueClause> = {};
 
     for (let column of q.columns ?? []) {
       const name = tools.getSpecificOutputName(column);
@@ -174,21 +174,21 @@ export class SqlParameterQuery {
 
         priority = tools.extractBucketPriority(column.expr);
       } else if (tools.isTableRef(column.expr)) {
-        lookup_columns.push(column);
+        lookupColumns.push(column);
         const extractor = tools.compileRowValueExtractor(column.expr);
         if (isClauseError(extractor)) {
           // Error logged already
           continue;
         }
-        lookup_extractors[name] = extractor;
+        lookupExtractors[name] = extractor;
       } else {
-        static_columns.push(column);
+        staticColumns.push(column);
         const extractor = tools.compileParameterValueExtractor(column.expr);
         if (isClauseError(extractor)) {
           // Error logged already
           continue;
         }
-        parameter_extractors[name] = extractor;
+        parameterExtractors[name] = extractor;
       }
     }
     errors.push(...tools.errors);
@@ -203,16 +203,16 @@ export class SqlParameterQuery {
       table: alias,
       sql,
       columns: q.columns ?? [],
-      lookup_columns,
-      static_columns,
-      lookup_extractors,
-      parameter_extractors,
+      lookupColumns,
+      staticColumns,
+      lookupExtractors,
+      parameterExtractors,
       priority: priority ?? DEFAULT_BUCKET_PRIORITY,
       filter,
-      descriptor_name,
-      input_parameters: filter.inputParameters,
-      expanded_input_parameter: expandedParams[0],
-      bucket_parameters,
+      descriptorName,
+      inputParameters: filter.inputParameters,
+      expandedInputParameter: expandedParams[0],
+      bucketParameters,
       id: queryId,
       tools,
       errors
@@ -233,18 +233,18 @@ export class SqlParameterQuery {
   readonly table: string;
   readonly sql: string;
   readonly columns: SelectedColumn[];
-  readonly lookup_columns: SelectedColumn[];
-  readonly static_columns: SelectedColumn[];
+  readonly lookupColumns: SelectedColumn[];
+  readonly staticColumns: SelectedColumn[];
 
   /**
    * Example: SELECT *user.id* FROM users WHERE ...
    */
-  readonly lookup_extractors: Record<string, RowValueClause>;
+  readonly lookupExtractors: Record<string, RowValueClause>;
 
   /**
    * Example: SELECT *token_parameters.user_id*
    */
-  readonly parameter_extractors: Record<string, ParameterValueClause>;
+  readonly parameterExtractors: Record<string, ParameterValueClause>;
   readonly priority: BucketPriority;
 
   readonly filter: ParameterMatchClause;
@@ -252,20 +252,20 @@ export class SqlParameterQuery {
   /**
    * Bucket definition name.
    */
-  readonly descriptor_name: string;
+  readonly descriptorName: string;
 
   /** _Input_ token / user parameters */
-  readonly input_parameters: InputParameter[];
+  readonly inputParameters: InputParameter[];
 
   /** If specified, an input parameter that expands to an array. */
-  readonly expanded_input_parameter: InputParameter;
+  readonly expandedInputParameter: InputParameter | undefined;
 
   /**
    * _Output_ bucket parameters.
    *
    * Each one of these will be present in either lookup_extractors or static_extractors.
    */
-  readonly bucket_parameters: string[];
+  readonly bucketParameters: string[];
 
   readonly id: string;
   readonly tools: SqlTools;
@@ -277,16 +277,16 @@ export class SqlParameterQuery {
     this.table = options.table;
     this.sql = options.sql;
     this.columns = options.columns;
-    this.lookup_columns = options.lookup_columns;
-    this.static_columns = options.static_columns;
-    this.lookup_extractors = options.lookup_extractors;
-    this.parameter_extractors = options.parameter_extractors;
+    this.lookupColumns = options.lookupColumns;
+    this.staticColumns = options.staticColumns;
+    this.lookupExtractors = options.lookupExtractors;
+    this.parameterExtractors = options.parameterExtractors;
     this.priority = options.priority;
     this.filter = options.filter;
-    this.descriptor_name = options.descriptor_name;
-    this.input_parameters = options.input_parameters;
-    this.expanded_input_parameter = options.expanded_input_parameter;
-    this.bucket_parameters = options.bucket_parameters;
+    this.descriptorName = options.descriptorName;
+    this.inputParameters = options.inputParameters;
+    this.expandedInputParameter = options.expandedInputParameter;
+    this.bucketParameters = options.bucketParameters;
     this.id = options.id;
     this.tools = options.tools;
     this.errors = options.errors ?? [];
@@ -304,9 +304,9 @@ export class SqlParameterQuery {
       const filterParameters = this.filter.filterRow(tables);
       let result: EvaluatedParametersResult[] = [];
       for (let filterParamSet of filterParameters) {
-        let lookup: SqliteJsonValue[] = [this.descriptor_name, this.id];
+        let lookup: SqliteJsonValue[] = [this.descriptorName, this.id];
         lookup.push(
-          ...this.input_parameters.map((param) => {
+          ...this.inputParameters.map((param) => {
             return normalizeParameterValue(param.filteredRowToLookupValue(filterParamSet));
           })
         );
@@ -328,8 +328,8 @@ export class SqlParameterQuery {
   transformRows(row: SqliteRow): SqliteRow[] {
     const tables = { [this.table]: row };
     let result: SqliteRow = {};
-    for (let key in this.lookup_extractors) {
-      const extractor = this.lookup_extractors[key];
+    for (let key in this.lookupExtractors) {
+      const extractor = this.lookupExtractors[key];
       result[key] = extractor.evaluate(tables);
     }
     return [result];
@@ -346,11 +346,11 @@ export class SqlParameterQuery {
     return bucketParameters
       .map((lookup) => {
         let result: Record<string, SqliteJsonValue> = {};
-        for (let name of this.bucket_parameters) {
-          if (name in this.lookup_extractors) {
+        for (let name of this.bucketParameters) {
+          if (name in this.lookupExtractors) {
             result[`bucket.${name}`] = lookup[name];
           } else {
-            const value = this.parameter_extractors[name].lookupParameterValue(parameters);
+            const value = this.parameterExtractors[name].lookupParameterValue(parameters);
             if (!isJsonValue(value)) {
               // Not valid - exclude.
               // Should we error instead?
@@ -362,7 +362,7 @@ export class SqlParameterQuery {
         }
 
         return {
-          bucket: getBucketId(this.descriptor_name, this.bucket_parameters, result),
+          bucket: getBucketId(this.descriptorName, this.bucketParameters, result),
           priority: this.priority
         };
       })
@@ -375,12 +375,12 @@ export class SqlParameterQuery {
    * Each lookup is [bucket definition name, parameter query index, ...lookup values]
    */
   getLookups(parameters: RequestParameters): ParameterLookup[] {
-    if (!this.expanded_input_parameter) {
-      let lookup: SqliteJsonValue[] = [this.descriptor_name, this.id];
+    if (!this.expandedInputParameter) {
+      let lookup: SqliteJsonValue[] = [this.descriptorName, this.id];
 
       let valid = true;
       lookup.push(
-        ...this.input_parameters.map((param): SqliteJsonValue => {
+        ...this.inputParameters.map((param): SqliteJsonValue => {
           // Scalar value
           const value = param.parametersToLookupValue(parameters);
 
@@ -397,7 +397,7 @@ export class SqlParameterQuery {
       }
       return [new ParameterLookup(lookup)];
     } else {
-      const arrayString = this.expanded_input_parameter.parametersToLookupValue(parameters);
+      const arrayString = this.expandedInputParameter.parametersToLookupValue(parameters);
 
       if (arrayString == null || typeof arrayString != 'string') {
         return [];
@@ -414,12 +414,12 @@ export class SqlParameterQuery {
 
       return values
         .map((expandedValue) => {
-          let lookup: SqliteJsonValue[] = [this.descriptor_name, this.id];
+          let lookup: SqliteJsonValue[] = [this.descriptorName, this.id];
           let valid = true;
           const normalizedExpandedValue = normalizeParameterValue(expandedValue);
           lookup.push(
-            ...this.input_parameters.map((param): SqliteJsonValue => {
-              if (param == this.expanded_input_parameter) {
+            ...this.inputParameters.map((param): SqliteJsonValue => {
+              if (param == this.expandedInputParameter) {
                 // Expand array value
                 return normalizedExpandedValue;
               } else {
@@ -472,7 +472,7 @@ export class SqlParameterQuery {
   get hasAuthenticatedBucketParameters(): boolean {
     // select request.user_id() as user_id where ...
     const authenticatedExtractor =
-      Object.values(this.parameter_extractors).find(
+      Object.values(this.parameterExtractors).find(
         (clause) => isParameterValueClause(clause) && clause.usesAuthenticatedRequestParameters
       ) != null;
     return authenticatedExtractor;
@@ -490,7 +490,7 @@ export class SqlParameterQuery {
 
     // select request.parameters() ->> 'project_id'
     const unauthenticatedExtractor =
-      Object.values(this.parameter_extractors).find(
+      Object.values(this.parameterExtractors).find(
         (clause) => isParameterValueClause(clause) && clause.usesUnauthenticatedRequestParameters
       ) != null;
 

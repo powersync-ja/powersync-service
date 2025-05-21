@@ -11,7 +11,7 @@ export abstract class SchemaGenerator {
     let tables: Record<string, Record<string, ColumnDefinition>> = {};
 
     for (let descriptor of source.bucket_descriptors) {
-      for (let query of descriptor.data_queries) {
+      for (let query of descriptor.dataQueries) {
         const outTables = query.getColumnOutputs(schema);
         for (let table of outTables) {
           tables[table.name] ??= {};

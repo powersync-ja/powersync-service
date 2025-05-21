@@ -386,7 +386,7 @@ export class SqlSyncRules implements SyncRules {
   debugGetOutputTables() {
     let result: Record<string, any[]> = {};
     for (let bucket of this.bucket_descriptors) {
-      for (let q of bucket.data_queries) {
+      for (let q of bucket.dataQueries) {
         result[q.table!] ??= [];
         const r = {
           query: q.sql

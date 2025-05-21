@@ -21,8 +21,8 @@ export class SqlDataQuery extends BaseSqlDataQuery {
   readonly filter: ParameterMatchClause;
 
   static fromSql(
-    descriptor_name: string,
-    bucket_parameters: string[],
+    descriptorName: string,
+    bucketParameters: string[],
     sql: string,
     options: SyncRulesOptions,
     ruleId?: string
@@ -73,8 +73,8 @@ export class SqlDataQuery extends BaseSqlDataQuery {
     const where = q.where;
     const tools = new SqlTools({
       table: alias,
-      parameter_tables: ['bucket'],
-      value_tables: [alias],
+      parameterTables: ['bucket'],
+      valueTables: [alias],
       sql,
       schema: querySchema
     });
@@ -82,11 +82,11 @@ export class SqlDataQuery extends BaseSqlDataQuery {
     const filter = tools.compileWhereClause(where);
 
     const inputParameterNames = filter.inputParameters.map((p) => p.key);
-    const bucketParameterNames = bucket_parameters.map((p) => `bucket.${p}`);
+    const bucketParameterNames = bucketParameters.map((p) => `bucket.${p}`);
     const allParams = new Set<string>([...inputParameterNames, ...bucketParameterNames]);
     if (
       (!filter.error && allParams.size != filter.inputParameters.length) ||
-      allParams.size != bucket_parameters.length
+      allParams.size != bucketParameters.length
     ) {
       errors.push(
         new SqlRuleError(
@@ -171,8 +171,8 @@ export class SqlDataQuery extends BaseSqlDataQuery {
       sql,
       filter,
       columns: q.columns ?? [],
-      descriptor_name,
-      bucket_parameters,
+      descriptorName,
+      bucketParameters,
       tools,
       ruleId: ruleId ?? '',
       errors,
@@ -190,7 +190,7 @@ export class SqlDataQuery extends BaseSqlDataQuery {
       const tables = { [this.table]: this.addSpecialParameters(table, row) };
       const bucketParameters = this.filter.filterRow(tables);
       const bucketIds = bucketParameters.map((params) =>
-        getBucketId(this.descriptor_name, this.bucket_parameters, params)
+        getBucketId(this.descriptorName, this.bucketParameters, params)
       );
 
       const data = this.transformRow(tables);

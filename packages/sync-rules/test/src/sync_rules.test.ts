@@ -21,9 +21,9 @@ bucket_definitions:
     );
     const bucket = rules.bucket_descriptors[0];
     expect(bucket.name).toEqual('mybucket');
-    expect(bucket.bucket_parameters).toEqual([]);
-    const dataQuery = bucket.data_queries[0];
-    expect(dataQuery.bucket_parameters).toEqual([]);
+    expect(bucket.bucketParameters).toEqual([]);
+    const dataQuery = bucket.dataQueries[0];
+    expect(dataQuery.bucketParameters).toEqual([]);
     expect(dataQuery.columnOutputNames()).toEqual(['id', 'description']);
     expect(rules.evaluateRow({ sourceTable: ASSETS, record: { id: 'asset1', description: 'test' } })).toEqual([
       {
@@ -55,8 +55,8 @@ bucket_definitions:
       PARSE_OPTIONS
     );
     const bucket = rules.bucket_descriptors[0];
-    expect(bucket.bucket_parameters).toEqual([]);
-    const param_query = bucket.global_parameter_queries[0];
+    expect(bucket.bucketParameters).toEqual([]);
+    const param_query = bucket.globalParameterQueries[0];
 
     // Internal API, subject to change
     expect(param_query.filter!.lookupParameterValue(normalizeTokenParameters({ is_admin: 1n }))).toEqual(1n);
@@ -87,9 +87,9 @@ bucket_definitions:
       PARSE_OPTIONS
     );
     const bucket = rules.bucket_descriptors[0];
-    expect(bucket.bucket_parameters).toEqual([]);
-    const param_query = bucket.parameter_queries[0];
-    expect(param_query.bucket_parameters).toEqual([]);
+    expect(bucket.bucketParameters).toEqual([]);
+    const param_query = bucket.parameterQueries[0];
+    expect(param_query.bucketParameters).toEqual([]);
     expect(rules.evaluateParameterRow(USERS, { id: 'user1', is_admin: 1 })).toEqual([
       {
         bucket_parameters: [{}],
@@ -111,16 +111,16 @@ bucket_definitions:
       PARSE_OPTIONS
     );
     const bucket = rules.bucket_descriptors[0];
-    expect(bucket.bucket_parameters).toEqual(['user_id', 'device_id']);
-    const param_query = bucket.global_parameter_queries[0];
-    expect(param_query.bucket_parameters).toEqual(['user_id', 'device_id']);
+    expect(bucket.bucketParameters).toEqual(['user_id', 'device_id']);
+    const param_query = bucket.globalParameterQueries[0];
+    expect(param_query.bucketParameters).toEqual(['user_id', 'device_id']);
     expect(
       rules.getBucketParameterQuerier(normalizeTokenParameters({ user_id: 'user1' }, { device_id: 'device1' }))
         .staticBuckets
     ).toEqual([{ bucket: 'mybucket["user1","device1"]', priority: 3 }]);
 
-    const data_query = bucket.data_queries[0];
-    expect(data_query.bucket_parameters).toEqual(['user_id', 'device_id']);
+    const data_query = bucket.dataQueries[0];
+    expect(data_query.bucketParameters).toEqual(['user_id', 'device_id']);
     expect(
       rules.evaluateRow({
         sourceTable: ASSETS,
@@ -158,15 +158,15 @@ bucket_definitions:
       PARSE_OPTIONS
     );
     const bucket = rules.bucket_descriptors[0];
-    expect(bucket.bucket_parameters).toEqual(['user_id']);
-    const param_query = bucket.global_parameter_queries[0];
-    expect(param_query.bucket_parameters).toEqual(['user_id']);
+    expect(bucket.bucketParameters).toEqual(['user_id']);
+    const param_query = bucket.globalParameterQueries[0];
+    expect(param_query.bucketParameters).toEqual(['user_id']);
     expect(rules.getBucketParameterQuerier(normalizeTokenParameters({ user_id: 'user1' })).staticBuckets).toEqual([
       { bucket: 'mybucket["user1"]', priority: 3 }
     ]);
 
-    const data_query = bucket.data_queries[0];
-    expect(data_query.bucket_parameters).toEqual(['user_id']);
+    const data_query = bucket.dataQueries[0];
+    expect(data_query.bucketParameters).toEqual(['user_id']);
     expect(
       rules.evaluateRow({
         sourceTable: ASSETS,
@@ -304,7 +304,7 @@ bucket_definitions:
       PARSE_OPTIONS
     );
     const bucket = rules.bucket_descriptors[0];
-    expect(bucket.bucket_parameters).toEqual(['user_id']);
+    expect(bucket.bucketParameters).toEqual(['user_id']);
     expect(rules.getBucketParameterQuerier(normalizeTokenParameters({ user_id: 'user1' }))).toMatchObject({
       staticBuckets: [{ bucket: 'mybucket["USER1"]', priority: 3 }],
       hasDynamicBuckets: false
@@ -342,7 +342,7 @@ bucket_definitions:
       PARSE_OPTIONS
     );
     const bucket = rules.bucket_descriptors[0];
-    expect(bucket.bucket_parameters).toEqual(['user_id']);
+    expect(bucket.bucketParameters).toEqual(['user_id']);
     expect(rules.getBucketParameterQuerier(normalizeTokenParameters({ user_id: 'user1' }))).toMatchObject({
       staticBuckets: [{ bucket: 'mybucket["USER1"]', priority: 3 }],
       hasDynamicBuckets: false
@@ -934,7 +934,7 @@ bucket_definitions:
       PARSE_OPTIONS
     );
     const bucket = rules.bucket_descriptors[0];
-    expect(bucket.bucket_parameters).toEqual(['user_id']);
+    expect(bucket.bucketParameters).toEqual(['user_id']);
     expect(rules.hasDynamicBucketQueries()).toBe(true);
 
     expect(rules.getBucketParameterQuerier(normalizeTokenParameters({ user_id: 'user1' }))).toMatchObject({

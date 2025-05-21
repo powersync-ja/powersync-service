@@ -772,9 +772,9 @@ describe('parameter queries', () => {
       const sql = 'SELECT id as group_id, 1 AS _priority FROM groups WHERE token_parameters.user_id IN groups.user_ids';
       const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS, '1') as SqlParameterQuery;
       expect(query.errors).toEqual([]);
-      expect(Object.entries(query.lookup_extractors)).toHaveLength(1);
-      expect(Object.entries(query.parameter_extractors)).toHaveLength(0);
-      expect(query.bucket_parameters).toEqual(['group_id']);
+      expect(Object.entries(query.lookupExtractors)).toHaveLength(1);
+      expect(Object.entries(query.parameterExtractors)).toHaveLength(0);
+      expect(query.bucketParameters).toEqual(['group_id']);
       expect(query.priority).toBe(1);
     });
 
@@ -782,8 +782,8 @@ describe('parameter queries', () => {
       const sql = 'SELECT token_parameters.user_id, 0 AS _priority';
       const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS, '1') as StaticSqlParameterQuery;
       expect(query.errors).toEqual([]);
-      expect(Object.entries(query.parameter_extractors)).toHaveLength(1);
-      expect(query.bucket_parameters).toEqual(['user_id']);
+      expect(Object.entries(query.parameterExtractors)).toHaveLength(1);
+      expect(query.bucketParameters).toEqual(['user_id']);
       expect(query.priority).toBe(0);
     });
 

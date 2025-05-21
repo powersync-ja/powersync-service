@@ -19,8 +19,8 @@ export interface BaseSqlDataQueryOptions {
   sql: string;
   columns: SelectedColumn[];
   extractors: RowValueExtractor[];
-  descriptor_name: string;
-  bucket_parameters: string[];
+  descriptorName: string;
+  bucketParameters: string[];
   tools: SqlTools;
 
   ruleId: string;
@@ -34,8 +34,8 @@ export class BaseSqlDataQuery {
   readonly sql: string;
   readonly columns: SelectedColumn[];
   readonly extractors: RowValueExtractor[] = [];
-  readonly descriptor_name: string;
-  readonly bucket_parameters: string[];
+  readonly descriptorName: string;
+  readonly bucketParameters: string[];
   readonly tools: SqlTools;
 
   readonly ruleId: string;
@@ -48,8 +48,8 @@ export class BaseSqlDataQuery {
     this.sql = options.sql;
     this.columns = options.columns;
     this.extractors = options.extractors;
-    this.descriptor_name = options.descriptor_name;
-    this.bucket_parameters = options.bucket_parameters;
+    this.descriptorName = options.descriptorName;
+    this.bucketParameters = options.bucketParameters;
     this.tools = options.tools;
     this.ruleId = options.ruleId;
     this.errors = options.errors ?? [];

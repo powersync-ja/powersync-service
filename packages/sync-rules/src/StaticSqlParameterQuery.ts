@@ -9,11 +9,11 @@ import { getBucketId, isJsonValue } from './utils.js';
 export interface StaticSqlParameterQueryOptions {
   sql: string;
   columns: SelectedColumn[];
-  parameter_extractors: Record<string, ParameterValueClause>;
+  parameterExtractors: Record<string, ParameterValueClause>;
   priority: BucketPriority;
-  descriptor_name: string;
+  descriptorName: string;
   /** _Output_ bucket parameters */
-  bucket_parameters: string[];
+  bucketParameters: string[];
   id: string;
   tools: SqlTools;
 
@@ -30,7 +30,7 @@ export interface StaticSqlParameterQueryOptions {
  */
 export class StaticSqlParameterQuery {
   static fromSql(
-    descriptor_name: string,
+    descriptorName: string,
     sql: string,
     q: SelectFromStatement,
     options: QueryParseOptions,
@@ -42,20 +42,20 @@ export class StaticSqlParameterQuery {
 
     const tools = new SqlTools({
       table: undefined,
-      parameter_tables: ['token_parameters', 'user_parameters'],
-      supports_parameter_expressions: true,
+      parameterTables: ['token_parameters', 'user_parameters'],
+      supportsParameterExpressions: true,
       sql
     });
     const where = q.where;
 
     const filter = tools.compileParameterValueExtractor(where);
     const columns = q.columns ?? [];
-    const bucket_parameters = (q.columns ?? [])
+    const bucketParameters = (q.columns ?? [])
       .map((column) => tools.getOutputName(column))
       .filter((c) => !tools.isBucketPriorityParameter(c));
 
     let priority = options?.priority;
-    let parameter_extractors: Record<string, ParameterValueClause> = {};
+    let parameterExtractors: Record<string, ParameterValueClause> = {};
 
     for (let column of columns) {
       if (column.alias != null) {
@@ -77,17 +77,17 @@ export class StaticSqlParameterQuery {
         // Error logged already
         continue;
       }
-      parameter_extractors[name] = extractor;
+      parameterExtractors[name] = extractor;
     }
 
     errors.push(...tools.errors);
 
     const query = new StaticSqlParameterQuery({
       sql,
-      descriptor_name,
-      bucket_parameters,
+      descriptorName,
+      bucketParameters,
       columns,
-      parameter_extractors,
+      parameterExtractors,
       tools,
       priority: priority ?? DEFAULT_BUCKET_PRIORITY,
       filter: isClauseError(filter) ? undefined : filter,
@@ -107,11 +107,11 @@ export class StaticSqlParameterQuery {
 
   readonly sql: string;
   readonly columns: SelectedColumn[];
-  readonly parameter_extractors: Record<string, ParameterValueClause>;
+  readonly parameterExtractors: Record<string, ParameterValueClause>;
   readonly priority: BucketPriority;
-  readonly descriptor_name: string;
+  readonly descriptorName: string;
   /** _Output_ bucket parameters */
-  readonly bucket_parameters: string[];
+  readonly bucketParameters: string[];
   readonly id: string;
   readonly tools: SqlTools;
 
@@ -122,10 +122,10 @@ export class StaticSqlParameterQuery {
   constructor(options: StaticSqlParameterQueryOptions) {
     this.sql = options.sql;
     this.columns = options.columns;
-    this.parameter_extractors = options.parameter_extractors;
+    this.parameterExtractors = options.parameterExtractors;
     this.priority = options.priority;
-    this.descriptor_name = options.descriptor_name;
-    this.bucket_parameters = options.bucket_parameters;
+    this.descriptorName = options.descriptorName;
+    this.bucketParameters = options.bucketParameters;
     this.id = options.id;
     this.tools = options.tools;
     this.filter = options.filter;
@@ -143,8 +143,8 @@ export class StaticSqlParameterQuery {
     }
 
     let result: Record<string, SqliteJsonValue> = {};
-    for (let name of this.bucket_parameters) {
-      const value = this.parameter_extractors[name].lookupParameterValue(parameters);
+    for (let name of this.bucketParameters) {
+      const value = this.parameterExtractors[name].lookupParameterValue(parameters);
       if (isJsonValue(value)) {
         result[`bucket.${name}`] = value;
       } else {
@@ -156,7 +156,7 @@ export class StaticSqlParameterQuery {
 
     return [
       {
-        bucket: getBucketId(this.descriptor_name, this.bucket_parameters, result),
+        bucket: getBucketId(this.descriptorName, this.bucketParameters, result),
         priority: this.priority
       }
     ];
@@ -169,7 +169,7 @@ export class StaticSqlParameterQuery {
 
     // select request.user_id() as user_id
     const authenticatedExtractor =
-      Object.values(this.parameter_extractors).find(
+      Object.values(this.parameterExtractors).find(
         (clause) => isParameterValueClause(clause) && clause.usesAuthenticatedRequestParameters
       ) != null;
     return authenticatedExtractor;
@@ -181,7 +181,7 @@ export class StaticSqlParameterQuery {
 
     // select request.parameters() ->> 'project_id'
     const unauthenticatedExtractor =
-      Object.values(this.parameter_extractors).find(
+      Object.values(this.parameterExtractors).find(
         (clause) => isParameterValueClause(clause) && clause.usesUnauthenticatedRequestParameters
       ) != null;
 

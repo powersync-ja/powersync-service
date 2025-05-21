@@ -71,8 +71,8 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
 
     const tools = new SqlTools({
       table: alias,
-      parameter_tables: [],
-      value_tables: [alias],
+      parameterTables: [],
+      valueTables: [alias],
       sql,
       schema: querySchema
     });
@@ -120,11 +120,11 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
       sourceTable,
       table: alias,
       sql,
-      descriptor_name,
+      descriptorName: descriptor_name,
       columns: q.columns ?? [],
       extractors: extractors,
       tools,
-      bucket_parameters: [],
+      bucketParameters: [],
       ruleId: ruleId,
       errors: errors
     });
