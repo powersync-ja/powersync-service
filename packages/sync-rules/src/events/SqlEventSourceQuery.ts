@@ -13,7 +13,6 @@ import { isSelectStatement } from '../utils.js';
 
 export type EvaluatedEventSourceRow = {
   data: SqliteJsonRow;
-  ruleId?: string;
 };
 
 export type EvaluatedEventRowWithErrors = {
@@ -25,7 +24,7 @@ export type EvaluatedEventRowWithErrors = {
  * Defines how a Replicated Row is mapped to source parameters for events.
  */
 export class SqlEventSourceQuery extends BaseSqlDataQuery {
-  static fromSql(descriptor_name: string, sql: string, options: SyncRulesOptions, ruleId: string) {
+  static fromSql(descriptor_name: string, sql: string, options: SyncRulesOptions) {
     const parsed = parse(sql, { locationTracking: true });
     const schema = options.schema;
 
@@ -125,7 +124,6 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
       extractors: extractors,
       tools,
       bucketParameters: [],
-      ruleId: ruleId,
       errors: errors
     });
   }
@@ -141,8 +139,7 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
       const data = this.transformRow(tables);
       return {
         result: {
-          data,
-          ruleId: this.ruleId
+          data
         },
         errors: []
       };

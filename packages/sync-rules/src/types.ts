@@ -44,9 +44,6 @@ export interface EvaluatedRow {
 
   /** Must be JSON-serializable. */
   data: SqliteJsonRow;
-
-  /** For debugging purposes only. */
-  ruleId?: string;
 }
 
 export interface EvaluationError {

@@ -14,15 +14,12 @@ export class SqlEventDescriptor {
   name: string;
   sourceQueries: SqlEventSourceQuery[] = [];
 
-  constructor(
-    name: string,
-    public idSequence: IdSequence
-  ) {
+  constructor(name: string) {
     this.name = name;
   }
 
   addSourceQuery(sql: string, options: SyncRulesOptions): QueryParseResult {
-    const source = SqlEventSourceQuery.fromSql(this.name, sql, options, this.idSequence.nextId());
+    const source = SqlEventSourceQuery.fromSql(this.name, sql, options);
 
     // Each source query should be for a unique table
     const existingSourceQuery = this.sourceQueries.find((q) => q.table == source.table);

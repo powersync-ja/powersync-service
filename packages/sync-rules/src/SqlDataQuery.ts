@@ -18,13 +18,7 @@ export interface SqlDataQueryOptions extends BaseSqlDataQueryOptions {
 }
 
 export class SqlDataQuery extends BaseSqlDataQuery {
-  static fromSql(
-    descriptorName: string,
-    bucketParameters: string[],
-    sql: string,
-    options: SyncRulesOptions,
-    ruleId?: string
-  ) {
+  static fromSql(descriptorName: string, bucketParameters: string[], sql: string, options: SyncRulesOptions) {
     const parsed = parse(sql, { locationTracking: true });
     const schema = options.schema;
 
@@ -172,7 +166,6 @@ export class SqlDataQuery extends BaseSqlDataQuery {
       descriptorName,
       bucketParameters,
       tools,
-      ruleId: ruleId ?? '',
       errors,
       extractors
     });
@@ -218,8 +211,7 @@ export class SqlDataQuery extends BaseSqlDataQuery {
           bucket: bucketId,
           table: outputTable,
           id: id,
-          data,
-          ruleId: this.ruleId
+          data
         } as EvaluationResult;
       });
     } catch (e) {

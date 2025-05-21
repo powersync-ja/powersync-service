@@ -12,7 +12,7 @@ export interface StaticSqlParameterQueryOptions {
   priority: BucketPriority;
   descriptorName: string;
   bucketParameters: string[];
-  id: string;
+  queryId: string;
   filter: ParameterValueClause | undefined;
   errors?: SqlRuleError[];
 }
@@ -84,7 +84,7 @@ export class StaticSqlParameterQuery {
       parameterExtractors,
       priority: priority ?? DEFAULT_BUCKET_PRIORITY,
       filter: isClauseError(filter) ? undefined : filter,
-      id: queryId,
+      queryId,
       errors
     });
     if (query.usesDangerousRequestParameters && !options?.accept_potentially_dangerous_queries) {
@@ -124,7 +124,14 @@ export class StaticSqlParameterQuery {
    */
   readonly bucketParameters: string[];
 
-  readonly id: string;
+  /**
+   * Unique identifier for this query within a bucket definition.
+   *
+   * Typically auto-generated based on query order.
+   *
+   * This is not used directly, but we keep this to match behavior of other parameter queries.
+   */
+  readonly queryId: string;
 
   /**
    * The query filter (WHERE clause). Given request parameters, the filter will determine whether or not this query returns a row.
@@ -141,7 +148,7 @@ export class StaticSqlParameterQuery {
     this.priority = options.priority;
     this.descriptorName = options.descriptorName;
     this.bucketParameters = options.bucketParameters;
-    this.id = options.id;
+    this.queryId = options.queryId;
     this.filter = options.filter;
     this.errors = options.errors ?? [];
   }

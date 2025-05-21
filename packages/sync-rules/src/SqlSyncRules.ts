@@ -42,7 +42,6 @@ export interface SyncRulesOptions {
 export class SqlSyncRules implements SyncRules {
   bucketDescriptors: SqlBucketDescriptor[] = [];
   eventDescriptors: SqlEventDescriptor[] = [];
-  idSequence = new IdSequence();
 
   content: string;
 
@@ -137,7 +136,7 @@ export class SqlSyncRules implements SyncRules {
       const parameters = value.get('parameters', true) as unknown;
       const dataQueries = value.get('data', true) as unknown;
 
-      const descriptor = new SqlBucketDescriptor(key, rules.idSequence);
+      const descriptor = new SqlBucketDescriptor(key);
 
       if (parameters instanceof Scalar) {
         rules.withScalar(parameters, (q) => {
@@ -180,7 +179,7 @@ export class SqlSyncRules implements SyncRules {
         continue;
       }
 
-      const eventDescriptor = new SqlEventDescriptor(key.toString(), rules.idSequence);
+      const eventDescriptor = new SqlEventDescriptor(key.toString());
       for (let item of payloads.items) {
         if (!isScalar(item)) {
           rules.errors.push(new YamlError(new Error(`Payload queries for events must be scalar.`)));

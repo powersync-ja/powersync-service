@@ -27,7 +27,6 @@ bucket_definitions:
     expect(dataQuery.columnOutputNames()).toEqual(['id', 'description']);
     expect(rules.evaluateRow({ sourceTable: ASSETS, record: { id: 'asset1', description: 'test' } })).toEqual([
       {
-        ruleId: '1',
         table: 'assets',
         id: 'asset1',
         data: {
@@ -128,7 +127,6 @@ bucket_definitions:
       })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket["user1","device1"]',
         id: 'asset1',
         data: {
@@ -174,7 +172,6 @@ bucket_definitions:
       })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket["user1"]',
         id: 'asset1',
         data: {
@@ -191,7 +188,6 @@ bucket_definitions:
       })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket["user1"]',
         id: 'asset1',
         data: {
@@ -317,7 +313,6 @@ bucket_definitions:
       })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket["USER1"]',
         id: 'asset1',
         data: {
@@ -355,7 +350,6 @@ bucket_definitions:
       })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket["USER1"]',
         id: 'asset1',
         data: {
@@ -384,7 +378,6 @@ bucket_definitions:
       })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket[]',
         id: 'asset1',
         data: {
@@ -423,7 +416,6 @@ bucket_definitions:
       })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket["region1"]',
         id: 'asset1',
         data: {
@@ -433,7 +425,6 @@ bucket_definitions:
         table: 'assets'
       },
       {
-        ruleId: '1',
         bucket: 'mybucket["region2"]',
         id: 'asset1',
         data: {
@@ -462,7 +453,6 @@ bucket_definitions:
       rules.evaluateRow({ sourceTable: ASSETS, record: { id: 'asset1', description: 'test', role: 'admin' } })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket[1]',
         id: 'asset1',
         data: {
@@ -479,7 +469,6 @@ bucket_definitions:
       rules.evaluateRow({ sourceTable: ASSETS, record: { id: 'asset2', description: 'test', role: 'normal' } })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket[1]',
         id: 'asset2',
         data: {
@@ -491,7 +480,6 @@ bucket_definitions:
         table: 'assets'
       },
       {
-        ruleId: '2',
         bucket: 'mybucket[1]',
         id: 'asset2',
         data: {
@@ -503,7 +491,6 @@ bucket_definitions:
         table: 'assets'
       },
       {
-        ruleId: '2',
         bucket: 'mybucket[0]',
         id: 'asset2',
         data: {
@@ -534,7 +521,6 @@ bucket_definitions:
 
     expect(rules.evaluateRow({ sourceTable: ASSETS, record: { id: 'asset1' } })).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket[]',
         id: 'asset1',
         data: {
@@ -567,7 +553,6 @@ bucket_definitions:
       rules.evaluateRow({ sourceTable: ASSETS, record: { id: 'asset1', int1: 314n, float1: 3.14, float2: 314 } })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket[314,3.14,314]',
         id: 'asset1',
         data: {
@@ -601,8 +586,8 @@ bucket_definitions:
 bucket_definitions:
   mybucket:
     data:
-      - SELECT client_id AS id, description FROM assets_123 as assets WHERE assets.archived = false
-      - SELECT other_id AS id, description FROM assets_123 as assets
+      - SELECT client_id AS id, description, '1' as rule FROM assets_123 as assets WHERE assets.archived = false
+      - SELECT other_id AS id, description, '2' as rule FROM assets_123 as assets
     `,
       PARSE_OPTIONS
     );
@@ -614,22 +599,22 @@ bucket_definitions:
       })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket[]',
         id: 'asset1',
         data: {
           id: 'asset1',
-          description: 'test'
+          description: 'test',
+          rule: '1'
         },
         table: 'assets'
       },
       {
-        ruleId: '2',
         bucket: 'mybucket[]',
         id: 'other1',
         data: {
           id: 'other1',
-          description: 'test'
+          description: 'test',
+          rule: '2'
         },
         table: 'assets'
       }
@@ -654,7 +639,6 @@ bucket_definitions:
       })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket[]',
         id: 'asset1',
         data: {
@@ -688,7 +672,6 @@ bucket_definitions:
       })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket[]',
         id: 'asset1',
         data: {
@@ -708,11 +691,11 @@ bucket_definitions:
 bucket_definitions:
   mybucket:
     data:
-      - SELECT id FROM "assets" # Yes
-      - SELECT id FROM "test_schema"."assets" # yes
-      - SELECT id FROM "default.test_schema"."assets" # yes
-      - SELECT id FROM "other"."assets" # no
-      - SELECT id FROM "other.test_schema"."assets" # no
+      - SELECT id FROM "assets" as assets1 # Yes
+      - SELECT id FROM "test_schema"."assets" as assets2 # yes
+      - SELECT id FROM "default.test_schema"."assets" as assets3 # yes
+      - SELECT id FROM "other"."assets" as assets4 # no
+      - SELECT id FROM "other.test_schema"."assets" as assets5 # no
     `,
       PARSE_OPTIONS
     );
@@ -724,31 +707,28 @@ bucket_definitions:
       })
     ).toEqual([
       {
-        ruleId: '1',
         bucket: 'mybucket[]',
         id: 'asset1',
         data: {
           id: 'asset1'
         },
-        table: 'assets'
+        table: 'assets1'
       },
       {
-        ruleId: '2',
         bucket: 'mybucket[]',
         id: 'asset1',
         data: {
           id: 'asset1'
         },
-        table: 'assets'
+        table: 'assets2'
       },
       {
-        ruleId: '3',
         bucket: 'mybucket[]',
         id: 'asset1',
         data: {
           id: 'asset1'
         },
-        table: 'assets'
+        table: 'assets3'
       }
     ]);
   });

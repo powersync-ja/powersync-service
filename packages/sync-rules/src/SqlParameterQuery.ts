@@ -37,7 +37,7 @@ export interface SqlParameterQueryOptions {
   inputParameters: InputParameter[];
   expandedInputParameter: InputParameter | undefined;
   bucketParameters: string[];
-  id: string;
+  queryId: string;
   tools: SqlTools;
   errors?: SqlRuleError[];
 }
@@ -178,7 +178,7 @@ export class SqlParameterQuery {
       inputParameters: filter.inputParameters,
       expandedInputParameter: expandedParams[0],
       bucketParameters,
-      id: queryId,
+      queryId,
       tools,
       errors
     });
@@ -263,7 +263,14 @@ export class SqlParameterQuery {
    */
   readonly bucketParameters: string[];
 
-  readonly id: string;
+  /**
+   * Unique identifier for this query within a bucket definition.
+   *
+   * Typically auto-generated based on query order.
+   *
+   * This is used when persisting lookup values.
+   */
+  readonly queryId: string;
   readonly tools: SqlTools;
 
   readonly errors: SqlRuleError[];
@@ -280,7 +287,7 @@ export class SqlParameterQuery {
     this.inputParameters = options.inputParameters;
     this.expandedInputParameter = options.expandedInputParameter;
     this.bucketParameters = options.bucketParameters;
-    this.id = options.id;
+    this.queryId = options.queryId;
     this.tools = options.tools;
     this.errors = options.errors ?? [];
   }
@@ -300,7 +307,7 @@ export class SqlParameterQuery {
       const filterParameters = this.filter.filterRow(tables);
       let result: EvaluatedParametersResult[] = [];
       for (let filterParamSet of filterParameters) {
-        let lookup: SqliteJsonValue[] = [this.descriptorName, this.id];
+        let lookup: SqliteJsonValue[] = [this.descriptorName, this.queryId];
         lookup.push(
           ...this.inputParameters.map((param) => {
             return normalizeParameterValue(param.filteredRowToLookupValue(filterParamSet));
@@ -374,7 +381,7 @@ export class SqlParameterQuery {
    */
   getLookups(parameters: RequestParameters): ParameterLookup[] {
     if (!this.expandedInputParameter) {
-      let lookup: SqliteJsonValue[] = [this.descriptorName, this.id];
+      let lookup: SqliteJsonValue[] = [this.descriptorName, this.queryId];
 
       let valid = true;
       lookup.push(
@@ -412,7 +419,7 @@ export class SqlParameterQuery {
 
       return values
         .map((expandedValue) => {
-          let lookup: SqliteJsonValue[] = [this.descriptorName, this.id];
+          let lookup: SqliteJsonValue[] = [this.descriptorName, this.queryId];
           let valid = true;
           const normalizedExpandedValue = normalizeParameterValue(expandedValue);
           lookup.push(

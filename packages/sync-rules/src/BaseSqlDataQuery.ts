@@ -22,8 +22,6 @@ export interface BaseSqlDataQueryOptions {
   bucketParameters: string[];
   tools: SqlTools;
 
-  ruleId: string;
-
   errors?: SqlRuleError[];
 }
 
@@ -73,8 +71,6 @@ export class BaseSqlDataQuery {
    */
   private readonly tools: SqlTools;
 
-  readonly ruleId: string;
-
   readonly errors: SqlRuleError[];
 
   constructor(options: BaseSqlDataQueryOptions) {
@@ -86,7 +82,6 @@ export class BaseSqlDataQuery {
     this.descriptorName = options.descriptorName;
     this.bucketParameters = options.bucketParameters;
     this.tools = options.tools;
-    this.ruleId = options.ruleId;
     this.errors = options.errors ?? [];
   }
 

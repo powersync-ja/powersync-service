@@ -31,10 +31,7 @@ export class SqlBucketDescriptor {
   name: string;
   bucketParameters?: string[];
 
-  constructor(
-    name: string,
-    public idSequence: IdSequence
-  ) {
+  constructor(name: string) {
     this.name = name;
   }
 
@@ -51,7 +48,7 @@ export class SqlBucketDescriptor {
     if (this.bucketParameters == null) {
       throw new Error('Bucket parameters must be defined');
     }
-    const dataRows = SqlDataQuery.fromSql(this.name, this.bucketParameters, sql, options, this.idSequence.nextId());
+    const dataRows = SqlDataQuery.fromSql(this.name, this.bucketParameters, sql, options);
 
     this.dataQueries.push(dataRows);
 

@@ -19,9 +19,8 @@ export interface TableValuedFunctionSqlParameterQueryOptions {
   parameterExtractors: Record<string, ParameterValueClause>;
   priority: BucketPriority;
   descriptorName: string;
-  /** _Output_ bucket parameters */
   bucketParameters: string[];
-  id: string;
+  queryId: string;
 
   filter: ParameterValueClause | undefined;
   callClause: ParameterValueClause | undefined;
@@ -107,7 +106,7 @@ export class TableValuedFunctionSqlParameterQuery {
       function: functionImpl,
       callTableName: callTable,
       priority: priority ?? DEFAULT_BUCKET_PRIORITY,
-      id: queryId,
+      queryId,
       errors
     });
 
@@ -148,7 +147,14 @@ export class TableValuedFunctionSqlParameterQuery {
    */
   readonly bucketParameters: string[];
 
-  readonly id: string;
+  /**
+   * Unique identifier for this query within a bucket definition.
+   *
+   * Typically auto-generated based on query order.
+   *
+   * This is not used directly, but we keep this to match behavior of other parameter queries.
+   */
+  readonly queryId: string;
 
   /**
    * The WHERE clause. This is applied on (request parameters + individual function call result row).
@@ -186,7 +192,7 @@ export class TableValuedFunctionSqlParameterQuery {
     this.priority = options.priority;
     this.descriptorName = options.descriptorName;
     this.bucketParameters = options.bucketParameters;
-    this.id = options.id;
+    this.queryId = options.queryId;
 
     this.filter = options.filter;
     this.callClause = options.callClause;
