@@ -55,7 +55,7 @@ export class BaseSqlDataQuery {
    *
    * This may include plain column names, wildcards, and basic expressions.
    */
-  readonly extractors: RowValueExtractor[] = [];
+  readonly extractors: RowValueExtractor[];
 
   /**
    * Bucket definition name.
