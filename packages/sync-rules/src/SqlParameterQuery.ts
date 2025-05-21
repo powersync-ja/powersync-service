@@ -29,44 +29,16 @@ export interface SqlParameterQueryOptions {
   sourceTable: TablePattern;
   table: string;
   sql: string;
-  columns: SelectedColumn[];
-  lookupColumns: SelectedColumn[];
-  staticColumns: SelectedColumn[];
-
-  /**
-   * Example: SELECT *user.id* FROM users WHERE ...
-   */
   lookupExtractors: Record<string, RowValueClause>;
-
-  /**
-   * Example: SELECT *token_parameters.user_id*
-   */
   parameterExtractors: Record<string, ParameterValueClause>;
   priority: BucketPriority;
-
   filter: ParameterMatchClause;
-
-  /**
-   * Bucket definition name.
-   */
   descriptorName: string;
-
-  /** _Input_ token / user parameters */
   inputParameters: InputParameter[];
-
-  /** If specified, an input parameter that expands to an array. */
   expandedInputParameter: InputParameter | undefined;
-
-  /**
-   * _Output_ bucket parameters.
-   *
-   * Each one of these will be present in either lookup_extractors or static_extractors.
-   */
   bucketParameters: string[];
-
   id: string;
   tools: SqlTools;
-
   errors?: SqlRuleError[];
 }
 
@@ -156,9 +128,7 @@ export class SqlParameterQuery {
       .filter((c) => !tools.isBucketPriorityParameter(c));
 
     let priority: BucketPriority | undefined = options.priority;
-    let lookupColumns: SelectedColumn[] = [];
     let lookupExtractors: Record<string, RowValueClause> = {};
-    let staticColumns: SelectedColumn[] = [];
     let parameterExtractors: Record<string, ParameterValueClause> = {};
 
     for (let column of q.columns ?? []) {
@@ -174,7 +144,6 @@ export class SqlParameterQuery {
 
         priority = tools.extractBucketPriority(column.expr);
       } else if (tools.isTableRef(column.expr)) {
-        lookupColumns.push(column);
         const extractor = tools.compileRowValueExtractor(column.expr);
         if (isClauseError(extractor)) {
           // Error logged already
@@ -182,7 +151,6 @@ export class SqlParameterQuery {
         }
         lookupExtractors[name] = extractor;
       } else {
-        staticColumns.push(column);
         const extractor = tools.compileParameterValueExtractor(column.expr);
         if (isClauseError(extractor)) {
           // Error logged already
@@ -202,9 +170,6 @@ export class SqlParameterQuery {
       sourceTable,
       table: alias,
       sql,
-      columns: q.columns ?? [],
-      lookupColumns,
-      staticColumns,
       lookupExtractors,
       parameterExtractors,
       priority: priority ?? DEFAULT_BUCKET_PRIORITY,
@@ -229,24 +194,48 @@ export class SqlParameterQuery {
     return parameterQuery;
   }
 
+  /**
+   * The table the parameter query queries from.
+   *
+   * Currently, no wildcards are supported here.
+   */
   readonly sourceTable: TablePattern;
+
+  /**
+   * The table name or alias, as referred to in the SQL query.
+   * Not used directly outside the query.
+   *
+   * Currently, this always matches sourceTable.name.
+   */
   readonly table: string;
+
+  /**
+   * The source SQL query, for debugging purposes.
+   */
   readonly sql: string;
-  readonly columns: SelectedColumn[];
-  readonly lookupColumns: SelectedColumn[];
-  readonly staticColumns: SelectedColumn[];
 
   /**
    * Example: SELECT *user.id* FROM users WHERE ...
+   *
+   * These are applied onto the replicated parameter table rows, returning lookup values.
    */
   readonly lookupExtractors: Record<string, RowValueClause>;
 
   /**
-   * Example: SELECT *token_parameters.user_id*
+   * Example: SELECT *token_parameters.user_id*.
+   *
+   * These are applied onto the request parameters.
    */
   readonly parameterExtractors: Record<string, ParameterValueClause>;
+
   readonly priority: BucketPriority;
 
+  /**
+   * This is the entire where clause.
+   *
+   * This can convert a parameter row into a set of parameter values, that would make the where clause match.
+   * Those are then persisted to lookup later.
+   */
   readonly filter: ParameterMatchClause;
 
   /**
@@ -254,16 +243,23 @@ export class SqlParameterQuery {
    */
   readonly descriptorName: string;
 
-  /** _Input_ token / user parameters */
+  /**
+   * _Input_ token / user parameters - the parameters passed into the parameter query.
+   *
+   * These "pre-process" the parameters.
+   */
   readonly inputParameters: InputParameter[];
 
-  /** If specified, an input parameter that expands to an array. */
+  /**
+   * If specified, an input parameter that expands to an array. Currently, only one parameter
+   * may is allowed to expand to an array
+   */
   readonly expandedInputParameter: InputParameter | undefined;
 
   /**
    * _Output_ bucket parameters.
    *
-   * Each one of these will be present in either lookup_extractors or static_extractors.
+   * Each one of these will be present in either lookupExtractors or parameterExtractors.
    */
   readonly bucketParameters: string[];
 
@@ -276,9 +272,6 @@ export class SqlParameterQuery {
     this.sourceTable = options.sourceTable;
     this.table = options.table;
     this.sql = options.sql;
-    this.columns = options.columns;
-    this.lookupColumns = options.lookupColumns;
-    this.staticColumns = options.staticColumns;
     this.lookupExtractors = options.lookupExtractors;
     this.parameterExtractors = options.parameterExtractors;
     this.priority = options.priority;
@@ -296,6 +289,9 @@ export class SqlParameterQuery {
     return this.sourceTable.matches(table);
   }
 
+  /**
+   * Given a replicated row, results an array of bucket parameter rows to persist.
+   */
   evaluateParameterRow(row: SqliteRow): EvaluatedParametersResult[] {
     const tables = {
       [this.table]: row
@@ -325,7 +321,7 @@ export class SqlParameterQuery {
     }
   }
 
-  transformRows(row: SqliteRow): SqliteRow[] {
+  private transformRows(row: SqliteRow): SqliteRow[] {
     const tables = { [this.table]: row };
     let result: SqliteRow = {};
     for (let key in this.lookupExtractors) {
@@ -337,6 +333,8 @@ export class SqlParameterQuery {
 
   /**
    * Given partial parameter rows, turn into bucket ids.
+   *
+   * Internal function, but exposed for tests.
    */
   resolveBucketDescriptions(bucketParameters: SqliteJsonRow[], parameters: RequestParameters): BucketDescription[] {
     // Filters have already been applied and gotten us the set of bucketParameters - don't attempt to filter again.
