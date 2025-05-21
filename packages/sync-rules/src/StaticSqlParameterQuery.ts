@@ -1,10 +1,21 @@
 import { SelectedColumn, SelectFromStatement } from 'pgsql-ast-parser';
+import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY } from './BucketDescription.js';
 import { SqlRuleError } from './errors.js';
 import { SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, isParameterValueClause, sqliteBool } from './sql_support.js';
 import { ParameterValueClause, QueryParseOptions, RequestParameters, SqliteJsonValue } from './types.js';
 import { getBucketId, isJsonValue } from './utils.js';
-import { BucketDescription, BucketPriority, defaultBucketPriority } from './BucketDescription.js';
+
+export interface StaticSqlParameterQueryOptions {
+  sql: string;
+  parameterExtractors: Record<string, ParameterValueClause>;
+  priority: BucketPriority;
+  descriptorName: string;
+  bucketParameters: string[];
+  queryId: string;
+  filter: ParameterValueClause | undefined;
+  errors?: SqlRuleError[];
+}
 
 /**
  * Represents a bucket parameter query without any tables, e.g.:
@@ -13,34 +24,33 @@ import { BucketDescription, BucketPriority, defaultBucketPriority } from './Buck
  *    SELECT token_parameters.user_id as user_id WHERE token_parameters.is_admin
  */
 export class StaticSqlParameterQuery {
-  static fromSql(descriptor_name: string, sql: string, q: SelectFromStatement, options?: QueryParseOptions) {
-    const query = new StaticSqlParameterQuery();
+  static fromSql(
+    descriptorName: string,
+    sql: string,
+    q: SelectFromStatement,
+    options: QueryParseOptions,
+    queryId: string
+  ) {
+    let errors: SqlRuleError[] = [];
 
-    query.errors.push(...checkUnsupportedFeatures(sql, q));
+    errors.push(...checkUnsupportedFeatures(sql, q));
 
     const tools = new SqlTools({
       table: undefined,
-      parameter_tables: ['token_parameters', 'user_parameters'],
-      supports_parameter_expressions: true,
+      parameterTables: ['token_parameters', 'user_parameters'],
+      supportsParameterExpressions: true,
       sql
     });
     const where = q.where;
 
     const filter = tools.compileParameterValueExtractor(where);
     const columns = q.columns ?? [];
-    const bucket_parameters = (q.columns ?? [])
+    const bucketParameters = (q.columns ?? [])
       .map((column) => tools.getOutputName(column))
       .filter((c) => !tools.isBucketPriorityParameter(c));
 
-    query.sql = sql;
-    query.descriptor_name = descriptor_name;
-    query.bucket_parameters = bucket_parameters;
-    query.columns = columns;
-    query.tools = tools;
-    query.priority = options?.priority;
-    if (!isClauseError(filter)) {
-      query.filter = filter;
-    }
+    let priority = options?.priority;
+    let parameterExtractors: Record<string, ParameterValueClause> = {};
 
     for (let column of columns) {
       if (column.alias != null) {
@@ -48,12 +58,12 @@ export class StaticSqlParameterQuery {
       }
       const name = tools.getSpecificOutputName(column);
       if (tools.isBucketPriorityParameter(name)) {
-        if (query.priority !== undefined) {
-          query.errors.push(new SqlRuleError('Cannot set priority multiple times.', sql));
+        if (priority !== undefined) {
+          errors.push(new SqlRuleError('Cannot set priority multiple times.', sql));
           continue;
         }
 
-        query.priority = tools.extractBucketPriority(column.expr);
+        priority = tools.extractBucketPriority(column.expr);
         continue;
       }
 
@@ -62,11 +72,21 @@ export class StaticSqlParameterQuery {
         // Error logged already
         continue;
       }
-      query.parameter_extractors[name] = extractor;
+      parameterExtractors[name] = extractor;
     }
 
-    query.errors.push(...tools.errors);
+    errors.push(...tools.errors);
 
+    const query = new StaticSqlParameterQuery({
+      sql,
+      descriptorName,
+      bucketParameters,
+      parameterExtractors,
+      priority: priority ?? DEFAULT_BUCKET_PRIORITY,
+      filter: isClauseError(filter) ? undefined : filter,
+      queryId,
+      errors
+    });
     if (query.usesDangerousRequestParameters && !options?.accept_potentially_dangerous_queries) {
       let err = new SqlRuleError(
         "Potentially dangerous query based on parameters set by the client. The client can send any value for these parameters so it's not a good place to do authorization.",
@@ -78,19 +98,60 @@ export class StaticSqlParameterQuery {
     return query;
   }
 
-  sql?: string;
-  columns?: SelectedColumn[];
-  parameter_extractors: Record<string, ParameterValueClause> = {};
-  priority?: BucketPriority;
-  descriptor_name?: string;
-  /** _Output_ bucket parameters */
-  bucket_parameters?: string[];
-  id?: string;
-  tools?: SqlTools;
+  /**
+   * Raw source sql query, for debugging purposes.
+   */
+  readonly sql: string;
 
-  filter?: ParameterValueClause;
+  /**
+   * Matches the keys in `bucketParameters`.
+   *
+   * This is used to map request parameters -> bucket parameters.
+   */
+  readonly parameterExtractors: Record<string, ParameterValueClause>;
 
-  errors: SqlRuleError[] = [];
+  readonly priority: BucketPriority;
+
+  /**
+   * Bucket definition name.
+   */
+  readonly descriptorName: string;
+
+  /**
+   * _Output_ bucket parameters, excluding the `bucket.` prefix.
+   *
+   * Each one will be present in the `parameterExtractors` map.
+   */
+  readonly bucketParameters: string[];
+
+  /**
+   * Unique identifier for this query within a bucket definition.
+   *
+   * Typically auto-generated based on query order.
+   *
+   * This is not used directly, but we keep this to match behavior of other parameter queries.
+   */
+  readonly queryId: string;
+
+  /**
+   * The query filter (WHERE clause). Given request parameters, the filter will determine whether or not this query returns a row.
+   *
+   * undefined if the clause is not valid.
+   */
+  readonly filter: ParameterValueClause | undefined;
+
+  readonly errors: SqlRuleError[];
+
+  constructor(options: StaticSqlParameterQueryOptions) {
+    this.sql = options.sql;
+    this.parameterExtractors = options.parameterExtractors;
+    this.priority = options.priority;
+    this.descriptorName = options.descriptorName;
+    this.bucketParameters = options.bucketParameters;
+    this.queryId = options.queryId;
+    this.filter = options.filter;
+    this.errors = options.errors ?? [];
+  }
 
   getStaticBucketDescriptions(parameters: RequestParameters): BucketDescription[] {
     if (this.filter == null) {
@@ -103,8 +164,8 @@ export class StaticSqlParameterQuery {
     }
 
     let result: Record<string, SqliteJsonValue> = {};
-    for (let name of this.bucket_parameters!) {
-      const value = this.parameter_extractors[name].lookupParameterValue(parameters);
+    for (let name of this.bucketParameters) {
+      const value = this.parameterExtractors[name].lookupParameterValue(parameters);
       if (isJsonValue(value)) {
         result[`bucket.${name}`] = value;
       } else {
@@ -116,8 +177,8 @@ export class StaticSqlParameterQuery {
 
     return [
       {
-        bucket: getBucketId(this.descriptor_name!, this.bucket_parameters!, result),
-        priority: this.priority ?? defaultBucketPriority
+        bucket: getBucketId(this.descriptorName, this.bucketParameters, result),
+        priority: this.priority
       }
     ];
   }
@@ -125,11 +186,11 @@ export class StaticSqlParameterQuery {
   get hasAuthenticatedBucketParameters(): boolean {
     // select where request.jwt() ->> 'role' == 'authorized'
     // we do not count this as a sufficient check
-    // const authenticatedFilter = this.filter!.usesAuthenticatedRequestParameters;
+    // const authenticatedFilter = this.filter.usesAuthenticatedRequestParameters;
 
     // select request.user_id() as user_id
     const authenticatedExtractor =
-      Object.values(this.parameter_extractors).find(
+      Object.values(this.parameterExtractors).find(
         (clause) => isParameterValueClause(clause) && clause.usesAuthenticatedRequestParameters
       ) != null;
     return authenticatedExtractor;
@@ -141,7 +202,7 @@ export class StaticSqlParameterQuery {
 
     // select request.parameters() ->> 'project_id'
     const unauthenticatedExtractor =
-      Object.values(this.parameter_extractors).find(
+      Object.values(this.parameterExtractors).find(
         (clause) => isParameterValueClause(clause) && clause.usesUnauthenticatedRequestParameters
       ) != null;
 

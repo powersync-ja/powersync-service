@@ -92,7 +92,7 @@ export class BucketChecksumState {
    */
   async buildNextCheckpointLine(next: storage.StorageCheckpointUpdate): Promise<CheckpointLine | null> {
     const { writeCheckpoint, base } = next;
-    const user_id = this.parameterState.syncParams.user_id;
+    const user_id = this.parameterState.syncParams.userId;
 
     const storage = this.bucketStorage;
 
@@ -378,7 +378,7 @@ export class BucketParameterState {
       );
       this.logger.error(error.message, {
         checkpoint: checkpoint,
-        user_id: this.syncParams.user_id,
+        user_id: this.syncParams.userId,
         buckets: update.buckets.length
       });
 

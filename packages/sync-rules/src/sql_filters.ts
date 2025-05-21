@@ -1,6 +1,7 @@
 import { JSONBig } from '@powersync/service-jsonbig';
 import { Expr, ExprRef, Name, NodeLocation, QName, QNameAliased, SelectedColumn } from 'pgsql-ast-parser';
 import { nil } from 'pgsql-ast-parser/src/utils.js';
+import { BucketPriority, isValidPriority } from './BucketDescription.js';
 import { ExpressionType } from './ExpressionType.js';
 import { SqlRuleError } from './errors.js';
 import { REQUEST_FUNCTIONS } from './request_functions.js';
@@ -40,13 +41,11 @@ import {
   QueryParameters,
   QuerySchema,
   RowValueClause,
-  SqliteJsonRow,
   SqliteValue,
   StaticValueClause,
   TrueIfParametersMatch
 } from './types.js';
 import { isJsonValue } from './utils.js';
-import { BucketPriority, isValidPriority } from './BucketDescription.js';
 
 export const MATCH_CONST_FALSE: TrueIfParametersMatch = [];
 export const MATCH_CONST_TRUE: TrueIfParametersMatch = [{}];
@@ -69,14 +68,14 @@ export interface SqlToolsOptions {
    *   "bucket" (bucket parameters for data query)
    *   "token_parameters" (token parameters for parameter query)
    */
-  parameter_tables?: string[];
+  parameterTables?: string[];
 
   /**
    * Set of tables used in QueryParameters.
    *
    * If not specified, defaults to [table].
    */
-  value_tables?: string[];
+  valueTables?: string[];
 
   /**
    * For debugging / error messages.
@@ -88,12 +87,12 @@ export interface SqlToolsOptions {
    *
    * Only one parameter may be expanded.
    */
-  supports_expanding_parameters?: boolean;
+  supportsExpandingParameters?: boolean;
 
   /**
    * true if expressions on parameters are supported, e.g. upper(token_parameters.user_id)
    */
-  supports_parameter_expressions?: boolean;
+  supportsParameterExpressions?: boolean;
 
   /**
    * Schema for validations.
@@ -102,36 +101,36 @@ export interface SqlToolsOptions {
 }
 
 export class SqlTools {
-  default_table?: string;
-  value_tables: string[];
+  readonly defaultTable?: string;
+  readonly valueTables: string[];
   /**
    * ['bucket'] for data queries
    * ['token_parameters', 'user_parameters'] for parameter queries
    */
-  parameter_tables: string[];
-  sql: string;
-  errors: SqlRuleError[] = [];
+  readonly parameterTables: string[];
+  readonly sql: string;
+  readonly errors: SqlRuleError[] = [];
 
-  supports_expanding_parameters: boolean;
-  supports_parameter_expressions: boolean;
+  readonly supportsExpandingParameters: boolean;
+  readonly supportsParameterExpressions: boolean;
 
   schema?: QuerySchema;
 
   constructor(options: SqlToolsOptions) {
-    this.default_table = options.table;
+    this.defaultTable = options.table;
     this.schema = options.schema;
 
-    if (options.value_tables) {
-      this.value_tables = options.value_tables;
-    } else if (this.default_table) {
-      this.value_tables = [this.default_table];
+    if (options.valueTables) {
+      this.valueTables = options.valueTables;
+    } else if (this.defaultTable) {
+      this.valueTables = [this.defaultTable];
     } else {
-      this.value_tables = [];
+      this.valueTables = [];
     }
-    this.parameter_tables = options.parameter_tables ?? [];
+    this.parameterTables = options.parameterTables ?? [];
     this.sql = options.sql;
-    this.supports_expanding_parameters = options.supports_expanding_parameters ?? false;
-    this.supports_parameter_expressions = options.supports_parameter_expressions ?? false;
+    this.supportsExpandingParameters = options.supportsExpandingParameters ?? false;
+    this.supportsParameterExpressions = options.supportsParameterExpressions ?? false;
   }
 
   error(message: string, expr: NodeLocation | Expr | undefined): ClauseError {
@@ -242,7 +241,7 @@ export class SqlTools {
         let otherFilter1: CompiledClause;
 
         if (
-          this.supports_parameter_expressions &&
+          this.supportsParameterExpressions &&
           isParameterValueClause(leftFilter) &&
           isParameterValueClause(rightFilter)
         ) {
@@ -342,7 +341,7 @@ export class SqlTools {
             usesUnauthenticatedRequestParameters: leftFilter.usesUnauthenticatedRequestParameters
           } satisfies ParameterMatchClause;
         } else if (
-          this.supports_expanding_parameters &&
+          this.supportsExpandingParameters &&
           isRowValueClause(leftFilter) &&
           isParameterValueClause(rightFilter)
         ) {
@@ -415,7 +414,7 @@ export class SqlTools {
         return composed;
       } else if (schema == 'request') {
         // Special function
-        if (!this.supports_parameter_expressions) {
+        if (!this.supportsParameterExpressions) {
           return this.error(`${schema} schema is not available in data queries`, expr);
         }
 
@@ -501,8 +500,8 @@ export class SqlTools {
     if (expr.type != 'ref') {
       return false;
     }
-    const tableName = expr.table?.name ?? this.default_table;
-    return this.parameter_tables.includes(tableName ?? '');
+    const tableName = expr.table?.name ?? this.defaultTable;
+    return this.parameterTables.includes(tableName ?? '');
   }
 
   /**
@@ -587,7 +586,7 @@ export class SqlTools {
   }
 
   getParameterRefClause(expr: ExprRef): ParameterValueClause {
-    const table = (expr.table?.name ?? this.default_table)!;
+    const table = (expr.table?.name ?? this.defaultTable)!;
     const column = expr.name;
     return {
       key: `${table}.${column}`,
@@ -612,8 +611,8 @@ export class SqlTools {
     if (this.refHasSchema(ref)) {
       throw new SqlRuleError(`Specifying schema in column references is not supported`, this.sql, ref);
     }
-    const tableName = ref.table?.name ?? this.default_table;
-    if (this.value_tables.includes(tableName ?? '')) {
+    const tableName = ref.table?.name ?? this.defaultTable;
+    if (this.valueTables.includes(tableName ?? '')) {
       return tableName!;
     } else if (ref.table?.name == null) {
       throw new SqlRuleError(`Table name required`, this.sql, ref);
@@ -712,7 +711,7 @@ export class SqlTools {
       } else if (isStaticValueClause(clause)) {
         // argsType unchanged
       } else if (isParameterValueClause(clause)) {
-        if (!this.supports_parameter_expressions) {
+        if (!this.supportsParameterExpressions) {
           if (fnImpl.debugName == 'operatorIN') {
             // Special-case error message to be more descriptive
             return { error: `Cannot use bucket parameters on the right side of IN operators`, errorExpr: debugArg };

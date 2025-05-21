@@ -202,13 +202,13 @@ async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
 
     return {
       valid: true,
-      bucket_definitions: rules.bucket_descriptors.map((d) => {
-        let all_parameter_queries = [...d.parameter_queries.values()].flat();
-        let all_data_queries = [...d.data_queries.values()].flat();
+      bucket_definitions: rules.bucketDescriptors.map((d) => {
+        let all_parameter_queries = [...d.parameterQueries.values()].flat();
+        let all_data_queries = [...d.dataQueries.values()].flat();
         return {
           name: d.name,
-          bucket_parameters: d.bucket_parameters,
-          global_parameter_queries: d.global_parameter_queries.map((q) => {
+          bucket_parameters: d.bucketParameters,
+          global_parameter_queries: d.globalParameterQueries.map((q) => {
             return {
               sql: q.sql
             };
@@ -217,7 +217,7 @@ async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
             return {
               sql: q.sql,
               table: q.sourceTable,
-              input_parameters: q.input_parameters
+              input_parameters: q.inputParameters
             };
           }),
 

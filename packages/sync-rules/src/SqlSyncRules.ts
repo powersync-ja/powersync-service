@@ -1,4 +1,6 @@
 import { isScalar, LineCounter, parseDocument, Scalar, YAMLMap, YAMLSeq } from 'yaml';
+import { BucketPriority, isValidPriority } from './BucketDescription.js';
+import { BucketParameterQuerier, mergeBucketParameterQueriers } from './BucketParameterQuerier.js';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
 import { IdSequence } from './IdSequence.js';
@@ -22,12 +24,6 @@ import {
   SqliteRow,
   SyncRules
 } from './types.js';
-import { BucketDescription, BucketPriority, isValidPriority } from './BucketDescription.js';
-import {
-  BucketParameterQuerier,
-  mergeBucketParameterQueriers,
-  ParameterLookupSource
-} from './BucketParameterQuerier.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -44,9 +40,8 @@ export interface SyncRulesOptions {
 }
 
 export class SqlSyncRules implements SyncRules {
-  bucket_descriptors: SqlBucketDescriptor[] = [];
-  event_descriptors: SqlEventDescriptor[] = [];
-  idSequence = new IdSequence();
+  bucketDescriptors: SqlBucketDescriptor[] = [];
+  eventDescriptors: SqlEventDescriptor[] = [];
 
   content: string;
 
@@ -69,7 +64,6 @@ export class SqlSyncRules implements SyncRules {
 
   static fromYaml(yaml: string, options: SyncRulesOptions) {
     const throwOnError = options.throwOnError ?? true;
-    const schema = options.schema;
 
     const lineCounter = new LineCounter();
     const parsed = parseDocument(yaml, {
@@ -142,7 +136,7 @@ export class SqlSyncRules implements SyncRules {
       const parameters = value.get('parameters', true) as unknown;
       const dataQueries = value.get('data', true) as unknown;
 
-      const descriptor = new SqlBucketDescriptor(key, rules.idSequence);
+      const descriptor = new SqlBucketDescriptor(key);
 
       if (parameters instanceof Scalar) {
         rules.withScalar(parameters, (q) => {
@@ -167,7 +161,7 @@ export class SqlSyncRules implements SyncRules {
           return descriptor.addDataQuery(q, queryOptions);
         });
       }
-      rules.bucket_descriptors.push(descriptor);
+      rules.bucketDescriptors.push(descriptor);
     }
 
     const eventMap = parsed.get('event_definitions') as YAMLMap;
@@ -185,7 +179,7 @@ export class SqlSyncRules implements SyncRules {
         continue;
       }
 
-      const eventDescriptor = new SqlEventDescriptor(key.toString(), rules.idSequence);
+      const eventDescriptor = new SqlEventDescriptor(key.toString());
       for (let item of payloads.items) {
         if (!isScalar(item)) {
           rules.errors.push(new YamlError(new Error(`Payload queries for events must be scalar.`)));
@@ -196,7 +190,7 @@ export class SqlSyncRules implements SyncRules {
         });
       }
 
-      rules.event_descriptors.push(eventDescriptor);
+      rules.eventDescriptors.push(eventDescriptor);
     }
 
     // Validate that there are no additional properties.
@@ -286,7 +280,7 @@ export class SqlSyncRules implements SyncRules {
 
   evaluateRowWithErrors(options: EvaluateRowOptions): { results: EvaluatedRow[]; errors: EvaluationError[] } {
     let rawResults: EvaluationResult[] = [];
-    for (let query of this.bucket_descriptors) {
+    for (let query of this.bucketDescriptors) {
       rawResults.push(...query.evaluateRow(options));
     }
 
@@ -312,7 +306,7 @@ export class SqlSyncRules implements SyncRules {
     row: SqliteRow
   ): { results: EvaluatedParameters[]; errors: EvaluationError[] } {
     let rawResults: EvaluatedParametersResult[] = [];
-    for (let query of this.bucket_descriptors) {
+    for (let query of this.bucketDescriptors) {
       rawResults.push(...query.evaluateParameterRow(table, row));
     }
 
@@ -322,24 +316,24 @@ export class SqlSyncRules implements SyncRules {
   }
 
   getBucketParameterQuerier(parameters: RequestParameters): BucketParameterQuerier {
-    const queriers = this.bucket_descriptors.map((query) => query.getBucketParameterQuerier(parameters));
+    const queriers = this.bucketDescriptors.map((query) => query.getBucketParameterQuerier(parameters));
     return mergeBucketParameterQueriers(queriers);
   }
 
   hasDynamicBucketQueries() {
-    return this.bucket_descriptors.some((query) => query.hasDynamicBucketQueries());
+    return this.bucketDescriptors.some((query) => query.hasDynamicBucketQueries());
   }
 
   getSourceTables(): TablePattern[] {
     const sourceTables = new Map<String, TablePattern>();
-    for (const bucket of this.bucket_descriptors) {
+    for (const bucket of this.bucketDescriptors) {
       for (const r of bucket.getSourceTables()) {
         const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
         sourceTables.set(key, r);
       }
     }
 
-    for (const event of this.event_descriptors) {
+    for (const event of this.eventDescriptors) {
       for (const r of event.getSourceTables()) {
         const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
         sourceTables.set(key, r);
@@ -352,7 +346,7 @@ export class SqlSyncRules implements SyncRules {
   getEventTables(): TablePattern[] {
     const eventTables = new Map<String, TablePattern>();
 
-    for (const event of this.event_descriptors) {
+    for (const event of this.eventDescriptors) {
       for (const r of event.getSourceTables()) {
         const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
         eventTables.set(key, r);
@@ -362,11 +356,11 @@ export class SqlSyncRules implements SyncRules {
   }
 
   tableTriggersEvent(table: SourceTableInterface): boolean {
-    return this.event_descriptors.some((bucket) => bucket.tableTriggersEvent(table));
+    return this.eventDescriptors.some((bucket) => bucket.tableTriggersEvent(table));
   }
 
   tableSyncsData(table: SourceTableInterface): boolean {
-    for (const bucket of this.bucket_descriptors) {
+    for (const bucket of this.bucketDescriptors) {
       if (bucket.tableSyncsData(table)) {
         return true;
       }
@@ -375,7 +369,7 @@ export class SqlSyncRules implements SyncRules {
   }
 
   tableSyncsParameters(table: SourceTableInterface): boolean {
-    for (let bucket of this.bucket_descriptors) {
+    for (let bucket of this.bucketDescriptors) {
       if (bucket.tableSyncsParameters(table)) {
         return true;
       }
@@ -385,8 +379,8 @@ export class SqlSyncRules implements SyncRules {
 
   debugGetOutputTables() {
     let result: Record<string, any[]> = {};
-    for (let bucket of this.bucket_descriptors) {
-      for (let q of bucket.data_queries) {
+    for (let bucket of this.bucketDescriptors) {
+      for (let q of bucket.dataQueries) {
         result[q.table!] ??= [];
         const r = {
           query: q.sql

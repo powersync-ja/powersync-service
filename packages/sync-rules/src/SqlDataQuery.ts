@@ -1,6 +1,6 @@
 import { JSONBig } from '@powersync/service-jsonbig';
 import { parse } from 'pgsql-ast-parser';
-import { BaseSqlDataQuery } from './BaseSqlDataQuery.js';
+import { BaseSqlDataQuery, BaseSqlDataQueryOptions, RowValueExtractor } from './BaseSqlDataQuery.js';
 import { SqlRuleError } from './errors.js';
 import { ExpressionType } from './ExpressionType.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
@@ -13,13 +13,16 @@ import { TableQuerySchema } from './TableQuerySchema.js';
 import { EvaluationResult, ParameterMatchClause, QuerySchema, SqliteRow } from './types.js';
 import { getBucketId, isSelectStatement } from './utils.js';
 
-export class SqlDataQuery extends BaseSqlDataQuery {
-  filter?: ParameterMatchClause;
+export interface SqlDataQueryOptions extends BaseSqlDataQueryOptions {
+  filter: ParameterMatchClause;
+}
 
-  static fromSql(descriptor_name: string, bucket_parameters: string[], sql: string, options: SyncRulesOptions) {
+export class SqlDataQuery extends BaseSqlDataQuery {
+  static fromSql(descriptorName: string, bucketParameters: string[], sql: string, options: SyncRulesOptions) {
     const parsed = parse(sql, { locationTracking: true });
-    const rows = new SqlDataQuery();
     const schema = options.schema;
+
+    let errors: SqlRuleError[] = [];
 
     if (parsed.length > 1) {
       throw new SqlRuleError('Only a single SELECT statement is supported', sql, parsed[1]?._location);
@@ -29,7 +32,7 @@ export class SqlDataQuery extends BaseSqlDataQuery {
       throw new SqlRuleError('Only SELECT statements are supported', sql, q._location);
     }
 
-    rows.errors.push(...checkUnsupportedFeatures(sql, q));
+    errors.push(...checkUnsupportedFeatures(sql, q));
 
     if (q.from == null || q.from.length != 1 || q.from[0].type != 'table') {
       throw new SqlRuleError('Must SELECT from a single table', sql, q.from?.[0]._location);
@@ -53,7 +56,7 @@ export class SqlDataQuery extends BaseSqlDataQuery {
         );
         e.type = 'warning';
 
-        rows.errors.push(e);
+        errors.push(e);
       } else {
         querySchema = new TableQuerySchema(tables, alias);
       }
@@ -62,22 +65,22 @@ export class SqlDataQuery extends BaseSqlDataQuery {
     const where = q.where;
     const tools = new SqlTools({
       table: alias,
-      parameter_tables: ['bucket'],
-      value_tables: [alias],
+      parameterTables: ['bucket'],
+      valueTables: [alias],
       sql,
       schema: querySchema
     });
     tools.checkSpecificNameCase(tableRef);
     const filter = tools.compileWhereClause(where);
 
-    const inputParameterNames = filter.inputParameters!.map((p) => p.key);
-    const bucketParameterNames = bucket_parameters.map((p) => `bucket.${p}`);
+    const inputParameterNames = filter.inputParameters.map((p) => p.key);
+    const bucketParameterNames = bucketParameters.map((p) => `bucket.${p}`);
     const allParams = new Set<string>([...inputParameterNames, ...bucketParameterNames]);
     if (
-      (!filter.error && allParams.size != filter.inputParameters!.length) ||
-      allParams.size != bucket_parameters.length
+      (!filter.error && allParams.size != filter.inputParameters.length) ||
+      allParams.size != bucketParameters.length
     ) {
-      rows.errors.push(
+      errors.push(
         new SqlRuleError(
           `Query must cover all bucket parameters. Expected: ${JSONBig.stringify(
             bucketParameterNames
@@ -88,17 +91,9 @@ export class SqlDataQuery extends BaseSqlDataQuery {
       );
     }
 
-    rows.sourceTable = sourceTable;
-    rows.table = alias;
-    rows.sql = sql;
-    rows.filter = filter;
-    rows.descriptor_name = descriptor_name;
-    rows.bucket_parameters = bucket_parameters;
-    rows.columns = q.columns ?? [];
-    rows.tools = tools;
-
     let hasId = false;
     let hasWildcard = false;
+    let extractors: RowValueExtractor[] = [];
 
     for (let column of q.columns ?? []) {
       const name = tools.getOutputName(column);
@@ -108,7 +103,7 @@ export class SqlDataQuery extends BaseSqlDataQuery {
           // Error logged already
           continue;
         }
-        rows.extractors.push({
+        extractors.push({
           extract: (tables, output) => {
             output[name] = clause.evaluate(tables);
           },
@@ -119,7 +114,7 @@ export class SqlDataQuery extends BaseSqlDataQuery {
           }
         });
       } else {
-        rows.extractors.push({
+        extractors.push({
           extract: (tables, output) => {
             const row = tables[alias];
             for (let key in row) {
@@ -157,18 +152,45 @@ export class SqlDataQuery extends BaseSqlDataQuery {
         // Schema-based validations are always warnings
         error.type = 'warning';
       }
-      rows.errors.push(error);
+      errors.push(error);
     }
-    rows.errors.push(...tools.errors);
-    return rows;
+
+    errors.push(...tools.errors);
+
+    return new SqlDataQuery({
+      sourceTable,
+      table: alias,
+      sql,
+      filter,
+      columns: q.columns ?? [],
+      descriptorName,
+      bucketParameters,
+      tools,
+      errors,
+      extractors
+    });
+  }
+
+  /**
+   * The query WHERE clause.
+   *
+   * For a given row, this returns a set of bucket parameter values that could cause the filter to match.
+   *
+   * We use this to determine the buckets that a data row belong to.
+   */
+  readonly filter: ParameterMatchClause;
+
+  constructor(options: SqlDataQueryOptions) {
+    super(options);
+    this.filter = options.filter;
   }
 
   evaluateRow(table: SourceTableInterface, row: SqliteRow): EvaluationResult[] {
     try {
-      const tables = { [this.table!]: this.addSpecialParameters(table, row) };
-      const bucketParameters = this.filter!.filterRow(tables);
+      const tables = { [this.table]: this.addSpecialParameters(table, row) };
+      const bucketParameters = this.filter.filterRow(tables);
       const bucketIds = bucketParameters.map((params) =>
-        getBucketId(this.descriptor_name!, this.bucket_parameters!, params)
+        getBucketId(this.descriptorName, this.bucketParameters, params)
       );
 
       const data = this.transformRow(tables);
@@ -189,8 +211,7 @@ export class SqlDataQuery extends BaseSqlDataQuery {
           bucket: bucketId,
           table: outputTable,
           id: id,
-          data,
-          ruleId: this.ruleId
+          data
         } as EvaluationResult;
       });
     } catch (e) {

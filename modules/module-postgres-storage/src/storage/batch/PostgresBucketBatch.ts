@@ -861,7 +861,7 @@ export class PostgresBucketBatch
    * TODO maybe share this with an abstract class
    */
   protected getTableEvents(table: storage.SourceTable): sync_rules.SqlEventDescriptor[] {
-    return this.sync_rules.event_descriptors.filter((evt) =>
+    return this.sync_rules.eventDescriptors.filter((evt) =>
       [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table))
     );
   }
