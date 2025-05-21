@@ -11,7 +11,7 @@ describe('parameter queries', () => {
     expect(query.evaluateParameterRow({ id: 'group1', user_ids: JSON.stringify(['user1', 'user2']) })).toEqual([
       {
         lookup: ParameterLookup.normalized('mybucket', '1', ['user1']),
-        bucket_parameters: [
+        bucketParameters: [
           {
             group_id: 'group1'
           }
@@ -19,7 +19,7 @@ describe('parameter queries', () => {
       },
       {
         lookup: ParameterLookup.normalized('mybucket', '1', ['user2']),
-        bucket_parameters: [
+        bucketParameters: [
           {
             group_id: 'group1'
           }
@@ -42,7 +42,7 @@ describe('parameter queries', () => {
     expect(query.evaluateParameterRow({ id: 'region1', name: 'colorado' })).toEqual([
       {
         lookup: ParameterLookup.normalized('mybucket', '1', ['colorado']),
-        bucket_parameters: [
+        bucketParameters: [
           {
             region_id: 'region1'
           }
@@ -71,7 +71,7 @@ describe('parameter queries', () => {
       {
         lookup: ParameterLookup.normalized('mybucket', '1', [314n, 3.14, 314]),
 
-        bucket_parameters: [{ int1: 314n, float1: 3.14, float2: 314 }]
+        bucketParameters: [{ int1: 314n, float1: 3.14, float2: 314 }]
       }
     ]);
 
@@ -100,7 +100,7 @@ describe('parameter queries', () => {
       {
         lookup: ParameterLookup.normalized('mybucket', '1', ['test_param']),
 
-        bucket_parameters: [{ id: 'test_id' }]
+        bucketParameters: [{ id: 'test_id' }]
       }
     ]);
 
@@ -118,7 +118,7 @@ describe('parameter queries', () => {
       {
         lookup: ParameterLookup.normalized('mybucket', '1', ['test_param']),
 
-        bucket_parameters: [{ id: 'test_id' }]
+        bucketParameters: [{ id: 'test_id' }]
       }
     ]);
 
@@ -136,7 +136,7 @@ describe('parameter queries', () => {
       {
         lookup: ParameterLookup.normalized('mybucket', '1', ['test_param']),
 
-        bucket_parameters: [{ id: 'test_id' }]
+        bucketParameters: [{ id: 'test_id' }]
       }
     ]);
 
@@ -176,7 +176,7 @@ describe('parameter queries', () => {
     expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
       {
         lookup: ParameterLookup.normalized('mybucket', '1', [1n]),
-        bucket_parameters: [{}]
+        bucketParameters: [{}]
       }
     ]);
 
@@ -196,7 +196,7 @@ describe('parameter queries', () => {
     expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
       {
         lookup: ParameterLookup.normalized('mybucket', '1', [1n]),
-        bucket_parameters: [{}]
+        bucketParameters: [{}]
       }
     ]);
 
@@ -216,7 +216,7 @@ describe('parameter queries', () => {
     expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
       {
         lookup: ParameterLookup.normalized('mybucket', '1', [1n]),
-        bucket_parameters: [{}]
+        bucketParameters: [{}]
       }
     ]);
 
@@ -236,7 +236,7 @@ describe('parameter queries', () => {
     expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
       {
         lookup: ParameterLookup.normalized('mybucket', '1', [1n]),
-        bucket_parameters: [{}]
+        bucketParameters: [{}]
       }
     ]);
 
@@ -256,7 +256,7 @@ describe('parameter queries', () => {
     expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
       {
         lookup: ParameterLookup.normalized('mybucket', '1', ['user1', 1n]),
-        bucket_parameters: [{}]
+        bucketParameters: [{}]
       }
     ]);
 
@@ -276,7 +276,7 @@ describe('parameter queries', () => {
     expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
       {
         lookup: ParameterLookup.normalized('mybucket', '1', ['user1', 1n]),
-        bucket_parameters: [{}]
+        bucketParameters: [{}]
       }
     ]);
 
@@ -309,7 +309,7 @@ describe('parameter queries', () => {
     expect(query.evaluateParameterRow({ id: 'user1', role: null })).toEqual([
       {
         lookup: ParameterLookup.normalized('mybucket', '1', []),
-        bucket_parameters: [{ id: 'user1' }]
+        bucketParameters: [{ id: 'user1' }]
       }
     ]);
 
@@ -329,7 +329,7 @@ describe('parameter queries', () => {
     expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
       {
         lookup: ParameterLookup.normalized('mybucket', '1', ['user1', 1n]),
-        bucket_parameters: [{}]
+        bucketParameters: [{}]
       }
     ]);
 
@@ -352,7 +352,7 @@ describe('parameter queries', () => {
       {
         lookup: ParameterLookup.normalized('mybucket', '1', ['user1', 1n]),
 
-        bucket_parameters: [{ user_id: 'user1' }]
+        bucketParameters: [{ user_id: 'user1' }]
       }
     ]);
 
@@ -377,7 +377,7 @@ describe('parameter queries', () => {
       {
         lookup: ParameterLookup.normalized('mybucket', '1', ['user1']),
 
-        bucket_parameters: [{ user_id: 'user1' }]
+        bucketParameters: [{ user_id: 'user1' }]
       }
     ]);
   });
@@ -398,7 +398,7 @@ describe('parameter queries', () => {
       {
         lookup: ParameterLookup.normalized('mybucket', '1', ['user1']),
 
-        bucket_parameters: [{ user_id: 'user1' }]
+        bucketParameters: [{ user_id: 'user1' }]
       }
     ]);
   });
@@ -452,7 +452,7 @@ describe('parameter queries', () => {
       {
         lookup: ParameterLookup.normalized('mybucket', '1', []),
 
-        bucket_parameters: [{ workspace_id: 'workspace1' }]
+        bucketParameters: [{ workspace_id: 'workspace1' }]
       }
     ]);
 
@@ -470,7 +470,7 @@ describe('parameter queries', () => {
       {
         lookup: ParameterLookup.normalized('mybucket', '1', ['test_param', 'test_param']),
 
-        bucket_parameters: [{ id: 'test_id' }]
+        bucketParameters: [{ id: 'test_id' }]
       }
     ]);
 
@@ -489,11 +489,11 @@ describe('parameter queries', () => {
     expect(query.evaluateParameterRow({ id: 'test_id', filter_param1: 'test1', filter_param2: 'test2' })).toEqual([
       {
         lookup: ParameterLookup.normalized('mybucket', '1', ['test1']),
-        bucket_parameters: [{ id: 'test_id' }]
+        bucketParameters: [{ id: 'test_id' }]
       },
       {
         lookup: ParameterLookup.normalized('mybucket', '1', ['test2']),
-        bucket_parameters: [{ id: 'test_id' }]
+        bucketParameters: [{ id: 'test_id' }]
       }
     ]);
 
@@ -517,7 +517,7 @@ describe('parameter queries', () => {
     expect(query.evaluateParameterRow({ id: 'group1', category: 'red' })).toEqual([
       {
         lookup: ParameterLookup.normalized('mybucket', '1', ['red']),
-        bucket_parameters: [{}]
+        bucketParameters: [{}]
       }
     ]);
     expect(query.getLookups(normalizeTokenParameters({}, { category_id: 'red' }))).toEqual([
@@ -575,7 +575,7 @@ describe('parameter queries', () => {
     expect(query.evaluateParameterRow({ id: 'region1', name: 'colorado' })).toEqual([
       {
         lookup: ParameterLookup.normalized('mybucket', '1', ['colorado']),
-        bucket_parameters: [
+        bucketParameters: [
           {
             region_id: 'region1'
           }
@@ -604,7 +604,7 @@ describe('parameter queries', () => {
     expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
       {
         lookup: ParameterLookup.normalized('mybucket', '1', ['user1']),
-        bucket_parameters: [{ id: 'user1' }]
+        bucketParameters: [{ id: 'user1' }]
       }
     ]);
     const requestParams = normalizeTokenParameters({ user_id: 'user1' }, { other_id: 'red' });
@@ -619,7 +619,7 @@ describe('parameter queries', () => {
     expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
       {
         lookup: ParameterLookup.normalized('mybucket', '1', ['user1']),
-        bucket_parameters: [{ id: 'user1' }]
+        bucketParameters: [{ id: 'user1' }]
       }
     ]);
     const requestParams = normalizeTokenParameters({ user_id: 'user1' }, { other_id: 'red' });

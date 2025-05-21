@@ -93,7 +93,7 @@ async function* streamResponseInner(
 ): AsyncGenerator<util.StreamingSyncLine | string | null> {
   const { raw_data, binary_data } = params;
 
-  const checkpointUserId = util.checkpointUserId(syncParams.token_parameters.user_id as string, params.client_id);
+  const checkpointUserId = util.checkpointUserId(syncParams.tokenParameters.user_id as string, params.client_id);
 
   const checksumState = new BucketChecksumState({
     syncContext,
@@ -228,7 +228,7 @@ async function* streamResponseInner(
           onRowsSent: markOperationsSent,
           abort_connection: signal,
           abort_batch: abortCheckpointSignal,
-          user_id: syncParams.user_id,
+          user_id: syncParams.userId,
           // Passing null here will emit a full sync complete message at the end. If we pass a priority, we'll emit a partial
           // sync complete message instead.
           forPriority: !isLast ? priority : null,

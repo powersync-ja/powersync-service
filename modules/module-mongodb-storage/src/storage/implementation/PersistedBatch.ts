@@ -206,7 +206,7 @@ export class PersistedBatch {
               k: sourceKey
             },
             lookup: binLookup,
-            bucket_parameters: result.bucket_parameters
+            bucket_parameters: result.bucketParameters
           }
         }
       });

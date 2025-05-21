@@ -16,7 +16,7 @@ export interface SqlParameterFunction {
 const request_parameters: SqlParameterFunction = {
   debugName: 'request.parameters',
   call(parameters: ParameterValueSet) {
-    return parameters.raw_user_parameters;
+    return parameters.rawUserParameters;
   },
   getReturnType() {
     return ExpressionType.TEXT;
@@ -31,7 +31,7 @@ const request_parameters: SqlParameterFunction = {
 const request_jwt: SqlParameterFunction = {
   debugName: 'request.jwt',
   call(parameters: ParameterValueSet) {
-    return parameters.raw_token_payload;
+    return parameters.rawTokenPayload;
   },
   getReturnType() {
     return ExpressionType.TEXT;
@@ -45,7 +45,7 @@ const request_jwt: SqlParameterFunction = {
 const request_user_id: SqlParameterFunction = {
   debugName: 'request.user_id',
   call(parameters: ParameterValueSet) {
-    return parameters.user_id;
+    return parameters.userId;
   },
   getReturnType() {
     return ExpressionType.TEXT;

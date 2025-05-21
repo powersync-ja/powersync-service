@@ -1,6 +1,7 @@
 import { JSONBig } from '@powersync/service-jsonbig';
 import { Expr, ExprRef, Name, NodeLocation, QName, QNameAliased, SelectedColumn } from 'pgsql-ast-parser';
 import { nil } from 'pgsql-ast-parser/src/utils.js';
+import { BucketPriority, isValidPriority } from './BucketDescription.js';
 import { ExpressionType } from './ExpressionType.js';
 import { SqlRuleError } from './errors.js';
 import { REQUEST_FUNCTIONS } from './request_functions.js';
@@ -40,13 +41,11 @@ import {
   QueryParameters,
   QuerySchema,
   RowValueClause,
-  SqliteJsonRow,
   SqliteValue,
   StaticValueClause,
   TrueIfParametersMatch
 } from './types.js';
 import { isJsonValue } from './utils.js';
-import { BucketPriority, isValidPriority } from './BucketDescription.js';
 
 export const MATCH_CONST_FALSE: TrueIfParametersMatch = [];
 export const MATCH_CONST_TRUE: TrueIfParametersMatch = [{}];

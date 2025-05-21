@@ -26,7 +26,7 @@ export interface EvaluatedParameters {
    *
    * JSON-serializable.
    */
-  bucket_parameters: Record<string, SqliteJsonValue>[];
+  bucketParameters: Record<string, SqliteJsonValue>[];
 }
 
 export type EvaluatedParametersResult = EvaluatedParameters | EvaluationError;
@@ -82,55 +82,55 @@ export interface ParameterValueSet {
   /**
    * JSON string of raw request parameters.
    */
-  raw_user_parameters: string;
+  rawUserParameters: string;
 
   /**
    * JSON string of raw request parameters.
    */
-  raw_token_payload: string;
+  rawTokenPayload: string;
 
-  user_id: string;
+  userId: string;
 }
 
 export class RequestParameters implements ParameterValueSet {
-  token_parameters: SqliteJsonRow;
-  user_parameters: SqliteJsonRow;
+  tokenParameters: SqliteJsonRow;
+  userParameters: SqliteJsonRow;
 
   /**
    * JSON string of raw request parameters.
    */
-  raw_user_parameters: string;
+  rawUserParameters: string;
 
   /**
    * JSON string of raw request parameters.
    */
-  raw_token_payload: string;
+  rawTokenPayload: string;
 
-  user_id: string;
+  userId: string;
 
   constructor(tokenPayload: RequestJwtPayload, clientParameters: Record<string, any>) {
     // This type is verified when we verify the token
     const legacyParameters = tokenPayload.parameters as Record<string, any> | undefined;
 
-    const token_parameters = {
+    const tokenParameters = {
       ...legacyParameters,
       // sub takes presedence over any embedded parameters
       user_id: tokenPayload.sub
     };
 
-    this.token_parameters = toSyncRulesParameters(token_parameters);
-    this.user_id = tokenPayload.sub;
-    this.raw_token_payload = JSONBig.stringify(tokenPayload);
+    this.tokenParameters = toSyncRulesParameters(tokenParameters);
+    this.userId = tokenPayload.sub;
+    this.rawTokenPayload = JSONBig.stringify(tokenPayload);
 
-    this.raw_user_parameters = JSONBig.stringify(clientParameters);
-    this.user_parameters = toSyncRulesParameters(clientParameters);
+    this.rawUserParameters = JSONBig.stringify(clientParameters);
+    this.userParameters = toSyncRulesParameters(clientParameters);
   }
 
   lookup(table: string, column: string): SqliteJsonValue {
     if (table == 'token_parameters') {
-      return this.token_parameters[column];
+      return this.tokenParameters[column];
     } else if (table == 'user_parameters') {
-      return this.user_parameters[column];
+      return this.userParameters[column];
     }
     throw new Error(`Unknown table: ${table}`);
   }

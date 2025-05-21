@@ -314,7 +314,7 @@ export class SqlParameterQuery {
         const data = this.transformRows(row);
 
         const role: EvaluatedParameters = {
-          bucket_parameters: data.map((row) => filterJsonRow(row)),
+          bucketParameters: data.map((row) => filterJsonRow(row)),
           lookup: new ParameterLookup(lookup)
         };
         result.push(role);

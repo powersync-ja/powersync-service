@@ -152,7 +152,7 @@ export class PostgresPersistedBatch {
       const base64 = binLookup.toString('base64');
       remaining_lookups.delete(base64);
       const hexLookup = binLookup.toString('hex');
-      const serializedBucketParameters = JSONBig.stringify(result.bucket_parameters);
+      const serializedBucketParameters = JSONBig.stringify(result.bucketParameters);
       this.parameterDataInserts.push({
         group_id: this.group_id,
         source_table: table.id,

@@ -202,7 +202,7 @@ async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
 
     return {
       valid: true,
-      bucket_definitions: rules.bucket_descriptors.map((d) => {
+      bucket_definitions: rules.bucketDescriptors.map((d) => {
         let all_parameter_queries = [...d.parameterQueries.values()].flat();
         let all_data_queries = [...d.dataQueries.values()].flat();
         return {
