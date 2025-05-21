@@ -7,6 +7,7 @@ import { SqlParameterQuery } from './SqlParameterQuery.js';
 import { SyncRulesOptions } from './SqlSyncRules.js';
 import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
 import { TablePattern } from './TablePattern.js';
+import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
 import { SqlRuleError } from './errors.js';
 import {
   EvaluatedParametersResult,
@@ -42,7 +43,7 @@ export class SqlBucketDescriptor {
    */
   data_queries: SqlDataQuery[] = [];
   parameter_queries: SqlParameterQuery[] = [];
-  global_parameter_queries: StaticSqlParameterQuery[] = [];
+  global_parameter_queries: (StaticSqlParameterQuery | TableValuedFunctionSqlParameterQuery)[] = [];
 
   parameterIdSequence = new IdSequence();
 

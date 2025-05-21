@@ -82,7 +82,7 @@ export class SqlParameterQuery {
     sql: string,
     options: QueryParseOptions,
     queryId: string
-  ): SqlParameterQuery | StaticSqlParameterQuery {
+  ): SqlParameterQuery | StaticSqlParameterQuery | TableValuedFunctionSqlParameterQuery {
     const parsed = parse(sql, { locationTracking: true });
     const schema = options?.schema;
 
@@ -97,7 +97,7 @@ export class SqlParameterQuery {
 
     if (q.from == null) {
       // E.g. SELECT token_parameters.user_id as user_id WHERE token_parameters.is_admin
-      return StaticSqlParameterQuery.fromSql(descriptor_name, sql, q, options);
+      return StaticSqlParameterQuery.fromSql(descriptor_name, sql, q, options, queryId);
     }
 
     let errors: SqlRuleError[] = [];
