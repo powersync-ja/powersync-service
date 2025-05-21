@@ -61,7 +61,7 @@ export class SqlBucketDescriptor {
   }
 
   addParameterQuery(sql: string, options: QueryParseOptions): QueryParseResult {
-    const parameterQuery = SqlParameterQuery.fromSql(this.name, sql, options);
+    const parameterQuery = SqlParameterQuery.fromSql(this.name, sql, options, this.parameterIdSequence.nextId());
     if (this.bucket_parameters == null) {
       this.bucket_parameters = parameterQuery.bucket_parameters;
     } else {
@@ -71,7 +71,6 @@ export class SqlBucketDescriptor {
         throw new Error('Bucket parameters must match for each parameter query within a bucket');
       }
     }
-    parameterQuery.id = this.parameterIdSequence.nextId();
     if (parameterQuery instanceof SqlParameterQuery) {
       this.parameter_queries.push(parameterQuery);
     } else {

@@ -13,7 +13,7 @@
  */
 export type BucketPriority = 0 | 1 | 2 | 3;
 
-export const defaultBucketPriority: BucketPriority = 3;
+export const DEFAULT_BUCKET_PRIORITY: BucketPriority = 3;
 
 export const isValidPriority = (i: number): i is BucketPriority => {
   return Number.isInteger(i) && i >= 0 && i <= 3;

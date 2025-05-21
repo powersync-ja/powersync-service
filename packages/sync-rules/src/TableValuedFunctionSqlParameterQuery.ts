@@ -12,7 +12,7 @@ import {
   SqliteRow
 } from './types.js';
 import { getBucketId, isJsonValue } from './utils.js';
-import { BucketDescription, BucketPriority, defaultBucketPriority } from './BucketDescription.js';
+import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY } from './BucketDescription.js';
 
 /**
  * Represents a parameter query using a table-valued function.
@@ -166,7 +166,7 @@ export class TableValuedFunctionSqlParameterQuery {
 
     return {
       bucket: getBucketId(this.descriptor_name!, this.bucket_parameters!, result),
-      priority: this.priority ?? defaultBucketPriority
+      priority: this.priority ?? DEFAULT_BUCKET_PRIORITY
     };
   }
 

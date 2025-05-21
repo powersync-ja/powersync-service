@@ -1,5 +1,5 @@
 import { parse, SelectedColumn } from 'pgsql-ast-parser';
-import { BucketDescription, BucketPriority, defaultBucketPriority } from './BucketDescription.js';
+import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY } from './BucketDescription.js';
 import { BucketParameterQuerier, ParameterLookup, ParameterLookupSource } from './BucketParameterQuerier.js';
 import { SqlRuleError } from './errors.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
@@ -25,6 +25,51 @@ import {
 } from './types.js';
 import { filterJsonRow, getBucketId, isJsonValue, isSelectStatement, normalizeParameterValue } from './utils.js';
 
+export interface SqlParameterQueryOptions {
+  sourceTable: TablePattern;
+  table: string;
+  sql: string;
+  columns: SelectedColumn[];
+  lookup_columns: SelectedColumn[];
+  static_columns: SelectedColumn[];
+
+  /**
+   * Example: SELECT *user.id* FROM users WHERE ...
+   */
+  lookup_extractors: Record<string, RowValueClause>;
+
+  /**
+   * Example: SELECT *token_parameters.user_id*
+   */
+  parameter_extractors: Record<string, ParameterValueClause>;
+  priority: BucketPriority;
+
+  filter: ParameterMatchClause;
+
+  /**
+   * Bucket definition name.
+   */
+  descriptor_name: string;
+
+  /** _Input_ token / user parameters */
+  input_parameters: InputParameter[];
+
+  /** If specified, an input parameter that expands to an array. */
+  expanded_input_parameter: InputParameter;
+
+  /**
+   * _Output_ bucket parameters.
+   *
+   * Each one of these will be present in either lookup_extractors or static_extractors.
+   */
+  bucket_parameters: string[];
+
+  id: string;
+  tools: SqlTools;
+
+  errors?: SqlRuleError[];
+}
+
 /**
  * Represents a parameter query, such as:
  *
@@ -35,10 +80,10 @@ export class SqlParameterQuery {
   static fromSql(
     descriptor_name: string,
     sql: string,
-    options: QueryParseOptions
+    options: QueryParseOptions,
+    queryId: string
   ): SqlParameterQuery | StaticSqlParameterQuery {
     const parsed = parse(sql, { locationTracking: true });
-    const rows = new SqlParameterQuery();
     const schema = options?.schema;
 
     if (parsed.length > 1) {
@@ -55,7 +100,9 @@ export class SqlParameterQuery {
       return StaticSqlParameterQuery.fromSql(descriptor_name, sql, q, options);
     }
 
-    rows.errors.push(...checkUnsupportedFeatures(sql, q));
+    let errors: SqlRuleError[] = [];
+
+    errors.push(...checkUnsupportedFeatures(sql, q));
 
     if (q.from.length != 1) {
       throw new SqlRuleError('Must SELECT from a single table', sql, q.from?.[0]._location);
@@ -72,9 +119,7 @@ export class SqlParameterQuery {
     }
     const alias: string = q.from?.[0].name.alias ?? tableRef.name;
     if (tableRef.name != alias) {
-      rows.errors.push(
-        new SqlRuleError('Table aliases not supported in parameter queries', sql, q.from?.[0]._location)
-      );
+      errors.push(new SqlRuleError('Table aliases not supported in parameter queries', sql, q.from?.[0]._location));
     }
     const sourceTable = new TablePattern(tableRef.schema ?? options.defaultSchema, tableRef.name);
     let querySchema: QuerySchema | undefined = undefined;
@@ -88,7 +133,7 @@ export class SqlParameterQuery {
         );
         e.type = 'warning';
 
-        rows.errors.push(e);
+        errors.push(e);
       } else {
         querySchema = new TableQuerySchema(tables, alias);
       }
@@ -109,22 +154,12 @@ export class SqlParameterQuery {
     const bucket_parameters = (q.columns ?? [])
       .map((column) => tools.getOutputName(column))
       .filter((c) => !tools.isBucketPriorityParameter(c));
-    rows.sourceTable = sourceTable;
-    rows.table = alias;
-    rows.sql = sql;
-    rows.filter = filter;
-    rows.descriptor_name = descriptor_name;
-    rows.bucket_parameters = bucket_parameters;
-    rows.input_parameters = filter.inputParameters!;
-    rows.priority = options.priority;
-    const expandedParams = rows.input_parameters!.filter((param) => param.expands);
-    if (expandedParams.length > 1) {
-      rows.errors.push(new SqlRuleError('Cannot have multiple array input parameters', sql));
-    }
-    rows.expanded_input_parameter = expandedParams[0];
-    rows.columns = q.columns ?? [];
-    rows.static_columns = [];
-    rows.lookup_columns = [];
+
+    let priority: BucketPriority | undefined = options.priority;
+    let lookup_columns: SelectedColumn[] = [];
+    let lookup_extractors: Record<string, RowValueClause> = {};
+    let static_columns: SelectedColumn[] = [];
+    let parameter_extractors: Record<string, ParameterValueClause> = {};
 
     for (let column of q.columns ?? []) {
       const name = tools.getSpecificOutputName(column);
@@ -132,88 +167,130 @@ export class SqlParameterQuery {
         tools.checkSpecificNameCase(column.alias);
       }
       if (tools.isBucketPriorityParameter(name)) {
-        if (rows.priority !== undefined) {
-          rows.errors.push(new SqlRuleError('Cannot set priority multiple times.', sql));
+        if (priority !== undefined) {
+          errors.push(new SqlRuleError('Cannot set priority multiple times.', sql));
           continue;
         }
 
-        rows.priority = tools.extractBucketPriority(column.expr);
+        priority = tools.extractBucketPriority(column.expr);
       } else if (tools.isTableRef(column.expr)) {
-        rows.lookup_columns.push(column);
+        lookup_columns.push(column);
         const extractor = tools.compileRowValueExtractor(column.expr);
         if (isClauseError(extractor)) {
           // Error logged already
           continue;
         }
-        rows.lookup_extractors[name] = extractor;
+        lookup_extractors[name] = extractor;
       } else {
-        rows.static_columns.push(column);
+        static_columns.push(column);
         const extractor = tools.compileParameterValueExtractor(column.expr);
         if (isClauseError(extractor)) {
           // Error logged already
           continue;
         }
-        rows.parameter_extractors[name] = extractor;
+        parameter_extractors[name] = extractor;
       }
     }
-    rows.tools = tools;
-    rows.errors.push(...tools.errors);
+    errors.push(...tools.errors);
 
-    if (rows.usesDangerousRequestParameters && !options.accept_potentially_dangerous_queries) {
+    const expandedParams = filter.inputParameters.filter((param) => param.expands);
+    if (expandedParams.length > 1) {
+      errors.push(new SqlRuleError('Cannot have multiple array input parameters', sql));
+    }
+
+    const parameterQuery = new SqlParameterQuery({
+      sourceTable,
+      table: alias,
+      sql,
+      columns: q.columns ?? [],
+      lookup_columns,
+      static_columns,
+      lookup_extractors,
+      parameter_extractors,
+      priority: priority ?? DEFAULT_BUCKET_PRIORITY,
+      filter,
+      descriptor_name,
+      input_parameters: filter.inputParameters,
+      expanded_input_parameter: expandedParams[0],
+      bucket_parameters,
+      id: queryId,
+      tools,
+      errors
+    });
+
+    if (parameterQuery.usesDangerousRequestParameters && !options.accept_potentially_dangerous_queries) {
       let err = new SqlRuleError(
         "Potentially dangerous query based on parameters set by the client. The client can send any value for these parameters so it's not a good place to do authorization.",
         sql
       );
       err.type = 'warning';
-      rows.errors.push(err);
+      parameterQuery.errors.push(err);
     }
-    return rows;
+    return parameterQuery;
   }
 
-  sourceTable?: TablePattern;
-  table?: string;
-  sql?: string;
-  columns?: SelectedColumn[];
-  lookup_columns?: SelectedColumn[];
-  static_columns?: SelectedColumn[];
+  readonly sourceTable: TablePattern;
+  readonly table: string;
+  readonly sql: string;
+  readonly columns: SelectedColumn[];
+  readonly lookup_columns: SelectedColumn[];
+  readonly static_columns: SelectedColumn[];
 
   /**
    * Example: SELECT *user.id* FROM users WHERE ...
    */
-  lookup_extractors: Record<string, RowValueClause> = {};
+  readonly lookup_extractors: Record<string, RowValueClause>;
 
   /**
    * Example: SELECT *token_parameters.user_id*
    */
-  parameter_extractors: Record<string, ParameterValueClause> = {};
-  priority?: BucketPriority;
+  readonly parameter_extractors: Record<string, ParameterValueClause>;
+  readonly priority: BucketPriority;
 
-  filter?: ParameterMatchClause;
+  readonly filter: ParameterMatchClause;
 
   /**
    * Bucket definition name.
    */
-  descriptor_name?: string;
+  readonly descriptor_name: string;
 
   /** _Input_ token / user parameters */
-  input_parameters?: InputParameter[];
+  readonly input_parameters: InputParameter[];
 
   /** If specified, an input parameter that expands to an array. */
-  expanded_input_parameter?: InputParameter;
+  readonly expanded_input_parameter: InputParameter;
 
   /**
    * _Output_ bucket parameters.
    *
    * Each one of these will be present in either lookup_extractors or static_extractors.
    */
-  bucket_parameters?: string[];
+  readonly bucket_parameters: string[];
 
-  id?: string;
-  tools?: SqlTools;
+  readonly id: string;
+  readonly tools: SqlTools;
 
-  errors: SqlRuleError[] = [];
+  readonly errors: SqlRuleError[];
 
-  constructor() {}
+  constructor(options: SqlParameterQueryOptions) {
+    this.sourceTable = options.sourceTable;
+    this.table = options.table;
+    this.sql = options.sql;
+    this.columns = options.columns;
+    this.lookup_columns = options.lookup_columns;
+    this.static_columns = options.static_columns;
+    this.lookup_extractors = options.lookup_extractors;
+    this.parameter_extractors = options.parameter_extractors;
+    this.priority = options.priority;
+    this.filter = options.filter;
+    this.descriptor_name = options.descriptor_name;
+    this.input_parameters = options.input_parameters;
+    this.expanded_input_parameter = options.expanded_input_parameter;
+    this.bucket_parameters = options.bucket_parameters;
+    this.id = options.id;
+    this.tools = options.tools;
+    this.errors = options.errors ?? [];
+  }
 
   applies(table: SourceTableInterface) {
     return this.sourceTable!.matches(table);
@@ -286,7 +363,7 @@ export class SqlParameterQuery {
 
         return {
           bucket: getBucketId(this.descriptor_name!, this.bucket_parameters!, result),
-          priority: this.priority ?? defaultBucketPriority
+          priority: this.priority
         };
       })
       .filter((lookup) => lookup != null);
