@@ -3,12 +3,17 @@ import {
   BinLogGTIDLogEvent,
   BinLogMutationEvent,
   BinLogRotationEvent,
+  BinLogTableMapEvent,
   BinLogUpdateEvent,
   BinLogXidEvent
 } from '@powersync/mysql-zongji';
 
 export function eventIsGTIDLog(event: BinLogEvent): event is BinLogGTIDLogEvent {
   return event.getEventName() == 'gtidlog';
+}
+
+export function eventIsTableMap(event: BinLogEvent): event is BinLogTableMapEvent {
+  return event.getEventName() == 'tablemap';
 }
 
 export function eventIsXid(event: BinLogEvent): event is BinLogXidEvent {
