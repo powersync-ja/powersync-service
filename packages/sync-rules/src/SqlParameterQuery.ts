@@ -108,7 +108,7 @@ export class SqlParameterQuery {
       throw new SqlRuleError('Must SELECT from a single table', sql, q.from?.[0]._location);
     } else if (q.from[0].type == 'call') {
       const from = q.from[0];
-      return TableValuedFunctionSqlParameterQuery.fromSql(descriptor_name, sql, from, q, options);
+      return TableValuedFunctionSqlParameterQuery.fromSql(descriptor_name, sql, from, q, options, queryId);
     } else if (q.from[0].type == 'statement') {
       throw new SqlRuleError('Subqueries are not supported yet', sql, q.from?.[0]._location);
     }

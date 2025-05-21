@@ -14,6 +14,25 @@ import {
 import { getBucketId, isJsonValue } from './utils.js';
 import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY } from './BucketDescription.js';
 
+export interface TableValuedFunctionSqlParameterQueryOptions {
+  sql: string;
+  columns: SelectedColumn[];
+  parameter_extractors: Record<string, ParameterValueClause>;
+  priority: BucketPriority;
+  descriptor_name: string;
+  /** _Output_ bucket parameters */
+  bucket_parameters: string[];
+  id: string;
+  tools: SqlTools;
+
+  filter: ParameterValueClause | undefined;
+  callClause: ParameterValueClause | undefined;
+  function: TableValuedFunction;
+  callTableName: string;
+
+  errors: SqlRuleError[];
+}
+
 /**
  * Represents a parameter query using a table-valued function.
  *
@@ -29,15 +48,15 @@ export class TableValuedFunctionSqlParameterQuery {
     sql: string,
     call: FromCall,
     q: SelectFromStatement,
-    options?: QueryParseOptions
+    options: QueryParseOptions,
+    queryId: string
   ): TableValuedFunctionSqlParameterQuery {
-    const query = new TableValuedFunctionSqlParameterQuery();
+    let errors: SqlRuleError[] = [];
 
-    query.errors.push(...checkUnsupportedFeatures(sql, q));
+    errors.push(...checkUnsupportedFeatures(sql, q));
 
     if (!(call.function.name in TABLE_VALUED_FUNCTIONS)) {
-      query.errors.push(new SqlRuleError(`Table-valued function ${call.function.name} is not defined.`, sql, call));
-      return query;
+      throw new SqlRuleError(`Table-valued function ${call.function.name} is not defined.`, sql, call);
     }
 
     const callTable = call.alias?.name ?? call.function.name;
@@ -56,19 +75,9 @@ export class TableValuedFunctionSqlParameterQuery {
     const columns = q.columns ?? [];
     const bucket_parameters = columns.map((column) => tools.getOutputName(column));
 
-    query.sql = sql;
-    query.descriptor_name = descriptor_name;
-    query.bucket_parameters = bucket_parameters;
-    query.columns = columns;
-    query.tools = tools;
-    query.function = TABLE_VALUED_FUNCTIONS[call.function.name]!;
-    query.callTableName = callTable;
-    if (!isClauseError(callClause)) {
-      query.callClause = callClause;
-    }
-    if (!isClauseError(filter)) {
-      query.filter = filter;
-    }
+    const functionImpl = TABLE_VALUED_FUNCTIONS[call.function.name]!;
+    let priority = options.priority;
+    let parameter_extractors: Record<string, ParameterValueClause> = {};
 
     for (let column of columns) {
       if (column.alias != null) {
@@ -76,7 +85,7 @@ export class TableValuedFunctionSqlParameterQuery {
       }
       const name = tools.getSpecificOutputName(column);
       if (tools.isBucketPriorityParameter(name)) {
-        query.priority = tools.extractBucketPriority(column.expr);
+        priority = tools.extractBucketPriority(column.expr);
         continue;
       }
 
@@ -85,10 +94,26 @@ export class TableValuedFunctionSqlParameterQuery {
         // Error logged already
         continue;
       }
-      query.parameter_extractors[name] = extractor;
+      parameter_extractors[name] = extractor;
     }
 
-    query.errors.push(...tools.errors);
+    errors.push(...tools.errors);
+
+    const query = new TableValuedFunctionSqlParameterQuery({
+      sql,
+      descriptor_name,
+      bucket_parameters,
+      columns,
+      parameter_extractors,
+      tools,
+      filter: isClauseError(filter) ? undefined : filter,
+      callClause: isClauseError(callClause) ? undefined : callClause,
+      function: functionImpl,
+      callTableName: callTable,
+      priority: priority ?? DEFAULT_BUCKET_PRIORITY,
+      id: queryId,
+      errors
+    });
 
     if (query.usesDangerousRequestParameters && !options?.accept_potentially_dangerous_queries) {
       let err = new SqlRuleError(
@@ -101,22 +126,40 @@ export class TableValuedFunctionSqlParameterQuery {
     return query;
   }
 
-  sql?: string;
-  columns?: SelectedColumn[];
-  parameter_extractors: Record<string, ParameterValueClause> = {};
-  priority?: BucketPriority;
-  descriptor_name?: string;
+  readonly sql: string;
+  readonly columns: SelectedColumn[];
+  readonly parameter_extractors: Record<string, ParameterValueClause>;
+  readonly priority: BucketPriority;
+  readonly descriptor_name: string;
   /** _Output_ bucket parameters */
-  bucket_parameters?: string[];
-  id?: string;
-  tools?: SqlTools;
+  readonly bucket_parameters: string[];
+  readonly id: string;
+  readonly tools: SqlTools;
 
-  filter?: ParameterValueClause;
-  callClause?: ParameterValueClause;
-  function?: TableValuedFunction;
-  callTableName?: string;
+  readonly filter: ParameterValueClause | undefined;
+  readonly callClause: ParameterValueClause | undefined;
+  readonly function: TableValuedFunction;
+  readonly callTableName: string;
 
-  errors: SqlRuleError[] = [];
+  readonly errors: SqlRuleError[];
+
+  constructor(options: TableValuedFunctionSqlParameterQueryOptions) {
+    this.sql = options.sql;
+    this.columns = options.columns;
+    this.parameter_extractors = options.parameter_extractors;
+    this.priority = options.priority;
+    this.descriptor_name = options.descriptor_name;
+    this.bucket_parameters = options.bucket_parameters;
+    this.id = options.id;
+    this.tools = options.tools;
+
+    this.filter = options.filter;
+    this.callClause = options.callClause;
+    this.function = options.function;
+    this.callTableName = options.callTableName;
+
+    this.errors = options.errors;
+  }
 
   getStaticBucketDescriptions(parameters: RequestParameters): BucketDescription[] {
     if (this.filter == null || this.callClause == null) {
@@ -155,7 +198,7 @@ export class TableValuedFunctionSqlParameterQuery {
     }
 
     let result: Record<string, SqliteJsonValue> = {};
-    for (let name of this.bucket_parameters!) {
+    for (let name of this.bucket_parameters) {
       const value = this.parameter_extractors[name].lookupParameterValue(mergedParams);
       if (isJsonValue(value)) {
         result[`bucket.${name}`] = value;
@@ -165,8 +208,8 @@ export class TableValuedFunctionSqlParameterQuery {
     }
 
     return {
-      bucket: getBucketId(this.descriptor_name!, this.bucket_parameters!, result),
-      priority: this.priority ?? DEFAULT_BUCKET_PRIORITY
+      bucket: getBucketId(this.descriptor_name, this.bucket_parameters, result),
+      priority: this.priority
     };
   }
 
