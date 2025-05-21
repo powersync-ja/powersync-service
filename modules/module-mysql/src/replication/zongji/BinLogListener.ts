@@ -7,32 +7,32 @@ import { MySQLConnectionManager } from '../MySQLConnectionManager.js';
 
 export type Row = Record<string, any>;
 
-export interface BinlogEventHandler {
+export interface BinLogEventHandler {
   onWrite: (rows: Row[], tableMap: TableMapEntry) => Promise<void>;
   onUpdate: (rowsAfter: Row[], rowsBefore: Row[], tableMap: TableMapEntry) => Promise<void>;
   onDelete: (rows: Row[], tableMap: TableMapEntry) => Promise<void>;
   onCommit: (lsn: string) => Promise<void>;
 }
 
-export interface BinlogListenerOptions {
+export interface BinLogListenerOptions {
   connectionManager: MySQLConnectionManager;
-  eventHandler: BinlogEventHandler;
+  eventHandler: BinLogEventHandler;
   includedTables: string[];
   serverId: number;
   startPosition: common.BinLogPosition;
   abortSignal: AbortSignal;
 }
 
-export class BinlogListener {
+export class BinLogListener {
   private connectionManager: MySQLConnectionManager;
-  private eventHandler: BinlogEventHandler;
+  private eventHandler: BinLogEventHandler;
   private binLogPosition: common.BinLogPosition;
   private currentGTID: common.ReplicatedGTID | null;
 
   zongji: ZongJi;
   processingQueue: async.QueueObject<BinLogEvent>;
 
-  constructor(public options: BinlogListenerOptions) {
+  constructor(public options: BinLogListenerOptions) {
     this.connectionManager = options.connectionManager;
     this.eventHandler = options.eventHandler;
     this.binLogPosition = options.startPosition;

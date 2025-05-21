@@ -1,5 +1,5 @@
 import { describe, test, beforeEach, vi, expect, afterEach } from 'vitest';
-import { BinlogEventHandler, BinlogListener, Row } from '@module/replication/zongji/BinlogListener.js';
+import { BinLogEventHandler, BinLogListener, Row } from '@module/replication/zongji/BinLogListener.js';
 import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManager.js';
 import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
 import { v4 as uuid } from 'uuid';
@@ -16,8 +16,8 @@ describe('BinlogListener tests', () => {
 
   let connectionManager: MySQLConnectionManager;
   let abortController: AbortController;
-  let eventHandler: TestBinlogEventHandler;
-  let binlogListener: BinlogListener;
+  let eventHandler: TestBinLogEventHandler;
+  let binLogListener: BinLogListener;
 
   beforeEach(async () => {
     connectionManager = new MySQLConnectionManager(BINLOG_LISTENER_CONNECTION_OPTIONS, {});
@@ -28,8 +28,8 @@ describe('BinlogListener tests', () => {
     const fromGTID = await getFromGTID(connectionManager);
 
     abortController = new AbortController();
-    eventHandler = new TestBinlogEventHandler();
-    binlogListener = new BinlogListener({
+    eventHandler = new TestBinLogEventHandler();
+    binLogListener = new BinLogListener({
       connectionManager: connectionManager,
       eventHandler: eventHandler,
       startPosition: fromGTID.position,
@@ -44,22 +44,22 @@ describe('BinlogListener tests', () => {
   });
 
   test('Binlog listener stops on abort signal', async () => {
-    const stopSpy = vi.spyOn(binlogListener.zongji, 'stop');
+    const stopSpy = vi.spyOn(binLogListener.zongji, 'stop');
 
     setTimeout(() => abortController.abort(), 10);
-    await expect(binlogListener.start()).resolves.toBeUndefined();
+    await expect(binLogListener.start()).resolves.toBeUndefined();
     expect(stopSpy).toHaveBeenCalled();
   });
 
   test('Pause Zongji binlog listener when processing queue reaches max size', async () => {
-    const pauseSpy = vi.spyOn(binlogListener.zongji, 'pause');
-    const resumeSpy = vi.spyOn(binlogListener.zongji, 'resume');
-    const queueSpy = vi.spyOn(binlogListener.processingQueue, 'length');
+    const pauseSpy = vi.spyOn(binLogListener.zongji, 'pause');
+    const resumeSpy = vi.spyOn(binLogListener.zongji, 'resume');
+    const queueSpy = vi.spyOn(binLogListener.processingQueue, 'length');
 
     const ROW_COUNT = 100;
     await insertRows(connectionManager, ROW_COUNT);
 
-    const startPromise = binlogListener.start();
+    const startPromise = binLogListener.start();
 
     await vi.waitFor(() => expect(eventHandler.rowsWritten).equals(ROW_COUNT), { timeout: 5000 });
     abortController.abort();
@@ -72,7 +72,7 @@ describe('BinlogListener tests', () => {
   });
 
   test('Binlog events are correctly forwarded to provided binlog events handler', async () => {
-    const startPromise = binlogListener.start();
+    const startPromise = binLogListener.start();
 
     const ROW_COUNT = 10;
     await insertRows(connectionManager, ROW_COUNT);
@@ -112,7 +112,7 @@ async function deleteRows(connectionManager: MySQLConnectionManager) {
   await connectionManager.query(`DELETE FROM test_DATA`);
 }
 
-class TestBinlogEventHandler implements BinlogEventHandler {
+class TestBinLogEventHandler implements BinLogEventHandler {
   rowsWritten = 0;
   rowsUpdated = 0;
   rowsDeleted = 0;

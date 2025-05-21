@@ -16,7 +16,7 @@ import * as common from '../common/common-index.js';
 import { createRandomServerId, escapeMysqlTableName } from '../utils/mysql-utils.js';
 import { MySQLConnectionManager } from './MySQLConnectionManager.js';
 import { ReplicationMetric } from '@powersync/service-types';
-import { BinlogEventHandler, BinlogListener, Row } from './zongji/BinlogListener.js';
+import { BinLogEventHandler, BinLogListener, Row } from './zongji/BinLogListener.js';
 
 export interface BinLogStreamOptions {
   connections: MySQLConnectionManager;
@@ -422,7 +422,7 @@ AND table_type = 'BASE TABLE';`,
           const binlogEventHandler = this.createBinlogEventHandler(batch);
           // Only listen for changes to tables in the sync rules
           const includedTables = [...this.tableCache.values()].map((table) => table.table);
-          const binlogListener = new BinlogListener({
+          const binlogListener = new BinLogListener({
             abortSignal: this.abortSignal,
             includedTables: includedTables,
             startPosition: binLogPositionState,
@@ -437,7 +437,7 @@ AND table_type = 'BASE TABLE';`,
     }
   }
 
-  private createBinlogEventHandler(batch: storage.BucketStorageBatch): BinlogEventHandler {
+  private createBinlogEventHandler(batch: storage.BucketStorageBatch): BinLogEventHandler {
     return {
       onWrite: async (rows: Row[], tableMap: TableMapEntry) => {
         await this.writeChanges(batch, {
