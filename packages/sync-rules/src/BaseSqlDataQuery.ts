@@ -111,7 +111,7 @@ export class BaseSqlDataQuery {
         this.getColumnOutputsFor(schemaTable, output);
       }
       result.push({
-        name: this.table!,
+        name: this.table,
         columns: Object.values(output)
       });
     }

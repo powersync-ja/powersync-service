@@ -293,20 +293,20 @@ export class SqlParameterQuery {
   }
 
   applies(table: SourceTableInterface) {
-    return this.sourceTable!.matches(table);
+    return this.sourceTable.matches(table);
   }
 
   evaluateParameterRow(row: SqliteRow): EvaluatedParametersResult[] {
     const tables = {
-      [this.table!]: row
+      [this.table]: row
     };
     try {
-      const filterParameters = this.filter!.filterRow(tables);
+      const filterParameters = this.filter.filterRow(tables);
       let result: EvaluatedParametersResult[] = [];
       for (let filterParamSet of filterParameters) {
-        let lookup: SqliteJsonValue[] = [this.descriptor_name!, this.id!];
+        let lookup: SqliteJsonValue[] = [this.descriptor_name, this.id];
         lookup.push(
-          ...this.input_parameters!.map((param) => {
+          ...this.input_parameters.map((param) => {
             return normalizeParameterValue(param.filteredRowToLookupValue(filterParamSet));
           })
         );
@@ -326,7 +326,7 @@ export class SqlParameterQuery {
   }
 
   transformRows(row: SqliteRow): SqliteRow[] {
-    const tables = { [this.table!]: row };
+    const tables = { [this.table]: row };
     let result: SqliteRow = {};
     for (let key in this.lookup_extractors) {
       const extractor = this.lookup_extractors[key];
@@ -346,7 +346,7 @@ export class SqlParameterQuery {
     return bucketParameters
       .map((lookup) => {
         let result: Record<string, SqliteJsonValue> = {};
-        for (let name of this.bucket_parameters!) {
+        for (let name of this.bucket_parameters) {
           if (name in this.lookup_extractors) {
             result[`bucket.${name}`] = lookup[name];
           } else {
@@ -362,7 +362,7 @@ export class SqlParameterQuery {
         }
 
         return {
-          bucket: getBucketId(this.descriptor_name!, this.bucket_parameters!, result),
+          bucket: getBucketId(this.descriptor_name, this.bucket_parameters, result),
           priority: this.priority
         };
       })
@@ -376,11 +376,11 @@ export class SqlParameterQuery {
    */
   getLookups(parameters: RequestParameters): ParameterLookup[] {
     if (!this.expanded_input_parameter) {
-      let lookup: SqliteJsonValue[] = [this.descriptor_name!, this.id!];
+      let lookup: SqliteJsonValue[] = [this.descriptor_name, this.id];
 
       let valid = true;
       lookup.push(
-        ...this.input_parameters!.map((param): SqliteJsonValue => {
+        ...this.input_parameters.map((param): SqliteJsonValue => {
           // Scalar value
           const value = param.parametersToLookupValue(parameters);
 
@@ -414,11 +414,11 @@ export class SqlParameterQuery {
 
       return values
         .map((expandedValue) => {
-          let lookup: SqliteJsonValue[] = [this.descriptor_name!, this.id!];
+          let lookup: SqliteJsonValue[] = [this.descriptor_name, this.id];
           let valid = true;
           const normalizedExpandedValue = normalizeParameterValue(expandedValue);
           lookup.push(
-            ...this.input_parameters!.map((param): SqliteJsonValue => {
+            ...this.input_parameters.map((param): SqliteJsonValue => {
               if (param == this.expanded_input_parameter) {
                 // Expand array value
                 return normalizedExpandedValue;
@@ -480,14 +480,13 @@ export class SqlParameterQuery {
 
   get hasAuthenticatedMatchClause(): boolean {
     // select ... where user_id = request.user_id()
-    this.filter?.inputParameters.find;
-    const authenticatedInputParameter = this.filter!.usesAuthenticatedRequestParameters;
+    const authenticatedInputParameter = this.filter.usesAuthenticatedRequestParameters;
     return authenticatedInputParameter;
   }
 
   get usesUnauthenticatedRequestParameters(): boolean {
     // select ... where request.parameters() ->> 'include_comments'
-    const unauthenticatedInputParameter = this.filter!.usesUnauthenticatedRequestParameters;
+    const unauthenticatedInputParameter = this.filter.usesUnauthenticatedRequestParameters;
 
     // select request.parameters() ->> 'project_id'
     const unauthenticatedExtractor =

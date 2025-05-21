@@ -187,7 +187,7 @@ export class SqlDataQuery extends BaseSqlDataQuery {
 
   evaluateRow(table: SourceTableInterface, row: SqliteRow): EvaluationResult[] {
     try {
-      const tables = { [this.table!]: this.addSpecialParameters(table, row) };
+      const tables = { [this.table]: this.addSpecialParameters(table, row) };
       const bucketParameters = this.filter.filterRow(tables);
       const bucketIds = bucketParameters.map((params) =>
         getBucketId(this.descriptor_name, this.bucket_parameters, params)

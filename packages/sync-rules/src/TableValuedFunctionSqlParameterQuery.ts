@@ -168,7 +168,7 @@ export class TableValuedFunctionSqlParameterQuery {
     }
 
     const valueString = this.callClause.lookupParameterValue(parameters);
-    const rows = this.function!.call([valueString]);
+    const rows = this.function.call([valueString]);
     let total: BucketDescription[] = [];
     for (let row of rows) {
       const description = this.getIndividualBucketDescription(row, parameters);
@@ -216,7 +216,7 @@ export class TableValuedFunctionSqlParameterQuery {
   get hasAuthenticatedBucketParameters(): boolean {
     // select where request.jwt() ->> 'role' == 'authorized'
     // we do not count this as a sufficient check
-    // const authenticatedFilter = this.filter!.usesAuthenticatedRequestParameters;
+    // const authenticatedFilter = this.filter.usesAuthenticatedRequestParameters;
 
     // select request.user_id() as user_id
     const authenticatedExtractor =

@@ -143,7 +143,7 @@ export class StaticSqlParameterQuery {
     }
 
     let result: Record<string, SqliteJsonValue> = {};
-    for (let name of this.bucket_parameters!) {
+    for (let name of this.bucket_parameters) {
       const value = this.parameter_extractors[name].lookupParameterValue(parameters);
       if (isJsonValue(value)) {
         result[`bucket.${name}`] = value;
@@ -156,7 +156,7 @@ export class StaticSqlParameterQuery {
 
     return [
       {
-        bucket: getBucketId(this.descriptor_name!, this.bucket_parameters!, result),
+        bucket: getBucketId(this.descriptor_name, this.bucket_parameters, result),
         priority: this.priority
       }
     ];
@@ -165,7 +165,7 @@ export class StaticSqlParameterQuery {
   get hasAuthenticatedBucketParameters(): boolean {
     // select where request.jwt() ->> 'role' == 'authorized'
     // we do not count this as a sufficient check
-    // const authenticatedFilter = this.filter!.usesAuthenticatedRequestParameters;
+    // const authenticatedFilter = this.filter.usesAuthenticatedRequestParameters;
 
     // select request.user_id() as user_id
     const authenticatedExtractor =
