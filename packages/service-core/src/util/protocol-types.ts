@@ -1,5 +1,5 @@
 import * as t from 'ts-codec';
-import { BucketDescription, BucketPriority, SqliteJsonValue } from '@powersync/service-sync-rules';
+import { BucketDescription, BucketPriority } from '@powersync/service-sync-rules';
 
 export const BucketRequest = t.object({
   name: t.string,
@@ -135,7 +135,7 @@ export interface OplogEntry {
   op: 'PUT' | 'REMOVE' | 'MOVE' | 'CLEAR';
   object_type?: string;
   object_id?: string;
-  data?: Record<string, SqliteJsonValue> | string | null;
+  data?: string | null;
   checksum: number | bigint;
   subkey?: string;
 }
