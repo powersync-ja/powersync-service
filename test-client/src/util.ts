@@ -1,6 +1,8 @@
 import type * as types from '@powersync/service-core';
 
-export type BucketData = Record<string, types.OplogEntry[]>;
+export type TestOplogEntry = types.OplogEntry<types.ProtocolOplogData>;
+
+export type BucketData = Record<string, TestOplogEntry[]>;
 
 /**
  * Combine all chunks of received data, excluding any data after the checkpoint.
@@ -57,8 +59,8 @@ export function isCheckpoint(line: types.StreamingSyncLine): line is types.Strea
  *
  * This is the function $r(B)$, as described in /docs/bucket-properties.md.
  */
-export function reduceBucket(operations: types.OplogEntry[]) {
-  let rowState = new Map<string, types.OplogEntry>();
+export function reduceBucket(operations: TestOplogEntry[]) {
+  let rowState = new Map<string, TestOplogEntry>();
   let otherChecksum = 0;
 
   for (let op of operations) {
@@ -90,7 +92,7 @@ export function reduceBucket(operations: types.OplogEntry[]) {
     return Number(BigInt(a.op_id) - BigInt(b.op_id));
   });
 
-  let finalState: types.OplogEntry[] = [
+  let finalState: TestOplogEntry[] = [
     // Special operation to indiciate the checksum remainder
     { op_id: '0', op: 'CLEAR', checksum: otherChecksum },
     ...puts
@@ -99,7 +101,7 @@ export function reduceBucket(operations: types.OplogEntry[]) {
   return finalState;
 }
 
-function rowKey(entry: types.OplogEntry) {
+function rowKey(entry: TestOplogEntry) {
   return `${entry.object_type}/${entry.object_id}/${entry.subkey}`;
 }
 
