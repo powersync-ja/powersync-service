@@ -135,6 +135,9 @@ export interface OplogEntry {
   op: 'PUT' | 'REMOVE' | 'MOVE' | 'CLEAR';
   object_type?: string;
   object_id?: string;
+  // Note: When clients have both raw_data and binary_data disabled (this only affects legacy
+  // clients), data is actually a `Record<string, SqliteValue>`. Oplog entries are always stored
+  // as a serialized (JSON) string so that they don't have to be parsed in the sync service.
   data?: string | null;
   checksum: number | bigint;
   subkey?: string;
