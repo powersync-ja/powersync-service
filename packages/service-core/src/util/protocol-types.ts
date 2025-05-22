@@ -1,5 +1,6 @@
 import * as t from 'ts-codec';
-import { BucketDescription, BucketPriority, SqliteJsonValue } from '@powersync/service-sync-rules';
+import { BucketDescription, BucketPriority, SqliteJsonRow } from '@powersync/service-sync-rules';
+import { JsonContainer } from '@powersync/service-jsonbig';
 
 export const BucketRequest = t.object({
   name: t.string,
@@ -65,7 +66,7 @@ export interface StreamingSyncCheckpointDiff {
 }
 
 export interface StreamingSyncData {
-  data: SyncBucketData;
+  data: SyncBucketData<ProtocolOplogData>;
 }
 
 export interface StreamingSyncCheckpointComplete {
@@ -109,13 +110,9 @@ export interface BucketState {
   op_id: string;
 }
 
-export interface SyncDataBatch {
-  buckets: SyncBucketData[];
-}
-
-export interface SyncBucketData {
+export interface SyncBucketData<Data extends ProtocolOplogData = StoredOplogData> {
   bucket: string;
-  data: OplogEntry[];
+  data: OplogEntry<Data>[];
   /**
    * True if there _could_ be more data for this bucket, and another request must be made.
    */
@@ -130,12 +127,20 @@ export interface SyncBucketData {
   next_after: ProtocolOpId;
 }
 
-export interface OplogEntry {
+export type StoredOplogData = string | null;
+
+// Note: When clients have both raw_data and binary_data disabled (this only affects legacy
+// clients), data is actually a `Record<string, SqliteJsonValue>`. Oplog entries are always
+// stored as a serialized (JSON) string so that they don't have to be parsed in the sync service,
+// this representation only exists on the way out for legacy clients.
+export type ProtocolOplogData = SqliteJsonRow | JsonContainer | StoredOplogData;
+
+export interface OplogEntry<Data extends ProtocolOplogData = StoredOplogData> {
   op_id: ProtocolOpId;
   op: 'PUT' | 'REMOVE' | 'MOVE' | 'CLEAR';
   object_type?: string;
   object_id?: string;
-  data?: Record<string, SqliteJsonValue> | string | null;
+  data?: Data;
   checksum: number | bigint;
   subkey?: string;
 }
