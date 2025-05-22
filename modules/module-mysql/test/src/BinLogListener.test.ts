@@ -15,7 +15,6 @@ describe('BinlogListener tests', () => {
   };
 
   let connectionManager: MySQLConnectionManager;
-  let abortController: AbortController;
   let eventHandler: TestBinLogEventHandler;
   let binLogListener: BinLogListener;
 
@@ -27,15 +26,13 @@ describe('BinlogListener tests', () => {
     connection.release();
     const fromGTID = await getFromGTID(connectionManager);
 
-    abortController = new AbortController();
     eventHandler = new TestBinLogEventHandler();
     binLogListener = new BinLogListener({
       connectionManager: connectionManager,
       eventHandler: eventHandler,
       startPosition: fromGTID.position,
       includedTables: ['test_DATA'],
-      serverId: createRandomServerId(1),
-      abortSignal: abortController.signal
+      serverId: createRandomServerId(1)
     });
   });
 
@@ -43,12 +40,16 @@ describe('BinlogListener tests', () => {
     await connectionManager.end();
   });
 
-  test('Binlog listener stops on abort signal', async () => {
+  test('Stop binlog listener', async () => {
     const stopSpy = vi.spyOn(binLogListener.zongji, 'stop');
+    const queueStopSpy = vi.spyOn(binLogListener.processingQueue, 'kill');
 
-    setTimeout(() => abortController.abort(), 10);
-    await expect(binLogListener.start()).resolves.toBeUndefined();
+    const startPromise = binLogListener.start();
+    setTimeout(async () => binLogListener.stop(), 50);
+
+    await expect(startPromise).resolves.toBeUndefined();
     expect(stopSpy).toHaveBeenCalled();
+    expect(queueStopSpy).toHaveBeenCalled();
   });
 
   test('Pause Zongji binlog listener when processing queue reaches max size', async () => {
@@ -62,7 +63,7 @@ describe('BinlogListener tests', () => {
     const startPromise = binLogListener.start();
 
     await vi.waitFor(() => expect(eventHandler.rowsWritten).equals(ROW_COUNT), { timeout: 5000 });
-    abortController.abort();
+    binLogListener.stop();
     await expect(startPromise).resolves.toBeUndefined();
 
     // Count how many times the queue reached the max size. Consequently, we expect the listener to have paused and resumed that many times.
@@ -85,7 +86,7 @@ describe('BinlogListener tests', () => {
     await deleteRows(connectionManager);
     await vi.waitFor(() => expect(eventHandler.rowsDeleted).equals(ROW_COUNT), { timeout: 5000 });
 
-    abortController.abort();
+    binLogListener.stop();
     await expect(startPromise).resolves.toBeUndefined();
   });
 });

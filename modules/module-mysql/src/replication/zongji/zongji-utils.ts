@@ -1,10 +1,10 @@
 import {
   BinLogEvent,
   BinLogGTIDLogEvent,
-  BinLogMutationEvent,
+  BinLogRowEvent,
   BinLogRotationEvent,
   BinLogTableMapEvent,
-  BinLogUpdateEvent,
+  BinLogRowUpdateEvent,
   BinLogXidEvent
 } from '@powersync/mysql-zongji';
 
@@ -24,14 +24,14 @@ export function eventIsRotation(event: BinLogEvent): event is BinLogRotationEven
   return event.getEventName() == 'rotate';
 }
 
-export function eventIsWriteMutation(event: BinLogEvent): event is BinLogMutationEvent {
+export function eventIsWriteMutation(event: BinLogEvent): event is BinLogRowEvent {
   return event.getEventName() == 'writerows';
 }
 
-export function eventIsDeleteMutation(event: BinLogEvent): event is BinLogMutationEvent {
+export function eventIsDeleteMutation(event: BinLogEvent): event is BinLogRowEvent {
   return event.getEventName() == 'deleterows';
 }
 
-export function eventIsUpdateMutation(event: BinLogEvent): event is BinLogUpdateEvent {
+export function eventIsUpdateMutation(event: BinLogEvent): event is BinLogRowUpdateEvent {
   return event.getEventName() == 'updaterows';
 }

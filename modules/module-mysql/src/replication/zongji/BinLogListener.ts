@@ -20,9 +20,12 @@ export interface BinLogListenerOptions {
   includedTables: string[];
   serverId: number;
   startPosition: common.BinLogPosition;
-  abortSignal: AbortSignal;
 }
 
+/**
+ *  Wrapper class for the Zongji BinLog listener. Internally handles the creation and management of the listener and posts
+ *  events on the provided BinLogEventHandler.
+ */
 export class BinLogListener {
   private connectionManager: MySQLConnectionManager;
   private eventHandler: BinLogEventHandler;
@@ -96,24 +99,16 @@ export class BinLogListener {
       });
 
       this.zongji.on('stopped', () => {
-        logger.info('Binlog listener stopped. Replication ended.');
-        resolve();
-      });
-
-      const stop = () => {
-        logger.info('Abort signal received, stopping replication...');
-        this.zongji.stop();
         this.processingQueue.kill();
         resolve();
-      };
-
-      this.options.abortSignal.addEventListener('abort', stop, { once: true });
-
-      if (this.options.abortSignal.aborted) {
-        // Generally this should have been picked up early, but we add this here as a failsafe.
-        stop();
-      }
+      });
     });
+
+    logger.info('BinLog listener stopped. Replication ended.');
+  }
+
+  public stop(): void {
+    this.zongji.stop();
   }
 
   private createZongjiListener(): ZongJi {

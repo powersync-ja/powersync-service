@@ -246,7 +246,7 @@ AND table_type = 'BASE TABLE';`,
           const isAvailable = await common.isBinlogStillAvailable(connection, lastKnowGTID.position.filename);
           if (!isAvailable) {
             logger.info(
-              `Binlog file ${lastKnowGTID.position.filename} is no longer available, starting initial replication again.`
+              `BinLog file ${lastKnowGTID.position.filename} is no longer available, starting initial replication again.`
             );
           }
           return isAvailable;
@@ -355,7 +355,7 @@ AND table_type = 'BASE TABLE';`,
       // all connections automatically closed, including this one.
       await this.initReplication();
       await this.streamChanges();
-      logger.info('BinlogStream has been shut down');
+      logger.info('BinLogStream has been shut down.');
     } catch (e) {
       await this.storage.reportError(e);
       throw e;
@@ -368,7 +368,7 @@ AND table_type = 'BASE TABLE';`,
     connection.release();
 
     if (errors.length > 0) {
-      throw new BinlogConfigurationError(`Binlog Configuration Errors: ${errors.join(', ')}`);
+      throw new BinlogConfigurationError(`BinLog Configuration Errors: ${errors.join(', ')}`);
     }
 
     const initialReplicationCompleted = await this.checkInitialReplicated();
@@ -423,13 +423,21 @@ AND table_type = 'BASE TABLE';`,
           // Only listen for changes to tables in the sync rules
           const includedTables = [...this.tableCache.values()].map((table) => table.table);
           const binlogListener = new BinLogListener({
-            abortSignal: this.abortSignal,
             includedTables: includedTables,
             startPosition: binLogPositionState,
             connectionManager: this.connections,
             serverId: serverId,
             eventHandler: binlogEventHandler
           });
+
+          this.abortSignal.addEventListener(
+            'abort',
+            () => {
+              logger.info('Abort signal received, stopping replication...');
+              binlogListener.stop();
+            },
+            { once: true }
+          );
 
           await binlogListener.start();
         }
