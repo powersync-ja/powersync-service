@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.27.0
+
+### Minor Changes
+
+- 5b39039: Cleanup on internal sync rules implementation and APIs.
+
 ## 0.26.1
 
 ### Patch Changes
