@@ -73,7 +73,7 @@ export class BinLogListener {
     });
 
     logger.info(`Reading binlog from: ${this.binLogPosition.filename}:${this.binLogPosition.offset}`);
-    this.zongji.start({
+    await this.zongji.start({
       // We ignore the unknown/heartbeat event since it currently serves no purpose other than to keep the connection alive
       // tablemap events always need to be included for the other row events to work
       includeEvents: ['tablemap', 'writerows', 'updaterows', 'deleterows', 'xid', 'rotate', 'gtidlog'],

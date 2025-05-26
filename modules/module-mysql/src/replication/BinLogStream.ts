@@ -439,7 +439,9 @@ AND table_type = 'BASE TABLE';`,
             { once: true }
           );
 
-          await binlogListener.start();
+          if (!this.stopped) {
+            await binlogListener.start();
+          }
         }
       );
     }
