@@ -11,7 +11,14 @@ import {
   ReplicationAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
-import { deserializeBson, InternalOpId, SaveOperationTag, storage, utils } from '@powersync/service-core';
+import {
+  BucketStorageMarkRecordUnavailable,
+  deserializeBson,
+  InternalOpId,
+  SaveOperationTag,
+  storage,
+  utils
+} from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
 import { PowerSyncMongo } from './db.js';
 import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
@@ -46,6 +53,8 @@ export interface MongoBucketBatchOptions {
    * Set to true for initial replication.
    */
   skipExistingRows: boolean;
+
+  markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
 }
 
 export class MongoBucketBatch
@@ -65,6 +74,7 @@ export class MongoBucketBatch
 
   private batch: OperationBatch | null = null;
   private write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
+  private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
 
   /**
    * Last LSN received associated with a checkpoint.
@@ -96,6 +106,7 @@ export class MongoBucketBatch
     this.sync_rules = options.syncRules;
     this.storeCurrentData = options.storeCurrentData;
     this.skipExistingRows = options.skipExistingRows;
+    this.markRecordUnavailable = options.markRecordUnavailable;
     this.batch = new OperationBatch();
 
     this.persisted_op = options.keepaliveOp ?? null;
@@ -312,9 +323,14 @@ export class MongoBucketBatch
         existing_lookups = [];
         // Log to help with debugging if there was a consistency issue
         if (this.storeCurrentData) {
-          logger.warn(
-            `Cannot find previous record for update on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
-          );
+          if (this.markRecordUnavailable != null) {
+            // This will trigger a "resnapshot" of the record.
+            this.markRecordUnavailable(record);
+          } else {
+            logger.warn(
+              `Cannot find previous record for update on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
+            );
+          }
         }
       } else {
         existing_buckets = result.buckets;
