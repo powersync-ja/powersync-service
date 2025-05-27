@@ -5,7 +5,7 @@ import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 
 import { MongoManager } from '../replication/MongoManager.js';
-import { constructAfterRecord, createCheckpoint } from '../replication/MongoRelation.js';
+import { constructAfterRecord, createCheckpoint, STANDALONE_CHECKPOINT_ID } from '../replication/MongoRelation.js';
 import { CHECKPOINTS_COLLECTION } from '../replication/replication-utils.js';
 import * as types from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
@@ -206,10 +206,6 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
     return undefined;
   }
 
-  async getReplicationHead(): Promise<string> {
-    return createCheckpoint(this.client, this.db);
-  }
-
   async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
     const session = this.client.startSession();
     try {
@@ -224,7 +220,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
       // Trigger a change on the changestream.
       await this.db.collection(CHECKPOINTS_COLLECTION).findOneAndUpdate(
         {
-          _id: 'checkpoint' as any
+          _id: STANDALONE_CHECKPOINT_ID as any
         },
         {
           $inc: { i: 1 }
