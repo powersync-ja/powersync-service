@@ -6,6 +6,7 @@ import {
   logger,
   ReplicationAbortedError,
   ReplicationAssertionError,
+  ServiceAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
 import { MetricsEngine, SaveOperationTag, SourceEntityDescriptor, SourceTable, storage } from '@powersync/service-core';
@@ -540,10 +541,18 @@ export class ChangeStream {
       async (batch) => {
         const { lastCheckpointLsn } = batch;
         const lastLsn = lastCheckpointLsn ? MongoLSN.fromSerialized(lastCheckpointLsn) : null;
-        const startAfter = lastLsn?.timestamp;
-        const resumeAfter = lastLsn?.resumeToken;
+        if (lastLsn == null) {
+          throw new ServiceAssertionError(`No resume timestamp found`);
+        }
+        const startAfter = lastLsn.timestamp;
+        const resumeAfter = lastLsn.resumeToken;
+        // It is normal for this to be a minute or two old when there is a low volume
+        // of ChangeStream events.
+        const tokenAgeSeconds = Math.round(Date.now() / 1000 - startAfter.getHighBitsUnsigned());
 
-        logger.info(`${this.logPrefix} Resume streaming at ${startAfter?.inspect()} / ${lastLsn}`);
+        logger.info(
+          `${this.logPrefix} Resume streaming at ${startAfter.inspect()} / ${lastLsn} | Token age: ${tokenAgeSeconds}s`
+        );
 
         const filters = this.getSourceNamespaceFilters();
 
@@ -601,6 +610,7 @@ export class ChangeStream {
         // Always start with a checkpoint.
         // This helps us to clear errors when restarting, even if there is
         // no data to replicate.
+        let checkpointSourceTimestamp: mongo.Timestamp | null = null;
         let waitForCheckpointLsn: string | null = await createCheckpoint(this.client, this.defaultDb);
 
         let splitDocument: mongo.ChangeStreamDocument | null = null;
@@ -735,7 +745,11 @@ export class ChangeStream {
             if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
               waitForCheckpointLsn = null;
             }
-            await batch.commit(lsn);
+            const startTs =
+              checkpointSourceTimestamp == null
+                ? null
+                : new Date(checkpointSourceTimestamp.getHighBitsUnsigned() * 1000);
+            await batch.commit(lsn, { batchReplicationStartAt: startTs });
           } else if (
             changeDocument.operationType == 'insert' ||
             changeDocument.operationType == 'update' ||
@@ -744,6 +758,7 @@ export class ChangeStream {
           ) {
             if (waitForCheckpointLsn == null) {
               waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb);
+              checkpointSourceTimestamp = changeDocument.clusterTime ?? null;
             }
             const rel = getMongoRelation(changeDocument.ns);
             const table = await this.getRelation(batch, rel, {

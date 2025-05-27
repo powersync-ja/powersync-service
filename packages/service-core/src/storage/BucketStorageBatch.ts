@@ -7,7 +7,8 @@ import { BatchedCustomWriteCheckpointOptions } from './storage-index.js';
 import { InternalOpId } from '../util/utils.js';
 
 export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptions = {
-  createEmptyCheckpoints: true
+  createEmptyCheckpoints: true,
+  batchReplicationStartAt: null
 };
 
 export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageListener>, AsyncDisposable {
@@ -154,6 +155,13 @@ export interface BucketBatchCommitOptions {
    * Defaults to true.
    */
   createEmptyCheckpoints?: boolean;
+
+  /**
+   * The time that we started this batch, in the scale of performance.now().
+   *
+   * Used to estimate replication delay.
+   */
+  batchReplicationStartAt?: Date | null;
 }
 
 export type ResolvedBucketBatchCommitOptions = Required<BucketBatchCommitOptions>;

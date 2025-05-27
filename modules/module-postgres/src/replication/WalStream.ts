@@ -781,7 +781,8 @@ WHERE  oid = $1::regclass`,
     if (storageIdentifier.type != lib_postgres.POSTGRES_CONNECTION_TYPE) {
       return {
         // Keep the same behaviour as before allowing Postgres storage.
-        createEmptyCheckpoints: true
+        createEmptyCheckpoints: true,
+        batchReplicationStartAt: null
       };
     }
 
@@ -804,7 +805,8 @@ WHERE  oid = $1::regclass`,
        * Don't create empty checkpoints if the same Postgres database is used for the data source
        * and sync bucket storage. Creating empty checkpoints will cause WAL feedback loops.
        */
-      createEmptyCheckpoints: replicationIdentifier.database_name != parsedStorageIdentifier.database_name
+      createEmptyCheckpoints: replicationIdentifier.database_name != parsedStorageIdentifier.database_name,
+      batchReplicationStartAt: null
     };
   }
 
