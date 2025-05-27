@@ -46,6 +46,7 @@ export class MySQLConnectionManager {
   createBinlogListener(): ZongJi {
     const listener = new ZongJi({
       host: this.options.hostname,
+      port: this.options.port,
       user: this.options.username,
       password: this.options.password
     });
