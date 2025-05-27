@@ -657,6 +657,9 @@ export class ChangeStream {
               logger.info(
                 `${this.logPrefix} Idle change stream. Persisted resumeToken for ${new Date(timestamp.getHighBitsUnsigned() * 1000).toISOString()}`
               );
+
+              // Since there is no data to replicate, the lag is 0.
+              this.metrics.getGauge(ReplicationMetric.REPLICATION_LAG_SECONDS).record(0);
             }
             continue;
           }
@@ -754,7 +757,15 @@ export class ChangeStream {
               checkpointSourceTimestamp == null
                 ? null
                 : new Date(checkpointSourceTimestamp.getHighBitsUnsigned() * 1000);
-            await batch.commit(lsn, { batchReplicationStartAt: startTs });
+            const didCommit = await batch.commit(lsn, { batchReplicationStartAt: startTs });
+
+            if (startTs != null && didCommit) {
+              // We only report replicationLag if didCommit == true.
+              // If didCommit == false, this may be the new replication stream still catching up,
+              // and we don't want that to report that here.
+              const replicationLag = Math.round((Date.now() - startTs.getTime()) / 1000);
+              this.metrics.getGauge(ReplicationMetric.REPLICATION_LAG_SECONDS).record(replicationLag);
+            }
           } else if (
             changeDocument.operationType == 'insert' ||
             changeDocument.operationType == 'update' ||

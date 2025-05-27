@@ -22,6 +22,13 @@ export interface ObservableGauge {
   setValueProvider(valueProvider: () => Promise<number | undefined>): void;
 }
 
+export interface Gauge {
+  /**
+   *  Set the current value of the gauge.
+   */
+  record(value: number): void;
+}
+
 export enum Precision {
   INT = 'int',
   DOUBLE = 'double'
@@ -38,4 +45,5 @@ export interface MetricsFactory {
   createCounter(metadata: MetricMetadata): Counter;
   createUpDownCounter(metadata: MetricMetadata): UpDownCounter;
   createObservableGauge(metadata: MetricMetadata): ObservableGauge;
+  createGauge(metadata: MetricMetadata): Gauge;
 }
