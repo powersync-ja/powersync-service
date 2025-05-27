@@ -681,6 +681,7 @@ WHERE  oid = $1::regclass`,
         // Replication never starts in the middle of a transaction, so this starts as false.
         let skipKeepalive = false;
         let count = 0;
+        let currentBatchStart: Date | null = null;
 
         for await (const chunk of replicationStream.pgoutputDecode()) {
           await touch();
@@ -708,6 +709,9 @@ WHERE  oid = $1::regclass`,
             } else if (msg.tag == 'begin') {
               // This may span multiple transactions in the same chunk, or even across chunks.
               skipKeepalive = true;
+              if (currentBatchStart == null) {
+                currentBatchStart = new Date(Number(msg.commitTime / 1000n));
+              }
             } else if (msg.tag == 'commit') {
               this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
               if (msg == lastCommit) {
@@ -715,8 +719,19 @@ WHERE  oid = $1::regclass`,
                 // This effectively lets us batch multiple transactions within the same chunk
                 // into a single flush, increasing throughput for many small transactions.
                 skipKeepalive = false;
-                await batch.commit(msg.lsn!, { createEmptyCheckpoints });
+                const didCommit = await batch.commit(msg.lsn!, {
+                  createEmptyCheckpoints,
+                  batchReplicationStartAt: currentBatchStart
+                });
                 await this.ack(msg.lsn!, replicationStream);
+                if (didCommit && currentBatchStart != null) {
+                  // We only report replicationLag if didCommit == true.
+                  // If didCommit == false, this may be the new replication stream still catching up,
+                  // and we don't want that to report that here.
+                  const replicationLag = Math.round((Date.now() - currentBatchStart.getTime()) / 1000);
+                  this.metrics.getGauge(ReplicationMetric.REPLICATION_LAG_SECONDS).record(replicationLag);
+                  currentBatchStart = null;
+                }
               }
             } else {
               if (count % 100 == 0) {
@@ -748,7 +763,16 @@ WHERE  oid = $1::regclass`,
               // Big caveat: This _must not_ be used to skip individual messages, since this LSN
               // may be in the middle of the next transaction.
               // It must only be used to associate checkpoints with LSNs.
-              await batch.keepalive(chunkLastLsn);
+              const didKeepalive = await batch.keepalive(chunkLastLsn);
+              currentBatchStart = null;
+
+              if (didKeepalive) {
+                const sourceTime = Number(chunk.lastTime / 1000n);
+                const replicationLag = Date.now() - sourceTime;
+                this.metrics
+                  .getGauge(ReplicationMetric.REPLICATION_LAG_SECONDS)
+                  .record(Math.round(replicationLag / 1000));
+              }
             }
 
             // We receive chunks with empty messages often (about each second).

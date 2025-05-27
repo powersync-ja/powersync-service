@@ -658,7 +658,7 @@ export class ChangeStream {
                 `${this.logPrefix} Idle change stream. Persisted resumeToken for ${new Date(timestamp.getHighBitsUnsigned() * 1000).toISOString()}`
               );
 
-              // Since there is no data to replicate, the lag is 0.
+              // Since there is no data to replicate, we record the lag as 0.
               this.metrics.getGauge(ReplicationMetric.REPLICATION_LAG_SECONDS).record(0);
             }
             continue;
@@ -765,6 +765,7 @@ export class ChangeStream {
               // and we don't want that to report that here.
               const replicationLag = Math.round((Date.now() - startTs.getTime()) / 1000);
               this.metrics.getGauge(ReplicationMetric.REPLICATION_LAG_SECONDS).record(replicationLag);
+              checkpointSourceTimestamp = null;
             }
           } else if (
             changeDocument.operationType == 'insert' ||
