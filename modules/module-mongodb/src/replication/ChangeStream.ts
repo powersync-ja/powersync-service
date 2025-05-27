@@ -648,10 +648,15 @@ export class ChangeStream {
             // We add an additional check for waitForCheckpointLsn == null, to make sure we're not
             // doing a keepalive in the middle of a transaction.
             if (waitForCheckpointLsn == null && performance.now() - lastEmptyResume > 60_000) {
-              const { comparable: lsn } = MongoLSN.fromResumeToken(stream.resumeToken);
+              const { comparable: lsn, timestamp } = MongoLSN.fromResumeToken(stream.resumeToken);
               await batch.keepalive(lsn);
               await touch();
               lastEmptyResume = performance.now();
+              // Log the token update. This helps as a general "replication is still active" message in the logs.
+              // This token would typically be around 10s behind.
+              logger.info(
+                `${this.logPrefix} Idle change stream. Persisted resumeToken for ${new Date(timestamp.getHighBitsUnsigned() * 1000).toISOString()}`
+              );
             }
             continue;
           }
