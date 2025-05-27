@@ -78,4 +78,6 @@ export abstract class AbstractReplicationJob {
   public get isStopped(): boolean {
     return this.abortController.signal.aborted;
   }
+
+  abstract getReplicationLag(): Promise<number | undefined>;
 }

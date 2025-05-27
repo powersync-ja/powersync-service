@@ -27,7 +27,7 @@ export function createCoreReplicationMetrics(engine: MetricsEngine): void {
     description: 'Total number of replication chunks'
   });
 
-  engine.createGauge({
+  engine.createObservableGauge({
     name: ReplicationMetric.REPLICATION_LAG_SECONDS,
     description: 'Replication lag between the source database and PowerSync instance'
   });

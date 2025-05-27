@@ -92,4 +92,8 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
       await connectionManager.end();
     }
   }
+
+  getReplicationLag(): Promise<number | undefined> {
+    throw new Error('Method not implemented.');
+  }
 }

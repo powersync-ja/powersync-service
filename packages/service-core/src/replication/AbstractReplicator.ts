@@ -8,6 +8,7 @@ import { AbstractReplicationJob } from './AbstractReplicationJob.js';
 import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 import { ConnectionTestResult } from './ReplicationModule.js';
 import { MetricsEngine } from '../metrics/MetricsEngine.js';
+import { ReplicationMetric } from '@powersync/service-types';
 
 // 5 minutes
 const PING_INTERVAL = 1_000_000_000n * 300n;
@@ -42,6 +43,11 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
    *  @private
    */
   private replicationJobs = new Map<number, T>();
+  /**
+   * Used for replication lag computation.
+   */
+  private activeReplicationJob: T | undefined = undefined;
+
   private stopped = false;
 
   // First ping is only after 5 minutes, not when starting
@@ -86,6 +92,12 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       setTimeout(() => {
         process.exit(1);
       }, 1000);
+    });
+    this.metrics.getObservableGauge(ReplicationMetric.REPLICATION_LAG_SECONDS).setValueProvider(() => {
+      return this.getReplicationLag().catch((e) => {
+        this.logger.error('Failed to get replication lag', e);
+        return undefined;
+      });
     });
   }
 
@@ -161,8 +173,12 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     const existingJobs = new Map<number, T>(this.replicationJobs.entries());
     const replicatingSyncRules = await this.storage.getReplicatingSyncRules();
     const newJobs = new Map<number, T>();
+    let activeJob: T | undefined = undefined;
     for (let syncRules of replicatingSyncRules) {
       const existingJob = existingJobs.get(syncRules.id);
+      if (syncRules.active && activeJob == null) {
+        activeJob = existingJob;
+      }
       if (existingJob && !existingJob.isStopped) {
         // No change
         existingJobs.delete(syncRules.id);
@@ -188,6 +204,9 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
           newJobs.set(syncRules.id, newJob);
           newJob.start();
+          if (syncRules.active) {
+            activeJob = newJob;
+          }
         } catch (e) {
           // Could be a sync rules parse error,
           // for example from stricter validation that was added.
@@ -199,6 +218,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     }
 
     this.replicationJobs = newJobs;
+    this.activeReplicationJob = activeJob;
 
     // Stop any orphaned jobs that no longer have sync rules.
     // Termination happens below
@@ -236,4 +256,26 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   }
 
   abstract testConnection(): Promise<ConnectionTestResult>;
+
+  /**
+   * Measure replication lag in seconds.
+   *
+   * In general, this is the difference between now() and the time the oldest record, that we haven't committed yet,
+   * has been written (committed) to the source database.
+   *
+   * This is roughly a measure of the _average_ amount of time we're behind.
+   * If we get a new change as soon as each previous one has finished processing, and each change takes 1000ms
+   * to process, the average replication lag will be 500ms, not 1000ms.
+   *
+   * 1. When we are actively replicating, this is the difference between now and when the time the change was
+   *    written to the source database.
+   * 2. When the replication stream is idle, this is either 0, or the delay for keepalive messages to make it to us.
+   * 3. When the active replication stream is an error state, this is the time since the last successful commit.
+   * 4. If there is no active replication stream, this is undefined.
+   *
+   * "processing" replication streams are not taken into account for this metric.
+   */
+  async getReplicationLag(): Promise<number | undefined> {
+    return this.activeReplicationJob?.getReplicationLag();
+  }
 }

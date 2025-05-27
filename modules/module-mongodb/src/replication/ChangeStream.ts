@@ -70,6 +70,17 @@ export class ChangeStream {
 
   private relation_cache = new Map<string | number, storage.SourceTable>();
 
+  /**
+   * Time of the oldest uncommitted change, according to the source db.
+   * This is used to determine the replication lag.
+   */
+  private oldestUncommittedChange: Date | null = null;
+  /**
+   * Keep track of whether we have done a commit or keepalive yet.
+   * We can only compute replication lag if isStartingReplication == false, or oldestUncommittedChange is present.
+   */
+  private isStartingReplication = true;
+
   constructor(options: ChangeStreamOptions) {
     this.storage = options.storage;
     this.metrics = options.metrics;
@@ -657,9 +668,7 @@ export class ChangeStream {
               logger.info(
                 `${this.logPrefix} Idle change stream. Persisted resumeToken for ${new Date(timestamp.getHighBitsUnsigned() * 1000).toISOString()}`
               );
-
-              // Since there is no data to replicate, we record the lag as 0.
-              this.metrics.getGauge(ReplicationMetric.REPLICATION_LAG_SECONDS).record(0);
+              this.isStartingReplication = false;
             }
             continue;
           }
@@ -753,19 +762,11 @@ export class ChangeStream {
             if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
               waitForCheckpointLsn = null;
             }
-            const startTs =
-              checkpointSourceTimestamp == null
-                ? null
-                : new Date(checkpointSourceTimestamp.getHighBitsUnsigned() * 1000);
-            const didCommit = await batch.commit(lsn, { batchReplicationStartAt: startTs });
+            const didCommit = await batch.commit(lsn, { batchReplicationStartAt: this.oldestUncommittedChange });
 
-            if (startTs != null && didCommit) {
-              // We only report replicationLag if didCommit == true.
-              // If didCommit == false, this may be the new replication stream still catching up,
-              // and we don't want that to report that here.
-              const replicationLag = Math.round((Date.now() - startTs.getTime()) / 1000);
-              this.metrics.getGauge(ReplicationMetric.REPLICATION_LAG_SECONDS).record(replicationLag);
-              checkpointSourceTimestamp = null;
+            if (didCommit) {
+              this.oldestUncommittedChange = null;
+              this.isStartingReplication = false;
             }
           } else if (
             changeDocument.operationType == 'insert' ||
@@ -786,6 +787,9 @@ export class ChangeStream {
               snapshot: true
             });
             if (table.syncAny) {
+              if (this.oldestUncommittedChange == null && changeDocument.clusterTime != null) {
+                this.oldestUncommittedChange = new Date(changeDocument.clusterTime.getHighBitsUnsigned() * 1000);
+              }
               await this.writeChange(batch, table, changeDocument);
             }
           } else if (changeDocument.operationType == 'drop') {
@@ -820,6 +824,19 @@ export class ChangeStream {
         }
       }
     );
+  }
+
+  async getReplicationLag(): Promise<number | undefined> {
+    if (this.oldestUncommittedChange == null) {
+      if (this.isStartingReplication) {
+        // We don't have anything to compute replication lag with yet.
+        return undefined;
+      } else {
+        // We don't have any uncommitted changes, so replication is up-to-date.
+        return 0;
+      }
+    }
+    return Date.now() - this.oldestUncommittedChange.getTime();
   }
 }
 

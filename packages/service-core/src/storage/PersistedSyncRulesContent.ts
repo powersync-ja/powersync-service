@@ -9,6 +9,10 @@ export interface PersistedSyncRulesContent {
   readonly id: number;
   readonly sync_rules_content: string;
   readonly slot_name: string;
+  /**
+   * True if this is the "active" copy of the sync rules.
+   */
+  readonly active: boolean;
 
   readonly last_fatal_error?: string | null;
   readonly last_keepalive_ts?: Date | null;

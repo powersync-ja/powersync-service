@@ -11,6 +11,7 @@ export interface ChangeStreamReplicationJobOptions extends replication.AbstractR
 
 export class ChangeStreamReplicationJob extends replication.AbstractReplicationJob {
   private connectionFactory: ConnectionManagerFactory;
+  private lastStream: ChangeStream | null = null;
 
   constructor(options: ChangeStreamReplicationJobOptions) {
     super(options);
@@ -74,6 +75,7 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
         metrics: this.options.metrics,
         connections: connectionManager
       });
+      this.lastStream = stream;
       await stream.replicate();
     } catch (e) {
       if (this.abortController.signal.aborted) {
@@ -97,5 +99,27 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
     } finally {
       await connectionManager.end();
     }
+  }
+
+  async getReplicationLag(): Promise<number | undefined> {
+    const lag = await this.lastStream?.getReplicationLag();
+    if (lag == null) {
+      // Booting; potentially in an error loop. Check last replication status.
+      const content = await this.storage.factory.getActiveSyncRulesContent();
+      if (content == null) {
+        return undefined;
+      }
+      if (content.id == this.storage.group_id) {
+        // Technically this is the time we wrote to our storage, not the source db time.
+        // This is the best we can currently do while not actively replicating.
+        const checkpointTs = content?.last_checkpoint_ts?.getTime() ?? 0;
+        const keepaliveTs = content?.last_keepalive_ts?.getTime() ?? 0;
+        const latestTs = Math.max(checkpointTs, keepaliveTs);
+        if (latestTs != 0) {
+          return Date.now() - latestTs;
+        }
+      }
+    }
+    return lag;
   }
 }
