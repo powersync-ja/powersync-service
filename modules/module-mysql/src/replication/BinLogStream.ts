@@ -439,9 +439,8 @@ AND table_type = 'BASE TABLE';`,
             { once: true }
           );
 
-          if (!this.stopped) {
-            await binlogListener.start();
-          }
+          // Only returns when the replication is stopped or interrupted by an error
+          await binlogListener.start();
         }
       );
     }

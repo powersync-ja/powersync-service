@@ -46,34 +46,12 @@ export class BinLogListener {
   }
 
   public async start(): Promise<void> {
+    if (this.isStopped) {
+      return;
+    }
     logger.info(`Starting replication. Created replica client with serverId:${this.options.serverId}`);
-    // Set a heartbeat interval for the Zongji replication connection
-    // Zongji does not explicitly handle the heartbeat events - they are categorized as event:unknown
-    // The heartbeat events are enough to keep the connection alive for setTimeout to work on the socket.
-    await new Promise((resolve, reject) => {
-      this.zongji.connection.query(
-        // In nanoseconds, 10^9 = 1s
-        'set @master_heartbeat_period=28*1000000000',
-        function (error: any, results: any, fields: any) {
-          if (error) {
-            reject(error);
-          } else {
-            resolve(results);
-          }
-        }
-      );
-    });
-    logger.info('Successfully set up replication connection heartbeat...');
 
-    // The _socket member is only set after a query is run on the connection, so we set the timeout after setting the heartbeat.
-    // The timeout here must be greater than the master_heartbeat_period.
-    const socket = this.zongji.connection._socket!;
-    socket.setTimeout(60_000, () => {
-      socket.destroy(new Error('Replication connection timeout.'));
-    });
-
-    logger.info(`Reading binlog from: ${this.binLogPosition.filename}:${this.binLogPosition.offset}`);
-    await this.zongji.start({
+    this.zongji.start({
       // We ignore the unknown/heartbeat event since it currently serves no purpose other than to keep the connection alive
       // tablemap events always need to be included for the other row events to work
       includeEvents: ['tablemap', 'writerows', 'updaterows', 'deleterows', 'xid', 'rotate', 'gtidlog'],
@@ -83,32 +61,49 @@ export class BinLogListener {
       serverId: this.options.serverId
     } satisfies StartOptions);
 
-    await new Promise<void>((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       this.zongji.on('error', (error) => {
-        logger.error('Binlog listener error:', error);
-        this.zongji.stop();
-        this.processingQueue.kill();
-        reject(error);
+        if (!this.isStopped) {
+          logger.error('Binlog listener error:', error);
+          this.stop();
+          reject(error);
+        } else {
+          logger.warn('Binlog listener error during shutdown:', error);
+        }
       });
 
       this.processingQueue.error((error) => {
-        logger.error('BinlogEvent processing error:', error);
-        this.zongji.stop();
-        this.processingQueue.kill();
-        reject(error);
+        if (!this.isStopped) {
+          logger.error('BinlogEvent processing error:', error);
+          this.stop();
+          reject(error);
+        } else {
+          logger.warn('BinlogEvent processing error during shutdown:', error);
+        }
       });
 
       this.zongji.on('stopped', () => {
-        this.processingQueue.kill();
         resolve();
+        logger.info('BinLog listener stopped. Replication ended.');
       });
-    });
 
-    logger.info('BinLog listener stopped. Replication ended.');
+      // Handle the edge case where the listener has already been stopped before completing startup
+      if (this.isStopped) {
+        logger.info('BinLog listener was stopped before startup completed.');
+        resolve();
+      }
+    });
   }
 
   public stop(): void {
-    this.zongji.stop();
+    if (!this.isStopped) {
+      this.zongji.stop();
+      this.processingQueue.kill();
+    }
+  }
+
+  private get isStopped(): boolean {
+    return this.zongji.stopped;
   }
 
   private createZongjiListener(): ZongJi {
@@ -128,6 +123,36 @@ export class BinLogListener {
         logger.info(`Binlog processing queue backlog cleared. Resuming Binlog listener.`);
         zongji.resume();
       }
+    });
+
+    zongji.on('ready', async () => {
+      // Set a heartbeat interval for the Zongji replication connection
+      // Zongji does not explicitly handle the heartbeat events - they are categorized as event:unknown
+      // The heartbeat events are enough to keep the connection alive for setTimeout to work on the socket.
+      await new Promise((resolve, reject) => {
+        this.zongji.connection.query(
+          // In nanoseconds, 10^9 = 1s
+          'set @master_heartbeat_period=28*1000000000',
+          function (error: any, results: any, fields: any) {
+            if (error) {
+              reject(error);
+            } else {
+              logger.info('Successfully set up replication connection heartbeat...');
+              resolve(results);
+            }
+          }
+        );
+      });
+
+      // The _socket member is only set after a query is run on the connection, so we set the timeout after setting the heartbeat.
+      // The timeout here must be greater than the master_heartbeat_period.
+      const socket = this.zongji.connection._socket!;
+      socket.setTimeout(60_000, () => {
+        socket.destroy(new Error('Replication connection timeout.'));
+      });
+      logger.info(
+        `BinLog listener setup complete. Reading binlog from: ${this.binLogPosition.filename}:${this.binLogPosition.offset}`
+      );
     });
 
     return zongji;
