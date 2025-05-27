@@ -440,7 +440,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
   }
 }
 
-function transformLegacyResponse(bucketData: util.SyncBucketData): any {
+function transformLegacyResponse(bucketData: util.SyncBucketData): util.SyncBucketData<util.ProtocolOplogData> {
   return {
     ...bucketData,
     data: bucketData.data.map((entry) => {
