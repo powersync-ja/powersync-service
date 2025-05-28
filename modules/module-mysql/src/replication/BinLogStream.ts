@@ -70,6 +70,17 @@ export class BinLogStream {
 
   private tableCache = new Map<string | number, storage.SourceTable>();
 
+  /**
+   * Time of the oldest uncommitted change, according to the source db.
+   * This is used to determine the replication lag.
+   */
+  private oldestUncommittedChange: Date | null = null;
+  /**
+   * Keep track of whether we have done a commit or keepalive yet.
+   * We can only compute replication lag if isStartingReplication == false, or oldestUncommittedChange is present.
+   */
+  private isStartingReplication = true;
+
   constructor(private options: BinLogStreamOptions) {
     this.storage = options.storage;
     this.connections = options.connections;
@@ -443,11 +454,15 @@ AND table_type = 'BASE TABLE';`,
                     offset: evt.nextPosition
                   }
                 });
+                if (this.oldestUncommittedChange == null) {
+                  this.oldestUncommittedChange = new Date(evt.timestamp);
+                }
                 break;
               case zongji_utils.eventIsRotation(evt):
                 // Update the position
                 binLogPositionState.filename = evt.binlogName;
                 binLogPositionState.offset = evt.position;
+                this.isStartingReplication = false;
                 break;
               case zongji_utils.eventIsWriteMutation(evt):
                 const writeTableInfo = evt.tableMap[evt.tableId];
@@ -477,7 +492,7 @@ AND table_type = 'BASE TABLE';`,
               case zongji_utils.eventIsXid(evt):
                 this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
                 // Need to commit with a replicated GTID with updated next position
-                await batch.commit(
+                const didCommit = await batch.commit(
                   new common.ReplicatedGTID({
                     raw_gtid: currentGTID!.raw,
                     position: {
@@ -486,6 +501,10 @@ AND table_type = 'BASE TABLE';`,
                     }
                   }).comparable
                 );
+                if (didCommit) {
+                  this.oldestUncommittedChange = null;
+                  this.isStartingReplication = false;
+                }
                 currentGTID = null;
                 // chunks_replicated_total.add(1);
                 break;
@@ -665,6 +684,19 @@ AND table_type = 'BASE TABLE';`,
       default:
         return null;
     }
+  }
+
+  async getReplicationLagMillis(): Promise<number | undefined> {
+    if (this.oldestUncommittedChange == null) {
+      if (this.isStartingReplication) {
+        // We don't have anything to compute replication lag with yet.
+        return undefined;
+      } else {
+        // We don't have any uncommitted changes, so replication is up-to-date.
+        return 0;
+      }
+    }
+    return Date.now() - this.oldestUncommittedChange.getTime();
   }
 }
 
