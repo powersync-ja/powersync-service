@@ -45,6 +45,8 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
    * Flush and commit any saved ops. This creates a new checkpoint by default.
    *
    * Only call this after a transaction.
+   *
+   * Returns true if either (1) a new checkpoint was created, or (2) there are no changes to commit.
    */
   commit(lsn: string, options?: BucketBatchCommitOptions): Promise<boolean>;
 

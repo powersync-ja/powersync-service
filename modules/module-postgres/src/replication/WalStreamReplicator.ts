@@ -48,4 +48,30 @@ export class WalStreamReplicator extends replication.AbstractReplicator<WalStrea
   async testConnection() {
     return await PostgresModule.testConnection(this.connectionFactory.dbConnectionConfig);
   }
+
+  async getReplicationLag(): Promise<number | undefined> {
+    const lag = await super.getReplicationLag();
+    if (lag != null) {
+      return lag;
+    }
+
+    // Booting or in an error loop. Check last active replication status.
+    // This includes sync rules in an ERROR state.
+    const content = await this.storage.getActiveSyncRulesContent();
+    if (content == null) {
+      return undefined;
+    }
+    // Measure the lag from the last commit or keepalive timestamp.
+    // This is not 100% accurate since it is the commit time in the storage db rather than
+    // the source db, but it's the best we have for postgres.
+
+    const checkpointTs = content.last_checkpoint_ts?.getTime() ?? 0;
+    const keepaliveTs = content.last_keepalive_ts?.getTime() ?? 0;
+    const latestTs = Math.max(checkpointTs, keepaliveTs);
+    if (latestTs != 0) {
+      return Date.now() - latestTs;
+    }
+
+    return undefined;
+  }
 }

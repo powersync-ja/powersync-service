@@ -93,11 +93,16 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         process.exit(1);
       }, 1000);
     });
-    this.metrics.getObservableGauge(ReplicationMetric.REPLICATION_LAG_SECONDS).setValueProvider(() => {
-      return this.getReplicationLag().catch((e) => {
+    this.metrics.getObservableGauge(ReplicationMetric.REPLICATION_LAG_SECONDS).setValueProvider(async () => {
+      const lag = await this.getReplicationLag().catch((e) => {
         this.logger.error('Failed to get replication lag', e);
         return undefined;
       });
+      if (lag == null) {
+        return undefined;
+      }
+      // ms to seconds
+      return Math.round(lag / 1000);
     });
   }
 
@@ -258,7 +263,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   abstract testConnection(): Promise<ConnectionTestResult>;
 
   /**
-   * Measure replication lag in seconds.
+   * Measure replication lag in milliseconds.
    *
    * In general, this is the difference between now() and the time the oldest record, that we haven't committed yet,
    * has been written (committed) to the source database.

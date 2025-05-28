@@ -620,6 +620,7 @@ export class MongoBucketBatch
       // When re-applying transactions, don't create a new checkpoint until
       // we are past the last transaction.
       logger.info(`Re-applied transaction ${lsn} - skipping checkpoint`);
+      // Cannot create a checkpoint yet - return false
       return false;
     }
     if (lsn < this.no_checkpoint_before_lsn) {
@@ -648,11 +649,13 @@ export class MongoBucketBatch
         { session: this.session }
       );
 
+      // Cannot create a checkpoint yet - return false
       return false;
     }
 
     if (!createEmptyCheckpoints && this.persisted_op == null) {
-      return false;
+      // Nothing to commit - also return true
+      return true;
     }
 
     const now = new Date();
