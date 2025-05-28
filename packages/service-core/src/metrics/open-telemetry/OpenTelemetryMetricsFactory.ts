@@ -1,12 +1,11 @@
 import { Meter, ValueType } from '@opentelemetry/api';
 import {
   Counter,
-  ObservableGauge,
-  UpDownCounter,
   MetricMetadata,
   MetricsFactory,
+  ObservableGauge,
   Precision,
-  Gauge
+  UpDownCounter
 } from '../metrics-interfaces.js';
 
 export class OpenTelemetryMetricsFactory implements MetricsFactory {
@@ -18,14 +17,6 @@ export class OpenTelemetryMetricsFactory implements MetricsFactory {
 
   createCounter(metadata: MetricMetadata): Counter {
     return this.meter.createCounter(metadata.name, {
-      description: metadata.description,
-      unit: metadata.unit,
-      valueType: this.toValueType(metadata.precision)
-    });
-  }
-
-  createGauge(metadata: MetricMetadata): Gauge {
-    return this.meter.createGauge(metadata.name, {
       description: metadata.description,
       unit: metadata.unit,
       valueType: this.toValueType(metadata.precision)

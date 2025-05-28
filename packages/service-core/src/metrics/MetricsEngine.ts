@@ -1,12 +1,5 @@
 import { logger, ServiceAssertionError } from '@powersync/lib-services-framework';
-import {
-  Counter,
-  UpDownCounter,
-  ObservableGauge,
-  MetricMetadata,
-  MetricsFactory,
-  Gauge
-} from './metrics-interfaces.js';
+import { Counter, UpDownCounter, ObservableGauge, MetricMetadata, MetricsFactory } from './metrics-interfaces.js';
 
 export interface MetricsEngineOptions {
   factory: MetricsFactory;
@@ -17,13 +10,11 @@ export class MetricsEngine {
   private counters: Map<string, Counter>;
   private upDownCounters: Map<string, UpDownCounter>;
   private observableGauges: Map<string, ObservableGauge>;
-  private gauges: Map<string, Gauge>;
 
   constructor(private options: MetricsEngineOptions) {
     this.counters = new Map();
     this.upDownCounters = new Map();
     this.observableGauges = new Map();
-    this.gauges = new Map();
   }
 
   private get factory(): MetricsFactory {
@@ -62,17 +53,6 @@ export class MetricsEngine {
     return observableGauge;
   }
 
-  createGauge(metadata: MetricMetadata): Gauge {
-    if (this.gauges.has(metadata.name)) {
-      logger.warn(`Gauge with name ${metadata.name} already created and registered, skipping.`);
-      return this.gauges.get(metadata.name)!;
-    }
-
-    const gauge = this.factory.createGauge(metadata);
-    this.gauges.set(metadata.name, gauge);
-    return gauge;
-  }
-
   getCounter(name: string): Counter {
     const counter = this.counters.get(name);
     if (!counter) {
@@ -95,14 +75,6 @@ export class MetricsEngine {
       throw new ServiceAssertionError(`ObservableGauge '${name}' has not been created and registered yet.`);
     }
     return observableGauge;
-  }
-
-  getGauge(name: string): Gauge {
-    const gauge = this.gauges.get(name);
-    if (!gauge) {
-      throw new ServiceAssertionError(`Gauge '${name}' has not been created and registered yet.`);
-    }
-    return gauge;
   }
 
   public async start(): Promise<void> {
