@@ -17,7 +17,7 @@ import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
 import { MongoManager } from './MongoManager.js';
 import { constructAfterRecord, createCheckpoint, getCacheIdentifier, getMongoRelation } from './MongoRelation.js';
-import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
+import { CHECKPOINTS_COLLECTION, timestampToDate } from './replication-utils.js';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;
@@ -559,7 +559,7 @@ export class ChangeStream {
         const resumeAfter = lastLsn.resumeToken;
         // It is normal for this to be a minute or two old when there is a low volume
         // of ChangeStream events.
-        const tokenAgeSeconds = Math.round(Date.now() / 1000 - startAfter.getHighBitsUnsigned());
+        const tokenAgeSeconds = Math.round((Date.now() - timestampToDate(startAfter).getTime()) / 1000);
 
         logger.info(
           `${this.logPrefix} Resume streaming at ${startAfter.inspect()} / ${lastLsn} | Token age: ${tokenAgeSeconds}s`
@@ -666,7 +666,7 @@ export class ChangeStream {
               // Log the token update. This helps as a general "replication is still active" message in the logs.
               // This token would typically be around 10s behind.
               logger.info(
-                `${this.logPrefix} Idle change stream. Persisted resumeToken for ${new Date(timestamp.getHighBitsUnsigned() * 1000).toISOString()}`
+                `${this.logPrefix} Idle change stream. Persisted resumeToken for ${timestampToDate(timestamp).toISOString()}`
               );
               this.isStartingReplication = false;
             }
@@ -788,7 +788,7 @@ export class ChangeStream {
             });
             if (table.syncAny) {
               if (this.oldestUncommittedChange == null && changeDocument.clusterTime != null) {
-                this.oldestUncommittedChange = new Date(changeDocument.clusterTime.getHighBitsUnsigned() * 1000);
+                this.oldestUncommittedChange = timestampToDate(changeDocument.clusterTime);
               }
               await this.writeChange(batch, table, changeDocument);
             }

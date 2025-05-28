@@ -14,6 +14,8 @@ export interface PersistedSyncRulesContent {
    */
   readonly active: boolean;
 
+  readonly last_checkpoint_lsn: string | null;
+
   readonly last_fatal_error?: string | null;
   readonly last_keepalive_ts?: Date | null;
   readonly last_checkpoint_ts?: Date | null;

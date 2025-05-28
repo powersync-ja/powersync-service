@@ -1,4 +1,3 @@
-import { isMongoServerError } from '@powersync/lib-service-mongodb';
 import { container } from '@powersync/lib-services-framework';
 import { replication } from '@powersync/service-core';
 
@@ -19,11 +18,11 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
   }
 
   async cleanUp(): Promise<void> {
-    // TODO: Implement?
+    // Nothing needed here
   }
 
   async keepAlive() {
-    // TODO: Implement?
+    // Nothing needed here
   }
 
   private get slotName() {
@@ -102,24 +101,6 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
   }
 
   async getReplicationLag(): Promise<number | undefined> {
-    const lag = await this.lastStream?.getReplicationLag();
-    if (lag == null) {
-      // Booting; potentially in an error loop. Check last replication status.
-      const content = await this.storage.factory.getActiveSyncRulesContent();
-      if (content == null) {
-        return undefined;
-      }
-      if (content.id == this.storage.group_id) {
-        // Technically this is the time we wrote to our storage, not the source db time.
-        // This is the best we can currently do while not actively replicating.
-        const checkpointTs = content?.last_checkpoint_ts?.getTime() ?? 0;
-        const keepaliveTs = content?.last_keepalive_ts?.getTime() ?? 0;
-        const latestTs = Math.max(checkpointTs, keepaliveTs);
-        if (latestTs != 0) {
-          return Date.now() - latestTs;
-        }
-      }
-    }
-    return lag;
+    return this.lastStream?.getReplicationLag();
   }
 }
