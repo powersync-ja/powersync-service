@@ -12,7 +12,7 @@ import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 
 import { ChangeStream, ChangeStreamOptions } from '@module/replication/ChangeStream.js';
 import { MongoManager } from '@module/replication/MongoManager.js';
-import { createCheckpoint } from '@module/replication/MongoRelation.js';
+import { createCheckpoint, STANDALONE_CHECKPOINT_ID } from '@module/replication/MongoRelation.js';
 import { NormalizedMongoConnectionConfig } from '@module/types/types.js';
 
 import { TEST_CONNECTION_OPTIONS, clearTestDb } from './util.js';
@@ -160,7 +160,7 @@ export async function getClientCheckpoint(
   options?: { timeout?: number }
 ): Promise<InternalOpId> {
   const start = Date.now();
-  const lsn = await createCheckpoint(client, db);
+  const lsn = await createCheckpoint(client, db, STANDALONE_CHECKPOINT_ID);
   // This old API needs a persisted checkpoint id.
   // Since we don't use LSNs anymore, the only way to get that is to wait.
 

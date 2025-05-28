@@ -16,7 +16,13 @@ import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
 import { MongoManager } from './MongoManager.js';
-import { constructAfterRecord, createCheckpoint, getCacheIdentifier, getMongoRelation } from './MongoRelation.js';
+import {
+  constructAfterRecord,
+  createCheckpoint,
+  getCacheIdentifier,
+  getMongoRelation,
+  STANDALONE_CHECKPOINT_ID
+} from './MongoRelation.js';
 import { CHECKPOINTS_COLLECTION, timestampToDate } from './replication-utils.js';
 
 export interface ChangeStreamOptions {
@@ -80,6 +86,8 @@ export class ChangeStream {
    * We can only compute replication lag if isStartingReplication == false, or oldestUncommittedChange is present.
    */
   private isStartingReplication = true;
+
+  private checkpointStreamId = new mongo.ObjectId();
 
   constructor(options: ChangeStreamOptions) {
     this.storage = options.storage;
@@ -259,6 +267,11 @@ export class ChangeStream {
       await this.defaultDb.createCollection(CHECKPOINTS_COLLECTION, {
         changeStreamPreAndPostImages: { enabled: true }
       });
+    } else {
+      // Clear the collection on startup, to keep it clean
+      // We never query this collection directly, and don't want to keep the data around.
+      // We only use this to get data into the oplog/changestream.
+      await this.defaultDb.collection(CHECKPOINTS_COLLECTION).deleteMany({});
     }
   }
 
@@ -446,7 +459,7 @@ export class ChangeStream {
       await batch.truncate([result.table]);
 
       await this.snapshotTable(batch, result.table);
-      const no_checkpoint_before_lsn = await createCheckpoint(this.client, this.defaultDb);
+      const no_checkpoint_before_lsn = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
 
       const [table] = await batch.markSnapshotDone([result.table], no_checkpoint_before_lsn);
       return table;
@@ -621,7 +634,11 @@ export class ChangeStream {
         // Always start with a checkpoint.
         // This helps us to clear errors when restarting, even if there is
         // no data to replicate.
-        let waitForCheckpointLsn: string | null = await createCheckpoint(this.client, this.defaultDb);
+        let waitForCheckpointLsn: string | null = await createCheckpoint(
+          this.client,
+          this.defaultDb,
+          this.checkpointStreamId
+        );
 
         let splitDocument: mongo.ChangeStreamDocument | null = null;
 
@@ -726,13 +743,9 @@ export class ChangeStream {
             }
           }
 
-          if (
-            (changeDocument.operationType == 'insert' ||
-              changeDocument.operationType == 'update' ||
-              changeDocument.operationType == 'replace' ||
-              changeDocument.operationType == 'drop') &&
-            changeDocument.ns.coll == CHECKPOINTS_COLLECTION
-          ) {
+          const ns = 'ns' in changeDocument && 'coll' in changeDocument.ns ? changeDocument.ns : undefined;
+
+          if (ns?.coll == CHECKPOINTS_COLLECTION) {
             /**
              * Dropping the database does not provide an `invalidate` event.
              * We typically would receive `drop` events for the collection which we
@@ -753,6 +766,29 @@ export class ChangeStream {
               );
             }
 
+            if (
+              !(
+                changeDocument.operationType == 'insert' ||
+                changeDocument.operationType == 'update' ||
+                changeDocument.operationType == 'replace'
+              )
+            ) {
+              continue;
+            }
+
+            // We handle two types of checkpoint events:
+            // 1. "Standalone" checkpoints, typically write checkpoints. We want to process these
+            //    immediately, regardless of where they were created.
+            // 2. "Batch" checkpoints for the current stream. This is used as a form of dynamic rate
+            //    limiting of commits, so we specifically want to exclude checkpoints from other streams.
+            //
+            // It may be useful to also throttle commits due to standalone checkpoints in the future.
+            // However, these typically have a much lower rate than batch checkpoints, so we don't do that for now.
+
+            const checkpointId = changeDocument.documentKey._id as string | mongo.ObjectId;
+            if (!(checkpointId == STANDALONE_CHECKPOINT_ID || this.checkpointStreamId.equals(checkpointId))) {
+              continue;
+            }
             const { comparable: lsn } = new MongoLSN({
               timestamp: changeDocument.clusterTime!,
               resume_token: changeDocument._id
@@ -774,7 +810,7 @@ export class ChangeStream {
             changeDocument.operationType == 'delete'
           ) {
             if (waitForCheckpointLsn == null) {
-              waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb);
+              waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
             }
             const rel = getMongoRelation(changeDocument.ns);
             const table = await this.getRelation(batch, rel, {
