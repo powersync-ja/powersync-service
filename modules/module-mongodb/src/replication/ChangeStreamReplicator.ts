@@ -42,8 +42,8 @@ export class ChangeStreamReplicator extends replication.AbstractReplicator<Chang
     return await MongoModule.testConnection(this.connectionFactory.dbConnectionConfig);
   }
 
-  async getReplicationLag(): Promise<number | undefined> {
-    const lag = await super.getReplicationLag();
+  async getReplicationLagMillis(): Promise<number | undefined> {
+    const lag = await super.getReplicationLagMillis();
     if (lag != null) {
       return lag;
     }

@@ -82,5 +82,5 @@ export abstract class AbstractReplicationJob {
   /**
    * Get replication lag for this job in ms.
    */
-  abstract getReplicationLag(): Promise<number | undefined>;
+  abstract getReplicationLagMillis(): Promise<number | undefined>;
 }

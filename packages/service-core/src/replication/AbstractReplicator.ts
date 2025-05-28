@@ -94,7 +94,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       }, 1000);
     });
     this.metrics.getObservableGauge(ReplicationMetric.REPLICATION_LAG_SECONDS).setValueProvider(async () => {
-      const lag = await this.getReplicationLag().catch((e) => {
+      const lag = await this.getReplicationLagMillis().catch((e) => {
         this.logger.error('Failed to get replication lag', e);
         return undefined;
       });
@@ -280,7 +280,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
    *
    * "processing" replication streams are not taken into account for this metric.
    */
-  async getReplicationLag(): Promise<number | undefined> {
-    return this.activeReplicationJob?.getReplicationLag();
+  async getReplicationLagMillis(): Promise<number | undefined> {
+    return this.activeReplicationJob?.getReplicationLagMillis();
   }
 }

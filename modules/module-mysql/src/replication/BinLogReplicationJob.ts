@@ -93,7 +93,7 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
     }
   }
 
-  getReplicationLag(): Promise<number | undefined> {
+  getReplicationLagMillis(): Promise<number | undefined> {
     throw new Error('Method not implemented.');
   }
 }

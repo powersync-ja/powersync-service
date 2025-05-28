@@ -49,8 +49,8 @@ export class WalStreamReplicator extends replication.AbstractReplicator<WalStrea
     return await PostgresModule.testConnection(this.connectionFactory.dbConnectionConfig);
   }
 
-  async getReplicationLag(): Promise<number | undefined> {
-    const lag = await super.getReplicationLag();
+  async getReplicationLagMillis(): Promise<number | undefined> {
+    const lag = await super.getReplicationLagMillis();
     if (lag != null) {
       return lag;
     }

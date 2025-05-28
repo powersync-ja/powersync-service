@@ -47,7 +47,7 @@ export interface RouteAPI {
    * @returns The replication lag: that is the amount of data which has not been
    *          replicated yet, in bytes.
    */
-  getReplicationLag(options: ReplicationLagOptions): Promise<number | undefined>;
+  getReplicationLagBytes(options: ReplicationLagOptions): Promise<number | undefined>;
 
   /**
    * Get the current LSN or equivalent replication HEAD position identifier

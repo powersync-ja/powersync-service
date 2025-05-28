@@ -826,7 +826,7 @@ export class ChangeStream {
     );
   }
 
-  async getReplicationLag(): Promise<number | undefined> {
+  async getReplicationLagMillis(): Promise<number | undefined> {
     if (this.oldestUncommittedChange == null) {
       if (this.isStartingReplication) {
         // We don't have anything to compute replication lag with yet.
