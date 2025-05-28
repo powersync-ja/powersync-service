@@ -621,7 +621,6 @@ export class ChangeStream {
         // Always start with a checkpoint.
         // This helps us to clear errors when restarting, even if there is
         // no data to replicate.
-        let checkpointSourceTimestamp: mongo.Timestamp | null = null;
         let waitForCheckpointLsn: string | null = await createCheckpoint(this.client, this.defaultDb);
 
         let splitDocument: mongo.ChangeStreamDocument | null = null;
@@ -776,7 +775,6 @@ export class ChangeStream {
           ) {
             if (waitForCheckpointLsn == null) {
               waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb);
-              checkpointSourceTimestamp = changeDocument.clusterTime ?? null;
             }
             const rel = getMongoRelation(changeDocument.ns);
             const table = await this.getRelation(batch, rel, {
