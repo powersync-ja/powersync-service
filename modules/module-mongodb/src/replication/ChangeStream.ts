@@ -759,7 +759,7 @@ export class ChangeStream {
             // It may be useful to also throttle commits due to standalone checkpoints in the future.
             // However, these typically have a much lower rate than batch checkpoints, so we don't do that for now.
 
-            const checkpointId = changeDocument._id as string | mongo.ObjectId;
+            const checkpointId = changeDocument.documentKey._id as string | mongo.ObjectId;
             if (!(checkpointId == STANDALONE_CHECKPOINT_ID || this.checkpointStreamId.equals(checkpointId))) {
               continue;
             }
