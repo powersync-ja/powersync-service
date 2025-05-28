@@ -252,6 +252,10 @@ FROM pg_replication_slots WHERE slot_name = $1 LIMIT 1;`,
 
     const r = await callback(currentLsn);
 
+    // Note: This may not reliably trigger a new replication message on Postgres 11 or 12,
+    // in which case there could be a delay in the client receiving the write checkpoint acknowledgement.
+    // Postgres 12 already reached EOL, and this is not a critical issue, so we're not fixing it.
+    // On postgres 13+, this works reliably.
     await lib_postgres.retriedQuery(this.pool, KEEPALIVE_STATEMENT);
 
     return r;
