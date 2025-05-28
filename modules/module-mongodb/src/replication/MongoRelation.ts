@@ -151,7 +151,7 @@ function filterJsonData(data: any, depth = 0): any {
  * Id for checkpoints not associated with any specific replication stream.
  *
  * Use this for write checkpoints, or any other case where we want to process
- * the checkpoint immeidately, and not wait for batching.
+ * the checkpoint immediately, and not wait for batching.
  */
 export const STANDALONE_CHECKPOINT_ID = '_standalone_checkpoint';
 

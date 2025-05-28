@@ -760,9 +760,7 @@ export class ChangeStream {
             // However, these typically have a much lower rate than batch checkpoints, so we don't do that for now.
 
             const checkpointId = changeDocument._id as string | mongo.ObjectId;
-            if (
-              !(checkpointId == STANDALONE_CHECKPOINT_ID || this.checkpointStreamId.equals(this.checkpointStreamId))
-            ) {
+            if (!(checkpointId == STANDALONE_CHECKPOINT_ID || this.checkpointStreamId.equals(checkpointId))) {
               continue;
             }
             const { comparable: lsn } = new MongoLSN({
