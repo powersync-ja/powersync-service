@@ -147,15 +147,27 @@ function filterJsonData(data: any, depth = 0): any {
   }
 }
 
-export async function createCheckpoint(client: mongo.MongoClient, db: mongo.Db): Promise<string> {
+/**
+ * Id for checkpoints not associated with any specific replication stream.
+ *
+ * Use this for write checkpoints, or any other case where we want to process
+ * the checkpoint immediately, and not wait for batching.
+ */
+export const STANDALONE_CHECKPOINT_ID = '_standalone_checkpoint';
+
+export async function createCheckpoint(
+  client: mongo.MongoClient,
+  db: mongo.Db,
+  id: mongo.ObjectId | string
+): Promise<string> {
   const session = client.startSession();
   try {
-    // Note: If multiple PowerSync instances are replicating the same source database,
-    // they'll modify the same checkpoint document. This is fine - it could create
-    // more replication load than required, but won't break anything.
+    // We use an unique id per process, and clear documents on startup.
+    // This is so that we can filter events for our own process only, and ignore
+    // events from other processes.
     await db.collection(CHECKPOINTS_COLLECTION).findOneAndUpdate(
       {
-        _id: 'checkpoint' as any
+        _id: id as any
       },
       {
         $inc: { i: 1 }
