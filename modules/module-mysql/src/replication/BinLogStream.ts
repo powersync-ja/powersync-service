@@ -309,7 +309,7 @@ AND table_type = 'BASE TABLE';`,
               await framework.container.probes.touch();
             }
           }
-          await batch.commit(headGTID.comparable, { oldestUncommittedChange: this.oldestUncommittedChange });
+          await batch.commit(headGTID.comparable);
         }
       );
       logger.info(`Initial replication done`);
@@ -499,7 +499,8 @@ AND table_type = 'BASE TABLE';`,
                       filename: binLogPositionState.filename,
                       offset: evt.nextPosition
                     }
-                  }).comparable
+                  }).comparable,
+                  { oldestUncommittedChange: this.oldestUncommittedChange }
                 );
                 if (didCommit) {
                   this.oldestUncommittedChange = null;
