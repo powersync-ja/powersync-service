@@ -309,8 +309,8 @@ export class PersistedBatch {
 
     if (flushedSomething) {
       const duration = Math.round(performance.now() - startAt);
-      if (options?.batchReplicationStartAt != null) {
-        const replicationLag = Math.round((Date.now() - options.batchReplicationStartAt.getTime()) / 1000);
+      if (options?.oldestUncommittedChange != null) {
+        const replicationLag = Math.round((Date.now() - options.oldestUncommittedChange.getTime()) / 1000);
 
         logger.info(
           `powersync_${this.group_id} Flushed ${this.bucketData.length} + ${this.bucketParameters.length} + ${

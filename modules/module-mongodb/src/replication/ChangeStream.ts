@@ -762,7 +762,7 @@ export class ChangeStream {
             if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
               waitForCheckpointLsn = null;
             }
-            const didCommit = await batch.commit(lsn, { batchReplicationStartAt: this.oldestUncommittedChange });
+            const didCommit = await batch.commit(lsn, { oldestUncommittedChange: this.oldestUncommittedChange });
 
             if (didCommit) {
               this.oldestUncommittedChange = null;

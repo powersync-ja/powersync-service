@@ -309,7 +309,7 @@ AND table_type = 'BASE TABLE';`,
               await framework.container.probes.touch();
             }
           }
-          await batch.commit(headGTID.comparable);
+          await batch.commit(headGTID.comparable, { oldestUncommittedChange: this.oldestUncommittedChange });
         }
       );
       logger.info(`Initial replication done`);

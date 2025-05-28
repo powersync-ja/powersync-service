@@ -8,7 +8,7 @@ import { InternalOpId } from '../util/utils.js';
 
 export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptions = {
   createEmptyCheckpoints: true,
-  batchReplicationStartAt: null
+  oldestUncommittedChange: null
 };
 
 export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageListener>, AsyncDisposable {
@@ -159,11 +159,11 @@ export interface BucketBatchCommitOptions {
   createEmptyCheckpoints?: boolean;
 
   /**
-   * The time that we started this batch, in the scale of performance.now().
+   * The timestamp of the first change in this batch, according to the source database.
    *
-   * Used to estimate replication delay.
+   * Used to estimate replication lag.
    */
-  batchReplicationStartAt?: Date | null;
+  oldestUncommittedChange?: Date | null;
 }
 
 export type ResolvedBucketBatchCommitOptions = Required<BucketBatchCommitOptions>;

@@ -731,7 +731,7 @@ WHERE  oid = $1::regclass`,
                 skipKeepalive = false;
                 const didCommit = await batch.commit(msg.lsn!, {
                   createEmptyCheckpoints,
-                  batchReplicationStartAt: this.oldestUncommittedChange
+                  oldestUncommittedChange: this.oldestUncommittedChange
                 });
                 await this.ack(msg.lsn!, replicationStream);
                 if (didCommit) {
@@ -804,7 +804,7 @@ WHERE  oid = $1::regclass`,
       return {
         // Keep the same behaviour as before allowing Postgres storage.
         createEmptyCheckpoints: true,
-        batchReplicationStartAt: null
+        oldestUncommittedChange: null
       };
     }
 
@@ -828,7 +828,7 @@ WHERE  oid = $1::regclass`,
        * and sync bucket storage. Creating empty checkpoints will cause WAL feedback loops.
        */
       createEmptyCheckpoints: replicationIdentifier.database_name != parsedStorageIdentifier.database_name,
-      batchReplicationStartAt: null
+      oldestUncommittedChange: null
     };
   }
 
