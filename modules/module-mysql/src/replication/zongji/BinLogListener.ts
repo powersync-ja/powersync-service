@@ -5,6 +5,10 @@ import * as zongji_utils from './zongji-utils.js';
 import { logger } from '@powersync/lib-services-framework';
 import { MySQLConnectionManager } from '../MySQLConnectionManager.js';
 
+// Maximum time the processing queue can be paused before resuming automatically
+// MySQL server will automatically terminate replication connections after 60 seconds of inactivity, so this guards against that.
+const MAX_QUEUE_PAUSE_TIME_MS = 45_000;
+
 export type Row = Record<string, any>;
 
 export interface BinLogEventHandler {
@@ -133,7 +137,12 @@ export class BinLogListener {
           `Binlog processing queue has reached its memory limit of [${this.connectionManager.options.binlog_queue_memory_limit}MB]. Pausing Binlog listener.`
         );
         zongji.pause();
-        await this.processingQueue.empty();
+        const resumeTimeoutPromise = new Promise((resolve) => {
+          setTimeout(() => resolve('timeout'), MAX_QUEUE_PAUSE_TIME_MS);
+        });
+
+        await Promise.race([this.processingQueue.empty(), resumeTimeoutPromise]);
+
         logger.info(`Binlog processing queue backlog cleared. Resuming Binlog listener.`);
         zongji.resume();
       }
@@ -162,6 +171,7 @@ export class BinLogListener {
       // The timeout here must be greater than the master_heartbeat_period.
       const socket = this.zongji.connection._socket!;
       socket.setTimeout(60_000, () => {
+        logger.info('Destroying socket due to replication connection timeout.');
         socket.destroy(new Error('Replication connection timeout.'));
       });
       logger.info(
