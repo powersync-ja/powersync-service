@@ -1,4 +1,4 @@
-import { storage } from '@powersync/service-core';
+import { storage, TableSnapshotStatus } from '@powersync/service-core';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
@@ -73,6 +73,13 @@ export interface SourceTableDocument {
   replica_id_columns: string[] | null;
   replica_id_columns2: { name: string; type_oid?: number; type?: string }[] | undefined;
   snapshot_done: boolean | undefined;
+  snapshot_status: SourceTableDocumentSnapshotStatus | undefined;
+}
+
+export interface SourceTableDocumentSnapshotStatus {
+  total_estimated_count: number;
+  replicated_count: number;
+  last_key: bson.Binary | null;
 }
 
 /**

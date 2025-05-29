@@ -448,6 +448,14 @@ export class PostgresBucketBatch
     });
   }
 
+  async updateTableProgress(
+    table: storage.SourceTable,
+    progress: Partial<storage.TableSnapshotStatus>
+  ): Promise<storage.SourceTable> {
+    // TODO: implement
+    return table;
+  }
+
   addCustomWriteCheckpoint(checkpoint: storage.BatchedCustomWriteCheckpointOptions): void {
     this.write_checkpoint_batch.push({
       ...checkpoint,

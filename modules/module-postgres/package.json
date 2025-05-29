@@ -45,6 +45,7 @@
   "devDependencies": {
     "@powersync/service-core-tests": "workspace:*",
     "@powersync/service-module-mongodb-storage": "workspace:*",
+    "@powersync/lib-service-postgres": "workspace:*",
     "@powersync/service-module-postgres-storage": "workspace:*",
     "@types/semver": "^7.5.4"
   }

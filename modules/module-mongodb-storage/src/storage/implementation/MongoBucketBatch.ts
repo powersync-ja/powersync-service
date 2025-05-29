@@ -11,7 +11,14 @@ import {
   ReplicationAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
-import { deserializeBson, InternalOpId, SaveOperationTag, storage, utils } from '@powersync/service-core';
+import {
+  BucketStorageMarkRecordUnavailable,
+  deserializeBson,
+  InternalOpId,
+  SaveOperationTag,
+  storage,
+  utils
+} from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
 import { PowerSyncMongo } from './db.js';
 import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
@@ -46,6 +53,8 @@ export interface MongoBucketBatchOptions {
    * Set to true for initial replication.
    */
   skipExistingRows: boolean;
+
+  markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
 }
 
 export class MongoBucketBatch
@@ -65,6 +74,7 @@ export class MongoBucketBatch
 
   private batch: OperationBatch | null = null;
   private write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
+  private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
 
   /**
    * Last LSN received associated with a checkpoint.
@@ -96,6 +106,7 @@ export class MongoBucketBatch
     this.sync_rules = options.syncRules;
     this.storeCurrentData = options.storeCurrentData;
     this.skipExistingRows = options.skipExistingRows;
+    this.markRecordUnavailable = options.markRecordUnavailable;
     this.batch = new OperationBatch();
 
     this.persisted_op = options.keepaliveOp ?? null;
@@ -312,9 +323,14 @@ export class MongoBucketBatch
         existing_lookups = [];
         // Log to help with debugging if there was a consistency issue
         if (this.storeCurrentData) {
-          logger.warn(
-            `Cannot find previous record for update on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
-          );
+          if (this.markRecordUnavailable != null) {
+            // This will trigger a "resnapshot" of the record.
+            this.markRecordUnavailable(record);
+          } else {
+            logger.warn(
+              `Cannot find previous record for update on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
+            );
+          }
         }
       } else {
         existing_buckets = result.buckets;
@@ -843,6 +859,37 @@ export class MongoBucketBatch
     return last_op!;
   }
 
+  async updateTableProgress(
+    table: storage.SourceTable,
+    progress: Partial<storage.TableSnapshotStatus>
+  ): Promise<storage.SourceTable> {
+    const copy = table.clone();
+    const snapshotStatus = {
+      totalEstimatedCount: progress.totalEstimatedCount ?? copy.snapshotStatus?.totalEstimatedCount ?? 0,
+      replicatedCount: progress.replicatedCount ?? copy.snapshotStatus?.replicatedCount ?? 0,
+      lastKey: progress.lastKey ?? copy.snapshotStatus?.lastKey ?? null
+    };
+    copy.snapshotStatus = snapshotStatus;
+
+    await this.withTransaction(async () => {
+      await this.db.source_tables.updateOne(
+        { _id: table.id },
+        {
+          $set: {
+            snapshot_status: {
+              last_key: snapshotStatus.lastKey == null ? null : new bson.Binary(snapshotStatus.lastKey),
+              total_estimated_count: snapshotStatus.totalEstimatedCount,
+              replicated_count: snapshotStatus.replicatedCount
+            }
+          }
+        },
+        { session: this.session }
+      );
+    });
+
+    return copy;
+  }
+
   async markSnapshotDone(tables: storage.SourceTable[], no_checkpoint_before_lsn: string) {
     const session = this.session;
     const ids = tables.map((table) => table.id);
@@ -853,6 +900,9 @@ export class MongoBucketBatch
         {
           $set: {
             snapshot_done: true
+          },
+          $unset: {
+            snapshot_status: 1
           }
         },
         { session }
@@ -876,17 +926,8 @@ export class MongoBucketBatch
       }
     });
     return tables.map((table) => {
-      const copy = new storage.SourceTable(
-        table.id,
-        table.connectionTag,
-        table.objectId,
-        table.schema,
-        table.table,
-        table.replicaIdColumns,
-        table.snapshotComplete
-      );
-      copy.syncData = table.syncData;
-      copy.syncParameters = table.syncParameters;
+      const copy = table.clone();
+      copy.snapshotComplete = true;
       return copy;
     });
   }

@@ -3,187 +3,152 @@
 import { JsonContainer } from '@powersync/service-jsonbig';
 import { dateToSqlite, lsnMakeComparable, timestampToSqlite, timestamptzToSqlite } from './util.js';
 
+export enum PgTypeOid {
+  TEXT = 25,
+  UUID = 2950,
+  VARCHAR = 1043,
+  BOOL = 16,
+  BYTEA = 17,
+  INT2 = 21,
+  INT4 = 23,
+  OID = 26,
+  INT8 = 20,
+  FLOAT4 = 700,
+  FLOAT8 = 701,
+  DATE = 1082,
+  TIMESTAMP = 1114,
+  TIMESTAMPTZ = 1184,
+  JSON = 114,
+  JSONB = 3802,
+  PG_LSN = 3220
+}
+
+// Generate using:
+//   select '[' || typarray || ', ' || oid || '], // ' || typname from pg_catalog.pg_type WHERE typarray != 0;
+const ARRAY_TO_ELEM_OID = new Map<number, number>([
+  [1000, 16], // bool
+  [1001, 17], // bytea
+  [1002, 18], // char
+  [1003, 19], // name
+  [1016, 20], // int8
+  [1005, 21], // int2
+  [1006, 22], // int2vector
+  [1007, 23], // int4
+  [1008, 24], // regproc
+  [1009, 25], // text
+  [1028, 26], // oid
+  [1010, 27], // tid
+  [1011, 28], // xid
+  [1012, 29], // cid
+  [1013, 30], // oidvector
+  [210, 71], // pg_type
+  [270, 75], // pg_attribute
+  [272, 81], // pg_proc
+  [273, 83], // pg_class
+  [199, 114], // json
+  [143, 142], // xml
+  [271, 5069], // xid8
+  [1017, 600], // point
+  [1018, 601], // lseg
+  [1019, 602], // path
+  [1020, 603], // box
+  [1027, 604], // polygon
+  [629, 628], // line
+  [1021, 700], // float4
+  [1022, 701], // float8
+  [0, 705], // unknown
+  [719, 718], // circle
+  [791, 790], // money
+  [1040, 829], // macaddr
+  [1041, 869], // inet
+  [651, 650], // cidr
+  [775, 774], // macaddr8
+  [1034, 1033], // aclitem
+  [1014, 1042], // bpchar
+  [1015, 1043], // varchar
+  [1182, 1082], // date
+  [1183, 1083], // time
+  [1115, 1114], // timestamp
+  [1185, 1184], // timestamptz
+  [1187, 1186], // interval
+  [1270, 1266], // timetz
+  [1561, 1560], // bit
+  [1563, 1562], // varbit
+  [1231, 1700], // numeric
+  [2201, 1790], // refcursor
+  [2207, 2202], // regprocedure
+  [2208, 2203], // regoper
+  [2209, 2204], // regoperator
+  [2210, 2205], // regclass
+  [4192, 4191], // regcollation
+  [2211, 2206], // regtype
+  [4097, 4096], // regrole
+  [4090, 4089], // regnamespace
+  [2951, 2950], // uuid
+  [3221, 3220], // pg_lsn
+  [3643, 3614], // tsvector
+  [3644, 3642], // gtsvector
+  [3645, 3615], // tsquery
+  [3735, 3734], // regconfig
+  [3770, 3769], // regdictionary
+  [3807, 3802], // jsonb
+  [4073, 4072] // jsonpath
+]);
+
+const ELEM_OID_TO_ARRAY = new Map<number, number>();
+ARRAY_TO_ELEM_OID.forEach((value, key) => {
+  ELEM_OID_TO_ARRAY.set(value, key);
+});
+
 export class PgType {
+  static getArrayType(typeOid: number): number | undefined {
+    return ELEM_OID_TO_ARRAY.get(typeOid);
+  }
+
   static decode(text: string, typeOid: number) {
-    switch (
-      typeOid // add line here when register new type
-    ) {
-      case 25 /* text    */:
-      case 2950 /* uuid    */:
-      case 1043 /* varchar */:
+    switch (typeOid) {
+      // add line here when register new type
+      case PgTypeOid.TEXT:
+      case PgTypeOid.UUID:
+      case PgTypeOid.VARCHAR:
         return text;
-      case 16 /* bool    */:
+      case PgTypeOid.BOOL:
         return text == 't';
-      case 17 /* bytea   */:
+      case PgTypeOid.BYTEA:
         return this._decodeBytea(text);
-      case 21 /* int2    */:
-      case 23 /* int4    */:
-      case 26 /* oid     */:
-      case 20 /* int8    */:
+      case PgTypeOid.INT2:
+      case PgTypeOid.INT4:
+      case PgTypeOid.OID:
+      case PgTypeOid.INT8:
         return BigInt(text);
-      case 700 /* float4  */:
-      case 701 /* float8  */:
+      case PgTypeOid.FLOAT4:
+      case PgTypeOid.FLOAT8:
         return Number(text);
-      case 1082 /* date */:
+      case PgTypeOid.DATE:
         return dateToSqlite(text);
-      case 1114 /* timestamp */:
+      case PgTypeOid.TIMESTAMP:
         return timestampToSqlite(text);
-      case 1184 /* timestamptz */:
+      case PgTypeOid.TIMESTAMPTZ:
         return timestamptzToSqlite(text);
-      case 114 /* json    */:
-      case 3802 /* jsonb   */:
+      case PgTypeOid.JSON:
+      case PgTypeOid.JSONB:
         // Don't parse the contents
         return new JsonContainer(text);
-      case 3220 /* pg_lsn  */:
+      case PgTypeOid.PG_LSN:
         return lsnMakeComparable(text);
     }
     const elemTypeid = this._elemTypeOid(typeOid);
-    if (elemTypeid) {
+    if (elemTypeid != null) {
       return this._decodeArray(text, elemTypeid);
     }
     return text; // unknown type
   }
-  static _elemTypeOid(arrayTypeOid: number) {
-    // select 'case ' || typarray || ': return ' || oid || '; // ' || typname from pg_catalog.pg_type WHERE typearray != 0;
-    switch (
-      arrayTypeOid // add line here when register new type
-    ) {
-      case 1000:
-        return 16; // bool
-      case 1001:
-        return 17; // bytea
-      case 1002:
-        return 18; // char
-      case 1003:
-        return 19; // name
-      case 1016:
-        return 20; // int8
-      case 1005:
-        return 21; // int2
-      case 1006:
-        return 22; // int2vector
-      case 1007:
-        return 23; // int4
-      case 1008:
-        return 24; // regproc
-      case 1009:
-        return 25; // text
-      case 1028:
-        return 26; // oid
-      case 1010:
-        return 27; // tid
-      case 1011:
-        return 28; // xid
-      case 1012:
-        return 29; // cid
-      case 1013:
-        return 30; // oidvector
-      case 210:
-        return 71; // pg_type
-      case 270:
-        return 75; // pg_attribute
-      case 272:
-        return 81; // pg_proc
-      case 273:
-        return 83; // pg_class
-      case 199:
-        return 114; // json
-      case 143:
-        return 142; // xml
-      case 271:
-        return 5069; // xid8
-      case 1017:
-        return 600; // point
-      case 1018:
-        return 601; // lseg
-      case 1019:
-        return 602; // path
-      case 1020:
-        return 603; // box
-      case 1027:
-        return 604; // polygon
-      case 629:
-        return 628; // line
-      case 1021:
-        return 700; // float4
-      case 1022:
-        return 701; // float8
-      case 0:
-        return 705; // unknown
-      case 719:
-        return 718; // circle
-      case 791:
-        return 790; // money
-      case 1040:
-        return 829; // macaddr
-      case 1041:
-        return 869; // inet
-      case 651:
-        return 650; // cidr
-      case 775:
-        return 774; // macaddr8
-      case 1034:
-        return 1033; // aclitem
-      case 1014:
-        return 1042; // bpchar
-      case 1015:
-        return 1043; // varchar
-      case 1182:
-        return 1082; // date
-      case 1183:
-        return 1083; // time
-      case 1115:
-        return 1114; // timestamp
-      case 1185:
-        return 1184; // timestamptz
-      case 1187:
-        return 1186; // interval
-      case 1270:
-        return 1266; // timetz
-      case 1561:
-        return 1560; // bit
-      case 1563:
-        return 1562; // varbit
-      case 1231:
-        return 1700; // numeric
-      case 2201:
-        return 1790; // refcursor
-      case 2207:
-        return 2202; // regprocedure
-      case 2208:
-        return 2203; // regoper
-      case 2209:
-        return 2204; // regoperator
-      case 2210:
-        return 2205; // regclass
-      case 4192:
-        return 4191; // regcollation
-      case 2211:
-        return 2206; // regtype
-      case 4097:
-        return 4096; // regrole
-      case 4090:
-        return 4089; // regnamespace
-      case 2951:
-        return 2950; // uuid
-      case 3221:
-        return 3220; // pg_lsn
-      case 3643:
-        return 3614; // tsvector
-      case 3644:
-        return 3642; // gtsvector
-      case 3645:
-        return 3615; // tsquery
-      case 3735:
-        return 3734; // regconfig
-      case 3770:
-        return 3769; // regdictionary
-      case 3807:
-        return 3802; // jsonb
-      case 4073:
-        return 4072; // jsonpath
-    }
+
+  static _elemTypeOid(arrayTypeOid: number): number | undefined {
+    // select 'case ' || typarray || ': return ' || oid || '; // ' || typname from pg_catalog.pg_type WHERE typarray != 0;
+    return ARRAY_TO_ELEM_OID.get(arrayTypeOid);
   }
+
   static _decodeArray(text: string, elemTypeOid: number): any {
     text = text.replace(/^\[.+=/, ''); // skip dimensions
     let result: any;

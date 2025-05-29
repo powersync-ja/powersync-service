@@ -146,7 +146,8 @@ export class MongoSyncBucketStorage
       noCheckpointBeforeLsn: doc?.no_checkpoint_before ?? options.zeroLSN,
       keepaliveOp: doc?.keepalive_op ? BigInt(doc.keepalive_op) : null,
       storeCurrentData: options.storeCurrentData,
-      skipExistingRows: options.skipExistingRows ?? false
+      skipExistingRows: options.skipExistingRows ?? false,
+      markRecordUnavailable: options.markRecordUnavailable
     });
     this.iterateListeners((cb) => cb.batchStarted?.(batch));
 
@@ -193,7 +194,8 @@ export class MongoSyncBucketStorage
           table_name: table,
           replica_id_columns: null,
           replica_id_columns2: columns,
-          snapshot_done: false
+          snapshot_done: false,
+          snapshot_status: undefined
         };
 
         await col.insertOne(doc, { session });
@@ -210,6 +212,14 @@ export class MongoSyncBucketStorage
       sourceTable.syncEvent = options.sync_rules.tableTriggersEvent(sourceTable);
       sourceTable.syncData = options.sync_rules.tableSyncsData(sourceTable);
       sourceTable.syncParameters = options.sync_rules.tableSyncsParameters(sourceTable);
+      sourceTable.snapshotStatus =
+        doc.snapshot_status == null
+          ? undefined
+          : {
+              lastKey: doc.snapshot_status.last_key?.buffer ?? null,
+              totalEstimatedCount: doc.snapshot_status.total_estimated_count,
+              replicatedCount: doc.snapshot_status.replicated_count
+            };
 
       let dropTables: storage.SourceTable[] = [];
       // Detect tables that are either renamed, or have different replica_id_columns
