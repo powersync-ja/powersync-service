@@ -8,7 +8,14 @@ import {
   ReplicationAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
-import { MetricsEngine, SaveOperationTag, SourceEntityDescriptor, SourceTable, storage } from '@powersync/service-core';
+import {
+  MetricsEngine,
+  RelationCache,
+  SaveOperationTag,
+  SourceEntityDescriptor,
+  SourceTable,
+  storage
+} from '@powersync/service-core';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { MongoLSN } from '../common/MongoLSN.js';
@@ -73,7 +80,7 @@ export class ChangeStream {
 
   private abort_signal: AbortSignal;
 
-  private relation_cache = new Map<string | number, storage.SourceTable>();
+  private relationCache = new RelationCache(getCacheIdentifier);
 
   private checkpointStreamId = new mongo.ObjectId();
 
@@ -178,11 +185,14 @@ export class ChangeStream {
   }
 
   async estimatedCount(table: storage.SourceTable): Promise<string> {
-    const db = this.client.db(table.schema);
-    const count = await db.collection(table.table).estimatedDocumentCount();
+    const count = await this.estimatedCountNumber(table);
     return `~${count}`;
   }
 
+  async estimatedCountNumber(table: storage.SourceTable): Promise<number> {
+    const db = this.client.db(table.schema);
+    return await db.collection(table.table).estimatedDocumentCount();
+  }
   /**
    * Start initial replication.
    *
@@ -228,7 +238,17 @@ export class ChangeStream {
           allSourceTables.push(...tables);
         }
 
+        let tablesWithStatus: SourceTable[] = [];
         for (let table of allSourceTables) {
+          let count = await this.estimatedCountNumber(table);
+          const updated = await batch.updateTableProgress(table, {
+            totalEstimatedCount: count
+          });
+          tablesWithStatus.push(updated);
+          this.relationCache.update(updated);
+        }
+
+        for (let table of tablesWithStatus) {
           await this.snapshotTable(batch, table);
           await batch.markSnapshotDone([table], MongoLSN.ZERO.comparable);
 
@@ -358,8 +378,7 @@ export class ChangeStream {
     descriptor: SourceEntityDescriptor,
     options: { snapshot: boolean }
   ): Promise<SourceTable> {
-    const cacheId = getCacheIdentifier(descriptor);
-    const existing = this.relation_cache.get(cacheId);
+    const existing = this.relationCache.get(descriptor);
     if (existing != null) {
       return existing;
     }
@@ -425,7 +444,7 @@ export class ChangeStream {
       entity_descriptor: descriptor,
       sync_rules: this.sync_rules
     });
-    this.relation_cache.set(getCacheIdentifier(descriptor), result.table);
+    this.relationCache.update(result.table);
 
     // Drop conflicting collections.
     // This is generally not expected for MongoDB source dbs, so we log an error.
@@ -800,7 +819,7 @@ export class ChangeStream {
             });
             if (table.syncAny) {
               await batch.drop([table]);
-              this.relation_cache.delete(getCacheIdentifier(rel));
+              this.relationCache.delete(table);
             }
           } else if (changeDocument.operationType == 'rename') {
             const relFrom = getMongoRelation(changeDocument.ns);
@@ -811,7 +830,7 @@ export class ChangeStream {
             });
             if (tableFrom.syncAny) {
               await batch.drop([tableFrom]);
-              this.relation_cache.delete(getCacheIdentifier(relFrom));
+              this.relationCache.delete(relFrom);
             }
             // Here we do need to snapshot the new table
             const collection = await this.getCollectionInfo(relTo.schema, relTo.name);

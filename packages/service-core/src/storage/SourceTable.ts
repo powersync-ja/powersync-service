@@ -2,6 +2,12 @@ import { DEFAULT_TAG } from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
 import { ColumnDescriptor } from './SourceEntity.js';
 
+export interface TableSnapshotStatus {
+  totalEstimatedCount: number;
+  replicatedCount: number;
+  lastKey: Uint8Array | null;
+}
+
 export class SourceTable {
   static readonly DEFAULT_TAG = DEFAULT_TAG;
 
@@ -32,6 +38,13 @@ export class SourceTable {
    */
   public syncEvent = true;
 
+  /**
+   * Always undefined if snapshotComplete = true.
+   *
+   * May be set if snapshotComplete = false.
+   */
+  public snapshotStatus: TableSnapshotStatus | undefined = undefined;
+
   constructor(
     public readonly id: any,
     public readonly connectionTag: string,
@@ -40,7 +53,7 @@ export class SourceTable {
     public readonly table: string,
 
     public readonly replicaIdColumns: ColumnDescriptor[],
-    public readonly snapshotComplete: boolean
+    public snapshotComplete: boolean
   ) {}
 
   get hasReplicaIdentity() {
@@ -67,5 +80,24 @@ export class SourceTable {
 
   get syncAny() {
     return this.syncData || this.syncParameters || this.syncEvent;
+  }
+
+  /**
+   * In-memory clone of the table status.
+   */
+  clone() {
+    const copy = new SourceTable(
+      this.id,
+      this.connectionTag,
+      this.objectId,
+      this.schema,
+      this.table,
+      this.replicaIdColumns,
+      this.snapshotComplete
+    );
+    copy.syncData = this.syncData;
+    copy.syncParameters = this.syncParameters;
+    copy.snapshotStatus = this.snapshotStatus;
+    return copy;
   }
 }

@@ -10,7 +10,8 @@ type NodeBuffer = Buffer<ArrayBuffer>;
  */
 export const BSON_DESERIALIZE_INTERNAL_OPTIONS: bson.DeserializeOptions = {
   // use bigint instead of Long
-  useBigInt64: true
+  useBigInt64: true,
+  promoteBuffers: true
 };
 
 /**

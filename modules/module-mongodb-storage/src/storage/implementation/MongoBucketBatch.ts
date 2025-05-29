@@ -859,6 +859,32 @@ export class MongoBucketBatch
     return last_op!;
   }
 
+  async updateTableProgress(
+    table: storage.SourceTable,
+    progress: Partial<storage.TableSnapshotStatus>
+  ): Promise<storage.SourceTable> {
+    const copy = table.clone();
+    copy.snapshotStatus = {
+      totalEstimatedCount: progress.totalEstimatedCount ?? copy.snapshotStatus?.totalEstimatedCount ?? 0,
+      replicatedCount: progress.replicatedCount ?? copy.snapshotStatus?.replicatedCount ?? 0,
+      lastKey: progress.lastKey ?? copy.snapshotStatus?.lastKey ?? null
+    };
+
+    await this.withTransaction(async () => {
+      await this.db.source_tables.updateOne(
+        { _id: table.id },
+        {
+          $set: {
+            snapshot_status: copy.snapshotStatus
+          }
+        },
+        { session: this.session }
+      );
+    });
+
+    return copy;
+  }
+
   async markSnapshotDone(tables: storage.SourceTable[], no_checkpoint_before_lsn: string) {
     const session = this.session;
     const ids = tables.map((table) => table.id);
@@ -869,6 +895,9 @@ export class MongoBucketBatch
         {
           $set: {
             snapshot_done: true
+          },
+          $unset: {
+            snapshot_status: 1
           }
         },
         { session }
@@ -892,17 +921,8 @@ export class MongoBucketBatch
       }
     });
     return tables.map((table) => {
-      const copy = new storage.SourceTable(
-        table.id,
-        table.connectionTag,
-        table.objectId,
-        table.schema,
-        table.table,
-        table.replicaIdColumns,
-        table.snapshotComplete
-      );
-      copy.syncData = table.syncData;
-      copy.syncParameters = table.syncParameters;
+      const copy = table.clone();
+      copy.snapshotComplete = true;
       return copy;
     });
   }

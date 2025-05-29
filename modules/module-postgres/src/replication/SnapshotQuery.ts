@@ -1,10 +1,16 @@
-import { ColumnDescriptor, SourceTable } from '@powersync/service-core';
+import { ColumnDescriptor, SourceTable, bson } from '@powersync/service-core';
 import { PgChunk, PgConnection, PgType, StatementParam, PgTypeOid } from '@powersync/service-jpgwire';
 import { escapeIdentifier } from '@powersync/lib-service-postgres';
 import { SqliteValue } from '@powersync/service-sync-rules';
+import { ServiceAssertionError } from '@powersync/lib-services-framework';
 
 export interface SnapshotQuery {
   initialize(): Promise<void>;
+  /**
+   * Returns an async iterable iterator that yields chunks of data.
+   *
+   * If the last chunk has 0 rows, it indicates that there are no more rows to fetch.
+   */
   nextChunk(): AsyncIterableIterator<PgChunk>;
 }
 
@@ -74,7 +80,7 @@ export class ChunkedSnapshotQuery implements SnapshotQuery {
   }
 
   private readonly key: ColumnDescriptor;
-  private lastKey: string | bigint | null = null;
+  lastKey: string | bigint | null = null;
 
   public constructor(
     private readonly connection: PgConnection,
@@ -86,6 +92,23 @@ export class ChunkedSnapshotQuery implements SnapshotQuery {
 
   public async initialize(): Promise<void> {
     // No-op
+  }
+
+  public setLastKeySerialized(key: Uint8Array) {
+    const decoded = bson.deserialize(key, { useBigInt64: true });
+    const keys = Object.keys(decoded);
+    if (keys.length != 1) {
+      throw new ServiceAssertionError(`Multiple keys found: ${keys.join(', ')}`);
+    }
+    if (keys[0] != this.key.name) {
+      throw new ServiceAssertionError(`Key name mismatch: expected ${this.key.name}, got ${keys[0]}`);
+    }
+    const value = decoded[this.key.name];
+    this.lastKey = value;
+  }
+
+  public getLastKeySerialized(): Uint8Array {
+    return bson.serialize({ [this.key.name]: this.lastKey });
   }
 
   public async *nextChunk(): AsyncIterableIterator<PgChunk> {

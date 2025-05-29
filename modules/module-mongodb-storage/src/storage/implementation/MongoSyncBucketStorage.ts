@@ -194,7 +194,8 @@ export class MongoSyncBucketStorage
           table_name: table,
           replica_id_columns: null,
           replica_id_columns2: columns,
-          snapshot_done: false
+          snapshot_done: false,
+          snapshot_status: undefined
         };
 
         await col.insertOne(doc, { session });
@@ -211,6 +212,8 @@ export class MongoSyncBucketStorage
       sourceTable.syncEvent = options.sync_rules.tableTriggersEvent(sourceTable);
       sourceTable.syncData = options.sync_rules.tableSyncsData(sourceTable);
       sourceTable.syncParameters = options.sync_rules.tableSyncsParameters(sourceTable);
+      // TODO: standardize serialization format
+      sourceTable.snapshotStatus = doc.snapshot_status;
 
       let dropTables: storage.SourceTable[] = [];
       // Detect tables that are either renamed, or have different replica_id_columns

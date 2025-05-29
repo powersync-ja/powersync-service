@@ -12,8 +12,10 @@ import {
   BucketStorageBatch,
   getUuidReplicaIdentityBson,
   MetricsEngine,
+  RelationCache,
   SaveUpdate,
   SourceEntityDescriptor,
+  SourceTable,
   storage
 } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
@@ -105,7 +107,12 @@ export class WalStream {
 
   private abort_signal: AbortSignal;
 
-  private relation_cache = new Map<string | number, storage.SourceTable>();
+  private relationCache = new RelationCache((relation: number | SourceTable) => {
+    if (typeof relation == 'number') {
+      return relation;
+    }
+    return relation.objectId!;
+  });
 
   private startedStreaming = false;
 
@@ -363,7 +370,15 @@ export class WalStream {
     throw new ReplicationAssertionError('Unreachable');
   }
 
-  async estimatedCount(db: pgwire.PgConnection, table: storage.SourceTable): Promise<string> {
+  private formatCount(count: number | undefined): string {
+    if (count == null || count < 0) {
+      return '?';
+    } else {
+      return `~${count}`;
+    }
+  }
+
+  async estimatedCountNumber(db: pgwire.PgConnection, table: storage.SourceTable): Promise<number> {
     const results = await db.query({
       statement: `SELECT reltuples::bigint AS estimate
 FROM   pg_class
@@ -372,9 +387,9 @@ WHERE  oid = $1::regclass`,
     });
     const row = results.rows[0];
     if ((row?.[0] ?? -1n) == -1n) {
-      return '?';
+      return -1;
     } else {
-      return `~${row[0]}`;
+      return Number(row[0]);
     }
   }
 
@@ -426,6 +441,9 @@ WHERE  oid = $1::regclass`,
               logger.info(`${this.slot_name} Skipping ${table.qualifiedName} - snapshot already done`);
               continue;
             }
+            const count = await this.estimatedCountNumber(db, table);
+            table = await batch.updateTableProgress(table, { totalEstimatedCount: count });
+            this.relationCache.update(table);
             await this.snapshotTableInTx(batch, db, table);
             await touch();
           }
@@ -487,8 +505,9 @@ WHERE  oid = $1::regclass`,
     limited?: PrimaryKeyValue[]
   ) {
     logger.info(`${this.slot_name} Replicating ${table.qualifiedName}`);
-    const estimatedCount = await this.estimatedCount(db, table);
-    let at = 0;
+    let totalEstimatedCount = table.snapshotStatus?.totalEstimatedCount;
+    let at = table.snapshotStatus?.replicatedCount ?? 0;
+    let lastCountTime = 0;
     let lastLogIndex = 0;
     let q: SnapshotQuery;
     // We do streaming on two levels:
@@ -501,10 +520,15 @@ WHERE  oid = $1::regclass`,
       const orderByKey = table.replicaIdColumns[0];
       logger.info(`Chunking ${table.qualifiedName} by ${orderByKey.name}`);
       q = new ChunkedSnapshotQuery(db, table, this.snapshotChunkSize);
+      if (table.snapshotStatus?.lastKey != null) {
+        (q as ChunkedSnapshotQuery).setLastKeySerialized(table.snapshotStatus!.lastKey);
+        logger.info(`Resuming from ${(q as ChunkedSnapshotQuery).lastKey}`);
+      }
     } else {
       // Fallback case - query the entire table
       logger.info(`Snapshot ${table.qualifiedName} without chunking`);
       q = new SimpleSnapshotQuery(db, table, this.snapshotChunkSize);
+      at = 0;
     }
     await q.initialize();
 
@@ -542,7 +566,9 @@ WHERE  oid = $1::regclass`,
           hasRemainingData = true;
         }
         if (rows.length > 0 && at - lastLogIndex >= 5000) {
-          logger.info(`${this.slot_name} Replicating ${table.qualifiedName} ${at}/${estimatedCount}`);
+          logger.info(
+            `${this.slot_name} Replicating ${table.qualifiedName} ${at}/${limited ? `${limited.length}L` : this.formatCount(totalEstimatedCount)}`
+          );
           lastLogIndex = at;
         }
         if (this.abort_signal.aborted) {
@@ -566,6 +592,25 @@ WHERE  oid = $1::regclass`,
 
         await touch();
       }
+      logger.info(
+        `${this.slot_name} Replicated ${table.qualifiedName} ${at}/${limited ? `${limited.length}L` : this.formatCount(totalEstimatedCount)}`
+      );
+
+      if (limited == null) {
+        let lastKey: Uint8Array | undefined;
+        if (q instanceof ChunkedSnapshotQuery) {
+          lastKey = q.getLastKeySerialized();
+        }
+        if (lastCountTime < performance.now() - 10 * 60 * 1000) {
+          totalEstimatedCount = await this.estimatedCountNumber(db, table);
+          lastCountTime = performance.now();
+        }
+        table = await batch.updateTableProgress(table, {
+          lastKey: lastKey,
+          replicatedCount: at,
+          totalEstimatedCount: totalEstimatedCount
+        });
+      }
     }
     await batch.flush();
   }
@@ -581,7 +626,7 @@ WHERE  oid = $1::regclass`,
       entity_descriptor: descriptor,
       sync_rules: this.sync_rules
     });
-    this.relation_cache.set(descriptor.objectId, result.table);
+    this.relationCache.update(result.table);
 
     // Drop conflicting tables. This includes for example renamed tables.
     await batch.drop(result.dropTables);
@@ -644,7 +689,7 @@ WHERE  oid = $1::regclass`,
   }
 
   private getTable(relationId: number): storage.SourceTable {
-    const table = this.relation_cache.get(relationId);
+    const table = this.relationCache.get(relationId);
     if (table == null) {
       // We should always receive a replication message before the relation is used.
       // If we can't find it, it's a bug.
@@ -872,7 +917,14 @@ WHERE  oid = $1::regclass`,
               }
 
               count += 1;
-              await this.writeChange(batch, msg);
+              const flushResult = await this.writeChange(batch, msg);
+              if (flushResult != null && resnapshot.length > 0) {
+                // If we have large transactions, we also need to flush the resnapshot list
+                // periodically.
+                // TODO: make sure this bit is actually triggered
+                await this.resnapshot(batch, resnapshot);
+                resnapshot = [];
+              }
             }
           }
 

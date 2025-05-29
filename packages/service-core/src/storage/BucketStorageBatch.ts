@@ -2,7 +2,7 @@ import { ObserverClient } from '@powersync/lib-services-framework';
 import { EvaluatedParameters, EvaluatedRow, SqliteRow, ToastableSqliteRow } from '@powersync/service-sync-rules';
 import { BSON } from 'bson';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
-import { SourceTable } from './SourceTable.js';
+import { SourceTable, TableSnapshotStatus } from './SourceTable.js';
 import { BatchedCustomWriteCheckpointOptions } from './storage-index.js';
 import { InternalOpId } from '../util/utils.js';
 
@@ -62,6 +62,8 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
   lastCheckpointLsn: string | null;
 
   markSnapshotDone(tables: SourceTable[], no_checkpoint_before_lsn: string): Promise<SourceTable[]>;
+
+  updateTableProgress(table: SourceTable, progress: Partial<TableSnapshotStatus>): Promise<SourceTable>;
 
   /**
    * Queues the creation of a custom Write Checkpoint. This will be persisted after operations are flushed.
