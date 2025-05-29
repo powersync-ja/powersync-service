@@ -6,12 +6,13 @@ import { v4 as uuid } from 'uuid';
 import * as common from '@module/common/common-index.js';
 import { createRandomServerId } from '@module/utils/mysql-utils.js';
 import { TableMapEntry } from '@powersync/mysql-zongji';
+import crypto from 'crypto';
 
 describe('BinlogListener tests', () => {
-  const MAX_QUEUE_SIZE = 10;
+  const MAX_QUEUE_CAPACITY_MB = 1;
   const BINLOG_LISTENER_CONNECTION_OPTIONS = {
     ...TEST_CONNECTION_OPTIONS,
-    max_binlog_queue_size: MAX_QUEUE_SIZE
+    binlog_queue_memory_limit: MAX_QUEUE_CAPACITY_MB
   };
 
   let connectionManager: MySQLConnectionManager;
@@ -22,7 +23,7 @@ describe('BinlogListener tests', () => {
     connectionManager = new MySQLConnectionManager(BINLOG_LISTENER_CONNECTION_OPTIONS, {});
     const connection = await connectionManager.getConnection();
     await clearTestDb(connection);
-    await connection.query(`CREATE TABLE test_DATA (id CHAR(36) PRIMARY KEY, description text)`);
+    await connection.query(`CREATE TABLE test_DATA (id CHAR(36) PRIMARY KEY, description MEDIUMTEXT)`);
     connection.release();
     const fromGTID = await getFromGTID(connectionManager);
 
@@ -52,24 +53,30 @@ describe('BinlogListener tests', () => {
     expect(queueStopSpy).toHaveBeenCalled();
   });
 
-  test('Pause Zongji binlog listener when processing queue reaches max size', async () => {
+  test('Pause Zongji binlog listener when processing queue reaches maximum memory size', async () => {
     const pauseSpy = vi.spyOn(binLogListener.zongji, 'pause');
     const resumeSpy = vi.spyOn(binLogListener.zongji, 'resume');
-    const queueSpy = vi.spyOn(binLogListener.processingQueue, 'length');
 
-    const ROW_COUNT = 100;
+    // Pause the event handler to force a backlog on the processing queue
+    eventHandler.pause();
+
+    const ROW_COUNT = 10;
     await insertRows(connectionManager, ROW_COUNT);
 
     const startPromise = binLogListener.start();
 
+    // Wait for listener to pause due to queue reaching capacity
+    await vi.waitFor(() => expect(pauseSpy).toHaveBeenCalled(), { timeout: 5000 });
+
+    expect(binLogListener.isQueueOverCapacity()).toBeTruthy();
+    // Resume event processing
+    eventHandler.unpause!();
+
     await vi.waitFor(() => expect(eventHandler.rowsWritten).equals(ROW_COUNT), { timeout: 5000 });
     binLogListener.stop();
     await expect(startPromise).resolves.toBeUndefined();
-
-    // Count how many times the queue reached the max size. Consequently, we expect the listener to have paused and resumed that many times.
-    const overThresholdCount = queueSpy.mock.results.map((r) => r.value).filter((v) => v === MAX_QUEUE_SIZE).length;
-    expect(pauseSpy).toHaveBeenCalledTimes(overThresholdCount);
-    expect(resumeSpy).toHaveBeenCalledTimes(overThresholdCount);
+    // Confirm resume was called after unpausing
+    expect(resumeSpy).toHaveBeenCalled();
   });
 
   test('Binlog events are correctly forwarded to provided binlog events handler', async () => {
@@ -101,7 +108,9 @@ async function getFromGTID(connectionManager: MySQLConnectionManager) {
 
 async function insertRows(connectionManager: MySQLConnectionManager, count: number) {
   for (let i = 0; i < count; i++) {
-    await connectionManager.query(`INSERT INTO test_DATA(id, description) VALUES('${uuid()}','test${i}')`);
+    await connectionManager.query(
+      `INSERT INTO test_DATA(id, description) VALUES('${uuid()}','test${i} ${crypto.randomBytes(100_000).toString('hex')}')`
+    );
   }
 }
 
@@ -119,7 +128,19 @@ class TestBinLogEventHandler implements BinLogEventHandler {
   rowsDeleted = 0;
   commitCount = 0;
 
+  unpause: ((value: void | PromiseLike<void>) => void) | undefined;
+  private pausedPromise: Promise<void> | undefined;
+
+  pause() {
+    this.pausedPromise = new Promise((resolve) => {
+      this.unpause = resolve;
+    });
+  }
+
   async onWrite(rows: Row[], tableMap: TableMapEntry) {
+    if (this.pausedPromise) {
+      await this.pausedPromise;
+    }
     this.rowsWritten = this.rowsWritten + rows.length;
   }
 

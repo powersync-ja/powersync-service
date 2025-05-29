@@ -258,8 +258,8 @@ importers:
         specifier: workspace:*
         version: link:../../libs/lib-services
       '@powersync/mysql-zongji':
-        specifier: 0.0.0-dev-20250527085137
-        version: 0.0.0-dev-20250527085137
+        specifier: 0.0.0-dev-20250528105319
+        version: 0.0.0-dev-20250528105319
       '@powersync/service-core':
         specifier: workspace:*
         version: link:../../packages/service-core
@@ -1281,8 +1281,8 @@ packages:
     resolution: {integrity: sha512-UA91GwWPhFExt3IizW6bOeY/pQ0BkuNwKjk9iQW9KqxluGCrg4VenZ0/L+2Y0+ZOtme72EVvg6v0zo3AMQRCeA==}
     engines: {node: '>=12'}
 
-  '@powersync/mysql-zongji@0.0.0-dev-20250527085137':
-    resolution: {integrity: sha512-3NPUfq1rcLpTCMkOwCGsJeS/zKoidDYsPqrJ/sy4Vcsgp1vXMkdnLlQyiAq7vYu5a15zUTK+mQoVruwUi82ANg==}
+  '@powersync/mysql-zongji@0.0.0-dev-20250528105319':
+    resolution: {integrity: sha512-67MRLJi7hHb0371/6gffkZlAaDoAFy1pVBGKP17i3MltumAF+ZlukC8Q0nKsqOcEwVMvbhmaalMeVgtJeZ/VfA==}
     engines: {node: '>=22.0.0'}
 
   '@powersync/service-jsonbig@0.17.10':
@@ -4748,7 +4748,7 @@ snapshots:
       '@pnpm/network.ca-file': 1.0.2
       config-chain: 1.1.13
 
-  '@powersync/mysql-zongji@0.0.0-dev-20250527085137':
+  '@powersync/mysql-zongji@0.0.0-dev-20250528105319':
     dependencies:
       '@vlasky/mysql': 2.18.6
       big-integer: 1.6.52

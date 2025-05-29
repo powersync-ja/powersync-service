@@ -34,6 +34,10 @@ export class BinLogListener {
 
   zongji: ZongJi;
   processingQueue: async.QueueObject<BinLogEvent>;
+  /**
+   *  The combined size in bytes of all the binlog events currently in the processing queue.
+   */
+  queueMemoryUsage: number;
 
   constructor(public options: BinLogListenerOptions) {
     this.connectionManager = options.connectionManager;
@@ -42,7 +46,16 @@ export class BinLogListener {
     this.currentGTID = null;
 
     this.processingQueue = async.queue(this.createQueueWorker(), 1);
+    this.queueMemoryUsage = 0;
     this.zongji = this.createZongjiListener();
+  }
+
+  /**
+   *  The queue memory limit in bytes as defined in the connection options.
+   *  @private
+   */
+  private get queueMemoryLimit(): number {
+    return this.connectionManager.options.binlog_queue_memory_limit * 1024 * 1024;
   }
 
   public async start(): Promise<void> {
@@ -62,6 +75,12 @@ export class BinLogListener {
     } satisfies StartOptions);
 
     return new Promise<void>((resolve, reject) => {
+      // Handle an edge case where the listener has already been stopped before completing startup
+      if (this.isStopped) {
+        logger.info('BinLog listener was stopped before startup completed.');
+        resolve();
+      }
+
       this.zongji.on('error', (error) => {
         if (!this.isStopped) {
           logger.error('Binlog listener error:', error);
@@ -86,12 +105,6 @@ export class BinLogListener {
         resolve();
         logger.info('BinLog listener stopped. Replication ended.');
       });
-
-      // Handle the edge case where the listener has already been stopped before completing startup
-      if (this.isStopped) {
-        logger.info('BinLog listener was stopped before startup completed.');
-        resolve();
-      }
     });
   }
 
@@ -112,11 +125,12 @@ export class BinLogListener {
     zongji.on('binlog', async (evt) => {
       logger.info(`Received Binlog event:${evt.getEventName()}`);
       this.processingQueue.push(evt);
+      this.queueMemoryUsage += evt.size;
 
       // When the processing queue grows past the threshold, we pause the binlog listener
-      if (this.processingQueue.length() > this.connectionManager.options.max_binlog_queue_size) {
+      if (this.isQueueOverCapacity()) {
         logger.info(
-          `Max Binlog processing queue length [${this.connectionManager.options.max_binlog_queue_size}] reached. Pausing Binlog listener.`
+          `Binlog processing queue has reached its memory limit of [${this.connectionManager.options.binlog_queue_memory_limit}MB]. Pausing Binlog listener.`
         );
         zongji.pause();
         await this.processingQueue.empty();
@@ -201,6 +215,12 @@ export class BinLogListener {
           await this.eventHandler.onCommit(LSN);
           break;
       }
+
+      this.queueMemoryUsage -= evt.size;
     };
+  }
+
+  isQueueOverCapacity(): boolean {
+    return this.queueMemoryUsage >= this.queueMemoryLimit;
   }
 }

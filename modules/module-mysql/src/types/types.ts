@@ -24,7 +24,7 @@ export interface NormalizedMySQLConnectionConfig {
 
   lookup?: LookupFunction;
 
-  max_binlog_queue_size: number;
+  binlog_queue_memory_limit: number;
 }
 
 export const MySQLConnectionConfig = service_types.configFile.DataSourceConfig.and(
@@ -43,8 +43,8 @@ export const MySQLConnectionConfig = service_types.configFile.DataSourceConfig.a
     client_private_key: t.string.optional(),
 
     reject_ip_ranges: t.array(t.string).optional(),
-    // The maximum number of binlog events that can be queued in memory before throttling is applied.
-    max_binlog_queue_size: t.number.optional()
+    // The combined size of binlog events that can be queued in memory before throttling is applied.
+    binlog_queue_memory_limit: t.number.optional()
   })
 );
 
@@ -118,8 +118,8 @@ export function normalizeConnectionConfig(options: MySQLConnectionConfig): Norma
 
     server_id: options.server_id ?? 1,
 
-    // Based on profiling, a queue size of 1000 uses about 50MB of memory.
-    max_binlog_queue_size: options.max_binlog_queue_size ?? 1000,
+    // Binlog processing queue memory limit before throttling is applied.
+    binlog_queue_memory_limit: options.binlog_queue_memory_limit ?? 50,
 
     lookup
   };
