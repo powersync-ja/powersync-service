@@ -1,5 +1,15 @@
 # @powersync/service-core
 
+## 1.12.1
+
+### Patch Changes
+
+- 100ccec: Internal: Improve types for oplog data
+- b57f938: [MongoDB] Fix replication batching
+- 5b39039: Cleanup on internal sync rules implementation and APIs.
+- Updated dependencies [5b39039]
+  - @powersync/service-sync-rules@0.27.0
+
 ## 1.12.0
 
 ### Minor Changes

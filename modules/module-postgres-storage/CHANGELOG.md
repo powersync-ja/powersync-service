@@ -1,5 +1,17 @@
 # @powersync/service-module-postgres-storage
 
+## 0.7.5
+
+### Patch Changes
+
+- 5b39039: Cleanup on internal sync rules implementation and APIs.
+- Updated dependencies [100ccec]
+- Updated dependencies [b57f938]
+- Updated dependencies [5b39039]
+  - @powersync/service-core@1.12.1
+  - @powersync/service-sync-rules@0.27.0
+  - @powersync/service-core-tests@0.9.5
+
 ## 0.7.4
 
 ### Patch Changes
