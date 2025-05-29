@@ -12,7 +12,7 @@ const BASIC_SYNC_RULES = `bucket_definitions:
     data:
       - SELECT id, description, other FROM "test_data"`;
 
-describe.skipIf(!(env.CI || env.SLOW_TESTS))('checkpoint tests', () => {
+describe('checkpoint tests', () => {
   test('write checkpoints', { timeout: 50_000 }, async () => {
     const factory = INITIALIZED_MONGO_STORAGE_FACTORY;
     await using context = await WalStreamTestContext.open(factory);
@@ -20,6 +20,14 @@ describe.skipIf(!(env.CI || env.SLOW_TESTS))('checkpoint tests', () => {
     await context.updateSyncRules(BASIC_SYNC_RULES);
     const { pool } = context;
     const api = new PostgresRouteAPIAdapter(pool);
+    const serverVersion = await context.connectionManager.getServerVersion();
+    if (serverVersion!.compareMain('13.0.0') < 0) {
+      // The test is not stable on Postgres 11 or 12. See the notes on
+      // PostgresRouteAPIAdapter.createReplicationHead() for details.
+      // Postgres 12 is already EOL, so not worth finding a fix - just skip the tests.
+      console.log('Skipping write checkpoint test on Postgres < 13.0.0');
+      return;
+    }
 
     await pool.query(`CREATE TABLE test_data(id text primary key, description text, other text)`);
 
@@ -59,7 +67,7 @@ describe.skipIf(!(env.CI || env.SLOW_TESTS))('checkpoint tests', () => {
 
         const start = Date.now();
         while (lastWriteCheckpoint == null || lastWriteCheckpoint < BigInt(cp.writeCheckpoint)) {
-          if (Date.now() - start > 5_000) {
+          if (Date.now() - start > 3_000) {
             throw new Error(
               `Timeout while waiting for checkpoint. last: ${lastWriteCheckpoint}, waiting for: ${cp.writeCheckpoint}`
             );

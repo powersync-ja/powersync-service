@@ -1,5 +1,21 @@
 # @powersync/service-image
 
+## 1.12.1
+
+### Patch Changes
+
+- b57f938: [MongoDB] Fix replication batching
+- Updated dependencies [100ccec]
+- Updated dependencies [b57f938]
+- Updated dependencies [5b39039]
+  - @powersync/service-core@1.12.1
+  - @powersync/service-module-mongodb@0.9.1
+  - @powersync/service-module-postgres-storage@0.7.5
+  - @powersync/service-module-mongodb-storage@0.9.5
+  - @powersync/service-module-core@0.1.1
+  - @powersync/service-module-mysql@0.6.5
+  - @powersync/service-module-postgres@0.13.1
+
 ## 1.12.0
 
 ### Minor Changes
