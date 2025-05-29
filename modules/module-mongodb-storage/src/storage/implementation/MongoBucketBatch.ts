@@ -864,18 +864,23 @@ export class MongoBucketBatch
     progress: Partial<storage.TableSnapshotStatus>
   ): Promise<storage.SourceTable> {
     const copy = table.clone();
-    copy.snapshotStatus = {
+    const snapshotStatus = {
       totalEstimatedCount: progress.totalEstimatedCount ?? copy.snapshotStatus?.totalEstimatedCount ?? 0,
       replicatedCount: progress.replicatedCount ?? copy.snapshotStatus?.replicatedCount ?? 0,
       lastKey: progress.lastKey ?? copy.snapshotStatus?.lastKey ?? null
     };
+    copy.snapshotStatus = snapshotStatus;
 
     await this.withTransaction(async () => {
       await this.db.source_tables.updateOne(
         { _id: table.id },
         {
           $set: {
-            snapshot_status: copy.snapshotStatus
+            snapshot_status: {
+              last_key: snapshotStatus.lastKey == null ? null : new bson.Binary(snapshotStatus.lastKey),
+              total_estimated_count: snapshotStatus.totalEstimatedCount,
+              replicated_count: snapshotStatus.replicatedCount
+            }
           }
         },
         { session: this.session }

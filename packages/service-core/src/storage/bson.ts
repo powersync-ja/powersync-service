@@ -11,7 +11,9 @@ type NodeBuffer = Buffer<ArrayBuffer>;
 export const BSON_DESERIALIZE_INTERNAL_OPTIONS: bson.DeserializeOptions = {
   // use bigint instead of Long
   useBigInt64: true,
-  promoteBuffers: true
+  // We cannot use promoteBuffers: true, since that also converst UUID to Buffer
+  // Instead, we need to handle bson.Binary when reading data
+  promoteBuffers: false
 };
 
 /**
