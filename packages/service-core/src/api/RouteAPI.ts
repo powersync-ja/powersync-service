@@ -50,11 +50,6 @@ export interface RouteAPI {
   getReplicationLag(options: ReplicationLagOptions): Promise<number | undefined>;
 
   /**
-   * Get the current LSN or equivalent replication HEAD position identifier
-   */
-  getReplicationHead(): Promise<string>;
-
-  /**
    * Get the current LSN or equivalent replication HEAD position identifier.
    *
    * The position is provided to the callback. After the callback returns,
