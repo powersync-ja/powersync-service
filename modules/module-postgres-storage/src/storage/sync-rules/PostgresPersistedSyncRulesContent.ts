@@ -14,6 +14,7 @@ export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncR
   public readonly last_fatal_error: string | null;
   public readonly last_keepalive_ts: Date | null;
   public readonly last_checkpoint_ts: Date | null;
+  public readonly active: boolean;
   current_lock: storage.ReplicationLock | null = null;
 
   constructor(
@@ -27,6 +28,7 @@ export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncR
     this.last_fatal_error = row.last_fatal_error;
     this.last_checkpoint_ts = row.last_checkpoint_ts ? new Date(row.last_checkpoint_ts) : null;
     this.last_keepalive_ts = row.last_keepalive_ts ? new Date(row.last_keepalive_ts) : null;
+    this.active = row.state == 'ACTIVE';
   }
 
   parsed(options: storage.ParseSyncRulesOptions): storage.PersistedSyncRules {

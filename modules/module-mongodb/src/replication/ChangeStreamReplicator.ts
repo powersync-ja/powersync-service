@@ -3,6 +3,8 @@ import { ChangeStreamReplicationJob } from './ChangeStreamReplicationJob.js';
 import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
 import { MongoErrorRateLimiter } from './MongoErrorRateLimiter.js';
 import { MongoModule } from '../module/MongoModule.js';
+import { MongoLSN } from '../common/MongoLSN.js';
+import { timestampToDate } from './replication-utils.js';
 
 export interface ChangeStreamReplicatorOptions extends replication.AbstractReplicatorOptions {
   connectionFactory: ConnectionManagerFactory;
@@ -38,5 +40,26 @@ export class ChangeStreamReplicator extends replication.AbstractReplicator<Chang
 
   async testConnection() {
     return await MongoModule.testConnection(this.connectionFactory.dbConnectionConfig);
+  }
+
+  async getReplicationLagMillis(): Promise<number | undefined> {
+    const lag = await super.getReplicationLagMillis();
+    if (lag != null) {
+      return lag;
+    }
+
+    // Booting or in an error loop. Check last active replication status.
+    // This includes sync rules in an ERROR state.
+    const content = await this.storage.getActiveSyncRulesContent();
+    if (content == null) {
+      return undefined;
+    }
+    // Measure the lag from the last resume token's time
+    const lsn = content.last_checkpoint_lsn;
+    if (lsn == null) {
+      return undefined;
+    }
+    const { timestamp } = MongoLSN.fromSerialized(lsn);
+    return Date.now() - timestampToDate(timestamp).getTime();
   }
 }

@@ -280,6 +280,7 @@ export class PostgresBucketBatch
       // When re-applying transactions, don't create a new checkpoint until
       // we are past the last transaction.
       logger.info(`Re-applied transaction ${lsn} - skipping checkpoint`);
+      // Cannot create a checkpoint yet - return false
       return false;
     }
 
@@ -305,12 +306,14 @@ export class PostgresBucketBatch
           id = ${{ type: 'int4', value: this.group_id }}
       `.execute();
 
+      // Cannot create a checkpoint yet - return false
       return false;
     }
 
     // Don't create a checkpoint if there were no changes
     if (!createEmptyCheckpoints && this.persisted_op == null) {
-      return false;
+      // Nothing to commit - return true
+      return true;
     }
 
     const now = new Date().toISOString();

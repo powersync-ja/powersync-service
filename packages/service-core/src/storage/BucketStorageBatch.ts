@@ -7,7 +7,8 @@ import { BatchedCustomWriteCheckpointOptions } from './storage-index.js';
 import { InternalOpId } from '../util/utils.js';
 
 export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptions = {
-  createEmptyCheckpoints: true
+  createEmptyCheckpoints: true,
+  oldestUncommittedChange: null
 };
 
 export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageListener>, AsyncDisposable {
@@ -44,6 +45,8 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
    * Flush and commit any saved ops. This creates a new checkpoint by default.
    *
    * Only call this after a transaction.
+   *
+   * Returns true if either (1) a new checkpoint was created, or (2) there are no changes to commit.
    */
   commit(lsn: string, options?: BucketBatchCommitOptions): Promise<boolean>;
 
@@ -154,6 +157,13 @@ export interface BucketBatchCommitOptions {
    * Defaults to true.
    */
   createEmptyCheckpoints?: boolean;
+
+  /**
+   * The timestamp of the first change in this batch, according to the source database.
+   *
+   * Used to estimate replication lag.
+   */
+  oldestUncommittedChange?: Date | null;
 }
 
 export type ResolvedBucketBatchCommitOptions = Required<BucketBatchCommitOptions>;

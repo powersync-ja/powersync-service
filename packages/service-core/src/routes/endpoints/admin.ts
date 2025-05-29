@@ -168,6 +168,8 @@ export const validate = routeDefinition({
       // Dummy values
       id: 0,
       slot_name: '',
+      active: false,
+      last_checkpoint_lsn: '',
 
       parsed() {
         return {

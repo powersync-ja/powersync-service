@@ -1,4 +1,3 @@
-import { isMongoServerError } from '@powersync/lib-service-mongodb';
 import { container } from '@powersync/lib-services-framework';
 import { replication } from '@powersync/service-core';
 
@@ -11,6 +10,7 @@ export interface ChangeStreamReplicationJobOptions extends replication.AbstractR
 
 export class ChangeStreamReplicationJob extends replication.AbstractReplicationJob {
   private connectionFactory: ConnectionManagerFactory;
+  private lastStream: ChangeStream | null = null;
 
   constructor(options: ChangeStreamReplicationJobOptions) {
     super(options);
@@ -18,11 +18,11 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
   }
 
   async cleanUp(): Promise<void> {
-    // TODO: Implement?
+    // Nothing needed here
   }
 
   async keepAlive() {
-    // TODO: Implement?
+    // Nothing needed here
   }
 
   private get slotName() {
@@ -74,6 +74,7 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
         metrics: this.options.metrics,
         connections: connectionManager
       });
+      this.lastStream = stream;
       await stream.replicate();
     } catch (e) {
       if (this.abortController.signal.aborted) {
@@ -97,5 +98,9 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
     } finally {
       await connectionManager.end();
     }
+  }
+
+  async getReplicationLagMillis(): Promise<number | undefined> {
+    return this.lastStream?.getReplicationLagMillis();
   }
 }

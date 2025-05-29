@@ -15,6 +15,7 @@ export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRule
   public readonly last_fatal_error: string | null;
   public readonly last_keepalive_ts: Date | null;
   public readonly last_checkpoint_ts: Date | null;
+  public readonly active: boolean;
 
   public current_lock: MongoSyncRulesLock | null = null;
 
@@ -30,6 +31,7 @@ export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRule
     this.last_fatal_error = doc.last_fatal_error;
     this.last_checkpoint_ts = doc.last_checkpoint_ts;
     this.last_keepalive_ts = doc.last_keepalive_ts;
+    this.active = doc.state == 'ACTIVE';
   }
 
   parsed(options: storage.ParseSyncRulesOptions) {

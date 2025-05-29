@@ -19,6 +19,8 @@ export function testRules(content: string): storage.PersistedSyncRulesContent {
     id: 1,
     sync_rules_content: content,
     slot_name: 'test',
+    active: true,
+    last_checkpoint_lsn: '',
     parsed(options) {
       return {
         id: 1,
