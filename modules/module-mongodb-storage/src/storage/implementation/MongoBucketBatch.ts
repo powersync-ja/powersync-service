@@ -321,12 +321,14 @@ export class MongoBucketBatch
         // Not an error if we re-apply a transaction
         existing_buckets = [];
         existing_lookups = [];
-        // Log to help with debugging if there was a consistency issue
         if (this.storeCurrentData) {
           if (this.markRecordUnavailable != null) {
             // This will trigger a "resnapshot" of the record.
+            // This is not relevant if storeCurrentData is false, since we'll get the full row
+            // directly in the replication stream.
             this.markRecordUnavailable(record);
           } else {
+            // Log to help with debugging if there was a consistency issue
             logger.warn(
               `Cannot find previous record for update on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
             );

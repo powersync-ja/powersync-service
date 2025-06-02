@@ -30,6 +30,7 @@ import {
   STANDALONE_CHECKPOINT_ID
 } from './MongoRelation.js';
 import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
+import { SimpleSnapshotQuery } from './MongoSnapshotQuery.js';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;
@@ -346,17 +347,17 @@ export class ChangeStream {
     let at = 0;
     const db = this.client.db(table.schema);
     const collection = db.collection(table.table);
-    const cursor = collection.find({}, { batchSize: 6_000, readConcern: 'majority' });
+    await using query = new SimpleSnapshotQuery(collection);
 
     let lastBatch = performance.now();
-    // hasNext() is the call that triggers fetching of the next batch,
-    // then we read it with readBufferedDocuments(). This gives us semi-explicit
-    // control over the fetching of each batch, and avoids a separate promise per document
-    let hasNextPromise = cursor.hasNext();
-    while (await hasNextPromise) {
-      const docBatch = cursor.readBufferedDocuments();
+    let nextChunkPromise = query.nextChunk();
+    while (true) {
+      const docBatch = await nextChunkPromise;
+      if (docBatch.length == 0) {
+        break;
+      }
       // Pre-fetch next batch, so that we can read and write concurrently
-      hasNextPromise = cursor.hasNext();
+      nextChunkPromise = query.nextChunk();
       for (let document of docBatch) {
         if (this.abort_signal.aborted) {
           throw new ReplicationAbortedError(`Aborted initial replication`);
@@ -385,7 +386,7 @@ export class ChangeStream {
       await touch();
     }
     // In case the loop was interrupted, make sure we await the last promise.
-    await hasNextPromise;
+    await nextChunkPromise;
 
     await batch.flush();
     logger.info(`${this.logPrefix} Replicated ${at} documents for ${table.qualifiedName}`);
