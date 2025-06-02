@@ -4,8 +4,8 @@ import {
   DatabaseConnectionError,
   ErrorCode,
   errors,
-  logger,
-  ReplicationAbortedError,
+  Logger,
+  logger as defaultLogger,
   ReplicationAssertionError
 } from '@powersync/lib-services-framework';
 import {
@@ -36,6 +36,7 @@ import {
 } from './SnapshotQuery.js';
 
 export interface WalStreamOptions {
+  logger?: Logger;
   connections: PgManager;
   storage: storage.SyncRulesBucketStorage;
   metrics: MetricsEngine;
@@ -99,6 +100,8 @@ export class WalStream {
 
   connection_id = 1;
 
+  private logger: Logger;
+
   private readonly storage: storage.SyncRulesBucketStorage;
   private readonly metrics: MetricsEngine;
   private readonly slot_name: string;
@@ -119,6 +122,7 @@ export class WalStream {
   private snapshotChunkSize: number;
 
   constructor(options: WalStreamOptions) {
+    this.logger = options.logger ?? defaultLogger;
     this.storage = options.storage;
     this.metrics = options.metrics;
     this.sync_rules = options.storage.getParsedSyncRules({ defaultSchema: POSTGRES_DEFAULT_SCHEMA });
@@ -138,7 +142,7 @@ export class WalStream {
           const promise = sendKeepAlive(this.connections.pool);
           promise.catch((e) => {
             // Failures here are okay - this only speeds up stopping the process.
-            logger.warn('Failed to ping connection', e);
+            this.logger.warn('Failed to ping connection', e);
           });
         } else {
           // If we haven't started streaming yet, it could be due to something like
@@ -217,7 +221,7 @@ export class WalStream {
         ]
       });
       if (rs.rows.length == 0) {
-        logger.info(`Skipping ${tablePattern.schema}.${name} - not part of ${PUBLICATION_NAME} publication`);
+        this.logger.info(`Skipping ${tablePattern.schema}.${name} - not part of ${PUBLICATION_NAME} publication`);
         continue;
       }
 
@@ -249,7 +253,7 @@ export class WalStream {
     const snapshotDone = status.snapshot_done && status.checkpoint_lsn != null;
     if (snapshotDone) {
       // Snapshot is done, but we still need to check the replication slot status
-      logger.info(`${slotName} Initial replication already done`);
+      this.logger.info(`Initial replication already done`);
     }
 
     // Check if replication slot exists
@@ -310,7 +314,7 @@ export class WalStream {
         // We peek a large number of changes here, to make it more likely to pick up replication slot errors.
         // For example, "publication does not exist" only occurs here if the peek actually includes changes related
         // to the slot.
-        logger.info(`Checking ${slotName}`);
+        this.logger.info(`Checking ${slotName}`);
 
         // The actual results can be quite large, so we don't actually return everything
         // due to memory and processing overhead that would create.
@@ -327,11 +331,11 @@ export class WalStream {
         }
 
         // Success
-        logger.info(`Slot ${slotName} appears healthy`);
+        this.logger.info(`Slot ${slotName} appears healthy`);
         return { needsNewSlot: false };
       } catch (e) {
         last_error = e;
-        logger.warn(`${slotName} Replication slot error`, e);
+        this.logger.warn(`Replication slot error`, e);
 
         if (this.stopped) {
           throw e;
@@ -358,7 +362,7 @@ export class WalStream {
           // Sample: publication "powersync" does not exist
           //   Happens when publication deleted or never created.
           //   Slot must be re-created in this case.
-          logger.info(`${slotName} is not valid anymore`);
+          this.logger.info(`${slotName} is not valid anymore`);
 
           return { needsNewSlot: true };
         }
@@ -368,14 +372,6 @@ export class WalStream {
     }
 
     throw new ReplicationAssertionError('Unreachable');
-  }
-
-  private formatCount(count: number | undefined): string {
-    if (count == null || count < 0) {
-      return '?';
-    } else {
-      return `~${count}`;
-    }
   }
 
   async estimatedCountNumber(db: pgwire.PgConnection, table: storage.SourceTable): Promise<number> {
@@ -423,7 +419,7 @@ WHERE  oid = $1::regclass`,
       // The replication slot must be created before we start snapshotting tables.
       await replicationConnection.query(`CREATE_REPLICATION_SLOT ${slotName} LOGICAL pgoutput`);
 
-      logger.info(`Created replication slot ${slotName}`);
+      this.logger.info(`Created replication slot ${slotName}`);
     }
 
     await this.initialReplication(db);
@@ -432,7 +428,13 @@ WHERE  oid = $1::regclass`,
   async initialReplication(db: pgwire.PgConnection) {
     const sourceTables = this.sync_rules.getSourceTables();
     await this.storage.startBatch(
-      { zeroLSN: ZERO_LSN, defaultSchema: POSTGRES_DEFAULT_SCHEMA, storeCurrentData: true, skipExistingRows: true },
+      {
+        logger: this.logger,
+        zeroLSN: ZERO_LSN,
+        defaultSchema: POSTGRES_DEFAULT_SCHEMA,
+        storeCurrentData: true,
+        skipExistingRows: true
+      },
       async (batch) => {
         let tablesWithStatus: SourceTable[] = [];
         for (let tablePattern of sourceTables) {
@@ -440,7 +442,7 @@ WHERE  oid = $1::regclass`,
           // Pre-get counts
           for (let table of tables) {
             if (table.snapshotComplete) {
-              logger.info(`${this.slot_name} Skipping ${table.qualifiedName} - snapshot already done`);
+              this.logger.info(`Skipping ${table.qualifiedName} - snapshot already done`);
               continue;
             }
             const count = await this.estimatedCountNumber(db, table);
@@ -448,7 +450,7 @@ WHERE  oid = $1::regclass`,
             this.relationCache.update(table);
             tablesWithStatus.push(table);
 
-            logger.info(`${this.slot_name} To replicate: ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
+            this.logger.info(`To replicate: ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
           }
         }
 
@@ -527,19 +529,15 @@ WHERE  oid = $1::regclass`,
       const orderByKey = table.replicaIdColumns[0];
       q = new ChunkedSnapshotQuery(db, table, this.snapshotChunkSize, table.snapshotStatus?.lastKey ?? null);
       if (table.snapshotStatus?.lastKey != null) {
-        logger.info(
-          `${this.slot_name} Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} - resuming from ${orderByKey.name} > ${(q as ChunkedSnapshotQuery).lastKey}`
+        this.logger.info(
+          `Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} - resuming from ${orderByKey.name} > ${(q as ChunkedSnapshotQuery).lastKey}`
         );
       } else {
-        logger.info(
-          `${this.slot_name} Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} - resumable`
-        );
+        this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} - resumable`);
       }
     } else {
       // Fallback case - query the entire table
-      logger.info(
-        `${this.slot_name} Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} - not resumable`
-      );
+      this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} - not resumable`);
       q = new SimpleSnapshotQuery(db, table, this.snapshotChunkSize);
       at = 0;
     }
@@ -618,9 +616,9 @@ WHERE  oid = $1::regclass`,
         });
         this.relationCache.update(table);
 
-        logger.info(`${this.slot_name} Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
+        this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
       } else {
-        logger.info(`${this.slot_name} Replicating ${table.qualifiedName} ${at}/${limited.length} for resnapshot`);
+        this.logger.info(`Replicating ${table.qualifiedName} ${at}/${limited.length} for resnapshot`);
       }
     }
     await batch.flush();
@@ -719,7 +717,7 @@ WHERE  oid = $1::regclass`,
     if (msg.tag == 'insert' || msg.tag == 'update' || msg.tag == 'delete') {
       const table = this.getTable(getRelId(msg.relation));
       if (!table.syncAny) {
-        logger.debug(`Table ${table.qualifiedName} not used in sync rules - skipping`);
+        this.logger.debug(`Table ${table.qualifiedName} not used in sync rules - skipping`);
         return null;
       }
 
@@ -853,6 +851,7 @@ WHERE  oid = $1::regclass`,
 
     await this.storage.startBatch(
       {
+        logger: this.logger,
         zeroLSN: ZERO_LSN,
         defaultSchema: POSTGRES_DEFAULT_SCHEMA,
         storeCurrentData: true,
@@ -914,7 +913,7 @@ WHERE  oid = $1::regclass`,
               }
             } else {
               if (count % 100 == 0) {
-                logger.info(`${this.slot_name} replicating op ${count} ${msg.lsn}`);
+                this.logger.info(`Replicating op ${count} ${msg.lsn}`);
               }
 
               /**

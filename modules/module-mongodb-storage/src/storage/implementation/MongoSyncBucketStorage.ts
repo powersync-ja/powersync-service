@@ -138,6 +138,7 @@ export class MongoSyncBucketStorage
     const checkpoint_lsn = doc?.last_checkpoint_lsn ?? null;
 
     await using batch = new MongoBucketBatch({
+      logger: options.logger,
       db: this.db,
       syncRules: this.sync_rules.parsed(options).sync_rules,
       groupId: this.group_id,

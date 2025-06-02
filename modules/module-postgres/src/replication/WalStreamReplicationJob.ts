@@ -1,4 +1,4 @@
-import { container } from '@powersync/lib-services-framework';
+import { container, logger } from '@powersync/lib-services-framework';
 import { PgManager } from './PgManager.js';
 import { MissingReplicationSlotError, sendKeepAlive, WalStream } from './WalStream.js';
 
@@ -15,6 +15,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
 
   constructor(options: WalStreamReplicationJobOptions) {
     super(options);
+    this.logger = logger.child({ prefix: `[${this.slotName}] ` });
     this.connectionFactory = options.connectionFactory;
     this.connectionManager = this.connectionFactory.create({
       // Pool connections are only used intermittently.
@@ -57,7 +58,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
           replication_slot: this.slotName
         }
       });
-      this.logger.error(`Replication failed on ${this.slotName}`, e);
+      this.logger.error(`Replication failed`, e);
 
       if (e instanceof MissingReplicationSlotError) {
         // This stops replication on this slot and restarts with a new slot
@@ -93,6 +94,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
         return;
       }
       const stream = new WalStream({
+        logger: this.logger,
         abort_signal: this.abortController.signal,
         storage: this.options.storage,
         metrics: this.options.metrics,
@@ -100,7 +102,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
       });
       await stream.replicate();
     } catch (e) {
-      this.logger.error(`${this.slotName} Replication error`, e);
+      this.logger.error(`Replication error`, e);
       if (e.cause != null) {
         // Example:
         // PgError.conn_ended: Unable to do postgres query on ended connection

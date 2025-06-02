@@ -3,7 +3,8 @@ import {
   container,
   DatabaseConnectionError,
   ErrorCode,
-  logger,
+  Logger,
+  logger as defaultLogger,
   ReplicationAbortedError,
   ReplicationAssertionError,
   ServiceError
@@ -44,6 +45,8 @@ export interface ChangeStreamOptions {
    * in closing the stream. To cover that case, reduce the timeout for tests.
    */
   maxAwaitTimeMS?: number;
+
+  logger?: Logger;
 }
 
 interface InitResult {
@@ -85,6 +88,8 @@ export class ChangeStream {
 
   private checkpointStreamId = new mongo.ObjectId();
 
+  private logger: Logger;
+
   constructor(options: ChangeStreamOptions) {
     this.storage = options.storage;
     this.metrics = options.metrics;
@@ -105,6 +110,8 @@ export class ChangeStream {
       },
       { once: true }
     );
+
+    this.logger = options.logger ?? defaultLogger;
   }
 
   get stopped() {
@@ -117,10 +124,6 @@ export class ChangeStream {
 
   private get configurePostImages() {
     return this.connections.options.postImages == PostImagesOption.AUTO_CONFIGURE;
-  }
-
-  private get logPrefix() {
-    return `[powersync_${this.group_id}]`;
   }
 
   /**
@@ -158,7 +161,7 @@ export class ChangeStream {
       .toArray();
 
     if (!tablePattern.isWildcard && collections.length == 0) {
-      logger.warn(`${this.logPrefix} Collection ${schema}.${tablePattern.name} not found`);
+      this.logger.warn(`Collection ${schema}.${tablePattern.name} not found`);
     }
 
     for (let collection of collections) {
@@ -178,7 +181,7 @@ export class ChangeStream {
   async initSlot(): Promise<InitResult> {
     const status = await this.storage.getStatus();
     if (status.snapshot_done && status.checkpoint_lsn) {
-      logger.info(`${this.logPrefix} Initial replication already done`);
+      this.logger.info(`Initial replication already done`);
       return { needsInitialSync: false };
     }
 
@@ -251,6 +254,7 @@ export class ChangeStream {
 
     await this.storage.startBatch(
       {
+        logger: this.logger,
         zeroLSN: MongoLSN.ZERO.comparable,
         defaultSchema: this.defaultDb.databaseName,
         storeCurrentData: false,
@@ -262,9 +266,9 @@ export class ChangeStream {
           // First replication attempt - get a snapshot and store the timestamp
           lsn = await this.getSnapshotLsn();
           await batch.setSnapshotLsn(lsn);
-          logger.info(`${this.logPrefix} Marking snapshot at ${lsn}`);
+          this.logger.info(`Marking snapshot at ${lsn}`);
         } else {
-          logger.info(`${this.logPrefix} Resuming snapshot at ${lsn}`);
+          this.logger.info(`Resuming snapshot at ${lsn}`);
           // Check that the snapshot is still valid.
           await this.validateSnapshotLsn(lsn);
         }
@@ -281,7 +285,7 @@ export class ChangeStream {
         let tablesWithStatus: SourceTable[] = [];
         for (let table of allSourceTables) {
           if (table.snapshotComplete) {
-            logger.info(`${this.logPrefix} Skipping ${table.qualifiedName} - snapshot already done`);
+            this.logger.info(`Skipping ${table.qualifiedName} - snapshot already done`);
             continue;
           }
           let count = await this.estimatedCountNumber(table);
@@ -290,8 +294,8 @@ export class ChangeStream {
           });
           tablesWithStatus.push(updated);
           this.relationCache.update(updated);
-          logger.info(
-            `${this.logPrefix} To replicate: ${table.qualifiedName}: ${updated.snapshotStatus?.replicatedCount}/~${updated.snapshotStatus?.totalEstimatedCount}`
+          this.logger.info(
+            `To replicate: ${table.qualifiedName}: ${updated.snapshotStatus?.replicatedCount}/~${updated.snapshotStatus?.totalEstimatedCount}`
           );
         }
 
@@ -302,7 +306,7 @@ export class ChangeStream {
           await touch();
         }
 
-        logger.info(`${this.logPrefix} Snapshot commit at ${lsn}`);
+        this.logger.info(`Snapshot commit at ${lsn}`);
         await batch.commit(lsn);
       }
     );
@@ -375,11 +379,11 @@ export class ChangeStream {
     const collection = db.collection(table.table);
     await using query = new ChunkedSnapshotQuery({ collection, key: table.snapshotStatus?.lastKey });
     if (query.lastKey != null) {
-      logger.info(
-        `${this.logPrefix} Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} - resuming at _id > ${query.lastKey}`
+      this.logger.info(
+        `Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} - resuming at _id > ${query.lastKey}`
       );
     } else {
-      logger.info(`${this.logPrefix} Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
+      this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
     }
 
     let lastBatch = performance.now();
@@ -423,8 +427,8 @@ export class ChangeStream {
 
       const duration = performance.now() - lastBatch;
       lastBatch = performance.now();
-      logger.info(
-        `${this.logPrefix} Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} in ${duration.toFixed(0)}ms`
+      this.logger.info(
+        `Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} in ${duration.toFixed(0)}ms`
       );
       await touch();
     }
@@ -432,7 +436,7 @@ export class ChangeStream {
     await nextChunkPromise;
 
     await batch.flush();
-    logger.info(`${this.logPrefix} Replicated ${at} documents for ${table.qualifiedName}`);
+    this.logger.info(`Replicated ${at} documents for ${table.qualifiedName}`);
   }
 
   private async getRelation(
@@ -480,7 +484,7 @@ export class ChangeStream {
         collMod: collectionInfo.name,
         changeStreamPreAndPostImages: { enabled: true }
       });
-      logger.info(`${this.logPrefix} Enabled postImages on ${db}.${collectionInfo.name}`);
+      this.logger.info(`Enabled postImages on ${db}.${collectionInfo.name}`);
     } else if (!enabled) {
       throw new ServiceError(ErrorCode.PSYNC_S1343, `postImages not enabled on ${db}.${collectionInfo.name}`);
     }
@@ -511,7 +515,7 @@ export class ChangeStream {
     // Drop conflicting collections.
     // This is generally not expected for MongoDB source dbs, so we log an error.
     if (result.dropTables.length > 0) {
-      logger.error(
+      this.logger.error(
         `Conflicting collections found for ${JSON.stringify(descriptor)}. Dropping: ${result.dropTables.map((t) => t.id).join(', ')}`
       );
       await batch.drop(result.dropTables);
@@ -523,7 +527,7 @@ export class ChangeStream {
     // 3. The table is used in sync rules.
     const shouldSnapshot = snapshot && !result.table.snapshotComplete && result.table.syncAny;
     if (shouldSnapshot) {
-      logger.info(`${this.logPrefix} New collection: ${descriptor.schema}.${descriptor.name}`);
+      this.logger.info(`New collection: ${descriptor.schema}.${descriptor.name}`);
       // Truncate this table, in case a previous snapshot was interrupted.
       await batch.truncate([result.table]);
 
@@ -543,7 +547,7 @@ export class ChangeStream {
     change: mongo.ChangeStreamDocument
   ): Promise<storage.FlushedResult | null> {
     if (!table.syncAny) {
-      logger.debug(`${this.logPrefix} Collection ${table.qualifiedName} not used in sync rules - skipping`);
+      this.logger.debug(`Collection ${table.qualifiedName} not used in sync rules - skipping`);
       return null;
     }
 
@@ -688,13 +692,18 @@ export class ChangeStream {
     await this.storage.autoActivate();
 
     await this.storage.startBatch(
-      { zeroLSN: MongoLSN.ZERO.comparable, defaultSchema: this.defaultDb.databaseName, storeCurrentData: false },
+      {
+        logger: this.logger,
+        zeroLSN: MongoLSN.ZERO.comparable,
+        defaultSchema: this.defaultDb.databaseName,
+        storeCurrentData: false
+      },
       async (batch) => {
         const { lastCheckpointLsn } = batch;
         const lastLsn = lastCheckpointLsn ? MongoLSN.fromSerialized(lastCheckpointLsn) : null;
         const startAfter = lastLsn?.timestamp;
 
-        logger.info(`${this.logPrefix} Resume streaming at ${startAfter?.inspect()} / ${lastLsn}`);
+        this.logger.info(`Resume streaming at ${startAfter?.inspect()} / ${lastLsn}`);
 
         const { stream, filters } = this.openChangeStream({ lsn: lastCheckpointLsn });
         if (this.abort_signal.aborted) {
@@ -802,8 +811,8 @@ export class ChangeStream {
 
             if (!flexDbNameWorkaroundLogged) {
               flexDbNameWorkaroundLogged = true;
-              logger.warn(
-                `${this.logPrefix} Incorrect DB name in change stream: ${changeDocument.ns.db}. Changed to ${this.defaultDb.databaseName}.`
+              this.logger.warn(
+                `Incorrect DB name in change stream: ${changeDocument.ns.db}. Changed to ${this.defaultDb.databaseName}.`
               );
             }
           }

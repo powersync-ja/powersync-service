@@ -3,7 +3,7 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
-import { logger } from '@powersync/lib-services-framework';
+import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
 import { InternalOpId, storage, utils } from '@powersync/service-core';
 import { currentBucketKey, MAX_ROW_SIZE } from './MongoBucketBatch.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
@@ -46,6 +46,7 @@ const MAX_TRANSACTION_DOC_COUNT = 2_000;
  * multiple transactions.
  */
 export class PersistedBatch {
+  logger: Logger;
   bucketData: mongo.AnyBulkWriteOperation<BucketDataDocument>[] = [];
   bucketParameters: mongo.AnyBulkWriteOperation<BucketParameterDocument>[] = [];
   currentData: mongo.AnyBulkWriteOperation<CurrentDataDocument>[] = [];
@@ -63,9 +64,11 @@ export class PersistedBatch {
 
   constructor(
     private group_id: number,
-    writtenSize: number
+    writtenSize: number,
+    options?: { logger?: Logger }
   ) {
     this.currentSize = writtenSize;
+    this.logger = options?.logger ?? defaultLogger;
   }
 
   private incrementBucket(bucket: string, op_id: InternalOpId) {
@@ -107,7 +110,7 @@ export class PersistedBatch {
         // the BSON size is small enough, but the JSON size is too large.
         // In these cases, we can't store the data, so we skip it, or generate a REMOVE operation if the row
         // was synced previously.
-        logger.error(`powersync_${this.group_id} Row ${key} too large: ${recordData.length} bytes. Removing.`);
+        this.logger.error(`Row ${key} too large: ${recordData.length} bytes. Removing.`);
         continue;
       }
 
@@ -303,8 +306,8 @@ export class PersistedBatch {
     }
 
     const duration = performance.now() - startAt;
-    logger.info(
-      `powersync_${this.group_id} Flushed ${this.bucketData.length} + ${this.bucketParameters.length} + ${
+    this.logger.info(
+      `Flushed ${this.bucketData.length} + ${this.bucketParameters.length} + ${
         this.currentData.length
       } updates, ${Math.round(this.currentSize / 1024)}kb in ${duration.toFixed(0)}ms. Last op_id: ${this.debugLastOpId}`
     );

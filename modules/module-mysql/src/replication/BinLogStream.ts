@@ -1,4 +1,9 @@
-import { logger, ReplicationAbortedError, ReplicationAssertionError } from '@powersync/lib-services-framework';
+import {
+  Logger,
+  logger as defaultLogger,
+  ReplicationAbortedError,
+  ReplicationAssertionError
+} from '@powersync/lib-services-framework';
 import * as sync_rules from '@powersync/service-sync-rules';
 import async from 'async';
 
@@ -25,6 +30,7 @@ export interface BinLogStreamOptions {
   storage: storage.SyncRulesBucketStorage;
   metrics: MetricsEngine;
   abortSignal: AbortSignal;
+  logger?: Logger;
 }
 
 interface MysqlRelId {
@@ -70,7 +76,10 @@ export class BinLogStream {
 
   private tableCache = new Map<string | number, storage.SourceTable>();
 
+  private logger: Logger;
+
   constructor(private options: BinLogStreamOptions) {
+    this.logger = options.logger ?? defaultLogger;
     this.storage = options.storage;
     this.connections = options.connections;
     this.syncRules = options.storage.getParsedSyncRules({ defaultSchema: this.defaultSchema });
@@ -148,7 +157,7 @@ export class BinLogStream {
           await this.snapshotTable(connection.connection, batch, result.table);
           await promiseConnection.query('COMMIT');
         } catch (e) {
-          await tryRollback(promiseConnection);
+          await this.tryRollback(promiseConnection);
           throw e;
         }
       } finally {
@@ -206,7 +215,7 @@ AND table_type = 'BASE TABLE';`,
         [tablePattern.schema, tablePattern.name]
       );
       if (result[0].length == 0) {
-        logger.info(`Skipping ${tablePattern.schema}.${name} - no table exists/is not a base table`);
+        this.logger.info(`Skipping ${tablePattern.schema}.${name} - no table exists/is not a base table`);
         continue;
       }
 
@@ -241,7 +250,7 @@ AND table_type = 'BASE TABLE';`,
     const status = await this.storage.getStatus();
     const lastKnowGTID = status.checkpoint_lsn ? common.ReplicatedGTID.fromSerialized(status.checkpoint_lsn) : null;
     if (status.snapshot_done && status.checkpoint_lsn) {
-      logger.info(`Initial replication already done.`);
+      this.logger.info(`Initial replication already done.`);
 
       if (lastKnowGTID) {
         // Check if the binlog is still available. If it isn't we need to snapshot again.
@@ -249,7 +258,7 @@ AND table_type = 'BASE TABLE';`,
         try {
           const isAvailable = await isBinlogStillAvailable(connection, lastKnowGTID.position.filename);
           if (!isAvailable) {
-            logger.info(
+            this.logger.info(
               `Binlog file ${lastKnowGTID.position.filename} is no longer available, starting initial replication again.`
             );
           }
@@ -277,9 +286,9 @@ AND table_type = 'BASE TABLE';`,
     const connection = await this.connections.getStreamingConnection();
     const promiseConnection = (connection as mysql.Connection).promise();
     const headGTID = await common.readExecutedGtid(promiseConnection);
-    logger.info(`Using snapshot checkpoint GTID: '${headGTID}'`);
+    this.logger.info(`Using snapshot checkpoint GTID: '${headGTID}'`);
     try {
-      logger.info(`Starting initial replication`);
+      this.logger.info(`Starting initial replication`);
       await promiseConnection.query<mysqlPromise.RowDataPacket[]>(
         'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'
       );
@@ -288,7 +297,12 @@ AND table_type = 'BASE TABLE';`,
 
       const sourceTables = this.syncRules.getSourceTables();
       await this.storage.startBatch(
-        { zeroLSN: ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema, storeCurrentData: true },
+        {
+          logger: this.logger,
+          zeroLSN: ReplicatedGTID.ZERO.comparable,
+          defaultSchema: this.defaultSchema,
+          storeCurrentData: true
+        },
         async (batch) => {
           for (let tablePattern of sourceTables) {
             const tables = await this.getQualifiedTableNames(batch, tablePattern);
@@ -301,10 +315,10 @@ AND table_type = 'BASE TABLE';`,
           await batch.commit(headGTID.comparable);
         }
       );
-      logger.info(`Initial replication done`);
+      this.logger.info(`Initial replication done`);
       await promiseConnection.query('COMMIT');
     } catch (e) {
-      await tryRollback(promiseConnection);
+      await this.tryRollback(promiseConnection);
       throw e;
     } finally {
       connection.release();
@@ -316,7 +330,7 @@ AND table_type = 'BASE TABLE';`,
     batch: storage.BucketStorageBatch,
     table: storage.SourceTable
   ) {
-    logger.info(`Replicating ${table.qualifiedName}`);
+    this.logger.info(`Replicating ${table.qualifiedName}`);
     // TODO count rows and log progress at certain batch sizes
 
     // MAX_EXECUTION_TIME(0) hint disables execution timeout for this query
@@ -359,7 +373,7 @@ AND table_type = 'BASE TABLE';`,
       // all connections automatically closed, including this one.
       await this.initReplication();
       await this.streamChanges();
-      logger.info('BinlogStream has been shut down');
+      this.logger.info('BinlogStream has been shut down');
     } catch (e) {
       await this.storage.reportError(e);
       throw e;
@@ -383,7 +397,12 @@ AND table_type = 'BASE TABLE';`,
       // This is needed for includeSchema to work correctly.
       const sourceTables = this.syncRules.getSourceTables();
       await this.storage.startBatch(
-        { zeroLSN: ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema, storeCurrentData: true },
+        {
+          logger: this.logger,
+          zeroLSN: ReplicatedGTID.ZERO.comparable,
+          defaultSchema: this.defaultSchema,
+          storeCurrentData: true
+        },
         async (batch) => {
           for (let tablePattern of sourceTables) {
             await this.getQualifiedTableNames(batch, tablePattern);
@@ -407,12 +426,12 @@ AND table_type = 'BASE TABLE';`,
     // Auto-activate as soon as initial replication is done
     await this.storage.autoActivate();
     const serverId = createRandomServerId(this.storage.group_id);
-    logger.info(`Starting replication. Created replica client with serverId:${serverId}`);
+    this.logger.info(`Starting replication. Created replica client with serverId:${serverId}`);
 
     const connection = await this.connections.getConnection();
     const { checkpoint_lsn } = await this.storage.getStatus();
     if (checkpoint_lsn) {
-      logger.info(`Existing checkpoint found: ${checkpoint_lsn}`);
+      this.logger.info(`Existing checkpoint found: ${checkpoint_lsn}`);
     }
 
     const fromGTID = checkpoint_lsn
@@ -423,7 +442,12 @@ AND table_type = 'BASE TABLE';`,
 
     if (!this.stopped) {
       await this.storage.startBatch(
-        { zeroLSN: ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema, storeCurrentData: true },
+        {
+          logger: this.logger,
+          zeroLSN: ReplicatedGTID.ZERO.comparable,
+          defaultSchema: this.defaultSchema,
+          storeCurrentData: true
+        },
         async (batch) => {
           const zongji = this.connections.createBinlogListener();
 
@@ -494,10 +518,10 @@ AND table_type = 'BASE TABLE';`,
 
           zongji.on('binlog', (evt: BinLogEvent) => {
             if (!this.stopped) {
-              logger.info(`Received Binlog event:${evt.getEventName()}`);
+              this.logger.info(`Received Binlog event:${evt.getEventName()}`);
               queue.push(evt);
             } else {
-              logger.info(`Replication is busy stopping, ignoring event ${evt.getEventName()}`);
+              this.logger.info(`Replication is busy stopping, ignoring event ${evt.getEventName()}`);
             }
           });
 
@@ -517,7 +541,7 @@ AND table_type = 'BASE TABLE';`,
               }
             );
           });
-          logger.info('Successfully set up replication connection heartbeat...');
+          this.logger.info('Successfully set up replication connection heartbeat...');
 
           // The _socket member is only set after a query is run on the connection, so we set the timeout after setting the heartbeat.
           // The timeout here must be greater than the master_heartbeat_period.
@@ -531,7 +555,7 @@ AND table_type = 'BASE TABLE';`,
             return;
           }
 
-          logger.info(`Reading binlog from: ${binLogPositionState.filename}:${binLogPositionState.offset}`);
+          this.logger.info(`Reading binlog from: ${binLogPositionState.filename}:${binLogPositionState.offset}`);
           // Only listen for changes to tables in the sync rules
           const includedTables = [...this.tableCache.values()].map((table) => table.table);
           zongji.start({
@@ -547,26 +571,26 @@ AND table_type = 'BASE TABLE';`,
           // Forever young
           await new Promise<void>((resolve, reject) => {
             zongji.on('error', (error) => {
-              logger.error('Binlog listener error:', error);
+              this.logger.error('Binlog listener error:', error);
               zongji.stop();
               queue.kill();
               reject(error);
             });
 
             zongji.on('stopped', () => {
-              logger.info('Binlog listener stopped. Replication ended.');
+              this.logger.info('Binlog listener stopped. Replication ended.');
               resolve();
             });
 
             queue.error((error) => {
-              logger.error('Binlog listener queue error:', error);
+              this.logger.error('Binlog listener queue error:', error);
               zongji.stop();
               queue.kill();
               reject(error);
             });
 
             const stop = () => {
-              logger.info('Abort signal received, stopping replication...');
+              this.logger.info('Abort signal received, stopping replication...');
               zongji.stop();
               queue.kill();
               resolve();
@@ -666,12 +690,12 @@ AND table_type = 'BASE TABLE';`,
         return null;
     }
   }
-}
 
-async function tryRollback(promiseConnection: mysqlPromise.Connection) {
-  try {
-    await promiseConnection.query('ROLLBACK');
-  } catch (e) {
-    logger.error('Failed to rollback transaction', e);
+  async tryRollback(promiseConnection: mysqlPromise.Connection) {
+    try {
+      await promiseConnection.query('ROLLBACK');
+    } catch (e) {
+      this.logger.error('Failed to rollback transaction', e);
+    }
   }
 }

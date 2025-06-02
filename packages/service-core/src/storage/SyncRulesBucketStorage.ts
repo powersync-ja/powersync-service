@@ -1,4 +1,4 @@
-import { ObserverClient } from '@powersync/lib-services-framework';
+import { Logger, ObserverClient } from '@powersync/lib-services-framework';
 import { ParameterLookup, SqlSyncRules, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
@@ -161,6 +161,8 @@ export interface StartBatchOptions extends ParseSyncRulesOptions {
   skipExistingRows?: boolean;
 
   markRecordUnavailable?: BucketStorageMarkRecordUnavailable;
+
+  logger?: Logger;
 }
 
 export interface CompactOptions {
