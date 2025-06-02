@@ -203,7 +203,7 @@ export class ChangeStream {
 
   private async getSnapshotLsn(): Promise<string> {
     const hello = await this.defaultDb.command({ hello: 1 });
-    const snapshotTime = hello.lastWrite?.majorityOpTime?.ts as mongo.Timestamp;
+    // Basic sanity check
     if (hello.msg == 'isdbgrid') {
       throw new ServiceError(
         ErrorCode.PSYNC_S1341,
@@ -214,12 +214,35 @@ export class ChangeStream {
         ErrorCode.PSYNC_S1342,
         'Standalone MongoDB instances are not supported - use a replicaset.'
       );
-    } else if (snapshotTime == null) {
-      // Not known where this would happen apart from the above cases
-      throw new ReplicationAssertionError('MongoDB lastWrite timestamp not found.');
     }
-    const { comparable: lsn } = new MongoLSN({ timestamp: snapshotTime });
-    return lsn;
+
+    // Open a change stream just to get a resume token for later use.
+    // We could use clusterTime from the hello command, but that won't tell us if the
+    // snapshot isn't valid anymore.
+    const { stream } = this.openChangeStream({ lsn: null, maxAwaitTimeMs: 0 });
+    try {
+      await stream.hasNext();
+      const resumeToken = stream.resumeToken;
+      const { comparable: lsn } = MongoLSN.fromResumeToken(resumeToken);
+      return lsn;
+    } catch (e) {
+      throw mapChangeStreamError(e);
+    } finally {
+      await stream.close();
+    }
+  }
+
+  private async validateSnapshotLsn(lsn: string) {
+    const { stream } = this.openChangeStream({ lsn: lsn, maxAwaitTimeMs: 0 });
+    try {
+      await stream.hasNext();
+    } catch (e) {
+      // Note: A timeout here is not handled as a ChangeStreamInvalidatedError, even though
+      // we possibly cannot recover from it.
+      throw mapChangeStreamError(e);
+    } finally {
+      await stream.close();
+    }
   }
 
   async initialReplication() {
@@ -242,12 +265,13 @@ export class ChangeStream {
           logger.info(`${this.logPrefix} Marking snapshot at ${lsn}`);
         } else {
           logger.info(`${this.logPrefix} Resuming snapshot at ${lsn}`);
-          // TODO: Validate the snapshot / resumeToken
+          // Check that the snapshot is still valid.
+          await this.validateSnapshotLsn(lsn);
         }
 
         // Start by resolving all tables.
         // This checks postImage configuration, and that should fail as
-        // earlier as possible.
+        // early as possible.
         let allSourceTables: SourceTable[] = [];
         for (let tablePattern of sourceTables) {
           const tables = await this.resolveQualifiedTableNames(batch, tablePattern);
@@ -595,6 +619,64 @@ export class ChangeStream {
     }
   }
 
+  private openChangeStream(options: { lsn: string | null; maxAwaitTimeMs?: number }) {
+    const lastLsn = options.lsn ? MongoLSN.fromSerialized(options.lsn) : null;
+    const startAfter = lastLsn?.timestamp;
+    const resumeAfter = lastLsn?.resumeToken;
+
+    const filters = this.getSourceNamespaceFilters();
+
+    const pipeline: mongo.Document[] = [
+      {
+        $match: filters.$match
+      },
+      { $changeStreamSplitLargeEvent: {} }
+    ];
+
+    let fullDocument: 'required' | 'updateLookup';
+
+    if (this.usePostImages) {
+      // 'read_only' or 'auto_configure'
+      // Configuration happens during snapshot, or when we see new
+      // collections.
+      fullDocument = 'required';
+    } else {
+      fullDocument = 'updateLookup';
+    }
+
+    const streamOptions: mongo.ChangeStreamOptions = {
+      showExpandedEvents: true,
+      maxAwaitTimeMS: options.maxAwaitTimeMs ?? this.maxAwaitTimeMS,
+      fullDocument: fullDocument
+    };
+
+    /**
+     * Only one of these options can be supplied at a time.
+     */
+    if (resumeAfter) {
+      streamOptions.resumeAfter = resumeAfter;
+    } else {
+      // Legacy: We don't persist lsns without resumeTokens anymore, but we do still handle the
+      // case if we have an old one.
+      streamOptions.startAtOperationTime = startAfter;
+    }
+
+    let stream: mongo.ChangeStream<mongo.Document>;
+    if (filters.multipleDatabases) {
+      // Requires readAnyDatabase@admin on Atlas
+      stream = this.client.watch(pipeline, streamOptions);
+    } else {
+      // Same general result, but requires less permissions than the above
+      stream = this.defaultDb.watch(pipeline, streamOptions);
+    }
+
+    this.abort_signal.addEventListener('abort', () => {
+      stream.close();
+    });
+
+    return { stream, filters };
+  }
+
   async streamChangesInternal() {
     // Auto-activate as soon as initial replication is done
     await this.storage.autoActivate();
@@ -605,62 +687,14 @@ export class ChangeStream {
         const { lastCheckpointLsn } = batch;
         const lastLsn = lastCheckpointLsn ? MongoLSN.fromSerialized(lastCheckpointLsn) : null;
         const startAfter = lastLsn?.timestamp;
-        const resumeAfter = lastLsn?.resumeToken;
 
         logger.info(`${this.logPrefix} Resume streaming at ${startAfter?.inspect()} / ${lastLsn}`);
 
-        const filters = this.getSourceNamespaceFilters();
-
-        const pipeline: mongo.Document[] = [
-          {
-            $match: filters.$match
-          },
-          { $changeStreamSplitLargeEvent: {} }
-        ];
-
-        let fullDocument: 'required' | 'updateLookup';
-
-        if (this.usePostImages) {
-          // 'read_only' or 'auto_configure'
-          // Configuration happens during snapshot, or when we see new
-          // collections.
-          fullDocument = 'required';
-        } else {
-          fullDocument = 'updateLookup';
-        }
-
-        const streamOptions: mongo.ChangeStreamOptions = {
-          showExpandedEvents: true,
-          maxAwaitTimeMS: this.maxAwaitTimeMS,
-          fullDocument: fullDocument
-        };
-
-        /**
-         * Only one of these options can be supplied at a time.
-         */
-        if (resumeAfter) {
-          streamOptions.resumeAfter = resumeAfter;
-        } else {
-          streamOptions.startAtOperationTime = startAfter;
-        }
-
-        let stream: mongo.ChangeStream<mongo.Document>;
-        if (filters.multipleDatabases) {
-          // Requires readAnyDatabase@admin on Atlas
-          stream = this.client.watch(pipeline, streamOptions);
-        } else {
-          // Same general result, but requires less permissions than the above
-          stream = this.defaultDb.watch(pipeline, streamOptions);
-        }
-
+        const { stream, filters } = this.openChangeStream({ lsn: lastCheckpointLsn });
         if (this.abort_signal.aborted) {
-          stream.close();
+          await stream.close();
           return;
         }
-
-        this.abort_signal.addEventListener('abort', () => {
-          stream.close();
-        });
 
         // Always start with a checkpoint.
         // This helps us to clear errors when restarting, even if there is
