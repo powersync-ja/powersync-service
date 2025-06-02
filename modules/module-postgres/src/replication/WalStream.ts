@@ -598,6 +598,8 @@ WHERE  oid = $1::regclass`,
       );
 
       if (limited == null) {
+        // Important: flush before marking progress
+        await batch.flush();
         let lastKey: Uint8Array | undefined;
         if (q instanceof ChunkedSnapshotQuery) {
           lastKey = q.getLastKeySerialized();

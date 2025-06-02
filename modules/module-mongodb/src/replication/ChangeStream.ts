@@ -29,8 +29,8 @@ import {
   getMongoRelation,
   STANDALONE_CHECKPOINT_ID
 } from './MongoRelation.js';
+import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
 import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
-import { SimpleSnapshotQuery } from './MongoSnapshotQuery.js';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;
@@ -343,16 +343,19 @@ export class ChangeStream {
 
   private async snapshotTable(batch: storage.BucketStorageBatch, table: storage.SourceTable) {
     logger.info(`${this.logPrefix} Replicating ${table.qualifiedName}`);
-    const estimatedCount = await this.estimatedCount(table);
-    let at = 0;
+    const totalEstimatedCount = await this.estimatedCountNumber(table);
+    let at = table.snapshotStatus?.replicatedCount ?? 0;
     const db = this.client.db(table.schema);
     const collection = db.collection(table.table);
-    await using query = new SimpleSnapshotQuery(collection);
+    await using query = new ChunkedSnapshotQuery({ collection, key: table.snapshotStatus?.lastKey });
+    if (query.lastKey != null) {
+      logger.info(`${this.logPrefix} Resuming snapshot for ${table.qualifiedName} at ${query.lastKey}`);
+    }
 
     let lastBatch = performance.now();
     let nextChunkPromise = query.nextChunk();
     while (true) {
-      const docBatch = await nextChunkPromise;
+      const { docs: docBatch, lastKey } = await nextChunkPromise;
       if (docBatch.length == 0) {
         break;
       }
@@ -376,12 +379,22 @@ export class ChangeStream {
         });
       }
 
+      // Important: flush before marking progress
+      await batch.flush();
       at += docBatch.length;
       this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(docBatch.length);
+
+      table = await batch.updateTableProgress(table, {
+        lastKey,
+        replicatedCount: at,
+        totalEstimatedCount: totalEstimatedCount
+      });
+      this.relationCache.update(table);
+
       const duration = performance.now() - lastBatch;
       lastBatch = performance.now();
       logger.info(
-        `${this.logPrefix} Replicating ${table.qualifiedName} ${at}/${estimatedCount} in ${duration.toFixed(0)}ms`
+        `${this.logPrefix} Replicating ${table.qualifiedName} ${at}/${totalEstimatedCount} in ${duration.toFixed(0)}ms`
       );
       await touch();
     }

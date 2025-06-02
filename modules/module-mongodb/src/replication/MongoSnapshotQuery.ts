@@ -1,75 +1,29 @@
 import { mongo } from '@powersync/lib-service-mongodb';
+import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { bson } from '@powersync/service-core';
 
-export interface MongoSnapshotQuery extends AsyncDisposable {
-  /**
-   * Returns an chunk of documents.
-   *
-   * If the last chunk has 0 rows, it indicates that there are no more rows to fetch.
-   */
-  nextChunk(): Promise<mongo.Document[]>;
-}
-
 /**
- * Snapshot query using a find.
- */
-export class SimpleSnapshotQuery implements MongoSnapshotQuery, AsyncDisposable {
-  private cursor: mongo.FindCursor;
-
-  public constructor(collection: mongo.Collection, batchSize: number = 6_000) {
-    this.cursor = collection.find({}, { batchSize: batchSize, readConcern: 'majority' });
-  }
-
-  [Symbol.asyncDispose](): Promise<void> {
-    return this.cursor.close();
-  }
-
-  async nextChunk(): Promise<mongo.Document[]> {
-    // hasNext() is the call that triggers fetching of the next batch,
-    // then we read it with readBufferedDocuments(). This gives us semi-explicit
-    // control over the fetching of each batch, and avoids a separate promise per document
-    const hasNext = await this.cursor.hasNext();
-    if (!hasNext) {
-      return [];
-    }
-    const docBatch = this.cursor.readBufferedDocuments();
-    return docBatch;
-  }
-}
-
-/**
- * Performs a table snapshot query, chunking by ranges of primary key data.
+ * Performs a collection snapshot query, chunking by ranges of _id.
  *
  * This may miss some rows if they are modified during the snapshot query.
- * In that case, logical replication will pick up those rows afterwards,
- * possibly resulting in an IdSnapshotQuery.
- *
- * Currently, this only supports a table with a single primary key column,
- * of a select few types.
+ * In that case, the change stream replication will pick up those rows afterwards.
  */
-export class ChunkedSnapshotQuery implements MongoSnapshotQuery, AsyncDisposable {
-  lastKey: mongo.Document | null = null;
+export class ChunkedSnapshotQuery implements AsyncDisposable {
+  lastKey: any = null;
   private lastCursor: mongo.FindCursor | null = null;
+  private collection: mongo.Collection;
+  private batchSize: number;
 
-  public constructor(
-    private readonly collection: mongo.Collection,
-    private readonly batchSize: number = 6_000
-  ) {}
-
-  public setLastKeySerialized(key: Uint8Array) {
-    const decoded = bson.deserialize(key, { useBigInt64: true });
-    this.lastKey = decoded;
+  public constructor(options: { collection: mongo.Collection; batchSize?: number; key?: Uint8Array | null }) {
+    this.lastKey = options.key ? bson.deserialize(options.key, { useBigInt64: true })._id : null;
+    this.lastCursor = null;
+    this.collection = options.collection;
+    this.batchSize = options.batchSize ?? 6_000;
   }
 
-  public getLastKeySerialized(): Uint8Array | null {
-    if (this.lastKey == null) {
-      return null;
-    }
-    return bson.serialize(this.lastKey);
-  }
-
-  async nextChunk(): Promise<mongo.Document[]> {
+  async nextChunk(): Promise<{ docs: mongo.Document[]; lastKey: Uint8Array } | { docs: []; lastKey: null }> {
     let cursor = this.lastCursor;
+    let newCursor = false;
     if (cursor == null || cursor.closed) {
       const filter: mongo.Filter<mongo.Document> = this.lastKey == null ? {} : { _id: { $gt: this.lastKey as any } };
       cursor = this.collection.find(filter, {
@@ -78,15 +32,25 @@ export class ChunkedSnapshotQuery implements MongoSnapshotQuery, AsyncDisposable
         limit: this.batchSize,
         sort: { _id: 1 }
       });
+      newCursor = true;
     }
     const hasNext = await cursor.hasNext();
     if (!hasNext) {
       this.lastCursor = null;
-      return [];
+      if (newCursor) {
+        return { docs: [], lastKey: null };
+      } else {
+        return this.nextChunk();
+      }
     }
     const docBatch = cursor.readBufferedDocuments();
     this.lastCursor = cursor;
-    return docBatch;
+    if (docBatch.length == 0) {
+      throw new ReplicationAssertionError(`MongoDB snapshot query returned an empty batch, but hasNext() was true.`);
+    }
+    const lastKey = docBatch[docBatch.length - 1]._id;
+    this.lastKey = lastKey;
+    return { docs: docBatch, lastKey: bson.serialize({ _id: lastKey }) };
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
