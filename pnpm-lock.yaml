@@ -258,8 +258,8 @@ importers:
         specifier: workspace:*
         version: link:../../libs/lib-services
       '@powersync/mysql-zongji':
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: 0.2.0
+        version: 0.2.0
       '@powersync/service-core':
         specifier: workspace:*
         version: link:../../packages/service-core
@@ -1281,9 +1281,9 @@ packages:
     resolution: {integrity: sha512-UA91GwWPhFExt3IizW6bOeY/pQ0BkuNwKjk9iQW9KqxluGCrg4VenZ0/L+2Y0+ZOtme72EVvg6v0zo3AMQRCeA==}
     engines: {node: '>=12'}
 
-  '@powersync/mysql-zongji@0.1.0':
-    resolution: {integrity: sha512-2GjOxVws+wtbb+xFUJe4Ozzkp/f0Gsna0fje9art76bmz6yfLCW4K3Mf2/M310xMnAIp8eP9hsJ6DYwwZCo1RA==}
-    engines: {node: '>=20.0.0'}
+  '@powersync/mysql-zongji@0.2.0':
+    resolution: {integrity: sha512-ua/n7WFfoiXmqfgwLikcm/AaDE6+t5gFVTWHWsbiuRQMNtXE1F2gXpZJdwKhr8WsOCYkB/A1ZOgbJKi4tK342g==}
+    engines: {node: '>=22.0.0'}
 
   '@powersync/service-jsonbig@0.17.10':
     resolution: {integrity: sha512-BgxgUewuw4HFCM9MzuzlIuRKHya6rimNPYqUItt7CO3ySUeUnX8Qn9eZpMxu9AT5Y8zqkSyxvduY36zZueNojg==}
@@ -1751,6 +1751,10 @@ packages:
 
   big-integer@1.6.51:
     resolution: {integrity: sha512-GPEid2Y9QU1Exl1rpO9B2IPJGHPSupF5GnVIP0blYvNOMer2bTvSWs1jGOUg04hTmu67nmLsQ9TBo1puaotBHg==}
+    engines: {node: '>=0.6'}
+
+  big-integer@1.6.52:
+    resolution: {integrity: sha512-QxD8cf2eVqJOOz63z6JIN9BzvVs/dlySa5HGSBH5xtR8dPteIRQnBxxKqkNTiT6jbDTF6jAfrd4oMcND9RGbQg==}
     engines: {node: '>=0.6'}
 
   bignumber.js@9.1.1:
@@ -4744,10 +4748,10 @@ snapshots:
       '@pnpm/network.ca-file': 1.0.2
       config-chain: 1.1.13
 
-  '@powersync/mysql-zongji@0.1.0':
+  '@powersync/mysql-zongji@0.2.0':
     dependencies:
       '@vlasky/mysql': 2.18.6
-      big-integer: 1.6.51
+      big-integer: 1.6.52
       iconv-lite: 0.6.3
 
   '@powersync/service-jsonbig@0.17.10':
@@ -5191,6 +5195,8 @@ snapshots:
       is-windows: 1.0.2
 
   big-integer@1.6.51: {}
+
+  big-integer@1.6.52: {}
 
   bignumber.js@9.1.1: {}
 
