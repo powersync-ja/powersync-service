@@ -85,16 +85,21 @@ export class ChunkedSnapshotQuery implements SnapshotQuery {
   public constructor(
     private readonly connection: PgConnection,
     private readonly table: SourceTable,
-    private readonly chunkSize: number = 10_000
+    private readonly chunkSize: number = 10_000,
+    lastKeySerialized: Uint8Array | null
   ) {
     this.key = table.replicaIdColumns[0];
+
+    if (lastKeySerialized != null) {
+      this.lastKey = this.deserializeKey(lastKeySerialized);
+    }
   }
 
   public async initialize(): Promise<void> {
     // No-op
   }
 
-  public setLastKeySerialized(key: Uint8Array) {
+  private deserializeKey(key: Uint8Array) {
     const decoded = bson.deserialize(key, { useBigInt64: true });
     const keys = Object.keys(decoded);
     if (keys.length != 1) {
@@ -104,7 +109,7 @@ export class ChunkedSnapshotQuery implements SnapshotQuery {
       throw new ServiceAssertionError(`Key name mismatch: expected ${this.key.name}, got ${keys[0]}`);
     }
     const value = decoded[this.key.name];
-    this.lastKey = value;
+    return value;
   }
 
   public getLastKeySerialized(): Uint8Array {
@@ -113,9 +118,10 @@ export class ChunkedSnapshotQuery implements SnapshotQuery {
 
   public async *nextChunk(): AsyncIterableIterator<PgChunk> {
     let stream: AsyncIterableIterator<PgChunk>;
+    const escapedKeyName = escapeIdentifier(this.key.name);
     if (this.lastKey == null) {
       stream = this.connection.stream(
-        `SELECT * FROM ${this.table.escapedIdentifier} ORDER BY ${escapeIdentifier(this.key.name)} LIMIT ${this.chunkSize}`
+        `SELECT * FROM ${this.table.escapedIdentifier} ORDER BY ${escapedKeyName} LIMIT ${this.chunkSize}`
       );
     } else {
       if (this.key.typeId == null) {
@@ -123,7 +129,7 @@ export class ChunkedSnapshotQuery implements SnapshotQuery {
       }
       let type: StatementParam['type'] = Number(this.key.typeId);
       stream = this.connection.stream({
-        statement: `SELECT * FROM ${this.table.escapedIdentifier} WHERE ${escapeIdentifier(this.key.name)} > $1 ORDER BY ${escapeIdentifier(this.key.name)} LIMIT ${this.chunkSize}`,
+        statement: `SELECT * FROM ${this.table.escapedIdentifier} WHERE ${escapedKeyName} > $1 ORDER BY ${escapedKeyName} LIMIT ${this.chunkSize}`,
         params: [{ value: this.lastKey, type }]
       });
     }

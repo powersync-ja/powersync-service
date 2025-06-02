@@ -434,8 +434,10 @@ WHERE  oid = $1::regclass`,
     await this.storage.startBatch(
       { zeroLSN: ZERO_LSN, defaultSchema: POSTGRES_DEFAULT_SCHEMA, storeCurrentData: true, skipExistingRows: true },
       async (batch) => {
+        let tablesWithStatus: SourceTable[] = [];
         for (let tablePattern of sourceTables) {
           const tables = await this.getQualifiedTableNames(batch, db, tablePattern);
+          // Pre-get counts
           for (let table of tables) {
             if (table.snapshotComplete) {
               logger.info(`${this.slot_name} Skipping ${table.qualifiedName} - snapshot already done`);
@@ -444,9 +446,15 @@ WHERE  oid = $1::regclass`,
             const count = await this.estimatedCountNumber(db, table);
             table = await batch.updateTableProgress(table, { totalEstimatedCount: count });
             this.relationCache.update(table);
-            await this.snapshotTableInTx(batch, db, table);
-            await touch();
+            tablesWithStatus.push(table);
+
+            logger.info(`${this.slot_name} To replicate: ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
           }
+        }
+
+        for (let table of tablesWithStatus) {
+          await this.snapshotTableInTx(batch, db, table);
+          await touch();
         }
 
         // Always commit the initial snapshot at zero.
@@ -505,11 +513,9 @@ WHERE  oid = $1::regclass`,
     table: storage.SourceTable,
     limited?: PrimaryKeyValue[]
   ) {
-    logger.info(`${this.slot_name} Replicating ${table.qualifiedName}`);
     let totalEstimatedCount = table.snapshotStatus?.totalEstimatedCount;
     let at = table.snapshotStatus?.replicatedCount ?? 0;
     let lastCountTime = 0;
-    let lastLogIndex = 0;
     let q: SnapshotQuery;
     // We do streaming on two levels:
     // 1. Coarse level: DELCARE CURSOR, FETCH 10000 at a time.
@@ -519,15 +525,21 @@ WHERE  oid = $1::regclass`,
     } else if (ChunkedSnapshotQuery.supports(table)) {
       // Single primary key - we can use the primary key for chunking
       const orderByKey = table.replicaIdColumns[0];
-      logger.info(`Chunking ${table.qualifiedName} by ${orderByKey.name}`);
-      q = new ChunkedSnapshotQuery(db, table, this.snapshotChunkSize);
+      q = new ChunkedSnapshotQuery(db, table, this.snapshotChunkSize, table.snapshotStatus?.lastKey ?? null);
       if (table.snapshotStatus?.lastKey != null) {
-        (q as ChunkedSnapshotQuery).setLastKeySerialized(table.snapshotStatus!.lastKey);
-        logger.info(`Resuming from ${(q as ChunkedSnapshotQuery).lastKey}`);
+        logger.info(
+          `${this.slot_name} Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} - resuming from ${orderByKey.name} > ${(q as ChunkedSnapshotQuery).lastKey}`
+        );
+      } else {
+        logger.info(
+          `${this.slot_name} Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} - resumable`
+        );
       }
     } else {
       // Fallback case - query the entire table
-      logger.info(`Snapshot ${table.qualifiedName} without chunking`);
+      logger.info(
+        `${this.slot_name} Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} - not resumable`
+      );
       q = new SimpleSnapshotQuery(db, table, this.snapshotChunkSize);
       at = 0;
     }
@@ -566,12 +578,6 @@ WHERE  oid = $1::regclass`,
         if (rows.length > 0) {
           hasRemainingData = true;
         }
-        if (rows.length > 0 && at - lastLogIndex >= 5000) {
-          logger.info(
-            `${this.slot_name} Replicating ${table.qualifiedName} ${at}/${limited ? `${limited.length}L` : this.formatCount(totalEstimatedCount)}`
-          );
-          lastLogIndex = at;
-        }
         if (this.abort_signal.aborted) {
           throw new Error(`Aborted initial replication of ${this.slot_name}`);
         }
@@ -593,9 +599,6 @@ WHERE  oid = $1::regclass`,
 
         await touch();
       }
-      logger.info(
-        `${this.slot_name} Replicated ${table.qualifiedName} ${at}/${limited ? `${limited.length}L` : this.formatCount(totalEstimatedCount)}`
-      );
 
       if (limited == null) {
         // Important: flush before marking progress
@@ -614,6 +617,10 @@ WHERE  oid = $1::regclass`,
           totalEstimatedCount: totalEstimatedCount
         });
         this.relationCache.update(table);
+
+        logger.info(`${this.slot_name} Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
+      } else {
+        logger.info(`${this.slot_name} Replicating ${table.qualifiedName} ${at}/${limited.length} for resnapshot`);
       }
     }
     await batch.flush();

@@ -100,4 +100,15 @@ export class SourceTable {
     copy.snapshotStatus = this.snapshotStatus;
     return copy;
   }
+
+  formatSnapshotProgress() {
+    if (this.snapshotComplete || this.snapshotStatus == null) {
+      // Should not happen
+      return '-';
+    } else if (this.snapshotStatus.totalEstimatedCount < 0) {
+      return `${this.snapshotStatus.replicatedCount}/unknown`;
+    } else {
+      return `${this.snapshotStatus.replicatedCount}/~${this.snapshotStatus.totalEstimatedCount}`;
+    }
+  }
 }

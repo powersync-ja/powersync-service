@@ -290,6 +290,9 @@ export class ChangeStream {
           });
           tablesWithStatus.push(updated);
           this.relationCache.update(updated);
+          logger.info(
+            `${this.logPrefix} To replicate: ${table.qualifiedName}: ${updated.snapshotStatus?.replicatedCount}/~${updated.snapshotStatus?.totalEstimatedCount}`
+          );
         }
 
         for (let table of tablesWithStatus) {
@@ -366,14 +369,17 @@ export class ChangeStream {
   }
 
   private async snapshotTable(batch: storage.BucketStorageBatch, table: storage.SourceTable) {
-    logger.info(`${this.logPrefix} Replicating ${table.qualifiedName}`);
     const totalEstimatedCount = await this.estimatedCountNumber(table);
     let at = table.snapshotStatus?.replicatedCount ?? 0;
     const db = this.client.db(table.schema);
     const collection = db.collection(table.table);
     await using query = new ChunkedSnapshotQuery({ collection, key: table.snapshotStatus?.lastKey });
     if (query.lastKey != null) {
-      logger.info(`${this.logPrefix} Resuming snapshot for ${table.qualifiedName} at ${query.lastKey}`);
+      logger.info(
+        `${this.logPrefix} Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} - resuming at _id > ${query.lastKey}`
+      );
+    } else {
+      logger.info(`${this.logPrefix} Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
     }
 
     let lastBatch = performance.now();
@@ -418,7 +424,7 @@ export class ChangeStream {
       const duration = performance.now() - lastBatch;
       lastBatch = performance.now();
       logger.info(
-        `${this.logPrefix} Replicating ${table.qualifiedName} ${at}/${totalEstimatedCount} in ${duration.toFixed(0)}ms`
+        `${this.logPrefix} Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} in ${duration.toFixed(0)}ms`
       );
       await touch();
     }
