@@ -225,7 +225,8 @@ export class ChangeStream {
     await using streamManager = this.openChangeStream({ lsn: null, maxAwaitTimeMs: 0 });
     const { stream } = streamManager;
     try {
-      await stream.hasNext();
+      // tryNext() doesn't block, while next() / hasNext() does block until there is data on the stream
+      await stream.tryNext();
       const resumeToken = stream.resumeToken;
       const { comparable: lsn } = MongoLSN.fromResumeToken(resumeToken);
       return lsn;
@@ -238,7 +239,8 @@ export class ChangeStream {
     await using streamManager = this.openChangeStream({ lsn: lsn, maxAwaitTimeMs: 0 });
     const { stream } = streamManager;
     try {
-      await stream.hasNext();
+      // tryNext() doesn't block, while next() / hasNext() does block until there is data on the stream
+      await stream.tryNext();
     } catch (e) {
       // Note: A timeout here is not handled as a ChangeStreamInvalidatedError, even though
       // we possibly cannot recover from it.
