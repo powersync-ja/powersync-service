@@ -484,7 +484,19 @@ AND table_type = 'BASE TABLE';`,
       },
       onCommit: async (lsn: string) => {
         this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
-        await batch.commit(lsn);
+        const didCommit = await batch.commit(lsn, { oldestUncommittedChange: this.oldestUncommittedChange });
+        if (didCommit) {
+          this.oldestUncommittedChange = null;
+          this.isStartingReplication = false;
+        }
+      },
+      onTransactionStart: async (options) => {
+        if (this.oldestUncommittedChange == null) {
+          this.oldestUncommittedChange = options.timestamp;
+        }
+      },
+      onRotate: async () => {
+        this.isStartingReplication = false;
       }
     };
   }

@@ -12,6 +12,8 @@ const MAX_QUEUE_PAUSE_TIME_MS = 45_000;
 export type Row = Record<string, any>;
 
 export interface BinLogEventHandler {
+  onTransactionStart: (options: { timestamp: Date }) => Promise<void>;
+  onRotate: () => Promise<void>;
   onWrite: (rows: Row[], tableMap: TableMapEntry) => Promise<void>;
   onUpdate: (rowsAfter: Row[], rowsBefore: Row[], tableMap: TableMapEntry) => Promise<void>;
   onDelete: (rows: Row[], tableMap: TableMapEntry) => Promise<void>;
@@ -196,10 +198,12 @@ export class BinLogListener {
               offset: evt.nextPosition
             }
           });
+          await this.eventHandler.onTransactionStart({ timestamp: new Date(evt.timestamp) });
           break;
         case zongji_utils.eventIsRotation(evt):
           this.binLogPosition.filename = evt.binlogName;
           this.binLogPosition.offset = evt.position;
+          await this.eventHandler.onRotate();
           break;
         case zongji_utils.eventIsWriteMutation(evt):
           await this.eventHandler.onWrite(evt.rows, evt.tableMap[evt.tableId]);
