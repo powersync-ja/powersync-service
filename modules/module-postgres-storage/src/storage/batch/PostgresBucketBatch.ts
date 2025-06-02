@@ -399,6 +399,25 @@ export class PostgresBucketBatch
     return true;
   }
 
+  async setSnapshotLsn(lsn: string): Promise<void> {
+    await this.db.sql`
+      UPDATE sync_rules
+      SET
+        last_checkpoint_lsn = ${{ type: 'varchar', value: lsn }},
+      WHERE
+        id = ${{ type: 'int4', value: this.group_id }}
+      RETURNING
+        id,
+        state,
+        last_checkpoint,
+        last_checkpoint_lsn
+    `
+      .decoded(StatefulCheckpoint)
+      .first();
+
+    this.last_checkpoint_lsn = lsn;
+  }
+
   async markSnapshotDone(
     tables: storage.SourceTable[],
     no_checkpoint_before_lsn: string

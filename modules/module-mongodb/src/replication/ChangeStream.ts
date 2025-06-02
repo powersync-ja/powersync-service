@@ -195,20 +195,12 @@ export class ChangeStream {
   }
   /**
    * Start initial replication.
-   *
-   * If (partial) replication was done before on this slot, this clears the state
-   * and starts again from scratch.
    */
   async startInitialReplication() {
-    await this.storage.clear();
     await this.initialReplication();
   }
 
-  async initialReplication() {
-    const sourceTables = this.sync_rules.getSourceTables();
-    await this.client.connect();
-
-    // We need to get the snapshot time before taking the initial snapshot.
+  private async getSnapshotLsn(): Promise<string> {
     const hello = await this.defaultDb.command({ hello: 1 });
     const snapshotTime = hello.lastWrite?.majorityOpTime?.ts as mongo.Timestamp;
     if (hello.msg == 'isdbgrid') {
@@ -225,10 +217,33 @@ export class ChangeStream {
       // Not known where this would happen apart from the above cases
       throw new ReplicationAssertionError('MongoDB lastWrite timestamp not found.');
     }
+    const { comparable: lsn } = new MongoLSN({ timestamp: snapshotTime });
+    return lsn;
+  }
+
+  async initialReplication() {
+    const sourceTables = this.sync_rules.getSourceTables();
+    await this.client.connect();
 
     await this.storage.startBatch(
-      { zeroLSN: MongoLSN.ZERO.comparable, defaultSchema: this.defaultDb.databaseName, storeCurrentData: false },
+      {
+        zeroLSN: MongoLSN.ZERO.comparable,
+        defaultSchema: this.defaultDb.databaseName,
+        storeCurrentData: false,
+        skipExistingRows: true
+      },
       async (batch) => {
+        let lsn = batch.lastCheckpointLsn;
+        if (lsn == null) {
+          // First replication attempt - get a snapshot and store the timestamp
+          lsn = await this.getSnapshotLsn();
+          await batch.setSnapshotLsn(lsn);
+          logger.info(`${this.logPrefix} Marking snapshot at ${lsn}`);
+        } else {
+          logger.info(`${this.logPrefix} Resuming snapshot at ${lsn}`);
+          // TODO: Validate the snapshot / resumeToken
+        }
+
         // Start by resolving all tables.
         // This checks postImage configuration, and that should fail as
         // earlier as possible.
@@ -240,6 +255,10 @@ export class ChangeStream {
 
         let tablesWithStatus: SourceTable[] = [];
         for (let table of allSourceTables) {
+          if (table.snapshotComplete) {
+            logger.info(`${this.logPrefix} Skipping ${table.qualifiedName} - snapshot already done`);
+            continue;
+          }
           let count = await this.estimatedCountNumber(table);
           const updated = await batch.updateTableProgress(table, {
             totalEstimatedCount: count
@@ -255,8 +274,7 @@ export class ChangeStream {
           await touch();
         }
 
-        const { comparable: lsn } = new MongoLSN({ timestamp: snapshotTime });
-        logger.info(`${this.logPrefix} Snapshot commit at ${snapshotTime.inspect()} / ${lsn}`);
+        logger.info(`${this.logPrefix} Snapshot commit at ${lsn}`);
         await batch.commit(lsn);
       }
     );

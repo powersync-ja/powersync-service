@@ -491,6 +491,7 @@ WHERE  oid = $1::regclass`,
       tableLsnNotBefore = rs.rows[0][0];
       await db.query('COMMIT');
       const [resultTable] = await batch.markSnapshotDone([table], tableLsnNotBefore);
+      this.relationCache.update(resultTable);
       return resultTable;
     } catch (e) {
       await db.query('ROLLBACK');
@@ -610,6 +611,7 @@ WHERE  oid = $1::regclass`,
           replicatedCount: at,
           totalEstimatedCount: totalEstimatedCount
         });
+        this.relationCache.update(table);
       }
     }
     await batch.flush();

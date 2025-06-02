@@ -734,6 +734,23 @@ export class MongoBucketBatch
     return true;
   }
 
+  async setSnapshotLsn(lsn: string): Promise<void> {
+    const update: Partial<SyncRuleDocument> = {
+      last_checkpoint_lsn: lsn
+    };
+
+    await this.db.sync_rules.updateOne(
+      {
+        _id: this.group_id
+      },
+      {
+        $set: update
+      },
+      { session: this.session }
+    );
+    this.last_checkpoint_lsn = lsn;
+  }
+
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
     const { after, before, sourceTable, tag } = record;
     for (const event of this.getTableEvents(sourceTable)) {

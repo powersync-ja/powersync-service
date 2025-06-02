@@ -57,6 +57,14 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
   keepalive(lsn: string): Promise<boolean>;
 
   /**
+   * Set the LSN for a snapshot, before starting replication.
+   *
+   * Not required if the source database keeps track of this, for example with
+   * PostgreSQL logical replication slots.
+   */
+  setSnapshotLsn(lsn: string): Promise<void>;
+
+  /**
    * Get the last checkpoint LSN, from either commit or keepalive.
    */
   lastCheckpointLsn: string | null;
