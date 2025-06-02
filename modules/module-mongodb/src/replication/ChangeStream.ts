@@ -222,7 +222,8 @@ export class ChangeStream {
     // Open a change stream just to get a resume token for later use.
     // We could use clusterTime from the hello command, but that won't tell us if the
     // snapshot isn't valid anymore.
-    const { stream } = this.openChangeStream({ lsn: null, maxAwaitTimeMs: 0 });
+    await using streamManager = this.openChangeStream({ lsn: null, maxAwaitTimeMs: 0 });
+    const { stream } = streamManager;
     try {
       await stream.hasNext();
       const resumeToken = stream.resumeToken;
@@ -230,21 +231,18 @@ export class ChangeStream {
       return lsn;
     } catch (e) {
       throw mapChangeStreamError(e);
-    } finally {
-      await stream.close();
     }
   }
 
   private async validateSnapshotLsn(lsn: string) {
-    const { stream } = this.openChangeStream({ lsn: lsn, maxAwaitTimeMs: 0 });
+    await using streamManager = this.openChangeStream({ lsn: lsn, maxAwaitTimeMs: 0 });
+    const { stream } = streamManager;
     try {
       await stream.hasNext();
     } catch (e) {
       // Note: A timeout here is not handled as a ChangeStreamInvalidatedError, even though
       // we possibly cannot recover from it.
       throw mapChangeStreamError(e);
-    } finally {
-      await stream.close();
     }
   }
 
@@ -684,7 +682,13 @@ export class ChangeStream {
       stream.close();
     });
 
-    return { stream, filters };
+    return {
+      stream,
+      filters,
+      [Symbol.asyncDispose]: async () => {
+        return stream.close();
+      }
+    };
   }
 
   async streamChangesInternal() {
@@ -705,7 +709,8 @@ export class ChangeStream {
 
         this.logger.info(`Resume streaming at ${startAfter?.inspect()} / ${lastLsn}`);
 
-        const { stream, filters } = this.openChangeStream({ lsn: lastCheckpointLsn });
+        await using streamManager = this.openChangeStream({ lsn: lastCheckpointLsn });
+        const { stream, filters } = streamManager;
         if (this.abort_signal.aborted) {
           await stream.close();
           return;
