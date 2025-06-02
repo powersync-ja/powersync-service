@@ -403,7 +403,7 @@ export class PostgresBucketBatch
     await this.db.sql`
       UPDATE sync_rules
       SET
-        last_checkpoint_lsn = ${{ type: 'varchar', value: lsn }},
+        last_checkpoint_lsn = ${{ type: 'varchar', value: lsn }}
       WHERE
         id = ${{ type: 'int4', value: this.group_id }}
       RETURNING
