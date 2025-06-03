@@ -125,6 +125,7 @@ export interface SyncRuleStatus {
   checkpoint_lsn: string | null;
   active: boolean;
   snapshot_done: boolean;
+  snapshot_lsn: string | null;
 }
 export interface ResolveTableOptions {
   group_id: number;

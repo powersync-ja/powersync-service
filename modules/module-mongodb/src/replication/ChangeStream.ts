@@ -18,7 +18,7 @@ import {
   storage
 } from '@powersync/service-core';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
-import { ReplicationMetric } from '@powersync/service-types';
+import { ReplicationError, ReplicationMetric } from '@powersync/service-types';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
@@ -51,6 +51,7 @@ export interface ChangeStreamOptions {
 
 interface InitResult {
   needsInitialSync: boolean;
+  snapshotLsn: string | null;
 }
 
 /**
@@ -182,10 +183,10 @@ export class ChangeStream {
     const status = await this.storage.getStatus();
     if (status.snapshot_done && status.checkpoint_lsn) {
       this.logger.info(`Initial replication already done`);
-      return { needsInitialSync: false };
+      return { needsInitialSync: false, snapshotLsn: null };
     }
 
-    return { needsInitialSync: true };
+    return { needsInitialSync: true, snapshotLsn: status.snapshot_lsn };
   }
 
   async estimatedCount(table: storage.SourceTable): Promise<string> {
@@ -196,12 +197,6 @@ export class ChangeStream {
   async estimatedCountNumber(table: storage.SourceTable): Promise<number> {
     const db = this.client.db(table.schema);
     return await db.collection(table.table).estimatedDocumentCount();
-  }
-  /**
-   * Start initial replication.
-   */
-  async startInitialReplication() {
-    await this.initialReplication();
   }
 
   private async getSnapshotLsn(): Promise<string> {
@@ -222,17 +217,60 @@ export class ChangeStream {
     // Open a change stream just to get a resume token for later use.
     // We could use clusterTime from the hello command, but that won't tell us if the
     // snapshot isn't valid anymore.
+    // If we just use the first resumeToken from the stream, we get two potential issues:
+    // 1. The resumeToken may just be a wrapped clusterTime, which does not detect changes
+    //    in source db or other stream issues.
+    // 2. The first actual change we get may have the same clusterTime, causing us to incorrect
+    //    skip that event.
+    // Instead, we create a new checkpoint document, and wait until we get that document back in the stream.
+    // To avoid potential race conditions with the checkpoint creation, we create a new checkpoint document
+    // periodically until the timeout is reached.
+
+    const LSN_TIMEOUT_SECONDS = 60;
+    const LSN_CREATE_INTERVAL_SECONDS = 1;
+
     await using streamManager = this.openChangeStream({ lsn: null, maxAwaitTimeMs: 0 });
     const { stream } = streamManager;
-    try {
+    const startTime = performance.now();
+    let lastCheckpointCreated = -10_000;
+    let eventsSeen = 0;
+
+    while (performance.now() - startTime < LSN_TIMEOUT_SECONDS * 1000) {
+      if (performance.now() - lastCheckpointCreated >= LSN_CREATE_INTERVAL_SECONDS * 1000) {
+        await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
+        lastCheckpointCreated = performance.now();
+      }
+
       // tryNext() doesn't block, while next() / hasNext() does block until there is data on the stream
-      await stream.tryNext();
-      const resumeToken = stream.resumeToken;
-      const { comparable: lsn } = MongoLSN.fromResumeToken(resumeToken);
-      return lsn;
-    } catch (e) {
-      throw mapChangeStreamError(e);
+      const changeDocument = await stream.tryNext().catch((e) => {
+        throw mapChangeStreamError(e);
+      });
+      if (changeDocument == null) {
+        continue;
+      }
+
+      const ns = 'ns' in changeDocument && 'coll' in changeDocument.ns ? changeDocument.ns : undefined;
+
+      if (ns?.coll == CHECKPOINTS_COLLECTION && 'documentKey' in changeDocument) {
+        const checkpointId = changeDocument.documentKey._id as string | mongo.ObjectId;
+        if (!this.checkpointStreamId.equals(checkpointId)) {
+          continue;
+        }
+        const { comparable: lsn } = new MongoLSN({
+          timestamp: changeDocument.clusterTime!,
+          resume_token: changeDocument._id
+        });
+        return lsn;
+      }
+
+      eventsSeen += 1;
     }
+
+    // Could happen if there is a very large replication lag?
+    throw new ServiceError(
+      ErrorCode.PSYNC_S1301,
+      `Timeout after while waiting for checkpoint document for ${LSN_TIMEOUT_SECONDS}s. Streamed events = ${eventsSeen}`
+    );
   }
 
   private async validateSnapshotLsn(lsn: string) {
@@ -248,7 +286,7 @@ export class ChangeStream {
     }
   }
 
-  async initialReplication() {
+  async initialReplication(snapshotLsn: string | null) {
     const sourceTables = this.sync_rules.getSourceTables();
     await this.client.connect();
 
@@ -261,16 +299,15 @@ export class ChangeStream {
         skipExistingRows: true
       },
       async (batch) => {
-        let lsn = batch.lastCheckpointLsn;
-        if (lsn == null) {
+        if (snapshotLsn == null) {
           // First replication attempt - get a snapshot and store the timestamp
-          lsn = await this.getSnapshotLsn();
-          await batch.setSnapshotLsn(lsn);
-          this.logger.info(`Marking snapshot at ${lsn}`);
+          snapshotLsn = await this.getSnapshotLsn();
+          await batch.setSnapshotLsn(snapshotLsn);
+          this.logger.info(`Marking snapshot at ${snapshotLsn}`);
         } else {
-          this.logger.info(`Resuming snapshot at ${lsn}`);
+          this.logger.info(`Resuming snapshot at ${snapshotLsn}`);
           // Check that the snapshot is still valid.
-          await this.validateSnapshotLsn(lsn);
+          await this.validateSnapshotLsn(snapshotLsn);
         }
 
         // Start by resolving all tables.
@@ -306,8 +343,8 @@ export class ChangeStream {
           await touch();
         }
 
-        this.logger.info(`Snapshot commit at ${lsn}`);
-        await batch.commit(lsn);
+        this.logger.info(`Snapshot commit at ${snapshotLsn}`);
+        await batch.commit(snapshotLsn);
       }
     );
   }
@@ -610,7 +647,7 @@ export class ChangeStream {
     const result = await this.initSlot();
     await this.setupCheckpointsCollection();
     if (result.needsInitialSync) {
-      await this.startInitialReplication();
+      await this.initialReplication(result.snapshotLsn);
     }
   }
 

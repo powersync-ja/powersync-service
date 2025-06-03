@@ -699,7 +699,8 @@ export class MongoBucketBatch
         _id: this.group_id
       },
       {
-        $set: update
+        $set: update,
+        $unset: { snapshot_lsn: 1 }
       },
       { session: this.session }
     );
@@ -735,7 +736,8 @@ export class MongoBucketBatch
           snapshot_done: true,
           last_fatal_error: null,
           last_keepalive_ts: new Date()
-        }
+        },
+        $unset: { snapshot_lsn: 1 }
       },
       { session: this.session }
     );
@@ -746,7 +748,7 @@ export class MongoBucketBatch
 
   async setSnapshotLsn(lsn: string): Promise<void> {
     const update: Partial<SyncRuleDocument> = {
-      last_checkpoint_lsn: lsn
+      snapshot_lsn: lsn
     };
 
     await this.db.sync_rules.updateOne(
@@ -758,7 +760,6 @@ export class MongoBucketBatch
       },
       { session: this.session }
     );
-    this.last_checkpoint_lsn = lsn;
   }
 
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {

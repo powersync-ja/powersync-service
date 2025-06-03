@@ -118,6 +118,13 @@ export interface SyncRuleDocument {
   snapshot_done: boolean;
 
   /**
+   * If snapshot_done = false, this may be the lsn at which we started the snapshot.
+   *
+   * This can be used for resuming the snapshot after a restart.
+   */
+  snapshot_lsn: string | undefined;
+
+  /**
    * The last consistent checkpoint.
    *
    * There may be higher OpIds used in the database if we're in the middle of replicating a large transaction.
