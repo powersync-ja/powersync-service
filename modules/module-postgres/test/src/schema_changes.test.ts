@@ -454,7 +454,7 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t2', 'test2')`);
 
     // Just as an FYI - cannot update or delete here
-    expect(pool.query(`UPDATE test_data SET description = 'test2b' WHERE id = 't2'`)).rejects.toThrow(
+    await expect(pool.query(`UPDATE test_data SET description = 'test2b' WHERE id = 't2'`)).rejects.toThrow(
       'does not have a replica identity and publishes updates'
     );
 
@@ -492,7 +492,7 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t2', 'test2')`);
 
     // Just as an FYI - cannot update or delete here
-    expect(pool.query(`UPDATE test_data SET description = 'test2b' WHERE id = 't2'`)).rejects.toThrow(
+    await expect(pool.query(`UPDATE test_data SET description = 'test2b' WHERE id = 't2'`)).rejects.toThrow(
       'does not have a replica identity and publishes updates'
     );
 

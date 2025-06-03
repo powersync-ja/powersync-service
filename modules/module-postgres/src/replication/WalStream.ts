@@ -666,6 +666,10 @@ WHERE  oid = $1::regclass`,
       const db = await this.connections.snapshotConnection();
       try {
         const table = await this.snapshotTableInTx(batch, db, result.table);
+        // After the table snapshot, we wait for replication to catch up.
+        // To make sure there is actually something to replicate, we send a keepalive
+        // message.
+        await sendKeepAlive(db);
         return table;
       } finally {
         await db.end();
