@@ -1,17 +1,12 @@
 import { storage } from '@powersync/service-core';
+import { METRICS_HELPER } from '@powersync/service-core-tests';
+import { ReplicationMetric } from '@powersync/service-types';
 import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
 import { populateData } from '../../dist/utils/populate_test_data.js';
 import { env } from './env.js';
-import {
-  describeWithStorage,
-  INITIALIZED_MONGO_STORAGE_FACTORY,
-  INITIALIZED_POSTGRES_STORAGE_FACTORY,
-  TEST_CONNECTION_OPTIONS
-} from './util.js';
+import { describeWithStorage, TEST_CONNECTION_OPTIONS } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
-import { METRICS_HELPER } from '@powersync/service-core-tests';
-import { ReplicationMetric } from '@powersync/service-types';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('batch replication', function () {
   describeWithStorage({ timeout: 240_000 }, function (factory) {

@@ -1,7 +1,6 @@
 import { getDebugTablesInfo } from '@module/replication/replication-utils.js';
 import { expect, test } from 'vitest';
 
-// Not quite a walStreamTest, but it helps to manage the connection
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 

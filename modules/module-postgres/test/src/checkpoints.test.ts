@@ -3,7 +3,6 @@ import { checkpointUserId, createWriteCheckpoint } from '@powersync/service-core
 import { describe, test } from 'vitest';
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
-import { env } from './env.js';
 
 import timers from 'node:timers/promises';
 
