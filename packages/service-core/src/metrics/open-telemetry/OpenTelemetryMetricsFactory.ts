@@ -1,11 +1,11 @@
 import { Meter, ValueType } from '@opentelemetry/api';
 import {
   Counter,
-  ObservableGauge,
-  UpDownCounter,
   MetricMetadata,
   MetricsFactory,
-  Precision
+  ObservableGauge,
+  Precision,
+  UpDownCounter
 } from '../metrics-interfaces.js';
 
 export class OpenTelemetryMetricsFactory implements MetricsFactory {

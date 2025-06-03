@@ -85,6 +85,17 @@ export class WalStream {
 
   private startedStreaming = false;
 
+  /**
+   * Time of the oldest uncommitted change, according to the source db.
+   * This is used to determine the replication lag.
+   */
+  private oldestUncommittedChange: Date | null = null;
+  /**
+   * Keep track of whether we have done a commit or keepalive yet.
+   * We can only compute replication lag if isStartingReplication == false, or oldestUncommittedChange is present.
+   */
+  private isStartingReplication = true;
+
   constructor(options: WalStreamOptions) {
     this.storage = options.storage;
     this.metrics = options.metrics;
@@ -708,6 +719,9 @@ WHERE  oid = $1::regclass`,
             } else if (msg.tag == 'begin') {
               // This may span multiple transactions in the same chunk, or even across chunks.
               skipKeepalive = true;
+              if (this.oldestUncommittedChange == null) {
+                this.oldestUncommittedChange = new Date(Number(msg.commitTime / 1000n));
+              }
             } else if (msg.tag == 'commit') {
               this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
               if (msg == lastCommit) {
@@ -715,8 +729,15 @@ WHERE  oid = $1::regclass`,
                 // This effectively lets us batch multiple transactions within the same chunk
                 // into a single flush, increasing throughput for many small transactions.
                 skipKeepalive = false;
-                await batch.commit(msg.lsn!, { createEmptyCheckpoints });
+                const didCommit = await batch.commit(msg.lsn!, {
+                  createEmptyCheckpoints,
+                  oldestUncommittedChange: this.oldestUncommittedChange
+                });
                 await this.ack(msg.lsn!, replicationStream);
+                if (didCommit) {
+                  this.oldestUncommittedChange = null;
+                  this.isStartingReplication = false;
+                }
               }
             } else {
               if (count % 100 == 0) {
@@ -749,6 +770,7 @@ WHERE  oid = $1::regclass`,
               // may be in the middle of the next transaction.
               // It must only be used to associate checkpoints with LSNs.
               await batch.keepalive(chunkLastLsn);
+              this.isStartingReplication = false;
             }
 
             // We receive chunks with empty messages often (about each second).
@@ -781,7 +803,8 @@ WHERE  oid = $1::regclass`,
     if (storageIdentifier.type != lib_postgres.POSTGRES_CONNECTION_TYPE) {
       return {
         // Keep the same behaviour as before allowing Postgres storage.
-        createEmptyCheckpoints: true
+        createEmptyCheckpoints: true,
+        oldestUncommittedChange: null
       };
     }
 
@@ -804,7 +827,8 @@ WHERE  oid = $1::regclass`,
        * Don't create empty checkpoints if the same Postgres database is used for the data source
        * and sync bucket storage. Creating empty checkpoints will cause WAL feedback loops.
        */
-      createEmptyCheckpoints: replicationIdentifier.database_name != parsedStorageIdentifier.database_name
+      createEmptyCheckpoints: replicationIdentifier.database_name != parsedStorageIdentifier.database_name,
+      oldestUncommittedChange: null
     };
   }
 
@@ -815,6 +839,19 @@ WHERE  oid = $1::regclass`,
   protected async checkLogicalMessageSupport() {
     const version = await this.connections.getServerVersion();
     return version ? version.compareMain('14.0.0') >= 0 : false;
+  }
+
+  async getReplicationLagMillis(): Promise<number | undefined> {
+    if (this.oldestUncommittedChange == null) {
+      if (this.isStartingReplication) {
+        // We don't have anything to compute replication lag with yet.
+        return undefined;
+      } else {
+        // We don't have any uncommitted changes, so replication is up-to-date.
+        return 0;
+      }
+    }
+    return Date.now() - this.oldestUncommittedChange.getTime();
   }
 }
 

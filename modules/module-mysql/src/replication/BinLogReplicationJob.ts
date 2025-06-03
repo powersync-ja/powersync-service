@@ -9,6 +9,7 @@ export interface BinLogReplicationJobOptions extends replication.AbstractReplica
 
 export class BinLogReplicationJob extends replication.AbstractReplicationJob {
   private connectionFactory: MySQLConnectionManagerFactory;
+  private lastStream: BinLogStream | null = null;
 
   constructor(options: BinLogReplicationJobOptions) {
     super(options);
@@ -66,6 +67,7 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
         metrics: this.options.metrics,
         connections: connectionManager
       });
+      this.lastStream = stream;
       await stream.replicate();
     } catch (e) {
       if (this.abortController.signal.aborted) {
@@ -91,5 +93,9 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
     } finally {
       await connectionManager.end();
     }
+  }
+
+  async getReplicationLagMillis(): Promise<number | undefined> {
+    return this.lastStream?.getReplicationLagMillis();
   }
 }
