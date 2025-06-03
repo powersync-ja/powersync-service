@@ -1,5 +1,16 @@
 # @powersync/service-core-tests
 
+## 0.10.0
+
+### Minor Changes
+
+- 0ccd470: Add powersync_replication_lag_seconds metric
+
+### Patch Changes
+
+- Updated dependencies [0ccd470]
+  - @powersync/service-core@1.13.0
+
 ## 0.9.5
 
 ### Patch Changes
