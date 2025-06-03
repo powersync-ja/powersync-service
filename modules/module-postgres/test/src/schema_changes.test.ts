@@ -3,16 +3,11 @@ import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
 
 import { storage } from '@powersync/service-core';
-import { env } from './env.js';
-import { INITIALIZED_MONGO_STORAGE_FACTORY, INITIALIZED_POSTGRES_STORAGE_FACTORY } from './util.js';
+import { describeWithStorage } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 
-describe.skipIf(!env.TEST_MONGO_STORAGE)('schema changes - mongodb', { timeout: 20_000 }, function () {
-  defineTests(INITIALIZED_MONGO_STORAGE_FACTORY);
-});
-
-describe.skipIf(!env.TEST_POSTGRES_STORAGE)('schema changes - postgres', { timeout: 20_000 }, function () {
-  defineTests(INITIALIZED_POSTGRES_STORAGE_FACTORY);
+describe('schema changes', { timeout: 20_000 }, function () {
+  describeWithStorage({}, defineTests);
 });
 
 const BASIC_SYNC_RULES = `

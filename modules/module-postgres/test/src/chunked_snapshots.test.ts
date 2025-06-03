@@ -1,18 +1,17 @@
-import { reduceBucket, storage } from '@powersync/service-core';
+import { reduceBucket, TestStorageFactory } from '@powersync/service-core';
+import { METRICS_HELPER } from '@powersync/service-core-tests';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as crypto from 'node:crypto';
 import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
-import { env } from './env.js';
-import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
+import { describeWithStorage } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
-import { METRICS_HELPER } from '@powersync/service-core-tests';
 
-describe.skipIf(!env.TEST_MONGO_STORAGE)('chunked replication tests - mongodb', { timeout: 120_000 }, function () {
-  defineBatchTests(INITIALIZED_MONGO_STORAGE_FACTORY);
+describe('chunked snapshots', () => {
+  describeWithStorage({ timeout: 120_000 }, defineBatchTests);
 });
 
-function defineBatchTests(factory: storage.TestStorageFactory) {
+function defineBatchTests(factory: TestStorageFactory) {
   // We need to test every supported type, since chunking could be quite sensitive to
   // how each specific type is handled.
   test('chunked snapshot edge case (int2)', async () => {
