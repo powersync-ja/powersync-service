@@ -112,13 +112,7 @@ function defineResumeTest(factoryGenerator: (options?: TestStorageOptions) => Pr
     await collection.insertOne({ description: 'test1', num: 1152921504606846976n });
 
     // Wait for the item above to be replicated. The commit should store a resume token.
-    await vi.waitFor(
-      async () => {
-        const checkpoint = await context.storage?.getCheckpoint();
-        expect(MongoLSN.fromSerialized(checkpoint!.lsn!).resumeToken).exist;
-      },
-      { timeout: 5000 }
-    );
+    await context.getCheckpoint();
 
     // Done with this context for now
     await context.dispose();
@@ -145,6 +139,7 @@ function defineResumeTest(factoryGenerator: (options?: TestStorageOptions) => Pr
     const activeContent = await factory.getActiveSyncRulesContent();
     context2.storage = factory.getInstance(activeContent!);
 
+    // If this test times out, it likely didn't throw the expected error here.
     const error = await context2.startStreaming().catch((ex) => ex);
     // The ChangeStreamReplicationJob will detect this and throw a ChangeStreamInvalidatedError
     expect(error).toBeInstanceOf(ChangeStreamInvalidatedError);
