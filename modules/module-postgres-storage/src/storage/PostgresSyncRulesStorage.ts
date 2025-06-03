@@ -321,6 +321,7 @@ export class PostgresSyncRulesStorage
     const checkpoint_lsn = syncRules?.last_checkpoint_lsn ?? null;
 
     const batch = new PostgresBucketBatch({
+      logger: options.logger ?? framework.logger,
       db: this.db,
       sync_rules: this.sync_rules.parsed(options).sync_rules,
       group_id: this.group_id,
@@ -330,7 +331,8 @@ export class PostgresSyncRulesStorage
       no_checkpoint_before_lsn: syncRules?.no_checkpoint_before ?? options.zeroLSN,
       store_current_data: options.storeCurrentData,
       skip_existing_rows: options.skipExistingRows ?? false,
-      batch_limits: this.options.batchLimits
+      batch_limits: this.options.batchLimits,
+      markRecordUnavailable: options.markRecordUnavailable
     });
     this.iterateListeners((cb) => cb.batchStarted?.(batch));
 

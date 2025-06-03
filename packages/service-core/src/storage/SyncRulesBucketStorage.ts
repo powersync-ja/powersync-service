@@ -161,6 +161,11 @@ export interface StartBatchOptions extends ParseSyncRulesOptions {
    */
   skipExistingRows?: boolean;
 
+  /**
+   * Callback called if we streamed an update to a record that we don't have yet.
+   *
+   * This is expected to happen in some initial replication edge cases, only if storeCurrentData = true.
+   */
   markRecordUnavailable?: BucketStorageMarkRecordUnavailable;
 
   logger?: Logger;

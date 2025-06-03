@@ -358,7 +358,7 @@ export class MongoBucketBatch
         existing_buckets = [];
         existing_lookups = [];
         // Log to help with debugging if there was a consistency issue
-        if (this.storeCurrentData) {
+        if (this.storeCurrentData && this.markRecordUnavailable == null) {
           this.logger.warn(
             `Cannot find previous record for delete on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
           );

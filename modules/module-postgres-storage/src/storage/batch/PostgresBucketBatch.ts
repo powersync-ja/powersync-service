@@ -4,12 +4,12 @@ import {
   container,
   ErrorCode,
   errors,
-  logger,
+  Logger,
   ReplicationAssertionError,
   ServiceAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
-import { InternalOpId, storage, utils } from '@powersync/service-core';
+import { BucketStorageMarkRecordUnavailable, InternalOpId, storage, utils } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as timers from 'timers/promises';
 import * as t from 'ts-codec';
@@ -22,6 +22,7 @@ import { cacheKey, encodedCacheKey, OperationBatch, RecordOperation } from './Op
 import { PostgresPersistedBatch } from './PostgresPersistedBatch.js';
 
 export interface PostgresBucketBatchOptions {
+  logger: Logger;
   db: lib_postgres.DatabaseClient;
   sync_rules: sync_rules.SqlSyncRules;
   group_id: number;
@@ -35,6 +36,8 @@ export interface PostgresBucketBatchOptions {
    */
   skip_existing_rows: boolean;
   batch_limits: RequiredOperationBatchLimits;
+
+  markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
 }
 
 /**
@@ -54,6 +57,8 @@ export class PostgresBucketBatch
   extends BaseObserver<storage.BucketBatchStorageListener>
   implements storage.BucketStorageBatch
 {
+  private logger: Logger;
+
   public last_flushed_op: InternalOpId | null = null;
 
   protected db: lib_postgres.DatabaseClient;
@@ -67,15 +72,18 @@ export class PostgresBucketBatch
   protected readonly sync_rules: sync_rules.SqlSyncRules;
   protected batch: OperationBatch | null;
   private lastWaitingLogThrottled = 0;
+  private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
 
   constructor(protected options: PostgresBucketBatchOptions) {
     super();
+    this.logger = options.logger;
     this.db = options.db;
     this.group_id = options.group_id;
     this.last_checkpoint_lsn = options.last_checkpoint_lsn;
     this.no_checkpoint_before_lsn = options.no_checkpoint_before_lsn;
     this.write_checkpoint_batch = [];
     this.sync_rules = options.sync_rules;
+    this.markRecordUnavailable = options.markRecordUnavailable;
     this.batch = null;
     this.persisted_op = null;
     if (options.keep_alive_op) {
@@ -115,7 +123,7 @@ export class PostgresBucketBatch
       return null;
     }
 
-    logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
+    this.logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
 
     this.batch ??= new OperationBatch(this.options.batch_limits);
     this.batch.push(new RecordOperation(record));
@@ -279,14 +287,14 @@ export class PostgresBucketBatch
     if (this.last_checkpoint_lsn != null && lsn < this.last_checkpoint_lsn) {
       // When re-applying transactions, don't create a new checkpoint until
       // we are past the last transaction.
-      logger.info(`Re-applied transaction ${lsn} - skipping checkpoint`);
+      this.logger.info(`Re-applied transaction ${lsn} - skipping checkpoint`);
       // Cannot create a checkpoint yet - return false
       return false;
     }
 
     if (lsn < this.no_checkpoint_before_lsn) {
       if (Date.now() - this.lastWaitingLogThrottled > 5_000) {
-        logger.info(
+        this.logger.info(
           `Waiting until ${this.no_checkpoint_before_lsn} before creating checkpoint, currently at ${lsn}. Persisted op: ${this.persisted_op}`
         );
         this.lastWaitingLogThrottled = Date.now();
@@ -374,7 +382,7 @@ export class PostgresBucketBatch
     if (this.persisted_op != null) {
       // The commit may have been skipped due to "no_checkpoint_before_lsn".
       // Apply it now if relevant
-      logger.info(`Commit due to keepalive at ${lsn} / ${this.persisted_op}`);
+      this.logger.info(`Commit due to keepalive at ${lsn} / ${this.persisted_op}`);
       return await this.commit(lsn);
     }
 
@@ -687,10 +695,19 @@ export class PostgresBucketBatch
         existingBuckets = [];
         existingLookups = [];
         // Log to help with debugging if there was a consistency issue
+
         if (this.options.store_current_data) {
-          logger.warn(
-            `Cannot find previous record for update on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
-          );
+          if (this.markRecordUnavailable != null) {
+            // This will trigger a "resnapshot" of the record.
+            // This is not relevant if storeCurrentData is false, since we'll get the full row
+            // directly in the replication stream.
+            this.markRecordUnavailable(record);
+          } else {
+            // Log to help with debugging if there was a consistency issue
+            this.logger.warn(
+              `Cannot find previous record for update on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
+            );
+          }
         }
       } else {
         existingBuckets = result.buckets;
@@ -707,8 +724,8 @@ export class PostgresBucketBatch
         existingBuckets = [];
         existingLookups = [];
         // Log to help with debugging if there was a consistency issue
-        if (this.options.store_current_data) {
-          logger.warn(
+        if (this.options.store_current_data && this.markRecordUnavailable == null) {
+          this.logger.warn(
             `Cannot find previous record for delete on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
           );
         }
@@ -801,7 +818,7 @@ export class PostgresBucketBatch
               }
             }
           );
-          logger.error(
+          this.logger.error(
             `Failed to evaluate data query on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${error.error}`
           );
         }
@@ -841,7 +858,7 @@ export class PostgresBucketBatch
               }
             }
           );
-          logger.error(
+          this.logger.error(
             `Failed to evaluate parameter query on ${record.sourceTable.qualifiedName}.${after.id}: ${error.error}`
           );
         }
