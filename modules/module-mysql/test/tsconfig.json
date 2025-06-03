@@ -13,7 +13,7 @@
       "@core-tests/*": ["../../../packages/service-core/test/src/*"]
     }
   },
-  "include": ["src", "../src/replication/zongji/zongji.d.ts"],
+  "include": ["src"],
   "references": [
     {
       "path": "../"
