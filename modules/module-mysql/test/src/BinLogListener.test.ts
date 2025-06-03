@@ -155,4 +155,7 @@ class TestBinLogEventHandler implements BinLogEventHandler {
   async onCommit(lsn: string) {
     this.commitCount++;
   }
+
+  async onTransactionStart(options: { timestamp: Date }) {}
+  async onRotate() {}
 }

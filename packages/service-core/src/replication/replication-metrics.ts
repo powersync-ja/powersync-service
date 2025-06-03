@@ -26,6 +26,11 @@ export function createCoreReplicationMetrics(engine: MetricsEngine): void {
     name: ReplicationMetric.CHUNKS_REPLICATED,
     description: 'Total number of replication chunks'
   });
+
+  engine.createObservableGauge({
+    name: ReplicationMetric.REPLICATION_LAG_SECONDS,
+    description: 'Replication lag between the source database and PowerSync instance'
+  });
 }
 
 /**
@@ -42,4 +47,6 @@ export function initializeCoreReplicationMetrics(engine: MetricsEngine): void {
   rows_replicated_total.add(0);
   transactions_replicated_total.add(0);
   chunks_replicated_total.add(0);
+  // REPLICATION_LAG_SECONDS is not explicitly initialized - the value remains "unknown" until the first value
+  // is reported.
 }

@@ -2,9 +2,9 @@ import { isMongoNetworkTimeoutError, isMongoServerError, mongo } from '@powersyn
 import {
   container,
   DatabaseConnectionError,
+  logger as defaultLogger,
   ErrorCode,
   Logger,
-  logger as defaultLogger,
   ReplicationAbortedError,
   ReplicationAssertionError,
   ServiceError
@@ -18,7 +18,7 @@ import {
   storage
 } from '@powersync/service-core';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
-import { ReplicationError, ReplicationMetric } from '@powersync/service-types';
+import { ReplicationMetric } from '@powersync/service-types';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
@@ -31,7 +31,7 @@ import {
   STANDALONE_CHECKPOINT_ID
 } from './MongoRelation.js';
 import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
-import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
+import { CHECKPOINTS_COLLECTION, timestampToDate } from './replication-utils.js';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;
@@ -86,6 +86,17 @@ export class ChangeStream {
   private abort_signal: AbortSignal;
 
   private relationCache = new RelationCache(getCacheIdentifier);
+
+  /**
+   * Time of the oldest uncommitted change, according to the source db.
+   * This is used to determine the replication lag.
+   */
+  private oldestUncommittedChange: Date | null = null;
+  /**
+   * Keep track of whether we have done a commit or keepalive yet.
+   * We can only compute replication lag if isStartingReplication == false, or oldestUncommittedChange is present.
+   */
+  private isStartingReplication = true;
 
   private checkpointStreamId = new mongo.ObjectId();
 
@@ -743,10 +754,14 @@ export class ChangeStream {
       },
       async (batch) => {
         const { lastCheckpointLsn } = batch;
-        const lastLsn = lastCheckpointLsn ? MongoLSN.fromSerialized(lastCheckpointLsn) : null;
+        const lastLsn = MongoLSN.fromSerialized(lastCheckpointLsn!);
         const startAfter = lastLsn?.timestamp;
 
-        this.logger.info(`Resume streaming at ${startAfter?.inspect()} / ${lastLsn}`);
+        // It is normal for this to be a minute or two old when there is a low volume
+        // of ChangeStream events.
+        const tokenAgeSeconds = Math.round((Date.now() - timestampToDate(startAfter).getTime()) / 1000);
+
+        this.logger.info(`Resume streaming at ${startAfter?.inspect()} / ${lastLsn}  | Token age: ${tokenAgeSeconds}s`);
 
         await using streamManager = this.openChangeStream({ lsn: lastCheckpointLsn });
         const { stream, filters } = streamManager;
@@ -799,10 +814,16 @@ export class ChangeStream {
             // We add an additional check for waitForCheckpointLsn == null, to make sure we're not
             // doing a keepalive in the middle of a transaction.
             if (waitForCheckpointLsn == null && performance.now() - lastEmptyResume > 60_000) {
-              const { comparable: lsn } = MongoLSN.fromResumeToken(stream.resumeToken);
+              const { comparable: lsn, timestamp } = MongoLSN.fromResumeToken(stream.resumeToken);
               await batch.keepalive(lsn);
               await touch();
               lastEmptyResume = performance.now();
+              // Log the token update. This helps as a general "replication is still active" message in the logs.
+              // This token would typically be around 10s behind.
+              this.logger.info(
+                `Idle change stream. Persisted resumeToken for ${timestampToDate(timestamp).toISOString()}`
+              );
+              this.isStartingReplication = false;
             }
             continue;
           }
@@ -915,7 +936,12 @@ export class ChangeStream {
             if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
               waitForCheckpointLsn = null;
             }
-            await batch.commit(lsn);
+            const didCommit = await batch.commit(lsn, { oldestUncommittedChange: this.oldestUncommittedChange });
+
+            if (didCommit) {
+              this.oldestUncommittedChange = null;
+              this.isStartingReplication = false;
+            }
           } else if (
             changeDocument.operationType == 'insert' ||
             changeDocument.operationType == 'update' ||
@@ -934,6 +960,9 @@ export class ChangeStream {
               snapshot: true
             });
             if (table.syncAny) {
+              if (this.oldestUncommittedChange == null && changeDocument.clusterTime != null) {
+                this.oldestUncommittedChange = timestampToDate(changeDocument.clusterTime);
+              }
               await this.writeChange(batch, table, changeDocument);
             }
           } else if (changeDocument.operationType == 'drop') {
@@ -968,6 +997,19 @@ export class ChangeStream {
         }
       }
     );
+  }
+
+  async getReplicationLagMillis(): Promise<number | undefined> {
+    if (this.oldestUncommittedChange == null) {
+      if (this.isStartingReplication) {
+        // We don't have anything to compute replication lag with yet.
+        return undefined;
+      } else {
+        // We don't have any uncommitted changes, so replication is up-to-date.
+        return 0;
+      }
+    }
+    return Date.now() - this.oldestUncommittedChange.getTime();
   }
 }
 

@@ -129,12 +129,12 @@ export class MongoBucketBatch
     return this.last_checkpoint_lsn;
   }
 
-  async flush(): Promise<storage.FlushedResult | null> {
+  async flush(options?: storage.BucketBatchCommitOptions): Promise<storage.FlushedResult | null> {
     let result: storage.FlushedResult | null = null;
     // One flush may be split over multiple transactions.
     // Each flushInner() is one transaction.
     while (this.batch != null) {
-      let r = await this.flushInner();
+      let r = await this.flushInner(options);
       if (r) {
         result = r;
       }
@@ -144,7 +144,7 @@ export class MongoBucketBatch
     return result;
   }
 
-  private async flushInner(): Promise<storage.FlushedResult | null> {
+  private async flushInner(options?: storage.BucketBatchCommitOptions): Promise<storage.FlushedResult | null> {
     const batch = this.batch;
     if (batch == null) {
       return null;
@@ -154,7 +154,7 @@ export class MongoBucketBatch
     let resumeBatch: OperationBatch | null = null;
 
     await this.withReplicationTransaction(`Flushing ${batch.length} ops`, async (session, opSeq) => {
-      resumeBatch = await this.replicateBatch(session, batch, opSeq);
+      resumeBatch = await this.replicateBatch(session, batch, opSeq, options);
 
       last_op = opSeq.last();
     });
@@ -174,7 +174,8 @@ export class MongoBucketBatch
   private async replicateBatch(
     session: mongo.ClientSession,
     batch: OperationBatch,
-    op_seq: MongoIdSequence
+    op_seq: MongoIdSequence,
+    options?: storage.BucketBatchCommitOptions
   ): Promise<OperationBatch | null> {
     let sizes: Map<string, number> | undefined = undefined;
     if (this.storeCurrentData && !this.skipExistingRows) {
@@ -272,7 +273,7 @@ export class MongoBucketBatch
         if (persistedBatch!.shouldFlushTransaction()) {
           // Transaction is getting big.
           // Flush, and resume in a new transaction.
-          await persistedBatch!.flush(this.db, this.session);
+          await persistedBatch!.flush(this.db, this.session, options);
           persistedBatch = null;
           // Computing our current progress is a little tricky here, since
           // we're stopping in the middle of a batch.
@@ -283,7 +284,7 @@ export class MongoBucketBatch
 
       if (persistedBatch) {
         transactionSize = persistedBatch.currentSize;
-        await persistedBatch.flush(this.db, this.session);
+        await persistedBatch.flush(this.db, this.session, options);
       }
     }
 
@@ -639,12 +640,13 @@ export class MongoBucketBatch
   async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<boolean> {
     const { createEmptyCheckpoints } = { ...storage.DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS, ...options };
 
-    await this.flush();
+    await this.flush(options);
 
     if (this.last_checkpoint_lsn != null && lsn < this.last_checkpoint_lsn) {
       // When re-applying transactions, don't create a new checkpoint until
       // we are past the last transaction.
       this.logger.info(`Re-applied transaction ${lsn} - skipping checkpoint`);
+      // Cannot create a checkpoint yet - return false
       return false;
     }
     if (lsn < this.no_checkpoint_before_lsn) {
@@ -673,11 +675,13 @@ export class MongoBucketBatch
         { session: this.session }
       );
 
+      // Cannot create a checkpoint yet - return false
       return false;
     }
 
     if (!createEmptyCheckpoints && this.persisted_op == null) {
-      return false;
+      // Nothing to commit - also return true
+      return true;
     }
 
     const now = new Date();

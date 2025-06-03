@@ -12,6 +12,7 @@ export interface WalStreamReplicationJobOptions extends replication.AbstractRepl
 export class WalStreamReplicationJob extends replication.AbstractReplicationJob {
   private connectionFactory: ConnectionManagerFactory;
   private readonly connectionManager: PgManager;
+  private lastStream: WalStream | null = null;
 
   constructor(options: WalStreamReplicationJobOptions) {
     super(options);
@@ -100,6 +101,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
         metrics: this.options.metrics,
         connections: connectionManager
       });
+      this.lastStream = stream;
       await stream.replicate();
     } catch (e) {
       this.logger.error(`Replication error`, e);
@@ -141,5 +143,9 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
     } finally {
       await connectionManager.end();
     }
+  }
+
+  async getReplicationLagMillis(): Promise<number | undefined> {
+    return this.lastStream?.getReplicationLagMillis();
   }
 }

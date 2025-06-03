@@ -15,7 +15,10 @@ export enum ReplicationMetric {
   // Total number of replicated transactions. Not used for pricing.
   TRANSACTIONS_REPLICATED = 'powersync_transactions_replicated_total',
   // Total number of replication chunks. Not used for pricing.
-  CHUNKS_REPLICATED = 'powersync_chunks_replicated_total'
+  CHUNKS_REPLICATED = 'powersync_chunks_replicated_total',
+  // Replication lag between the source database and PowerSync instance (estimated).
+  // This is estimated, and may have delays in reporting.
+  REPLICATION_LAG_SECONDS = 'powersync_replication_lag_seconds'
 }
 
 export enum StorageMetric {

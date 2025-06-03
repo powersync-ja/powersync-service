@@ -74,6 +74,17 @@ export class BinLogStream {
 
   private logger: Logger;
 
+  /**
+   * Time of the oldest uncommitted change, according to the source db.
+   * This is used to determine the replication lag.
+   */
+  private oldestUncommittedChange: Date | null = null;
+  /**
+   * Keep track of whether we have done a commit or keepalive yet.
+   * We can only compute replication lag if isStartingReplication == false, or oldestUncommittedChange is present.
+   */
+  private isStartingReplication = true;
+
   constructor(private options: BinLogStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
     this.storage = options.storage;
@@ -493,7 +504,19 @@ AND table_type = 'BASE TABLE';`,
       },
       onCommit: async (lsn: string) => {
         this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
-        await batch.commit(lsn);
+        const didCommit = await batch.commit(lsn, { oldestUncommittedChange: this.oldestUncommittedChange });
+        if (didCommit) {
+          this.oldestUncommittedChange = null;
+          this.isStartingReplication = false;
+        }
+      },
+      onTransactionStart: async (options) => {
+        if (this.oldestUncommittedChange == null) {
+          this.oldestUncommittedChange = options.timestamp;
+        }
+      },
+      onRotate: async () => {
+        this.isStartingReplication = false;
       }
     };
   }
@@ -579,6 +602,19 @@ AND table_type = 'BASE TABLE';`,
       default:
         return null;
     }
+  }
+
+  async getReplicationLagMillis(): Promise<number | undefined> {
+    if (this.oldestUncommittedChange == null) {
+      if (this.isStartingReplication) {
+        // We don't have anything to compute replication lag with yet.
+        return undefined;
+      } else {
+        // We don't have any uncommitted changes, so replication is up-to-date.
+        return 0;
+      }
+    }
+    return Date.now() - this.oldestUncommittedChange.getTime();
   }
 
   async tryRollback(promiseConnection: mysqlPromise.Connection) {
