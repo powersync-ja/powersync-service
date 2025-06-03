@@ -1,5 +1,19 @@
 # @powersync/service-module-postgres-storage
 
+## 0.8.0
+
+### Minor Changes
+
+- 0ccd470: Add powersync_replication_lag_seconds metric
+
+### Patch Changes
+
+- Updated dependencies [0ccd470]
+  - @powersync/service-core-tests@0.10.0
+  - @powersync/service-core@1.13.0
+  - @powersync/service-types@0.12.0
+  - @powersync/lib-service-postgres@0.4.4
+
 ## 0.7.5
 
 ### Patch Changes
