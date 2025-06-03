@@ -46,6 +46,11 @@ export interface ChangeStreamOptions {
    */
   maxAwaitTimeMS?: number;
 
+  /**
+   * Override snapshotChunkLength for testing.
+   */
+  snapshotChunkLength?: number;
+
   logger?: Logger;
 }
 
@@ -102,12 +107,15 @@ export class ChangeStream {
 
   private logger: Logger;
 
+  private snapshotChunkLength: number;
+
   constructor(options: ChangeStreamOptions) {
     this.storage = options.storage;
     this.metrics = options.metrics;
     this.group_id = options.storage.group_id;
     this.connections = options.connections;
     this.maxAwaitTimeMS = options.maxAwaitTimeMS ?? 10_000;
+    this.snapshotChunkLength = options.snapshotChunkLength ?? 6_000;
     this.client = this.connections.client;
     this.defaultDb = this.connections.db;
     this.sync_rules = options.storage.getParsedSyncRules({
@@ -425,7 +433,11 @@ export class ChangeStream {
     let at = table.snapshotStatus?.replicatedCount ?? 0;
     const db = this.client.db(table.schema);
     const collection = db.collection(table.table);
-    await using query = new ChunkedSnapshotQuery({ collection, key: table.snapshotStatus?.lastKey });
+    await using query = new ChunkedSnapshotQuery({
+      collection,
+      key: table.snapshotStatus?.lastKey,
+      batchSize: this.snapshotChunkLength
+    });
     if (query.lastKey != null) {
       this.logger.info(
         `Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} - resuming at _id > ${query.lastKey}`

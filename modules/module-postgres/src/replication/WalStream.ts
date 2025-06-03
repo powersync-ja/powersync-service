@@ -43,13 +43,13 @@ export interface WalStreamOptions {
   abort_signal: AbortSignal;
 
   /**
-   * Override snapshot chunk size, for testing.
+   * Override snapshot chunk length (number of rows), for testing.
    *
    * Defaults to 10_000.
    *
    * Note that queries are streamed, so we don't actually keep that much data in memory.
    */
-  snapshotChunkSize?: number;
+  snapshotChunkLength?: number;
 }
 
 interface InitResult {
@@ -119,7 +119,7 @@ export class WalStream {
 
   private startedStreaming = false;
 
-  private snapshotChunkSize: number;
+  private snapshotChunkLength: number;
 
   /**
    * Time of the oldest uncommitted change, according to the source db.
@@ -140,7 +140,7 @@ export class WalStream {
     this.group_id = options.storage.group_id;
     this.slot_name = options.storage.slot_name;
     this.connections = options.connections;
-    this.snapshotChunkSize = options.snapshotChunkSize ?? 10_000;
+    this.snapshotChunkLength = options.snapshotChunkLength ?? 10_000;
 
     this.abort_signal = options.abort_signal;
     this.abort_signal.addEventListener(
@@ -538,7 +538,7 @@ WHERE  oid = $1::regclass`,
     } else if (ChunkedSnapshotQuery.supports(table)) {
       // Single primary key - we can use the primary key for chunking
       const orderByKey = table.replicaIdColumns[0];
-      q = new ChunkedSnapshotQuery(db, table, this.snapshotChunkSize, table.snapshotStatus?.lastKey ?? null);
+      q = new ChunkedSnapshotQuery(db, table, this.snapshotChunkLength, table.snapshotStatus?.lastKey ?? null);
       if (table.snapshotStatus?.lastKey != null) {
         this.logger.info(
           `Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} - resuming from ${orderByKey.name} > ${(q as ChunkedSnapshotQuery).lastKey}`
@@ -549,7 +549,7 @@ WHERE  oid = $1::regclass`,
     } else {
       // Fallback case - query the entire table
       this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} - not resumable`);
-      q = new SimpleSnapshotQuery(db, table, this.snapshotChunkSize);
+      q = new SimpleSnapshotQuery(db, table, this.snapshotChunkLength);
       at = 0;
     }
     await q.initialize();

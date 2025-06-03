@@ -14,11 +14,11 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
   private collection: mongo.Collection;
   private batchSize: number;
 
-  public constructor(options: { collection: mongo.Collection; batchSize?: number; key?: Uint8Array | null }) {
+  public constructor(options: { collection: mongo.Collection; batchSize: number; key?: Uint8Array | null }) {
     this.lastKey = options.key ? bson.deserialize(options.key, { useBigInt64: true })._id : null;
     this.lastCursor = null;
     this.collection = options.collection;
-    this.batchSize = options.batchSize ?? 6_000;
+    this.batchSize = options.batchSize;
   }
 
   async nextChunk(): Promise<{ docs: mongo.Document[]; lastKey: Uint8Array } | { docs: []; lastKey: null }> {

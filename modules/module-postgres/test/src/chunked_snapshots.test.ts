@@ -91,7 +91,7 @@ function defineBatchTests(factory: TestStorageFactory) {
 
     await using context = await WalStreamTestContext.open(factory, {
       // We need to use a smaller chunk size here, so that we can run a query in between chunks
-      walStreamOptions: { snapshotChunkSize: 100 }
+      walStreamOptions: { snapshotChunkLength: 100 }
     });
 
     await context.updateSyncRules(`bucket_definitions:
@@ -102,7 +102,7 @@ function defineBatchTests(factory: TestStorageFactory) {
 
     await pool.query(`CREATE TABLE test_data(id ${options.idType} primary key, description text)`);
 
-    // 1. Start with 10k rows, one row with id = 10000...
+    // 1. Start with 2k rows, one row with id = 2000...
     await pool.query({
       statement: `INSERT INTO test_data(id, description) SELECT ${options.genId}, 'foo' FROM generate_series(1, 2000) i`
     });
@@ -115,7 +115,7 @@ function defineBatchTests(factory: TestStorageFactory) {
       params: [{ type: 'varchar', value: largeDescription }]
     });
 
-    // 2. Replicate one batch of rows (id < 2000).
+    // 2. Replicate one batch of rows (id < 100).
     // Our "stopping point" here is not quite deterministic.
     const p = context.replicateSnapshot();
 

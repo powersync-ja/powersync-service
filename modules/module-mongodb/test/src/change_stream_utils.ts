@@ -29,9 +29,12 @@ export class ChangeStreamTestContext {
    *
    * This configures all the context, and tears it down afterwards.
    */
-  static async open(factory: () => Promise<BucketStorageFactory>, options?: Partial<NormalizedMongoConnectionConfig>) {
+  static async open(
+    factory: () => Promise<BucketStorageFactory>,
+    options?: { mongoOptions?: Partial<NormalizedMongoConnectionConfig>; streamOptions?: Partial<ChangeStreamOptions> }
+  ) {
     const f = await factory();
-    const connectionManager = new MongoManager({ ...TEST_CONNECTION_OPTIONS, ...options });
+    const connectionManager = new MongoManager({ ...TEST_CONNECTION_OPTIONS, ...options?.mongoOptions });
 
     await clearTestDb(connectionManager.db);
     return new ChangeStreamTestContext(f, connectionManager);
