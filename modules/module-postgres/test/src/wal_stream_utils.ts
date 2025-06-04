@@ -19,6 +19,7 @@ export class WalStreamTestContext implements AsyncDisposable {
   private streamPromise?: Promise<void>;
   public storage?: SyncRulesBucketStorage;
   private replicationConnection?: pgwire.PgConnection;
+  private snapshotPromise?: Promise<void>;
 
   /**
    * Tests operating on the wal stream need to configure the stream and manage asynchronous
@@ -55,6 +56,7 @@ export class WalStreamTestContext implements AsyncDisposable {
 
   async dispose() {
     this.abortController.abort();
+    await this.snapshotPromise;
     await this.streamPromise;
     await this.connectionManager.destroy();
     await this.factory?.[Symbol.asyncDispose]();
@@ -117,9 +119,13 @@ export class WalStreamTestContext implements AsyncDisposable {
   }
 
   async replicateSnapshot() {
-    this.replicationConnection = await this.connectionManager.replicationConnection();
-    await this.walStream.initReplication(this.replicationConnection);
-    await this.storage!.autoActivate();
+    const promise = (async () => {
+      this.replicationConnection = await this.connectionManager.replicationConnection();
+      await this.walStream.initReplication(this.replicationConnection);
+      await this.storage!.autoActivate();
+    })();
+    this.snapshotPromise = promise.catch((e) => e);
+    await promise;
   }
 
   startStreaming() {

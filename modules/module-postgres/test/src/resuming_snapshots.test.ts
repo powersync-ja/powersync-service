@@ -6,6 +6,7 @@ import { TestStorageFactory } from '@powersync/service-core';
 import { METRICS_HELPER } from '@powersync/service-core-tests';
 import { ReplicationMetric } from '@powersync/service-types';
 import * as timers from 'node:timers/promises';
+import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('batch replication', function () {
   describeWithStorage({ timeout: 240_000 }, function (factory) {
@@ -73,7 +74,8 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
       await context.dispose();
     })();
     // This confirms that initial replication was interrupted
-    await expect(p).rejects.toThrowError();
+    const error = await p.catch((e) => e);
+    expect(error).toBeInstanceOf(ReplicationAbortedError);
     done = true;
   } finally {
     done = true;
@@ -137,8 +139,12 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
   // This adds 2 ops.
   // We expect this to be 11002 for stopAfter: 2000, and 11004 for stopAfter: 8000.
   // However, this is not deterministic.
-  expect(data.length).toEqual(11002 + deletedRowOps.length);
+  const expectedCount = 11002 + deletedRowOps.length;
+  expect(data.length).toEqual(expectedCount);
 
-  const count = ((await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0) - startRowCount;
-  console.log('replicated count', count);
+  const replicatedCount =
+    ((await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0) - startRowCount;
+
+  // With resumable replication, there should be no need to re-replicate anything.
+  expect(replicatedCount).toEqual(expectedCount);
 }

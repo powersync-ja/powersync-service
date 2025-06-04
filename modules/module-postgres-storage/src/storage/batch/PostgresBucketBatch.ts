@@ -344,6 +344,7 @@ export class PostgresBucketBatch
         keepalive_op = ${{ type: 'int8', value: update.keepalive_op }},
         last_fatal_error = ${{ type: 'varchar', value: update.last_fatal_error }},
         snapshot_done = ${{ type: 'bool', value: update.snapshot_done }},
+        snapshot_lsn = NULL,
         last_keepalive_ts = ${{ type: 1184, value: update.last_keepalive_ts }},
         last_checkpoint = COALESCE(
           ${{ type: 'int8', value: update.last_checkpoint }},
@@ -390,6 +391,7 @@ export class PostgresBucketBatch
       UPDATE sync_rules
       SET
         snapshot_done = ${{ type: 'bool', value: true }},
+        snapshot_lsn = NULL,
         last_checkpoint_lsn = ${{ type: 'varchar', value: lsn }},
         last_fatal_error = ${{ type: 'varchar', value: null }},
         last_keepalive_ts = ${{ type: 1184, value: new Date().toISOString() }}
@@ -414,19 +416,10 @@ export class PostgresBucketBatch
     await this.db.sql`
       UPDATE sync_rules
       SET
-        last_checkpoint_lsn = ${{ type: 'varchar', value: lsn }}
+        snapshot_lsn = ${{ type: 'varchar', value: lsn }}
       WHERE
         id = ${{ type: 'int4', value: this.group_id }}
-      RETURNING
-        id,
-        state,
-        last_checkpoint,
-        last_checkpoint_lsn
-    `
-      .decoded(StatefulCheckpoint)
-      .first();
-
-    this.last_checkpoint_lsn = lsn;
+    `.execute();
   }
 
   async markSnapshotDone(
@@ -439,7 +432,10 @@ export class PostgresBucketBatch
       await db.sql`
         UPDATE source_tables
         SET
-          snapshot_done = ${{ type: 'bool', value: true }}
+          snapshot_done = ${{ type: 'bool', value: true }},
+          snapshot_total_estimated_count = NULL,
+          snapshot_replicated_count = NULL,
+          snapshot_last_key = NULL
         WHERE
           id IN (
             SELECT
@@ -489,7 +485,17 @@ export class PostgresBucketBatch
       lastKey: progress.lastKey ?? copy.snapshotStatus?.lastKey ?? null
     };
     copy.snapshotStatus = snapshotStatus;
-    // TODO: persist
+
+    await this.db.sql`
+      UPDATE source_tables
+      SET
+        snapshot_total_estimated_count = ${{ type: 'int4', value: snapshotStatus.totalEstimatedCount }},
+        snapshot_replicated_count = ${{ type: 'int4', value: snapshotStatus.replicatedCount }},
+        snapshot_last_key = ${{ type: 'bytea', value: snapshotStatus.lastKey }}
+      WHERE
+        id = ${{ type: 'varchar', value: table.id }}
+    `.execute();
+
     return copy;
   }
 

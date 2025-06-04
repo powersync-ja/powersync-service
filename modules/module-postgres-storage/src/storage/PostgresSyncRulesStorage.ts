@@ -233,6 +233,13 @@ export class PostgresSyncRulesStorage
         replicationColumns,
         sourceTableRow!.snapshot_done ?? true
       );
+      if (!sourceTable.snapshotComplete) {
+        sourceTable.snapshotStatus = {
+          totalEstimatedCount: Number(sourceTableRow!.snapshot_total_estimated_count ?? -1n),
+          replicatedCount: Number(sourceTableRow!.snapshot_replicated_count ?? 0n),
+          lastKey: sourceTableRow!.snapshot_last_key
+        };
+      }
       sourceTable.syncEvent = options.sync_rules.tableTriggersEvent(sourceTable);
       sourceTable.syncData = options.sync_rules.tableSyncsData(sourceTable);
       sourceTable.syncParameters = options.sync_rules.tableSyncsParameters(sourceTable);
@@ -582,6 +589,7 @@ export class PostgresSyncRulesStorage
     const syncRulesRow = await this.db.sql`
       SELECT
         snapshot_done,
+        snapshot_lsn,
         last_checkpoint_lsn,
         state
       FROM
@@ -589,7 +597,7 @@ export class PostgresSyncRulesStorage
       WHERE
         id = ${{ type: 'int4', value: this.group_id }}
     `
-      .decoded(pick(models.SyncRules, ['snapshot_done', 'last_checkpoint_lsn', 'state']))
+      .decoded(pick(models.SyncRules, ['snapshot_done', 'last_checkpoint_lsn', 'state', 'snapshot_lsn']))
       .first();
 
     if (syncRulesRow == null) {
@@ -600,7 +608,7 @@ export class PostgresSyncRulesStorage
       snapshot_done: syncRulesRow.snapshot_done,
       active: syncRulesRow.state == storage.SyncRuleState.ACTIVE,
       checkpoint_lsn: syncRulesRow.last_checkpoint_lsn ?? null,
-      snapshot_lsn: null
+      snapshot_lsn: syncRulesRow.snapshot_lsn ?? null
     };
   }
 

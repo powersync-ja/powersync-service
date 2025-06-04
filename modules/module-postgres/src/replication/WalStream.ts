@@ -625,7 +625,7 @@ WHERE  oid = $1::regclass`,
         });
         this.relationCache.update(table);
 
-        this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} (updated progress})`);
+        this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
       } else {
         this.logger.info(`Replicating ${table.qualifiedName} ${at}/${limited.length} for resnapshot`);
       }

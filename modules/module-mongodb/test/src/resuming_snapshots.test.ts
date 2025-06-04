@@ -9,7 +9,7 @@ import { ChangeStreamTestContext } from './change_stream_utils.js';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('batch replication', function () {
   describeWithStorage({ timeout: 240_000 }, function (factory) {
-    test.only('resuming initial replication (1)', async () => {
+    test('resuming initial replication (1)', async () => {
       // Stop early - likely to not include deleted row in first replication attempt.
       await testResumingReplication(factory, 2000);
     });
@@ -127,8 +127,12 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
   // This adds 2 ops.
   // We expect this to be 11002 for stopAfter: 2000, and 11004 for stopAfter: 8000.
   // However, this is not deterministic.
-  expect(data.length).toEqual(11002 + deletedRowOps.length);
+  const expectedCount = 11002 + deletedRowOps.length;
+  expect(data.length).toEqual(expectedCount);
 
-  const count = ((await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0) - startRowCount;
-  console.log('replicated count', count);
+  const replicatedCount =
+    ((await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0) - startRowCount;
+
+  // With resumable replication, there should be no need to re-replicate anything.
+  expect(replicatedCount).toEqual(expectedCount);
 }
