@@ -453,13 +453,14 @@ export class ChangeStream {
       if (docBatch.length == 0) {
         break;
       }
+
+      if (this.abort_signal.aborted) {
+        throw new ReplicationAbortedError(`Aborted initial replication`);
+      }
+
       // Pre-fetch next batch, so that we can read and write concurrently
       nextChunkPromise = query.nextChunk();
       for (let document of docBatch) {
-        if (this.abort_signal.aborted) {
-          throw new ReplicationAbortedError(`Aborted initial replication`);
-        }
-
         const record = constructAfterRecord(document);
 
         // This auto-flushes when the batch reaches its size limit
@@ -494,9 +495,6 @@ export class ChangeStream {
     }
     // In case the loop was interrupted, make sure we await the last promise.
     await nextChunkPromise;
-
-    await batch.flush();
-    this.logger.info(`Replicated ${at} documents for ${table.qualifiedName}`);
   }
 
   private async getRelation(
