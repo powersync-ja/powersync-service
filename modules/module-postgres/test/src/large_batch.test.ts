@@ -258,7 +258,7 @@ function defineBatchTests(factory: storage.TestStorageFactory) {
     //    have been / have not been replicated at that point is not deterministic.
     //    We do allow for some variation in the test results to account for this.
 
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await WalStreamTestContext.open(factory, { walStreamOptions: { snapshotChunkLength: 1000 } });
 
     await context.updateSyncRules(`bucket_definitions:
   global:
@@ -306,7 +306,10 @@ function defineBatchTests(factory: storage.TestStorageFactory) {
     }
 
     // Bypass the usual "clear db on factory open" step.
-    await using context2 = await WalStreamTestContext.open(factory, { doNotClear: true });
+    await using context2 = await WalStreamTestContext.open(factory, {
+      doNotClear: true,
+      walStreamOptions: { snapshotChunkLength: 1000 }
+    });
 
     // This delete should be using one of the ids already replicated
     const {

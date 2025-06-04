@@ -482,8 +482,15 @@ export class PostgresBucketBatch
     table: storage.SourceTable,
     progress: Partial<storage.TableSnapshotStatus>
   ): Promise<storage.SourceTable> {
-    // TODO: implement
-    return table;
+    const copy = table.clone();
+    const snapshotStatus = {
+      totalEstimatedCount: progress.totalEstimatedCount ?? copy.snapshotStatus?.totalEstimatedCount ?? 0,
+      replicatedCount: progress.replicatedCount ?? copy.snapshotStatus?.replicatedCount ?? 0,
+      lastKey: progress.lastKey ?? copy.snapshotStatus?.lastKey ?? null
+    };
+    copy.snapshotStatus = snapshotStatus;
+    // TODO: persist
+    return copy;
   }
 
   addCustomWriteCheckpoint(checkpoint: storage.BatchedCustomWriteCheckpointOptions): void {

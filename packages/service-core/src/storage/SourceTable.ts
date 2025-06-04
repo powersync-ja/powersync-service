@@ -106,7 +106,7 @@ export class SourceTable {
       // Should not happen
       return '-';
     } else if (this.snapshotStatus.totalEstimatedCount < 0) {
-      return `${this.snapshotStatus.replicatedCount}/unknown`;
+      return `${this.snapshotStatus.replicatedCount}/?`;
     } else {
       return `${this.snapshotStatus.replicatedCount}/~${this.snapshotStatus.totalEstimatedCount}`;
     }

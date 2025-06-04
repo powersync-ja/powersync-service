@@ -6,7 +6,8 @@ import {
   errors,
   Logger,
   logger as defaultLogger,
-  ReplicationAssertionError
+  ReplicationAssertionError,
+  ReplicationAbortedError
 } from '@powersync/lib-services-framework';
 import {
   BucketStorageBatch,
@@ -587,9 +588,6 @@ WHERE  oid = $1::regclass`,
         if (rows.length > 0) {
           hasRemainingData = true;
         }
-        if (this.abort_signal.aborted) {
-          throw new Error(`Aborted initial replication of ${this.slot_name}`);
-        }
 
         for (const record of WalStream.getQueryData(rows)) {
           // This auto-flushes when the batch reaches its size limit
@@ -609,9 +607,9 @@ WHERE  oid = $1::regclass`,
         await touch();
       }
 
+      // Important: flush before marking progress
+      await batch.flush();
       if (limited == null) {
-        // Important: flush before marking progress
-        await batch.flush();
         let lastKey: Uint8Array | undefined;
         if (q instanceof ChunkedSnapshotQuery) {
           lastKey = q.getLastKeySerialized();
@@ -627,12 +625,16 @@ WHERE  oid = $1::regclass`,
         });
         this.relationCache.update(table);
 
-        this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
+        this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} (updated progress})`);
       } else {
         this.logger.info(`Replicating ${table.qualifiedName} ${at}/${limited.length} for resnapshot`);
       }
+
+      if (this.abort_signal.aborted) {
+        // We only abort after flushing
+        throw new ReplicationAbortedError(`Initial replication interrupted`);
+      }
     }
-    await batch.flush();
   }
 
   async handleRelation(batch: storage.BucketStorageBatch, descriptor: SourceEntityDescriptor, snapshot: boolean) {
