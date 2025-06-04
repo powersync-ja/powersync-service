@@ -5,9 +5,8 @@ import { env } from './env.js';
 import {
   clearTestDb,
   connectPgPool,
+  describeWithStorage,
   getClientCheckpoint,
-  INITIALIZED_MONGO_STORAGE_FACTORY,
-  INITIALIZED_POSTGRES_STORAGE_FACTORY,
   TEST_CONNECTION_OPTIONS
 } from './util.js';
 
@@ -21,26 +20,10 @@ import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
 import * as timers from 'node:timers/promises';
 
-describe.skipIf(!env.TEST_MONGO_STORAGE)('slow tests - mongodb', function () {
-  // These are slow, inconsistent tests.
-  // Not run on every test run, but we do run on CI, or when manually debugging issues.
-  if (env.CI || env.SLOW_TESTS) {
-    defineSlowTests(INITIALIZED_MONGO_STORAGE_FACTORY);
-  } else {
-    // Need something in this file.
-    test('no-op', () => {});
-  }
-});
-
-describe.skipIf(!env.TEST_POSTGRES_STORAGE)('slow tests - postgres', function () {
-  // These are slow, inconsistent tests.
-  // Not run on every test run, but we do run on CI, or when manually debugging issues.
-  if (env.CI || env.SLOW_TESTS) {
-    defineSlowTests(INITIALIZED_POSTGRES_STORAGE_FACTORY);
-  } else {
-    // Need something in this file.
-    test('no-op', () => {});
-  }
+describe.skipIf(!(env.CI || env.SLOW_TESTS))('slow tests', function () {
+  describeWithStorage({ timeout: 120_000 }, function (factory) {
+    defineSlowTests(factory);
+  });
 });
 
 function defineSlowTests(factory: storage.TestStorageFactory) {
@@ -350,14 +333,14 @@ bucket_definitions:
       const connections = new PgManager(TEST_CONNECTION_OPTIONS, {});
       const replicationConnection = await connections.replicationConnection();
 
-        abortController = new AbortController();
-        const options: WalStreamOptions = {
-          abort_signal: abortController.signal,
-          connections,
-          storage: storage,
-          metrics: METRICS_HELPER.metricsEngine
-        };
-        walStream = new WalStream(options);
+      abortController = new AbortController();
+      const options: WalStreamOptions = {
+        abort_signal: abortController.signal,
+        connections,
+        storage: storage,
+        metrics: METRICS_HELPER.metricsEngine
+      };
+      walStream = new WalStream(options);
 
       await storage.clear();
 

@@ -12,6 +12,10 @@ export const SyncRules = t.object({
    */
   snapshot_done: t.boolean,
   /**
+   * May be set if snapshot_done = false, if the replication stream requires it.
+   */
+  snapshot_lsn: t.Null.or(t.string),
+  /**
    * The last consistent checkpoint.
    *
    * There may be higher OpIds used in the database if we're in the middle of replicating a large transaction.

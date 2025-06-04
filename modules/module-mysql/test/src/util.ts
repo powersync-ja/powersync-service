@@ -4,6 +4,8 @@ import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
 import mysqlPromise from 'mysql2/promise';
 import { env } from './env.js';
+import { describe, TestOptions } from 'vitest';
+import { TestStorageFactory } from '@powersync/service-core';
 
 export const TEST_URI = env.MYSQL_TEST_URI;
 
@@ -20,6 +22,16 @@ export const INITIALIZED_MONGO_STORAGE_FACTORY = mongo_storage.MongoTestStorageF
 export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.PostgresTestStorageFactoryGenerator({
   url: env.PG_STORAGE_TEST_URL
 });
+
+export function describeWithStorage(options: TestOptions, fn: (factory: TestStorageFactory) => void) {
+  describe.skipIf(!env.TEST_MONGO_STORAGE)(`mongodb storage`, options, function () {
+    fn(INITIALIZED_MONGO_STORAGE_FACTORY);
+  });
+
+  describe.skipIf(!env.TEST_POSTGRES_STORAGE)(`postgres storage`, options, function () {
+    fn(INITIALIZED_POSTGRES_STORAGE_FACTORY);
+  });
+}
 
 export async function clearTestDb(connection: mysqlPromise.Connection) {
   const version = await getMySQLVersion(connection);

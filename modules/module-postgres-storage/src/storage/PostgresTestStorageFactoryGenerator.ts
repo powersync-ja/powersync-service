@@ -12,50 +12,62 @@ export type PostgresTestStorageOptions = {
   migrationAgent?: (config: PostgresStorageConfigDecoded) => PostgresMigrationAgent;
 };
 
-export const PostgresTestStorageFactoryGenerator = (factoryOptions: PostgresTestStorageOptions) => {
-  return async (options?: TestStorageOptions) => {
-    try {
-      const migrationManager: PowerSyncMigrationManager = new framework.MigrationManager();
+export const postgresTestSetup = (factoryOptions: PostgresTestStorageOptions) => {
+  const BASE_CONFIG = {
+    type: 'postgresql' as const,
+    uri: factoryOptions.url,
+    sslmode: 'disable' as const
+  };
 
-      const BASE_CONFIG = {
-        type: 'postgresql' as const,
-        uri: factoryOptions.url,
-        sslmode: 'disable' as const
-      };
+  const TEST_CONNECTION_OPTIONS = normalizePostgresStorageConfig(BASE_CONFIG);
 
-      const TEST_CONNECTION_OPTIONS = normalizePostgresStorageConfig(BASE_CONFIG);
+  const migrate = async (direction: framework.migrations.Direction) => {
+    await using migrationManager: PowerSyncMigrationManager = new framework.MigrationManager();
+    await using migrationAgent = factoryOptions.migrationAgent
+      ? factoryOptions.migrationAgent(BASE_CONFIG)
+      : new PostgresMigrationAgent(BASE_CONFIG);
+    migrationManager.registerMigrationAgent(migrationAgent);
 
-      await using migrationAgent = factoryOptions.migrationAgent
-        ? factoryOptions.migrationAgent(BASE_CONFIG)
-        : new PostgresMigrationAgent(BASE_CONFIG);
-      migrationManager.registerMigrationAgent(migrationAgent);
+    const mockServiceContext = { configuration: { storage: BASE_CONFIG } } as unknown as ServiceContext;
 
-      const mockServiceContext = { configuration: { storage: BASE_CONFIG } } as unknown as ServiceContext;
-
-      if (!options?.doNotClear) {
-        await migrationManager.migrate({
-          direction: framework.migrations.Direction.Down,
-          migrationContext: {
-            service_context: mockServiceContext
-          }
-        });
+    await migrationManager.migrate({
+      direction: framework.migrations.Direction.Down,
+      migrationContext: {
+        service_context: mockServiceContext
       }
+    });
 
+    if (direction == framework.migrations.Direction.Up) {
       await migrationManager.migrate({
         direction: framework.migrations.Direction.Up,
         migrationContext: {
           service_context: mockServiceContext
         }
       });
-
-      return new PostgresBucketStorageFactory({
-        config: TEST_CONNECTION_OPTIONS,
-        slot_name_prefix: 'test_'
-      });
-    } catch (ex) {
-      // Vitest does not display these errors nicely when using the `await using` syntx
-      console.error(ex, ex.cause);
-      throw ex;
     }
   };
+
+  return {
+    factory: async (options?: TestStorageOptions) => {
+      try {
+        if (!options?.doNotClear) {
+          await migrate(framework.migrations.Direction.Up);
+        }
+
+        return new PostgresBucketStorageFactory({
+          config: TEST_CONNECTION_OPTIONS,
+          slot_name_prefix: 'test_'
+        });
+      } catch (ex) {
+        // Vitest does not display these errors nicely when using the `await using` syntx
+        console.error(ex, ex.cause);
+        throw ex;
+      }
+    },
+    migrate
+  };
+};
+
+export const PostgresTestStorageFactoryGenerator = (factoryOptions: PostgresTestStorageOptions) => {
+  return postgresTestSetup(factoryOptions).factory;
 };

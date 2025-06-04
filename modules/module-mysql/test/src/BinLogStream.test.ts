@@ -1,11 +1,10 @@
 import { storage } from '@powersync/service-core';
 import { METRICS_HELPER, putOp, removeOp } from '@powersync/service-core-tests';
+import { ReplicationMetric } from '@powersync/service-types';
 import { v4 as uuid } from 'uuid';
 import { describe, expect, test } from 'vitest';
 import { BinlogStreamTestContext } from './BinlogStreamUtils.js';
-import { env } from './env.js';
-import { INITIALIZED_MONGO_STORAGE_FACTORY, INITIALIZED_POSTGRES_STORAGE_FACTORY } from './util.js';
-import { ReplicationMetric } from '@powersync/service-types';
+import { describeWithStorage } from './util.js';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -14,12 +13,8 @@ bucket_definitions:
       - SELECT id, description FROM "test_data"
 `;
 
-describe.skipIf(!env.TEST_MONGO_STORAGE)(' Binlog stream - mongodb', { timeout: 20_000 }, function () {
-  defineBinlogStreamTests(INITIALIZED_MONGO_STORAGE_FACTORY);
-});
-
-describe.skipIf(!env.TEST_POSTGRES_STORAGE)(' Binlog stream - postgres', { timeout: 20_000 }, function () {
-  defineBinlogStreamTests(INITIALIZED_POSTGRES_STORAGE_FACTORY);
+describe('BigLog stream', () => {
+  describeWithStorage({ timeout: 20_000 }, defineBinlogStreamTests);
 });
 
 function defineBinlogStreamTests(factory: storage.TestStorageFactory) {

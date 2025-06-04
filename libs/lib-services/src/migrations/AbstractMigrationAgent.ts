@@ -70,7 +70,7 @@ export abstract class AbstractMigrationAgent<Generics extends MigrationAgentGene
     try {
       const state = await this.store.load();
 
-      logger.info('Running migrations');
+      logger.info(`Running migrations ${direction}`);
       const logStream = this.execute({
         direction,
         migrations,
@@ -142,6 +142,9 @@ export abstract class AbstractMigrationAgent<Generics extends MigrationAgentGene
       ) {
         index += 1;
       }
+    } else if (params.direction == defs.Direction.Down) {
+      // Down migration with no state - exclude all migrations
+      index = migrations.length;
     }
 
     migrations = migrations.slice(index);

@@ -1,96 +1,14 @@
-import { MongoLSN, ZERO_LSN } from '@module/common/MongoLSN.js';
-
+import { ChangeStreamInvalidatedError } from '@module/replication/ChangeStream.js';
 import { MongoManager } from '@module/replication/MongoManager.js';
 import { normalizeConnectionConfig } from '@module/types/types.js';
-import { isMongoServerError, mongo } from '@powersync/lib-service-mongodb';
 import { BucketStorageFactory, TestStorageOptions } from '@powersync/service-core';
-import { describe, expect, test, vi } from 'vitest';
+import { describe, expect, test } from 'vitest';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
 import { env } from './env.js';
-import { INITIALIZED_MONGO_STORAGE_FACTORY, INITIALIZED_POSTGRES_STORAGE_FACTORY } from './util.js';
-import { ChangeStreamInvalidatedError } from '@module/replication/ChangeStream.js';
+import { describeWithStorage } from './util.js';
 
-describe('mongo lsn', () => {
-  test('LSN with resume tokens should be comparable', () => {
-    // Values without a resume token should be comparable
-    expect(
-      new MongoLSN({
-        timestamp: mongo.Timestamp.fromNumber(1)
-      }).comparable <
-        new MongoLSN({
-          timestamp: mongo.Timestamp.fromNumber(10)
-        }).comparable
-    ).true;
-
-    // Values with resume tokens should correctly compare
-    expect(
-      new MongoLSN({
-        timestamp: mongo.Timestamp.fromNumber(1),
-        resume_token: { _data: 'resume1' }
-      }).comparable <
-        new MongoLSN({
-          timestamp: mongo.Timestamp.fromNumber(10),
-          resume_token: { _data: 'resume2' }
-        }).comparable
-    ).true;
-
-    // The resume token should not affect comparison
-    expect(
-      new MongoLSN({
-        timestamp: mongo.Timestamp.fromNumber(1),
-        resume_token: { _data: '2' }
-      }).comparable <
-        new MongoLSN({
-          timestamp: mongo.Timestamp.fromNumber(10),
-          resume_token: { _data: '1' }
-        }).comparable
-    ).true;
-
-    // Resume token should not be required for comparison
-    expect(
-      new MongoLSN({
-        timestamp: mongo.Timestamp.fromNumber(10),
-        resume_token: { _data: '2' }
-      }).comparable > // Switching the order to test this case
-        new MongoLSN({
-          timestamp: mongo.Timestamp.fromNumber(9)
-        }).comparable
-    ).true;
-
-    // Comparison should be backwards compatible with old LSNs
-    expect(
-      new MongoLSN({
-        timestamp: mongo.Timestamp.fromNumber(10),
-        resume_token: { _data: '2' }
-      }).comparable > ZERO_LSN
-    ).true;
-    expect(
-      new MongoLSN({
-        timestamp: mongo.Timestamp.fromNumber(10),
-        resume_token: { _data: '2' }
-      }).comparable >
-        new MongoLSN({
-          timestamp: mongo.Timestamp.fromNumber(1)
-        }).comparable.split('|')[0] // Simulate an old LSN
-    ).true;
-    expect(
-      new MongoLSN({
-        timestamp: mongo.Timestamp.fromNumber(1),
-        resume_token: { _data: '2' }
-      }).comparable <
-        new MongoLSN({
-          timestamp: mongo.Timestamp.fromNumber(10)
-        }).comparable.split('|')[0] // Simulate an old LSN
-    ).true;
-  });
-});
-
-describe.skipIf(!env.TEST_MONGO_STORAGE)('MongoDB resume - mongo storage', () => {
-  defineResumeTest(INITIALIZED_MONGO_STORAGE_FACTORY);
-});
-
-describe.skipIf(!env.TEST_POSTGRES_STORAGE)('MongoDB resume - postgres storage', () => {
-  defineResumeTest(INITIALIZED_POSTGRES_STORAGE_FACTORY);
+describe('mongodb resuming replication', () => {
+  describeWithStorage({}, defineResumeTest);
 });
 
 function defineResumeTest(factoryGenerator: (options?: TestStorageOptions) => Promise<BucketStorageFactory>) {
@@ -112,13 +30,7 @@ function defineResumeTest(factoryGenerator: (options?: TestStorageOptions) => Pr
     await collection.insertOne({ description: 'test1', num: 1152921504606846976n });
 
     // Wait for the item above to be replicated. The commit should store a resume token.
-    await vi.waitFor(
-      async () => {
-        const checkpoint = await context.storage?.getCheckpoint();
-        expect(MongoLSN.fromSerialized(checkpoint!.lsn!).resumeToken).exist;
-      },
-      { timeout: 5000 }
-    );
+    await context.getCheckpoint();
 
     // Done with this context for now
     await context.dispose();
@@ -145,6 +57,7 @@ function defineResumeTest(factoryGenerator: (options?: TestStorageOptions) => Pr
     const activeContent = await factory.getActiveSyncRulesContent();
     context2.storage = factory.getInstance(activeContent!);
 
+    // If this test times out, it likely didn't throw the expected error here.
     const error = await context2.startStreaming().catch((ex) => ex);
     // The ChangeStreamReplicationJob will detect this and throw a ChangeStreamInvalidatedError
     expect(error).toBeInstanceOf(ChangeStreamInvalidatedError);

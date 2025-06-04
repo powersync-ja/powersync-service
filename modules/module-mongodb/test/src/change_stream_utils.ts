@@ -4,9 +4,11 @@ import {
   createCoreReplicationMetrics,
   initializeCoreReplicationMetrics,
   InternalOpId,
+  OplogEntry,
   ProtocolOpId,
   ReplicationCheckpoint,
-  SyncRulesBucketStorage
+  SyncRulesBucketStorage,
+  TestStorageOptions
 } from '@powersync/service-core';
 import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 
@@ -29,17 +31,27 @@ export class ChangeStreamTestContext {
    *
    * This configures all the context, and tears it down afterwards.
    */
-  static async open(factory: () => Promise<BucketStorageFactory>, options?: Partial<NormalizedMongoConnectionConfig>) {
-    const f = await factory();
-    const connectionManager = new MongoManager({ ...TEST_CONNECTION_OPTIONS, ...options });
+  static async open(
+    factory: (options: TestStorageOptions) => Promise<BucketStorageFactory>,
+    options?: {
+      doNotClear?: boolean;
+      mongoOptions?: Partial<NormalizedMongoConnectionConfig>;
+      streamOptions?: Partial<ChangeStreamOptions>;
+    }
+  ) {
+    const f = await factory({ doNotClear: options?.doNotClear });
+    const connectionManager = new MongoManager({ ...TEST_CONNECTION_OPTIONS, ...options?.mongoOptions });
 
-    await clearTestDb(connectionManager.db);
-    return new ChangeStreamTestContext(f, connectionManager);
+    if (!options?.doNotClear) {
+      await clearTestDb(connectionManager.db);
+    }
+    return new ChangeStreamTestContext(f, connectionManager, options?.streamOptions);
   }
 
   constructor(
     public factory: BucketStorageFactory,
-    public connectionManager: MongoManager
+    public connectionManager: MongoManager,
+    private streamOptions?: Partial<ChangeStreamOptions>
   ) {
     createCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
     initializeCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
@@ -74,6 +86,16 @@ export class ChangeStreamTestContext {
     return this.storage!;
   }
 
+  async loadNextSyncRules() {
+    const syncRules = await this.factory.getNextSyncRulesContent();
+    if (syncRules == null) {
+      throw new Error(`Next sync rules not available`);
+    }
+
+    this.storage = this.factory.getInstance(syncRules);
+    return this.storage!;
+  }
+
   get walStream() {
     if (this.storage == null) {
       throw new Error('updateSyncRules() first');
@@ -88,7 +110,8 @@ export class ChangeStreamTestContext {
       abort_signal: this.abortController.signal,
       // Specifically reduce this from the default for tests on MongoDB <= 6.0, otherwise it can take
       // a long time to abort the stream.
-      maxAwaitTimeMS: 200
+      maxAwaitTimeMS: this.streamOptions?.maxAwaitTimeMS ?? 200,
+      snapshotChunkLength: this.streamOptions?.snapshotChunkLength
     };
     this._walStream = new ChangeStream(options);
     return this._walStream!;
@@ -122,23 +145,25 @@ export class ChangeStreamTestContext {
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
-  async getBucketData(
-    bucket: string,
-    start?: ProtocolOpId | InternalOpId | undefined,
-    options?: { timeout?: number; limit?: number; chunkLimitBytes?: number }
-  ) {
+  async getBucketData(bucket: string, start?: ProtocolOpId | InternalOpId | undefined, options?: { timeout?: number }) {
     start ??= 0n;
     if (typeof start == 'string') {
       start = BigInt(start);
     }
-    let checkpoint = await this.getCheckpoint(options);
+    const checkpoint = await this.getCheckpoint(options);
     const map = new Map<string, InternalOpId>([[bucket, start]]);
-    const batch = this.storage!.getBucketDataBatch(checkpoint, map, {
-      limit: options?.limit,
-      chunkLimitBytes: options?.chunkLimitBytes
-    });
-    const batches = await test_utils.fromAsync(batch);
-    return batches[0]?.chunkData.data ?? [];
+    let data: OplogEntry[] = [];
+    while (true) {
+      const batch = this.storage!.getBucketDataBatch(checkpoint, map);
+
+      const batches = await test_utils.fromAsync(batch);
+      data = data.concat(batches[0]?.chunkData.data ?? []);
+      if (batches.length == 0 || !batches[0]!.chunkData.has_more) {
+        break;
+      }
+      map.set(bucket, BigInt(batches[0]!.chunkData.next_after));
+    }
+    return data;
   }
 
   async getChecksums(buckets: string[], options?: { timeout?: number }) {

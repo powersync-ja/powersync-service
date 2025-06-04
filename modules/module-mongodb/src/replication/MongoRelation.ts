@@ -20,7 +20,10 @@ export function getMongoRelation(source: mongo.ChangeStreamNameSpace): storage.S
 /**
  * For in-memory cache only.
  */
-export function getCacheIdentifier(source: storage.SourceEntityDescriptor): string {
+export function getCacheIdentifier(source: storage.SourceEntityDescriptor | storage.SourceTable): string {
+  if (source instanceof storage.SourceTable) {
+    return `${source.schema}.${source.table}`;
+  }
   return `${source.schema}.${source.name}`;
 }
 

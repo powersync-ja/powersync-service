@@ -1,7 +1,7 @@
-import { ObserverClient } from '@powersync/lib-services-framework';
+import { Logger, ObserverClient } from '@powersync/lib-services-framework';
 import { ParameterLookup, SqlSyncRules, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
-import { BucketStorageBatch, FlushedResult } from './BucketStorageBatch.js';
+import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
 import { ParseSyncRulesOptions } from './PersistedSyncRulesContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
@@ -125,6 +125,7 @@ export interface SyncRuleStatus {
   checkpoint_lsn: string | null;
   active: boolean;
   snapshot_done: boolean;
+  snapshot_lsn: string | null;
 }
 export interface ResolveTableOptions {
   group_id: number;
@@ -159,6 +160,15 @@ export interface StartBatchOptions extends ParseSyncRulesOptions {
    * This will avoid creating new operations for rows previously replicated.
    */
   skipExistingRows?: boolean;
+
+  /**
+   * Callback called if we streamed an update to a record that we don't have yet.
+   *
+   * This is expected to happen in some initial replication edge cases, only if storeCurrentData = true.
+   */
+  markRecordUnavailable?: BucketStorageMarkRecordUnavailable;
+
+  logger?: Logger;
 }
 
 export interface CompactOptions {
@@ -274,3 +284,5 @@ export const CHECKPOINT_INVALIDATE_ALL: CheckpointChanges = {
   updatedParameterLookups: new Set<string>(),
   invalidateParameterBuckets: true
 };
+
+export type BucketStorageMarkRecordUnavailable = (record: SaveUpdate) => void;
