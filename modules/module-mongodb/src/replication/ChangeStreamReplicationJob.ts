@@ -15,7 +15,7 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
   constructor(options: ChangeStreamReplicationJobOptions) {
     super(options);
     this.connectionFactory = options.connectionFactory;
-    // We us a custom formatter to process the prefix
+    // We use a custom formatter to process the prefix
     this.logger = defaultLogger.child({ prefix: `[powersync_${this.storage.group_id}] ` });
   }
 

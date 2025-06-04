@@ -145,11 +145,7 @@ export class ChangeStreamTestContext {
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
-  async getBucketData(
-    bucket: string,
-    start?: ProtocolOpId | InternalOpId | undefined,
-    options?: { timeout?: number; limit?: number; chunkLimitBytes?: number }
-  ) {
+  async getBucketData(bucket: string, start?: ProtocolOpId | InternalOpId | undefined, options?: { timeout?: number }) {
     start ??= 0n;
     if (typeof start == 'string') {
       start = BigInt(start);

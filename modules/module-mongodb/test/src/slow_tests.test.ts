@@ -82,7 +82,7 @@ bucket_definitions:
     await snapshotPromise;
     context.startStreaming();
 
-    const data = await context.getBucketData('global[]', undefined, { limit: 50_000, chunkLimitBytes: 60_000_000 });
+    const data = await context.getBucketData('global[]');
 
     const preDocuments = data.filter((d: any) => JSON.parse(d.data! as string).description.startsWith('pre')).length;
     const updatedDocuments = data.filter((d: any) =>

@@ -45,7 +45,7 @@ describe('mongo lsn', () => {
         new MongoLSN({
           timestamp: mongo.Timestamp.fromNumber(10)
         }).comparable
-    ).true;
+    ).toBe(true);
 
     // Values with resume tokens should correctly compare
     expect(
@@ -57,7 +57,7 @@ describe('mongo lsn', () => {
           timestamp: mongo.Timestamp.fromNumber(10),
           resume_token: { _data: 'resume2' }
         }).comparable
-    ).true;
+    ).toBe(true);
 
     // The resume token should not affect comparison
     expect(
@@ -69,7 +69,7 @@ describe('mongo lsn', () => {
           timestamp: mongo.Timestamp.fromNumber(10),
           resume_token: { _data: '1' }
         }).comparable
-    ).true;
+    ).toBe(true);
 
     // Resume token should not be required for comparison
     expect(
@@ -80,7 +80,7 @@ describe('mongo lsn', () => {
         new MongoLSN({
           timestamp: mongo.Timestamp.fromNumber(9)
         }).comparable
-    ).true;
+    ).toBe(true);
 
     // Comparison should be backwards compatible with old LSNs
     expect(
@@ -88,7 +88,7 @@ describe('mongo lsn', () => {
         timestamp: mongo.Timestamp.fromNumber(10),
         resume_token: { _data: '2' }
       }).comparable > ZERO_LSN
-    ).true;
+    ).toBe(true);
     expect(
       new MongoLSN({
         timestamp: mongo.Timestamp.fromNumber(10),
@@ -97,7 +97,7 @@ describe('mongo lsn', () => {
         new MongoLSN({
           timestamp: mongo.Timestamp.fromNumber(1)
         }).comparable.split('|')[0] // Simulate an old LSN
-    ).true;
+    ).toBe(true);
     expect(
       new MongoLSN({
         timestamp: mongo.Timestamp.fromNumber(1),
@@ -106,6 +106,6 @@ describe('mongo lsn', () => {
         new MongoLSN({
           timestamp: mongo.Timestamp.fromNumber(10)
         }).comparable.split('|')[0] // Simulate an old LSN
-    ).true;
+    ).toBe(true);
   });
 });

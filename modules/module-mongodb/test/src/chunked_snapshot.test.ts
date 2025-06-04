@@ -123,7 +123,7 @@ function defineBatchTests(factory: TestStorageFactory) {
 
     context.startStreaming();
 
-    const data = await context.getBucketData('global[]', undefined, { limit: 3000 });
+    const data = await context.getBucketData('global[]');
     const reduced = reduceBucket(data);
 
     expect(reduced.find((row) => row.object_id == idToString(idA))?.data).toEqual(
