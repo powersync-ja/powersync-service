@@ -142,6 +142,9 @@ export abstract class AbstractMigrationAgent<Generics extends MigrationAgentGene
       ) {
         index += 1;
       }
+    } else if (params.direction == defs.Direction.Down) {
+      // Down migration with no state - exclude all migrations
+      index = migrations.length;
     }
 
     migrations = migrations.slice(index);
