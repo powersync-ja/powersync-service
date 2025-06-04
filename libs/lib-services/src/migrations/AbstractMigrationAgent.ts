@@ -70,7 +70,7 @@ export abstract class AbstractMigrationAgent<Generics extends MigrationAgentGene
     try {
       const state = await this.store.load();
 
-      logger.info('Running migrations');
+      logger.info(`Running migrations ${direction}`);
       const logStream = this.execute({
         direction,
         migrations,
