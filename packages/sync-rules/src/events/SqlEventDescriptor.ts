@@ -1,5 +1,4 @@
 import { SqlRuleError } from '../errors.js';
-import { IdSequence } from '../IdSequence.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { QueryParseResult } from '../SqlBucketDescriptor.js';
 import { SyncRulesOptions } from '../SqlSyncRules.js';
