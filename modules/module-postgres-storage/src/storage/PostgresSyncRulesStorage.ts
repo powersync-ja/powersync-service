@@ -150,9 +150,9 @@ export class PostgresSyncRulesStorage
   async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
     const { group_id, connection_id, connection_tag, entity_descriptor } = options;
 
-    const { schema, name: table, objectId, replicationColumns } = entity_descriptor;
+    const { schema, name: table, objectId, replicaIdColumns } = entity_descriptor;
 
-    const columns = replicationColumns.map((column) => ({
+    const columns = replicaIdColumns.map((column) => ({
       name: column.name,
       type: column.type,
       // The PGWire returns this as a BigInt. We want to store this as JSONB
@@ -224,15 +224,15 @@ export class PostgresSyncRulesStorage
         sourceTableRow = row;
       }
 
-      const sourceTable = new storage.SourceTable(
-        sourceTableRow!.id,
-        connection_tag,
-        objectId,
-        schema,
-        table,
-        replicationColumns,
-        sourceTableRow!.snapshot_done ?? true
-      );
+      const sourceTable = new storage.SourceTable({
+        id: sourceTableRow!.id,
+        connectionTag: connection_tag,
+        objectId: objectId,
+        schema: schema,
+        name: table,
+        replicaIdColumns: replicaIdColumns,
+        snapshotComplete: sourceTableRow!.snapshot_done ?? true
+      });
       sourceTable.syncEvent = options.sync_rules.tableTriggersEvent(sourceTable);
       sourceTable.syncData = options.sync_rules.tableSyncsData(sourceTable);
       sourceTable.syncParameters = options.sync_rules.tableSyncsParameters(sourceTable);
@@ -283,19 +283,20 @@ export class PostgresSyncRulesStorage
         table: sourceTable,
         dropTables: truncatedTables.map(
           (doc) =>
-            new storage.SourceTable(
-              doc.id,
-              connection_tag,
-              doc.relation_id?.object_id ?? 0,
-              doc.schema_name,
-              doc.table_name,
-              doc.replica_id_columns?.map((c) => ({
-                name: c.name,
-                typeOid: c.typeId,
-                type: c.type
-              })) ?? [],
-              doc.snapshot_done ?? true
-            )
+            new storage.SourceTable({
+              id: doc.id,
+              connectionTag: connection_tag,
+              objectId: doc.relation_id?.object_id ?? 0,
+              schema: doc.schema_name,
+              name: doc.table_name,
+              replicaIdColumns:
+                doc.replica_id_columns?.map((c) => ({
+                  name: c.name,
+                  typeOid: c.typeId,
+                  type: c.type
+                })) ?? [],
+              snapshotComplete: doc.snapshot_done ?? true
+            })
         )
       };
     });

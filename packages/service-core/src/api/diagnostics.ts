@@ -105,7 +105,7 @@ export async function getSyncRulesStatus(
         const source: SourceTableInterface = {
           connectionTag: tag,
           schema: pattern.schema,
-          table: pattern.tablePattern
+          name: pattern.tablePattern
         };
         const syncData = rules.tableSyncsData(source);
         const syncParameters = rules.tableSyncsParameters(source);

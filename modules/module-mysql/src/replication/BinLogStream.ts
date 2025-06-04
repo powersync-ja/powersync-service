@@ -207,7 +207,7 @@ AND table_type = 'BASE TABLE';`,
       }
 
       const connection = await this.connections.getConnection();
-      const replicationColumns = await common.getReplicationIdentityColumns({
+      const replicaIdColumns = await common.getReplicationIdentityColumns({
         connection: connection,
         schema: tablePattern.schema,
         table_name: tablePattern.name
@@ -220,7 +220,7 @@ AND table_type = 'BASE TABLE';`,
           name,
           schema: tablePattern.schema,
           objectId: getMysqlRelId(tablePattern),
-          replicationColumns: replicationColumns.columns
+          replicaIdColumns: replicaIdColumns.columns
         },
         false
       );
@@ -421,7 +421,7 @@ AND table_type = 'BASE TABLE';`,
         async (batch) => {
           const binlogEventHandler = this.createBinlogEventHandler(batch);
           // Only listen for changes to tables in the sync rules
-          const includedTables = [...this.tableCache.values()].map((table) => table.table);
+          const includedTables = [...this.tableCache.values()].map((table) => table.name);
           const binlogListener = new BinLogListener({
             includedTables: includedTables,
             startPosition: binLogPositionState,

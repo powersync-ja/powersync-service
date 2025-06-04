@@ -179,7 +179,7 @@ export class ChangeStream {
 
   async estimatedCount(table: storage.SourceTable): Promise<string> {
     const db = this.client.db(table.schema);
-    const count = await db.collection(table.table).estimatedDocumentCount();
+    const count = await db.collection(table.name).estimatedDocumentCount();
     return `~${count}`;
   }
 
@@ -307,7 +307,7 @@ export class ChangeStream {
     const estimatedCount = await this.estimatedCount(table);
     let at = 0;
     const db = this.client.db(table.schema);
-    const collection = db.collection(table.table);
+    const collection = db.collection(table.name);
     const cursor = collection.find({}, { batchSize: 6_000, readConcern: 'majority' });
 
     let lastBatch = performance.now();

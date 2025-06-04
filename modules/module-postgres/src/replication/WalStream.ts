@@ -195,7 +195,7 @@ export class WalStream {
           name,
           schema,
           objectId: relid,
-          replicationColumns: cresult.replicationColumns
+          replicaIdColumns: cresult.replicationColumns
         } as SourceEntityDescriptor,
         false
       );
@@ -437,7 +437,7 @@ WHERE  oid = $1::regclass`,
     const estimatedCount = await this.estimatedCount(db, table);
     let at = 0;
     let lastLogIndex = 0;
-    const cursor = db.stream({ statement: `SELECT * FROM ${table.escapedIdentifier}` });
+    const cursor = db.stream({ statement: `SELECT * FROM ${table.qualifiedName}` });
     let columns: { i: number; name: string }[] = [];
     // pgwire streams rows in chunks.
     // These chunks can be quite small (as little as 16KB), so we don't flush chunks automatically.

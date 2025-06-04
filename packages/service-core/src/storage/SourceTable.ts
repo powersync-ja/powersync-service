@@ -1,8 +1,19 @@
 import { DEFAULT_TAG } from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
-import { ColumnDescriptor } from './SourceEntity.js';
+import { ColumnDescriptor, SourceEntityDescriptor } from './SourceEntity.js';
 
-export class SourceTable {
+export interface SourceTableOptions {
+  id: any;
+  connectionTag: string;
+  objectId: number | string | undefined;
+  schema: string;
+  name: string;
+  replicaIdColumns: ColumnDescriptor[];
+  snapshotComplete: boolean;
+  columns?: ColumnDescriptor[];
+}
+
+export class SourceTable implements SourceEntityDescriptor {
   static readonly DEFAULT_TAG = DEFAULT_TAG;
 
   /**
@@ -32,37 +43,45 @@ export class SourceTable {
    */
   public syncEvent = true;
 
-  constructor(
-    public readonly id: any,
-    public readonly connectionTag: string,
-    public readonly objectId: number | string | undefined,
-    public readonly schema: string,
-    public readonly table: string,
+  constructor(public readonly options: SourceTableOptions) {}
 
-    public readonly replicaIdColumns: ColumnDescriptor[],
-    public readonly snapshotComplete: boolean
-  ) {}
+  get id() {
+    return this.options.id;
+  }
 
-  get hasReplicaIdentity() {
-    return this.replicaIdColumns.length > 0;
+  get connectionTag() {
+    return this.options.connectionTag;
+  }
+
+  get objectId() {
+    return this.options.objectId;
+  }
+
+  get schema() {
+    return this.options.schema;
+  }
+  get name() {
+    return this.options.name;
+  }
+
+  get replicaIdColumns() {
+    return this.options.replicaIdColumns;
+  }
+
+  get snapshotComplete() {
+    return this.options.snapshotComplete;
+  }
+
+  get columns() {
+    return this.options.columns;
   }
 
   /**
-   * Use for postgres only.
-   *
-   * Usage: db.query({statement: `SELECT $1::regclass`, params: [{type: 'varchar', value: table.qualifiedName}]})
+   *  Sanitized name of the entity in the format of "{schema}.{entity name}"
+   *  Suitable for safe use in queries.
    */
   get qualifiedName() {
-    return this.escapedIdentifier;
-  }
-
-  /**
-   * Use for postgres and logs only.
-   *
-   * Usage: db.query(`SELECT * FROM ${table.escapedIdentifier}`)
-   */
-  get escapedIdentifier() {
-    return `${util.escapeIdentifier(this.schema)}.${util.escapeIdentifier(this.table)}`;
+    return `${util.escapeIdentifier(this.schema)}.${util.escapeIdentifier(this.name)}`;
   }
 
   get syncAny() {

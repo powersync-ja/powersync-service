@@ -43,7 +43,7 @@ export class SqlEventDescriptor {
     const matchingQuery = this.sourceQueries.find((q) => q.applies(options.sourceTable));
     if (!matchingQuery) {
       return {
-        errors: [{ error: `No marching source query found for table ${options.sourceTable.table}` }]
+        errors: [{ error: `No marching source query found for table ${options.sourceTable.name}` }]
       };
     }
 

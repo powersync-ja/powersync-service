@@ -86,5 +86,5 @@ export function isVersionAtLeast(version: string, minimumVersion: string): boole
 }
 
 export function escapeMysqlTableName(table: SourceTable): string {
-  return `\`${table.schema.replaceAll('`', '``')}\`.\`${table.table.replaceAll('`', '``')}\``;
+  return `\`${table.schema.replaceAll('`', '``')}\`.\`${table.name.replaceAll('`', '``')}\``;
 }

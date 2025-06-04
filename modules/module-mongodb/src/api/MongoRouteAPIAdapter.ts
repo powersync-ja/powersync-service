@@ -137,15 +137,15 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
       if (tablePattern.isWildcard) {
         patternResult.tables = [];
         for (let collection of collections) {
-          const sourceTable = new SourceTable(
-            0,
-            this.connectionTag,
-            collection.name,
-            schema,
-            collection.name,
-            [],
-            true
-          );
+          const sourceTable = new SourceTable({
+            id: 0,
+            connectionTag: this.connectionTag,
+            objectId: collection.name,
+            schema: schema,
+            name: collection.name,
+            replicaIdColumns: [],
+            snapshotComplete: true
+          });
           let errors: service_types.ReplicationError[] = [];
           if (collection.type == 'view') {
             errors.push({ level: 'warning', message: `Collection ${schema}.${tablePattern.name} is a view` });
@@ -164,15 +164,15 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
           });
         }
       } else {
-        const sourceTable = new SourceTable(
-          0,
-          this.connectionTag,
-          tablePattern.name,
-          schema,
-          tablePattern.name,
-          [],
-          true
-        );
+        const sourceTable = new SourceTable({
+          id: 0,
+          connectionTag: this.connectionTag,
+          objectId: tablePattern.name,
+          schema: schema,
+          name: tablePattern.name,
+          replicaIdColumns: [],
+          snapshotComplete: true
+        });
 
         const syncData = sqlSyncRules.tableSyncsData(sourceTable);
         const syncParameters = sqlSyncRules.tableSyncsParameters(sourceTable);

@@ -13,7 +13,7 @@ export function getMongoRelation(source: mongo.ChangeStreamNameSpace): storage.S
     schema: source.db,
     // Not relevant for MongoDB - we use db + coll name as the identifier
     objectId: undefined,
-    replicationColumns: [{ name: '_id' }]
+    replicaIdColumns: [{ name: '_id' }]
   } satisfies storage.SourceEntityDescriptor;
 }
 

@@ -876,15 +876,15 @@ export class MongoBucketBatch
       }
     });
     return tables.map((table) => {
-      const copy = new storage.SourceTable(
-        table.id,
-        table.connectionTag,
-        table.objectId,
-        table.schema,
-        table.table,
-        table.replicaIdColumns,
-        table.snapshotComplete
-      );
+      const copy = new storage.SourceTable({
+        id: table.id,
+        connectionTag: table.connectionTag,
+        objectId: table.objectId,
+        schema: table.schema,
+        name: table.name,
+        replicaIdColumns: table.replicaIdColumns,
+        snapshotComplete: table.snapshotComplete
+      });
       copy.syncData = table.syncData;
       copy.syncParameters = table.syncParameters;
       return copy;
