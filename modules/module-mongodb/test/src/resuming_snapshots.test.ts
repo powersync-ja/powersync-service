@@ -13,7 +13,7 @@ describe.skipIf(!(env.CI || env.SLOW_TESTS))('batch replication', function () {
       // Stop early - likely to not include deleted row in first replication attempt.
       await testResumingReplication(factory, 2000);
     });
-    test.only('resuming initial replication (2)', async () => {
+    test('resuming initial replication (2)', async () => {
       // Stop late - likely to include deleted row in first replication attempt.
       await testResumingReplication(factory, 8000);
     });

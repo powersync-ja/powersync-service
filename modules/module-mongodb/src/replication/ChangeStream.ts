@@ -668,6 +668,10 @@ export class ChangeStream {
     const result = await this.initSlot();
     await this.setupCheckpointsCollection();
     if (result.needsInitialSync) {
+      if (result.snapshotLsn == null) {
+        // Snapshot LSN is not present, so we need to start replication from scratch.
+        await this.storage.clear();
+      }
       await this.initialReplication(result.snapshotLsn);
     }
   }
