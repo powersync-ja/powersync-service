@@ -150,9 +150,9 @@ export class PostgresSyncRulesStorage
   async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
     const { group_id, connection_id, connection_tag, entity_descriptor } = options;
 
-    const { schema, name: table, objectId, replicaIdColumns } = entity_descriptor;
+    const { schema, name: table, objectId, replicaIdColumns, columns } = entity_descriptor;
 
-    const columns = replicaIdColumns.map((column) => ({
+    const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
       name: column.name,
       type: column.type,
       // The PGWire returns this as a BigInt. We want to store this as JSONB
@@ -172,7 +172,7 @@ export class PostgresSyncRulesStorage
             AND relation_id = ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }}
             AND schema_name = ${{ type: 'varchar', value: schema }}
             AND table_name = ${{ type: 'varchar', value: table }}
-            AND replica_id_columns = ${{ type: 'jsonb', value: columns }}
+            AND replica_id_columns = ${{ type: 'jsonb', value: normalizedReplicaIdColumns }}
         `
           .decoded(models.SourceTable)
           .first();
@@ -187,7 +187,7 @@ export class PostgresSyncRulesStorage
             AND connection_id = ${{ type: 'int4', value: connection_id }}
             AND schema_name = ${{ type: 'varchar', value: schema }}
             AND table_name = ${{ type: 'varchar', value: table }}
-            AND replica_id_columns = ${{ type: 'jsonb', value: columns }}
+            AND replica_id_columns = ${{ type: 'jsonb', value: normalizedReplicaIdColumns }}
         `
           .decoded(models.SourceTable)
           .first();
@@ -214,7 +214,7 @@ export class PostgresSyncRulesStorage
               ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }},
               ${{ type: 'varchar', value: schema }},
               ${{ type: 'varchar', value: table }},
-              ${{ type: 'jsonb', value: columns }}
+              ${{ type: 'jsonb', value: normalizedReplicaIdColumns }}
             )
           RETURNING
             *
@@ -231,7 +231,8 @@ export class PostgresSyncRulesStorage
         schema: schema,
         name: table,
         replicaIdColumns: replicaIdColumns,
-        snapshotComplete: sourceTableRow!.snapshot_done ?? true
+        snapshotComplete: sourceTableRow!.snapshot_done ?? true,
+        columns: columns
       });
       sourceTable.syncEvent = options.sync_rules.tableTriggersEvent(sourceTable);
       sourceTable.syncData = options.sync_rules.tableSyncsData(sourceTable);

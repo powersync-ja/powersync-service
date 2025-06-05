@@ -208,7 +208,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
       idColumnsResult = await common.getReplicationIdentityColumns({
         connection: connection,
         schema,
-        table_name: tableName
+        tableName: tableName
       });
     } catch (ex) {
       idColumnsError = { level: 'fatal', message: ex.message };

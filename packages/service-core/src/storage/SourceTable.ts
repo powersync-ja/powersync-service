@@ -78,7 +78,7 @@ export class SourceTable implements SourceEntityDescriptor {
 
   /**
    *  Sanitized name of the entity in the format of "{schema}.{entity name}"
-   *  Suitable for safe use in queries.
+   *  Suitable for safe use in Postgres queries.
    */
   get qualifiedName() {
     return `${util.escapeIdentifier(this.schema)}.${util.escapeIdentifier(this.name)}`;

@@ -165,68 +165,37 @@ export class BinLogStream {
       return [];
     }
 
-    let tableRows: any[];
-    const prefix = tablePattern.isWildcard ? tablePattern.tablePrefix : undefined;
-    if (tablePattern.isWildcard) {
-      const result = await this.connections.query(
-        `SELECT TABLE_NAME
-FROM information_schema.tables
-WHERE TABLE_SCHEMA = ? AND TABLE_NAME LIKE ?;
-`,
-        [tablePattern.schema, tablePattern.tablePattern]
-      );
-      tableRows = result[0];
-    } else {
-      const result = await this.connections.query(
-        `SELECT TABLE_NAME
-FROM information_schema.tables
-WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?;
-`,
-        [tablePattern.schema, tablePattern.tablePattern]
-      );
-      tableRows = result[0];
-    }
+    const connection = await this.connections.getConnection();
+    const matchedTables: string[] = await common.getTablesFromPattern(connection, tablePattern);
+
     let tables: storage.SourceTable[] = [];
-
-    for (let row of tableRows) {
-      const name = row['TABLE_NAME'] as string;
-      if (prefix && !name.startsWith(prefix)) {
-        continue;
-      }
-
-      const result = await this.connections.query(
-        `SELECT 1
-FROM information_schema.tables
-WHERE table_schema = ? AND table_name = ?
-AND table_type = 'BASE TABLE';`,
-        [tablePattern.schema, tablePattern.name]
-      );
-      if (result[0].length == 0) {
-        logger.info(`Skipping ${tablePattern.schema}.${name} - no table exists/is not a base table`);
-        continue;
-      }
-
-      const connection = await this.connections.getConnection();
+    for (const matchedTable of matchedTables) {
       const replicaIdColumns = await common.getReplicationIdentityColumns({
         connection: connection,
         schema: tablePattern.schema,
-        table_name: tablePattern.name
+        tableName: matchedTable
       });
-      connection.release();
+      const columns = await common.getColumns({
+        connection: connection,
+        schema: tablePattern.schema,
+        tableName: matchedTable
+      });
 
       const table = await this.handleRelation(
         batch,
         {
-          name,
+          name: matchedTable,
           schema: tablePattern.schema,
           objectId: getMysqlRelId(tablePattern),
-          replicaIdColumns: replicaIdColumns.columns
+          replicaIdColumns: replicaIdColumns.columns,
+          columns: columns
         },
         false
       );
 
       tables.push(table);
     }
+    connection.release();
     return tables;
   }
 

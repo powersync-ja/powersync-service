@@ -162,9 +162,9 @@ export class MongoSyncBucketStorage
   async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
     const { group_id, connection_id, connection_tag, entity_descriptor } = options;
 
-    const { schema, name, objectId, replicaIdColumns } = entity_descriptor;
+    const { schema, name, objectId, replicaIdColumns, columns } = entity_descriptor;
 
-    const columns = replicaIdColumns.map((column) => ({
+    const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
       name: column.name,
       type: column.type,
       type_oid: column.typeId
@@ -177,7 +177,7 @@ export class MongoSyncBucketStorage
         connection_id: connection_id,
         schema_name: schema,
         table_name: name,
-        replica_id_columns2: columns
+        replica_id_columns2: normalizedReplicaIdColumns
       };
       if (objectId != null) {
         filter.relation_id = objectId;
@@ -192,7 +192,7 @@ export class MongoSyncBucketStorage
           schema_name: schema,
           table_name: name,
           replica_id_columns: null,
-          replica_id_columns2: columns,
+          replica_id_columns2: normalizedReplicaIdColumns,
           snapshot_done: false
         };
 
@@ -205,7 +205,8 @@ export class MongoSyncBucketStorage
         schema: schema,
         name: name,
         replicaIdColumns: replicaIdColumns,
-        snapshotComplete: doc.snapshot_done ?? true
+        snapshotComplete: doc.snapshot_done ?? true,
+        columns: columns
       });
       sourceTable.syncEvent = options.sync_rules.tableTriggersEvent(sourceTable);
       sourceTable.syncData = options.sync_rules.tableSyncsData(sourceTable);
