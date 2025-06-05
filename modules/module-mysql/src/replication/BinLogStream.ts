@@ -10,6 +10,7 @@ import {
 } from '@powersync/service-core';
 import mysql from 'mysql2';
 import mysqlPromise from 'mysql2/promise';
+import _ from 'lodash';
 
 import { TableMapEntry } from '@powersync/mysql-zongji';
 import * as common from '../common/common-index.js';
@@ -443,8 +444,47 @@ export class BinLogStream {
       onCommit: async (lsn: string) => {
         this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
         await batch.commit(lsn);
+      },
+      onSchemaChange: async (tableMap: TableMapEntry) => {
+        if (!this.hasSchemaChange(tableMap)) {
+          logger.info(`Skipping schema change for ${tableMap.parentSchema}.${tableMap.tableName} - no changes`);
+          return;
+        }
+        await this.handleRelation(
+          batch,
+          {
+            name: tableMap.tableName,
+            schema: tableMap.parentSchema,
+            objectId: getMysqlRelId({
+              schema: tableMap.parentSchema,
+              name: tableMap.tableName
+            }),
+            replicaIdColumns: Array.from(common.toColumnDescriptors(tableMap).values())
+          },
+          true
+        );
       }
     };
+  }
+
+  private hasSchemaChange(tableMap: TableMapEntry) {
+    // Check if the table is already in the cache
+    const cachedTable = this.tableCache.get(
+      getMysqlRelId({
+        schema: tableMap.parentSchema,
+        name: tableMap.tableName
+      })
+    );
+    if (cachedTable) {
+      // The table already exists in the cache with the same name, check if the columns are the same
+      const existingColumns = cachedTable.columns!.sort((a, b) => a.name.localeCompare(b.name));
+      const newColumns = Array.from(common.toColumnDescriptors(tableMap).values()).sort((a, b) =>
+        a.name.localeCompare(b.name)
+      );
+      return _.isEqual(existingColumns, newColumns);
+    }
+    // If the table is not in the cache, it is a new table, or has been renamed
+    return true;
   }
 
   private async writeChanges(

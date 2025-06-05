@@ -16,6 +16,7 @@ export interface BinLogEventHandler {
   onUpdate: (rowsAfter: Row[], rowsBefore: Row[], tableMap: TableMapEntry) => Promise<void>;
   onDelete: (rows: Row[], tableMap: TableMapEntry) => Promise<void>;
   onCommit: (lsn: string) => Promise<void>;
+  onSchemaChange: (tableMap: TableMapEntry) => Promise<void>;
 }
 
 export interface BinLogListenerOptions {
@@ -223,6 +224,16 @@ export class BinLogListener {
             }
           }).comparable;
           await this.eventHandler.onCommit(LSN);
+          break;
+        case zongji_utils.eventIsTableMap(evt):
+          const tableMapEntry = evt.tableMap[evt.tableId];
+          logger.info(
+            `Potential schema change detected for table: ${tableMapEntry.tableName}. Pausing Binlog listener.)`
+          );
+          this.zongji.pause();
+          await this.eventHandler.onSchemaChange(evt.tableMap[evt.tableId]);
+          logger.info(`Schema change for table ${tableMapEntry.tableName} handled. Resuming Binlog listener.`);
+          this.zongji.resume();
           break;
       }
 

@@ -32,7 +32,7 @@ describe('BinlogListener tests', () => {
       connectionManager: connectionManager,
       eventHandler: eventHandler,
       startPosition: fromGTID.position,
-      includedTables: ['test_DATA'],
+      includedTables: ['test_DATA', 'test_DATA_new'],
       serverId: createRandomServerId(1)
     });
   });
@@ -79,7 +79,7 @@ describe('BinlogListener tests', () => {
     expect(resumeSpy).toHaveBeenCalled();
   });
 
-  test('Binlog events are correctly forwarded to provided binlog events handler', async () => {
+  test('Binlog row events are correctly forwarded to provided binlog events handler', async () => {
     const startPromise = binLogListener.start();
 
     const ROW_COUNT = 10;
@@ -95,6 +95,19 @@ describe('BinlogListener tests', () => {
 
     binLogListener.stop();
     await expect(startPromise).resolves.toBeUndefined();
+  });
+
+  test('Binlog schema change events are correctly forwarded to provided binlog events handler', async () => {
+    const startPromise = binLogListener.start();
+    await connectionManager.query(`RENAME TABLE test_DATA TO test_DATA_new`);
+    // Table map events are only emitted before row events
+    await connectionManager.query(
+      `INSERT INTO test_DATA_new(id, description) VALUES('${uuid()}','test ${crypto.randomBytes(100).toString('hex')}')`
+    );
+    await vi.waitFor(() => expect(eventHandler.latestSchemaChange).toBeDefined(), { timeout: 5000 });
+    binLogListener.stop();
+    await expect(startPromise).resolves.toBeUndefined();
+    expect(eventHandler.latestSchemaChange?.tableName).toEqual('test_DATA_new');
   });
 });
 
@@ -127,6 +140,7 @@ class TestBinLogEventHandler implements BinLogEventHandler {
   rowsUpdated = 0;
   rowsDeleted = 0;
   commitCount = 0;
+  latestSchemaChange: TableMapEntry | undefined;
 
   unpause: ((value: void | PromiseLike<void>) => void) | undefined;
   private pausedPromise: Promise<void> | undefined;
@@ -154,5 +168,9 @@ class TestBinLogEventHandler implements BinLogEventHandler {
 
   async onCommit(lsn: string) {
     this.commitCount++;
+  }
+
+  async onSchemaChange(tableMap: TableMapEntry) {
+    this.latestSchemaChange = tableMap;
   }
 }
