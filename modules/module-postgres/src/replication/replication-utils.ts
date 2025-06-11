@@ -184,7 +184,7 @@ WHERE c.oid = $1::oid;
     // Don't skip, since we _may_ still be able to get results.
     return {
       canRead: false,
-      message: `Row Level Security is enabled on table ${row.tablename}. To make sure that ${row.username} can read the table, run: 'ALTER ROLE ${row.username} BYPASSRLS'.`
+      message: `[${ErrorCode.PSYNC_S1145}] Row Level Security is enabled on table "${row.tablename}". To make sure that ${row.username} can read the table, run: 'ALTER ROLE ${row.username} BYPASSRLS'.`
     };
   }
 

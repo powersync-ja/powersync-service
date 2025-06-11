@@ -168,6 +168,18 @@ export enum ErrorCode {
    */
   PSYNC_S1144 = 'PSYNC_S1144',
 
+  /**
+   * Table has RLS enabled, but the replication role does not have the BYPASSRLS attribute.
+   *
+   * We recommend using a dedicated replication role with the BYPASSRLS attribute for replication:
+   *
+   *     ALTER ROLE powersync_role BYPASSRLS
+   *
+   * An alternative is to create explicit policies for the replication role. If you have done that,
+   * you may ignore this warning.
+   */
+  PSYNC_S1145 = 'PSYNC_S1145',
+
   // ## PSYNC_S12xx: MySQL replication issues
 
   // ## PSYNC_S13xx: MongoDB replication issues
