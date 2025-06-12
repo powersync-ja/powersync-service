@@ -1,7 +1,6 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import * as framework from '@powersync/lib-services-framework';
-import { InternalOpId, storage, sync } from '@powersync/service-core';
-import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
+import { InternalOpId, storage } from '@powersync/service-core';
 import { models } from '../../types/types.js';
 
 export type PostgresCheckpointAPIOptions = {

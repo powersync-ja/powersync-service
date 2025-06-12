@@ -1774,6 +1774,7 @@ bucket_definitions:
         checkpoint: 5n,
         user_id: 'user1'
       });
+      await batch.flush();
       await batch.keepalive('5/0');
     });
 
@@ -1782,7 +1783,6 @@ bucket_definitions:
       done: false,
       value: {
         base: {
-          checkpoint: 0n,
           lsn: '5/0'
         },
         writeCheckpoint: 5n
@@ -1819,7 +1819,6 @@ bucket_definitions:
       done: false,
       value: {
         base: {
-          checkpoint: 0n,
           lsn: '5/0'
         },
         writeCheckpoint: null
@@ -1831,6 +1830,7 @@ bucket_definitions:
         checkpoint: 6n,
         user_id: 'user1'
       });
+      await batch.flush();
       await batch.keepalive('6/0');
     });
 
@@ -1839,7 +1839,6 @@ bucket_definitions:
       done: false,
       value: {
         base: {
-          checkpoint: 0n
           // can be 5/0 or 6/0 - actual value not relevant for custom write checkpoints
           // lsn: '6/0'
         },
@@ -1852,6 +1851,7 @@ bucket_definitions:
         checkpoint: 7n,
         user_id: 'user1'
       });
+      await batch.flush();
       await batch.keepalive('7/0');
     });
 
@@ -1860,7 +1860,6 @@ bucket_definitions:
       done: false,
       value: {
         base: {
-          checkpoint: 0n
           // can be 5/0, 6/0 or 7/0 - actual value not relevant for custom write checkpoints
           // lsn: '7/0'
         },

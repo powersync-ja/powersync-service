@@ -57,7 +57,7 @@ export class MongoSyncBucketStorage
   });
 
   private parsedSyncRulesCache: { parsed: SqlSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
-  private writeCheckpointAPI: storage.WriteCheckpointAPI;
+  private writeCheckpointAPI: MongoWriteCheckpointAPI;
 
   constructor(
     public readonly factory: MongoBucketStorage,
@@ -927,35 +927,6 @@ export class MongoSyncBucketStorage
     };
   }
 
-  private async getWriteCheckpointChanges(options: GetCheckpointChangesOptions) {
-    const limit = 1000;
-    const changes = await this.db.write_checkpoints
-      .find(
-        {
-          processed_at_lsn: { $gt: options.lastCheckpoint.lsn, $lte: options.nextCheckpoint.lsn }
-        },
-        {
-          limit: limit + 1,
-          batchSize: limit + 1,
-          singleBatch: true
-        }
-      )
-      .toArray();
-    const invalidate = changes.length > limit;
-
-    const updatedWriteCheckpoints = new Map<string, bigint>();
-    if (!invalidate) {
-      for (let c of changes) {
-        updatedWriteCheckpoints.set(c.user_id, c.client_id);
-      }
-    }
-
-    return {
-      invalidateWriteCheckpoints: invalidate,
-      updatedWriteCheckpoints
-    };
-  }
-
   // If we processed all connections together for each checkpoint, we could do a single lookup for all connections.
   // In practice, specific connections may fall behind. So instead, we just cache the results of each specific lookup.
   // TODO (later):
@@ -995,7 +966,7 @@ export class MongoSyncBucketStorage
   private async getCheckpointChangesInternal(options: GetCheckpointChangesOptions): Promise<InternalCheckpointChanges> {
     const dataUpdates = await this.getDataBucketChanges(options);
     const parameterUpdates = await this.getParameterBucketChanges(options);
-    const writeCheckpointUpdates = await this.getWriteCheckpointChanges(options);
+    const writeCheckpointUpdates = await this.writeCheckpointAPI.getWriteCheckpointChanges(options);
 
     return {
       ...dataUpdates,

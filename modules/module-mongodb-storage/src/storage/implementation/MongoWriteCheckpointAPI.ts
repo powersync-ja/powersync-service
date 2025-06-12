@@ -1,14 +1,7 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import * as framework from '@powersync/lib-services-framework';
-import {
-  Demultiplexer,
-  DemultiplexerValue,
-  InternalOpId,
-  storage,
-  WriteCheckpointResult
-} from '@powersync/service-core';
+import { GetCheckpointChangesOptions, InternalOpId, storage } from '@powersync/service-core';
 import { PowerSyncMongo } from './db.js';
-import { CustomWriteCheckpointDocument, WriteCheckpointDocument } from './models.js';
 
 export type MongoCheckpointAPIOptions = {
   db: PowerSyncMongo;
@@ -78,113 +71,13 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     }
   }
 
-  private sharedCustomIter = new Demultiplexer<WriteCheckpointResult>((signal) => {
-    const clusterTimePromise = this.getClusterTime();
-
-    return {
-      iterator: this.watchAllCustomWriteCheckpoints(clusterTimePromise, signal),
-      getFirstValue: async (user_id: string) => {
-        // We cater for the same potential race conditions as for managed write checkpoints.
-
-        const changeStreamStart = await clusterTimePromise;
-
-        let doc = null as CustomWriteCheckpointDocument | null;
-        let clusterTime = null as mongo.Timestamp | null;
-
-        await this.db.client.withSession(async (session) => {
-          doc = await this.db.custom_write_checkpoints.findOne(
-            {
-              user_id: user_id,
-              sync_rules_id: this.sync_rules_id
-            },
-            {
-              session
-            }
-          );
-          const time = session.clusterTime?.clusterTime ?? null;
-          clusterTime = time;
-        });
-        if (clusterTime == null) {
-          throw new framework.ServiceAssertionError('Could not get clusterTime for write checkpoint');
-        }
-
-        if (clusterTime.lessThan(changeStreamStart)) {
-          throw new framework.ServiceAssertionError(
-            'clusterTime for write checkpoint is older than changestream start'
-          );
-        }
-
-        if (doc == null) {
-          // No write checkpoint, but we still need to return a result
-          return {
-            id: null,
-            lsn: null
-          };
-        }
-
-        return {
-          id: doc.checkpoint,
-          // custom write checkpoints are not tied to a LSN
-          lsn: null
-        };
-      }
-    };
-  });
-
-  private async *watchAllCustomWriteCheckpoints(
-    clusterTimePromise: Promise<mongo.BSON.Timestamp>,
-    signal: AbortSignal
-  ): AsyncGenerator<DemultiplexerValue<WriteCheckpointResult>> {
-    const clusterTime = await clusterTimePromise;
-
-    const stream = this.db.custom_write_checkpoints.watch(
-      [
-        {
-          $match: {
-            'fullDocument.sync_rules_id': this.sync_rules_id,
-            operationType: { $in: ['insert', 'update', 'replace'] }
-          }
-        }
-      ],
-      {
-        fullDocument: 'updateLookup',
-        startAtOperationTime: clusterTime
-      }
-    );
-
-    signal.onabort = () => {
-      stream.close();
-    };
-
-    if (signal.aborted) {
-      stream.close();
-      return;
+  async getWriteCheckpointChanges(options: GetCheckpointChangesOptions) {
+    switch (this.writeCheckpointMode) {
+      case storage.WriteCheckpointMode.CUSTOM:
+        return this.getCustomWriteCheckpointChanges(options);
+      case storage.WriteCheckpointMode.MANAGED:
+        return this.getManagedWriteCheckpointChanges(options);
     }
-
-    for await (let event of stream) {
-      if (!('fullDocument' in event) || event.fullDocument == null) {
-        continue;
-      }
-
-      const user_id = event.fullDocument.user_id;
-      yield {
-        key: user_id,
-        value: {
-          id: event.fullDocument.checkpoint,
-          // Custom write checkpoints are not tied to a specific LSN
-          lsn: null
-        }
-      };
-    }
-  }
-
-  watchCustomWriteCheckpoint(options: WatchUserWriteCheckpointOptions): AsyncIterable<storage.WriteCheckpointResult> {
-    if (options.sync_rules_id != this.sync_rules_id) {
-      throw new framework.ServiceAssertionError('sync_rules_id does not match');
-    }
-
-    const stream = this.sharedCustomIter.subscribe(options.user_id, options.signal);
-    return this.orderedStream(stream);
   }
 
   protected async lastCustomWriteCheckpoint(filters: storage.CustomWriteCheckpointFilters) {
@@ -209,6 +102,65 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
       'lsns.1': { $lte: lsn }
     });
     return lastWriteCheckpoint?.client_id ?? null;
+  }
+
+  private async getManagedWriteCheckpointChanges(options: GetCheckpointChangesOptions) {
+    const limit = 1000;
+    const changes = await this.db.write_checkpoints
+      .find(
+        {
+          processed_at_lsn: { $gt: options.lastCheckpoint.lsn, $lte: options.nextCheckpoint.lsn }
+        },
+        {
+          limit: limit + 1,
+          batchSize: limit + 1,
+          singleBatch: true
+        }
+      )
+      .toArray();
+    const invalidate = changes.length > limit;
+
+    const updatedWriteCheckpoints = new Map<string, bigint>();
+    if (!invalidate) {
+      for (let c of changes) {
+        updatedWriteCheckpoints.set(c.user_id, c.client_id);
+      }
+    }
+
+    return {
+      invalidateWriteCheckpoints: invalidate,
+      updatedWriteCheckpoints
+    };
+  }
+
+  private async getCustomWriteCheckpointChanges(options: GetCheckpointChangesOptions) {
+    const limit = 1000;
+    const changes = await this.db.custom_write_checkpoints
+      .find(
+        {
+          op_id: { $gt: options.lastCheckpoint.checkpoint, $lte: options.nextCheckpoint.checkpoint }
+        },
+        {
+          limit: limit + 1,
+          batchSize: limit + 1,
+          singleBatch: true
+        }
+      )
+      .toArray();
+    console.log('getCustomWriteCheckpointChanges', options, changes);
+    const invalidate = changes.length > limit;
+
+    const updatedWriteCheckpoints = new Map<string, bigint>();
+    if (!invalidate) {
+      for (let c of changes) {
+        updatedWriteCheckpoints.set(c.user_id, c.checkpoint);
+      }
+    }
+
+    return {
+      invalidateWriteCheckpoints: invalidate,
+      updatedWriteCheckpoints
+    };
   }
 
   private async getClusterTime(): Promise<mongo.Timestamp> {
