@@ -1,6 +1,6 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import * as framework from '@powersync/lib-services-framework';
-import { storage, sync } from '@powersync/service-core';
+import { InternalOpId, storage, sync } from '@powersync/service-core';
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import { models } from '../../types/types.js';
 
@@ -26,7 +26,10 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     this._mode = mode;
   }
 
-  async batchCreateCustomWriteCheckpoints(checkpoints: storage.CustomWriteCheckpointOptions[]): Promise<void> {
+  async batchCreateCustomWriteCheckpoints(
+    checkpoints: storage.CustomWriteCheckpointOptions[],
+    op_id: InternalOpId
+  ): Promise<void> {
     return batchCreateCustomWriteCheckpoints(this.db, checkpoints);
   }
 

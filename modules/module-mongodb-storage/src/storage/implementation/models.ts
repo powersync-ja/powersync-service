@@ -173,6 +173,13 @@ export interface CustomWriteCheckpointDocument {
   user_id: string;
   checkpoint: bigint;
   sync_rules_id: number;
+  /**
+   * Unlike managed write checkpoints, custom write checkpoints are flushed together with
+   * normal ops. This means we can assign an op_id for ordering / correlating with read checkpoints.
+   *
+   * This is not unique - multiple write checkpoints can have the same op_id.
+   */
+  op_id?: InternalOpId;
 }
 
 export interface WriteCheckpointDocument {

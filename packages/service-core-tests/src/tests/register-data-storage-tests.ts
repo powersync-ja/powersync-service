@@ -1769,14 +1769,11 @@ bucket_definitions:
       .watchCheckpointChanges({ user_id: 'user1', signal: abortController.signal })
       [Symbol.asyncIterator]();
 
-    await bucketStorage.batchCreateCustomWriteCheckpoints([
-      {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.addCustomWriteCheckpoint({
         checkpoint: 5n,
         user_id: 'user1'
-      }
-    ]);
-
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      });
       await batch.keepalive('5/0');
     });
 
@@ -1829,16 +1826,11 @@ bucket_definitions:
       }
     });
 
-    await bucketStorage.batchCreateCustomWriteCheckpoints([
-      {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      batch.addCustomWriteCheckpoint({
         checkpoint: 6n,
         user_id: 'user1'
-      }
-    ]);
-    // We have to trigger a new keepalive after the checkpoint, at least to cover postgres storage.
-    // This is what is effetively triggered with RouteAPI.createReplicationHead().
-    // MongoDB storage doesn't explicitly need this anymore.
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      });
       await batch.keepalive('6/0');
     });
 
@@ -1855,13 +1847,11 @@ bucket_definitions:
       }
     });
 
-    await bucketStorage.batchCreateCustomWriteCheckpoints([
-      {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      batch.addCustomWriteCheckpoint({
         checkpoint: 7n,
         user_id: 'user1'
-      }
-    ]);
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      });
       await batch.keepalive('7/0');
     });
 

@@ -1,3 +1,5 @@
+import { InternalOpId } from '../util/utils.js';
+
 export enum WriteCheckpointMode {
   /**
    * Raw mappings of `user_id` to `write_checkpoint`s should
@@ -87,7 +89,6 @@ export interface BaseWriteCheckpointAPI {
  * sync rules id.
  */
 export interface SyncStorageWriteCheckpointAPI extends BaseWriteCheckpointAPI {
-  batchCreateCustomWriteCheckpoints(checkpoints: BatchedCustomWriteCheckpointOptions[]): Promise<void>;
   lastWriteCheckpoint(filters: SyncStorageLastWriteCheckpointFilters): Promise<bigint | null>;
 }
 
@@ -96,7 +97,6 @@ export interface SyncStorageWriteCheckpointAPI extends BaseWriteCheckpointAPI {
  * sync rules identifiers for custom write checkpoints.
  */
 export interface WriteCheckpointAPI extends BaseWriteCheckpointAPI {
-  batchCreateCustomWriteCheckpoints(checkpoints: CustomWriteCheckpointOptions[]): Promise<void>;
   lastWriteCheckpoint(filters: LastWriteCheckpointFilters): Promise<bigint | null>;
 }
 

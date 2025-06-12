@@ -122,8 +122,6 @@ export class MongoBucketBatch
         result = r;
       }
     }
-    await batchCreateCustomWriteCheckpoints(this.db, this.write_checkpoint_batch);
-    this.write_checkpoint_batch = [];
     return result;
   }
 
@@ -138,6 +136,11 @@ export class MongoBucketBatch
 
     await this.withReplicationTransaction(`Flushing ${batch.length} ops`, async (session, opSeq) => {
       resumeBatch = await this.replicateBatch(session, batch, opSeq, options);
+
+      if (this.write_checkpoint_batch.length > 0) {
+        await batchCreateCustomWriteCheckpoints(this.db, session, this.write_checkpoint_batch, opSeq.next());
+        this.write_checkpoint_batch = [];
+      }
 
       last_op = opSeq.last();
     });

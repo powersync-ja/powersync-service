@@ -1,6 +1,12 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import * as framework from '@powersync/lib-services-framework';
-import { Demultiplexer, DemultiplexerValue, storage, WriteCheckpointResult } from '@powersync/service-core';
+import {
+  Demultiplexer,
+  DemultiplexerValue,
+  InternalOpId,
+  storage,
+  WriteCheckpointResult
+} from '@powersync/service-core';
 import { PowerSyncMongo } from './db.js';
 import { CustomWriteCheckpointDocument, WriteCheckpointDocument } from './models.js';
 
@@ -29,13 +35,9 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     this._mode = mode;
   }
 
-  async batchCreateCustomWriteCheckpoints(checkpoints: storage.CustomWriteCheckpointOptions[]): Promise<void> {
-    return batchCreateCustomWriteCheckpoints(this.db, checkpoints);
-  }
-
   async createManagedWriteCheckpoint(checkpoint: storage.ManagedWriteCheckpointOptions): Promise<bigint> {
     if (this.writeCheckpointMode !== storage.WriteCheckpointMode.MANAGED) {
-      throw new framework.errors.ValidationError(
+      throw new framework.ServiceAssertionError(
         `Attempting to create a managed Write Checkpoint when the current Write Checkpoint mode is set to "${this.writeCheckpointMode}"`
       );
     }
@@ -63,12 +65,12 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     switch (this.writeCheckpointMode) {
       case storage.WriteCheckpointMode.CUSTOM:
         if (false == 'sync_rules_id' in filters) {
-          throw new framework.errors.ValidationError(`Sync rules ID is required for custom Write Checkpoint filtering`);
+          throw new framework.ServiceAssertionError(`Sync rules ID is required for custom Write Checkpoint filtering`);
         }
         return this.lastCustomWriteCheckpoint(filters);
       case storage.WriteCheckpointMode.MANAGED:
         if (false == 'heads' in filters) {
-          throw new framework.errors.ValidationError(
+          throw new framework.ServiceAssertionError(
             `Replication HEAD is required for managed Write Checkpoint filtering`
           );
         }
@@ -236,7 +238,9 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
 
 export async function batchCreateCustomWriteCheckpoints(
   db: PowerSyncMongo,
-  checkpoints: storage.CustomWriteCheckpointOptions[]
+  session: mongo.ClientSession,
+  checkpoints: storage.CustomWriteCheckpointOptions[],
+  opId: InternalOpId
 ): Promise<void> {
   if (checkpoints.length == 0) {
     return;
@@ -249,13 +253,14 @@ export async function batchCreateCustomWriteCheckpoints(
         update: {
           $set: {
             checkpoint: checkpointOptions.checkpoint,
-            sync_rules_id: checkpointOptions.sync_rules_id
+            sync_rules_id: checkpointOptions.sync_rules_id,
+            op_id: opId
           }
         },
         upsert: true
       }
     })),
-    {}
+    { session }
   );
 }
 
