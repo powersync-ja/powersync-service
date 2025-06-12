@@ -34,6 +34,7 @@ import {
   BucketDataDocument,
   BucketDataKey,
   BucketStateDocument,
+  CheckpointEventDocument,
   SourceKey,
   SourceTableDocument,
   SyncRuleCheckpointState,
@@ -821,7 +822,16 @@ export class MongoSyncBucketStorage
     if (signal.aborted) {
       return;
     }
-    const cursor = this.db.checkpoint_events.find({}, { tailable: true, awaitData: true, maxAwaitTimeMS: 10_000 });
+
+    const query = () => {
+      return this.db.checkpoint_events.find(
+        {},
+        { tailable: true, awaitData: true, maxAwaitTimeMS: 10_000, batchSize: 1000 }
+      );
+    };
+
+    let cursor = query();
+
     signal.addEventListener('abort', () => {
       cursor.close().catch(() => {});
     });
@@ -832,7 +842,16 @@ export class MongoSyncBucketStorage
 
     try {
       while (!signal.aborted) {
-        const doc = await cursor.tryNext();
+        const doc = await cursor.tryNext().catch((e) => {
+          if (lib_mongo.isMongoServerError(e) && e.codeName === 'CappedPositionLost') {
+            // Cursor position lost, potentially due to a high rate of notifications
+            cursor = query();
+            // Treat as an event found, before querying the new cursor again
+            return {};
+          } else {
+            return Promise.reject(e);
+          }
+        });
         if (cursor.closed) {
           return;
         }

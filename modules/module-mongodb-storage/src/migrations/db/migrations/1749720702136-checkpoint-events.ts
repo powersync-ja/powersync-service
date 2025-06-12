@@ -26,8 +26,12 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
 
     await db.db.createCollection('checkpoint_events', {
       capped: true,
-      size: 10 * 1024, // 10 KB
-      max: 10 // 10 documents
+      // We want a small size, since opening a tailable cursor scans this entire collection.
+      // On the other hand, if we fill this up faster than a process can read it, it will
+      // invalidate the cursor. We do handle cursor invalidation events, but don't want
+      // that to happen too often.
+      size: 50 * 1024, // size in bytes
+      max: 50 // max number of documents
     });
   } finally {
     await db.client.close();
