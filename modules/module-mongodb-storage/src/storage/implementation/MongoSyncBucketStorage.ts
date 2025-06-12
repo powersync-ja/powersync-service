@@ -818,6 +818,12 @@ export class MongoSyncBucketStorage
     }
   }
 
+  /**
+   * This watches the checkpoint_events capped collection for new documents inserted,
+   * and yields whenever one or more documents are inserted.
+   *
+   * The actual checkpoint must be queried on the sync_rules collection after this.
+   */
   private async *checkpointChangesStream(signal: AbortSignal): AsyncGenerator<void> {
     if (signal.aborted) {
       return;

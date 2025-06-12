@@ -97,6 +97,36 @@ export class PowerSyncMongo {
   async notifyCheckpoint() {
     await this.checkpoint_events.insertOne({} as any, { forceServerObjectId: true });
   }
+
+  /**
+   * Only use in migrations and tests.
+   */
+  async createCheckpointEventsCollection() {
+    // We cover the case where the replication process was started before running this migration.
+    const existingCollections = await this.db
+      .listCollections({ name: 'checkpoint_events' }, { nameOnly: false })
+      .toArray();
+    const collection = existingCollections[0];
+    if (collection != null) {
+      if (!collection.options?.capped) {
+        // Collection was auto-created but not capped, so we need to drop it
+        await this.db.dropCollection('checkpoint_events');
+      } else {
+        // Collection previously created somehow - ignore
+        return;
+      }
+    }
+
+    await this.db.createCollection('checkpoint_events', {
+      capped: true,
+      // We want a small size, since opening a tailable cursor scans this entire collection.
+      // On the other hand, if we fill this up faster than a process can read it, it will
+      // invalidate the cursor. We do handle cursor invalidation events, but don't want
+      // that to happen too often.
+      size: 50 * 1024, // size in bytes
+      max: 50 // max number of documents
+    });
+  }
 }
 
 export function createPowerSyncMongo(config: MongoStorageConfig, options?: lib_mongo.MongoConnectionOptions) {
