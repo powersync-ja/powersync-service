@@ -7,6 +7,7 @@ import {
   BucketDataDocument,
   BucketParameterDocument,
   BucketStateDocument,
+  CheckpointEventDocument,
   CurrentDataDocument,
   CustomWriteCheckpointDocument,
   IdSequenceDocument,
@@ -35,6 +36,7 @@ export class PowerSyncMongo {
   readonly instance: mongo.Collection<InstanceDocument>;
   readonly locks: mongo.Collection<lib_mongo.locks.Lock>;
   readonly bucket_state: mongo.Collection<BucketStateDocument>;
+  readonly checkpoint_events: mongo.Collection<CheckpointEventDocument>;
 
   readonly client: mongo.MongoClient;
   readonly db: mongo.Db;
@@ -58,6 +60,7 @@ export class PowerSyncMongo {
     this.instance = db.collection('instance');
     this.locks = this.db.collection('locks');
     this.bucket_state = this.db.collection('bucket_state');
+    this.checkpoint_events = this.db.collection('checkpoint_events');
   }
 
   /**
@@ -84,6 +87,15 @@ export class PowerSyncMongo {
    */
   async drop() {
     await this.db.dropDatabase();
+  }
+
+  /**
+   * Call this after every checkpoint or sync rules status update. Rather call too often than too rarely.
+   *
+   * This is used in a similar way to the Postgres NOTIFY functionality.
+   */
+  async notifyCheckpoint() {
+    await this.checkpoint_events.insertOne({} as any, { forceServerObjectId: true });
   }
 }
 

@@ -159,6 +159,10 @@ export interface SyncRuleDocument {
   content: string;
 }
 
+export interface CheckpointEventDocument {
+  _id: bson.ObjectId;
+}
+
 export type SyncRuleCheckpointState = Pick<
   SyncRuleDocument,
   'last_checkpoint' | 'last_checkpoint_lsn' | '_id' | 'state'

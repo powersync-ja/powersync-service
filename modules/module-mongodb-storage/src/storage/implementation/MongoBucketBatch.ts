@@ -602,6 +602,8 @@ export class MongoBucketBatch
         { session }
       );
     });
+    // Must be _after_ the transaction.
+    await this.db.notifyCheckpoint();
   }
 
   async [Symbol.asyncDispose]() {
@@ -648,6 +650,7 @@ export class MongoBucketBatch
         },
         { session: this.session }
       );
+      await this.db.notifyCheckpoint();
 
       // Cannot create a checkpoint yet - return false
       return false;
@@ -681,6 +684,7 @@ export class MongoBucketBatch
       },
       { session: this.session }
     );
+    await this.db.notifyCheckpoint();
     this.persisted_op = null;
     this.last_checkpoint_lsn = lsn;
     return true;
@@ -717,6 +721,7 @@ export class MongoBucketBatch
       },
       { session: this.session }
     );
+    await this.db.notifyCheckpoint();
     this.last_checkpoint_lsn = lsn;
 
     return true;

@@ -510,6 +510,7 @@ export class MongoSyncBucketStorage
         }
       }
     );
+    await this.db.notifyCheckpoint();
   }
 
   async getStatus(): Promise<storage.SyncRuleStatus> {
@@ -640,6 +641,7 @@ export class MongoSyncBucketStorage
             },
             { session }
           );
+          await this.db.notifyCheckpoint();
         }
       });
     });
@@ -657,6 +659,7 @@ export class MongoSyncBucketStorage
         }
       }
     );
+    await this.db.notifyCheckpoint();
   }
 
   async compact(options?: storage.CompactOptions) {
