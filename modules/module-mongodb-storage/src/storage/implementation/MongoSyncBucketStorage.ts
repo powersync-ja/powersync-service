@@ -737,61 +737,32 @@ export class MongoSyncBucketStorage
    * User-specific watch on the latest checkpoint and/or write checkpoint.
    */
   async *watchCheckpointChanges(options: WatchWriteCheckpointOptions): AsyncIterable<storage.StorageCheckpointUpdate> {
-    const { signal } = options;
-    let lastCheckpoint: utils.InternalOpId | null = null;
-    let lastWriteCheckpoint: bigint | null = null;
-    let lastWriteCheckpointDoc: WriteCheckpointResult | null = null;
-    let nextWriteCheckpoint: bigint | null = null;
-    let lastCheckpointEvent: ReplicationCheckpoint | null = null;
-    let receivedWriteCheckpoint = false;
+    let lastCheckpoint: ReplicationCheckpoint | null = null;
 
-    const writeCheckpointIter = this.writeCheckpointAPI.watchUserWriteCheckpoint({
-      user_id: options.user_id,
-      signal,
-      sync_rules_id: this.group_id
-    });
-    const iter = mergeAsyncIterables<ReplicationCheckpoint | storage.WriteCheckpointResult>(
-      [this.sharedIter, writeCheckpointIter],
-      signal
-    );
+    const iter = this.sharedIter[Symbol.asyncIterator](options.signal);
+    let writeCheckpoint: bigint | null = null;
 
-    for await (const event of iter) {
-      if ('checkpoint' in event) {
-        lastCheckpointEvent = event;
-      } else {
-        lastWriteCheckpointDoc = event;
-        receivedWriteCheckpoint = true;
-      }
-
-      if (lastCheckpointEvent == null || !receivedWriteCheckpoint) {
-        // We need to wait until we received at least on checkpoint, and one write checkpoint.
-        continue;
-      }
-
+    for await (const nextCheckpoint of iter) {
       // lsn changes are not important by itself.
       // What is important is:
       // 1. checkpoint (op_id) changes.
       // 2. write checkpoint changes for the specific user
 
-      const lsn = lastCheckpointEvent?.lsn;
-
-      if (
-        lastWriteCheckpointDoc != null &&
-        (lastWriteCheckpointDoc.lsn == null || (lsn != null && lsn >= lastWriteCheckpointDoc.lsn))
-      ) {
-        const writeCheckpoint = lastWriteCheckpointDoc.id;
-        if (nextWriteCheckpoint == null || (writeCheckpoint != null && writeCheckpoint > nextWriteCheckpoint)) {
-          nextWriteCheckpoint = writeCheckpoint;
-        }
-        // We used the doc - clear it
-        lastWriteCheckpointDoc = null;
+      if (nextCheckpoint.lsn != null) {
+        writeCheckpoint ??= await this.writeCheckpointAPI.lastWriteCheckpoint({
+          sync_rules_id: this.group_id,
+          user_id: options.user_id,
+          heads: {
+            '1': nextCheckpoint.lsn
+          }
+        });
       }
 
-      const { checkpoint } = lastCheckpointEvent;
-
-      const currentWriteCheckpoint = nextWriteCheckpoint;
-
-      if (currentWriteCheckpoint == lastWriteCheckpoint && checkpoint == lastCheckpoint) {
+      if (
+        lastCheckpoint != null &&
+        lastCheckpoint.checkpoint == nextCheckpoint.checkpoint &&
+        lastCheckpoint.lsn == nextCheckpoint.lsn
+      ) {
         // No change - wait for next one
         // In some cases, many LSNs may be produced in a short time.
         // Add a delay to throttle the write checkpoint lookup a bit.
@@ -799,22 +770,45 @@ export class MongoSyncBucketStorage
         continue;
       }
 
-      const updates: CheckpointChanges =
-        lastCheckpoint == null
-          ? CHECKPOINT_INVALIDATE_ALL
-          : await this.getCheckpointChanges({
-              lastCheckpoint: lastCheckpoint,
-              nextCheckpoint: checkpoint
-            });
+      if (lastCheckpoint == null) {
+        yield {
+          base: nextCheckpoint,
+          writeCheckpoint,
+          update: CHECKPOINT_INVALIDATE_ALL
+        };
+      } else {
+        const updates = await this.getCheckpointChanges({
+          lastCheckpoint,
+          nextCheckpoint
+        });
 
-      lastWriteCheckpoint = currentWriteCheckpoint;
-      lastCheckpoint = checkpoint;
+        let updatedWriteCheckpoint = updates.updatedWriteCheckpoints.get(options.user_id) ?? null;
+        if (updates.invalidateWriteCheckpoints) {
+          updatedWriteCheckpoint ??= await this.writeCheckpointAPI.lastWriteCheckpoint({
+            sync_rules_id: this.group_id,
+            user_id: options.user_id,
+            heads: {
+              '1': nextCheckpoint.lsn!
+            }
+          });
+        }
+        if (updatedWriteCheckpoint != null && (writeCheckpoint == null || updatedWriteCheckpoint > writeCheckpoint)) {
+          writeCheckpoint = updatedWriteCheckpoint;
+        }
 
-      yield {
-        base: lastCheckpointEvent,
-        writeCheckpoint: currentWriteCheckpoint,
-        update: updates
-      };
+        yield {
+          base: nextCheckpoint,
+          writeCheckpoint,
+          update: {
+            updatedDataBuckets: updates.updatedDataBuckets,
+            invalidateDataBuckets: updates.invalidateDataBuckets,
+            updatedParameterLookups: updates.updatedParameterLookups,
+            invalidateParameterBuckets: updates.invalidateParameterBuckets
+          }
+        };
+      }
+
+      lastCheckpoint = nextCheckpoint;
     }
   }
 
@@ -887,7 +881,7 @@ export class MongoSyncBucketStorage
         {
           // We have an index on (_id.g, last_op).
           '_id.g': this.group_id,
-          last_op: { $gt: BigInt(options.lastCheckpoint) }
+          last_op: { $gt: options.lastCheckpoint.checkpoint }
         },
         {
           projection: {
@@ -916,7 +910,7 @@ export class MongoSyncBucketStorage
     const parameterUpdates = await this.db.bucket_parameters
       .find(
         {
-          _id: { $gt: BigInt(options.lastCheckpoint), $lte: BigInt(options.nextCheckpoint) },
+          _id: { $gt: options.lastCheckpoint.checkpoint, $lte: options.nextCheckpoint.checkpoint },
           'key.g': this.group_id
         },
         {
@@ -939,12 +933,45 @@ export class MongoSyncBucketStorage
     };
   }
 
+  private async getWriteCheckpointChanges(options: GetCheckpointChangesOptions) {
+    const limit = 1000;
+    const changes = await this.db.write_checkpoints
+      .find(
+        {
+          processed_at_lsn: { $gt: options.lastCheckpoint.lsn, $lte: options.nextCheckpoint.lsn }
+        },
+        {
+          limit: limit + 1,
+          batchSize: limit + 1,
+          singleBatch: true
+        }
+      )
+      .toArray();
+    const invalidate = changes.length > limit;
+
+    const updatedWriteCheckpoints = new Map<string, bigint>();
+    if (!invalidate) {
+      for (let c of changes) {
+        updatedWriteCheckpoints.set(c.user_id, c.client_id);
+      }
+    }
+
+    return {
+      invalidateWriteCheckpoints: invalidate,
+      updatedWriteCheckpoints
+    };
+  }
+
   // If we processed all connections together for each checkpoint, we could do a single lookup for all connections.
   // In practice, specific connections may fall behind. So instead, we just cache the results of each specific lookup.
   // TODO (later):
   // We can optimize this by implementing it like ChecksumCache: We can use partial cache results to do
   // more efficient lookups in some cases.
-  private checkpointChangesCache = new LRUCache<string, CheckpointChanges, { options: GetCheckpointChangesOptions }>({
+  private checkpointChangesCache = new LRUCache<
+    string,
+    InternalCheckpointChanges,
+    { options: GetCheckpointChangesOptions }
+  >({
     // Limit to 50 cache entries, or 10MB, whichever comes first.
     // Some rough calculations:
     // If we process 10 checkpoints per second, and a connection may be 2 seconds behind, we could have
@@ -952,31 +979,39 @@ export class MongoSyncBucketStorage
     // That is a worst-case scenario, so we don't actually store that many. In real life, the cache keys
     // would likely be clustered around a few values, rather than spread over all 400 potential values.
     max: 50,
-    maxSize: 10 * 1024 * 1024,
-    sizeCalculation: (value: CheckpointChanges) => {
+    maxSize: 12 * 1024 * 1024,
+    sizeCalculation: (value: InternalCheckpointChanges) => {
       // Estimate of memory usage
       const paramSize = [...value.updatedParameterLookups].reduce<number>((a, b) => a + b.length, 0);
       const bucketSize = [...value.updatedDataBuckets].reduce<number>((a, b) => a + b.length, 0);
-      return 100 + paramSize + bucketSize;
+      const writeCheckpointSize = value.updatedWriteCheckpoints.size * 30; // estiamte for user_id + bigint
+      return 100 + paramSize + bucketSize + writeCheckpointSize;
     },
     fetchMethod: async (_key, _staleValue, options) => {
       return this.getCheckpointChangesInternal(options.context.options);
     }
   });
 
-  async getCheckpointChanges(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
-    const key = `${options.lastCheckpoint}_${options.nextCheckpoint}`;
+  async getCheckpointChanges(options: GetCheckpointChangesOptions): Promise<InternalCheckpointChanges> {
+    const key = `${options.lastCheckpoint.checkpoint}_${options.lastCheckpoint.lsn}__${options.nextCheckpoint.checkpoint}_${options.nextCheckpoint.lsn}`;
     const result = await this.checkpointChangesCache.fetch(key, { context: { options } });
     return result!;
   }
 
-  private async getCheckpointChangesInternal(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
+  private async getCheckpointChangesInternal(options: GetCheckpointChangesOptions): Promise<InternalCheckpointChanges> {
     const dataUpdates = await this.getDataBucketChanges(options);
     const parameterUpdates = await this.getParameterBucketChanges(options);
+    const writeCheckpointUpdates = await this.getWriteCheckpointChanges(options);
 
     return {
       ...dataUpdates,
-      ...parameterUpdates
+      ...parameterUpdates,
+      ...writeCheckpointUpdates
     };
   }
+}
+
+interface InternalCheckpointChanges extends CheckpointChanges {
+  updatedWriteCheckpoints: Map<string, bigint>;
+  invalidateWriteCheckpoints: boolean;
 }

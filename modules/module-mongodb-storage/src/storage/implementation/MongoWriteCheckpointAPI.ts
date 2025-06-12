@@ -53,7 +53,8 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
       },
       {
         $set: {
-          lsns
+          lsns,
+          processed_at_lsn: null
         },
         $inc: {
           client_id: 1n

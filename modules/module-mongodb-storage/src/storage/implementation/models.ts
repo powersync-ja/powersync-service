@@ -1,4 +1,4 @@
-import { storage } from '@powersync/service-core';
+import { InternalOpId, storage } from '@powersync/service-core';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
@@ -180,6 +180,12 @@ export interface WriteCheckpointDocument {
   user_id: string;
   lsns: Record<string, string>;
   client_id: bigint;
+  /**
+   * This is set to the checkpoint lsn when the checkpoint lsn >= this lsn.
+   * This is used to make it easier to determine what write checkpoints have been processed
+   * between two checkpoints.
+   */
+  processed_at_lsn: string | null;
 }
 
 export interface InstanceDocument {

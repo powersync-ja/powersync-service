@@ -674,6 +674,23 @@ export class MongoBucketBatch
       update.last_checkpoint = this.persisted_op;
     }
 
+    // Mark relevant write checkpoints as "processed".
+    // This makes it easier to identify write checkpoints that are "valid" in order.
+    await this.db.write_checkpoints.updateMany(
+      {
+        processed_at_lsn: null,
+        'lsns.1': { $lte: lsn }
+      },
+      {
+        $set: {
+          processed_at_lsn: lsn
+        }
+      },
+      {
+        session: this.session
+      }
+    );
+
     await this.db.sync_rules.updateOne(
       {
         _id: this.group_id
