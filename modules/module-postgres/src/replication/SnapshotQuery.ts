@@ -159,8 +159,11 @@ export class ChunkedSnapshotQuery implements SnapshotQuery {
 
 /**
  * This performs a snapshot query using a list of primary keys.
+ *
+ * This is not used for general snapshots, but is used when we need to re-fetch specific rows
+ * during streaming replication.
  */
-export class IdSnapshotQuery {
+export class IdSnapshotQuery implements SnapshotQuery {
   private didChunk = false;
 
   static supports(table: SourceTable) {

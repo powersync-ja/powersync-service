@@ -500,17 +500,30 @@ WHERE  oid = $1::regclass`,
     table: storage.SourceTable,
     limited?: PrimaryKeyValue[]
   ): Promise<storage.SourceTable> {
+    // Note: We use the default "Read Committed" isolation level here, not snapshot isolation.
+    // The data may change during the transaction, but that is compensated for in the streaming
+    // replication afterwards.
     await db.query('BEGIN');
     try {
       let tableLsnNotBefore: string;
       await this.snapshotTable(batch, db, table, limited);
 
       // Get the current LSN.
-      // The data will only be consistent once incremental replication
-      // has passed that point.
-      // We have to get this LSN _after_ we have started the snapshot query.
+      // The data will only be consistent once incremental replication has passed that point.
+      // We have to get this LSN _after_ we have finished the table snapshot.
+      //
+      // There are basically two relevant LSNs here:
+      // A: The LSN before the snapshot starts. We don't explicitly record this on the PowerSync side,
+      //    but it is implicitly recorded in the replication slot.
+      // B: The LSN after the table snapshot is complete, which is what we get here.
+      // When we do the snapshot queries, the data that we get back for each chunk could match the state
+      // anywhere between A and B. To actually have a consistent state on our side, we need to:
+      // 1. Complete the snapshot.
+      // 2. Wait until logical replication has caught up with all the change between A and B.
+      // Calling `markSnapshotDone(LSN B)` covers that.
       const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
       tableLsnNotBefore = rs.rows[0][0];
+      // Side note: A ROLLBACK would probably also be fine here, since we only read in this transaction.
       await db.query('COMMIT');
       const [resultTable] = await batch.markSnapshotDone([table], tableLsnNotBefore);
       this.relationCache.update(resultTable);
@@ -615,6 +628,10 @@ WHERE  oid = $1::regclass`,
           lastKey = q.getLastKeySerialized();
         }
         if (lastCountTime < performance.now() - 10 * 60 * 1000) {
+          // Even though we're doing the snapshot inside a transaction, the transaction uses
+          // the default "Read Committed" isolation level. This means we can get new data
+          // within the transaction, so we re-estimate the count every 10 minutes when replicating
+          // large tables.
           totalEstimatedCount = await this.estimatedCountNumber(db, table);
           lastCountTime = performance.now();
         }
