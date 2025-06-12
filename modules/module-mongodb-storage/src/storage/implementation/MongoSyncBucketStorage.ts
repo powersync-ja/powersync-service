@@ -677,21 +677,27 @@ export class MongoSyncBucketStorage
    * Instance-wide watch on the latest available checkpoint (op_id + lsn).
    */
   private async *watchActiveCheckpoint(signal: AbortSignal): AsyncIterable<ReplicationCheckpoint> {
-    // Use this form instead of (doc: SyncRuleCheckpointState | null = null),
-    // otherwise we get weird "doc: never" issues.
-    let doc = null as SyncRuleCheckpointState | null;
-    let clusterTime = null as mongo.Timestamp | null;
-    const syncRulesId = this.group_id;
+    const stream = this.checkpointChangesStream(signal);
 
-    await this.db.client.withSession(async (session) => {
-      doc = await this.db.sync_rules.findOne(
+    if (signal.aborted) {
+      return;
+    }
+
+    // We only watch changes to the active sync rules.
+    // If it changes to inactive, we abort and restart with the new sync rules.
+    let lastOp: storage.ReplicationCheckpoint | null = null;
+
+    for await (const _ of stream) {
+      if (signal.aborted) {
+        break;
+      }
+
+      const doc = await this.db.sync_rules.findOne(
         {
-          _id: syncRulesId,
+          _id: this.group_id,
           state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
         },
         {
-          session,
-          sort: { _id: -1 },
           limit: 1,
           projection: {
             _id: 1,
@@ -701,69 +707,16 @@ export class MongoSyncBucketStorage
           }
         }
       );
-      const time = session.clusterTime?.clusterTime ?? null;
-      clusterTime = time;
-    });
-    if (clusterTime == null) {
-      throw new ServiceError(ErrorCode.PSYNC_S2401, 'Could not get clusterTime');
-    }
 
-    if (signal.aborted) {
-      return;
-    }
-
-    if (doc == null) {
-      // Sync rules not present or not active.
-      // Abort the connections - clients will have to retry later.
-      throw new ServiceError(ErrorCode.PSYNC_S2302, 'No active sync rules available');
-    }
-
-    yield this.makeActiveCheckpoint(doc);
-
-    // We only watch changes to the active sync rules.
-    // If it changes to inactive, we abort and restart with the new sync rules.
-
-    const pipeline = this.getChangeStreamPipeline();
-
-    const stream = this.db.sync_rules.watch(pipeline, {
-      // Start at the cluster time where we got the initial doc, to make sure
-      // we don't skip any updates.
-      // This may result in the first operation being a duplicate, but we filter
-      // it out anyway.
-      startAtOperationTime: clusterTime
-    });
-
-    signal.addEventListener(
-      'abort',
-      () => {
-        stream.close();
-      },
-      { once: true }
-    );
-
-    let lastOp: storage.ReplicationCheckpoint | null = null;
-    let lastDoc: SyncRuleCheckpointState | null = doc;
-
-    for await (const update of stream.stream()) {
-      if (signal.aborted) {
-        break;
-      }
-      if (update.operationType != 'insert' && update.operationType != 'update' && update.operationType != 'replace') {
-        continue;
-      }
-
-      const doc = await this.getOperationDoc(lastDoc, update as lib_mongo.mongo.ChangeStreamDocument<SyncRuleDocument>);
       if (doc == null) {
-        // Irrelevant update
-        continue;
-      }
-      if (doc.state != storage.SyncRuleState.ACTIVE && doc.state != storage.SyncRuleState.ERRORED) {
+        // Sync rules not present or not active.
+        // Abort the connections - clients will have to retry later.
+        throw new ServiceError(ErrorCode.PSYNC_S2302, 'No active sync rules available');
+      } else if (doc.state != storage.SyncRuleState.ACTIVE && doc.state != storage.SyncRuleState.ERRORED) {
         // Sync rules have changed - abort and restart.
         // We do a soft close of the stream here - no error
         break;
       }
-
-      lastDoc = doc;
 
       const op = this.makeActiveCheckpoint(doc);
       // Check for LSN / checkpoint changes - ignore other metadata changes
@@ -864,56 +817,40 @@ export class MongoSyncBucketStorage
     }
   }
 
-  private async getOperationDoc(
-    lastDoc: SyncRuleCheckpointState,
-    update: lib_mongo.mongo.ChangeStreamDocument<SyncRuleDocument>
-  ): Promise<SyncRuleCheckpointState | null> {
-    if (update.operationType == 'insert' || update.operationType == 'replace') {
-      return update.fullDocument;
-    } else if (update.operationType == 'update') {
-      const updatedFields = update.updateDescription.updatedFields ?? {};
-      if (lastDoc._id != update.documentKey._id) {
-        throw new ServiceAssertionError(`Sync rules id mismatch: ${lastDoc._id} != ${update.documentKey._id}`);
-      }
-
-      const mergedDoc: SyncRuleCheckpointState = {
-        _id: lastDoc._id,
-        last_checkpoint: updatedFields.last_checkpoint ?? lastDoc.last_checkpoint,
-        last_checkpoint_lsn: updatedFields.last_checkpoint_lsn ?? lastDoc.last_checkpoint_lsn,
-        state: updatedFields.state ?? lastDoc.state
-      };
-
-      return mergedDoc;
-    } else {
-      // Unknown event type
-      return null;
+  private async *checkpointChangesStream(signal: AbortSignal): AsyncGenerator<void> {
+    if (signal.aborted) {
+      return;
     }
-  }
+    const cursor = this.db.checkpoint_events.find({}, { tailable: true, awaitData: true, maxAwaitTimeMS: 10_000 });
+    signal.addEventListener('abort', () => {
+      cursor.close().catch(() => {});
+    });
 
-  private getChangeStreamPipeline() {
-    const syncRulesId = this.group_id;
-    const pipeline: mongo.Document[] = [
-      {
-        $match: {
-          'documentKey._id': syncRulesId,
-          operationType: { $in: ['insert', 'update', 'replace'] }
+    // Yield once on start, regardless of whether there are documents in the cursor.
+    // This is to ensure that the first iteration of the generator yields immediately.
+    yield;
+
+    try {
+      while (!signal.aborted) {
+        const doc = await cursor.tryNext();
+        if (cursor.closed) {
+          return;
         }
-      },
-      {
-        $project: {
-          operationType: 1,
-          'documentKey._id': 1,
-          'updateDescription.updatedFields.state': 1,
-          'updateDescription.updatedFields.last_checkpoint': 1,
-          'updateDescription.updatedFields.last_checkpoint_lsn': 1,
-          'fullDocument._id': 1,
-          'fullDocument.state': 1,
-          'fullDocument.last_checkpoint': 1,
-          'fullDocument.last_checkpoint_lsn': 1
+        // Skip buffered documents, if any. We don't care about the contents,
+        // we only want to know when new documents are inserted.
+        cursor.readBufferedDocuments();
+        if (doc != null) {
+          yield;
         }
       }
-    ];
-    return pipeline;
+    } catch (e) {
+      if (signal.aborted) {
+        return;
+      }
+      throw e;
+    } finally {
+      await cursor.close();
+    }
   }
 
   private async getDataBucketChanges(

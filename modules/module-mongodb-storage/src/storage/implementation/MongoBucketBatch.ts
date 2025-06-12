@@ -601,9 +601,8 @@ export class MongoBucketBatch
         },
         { session }
       );
+      // We don't notify checkpoint here - we don't make any checkpoint updates directly
     });
-    // Must be _after_ the transaction.
-    await this.db.notifyCheckpoint();
   }
 
   async [Symbol.asyncDispose]() {
