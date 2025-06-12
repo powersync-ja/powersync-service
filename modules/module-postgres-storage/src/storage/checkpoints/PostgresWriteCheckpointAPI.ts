@@ -58,13 +58,6 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     return row!.write_checkpoint;
   }
 
-  watchUserWriteCheckpoint(
-    options: storage.WatchUserWriteCheckpointOptions
-  ): AsyncIterable<storage.WriteCheckpointResult> {
-    // Not used for Postgres currently
-    throw new Error('Method not implemented.');
-  }
-
   async lastWriteCheckpoint(filters: storage.LastWriteCheckpointFilters): Promise<bigint | null> {
     switch (this.writeCheckpointMode) {
       case storage.WriteCheckpointMode.CUSTOM:

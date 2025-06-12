@@ -1,12 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import * as framework from '@powersync/lib-services-framework';
-import {
-  Demultiplexer,
-  DemultiplexerValue,
-  storage,
-  WatchUserWriteCheckpointOptions,
-  WriteCheckpointResult
-} from '@powersync/service-core';
+import { Demultiplexer, DemultiplexerValue, storage, WriteCheckpointResult } from '@powersync/service-core';
 import { PowerSyncMongo } from './db.js';
 import { CustomWriteCheckpointDocument, WriteCheckpointDocument } from './models.js';
 
@@ -80,122 +74,6 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
         }
         return this.lastManagedWriteCheckpoint(filters);
     }
-  }
-
-  watchUserWriteCheckpoint(options: WatchUserWriteCheckpointOptions): AsyncIterable<storage.WriteCheckpointResult> {
-    switch (this.writeCheckpointMode) {
-      case storage.WriteCheckpointMode.CUSTOM:
-        return this.watchCustomWriteCheckpoint(options);
-      case storage.WriteCheckpointMode.MANAGED:
-        return this.watchManagedWriteCheckpoint(options);
-      default:
-        throw new Error('Invalid write checkpoint mode');
-    }
-  }
-
-  private sharedManagedIter = new Demultiplexer<WriteCheckpointResult>((signal) => {
-    const clusterTimePromise = this.getClusterTime();
-
-    return {
-      iterator: this.watchAllManagedWriteCheckpoints(clusterTimePromise, signal),
-      getFirstValue: async (user_id: string) => {
-        // Potential race conditions we cater for:
-
-        // Case 1: changestream is behind.
-        // We get a doc now, then the same or older doc again later.
-        // No problem!
-
-        // Case 2: Query is behind. I.e. doc has been created, and emitted on the changestream, but the query doesn't see it yet.
-        // Not possible luckily, but can we make sure?
-
-        // Case 3: changestream delays openeing. A doc is created after our query here, but before the changestream is opened.
-        // Awaiting clusterTimePromise should be sufficient here, but as a sanity check we also confirm that our query
-        // timestamp is > the startClusterTime.
-
-        const changeStreamStart = await clusterTimePromise;
-
-        let doc = null as WriteCheckpointDocument | null;
-        let clusterTime = null as mongo.Timestamp | null;
-
-        await this.db.client.withSession(async (session) => {
-          doc = await this.db.write_checkpoints.findOne(
-            {
-              user_id: user_id
-            },
-            {
-              session
-            }
-          );
-          const time = session.clusterTime?.clusterTime ?? null;
-          clusterTime = time;
-        });
-        if (clusterTime == null) {
-          throw new framework.ServiceAssertionError('Could not get clusterTime for write checkpoint');
-        }
-
-        if (clusterTime.lessThan(changeStreamStart)) {
-          throw new framework.ServiceAssertionError(
-            'clusterTime for write checkpoint is older than changestream start'
-          );
-        }
-
-        if (doc == null) {
-          return {
-            id: null,
-            lsn: null
-          };
-        }
-
-        return {
-          id: doc.client_id,
-          lsn: doc.lsns['1']
-        };
-      }
-    };
-  });
-
-  private async *watchAllManagedWriteCheckpoints(
-    clusterTimePromise: Promise<mongo.BSON.Timestamp>,
-    signal: AbortSignal
-  ): AsyncGenerator<DemultiplexerValue<WriteCheckpointResult>> {
-    const clusterTime = await clusterTimePromise;
-
-    const stream = this.db.write_checkpoints.watch(
-      [{ $match: { operationType: { $in: ['insert', 'update', 'replace'] } } }],
-      {
-        fullDocument: 'updateLookup',
-        startAtOperationTime: clusterTime
-      }
-    );
-
-    signal.onabort = () => {
-      stream.close();
-    };
-
-    if (signal.aborted) {
-      stream.close();
-      return;
-    }
-
-    for await (let event of stream) {
-      if (!('fullDocument' in event) || event.fullDocument == null) {
-        continue;
-      }
-
-      const user_id = event.fullDocument.user_id;
-      yield {
-        key: user_id,
-        value: {
-          id: event.fullDocument.client_id,
-          lsn: event.fullDocument.lsns['1']
-        }
-      };
-    }
-  }
-
-  watchManagedWriteCheckpoint(options: WatchUserWriteCheckpointOptions): AsyncIterable<storage.WriteCheckpointResult> {
-    const stream = this.sharedManagedIter.subscribe(options.user_id, options.signal);
-    return this.orderedStream(stream);
   }
 
   private sharedCustomIter = new Demultiplexer<WriteCheckpointResult>((signal) => {
@@ -379,4 +257,10 @@ export async function batchCreateCustomWriteCheckpoints(
     })),
     {}
   );
+}
+
+interface WatchUserWriteCheckpointOptions {
+  user_id: string;
+  sync_rules_id: number;
+  signal: AbortSignal;
 }

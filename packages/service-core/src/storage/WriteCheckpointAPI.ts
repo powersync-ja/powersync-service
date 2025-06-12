@@ -75,12 +75,6 @@ export type ManagedWriteCheckpointOptions = ManagedWriteCheckpointFilters;
 export type SyncStorageLastWriteCheckpointFilters = BaseWriteCheckpointIdentifier | ManagedWriteCheckpointFilters;
 export type LastWriteCheckpointFilters = CustomWriteCheckpointFilters | ManagedWriteCheckpointFilters;
 
-export interface WatchUserWriteCheckpointOptions {
-  user_id: string;
-  sync_rules_id: number;
-  signal: AbortSignal;
-}
-
 export interface BaseWriteCheckpointAPI {
   readonly writeCheckpointMode: WriteCheckpointMode;
   setWriteCheckpointMode(mode: WriteCheckpointMode): void;
@@ -104,8 +98,6 @@ export interface SyncStorageWriteCheckpointAPI extends BaseWriteCheckpointAPI {
 export interface WriteCheckpointAPI extends BaseWriteCheckpointAPI {
   batchCreateCustomWriteCheckpoints(checkpoints: CustomWriteCheckpointOptions[]): Promise<void>;
   lastWriteCheckpoint(filters: LastWriteCheckpointFilters): Promise<bigint | null>;
-
-  watchUserWriteCheckpoint(options: WatchUserWriteCheckpointOptions): AsyncIterable<WriteCheckpointResult>;
 }
 
 export const DEFAULT_WRITE_CHECKPOINT_MODE = WriteCheckpointMode.MANAGED;
