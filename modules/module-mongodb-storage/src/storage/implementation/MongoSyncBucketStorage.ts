@@ -15,13 +15,11 @@ import {
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
-  mergeAsyncIterables,
   ProtocolOpId,
   ReplicationCheckpoint,
   storage,
   utils,
-  WatchWriteCheckpointOptions,
-  WriteCheckpointResult
+  WatchWriteCheckpointOptions
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { ParameterLookup, SqliteJsonRow, SqlSyncRules } from '@powersync/service-sync-rules';
@@ -34,11 +32,9 @@ import {
   BucketDataDocument,
   BucketDataKey,
   BucketStateDocument,
-  CheckpointEventDocument,
   SourceKey,
   SourceTableDocument,
-  SyncRuleCheckpointState,
-  SyncRuleDocument
+  SyncRuleCheckpointState
 } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';

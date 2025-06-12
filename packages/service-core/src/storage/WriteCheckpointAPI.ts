@@ -1,5 +1,3 @@
-import { InternalOpId } from '../util/utils.js';
-
 export enum WriteCheckpointMode {
   /**
    * Raw mappings of `user_id` to `write_checkpoint`s should
@@ -50,26 +48,6 @@ export interface ManagedWriteCheckpointFilters extends BaseWriteCheckpointIdenti
    * Replication HEAD(s) at the creation of the checkpoint.
    */
   heads: Record<string, string>;
-}
-
-export interface WriteCheckpointResult {
-  /**
-   * Write checkpoint id (also referred to as client_id).
-   *
-   * If null, there is no write checkpoint for the client.
-   */
-  id: bigint | null;
-
-  /**
-   * LSN for the checkpoint.
-   *
-   * This will change when we support multiple connections.
-   *
-   * For managed write checkpoints, this LSN must be exceeded by the checkpoint / replication head to be valid.
-   *
-   * For custom write checkpoints, this will be null, and the write checkpoint is valid for all LSNs.
-   */
-  lsn: string | null;
 }
 
 export type ManagedWriteCheckpointOptions = ManagedWriteCheckpointFilters;

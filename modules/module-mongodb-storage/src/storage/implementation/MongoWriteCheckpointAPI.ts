@@ -147,7 +147,6 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
         }
       )
       .toArray();
-    console.log('getCustomWriteCheckpointChanges', options, changes);
     const invalidate = changes.length > limit;
 
     const updatedWriteCheckpoints = new Map<string, bigint>();
@@ -161,30 +160,6 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
       invalidateWriteCheckpoints: invalidate,
       updatedWriteCheckpoints
     };
-  }
-
-  private async getClusterTime(): Promise<mongo.Timestamp> {
-    const hello = await this.db.db.command({ hello: 1 });
-    // Note: This is not valid on sharded clusters.
-    const startClusterTime = hello.lastWrite?.majorityOpTime?.ts as mongo.Timestamp;
-    return startClusterTime;
-  }
-
-  /**
-   * Makes a write checkpoint stream an orderered one - any out-of-order events are discarded.
-   */
-  private async *orderedStream(stream: AsyncIterable<storage.WriteCheckpointResult>) {
-    let lastId = -1n;
-
-    for await (let event of stream) {
-      // Guard against out-of-order events
-      if (lastId == -1n || (event.id != null && event.id > lastId)) {
-        yield event;
-        if (event.id != null) {
-          lastId = event.id;
-        }
-      }
-    }
   }
 }
 
@@ -214,10 +189,4 @@ export async function batchCreateCustomWriteCheckpoints(
     })),
     { session }
   );
-}
-
-interface WatchUserWriteCheckpointOptions {
-  user_id: string;
-  sync_rules_id: number;
-  signal: AbortSignal;
 }
