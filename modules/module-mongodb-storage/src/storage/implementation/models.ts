@@ -1,4 +1,4 @@
-import { storage } from '@powersync/service-core';
+import { InternalOpId, storage } from '@powersync/service-core';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
@@ -159,6 +159,10 @@ export interface SyncRuleDocument {
   content: string;
 }
 
+export interface CheckpointEventDocument {
+  _id: bson.ObjectId;
+}
+
 export type SyncRuleCheckpointState = Pick<
   SyncRuleDocument,
   'last_checkpoint' | 'last_checkpoint_lsn' | '_id' | 'state'
@@ -169,6 +173,13 @@ export interface CustomWriteCheckpointDocument {
   user_id: string;
   checkpoint: bigint;
   sync_rules_id: number;
+  /**
+   * Unlike managed write checkpoints, custom write checkpoints are flushed together with
+   * normal ops. This means we can assign an op_id for ordering / correlating with read checkpoints.
+   *
+   * This is not unique - multiple write checkpoints can have the same op_id.
+   */
+  op_id?: InternalOpId;
 }
 
 export interface WriteCheckpointDocument {
@@ -176,6 +187,12 @@ export interface WriteCheckpointDocument {
   user_id: string;
   lsns: Record<string, string>;
   client_id: bigint;
+  /**
+   * This is set to the checkpoint lsn when the checkpoint lsn >= this lsn.
+   * This is used to make it easier to determine what write checkpoints have been processed
+   * between two checkpoints.
+   */
+  processed_at_lsn: string | null;
 }
 
 export interface InstanceDocument {

@@ -7,6 +7,7 @@ import {
   BucketDataDocument,
   BucketParameterDocument,
   BucketStateDocument,
+  CheckpointEventDocument,
   CurrentDataDocument,
   CustomWriteCheckpointDocument,
   IdSequenceDocument,
@@ -35,6 +36,7 @@ export class PowerSyncMongo {
   readonly instance: mongo.Collection<InstanceDocument>;
   readonly locks: mongo.Collection<lib_mongo.locks.Lock>;
   readonly bucket_state: mongo.Collection<BucketStateDocument>;
+  readonly checkpoint_events: mongo.Collection<CheckpointEventDocument>;
 
   readonly client: mongo.MongoClient;
   readonly db: mongo.Db;
@@ -58,6 +60,7 @@ export class PowerSyncMongo {
     this.instance = db.collection('instance');
     this.locks = this.db.collection('locks');
     this.bucket_state = this.db.collection('bucket_state');
+    this.checkpoint_events = this.db.collection('checkpoint_events');
   }
 
   /**
@@ -84,6 +87,45 @@ export class PowerSyncMongo {
    */
   async drop() {
     await this.db.dropDatabase();
+  }
+
+  /**
+   * Call this after every checkpoint or sync rules status update. Rather call too often than too rarely.
+   *
+   * This is used in a similar way to the Postgres NOTIFY functionality.
+   */
+  async notifyCheckpoint() {
+    await this.checkpoint_events.insertOne({} as any, { forceServerObjectId: true });
+  }
+
+  /**
+   * Only use in migrations and tests.
+   */
+  async createCheckpointEventsCollection() {
+    // We cover the case where the replication process was started before running this migration.
+    const existingCollections = await this.db
+      .listCollections({ name: 'checkpoint_events' }, { nameOnly: false })
+      .toArray();
+    const collection = existingCollections[0];
+    if (collection != null) {
+      if (!collection.options?.capped) {
+        // Collection was auto-created but not capped, so we need to drop it
+        await this.db.dropCollection('checkpoint_events');
+      } else {
+        // Collection previously created somehow - ignore
+        return;
+      }
+    }
+
+    await this.db.createCollection('checkpoint_events', {
+      capped: true,
+      // We want a small size, since opening a tailable cursor scans this entire collection.
+      // On the other hand, if we fill this up faster than a process can read it, it will
+      // invalidate the cursor. We do handle cursor invalidation events, but don't want
+      // that to happen too often.
+      size: 50 * 1024, // size in bytes
+      max: 50 // max number of documents
+    });
   }
 }
 

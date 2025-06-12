@@ -50,36 +50,10 @@ export interface ManagedWriteCheckpointFilters extends BaseWriteCheckpointIdenti
   heads: Record<string, string>;
 }
 
-export interface WriteCheckpointResult {
-  /**
-   * Write checkpoint id (also referred to as client_id).
-   *
-   * If null, there is no write checkpoint for the client.
-   */
-  id: bigint | null;
-
-  /**
-   * LSN for the checkpoint.
-   *
-   * This will change when we support multiple connections.
-   *
-   * For managed write checkpoints, this LSN must be exceeded by the checkpoint / replication head to be valid.
-   *
-   * For custom write checkpoints, this will be null, and the write checkpoint is valid for all LSNs.
-   */
-  lsn: string | null;
-}
-
 export type ManagedWriteCheckpointOptions = ManagedWriteCheckpointFilters;
 
 export type SyncStorageLastWriteCheckpointFilters = BaseWriteCheckpointIdentifier | ManagedWriteCheckpointFilters;
 export type LastWriteCheckpointFilters = CustomWriteCheckpointFilters | ManagedWriteCheckpointFilters;
-
-export interface WatchUserWriteCheckpointOptions {
-  user_id: string;
-  sync_rules_id: number;
-  signal: AbortSignal;
-}
 
 export interface BaseWriteCheckpointAPI {
   readonly writeCheckpointMode: WriteCheckpointMode;
@@ -93,7 +67,6 @@ export interface BaseWriteCheckpointAPI {
  * sync rules id.
  */
 export interface SyncStorageWriteCheckpointAPI extends BaseWriteCheckpointAPI {
-  batchCreateCustomWriteCheckpoints(checkpoints: BatchedCustomWriteCheckpointOptions[]): Promise<void>;
   lastWriteCheckpoint(filters: SyncStorageLastWriteCheckpointFilters): Promise<bigint | null>;
 }
 
@@ -102,10 +75,7 @@ export interface SyncStorageWriteCheckpointAPI extends BaseWriteCheckpointAPI {
  * sync rules identifiers for custom write checkpoints.
  */
 export interface WriteCheckpointAPI extends BaseWriteCheckpointAPI {
-  batchCreateCustomWriteCheckpoints(checkpoints: CustomWriteCheckpointOptions[]): Promise<void>;
   lastWriteCheckpoint(filters: LastWriteCheckpointFilters): Promise<bigint | null>;
-
-  watchUserWriteCheckpoint(options: WatchUserWriteCheckpointOptions): AsyncIterable<WriteCheckpointResult>;
 }
 
 export const DEFAULT_WRITE_CHECKPOINT_MODE = WriteCheckpointMode.MANAGED;

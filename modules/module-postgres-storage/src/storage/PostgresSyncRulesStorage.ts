@@ -107,12 +107,6 @@ export class PostgresSyncRulesStorage
     return new PostgresCompactor(this.db, this.group_id, options).compact();
   }
 
-  batchCreateCustomWriteCheckpoints(checkpoints: storage.BatchedCustomWriteCheckpointOptions[]): Promise<void> {
-    return this.writeCheckpointAPI.batchCreateCustomWriteCheckpoints(
-      checkpoints.map((c) => ({ ...c, sync_rules_id: this.group_id }))
-    );
-  }
-
   lastWriteCheckpoint(filters: storage.SyncStorageLastWriteCheckpointFilters): Promise<bigint | null> {
     return this.writeCheckpointAPI.lastWriteCheckpoint({
       ...filters,

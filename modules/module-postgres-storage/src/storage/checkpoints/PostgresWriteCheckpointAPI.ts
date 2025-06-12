@@ -1,7 +1,6 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import * as framework from '@powersync/lib-services-framework';
-import { storage, sync } from '@powersync/service-core';
-import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
+import { InternalOpId, storage } from '@powersync/service-core';
 import { models } from '../../types/types.js';
 
 export type PostgresCheckpointAPIOptions = {
@@ -26,7 +25,10 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     this._mode = mode;
   }
 
-  async batchCreateCustomWriteCheckpoints(checkpoints: storage.CustomWriteCheckpointOptions[]): Promise<void> {
+  async batchCreateCustomWriteCheckpoints(
+    checkpoints: storage.CustomWriteCheckpointOptions[],
+    op_id: InternalOpId
+  ): Promise<void> {
     return batchCreateCustomWriteCheckpoints(this.db, checkpoints);
   }
 
@@ -56,13 +58,6 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
       .decoded(models.WriteCheckpoint)
       .first();
     return row!.write_checkpoint;
-  }
-
-  watchUserWriteCheckpoint(
-    options: storage.WatchUserWriteCheckpointOptions
-  ): AsyncIterable<storage.WriteCheckpointResult> {
-    // Not used for Postgres currently
-    throw new Error('Method not implemented.');
   }
 
   async lastWriteCheckpoint(filters: storage.LastWriteCheckpointFilters): Promise<bigint | null> {
