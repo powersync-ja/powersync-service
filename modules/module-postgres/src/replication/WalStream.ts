@@ -15,7 +15,7 @@ import * as pg_utils from '../utils/pgwire_utils.js';
 
 import { PgManager } from './PgManager.js';
 import { getPgOutputRelation, getRelId } from './PgRelation.js';
-import { checkSourceConfiguration, getReplicationIdentityColumns } from './replication-utils.js';
+import { checkSourceConfiguration, checkTableRls, getReplicationIdentityColumns } from './replication-utils.js';
 import { ReplicationMetric } from '@powersync/service-types';
 
 export interface WalStreamOptions {
@@ -196,6 +196,17 @@ export class WalStream {
       if (rs.rows.length == 0) {
         logger.info(`Skipping ${tablePattern.schema}.${name} - not part of ${PUBLICATION_NAME} publication`);
         continue;
+      }
+
+      try {
+        const result = await checkTableRls(db, relid);
+        if (!result.canRead) {
+          // We log the message, then continue anyway, since the check does not cover all cases.
+          logger.warn(result.message!);
+        }
+      } catch (e) {
+        // It's possible that we just don't have permission to access pg_roles - log the error and continue.
+        logger.warn(`Could not check RLS access for ${tablePattern.schema}.${name}`, e);
       }
 
       const cresult = await getReplicationIdentityColumns(db, relid);
