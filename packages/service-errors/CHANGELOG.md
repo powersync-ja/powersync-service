@@ -1,5 +1,11 @@
 # @powersync/service-errors
 
+## 0.3.1
+
+### Patch Changes
+
+- 951b010: Implement resuming of initial replication snapshots.
+
 ## 0.3.0
 
 ### Minor Changes
