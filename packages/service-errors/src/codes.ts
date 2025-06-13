@@ -281,6 +281,13 @@ export enum ErrorCode {
    */
   PSYNC_S1346 = 'PSYNC_S1346',
 
+  /**
+   * Timeout while getting a resume token for an initial snapshot.
+   *
+   * This may happen if there is very high load on the source database.
+   */
+  PSYNC_S1347 = 'PSYNC_S1347',
+
   // ## PSYNC_S14xx: MongoDB storage replication issues
 
   /**

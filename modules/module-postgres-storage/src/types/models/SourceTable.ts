@@ -1,5 +1,5 @@
 import * as t from 'ts-codec';
-import { bigint, jsonb, jsonb_raw, pgwire_number } from '../codecs.js';
+import { bigint, hexBuffer, jsonb, jsonb_raw, pgwire_number } from '../codecs.js';
 
 export type StoredRelationId = {
   object_id: string | number | undefined;
@@ -25,7 +25,10 @@ export const SourceTable = t.object({
   schema_name: t.string,
   table_name: t.string,
   replica_id_columns: t.Null.or(jsonb(t.array(ColumnDescriptor))),
-  snapshot_done: t.boolean
+  snapshot_done: t.boolean,
+  snapshot_total_estimated_count: t.Null.or(bigint),
+  snapshot_replicated_count: t.Null.or(bigint),
+  snapshot_last_key: t.Null.or(hexBuffer)
 });
 
 export type SourceTable = t.Encoded<typeof SourceTable>;

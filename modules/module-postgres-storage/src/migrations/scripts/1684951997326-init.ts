@@ -136,6 +136,5 @@ export const down: migrations.PowerSyncMigrationFunction = async (context) => {
     service_context: { configuration }
   } = context;
   await using client = openMigrationDB(configuration.storage);
-
   await dropTables(client);
 };
