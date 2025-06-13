@@ -1,5 +1,15 @@
 # @powersync/service-jpgwire
 
+## 0.20.0
+
+### Minor Changes
+
+- 951b010: Implement resuming of initial replication snapshots.
+
+### Patch Changes
+
+- 08b7aa9: Add types to pgwireRows.
+
 ## 0.19.0
 
 ### Minor Changes
