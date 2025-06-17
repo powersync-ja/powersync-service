@@ -36,8 +36,8 @@ export function generateEntryProgram(startHandlers?: Record<utils.ServiceRunner,
       try {
         await entryProgram.parseAsync();
       } catch (e) {
-        logger.error('Fatal error', e);
-        process.exit(1);
+        logger.error('Fatal startup error - exiting with code 150.', e);
+        process.exit(150);
       }
     }
   };
