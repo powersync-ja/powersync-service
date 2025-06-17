@@ -266,8 +266,8 @@ export interface StorageCheckpointUpdate extends WriteCheckpoint {
 }
 
 export interface GetCheckpointChangesOptions {
-  lastCheckpoint: util.InternalOpId;
-  nextCheckpoint: util.InternalOpId;
+  lastCheckpoint: ReplicationCheckpoint;
+  nextCheckpoint: ReplicationCheckpoint;
 }
 
 export interface CheckpointChanges {
