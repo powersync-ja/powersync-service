@@ -726,6 +726,21 @@ export class MongoBucketBatch
       return await this.commit(lsn);
     }
 
+    await this.db.write_checkpoints.updateMany(
+      {
+        processed_at_lsn: null,
+        'lsns.1': { $lte: lsn }
+      },
+      {
+        $set: {
+          processed_at_lsn: lsn
+        }
+      },
+      {
+        session: this.session
+      }
+    );
+
     await this.db.sync_rules.updateOne(
       {
         _id: this.group_id
