@@ -49,6 +49,37 @@ export const syncRulesSchema: ajvModule.Schema = {
         }
       }
     },
+    streams: {
+      type: 'object',
+      description: 'Stream definitions',
+      patternProperties: {
+        '.*': {
+          type: 'object',
+          required: ['query'],
+          examples: [{ query: ['select * from mytable'] }],
+          properties: {
+            accept_potentially_dangerous_queries: {
+              description: 'If true, disables warnings on potentially dangerous queries',
+              type: 'boolean'
+            },
+            priority: {
+              description:
+                'Default priority for the stream (lower values indicate higher priority). Clients can override the priority when subscribing.',
+              type: 'integer'
+            },
+            default: {
+              type: 'boolean',
+              description: 'Whether the stream should be subscribed to by default.'
+            },
+            query: {
+              description: 'The SQL query to sync to clients.',
+              type: 'string'
+            }
+          },
+          additionalProperties: false
+        }
+      }
+    },
     event_definitions: {
       type: 'object',
       description: 'Record of sync replication event definitions',
@@ -79,7 +110,7 @@ export const syncRulesSchema: ajvModule.Schema = {
       }
     }
   },
-  required: ['bucket_definitions'],
+  //  required: ['bucket_definitions'],
   additionalProperties: false
 } as const;
 

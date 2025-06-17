@@ -4,7 +4,7 @@ import { nil } from 'pgsql-ast-parser/src/utils.js';
 import { BucketPriority, isValidPriority } from './BucketDescription.js';
 import { ExpressionType } from './ExpressionType.js';
 import { SqlRuleError } from './errors.js';
-import { REQUEST_FUNCTIONS } from './request_functions.js';
+import { QUERY_FUNCTIONS, REQUEST_FUNCTIONS } from './request_functions.js';
 import {
   BASIC_OPERATORS,
   OPERATOR_IN,
@@ -95,6 +95,11 @@ export interface SqlToolsOptions {
   supportsParameterExpressions?: boolean;
 
   /**
+   * true if expressions on stream parameters are supported.
+   */
+  supportsStreamInputs?: boolean;
+
+  /**
    * Schema for validations.
    */
   schema?: QuerySchema;
@@ -113,6 +118,9 @@ export class SqlTools {
 
   readonly supportsExpandingParameters: boolean;
   readonly supportsParameterExpressions: boolean;
+  readonly supportsStreamInputs: boolean;
+
+  private inferredStaticParameters: Map<string, InferredBucketParameter> = new Map();
 
   schema?: QuerySchema;
 
@@ -131,6 +139,7 @@ export class SqlTools {
     this.sql = options.sql;
     this.supportsExpandingParameters = options.supportsExpandingParameters ?? false;
     this.supportsParameterExpressions = options.supportsParameterExpressions ?? false;
+    this.supportsStreamInputs = options.supportsStreamInputs ?? false;
   }
 
   error(message: string, expr: NodeLocation | Expr | undefined): ClauseError {
@@ -271,7 +280,7 @@ export class SqlTools {
           return compileStaticOperator(op, leftFilter as RowValueClause, rightFilter as RowValueClause);
         } else if (isParameterValueClause(otherFilter)) {
           // 2. row value = parameter value
-          const inputParam = basicInputParameter(otherFilter);
+          const inputParam = this.basicInputParameter(otherFilter);
 
           return {
             error: false,
@@ -318,7 +327,7 @@ export class SqlTools {
         } else if (isParameterValueClause(leftFilter) && isRowValueClause(rightFilter)) {
           // token_parameters.value IN table.some_array
           // bucket.param IN table.some_array
-          const inputParam = basicInputParameter(leftFilter);
+          const inputParam = this.basicInputParameter(leftFilter);
 
           return {
             error: false,
@@ -418,6 +427,10 @@ export class SqlTools {
           return this.error(`${schema} schema is not available in data queries`, expr);
         }
 
+        if (fn == 'parameters' && this.supportsStreamInputs) {
+          return this.error(`'request.parameters()' is unavailable on streams - use 'stream.params()' instead.`, expr);
+        }
+
         if (expr.args.length > 0) {
           return this.error(`Function '${schema}.${fn}' does not take arguments`, expr);
         }
@@ -426,6 +439,24 @@ export class SqlTools {
           const fnImpl = REQUEST_FUNCTIONS[fn];
           return {
             key: 'request.parameters()',
+            lookupParameterValue(parameters) {
+              return fnImpl.call(parameters);
+            },
+            usesAuthenticatedRequestParameters: fnImpl.usesAuthenticatedRequestParameters,
+            usesUnauthenticatedRequestParameters: fnImpl.usesUnauthenticatedRequestParameters
+          } satisfies ParameterValueClause;
+        } else {
+          return this.error(`Function '${schema}.${fn}' is not defined`, expr);
+        }
+      } else if (schema == 'stream') {
+        if (!this.supportsStreamInputs) {
+          return this.error(`${schema} schema is only available in stream definitions`, expr);
+        }
+
+        if (fn in QUERY_FUNCTIONS) {
+          const fnImpl = QUERY_FUNCTIONS[fn];
+          return {
+            key: 'stream.params()',
             lookupParameterValue(parameters) {
               return fnImpl.call(parameters);
             },
@@ -757,7 +788,57 @@ export class SqlTools {
 
     return value as BucketPriority;
   }
+
+  private basicInputParameter(clause: ParameterValueClause): InputParameter {
+    if (this.supportsStreamInputs) {
+      let key = this.inferredStaticParameters.get(clause.key)?.name;
+      if (key == null) {
+        key = this.newInferredBucketParameterName();
+        this.inferredStaticParameters.set(clause.key, {
+          name: key,
+          variant: 'static',
+          clause
+        });
+      }
+
+      return {
+        key,
+        expands: false,
+        filteredRowToLookupValue: () => {
+          return SQLITE_FALSE; // Only relevant for parameter queries, but this is a stream query.
+        },
+        parametersToLookupValue: () => {
+          return SQLITE_FALSE;
+        }
+      };
+    }
+
+    return {
+      key: clause.key,
+      expands: false,
+      filteredRowToLookupValue: (filterParameters) => {
+        return filterParameters[clause.key];
+      },
+      parametersToLookupValue: (parameters) => {
+        return clause.lookupParameterValue(parameters);
+      }
+    };
+  }
+
+  public get inferredParameters(): InferredBucketParameter[] {
+    return [...this.inferredStaticParameters.values()];
+  }
+
+  private newInferredBucketParameterName() {
+    return `p${this.inferredStaticParameters.size}`;
+  }
 }
+
+export type InferredBucketParameter = {
+  name: string;
+} & StaticBucketParameter;
+
+export type StaticBucketParameter = { variant: 'static'; clause: ParameterValueClause };
 
 function isStatic(expr: Expr) {
   return ['integer', 'string', 'numeric', 'boolean', 'null'].includes(expr.type);
@@ -793,18 +874,5 @@ function staticValueClause(value: SqliteValue): StaticValueClause {
     },
     usesAuthenticatedRequestParameters: false,
     usesUnauthenticatedRequestParameters: false
-  };
-}
-
-function basicInputParameter(clause: ParameterValueClause): InputParameter {
-  return {
-    key: clause.key,
-    expands: false,
-    filteredRowToLookupValue: (filterParameters) => {
-      return filterParameters[clause.key];
-    },
-    parametersToLookupValue: (parameters) => {
-      return clause.lookupParameterValue(parameters);
-    }
   };
 }

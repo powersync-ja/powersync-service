@@ -13,19 +13,21 @@ export interface SqlParameterFunction {
   documentation: string;
 }
 
-const request_parameters: SqlParameterFunction = {
-  debugName: 'request.parameters',
-  call(parameters: ParameterValueSet) {
-    return parameters.rawUserParameters;
-  },
-  getReturnType() {
-    return ExpressionType.TEXT;
-  },
-  detail: 'Unauthenticated request parameters as JSON',
-  documentation:
-    'Returns parameters passed by the client as a JSON string. These parameters are not authenticated - any value can be passed in by the client.',
-  usesAuthenticatedRequestParameters: false,
-  usesUnauthenticatedRequestParameters: true
+const parametersFunction = (name: string): SqlParameterFunction => {
+  return {
+    debugName: name,
+    call(parameters: ParameterValueSet) {
+      return parameters.rawUserParameters;
+    },
+    getReturnType() {
+      return ExpressionType.TEXT;
+    },
+    detail: 'Unauthenticated request parameters as JSON',
+    documentation:
+      'Returns parameters passed by the client as a JSON string. These parameters are not authenticated - any value can be passed in by the client.',
+    usesAuthenticatedRequestParameters: false,
+    usesUnauthenticatedRequestParameters: true
+  };
 };
 
 const request_jwt: SqlParameterFunction = {
@@ -56,10 +58,16 @@ const request_user_id: SqlParameterFunction = {
   usesUnauthenticatedRequestParameters: false
 };
 
-export const REQUEST_FUNCTIONS_NAMED = {
-  parameters: request_parameters,
+export const REQUEST_FUNCTIONS_WITHOUT_PARAMETERS: Record<string, SqlParameterFunction> = {
   jwt: request_jwt,
   user_id: request_user_id
 };
 
-export const REQUEST_FUNCTIONS: Record<string, SqlParameterFunction> = REQUEST_FUNCTIONS_NAMED;
+export const REQUEST_FUNCTIONS: Record<string, SqlParameterFunction> = {
+  parameters: parametersFunction('request.parameters'),
+  ...REQUEST_FUNCTIONS_WITHOUT_PARAMETERS
+};
+
+export const QUERY_FUNCTIONS: Record<string, SqlParameterFunction> = {
+  params: parametersFunction('query.params')
+};

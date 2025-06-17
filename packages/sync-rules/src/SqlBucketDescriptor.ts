@@ -6,6 +6,7 @@ import { SqlDataQuery } from './SqlDataQuery.js';
 import { SqlParameterQuery } from './SqlParameterQuery.js';
 import { SyncRulesOptions } from './SqlSyncRules.js';
 import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
+import { StreamQuery } from './StreamQuery.js';
 import { TablePattern } from './TablePattern.js';
 import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
 import { SqlRuleError } from './errors.js';
@@ -15,7 +16,8 @@ import {
   EvaluationResult,
   QueryParseOptions,
   RequestParameters,
-  SqliteRow
+  SqliteRow,
+  StreamParseOptions
 } from './types.js';
 
 export interface QueryParseResult {
@@ -78,6 +80,23 @@ export class SqlBucketDescriptor {
     return {
       parsed: true,
       errors: parameterQuery.errors
+    };
+  }
+
+  addUnifiedStreamQuery(sql: string, options: StreamParseOptions): QueryParseResult {
+    const [query, errors] = StreamQuery.fromSql(this.name, sql, options);
+    for (const parameterQuery of query.inferredParameters) {
+      if (parameterQuery instanceof StaticSqlParameterQuery) {
+        this.globalParameterQueries.push(parameterQuery);
+      } else {
+        this.parameterQueries.push(parameterQuery);
+      }
+    }
+    this.dataQueries.push(query.data);
+
+    return {
+      parsed: true,
+      errors
     };
   }
 
