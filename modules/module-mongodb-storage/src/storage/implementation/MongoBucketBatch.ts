@@ -139,8 +139,6 @@ export class MongoBucketBatch
         result = r;
       }
     }
-    await batchCreateCustomWriteCheckpoints(this.db, this.write_checkpoint_batch);
-    this.write_checkpoint_batch = [];
     return result;
   }
 
@@ -155,6 +153,11 @@ export class MongoBucketBatch
 
     await this.withReplicationTransaction(`Flushing ${batch.length} ops`, async (session, opSeq) => {
       resumeBatch = await this.replicateBatch(session, batch, opSeq, options);
+
+      if (this.write_checkpoint_batch.length > 0) {
+        await batchCreateCustomWriteCheckpoints(this.db, session, this.write_checkpoint_batch, opSeq.next());
+        this.write_checkpoint_batch = [];
+      }
 
       last_op = opSeq.last();
     });
@@ -627,6 +630,7 @@ export class MongoBucketBatch
         },
         { session }
       );
+      // We don't notify checkpoint here - we don't make any checkpoint updates directly
     });
   }
 
@@ -674,6 +678,7 @@ export class MongoBucketBatch
         },
         { session: this.session }
       );
+      await this.db.notifyCheckpoint();
 
       // Cannot create a checkpoint yet - return false
       return false;
@@ -698,6 +703,23 @@ export class MongoBucketBatch
       update.last_checkpoint = this.persisted_op;
     }
 
+    // Mark relevant write checkpoints as "processed".
+    // This makes it easier to identify write checkpoints that are "valid" in order.
+    await this.db.write_checkpoints.updateMany(
+      {
+        processed_at_lsn: null,
+        'lsns.1': { $lte: lsn }
+      },
+      {
+        $set: {
+          processed_at_lsn: lsn
+        }
+      },
+      {
+        session: this.session
+      }
+    );
+
     await this.db.sync_rules.updateOne(
       {
         _id: this.group_id
@@ -708,6 +730,7 @@ export class MongoBucketBatch
       },
       { session: this.session }
     );
+    await this.db.notifyCheckpoint();
     this.persisted_op = null;
     this.last_checkpoint_lsn = lsn;
     return true;
@@ -730,6 +753,21 @@ export class MongoBucketBatch
       return await this.commit(lsn);
     }
 
+    await this.db.write_checkpoints.updateMany(
+      {
+        processed_at_lsn: null,
+        'lsns.1': { $lte: lsn }
+      },
+      {
+        $set: {
+          processed_at_lsn: lsn
+        }
+      },
+      {
+        session: this.session
+      }
+    );
+
     await this.db.sync_rules.updateOne(
       {
         _id: this.group_id
@@ -745,6 +783,7 @@ export class MongoBucketBatch
       },
       { session: this.session }
     );
+    await this.db.notifyCheckpoint();
     this.last_checkpoint_lsn = lsn;
 
     return true;

@@ -97,7 +97,7 @@ export class BroadcastIterable<T> implements AsyncIterable<T> {
     }
   }
 
-  async *[Symbol.asyncIterator](signal?: AbortSignal): AsyncIterator<T> {
+  async *[Symbol.asyncIterator](signal?: AbortSignal): AsyncIterableIterator<T> {
     const sink = new LastValueSink(this.last);
     this.addSink(sink);
     try {
