@@ -519,12 +519,12 @@ bucket_definitions:
 
               await batch.commit('0/2');
             });
+          }
 
-            if (sentRows >= 1000 && sentRows <= 2001) {
-              // pause for a bit to give the stream time to process interruptions.
-              // This covers the data batch above and the next one.
-              await timers.setTimeout(150);
-            }
+          if (sentRows >= 1000 && sentRows <= 2001) {
+            // pause for a bit to give the stream time to process interruptions.
+            // This covers the data batch above and the next one.
+            await timers.setTimeout(50);
           }
         }
         if ('checkpoint_complete' in next) {
