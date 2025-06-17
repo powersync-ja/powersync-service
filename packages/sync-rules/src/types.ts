@@ -18,6 +18,10 @@ export interface QueryParseOptions extends SyncRulesOptions {
   priority?: BucketPriority;
 }
 
+export interface StreamParseOptions extends QueryParseOptions {
+  default?: boolean;
+}
+
 export interface EvaluatedParameters {
   lookup: ParameterLookup;
 
