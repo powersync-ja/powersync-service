@@ -73,6 +73,13 @@ export interface SourceTableDocument {
   replica_id_columns: string[] | null;
   replica_id_columns2: { name: string; type_oid?: number; type?: string }[] | undefined;
   snapshot_done: boolean | undefined;
+  snapshot_status: SourceTableDocumentSnapshotStatus | undefined;
+}
+
+export interface SourceTableDocumentSnapshotStatus {
+  total_estimated_count: number;
+  replicated_count: number;
+  last_key: bson.Binary | null;
 }
 
 /**
@@ -109,6 +116,13 @@ export interface SyncRuleDocument {
    * Can only be false if state == PROCESSING.
    */
   snapshot_done: boolean;
+
+  /**
+   * If snapshot_done = false, this may be the lsn at which we started the snapshot.
+   *
+   * This can be used for resuming the snapshot after a restart.
+   */
+  snapshot_lsn: string | undefined;
 
   /**
    * The last consistent checkpoint.

@@ -7,11 +7,19 @@ import {
   container,
   ErrorCode,
   errors,
-  logger,
+  Logger,
+  logger as defaultLogger,
   ReplicationAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
-import { deserializeBson, InternalOpId, SaveOperationTag, storage, utils } from '@powersync/service-core';
+import {
+  BucketStorageMarkRecordUnavailable,
+  deserializeBson,
+  InternalOpId,
+  SaveOperationTag,
+  storage,
+  utils
+} from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
 import { PowerSyncMongo } from './db.js';
 import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
@@ -46,12 +54,18 @@ export interface MongoBucketBatchOptions {
    * Set to true for initial replication.
    */
   skipExistingRows: boolean;
+
+  markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
+
+  logger?: Logger;
 }
 
 export class MongoBucketBatch
   extends BaseObserver<storage.BucketBatchStorageListener>
   implements storage.BucketStorageBatch
 {
+  private logger: Logger;
+
   private readonly client: mongo.MongoClient;
   public readonly db: PowerSyncMongo;
   public readonly session: mongo.ClientSession;
@@ -65,6 +79,7 @@ export class MongoBucketBatch
 
   private batch: OperationBatch | null = null;
   private write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
+  private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
 
   /**
    * Last LSN received associated with a checkpoint.
@@ -86,6 +101,7 @@ export class MongoBucketBatch
 
   constructor(options: MongoBucketBatchOptions) {
     super();
+    this.logger = options.logger ?? defaultLogger;
     this.client = options.db.client;
     this.db = options.db;
     this.group_id = options.groupId;
@@ -96,6 +112,7 @@ export class MongoBucketBatch
     this.sync_rules = options.syncRules;
     this.storeCurrentData = options.storeCurrentData;
     this.skipExistingRows = options.skipExistingRows;
+    this.markRecordUnavailable = options.markRecordUnavailable;
     this.batch = new OperationBatch();
 
     this.persisted_op = options.keepaliveOp ?? null;
@@ -235,7 +252,9 @@ export class MongoBucketBatch
         current_data_lookup.set(cacheKey(doc._id.t, doc._id.k), doc);
       }
 
-      let persistedBatch: PersistedBatch | null = new PersistedBatch(this.group_id, transactionSize);
+      let persistedBatch: PersistedBatch | null = new PersistedBatch(this.group_id, transactionSize, {
+        logger: this.logger
+      });
 
       for (let op of b) {
         if (resumeBatch) {
@@ -314,11 +333,18 @@ export class MongoBucketBatch
         // Not an error if we re-apply a transaction
         existing_buckets = [];
         existing_lookups = [];
-        // Log to help with debugging if there was a consistency issue
         if (this.storeCurrentData) {
-          logger.warn(
-            `Cannot find previous record for update on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
-          );
+          if (this.markRecordUnavailable != null) {
+            // This will trigger a "resnapshot" of the record.
+            // This is not relevant if storeCurrentData is false, since we'll get the full row
+            // directly in the replication stream.
+            this.markRecordUnavailable(record);
+          } else {
+            // Log to help with debugging if there was a consistency issue
+            this.logger.warn(
+              `Cannot find previous record for update on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
+            );
+          }
         }
       } else {
         existing_buckets = result.buckets;
@@ -335,8 +361,8 @@ export class MongoBucketBatch
         existing_buckets = [];
         existing_lookups = [];
         // Log to help with debugging if there was a consistency issue
-        if (this.storeCurrentData) {
-          logger.warn(
+        if (this.storeCurrentData && this.markRecordUnavailable == null) {
+          this.logger.warn(
             `Cannot find previous record for delete on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
           );
         }
@@ -433,7 +459,7 @@ export class MongoBucketBatch
               }
             }
           );
-          logger.error(
+          this.logger.error(
             `Failed to evaluate data query on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${error.error}`
           );
         }
@@ -473,7 +499,7 @@ export class MongoBucketBatch
               }
             }
           );
-          logger.error(
+          this.logger.error(
             `Failed to evaluate parameter query on ${record.sourceTable.qualifiedName}.${after.id}: ${error.error}`
           );
         }
@@ -527,7 +553,7 @@ export class MongoBucketBatch
             if (e instanceof mongo.MongoError && e.hasErrorLabel('TransientTransactionError')) {
               // Likely write conflict caused by concurrent write stream replicating
             } else {
-              logger.warn('Transaction error', e as Error);
+              this.logger.warn('Transaction error', e as Error);
             }
             await timers.setTimeout(Math.random() * 50);
             throw e;
@@ -552,7 +578,7 @@ export class MongoBucketBatch
     await this.withTransaction(async () => {
       flushTry += 1;
       if (flushTry % 10 == 0) {
-        logger.info(`${this.slot_name} ${description} - try ${flushTry}`);
+        this.logger.info(`${description} - try ${flushTry}`);
       }
       if (flushTry > 20 && Date.now() > lastTry) {
         throw new ServiceError(ErrorCode.PSYNC_S1402, 'Max transaction tries exceeded');
@@ -623,13 +649,13 @@ export class MongoBucketBatch
     if (this.last_checkpoint_lsn != null && lsn < this.last_checkpoint_lsn) {
       // When re-applying transactions, don't create a new checkpoint until
       // we are past the last transaction.
-      logger.info(`Re-applied transaction ${lsn} - skipping checkpoint`);
+      this.logger.info(`Re-applied transaction ${lsn} - skipping checkpoint`);
       // Cannot create a checkpoint yet - return false
       return false;
     }
     if (lsn < this.no_checkpoint_before_lsn) {
       if (Date.now() - this.lastWaitingLogThottled > 5_000) {
-        logger.info(
+        this.logger.info(
           `Waiting until ${this.no_checkpoint_before_lsn} before creating checkpoint, currently at ${lsn}. Persisted op: ${this.persisted_op}`
         );
         this.lastWaitingLogThottled = Date.now();
@@ -699,7 +725,8 @@ export class MongoBucketBatch
         _id: this.group_id
       },
       {
-        $set: update
+        $set: update,
+        $unset: { snapshot_lsn: 1 }
       },
       { session: this.session }
     );
@@ -722,7 +749,7 @@ export class MongoBucketBatch
     if (this.persisted_op != null) {
       // The commit may have been skipped due to "no_checkpoint_before_lsn".
       // Apply it now if relevant
-      logger.info(`Commit due to keepalive at ${lsn} / ${this.persisted_op}`);
+      this.logger.info(`Commit due to keepalive at ${lsn} / ${this.persisted_op}`);
       return await this.commit(lsn);
     }
 
@@ -751,7 +778,8 @@ export class MongoBucketBatch
           snapshot_done: true,
           last_fatal_error: null,
           last_keepalive_ts: new Date()
-        }
+        },
+        $unset: { snapshot_lsn: 1 }
       },
       { session: this.session }
     );
@@ -759,6 +787,22 @@ export class MongoBucketBatch
     this.last_checkpoint_lsn = lsn;
 
     return true;
+  }
+
+  async setSnapshotLsn(lsn: string): Promise<void> {
+    const update: Partial<SyncRuleDocument> = {
+      snapshot_lsn: lsn
+    };
+
+    await this.db.sync_rules.updateOne(
+      {
+        _id: this.group_id
+      },
+      {
+        $set: update
+      },
+      { session: this.session }
+    );
   }
 
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
@@ -785,7 +829,7 @@ export class MongoBucketBatch
       return null;
     }
 
-    logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
+    this.logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
 
     this.batch ??= new OperationBatch();
     this.batch.push(new RecordOperation(record));
@@ -856,7 +900,7 @@ export class MongoBucketBatch
           session: session
         });
         const batch = await cursor.toArray();
-        const persistedBatch = new PersistedBatch(this.group_id, 0);
+        const persistedBatch = new PersistedBatch(this.group_id, 0, { logger: this.logger });
 
         for (let value of batch) {
           persistedBatch.saveBucketData({
@@ -886,6 +930,37 @@ export class MongoBucketBatch
     return last_op!;
   }
 
+  async updateTableProgress(
+    table: storage.SourceTable,
+    progress: Partial<storage.TableSnapshotStatus>
+  ): Promise<storage.SourceTable> {
+    const copy = table.clone();
+    const snapshotStatus = {
+      totalEstimatedCount: progress.totalEstimatedCount ?? copy.snapshotStatus?.totalEstimatedCount ?? 0,
+      replicatedCount: progress.replicatedCount ?? copy.snapshotStatus?.replicatedCount ?? 0,
+      lastKey: progress.lastKey ?? copy.snapshotStatus?.lastKey ?? null
+    };
+    copy.snapshotStatus = snapshotStatus;
+
+    await this.withTransaction(async () => {
+      await this.db.source_tables.updateOne(
+        { _id: table.id },
+        {
+          $set: {
+            snapshot_status: {
+              last_key: snapshotStatus.lastKey == null ? null : new bson.Binary(snapshotStatus.lastKey),
+              total_estimated_count: snapshotStatus.totalEstimatedCount,
+              replicated_count: snapshotStatus.replicatedCount
+            }
+          }
+        },
+        { session: this.session }
+      );
+    });
+
+    return copy;
+  }
+
   async markSnapshotDone(tables: storage.SourceTable[], no_checkpoint_before_lsn: string) {
     const session = this.session;
     const ids = tables.map((table) => table.id);
@@ -896,6 +971,9 @@ export class MongoBucketBatch
         {
           $set: {
             snapshot_done: true
+          },
+          $unset: {
+            snapshot_status: 1
           }
         },
         { session }
@@ -919,17 +997,8 @@ export class MongoBucketBatch
       }
     });
     return tables.map((table) => {
-      const copy = new storage.SourceTable(
-        table.id,
-        table.connectionTag,
-        table.objectId,
-        table.schema,
-        table.table,
-        table.replicaIdColumns,
-        table.snapshotComplete
-      );
-      copy.syncData = table.syncData;
-      copy.syncParameters = table.syncParameters;
+      const copy = table.clone();
+      copy.snapshotComplete = true;
       return copy;
     });
   }

@@ -1,4 +1,4 @@
-import { container } from '@powersync/lib-services-framework';
+import { container, logger as defaultLogger } from '@powersync/lib-services-framework';
 import { replication } from '@powersync/service-core';
 
 import { ChangeStream, ChangeStreamInvalidatedError } from './ChangeStream.js';
@@ -15,6 +15,8 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
   constructor(options: ChangeStreamReplicationJobOptions) {
     super(options);
     this.connectionFactory = options.connectionFactory;
+    // We use a custom formatter to process the prefix
+    this.logger = defaultLogger.child({ prefix: `[powersync_${this.storage.group_id}] ` });
   }
 
   async cleanUp(): Promise<void> {
@@ -72,7 +74,8 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
         abort_signal: this.abortController.signal,
         storage: this.options.storage,
         metrics: this.options.metrics,
-        connections: connectionManager
+        connections: connectionManager,
+        logger: this.logger
       });
       this.lastStream = stream;
       await stream.replicate();
@@ -80,7 +83,7 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
       if (this.abortController.signal.aborted) {
         return;
       }
-      this.logger.error(`${this.slotName} Replication error`, e);
+      this.logger.error(`Replication error`, e);
       if (e.cause != null) {
         // Without this additional log, the cause may not be visible in the logs.
         this.logger.error(`cause`, e.cause);

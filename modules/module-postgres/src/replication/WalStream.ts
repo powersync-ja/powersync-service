@@ -4,25 +4,53 @@ import {
   DatabaseConnectionError,
   ErrorCode,
   errors,
-  logger,
-  ReplicationAbortedError,
-  ReplicationAssertionError
+  Logger,
+  logger as defaultLogger,
+  ReplicationAssertionError,
+  ReplicationAbortedError
 } from '@powersync/lib-services-framework';
-import { getUuidReplicaIdentityBson, MetricsEngine, SourceEntityDescriptor, storage } from '@powersync/service-core';
+import {
+  BucketStorageBatch,
+  getUuidReplicaIdentityBson,
+  MetricsEngine,
+  RelationCache,
+  SaveUpdate,
+  SourceEntityDescriptor,
+  SourceTable,
+  storage
+} from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
 import * as pg_utils from '../utils/pgwire_utils.js';
 
 import { PgManager } from './PgManager.js';
 import { getPgOutputRelation, getRelId } from './PgRelation.js';
-import { checkSourceConfiguration, getReplicationIdentityColumns } from './replication-utils.js';
+import { checkSourceConfiguration, checkTableRls, getReplicationIdentityColumns } from './replication-utils.js';
 import { ReplicationMetric } from '@powersync/service-types';
+import {
+  ChunkedSnapshotQuery,
+  IdSnapshotQuery,
+  MissingRow,
+  PrimaryKeyValue,
+  SimpleSnapshotQuery,
+  SnapshotQuery
+} from './SnapshotQuery.js';
 
 export interface WalStreamOptions {
+  logger?: Logger;
   connections: PgManager;
   storage: storage.SyncRulesBucketStorage;
   metrics: MetricsEngine;
   abort_signal: AbortSignal;
+
+  /**
+   * Override snapshot chunk length (number of rows), for testing.
+   *
+   * Defaults to 10_000.
+   *
+   * Note that queries are streamed, so we don't actually keep that much data in memory.
+   */
+  snapshotChunkLength?: number;
 }
 
 interface InitResult {
@@ -73,6 +101,8 @@ export class WalStream {
 
   connection_id = 1;
 
+  private logger: Logger;
+
   private readonly storage: storage.SyncRulesBucketStorage;
   private readonly metrics: MetricsEngine;
   private readonly slot_name: string;
@@ -81,9 +111,16 @@ export class WalStream {
 
   private abort_signal: AbortSignal;
 
-  private relation_cache = new Map<string | number, storage.SourceTable>();
+  private relationCache = new RelationCache((relation: number | SourceTable) => {
+    if (typeof relation == 'number') {
+      return relation;
+    }
+    return relation.objectId!;
+  });
 
   private startedStreaming = false;
+
+  private snapshotChunkLength: number;
 
   /**
    * Time of the oldest uncommitted change, according to the source db.
@@ -97,12 +134,14 @@ export class WalStream {
   private isStartingReplication = true;
 
   constructor(options: WalStreamOptions) {
+    this.logger = options.logger ?? defaultLogger;
     this.storage = options.storage;
     this.metrics = options.metrics;
     this.sync_rules = options.storage.getParsedSyncRules({ defaultSchema: POSTGRES_DEFAULT_SCHEMA });
     this.group_id = options.storage.group_id;
     this.slot_name = options.storage.slot_name;
     this.connections = options.connections;
+    this.snapshotChunkLength = options.snapshotChunkLength ?? 10_000;
 
     this.abort_signal = options.abort_signal;
     this.abort_signal.addEventListener(
@@ -115,7 +154,7 @@ export class WalStream {
           const promise = sendKeepAlive(this.connections.pool);
           promise.catch((e) => {
             // Failures here are okay - this only speeds up stopping the process.
-            logger.warn('Failed to ping connection', e);
+            this.logger.warn('Failed to ping connection', e);
           });
         } else {
           // If we haven't started streaming yet, it could be due to something like
@@ -194,8 +233,19 @@ export class WalStream {
         ]
       });
       if (rs.rows.length == 0) {
-        logger.info(`Skipping ${tablePattern.schema}.${name} - not part of ${PUBLICATION_NAME} publication`);
+        this.logger.info(`Skipping ${tablePattern.schema}.${name} - not part of ${PUBLICATION_NAME} publication`);
         continue;
+      }
+
+      try {
+        const result = await checkTableRls(db, relid);
+        if (!result.canRead) {
+          // We log the message, then continue anyway, since the check does not cover all cases.
+          this.logger.warn(result.message!);
+        }
+      } catch (e) {
+        // It's possible that we just don't have permission to access pg_roles - log the error and continue.
+        this.logger.warn(`Could not check RLS access for ${tablePattern.schema}.${name}`, e);
       }
 
       const cresult = await getReplicationIdentityColumns(db, relid);
@@ -226,7 +276,7 @@ export class WalStream {
     const snapshotDone = status.snapshot_done && status.checkpoint_lsn != null;
     if (snapshotDone) {
       // Snapshot is done, but we still need to check the replication slot status
-      logger.info(`${slotName} Initial replication already done`);
+      this.logger.info(`Initial replication already done`);
     }
 
     // Check if replication slot exists
@@ -287,7 +337,7 @@ export class WalStream {
         // We peek a large number of changes here, to make it more likely to pick up replication slot errors.
         // For example, "publication does not exist" only occurs here if the peek actually includes changes related
         // to the slot.
-        logger.info(`Checking ${slotName}`);
+        this.logger.info(`Checking ${slotName}`);
 
         // The actual results can be quite large, so we don't actually return everything
         // due to memory and processing overhead that would create.
@@ -304,11 +354,11 @@ export class WalStream {
         }
 
         // Success
-        logger.info(`Slot ${slotName} appears healthy`);
+        this.logger.info(`Slot ${slotName} appears healthy`);
         return { needsNewSlot: false };
       } catch (e) {
         last_error = e;
-        logger.warn(`${slotName} Replication slot error`, e);
+        this.logger.warn(`Replication slot error`, e);
 
         if (this.stopped) {
           throw e;
@@ -335,7 +385,7 @@ export class WalStream {
           // Sample: publication "powersync" does not exist
           //   Happens when publication deleted or never created.
           //   Slot must be re-created in this case.
-          logger.info(`${slotName} is not valid anymore`);
+          this.logger.info(`${slotName} is not valid anymore`);
 
           return { needsNewSlot: true };
         }
@@ -347,7 +397,7 @@ export class WalStream {
     throw new ReplicationAssertionError('Unreachable');
   }
 
-  async estimatedCount(db: pgwire.PgConnection, table: storage.SourceTable): Promise<string> {
+  async estimatedCountNumber(db: pgwire.PgConnection, table: storage.SourceTable): Promise<number> {
     const results = await db.query({
       statement: `SELECT reltuples::bigint AS estimate
 FROM   pg_class
@@ -356,9 +406,9 @@ WHERE  oid = $1::regclass`,
     });
     const row = results.rows[0];
     if ((row?.[0] ?? -1n) == -1n) {
-      return '?';
+      return -1;
     } else {
-      return `~${row[0]}`;
+      return Number(row[0]);
     }
   }
 
@@ -392,7 +442,7 @@ WHERE  oid = $1::regclass`,
       // The replication slot must be created before we start snapshotting tables.
       await replicationConnection.query(`CREATE_REPLICATION_SLOT ${slotName} LOGICAL pgoutput`);
 
-      logger.info(`Created replication slot ${slotName}`);
+      this.logger.info(`Created replication slot ${slotName}`);
     }
 
     await this.initialReplication(db);
@@ -401,22 +451,35 @@ WHERE  oid = $1::regclass`,
   async initialReplication(db: pgwire.PgConnection) {
     const sourceTables = this.sync_rules.getSourceTables();
     await this.storage.startBatch(
-      { zeroLSN: ZERO_LSN, defaultSchema: POSTGRES_DEFAULT_SCHEMA, storeCurrentData: true, skipExistingRows: true },
+      {
+        logger: this.logger,
+        zeroLSN: ZERO_LSN,
+        defaultSchema: POSTGRES_DEFAULT_SCHEMA,
+        storeCurrentData: true,
+        skipExistingRows: true
+      },
       async (batch) => {
+        let tablesWithStatus: SourceTable[] = [];
         for (let tablePattern of sourceTables) {
           const tables = await this.getQualifiedTableNames(batch, db, tablePattern);
+          // Pre-get counts
           for (let table of tables) {
             if (table.snapshotComplete) {
-              logger.info(`${this.slot_name} Skipping ${table.qualifiedName} - snapshot already done`);
+              this.logger.info(`Skipping ${table.qualifiedName} - snapshot already done`);
               continue;
             }
-            await this.snapshotTable(batch, db, table);
+            const count = await this.estimatedCountNumber(db, table);
+            table = await batch.updateTableProgress(table, { totalEstimatedCount: count });
+            this.relationCache.update(table);
+            tablesWithStatus.push(table);
 
-            const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
-            const tableLsnNotBefore = rs.rows[0][0];
-            await batch.markSnapshotDone([table], tableLsnNotBefore);
-            await touch();
+            this.logger.info(`To replicate: ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
           }
+        }
+
+        for (let table of tablesWithStatus) {
+          await this.snapshotTableInTx(batch, db, table);
+          await touch();
         }
 
         // Always commit the initial snapshot at zero.
@@ -442,60 +505,164 @@ WHERE  oid = $1::regclass`,
       yield toSyncRulesRow(row);
     }
   }
+  private async snapshotTableInTx(
+    batch: storage.BucketStorageBatch,
+    db: pgwire.PgConnection,
+    table: storage.SourceTable,
+    limited?: PrimaryKeyValue[]
+  ): Promise<storage.SourceTable> {
+    // Note: We use the default "Read Committed" isolation level here, not snapshot isolation.
+    // The data may change during the transaction, but that is compensated for in the streaming
+    // replication afterwards.
+    await db.query('BEGIN');
+    try {
+      let tableLsnNotBefore: string;
+      await this.snapshotTable(batch, db, table, limited);
 
-  private async snapshotTable(batch: storage.BucketStorageBatch, db: pgwire.PgConnection, table: storage.SourceTable) {
-    logger.info(`${this.slot_name} Replicating ${table.qualifiedName}`);
-    const estimatedCount = await this.estimatedCount(db, table);
-    let at = 0;
-    let lastLogIndex = 0;
-    const cursor = db.stream({ statement: `SELECT * FROM ${table.escapedIdentifier}` });
-    let columns: { i: number; name: string }[] = [];
-    // pgwire streams rows in chunks.
-    // These chunks can be quite small (as little as 16KB), so we don't flush chunks automatically.
-
-    for await (let chunk of cursor) {
-      if (chunk.tag == 'RowDescription') {
-        let i = 0;
-        columns = chunk.payload.map((c) => {
-          return { i: i++, name: c.name };
-        });
-        continue;
-      }
-
-      const rows = chunk.rows.map((row) => {
-        let q: DatabaseInputRow = {};
-        for (let c of columns) {
-          q[c.name] = row[c.i];
-        }
-        return q;
-      });
-      if (rows.length > 0 && at - lastLogIndex >= 5000) {
-        logger.info(`${this.slot_name} Replicating ${table.qualifiedName} ${at}/${estimatedCount}`);
-        lastLogIndex = at;
-      }
-      if (this.abort_signal.aborted) {
-        throw new ReplicationAbortedError(`Aborted initial replication of ${this.slot_name}`);
-      }
-
-      for (const record of WalStream.getQueryData(rows)) {
-        // This auto-flushes when the batch reaches its size limit
-        await batch.save({
-          tag: storage.SaveOperationTag.INSERT,
-          sourceTable: table,
-          before: undefined,
-          beforeReplicaId: undefined,
-          after: record,
-          afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns)
-        });
-      }
-
-      at += rows.length;
-      this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(rows.length);
-
-      await touch();
+      // Get the current LSN.
+      // The data will only be consistent once incremental replication has passed that point.
+      // We have to get this LSN _after_ we have finished the table snapshot.
+      //
+      // There are basically two relevant LSNs here:
+      // A: The LSN before the snapshot starts. We don't explicitly record this on the PowerSync side,
+      //    but it is implicitly recorded in the replication slot.
+      // B: The LSN after the table snapshot is complete, which is what we get here.
+      // When we do the snapshot queries, the data that we get back for each chunk could match the state
+      // anywhere between A and B. To actually have a consistent state on our side, we need to:
+      // 1. Complete the snapshot.
+      // 2. Wait until logical replication has caught up with all the change between A and B.
+      // Calling `markSnapshotDone(LSN B)` covers that.
+      const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
+      tableLsnNotBefore = rs.rows[0][0];
+      // Side note: A ROLLBACK would probably also be fine here, since we only read in this transaction.
+      await db.query('COMMIT');
+      const [resultTable] = await batch.markSnapshotDone([table], tableLsnNotBefore);
+      this.relationCache.update(resultTable);
+      return resultTable;
+    } catch (e) {
+      await db.query('ROLLBACK');
+      throw e;
     }
+  }
 
-    await batch.flush();
+  private async snapshotTable(
+    batch: storage.BucketStorageBatch,
+    db: pgwire.PgConnection,
+    table: storage.SourceTable,
+    limited?: PrimaryKeyValue[]
+  ) {
+    let totalEstimatedCount = table.snapshotStatus?.totalEstimatedCount;
+    let at = table.snapshotStatus?.replicatedCount ?? 0;
+    let lastCountTime = 0;
+    let q: SnapshotQuery;
+    // We do streaming on two levels:
+    // 1. Coarse level: DELCARE CURSOR, FETCH 10000 at a time.
+    // 2. Fine level: Stream chunks from each fetch call.
+    if (limited) {
+      q = new IdSnapshotQuery(db, table, limited);
+    } else if (ChunkedSnapshotQuery.supports(table)) {
+      // Single primary key - we can use the primary key for chunking
+      const orderByKey = table.replicaIdColumns[0];
+      q = new ChunkedSnapshotQuery(db, table, this.snapshotChunkLength, table.snapshotStatus?.lastKey ?? null);
+      if (table.snapshotStatus?.lastKey != null) {
+        this.logger.info(
+          `Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} - resuming from ${orderByKey.name} > ${(q as ChunkedSnapshotQuery).lastKey}`
+        );
+      } else {
+        this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} - resumable`);
+      }
+    } else {
+      // Fallback case - query the entire table
+      this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} - not resumable`);
+      q = new SimpleSnapshotQuery(db, table, this.snapshotChunkLength);
+      at = 0;
+    }
+    await q.initialize();
+
+    let columns: { i: number; name: string }[] = [];
+    let hasRemainingData = true;
+    while (hasRemainingData) {
+      // Fetch 10k at a time.
+      // The balance here is between latency overhead per FETCH call,
+      // and not spending too much time on each FETCH call.
+      // We aim for a couple of seconds on each FETCH call.
+      const cursor = q.nextChunk();
+      hasRemainingData = false;
+      // pgwire streams rows in chunks.
+      // These chunks can be quite small (as little as 16KB), so we don't flush chunks automatically.
+      // There are typically 100-200 rows per chunk.
+      for await (let chunk of cursor) {
+        if (chunk.tag == 'RowDescription') {
+          // We get a RowDescription for each FETCH call, but they should
+          // all be the same.
+          let i = 0;
+          columns = chunk.payload.map((c) => {
+            return { i: i++, name: c.name };
+          });
+          continue;
+        }
+
+        const rows = chunk.rows.map((row) => {
+          let q: DatabaseInputRow = {};
+          for (let c of columns) {
+            q[c.name] = row[c.i];
+          }
+          return q;
+        });
+        if (rows.length > 0) {
+          hasRemainingData = true;
+        }
+
+        for (const record of WalStream.getQueryData(rows)) {
+          // This auto-flushes when the batch reaches its size limit
+          await batch.save({
+            tag: storage.SaveOperationTag.INSERT,
+            sourceTable: table,
+            before: undefined,
+            beforeReplicaId: undefined,
+            after: record,
+            afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns)
+          });
+        }
+
+        at += rows.length;
+        this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(rows.length);
+
+        await touch();
+      }
+
+      // Important: flush before marking progress
+      await batch.flush();
+      if (limited == null) {
+        let lastKey: Uint8Array | undefined;
+        if (q instanceof ChunkedSnapshotQuery) {
+          lastKey = q.getLastKeySerialized();
+        }
+        if (lastCountTime < performance.now() - 10 * 60 * 1000) {
+          // Even though we're doing the snapshot inside a transaction, the transaction uses
+          // the default "Read Committed" isolation level. This means we can get new data
+          // within the transaction, so we re-estimate the count every 10 minutes when replicating
+          // large tables.
+          totalEstimatedCount = await this.estimatedCountNumber(db, table);
+          lastCountTime = performance.now();
+        }
+        table = await batch.updateTableProgress(table, {
+          lastKey: lastKey,
+          replicatedCount: at,
+          totalEstimatedCount: totalEstimatedCount
+        });
+        this.relationCache.update(table);
+
+        this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
+      } else {
+        this.logger.info(`Replicating ${table.qualifiedName} ${at}/${limited.length} for resnapshot`);
+      }
+
+      if (this.abort_signal.aborted) {
+        // We only abort after flushing
+        throw new ReplicationAbortedError(`Initial replication interrupted`);
+      }
+    }
   }
 
   async handleRelation(batch: storage.BucketStorageBatch, descriptor: SourceEntityDescriptor, snapshot: boolean) {
@@ -509,7 +676,7 @@ WHERE  oid = $1::regclass`,
       entity_descriptor: descriptor,
       sync_rules: this.sync_rules
     });
-    this.relation_cache.set(descriptor.objectId, result.table);
+    this.relationCache.update(result.table);
 
     // Drop conflicting tables. This includes for example renamed tables.
     await batch.drop(result.dropTables);
@@ -524,40 +691,59 @@ WHERE  oid = $1::regclass`,
       // Truncate this table, in case a previous snapshot was interrupted.
       await batch.truncate([result.table]);
 
-      let lsn: string = ZERO_LSN;
       // Start the snapshot inside a transaction.
       // We use a dedicated connection for this.
       const db = await this.connections.snapshotConnection();
       try {
-        await db.query('BEGIN');
-        try {
-          await this.snapshotTable(batch, db, result.table);
-
-          // Get the current LSN.
-          // The data will only be consistent once incremental replication
-          // has passed that point.
-          // We have to get this LSN _after_ we have started the snapshot query.
-          const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
-          lsn = rs.rows[0][0];
-
-          await db.query('COMMIT');
-        } catch (e) {
-          await db.query('ROLLBACK');
-          // TODO: Wrap with custom error type
-          throw e;
-        }
+        const table = await this.snapshotTableInTx(batch, db, result.table);
+        // After the table snapshot, we wait for replication to catch up.
+        // To make sure there is actually something to replicate, we send a keepalive
+        // message.
+        await sendKeepAlive(db);
+        return table;
       } finally {
         await db.end();
       }
-      const [table] = await batch.markSnapshotDone([result.table], lsn);
-      return table;
     }
 
     return result.table;
   }
 
+  /**
+   * Process rows that have missing TOAST values.
+   *
+   * This can happen during edge cases in the chunked intial snapshot process.
+   *
+   * We handle this similar to an inline table snapshot, but limited to the specific
+   * set of rows.
+   */
+  private async resnapshot(batch: BucketStorageBatch, rows: MissingRow[]) {
+    const byTable = new Map<number, MissingRow[]>();
+    for (let row of rows) {
+      const relId = row.table.objectId as number; // always a number for postgres
+      if (!byTable.has(relId)) {
+        byTable.set(relId, []);
+      }
+      byTable.get(relId)!.push(row);
+    }
+    const db = await this.connections.snapshotConnection();
+    try {
+      for (let rows of byTable.values()) {
+        const table = rows[0].table;
+        await this.snapshotTableInTx(
+          batch,
+          db,
+          table,
+          rows.map((r) => r.key)
+        );
+      }
+    } finally {
+      await db.end();
+    }
+  }
+
   private getTable(relationId: number): storage.SourceTable {
-    const table = this.relation_cache.get(relationId);
+    const table = this.relationCache.get(relationId);
     if (table == null) {
       // We should always receive a replication message before the relation is used.
       // If we can't find it, it's a bug.
@@ -576,7 +762,7 @@ WHERE  oid = $1::regclass`,
     if (msg.tag == 'insert' || msg.tag == 'update' || msg.tag == 'delete') {
       const table = this.getTable(getRelId(msg.relation));
       if (!table.syncAny) {
-        logger.debug(`Table ${table.qualifiedName} not used in sync rules - skipping`);
+        this.logger.debug(`Table ${table.qualifiedName} not used in sync rules - skipping`);
         return null;
       }
 
@@ -684,8 +870,39 @@ WHERE  oid = $1::regclass`,
     // Auto-activate as soon as initial replication is done
     await this.storage.autoActivate();
 
+    let resnapshot: { table: storage.SourceTable; key: PrimaryKeyValue }[] = [];
+
+    const markRecordUnavailable = (record: SaveUpdate) => {
+      if (!IdSnapshotQuery.supports(record.sourceTable)) {
+        // If it's not supported, it's also safe to ignore
+        return;
+      }
+      let key: PrimaryKeyValue = {};
+      for (let column of record.sourceTable.replicaIdColumns) {
+        const name = column.name;
+        const value = record.after[name];
+        if (value == null) {
+          // We don't expect this to actually happen.
+          // The key should always be present in the "after" record.
+          return;
+        }
+        key[name] = value;
+      }
+      resnapshot.push({
+        table: record.sourceTable,
+        key: key
+      });
+    };
+
     await this.storage.startBatch(
-      { zeroLSN: ZERO_LSN, defaultSchema: POSTGRES_DEFAULT_SCHEMA, storeCurrentData: true, skipExistingRows: false },
+      {
+        logger: this.logger,
+        zeroLSN: ZERO_LSN,
+        defaultSchema: POSTGRES_DEFAULT_SCHEMA,
+        storeCurrentData: true,
+        skipExistingRows: false,
+        markRecordUnavailable
+      },
       async (batch) => {
         // We don't handle any plain keepalive messages while we have transactions.
         // While we have transactions, we use that to advance the position.
@@ -729,6 +946,16 @@ WHERE  oid = $1::regclass`,
                 // This effectively lets us batch multiple transactions within the same chunk
                 // into a single flush, increasing throughput for many small transactions.
                 skipKeepalive = false;
+                // flush() must be before the resnapshot check - that is
+                // typically what reports the resnapshot records.
+                await batch.flush();
+                // This _must_ be checked after the flush(), and before
+                // commit() or ack(). We never persist the resnapshot list,
+                // so we have to process it before marking our progress.
+                if (resnapshot.length > 0) {
+                  await this.resnapshot(batch, resnapshot);
+                  resnapshot = [];
+                }
                 const didCommit = await batch.commit(msg.lsn!, {
                   createEmptyCheckpoints,
                   oldestUncommittedChange: this.oldestUncommittedChange
@@ -741,7 +968,7 @@ WHERE  oid = $1::regclass`,
               }
             } else {
               if (count % 100 == 0) {
-                logger.info(`${this.slot_name} replicating op ${count} ${msg.lsn}`);
+                this.logger.info(`Replicating op ${count} ${msg.lsn}`);
               }
 
               /**
@@ -755,7 +982,14 @@ WHERE  oid = $1::regclass`,
               }
 
               count += 1;
-              await this.writeChange(batch, msg);
+              const flushResult = await this.writeChange(batch, msg);
+              if (flushResult != null && resnapshot.length > 0) {
+                // If we have large transactions, we also need to flush the resnapshot list
+                // periodically.
+                // TODO: make sure this bit is actually triggered
+                await this.resnapshot(batch, resnapshot);
+                resnapshot = [];
+              }
             }
           }
 

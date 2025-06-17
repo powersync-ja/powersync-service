@@ -1,4 +1,9 @@
-import { logger, ReplicationAbortedError, ReplicationAssertionError } from '@powersync/lib-services-framework';
+import {
+  Logger,
+  logger as defaultLogger,
+  ReplicationAbortedError,
+  ReplicationAssertionError
+} from '@powersync/lib-services-framework';
 import * as sync_rules from '@powersync/service-sync-rules';
 
 import {
@@ -23,6 +28,7 @@ export interface BinLogStreamOptions {
   storage: storage.SyncRulesBucketStorage;
   metrics: MetricsEngine;
   abortSignal: AbortSignal;
+  logger?: Logger;
 }
 
 interface MysqlRelId {
@@ -66,6 +72,8 @@ export class BinLogStream {
 
   private tableCache = new Map<string | number, storage.SourceTable>();
 
+  private logger: Logger;
+
   /**
    * Time of the oldest uncommitted change, according to the source db.
    * This is used to determine the replication lag.
@@ -78,6 +86,7 @@ export class BinLogStream {
   private isStartingReplication = true;
 
   constructor(private options: BinLogStreamOptions) {
+    this.logger = options.logger ?? defaultLogger;
     this.storage = options.storage;
     this.connections = options.connections;
     this.syncRules = options.storage.getParsedSyncRules({ defaultSchema: this.defaultSchema });
@@ -155,7 +164,7 @@ export class BinLogStream {
           await this.snapshotTable(connection.connection, batch, result.table);
           await promiseConnection.query('COMMIT');
         } catch (e) {
-          await tryRollback(promiseConnection);
+          await this.tryRollback(promiseConnection);
           throw e;
         }
       } finally {
@@ -213,7 +222,7 @@ AND table_type = 'BASE TABLE';`,
         [tablePattern.schema, tablePattern.name]
       );
       if (result[0].length == 0) {
-        logger.info(`Skipping ${tablePattern.schema}.${name} - no table exists/is not a base table`);
+        this.logger.info(`Skipping ${tablePattern.schema}.${name} - no table exists/is not a base table`);
         continue;
       }
 
@@ -248,7 +257,7 @@ AND table_type = 'BASE TABLE';`,
     const status = await this.storage.getStatus();
     const lastKnowGTID = status.checkpoint_lsn ? common.ReplicatedGTID.fromSerialized(status.checkpoint_lsn) : null;
     if (status.snapshot_done && status.checkpoint_lsn) {
-      logger.info(`Initial replication already done.`);
+      this.logger.info(`Initial replication already done.`);
 
       if (lastKnowGTID) {
         // Check if the binlog is still available. If it isn't we need to snapshot again.
@@ -256,7 +265,7 @@ AND table_type = 'BASE TABLE';`,
         try {
           const isAvailable = await common.isBinlogStillAvailable(connection, lastKnowGTID.position.filename);
           if (!isAvailable) {
-            logger.info(
+            this.logger.info(
               `BinLog file ${lastKnowGTID.position.filename} is no longer available, starting initial replication again.`
             );
           }
@@ -284,9 +293,9 @@ AND table_type = 'BASE TABLE';`,
     const connection = await this.connections.getStreamingConnection();
     const promiseConnection = (connection as mysql.Connection).promise();
     const headGTID = await common.readExecutedGtid(promiseConnection);
-    logger.info(`Using snapshot checkpoint GTID: '${headGTID}'`);
+    this.logger.info(`Using snapshot checkpoint GTID: '${headGTID}'`);
     try {
-      logger.info(`Starting initial replication`);
+      this.logger.info(`Starting initial replication`);
       await promiseConnection.query<mysqlPromise.RowDataPacket[]>(
         'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'
       );
@@ -295,7 +304,12 @@ AND table_type = 'BASE TABLE';`,
 
       const sourceTables = this.syncRules.getSourceTables();
       await this.storage.startBatch(
-        { zeroLSN: common.ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema, storeCurrentData: true },
+        {
+          logger: this.logger,
+          zeroLSN: common.ReplicatedGTID.ZERO.comparable,
+          defaultSchema: this.defaultSchema,
+          storeCurrentData: true
+        },
         async (batch) => {
           for (let tablePattern of sourceTables) {
             const tables = await this.getQualifiedTableNames(batch, tablePattern);
@@ -308,10 +322,10 @@ AND table_type = 'BASE TABLE';`,
           await batch.commit(headGTID.comparable);
         }
       );
-      logger.info(`Initial replication done`);
+      this.logger.info(`Initial replication done`);
       await promiseConnection.query('COMMIT');
     } catch (e) {
-      await tryRollback(promiseConnection);
+      await this.tryRollback(promiseConnection);
       throw e;
     } finally {
       connection.release();
@@ -323,7 +337,7 @@ AND table_type = 'BASE TABLE';`,
     batch: storage.BucketStorageBatch,
     table: storage.SourceTable
   ) {
-    logger.info(`Replicating ${table.qualifiedName}`);
+    this.logger.info(`Replicating ${table.qualifiedName}`);
     // TODO count rows and log progress at certain batch sizes
 
     // MAX_EXECUTION_TIME(0) hint disables execution timeout for this query
@@ -366,7 +380,7 @@ AND table_type = 'BASE TABLE';`,
       // all connections automatically closed, including this one.
       await this.initReplication();
       await this.streamChanges();
-      logger.info('BinLogStream has been shut down.');
+      this.logger.info('BinLogStream has been shut down');
     } catch (e) {
       await this.storage.reportError(e);
       throw e;
@@ -390,7 +404,12 @@ AND table_type = 'BASE TABLE';`,
       // This is needed for includeSchema to work correctly.
       const sourceTables = this.syncRules.getSourceTables();
       await this.storage.startBatch(
-        { zeroLSN: common.ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema, storeCurrentData: true },
+        {
+          logger: this.logger,
+          zeroLSN: common.ReplicatedGTID.ZERO.comparable,
+          defaultSchema: this.defaultSchema,
+          storeCurrentData: true
+        },
         async (batch) => {
           for (let tablePattern of sourceTables) {
             await this.getQualifiedTableNames(batch, tablePattern);
@@ -418,7 +437,7 @@ AND table_type = 'BASE TABLE';`,
     const connection = await this.connections.getConnection();
     const { checkpoint_lsn } = await this.storage.getStatus();
     if (checkpoint_lsn) {
-      logger.info(`Existing checkpoint found: ${checkpoint_lsn}`);
+      this.logger.info(`Existing checkpoint found: ${checkpoint_lsn}`);
     }
     const fromGTID = checkpoint_lsn
       ? common.ReplicatedGTID.fromSerialized(checkpoint_lsn)
@@ -434,6 +453,7 @@ AND table_type = 'BASE TABLE';`,
           // Only listen for changes to tables in the sync rules
           const includedTables = [...this.tableCache.values()].map((table) => table.table);
           const binlogListener = new BinLogListener({
+            logger: this.logger,
             includedTables: includedTables,
             startPosition: binLogPositionState,
             connectionManager: this.connections,
@@ -444,7 +464,7 @@ AND table_type = 'BASE TABLE';`,
           this.abortSignal.addEventListener(
             'abort',
             () => {
-              logger.info('Abort signal received, stopping replication...');
+              this.logger.info('Abort signal received, stopping replication...');
               binlogListener.stop();
             },
             { once: true }
@@ -596,12 +616,12 @@ AND table_type = 'BASE TABLE';`,
     }
     return Date.now() - this.oldestUncommittedChange.getTime();
   }
-}
 
-async function tryRollback(promiseConnection: mysqlPromise.Connection) {
-  try {
-    await promiseConnection.query('ROLLBACK');
-  } catch (e) {
-    logger.error('Failed to rollback transaction', e);
+  async tryRollback(promiseConnection: mysqlPromise.Connection) {
+    try {
+      await promiseConnection.query('ROLLBACK');
+    } catch (e) {
+      this.logger.error('Failed to rollback transaction', e);
+    }
   }
 }

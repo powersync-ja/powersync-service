@@ -2,12 +2,11 @@ import { MissingReplicationSlotError } from '@module/replication/WalStream.js';
 import { storage } from '@powersync/service-core';
 import { METRICS_HELPER, putOp, removeOp } from '@powersync/service-core-tests';
 import { pgwireRows } from '@powersync/service-jpgwire';
+import { ReplicationMetric } from '@powersync/service-types';
 import * as crypto from 'crypto';
 import { describe, expect, test } from 'vitest';
-import { env } from './env.js';
-import { INITIALIZED_MONGO_STORAGE_FACTORY, INITIALIZED_POSTGRES_STORAGE_FACTORY } from './util.js';
+import { describeWithStorage } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
-import { ReplicationMetric } from '@powersync/service-types';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -16,12 +15,8 @@ bucket_definitions:
       - SELECT id, description FROM "test_data"
 `;
 
-describe.skipIf(!env.TEST_MONGO_STORAGE)('wal stream - mongodb', { timeout: 20_000 }, function () {
-  defineWalStreamTests(INITIALIZED_MONGO_STORAGE_FACTORY);
-});
-
-describe.skipIf(!env.TEST_POSTGRES_STORAGE)('wal stream - postgres', { timeout: 20_000 }, function () {
-  defineWalStreamTests(INITIALIZED_POSTGRES_STORAGE_FACTORY);
+describe('wal stream', () => {
+  describeWithStorage({ timeout: 20_000 }, defineWalStreamTests);
 });
 
 function defineWalStreamTests(factory: storage.TestStorageFactory) {
