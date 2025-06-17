@@ -22,6 +22,7 @@ import {
   RequestParameters,
   SourceSchema,
   SqliteRow,
+  StreamParseOptions,
   SyncRules
 } from './types.js';
 
@@ -95,9 +96,23 @@ export class SqlSyncRules implements SyncRules {
       return rules;
     }
 
+    // Bucket definitions using explicit parameter and data queries.
     const bucketMap = parsed.get('bucket_definitions') as YAMLMap;
-    if (bucketMap == null) {
-      rules.errors.push(new YamlError(new Error(`'bucket_definitions' is required`)));
+    // Streams (which also map to buckets internally) with a new syntax and options.
+    const streamMap = parsed.get('streams') as YAMLMap;
+    const definitionNames = new Set<string>();
+    const checkUniqueName = (name: string, literal: Scalar) => {
+      if (definitionNames.has(name)) {
+        rules.errors.push(this.tokenError(literal, 'Duplicate stream or bucket definition.'));
+        return false;
+      }
+
+      definitionNames.add(name);
+      return true;
+    };
+
+    if (bucketMap == null && streamMap == null) {
+      rules.errors.push(new YamlError(new Error(`Either 'bucket_definitions' or 'streams' are required`)));
 
       if (throwOnError) {
         rules.throwOnError();
@@ -105,9 +120,12 @@ export class SqlSyncRules implements SyncRules {
       return rules;
     }
 
-    for (let entry of bucketMap.items) {
+    for (let entry of bucketMap?.items ?? []) {
       const { key: keyScalar, value } = entry as { key: Scalar; value: YAMLMap };
       const key = keyScalar.toString();
+      if (!checkUniqueName(key, keyScalar)) {
+        continue;
+      }
 
       if (value == null || !(value instanceof YAMLMap)) {
         rules.errors.push(this.tokenError(keyScalar, `'${key}' bucket definition must be an object`));
@@ -116,17 +134,7 @@ export class SqlSyncRules implements SyncRules {
 
       const accept_potentially_dangerous_queries =
         value.get('accept_potentially_dangerous_queries', true)?.value == true;
-      let parseOptionPriority: BucketPriority | undefined = undefined;
-      if (value.has('priority')) {
-        const priorityValue = value.get('priority', true)!;
-        if (typeof priorityValue.value != 'number' || !isValidPriority(priorityValue.value)) {
-          rules.errors.push(
-            this.tokenError(priorityValue, 'Invalid priority, expected a number between 0 and 3 (inclusive).')
-          );
-        } else {
-          parseOptionPriority = priorityValue.value;
-        }
-      }
+      const parseOptionPriority = rules.parsePriority(value);
 
       const queryOptions: QueryParseOptions = {
         ...options,
@@ -161,6 +169,38 @@ export class SqlSyncRules implements SyncRules {
           return descriptor.addDataQuery(q, queryOptions);
         });
       }
+      rules.bucketDescriptors.push(descriptor);
+    }
+
+    for (const entry of streamMap?.items ?? []) {
+      const { key: keyScalar, value } = entry as { key: Scalar; value: YAMLMap };
+      const key = keyScalar.toString();
+      if (!checkUniqueName(key, keyScalar)) {
+        continue;
+      }
+
+      const descriptor = new SqlBucketDescriptor(key);
+
+      const accept_potentially_dangerous_queries =
+        value.get('accept_potentially_dangerous_queries', true)?.value == true;
+
+      const queryOptions: StreamParseOptions = {
+        ...options,
+        accept_potentially_dangerous_queries,
+        priority: rules.parsePriority(value),
+        default: value.get('default', true)?.value == true
+      };
+
+      const data = value.get('query', true) as unknown;
+      if (data instanceof Scalar) {
+        rules.withScalar(data, (q) => {
+          return descriptor.addUnifiedStreamQuery(q, queryOptions);
+        });
+      } else {
+        rules.errors.push(this.tokenError(data, 'Must be a string.'));
+        continue;
+      }
+
       rules.bucketDescriptors.push(descriptor);
     }
 
@@ -390,5 +430,18 @@ export class SqlSyncRules implements SyncRules {
       }
     }
     return result;
+  }
+
+  private parsePriority(value: YAMLMap) {
+    if (value.has('priority')) {
+      const priorityValue = value.get('priority', true)!;
+      if (typeof priorityValue.value != 'number' || !isValidPriority(priorityValue.value)) {
+        this.errors.push(
+          SqlSyncRules.tokenError(priorityValue, 'Invalid priority, expected a number between 0 and 3 (inclusive).')
+        );
+      } else {
+        return priorityValue.value;
+      }
+    }
   }
 }
