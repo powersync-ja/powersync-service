@@ -423,6 +423,11 @@ export enum ErrorCode {
    */
   PSYNC_S2401 = 'PSYNC_S2401',
 
+  /**
+   * Failed to connect to the MongoDB storage database.
+   */
+  PSYNC_S2402 = 'PSYNC_S2402',
+
   // ## PSYNC_S23xx: Sync API errors - Postgres Storage
 
   // ## PSYNC_S3xxx: Service configuration issues

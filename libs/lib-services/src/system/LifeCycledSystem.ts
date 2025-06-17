@@ -6,7 +6,9 @@
  * A System can contain anything but should offer a `start` and `stop` operation
  */
 
+import { ServiceError } from '@powersync/service-errors';
 import { container } from '../container.js';
+import { logger } from '../logger/Logger.js';
 
 export type LifecycleCallback<T> = (singleton: T) => Promise<void> | void;
 
@@ -44,6 +46,19 @@ export class LifeCycledSystem {
   stop = async () => {
     for (const lifecycle of this.components.reverse()) {
       await lifecycle.stop?.(lifecycle.component);
+    }
+  };
+
+  stopWithError = async (error: ServiceError) => {
+    try {
+      logger.error('Stopping process due to fatal error', error);
+      await this.stop();
+    } catch (e) {
+      logger.error('Error while stopping', e);
+    } finally {
+      // Custom error code to distinguish from other common errors
+      logger.warn(`Exiting with code 150`);
+      process.exit(150);
     }
   };
 }
