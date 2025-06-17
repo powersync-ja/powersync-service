@@ -241,11 +241,11 @@ export class WalStream {
         const result = await checkTableRls(db, relid);
         if (!result.canRead) {
           // We log the message, then continue anyway, since the check does not cover all cases.
-          logger.warn(result.message!);
+          this.logger.warn(result.message!);
         }
       } catch (e) {
         // It's possible that we just don't have permission to access pg_roles - log the error and continue.
-        logger.warn(`Could not check RLS access for ${tablePattern.schema}.${name}`, e);
+        this.logger.warn(`Could not check RLS access for ${tablePattern.schema}.${name}`, e);
       }
 
       const cresult = await getReplicationIdentityColumns(db, relid);
