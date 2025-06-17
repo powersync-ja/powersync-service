@@ -57,8 +57,8 @@ export class LifeCycledSystem {
       logger.error('Error while stopping', e);
     } finally {
       // Custom error code to distinguish from other common errors
-      logger.warn(`Exiting with code 150`);
-      process.exit(150);
+      logger.warn(`Exiting with code 151`);
+      process.exit(151);
     }
   };
 }

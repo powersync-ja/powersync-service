@@ -28,6 +28,13 @@ export class MongoStorageProvider implements storage.BucketStorageProvider {
 
     let shuttingDown = false;
 
+    // Explicitly connect on startup.
+    // Connection errors during startup are typically not recoverable - we get topologyClosed.
+    // This helps to catch the error early, along with the cause, and before the process starts
+    // to serve API requests.
+    // Errors here will cause the process to exit.
+    await client.connect();
+
     const database = new PowerSyncMongo(client, { database: resolvedConfig.storage.database });
     const factory = new MongoBucketStorage(database, {
       // TODO currently need the entire resolved config due to this
