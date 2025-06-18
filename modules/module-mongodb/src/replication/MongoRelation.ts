@@ -22,7 +22,7 @@ export function getMongoRelation(source: mongo.ChangeStreamNameSpace): storage.S
  */
 export function getCacheIdentifier(source: storage.SourceEntityDescriptor | storage.SourceTable): string {
   if (source instanceof storage.SourceTable) {
-    return `${source.schema}.${source.table}`;
+    return `${source.schema}.${source.name}`;
   }
   return `${source.schema}.${source.name}`;
 }

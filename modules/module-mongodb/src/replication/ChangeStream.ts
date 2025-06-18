@@ -215,7 +215,7 @@ export class ChangeStream {
 
   async estimatedCountNumber(table: storage.SourceTable): Promise<number> {
     const db = this.client.db(table.schema);
-    return await db.collection(table.table).estimatedDocumentCount();
+    return await db.collection(table.name).estimatedDocumentCount();
   }
 
   private async getSnapshotLsn(): Promise<string> {
