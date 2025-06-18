@@ -4,6 +4,7 @@ import {
   BaseObserver,
   ErrorCode,
   logger,
+  ReplicationAbortedError,
   ServiceAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
@@ -504,7 +505,7 @@ export class MongoSyncBucketStorage
   async terminate(options?: storage.TerminateOptions) {
     // Default is to clear the storage except when explicitly requested not to.
     if (!options || options?.clearStorage) {
-      await this.clear();
+      await this.clear(options);
     }
     await this.db.sync_rules.updateOne(
       {
@@ -547,8 +548,11 @@ export class MongoSyncBucketStorage
     };
   }
 
-  async clear(): Promise<void> {
+  async clear(options?: storage.ClearStorageOptions): Promise<void> {
     while (true) {
+      if (options?.signal?.aborted) {
+        throw new ReplicationAbortedError('Aborted clearing data');
+      }
       try {
         await this.clearIteration();
 

@@ -1,4 +1,4 @@
-import { container, logger } from '@powersync/lib-services-framework';
+import { container, logger, ReplicationAbortedError } from '@powersync/lib-services-framework';
 import { PgManager } from './PgManager.js';
 import { MissingReplicationSlotError, sendKeepAlive, WalStream } from './WalStream.js';
 
@@ -104,6 +104,10 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
       this.lastStream = stream;
       await stream.replicate();
     } catch (e) {
+      if (this.isStopped && e instanceof ReplicationAbortedError) {
+        // Ignore aborted errors
+        return;
+      }
       this.logger.error(`Replication error`, e);
       if (e.cause != null) {
         // Example:

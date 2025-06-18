@@ -431,7 +431,7 @@ WHERE  oid = $1::regclass`,
       // In those cases, we have to start replication from scratch.
       // If there is an existing healthy slot, we can skip this and continue
       // initial replication where we left off.
-      await this.storage.clear();
+      await this.storage.clear({ signal: this.abort_signal });
 
       await db.query({
         statement: 'SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1',
