@@ -12,6 +12,12 @@ export interface SourceTableOptions {
   snapshotComplete: boolean;
 }
 
+export interface TableSnapshotStatus {
+  totalEstimatedCount: number;
+  replicatedCount: number;
+  lastKey: Uint8Array | null;
+}
+
 export class SourceTable implements SourceEntityDescriptor {
   static readonly DEFAULT_TAG = DEFAULT_TAG;
 
@@ -41,6 +47,14 @@ export class SourceTable implements SourceEntityDescriptor {
    * Defaults to true for tests.
    */
   public syncEvent = true;
+
+  /**
+   * Always undefined if snapshotComplete = true.
+   *
+   * May be set if snapshotComplete = false.
+   */
+  public snapshotStatus: TableSnapshotStatus | undefined = undefined;
+
 
   constructor(public readonly options: SourceTableOptions) {}
 
@@ -81,5 +95,36 @@ export class SourceTable implements SourceEntityDescriptor {
 
   get syncAny() {
     return this.syncData || this.syncParameters || this.syncEvent;
+  }
+
+  /**
+   * In-memory clone of the table status.
+   */
+  clone() {
+    const copy = new SourceTable({
+      id: this.id,
+      connectionTag: this.connectionTag,
+      objectId: this.objectId,
+      schema: this.schema,
+      name: this.name,
+      replicaIdColumns: this.replicaIdColumns,
+      snapshotComplete: this.snapshotComplete
+      }
+    );
+    copy.syncData = this.syncData;
+    copy.syncParameters = this.syncParameters;
+    copy.snapshotStatus = this.snapshotStatus;
+    return copy;
+  }
+
+  formatSnapshotProgress() {
+    if (this.snapshotComplete || this.snapshotStatus == null) {
+      // Should not happen
+      return '-';
+    } else if (this.snapshotStatus.totalEstimatedCount < 0) {
+      return `${this.snapshotStatus.replicatedCount}/?`;
+    } else {
+      return `${this.snapshotStatus.replicatedCount}/~${this.snapshotStatus.totalEstimatedCount}`;
+    }
   }
 }

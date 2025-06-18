@@ -59,6 +59,12 @@ export class ServiceContextContainer implements ServiceContext {
     this.storageEngine = new storage.StorageEngine({
       configuration
     });
+    this.storageEngine.registerListener({
+      storageFatalError: (error) => {
+        // Propagate the error to the lifecycle engine
+        this.lifeCycleEngine.stopWithError(error);
+      }
+    });
 
     this.lifeCycleEngine.withLifecycle(this.storageEngine, {
       start: (storageEngine) => storageEngine.start(),

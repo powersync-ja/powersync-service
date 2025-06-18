@@ -2,7 +2,7 @@ import * as common from '../../common/common-index.js';
 import async from 'async';
 import { BinLogEvent, StartOptions, TableMapEntry, ZongJi } from '@powersync/mysql-zongji';
 import * as zongji_utils from './zongji-utils.js';
-import { logger } from '@powersync/lib-services-framework';
+import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
 import { MySQLConnectionManager } from '../MySQLConnectionManager.js';
 import { AST, BaseFrom, Parser, RenameStatement, TruncateStatement } from 'node-sql-parser';
 import timers from 'timers/promises';
@@ -41,6 +41,8 @@ export interface SchemaChange {
 }
 
 export interface BinLogEventHandler {
+  onTransactionStart: (options: { timestamp: Date }) => Promise<void>;
+  onRotate: () => Promise<void>;
   onWrite: (rows: Row[], tableMap: TableMapEntry) => Promise<void>;
   onUpdate: (rowsAfter: Row[], rowsBefore: Row[], tableMap: TableMapEntry) => Promise<void>;
   onDelete: (rows: Row[], tableMap: TableMapEntry) => Promise<void>;
@@ -54,6 +56,7 @@ export interface BinLogListenerOptions {
   includedTables: string[];
   serverId: number;
   startPosition: common.BinLogPosition;
+  logger?: Logger;
 }
 
 /**
@@ -66,6 +69,7 @@ export class BinLogListener {
   private eventHandler: BinLogEventHandler;
   private binLogPosition: common.BinLogPosition;
   private currentGTID: common.ReplicatedGTID | null;
+  private logger: Logger;
 
   isStopped: boolean = false;
   isStopping: boolean = false;
@@ -77,6 +81,7 @@ export class BinLogListener {
   queueMemoryUsage: number;
 
   constructor(public options: BinLogListenerOptions) {
+    this.logger = options.logger ?? defaultLogger;
     this.connectionManager = options.connectionManager;
     this.eventHandler = options.eventHandler;
     this.binLogPosition = options.startPosition;
@@ -100,7 +105,7 @@ export class BinLogListener {
       return;
     }
 
-    logger.info(
+    this.logger.info(
       `${isRestart ? 'Restarting' : 'Starting'} BinLog Listener with replica client id:${this.options.serverId}...`
     );
 
@@ -116,7 +121,7 @@ export class BinLogListener {
           if (error) {
             reject(error);
           } else {
-            logger.info('Successfully set up replication connection heartbeat...');
+            this.logger.info('Successfully set up replication connection heartbeat...');
             resolve(results);
           }
         }
@@ -127,7 +132,7 @@ export class BinLogListener {
     // The timeout here must be greater than the master_heartbeat_period.
     const socket = this.zongji.connection._socket!;
     socket.setTimeout(60_000, () => {
-      logger.info('Destroying socket due to replication connection timeout.');
+      this.logger.info('Destroying socket due to replication connection timeout.');
       socket.destroy(new Error('Replication connection timeout.'));
     });
 
@@ -143,7 +148,7 @@ export class BinLogListener {
 
     return new Promise((resolve) => {
       this.zongji.once('ready', () => {
-        logger.info(
+        this.logger.info(
           `BinLog Listener ${isRestart ? 'restarted' : 'started'}. Listening for events from position: ${this.binLogPosition.filename}:${this.binLogPosition.offset}.`
         );
         resolve();
@@ -153,7 +158,7 @@ export class BinLogListener {
 
   public async stop(): Promise<void> {
     if (!(this.isStopped || this.isStopping)) {
-      logger.info('Stopping BinLog Listener...');
+      this.logger.info('Stopping BinLog Listener...');
       this.isStopping = true;
       await new Promise<void>((resolve) => {
         if (this.isStopped) {
@@ -161,7 +166,7 @@ export class BinLogListener {
         }
         this.zongji.once('stopped', () => {
           this.isStopped = true;
-          logger.info('BinLog Listener stopped. Replication ended.');
+          this.logger.info('BinLog Listener stopped. Replication ended.');
           resolve();
         });
         this.zongji.stop();
@@ -181,10 +186,10 @@ export class BinLogListener {
 
     queue.error((error) => {
       if (!(this.isStopped || this.isStopping)) {
-        logger.error('Error processing BinLog event:', error);
+        this.logger.error('Error processing BinLog event:', error);
         this.stop();
       } else {
-        logger.warn('Error processing BinLog event during shutdown:', error);
+        this.logger.warn('Error processing BinLog event during shutdown:', error);
       }
     });
 
@@ -195,29 +200,29 @@ export class BinLogListener {
     const zongji = this.connectionManager.createBinlogListener();
 
     zongji.on('binlog', async (evt) => {
-      logger.info(`Received BinLog event:${evt.getEventName()}`);
+      this.logger.info(`Received BinLog event:${evt.getEventName()}`);
       this.processingQueue.push(evt);
       this.queueMemoryUsage += evt.size;
 
       // When the processing queue grows past the threshold, we pause the binlog listener
       if (this.isQueueOverCapacity()) {
-        logger.info(
+        this.logger.info(
           `BinLog processing queue has reached its memory limit of [${this.connectionManager.options.binlog_queue_memory_limit}MB]. Pausing BinLog Listener.`
         );
         zongji.pause();
         const resumeTimeoutPromise = timers.setTimeout(MAX_QUEUE_PAUSE_TIME_MS);
         await Promise.race([this.processingQueue.empty(), resumeTimeoutPromise]);
-        logger.info(`BinLog processing queue backlog cleared. Resuming BinLog Listener.`);
+        this.logger.info(`BinLog processing queue backlog cleared. Resuming BinLog Listener.`);
         zongji.resume();
       }
     });
 
     zongji.on('error', (error) => {
       if (!(this.isStopped || this.isStopping)) {
-        logger.error('BinLog Listener error:', error);
+        this.logger.error('BinLog Listener error:', error);
         this.stop();
       } else {
-        logger.warn('Ignored BinLog Listener error during shutdown:', error);
+        this.logger.warn('Ignored BinLog Listener error during shutdown:', error);
       }
     });
 
@@ -239,23 +244,24 @@ export class BinLogListener {
             }
           });
           this.binLogPosition.offset = evt.nextPosition;
-          logger.info(
+          await this.eventHandler.onTransactionStart({ timestamp: new Date(evt.timestamp) });
+          this.logger.info(
             `Processed GTID log event. Next position in BinLog: ${this.binLogPosition.filename}:${this.binLogPosition.offset}`
           );
           break;
         case zongji_utils.eventIsRotation(evt):
           if (this.binLogPosition.filename !== evt.binlogName) {
-            logger.info(
+            this.logger.info(
               `Processed Rotate log event. New BinLog file is: ${this.binLogPosition.filename}:${this.binLogPosition.offset}`
             );
           }
           this.binLogPosition.filename = evt.binlogName;
           this.binLogPosition.offset = evt.position;
-
+          await this.eventHandler.onRotate();
           break;
         case zongji_utils.eventIsWriteMutation(evt):
           await this.eventHandler.onWrite(evt.rows, evt.tableMap[evt.tableId]);
-          logger.info(
+          this.logger.info(
             `Processed Write row event of ${evt.rows.length} rows for table: ${evt.tableMap[evt.tableId].tableName}`
           );
           break;
@@ -265,13 +271,13 @@ export class BinLogListener {
             evt.rows.map((row) => row.before),
             evt.tableMap[evt.tableId]
           );
-          logger.info(
+          this.logger.info(
             `Processed Update row event of ${evt.rows.length} rows for table: ${evt.tableMap[evt.tableId].tableName}`
           );
           break;
         case zongji_utils.eventIsDeleteMutation(evt):
           await this.eventHandler.onDelete(evt.rows, evt.tableMap[evt.tableId]);
-          logger.info(
+          this.logger.info(
             `Processed Delete row event of ${evt.rows.length} rows for table: ${evt.tableMap[evt.tableId].tableName}`
           );
           break;
@@ -282,7 +288,7 @@ export class BinLogListener {
             position: this.binLogPosition
           }).comparable;
           await this.eventHandler.onCommit(LSN);
-          logger.info(`Processed Xid log event. Transaction LSN: ${LSN}.`);
+          this.logger.info(`Processed Xid log event. Transaction LSN: ${LSN}.`);
           break;
         case zongji_utils.eventIsQuery(evt):
           // Ignore BEGIN queries
@@ -307,7 +313,7 @@ export class BinLogListener {
   }
 
   private async handleSchemaChanges(changes: SchemaChange[], nextPosition: number): Promise<void> {
-    logger.info(`Stopping BinLog Listener to process ${changes.length} schema change events...`);
+    this.logger.info(`Stopping BinLog Listener to process ${changes.length} schema change events...`);
     // Since handling the schema changes can take a long time, we need to stop the Zongji listener instead of pausing it.
     await new Promise<void>((resolve) => {
       this.zongji.once('stopped', () => {
@@ -316,7 +322,7 @@ export class BinLogListener {
       this.zongji.stop();
     });
     for (const change of changes) {
-      logger.info(`Processing schema change: ${change.type} for table: ${change.table}`);
+      this.logger.info(`Processing schema change: ${change.type} for table: ${change.table}`);
       await this.eventHandler.onSchemaChange(change);
     }
 
@@ -327,7 +333,7 @@ export class BinLogListener {
       await this.processingQueue.empty();
     }
     this.zongji = this.createZongjiListener();
-    logger.info(`Successfully processed schema changes.`);
+    this.logger.info(`Successfully processed schema changes.`);
     // Restart the Zongji listener
     await this.start(true);
   }

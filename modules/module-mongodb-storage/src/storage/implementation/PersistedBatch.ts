@@ -3,7 +3,7 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
-import { logger } from '@powersync/lib-services-framework';
+import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
 import { InternalOpId, storage, utils } from '@powersync/service-core';
 import { currentBucketKey, MAX_ROW_SIZE } from './MongoBucketBatch.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
@@ -46,6 +46,7 @@ const MAX_TRANSACTION_DOC_COUNT = 2_000;
  * multiple transactions.
  */
 export class PersistedBatch {
+  logger: Logger;
   bucketData: mongo.AnyBulkWriteOperation<BucketDataDocument>[] = [];
   bucketParameters: mongo.AnyBulkWriteOperation<BucketParameterDocument>[] = [];
   currentData: mongo.AnyBulkWriteOperation<CurrentDataDocument>[] = [];
@@ -63,9 +64,11 @@ export class PersistedBatch {
 
   constructor(
     private group_id: number,
-    writtenSize: number
+    writtenSize: number,
+    options?: { logger?: Logger }
   ) {
     this.currentSize = writtenSize;
+    this.logger = options?.logger ?? defaultLogger;
   }
 
   private incrementBucket(bucket: string, op_id: InternalOpId) {
@@ -107,7 +110,7 @@ export class PersistedBatch {
         // the BSON size is small enough, but the JSON size is too large.
         // In these cases, we can't store the data, so we skip it, or generate a REMOVE operation if the row
         // was synced previously.
-        logger.error(`powersync_${this.group_id} Row ${key} too large: ${recordData.length} bytes. Removing.`);
+        this.logger.error(`Row ${key} too large: ${recordData.length} bytes. Removing.`);
         continue;
       }
 
@@ -270,9 +273,11 @@ export class PersistedBatch {
     );
   }
 
-  async flush(db: PowerSyncMongo, session: mongo.ClientSession) {
+  async flush(db: PowerSyncMongo, session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions) {
     const startAt = performance.now();
+    let flushedSomething = false;
     if (this.bucketData.length > 0) {
+      flushedSomething = true;
       await db.bucket_data.bulkWrite(this.bucketData, {
         session,
         // inserts only - order doesn't matter
@@ -280,6 +285,7 @@ export class PersistedBatch {
       });
     }
     if (this.bucketParameters.length > 0) {
+      flushedSomething = true;
       await db.bucket_parameters.bulkWrite(this.bucketParameters, {
         session,
         // inserts only - order doesn't matter
@@ -287,6 +293,7 @@ export class PersistedBatch {
       });
     }
     if (this.currentData.length > 0) {
+      flushedSomething = true;
       await db.current_data.bulkWrite(this.currentData, {
         session,
         // may update and delete data within the same batch - order matters
@@ -295,6 +302,7 @@ export class PersistedBatch {
     }
 
     if (this.bucketStates.size > 0) {
+      flushedSomething = true;
       await db.bucket_state.bulkWrite(this.getBucketStateUpdates(), {
         session,
         // Per-bucket operation - order doesn't matter
@@ -302,12 +310,43 @@ export class PersistedBatch {
       });
     }
 
-    const duration = performance.now() - startAt;
-    logger.info(
-      `powersync_${this.group_id} Flushed ${this.bucketData.length} + ${this.bucketParameters.length} + ${
-        this.currentData.length
-      } updates, ${Math.round(this.currentSize / 1024)}kb in ${duration.toFixed(0)}ms. Last op_id: ${this.debugLastOpId}`
-    );
+    if (flushedSomething) {
+      const duration = Math.round(performance.now() - startAt);
+      if (options?.oldestUncommittedChange != null) {
+        const replicationLag = Math.round((Date.now() - options.oldestUncommittedChange.getTime()) / 1000);
+
+        this.logger.info(
+          `Flushed ${this.bucketData.length} + ${this.bucketParameters.length} + ${
+            this.currentData.length
+          } updates, ${Math.round(this.currentSize / 1024)}kb in ${duration}ms. Last op_id: ${this.debugLastOpId}. Replication lag: ${replicationLag}s`,
+          {
+            flushed: {
+              duration: duration,
+              size: this.currentSize,
+              bucket_data_count: this.bucketData.length,
+              parameter_data_count: this.bucketParameters.length,
+              current_data_count: this.currentData.length,
+              replication_lag_seconds: replicationLag
+            }
+          }
+        );
+      } else {
+        this.logger.info(
+          `Flushed ${this.bucketData.length} + ${this.bucketParameters.length} + ${
+            this.currentData.length
+          } updates, ${Math.round(this.currentSize / 1024)}kb in ${duration}ms. Last op_id: ${this.debugLastOpId}`,
+          {
+            flushed: {
+              duration: duration,
+              size: this.currentSize,
+              bucket_data_count: this.bucketData.length,
+              parameter_data_count: this.bucketParameters.length,
+              current_data_count: this.currentData.length
+            }
+          }
+        );
+      }
+    }
 
     this.bucketData = [];
     this.bucketParameters = [];

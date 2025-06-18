@@ -1,9 +1,8 @@
 import { PostgresRouteAPIAdapter } from '@module/api/PostgresRouteAPIAdapter.js';
-import { checkpointUserId, createWriteCheckpoint } from '@powersync/service-core';
+import { checkpointUserId, createWriteCheckpoint, TestStorageFactory } from '@powersync/service-core';
 import { describe, test } from 'vitest';
-import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
+import { describeWithStorage } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
-import { env } from './env.js';
 
 import timers from 'node:timers/promises';
 
@@ -13,8 +12,11 @@ const BASIC_SYNC_RULES = `bucket_definitions:
       - SELECT id, description, other FROM "test_data"`;
 
 describe('checkpoint tests', () => {
+  describeWithStorage({}, checkpointTests);
+});
+
+const checkpointTests = (factory: TestStorageFactory) => {
   test('write checkpoints', { timeout: 50_000 }, async () => {
-    const factory = INITIALIZED_MONGO_STORAGE_FACTORY;
     await using context = await WalStreamTestContext.open(factory);
 
     await context.updateSyncRules(BASIC_SYNC_RULES);
@@ -79,4 +81,4 @@ describe('checkpoint tests', () => {
       controller.abort();
     }
   });
-});
+};

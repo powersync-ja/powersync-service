@@ -78,4 +78,9 @@ export abstract class AbstractReplicationJob {
   public get isStopped(): boolean {
     return this.abortController.signal.aborted;
   }
+
+  /**
+   * Get replication lag for this job in ms.
+   */
+  abstract getReplicationLagMillis(): Promise<number | undefined>;
 }

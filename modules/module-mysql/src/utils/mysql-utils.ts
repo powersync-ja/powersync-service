@@ -41,6 +41,7 @@ export function createPool(config: types.NormalizedMySQLConnectionConfig, option
   return mysql.createPool({
     host: config.hostname,
     user: config.username,
+    port: config.port,
     password: config.password,
     database: config.database,
     ssl: hasSSLOptions ? sslOptions : undefined,

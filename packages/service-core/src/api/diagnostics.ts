@@ -78,7 +78,7 @@ export async function getSyncRulesStatus(
 
     if (systemStorage) {
       try {
-        replication_lag_bytes = await apiHandler.getReplicationLag({
+        replication_lag_bytes = await apiHandler.getReplicationLagBytes({
           bucketStorage: systemStorage
         });
       } catch (e) {

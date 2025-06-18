@@ -273,4 +273,6 @@ class TestBinLogEventHandler implements BinLogEventHandler {
   async onSchemaChange(change: SchemaChange) {
     this.schemaChanges.push(change);
   }
+  async onTransactionStart(options: { timestamp: Date }) {}
+  async onRotate() {}
 }

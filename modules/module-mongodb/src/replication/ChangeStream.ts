@@ -2,13 +2,21 @@ import { isMongoNetworkTimeoutError, isMongoServerError, mongo } from '@powersyn
 import {
   container,
   DatabaseConnectionError,
+  logger as defaultLogger,
   ErrorCode,
-  logger,
+  Logger,
   ReplicationAbortedError,
   ReplicationAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
-import { MetricsEngine, SaveOperationTag, SourceEntityDescriptor, SourceTable, storage } from '@powersync/service-core';
+import {
+  MetricsEngine,
+  RelationCache,
+  SaveOperationTag,
+  SourceEntityDescriptor,
+  SourceTable,
+  storage
+} from '@powersync/service-core';
 import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { MongoLSN } from '../common/MongoLSN.js';
@@ -22,7 +30,8 @@ import {
   getMongoRelation,
   STANDALONE_CHECKPOINT_ID
 } from './MongoRelation.js';
-import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
+import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
+import { CHECKPOINTS_COLLECTION, timestampToDate } from './replication-utils.js';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;
@@ -36,10 +45,18 @@ export interface ChangeStreamOptions {
    * in closing the stream. To cover that case, reduce the timeout for tests.
    */
   maxAwaitTimeMS?: number;
+
+  /**
+   * Override snapshotChunkLength for testing.
+   */
+  snapshotChunkLength?: number;
+
+  logger?: Logger;
 }
 
 interface InitResult {
   needsInitialSync: boolean;
+  snapshotLsn: string | null;
 }
 
 /**
@@ -73,9 +90,24 @@ export class ChangeStream {
 
   private abort_signal: AbortSignal;
 
-  private relation_cache = new Map<string | number, storage.SourceTable>();
+  private relationCache = new RelationCache(getCacheIdentifier);
+
+  /**
+   * Time of the oldest uncommitted change, according to the source db.
+   * This is used to determine the replication lag.
+   */
+  private oldestUncommittedChange: Date | null = null;
+  /**
+   * Keep track of whether we have done a commit or keepalive yet.
+   * We can only compute replication lag if isStartingReplication == false, or oldestUncommittedChange is present.
+   */
+  private isStartingReplication = true;
 
   private checkpointStreamId = new mongo.ObjectId();
+
+  private logger: Logger;
+
+  private snapshotChunkLength: number;
 
   constructor(options: ChangeStreamOptions) {
     this.storage = options.storage;
@@ -83,6 +115,7 @@ export class ChangeStream {
     this.group_id = options.storage.group_id;
     this.connections = options.connections;
     this.maxAwaitTimeMS = options.maxAwaitTimeMS ?? 10_000;
+    this.snapshotChunkLength = options.snapshotChunkLength ?? 6_000;
     this.client = this.connections.client;
     this.defaultDb = this.connections.db;
     this.sync_rules = options.storage.getParsedSyncRules({
@@ -97,6 +130,8 @@ export class ChangeStream {
       },
       { once: true }
     );
+
+    this.logger = options.logger ?? defaultLogger;
   }
 
   get stopped() {
@@ -109,10 +144,6 @@ export class ChangeStream {
 
   private get configurePostImages() {
     return this.connections.options.postImages == PostImagesOption.AUTO_CONFIGURE;
-  }
-
-  private get logPrefix() {
-    return `[powersync_${this.group_id}]`;
   }
 
   /**
@@ -150,7 +181,7 @@ export class ChangeStream {
       .toArray();
 
     if (!tablePattern.isWildcard && collections.length == 0) {
-      logger.warn(`${this.logPrefix} Collection ${schema}.${tablePattern.name} not found`);
+      this.logger.warn(`Collection ${schema}.${tablePattern.name} not found`);
     }
 
     for (let collection of collections) {
@@ -170,37 +201,26 @@ export class ChangeStream {
   async initSlot(): Promise<InitResult> {
     const status = await this.storage.getStatus();
     if (status.snapshot_done && status.checkpoint_lsn) {
-      logger.info(`${this.logPrefix} Initial replication already done`);
-      return { needsInitialSync: false };
+      this.logger.info(`Initial replication already done`);
+      return { needsInitialSync: false, snapshotLsn: null };
     }
 
-    return { needsInitialSync: true };
+    return { needsInitialSync: true, snapshotLsn: status.snapshot_lsn };
   }
 
   async estimatedCount(table: storage.SourceTable): Promise<string> {
-    const db = this.client.db(table.schema);
-    const count = await db.collection(table.name).estimatedDocumentCount();
+    const count = await this.estimatedCountNumber(table);
     return `~${count}`;
   }
 
-  /**
-   * Start initial replication.
-   *
-   * If (partial) replication was done before on this slot, this clears the state
-   * and starts again from scratch.
-   */
-  async startInitialReplication() {
-    await this.storage.clear();
-    await this.initialReplication();
+  async estimatedCountNumber(table: storage.SourceTable): Promise<number> {
+    const db = this.client.db(table.schema);
+    return await db.collection(table.table).estimatedDocumentCount();
   }
 
-  async initialReplication() {
-    const sourceTables = this.sync_rules.getSourceTables();
-    await this.client.connect();
-
-    // We need to get the snapshot time before taking the initial snapshot.
+  private async getSnapshotLsn(): Promise<string> {
     const hello = await this.defaultDb.command({ hello: 1 });
-    const snapshotTime = hello.lastWrite?.majorityOpTime?.ts as mongo.Timestamp;
+    // Basic sanity check
     if (hello.msg == 'isdbgrid') {
       throw new ServiceError(
         ErrorCode.PSYNC_S1341,
@@ -211,33 +231,139 @@ export class ChangeStream {
         ErrorCode.PSYNC_S1342,
         'Standalone MongoDB instances are not supported - use a replicaset.'
       );
-    } else if (snapshotTime == null) {
-      // Not known where this would happen apart from the above cases
-      throw new ReplicationAssertionError('MongoDB lastWrite timestamp not found.');
     }
 
+    // Open a change stream just to get a resume token for later use.
+    // We could use clusterTime from the hello command, but that won't tell us if the
+    // snapshot isn't valid anymore.
+    // If we just use the first resumeToken from the stream, we get two potential issues:
+    // 1. The resumeToken may just be a wrapped clusterTime, which does not detect changes
+    //    in source db or other stream issues.
+    // 2. The first actual change we get may have the same clusterTime, causing us to incorrect
+    //    skip that event.
+    // Instead, we create a new checkpoint document, and wait until we get that document back in the stream.
+    // To avoid potential race conditions with the checkpoint creation, we create a new checkpoint document
+    // periodically until the timeout is reached.
+
+    const LSN_TIMEOUT_SECONDS = 60;
+    const LSN_CREATE_INTERVAL_SECONDS = 1;
+
+    await using streamManager = this.openChangeStream({ lsn: null, maxAwaitTimeMs: 0 });
+    const { stream } = streamManager;
+    const startTime = performance.now();
+    let lastCheckpointCreated = -10_000;
+    let eventsSeen = 0;
+
+    while (performance.now() - startTime < LSN_TIMEOUT_SECONDS * 1000) {
+      if (performance.now() - lastCheckpointCreated >= LSN_CREATE_INTERVAL_SECONDS * 1000) {
+        await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
+        lastCheckpointCreated = performance.now();
+      }
+
+      // tryNext() doesn't block, while next() / hasNext() does block until there is data on the stream
+      const changeDocument = await stream.tryNext().catch((e) => {
+        throw mapChangeStreamError(e);
+      });
+      if (changeDocument == null) {
+        continue;
+      }
+
+      const ns = 'ns' in changeDocument && 'coll' in changeDocument.ns ? changeDocument.ns : undefined;
+
+      if (ns?.coll == CHECKPOINTS_COLLECTION && 'documentKey' in changeDocument) {
+        const checkpointId = changeDocument.documentKey._id as string | mongo.ObjectId;
+        if (!this.checkpointStreamId.equals(checkpointId)) {
+          continue;
+        }
+        const { comparable: lsn } = new MongoLSN({
+          timestamp: changeDocument.clusterTime!,
+          resume_token: changeDocument._id
+        });
+        return lsn;
+      }
+
+      eventsSeen += 1;
+    }
+
+    // Could happen if there is a very large replication lag?
+    throw new ServiceError(
+      ErrorCode.PSYNC_S1301,
+      `Timeout after while waiting for checkpoint document for ${LSN_TIMEOUT_SECONDS}s. Streamed events = ${eventsSeen}`
+    );
+  }
+
+  private async validateSnapshotLsn(lsn: string) {
+    await using streamManager = this.openChangeStream({ lsn: lsn, maxAwaitTimeMs: 0 });
+    const { stream } = streamManager;
+    try {
+      // tryNext() doesn't block, while next() / hasNext() does block until there is data on the stream
+      await stream.tryNext();
+    } catch (e) {
+      // Note: A timeout here is not handled as a ChangeStreamInvalidatedError, even though
+      // we possibly cannot recover from it.
+      throw mapChangeStreamError(e);
+    }
+  }
+
+  async initialReplication(snapshotLsn: string | null) {
+    const sourceTables = this.sync_rules.getSourceTables();
+    await this.client.connect();
+
     await this.storage.startBatch(
-      { zeroLSN: MongoLSN.ZERO.comparable, defaultSchema: this.defaultDb.databaseName, storeCurrentData: false },
+      {
+        logger: this.logger,
+        zeroLSN: MongoLSN.ZERO.comparable,
+        defaultSchema: this.defaultDb.databaseName,
+        storeCurrentData: false,
+        skipExistingRows: true
+      },
       async (batch) => {
+        if (snapshotLsn == null) {
+          // First replication attempt - get a snapshot and store the timestamp
+          snapshotLsn = await this.getSnapshotLsn();
+          await batch.setSnapshotLsn(snapshotLsn);
+          this.logger.info(`Marking snapshot at ${snapshotLsn}`);
+        } else {
+          this.logger.info(`Resuming snapshot at ${snapshotLsn}`);
+          // Check that the snapshot is still valid.
+          await this.validateSnapshotLsn(snapshotLsn);
+        }
+
         // Start by resolving all tables.
         // This checks postImage configuration, and that should fail as
-        // earlier as possible.
+        // early as possible.
         let allSourceTables: SourceTable[] = [];
         for (let tablePattern of sourceTables) {
           const tables = await this.resolveQualifiedTableNames(batch, tablePattern);
           allSourceTables.push(...tables);
         }
 
+        let tablesWithStatus: SourceTable[] = [];
         for (let table of allSourceTables) {
+          if (table.snapshotComplete) {
+            this.logger.info(`Skipping ${table.qualifiedName} - snapshot already done`);
+            continue;
+          }
+          let count = await this.estimatedCountNumber(table);
+          const updated = await batch.updateTableProgress(table, {
+            totalEstimatedCount: count
+          });
+          tablesWithStatus.push(updated);
+          this.relationCache.update(updated);
+          this.logger.info(
+            `To replicate: ${table.qualifiedName}: ${updated.snapshotStatus?.replicatedCount}/~${updated.snapshotStatus?.totalEstimatedCount}`
+          );
+        }
+
+        for (let table of tablesWithStatus) {
           await this.snapshotTable(batch, table);
           await batch.markSnapshotDone([table], MongoLSN.ZERO.comparable);
 
           await touch();
         }
 
-        const { comparable: lsn } = new MongoLSN({ timestamp: snapshotTime });
-        logger.info(`${this.logPrefix} Snapshot commit at ${snapshotTime.inspect()} / ${lsn}`);
-        await batch.commit(lsn);
+        this.logger.info(`Snapshot commit at ${snapshotLsn}`);
+        await batch.commit(snapshotLsn);
       }
     );
   }
@@ -303,27 +429,38 @@ export class ChangeStream {
   }
 
   private async snapshotTable(batch: storage.BucketStorageBatch, table: storage.SourceTable) {
-    logger.info(`${this.logPrefix} Replicating ${table.qualifiedName}`);
-    const estimatedCount = await this.estimatedCount(table);
-    let at = 0;
+    const totalEstimatedCount = await this.estimatedCountNumber(table);
+    let at = table.snapshotStatus?.replicatedCount ?? 0;
     const db = this.client.db(table.schema);
     const collection = db.collection(table.name);
-    const cursor = collection.find({}, { batchSize: 6_000, readConcern: 'majority' });
+    await using query = new ChunkedSnapshotQuery({
+      collection,
+      key: table.snapshotStatus?.lastKey,
+      batchSize: this.snapshotChunkLength
+    });
+    if (query.lastKey != null) {
+      this.logger.info(
+        `Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} - resuming at _id > ${query.lastKey}`
+      );
+    } else {
+      this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
+    }
 
     let lastBatch = performance.now();
-    // hasNext() is the call that triggers fetching of the next batch,
-    // then we read it with readBufferedDocuments(). This gives us semi-explicit
-    // control over the fetching of each batch, and avoids a separate promise per document
-    let hasNextPromise = cursor.hasNext();
-    while (await hasNextPromise) {
-      const docBatch = cursor.readBufferedDocuments();
-      // Pre-fetch next batch, so that we can read and write concurrently
-      hasNextPromise = cursor.hasNext();
-      for (let document of docBatch) {
-        if (this.abort_signal.aborted) {
-          throw new ReplicationAbortedError(`Aborted initial replication`);
-        }
+    let nextChunkPromise = query.nextChunk();
+    while (true) {
+      const { docs: docBatch, lastKey } = await nextChunkPromise;
+      if (docBatch.length == 0) {
+        break;
+      }
 
+      if (this.abort_signal.aborted) {
+        throw new ReplicationAbortedError(`Aborted initial replication`);
+      }
+
+      // Pre-fetch next batch, so that we can read and write concurrently
+      nextChunkPromise = query.nextChunk();
+      for (let document of docBatch) {
         const record = constructAfterRecord(document);
 
         // This auto-flushes when the batch reaches its size limit
@@ -337,20 +474,27 @@ export class ChangeStream {
         });
       }
 
+      // Important: flush before marking progress
+      await batch.flush();
       at += docBatch.length;
       this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(docBatch.length);
+
+      table = await batch.updateTableProgress(table, {
+        lastKey,
+        replicatedCount: at,
+        totalEstimatedCount: totalEstimatedCount
+      });
+      this.relationCache.update(table);
+
       const duration = performance.now() - lastBatch;
       lastBatch = performance.now();
-      logger.info(
-        `${this.logPrefix} Replicating ${table.qualifiedName} ${at}/${estimatedCount} in ${duration.toFixed(0)}ms`
+      this.logger.info(
+        `Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} in ${duration.toFixed(0)}ms`
       );
       await touch();
     }
     // In case the loop was interrupted, make sure we await the last promise.
-    await hasNextPromise;
-
-    await batch.flush();
-    logger.info(`${this.logPrefix} Replicated ${at} documents for ${table.qualifiedName}`);
+    await nextChunkPromise;
   }
 
   private async getRelation(
@@ -358,8 +502,7 @@ export class ChangeStream {
     descriptor: SourceEntityDescriptor,
     options: { snapshot: boolean }
   ): Promise<SourceTable> {
-    const cacheId = getCacheIdentifier(descriptor);
-    const existing = this.relation_cache.get(cacheId);
+    const existing = this.relationCache.get(descriptor);
     if (existing != null) {
       return existing;
     }
@@ -399,7 +542,7 @@ export class ChangeStream {
         collMod: collectionInfo.name,
         changeStreamPreAndPostImages: { enabled: true }
       });
-      logger.info(`${this.logPrefix} Enabled postImages on ${db}.${collectionInfo.name}`);
+      this.logger.info(`Enabled postImages on ${db}.${collectionInfo.name}`);
     } else if (!enabled) {
       throw new ServiceError(ErrorCode.PSYNC_S1343, `postImages not enabled on ${db}.${collectionInfo.name}`);
     }
@@ -425,12 +568,12 @@ export class ChangeStream {
       entity_descriptor: descriptor,
       sync_rules: this.sync_rules
     });
-    this.relation_cache.set(getCacheIdentifier(descriptor), result.table);
+    this.relationCache.update(result.table);
 
     // Drop conflicting collections.
     // This is generally not expected for MongoDB source dbs, so we log an error.
     if (result.dropTables.length > 0) {
-      logger.error(
+      this.logger.error(
         `Conflicting collections found for ${JSON.stringify(descriptor)}. Dropping: ${result.dropTables.map((t) => t.id).join(', ')}`
       );
       await batch.drop(result.dropTables);
@@ -442,7 +585,7 @@ export class ChangeStream {
     // 3. The table is used in sync rules.
     const shouldSnapshot = snapshot && !result.table.snapshotComplete && result.table.syncAny;
     if (shouldSnapshot) {
-      logger.info(`${this.logPrefix} New collection: ${descriptor.schema}.${descriptor.name}`);
+      this.logger.info(`New collection: ${descriptor.schema}.${descriptor.name}`);
       // Truncate this table, in case a previous snapshot was interrupted.
       await batch.truncate([result.table]);
 
@@ -462,7 +605,7 @@ export class ChangeStream {
     change: mongo.ChangeStreamDocument
   ): Promise<storage.FlushedResult | null> {
     if (!table.syncAny) {
-      logger.debug(`${this.logPrefix} Collection ${table.qualifiedName} not used in sync rules - skipping`);
+      this.logger.debug(`Collection ${table.qualifiedName} not used in sync rules - skipping`);
       return null;
     }
 
@@ -525,7 +668,11 @@ export class ChangeStream {
     const result = await this.initSlot();
     await this.setupCheckpointsCollection();
     if (result.needsInitialSync) {
-      await this.startInitialReplication();
+      if (result.snapshotLsn == null) {
+        // Snapshot LSN is not present, so we need to start replication from scratch.
+        await this.storage.clear();
+      }
+      await this.initialReplication(result.snapshotLsn);
     }
   }
 
@@ -544,72 +691,98 @@ export class ChangeStream {
     }
   }
 
+  private openChangeStream(options: { lsn: string | null; maxAwaitTimeMs?: number }) {
+    const lastLsn = options.lsn ? MongoLSN.fromSerialized(options.lsn) : null;
+    const startAfter = lastLsn?.timestamp;
+    const resumeAfter = lastLsn?.resumeToken;
+
+    const filters = this.getSourceNamespaceFilters();
+
+    const pipeline: mongo.Document[] = [
+      {
+        $match: filters.$match
+      },
+      { $changeStreamSplitLargeEvent: {} }
+    ];
+
+    let fullDocument: 'required' | 'updateLookup';
+
+    if (this.usePostImages) {
+      // 'read_only' or 'auto_configure'
+      // Configuration happens during snapshot, or when we see new
+      // collections.
+      fullDocument = 'required';
+    } else {
+      fullDocument = 'updateLookup';
+    }
+
+    const streamOptions: mongo.ChangeStreamOptions = {
+      showExpandedEvents: true,
+      maxAwaitTimeMS: options.maxAwaitTimeMs ?? this.maxAwaitTimeMS,
+      fullDocument: fullDocument
+    };
+
+    /**
+     * Only one of these options can be supplied at a time.
+     */
+    if (resumeAfter) {
+      streamOptions.resumeAfter = resumeAfter;
+    } else {
+      // Legacy: We don't persist lsns without resumeTokens anymore, but we do still handle the
+      // case if we have an old one.
+      streamOptions.startAtOperationTime = startAfter;
+    }
+
+    let stream: mongo.ChangeStream<mongo.Document>;
+    if (filters.multipleDatabases) {
+      // Requires readAnyDatabase@admin on Atlas
+      stream = this.client.watch(pipeline, streamOptions);
+    } else {
+      // Same general result, but requires less permissions than the above
+      stream = this.defaultDb.watch(pipeline, streamOptions);
+    }
+
+    this.abort_signal.addEventListener('abort', () => {
+      stream.close();
+    });
+
+    return {
+      stream,
+      filters,
+      [Symbol.asyncDispose]: async () => {
+        return stream.close();
+      }
+    };
+  }
+
   async streamChangesInternal() {
     // Auto-activate as soon as initial replication is done
     await this.storage.autoActivate();
 
     await this.storage.startBatch(
-      { zeroLSN: MongoLSN.ZERO.comparable, defaultSchema: this.defaultDb.databaseName, storeCurrentData: false },
+      {
+        logger: this.logger,
+        zeroLSN: MongoLSN.ZERO.comparable,
+        defaultSchema: this.defaultDb.databaseName,
+        storeCurrentData: false
+      },
       async (batch) => {
         const { lastCheckpointLsn } = batch;
-        const lastLsn = lastCheckpointLsn ? MongoLSN.fromSerialized(lastCheckpointLsn) : null;
+        const lastLsn = MongoLSN.fromSerialized(lastCheckpointLsn!);
         const startAfter = lastLsn?.timestamp;
-        const resumeAfter = lastLsn?.resumeToken;
 
-        logger.info(`${this.logPrefix} Resume streaming at ${startAfter?.inspect()} / ${lastLsn}`);
+        // It is normal for this to be a minute or two old when there is a low volume
+        // of ChangeStream events.
+        const tokenAgeSeconds = Math.round((Date.now() - timestampToDate(startAfter).getTime()) / 1000);
 
-        const filters = this.getSourceNamespaceFilters();
+        this.logger.info(`Resume streaming at ${startAfter?.inspect()} / ${lastLsn}  | Token age: ${tokenAgeSeconds}s`);
 
-        const pipeline: mongo.Document[] = [
-          {
-            $match: filters.$match
-          },
-          { $changeStreamSplitLargeEvent: {} }
-        ];
-
-        let fullDocument: 'required' | 'updateLookup';
-
-        if (this.usePostImages) {
-          // 'read_only' or 'auto_configure'
-          // Configuration happens during snapshot, or when we see new
-          // collections.
-          fullDocument = 'required';
-        } else {
-          fullDocument = 'updateLookup';
-        }
-
-        const streamOptions: mongo.ChangeStreamOptions = {
-          showExpandedEvents: true,
-          maxAwaitTimeMS: this.maxAwaitTimeMS,
-          fullDocument: fullDocument
-        };
-
-        /**
-         * Only one of these options can be supplied at a time.
-         */
-        if (resumeAfter) {
-          streamOptions.resumeAfter = resumeAfter;
-        } else {
-          streamOptions.startAtOperationTime = startAfter;
-        }
-
-        let stream: mongo.ChangeStream<mongo.Document>;
-        if (filters.multipleDatabases) {
-          // Requires readAnyDatabase@admin on Atlas
-          stream = this.client.watch(pipeline, streamOptions);
-        } else {
-          // Same general result, but requires less permissions than the above
-          stream = this.defaultDb.watch(pipeline, streamOptions);
-        }
-
+        await using streamManager = this.openChangeStream({ lsn: lastCheckpointLsn });
+        const { stream, filters } = streamManager;
         if (this.abort_signal.aborted) {
-          stream.close();
+          await stream.close();
           return;
         }
-
-        this.abort_signal.addEventListener('abort', () => {
-          stream.close();
-        });
 
         // Always start with a checkpoint.
         // This helps us to clear errors when restarting, even if there is
@@ -655,10 +828,16 @@ export class ChangeStream {
             // We add an additional check for waitForCheckpointLsn == null, to make sure we're not
             // doing a keepalive in the middle of a transaction.
             if (waitForCheckpointLsn == null && performance.now() - lastEmptyResume > 60_000) {
-              const { comparable: lsn } = MongoLSN.fromResumeToken(stream.resumeToken);
+              const { comparable: lsn, timestamp } = MongoLSN.fromResumeToken(stream.resumeToken);
               await batch.keepalive(lsn);
               await touch();
               lastEmptyResume = performance.now();
+              // Log the token update. This helps as a general "replication is still active" message in the logs.
+              // This token would typically be around 10s behind.
+              this.logger.info(
+                `Idle change stream. Persisted resumeToken for ${timestampToDate(timestamp).toISOString()}`
+              );
+              this.isStartingReplication = false;
             }
             continue;
           }
@@ -711,8 +890,8 @@ export class ChangeStream {
 
             if (!flexDbNameWorkaroundLogged) {
               flexDbNameWorkaroundLogged = true;
-              logger.warn(
-                `${this.logPrefix} Incorrect DB name in change stream: ${changeDocument.ns.db}. Changed to ${this.defaultDb.databaseName}.`
+              this.logger.warn(
+                `Incorrect DB name in change stream: ${changeDocument.ns.db}. Changed to ${this.defaultDb.databaseName}.`
               );
             }
           }
@@ -771,7 +950,12 @@ export class ChangeStream {
             if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
               waitForCheckpointLsn = null;
             }
-            await batch.commit(lsn);
+            const didCommit = await batch.commit(lsn, { oldestUncommittedChange: this.oldestUncommittedChange });
+
+            if (didCommit) {
+              this.oldestUncommittedChange = null;
+              this.isStartingReplication = false;
+            }
           } else if (
             changeDocument.operationType == 'insert' ||
             changeDocument.operationType == 'update' ||
@@ -790,6 +974,9 @@ export class ChangeStream {
               snapshot: true
             });
             if (table.syncAny) {
+              if (this.oldestUncommittedChange == null && changeDocument.clusterTime != null) {
+                this.oldestUncommittedChange = timestampToDate(changeDocument.clusterTime);
+              }
               await this.writeChange(batch, table, changeDocument);
             }
           } else if (changeDocument.operationType == 'drop') {
@@ -800,7 +987,7 @@ export class ChangeStream {
             });
             if (table.syncAny) {
               await batch.drop([table]);
-              this.relation_cache.delete(getCacheIdentifier(rel));
+              this.relationCache.delete(table);
             }
           } else if (changeDocument.operationType == 'rename') {
             const relFrom = getMongoRelation(changeDocument.ns);
@@ -811,7 +998,7 @@ export class ChangeStream {
             });
             if (tableFrom.syncAny) {
               await batch.drop([tableFrom]);
-              this.relation_cache.delete(getCacheIdentifier(relFrom));
+              this.relationCache.delete(relFrom);
             }
             // Here we do need to snapshot the new table
             const collection = await this.getCollectionInfo(relTo.schema, relTo.name);
@@ -824,6 +1011,19 @@ export class ChangeStream {
         }
       }
     );
+  }
+
+  async getReplicationLagMillis(): Promise<number | undefined> {
+    if (this.oldestUncommittedChange == null) {
+      if (this.isStartingReplication) {
+        // We don't have anything to compute replication lag with yet.
+        return undefined;
+      } else {
+        // We don't have any uncommitted changes, so replication is up-to-date.
+        return 0;
+      }
+    }
+    return Date.now() - this.oldestUncommittedChange.getTime();
   }
 }
 

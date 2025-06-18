@@ -2,7 +2,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { normalizePostgresStorageConfig } from '../../src//types/types.js';
 import { PostgresMigrationAgent } from '../../src/migrations/PostgresMigrationAgent.js';
-import { PostgresTestStorageFactoryGenerator } from '../../src/storage/PostgresTestStorageFactoryGenerator.js';
+import {
+  postgresTestSetup,
+  PostgresTestStorageFactoryGenerator
+} from '../../src/storage/PostgresTestStorageFactoryGenerator.js';
 import { env } from './env.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -28,7 +31,9 @@ class TestPostgresMigrationAgent extends PostgresMigrationAgent {
   }
 }
 
-export const POSTGRES_STORAGE_FACTORY = PostgresTestStorageFactoryGenerator({
+export const POSTGRES_STORAGE_SETUP = postgresTestSetup({
   url: env.PG_STORAGE_TEST_URL,
   migrationAgent: (config) => new TestPostgresMigrationAgent(config)
 });
+
+export const POSTGRES_STORAGE_FACTORY = POSTGRES_STORAGE_SETUP.factory;

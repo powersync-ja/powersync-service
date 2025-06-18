@@ -119,6 +119,7 @@ export class MongoBucketStorage
           }
         }
       );
+      await this.db.notifyCheckpoint();
     } else if (next == null && active?.id == sync_rules_group_id) {
       // Slot removed for "active" sync rules, while there is no "next" one.
       await this.updateSyncRules({
@@ -141,6 +142,7 @@ export class MongoBucketStorage
           }
         }
       );
+      await this.db.notifyCheckpoint();
     } else if (next != null && active?.id == sync_rules_group_id) {
       // Already have next sync rules, but need to stop replicating the active one.
 
@@ -155,6 +157,7 @@ export class MongoBucketStorage
           }
         }
       );
+      await this.db.notifyCheckpoint();
     }
   }
 
@@ -209,6 +212,7 @@ export class MongoBucketStorage
         no_checkpoint_before: null,
         keepalive_op: null,
         snapshot_done: false,
+        snapshot_lsn: undefined,
         state: storage.SyncRuleState.PROCESSING,
         slot_name: slot_name,
         last_checkpoint_ts: null,
@@ -216,6 +220,7 @@ export class MongoBucketStorage
         last_keepalive_ts: null
       };
       await this.db.sync_rules.insertOne(doc);
+      await this.db.notifyCheckpoint();
       rules = new MongoPersistedSyncRulesContent(this.db, doc);
       if (options.lock) {
         const lock = await rules.lock();

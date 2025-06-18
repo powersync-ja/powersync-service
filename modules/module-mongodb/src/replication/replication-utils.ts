@@ -1,6 +1,7 @@
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { MongoManager } from './MongoManager.js';
 import { PostImagesOption } from '../types/types.js';
+import * as bson from 'bson';
 
 export const CHECKPOINTS_COLLECTION = '_powersync_checkpoints';
 
@@ -85,4 +86,8 @@ export async function checkSourceConfiguration(connectionManager: MongoManager):
       )
       .toArray();
   }
+}
+
+export function timestampToDate(timestamp: bson.Timestamp) {
+  return new Date(timestamp.getHighBitsUnsigned() * 1000);
 }

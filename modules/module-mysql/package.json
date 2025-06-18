@@ -40,7 +40,6 @@
     "semver": "^7.5.4",
     "ts-codec": "^1.3.0",
     "uri-js": "^4.4.1",
-    "lodash": "^4.17.21",
     "uuid": "^11.1.0"
   },
   "devDependencies": {
@@ -48,7 +47,6 @@
     "@powersync/service-module-mongodb-storage": "workspace:*",
     "@powersync/service-module-postgres-storage": "workspace:*",
     "@types/async": "^3.2.24",
-    "@types/lodash": "^4.17.5",
     "@types/semver": "^7.5.4"
   }
 }

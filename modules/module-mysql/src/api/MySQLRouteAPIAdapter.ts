@@ -257,7 +257,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
     };
   }
 
-  async getReplicationLag(options: api.ReplicationLagOptions): Promise<number | undefined> {
+  async getReplicationLagBytes(options: api.ReplicationLagOptions): Promise<number | undefined> {
     const { bucketStorage } = options;
     const lastCheckpoint = await bucketStorage.getCheckpoint();
 

@@ -1,7 +1,7 @@
-import { BaseObserver, logger } from '@powersync/lib-services-framework';
+import { BaseObserver, logger, ServiceError } from '@powersync/lib-services-framework';
 import { ResolvedPowerSyncConfig } from '../util/util-index.js';
-import { ActiveStorage, BucketStorageProvider } from './StorageProvider.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
+import { ActiveStorage, BucketStorageProvider } from './StorageProvider.js';
 
 export type StorageEngineOptions = {
   configuration: ResolvedPowerSyncConfig;
@@ -9,6 +9,7 @@ export type StorageEngineOptions = {
 
 export interface StorageEngineListener {
   storageActivated: (storage: BucketStorageFactory) => void;
+  storageFatalError: (error: ServiceError) => void;
 }
 
 export class StorageEngine extends BaseObserver<StorageEngineListener> {
@@ -47,6 +48,9 @@ export class StorageEngine extends BaseObserver<StorageEngineListener> {
       resolvedConfig: configuration
     });
     this.iterateListeners((cb) => cb.storageActivated?.(this.activeBucketStorage));
+    this.currentActiveStorage.onFatalError?.((error) => {
+      this.iterateListeners((cb) => cb.storageFatalError?.(error));
+    });
     logger.info(`Successfully activated storage: ${configuration.storage.type}.`);
     logger.info('Successfully started Storage Engine.');
   }

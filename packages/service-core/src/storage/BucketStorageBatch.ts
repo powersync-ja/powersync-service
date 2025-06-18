@@ -2,12 +2,13 @@ import { ObserverClient } from '@powersync/lib-services-framework';
 import { EvaluatedParameters, EvaluatedRow, SqliteRow, ToastableSqliteRow } from '@powersync/service-sync-rules';
 import { BSON } from 'bson';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
-import { SourceTable } from './SourceTable.js';
+import { SourceTable, TableSnapshotStatus } from './SourceTable.js';
 import { BatchedCustomWriteCheckpointOptions } from './storage-index.js';
 import { InternalOpId } from '../util/utils.js';
 
 export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptions = {
-  createEmptyCheckpoints: true
+  createEmptyCheckpoints: true,
+  oldestUncommittedChange: null
 };
 
 export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageListener>, AsyncDisposable {
@@ -44,6 +45,8 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
    * Flush and commit any saved ops. This creates a new checkpoint by default.
    *
    * Only call this after a transaction.
+   *
+   * Returns true if either (1) a new checkpoint was created, or (2) there are no changes to commit.
    */
   commit(lsn: string, options?: BucketBatchCommitOptions): Promise<boolean>;
 
@@ -57,11 +60,21 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
   keepalive(lsn: string): Promise<boolean>;
 
   /**
+   * Set the LSN for a snapshot, before starting replication.
+   *
+   * Not required if the source database keeps track of this, for example with
+   * PostgreSQL logical replication slots.
+   */
+  setSnapshotLsn(lsn: string): Promise<void>;
+
+  /**
    * Get the last checkpoint LSN, from either commit or keepalive.
    */
   lastCheckpointLsn: string | null;
 
   markSnapshotDone(tables: SourceTable[], no_checkpoint_before_lsn: string): Promise<SourceTable[]>;
+
+  updateTableProgress(table: SourceTable, progress: Partial<TableSnapshotStatus>): Promise<SourceTable>;
 
   /**
    * Queues the creation of a custom Write Checkpoint. This will be persisted after operations are flushed.
@@ -154,6 +167,13 @@ export interface BucketBatchCommitOptions {
    * Defaults to true.
    */
   createEmptyCheckpoints?: boolean;
+
+  /**
+   * The timestamp of the first change in this batch, according to the source database.
+   *
+   * Used to estimate replication lag.
+   */
+  oldestUncommittedChange?: Date | null;
 }
 
 export type ResolvedBucketBatchCommitOptions = Required<BucketBatchCommitOptions>;

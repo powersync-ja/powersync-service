@@ -300,13 +300,13 @@ export function dateToSqlite(source?: string) {
  *
  * This converts it to objects.
  */
-export function pgwireRows(rs: pgwire.PgResult): Record<string, any>[] {
+export function pgwireRows<T = Record<string, any>>(rs: pgwire.PgResult): T[] {
   const columns = rs.columns;
   return rs.rows.map((row) => {
-    let r: Record<string, any> = {};
+    let r: T = {} as any;
     for (let i = 0; i < columns.length; i++) {
       const c = columns[i];
-      r[c.name] = row[i];
+      (r as any)[c.name] = row[i];
     }
     return r;
   });

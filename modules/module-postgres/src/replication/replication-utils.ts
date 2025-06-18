@@ -1,7 +1,7 @@
 import * as pgwire from '@powersync/service-jpgwire';
 
 import * as lib_postgres from '@powersync/lib-service-postgres';
-import { ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
+import { ErrorCode, logger, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
 import { PatternResult, storage } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
@@ -134,6 +134,61 @@ $$ LANGUAGE plpgsql;`
       `'${publicationName}' uses publish_via_partition_root, which is not supported.`
     );
   }
+}
+
+export async function checkTableRls(
+  db: pgwire.PgClient,
+  relationId: number
+): Promise<{ canRead: boolean; message?: string }> {
+  const rs = await lib_postgres.retriedQuery(db, {
+    statement: `
+WITH user_info AS (
+    SELECT 
+        current_user as username,
+        r.rolsuper,
+        r.rolbypassrls
+    FROM pg_roles r 
+    WHERE r.rolname = current_user
+)
+SELECT
+    c.relname as tablename,
+    c.relrowsecurity as rls_enabled,
+    u.username as username,
+    u.rolsuper as is_superuser,
+    u.rolbypassrls as bypasses_rls
+FROM pg_class c
+CROSS JOIN user_info u
+WHERE c.oid = $1::oid;
+`,
+    params: [{ type: 'int4', value: relationId }]
+  });
+
+  const rows = pgwire.pgwireRows<{
+    rls_enabled: boolean;
+    tablename: string;
+    username: string;
+    is_superuser: boolean;
+    bypasses_rls: boolean;
+  }>(rs);
+  if (rows.length == 0) {
+    // Not expected, since we already got the oid
+    throw new ServiceAssertionError(`Table with OID ${relationId} does not exist.`);
+  }
+  const row = rows[0];
+  if (row.is_superuser || row.bypasses_rls) {
+    // Bypasses RLS automatically.
+    return { canRead: true };
+  }
+
+  if (row.rls_enabled) {
+    // Don't skip, since we _may_ still be able to get results.
+    return {
+      canRead: false,
+      message: `[${ErrorCode.PSYNC_S1145}] Row Level Security is enabled on table "${row.tablename}". To make sure that ${row.username} can read the table, run: 'ALTER ROLE ${row.username} BYPASSRLS'.`
+    };
+  }
+
+  return { canRead: true };
 }
 
 export interface GetDebugTablesInfoOptions {
@@ -317,6 +372,9 @@ export async function getDebugTableInfo(options: GetDebugTableInfoOptions): Prom
     };
   }
 
+  const rlsCheck = await checkTableRls(db, relationId);
+  const rlsError = rlsCheck.canRead ? null : { message: rlsCheck.message!, level: 'warning' };
+
   return {
     schema: schema,
     name: name,
@@ -324,7 +382,7 @@ export async function getDebugTableInfo(options: GetDebugTableInfoOptions): Prom
     replication_id: id_columns.map((c) => c.name),
     data_queries: syncData,
     parameter_queries: syncParameters,
-    errors: [id_columns_error, selectError, replicateError].filter(
+    errors: [id_columns_error, selectError, replicateError, rlsError].filter(
       (error) => error != null
     ) as service_types.ReplicationError[]
   };

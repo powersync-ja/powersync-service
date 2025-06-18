@@ -1,4 +1,4 @@
-import { container } from '@powersync/lib-services-framework';
+import { container, logger as defaultLogger } from '@powersync/lib-services-framework';
 import { replication } from '@powersync/service-core';
 import { BinlogConfigurationError, BinLogStream } from './BinLogStream.js';
 import { MySQLConnectionManagerFactory } from './MySQLConnectionManagerFactory.js';
@@ -9,9 +9,11 @@ export interface BinLogReplicationJobOptions extends replication.AbstractReplica
 
 export class BinLogReplicationJob extends replication.AbstractReplicationJob {
   private connectionFactory: MySQLConnectionManagerFactory;
+  private lastStream: BinLogStream | null = null;
 
   constructor(options: BinLogReplicationJobOptions) {
     super(options);
+    this.logger = defaultLogger.child({ prefix: `[powersync_${this.options.storage.group_id}] ` });
     this.connectionFactory = options.connectionFactory;
   }
 
@@ -31,7 +33,7 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
           replication_slot: this.slot_name
         }
       });
-      this.logger.error(`Replication failed on ${this.slot_name}`, e);
+      this.logger.error(`Replication failed`, e);
     } finally {
       this.abortController.abort();
     }
@@ -61,17 +63,19 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
         return;
       }
       const stream = new BinLogStream({
+        logger: this.logger,
         abortSignal: this.abortController.signal,
         storage: this.options.storage,
         metrics: this.options.metrics,
         connections: connectionManager
       });
+      this.lastStream = stream;
       await stream.replicate();
     } catch (e) {
       if (this.abortController.signal.aborted) {
         return;
       }
-      this.logger.error(`Sync rules ${this.id} Replication error`, e);
+      this.logger.error(`Replication error`, e);
       if (e.cause != null) {
         this.logger.error(`cause`, e.cause);
       }
@@ -91,5 +95,9 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
     } finally {
       await connectionManager.end();
     }
+  }
+
+  async getReplicationLagMillis(): Promise<number | undefined> {
+    return this.lastStream?.getReplicationLagMillis();
   }
 }

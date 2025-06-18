@@ -6,24 +6,10 @@ import { storage } from '@powersync/service-core';
 
 import { ChangeStreamTestContext, setSnapshotHistorySeconds } from './change_stream_utils.js';
 import { env } from './env.js';
-import { INITIALIZED_MONGO_STORAGE_FACTORY, INITIALIZED_POSTGRES_STORAGE_FACTORY } from './util.js';
+import { describeWithStorage } from './util.js';
 
-describe.skipIf(!env.TEST_MONGO_STORAGE)('change stream slow tests - mongodb', { timeout: 60_000 }, function () {
-  if (env.CI || env.SLOW_TESTS) {
-    defineSlowTests(INITIALIZED_MONGO_STORAGE_FACTORY);
-  } else {
-    // Need something in this file.
-    test('no-op', () => {});
-  }
-});
-
-describe.skipIf(!env.TEST_POSTGRES_STORAGE)('change stream slow tests - postgres', { timeout: 60_000 }, function () {
-  if (env.CI || env.SLOW_TESTS) {
-    defineSlowTests(INITIALIZED_POSTGRES_STORAGE_FACTORY);
-  } else {
-    // Need something in this file.
-    test('no-op', () => {});
-  }
+describe.runIf(env.CI || env.SLOW_TESTS)('change stream slow tests', { timeout: 60_000 }, function () {
+  describeWithStorage({}, defineSlowTests);
 });
 
 function defineSlowTests(factory: storage.TestStorageFactory) {
@@ -96,7 +82,7 @@ bucket_definitions:
     await snapshotPromise;
     context.startStreaming();
 
-    const data = await context.getBucketData('global[]', undefined, { limit: 50_000, chunkLimitBytes: 60_000_000 });
+    const data = await context.getBucketData('global[]');
 
     const preDocuments = data.filter((d: any) => JSON.parse(d.data! as string).description.startsWith('pre')).length;
     const updatedDocuments = data.filter((d: any) =>

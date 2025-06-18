@@ -1,3 +1,4 @@
+import { ServiceError } from '@powersync/lib-services-framework';
 import * as util from '../util/util-index.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
 
@@ -9,6 +10,8 @@ export interface ActiveStorage {
    *  Tear down / drop the storage permanently
    */
   tearDown(): Promise<boolean>;
+
+  onFatalError?(callback: (error: ServiceError) => void): void;
 }
 
 export interface GetStorageOptions {
