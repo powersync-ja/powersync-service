@@ -275,9 +275,6 @@ importers:
       async:
         specifier: ^3.2.4
         version: 3.2.5
-      lodash:
-        specifier: ^4.17.21
-        version: 4.17.21
       mysql2:
         specifier: ^3.11.0
         version: 3.11.3
@@ -309,9 +306,6 @@ importers:
       '@types/async':
         specifier: ^3.2.24
         version: 3.2.24
-      '@types/lodash':
-        specifier: ^4.17.5
-        version: 4.17.6
       '@types/semver':
         specifier: ^7.5.4
         version: 7.5.8

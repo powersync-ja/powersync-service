@@ -55,8 +55,11 @@ export class SourceTable implements SourceEntityDescriptor {
    */
   public snapshotStatus: TableSnapshotStatus | undefined = undefined;
 
+  public snapshotComplete: boolean;
 
-  constructor(public readonly options: SourceTableOptions) {}
+  constructor(public readonly options: SourceTableOptions) {
+    this.snapshotComplete = options.snapshotComplete;
+  }
 
   get id() {
     return this.options.id;
@@ -79,10 +82,6 @@ export class SourceTable implements SourceEntityDescriptor {
 
   get replicaIdColumns() {
     return this.options.replicaIdColumns;
-  }
-
-  get snapshotComplete() {
-    return this.options.snapshotComplete;
   }
 
   /**
@@ -109,8 +108,7 @@ export class SourceTable implements SourceEntityDescriptor {
       name: this.name,
       replicaIdColumns: this.replicaIdColumns,
       snapshotComplete: this.snapshotComplete
-      }
-    );
+    });
     copy.syncData = this.syncData;
     copy.syncParameters = this.syncParameters;
     copy.snapshotStatus = this.snapshotStatus;

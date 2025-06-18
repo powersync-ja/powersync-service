@@ -4,7 +4,7 @@ import { BinLogEvent, StartOptions, TableMapEntry, ZongJi } from '@powersync/mys
 import * as zongji_utils from './zongji-utils.js';
 import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
 import { MySQLConnectionManager } from '../MySQLConnectionManager.js';
-import { AST, BaseFrom, Parser, RenameStatement, TruncateStatement } from 'node-sql-parser';
+import * as parser from 'node-sql-parser';
 import timers from 'timers/promises';
 
 // Maximum time the processing queue can be paused before resuming automatically
@@ -64,7 +64,7 @@ export interface BinLogListenerOptions {
  *  events on the provided BinLogEventHandler.
  */
 export class BinLogListener {
-  private sqlParser: Parser;
+  private sqlParser: parser.Parser;
   private connectionManager: MySQLConnectionManager;
   private eventHandler: BinLogEventHandler;
   private binLogPosition: common.BinLogPosition;
@@ -86,7 +86,7 @@ export class BinLogListener {
     this.eventHandler = options.eventHandler;
     this.binLogPosition = options.startPosition;
     this.currentGTID = null;
-    this.sqlParser = new Parser();
+    this.sqlParser = new parser.Parser();
     this.processingQueue = this.createProcessingQueue();
     this.queueMemoryUsage = 0;
     this.zongji = this.createZongjiListener();
@@ -338,13 +338,13 @@ export class BinLogListener {
     await this.start(true);
   }
 
-  private toSchemaChanges(statements: AST[]): SchemaChange[] {
+  private toSchemaChanges(statements: parser.AST[]): SchemaChange[] {
     // TODO: We need to check if schema filtering is also required
     const changes: SchemaChange[] = [];
     for (const statement of statements) {
       // @ts-ignore
       if (statement.type === 'rename') {
-        const renameStatement = statement as RenameStatement;
+        const renameStatement = statement as parser.RenameStatement;
         for (const table of renameStatement.table) {
           changes.push({
             type: SchemaChangeType.RENAME_TABLE,
@@ -354,7 +354,7 @@ export class BinLogListener {
         }
       } // @ts-ignore
       else if (statement.type === 'truncate' && statement.keyword === 'table') {
-        const truncateStatement = statement as TruncateStatement;
+        const truncateStatement = statement as parser.TruncateStatement;
         // Truncate statements can apply to multiple tables
         for (const entity of truncateStatement.name) {
           changes.push({ type: SchemaChangeType.TRUNCATE_TABLE, table: entity.table });
@@ -371,7 +371,7 @@ export class BinLogListener {
         }
       } else if (statement.type === 'alter') {
         const expression = statement.expr[0];
-        const fromTable = statement.table[0] as BaseFrom;
+        const fromTable = statement.table[0] as parser.BaseFrom;
         if (expression.resource === 'table') {
           if (expression.action === 'rename') {
             changes.push({
