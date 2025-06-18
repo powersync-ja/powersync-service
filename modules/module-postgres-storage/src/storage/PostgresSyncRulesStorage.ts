@@ -150,7 +150,7 @@ export class PostgresSyncRulesStorage
   async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
     const { group_id, connection_id, connection_tag, entity_descriptor } = options;
 
-    const { schema, name: table, objectId, replicaIdColumns, columns } = entity_descriptor;
+    const { schema, name: table, objectId, replicaIdColumns } = entity_descriptor;
 
     const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
       name: column.name,
@@ -231,8 +231,7 @@ export class PostgresSyncRulesStorage
         schema: schema,
         name: table,
         replicaIdColumns: replicaIdColumns,
-        snapshotComplete: sourceTableRow!.snapshot_done ?? true,
-        columns: columns
+        snapshotComplete: sourceTableRow!.snapshot_done ?? true
       });
       sourceTable.syncEvent = options.sync_rules.tableTriggersEvent(sourceTable);
       sourceTable.syncData = options.sync_rules.tableSyncsData(sourceTable);

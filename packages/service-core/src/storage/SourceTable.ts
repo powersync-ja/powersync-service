@@ -10,7 +10,6 @@ export interface SourceTableOptions {
   name: string;
   replicaIdColumns: ColumnDescriptor[];
   snapshotComplete: boolean;
-  columns?: ColumnDescriptor[];
 }
 
 export class SourceTable implements SourceEntityDescriptor {
@@ -70,10 +69,6 @@ export class SourceTable implements SourceEntityDescriptor {
 
   get snapshotComplete() {
     return this.options.snapshotComplete;
-  }
-
-  get columns() {
-    return this.options.columns;
   }
 
   /**

@@ -23,8 +23,4 @@ export interface SourceEntityDescriptor {
    *  The columns that are used to uniquely identify a record in the source entity.
    */
   replicaIdColumns: ColumnDescriptor[];
-  /**
-   *  Description of the columns/fields of the source entity.
-   */
-  columns?: ColumnDescriptor[];
 }
