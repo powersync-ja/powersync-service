@@ -10,14 +10,13 @@ import {
 } from '@powersync/service-core';
 import mysql from 'mysql2';
 import mysqlPromise from 'mysql2/promise';
-import _ from 'lodash';
 
 import { TableMapEntry } from '@powersync/mysql-zongji';
 import * as common from '../common/common-index.js';
 import { createRandomServerId, escapeMysqlTableName } from '../utils/mysql-utils.js';
 import { MySQLConnectionManager } from './MySQLConnectionManager.js';
 import { ReplicationMetric } from '@powersync/service-types';
-import { BinLogEventHandler, BinLogListener, Row } from './zongji/BinLogListener.js';
+import { BinLogEventHandler, BinLogListener, Row, SchemaChange, SchemaChangeType } from './zongji/BinLogListener.js';
 
 export interface BinLogStreamOptions {
   connections: MySQLConnectionManager;
@@ -139,7 +138,7 @@ export class BinLogStream {
       const promiseConnection = (connection as mysql.Connection).promise();
       try {
         await promiseConnection.query(`SET time_zone = '+00:00'`);
-        await promiseConnection.query('BEGIN');
+        await promiseConnection.query('START TRANSACTION');
         try {
           gtid = await common.readExecutedGtid(promiseConnection);
           await this.snapshotTable(connection.connection, batch, result.table);
@@ -176,11 +175,6 @@ export class BinLogStream {
         schema: tablePattern.schema,
         tableName: matchedTable
       });
-      const columns = await common.getColumns({
-        connection: connection,
-        schema: tablePattern.schema,
-        tableName: matchedTable
-      });
 
       const table = await this.handleRelation(
         batch,
@@ -188,8 +182,7 @@ export class BinLogStream {
           name: matchedTable,
           schema: tablePattern.schema,
           objectId: getMysqlRelId(tablePattern),
-          replicaIdColumns: replicaIdColumns.columns,
-          columns: columns
+          replicaIdColumns: replicaIdColumns.columns
         },
         false
       );
@@ -402,15 +395,15 @@ export class BinLogStream {
 
           this.abortSignal.addEventListener(
             'abort',
-            () => {
+            async () => {
               logger.info('Abort signal received, stopping replication...');
-              binlogListener.stop();
+              await binlogListener.stop();
             },
             { once: true }
           );
 
-          // Only returns when the replication is stopped or interrupted by an error
           await binlogListener.start();
+          await binlogListener.replicateUntilStopped();
         }
       );
     }
@@ -445,46 +438,66 @@ export class BinLogStream {
         this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
         await batch.commit(lsn);
       },
-      onSchemaChange: async (tableMap: TableMapEntry) => {
-        if (!this.hasSchemaChange(tableMap)) {
-          logger.info(`Skipping schema change for ${tableMap.parentSchema}.${tableMap.tableName} - no changes`);
-          return;
-        }
-        await this.handleRelation(
-          batch,
-          {
-            name: tableMap.tableName,
-            schema: tableMap.parentSchema,
-            objectId: getMysqlRelId({
-              schema: tableMap.parentSchema,
-              name: tableMap.tableName
-            }),
-            replicaIdColumns: Array.from(common.toColumnDescriptors(tableMap).values())
-          },
-          true
-        );
+      onSchemaChange: async (change: SchemaChange) => {
+        await this.handleSchemaChange(batch, change);
       }
     };
   }
 
-  private hasSchemaChange(tableMap: TableMapEntry) {
-    // Check if the table is already in the cache
-    const cachedTable = this.tableCache.get(
-      getMysqlRelId({
-        schema: tableMap.parentSchema,
-        name: tableMap.tableName
-      })
-    );
-    if (cachedTable) {
-      // The table already exists in the cache with the same name, check if the columns are the same
-      const existingColumns = cachedTable.columns!.sort((a, b) => a.name.localeCompare(b.name));
-      const newColumns = Array.from(common.toColumnDescriptors(tableMap).values()).sort((a, b) =>
-        a.name.localeCompare(b.name)
+  private async handleSchemaChange(batch: storage.BucketStorageBatch, change: SchemaChange): Promise<void> {
+    const tableId = getMysqlRelId({
+      schema: this.connections.databaseName,
+      name: change.table
+    });
+
+    const table = this.tableCache.get(tableId);
+    if (table) {
+      if (change.type === SchemaChangeType.TRUNCATE_TABLE) {
+        await batch.truncate([table]);
+      } else if (change.type === SchemaChangeType.DROP_TABLE) {
+        await batch.drop([table]);
+        this.tableCache.delete(tableId);
+      } else if (change.type === SchemaChangeType.RENAME_TABLE) {
+        await batch.drop([table]);
+        this.tableCache.delete(tableId);
+        await this.handleRelation(
+          batch,
+          {
+            name: change.newTable!,
+            schema: this.connections.databaseName,
+            objectId: getMysqlRelId({
+              schema: this.connections.databaseName,
+              name: change.newTable!
+            }),
+            replicaIdColumns: table.replicaIdColumns
+          },
+          true
+        );
+      } else {
+        await this.handleRelation(batch, table, true);
+      }
+    } else if (change.type === SchemaChangeType.CREATE_TABLE) {
+      const connection = await this.connections.getConnection();
+      const replicaIdColumns = await common.getReplicationIdentityColumns({
+        connection,
+        schema: this.connections.databaseName,
+        tableName: change.table
+      });
+      connection.release();
+      await this.handleRelation(
+        batch,
+        {
+          name: change.newTable!,
+          schema: this.connections.databaseName,
+          objectId: getMysqlRelId({
+            schema: this.connections.databaseName,
+            name: change.newTable!
+          }),
+          replicaIdColumns: replicaIdColumns.columns
+        },
+        true
       );
-      return _.isEqual(existingColumns, newColumns);
     }
-    // If the table is not in the cache, it is a new table, or has been renamed
-    return true;
   }
 
   private async writeChanges(

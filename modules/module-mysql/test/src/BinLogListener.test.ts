@@ -1,5 +1,11 @@
 import { describe, test, beforeEach, vi, expect, afterEach } from 'vitest';
-import { BinLogEventHandler, BinLogListener, Row } from '@module/replication/zongji/BinLogListener.js';
+import {
+  BinLogEventHandler,
+  BinLogListener,
+  Row,
+  SchemaChange,
+  SchemaChangeType
+} from '@module/replication/zongji/BinLogListener.js';
 import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManager.js';
 import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
 import { v4 as uuid } from 'uuid';
@@ -32,7 +38,7 @@ describe('BinlogListener tests', () => {
       connectionManager: connectionManager,
       eventHandler: eventHandler,
       startPosition: fromGTID.position,
-      includedTables: ['test_DATA', 'test_DATA_new'],
+      includedTables: ['test_DATA'],
       serverId: createRandomServerId(1)
     });
   });
@@ -45,10 +51,9 @@ describe('BinlogListener tests', () => {
     const stopSpy = vi.spyOn(binLogListener.zongji, 'stop');
     const queueStopSpy = vi.spyOn(binLogListener.processingQueue, 'kill');
 
-    const startPromise = binLogListener.start();
-    setTimeout(async () => binLogListener.stop(), 50);
+    await binLogListener.start();
+    await binLogListener.stop();
 
-    await expect(startPromise).resolves.toBeUndefined();
     expect(stopSpy).toHaveBeenCalled();
     expect(queueStopSpy).toHaveBeenCalled();
   });
@@ -63,7 +68,7 @@ describe('BinlogListener tests', () => {
     const ROW_COUNT = 10;
     await insertRows(connectionManager, ROW_COUNT);
 
-    const startPromise = binLogListener.start();
+    await binLogListener.start();
 
     // Wait for listener to pause due to queue reaching capacity
     await vi.waitFor(() => expect(pauseSpy).toHaveBeenCalled(), { timeout: 5000 });
@@ -73,14 +78,13 @@ describe('BinlogListener tests', () => {
     eventHandler.unpause!();
 
     await vi.waitFor(() => expect(eventHandler.rowsWritten).equals(ROW_COUNT), { timeout: 5000 });
-    binLogListener.stop();
-    await expect(startPromise).resolves.toBeUndefined();
+    await binLogListener.stop();
     // Confirm resume was called after unpausing
     expect(resumeSpy).toHaveBeenCalled();
   });
 
   test('Binlog row events are correctly forwarded to provided binlog events handler', async () => {
-    const startPromise = binLogListener.start();
+    await binLogListener.start();
 
     const ROW_COUNT = 10;
     await insertRows(connectionManager, ROW_COUNT);
@@ -93,21 +97,117 @@ describe('BinlogListener tests', () => {
     await deleteRows(connectionManager);
     await vi.waitFor(() => expect(eventHandler.rowsDeleted).equals(ROW_COUNT), { timeout: 5000 });
 
-    binLogListener.stop();
-    await expect(startPromise).resolves.toBeUndefined();
+    await binLogListener.stop();
   });
 
-  test('Binlog schema change events are correctly forwarded to provided binlog events handler', async () => {
-    const startPromise = binLogListener.start();
+  test('ALTER TABLE RENAME schema changes', async () => {
+    await binLogListener.start();
+    await connectionManager.query(`ALTER TABLE test_DATA RENAME test_DATA_new`);
+    await vi.waitFor(() => expect(eventHandler.schemaChanges.length > 0).toBeTruthy(), { timeout: 5000 });
+    await binLogListener.stop();
+    expect(eventHandler.schemaChanges[0].type).toBe(SchemaChangeType.RENAME_TABLE);
+    expect(eventHandler.schemaChanges[0].table).toEqual('test_DATA');
+    expect(eventHandler.schemaChanges[0].newTable).toEqual('test_DATA_new');
+  });
+
+  test('RENAME TABLE schema changes', async () => {
+    await binLogListener.start();
     await connectionManager.query(`RENAME TABLE test_DATA TO test_DATA_new`);
-    // Table map events are only emitted before row events
-    await connectionManager.query(
-      `INSERT INTO test_DATA_new(id, description) VALUES('${uuid()}','test ${crypto.randomBytes(100).toString('hex')}')`
-    );
-    await vi.waitFor(() => expect(eventHandler.latestSchemaChange).toBeDefined(), { timeout: 5000 });
-    binLogListener.stop();
-    await expect(startPromise).resolves.toBeUndefined();
-    expect(eventHandler.latestSchemaChange?.tableName).toEqual('test_DATA_new');
+    await vi.waitFor(() => expect(eventHandler.schemaChanges.length > 0).toBeTruthy(), { timeout: 5000 });
+    await binLogListener.stop();
+    expect(eventHandler.schemaChanges[0].type).toBe(SchemaChangeType.RENAME_TABLE);
+    expect(eventHandler.schemaChanges[0].table).toEqual('test_DATA');
+    expect(eventHandler.schemaChanges[0].newTable).toEqual('test_DATA_new');
+  });
+
+  test('RENAME TABLE multipe table schema changes', async () => {
+    await binLogListener.start();
+    await connectionManager.query(`RENAME TABLE 
+    test_DATA TO test_DATA_new,
+    test_DATA_new TO test_DATA
+    `);
+    await vi.waitFor(() => expect(eventHandler.schemaChanges.length == 2).toBeTruthy(), { timeout: 5000 });
+    await binLogListener.stop();
+    expect(eventHandler.schemaChanges[0].type).toBe(SchemaChangeType.RENAME_TABLE);
+    expect(eventHandler.schemaChanges[0].table).toEqual('test_DATA');
+    expect(eventHandler.schemaChanges[0].newTable).toEqual('test_DATA_new');
+
+    expect(eventHandler.schemaChanges[1].type).toBe(SchemaChangeType.RENAME_TABLE);
+    expect(eventHandler.schemaChanges[1].table).toEqual('test_DATA_new');
+    expect(eventHandler.schemaChanges[1].newTable).toEqual('test_DATA');
+  });
+
+  test('TRUNCATE TABLE schema changes', async () => {
+    await binLogListener.start();
+    await connectionManager.query(`TRUNCATE TABLE test_DATA`);
+    await vi.waitFor(() => expect(eventHandler.schemaChanges.length > 0).toBeTruthy(), { timeout: 5000 });
+    await binLogListener.stop();
+    expect(eventHandler.schemaChanges[0].type).toBe(SchemaChangeType.TRUNCATE_TABLE);
+    expect(eventHandler.schemaChanges[0].table).toEqual('test_DATA');
+  });
+
+  test('DROP AND CREATE TABLE schema changes', async () => {
+    await binLogListener.start();
+    await connectionManager.query(`DROP TABLE test_DATA`);
+    await connectionManager.query(`CREATE TABLE test_DATA (id CHAR(36) PRIMARY KEY, description MEDIUMTEXT)`);
+    await vi.waitFor(() => expect(eventHandler.schemaChanges.length === 2).toBeTruthy(), { timeout: 5000 });
+    await binLogListener.stop();
+    expect(eventHandler.schemaChanges[0].type).toBe(SchemaChangeType.DROP_TABLE);
+    expect(eventHandler.schemaChanges[0].table).toEqual('test_DATA');
+    expect(eventHandler.schemaChanges[1].type).toBe(SchemaChangeType.CREATE_TABLE);
+    expect(eventHandler.schemaChanges[1].table).toEqual('test_DATA');
+  });
+
+  test('ALTER TABLE DROP COLUMN schema changes', async () => {
+    await binLogListener.start();
+    await connectionManager.query(`ALTER TABLE test_DATA DROP COLUMN description`);
+    await vi.waitFor(() => expect(eventHandler.schemaChanges.length > 0).toBeTruthy(), { timeout: 5000 });
+    await binLogListener.stop();
+    expect(eventHandler.schemaChanges[0].type).toBe(SchemaChangeType.DROP_COLUMN);
+    expect(eventHandler.schemaChanges[0].table).toEqual('test_DATA');
+    expect(eventHandler.schemaChanges[0].column?.column).toEqual('description');
+  });
+
+  test('ALTER TABLE ADD COLUMN schema changes', async () => {
+    await binLogListener.start();
+    await connectionManager.query(`ALTER TABLE test_DATA ADD COLUMN new_column VARCHAR(255)`);
+    await vi.waitFor(() => expect(eventHandler.schemaChanges.length > 0).toBeTruthy(), { timeout: 5000 });
+    await binLogListener.stop();
+    expect(eventHandler.schemaChanges[0].type).toBe(SchemaChangeType.ADD_COLUMN);
+    expect(eventHandler.schemaChanges[0].table).toEqual('test_DATA');
+    expect(eventHandler.schemaChanges[0].column?.column).toEqual('new_column');
+  });
+
+  test('ALTER TABLE MODIFY COLUMN type schema changes', async () => {
+    await binLogListener.start();
+    await connectionManager.query(`ALTER TABLE test_DATA MODIFY COLUMN description TEXT`);
+    await vi.waitFor(() => expect(eventHandler.schemaChanges.length > 0).toBeTruthy(), { timeout: 5000 });
+    await binLogListener.stop();
+    expect(eventHandler.schemaChanges[0].type).toBe(SchemaChangeType.MODIFY_COLUMN);
+    expect(eventHandler.schemaChanges[0].table).toEqual('test_DATA');
+    expect(eventHandler.schemaChanges[0].column?.column).toEqual('description');
+  });
+
+  test('ALTER TABLE CHANGE COLUMN column rename schema changes', async () => {
+    await binLogListener.start();
+    await connectionManager.query(`ALTER TABLE test_DATA CHANGE COLUMN description description_new MEDIUMTEXT`);
+    await vi.waitFor(() => expect(eventHandler.schemaChanges.length > 0).toBeTruthy(), { timeout: 5000 });
+    await binLogListener.stop();
+    expect(eventHandler.schemaChanges[0].type).toBe(SchemaChangeType.RENAME_COLUMN);
+    expect(eventHandler.schemaChanges[0].table).toEqual('test_DATA');
+    expect(eventHandler.schemaChanges[0].column?.column).toEqual('description');
+    expect(eventHandler.schemaChanges[0].column?.newColumn).toEqual('description_new');
+  });
+
+  test('ALTER TABLE RENAME COLUMN column rename schema changes', async () => {
+    await binLogListener.start();
+    await connectionManager.query(`ALTER TABLE test_DATA RENAME COLUMN description TO description_new`);
+    await vi.waitFor(() => expect(eventHandler.schemaChanges.length > 0).toBeTruthy(), { timeout: 5000 });
+    await binLogListener.stop();
+    expect(eventHandler.schemaChanges[0].type).toBe(SchemaChangeType.RENAME_COLUMN);
+    expect(eventHandler.schemaChanges[0].table).toEqual('test_DATA');
+    expect(eventHandler.schemaChanges[0].column?.column).toEqual('description');
+    expect(eventHandler.schemaChanges[0].column?.newColumn).toEqual('description_new');
   });
 });
 
@@ -140,7 +240,7 @@ class TestBinLogEventHandler implements BinLogEventHandler {
   rowsUpdated = 0;
   rowsDeleted = 0;
   commitCount = 0;
-  latestSchemaChange: TableMapEntry | undefined;
+  schemaChanges: SchemaChange[] = [];
 
   unpause: ((value: void | PromiseLike<void>) => void) | undefined;
   private pausedPromise: Promise<void> | undefined;
@@ -170,7 +270,7 @@ class TestBinLogEventHandler implements BinLogEventHandler {
     this.commitCount++;
   }
 
-  async onSchemaChange(tableMap: TableMapEntry) {
-    this.latestSchemaChange = tableMap;
+  async onSchemaChange(change: SchemaChange) {
+    this.schemaChanges.push(change);
   }
 }
