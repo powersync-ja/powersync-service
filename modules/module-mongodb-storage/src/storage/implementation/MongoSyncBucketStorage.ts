@@ -550,7 +550,6 @@ export class MongoSyncBucketStorage
             `${this.slot_name} Cleared batch of data in ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, continuing...`
           );
           await timers.setTimeout(lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS / 5);
-          continue;
         } else {
           throw e;
         }
