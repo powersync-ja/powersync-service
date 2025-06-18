@@ -129,7 +129,7 @@ export class MongoBucketBatch
     return this.last_checkpoint_lsn;
   }
 
-  async flush(options?: storage.BucketBatchCommitOptions): Promise<storage.FlushedResult | null> {
+  async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
     let result: storage.FlushedResult | null = null;
     // One flush may be split over multiple transactions.
     // Each flushInner() is one transaction.
@@ -142,7 +142,7 @@ export class MongoBucketBatch
     return result;
   }
 
-  private async flushInner(options?: storage.BucketBatchCommitOptions): Promise<storage.FlushedResult | null> {
+  private async flushInner(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
     const batch = this.batch;
     let last_op: InternalOpId | null = null;
     let resumeBatch: OperationBatch | null = null;
