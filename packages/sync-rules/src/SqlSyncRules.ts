@@ -1,9 +1,8 @@
 import { isScalar, LineCounter, parseDocument, Scalar, YAMLMap, YAMLSeq } from 'yaml';
-import { BucketPriority, isValidPriority } from './BucketDescription.js';
+import { isValidPriority } from './BucketDescription.js';
 import { BucketParameterQuerier, mergeBucketParameterQueriers } from './BucketParameterQuerier.js';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
-import { IdSequence } from './IdSequence.js';
 import { validateSyncRulesSchema } from './json_schema.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { QueryParseResult, SqlBucketDescriptor, SqlBucketDescriptorType } from './SqlBucketDescriptor.js';
@@ -375,16 +374,20 @@ export class SqlSyncRules implements SyncRules {
     const queriers: BucketParameterQuerier[] = [];
     for (const descriptor of this.bucketDescriptors) {
       let params = options.globalParameters;
-      const subscription =
-        descriptor.type == SqlBucketDescriptorType.STREAM ? options.resolveSubscription(descriptor.name) : null;
 
-      if (!descriptor.subscribedToByDefault && subscription == null) {
-        // The client is not subscribing to this stream, so don't query buckets related to it.
-        continue;
-      }
+      if (descriptor.type == SqlBucketDescriptorType.STREAM) {
+        const subscription = options.resolveSubscription(descriptor.name);
 
-      if (subscription != null) {
-        params = params.withAddedParameters(subscription);
+        if (!descriptor.subscribedToByDefault && subscription == null) {
+          // The client is not subscribing to this stream, so don't query buckets related to it.
+          continue;
+        }
+
+        if (subscription != null) {
+          params = params.withAddedParameters(subscription);
+        }
+
+        queriers.push(descriptor.getBucketParameterQuerier(params));
       }
 
       queriers.push(descriptor.getBucketParameterQuerier(params));
