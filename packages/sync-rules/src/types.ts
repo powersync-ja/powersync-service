@@ -135,6 +135,14 @@ export class RequestParameters implements ParameterValueSet {
     }
     throw new Error(`Unknown table: ${table}`);
   }
+
+  withAddedParameters(params: Record<string, any>): RequestParameters {
+    const clone = structuredClone(this);
+    clone.rawUserParameters = JSONBig.stringify(params);
+    clone.userParameters = toSyncRulesParameters(params);
+
+    return clone;
+  }
 }
 
 /**
