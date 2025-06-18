@@ -948,7 +948,7 @@ WHERE  oid = $1::regclass`,
                 skipKeepalive = false;
                 // flush() must be before the resnapshot check - that is
                 // typically what reports the resnapshot records.
-                await batch.flush();
+                await batch.flush({ oldestUncommittedChange: this.oldestUncommittedChange });
                 // This _must_ be checked after the flush(), and before
                 // commit() or ack(). We never persist the resnapshot list,
                 // so we have to process it before marking our progress.
