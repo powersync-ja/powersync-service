@@ -21,6 +21,10 @@ export const isValidPriority = (i: number): i is BucketPriority => {
 
 export interface BucketDescription {
   /**
+   * The name of the sync rule or stream definition from which the bucket is derived.
+   */
+  definition: string;
+  /**
    * The id of the bucket, which is derived from the name of the bucket's definition
    * in the sync rules as well as the values returned by the parameter queries.
    */

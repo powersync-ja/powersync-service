@@ -13,9 +13,51 @@ export const BucketRequest = t.object({
 
 export type BucketRequest = t.Decoded<typeof BucketRequest>;
 
+/**
+ * An explicit subscription to a defined sync stream made by the client.
+ */
+export const StreamSubscription = t.object({
+  /**
+   * The defined name of the stream as it appears in sync rules.
+   */
+  stream: t.string,
+  /**
+   * An optional dictionary of parameters to pass to this specific stream.
+   */
+  parameters: t.record(t.any).optional(),
+  /**
+   * Set when the client wishes to re-assign a different priority to this subscription.
+   *
+   * Streams and sync rules can also assign a default priority, but clients are allowed to override those. This can be
+   * useful when the priority for partial syncs depends on e.g. the current page opened in a client.
+   */
+  override_priority: t.number.optional()
+});
+
+export type StreamSubscription = t.Decoded<typeof StreamSubscription>;
+
+/**
+ * An overview of all subscriptions as part of a streaming sync request.
+ */
+export const StreamSubscriptions = t.object({
+  /**
+   * Whether to sync default streams.
+   *
+   * When disabled,only
+   */
+  include_defaults: t.boolean.optional(),
+
+  /**
+   * An array of streams the client has subscribed to.
+   */
+  subscriptions: t.array(StreamSubscription)
+});
+
+export type StreamSubscriptions = t.Decoded<typeof StreamSubscriptions>;
+
 export const StreamingSyncRequest = t.object({
   /**
-   * Existing bucket states.
+   * Existing client-side bucket states.
    */
   buckets: t.array(BucketRequest).optional(),
 
@@ -47,7 +89,12 @@ export const StreamingSyncRequest = t.object({
   /**
    * Unique client id.
    */
-  client_id: t.string.optional()
+  client_id: t.string.optional(),
+
+  /**
+   * If the client is aware of stream subscriptions, an array of streams the client is subscribing to.
+   */
+  subscriptions: StreamSubscriptions.optional()
 });
 
 export type StreamingSyncRequest = t.Decoded<typeof StreamingSyncRequest>;

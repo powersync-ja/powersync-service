@@ -29,12 +29,23 @@ export interface QueryParseResult {
   errors: SqlRuleError[];
 }
 
+export enum SqlBucketDescriptorType {
+  SYNC_RULE,
+  STREAM
+}
+
 export class SqlBucketDescriptor {
   name: string;
   bucketParameters?: string[];
+  type: SqlBucketDescriptorType;
+  subscribedToByDefault: boolean;
 
-  constructor(name: string) {
+  constructor(name: string, type: SqlBucketDescriptorType) {
     this.name = name;
+    this.type = type;
+
+    // Sync-rule style buckets are subscribed to by default, streams are opt-in unless their definition says otherwise.
+    this.subscribedToByDefault = type == SqlBucketDescriptorType.SYNC_RULE;
   }
 
   /**
@@ -93,6 +104,7 @@ export class SqlBucketDescriptor {
       }
     }
     this.dataQueries.push(query.data);
+    this.subscribedToByDefault = options.default ?? false;
 
     return {
       parsed: true,

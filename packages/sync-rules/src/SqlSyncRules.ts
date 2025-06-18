@@ -6,7 +6,7 @@ import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
 import { IdSequence } from './IdSequence.js';
 import { validateSyncRulesSchema } from './json_schema.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
-import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js';
+import { QueryParseResult, SqlBucketDescriptor, SqlBucketDescriptorType } from './SqlBucketDescriptor.js';
 import { TablePattern } from './TablePattern.js';
 import {
   EvaluatedParameters,
@@ -38,6 +38,22 @@ export interface SyncRulesOptions {
   defaultSchema: string;
 
   throwOnError?: boolean;
+}
+
+export interface GetQuerierOptions {
+  globalParameters: RequestParameters;
+  /**
+   * Whether the client is subscribing to default subscriptions (the default).
+   */
+  hasDefaultSubscriptions: boolean;
+  /**
+   * For streams, this is invoked to check whether the client has requested a subscription to
+   * the stream.
+   *
+   * @param name The name of the stream as it appears in the sync rule definitions.
+   * @returns If a subscription is active, the stream parameters for that particular stream. Otherwise null.
+   */
+  resolveSubscription: (name: string) => Record<string, any> | null;
 }
 
 export class SqlSyncRules implements SyncRules {
@@ -144,7 +160,7 @@ export class SqlSyncRules implements SyncRules {
       const parameters = value.get('parameters', true) as unknown;
       const dataQueries = value.get('data', true) as unknown;
 
-      const descriptor = new SqlBucketDescriptor(key);
+      const descriptor = new SqlBucketDescriptor(key, SqlBucketDescriptorType.SYNC_RULE);
 
       if (parameters instanceof Scalar) {
         rules.withScalar(parameters, (q) => {
@@ -179,7 +195,7 @@ export class SqlSyncRules implements SyncRules {
         continue;
       }
 
-      const descriptor = new SqlBucketDescriptor(key);
+      const descriptor = new SqlBucketDescriptor(key, SqlBucketDescriptorType.STREAM);
 
       const accept_potentially_dangerous_queries =
         value.get('accept_potentially_dangerous_queries', true)?.value == true;
@@ -355,8 +371,25 @@ export class SqlSyncRules implements SyncRules {
     return { results, errors };
   }
 
-  getBucketParameterQuerier(parameters: RequestParameters): BucketParameterQuerier {
-    const queriers = this.bucketDescriptors.map((query) => query.getBucketParameterQuerier(parameters));
+  getBucketParameterQuerier(options: GetQuerierOptions): BucketParameterQuerier {
+    const queriers: BucketParameterQuerier[] = [];
+    for (const descriptor of this.bucketDescriptors) {
+      let params = options.globalParameters;
+      const subscription =
+        descriptor.type == SqlBucketDescriptorType.STREAM ? options.resolveSubscription(descriptor.name) : null;
+
+      if (!descriptor.subscribedToByDefault && subscription == null) {
+        // The client is not subscribing to this stream, so don't query buckets related to it.
+        continue;
+      }
+
+      if (subscription != null) {
+        params = params.withAddedParameters(subscription);
+      }
+
+      queriers.push(descriptor.getBucketParameterQuerier(params));
+    }
+
     return mergeBucketParameterQueriers(queriers);
   }
 

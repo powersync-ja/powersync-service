@@ -1,4 +1,4 @@
-import { BucketDescription, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
+import { BucketDescription, isValidPriority, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
 
 import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
@@ -20,6 +20,7 @@ export interface BucketChecksumStateOptions {
   bucketStorage: BucketChecksumStateStorage;
   syncRules: SqlSyncRules;
   syncParams: RequestParameters;
+  syncRequest: util.StreamingSyncRequest;
   logger?: Logger;
   initialBucketPositions?: { name: string; after: util.InternalOpId }[];
 }
@@ -70,6 +71,7 @@ export class BucketChecksumState {
       options.bucketStorage,
       options.syncRules,
       options.syncParams,
+      options.syncRequest,
       this.logger
     );
     this.bucketDataPositions = new Map();
@@ -182,12 +184,12 @@ export class BucketChecksumState {
 
       const updatedBucketDescriptions = diff.updatedBuckets.map((e) => ({
         ...e,
-        priority: bucketDescriptionMap.get(e.bucket)!.priority
+        ...bucketDescriptionMap.get(e.bucket)!
       }));
       bucketsToFetch = [...generateBucketsToFetch].map((b) => {
         return {
-          bucket: b,
-          priority: bucketDescriptionMap.get(b)!.priority
+          ...bucketDescriptionMap.get(b)!,
+          bucket: b
         };
       });
 
@@ -227,7 +229,7 @@ export class BucketChecksumState {
           write_checkpoint: writeCheckpoint ? String(writeCheckpoint) : undefined,
           buckets: [...checksumMap.values()].map((e) => ({
             ...e,
-            priority: bucketDescriptionMap.get(e.bucket)!.priority
+            ...bucketDescriptionMap.get(e.bucket)!
           }))
         }
       } satisfies util.StreamingSyncCheckpoint;
@@ -336,6 +338,7 @@ export class BucketParameterState {
   public readonly syncParams: RequestParameters;
   private readonly querier: BucketParameterQuerier;
   private readonly staticBuckets: Map<string, BucketDescription>;
+  private readonly explicitStreamSubscriptions: Record<string, util.StreamSubscription>;
   private readonly logger: Logger;
   private cachedDynamicBuckets: BucketDescription[] | null = null;
   private cachedDynamicBucketSet: Set<string> | null = null;
@@ -347,6 +350,7 @@ export class BucketParameterState {
     bucketStorage: BucketChecksumStateStorage,
     syncRules: SqlSyncRules,
     syncParams: RequestParameters,
+    request: util.StreamingSyncRequest,
     logger: Logger
   ) {
     this.context = context;
@@ -355,9 +359,46 @@ export class BucketParameterState {
     this.syncParams = syncParams;
     this.logger = logger;
 
-    this.querier = syncRules.getBucketParameterQuerier(this.syncParams);
+    const explicitStreamSubscriptions: Record<string, util.StreamSubscription> = {};
+    const subscriptions = request.subscriptions;
+    if (subscriptions) {
+      for (const subscription of subscriptions.subscriptions) {
+        explicitStreamSubscriptions[subscription.stream] = subscription;
+      }
+    }
+    this.explicitStreamSubscriptions = explicitStreamSubscriptions;
+
+    this.querier = syncRules.getBucketParameterQuerier({
+      globalParameters: this.syncParams,
+      hasDefaultSubscriptions: subscriptions?.include_defaults ?? true,
+      resolveSubscription(name) {
+        const subscription = explicitStreamSubscriptions[name];
+        if (subscription) {
+          return subscription.parameters ?? {};
+        } else {
+          return null;
+        }
+      }
+    });
     this.staticBuckets = new Map<string, BucketDescription>(this.querier.staticBuckets.map((b) => [b.bucket, b]));
     this.lookups = new Set<string>(this.querier.parameterQueryLookups.map((l) => JSONBig.stringify(l.values)));
+  }
+
+  /**
+   * Overrides the `description` based on subscriptions from the client.
+   *
+   * In partiuclar, this can override the priority assigned to a bucket.
+   */
+  overrideBucketDescription(description: BucketDescription): BucketDescription {
+    const changedPriority = this.explicitStreamSubscriptions[description.definition]?.override_priority;
+    if (changedPriority != null && isValidPriority(changedPriority)) {
+      return {
+        ...description,
+        priority: changedPriority
+      };
+    } else {
+      return description;
+    }
   }
 
   async getCheckpointUpdate(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate> {
