@@ -48,7 +48,7 @@ export interface SyncRulesBucketStorage
   /**
    * Clear the storage, without changing state.
    */
-  clear(): Promise<void>;
+  clear(options?: ClearStorageOptions): Promise<void>;
 
   autoActivate(): Promise<void>;
 
@@ -210,7 +210,11 @@ export interface CompactOptions {
   moveBatchQueryLimit?: number;
 }
 
-export interface TerminateOptions {
+export interface ClearStorageOptions {
+  signal?: AbortSignal;
+}
+
+export interface TerminateOptions extends ClearStorageOptions {
   /**
    * If true, also clear the storage before terminating.
    */

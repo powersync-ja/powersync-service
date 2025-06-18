@@ -48,10 +48,10 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
    */
   private activeReplicationJob: T | undefined = undefined;
 
-  private stopped = false;
-
   // First ping is only after 5 minutes, not when starting
   private lastPing = hrtime.bigint();
+
+  private abortController: AbortController | undefined;
 
   protected constructor(private options: AbstractReplicatorOptions) {
     this.logger = logger.child({ name: `Replicator:${options.id}` });
@@ -85,7 +85,12 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     return this.options.metricsEngine;
   }
 
+  protected get stopped() {
+    return this.abortController?.signal.aborted;
+  }
+
   public async start(): Promise<void> {
+    this.abortController = new AbortController();
     this.runLoop().catch((e) => {
       this.logger.error('Data source fatal replication error', e);
       container.reporter.captureException(e);
@@ -107,7 +112,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   }
 
   public async stop(): Promise<void> {
-    this.stopped = true;
+    this.abortController?.abort();
     let promises: Promise<void>[] = [];
     for (const job of this.replicationJobs.values()) {
       promises.push(job.stop());
@@ -241,6 +246,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     const stopped = await this.storage.getStoppedSyncRules();
     for (let syncRules of stopped) {
       try {
+        // TODO: Do this in the "background", allowing the periodic refresh to continue
         const syncRuleStorage = this.storage.getInstance(syncRules, { skipLifecycleHooks: true });
         await this.terminateSyncRules(syncRuleStorage);
       } catch (e) {
@@ -256,7 +262,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   protected async terminateSyncRules(syncRuleStorage: storage.SyncRulesBucketStorage) {
     this.logger.info(`Terminating sync rules: ${syncRuleStorage.group_id}...`);
     await this.cleanUp(syncRuleStorage);
-    await syncRuleStorage.terminate();
+    await syncRuleStorage.terminate({ signal: this.abortController?.signal, clearStorage: true });
     this.logger.info(`Successfully terminated sync rules: ${syncRuleStorage.group_id}`);
   }
 

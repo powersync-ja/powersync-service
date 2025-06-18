@@ -39,7 +39,7 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
    *
    * @returns null if there are no changes to flush.
    */
-  flush(): Promise<FlushedResult | null>;
+  flush(options?: BatchBucketFlushOptions): Promise<FlushedResult | null>;
 
   /**
    * Flush and commit any saved ops. This creates a new checkpoint by default.
@@ -161,19 +161,21 @@ export interface FlushedResult {
   flushed_op: InternalOpId;
 }
 
-export interface BucketBatchCommitOptions {
-  /**
-   * Creates a new checkpoint even if there were no persisted operations.
-   * Defaults to true.
-   */
-  createEmptyCheckpoints?: boolean;
-
+export interface BatchBucketFlushOptions {
   /**
    * The timestamp of the first change in this batch, according to the source database.
    *
    * Used to estimate replication lag.
    */
   oldestUncommittedChange?: Date | null;
+}
+
+export interface BucketBatchCommitOptions extends BatchBucketFlushOptions {
+  /**
+   * Creates a new checkpoint even if there were no persisted operations.
+   * Defaults to true.
+   */
+  createEmptyCheckpoints?: boolean;
 }
 
 export type ResolvedBucketBatchCommitOptions = Required<BucketBatchCommitOptions>;
