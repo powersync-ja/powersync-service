@@ -14,6 +14,7 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import { BucketParameterQuerier } from '@powersync/service-sync-rules/src/BucketParameterQuerier.js';
 import { SyncContext } from './SyncContext.js';
 import { getIntersection, hasIntersection } from './util.js';
+import { SqlBucketDescriptor, SqlBucketDescriptorType } from '@powersync/service-sync-rules/src/SqlBucketDescriptor.js';
 
 export interface BucketChecksumStateOptions {
   syncContext: SyncContext;
@@ -102,7 +103,9 @@ export class BucketChecksumState {
     const { buckets: allBuckets, updatedBuckets } = update;
 
     /** Set of all buckets in this checkpoint. */
-    const bucketDescriptionMap = new Map(allBuckets.map((b) => [b.bucket, b]));
+    const bucketDescriptionMap = new Map(
+      allBuckets.map((b) => [b.bucket, this.parameterState.overrideBucketDescription(b)])
+    );
 
     if (bucketDescriptionMap.size > this.context.maxBuckets) {
       throw new ServiceError(
@@ -223,6 +226,18 @@ export class BucketChecksumState {
         this.logger.info(message, { checkpoint: base.checkpoint, user_id: user_id, buckets: allBuckets.length });
       };
       bucketsToFetch = allBuckets;
+      this.parameterState.syncRules.bucketDescriptors;
+
+      const subscriptions: util.SubscribedStream[] = [];
+      for (const desc of this.parameterState.syncRules.bucketDescriptors) {
+        if (desc.type == SqlBucketDescriptorType.STREAM && this.parameterState.isSubscribedToStream(desc)) {
+          subscriptions.push({
+            name: desc.name,
+            is_default: desc.subscribedToByDefault
+          });
+        }
+      }
+
       checkpointLine = {
         checkpoint: {
           last_op_id: util.internalToExternalOpId(base.checkpoint),
@@ -230,7 +245,8 @@ export class BucketChecksumState {
           buckets: [...checksumMap.values()].map((e) => ({
             ...e,
             ...bucketDescriptionMap.get(e.bucket)!
-          }))
+          })),
+          included_subscriptions: subscriptions
         }
       } satisfies util.StreamingSyncCheckpoint;
     }
@@ -338,6 +354,7 @@ export class BucketParameterState {
   public readonly syncParams: RequestParameters;
   private readonly querier: BucketParameterQuerier;
   private readonly staticBuckets: Map<string, BucketDescription>;
+  private readonly includeDefaultStreams: boolean;
   private readonly explicitStreamSubscriptions: Record<string, util.StreamSubscription>;
   private readonly logger: Logger;
   private cachedDynamicBuckets: BucketDescription[] | null = null;
@@ -366,11 +383,12 @@ export class BucketParameterState {
         explicitStreamSubscriptions[subscription.stream] = subscription;
       }
     }
+    this.includeDefaultStreams = subscriptions?.include_defaults ?? true;
     this.explicitStreamSubscriptions = explicitStreamSubscriptions;
 
     this.querier = syncRules.getBucketParameterQuerier({
       globalParameters: this.syncParams,
-      hasDefaultSubscriptions: subscriptions?.include_defaults ?? true,
+      hasDefaultSubscriptions: this.includeDefaultStreams,
       resolveSubscription(name) {
         const subscription = explicitStreamSubscriptions[name];
         if (subscription) {
@@ -399,6 +417,10 @@ export class BucketParameterState {
     } else {
       return description;
     }
+  }
+
+  isSubscribedToStream(desc: SqlBucketDescriptor): boolean {
+    return (desc.subscribedToByDefault && this.includeDefaultStreams) || desc.name in this.explicitStreamSubscriptions;
   }
 
   async getCheckpointUpdate(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate> {

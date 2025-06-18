@@ -146,10 +146,16 @@ export type StreamingSyncLine =
  */
 export type ProtocolOpId = string;
 
+export interface SubscribedStream {
+  name: string;
+  is_default: boolean;
+}
+
 export interface Checkpoint {
   last_op_id: ProtocolOpId;
   write_checkpoint?: ProtocolOpId;
   buckets: BucketChecksumWithDescription[];
+  included_subscriptions: SubscribedStream[];
 }
 
 export interface BucketState {
