@@ -388,8 +388,8 @@ export class BucketParameterState {
 
     this.querier = syncRules.getBucketParameterQuerier({
       globalParameters: this.syncParams,
-      hasDefaultSubscriptions: this.includeDefaultStreams,
-      resolveSubscription(name) {
+      hasDefaultStreams: this.includeDefaultStreams,
+      resolveOpenedStream(name) {
         const subscription = explicitlyOpenedStreams[name];
         if (subscription) {
           return subscription.parameters ?? {};

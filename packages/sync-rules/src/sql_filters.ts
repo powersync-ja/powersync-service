@@ -427,10 +427,6 @@ export class SqlTools {
           return this.error(`${schema} schema is not available in data queries`, expr);
         }
 
-        if (fn == 'parameters' && this.supportsStreamInputs) {
-          return this.error(`'request.parameters()' is unavailable on streams - use 'stream.params()' instead.`, expr);
-        }
-
         if (expr.args.length > 0) {
           return this.error(`Function '${schema}.${fn}' does not take arguments`, expr);
         }
@@ -438,7 +434,7 @@ export class SqlTools {
         if (fn in REQUEST_FUNCTIONS) {
           const fnImpl = REQUEST_FUNCTIONS[fn];
           return {
-            key: 'request.parameters()',
+            key: `stream.${fn}()`,
             lookupParameterValue(parameters) {
               return fnImpl.call(parameters);
             },
@@ -456,7 +452,7 @@ export class SqlTools {
         if (fn in QUERY_FUNCTIONS) {
           const fnImpl = QUERY_FUNCTIONS[fn];
           return {
-            key: 'stream.params()',
+            key: `stream.${fn}()`,
             lookupParameterValue(parameters) {
               return fnImpl.call(parameters);
             },
