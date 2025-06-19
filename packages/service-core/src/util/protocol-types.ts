@@ -14,11 +14,11 @@ export const BucketRequest = t.object({
 export type BucketRequest = t.Decoded<typeof BucketRequest>;
 
 /**
- * An explicit subscription to a defined sync stream made by the client.
+ * A sync steam that a client has expressed interest in by explicitly opening it on the client side.
  */
-export const StreamSubscription = t.object({
+export const OpenedStream = t.object({
   /**
-   * The defined name of the stream as it appears in sync rules.
+   * The defined name of the stream as it appears in sync stream definitions.
    */
   stream: t.string,
   /**
@@ -26,7 +26,7 @@ export const StreamSubscription = t.object({
    */
   parameters: t.record(t.any).optional(),
   /**
-   * Set when the client wishes to re-assign a different priority to this subscription.
+   * Set when the client wishes to re-assign a different priority to this stream.
    *
    * Streams and sync rules can also assign a default priority, but clients are allowed to override those. This can be
    * useful when the priority for partial syncs depends on e.g. the current page opened in a client.
@@ -34,12 +34,12 @@ export const StreamSubscription = t.object({
   override_priority: t.number.optional()
 });
 
-export type StreamSubscription = t.Decoded<typeof StreamSubscription>;
+export type OpenedStream = t.Decoded<typeof OpenedStream>;
 
 /**
- * An overview of all subscriptions as part of a streaming sync request.
+ * An overview of all opened streams as part of a streaming sync request.
  */
-export const StreamSubscriptions = t.object({
+export const OpenedStreams = t.object({
   /**
    * Whether to sync default streams.
    *
@@ -48,12 +48,12 @@ export const StreamSubscriptions = t.object({
   include_defaults: t.boolean.optional(),
 
   /**
-   * An array of streams the client has subscribed to.
+   * An array of sync streams the client has opened explicitly.
    */
-  subscriptions: t.array(StreamSubscription)
+  opened: t.array(OpenedStream)
 });
 
-export type StreamSubscriptions = t.Decoded<typeof StreamSubscriptions>;
+export type StreamSubscriptions = t.Decoded<typeof OpenedStreams>;
 
 export const StreamingSyncRequest = t.object({
   /**
@@ -92,9 +92,9 @@ export const StreamingSyncRequest = t.object({
   client_id: t.string.optional(),
 
   /**
-   * If the client is aware of stream subscriptions, an array of streams the client is subscribing to.
+   * If the client is aware of streams, an array of streams the client has opened.
    */
-  subscriptions: StreamSubscriptions.optional()
+  subscriptions: OpenedStreams.optional()
 });
 
 export type StreamingSyncRequest = t.Decoded<typeof StreamingSyncRequest>;
@@ -146,7 +146,7 @@ export type StreamingSyncLine =
  */
 export type ProtocolOpId = string;
 
-export interface SubscribedStream {
+export interface StreamDescription {
   name: string;
   is_default: boolean;
 }
@@ -155,7 +155,7 @@ export interface Checkpoint {
   last_op_id: ProtocolOpId;
   write_checkpoint?: ProtocolOpId;
   buckets: BucketChecksumWithDescription[];
-  included_subscriptions: SubscribedStream[];
+  streams: StreamDescription[];
 }
 
 export interface BucketState {
