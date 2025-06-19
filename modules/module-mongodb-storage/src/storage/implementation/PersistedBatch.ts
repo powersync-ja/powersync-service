@@ -97,7 +97,7 @@ export class PersistedBatch {
       remaining_buckets.set(key, b);
     }
 
-    const dchecksum = utils.hashDelete(replicaIdToSubkey(options.table.id, options.sourceKey));
+    const dchecksum = BigInt(utils.hashDelete(replicaIdToSubkey(options.table.id, options.sourceKey)));
 
     for (const k of options.evaluated) {
       const key = currentBucketKey(k);
@@ -133,7 +133,7 @@ export class PersistedBatch {
             source_key: options.sourceKey,
             table: k.table,
             row_id: k.id,
-            checksum: checksum,
+            checksum: BigInt(checksum),
             data: recordData
           }
         }

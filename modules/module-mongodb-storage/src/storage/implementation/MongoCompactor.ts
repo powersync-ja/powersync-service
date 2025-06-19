@@ -317,7 +317,7 @@ export class MongoCompactor {
             let numberOfOpsToClear = 0;
             for await (let op of query.stream()) {
               if (op.op == 'MOVE' || op.op == 'REMOVE' || op.op == 'CLEAR') {
-                checksum = utils.addChecksums(checksum, op.checksum);
+                checksum = utils.addChecksums(checksum, Number(op.checksum));
                 lastOpId = op._id;
                 numberOfOpsToClear += 1;
                 if (op.op != 'CLEAR') {
@@ -358,7 +358,7 @@ export class MongoCompactor {
               {
                 _id: lastOpId!,
                 op: 'CLEAR',
-                checksum: checksum,
+                checksum: BigInt(checksum),
                 data: null,
                 target_op: targetOp
               },
