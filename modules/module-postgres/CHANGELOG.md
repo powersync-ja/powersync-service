@@ -1,5 +1,30 @@
 # @powersync/service-module-postgres
 
+## 0.14.0
+
+### Minor Changes
+
+- 0ccd470: Add powersync_replication_lag_seconds metric
+- 951b010: Implement resuming of initial replication snapshots.
+- d235f7b: [MongoDB Storage] Remove change streams on bucket storage database due to performance overhead.
+- 08b7aa9: Add checks for RLS affecting replication.
+
+### Patch Changes
+
+- 1907356: Cleanly interrupt clearing of storage when the process is stopped/restarted.
+- Updated dependencies [08b7aa9]
+- Updated dependencies [0ccd470]
+- Updated dependencies [1907356]
+- Updated dependencies [08b7aa9]
+- Updated dependencies [951b010]
+- Updated dependencies [d235f7b]
+- Updated dependencies [f9e8673]
+  - @powersync/service-core@1.13.0
+  - @powersync/service-types@0.12.0
+  - @powersync/service-jpgwire@0.20.0
+  - @powersync/lib-services-framework@0.7.0
+  - @powersync/lib-service-postgres@0.4.4
+
 ## 0.13.1
 
 ### Patch Changes

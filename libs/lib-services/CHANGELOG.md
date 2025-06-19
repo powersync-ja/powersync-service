@@ -1,5 +1,18 @@
 # @powersync/lib-services-framework
 
+## 0.7.0
+
+### Minor Changes
+
+- 951b010: Implement resuming of initial replication snapshots.
+
+### Patch Changes
+
+- f9e8673: [MongoDB Storage] Handle connection errors on startup
+- Updated dependencies [951b010]
+- Updated dependencies [f9e8673]
+  - @powersync/service-errors@0.3.1
+
 ## 0.6.0
 
 ### Minor Changes

@@ -1,5 +1,14 @@
 # @powersync/lib-service-mongodb
 
+## 0.6.1
+
+### Patch Changes
+
+- f9e8673: [MongoDB Storage] Handle connection errors on startup
+- Updated dependencies [951b010]
+- Updated dependencies [f9e8673]
+  - @powersync/lib-services-framework@0.7.0
+
 ## 0.6.0
 
 ### Minor Changes

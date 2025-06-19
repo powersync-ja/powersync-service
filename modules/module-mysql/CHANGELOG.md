@@ -1,5 +1,28 @@
 # @powersync/service-module-mysql
 
+## 0.7.0
+
+### Minor Changes
+
+- 0ccd470: Add powersync_replication_lag_seconds metric
+- e11754d: Added a configurable limit for the MySQL binlog processing queue to limit memory usage.
+  Removed MySQL Zongji type definitions, they are now instead imported from the `@powersync/mysql-zongji` package.
+  Now passing in port for the Zongji connection, so that it can be used with MySQL servers that are not running on the default port 3306.
+
+### Patch Changes
+
+- 1907356: Cleanly interrupt clearing of storage when the process is stopped/restarted.
+- 951b010: Implement resuming of initial replication snapshots.
+- Updated dependencies [08b7aa9]
+- Updated dependencies [0ccd470]
+- Updated dependencies [1907356]
+- Updated dependencies [951b010]
+- Updated dependencies [d235f7b]
+- Updated dependencies [f9e8673]
+  - @powersync/service-core@1.13.0
+  - @powersync/service-types@0.12.0
+  - @powersync/lib-services-framework@0.7.0
+
 ## 0.6.5
 
 ### Patch Changes

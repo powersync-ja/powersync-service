@@ -1,5 +1,28 @@
 # @powersync/service-image
 
+## 1.13.0
+
+### Patch Changes
+
+- 08b7aa9: Add checks for RLS affecting replication.
+- Updated dependencies [08b7aa9]
+- Updated dependencies [0ccd470]
+- Updated dependencies [e11754d]
+- Updated dependencies [1907356]
+- Updated dependencies [951b010]
+- Updated dependencies [d235f7b]
+- Updated dependencies [08b7aa9]
+- Updated dependencies [f9e8673]
+  - @powersync/service-core@1.13.0
+  - @powersync/service-module-postgres-storage@0.8.0
+  - @powersync/service-module-mongodb-storage@0.10.0
+  - @powersync/service-module-postgres@0.14.0
+  - @powersync/service-module-mongodb@0.10.0
+  - @powersync/service-module-mysql@0.7.0
+  - @powersync/lib-services-framework@0.7.0
+  - @powersync/service-module-core@0.1.2
+  - @powersync/service-rsocket-router@0.1.1
+
 ## 1.12.1
 
 ### Patch Changes
