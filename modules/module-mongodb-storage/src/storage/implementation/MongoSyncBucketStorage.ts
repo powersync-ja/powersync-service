@@ -473,7 +473,10 @@ export class MongoSyncBucketStorage
           {
             $group: {
               _id: '$_id.b',
-              checksum_total: { $sum: '$checksum' },
+              // Historically, checksum may be stored as 'int' or 'double'.
+              // More recently, this should be a 'long'.
+              // $toLong ensures that we always sum it as a long, avoiding inaccuracies in the calculations.
+              checksum_total: { $sum: { $toLong: '$checksum' } },
               count: { $sum: 1 },
               has_clear_op: {
                 $max: {
