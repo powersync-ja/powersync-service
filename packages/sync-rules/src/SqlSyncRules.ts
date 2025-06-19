@@ -42,17 +42,19 @@ export interface SyncRulesOptions {
 export interface GetQuerierOptions {
   globalParameters: RequestParameters;
   /**
-   * Whether the client is subscribing to default subscriptions (the default).
+   * Whether the client is subscribing to default query streams.
+   *
+   * Client do this by default, but can disable the behavior if needed.
    */
-  hasDefaultSubscriptions: boolean;
+  hasDefaultStreams: boolean;
   /**
-   * For streams, this is invoked to check whether the client has requested a subscription to
-   * the stream.
+   * For streams, this is invoked to check whether the client has opened the relevant stream.
    *
    * @param name The name of the stream as it appears in the sync rule definitions.
-   * @returns If a subscription is active, the stream parameters for that particular stream. Otherwise null.
+   * @returns If the strema has been opened by the client, the stream parameters for that particular stream. Otherwise
+   * null.
    */
-  resolveSubscription: (name: string) => Record<string, any> | null;
+  resolveOpenedStream: (name: string) => Record<string, any> | null;
 }
 
 export class SqlSyncRules implements SyncRules {
@@ -376,15 +378,15 @@ export class SqlSyncRules implements SyncRules {
       let params = options.globalParameters;
 
       if (descriptor.type == SqlBucketDescriptorType.STREAM) {
-        const subscription = options.resolveSubscription(descriptor.name);
+        const opened = options.resolveOpenedStream(descriptor.name);
 
-        if (!descriptor.subscribedToByDefault && subscription == null) {
+        if (!descriptor.subscribedToByDefault && opened == null) {
           // The client is not subscribing to this stream, so don't query buckets related to it.
           continue;
         }
 
-        if (subscription != null) {
-          params = params.withAddedParameters(subscription);
+        if (opened != null) {
+          params = params.withAddedStreamParameters(opened);
         }
 
         queriers.push(descriptor.getBucketParameterQuerier(params));
