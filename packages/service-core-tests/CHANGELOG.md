@@ -1,5 +1,22 @@
 # @powersync/service-core-tests
 
+## 0.10.0
+
+### Minor Changes
+
+- 0ccd470: Add powersync_replication_lag_seconds metric
+- d235f7b: [MongoDB Storage] Remove change streams on bucket storage database due to performance overhead.
+
+### Patch Changes
+
+- Updated dependencies [08b7aa9]
+- Updated dependencies [0ccd470]
+- Updated dependencies [1907356]
+- Updated dependencies [951b010]
+- Updated dependencies [d235f7b]
+- Updated dependencies [f9e8673]
+  - @powersync/service-core@1.13.0
+
 ## 0.9.5
 
 ### Patch Changes

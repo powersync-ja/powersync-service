@@ -1,5 +1,25 @@
 # @powersync/service-core
 
+## 1.13.0
+
+### Minor Changes
+
+- 0ccd470: Add powersync_replication_lag_seconds metric
+- 951b010: Implement resuming of initial replication snapshots.
+- d235f7b: [MongoDB Storage] Remove change streams on bucket storage database due to performance overhead.
+
+### Patch Changes
+
+- 08b7aa9: Add checks for RLS affecting replication.
+- 1907356: Cleanly interrupt clearing of storage when the process is stopped/restarted.
+- f9e8673: [MongoDB Storage] Handle connection errors on startup
+- Updated dependencies [0ccd470]
+- Updated dependencies [951b010]
+- Updated dependencies [f9e8673]
+  - @powersync/service-types@0.12.0
+  - @powersync/lib-services-framework@0.7.0
+  - @powersync/service-rsocket-router@0.1.1
+
 ## 1.12.1
 
 ### Patch Changes
