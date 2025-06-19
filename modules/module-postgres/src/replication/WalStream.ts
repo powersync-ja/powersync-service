@@ -1003,7 +1003,11 @@ WHERE  oid = $1::regclass`,
               // Big caveat: This _must not_ be used to skip individual messages, since this LSN
               // may be in the middle of the next transaction.
               // It must only be used to associate checkpoints with LSNs.
-              await batch.keepalive(chunkLastLsn);
+              const didCommit = await batch.keepalive(chunkLastLsn);
+              if (didCommit) {
+                this.oldestUncommittedChange = null;
+              }
+
               this.isStartingReplication = false;
             }
 
