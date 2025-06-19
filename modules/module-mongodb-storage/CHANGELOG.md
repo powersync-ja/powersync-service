@@ -1,5 +1,13 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.10.1
+
+### Patch Changes
+
+- 1b326fb: [MongoDB Storage] Fix checksum calculations in buckets with more than 4 million operations
+- Updated dependencies [1b326fb]
+  - @powersync/service-core@1.13.1
+
 ## 0.10.0
 
 ### Minor Changes
