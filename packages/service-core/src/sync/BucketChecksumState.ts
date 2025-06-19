@@ -228,7 +228,7 @@ export class BucketChecksumState {
       bucketsToFetch = allBuckets;
       this.parameterState.syncRules.bucketDescriptors;
 
-      const subscriptions: util.SubscribedStream[] = [];
+      const subscriptions: util.StreamDescription[] = [];
       for (const desc of this.parameterState.syncRules.bucketDescriptors) {
         if (desc.type == SqlBucketDescriptorType.STREAM && this.parameterState.isSubscribedToStream(desc)) {
           subscriptions.push({
@@ -246,7 +246,7 @@ export class BucketChecksumState {
             ...e,
             ...bucketDescriptionMap.get(e.bucket)!
           })),
-          included_subscriptions: subscriptions
+          streams: subscriptions
         }
       } satisfies util.StreamingSyncCheckpoint;
     }
@@ -355,7 +355,7 @@ export class BucketParameterState {
   private readonly querier: BucketParameterQuerier;
   private readonly staticBuckets: Map<string, BucketDescription>;
   private readonly includeDefaultStreams: boolean;
-  private readonly explicitStreamSubscriptions: Record<string, util.StreamSubscription>;
+  private readonly explicitlyOpenedStreams: Record<string, util.OpenedStream>;
   private readonly logger: Logger;
   private cachedDynamicBuckets: BucketDescription[] | null = null;
   private cachedDynamicBucketSet: Set<string> | null = null;
@@ -376,21 +376,21 @@ export class BucketParameterState {
     this.syncParams = syncParams;
     this.logger = logger;
 
-    const explicitStreamSubscriptions: Record<string, util.StreamSubscription> = {};
+    const explicitlyOpenedStreams: Record<string, util.OpenedStream> = {};
     const subscriptions = request.subscriptions;
     if (subscriptions) {
-      for (const subscription of subscriptions.subscriptions) {
-        explicitStreamSubscriptions[subscription.stream] = subscription;
+      for (const subscription of subscriptions.opened) {
+        explicitlyOpenedStreams[subscription.stream] = subscription;
       }
     }
     this.includeDefaultStreams = subscriptions?.include_defaults ?? true;
-    this.explicitStreamSubscriptions = explicitStreamSubscriptions;
+    this.explicitlyOpenedStreams = explicitlyOpenedStreams;
 
     this.querier = syncRules.getBucketParameterQuerier({
       globalParameters: this.syncParams,
       hasDefaultSubscriptions: this.includeDefaultStreams,
       resolveSubscription(name) {
-        const subscription = explicitStreamSubscriptions[name];
+        const subscription = explicitlyOpenedStreams[name];
         if (subscription) {
           return subscription.parameters ?? {};
         } else {
@@ -408,7 +408,7 @@ export class BucketParameterState {
    * In partiuclar, this can override the priority assigned to a bucket.
    */
   overrideBucketDescription(description: BucketDescription): BucketDescription {
-    const changedPriority = this.explicitStreamSubscriptions[description.definition]?.override_priority;
+    const changedPriority = this.explicitlyOpenedStreams[description.definition]?.override_priority;
     if (changedPriority != null && isValidPriority(changedPriority)) {
       return {
         ...description,
@@ -420,7 +420,7 @@ export class BucketParameterState {
   }
 
   isSubscribedToStream(desc: SqlBucketDescriptor): boolean {
-    return (desc.subscribedToByDefault && this.includeDefaultStreams) || desc.name in this.explicitStreamSubscriptions;
+    return (desc.subscribedToByDefault && this.includeDefaultStreams) || desc.name in this.explicitlyOpenedStreams;
   }
 
   async getCheckpointUpdate(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate> {
