@@ -46,7 +46,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   /**
    * Map of sync rule ids to promises that are clearing the sync rule configuration.
    *
-   * We primarily do this to keep track of what we're currently clearning, but don't currently
+   * We primarily do this to keep track of what we're currently clearing, but don't currently
    * use the Promise value.
    */
   private clearingJobs = new Map<number, Promise<void>>();
