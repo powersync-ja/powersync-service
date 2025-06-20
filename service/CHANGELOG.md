@@ -1,5 +1,19 @@
 # @powersync/service-image
 
+## 1.13.2
+
+### Patch Changes
+
+- c002948: Fix sync rule clearing process to not block sync rule processing.
+- Updated dependencies [c002948]
+  - @powersync/service-core@1.13.2
+  - @powersync/service-module-core@0.1.4
+  - @powersync/service-module-mongodb@0.10.2
+  - @powersync/service-module-mongodb-storage@0.10.2
+  - @powersync/service-module-mysql@0.7.2
+  - @powersync/service-module-postgres@0.14.2
+  - @powersync/service-module-postgres-storage@0.8.2
+
 ## 1.13.1
 
 ### Patch Changes

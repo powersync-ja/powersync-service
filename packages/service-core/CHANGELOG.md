@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 1.13.2
+
+### Patch Changes
+
+- c002948: Fix sync rule clearing process to not block sync rule processing.
+
 ## 1.13.1
 
 ### Patch Changes
