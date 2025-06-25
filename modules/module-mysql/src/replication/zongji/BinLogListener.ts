@@ -226,7 +226,7 @@ export class BinLogListener {
     const zongji = this.connectionManager.createBinlogListener();
 
     zongji.on('binlog', async (evt) => {
-      this.logger.info(`Received BinLog event:${evt.getEventName()}`);
+      this.logger.debug(`Received BinLog event:${evt.getEventName()}`);
       // We have to handle schema change events before handling more binlog events,
       // This avoids a bunch of possible race conditions
       if (zongji_utils.eventIsQuery(evt)) {
