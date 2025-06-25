@@ -1,15 +1,17 @@
 import * as common from '../../common/common-index.js';
 import async from 'async';
-import { BinLogEvent, StartOptions, TableMapEntry, ZongJi } from '@powersync/mysql-zongji';
+import { BinLogEvent, BinLogQueryEvent, StartOptions, TableMapEntry, ZongJi } from '@powersync/mysql-zongji';
 import * as zongji_utils from './zongji-utils.js';
 import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
 import { MySQLConnectionManager } from '../MySQLConnectionManager.js';
-import * as parser from 'node-sql-parser';
 import timers from 'timers/promises';
+import pkg, { BaseFrom, Parser as ParserType, RenameStatement, TruncateStatement } from 'node-sql-parser';
 
-// Maximum time the processing queue can be paused before resuming automatically
-// MySQL server will automatically terminate replication connections after 60 seconds of inactivity, so this guards against that.
-const MAX_QUEUE_PAUSE_TIME_MS = 45_000;
+const { Parser } = pkg;
+
+// Maximum time the Zongji listener can be paused before resuming automatically
+// MySQL server automatically terminates replication connections after 60 seconds of inactivity
+const MAX_PAUSE_TIME_MS = 45_000;
 
 export type Row = Record<string, any>;
 
@@ -21,7 +23,8 @@ export enum SchemaChangeType {
   MODIFY_COLUMN = 'modify_column',
   DROP_COLUMN = 'drop_column',
   ADD_COLUMN = 'add_column',
-  RENAME_COLUMN = 'rename_column'
+  RENAME_COLUMN = 'rename_column',
+  REPLICATION_IDENTITY = 'replication_identity'
 }
 
 export interface SchemaChange {
@@ -31,6 +34,9 @@ export interface SchemaChange {
    */
   table: string;
   newTable?: string; // Only for table renames
+  /**
+   *  ColumnDetails. Only applicable for column schema changes.
+   */
   column?: {
     /**
      *  The column that the schema change applies to.
@@ -53,7 +59,8 @@ export interface BinLogEventHandler {
 export interface BinLogListenerOptions {
   connectionManager: MySQLConnectionManager;
   eventHandler: BinLogEventHandler;
-  includedTables: string[];
+  // Filter for tables to include in the replication
+  tableFilter: (tableName: string) => boolean;
   serverId: number;
   startPosition: common.BinLogPosition;
   logger?: Logger;
@@ -64,21 +71,22 @@ export interface BinLogListenerOptions {
  *  events on the provided BinLogEventHandler.
  */
 export class BinLogListener {
-  private sqlParser: parser.Parser;
+  private sqlParser: ParserType;
   private connectionManager: MySQLConnectionManager;
   private eventHandler: BinLogEventHandler;
   private binLogPosition: common.BinLogPosition;
   private currentGTID: common.ReplicatedGTID | null;
   private logger: Logger;
 
-  isStopped: boolean = false;
-  isStopping: boolean = false;
   zongji: ZongJi;
   processingQueue: async.QueueObject<BinLogEvent>;
+
+  isStopped: boolean = false;
+  isStopping: boolean = false;
   /**
    *  The combined size in bytes of all the binlog events currently in the processing queue.
    */
-  queueMemoryUsage: number;
+  queueMemoryUsage: number = 0;
 
   constructor(public options: BinLogListenerOptions) {
     this.logger = options.logger ?? defaultLogger;
@@ -86,9 +94,8 @@ export class BinLogListener {
     this.eventHandler = options.eventHandler;
     this.binLogPosition = options.startPosition;
     this.currentGTID = null;
-    this.sqlParser = new parser.Parser();
+    this.sqlParser = new Parser();
     this.processingQueue = this.createProcessingQueue();
-    this.queueMemoryUsage = 0;
     this.zongji = this.createZongjiListener();
   }
 
@@ -140,7 +147,7 @@ export class BinLogListener {
       // We ignore the unknown/heartbeat event since it currently serves no purpose other than to keep the connection alive
       // tablemap events always need to be included for the other row events to work
       includeEvents: ['tablemap', 'writerows', 'updaterows', 'deleterows', 'xid', 'rotate', 'gtidlog', 'query'],
-      includeSchema: { [this.connectionManager.databaseName]: this.options.includedTables },
+      includeSchema: { [this.connectionManager.databaseName]: this.options.tableFilter },
       filename: this.binLogPosition.filename,
       position: this.binLogPosition.offset,
       serverId: this.options.serverId
@@ -154,6 +161,25 @@ export class BinLogListener {
         resolve();
       });
     });
+  }
+
+  private async restartZongji(): Promise<void> {
+    this.zongji = this.createZongjiListener();
+    await this.start(true);
+  }
+
+  private async stopZongji(): Promise<void> {
+    await new Promise<void>((resolve) => {
+      this.zongji.once('stopped', () => {
+        resolve();
+      });
+      this.zongji.stop();
+    });
+
+    // Wait until all the current events in the processing queue are also processed
+    if (this.processingQueue.length() > 0) {
+      await this.processingQueue.empty();
+    }
   }
 
   public async stop(): Promise<void> {
@@ -201,19 +227,25 @@ export class BinLogListener {
 
     zongji.on('binlog', async (evt) => {
       this.logger.info(`Received BinLog event:${evt.getEventName()}`);
-      this.processingQueue.push(evt);
-      this.queueMemoryUsage += evt.size;
+      // We have to handle schema change events before handling more binlog events,
+      // This avoids a bunch of possible race conditions
+      if (zongji_utils.eventIsQuery(evt)) {
+        await this.processQueryEvent(evt);
+      } else {
+        this.processingQueue.push(evt);
+        this.queueMemoryUsage += evt.size;
 
-      // When the processing queue grows past the threshold, we pause the binlog listener
-      if (this.isQueueOverCapacity()) {
-        this.logger.info(
-          `BinLog processing queue has reached its memory limit of [${this.connectionManager.options.binlog_queue_memory_limit}MB]. Pausing BinLog Listener.`
-        );
-        zongji.pause();
-        const resumeTimeoutPromise = timers.setTimeout(MAX_QUEUE_PAUSE_TIME_MS);
-        await Promise.race([this.processingQueue.empty(), resumeTimeoutPromise]);
-        this.logger.info(`BinLog processing queue backlog cleared. Resuming BinLog Listener.`);
-        zongji.resume();
+        // When the processing queue grows past the threshold, we pause the binlog listener
+        if (this.isQueueOverCapacity()) {
+          this.logger.info(
+            `BinLog processing queue has reached its memory limit of [${this.connectionManager.options.binlog_queue_memory_limit}MB]. Pausing BinLog Listener.`
+          );
+          zongji.pause();
+          const resumeTimeoutPromise = timers.setTimeout(MAX_PAUSE_TIME_MS);
+          await Promise.race([this.processingQueue.empty(), resumeTimeoutPromise]);
+          this.logger.info(`BinLog processing queue backlog cleared. Resuming BinLog Listener.`);
+          zongji.resume();
+        }
       }
     });
 
@@ -227,6 +259,10 @@ export class BinLogListener {
     });
 
     return zongji;
+  }
+
+  isQueueOverCapacity(): boolean {
+    return this.queueMemoryUsage >= this.queueMemoryLimit;
   }
 
   private createQueueWorker() {
@@ -250,14 +286,15 @@ export class BinLogListener {
           );
           break;
         case zongji_utils.eventIsRotation(evt):
-          if (this.binLogPosition.filename !== evt.binlogName) {
-            this.logger.info(
-              `Processed Rotate log event. New BinLog file is: ${this.binLogPosition.filename}:${this.binLogPosition.offset}`
-            );
-          }
+          const newFile = this.binLogPosition.filename !== evt.binlogName;
           this.binLogPosition.filename = evt.binlogName;
           this.binLogPosition.offset = evt.position;
           await this.eventHandler.onRotate();
+
+          this.logger.info(
+            `Processed Rotate log event. ${newFile ? `New BinLog file is: ${this.binLogPosition.filename}:${this.binLogPosition.offset}` : ''}`
+          );
+
           break;
         case zongji_utils.eventIsWriteMutation(evt):
           await this.eventHandler.onWrite(evt.rows, evt.tableMap[evt.tableId]);
@@ -290,61 +327,62 @@ export class BinLogListener {
           await this.eventHandler.onCommit(LSN);
           this.logger.info(`Processed Xid log event. Transaction LSN: ${LSN}.`);
           break;
-        case zongji_utils.eventIsQuery(evt):
-          // Ignore BEGIN queries
-          if (evt.query === 'BEGIN') {
-            break;
-          }
-          const ast = this.sqlParser.astify(evt.query, { database: 'MySQL' });
-          const statements = Array.isArray(ast) ? ast : [ast];
-          const schemaChanges = this.toSchemaChanges(statements);
-          if (schemaChanges.length > 0) {
-            await this.handleSchemaChanges(schemaChanges, evt.nextPosition);
-          } else {
-            // Still have to update the binlog position, even if there were no effective schema changes
-            this.binLogPosition.offset = evt.nextPosition;
-          }
-
-          break;
       }
 
       this.queueMemoryUsage -= evt.size;
     };
   }
 
-  private async handleSchemaChanges(changes: SchemaChange[], nextPosition: number): Promise<void> {
-    this.logger.info(`Stopping BinLog Listener to process ${changes.length} schema change events...`);
-    // Since handling the schema changes can take a long time, we need to stop the Zongji listener instead of pausing it.
-    await new Promise<void>((resolve) => {
-      this.zongji.once('stopped', () => {
-        resolve();
-      });
-      this.zongji.stop();
-    });
-    for (const change of changes) {
-      this.logger.info(`Processing schema change: ${change.type} for table: ${change.table}`);
-      await this.eventHandler.onSchemaChange(change);
+  private async processQueryEvent(event: BinLogQueryEvent): Promise<void> {
+    const { query, nextPosition } = event;
+
+    // Ignore BEGIN queries
+    if (query === 'BEGIN') {
+      return;
     }
 
-    this.binLogPosition.offset = nextPosition;
-    // Wait until all the current events in the processing queue are processed and the binlog position has been updated
-    // otherwise we risk processing the same events again.
-    if (this.processingQueue.length() > 0) {
-      await this.processingQueue.empty();
+    const schemaChanges = this.toSchemaChanges(query);
+    if (schemaChanges.length > 0) {
+      this.logger.info(`Processing schema change query: ${query}`);
+      this.logger.info(`Stopping BinLog Listener to process ${schemaChanges.length} schema change events...`);
+      // Since handling the schema changes can take a long time, we need to stop the Zongji listener instead of pausing it.
+      await this.stopZongji();
+
+      for (const change of schemaChanges) {
+        await this.eventHandler.onSchemaChange(change);
+      }
+
+      // DDL queries are auto commited, and so do not come with a corresponding Xid event.
+      // This is problematic for DDL queries which result in row events, so we manually commit here.
+      this.binLogPosition.offset = nextPosition;
+      const LSN = new common.ReplicatedGTID({
+        raw_gtid: this.currentGTID!.raw,
+        position: this.binLogPosition
+      }).comparable;
+      await this.eventHandler.onCommit(LSN);
+
+      this.logger.info(`Successfully processed schema changes.`);
+      // Restart the Zongji listener
+      await this.restartZongji();
     }
-    this.zongji = this.createZongjiListener();
-    this.logger.info(`Successfully processed schema changes.`);
-    // Restart the Zongji listener
-    await this.start(true);
   }
 
-  private toSchemaChanges(statements: parser.AST[]): SchemaChange[] {
-    // TODO: We need to check if schema filtering is also required
+  /**
+   *  Function that interprets a DDL query for any applicable schema changes.
+   *  If the query does not contain any relevant schema changes, an empty array is returned.
+   *
+   *  @param query
+   */
+  private toSchemaChanges(query: string): SchemaChange[] {
+    const ast = this.sqlParser.astify(query, { database: 'MySQL' });
+    const statements = Array.isArray(ast) ? ast : [ast];
+
     const changes: SchemaChange[] = [];
     for (const statement of statements) {
       // @ts-ignore
       if (statement.type === 'rename') {
-        const renameStatement = statement as parser.RenameStatement;
+        const renameStatement = statement as RenameStatement;
+        // Rename statements can apply to multiple tables
         for (const table of renameStatement.table) {
           changes.push({
             type: SchemaChangeType.RENAME_TABLE,
@@ -352,18 +390,18 @@ export class BinLogListener {
             newTable: table[1].table
           });
         }
-      } // @ts-ignore
-      else if (statement.type === 'truncate' && statement.keyword === 'table') {
-        const truncateStatement = statement as parser.TruncateStatement;
-        // Truncate statements can apply to multiple tables
-        for (const entity of truncateStatement.name) {
-          changes.push({ type: SchemaChangeType.TRUNCATE_TABLE, table: entity.table });
-        }
       } else if (statement.type === 'create' && statement.keyword === 'table' && statement.temporary === null) {
         changes.push({
           type: SchemaChangeType.CREATE_TABLE,
           table: statement.table![0].table
         });
+      } // @ts-ignore
+      else if (statement.type === 'truncate') {
+        const truncateStatement = statement as TruncateStatement;
+        // Truncate statements can apply to multiple tables
+        for (const entity of truncateStatement.name) {
+          changes.push({ type: SchemaChangeType.TRUNCATE_TABLE, table: entity.table });
+        }
       } else if (statement.type === 'drop' && statement.keyword === 'table') {
         // Drop statements can apply to multiple tables
         for (const entity of statement.name) {
@@ -371,7 +409,7 @@ export class BinLogListener {
         }
       } else if (statement.type === 'alter') {
         const expression = statement.expr[0];
-        const fromTable = statement.table[0] as parser.BaseFrom;
+        const fromTable = statement.table[0] as BaseFrom;
         if (expression.resource === 'table') {
           if (expression.action === 'rename') {
             changes.push({
@@ -381,50 +419,28 @@ export class BinLogListener {
             });
           }
         } else if (expression.resource === 'column') {
-          const column = expression.column;
-          if (expression.action === 'drop') {
-            changes.push({
-              type: SchemaChangeType.DROP_COLUMN,
-              table: fromTable.table,
-              column: {
-                column: column.column
-              }
-            });
-          } else if (expression.action === 'add') {
-            changes.push({
-              type: SchemaChangeType.ADD_COLUMN,
-              table: fromTable.table,
-              column: {
-                column: column.column
-              }
-            });
-          } else if (expression.action === 'modify') {
-            changes.push({
-              type: SchemaChangeType.MODIFY_COLUMN,
-              table: fromTable.table,
-              column: {
-                column: column.column
-              }
-            });
-          } else if (expression.action === 'change') {
-            changes.push({
-              type: SchemaChangeType.RENAME_COLUMN,
-              table: fromTable.table,
-              column: {
-                column: expression.old_column.column,
-                newColumn: column.column
-              }
-            });
-          } else if (expression.action === 'rename') {
-            changes.push({
-              type: SchemaChangeType.RENAME_COLUMN,
-              table: fromTable.table,
-              column: {
-                column: expression.old_column.column,
-                newColumn: column.column
-              }
-            });
+          const columnChange: SchemaChange = {
+            type: this.toColumnSchemaChangeType(expression.action),
+            table: fromTable.table,
+            column: {
+              column: expression.column.column
+            }
+          };
+
+          if (expression.action === 'change' || expression.action === 'rename') {
+            columnChange.column = {
+              column: expression.old_column.column,
+              newColumn: expression.column.column
+            };
           }
+          changes.push(columnChange);
+        } else if (expression.resource === 'key' && expression.keyword === 'primary key') {
+          // This is a special case for MySQL, where the primary key is being set or changed
+          // We treat this as a replication identity change
+          changes.push({
+            type: SchemaChangeType.REPLICATION_IDENTITY,
+            table: fromTable.table
+          });
         }
       }
     }
@@ -432,12 +448,23 @@ export class BinLogListener {
     // Filter out schema changes that are not relevant to the included tables
     return changes.filter(
       (change) =>
-        this.options.includedTables.includes(change.table) ||
-        (change.newTable && this.options.includedTables.includes(change.newTable))
+        this.options.tableFilter(change.table) || (change.newTable && this.options.tableFilter(change.newTable))
     );
   }
 
-  isQueueOverCapacity(): boolean {
-    return this.queueMemoryUsage >= this.queueMemoryLimit;
+  private toColumnSchemaChangeType(action: string): SchemaChangeType {
+    switch (action) {
+      case 'drop':
+        return SchemaChangeType.DROP_COLUMN;
+      case 'add':
+        return SchemaChangeType.ADD_COLUMN;
+      case 'modify':
+        return SchemaChangeType.MODIFY_COLUMN;
+      case 'change':
+      case 'rename':
+        return SchemaChangeType.RENAME_COLUMN;
+      default:
+        throw new Error(`Unknown column schema change action: ${action}`);
+    }
   }
 }

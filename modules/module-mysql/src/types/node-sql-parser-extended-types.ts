@@ -11,7 +11,7 @@ declare module 'node-sql-parser' {
 
   interface TruncateStatement {
     type: 'truncate';
-    keyword: 'table'; // There are more keywords possible, but we only care about 'table' for now
+    keyword: 'table'; // There are more keywords possible, but we only care about 'table'
     name: { db: string | null; table: string; as: string | null }[];
   }
 }

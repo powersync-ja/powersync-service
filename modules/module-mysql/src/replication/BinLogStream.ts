@@ -83,7 +83,7 @@ export class BinLogStream {
    * Keep track of whether we have done a commit or keepalive yet.
    * We can only compute replication lag if isStartingReplication == false, or oldestUncommittedChange is present.
    */
-  private isStartingReplication = true;
+  isStartingReplication = true;
 
   constructor(private options: BinLogStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
@@ -161,7 +161,7 @@ export class BinLogStream {
         await promiseConnection.query('START TRANSACTION');
         try {
           gtid = await common.readExecutedGtid(promiseConnection);
-          await this.snapshotTable(connection.connection, batch, result.table);
+          await this.snapshotTable(connection as mysql.Connection, batch, result.table);
           await promiseConnection.query('COMMIT');
         } catch (e) {
           await this.tryRollback(promiseConnection);
@@ -187,29 +187,28 @@ export class BinLogStream {
 
     const connection = await this.connections.getConnection();
     const matchedTables: string[] = await common.getTablesFromPattern(connection, tablePattern);
+    connection.release();
 
     let tables: storage.SourceTable[] = [];
     for (const matchedTable of matchedTables) {
-      const replicaIdColumns = await common.getReplicationIdentityColumns({
-        connection: connection,
-        schema: tablePattern.schema,
-        tableName: matchedTable
-      });
+      const replicaIdColumns = await this.getReplicaIdColumns(matchedTable);
 
       const table = await this.handleRelation(
         batch,
         {
           name: matchedTable,
           schema: tablePattern.schema,
-          objectId: getMysqlRelId(tablePattern),
-          replicaIdColumns: replicaIdColumns.columns
+          objectId: getMysqlRelId({
+            schema: tablePattern.schema,
+            name: matchedTable
+          }),
+          replicaIdColumns: replicaIdColumns
         },
         false
       );
 
       tables.push(table);
     }
-    connection.release();
     return tables;
   }
 
@@ -415,9 +414,10 @@ export class BinLogStream {
           const binlogEventHandler = this.createBinlogEventHandler(batch);
           // Only listen for changes to tables in the sync rules
           const includedTables = [...this.tableCache.values()].map((table) => table.name);
+
           const binlogListener = new BinLogListener({
             logger: this.logger,
-            includedTables: includedTables,
+            tableFilter: (table: string) => this.matchesTable(table),
             startPosition: binLogPositionState,
             connectionManager: this.connections,
             serverId: serverId,
@@ -438,6 +438,18 @@ export class BinLogStream {
         }
       );
     }
+  }
+
+  private matchesTable(tableName: string): boolean {
+    const sourceTables = this.syncRules.getSourceTables();
+
+    return (
+      sourceTables.findIndex((table) =>
+        table.isWildcard
+          ? tableName.startsWith(table.tablePattern.substring(0, table.tablePattern.length - 1))
+          : tableName === table.name
+      ) !== -1
+    );
   }
 
   private createBinlogEventHandler(batch: storage.BucketStorageBatch): BinLogEventHandler {
@@ -488,21 +500,37 @@ export class BinLogStream {
   }
 
   private async handleSchemaChange(batch: storage.BucketStorageBatch, change: SchemaChange): Promise<void> {
-    const tableId = getMysqlRelId({
-      schema: this.connections.databaseName,
-      name: change.table
-    });
+    if (change.type === SchemaChangeType.CREATE_TABLE) {
+      const replicaIdColumns = await this.getReplicaIdColumns(change.table);
+      await this.handleRelation(
+        batch,
+        {
+          name: change.table,
+          schema: this.connections.databaseName,
+          objectId: getMysqlRelId({
+            schema: this.connections.databaseName,
+            name: change.table
+          }),
+          replicaIdColumns: replicaIdColumns
+        },
+        true
+      );
+      return;
+    } else if (change.type === SchemaChangeType.RENAME_TABLE) {
+      const oldTableId = getMysqlRelId({
+        schema: this.connections.databaseName,
+        name: change.table
+      });
 
-    const table = this.tableCache.get(tableId);
-    if (table) {
-      if (change.type === SchemaChangeType.TRUNCATE_TABLE) {
-        await batch.truncate([table]);
-      } else if (change.type === SchemaChangeType.DROP_TABLE) {
+      const table = this.tableCache.get(oldTableId);
+      // Old table needs to be cleaned up
+      if (table) {
         await batch.drop([table]);
-        this.tableCache.delete(tableId);
-      } else if (change.type === SchemaChangeType.RENAME_TABLE) {
-        await batch.drop([table]);
-        this.tableCache.delete(tableId);
+        this.tableCache.delete(oldTableId);
+      }
+      // If the new table matches the sync rules, we need to add it to the cache and snapshot it
+      if (this.matchesTable(change.newTable!)) {
+        const replicaIdColumns = await this.getReplicaIdColumns(change.newTable!);
         await this.handleRelation(
           batch,
           {
@@ -512,35 +540,62 @@ export class BinLogStream {
               schema: this.connections.databaseName,
               name: change.newTable!
             }),
-            replicaIdColumns: table.replicaIdColumns
+            replicaIdColumns: replicaIdColumns
           },
           true
         );
-      } else {
-        await this.handleRelation(batch, table, true);
       }
-    } else if (change.type === SchemaChangeType.CREATE_TABLE) {
-      const connection = await this.connections.getConnection();
-      const replicaIdColumns = await common.getReplicationIdentityColumns({
-        connection,
+    } else {
+      const tableId = getMysqlRelId({
         schema: this.connections.databaseName,
-        tableName: change.table
+        name: change.table
       });
-      connection.release();
-      await this.handleRelation(
-        batch,
-        {
-          name: change.newTable!,
-          schema: this.connections.databaseName,
-          objectId: getMysqlRelId({
-            schema: this.connections.databaseName,
-            name: change.newTable!
-          }),
-          replicaIdColumns: replicaIdColumns.columns
-        },
-        true
-      );
+
+      const table = this.getTable(tableId);
+
+      switch (change.type) {
+        case SchemaChangeType.ADD_COLUMN:
+        case SchemaChangeType.DROP_COLUMN:
+        case SchemaChangeType.MODIFY_COLUMN:
+        case SchemaChangeType.RENAME_COLUMN:
+        case SchemaChangeType.REPLICATION_IDENTITY:
+          // For these changes, we need to update the table's replica id columns
+          const replicaIdColumns = await this.getReplicaIdColumns(change.table);
+          await this.handleRelation(
+            batch,
+            {
+              name: change.table,
+              schema: this.connections.databaseName,
+              objectId: tableId,
+              replicaIdColumns: replicaIdColumns
+            },
+            true
+          );
+          break;
+        case SchemaChangeType.TRUNCATE_TABLE:
+          await batch.truncate([table]);
+          break;
+        case SchemaChangeType.DROP_TABLE:
+          await batch.drop([table]);
+          this.tableCache.delete(tableId);
+          break;
+        default:
+          // No action needed for other schema changes
+          break;
+      }
     }
+  }
+
+  private async getReplicaIdColumns(tableName: string) {
+    const connection = await this.connections.getConnection();
+    const replicaIdColumns = await common.getReplicationIdentityColumns({
+      connection,
+      schema: this.connections.databaseName,
+      tableName
+    });
+    connection.release();
+
+    return replicaIdColumns.columns;
   }
 
   private async writeChanges(
