@@ -1,4 +1,4 @@
-import { describe, test, beforeEach, vi, expect, afterEach } from 'vitest';
+import { describe, test, beforeEach, vi, expect, beforeAll, afterAll } from 'vitest';
 import {
   BinLogEventHandler,
   BinLogListener,
@@ -10,7 +10,7 @@ import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManag
 import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
 import { v4 as uuid } from 'uuid';
 import * as common from '@module/common/common-index.js';
-import { createRandomServerId } from '@module/utils/mysql-utils.js';
+import { createRandomServerId, getMySQLVersion, isVersion, isVersionAtLeast } from '@module/utils/mysql-utils.js';
 import { TableMapEntry } from '@powersync/mysql-zongji';
 import crypto from 'crypto';
 
@@ -24,9 +24,17 @@ describe('BinlogListener tests', () => {
   let connectionManager: MySQLConnectionManager;
   let eventHandler: TestBinLogEventHandler;
   let binLogListener: BinLogListener;
+  let isMySQL57: boolean = false;
+
+  beforeAll(async () => {
+    connectionManager = new MySQLConnectionManager(BINLOG_LISTENER_CONNECTION_OPTIONS, {});
+    const connection = await connectionManager.getConnection();
+    const version = await getMySQLVersion(connection);
+    isMySQL57 = isVersion(version, '5.7.0');
+    connection.release();
+  });
 
   beforeEach(async () => {
-    connectionManager = new MySQLConnectionManager(BINLOG_LISTENER_CONNECTION_OPTIONS, {});
     const connection = await connectionManager.getConnection();
     await clearTestDb(connection);
     await connection.query(`CREATE TABLE test_DATA (id CHAR(36) PRIMARY KEY, description MEDIUMTEXT)`);
@@ -43,7 +51,7 @@ describe('BinlogListener tests', () => {
     });
   });
 
-  afterEach(async () => {
+  afterAll(async () => {
     await connectionManager.end();
   });
 
@@ -199,17 +207,6 @@ describe('BinlogListener tests', () => {
     expect(eventHandler.schemaChanges[0].column?.newColumn).toEqual('description_new');
   });
 
-  test('Schema change event handling - ALTER TABLE RENAME COLUMN column rename', async () => {
-    await binLogListener.start();
-    await connectionManager.query(`ALTER TABLE test_DATA RENAME COLUMN description TO description_new`);
-    await vi.waitFor(() => expect(eventHandler.schemaChanges.length > 0).toBeTruthy(), { timeout: 5000 });
-    await binLogListener.stop();
-    expect(eventHandler.schemaChanges[0].type).toBe(SchemaChangeType.RENAME_COLUMN);
-    expect(eventHandler.schemaChanges[0].table).toEqual('test_DATA');
-    expect(eventHandler.schemaChanges[0].column?.column).toEqual('description');
-    expect(eventHandler.schemaChanges[0].column?.newColumn).toEqual('description_new');
-  });
-
   test('Schema changes for non-matching tables are ignored', async () => {
     const stopSpy = vi.spyOn(binLogListener.zongji, 'stop');
 
@@ -225,6 +222,18 @@ describe('BinlogListener tests', () => {
     await binLogListener.stop();
 
     expect(eventHandler.schemaChanges.length).toBe(0);
+  });
+
+  // Syntax ALTER TABLE RENAME COLUMN was only introduced in MySQL 8.0.0
+  test.skipIf(isMySQL57)('Schema change event handling - ALTER TABLE RENAME COLUMN column rename', async () => {
+    await binLogListener.start();
+    await connectionManager.query(`ALTER TABLE test_DATA RENAME COLUMN description TO description_new`);
+    await vi.waitFor(() => expect(eventHandler.schemaChanges.length > 0).toBeTruthy(), { timeout: 5000 });
+    await binLogListener.stop();
+    expect(eventHandler.schemaChanges[0].type).toBe(SchemaChangeType.RENAME_COLUMN);
+    expect(eventHandler.schemaChanges[0].table).toEqual('test_DATA');
+    expect(eventHandler.schemaChanges[0].column?.column).toEqual('description');
+    expect(eventHandler.schemaChanges[0].column?.newColumn).toEqual('description_new');
   });
 });
 
