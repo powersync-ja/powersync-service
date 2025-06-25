@@ -38,7 +38,7 @@ describe('BinlogListener tests', () => {
       connectionManager: connectionManager,
       eventHandler: eventHandler,
       startPosition: fromGTID.position,
-      includedTables: ['test_DATA'],
+      tableFilter: (table) => ['test_DATA'].includes(table),
       serverId: createRandomServerId(1)
     });
   });
@@ -58,7 +58,7 @@ describe('BinlogListener tests', () => {
     expect(queueStopSpy).toHaveBeenCalled();
   });
 
-  test('Pause Zongji binlog listener when processing queue reaches maximum memory size', async () => {
+  test('Zongji listener is paused when processing queue reaches maximum memory size', async () => {
     const pauseSpy = vi.spyOn(binLogListener.zongji, 'pause');
     const resumeSpy = vi.spyOn(binLogListener.zongji, 'resume');
 
@@ -83,7 +83,7 @@ describe('BinlogListener tests', () => {
     expect(resumeSpy).toHaveBeenCalled();
   });
 
-  test('Binlog row events are correctly forwarded to provided binlog events handler', async () => {
+  test('Row event handling', async () => {
     await binLogListener.start();
 
     const ROW_COUNT = 10;
@@ -100,7 +100,7 @@ describe('BinlogListener tests', () => {
     await binLogListener.stop();
   });
 
-  test('ALTER TABLE RENAME schema changes', async () => {
+  test('Schema change event handling - ALTER TABLE RENAME', async () => {
     await binLogListener.start();
     await connectionManager.query(`ALTER TABLE test_DATA RENAME test_DATA_new`);
     await vi.waitFor(() => expect(eventHandler.schemaChanges.length > 0).toBeTruthy(), { timeout: 5000 });
@@ -110,7 +110,7 @@ describe('BinlogListener tests', () => {
     expect(eventHandler.schemaChanges[0].newTable).toEqual('test_DATA_new');
   });
 
-  test('RENAME TABLE schema changes', async () => {
+  test('Schema change event handling - RENAME TABLE', async () => {
     await binLogListener.start();
     await connectionManager.query(`RENAME TABLE test_DATA TO test_DATA_new`);
     await vi.waitFor(() => expect(eventHandler.schemaChanges.length > 0).toBeTruthy(), { timeout: 5000 });
@@ -120,7 +120,7 @@ describe('BinlogListener tests', () => {
     expect(eventHandler.schemaChanges[0].newTable).toEqual('test_DATA_new');
   });
 
-  test('RENAME TABLE multipe table schema changes', async () => {
+  test('Schema change event handling - RENAME TABLE multiple', async () => {
     await binLogListener.start();
     await connectionManager.query(`RENAME TABLE 
     test_DATA TO test_DATA_new,
@@ -137,7 +137,7 @@ describe('BinlogListener tests', () => {
     expect(eventHandler.schemaChanges[1].newTable).toEqual('test_DATA');
   });
 
-  test('TRUNCATE TABLE schema changes', async () => {
+  test('Schema change event handling - TRUNCATE TABLE', async () => {
     await binLogListener.start();
     await connectionManager.query(`TRUNCATE TABLE test_DATA`);
     await vi.waitFor(() => expect(eventHandler.schemaChanges.length > 0).toBeTruthy(), { timeout: 5000 });
@@ -146,7 +146,7 @@ describe('BinlogListener tests', () => {
     expect(eventHandler.schemaChanges[0].table).toEqual('test_DATA');
   });
 
-  test('DROP AND CREATE TABLE schema changes', async () => {
+  test('Schema change event handling - DROP AND CREATE TABLE ', async () => {
     await binLogListener.start();
     await connectionManager.query(`DROP TABLE test_DATA`);
     await connectionManager.query(`CREATE TABLE test_DATA (id CHAR(36) PRIMARY KEY, description MEDIUMTEXT)`);
@@ -158,7 +158,7 @@ describe('BinlogListener tests', () => {
     expect(eventHandler.schemaChanges[1].table).toEqual('test_DATA');
   });
 
-  test('ALTER TABLE DROP COLUMN schema changes', async () => {
+  test('Schema change event handling - ALTER TABLE DROP COLUMN', async () => {
     await binLogListener.start();
     await connectionManager.query(`ALTER TABLE test_DATA DROP COLUMN description`);
     await vi.waitFor(() => expect(eventHandler.schemaChanges.length > 0).toBeTruthy(), { timeout: 5000 });
@@ -168,7 +168,7 @@ describe('BinlogListener tests', () => {
     expect(eventHandler.schemaChanges[0].column?.column).toEqual('description');
   });
 
-  test('ALTER TABLE ADD COLUMN schema changes', async () => {
+  test('Schema change event handling - ALTER TABLE ADD COLUMN', async () => {
     await binLogListener.start();
     await connectionManager.query(`ALTER TABLE test_DATA ADD COLUMN new_column VARCHAR(255)`);
     await vi.waitFor(() => expect(eventHandler.schemaChanges.length > 0).toBeTruthy(), { timeout: 5000 });
@@ -178,7 +178,7 @@ describe('BinlogListener tests', () => {
     expect(eventHandler.schemaChanges[0].column?.column).toEqual('new_column');
   });
 
-  test('ALTER TABLE MODIFY COLUMN type schema changes', async () => {
+  test('Schema change event handling - ALTER TABLE MODIFY COLUMN', async () => {
     await binLogListener.start();
     await connectionManager.query(`ALTER TABLE test_DATA MODIFY COLUMN description TEXT`);
     await vi.waitFor(() => expect(eventHandler.schemaChanges.length > 0).toBeTruthy(), { timeout: 5000 });
@@ -188,7 +188,7 @@ describe('BinlogListener tests', () => {
     expect(eventHandler.schemaChanges[0].column?.column).toEqual('description');
   });
 
-  test('ALTER TABLE CHANGE COLUMN column rename schema changes', async () => {
+  test('Schema change event handling - ALTER TABLE CHANGE COLUMN column rename', async () => {
     await binLogListener.start();
     await connectionManager.query(`ALTER TABLE test_DATA CHANGE COLUMN description description_new MEDIUMTEXT`);
     await vi.waitFor(() => expect(eventHandler.schemaChanges.length > 0).toBeTruthy(), { timeout: 5000 });
@@ -199,7 +199,7 @@ describe('BinlogListener tests', () => {
     expect(eventHandler.schemaChanges[0].column?.newColumn).toEqual('description_new');
   });
 
-  test('ALTER TABLE RENAME COLUMN column rename schema changes', async () => {
+  test('Schema change event handling - ALTER TABLE RENAME COLUMN column rename', async () => {
     await binLogListener.start();
     await connectionManager.query(`ALTER TABLE test_DATA RENAME COLUMN description TO description_new`);
     await vi.waitFor(() => expect(eventHandler.schemaChanges.length > 0).toBeTruthy(), { timeout: 5000 });
@@ -208,6 +208,23 @@ describe('BinlogListener tests', () => {
     expect(eventHandler.schemaChanges[0].table).toEqual('test_DATA');
     expect(eventHandler.schemaChanges[0].column?.column).toEqual('description');
     expect(eventHandler.schemaChanges[0].column?.newColumn).toEqual('description_new');
+  });
+
+  test('Schema changes for non-matching tables are ignored', async () => {
+    const stopSpy = vi.spyOn(binLogListener.zongji, 'stop');
+
+    // TableFilter = only match 'test_DATA'
+    await binLogListener.start();
+    await connectionManager.query(`CREATE TABLE test_ignored (id CHAR(36) PRIMARY KEY, description TEXT)`);
+    await connectionManager.query(`ALTER TABLE test_ignored ADD COLUMN new_column VARCHAR(10)`);
+    await connectionManager.query(`DROP TABLE test_ignored`);
+
+    // "Anchor" event to latch onto, ensuring that the schema change events have finished
+    await insertRows(connectionManager, 1);
+    await vi.waitFor(() => expect(eventHandler.rowsWritten).equals(1), { timeout: 5000 });
+    await binLogListener.stop();
+
+    expect(eventHandler.schemaChanges.length).toBe(0);
   });
 });
 
