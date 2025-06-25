@@ -109,80 +109,78 @@ export function toSQLiteRow(row: Record<string, any>, columns: Map<string, Colum
     // We are very much expecting the column to be there
     const column = columns.get(key)!;
 
-    if (row[key] !== null) {
-      switch (column.typeId) {
-        case mysql.Types.DATE:
-          // Only parse the date part
-          {
-            const date = row[key] as Date;
-            if (isNaN(date.getTime())) {
-              // Invalid dates, such as 2024-00-00.
-              // we can't do anything meaningful with this, so just use null.
-              result[key] = null;
-            } else {
-              result[key] = date.toISOString().split('T')[0];
-            }
-          }
-          break;
-        case mysql.Types.DATETIME:
-        case ADDITIONAL_MYSQL_TYPES.DATETIME2:
-        case mysql.Types.TIMESTAMP:
-        case ADDITIONAL_MYSQL_TYPES.TIMESTAMP2:
-          {
-            const date = row[key] as Date;
-            if (isNaN(date.getTime())) {
-              // Invalid dates, such as 2024-00-00.
-              // we can't do anything meaningful with this, so just use null.
-              result[key] = null;
-            } else {
-              result[key] = date.toISOString();
-            }
-          }
-          break;
-        case mysql.Types.JSON:
-          if (typeof row[key] === 'string') {
-            result[key] = new JsonContainer(row[key]);
-          }
-          break;
-        case mysql.Types.BIT:
-        case mysql.Types.BLOB:
-        case mysql.Types.TINY_BLOB:
-        case mysql.Types.MEDIUM_BLOB:
-        case mysql.Types.LONG_BLOB:
-        case ADDITIONAL_MYSQL_TYPES.BINARY:
-        case ADDITIONAL_MYSQL_TYPES.VARBINARY:
-          result[key] = new Uint8Array(Object.values(row[key]));
-          break;
-        case mysql.Types.LONGLONG:
-          if (typeof row[key] === 'string') {
-            result[key] = BigInt(row[key]);
-          } else if (typeof row[key] === 'number') {
-            // Zongji returns BIGINT as a number when it can be represented as a number
-            result[key] = BigInt(row[key]);
+    switch (column.typeId) {
+      case mysql.Types.DATE:
+        // Only parse the date part
+        {
+          const date = row[key] as Date;
+          if (isNaN(date.getTime())) {
+            // Invalid dates, such as 2024-00-00.
+            // we can't do anything meaningful with this, so just use null.
+            result[key] = null;
           } else {
-            result[key] = row[key];
+            result[key] = date.toISOString().split('T')[0];
           }
-          break;
-        case mysql.Types.TINY:
-        case mysql.Types.SHORT:
-        case mysql.Types.LONG:
-        case mysql.Types.INT24:
-          // Handle all integer values a BigInt
-          if (typeof row[key] === 'number') {
-            result[key] = BigInt(row[key]);
+        }
+        break;
+      case mysql.Types.DATETIME:
+      case ADDITIONAL_MYSQL_TYPES.DATETIME2:
+      case mysql.Types.TIMESTAMP:
+      case ADDITIONAL_MYSQL_TYPES.TIMESTAMP2:
+        {
+          const date = row[key] as Date;
+          if (isNaN(date.getTime())) {
+            // Invalid dates, such as 2024-00-00.
+            // we can't do anything meaningful with this, so just use null.
+            result[key] = null;
           } else {
-            result[key] = row[key];
+            result[key] = date.toISOString();
           }
-          break;
-        case mysql.Types.SET:
-          // Convert to JSON array from string
-          const values = row[key].split(',');
-          result[key] = JSONBig.stringify(values);
-          break;
-        default:
+        }
+        break;
+      case mysql.Types.JSON:
+        if (typeof row[key] === 'string') {
+          result[key] = new JsonContainer(row[key]);
+        }
+        break;
+      case mysql.Types.BIT:
+      case mysql.Types.BLOB:
+      case mysql.Types.TINY_BLOB:
+      case mysql.Types.MEDIUM_BLOB:
+      case mysql.Types.LONG_BLOB:
+      case ADDITIONAL_MYSQL_TYPES.BINARY:
+      case ADDITIONAL_MYSQL_TYPES.VARBINARY:
+        result[key] = new Uint8Array(Object.values(row[key]));
+        break;
+      case mysql.Types.LONGLONG:
+        if (typeof row[key] === 'string') {
+          result[key] = BigInt(row[key]);
+        } else if (typeof row[key] === 'number') {
+          // Zongji returns BIGINT as a number when it can be represented as a number
+          result[key] = BigInt(row[key]);
+        } else {
           result[key] = row[key];
-          break;
-      }
+        }
+        break;
+      case mysql.Types.TINY:
+      case mysql.Types.SHORT:
+      case mysql.Types.LONG:
+      case mysql.Types.INT24:
+        // Handle all integer values a BigInt
+        if (typeof row[key] === 'number') {
+          result[key] = BigInt(row[key]);
+        } else {
+          result[key] = row[key];
+        }
+        break;
+      case mysql.Types.SET:
+        // Convert to JSON array from string
+        const values = row[key].split(',');
+        result[key] = JSONBig.stringify(values);
+        break;
+      default:
+        result[key] = row[key];
+        break;
     }
   }
   return sync_rules.toSyncRulesRow(result);
