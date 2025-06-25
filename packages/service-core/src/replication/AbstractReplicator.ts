@@ -1,14 +1,14 @@
 import { container, logger } from '@powersync/lib-services-framework';
+import { ReplicationMetric } from '@powersync/service-types';
 import { hrtime } from 'node:process';
 import winston from 'winston';
+import { MetricsEngine } from '../metrics/MetricsEngine.js';
 import * as storage from '../storage/storage-index.js';
 import { StorageEngine } from '../storage/storage-index.js';
 import { SyncRulesProvider } from '../util/config/sync-rules/sync-rules-provider.js';
 import { AbstractReplicationJob } from './AbstractReplicationJob.js';
 import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 import { ConnectionTestResult } from './ReplicationModule.js';
-import { MetricsEngine } from '../metrics/MetricsEngine.js';
-import { ReplicationMetric } from '@powersync/service-types';
 
 // 5 minutes
 const PING_INTERVAL = 1_000_000_000n * 300n;
@@ -40,18 +40,26 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   /**
    *  Map of replication jobs by sync rule id. Usually there is only one running job, but there could be two when
    *  transitioning to a new set of sync rules.
-   *  @private
    */
   private replicationJobs = new Map<number, T>();
+
+  /**
+   * Map of sync rule ids to promises that are clearing the sync rule configuration.
+   *
+   * We primarily do this to keep track of what we're currently clearing, but don't currently
+   * use the Promise value.
+   */
+  private clearingJobs = new Map<number, Promise<void>>();
+
   /**
    * Used for replication lag computation.
    */
   private activeReplicationJob: T | undefined = undefined;
 
-  private stopped = false;
-
   // First ping is only after 5 minutes, not when starting
   private lastPing = hrtime.bigint();
+
+  private abortController: AbortController | undefined;
 
   protected constructor(private options: AbstractReplicatorOptions) {
     this.logger = logger.child({ name: `Replicator:${options.id}` });
@@ -85,7 +93,12 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     return this.options.metricsEngine;
   }
 
+  protected get stopped() {
+    return this.abortController?.signal.aborted;
+  }
+
   public async start(): Promise<void> {
+    this.abortController = new AbortController();
     this.runLoop().catch((e) => {
       this.logger.error('Data source fatal replication error', e);
       container.reporter.captureException(e);
@@ -107,7 +120,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   }
 
   public async stop(): Promise<void> {
-    this.stopped = true;
+    this.abortController?.abort();
     let promises: Promise<void>[] = [];
     for (const job of this.replicationJobs.values()) {
       promises.push(job.stop());
@@ -237,15 +250,26 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       }
     }
 
-    // Sync rules stopped previously or by a different process.
+    // Sync rules stopped previously, including by a different process.
     const stopped = await this.storage.getStoppedSyncRules();
     for (let syncRules of stopped) {
-      try {
-        const syncRuleStorage = this.storage.getInstance(syncRules, { skipLifecycleHooks: true });
-        await this.terminateSyncRules(syncRuleStorage);
-      } catch (e) {
-        this.logger.warn(`Failed clean up replication config for sync rule: ${syncRules.id}`, e);
+      if (this.clearingJobs.has(syncRules.id)) {
+        // Already in progress
+        continue;
       }
+
+      // We clear storage asynchronously.
+      // It is important to be able to continue running the refresh loop, otherwise we cannot
+      // retry locked sync rules, for example.
+      const syncRuleStorage = this.storage.getInstance(syncRules, { skipLifecycleHooks: true });
+      const promise = this.terminateSyncRules(syncRuleStorage)
+        .catch((e) => {
+          this.logger.warn(`Failed clean up replication config for sync rule: ${syncRules.id}`, e);
+        })
+        .finally(() => {
+          this.clearingJobs.delete(syncRules.id);
+        });
+      this.clearingJobs.set(syncRules.id, promise);
     }
   }
 
@@ -255,8 +279,10 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
   protected async terminateSyncRules(syncRuleStorage: storage.SyncRulesBucketStorage) {
     this.logger.info(`Terminating sync rules: ${syncRuleStorage.group_id}...`);
+    // This deletes postgres replication slots - should complete quickly.
+    // It is safe to do before or after clearing the data in the storage.
     await this.cleanUp(syncRuleStorage);
-    await syncRuleStorage.terminate();
+    await syncRuleStorage.terminate({ signal: this.abortController?.signal, clearStorage: true });
     this.logger.info(`Successfully terminated sync rules: ${syncRuleStorage.group_id}`);
   }
 

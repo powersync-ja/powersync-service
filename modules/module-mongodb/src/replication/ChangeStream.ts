@@ -670,7 +670,7 @@ export class ChangeStream {
     if (result.needsInitialSync) {
       if (result.snapshotLsn == null) {
         // Snapshot LSN is not present, so we need to start replication from scratch.
-        await this.storage.clear();
+        await this.storage.clear({ signal: this.abort_signal });
       }
       await this.initialReplication(result.snapshotLsn);
     }

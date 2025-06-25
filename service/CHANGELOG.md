@@ -1,5 +1,56 @@
 # @powersync/service-image
 
+## 1.13.2
+
+### Patch Changes
+
+- c002948: Fix sync rule clearing process to not block sync rule processing.
+- Updated dependencies [c002948]
+  - @powersync/service-core@1.13.2
+  - @powersync/service-module-core@0.1.4
+  - @powersync/service-module-mongodb@0.10.2
+  - @powersync/service-module-mongodb-storage@0.10.2
+  - @powersync/service-module-mysql@0.7.2
+  - @powersync/service-module-postgres@0.14.2
+  - @powersync/service-module-postgres-storage@0.8.2
+
+## 1.13.1
+
+### Patch Changes
+
+- 1b326fb: [MongoDB Storage] Fix checksum calculations in buckets with more than 4 million operations
+- Updated dependencies [1b326fb]
+  - @powersync/service-module-mongodb-storage@0.10.1
+  - @powersync/service-core@1.13.1
+  - @powersync/service-module-mongodb@0.10.1
+  - @powersync/service-module-mysql@0.7.1
+  - @powersync/service-module-postgres@0.14.1
+  - @powersync/service-module-core@0.1.3
+  - @powersync/service-module-postgres-storage@0.8.1
+
+## 1.13.0
+
+### Patch Changes
+
+- 08b7aa9: Add checks for RLS affecting replication.
+- Updated dependencies [08b7aa9]
+- Updated dependencies [0ccd470]
+- Updated dependencies [e11754d]
+- Updated dependencies [1907356]
+- Updated dependencies [951b010]
+- Updated dependencies [d235f7b]
+- Updated dependencies [08b7aa9]
+- Updated dependencies [f9e8673]
+  - @powersync/service-core@1.13.0
+  - @powersync/service-module-postgres-storage@0.8.0
+  - @powersync/service-module-mongodb-storage@0.10.0
+  - @powersync/service-module-postgres@0.14.0
+  - @powersync/service-module-mongodb@0.10.0
+  - @powersync/service-module-mysql@0.7.0
+  - @powersync/lib-services-framework@0.7.0
+  - @powersync/service-module-core@0.1.2
+  - @powersync/service-rsocket-router@0.1.1
+
 ## 1.12.1
 
 ### Patch Changes

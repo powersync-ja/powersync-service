@@ -56,7 +56,7 @@ export interface BucketDataDocument {
   source_key?: ReplicaId;
   table?: string;
   row_id?: string;
-  checksum: number;
+  checksum: bigint;
   data: string | null;
   target_op?: bigint | null;
 }

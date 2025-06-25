@@ -129,11 +129,11 @@ export class MongoBucketBatch
     return this.last_checkpoint_lsn;
   }
 
-  async flush(options?: storage.BucketBatchCommitOptions): Promise<storage.FlushedResult | null> {
+  async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
     let result: storage.FlushedResult | null = null;
     // One flush may be split over multiple transactions.
     // Each flushInner() is one transaction.
-    while (this.batch != null) {
+    while (this.batch != null || this.write_checkpoint_batch.length > 0) {
       let r = await this.flushInner(options);
       if (r) {
         result = r;
@@ -142,19 +142,18 @@ export class MongoBucketBatch
     return result;
   }
 
-  private async flushInner(options?: storage.BucketBatchCommitOptions): Promise<storage.FlushedResult | null> {
+  private async flushInner(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
     const batch = this.batch;
-    if (batch == null) {
-      return null;
-    }
-
     let last_op: InternalOpId | null = null;
     let resumeBatch: OperationBatch | null = null;
 
-    await this.withReplicationTransaction(`Flushing ${batch.length} ops`, async (session, opSeq) => {
-      resumeBatch = await this.replicateBatch(session, batch, opSeq, options);
+    await this.withReplicationTransaction(`Flushing ${batch?.length ?? 0} ops`, async (session, opSeq) => {
+      if (batch != null) {
+        resumeBatch = await this.replicateBatch(session, batch, opSeq, options);
+      }
 
       if (this.write_checkpoint_batch.length > 0) {
+        this.logger.info(`Writing ${this.write_checkpoint_batch.length} custom write checkpoints`);
         await batchCreateCustomWriteCheckpoints(this.db, session, this.write_checkpoint_batch, opSeq.next());
         this.write_checkpoint_batch = [];
       }

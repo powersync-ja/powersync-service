@@ -250,7 +250,7 @@ export class BinLogStream {
    * and starts again from scratch.
    */
   async startInitialReplication() {
-    await this.storage.clear();
+    await this.storage.clear({ signal: this.abortSignal });
     // Replication will be performed in a single transaction on this connection
     const connection = await this.connections.getStreamingConnection();
     const promiseConnection = (connection as mysql.Connection).promise();

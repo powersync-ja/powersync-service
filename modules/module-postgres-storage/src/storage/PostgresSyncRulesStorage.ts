@@ -568,7 +568,7 @@ export class PostgresSyncRulesStorage
 
   async terminate(options?: storage.TerminateOptions) {
     if (!options || options?.clearStorage) {
-      await this.clear();
+      await this.clear(options);
     }
     await this.db.sql`
       UPDATE sync_rules
@@ -607,7 +607,8 @@ export class PostgresSyncRulesStorage
     };
   }
 
-  async clear(): Promise<void> {
+  async clear(options?: storage.ClearStorageOptions): Promise<void> {
+    // TODO: Cleanly abort the cleanup when the provided signal is aborted.
     await this.db.sql`
       UPDATE sync_rules
       SET

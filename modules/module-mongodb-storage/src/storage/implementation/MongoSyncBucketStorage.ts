@@ -4,6 +4,7 @@ import {
   BaseObserver,
   ErrorCode,
   logger,
+  ReplicationAbortedError,
   ServiceAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
@@ -473,7 +474,10 @@ export class MongoSyncBucketStorage
           {
             $group: {
               _id: '$_id.b',
-              checksum_total: { $sum: '$checksum' },
+              // Historically, checksum may be stored as 'int' or 'double'.
+              // More recently, this should be a 'long'.
+              // $toLong ensures that we always sum it as a long, avoiding inaccuracies in the calculations.
+              checksum_total: { $sum: { $toLong: '$checksum' } },
               count: { $sum: 1 },
               has_clear_op: {
                 $max: {
@@ -505,7 +509,7 @@ export class MongoSyncBucketStorage
   async terminate(options?: storage.TerminateOptions) {
     // Default is to clear the storage except when explicitly requested not to.
     if (!options || options?.clearStorage) {
-      await this.clear();
+      await this.clear(options);
     }
     await this.db.sync_rules.updateOne(
       {
@@ -548,8 +552,11 @@ export class MongoSyncBucketStorage
     };
   }
 
-  async clear(): Promise<void> {
+  async clear(options?: storage.ClearStorageOptions): Promise<void> {
     while (true) {
+      if (options?.signal?.aborted) {
+        throw new ReplicationAbortedError('Aborted clearing data');
+      }
       try {
         await this.clearIteration();
 

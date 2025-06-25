@@ -117,5 +117,12 @@ describe('sync - mongodb', () => {
       has_more: false,
       next_after: '4'
     });
+
+    // Test that the checksum type is correct.
+    // Specifically, test that it never persisted as double.
+    const checksumTypes = await factory.db.bucket_data
+      .aggregate([{ $group: { _id: { $type: '$checksum' }, count: { $sum: 1 } } }])
+      .toArray();
+    expect(checksumTypes).toEqual([{ _id: 'long', count: 4 }]);
   });
 });

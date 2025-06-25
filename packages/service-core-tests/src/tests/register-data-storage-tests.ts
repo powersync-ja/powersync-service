@@ -1790,6 +1790,50 @@ bucket_definitions:
     });
   });
 
+  test('custom write checkpoints - standalone checkpoint', async (context) => {
+    await using factory = await generateStorageFactory();
+    const r = await factory.configureSyncRules({
+      content: `
+bucket_definitions:
+  mybucket:
+    data: []
+    `,
+      validate: false
+    });
+    const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
+    await bucketStorage.autoActivate();
+    bucketStorage.setWriteCheckpointMode(storage.WriteCheckpointMode.CUSTOM);
+
+    const abortController = new AbortController();
+    context.onTestFinished(() => abortController.abort());
+    const iter = bucketStorage
+      .watchCheckpointChanges({ user_id: 'user1', signal: abortController.signal })
+      [Symbol.asyncIterator]();
+
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      // Flush to clear state
+      await batch.flush();
+
+      await batch.addCustomWriteCheckpoint({
+        checkpoint: 5n,
+        user_id: 'user1'
+      });
+      await batch.flush();
+      await batch.keepalive('5/0');
+    });
+
+    const result = await iter.next();
+    expect(result).toMatchObject({
+      done: false,
+      value: {
+        base: {
+          lsn: '5/0'
+        },
+        writeCheckpoint: 5n
+      }
+    });
+  });
+
   test('custom write checkpoints - write after checkpoint', async (context) => {
     await using factory = await generateStorageFactory();
     const r = await factory.configureSyncRules({
