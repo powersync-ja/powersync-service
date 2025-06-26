@@ -17,7 +17,6 @@ export type Context = {
   service_context: RouterServiceContext;
 
   token_payload?: JwtPayload;
-  token_error?: ServiceError;
   /**
    * Only on websocket endpoints.
    */

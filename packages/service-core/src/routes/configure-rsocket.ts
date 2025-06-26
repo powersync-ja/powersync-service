@@ -38,7 +38,9 @@ export function configureRSocket(router: ReactiveSocketRouter<Context>, options:
         const extracted_token = getTokenFromHeader(token);
         if (extracted_token != null) {
           const { context, tokenError } = await generateContext(options.service_context, extracted_token);
-          if (context?.token_payload == null) {
+          if (tokenError != null) {
+            throw tokenError;
+          } else if (context?.token_payload == null) {
             throw new errors.AuthorizationError(ErrorCode.PSYNC_S2106, 'Authentication required');
           }
 
@@ -46,7 +48,6 @@ export function configureRSocket(router: ReactiveSocketRouter<Context>, options:
             token,
             user_agent,
             ...context,
-            token_error: tokenError,
             service_context: service_context as RouterServiceContext,
             logger: connectionLogger
           };
