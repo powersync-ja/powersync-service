@@ -2,7 +2,7 @@ import { logger } from '@powersync/lib-services-framework';
 import mysql from 'mysql2';
 import mysqlPromise from 'mysql2/promise';
 import * as types from '../types/types.js';
-import { coerce, eq, gte } from 'semver';
+import { coerce, eq, gte, satisfies } from 'semver';
 import { SourceTable } from '@powersync/service-core';
 
 export type RetriedQueryOptions = {
@@ -88,9 +88,8 @@ export function isVersionAtLeast(version: string, minimumVersion: string): boole
 
 export function isVersion(version: string, targetVersion: string): boolean {
   const coercedVersion = coerce(version);
-  const coercedTargetVersion = coerce(targetVersion);
 
-  return eq(coercedVersion!, coercedTargetVersion!, { loose: true });
+  return satisfies(coercedVersion!, targetVersion!, { loose: true });
 }
 
 export function escapeMysqlTableName(table: SourceTable): string {

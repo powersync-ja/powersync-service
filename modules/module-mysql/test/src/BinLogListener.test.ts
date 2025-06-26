@@ -1,4 +1,4 @@
-import { describe, test, beforeEach, vi, expect, beforeAll, afterAll } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
   BinLogEventHandler,
   BinLogListener,
@@ -10,7 +10,7 @@ import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManag
 import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
 import { v4 as uuid } from 'uuid';
 import * as common from '@module/common/common-index.js';
-import { createRandomServerId, getMySQLVersion, isVersion, isVersionAtLeast } from '@module/utils/mysql-utils.js';
+import { createRandomServerId, getMySQLVersion, isVersion } from '@module/utils/mysql-utils.js';
 import { TableMapEntry } from '@powersync/mysql-zongji';
 import crypto from 'crypto';
 
@@ -30,7 +30,7 @@ describe('BinlogListener tests', () => {
     connectionManager = new MySQLConnectionManager(BINLOG_LISTENER_CONNECTION_OPTIONS, {});
     const connection = await connectionManager.getConnection();
     const version = await getMySQLVersion(connection);
-    isMySQL57 = isVersion(version, '5.7.0');
+    isMySQL57 = isVersion(version, '5.7');
     connection.release();
   });
 
