@@ -16,6 +16,7 @@ import {
 import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import mysqlPromise from 'mysql2/promise';
 import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
+import timers from 'timers/promises';
 
 /**
  * Tests operating on the binlog stream need to configure the stream and manage asynchronous
@@ -116,11 +117,21 @@ export class BinlogStreamTestContext {
     this.replicationDone = true;
   }
 
-  startStreaming() {
+  async startStreaming() {
     if (!this.replicationDone) {
       throw new Error('Call replicateSnapshot() before startStreaming()');
     }
     this.streamPromise = this.binlogStream.streamChanges();
+
+    // Wait for the replication to start before returning.
+    // This avoids a bunch of unpredictable race conditions that appear in testing
+    return new Promise<void>(async (resolve) => {
+      while (this.binlogStream.isStartingReplication) {
+        await timers.setTimeout(50);
+      }
+
+      resolve();
+    });
   }
 
   async getCheckpoint(options?: { timeout?: number }): Promise<InternalOpId> {

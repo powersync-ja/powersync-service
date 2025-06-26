@@ -36,7 +36,7 @@ export class SimpleSnapshotQuery implements SnapshotQuery {
   ) {}
 
   public async initialize(): Promise<void> {
-    await this.connection.query(`DECLARE snapshot_cursor CURSOR FOR SELECT * FROM ${this.table.escapedIdentifier}`);
+    await this.connection.query(`DECLARE snapshot_cursor CURSOR FOR SELECT * FROM ${this.table.qualifiedName}`);
   }
 
   public nextChunk(): AsyncIterableIterator<PgChunk> {
@@ -121,7 +121,7 @@ export class ChunkedSnapshotQuery implements SnapshotQuery {
     const escapedKeyName = escapeIdentifier(this.key.name);
     if (this.lastKey == null) {
       stream = this.connection.stream(
-        `SELECT * FROM ${this.table.escapedIdentifier} ORDER BY ${escapedKeyName} LIMIT ${this.chunkSize}`
+        `SELECT * FROM ${this.table.qualifiedName} ORDER BY ${escapedKeyName} LIMIT ${this.chunkSize}`
       );
     } else {
       if (this.key.typeId == null) {
@@ -129,7 +129,7 @@ export class ChunkedSnapshotQuery implements SnapshotQuery {
       }
       let type: StatementParam['type'] = Number(this.key.typeId);
       stream = this.connection.stream({
-        statement: `SELECT * FROM ${this.table.escapedIdentifier} WHERE ${escapedKeyName} > $1 ORDER BY ${escapedKeyName} LIMIT ${this.chunkSize}`,
+        statement: `SELECT * FROM ${this.table.qualifiedName} WHERE ${escapedKeyName} > $1 ORDER BY ${escapedKeyName} LIMIT ${this.chunkSize}`,
         params: [{ value: this.lastKey, type }]
       });
     }
@@ -197,7 +197,7 @@ export class IdSnapshotQuery implements SnapshotQuery {
       throw new Error(`Cannot determine primary key array type for ${JSON.stringify(keyDefinition)}`);
     }
     yield* this.connection.stream({
-      statement: `SELECT * FROM ${this.table.escapedIdentifier} WHERE ${escapeIdentifier(keyDefinition.name)} = ANY($1)`,
+      statement: `SELECT * FROM ${this.table.qualifiedName} WHERE ${escapeIdentifier(keyDefinition.name)} = ANY($1)`,
       params: [
         {
           type: type,

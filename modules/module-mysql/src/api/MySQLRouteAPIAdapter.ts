@@ -208,7 +208,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
       idColumnsResult = await common.getReplicationIdentityColumns({
         connection: connection,
         schema,
-        table_name: tableName
+        tableName: tableName
       });
     } catch (ex) {
       idColumnsError = { level: 'fatal', message: ex.message };
@@ -217,7 +217,15 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
     }
 
     const idColumns = idColumnsResult?.columns ?? [];
-    const sourceTable = new storage.SourceTable(0, this.config.tag, tableName, schema, tableName, idColumns, true);
+    const sourceTable = new storage.SourceTable({
+      id: 0,
+      connectionTag: this.config.tag,
+      objectId: tableName,
+      schema: schema,
+      name: tableName,
+      replicaIdColumns: idColumns,
+      snapshotComplete: true
+    });
     const syncData = syncRules.tableSyncsData(sourceTable);
     const syncParameters = syncRules.tableSyncsParameters(sourceTable);
 
@@ -232,7 +240,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
     let selectError: service_types.ReplicationError | null = null;
     try {
       await this.retriedQuery({
-        query: `SELECT * FROM ${sourceTable.table} LIMIT 1`
+        query: `SELECT * FROM ${sourceTable.name} LIMIT 1`
       });
     } catch (e) {
       selectError = { level: 'fatal', message: e.message };

@@ -7,6 +7,8 @@ import { OpenTelemetryMetricsFactory } from './OpenTelemetryMetricsFactory.js';
 import { MetricsFactory } from '../metrics-interfaces.js';
 import { logger } from '@powersync/lib-services-framework';
 
+import pkg from '../../../package.json' with { type: 'json' };
+
 export interface RuntimeMetadata {
   [key: string]: string | number | undefined;
 }
@@ -61,7 +63,8 @@ export function createOpenTelemetryMetricsFactory(context: ServiceContext): Metr
   const meterProvider = new MeterProvider({
     resource: new Resource(
       {
-        ['service']: 'PowerSync'
+        ['service']: 'PowerSync',
+        ['service.version']: pkg.version
       },
       runtimeMetadata
     ),

@@ -10,17 +10,17 @@ export interface ColumnDescriptor {
   typeId?: number;
 }
 
-// TODO: This needs to be consolidated with SourceTable into something new.
 export interface SourceEntityDescriptor {
   /**
-   * The internal id of the data source structure in the database.
-   *
+   * The internal id of the source entity structure in the database.
    * If undefined, the schema and name are used as the identifier.
-   *
    * If specified, this is specifically used to detect renames.
    */
   objectId: number | string | undefined;
   schema: string;
   name: string;
-  replicationColumns: ColumnDescriptor[];
+  /**
+   *  The columns that are used to uniquely identify a record in the source entity.
+   */
+  replicaIdColumns: ColumnDescriptor[];
 }
