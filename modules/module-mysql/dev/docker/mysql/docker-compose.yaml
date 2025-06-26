@@ -1,5 +1,5 @@
 services:
-  mysql_test:
+  mysql:
     image: mysql:8.0
     environment:
       MYSQL_ROOT_PASSWORD: root_password
@@ -11,7 +11,7 @@ services:
     volumes:
       - ./init-scripts/my.cnf:/etc/mysql/my.cnf
       - ./init-scripts/mysql.sql:/docker-entrypoint-initdb.d/init_user.sql
-      - mysql_test_data:/var/lib/mysql
+      - mysql_data:/var/lib/mysql
 
 volumes:
-  mysql_test_data:
+  mysql_data:
