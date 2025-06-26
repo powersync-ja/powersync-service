@@ -10,7 +10,7 @@ import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManag
 import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
 import { v4 as uuid } from 'uuid';
 import * as common from '@module/common/common-index.js';
-import { createRandomServerId, getMySQLVersion, isVersion } from '@module/utils/mysql-utils.js';
+import { createRandomServerId, getMySQLVersion, satisfiesVersion } from '@module/utils/mysql-utils.js';
 import { TableMapEntry } from '@powersync/mysql-zongji';
 import crypto from 'crypto';
 
@@ -30,7 +30,7 @@ describe('BinlogListener tests', () => {
     connectionManager = new MySQLConnectionManager(BINLOG_LISTENER_CONNECTION_OPTIONS, {});
     const connection = await connectionManager.getConnection();
     const version = await getMySQLVersion(connection);
-    isMySQL57 = isVersion(version, '5.7');
+    isMySQL57 = satisfiesVersion(version, '5.7.x');
     connection.release();
   });
 
@@ -224,16 +224,18 @@ describe('BinlogListener tests', () => {
     expect(eventHandler.schemaChanges.length).toBe(0);
   });
 
-  // Syntax ALTER TABLE RENAME COLUMN was only introduced in MySQL 8.0.0
-  test.skipIf(isMySQL57)('Schema change event handling - ALTER TABLE RENAME COLUMN column rename', async () => {
-    await binLogListener.start();
-    await connectionManager.query(`ALTER TABLE test_DATA RENAME COLUMN description TO description_new`);
-    await vi.waitFor(() => expect(eventHandler.schemaChanges.length > 0).toBeTruthy(), { timeout: 5000 });
-    await binLogListener.stop();
-    expect(eventHandler.schemaChanges[0].type).toBe(SchemaChangeType.RENAME_COLUMN);
-    expect(eventHandler.schemaChanges[0].table).toEqual('test_DATA');
-    expect(eventHandler.schemaChanges[0].column?.column).toEqual('description');
-    expect(eventHandler.schemaChanges[0].column?.newColumn).toEqual('description_new');
+  test('Schema change event handling - ALTER TABLE RENAME COLUMN column rename', async () => {
+    // Syntax ALTER TABLE RENAME COLUMN was only introduced in MySQL 8.0.0
+    if (!isMySQL57) {
+      await binLogListener.start();
+      await connectionManager.query(`ALTER TABLE test_DATA RENAME COLUMN description TO description_new`);
+      await vi.waitFor(() => expect(eventHandler.schemaChanges.length > 0).toBeTruthy(), { timeout: 5000 });
+      await binLogListener.stop();
+      expect(eventHandler.schemaChanges[0].type).toBe(SchemaChangeType.RENAME_COLUMN);
+      expect(eventHandler.schemaChanges[0].table).toEqual('test_DATA');
+      expect(eventHandler.schemaChanges[0].column?.column).toEqual('description');
+      expect(eventHandler.schemaChanges[0].column?.newColumn).toEqual('description_new');
+    }
   });
 });
 

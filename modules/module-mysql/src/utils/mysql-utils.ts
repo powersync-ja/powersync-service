@@ -86,7 +86,7 @@ export function isVersionAtLeast(version: string, minimumVersion: string): boole
   return gte(coercedVersion!, coercedMinimumVersion!, { loose: true });
 }
 
-export function isVersion(version: string, targetVersion: string): boolean {
+export function satisfiesVersion(version: string, targetVersion: string): boolean {
   const coercedVersion = coerce(version);
 
   return satisfies(coercedVersion!, targetVersion!, { loose: true });
