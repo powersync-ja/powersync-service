@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 1.13.3
+
+### Patch Changes
+
+- e8cb8db: Fix websocket auth errors not correctly propagating the details, previously resulting in generic "[PSYNC_S2106] Authentication required" messages.
+
 ## 1.13.2
 
 ### Patch Changes
