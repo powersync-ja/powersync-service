@@ -13,7 +13,7 @@ bucket_definitions:
       - SELECT id, description FROM "test_data"
 `;
 
-describe('BigLog stream', () => {
+describe('BigLogStream tests', () => {
   describeWithStorage({ timeout: 20_000 }, defineBinlogStreamTests);
 });
 
@@ -48,7 +48,10 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     expect(endTxCount - startTxCount).toEqual(1);
   });
 
-  test('replicating case sensitive table', async () => {
+  test('Replicate case sensitive table', async () => {
+    // MySQL inherits the case sensitivity of the underlying OS filesystem.
+    // So Unix-based systems will have case-sensitive tables, but Windows won't.
+    // https://dev.mysql.com/doc/refman/8.4/en/identifier-case-sensitivity.html
     await using context = await BinlogStreamTestContext.open(factory);
     const { connectionManager } = context;
     await context.updateSyncRules(`
@@ -79,7 +82,7 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     expect(endTxCount - startTxCount).toEqual(1);
   });
 
-  test('replicating TRUNCATE', async () => {
+  test('Handle table TRUNCATE events', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
@@ -101,7 +104,7 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     ]);
   });
 
-  test('replicating changing primary key', async () => {
+  test('Handle changes in a replicated table primary key', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
@@ -141,7 +144,7 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     ]);
   });
 
-  test('initial sync', async () => {
+  test('Initial snapshot sync', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
     const { connectionManager } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
@@ -162,7 +165,7 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     expect(endRowCount - startRowCount).toEqual(1);
   });
 
-  test('snapshot with date values', async () => {
+  test('Snapshot with date values', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
     const { connectionManager } = context;
     await context.updateSyncRules(`
@@ -196,7 +199,7 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     ]);
   });
 
-  test('replication with date values', async () => {
+  test('Replication with date values', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
     const { connectionManager } = context;
     await context.updateSyncRules(`
@@ -246,7 +249,7 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     expect(endTxCount - startTxCount).toEqual(2);
   });
 
-  test('table not in sync rules', async () => {
+  test('Replication for tables not in the sync rules are ignored', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
     const { connectionManager } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);

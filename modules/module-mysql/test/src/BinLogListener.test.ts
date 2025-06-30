@@ -208,8 +208,6 @@ describe('BinlogListener tests', () => {
   });
 
   test('Schema changes for non-matching tables are ignored', async () => {
-    const stopSpy = vi.spyOn(binLogListener.zongji, 'stop');
-
     // TableFilter = only match 'test_DATA'
     await binLogListener.start();
     await connectionManager.query(`CREATE TABLE test_ignored (id CHAR(36) PRIMARY KEY, description TEXT)`);
@@ -236,6 +234,21 @@ describe('BinlogListener tests', () => {
       expect(eventHandler.schemaChanges[0].column?.column).toEqual('description');
       expect(eventHandler.schemaChanges[0].column?.newColumn).toEqual('description_new');
     }
+  });
+
+  test('Unparseable query events that dont match tables in the sync rules are ignored', async () => {
+    binLogListener.options.tableFilter = (table) => ['test_DATA', 'test_unparseable'].includes(table);
+    await binLogListener.start();
+    await connectionManager.query(
+      `CREATE TABLE test_unparseable (sale_date DATE) PARTITION BY RANGE (YEAR(sale_date))
+                (PARTITION p2023 VALUES LESS THAN (2024))`
+    );
+
+    // "Anchor" event to latch onto, ensuring that the schema change events have finished
+    await insertRows(connectionManager, 1);
+    await vi.waitFor(() => expect(eventHandler.rowsWritten).equals(1), { timeout: 5000 });
+    await binLogListener.stop();
+    expect(eventHandler.schemaChanges.length).toBe(0);
   });
 });
 
