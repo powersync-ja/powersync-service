@@ -33,6 +33,8 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
       // https://www.mongodb.com/docs/manual/reference/bson-type-comparison-order/#comparison-sort-order
       // The $literal is necessary to ensure that the lastKey is treated as a literal value, and doesn't attempt
       // any parsing as an operator.
+      // Starting in MongoDB 5.0, this filter can use the _id index. Source:
+      // https://www.mongodb.com/docs/manual/release-notes/5.0/#general-aggregation-improvements
       const filter: mongo.Filter<mongo.Document> =
         this.lastKey == null ? {} : { $expr: { $gt: ['$_id', { $literal: this.lastKey }] } };
       cursor = this.collection.find(filter, {

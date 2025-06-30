@@ -59,6 +59,31 @@ function defineBatchTests(factory: TestStorageFactory) {
     });
   });
 
+  test('chunked snapshot (mixed)', async () => {
+    await testChunkedSnapshot({
+      generateId(i) {
+        // Alternatingly return a number, string or nested document.
+        // This caused issues in the past due to comparison operators only checking fields matching the same type.
+        if (i % 3 == 0) {
+          return i;
+        } else if (i % 3 == 1) {
+          return `${i}`;
+        } else {
+          return { n: i };
+        }
+      },
+      idToSqlite(id: number | string) {
+        if (typeof id == 'number') {
+          return BigInt(id);
+        } else if (typeof id == 'string') {
+          return id;
+        } else {
+          return JSON.stringify(id);
+        }
+      }
+    });
+  });
+
   async function testChunkedSnapshot(options: {
     generateId: (i: number) => any;
     idToSqlite?: (id: any) => SqliteJsonValue;
