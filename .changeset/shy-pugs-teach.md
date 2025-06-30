@@ -4,4 +4,4 @@
 '@powersync/service-image': patch
 ---
 
-Fix MongoDB intial replication with mixed \_id types.
+Fix MongoDB initial replication with mixed \_id types.
