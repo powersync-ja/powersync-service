@@ -25,7 +25,16 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
     let cursor = this.lastCursor;
     let newCursor = false;
     if (cursor == null || cursor.closed) {
-      const filter: mongo.Filter<mongo.Document> = this.lastKey == null ? {} : { _id: { $gt: this.lastKey as any } };
+      // This is subtly but importantly different from doing { _id: { $gt: this.lastKey } }.
+      // If there are separate BSON types of _id, then the form above only returns documents in the same type,
+      // while the $expr form will return all documents with _id greater than the lastKey, matching sort order.
+      // Both forms use indexes efficiently.
+      // For details, see:
+      // https://www.mongodb.com/docs/manual/reference/bson-type-comparison-order/#comparison-sort-order
+      // The $literal is necessary to ensure that the lastKey is treated as a literal value, and doesn't attempt
+      // any parsing as an operator.
+      const filter: mongo.Filter<mongo.Document> =
+        this.lastKey == null ? {} : { $expr: { $gt: ['$_id', { $literal: this.lastKey }] } };
       cursor = this.collection.find(filter, {
         batchSize: this.batchSize,
         readConcern: 'majority',
@@ -38,8 +47,10 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
     if (!hasNext) {
       this.lastCursor = null;
       if (newCursor) {
+        // We just created a new cursor and it has no results - we have finished the end of the query.
         return { docs: [], lastKey: null };
       } else {
+        // The cursor may have hit the batch limit - retry
         return this.nextChunk();
       }
     }
