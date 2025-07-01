@@ -107,7 +107,7 @@ export function replicaIdToSubkey(table: bson.ObjectId, id: storage.ReplicaId): 
 /**
  * Helper function for creating a MongoDB client from consumers of this package
  */
-export const createMongoClient = (url: string, options?: mongo.MongoClientOptions) => {
+const createMongoClient = (url: string, options?: mongo.MongoClientOptions) => {
   return new mongo.MongoClient(url, options);
 };
 
