@@ -55,7 +55,16 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
     // such as caused by cached PG schemas.
     const connectionManager = this.connectionFactory.create({
       // Pool connections are only used intermittently.
-      idleTimeout: 30_000
+      idleTimeout: 30_000,
+
+      connectAttributes: {
+        // https://dev.mysql.com/doc/refman/8.0/en/performance-schema-connection-attribute-tables.html
+        // These do not appear to be supported by Zongji yet, so we only specify it here.
+        // Query using `select * from performance_schema.session_connect_attrs`.
+        program_name: 'powersync'
+
+        // _client_name and _client_version is specified by the driver
+      }
     });
     try {
       await this.rateLimiter?.waitUntilAllowed({ signal: this.abortController.signal });
