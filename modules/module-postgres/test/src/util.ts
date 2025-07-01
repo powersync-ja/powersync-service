@@ -62,7 +62,7 @@ export async function clearTestDb(db: pgwire.PgClient) {
 }
 
 export async function connectPgWire(type?: 'replication' | 'standard') {
-  const db = await pgwire.connectPgWire(TEST_CONNECTION_OPTIONS, { type });
+  const db = await pgwire.connectPgWire(TEST_CONNECTION_OPTIONS, { type, applicationName: 'powersync-tests' });
   return db;
 }
 

@@ -88,9 +88,12 @@ export function makeTlsOptions(options: PgWireConnectionOptions): false | tls.Co
   }
 }
 
-export async function connectPgWire(config: PgWireConnectionOptions, options?: { type?: 'standard' | 'replication' }) {
+export async function connectPgWire(
+  config: PgWireConnectionOptions,
+  options?: { type?: 'standard' | 'replication'; applicationName: string }
+) {
   let connectionOptions: Mutable<pgwire.PgConnectKnownOptions> = {
-    application_name: 'PowerSync',
+    application_name: options?.applicationName ?? 'powersync',
 
     // tlsOptions below contains the original hostname
     hostname: config.resolved_ip ?? config.hostname,
@@ -160,6 +163,8 @@ export interface PgPoolOptions {
    * Idle timeout in ms before a connection is closed.
    */
   idleTimeout?: number | undefined;
+
+  applicationName?: string;
 }
 
 /**
@@ -172,7 +177,7 @@ export function connectPgWirePool(config: PgWireConnectionOptions, options?: PgP
   const maxSize = options?.maxSize ?? 5;
 
   let connectionOptions: Mutable<pgwire.PgConnectKnownOptions> = {
-    application_name: 'PowerSync',
+    application_name: options?.applicationName ?? 'powersync',
 
     // tlsOptions below contains the original hostname
     hostname: config.resolved_ip ?? config.hostname,

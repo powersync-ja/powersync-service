@@ -8,6 +8,7 @@ import * as replication_utils from '../replication/replication-utils.js';
 import { getDebugTableInfo } from '../replication/replication-utils.js';
 import { KEEPALIVE_STATEMENT, PUBLICATION_NAME } from '../replication/WalStream.js';
 import * as types from '../types/types.js';
+import { getApplicationName } from '../utils/application-name.js';
 
 export class PostgresRouteAPIAdapter implements api.RouteAPI {
   connectionTag: string;
@@ -16,7 +17,8 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
 
   static withConfig(config: types.ResolvedConnectionConfig) {
     const pool = pgwire.connectPgWirePool(config, {
-      idleTimeout: 30_000
+      idleTimeout: 30_000,
+      applicationName: getApplicationName()
     });
     return new PostgresRouteAPIAdapter(pool, config.tag, config);
   }

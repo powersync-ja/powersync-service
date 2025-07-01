@@ -12,6 +12,7 @@ import { NOTIFICATION_CHANNEL, STORAGE_SCHEMA_NAME } from '../utils/db.js';
 import { notifySyncRulesUpdate } from './batch/PostgresBucketBatch.js';
 import { PostgresSyncRulesStorage } from './PostgresSyncRulesStorage.js';
 import { PostgresPersistedSyncRulesContent } from './sync-rules/PostgresPersistedSyncRulesContent.js';
+import { getStorageApplicationName } from '../utils/application-name.js';
 
 export type PostgresBucketStorageOptions = {
   config: NormalizedPostgresStorageConfig;
@@ -32,7 +33,8 @@ export class PostgresBucketStorageFactory
     this.db = new lib_postgres.DatabaseClient({
       config: options.config,
       schema: STORAGE_SCHEMA_NAME,
-      notificationChannels: [NOTIFICATION_CHANNEL]
+      notificationChannels: [NOTIFICATION_CHANNEL],
+      applicationName: getStorageApplicationName()
     });
     this.slot_name_prefix = options.slot_name_prefix;
 

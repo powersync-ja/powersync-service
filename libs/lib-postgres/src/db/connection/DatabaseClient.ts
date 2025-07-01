@@ -15,6 +15,8 @@ export type DatabaseClientOptions = {
    * Notification channels to listen to.
    */
   notificationChannels?: string[];
+
+  applicationName: string;
 };
 
 export type DatabaseClientListener = NotificationListener & {
@@ -43,12 +45,17 @@ export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientLis
     super();
     this.closed = false;
     this.pool = pgwire.connectPgWirePool(options.config, {
-      maxSize: options.config.max_pool_size
+      maxSize: options.config.max_pool_size,
+      applicationName: options.applicationName
     });
     this.connections = Array.from({ length: TRANSACTION_CONNECTION_COUNT }, (v, index) => {
       // Only listen to notifications on a single (the first) connection
       const notificationChannels = index == 0 ? options.notificationChannels : [];
-      const slot = new ConnectionSlot({ config: options.config, notificationChannels });
+      const slot = new ConnectionSlot({
+        config: options.config,
+        notificationChannels,
+        applicationName: options.applicationName
+      });
       slot.registerListener({
         connectionAvailable: () => this.processConnectionQueue(),
         connectionError: (ex) => this.handleConnectionError(ex),

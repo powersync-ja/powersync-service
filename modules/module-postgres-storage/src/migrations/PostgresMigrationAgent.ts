@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 
 import { normalizePostgresStorageConfig, PostgresStorageConfigDecoded } from '../types/types.js';
 
+import { getStorageApplicationName } from '../utils/application-name.js';
 import { STORAGE_SCHEMA_NAME } from '../utils/db.js';
 import { PostgresMigrationStore } from './PostgresMigrationStore.js';
 
@@ -25,7 +26,8 @@ export class PostgresMigrationAgent extends migrations.AbstractPowerSyncMigratio
 
     this.db = new lib_postgres.DatabaseClient({
       config: normalizePostgresStorageConfig(config),
-      schema: STORAGE_SCHEMA_NAME
+      schema: STORAGE_SCHEMA_NAME,
+      applicationName: getStorageApplicationName()
     });
     this.store = new PostgresMigrationStore({
       db: this.db

@@ -20,6 +20,7 @@ import * as types from '../types/types.js';
 import { PostgresConnectionConfig } from '../types/types.js';
 import { baseUri, NormalizedBasePostgresConnectionConfig } from '@powersync/lib-service-postgres';
 import { ReplicationMetric } from '@powersync/service-types';
+import { getApplicationName } from '../utils/application-name.js';
 
 export class PostgresModule extends replication.ReplicationModule<types.PostgresConnectionConfig> {
   constructor() {
@@ -88,7 +89,8 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
     const normalisedConfig = this.resolveConfig(this.decodedConfig!);
     const connectionManager = new PgManager(normalisedConfig, {
       idleTimeout: 30_000,
-      maxSize: 1
+      maxSize: 1,
+      applicationName: getApplicationName()
     });
 
     try {
@@ -144,7 +146,8 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
     // FIXME: This is not a complete implementation yet.
     const connectionManager = new PgManager(normalizedConfig, {
       idleTimeout: 30_000,
-      maxSize: 1
+      maxSize: 1,
+      applicationName: getApplicationName()
     });
     const connection = await connectionManager.snapshotConnection();
     try {
