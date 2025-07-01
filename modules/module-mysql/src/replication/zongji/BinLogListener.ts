@@ -165,19 +165,23 @@ export class BinLogListener {
   }
 
   private async restartZongji(): Promise<void> {
-    this.zongji = this.createZongjiListener();
-    await this.start(true);
+    if (this.zongji.stopped) {
+      this.zongji = this.createZongjiListener();
+      await this.start(true);
+    }
   }
 
   private async stopZongji(): Promise<void> {
     this.logger.info('Stopping BinLog Listener...');
-    await new Promise<void>((resolve) => {
-      this.zongji.once('stopped', () => {
-        resolve();
+    if (!this.zongji.stopped) {
+      await new Promise<void>((resolve) => {
+        this.zongji.once('stopped', () => {
+          resolve();
+        });
+        this.zongji.stop();
       });
-      this.zongji.stop();
-    });
-    this.logger.info('BinLog Listener stopped.');
+      this.logger.info('BinLog Listener stopped.');
+    }
   }
 
   public async stop(): Promise<void> {
@@ -342,11 +346,11 @@ export class BinLogListener {
       return;
     }
     if (schemaChanges.length > 0) {
-      this.logger.info(`Processing ${schemaChanges.length} schema change(s)...`);
       // Since handling the schema changes can take a long time, we need to stop the Zongji listener instead of pausing it.
       await this.stopZongji();
 
       for (const change of schemaChanges) {
+        this.logger.info(`Processing ${change.type} for table:${change.table}...`);
         await this.eventHandler.onSchemaChange(change);
       }
 
@@ -363,6 +367,9 @@ export class BinLogListener {
 
       // If there are still events in the processing queue, we need to process those before restarting Zongji
       if (this.processingQueue.length() > 0) {
+        this.logger.info(
+          `Finish processing [${this.processingQueue.length()}] events(s) before resuming...`
+        );
         this.processingQueue.empty(async () => {
           await this.restartZongji();
         });

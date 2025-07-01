@@ -4,6 +4,7 @@ import { describe, expect, test } from 'vitest';
 import { storage } from '@powersync/service-core';
 import { describeWithStorage } from './util.js';
 import { BinlogStreamTestContext } from './BinlogStreamUtils.js';
+import timers from 'timers/promises';
 
 describe('MySQL Schema Changes', () => {
   describeWithStorage({ timeout: 20_000 }, defineTests);
@@ -39,6 +40,10 @@ function defineTests(factory: storage.TestStorageFactory) {
 
     await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t2','test2')`);
 
+    // Dropping the table immediately leads to a rare race condition where Zongji tries to get the table information
+    // for the previous write event, but the table is already gone. Without the table info the tablemap event can't be correctly
+    // populated and replication will fail.
+    await timers.setTimeout(50);
     await connectionManager.query(`DROP TABLE test_data`);
     await connectionManager.query(`CREATE TABLE test_data (id CHAR(36) PRIMARY KEY, description TEXT)`);
     await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t3','test3')`);
