@@ -1,5 +1,14 @@
 # @powersync/service-module-mongodb
 
+## 0.10.4
+
+### Patch Changes
+
+- 71cf892: Add 'powersync' or 'powersync-storage' as the app name for database connections.
+- Updated dependencies [71cf892]
+  - @powersync/lib-service-mongodb@0.6.2
+  - @powersync/service-core@1.14.0
+
 ## 0.10.3
 
 ### Patch Changes
