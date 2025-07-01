@@ -1,5 +1,12 @@
 # @powersync/service-core
 
+## 1.13.3
+
+### Patch Changes
+
+- 3e7d629: Fix MongoDB initial replication with mixed \_id types.
+- e8cb8db: Fix websocket auth errors not correctly propagating the details, previously resulting in generic "[PSYNC_S2106] Authentication required" messages.
+
 ## 1.13.2
 
 ### Patch Changes
