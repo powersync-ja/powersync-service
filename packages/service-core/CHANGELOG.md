@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 1.14.0
+
+### Minor Changes
+
+- 71cf892: Add 'powersync' or 'powersync-storage' as the app name for database connections.
+
 ## 1.13.3
 
 ### Patch Changes
