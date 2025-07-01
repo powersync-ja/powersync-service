@@ -1,9 +1,9 @@
 import { logger } from '@powersync/lib-services-framework';
 
-import pkg from '@powersync/service-core/package.json' with { type: 'json' };
+import { POWERSYNC_VERSION } from '@powersync/service-core';
 
 export function logBooting(runner: string) {
-  const version = pkg.version;
+  const version = POWERSYNC_VERSION;
   const edition = 'Open Edition';
   logger.info(`Booting PowerSync Service v${version}, ${runner}, ${edition}`, { version, edition, runner });
 }

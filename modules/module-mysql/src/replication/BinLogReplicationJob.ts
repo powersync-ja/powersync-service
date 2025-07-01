@@ -1,5 +1,5 @@
 import { container, logger as defaultLogger } from '@powersync/lib-services-framework';
-import { replication } from '@powersync/service-core';
+import { POWERSYNC_VERSION, replication } from '@powersync/service-core';
 import { BinlogConfigurationError, BinLogStream } from './BinLogStream.js';
 import { MySQLConnectionManagerFactory } from './MySQLConnectionManagerFactory.js';
 
@@ -61,7 +61,8 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
         // https://dev.mysql.com/doc/refman/8.0/en/performance-schema-connection-attribute-tables.html
         // These do not appear to be supported by Zongji yet, so we only specify it here.
         // Query using `select * from performance_schema.session_connect_attrs`.
-        program_name: 'powersync'
+        program_name: 'powersync',
+        program_version: POWERSYNC_VERSION
 
         // _client_name and _client_version is specified by the driver
       }

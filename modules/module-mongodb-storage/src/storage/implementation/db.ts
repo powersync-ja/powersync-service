@@ -1,6 +1,6 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
-import { storage } from '@powersync/service-core';
+import { POWERSYNC_VERSION, storage } from '@powersync/service-core';
 
 import { MongoStorageConfig } from '../../types/types.js';
 import {
@@ -130,5 +130,11 @@ export class PowerSyncMongo {
 }
 
 export function createPowerSyncMongo(config: MongoStorageConfig, options?: lib_mongo.MongoConnectionOptions) {
-  return new PowerSyncMongo(lib_mongo.createMongoClient(config, options), { database: config.database });
+  return new PowerSyncMongo(
+    lib_mongo.createMongoClient(config, {
+      powersyncVersion: POWERSYNC_VERSION,
+      ...options
+    }),
+    { database: config.database }
+  );
 }

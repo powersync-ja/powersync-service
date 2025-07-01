@@ -5,6 +5,7 @@ import * as jose from 'jose';
 
 import * as types from '../types/types.js';
 import { AuthorizationError, ErrorCode } from '@powersync/lib-services-framework';
+import { getApplicationName } from '../utils/application-name.js';
 
 /**
  * Fetches key from the Supabase database.
@@ -28,7 +29,8 @@ export class SupabaseKeyCollector implements auth.KeyCollector {
       // limit to a single connection, and close the connection shortly
       // after using it.
       idleTimeout: 5_000,
-      maxSize: 1
+      maxSize: 1,
+      applicationName: getApplicationName()
     });
   }
 

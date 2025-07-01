@@ -19,6 +19,7 @@ export type ConnectionLease = {
 export type ConnectionSlotOptions = {
   config: pgwire.NormalizedConnectionConfig;
   notificationChannels?: string[];
+  applicationName: string;
 };
 
 export const MAX_CONNECTION_ATTEMPTS = 5;
@@ -46,7 +47,10 @@ export class ConnectionSlot extends framework.BaseObserver<ConnectionSlotListene
   }
 
   protected async connect() {
-    this.connectingPromise = pgwire.connectPgWire(this.options.config, { type: 'standard' });
+    this.connectingPromise = pgwire.connectPgWire(this.options.config, {
+      type: 'standard',
+      applicationName: this.options.applicationName
+    });
     const connection = await this.connectingPromise;
     this.connectingPromise = null;
     await this.iterateAsyncListeners(async (l) => l.connectionCreated?.(connection));
