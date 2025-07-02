@@ -13,7 +13,7 @@ bucket_definitions:
       - SELECT id, description FROM "test_data"
 `;
 
-describe('BigLog stream', () => {
+describe('BigLogStream tests', () => {
   describeWithStorage({ timeout: 20_000 }, defineBinlogStreamTests);
 });
 
@@ -34,7 +34,7 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
     const startTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
 
-    context.startStreaming();
+    await context.startStreaming();
     const testId = uuid();
     await connectionManager.query(
       `INSERT INTO test_data(id, description, num) VALUES('${testId}', 'test1', 1152921504606846976)`
@@ -48,7 +48,10 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     expect(endTxCount - startTxCount).toEqual(1);
   });
 
-  test('replicating case sensitive table', async () => {
+  test('Replicate case sensitive table', async () => {
+    // MySQL inherits the case sensitivity of the underlying OS filesystem.
+    // So Unix-based systems will have case-sensitive tables, but Windows won't.
+    // https://dev.mysql.com/doc/refman/8.4/en/identifier-case-sensitivity.html
     await using context = await BinlogStreamTestContext.open(factory);
     const { connectionManager } = context;
     await context.updateSyncRules(`
@@ -65,7 +68,7 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
     const startTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
 
-    context.startStreaming();
+    await context.startStreaming();
 
     const testId = uuid();
     await connectionManager.query(`INSERT INTO test_DATA(id, description) VALUES('${testId}','test1')`);
@@ -79,50 +82,37 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     expect(endTxCount - startTxCount).toEqual(1);
   });
 
-  // TODO: Not supported yet
-  // test('replicating TRUNCATE', async () => {
-  //   await using context = await BinlogStreamTestContext.create(factory);
-  //   const { connectionManager } = context;
-  //   const syncRuleContent = `
-  // bucket_definitions:
-  //   global:
-  //     data:
-  //       - SELECT id, description FROM "test_data"
-  //   by_test_data:
-  //     parameters: SELECT id FROM test_data WHERE id = token_parameters.user_id
-  //     data: []
-  // `;
-  //   await context.updateSyncRules(syncRuleContent);
-  //   await connectionManager.query(`DROP TABLE IF EXISTS test_data`);
-  //   await connectionManager.query(
-  //     `CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`
-  //   );
-
-  //   await context.replicateSnapshot();
-  //   context.startStreaming();
-
-  //   const [{ test_id }] = pgwireRows(
-  //     await connectionManager.query(`INSERT INTO test_data(description) VALUES('test1') returning id as test_id`)
-  //   );
-  //   await connectionManager.query(`TRUNCATE test_data`);
-
-  //   const data = await context.getBucketData('global[]');
-
-  //   expect(data).toMatchObject([
-  //     putOp('test_data', { id: test_id, description: 'test1' }),
-  //     removeOp('test_data', test_id)
-  //   ]);
-  // });
-
-  test('replicating changing primary key', async () => {
+  test('Handle table TRUNCATE events', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
-    const { connectionManager } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
+    const { connectionManager } = context;
     await connectionManager.query(`CREATE TABLE test_data (id CHAR(36) PRIMARY KEY, description text)`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
+    await context.startStreaming();
+
+    const testId = uuid();
+    await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('${testId}','test1')`);
+    await connectionManager.query(`TRUNCATE TABLE test_data`);
+
+    const data = await context.getBucketData('global[]');
+
+    expect(data).toMatchObject([
+      putOp('test_data', { id: testId, description: 'test1' }),
+      removeOp('test_data', testId)
+    ]);
+  });
+
+  test('Handle changes in a replicated table primary key', async () => {
+    await using context = await BinlogStreamTestContext.open(factory);
+    await context.updateSyncRules(BASIC_SYNC_RULES);
+
+    const { connectionManager } = context;
+    await connectionManager.query(`CREATE TABLE test_data (id CHAR(36) PRIMARY KEY, description text)`);
+
+    await context.replicateSnapshot();
+    await context.startStreaming();
 
     const testId1 = uuid();
     await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('${testId1}','test1')`);
@@ -154,7 +144,7 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     ]);
   });
 
-  test('initial sync', async () => {
+  test('Initial snapshot sync', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
     const { connectionManager } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
@@ -167,7 +157,7 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
 
     await context.replicateSnapshot();
-    context.startStreaming();
+    await context.startStreaming();
 
     const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
     const data = await context.getBucketData('global[]');
@@ -175,7 +165,7 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     expect(endRowCount - startRowCount).toEqual(1);
   });
 
-  test('snapshot with date values', async () => {
+  test('Snapshot with date values', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
     const { connectionManager } = context;
     await context.updateSyncRules(`
@@ -195,7 +185,7 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
       `);
 
     await context.replicateSnapshot();
-    context.startStreaming();
+    await context.startStreaming();
 
     const data = await context.getBucketData('global[]');
     expect(data).toMatchObject([
@@ -209,7 +199,7 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     ]);
   });
 
-  test('replication with date values', async () => {
+  test('Replication with date values', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
     const { connectionManager } = context;
     await context.updateSyncRules(`
@@ -228,7 +218,7 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
     const startTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
 
-    context.startStreaming();
+    await context.startStreaming();
 
     const testId = uuid();
     await connectionManager.query(`
@@ -259,7 +249,7 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     expect(endTxCount - startTxCount).toEqual(2);
   });
 
-  test('table not in sync rules', async () => {
+  test('Replication for tables not in the sync rules are ignored', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
     const { connectionManager } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
@@ -271,7 +261,7 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
     const startTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
 
-    context.startStreaming();
+    await context.startStreaming();
 
     await connectionManager.query(`INSERT INTO test_donotsync(id, description) VALUES('${uuid()}','test1')`);
     const data = await context.getBucketData('global[]');
@@ -300,7 +290,7 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
       await connectionManager.query(`CREATE TABLE test_data (id CHAR(36) PRIMARY KEY, description TEXT, num BIGINT)`);
 
       await context.replicateSnapshot();
-      context.startStreaming();
+      await context.startStreaming();
       await connectionManager.query(
         `INSERT INTO test_data(id, description, num) VALUES('${testId1}', 'test1', 1152921504606846976)`
       );
@@ -315,7 +305,7 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
       await context.loadActiveSyncRules();
       // Does not actually do a snapshot again - just does the required intialization.
       await context.replicateSnapshot();
-      context.startStreaming();
+      await context.startStreaming();
       await connectionManager.query(`INSERT INTO test_data(id, description, num) VALUES('${testId2}', 'test2', 0)`);
       const data = await context.getBucketData('global[]');
 

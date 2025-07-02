@@ -4,7 +4,7 @@ import { SourceTableInterface } from './SourceTableInterface.js';
 import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import { toSyncRulesParameters } from './utils.js';
-import { BucketDescription, BucketPriority } from './BucketDescription.js';
+import { BucketPriority } from './BucketDescription.js';
 import { ParameterLookup } from './BucketParameterQuerier.js';
 
 export interface SyncRules {
@@ -341,7 +341,7 @@ export type CompiledClause = RowValueClause | ParameterMatchClause | ParameterVa
 export type TrueIfParametersMatch = FilterParameters[];
 
 export interface SourceSchemaTable {
-  table: string;
+  name: string;
   getColumn(column: string): ColumnDefinition | undefined;
   getColumns(): ColumnDefinition[];
 }

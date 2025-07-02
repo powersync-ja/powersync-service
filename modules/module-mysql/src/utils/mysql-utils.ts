@@ -2,7 +2,7 @@ import { logger } from '@powersync/lib-services-framework';
 import mysql from 'mysql2';
 import mysqlPromise from 'mysql2/promise';
 import * as types from '../types/types.js';
-import { coerce, gte } from 'semver';
+import { coerce, gte, satisfies } from 'semver';
 import { SourceTable } from '@powersync/service-core';
 
 export type RetriedQueryOptions = {
@@ -86,6 +86,38 @@ export function isVersionAtLeast(version: string, minimumVersion: string): boole
   return gte(coercedVersion!, coercedMinimumVersion!, { loose: true });
 }
 
+export function satisfiesVersion(version: string, targetVersion: string): boolean {
+  const coercedVersion = coerce(version);
+
+  return satisfies(coercedVersion!, targetVersion!, { loose: true });
+}
+
 export function escapeMysqlTableName(table: SourceTable): string {
-  return `\`${table.schema.replaceAll('`', '``')}\`.\`${table.table.replaceAll('`', '``')}\``;
+  return `\`${table.schema.replaceAll('`', '``')}\`.\`${table.name.replaceAll('`', '``')}\``;
+}
+
+const DDL_KEYWORDS = ['create table', 'alter table', 'drop table', 'truncate table', 'rename table'];
+
+/**
+ *  Check if a query is a DDL statement that applies to tables matching the provided matcher function.
+ *  @param query
+ *  @param matcher
+ */
+export function matchedSchemaChangeQuery(query: string, matcher: (tableName: string) => boolean): boolean {
+  // Normalize case and remove backticks for matching
+  const normalizedQuery = query.toLowerCase().replace(/`/g, '');
+
+  const isDDLQuery = DDL_KEYWORDS.some((keyword) => normalizedQuery.includes(keyword));
+  if (isDDLQuery) {
+    const tokens = normalizedQuery.split(/[^a-zA-Z0-9_`]+/);
+    // Check if any matched table names appear in the query
+    for (const token of tokens!) {
+      const matchFound = matcher(token);
+      if (matchFound) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
