@@ -263,37 +263,6 @@ export const powerSyncConfig = t
       })
       .optional(),
 
-    dev: t
-      .object({
-        demo_auth: t.boolean
-          .meta({
-            description: 'Enables demo authentication for development purposes.'
-          })
-          .optional(),
-        /** @deprecated */
-        demo_password: t.string
-          .meta({
-            description: 'Deprecated. Demo password for development authentication.'
-          })
-          .optional(),
-        /** @deprecated */
-        crud_api: t.boolean
-          .meta({
-            description: 'Deprecated. Enables CRUD API for development.'
-          })
-          .optional(),
-        /** @deprecated */
-        demo_client: t.boolean
-          .meta({
-            description: 'Deprecated. Enables demo client for development.'
-          })
-          .optional()
-      })
-      .meta({
-        description: 'Development-specific configuration options.'
-      })
-      .optional(),
-
     client_auth: t
       .object({
         jwks_uri: t.string

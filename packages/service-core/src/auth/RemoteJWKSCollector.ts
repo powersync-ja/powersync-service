@@ -49,9 +49,10 @@ export class RemoteJWKSCollector implements KeyCollector {
 
   private async getJwksData(): Promise<any> {
     const abortController = new AbortController();
+    const REQUEST_TIMEOUT_SECONDS = 30;
     const timeout = setTimeout(() => {
       abortController.abort();
-    }, 30_000);
+    }, REQUEST_TIMEOUT_SECONDS * 1000);
 
     try {
       const res = await fetch(this.url, {
@@ -71,11 +72,14 @@ export class RemoteJWKSCollector implements KeyCollector {
 
       return (await res.json()) as any;
     } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') {
+        e = { message: `Request timed out in ${REQUEST_TIMEOUT_SECONDS}s`, name: 'AbortError' };
+      }
       throw new AuthorizationError(ErrorCode.PSYNC_S2204, `JWKS request failed`, {
         configurationDetails: `JWKS URL: ${this.url}`,
         // This covers most cases of FetchError
         // `cause: e` could lose the error message
-        cause: { message: e.message, code: e.code }
+        cause: { message: e.message, code: e.code, name: e.name }
       });
     } finally {
       clearTimeout(timeout);

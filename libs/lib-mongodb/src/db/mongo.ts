@@ -1,7 +1,6 @@
 import * as mongo from 'mongodb';
 import * as timers from 'timers/promises';
 import { BaseMongoConfigDecoded, normalizeMongoConfig } from '../types/types.js';
-import { validateIpHostname } from '@powersync/lib-services-framework';
 
 /**
  * Time for new connection to timeout.
@@ -30,9 +29,13 @@ export const MONGO_OPERATION_TIMEOUT_MS = 30_000;
 export const MONGO_CLEAR_OPERATION_TIMEOUT_MS = 5_000;
 
 export interface MongoConnectionOptions {
-  maxPoolSize: number;
+  maxPoolSize?: number;
+  powersyncVersion?: string;
 }
 
+/**
+ * Create a MongoClient for the storage database.
+ */
 export function createMongoClient(config: BaseMongoConfigDecoded, options?: MongoConnectionOptions) {
   const normalized = normalizeMongoConfig(config);
   return new mongo.MongoClient(normalized.uri, {
@@ -46,6 +49,14 @@ export function createMongoClient(config: BaseMongoConfigDecoded, options?: Mong
     socketTimeoutMS: MONGO_SOCKET_TIMEOUT_MS,
     // How long to wait for new primary selection
     serverSelectionTimeoutMS: 30_000,
+
+    // Identify the client
+    appName: options?.powersyncVersion ? `powersync-storage ${options.powersyncVersion}` : 'powersync-storage',
+    driverInfo: {
+      // This is merged with the node driver info.
+      name: 'powersync-storage',
+      version: options?.powersyncVersion
+    },
 
     lookup: normalized.lookup,
 

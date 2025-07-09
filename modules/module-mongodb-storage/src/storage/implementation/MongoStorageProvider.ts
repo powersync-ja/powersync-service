@@ -1,6 +1,6 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { ErrorCode, logger, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
-import { storage } from '@powersync/service-core';
+import { POWERSYNC_VERSION, storage } from '@powersync/service-core';
 import { MongoStorageConfig } from '../../types/types.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
@@ -23,6 +23,7 @@ export class MongoStorageProvider implements storage.BucketStorageProvider {
 
     const decodedConfig = MongoStorageConfig.decode(storage as any);
     const client = lib_mongo.db.createMongoClient(decodedConfig, {
+      powersyncVersion: POWERSYNC_VERSION,
       maxPoolSize: resolvedConfig.storage.max_pool_size ?? 8
     });
 

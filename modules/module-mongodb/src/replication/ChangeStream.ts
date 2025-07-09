@@ -451,6 +451,7 @@ export class ChangeStream {
     while (true) {
       const { docs: docBatch, lastKey } = await nextChunkPromise;
       if (docBatch.length == 0) {
+        // No more data - stop iterating
         break;
       }
 

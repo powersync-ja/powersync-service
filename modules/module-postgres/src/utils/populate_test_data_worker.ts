@@ -29,7 +29,10 @@ if (isMainThread || parentPort == null) {
 
 async function populateDataInner(options: PopulateDataOptions) {
   // Dedicated connection so we can release the memory easily
-  const initialDb = await pgwire.connectPgWire(options.connection, { type: 'standard' });
+  const initialDb = await pgwire.connectPgWire(options.connection, {
+    type: 'standard',
+    applicationName: 'powersync-tests'
+  });
   const largeDescription = crypto.randomBytes(options.size / 2).toString('hex');
   let operation_count = 0;
   for (let i = 0; i < options.num_transactions; i++) {

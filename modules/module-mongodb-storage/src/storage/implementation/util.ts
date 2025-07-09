@@ -105,19 +105,12 @@ export function replicaIdToSubkey(table: bson.ObjectId, id: storage.ReplicaId): 
 }
 
 /**
- * Helper function for creating a MongoDB client from consumers of this package
- */
-export const createMongoClient = (url: string, options?: mongo.MongoClientOptions) => {
-  return new mongo.MongoClient(url, options);
-};
-
-/**
  * Helper for unit tests
  */
 export const connectMongoForTests = (url: string, isCI: boolean) => {
   // Short timeout for tests, to fail fast when the server is not available.
   // Slightly longer timeouts for CI, to avoid arbitrary test failures
-  const client = createMongoClient(url, {
+  const client = new mongo.MongoClient(url, {
     connectTimeoutMS: isCI ? 15_000 : 5_000,
     socketTimeoutMS: isCI ? 15_000 : 5_000,
     serverSelectionTimeoutMS: isCI ? 15_000 : 2_500

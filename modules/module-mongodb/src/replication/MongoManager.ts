@@ -1,8 +1,11 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 
 import { NormalizedMongoConnectionConfig } from '../types/types.js';
-import { BSON_DESERIALIZE_DATA_OPTIONS } from '@powersync/service-core';
+import { BSON_DESERIALIZE_DATA_OPTIONS, POWERSYNC_VERSION } from '@powersync/service-core';
 
+/**
+ * Manage a MongoDB source database connection.
+ */
 export class MongoManager {
   public readonly client: mongo.MongoClient;
   public readonly db: mongo.Db;
@@ -25,6 +28,14 @@ export class MongoManager {
       socketTimeoutMS: 60_000,
       // How long to wait for new primary selection
       serverSelectionTimeoutMS: 30_000,
+
+      // Identify the client
+      appName: `powersync ${POWERSYNC_VERSION}`,
+      driverInfo: {
+        // This is merged with the node driver info.
+        name: 'powersync',
+        version: POWERSYNC_VERSION
+      },
 
       // Avoid too many connections:
       // 1. It can overwhelm the source database.

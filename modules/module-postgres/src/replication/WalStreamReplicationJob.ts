@@ -4,6 +4,7 @@ import { MissingReplicationSlotError, sendKeepAlive, WalStream } from './WalStre
 
 import { replication } from '@powersync/service-core';
 import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
+import { getApplicationName } from '../utils/application-name.js';
 
 export interface WalStreamReplicationJobOptions extends replication.AbstractReplicationJobOptions {
   connectionFactory: ConnectionManagerFactory;
@@ -21,7 +22,8 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
     this.connectionManager = this.connectionFactory.create({
       // Pool connections are only used intermittently.
       idleTimeout: 30_000,
-      maxSize: 2
+      maxSize: 2,
+      applicationName: getApplicationName()
     });
   }
 
@@ -87,7 +89,8 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
     const connectionManager = this.connectionFactory.create({
       // Pool connections are only used intermittently.
       idleTimeout: 30_000,
-      maxSize: 2
+      maxSize: 2,
+      applicationName: getApplicationName()
     });
     try {
       await this.rateLimiter?.waitUntilAllowed({ signal: this.abortController.signal });
