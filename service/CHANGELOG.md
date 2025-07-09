@@ -1,5 +1,20 @@
 # @powersync/service-image
 
+## 1.12.2-hotfix.0
+
+### Patch Changes
+
+- 2d3f10f: Fix websocket auth errors not correctly propagating the details, previously resulting in generic "[PSYNC_S2106] Authentication required" messages.
+- Updated dependencies [2b8fb0e]
+- Updated dependencies [2d3f10f]
+  - @powersync/service-core@1.12.2-hotfix.0
+  - @powersync/service-module-core@0.1.2-hotfix.0
+  - @powersync/service-module-mongodb@0.9.2-hotfix.0
+  - @powersync/service-module-mongodb-storage@0.9.6-hotfix.0
+  - @powersync/service-module-mysql@0.6.6-hotfix.0
+  - @powersync/service-module-postgres@0.13.2-hotfix.0
+  - @powersync/service-module-postgres-storage@0.7.6-hotfix.0
+
 ## 1.12.1
 
 ### Patch Changes

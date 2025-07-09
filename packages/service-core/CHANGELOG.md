@@ -1,5 +1,12 @@
 # @powersync/service-core
 
+## 1.12.2-hotfix.0
+
+### Patch Changes
+
+- 2b8fb0e: Improve diagnostics in logs for JWKS timeouts.
+- 2d3f10f: Fix websocket auth errors not correctly propagating the details, previously resulting in generic "[PSYNC_S2106] Authentication required" messages.
+
 ## 1.12.1
 
 ### Patch Changes

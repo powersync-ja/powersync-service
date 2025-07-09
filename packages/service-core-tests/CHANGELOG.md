@@ -1,5 +1,13 @@
 # @powersync/service-core-tests
 
+## 0.9.6-hotfix.0
+
+### Patch Changes
+
+- Updated dependencies [2b8fb0e]
+- Updated dependencies [2d3f10f]
+  - @powersync/service-core@1.12.2-hotfix.0
+
 ## 0.9.5
 
 ### Patch Changes

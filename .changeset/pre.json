@@ -1,0 +1,30 @@
+{
+  "mode": "pre",
+  "tag": "hotfix",
+  "initialVersions": {
+    "@powersync/lib-service-mongodb": "0.6.0",
+    "@powersync/lib-service-postgres": "0.4.3",
+    "@powersync/lib-services-framework": "0.6.0",
+    "@powersync/service-module-core": "0.1.1",
+    "@powersync/service-module-mongodb": "0.9.1",
+    "@powersync/service-module-mongodb-storage": "0.9.5",
+    "@powersync/service-module-mysql": "0.6.5",
+    "@powersync/service-module-postgres": "0.13.1",
+    "@powersync/service-module-postgres-storage": "0.7.5",
+    "@powersync/service-jpgwire": "0.19.0",
+    "@powersync/service-jsonbig": "0.17.10",
+    "@powersync/service-rsocket-router": "0.1.0",
+    "@powersync/service-schema": "1.12.1",
+    "@powersync/service-core": "1.12.1",
+    "@powersync/service-core-tests": "0.9.5",
+    "@powersync/service-errors": "0.3.0",
+    "@powersync/service-sync-rules": "0.27.0",
+    "@powersync/service-types": "0.11.0",
+    "@powersync/service-image": "1.12.1",
+    "test-client": "0.1.40"
+  },
+  "changesets": [
+    "wild-llamas-melt",
+    "witty-cougars-build"
+  ]
+}
