@@ -11,6 +11,7 @@ import {
   framework,
   getUuidReplicaIdentityBson,
   MetricsEngine,
+  SourceTable,
   storage
 } from '@powersync/service-core';
 import mysql from 'mysql2';
@@ -500,23 +501,7 @@ export class BinLogStream {
   }
 
   private async handleSchemaChange(batch: storage.BucketStorageBatch, change: SchemaChange): Promise<void> {
-    if (change.type === SchemaChangeType.CREATE_TABLE) {
-      const replicaIdColumns = await this.getReplicaIdColumns(change.table);
-      await this.handleRelation(
-        batch,
-        {
-          name: change.table,
-          schema: this.connections.databaseName,
-          objectId: getMysqlRelId({
-            schema: this.connections.databaseName,
-            name: change.table
-          }),
-          replicaIdColumns: replicaIdColumns
-        },
-        true
-      );
-      return;
-    } else if (change.type === SchemaChangeType.RENAME_TABLE) {
+    if (change.type === SchemaChangeType.RENAME_TABLE) {
       const oldTableId = getMysqlRelId({
         schema: this.connections.databaseName,
         name: change.table
@@ -530,20 +515,7 @@ export class BinLogStream {
       }
       // If the new table matches the sync rules, we need to add it to the cache and snapshot it
       if (this.matchesTable(change.newTable!)) {
-        const replicaIdColumns = await this.getReplicaIdColumns(change.newTable!);
-        await this.handleRelation(
-          batch,
-          {
-            name: change.newTable!,
-            schema: this.connections.databaseName,
-            objectId: getMysqlRelId({
-              schema: this.connections.databaseName,
-              name: change.newTable!
-            }),
-            replicaIdColumns: replicaIdColumns
-          },
-          true
-        );
+        await this.handleCreateOrUpdateTable(batch, change.newTable!, this.connections.databaseName);
       }
     } else {
       const tableId = getMysqlRelId({
@@ -554,23 +526,10 @@ export class BinLogStream {
       const table = this.getTable(tableId);
 
       switch (change.type) {
-        case SchemaChangeType.ADD_COLUMN:
-        case SchemaChangeType.DROP_COLUMN:
-        case SchemaChangeType.MODIFY_COLUMN:
-        case SchemaChangeType.RENAME_COLUMN:
+        case SchemaChangeType.ALTER_TABLE_COLUMN:
         case SchemaChangeType.REPLICATION_IDENTITY:
-          // For these changes, we need to update the table's replica id columns
-          const replicaIdColumns = await this.getReplicaIdColumns(change.table);
-          await this.handleRelation(
-            batch,
-            {
-              name: change.table,
-              schema: this.connections.databaseName,
-              objectId: tableId,
-              replicaIdColumns: replicaIdColumns
-            },
-            true
-          );
+          // For these changes, we need to update the table if the replication identity columns have changed.
+          await this.handleCreateOrUpdateTable(batch, change.table, this.connections.databaseName);
           break;
         case SchemaChangeType.TRUNCATE_TABLE:
           await batch.truncate([table]);
@@ -598,6 +557,27 @@ export class BinLogStream {
     return replicaIdColumns.columns;
   }
 
+  private async handleCreateOrUpdateTable(
+    batch: storage.BucketStorageBatch,
+    tableName: string,
+    schema: string
+  ): Promise<SourceTable> {
+    const replicaIdColumns = await this.getReplicaIdColumns(tableName);
+    return await this.handleRelation(
+      batch,
+      {
+        name: tableName,
+        schema: schema,
+        objectId: getMysqlRelId({
+          schema: schema,
+          name: tableName
+        }),
+        replicaIdColumns: replicaIdColumns
+      },
+      true
+    );
+  }
+
   private async writeChanges(
     batch: storage.BucketStorageBatch,
     msg: {
@@ -608,17 +588,23 @@ export class BinLogStream {
     }
   ): Promise<storage.FlushedResult | null> {
     const columns = common.toColumnDescriptors(msg.tableEntry);
+    const tableId = getMysqlRelId({
+      schema: msg.tableEntry.parentSchema,
+      name: msg.tableEntry.tableName
+    });
+
+    let table = this.tableCache.get(tableId);
+    if (table == null) {
+      // This write event is for a new table that matches a table in the sync rules
+      // We need to create the table in the storage and cache it.
+      table = await this.handleCreateOrUpdateTable(batch, msg.tableEntry.tableName, msg.tableEntry.parentSchema);
+    }
 
     for (const [index, row] of msg.rows.entries()) {
       await this.writeChange(batch, {
         type: msg.type,
         database: msg.tableEntry.parentSchema,
-        sourceTable: this.getTable(
-          getMysqlRelId({
-            schema: msg.tableEntry.parentSchema,
-            name: msg.tableEntry.tableName
-          })
-        ),
+        sourceTable: table!,
         table: msg.tableEntry.tableName,
         columns: columns,
         row: row,

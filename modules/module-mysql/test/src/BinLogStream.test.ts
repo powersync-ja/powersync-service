@@ -82,6 +82,42 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     expect(endTxCount - startTxCount).toEqual(1);
   });
 
+  test('Replicate matched wild card tables in sync rules', async () => {
+    await using context = await BinlogStreamTestContext.open(factory);
+    const { connectionManager } = context;
+    await context.updateSyncRules(`
+  bucket_definitions:
+    global:
+      data:
+        - SELECT id, description FROM "test_data_%"`);
+
+    await connectionManager.query(`CREATE TABLE test_data_1 (id CHAR(36) PRIMARY KEY, description TEXT)`);
+    await connectionManager.query(`CREATE TABLE test_data_2 (id CHAR(36) PRIMARY KEY, description TEXT)`);
+
+    const testId11 = uuid();
+    await connectionManager.query(`INSERT INTO test_data_1(id, description) VALUES('${testId11}','test11')`);
+
+    const testId21 = uuid();
+    await connectionManager.query(`INSERT INTO test_data_2(id, description) VALUES('${testId21}','test21')`);
+
+    await context.replicateSnapshot();
+    await context.startStreaming();
+
+    const testId12 = uuid();
+    await connectionManager.query(`INSERT INTO test_data_1(id, description) VALUES('${testId12}', 'test12')`);
+
+    const testId22 = uuid();
+    await connectionManager.query(`INSERT INTO test_data_2(id, description) VALUES('${testId22}', 'test22')`);
+    const data = await context.getBucketData('global[]');
+
+    expect(data).toMatchObject([
+      putOp('test_data_1', { id: testId11, description: 'test11' }),
+      putOp('test_data_2', { id: testId21, description: 'test21' }),
+      putOp('test_data_1', { id: testId12, description: 'test12' }),
+      putOp('test_data_2', { id: testId22, description: 'test22' })
+    ]);
+  });
+
   test('Handle table TRUNCATE events', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
     await context.updateSyncRules(BASIC_SYNC_RULES);

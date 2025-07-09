@@ -5,8 +5,25 @@ import * as zongji_utils from './zongji-utils.js';
 import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
 import { MySQLConnectionManager } from '../MySQLConnectionManager.js';
 import timers from 'timers/promises';
-import pkg, { BaseFrom, Parser as ParserType, RenameStatement, TruncateStatement } from 'node-sql-parser';
-import { matchedSchemaChangeQuery } from '../../utils/mysql-utils.js';
+import pkg, {
+  BaseFrom,
+  DropIndexStatement,
+  Parser as ParserType,
+  RenameStatement,
+  TruncateStatement
+} from 'node-sql-parser';
+import {
+  isAlterTable,
+  isColumnExpression,
+  isConstraintExpression,
+  isCreateUniqueIndex,
+  isDropIndex,
+  isDropTable,
+  isRenameExpression,
+  isRenameTable,
+  isTruncate,
+  matchedSchemaChangeQuery
+} from '../../utils/parser-utils.js';
 
 const { Parser } = pkg;
 
@@ -16,15 +33,16 @@ const MAX_PAUSE_TIME_MS = 45_000;
 
 export type Row = Record<string, any>;
 
+/**
+ *  Schema changes that can be detected by inspecting query events.
+ *  Note that create table statements are not included here, since new tables are automatically detected when row events
+ *  are received for them.
+ */
 export enum SchemaChangeType {
-  CREATE_TABLE = 'create_table',
   RENAME_TABLE = 'rename_table',
   DROP_TABLE = 'drop_table',
   TRUNCATE_TABLE = 'truncate_table',
-  MODIFY_COLUMN = 'modify_column',
-  DROP_COLUMN = 'drop_column',
-  ADD_COLUMN = 'add_column',
-  RENAME_COLUMN = 'rename_column',
+  ALTER_TABLE_COLUMN = 'alter_table_column',
   REPLICATION_IDENTITY = 'replication_identity'
 }
 
@@ -35,16 +53,6 @@ export interface SchemaChange {
    */
   table: string;
   newTable?: string; // Only for table renames
-  /**
-   *  ColumnDetails. Only applicable for column schema changes.
-   */
-  column?: {
-    /**
-     *  The column that the schema change applies to.
-     */
-    column: string;
-    newColumn?: string; // Only for column renames
-  };
 }
 
 export interface BinLogEventHandler {
@@ -219,7 +227,7 @@ export class BinLogListener {
     const zongji = this.connectionManager.createBinlogListener();
 
     zongji.on('binlog', async (evt) => {
-      this.logger.debug(`Received BinLog event:${evt.getEventName()}`);
+      this.logger.info(`Received BinLog event:${evt.getEventName()}`);
 
       this.processingQueue.push(evt);
       this.queueMemoryUsage += evt.size;
@@ -231,7 +239,7 @@ export class BinLogListener {
         );
         zongji.pause();
         const resumeTimeoutPromise = timers.setTimeout(MAX_PAUSE_TIME_MS);
-        await Promise.race([this.processingQueue.empty(), resumeTimeoutPromise]);
+        await Promise.race([this.processingQueue.drain(), resumeTimeoutPromise]);
         this.logger.info(`BinLog processing queue backlog cleared. Resuming BinLog Listener.`);
         zongji.resume();
       }
@@ -366,11 +374,9 @@ export class BinLogListener {
       this.logger.info(`Successfully processed ${schemaChanges.length} schema change(s).`);
 
       // If there are still events in the processing queue, we need to process those before restarting Zongji
-      if (this.processingQueue.length() > 0) {
-        this.logger.info(
-          `Finish processing [${this.processingQueue.length()}] events(s) before resuming...`
-        );
-        this.processingQueue.empty(async () => {
+      if (!this.processingQueue.idle()) {
+        this.logger.info(`Finish processing [${this.processingQueue.length()}] events(s) before resuming...`);
+        this.processingQueue.drain(async () => {
           await this.restartZongji();
         });
       } else {
@@ -391,8 +397,30 @@ export class BinLogListener {
 
     const changes: SchemaChange[] = [];
     for (const statement of statements) {
-      // @ts-ignore
-      if (statement.type === 'rename') {
+      if (isTruncate(statement)) {
+        const truncateStatement = statement as TruncateStatement;
+        // Truncate statements can apply to multiple tables
+        for (const entity of truncateStatement.name) {
+          changes.push({ type: SchemaChangeType.TRUNCATE_TABLE, table: entity.table });
+        }
+      } else if (isDropTable(statement)) {
+        for (const entity of statement.name) {
+          changes.push({ type: SchemaChangeType.DROP_TABLE, table: entity.table });
+        }
+      } else if (isDropIndex(statement)) {
+        const dropStatement = statement as DropIndexStatement;
+        changes.push({
+          type: SchemaChangeType.REPLICATION_IDENTITY,
+          table: dropStatement.table.table
+        });
+      } else if (isCreateUniqueIndex(statement)) {
+        // Potential change to the replication identity if the table has no prior unique constraint
+        changes.push({
+          type: SchemaChangeType.REPLICATION_IDENTITY,
+          // @ts-ignore - The type definitions for node-sql-parser do not reflect the correct structure here
+          table: statement.table!.table
+        });
+      } else if (isRenameTable(statement)) {
         const renameStatement = statement as RenameStatement;
         // Rename statements can apply to multiple tables
         for (const table of renameStatement.table) {
@@ -402,81 +430,35 @@ export class BinLogListener {
             newTable: table[1].table
           });
         }
-      } else if (statement.type === 'create' && statement.keyword === 'table' && statement.temporary === null) {
-        changes.push({
-          type: SchemaChangeType.CREATE_TABLE,
-          table: statement.table![0].table
-        });
-      } // @ts-ignore
-      else if (statement.type === 'truncate') {
-        const truncateStatement = statement as TruncateStatement;
-        // Truncate statements can apply to multiple tables
-        for (const entity of truncateStatement.name) {
-          changes.push({ type: SchemaChangeType.TRUNCATE_TABLE, table: entity.table });
-        }
-      } else if (statement.type === 'drop' && statement.keyword === 'table') {
-        // Drop statements can apply to multiple tables
-        for (const entity of statement.name) {
-          changes.push({ type: SchemaChangeType.DROP_TABLE, table: entity.table });
-        }
-      } else if (statement.type === 'alter') {
-        const expression = statement.expr[0];
+      } else if (isAlterTable(statement)) {
         const fromTable = statement.table[0] as BaseFrom;
-        if (expression.resource === 'table') {
-          if (expression.action === 'rename') {
+        for (const expression of statement.expr) {
+          if (isRenameExpression(expression)) {
             changes.push({
               type: SchemaChangeType.RENAME_TABLE,
               table: fromTable.table,
               newTable: expression.table
             });
+          } else if (isColumnExpression(expression)) {
+            changes.push({
+              type: SchemaChangeType.ALTER_TABLE_COLUMN,
+              table: fromTable.table
+            });
+          } else if (isConstraintExpression(expression)) {
+            // Potential changes to the replication identity
+            changes.push({
+              type: SchemaChangeType.REPLICATION_IDENTITY,
+              table: fromTable.table
+            });
           }
-        } else if (expression.resource === 'column') {
-          const columnChange: SchemaChange = {
-            type: this.toColumnSchemaChangeType(expression.action),
-            table: fromTable.table,
-            column: {
-              column: expression.column.column
-            }
-          };
-
-          if (expression.action === 'change' || expression.action === 'rename') {
-            columnChange.column = {
-              column: expression.old_column.column,
-              newColumn: expression.column.column
-            };
-          }
-          changes.push(columnChange);
-        } else if (expression.resource === 'key' && expression.keyword === 'primary key') {
-          // This is a special case for MySQL, where the primary key is being set or changed
-          // We treat this as a replication identity change
-          changes.push({
-            type: SchemaChangeType.REPLICATION_IDENTITY,
-            table: fromTable.table
-          });
         }
+        break;
       }
     }
-
     // Filter out schema changes that are not relevant to the included tables
     return changes.filter(
       (change) =>
         this.options.tableFilter(change.table) || (change.newTable && this.options.tableFilter(change.newTable))
     );
-  }
-
-  private toColumnSchemaChangeType(action: string): SchemaChangeType {
-    switch (action) {
-      case 'drop':
-        return SchemaChangeType.DROP_COLUMN;
-      case 'add':
-        return SchemaChangeType.ADD_COLUMN;
-      case 'modify':
-        return SchemaChangeType.MODIFY_COLUMN;
-      case 'change':
-      case 'rename':
-        return SchemaChangeType.RENAME_COLUMN;
-      default:
-        throw new Error(`Unknown column schema change action: ${action}`);
-    }
   }
 }

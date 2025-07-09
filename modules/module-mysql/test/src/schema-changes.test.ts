@@ -64,7 +64,7 @@ function defineTests(factory: storage.TestStorageFactory) {
     ]);
   });
 
-  test('Add a table that is in the sync rules', async () => {
+  test('Create table: New table in is in the sync rules', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
     const { connectionManager } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
@@ -82,7 +82,55 @@ function defineTests(factory: storage.TestStorageFactory) {
     expect(data).toMatchObject([PUT_T1, PUT_T1]);
   });
 
-  test('(1) Rename a table not in the sync rules to one in the sync rules', async () => {
+  test('Create table: New table is created from existing data', async () => {
+    await using context = await BinlogStreamTestContext.open(factory);
+    const { connectionManager } = context;
+    await context.updateSyncRules(BASIC_SYNC_RULES);
+
+    await connectionManager.query(`CREATE TABLE test_data_from (id CHAR(36) PRIMARY KEY, description TEXT)`);
+    await connectionManager.query(`INSERT INTO test_data_from(id, description) VALUES('t1','test1')`);
+    await connectionManager.query(`INSERT INTO test_data_from(id, description) VALUES('t2','test2')`);
+    await connectionManager.query(`INSERT INTO test_data_from(id, description) VALUES('t3','test3')`);
+
+    await context.replicateSnapshot();
+    await context.startStreaming();
+
+    // Add table after initial replication
+    await connectionManager.query(`CREATE TABLE test_data SELECT * FROM test_data_from`);
+    const data = await context.getBucketData('global[]');
+
+    // Interestingly, the create with select triggers binlog row write events
+    expect(data).toMatchObject([
+      // From snapshot
+      PUT_T1,
+      PUT_T2,
+      PUT_T3,
+      // From replication stream
+      PUT_T1,
+      PUT_T2,
+      PUT_T3
+    ]);
+  });
+
+  test('Create table: New table is not in the sync rules', async () => {
+    await using context = await BinlogStreamTestContext.open(factory);
+    const { connectionManager } = context;
+    await context.updateSyncRules(BASIC_SYNC_RULES);
+
+    await context.replicateSnapshot();
+    await context.startStreaming();
+
+    // Add table after initial replication
+    await connectionManager.query(`CREATE TABLE test_data_ignored (id CHAR(36) PRIMARY KEY, description TEXT)`);
+
+    await connectionManager.query(`INSERT INTO test_data_ignored(id, description) VALUES('t1','test ignored')`);
+
+    const data = await context.getBucketData('global[]');
+
+    expect(data).toMatchObject([]);
+  });
+
+  test('Rename table: Table not in the sync rules to one in the sync rules', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
     const { connectionManager } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
@@ -109,7 +157,7 @@ function defineTests(factory: storage.TestStorageFactory) {
     ]);
   });
 
-  test('(2) Rename a table in the sync rules to another table also in the sync rules', async () => {
+  test('Rename table: Table in the sync rules to another table in the sync rules', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
 
     await context.updateSyncRules(`
@@ -150,7 +198,7 @@ function defineTests(factory: storage.TestStorageFactory) {
     ]);
   });
 
-  test('(3) Rename table in the sync rules to one not in the sync rules', async () => {
+  test('Rename table: Table in the sync rules to not in the sync rules', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
@@ -174,7 +222,7 @@ function defineTests(factory: storage.TestStorageFactory) {
     ]);
   });
 
-  test('(1) Change Replication Identity default by dropping the primary key', async () => {
+  test('Change Replication Identity default to full by dropping the primary key', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
     // Change replica id from default (PK) to full
     // Requires re-snapshotting the table.
@@ -208,7 +256,7 @@ function defineTests(factory: storage.TestStorageFactory) {
     ]);
   });
 
-  test('(2) Change Replication Identity full by adding a column', async () => {
+  test('Change Replication Identity full by adding a column', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
     // Change replica id from full by adding column
     // Causes a re-import of the table.
@@ -246,7 +294,114 @@ function defineTests(factory: storage.TestStorageFactory) {
     ]);
   });
 
-  test('(3) Change Replication Identity default by modifying primary key column type', async () => {
+  test('Change Replication Identity from full to index by adding a unique constraint', async () => {
+    await using context = await BinlogStreamTestContext.open(factory);
+    // Change replica id full by adding a unique index that can serve as the replication id
+
+    await context.updateSyncRules(BASIC_SYNC_RULES);
+
+    const { connectionManager } = context;
+    // No primary key, no unique column, so full replication identity will be used
+    await connectionManager.query(`CREATE TABLE test_data (id CHAR(36), description TEXT)`);
+    await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t1','test1')`);
+
+    await context.replicateSnapshot();
+    await context.startStreaming();
+
+    await connectionManager.query(`ALTER TABLE test_data ADD UNIQUE (id)`);
+    await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t2','test2')`);
+
+    const data = await context.getBucketData('global[]');
+
+    expect(data.slice(0, 2)).toMatchObject([
+      // Initial inserts
+      PUT_T1,
+      // Truncate
+      REMOVE_T1
+    ]);
+
+    // Snapshot - order doesn't matter
+    expect(data.slice(2)).toMatchObject([
+      // Snapshot inserts
+      PUT_T1,
+      PUT_T2,
+      // Replicated insert
+      PUT_T2
+    ]);
+  });
+
+  test('Change Replication Identity from full to index by adding a unique index', async () => {
+    await using context = await BinlogStreamTestContext.open(factory);
+    // Change replica id full by adding a unique index that can serve as the replication id
+    await context.updateSyncRules(BASIC_SYNC_RULES);
+
+    const { connectionManager } = context;
+    // No primary key, no unique column, so full replication identity will be used
+    await connectionManager.query(`CREATE TABLE test_data (id CHAR(36), description TEXT)`);
+    await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t1','test1')`);
+
+    await context.replicateSnapshot();
+    await context.startStreaming();
+
+    await connectionManager.query(`CREATE UNIQUE INDEX id_idx ON test_data (id)`);
+    await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t2','test2')`);
+
+    const data = await context.getBucketData('global[]');
+
+    expect(data.slice(0, 2)).toMatchObject([
+      // Initial inserts
+      PUT_T1,
+      // Truncate
+      REMOVE_T1
+    ]);
+
+    // Snapshot - order doesn't matter
+    expect(data.slice(2)).toMatchObject([
+      // Snapshot inserts
+      PUT_T1,
+      PUT_T2,
+      // Replicated insert
+      PUT_T2
+    ]);
+  });
+
+  test('Change Replication Identity from index by dropping the unique constraint', async () => {
+    await using context = await BinlogStreamTestContext.open(factory);
+    // Change replica id full by adding a unique index that can serve as the replication id
+
+    await context.updateSyncRules(BASIC_SYNC_RULES);
+
+    const { connectionManager } = context;
+    // Unique constraint on id
+    await connectionManager.query(`CREATE TABLE test_data (id CHAR(36), description TEXT, UNIQUE (id))`);
+    await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t1','test1')`);
+
+    await context.replicateSnapshot();
+    await context.startStreaming();
+
+    await connectionManager.query(`ALTER TABLE test_data DROP INDEX id`);
+    await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t2','test2')`);
+
+    const data = await context.getBucketData('global[]');
+
+    expect(data.slice(0, 2)).toMatchObject([
+      // Initial inserts
+      PUT_T1,
+      // Truncate
+      REMOVE_T1
+    ]);
+
+    // Snapshot - order doesn't matter
+    expect(data.slice(2)).toMatchObject([
+      // Snapshot inserts
+      PUT_T1,
+      PUT_T2,
+      // Replicated insert
+      PUT_T2
+    ]);
+  });
+
+  test('Change Replication Identity default by modifying primary key column type', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
@@ -278,7 +433,7 @@ function defineTests(factory: storage.TestStorageFactory) {
     ]);
   });
 
-  test('(4) Change Replication Identity by changing the type of a column in a compound unique index', async () => {
+  test('Change Replication Identity by changing the type of a column in a compound unique index', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
     // Change index replica id by changing column type
     // Causes a re-import of the table.
@@ -318,6 +473,66 @@ function defineTests(factory: storage.TestStorageFactory) {
     expect(data.slice(4, 7).sort(compareIds)).toMatchObject([PUT_T1, PUT_T2, PUT_T3]);
 
     expect(data.slice(7).sort(compareIds)).toMatchObject([
+      // Replicated insert
+      PUT_T3
+    ]);
+  });
+
+  test('Add column: New non replication identity column does not trigger re-sync', async () => {
+    await using context = await BinlogStreamTestContext.open(factory);
+    // Added column not in replication identity so it should not cause a re-import
+
+    await context.updateSyncRules(BASIC_SYNC_RULES);
+
+    const { connectionManager } = context;
+    await connectionManager.query(`CREATE TABLE test_data (id CHAR(36) PRIMARY KEY, description TEXT)`);
+    await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t1','test1')`);
+
+    await context.replicateSnapshot();
+    await context.startStreaming();
+
+    await connectionManager.query(`ALTER TABLE test_data ADD COLUMN new_column TEXT`);
+    await connectionManager.query(
+      `INSERT INTO test_data(id, description, new_column) VALUES('t2','test2', 'new_data')`
+    );
+
+    const data = await context.getBucketData('global[]');
+
+    expect(data.slice(0, 1)).toMatchObject([PUT_T1]);
+
+    expect(data.slice(1)).toMatchObject([
+      // Snapshot inserts
+      putOp('test_data', { id: 't2', description: 'test2', new_column: 'new_data' })
+    ]);
+  });
+
+  test('Modify non replication identity column', async () => {
+    await using context = await BinlogStreamTestContext.open(factory);
+    // Changing the type of a column that is not part of the replication identity does not cause a re-sync of the table.
+    await context.updateSyncRules(BASIC_SYNC_RULES);
+
+    const { connectionManager } = context;
+    await connectionManager.query(`CREATE TABLE test_data (id CHAR(36) PRIMARY KEY, description TEXT)`);
+    await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t1','test1')`);
+
+    await context.replicateSnapshot();
+    await context.startStreaming();
+
+    await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t2','test2')`);
+
+    await connectionManager.query(`ALTER TABLE test_data MODIFY COLUMN description VARCHAR(100)`);
+    await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t3','test3')`);
+
+    const data = await context.getBucketData('global[]');
+
+    expect(data.slice(0, 2)).toMatchObject([
+      // Initial snapshot
+      PUT_T1,
+      // Streamed
+      PUT_T2
+    ]);
+
+    expect(data.slice(2)).toMatchObject([
       // Replicated insert
       PUT_T3
     ]);
