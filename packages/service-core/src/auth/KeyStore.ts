@@ -1,4 +1,4 @@
-import { logger, errors, AuthorizationError, ErrorCode } from '@powersync/lib-services-framework';
+import { AuthorizationError, ErrorCode, logger } from '@powersync/lib-services-framework';
 import * as jose from 'jose';
 import secs from '../util/secs.js';
 import { JwtPayload } from './JwtPayload.js';
@@ -169,7 +169,7 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
         ErrorCode.PSYNC_S2101,
         'Could not find an appropriate key in the keystore. The key is missing or no key matched the token KID',
         {
-          configurationDetails: `Known kid values: ${keys.map((key) => key.kid ?? '*').join(', ')}`
+          configurationDetails: `Known keys: ${keys.map((key) => key.description).join(', ')}`
           // tokenDetails automatically populated later
         }
       );
