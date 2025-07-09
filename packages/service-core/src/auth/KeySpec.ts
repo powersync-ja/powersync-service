@@ -40,6 +40,20 @@ export class KeySpec {
     return this.source.kid;
   }
 
+  get description(): string {
+    let details: string[] = [];
+    details.push(`kid: ${this.kid ?? '*'}`);
+    details.push(`kty: ${this.source.kty}`);
+    if (this.source.alg != null) {
+      details.push(`alg: ${this.source.alg}`);
+    }
+    if (this.options.requiresAudience != null) {
+      details.push(`aud: ${this.options.requiresAudience.join(', ')}`);
+    }
+
+    return `<${details.filter((x) => x != null).join(', ')}>`;
+  }
+
   matchesAlgorithm(jwtAlg: string): boolean {
     if (this.source.alg) {
       return jwtAlg === this.source.alg;
