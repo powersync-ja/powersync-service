@@ -93,8 +93,7 @@ export async function getReplicationIdentityColumns(
     };
   }
 
-  // TODO: test code with tables with unique keys, compound key etc.
-  // No primary key, find the first valid unique key
+  // No primary key, check if any of the columns have a unique constraint we can use
   const [uniqueKeyColumns] = await mysql_utils.retriedQuery({
     connection: connection,
     query: `

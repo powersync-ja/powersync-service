@@ -14,4 +14,12 @@ declare module 'node-sql-parser' {
     keyword: 'table'; // There are more keywords possible, but we only care about 'table'
     name: { db: string | null; table: string; as: string | null }[];
   }
+
+  // This custom type more accurately describes what the structure of a Drop statement looks like for indexes.
+  interface DropIndexStatement {
+    type: 'drop';
+    keyword: 'index';
+    table: { db: string | null; table: string };
+    name: any[];
+  }
 }
