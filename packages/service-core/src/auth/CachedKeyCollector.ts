@@ -3,7 +3,7 @@ import timers from 'timers/promises';
 import { KeySpec } from './KeySpec.js';
 import { LeakyBucket } from './LeakyBucket.js';
 import { KeyCollector, KeyResult } from './KeyCollector.js';
-import { AuthorizationError, ErrorCode } from '@powersync/lib-services-framework';
+import { AuthorizationError, ErrorCode, logger } from '@powersync/lib-services-framework';
 import { mapAuthConfigError } from './utils.js';
 
 /**
@@ -115,7 +115,16 @@ export class CachedKeyCollector implements KeyCollector {
       this.currentErrors = errors;
       this.keyTimestamp = Date.now();
       this.error = false;
+
+      // Due to caching and background refresh behavior, errors are not always propagated to the request handler,
+      // so we log them here.
+      for (let error of errors) {
+        logger.error(`Soft key refresh error`, error);
+      }
     } catch (e) {
+      // Due to caching and background refresh behavior, errors are not always propagated to the request handler,
+      // so we log them here.
+      logger.error(`Hard key refresh error`, e);
       this.error = true;
       // No result - keep previous keys
       this.currentErrors = [mapAuthConfigError(e)];
