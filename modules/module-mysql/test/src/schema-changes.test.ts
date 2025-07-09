@@ -1,10 +1,12 @@
 import { compareIds, putOp, removeOp, test_utils } from '@powersync/service-core-tests';
-import { describe, expect, test } from 'vitest';
+import { beforeAll, describe, expect, test } from 'vitest';
 
 import { storage } from '@powersync/service-core';
-import { describeWithStorage } from './util.js';
+import { describeWithStorage, TEST_CONNECTION_OPTIONS } from './util.js';
 import { BinlogStreamTestContext } from './BinlogStreamUtils.js';
 import timers from 'timers/promises';
+import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManager.js';
+import { getMySQLVersion, satisfiesVersion } from '@module/utils/mysql-utils.js';
 
 describe('MySQL Schema Changes', () => {
   describeWithStorage({ timeout: 20_000 }, defineTests);
@@ -25,6 +27,17 @@ const REMOVE_T1 = test_utils.removeOp('test_data', 't1');
 const REMOVE_T2 = test_utils.removeOp('test_data', 't2');
 
 function defineTests(factory: storage.TestStorageFactory) {
+  let isMySQL57: boolean = false;
+
+  beforeAll(async () => {
+    const connectionManager = new MySQLConnectionManager(TEST_CONNECTION_OPTIONS, {});
+    const connection = await connectionManager.getConnection();
+    const version = await getMySQLVersion(connection);
+    isMySQL57 = satisfiesVersion(version, '5.7.x');
+    connection.release();
+    await connectionManager.end();
+  });
+
   test('Re-create table', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
     // Drop a table and re-create it.
@@ -83,33 +96,43 @@ function defineTests(factory: storage.TestStorageFactory) {
   });
 
   test('Create table: New table is created from existing data', async () => {
-    await using context = await BinlogStreamTestContext.open(factory);
-    const { connectionManager } = context;
-    await context.updateSyncRules(BASIC_SYNC_RULES);
+    // Create table with select from is not allowed in MySQL 5.7 when enforce_gtid_consistency=ON
+    if (!isMySQL57) {
+      await using context = await BinlogStreamTestContext.open(factory);
+      const { connectionManager } = context;
+      await context.updateSyncRules(BASIC_SYNC_RULES);
 
-    await connectionManager.query(`CREATE TABLE test_data_from (id CHAR(36) PRIMARY KEY, description TEXT)`);
-    await connectionManager.query(`INSERT INTO test_data_from(id, description) VALUES('t1','test1')`);
-    await connectionManager.query(`INSERT INTO test_data_from(id, description) VALUES('t2','test2')`);
-    await connectionManager.query(`INSERT INTO test_data_from(id, description) VALUES('t3','test3')`);
+      await connectionManager.query(`CREATE TABLE test_data_from
+                                     (
+                                       id          CHAR(36) PRIMARY KEY,
+                                       description TEXT
+                                     )`);
+      await connectionManager.query(`INSERT INTO test_data_from(id, description)
+                                     VALUES ('t1', 'test1')`);
+      await connectionManager.query(`INSERT INTO test_data_from(id, description)
+                                     VALUES ('t2', 'test2')`);
+      await connectionManager.query(`INSERT INTO test_data_from(id, description)
+                                     VALUES ('t3', 'test3')`);
 
-    await context.replicateSnapshot();
-    await context.startStreaming();
+      await context.replicateSnapshot();
+      await context.startStreaming();
 
-    // Add table after initial replication
-    await connectionManager.query(`CREATE TABLE test_data SELECT * FROM test_data_from`);
-    const data = await context.getBucketData('global[]');
+      // Add table after initial replication
+      await connectionManager.query(`CREATE TABLE test_data SELECT * FROM test_data_from`);
+      const data = await context.getBucketData('global[]');
 
-    // Interestingly, the create with select triggers binlog row write events
-    expect(data).toMatchObject([
-      // From snapshot
-      PUT_T1,
-      PUT_T2,
-      PUT_T3,
-      // From replication stream
-      PUT_T1,
-      PUT_T2,
-      PUT_T3
-    ]);
+      // Interestingly, the create with select triggers binlog row write events
+      expect(data).toMatchObject([
+        // From snapshot
+        PUT_T1,
+        PUT_T2,
+        PUT_T3,
+        // From replication stream
+        PUT_T1,
+        PUT_T2,
+        PUT_T3
+      ]);
+    }
   });
 
   test('Create table: New table is not in the sync rules', async () => {
