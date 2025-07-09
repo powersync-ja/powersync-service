@@ -413,9 +413,6 @@ export class BinLogStream {
         { zeroLSN: common.ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema, storeCurrentData: true },
         async (batch) => {
           const binlogEventHandler = this.createBinlogEventHandler(batch);
-          // Only listen for changes to tables in the sync rules
-          const includedTables = [...this.tableCache.values()].map((table) => table.name);
-
           const binlogListener = new BinLogListener({
             logger: this.logger,
             tableFilter: (table: string) => this.matchesTable(table),
