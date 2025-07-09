@@ -3,7 +3,7 @@ import timers from 'timers/promises';
 import { KeySpec } from './KeySpec.js';
 import { LeakyBucket } from './LeakyBucket.js';
 import { KeyCollector, KeyResult } from './KeyCollector.js';
-import { AuthorizationError } from '@powersync/lib-services-framework';
+import { AuthorizationError, ErrorCode } from '@powersync/lib-services-framework';
 import { mapAuthConfigError } from './utils.js';
 
 /**
@@ -70,8 +70,21 @@ export class CachedKeyCollector implements KeyCollector {
       // e.g. in the case of waiting for error retries.
       // In the case of very slow requests, we don't wait for it to complete, but the
       // request can still complete in the background.
-      const timeout = timers.setTimeout(3000);
-      await Promise.race([this.refreshPromise, timeout]);
+      const WAIT_TIMEOUT_SECONDS = 3;
+      const timeout = timers.setTimeout(WAIT_TIMEOUT_SECONDS * 1000).then(() => {
+        throw new AuthorizationError(ErrorCode.PSYNC_S2204, `JWKS request failed`, {
+          cause: { message: `Key request timed out in ${WAIT_TIMEOUT_SECONDS}s`, name: 'AbortError' }
+        });
+      });
+      try {
+        await Promise.race([this.refreshPromise, timeout]);
+      } catch (e) {
+        if (e instanceof AuthorizationError) {
+          return { keys: this.currentKeys, errors: [...this.currentErrors, e] };
+        } else {
+          throw e;
+        }
+      }
     }
 
     return { keys: this.currentKeys, errors: this.currentErrors };
