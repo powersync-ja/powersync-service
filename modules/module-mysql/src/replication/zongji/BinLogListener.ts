@@ -86,6 +86,7 @@ export class BinLogListener {
   private binLogPosition: common.BinLogPosition;
   private currentGTID: common.ReplicatedGTID | null;
   private logger: Logger;
+  private listenerError: Error | null;
 
   zongji: ZongJi;
   processingQueue: async.QueueObject<BinLogEvent>;
@@ -106,6 +107,7 @@ export class BinLogListener {
     this.sqlParser = new Parser();
     this.processingQueue = this.createProcessingQueue();
     this.zongji = this.createZongjiListener();
+    this.listenerError = null;
   }
 
   /**
@@ -180,8 +182,8 @@ export class BinLogListener {
   }
 
   private async stopZongji(): Promise<void> {
-    this.logger.info('Stopping BinLog Listener...');
     if (!this.zongji.stopped) {
+      this.logger.info('Stopping BinLog Listener...');
       await new Promise<void>((resolve) => {
         this.zongji.once('stopped', () => {
           resolve();
@@ -206,6 +208,11 @@ export class BinLogListener {
     while (!this.isStopped) {
       await timers.setTimeout(1_000);
     }
+
+    if (this.listenerError) {
+      this.logger.error('BinLog Listener stopped due to an error:', this.listenerError);
+      throw this.listenerError;
+    }
   }
 
   private createProcessingQueue(): async.QueueObject<BinLogEvent> {
@@ -213,7 +220,7 @@ export class BinLogListener {
 
     queue.error((error) => {
       if (!(this.isStopped || this.isStopping)) {
-        this.logger.error('Error processing BinLog event:', error);
+        this.listenerError = error;
         this.stop();
       } else {
         this.logger.warn('Error processing BinLog event during shutdown:', error);
@@ -227,7 +234,7 @@ export class BinLogListener {
     const zongji = this.connectionManager.createBinlogListener();
 
     zongji.on('binlog', async (evt) => {
-      this.logger.info(`Received BinLog event:${evt.getEventName()}`);
+      this.logger.debug(`Received BinLog event:${evt.getEventName()}`);
 
       this.processingQueue.push(evt);
       this.queueMemoryUsage += evt.size;
@@ -247,7 +254,7 @@ export class BinLogListener {
 
     zongji.on('error', (error) => {
       if (!(this.isStopped || this.isStopping)) {
-        this.logger.error('BinLog Listener error:', error);
+        this.listenerError = error;
         this.stop();
       } else {
         this.logger.warn('Ignored BinLog Listener error during shutdown:', error);
@@ -375,7 +382,7 @@ export class BinLogListener {
 
       // If there are still events in the processing queue, we need to process those before restarting Zongji
       if (!this.processingQueue.idle()) {
-        this.logger.info(`Finish processing [${this.processingQueue.length()}] events(s) before resuming...`);
+        this.logger.info(`Processing [${this.processingQueue.length()}] events(s) before resuming...`);
         this.processingQueue.drain(async () => {
           await this.restartZongji();
         });

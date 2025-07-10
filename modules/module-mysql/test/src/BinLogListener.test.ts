@@ -284,6 +284,52 @@ describe('BinlogListener tests', () => {
 
     expect(eventHandler.schemaChanges.length).toBe(0);
   });
+
+  test('Sequential schema change handling', async () => {
+    // If there are multiple schema changes in the binlog processing queue, we only restart the binlog listener once
+    // all the schema changes have been processed
+    await connectionManager.query(`CREATE TABLE test_multiple (id CHAR(36), description VARCHAR(100))`);
+    await connectionManager.query(`ALTER TABLE test_multiple ADD COLUMN new_column VARCHAR(10)`);
+    await connectionManager.query(`ALTER TABLE test_multiple ADD PRIMARY KEY (id)`);
+    await connectionManager.query(`ALTER TABLE test_multiple MODIFY COLUMN new_column TEXT`);
+    await connectionManager.query(`DROP TABLE test_multiple`);
+
+    binLogListener.options.tableFilter = (table) => table === 'test_multiple';
+    await binLogListener.start();
+
+    await vi.waitFor(() => expect(eventHandler.schemaChanges.length).toBe(4), { timeout: 5000 });
+    await binLogListener.stop();
+    expect(eventHandler.schemaChanges[0].type).toBe(SchemaChangeType.ALTER_TABLE_COLUMN);
+    expect(eventHandler.schemaChanges[1].type).toBe(SchemaChangeType.REPLICATION_IDENTITY);
+    expect(eventHandler.schemaChanges[2].type).toBe(SchemaChangeType.ALTER_TABLE_COLUMN);
+    expect(eventHandler.schemaChanges[3].type).toBe(SchemaChangeType.DROP_TABLE);
+  });
+
+  test('Unprocessed binlog event received that does match the current table schema', async () => {
+    // If we process a binlog event for a table which has since had its schema changed, we expect the binlog listener to stop with an error
+    await connectionManager.query(`CREATE TABLE test_failure (id CHAR(36), description VARCHAR(100))`);
+    await connectionManager.query(`INSERT INTO test_failure(id, description) VALUES('${uuid()}','test_failure')`);
+    await connectionManager.query(`ALTER TABLE test_failure DROP COLUMN description`);
+
+    binLogListener.options.tableFilter = (table) => table === 'test_failure';
+    await binLogListener.start();
+
+    await expect(() => binLogListener.replicateUntilStopped()).rejects.toThrow(
+      /that does not match its current schema/
+    );
+  });
+
+  test('Unprocessed binlog event received for a dropped table', async () => {
+    // If we process a binlog event for a table which has since been dropped, we expect the binlog listener to stop with an error
+    await connectionManager.query(`CREATE TABLE test_failure (id CHAR(36), description VARCHAR(100))`);
+    await connectionManager.query(`INSERT INTO test_failure(id, description) VALUES('${uuid()}','test_failure')`);
+    await connectionManager.query(`DROP TABLE test_failure`);
+
+    binLogListener.options.tableFilter = (table) => table === 'test_failure';
+    await binLogListener.start();
+
+    await expect(() => binLogListener.replicateUntilStopped()).rejects.toThrow(/or the table has been dropped/);
+  });
 });
 
 async function getFromGTID(connectionManager: MySQLConnectionManager) {
