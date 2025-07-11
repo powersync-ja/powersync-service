@@ -459,7 +459,6 @@ export class BinLogListener {
             });
           }
         }
-        break;
       }
     }
     // Filter out schema changes that are not relevant to the included tables

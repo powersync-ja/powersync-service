@@ -13,7 +13,7 @@ bucket_definitions:
       - SELECT id, description FROM "test_data"
 `;
 
-describe('BigLogStream tests', () => {
+describe('BinLogStream tests', () => {
   describeWithStorage({ timeout: 20_000 }, defineBinlogStreamTests);
 });
 
