@@ -1,5 +1,18 @@
 # @powersync/service-core
 
+## 1.14.0
+
+### Minor Changes
+
+- 71cf892: Add 'powersync' or 'powersync-storage' as the app name for database connections.
+
+### Patch Changes
+
+- ba1ceef: Remove unused dev config.
+- f1431b6: Improve diagnostics in logs for JWKS timeouts.
+- Updated dependencies [ba1ceef]
+  - @powersync/service-types@0.12.1
+
 ## 1.13.3
 
 ### Patch Changes

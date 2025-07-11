@@ -1,5 +1,18 @@
 # @powersync/service-module-postgres-storage
 
+## 0.8.4
+
+### Patch Changes
+
+- 71cf892: Add 'powersync' or 'powersync-storage' as the app name for database connections.
+- Updated dependencies [71cf892]
+- Updated dependencies [ba1ceef]
+- Updated dependencies [f1431b6]
+  - @powersync/service-core@1.14.0
+  - @powersync/service-types@0.12.1
+  - @powersync/service-core-tests@0.10.4
+  - @powersync/lib-service-postgres@0.4.5
+
 ## 0.8.3
 
 ### Patch Changes
