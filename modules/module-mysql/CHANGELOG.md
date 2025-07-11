@@ -1,5 +1,16 @@
 # @powersync/service-module-mysql
 
+## 0.7.4
+
+### Patch Changes
+
+- 71cf892: Add 'powersync' or 'powersync-storage' as the app name for database connections.
+- Updated dependencies [71cf892]
+- Updated dependencies [ba1ceef]
+- Updated dependencies [f1431b6]
+  - @powersync/service-core@1.14.0
+  - @powersync/service-types@0.12.1
+
 ## 0.7.3
 
 ### Patch Changes
