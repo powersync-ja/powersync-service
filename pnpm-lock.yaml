@@ -258,8 +258,8 @@ importers:
         specifier: workspace:*
         version: link:../../libs/lib-services
       '@powersync/mysql-zongji':
-        specifier: 0.2.0
-        version: 0.2.0
+        specifier: ^0.4.0
+        version: 0.4.0
       '@powersync/service-core':
         specifier: workspace:*
         version: link:../../packages/service-core
@@ -278,6 +278,9 @@ importers:
       mysql2:
         specifier: ^3.11.0
         version: 3.11.3
+      node-sql-parser:
+        specifier: ^5.3.9
+        version: 5.3.9
       semver:
         specifier: ^7.5.4
         version: 7.6.2
@@ -1281,8 +1284,8 @@ packages:
     resolution: {integrity: sha512-UA91GwWPhFExt3IizW6bOeY/pQ0BkuNwKjk9iQW9KqxluGCrg4VenZ0/L+2Y0+ZOtme72EVvg6v0zo3AMQRCeA==}
     engines: {node: '>=12'}
 
-  '@powersync/mysql-zongji@0.2.0':
-    resolution: {integrity: sha512-ua/n7WFfoiXmqfgwLikcm/AaDE6+t5gFVTWHWsbiuRQMNtXE1F2gXpZJdwKhr8WsOCYkB/A1ZOgbJKi4tK342g==}
+  '@powersync/mysql-zongji@0.4.0':
+    resolution: {integrity: sha512-O5zGYF3mzHO50SOSj3/6EnXYebC2Lvu1BTashbbz6eLAwaR3TkxwMfPGqFEsuecIm22djSBlgXjKM2FzVVG/VQ==}
     engines: {node: '>=22.0.0'}
 
   '@powersync/service-jsonbig@0.17.10':
@@ -1525,6 +1528,9 @@ packages:
 
   '@types/node@22.16.2':
     resolution: {integrity: sha512-Cdqa/eJTvt4fC4wmq1Mcc0CPUjp/Qy2FGqLza3z3pKymsI969TcZ54diNJv8UYUgeWxyb8FSbCkhdR6WqmUFhA==}
+
+  '@types/pegjs@0.10.6':
+    resolution: {integrity: sha512-eLYXDbZWXh2uxf+w8sXS8d6KSoXTswfps6fvCUuVAGN8eRpfe7h9eSRydxiSJvo9Bf+GzifsDOr9TMQlmJdmkw==}
 
   '@types/pg-pool@2.0.4':
     resolution: {integrity: sha512-qZAvkv1K3QbmHHFYSNRYPkRjOWRLBYrL4B9c+wG0GSVGBw0NtJwPcgx/DSddeDJvRGMHCEQ4VMEVfuJ/0gZ3XQ==}
@@ -2889,6 +2895,10 @@ packages:
 
   node-sql-parser@4.18.0:
     resolution: {integrity: sha512-2YEOR5qlI1zUFbGMLKNfsrR5JUvFg9LxIRVE+xJe962pfVLH0rnItqLzv96XVs1Y1UIR8FxsXAuvX/lYAWZ2BQ==}
+    engines: {node: '>=8'}
+
+  node-sql-parser@5.3.9:
+    resolution: {integrity: sha512-yJuCNCUWqS296krMKooLIJcZy+Q0OL6ZsNDxrwqj+HdGMHVT0ChPIFF1vqCexDe51VWKEwhU65OgvKyiyRcQLg==}
     engines: {node: '>=8'}
 
   nodemon@3.1.4:
@@ -4742,7 +4752,7 @@ snapshots:
       '@pnpm/network.ca-file': 1.0.2
       config-chain: 1.1.13
 
-  '@powersync/mysql-zongji@0.2.0':
+  '@powersync/mysql-zongji@0.4.0':
     dependencies:
       '@vlasky/mysql': 2.18.6
       big-integer: 1.6.52
@@ -4971,6 +4981,8 @@ snapshots:
   '@types/node@22.16.2':
     dependencies:
       undici-types: 6.21.0
+
+  '@types/pegjs@0.10.6': {}
 
   '@types/pg-pool@2.0.4':
     dependencies:
@@ -6373,6 +6385,11 @@ snapshots:
   node-sql-parser@4.18.0:
     dependencies:
       big-integer: 1.6.51
+
+  node-sql-parser@5.3.9:
+    dependencies:
+      '@types/pegjs': 0.10.6
+      big-integer: 1.6.52
 
   nodemon@3.1.4:
     dependencies:

@@ -10,7 +10,7 @@ export class TestSourceTable implements SourceTableInterface {
   readonly connectionTag = DEFAULT_TAG;
   readonly schema = 'test_schema';
 
-  constructor(public readonly table: string) {}
+  constructor(public readonly name: string) {}
 }
 
 export const PARSE_OPTIONS = {

@@ -315,7 +315,15 @@ export async function getDebugTableInfo(options: GetDebugTableInfoOptions): Prom
 
   const id_columns = id_columns_result?.replicationColumns ?? [];
 
-  const sourceTable = new storage.SourceTable(0, connectionTag, relationId ?? 0, schema, name, id_columns, true);
+  const sourceTable = new storage.SourceTable({
+    id: 0,
+    connectionTag: connectionTag,
+    objectId: relationId ?? 0,
+    schema: schema,
+    name: name,
+    replicaIdColumns: id_columns,
+    snapshotComplete: true
+  });
 
   const syncData = syncRules.tableSyncsData(sourceTable);
   const syncParameters = syncRules.tableSyncsParameters(sourceTable);
@@ -342,7 +350,7 @@ export async function getDebugTableInfo(options: GetDebugTableInfoOptions): Prom
 
   let selectError = null;
   try {
-    await lib_postgres.retriedQuery(db, `SELECT * FROM ${sourceTable.escapedIdentifier} LIMIT 1`);
+    await lib_postgres.retriedQuery(db, `SELECT * FROM ${sourceTable.qualifiedName} LIMIT 1`);
   } catch (e) {
     selectError = { level: 'fatal', message: e.message };
   }

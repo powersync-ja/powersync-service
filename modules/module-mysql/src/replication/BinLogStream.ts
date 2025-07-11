@@ -11,6 +11,7 @@ import {
   framework,
   getUuidReplicaIdentityBson,
   MetricsEngine,
+  SourceTable,
   storage
 } from '@powersync/service-core';
 import mysql from 'mysql2';
@@ -21,7 +22,7 @@ import * as common from '../common/common-index.js';
 import { createRandomServerId, escapeMysqlTableName } from '../utils/mysql-utils.js';
 import { MySQLConnectionManager } from './MySQLConnectionManager.js';
 import { ReplicationMetric } from '@powersync/service-types';
-import { BinLogEventHandler, BinLogListener, Row } from './zongji/BinLogListener.js';
+import { BinLogEventHandler, BinLogListener, Row, SchemaChange, SchemaChangeType } from './zongji/BinLogListener.js';
 
 export interface BinLogStreamOptions {
   connections: MySQLConnectionManager;
@@ -83,7 +84,7 @@ export class BinLogStream {
    * Keep track of whether we have done a commit or keepalive yet.
    * We can only compute replication lag if isStartingReplication == false, or oldestUncommittedChange is present.
    */
-  private isStartingReplication = true;
+  isStartingReplication = true;
 
   constructor(private options: BinLogStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
@@ -158,10 +159,10 @@ export class BinLogStream {
       const promiseConnection = (connection as mysql.Connection).promise();
       try {
         await promiseConnection.query(`SET time_zone = '+00:00'`);
-        await promiseConnection.query('BEGIN');
+        await promiseConnection.query('START TRANSACTION');
         try {
           gtid = await common.readExecutedGtid(promiseConnection);
-          await this.snapshotTable(connection.connection, batch, result.table);
+          await this.snapshotTable(connection as mysql.Connection, batch, result.table);
           await promiseConnection.query('COMMIT');
         } catch (e) {
           await this.tryRollback(promiseConnection);
@@ -185,62 +186,24 @@ export class BinLogStream {
       return [];
     }
 
-    let tableRows: any[];
-    const prefix = tablePattern.isWildcard ? tablePattern.tablePrefix : undefined;
-    if (tablePattern.isWildcard) {
-      const result = await this.connections.query(
-        `SELECT TABLE_NAME
-FROM information_schema.tables
-WHERE TABLE_SCHEMA = ? AND TABLE_NAME LIKE ?;
-`,
-        [tablePattern.schema, tablePattern.tablePattern]
-      );
-      tableRows = result[0];
-    } else {
-      const result = await this.connections.query(
-        `SELECT TABLE_NAME
-FROM information_schema.tables
-WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?;
-`,
-        [tablePattern.schema, tablePattern.tablePattern]
-      );
-      tableRows = result[0];
-    }
+    const connection = await this.connections.getConnection();
+    const matchedTables: string[] = await common.getTablesFromPattern(connection, tablePattern);
+    connection.release();
+
     let tables: storage.SourceTable[] = [];
-
-    for (let row of tableRows) {
-      const name = row['TABLE_NAME'] as string;
-      if (prefix && !name.startsWith(prefix)) {
-        continue;
-      }
-
-      const result = await this.connections.query(
-        `SELECT 1
-FROM information_schema.tables
-WHERE table_schema = ? AND table_name = ?
-AND table_type = 'BASE TABLE';`,
-        [tablePattern.schema, tablePattern.name]
-      );
-      if (result[0].length == 0) {
-        this.logger.info(`Skipping ${tablePattern.schema}.${name} - no table exists/is not a base table`);
-        continue;
-      }
-
-      const connection = await this.connections.getConnection();
-      const replicationColumns = await common.getReplicationIdentityColumns({
-        connection: connection,
-        schema: tablePattern.schema,
-        table_name: tablePattern.name
-      });
-      connection.release();
+    for (const matchedTable of matchedTables) {
+      const replicaIdColumns = await this.getReplicaIdColumns(matchedTable);
 
       const table = await this.handleRelation(
         batch,
         {
-          name,
+          name: matchedTable,
           schema: tablePattern.schema,
-          objectId: getMysqlRelId(tablePattern),
-          replicationColumns: replicationColumns.columns
+          objectId: getMysqlRelId({
+            schema: tablePattern.schema,
+            name: matchedTable
+          }),
+          replicaIdColumns: replicaIdColumns
         },
         false
       );
@@ -450,11 +413,9 @@ AND table_type = 'BASE TABLE';`,
         { zeroLSN: common.ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema, storeCurrentData: true },
         async (batch) => {
           const binlogEventHandler = this.createBinlogEventHandler(batch);
-          // Only listen for changes to tables in the sync rules
-          const includedTables = [...this.tableCache.values()].map((table) => table.table);
           const binlogListener = new BinLogListener({
             logger: this.logger,
-            includedTables: includedTables,
+            tableFilter: (table: string) => this.matchesTable(table),
             startPosition: binLogPositionState,
             connectionManager: this.connections,
             serverId: serverId,
@@ -463,18 +424,30 @@ AND table_type = 'BASE TABLE';`,
 
           this.abortSignal.addEventListener(
             'abort',
-            () => {
+            async () => {
               this.logger.info('Abort signal received, stopping replication...');
-              binlogListener.stop();
+              await binlogListener.stop();
             },
             { once: true }
           );
 
-          // Only returns when the replication is stopped or interrupted by an error
           await binlogListener.start();
+          await binlogListener.replicateUntilStopped();
         }
       );
     }
+  }
+
+  private matchesTable(tableName: string): boolean {
+    const sourceTables = this.syncRules.getSourceTables();
+
+    return (
+      sourceTables.findIndex((table) =>
+        table.isWildcard
+          ? tableName.startsWith(table.tablePattern.substring(0, table.tablePattern.length - 1))
+          : tableName === table.name
+      ) !== -1
+    );
   }
 
   private createBinlogEventHandler(batch: storage.BucketStorageBatch): BinLogEventHandler {
@@ -517,8 +490,89 @@ AND table_type = 'BASE TABLE';`,
       },
       onRotate: async () => {
         this.isStartingReplication = false;
+      },
+      onSchemaChange: async (change: SchemaChange) => {
+        await this.handleSchemaChange(batch, change);
       }
     };
+  }
+
+  private async handleSchemaChange(batch: storage.BucketStorageBatch, change: SchemaChange): Promise<void> {
+    if (change.type === SchemaChangeType.RENAME_TABLE) {
+      const oldTableId = getMysqlRelId({
+        schema: this.connections.databaseName,
+        name: change.table
+      });
+
+      const table = this.tableCache.get(oldTableId);
+      // Old table needs to be cleaned up
+      if (table) {
+        await batch.drop([table]);
+        this.tableCache.delete(oldTableId);
+      }
+      // If the new table matches the sync rules, we need to add it to the cache and snapshot it
+      if (this.matchesTable(change.newTable!)) {
+        await this.handleCreateOrUpdateTable(batch, change.newTable!, this.connections.databaseName);
+      }
+    } else {
+      const tableId = getMysqlRelId({
+        schema: this.connections.databaseName,
+        name: change.table
+      });
+
+      const table = this.getTable(tableId);
+
+      switch (change.type) {
+        case SchemaChangeType.ALTER_TABLE_COLUMN:
+        case SchemaChangeType.REPLICATION_IDENTITY:
+          // For these changes, we need to update the table if the replication identity columns have changed.
+          await this.handleCreateOrUpdateTable(batch, change.table, this.connections.databaseName);
+          break;
+        case SchemaChangeType.TRUNCATE_TABLE:
+          await batch.truncate([table]);
+          break;
+        case SchemaChangeType.DROP_TABLE:
+          await batch.drop([table]);
+          this.tableCache.delete(tableId);
+          break;
+        default:
+          // No action needed for other schema changes
+          break;
+      }
+    }
+  }
+
+  private async getReplicaIdColumns(tableName: string) {
+    const connection = await this.connections.getConnection();
+    const replicaIdColumns = await common.getReplicationIdentityColumns({
+      connection,
+      schema: this.connections.databaseName,
+      tableName
+    });
+    connection.release();
+
+    return replicaIdColumns.columns;
+  }
+
+  private async handleCreateOrUpdateTable(
+    batch: storage.BucketStorageBatch,
+    tableName: string,
+    schema: string
+  ): Promise<SourceTable> {
+    const replicaIdColumns = await this.getReplicaIdColumns(tableName);
+    return await this.handleRelation(
+      batch,
+      {
+        name: tableName,
+        schema: schema,
+        objectId: getMysqlRelId({
+          schema: schema,
+          name: tableName
+        }),
+        replicaIdColumns: replicaIdColumns
+      },
+      true
+    );
   }
 
   private async writeChanges(
@@ -531,17 +585,23 @@ AND table_type = 'BASE TABLE';`,
     }
   ): Promise<storage.FlushedResult | null> {
     const columns = common.toColumnDescriptors(msg.tableEntry);
+    const tableId = getMysqlRelId({
+      schema: msg.tableEntry.parentSchema,
+      name: msg.tableEntry.tableName
+    });
+
+    let table = this.tableCache.get(tableId);
+    if (table == null) {
+      // This write event is for a new table that matches a table in the sync rules
+      // We need to create the table in the storage and cache it.
+      table = await this.handleCreateOrUpdateTable(batch, msg.tableEntry.tableName, msg.tableEntry.parentSchema);
+    }
 
     for (const [index, row] of msg.rows.entries()) {
       await this.writeChange(batch, {
         type: msg.type,
         database: msg.tableEntry.parentSchema,
-        sourceTable: this.getTable(
-          getMysqlRelId({
-            schema: msg.tableEntry.parentSchema,
-            name: msg.tableEntry.tableName
-          })
-        ),
+        sourceTable: table!,
         table: msg.tableEntry.tableName,
         columns: columns,
         row: row,

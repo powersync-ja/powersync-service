@@ -1,6 +1,16 @@
 import { DEFAULT_TAG } from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
-import { ColumnDescriptor } from './SourceEntity.js';
+import { ColumnDescriptor, SourceEntityDescriptor } from './SourceEntity.js';
+
+export interface SourceTableOptions {
+  id: any;
+  connectionTag: string;
+  objectId: number | string | undefined;
+  schema: string;
+  name: string;
+  replicaIdColumns: ColumnDescriptor[];
+  snapshotComplete: boolean;
+}
 
 export interface TableSnapshotStatus {
   totalEstimatedCount: number;
@@ -8,7 +18,7 @@ export interface TableSnapshotStatus {
   lastKey: Uint8Array | null;
 }
 
-export class SourceTable {
+export class SourceTable implements SourceEntityDescriptor {
   static readonly DEFAULT_TAG = DEFAULT_TAG;
 
   /**
@@ -45,37 +55,41 @@ export class SourceTable {
    */
   public snapshotStatus: TableSnapshotStatus | undefined = undefined;
 
-  constructor(
-    public readonly id: any,
-    public readonly connectionTag: string,
-    public readonly objectId: number | string | undefined,
-    public readonly schema: string,
-    public readonly table: string,
+  public snapshotComplete: boolean;
 
-    public readonly replicaIdColumns: ColumnDescriptor[],
-    public snapshotComplete: boolean
-  ) {}
+  constructor(public readonly options: SourceTableOptions) {
+    this.snapshotComplete = options.snapshotComplete;
+  }
 
-  get hasReplicaIdentity() {
-    return this.replicaIdColumns.length > 0;
+  get id() {
+    return this.options.id;
+  }
+
+  get connectionTag() {
+    return this.options.connectionTag;
+  }
+
+  get objectId() {
+    return this.options.objectId;
+  }
+
+  get schema() {
+    return this.options.schema;
+  }
+  get name() {
+    return this.options.name;
+  }
+
+  get replicaIdColumns() {
+    return this.options.replicaIdColumns;
   }
 
   /**
-   * Use for postgres only.
-   *
-   * Usage: db.query({statement: `SELECT $1::regclass`, params: [{type: 'varchar', value: table.qualifiedName}]})
+   *  Sanitized name of the entity in the format of "{schema}.{entity name}"
+   *  Suitable for safe use in Postgres queries.
    */
   get qualifiedName() {
-    return this.escapedIdentifier;
-  }
-
-  /**
-   * Use for postgres and logs only.
-   *
-   * Usage: db.query(`SELECT * FROM ${table.escapedIdentifier}`)
-   */
-  get escapedIdentifier() {
-    return `${util.escapeIdentifier(this.schema)}.${util.escapeIdentifier(this.table)}`;
+    return `${util.escapeIdentifier(this.schema)}.${util.escapeIdentifier(this.name)}`;
   }
 
   get syncAny() {
@@ -86,15 +100,15 @@ export class SourceTable {
    * In-memory clone of the table status.
    */
   clone() {
-    const copy = new SourceTable(
-      this.id,
-      this.connectionTag,
-      this.objectId,
-      this.schema,
-      this.table,
-      this.replicaIdColumns,
-      this.snapshotComplete
-    );
+    const copy = new SourceTable({
+      id: this.id,
+      connectionTag: this.connectionTag,
+      objectId: this.objectId,
+      schema: this.schema,
+      name: this.name,
+      replicaIdColumns: this.replicaIdColumns,
+      snapshotComplete: this.snapshotComplete
+    });
     copy.syncData = this.syncData;
     copy.syncParameters = this.syncParameters;
     copy.snapshotStatus = this.snapshotStatus;
