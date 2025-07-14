@@ -30,10 +30,10 @@
   "dependencies": {
     "@powersync/lib-service-mongodb": "workspace:*",
     "@powersync/lib-services-framework": "workspace:*",
-    "@powersync/service-core": "workspace:*",
+    "@powersync/service-core": "0.0.0-dev-20250714140103",
+    "@powersync/service-types": "0.0.0-dev-20250714140103",
     "@powersync/service-jsonbig": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",
-    "@powersync/service-types": "workspace:*",
     "bson": "^6.10.3",
     "ix": "^5.0.0",
     "lru-cache": "^10.2.2",

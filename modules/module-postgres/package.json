@@ -30,11 +30,11 @@
   "dependencies": {
     "@powersync/lib-service-postgres": "workspace:*",
     "@powersync/lib-services-framework": "workspace:*",
-    "@powersync/service-core": "workspace:*",
+    "@powersync/service-core": "0.0.0-dev-20250714140103",
+    "@powersync/service-types": "0.0.0-dev-20250714140103",
     "@powersync/service-jpgwire": "workspace:*",
     "@powersync/service-jsonbig": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",
-    "@powersync/service-types": "workspace:*",
     "jose": "^4.15.1",
     "pgwire": "github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87",
     "semver": "^7.5.4",

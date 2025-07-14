@@ -10,7 +10,7 @@
     "clean": "rm -rf ./lib && tsc -b --clean"
   },
   "dependencies": {
-    "@powersync/service-core": "workspace:*",
+    "@powersync/service-core": "0.0.0-dev-20250714140103",
     "@powersync/lib-services-framework": "workspace:*",
     "@powersync/service-module-postgres": "workspace:*",
     "@powersync/service-module-postgres-storage": "workspace:*",
