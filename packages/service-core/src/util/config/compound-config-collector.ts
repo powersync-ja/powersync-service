@@ -42,8 +42,6 @@ export type ConfigCollectorListener = {
   configCollected?: (event: ConfigCollectedEvent) => Promise<void>;
 };
 
-const POWERSYNC_DEV_KID = 'powersync-dev';
-
 const DEFAULT_COLLECTOR_OPTIONS: CompoundConfigCollectorOptions = {
   configCollectors: [new Base64ConfigCollector(), new FileSystemConfigCollector(), new FallbackConfigCollector()],
   syncRulesCollectors: [
@@ -117,13 +115,6 @@ export class CompoundConfigCollector {
       collectors.add(new auth.CachedKeyCollector(new auth.RemoteJWKSCollector(uri, { lookupOptions: jwksLookup })));
     }
 
-    const baseDevKey = (baseConfig.client_auth?.jwks?.keys ?? []).find((key) => key.kid == POWERSYNC_DEV_KID);
-
-    let devKey: auth.KeySpec | undefined;
-    if (baseConfig.dev?.demo_auth && baseDevKey != null && baseDevKey.kty == 'oct') {
-      devKey = await auth.KeySpec.importKey(baseDevKey);
-    }
-
     const sync_rules = await this.collectSyncRules(baseConfig, runnerConfig);
 
     let jwt_audiences: string[] = baseConfig.client_auth?.audience ?? [];
@@ -138,14 +129,7 @@ export class CompoundConfigCollector {
         }
       },
       client_keystore: keyStore,
-      // Dev tokens only use the static keys, no external key sources
-      // We may restrict this even further to only the powersync-dev key.
-      dev_client_keystore: new auth.KeyStore(staticCollector),
       api_tokens: baseConfig.api?.tokens ?? [],
-      dev: {
-        demo_auth: baseConfig.dev?.demo_auth ?? false,
-        dev_key: devKey
-      },
       port: baseConfig.port ?? 8080,
       sync_rules,
       jwt_audiences,

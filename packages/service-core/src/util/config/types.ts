@@ -32,18 +32,7 @@ export type ResolvedPowerSyncConfig = {
   base_config: configFile.PowerSyncConfig;
   connections?: configFile.GenericDataSourceConfig[];
   storage: configFile.GenericStorageConfig;
-  dev: {
-    demo_auth: boolean;
-    /**
-     * Only present when demo_auth == true
-     */
-    dev_key?: KeySpec;
-  };
   client_keystore: KeyStore<CompoundKeyCollector>;
-  /**
-   * Keystore for development tokens.
-   */
-  dev_client_keystore: KeyStore;
   port: number;
   sync_rules: SyncRulesConfig;
   api_tokens: string[];

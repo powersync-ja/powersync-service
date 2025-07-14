@@ -29,7 +29,8 @@ export const MONGO_OPERATION_TIMEOUT_MS = 30_000;
 export const MONGO_CLEAR_OPERATION_TIMEOUT_MS = 5_000;
 
 export interface MongoConnectionOptions {
-  maxPoolSize: number;
+  maxPoolSize?: number;
+  powersyncVersion?: string;
 }
 
 /**
@@ -50,7 +51,12 @@ export function createMongoClient(config: BaseMongoConfigDecoded, options?: Mong
     serverSelectionTimeoutMS: 30_000,
 
     // Identify the client
-    appName: 'powersync-storage',
+    appName: options?.powersyncVersion ? `powersync-storage ${options.powersyncVersion}` : 'powersync-storage',
+    driverInfo: {
+      // This is merged with the node driver info.
+      name: 'powersync-storage',
+      version: options?.powersyncVersion
+    },
 
     lookup: normalized.lookup,
 

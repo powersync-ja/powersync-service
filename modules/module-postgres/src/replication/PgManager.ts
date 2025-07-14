@@ -1,6 +1,7 @@
 import * as pgwire from '@powersync/service-jpgwire';
 import semver from 'semver';
 import { NormalizedPostgresConnectionConfig } from '../types/types.js';
+import { getApplicationName } from '../utils/application-name.js';
 
 /**
  * Shorter timeout for snapshot connections than for replication connections.
@@ -31,7 +32,7 @@ export class PgManager {
    * Create a new replication connection.
    */
   async replicationConnection(): Promise<pgwire.PgConnection> {
-    const p = pgwire.connectPgWire(this.options, { type: 'replication' });
+    const p = pgwire.connectPgWire(this.options, { type: 'replication', applicationName: getApplicationName() });
     this.connectionPromises.push(p);
     return await p;
   }
@@ -51,7 +52,7 @@ export class PgManager {
    * This connection must not be shared between multiple async contexts.
    */
   async snapshotConnection(): Promise<pgwire.PgConnection> {
-    const p = pgwire.connectPgWire(this.options, { type: 'standard' });
+    const p = pgwire.connectPgWire(this.options, { type: 'standard', applicationName: getApplicationName() });
     this.connectionPromises.push(p);
     const connection = await p;
 
