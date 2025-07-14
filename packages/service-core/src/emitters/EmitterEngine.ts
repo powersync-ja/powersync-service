@@ -6,13 +6,10 @@ import { event_types } from '@powersync/service-types';
 export class EmitterEngine implements BaseEmitterEngine {
   private emitter: EventEmitter;
   eventsMap: Map<event_types.EmitterEngineEventNames, event_types.EmitterEvent> = new Map();
-  private readonly active: boolean;
-
   constructor() {
-    this.active = process.env.MICRO_SERVICE_NAME === 'powersync';
     this.emitter = new EventEmitter({ captureRejections: true });
     this.emitter.on('error', (error: Error) => {
-      logger.error(error.message);
+      logger.error(error);
     });
   }
 
@@ -27,7 +24,7 @@ export class EmitterEngine implements BaseEmitterEngine {
     return this.eventsMap.get(eventName) as event_types.EmitterEvent;
   }
 
-  get events(): event_types.EmitterEngineEventNames[] {
+  get listEvents(): event_types.EmitterEngineEventNames[] {
     return this.emitter.eventNames() as event_types.EmitterEngineEventNames[];
   }
 
@@ -43,9 +40,8 @@ export class EmitterEngine implements BaseEmitterEngine {
 
   emitEvent(eventName: event_types.EmitterEngineEventNames, data: any): void {
     if (!this.emitter.eventNames().includes(eventName)) {
-      throw new Error(`Event ${eventName} is not registered.`);
-    }
-    if (this.active) {
+      logger.error(`Event ${eventName} is not registered.`);
+    } else {
       this.emitter.emit(eventName, { ...data, type: eventName });
     }
   }

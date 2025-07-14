@@ -17,7 +17,7 @@
 import { event_types } from '@powersync/service-types';
 
 export interface BaseEmitterEngine {
-  events: event_types.EmitterEngineEventNames[];
+  listEvents: event_types.EmitterEngineEventNames[];
   bindEvent(events: event_types.EmitterEvent): void;
   eventNames(): event_types.EmitterEngineEventNames[];
   emitEvent(eventName: event_types.EmitterEngineEventNames, data: any): void;
