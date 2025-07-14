@@ -1,4 +1,4 @@
-import { LifeCycledSystem, MigrationManager, ServiceIdentifier, container } from '@powersync/lib-services-framework';
+import { container, LifeCycledSystem, MigrationManager, ServiceIdentifier } from '@powersync/lib-services-framework';
 
 import { framework } from '../index.js';
 import * as metrics from '../metrics/MetricsEngine.js';
@@ -8,6 +8,8 @@ import * as routes from '../routes/routes-index.js';
 import * as storage from '../storage/storage-index.js';
 import { SyncContext } from '../sync/SyncContext.js';
 import * as utils from '../util/util-index.js';
+import { EmitterEngine } from '../emitters/EmitterEngine.js';
+import { events } from '../emitters/events/index.js';
 
 export interface ServiceContext {
   configuration: utils.ResolvedPowerSyncConfig;
@@ -19,6 +21,7 @@ export interface ServiceContext {
   migrations: PowerSyncMigrationManager;
   syncContext: SyncContext;
   serviceMode: ServiceContextMode;
+  emitterEngine: EmitterEngine;
 }
 
 export enum ServiceContextMode {
@@ -45,6 +48,7 @@ export class ServiceContextContainer implements ServiceContext {
   configuration: utils.ResolvedPowerSyncConfig;
   lifeCycleEngine: LifeCycledSystem;
   storageEngine: storage.StorageEngine;
+  emitterEngine: EmitterEngine;
   syncContext: SyncContext;
   routerEngine: routes.RouterEngine;
   serviceMode: ServiceContextMode;
@@ -65,6 +69,8 @@ export class ServiceContextContainer implements ServiceContext {
         this.lifeCycleEngine.stopWithError(error);
       }
     });
+
+    this.emitterEngine = new EmitterEngine(events, this.storageEngine);
 
     this.lifeCycleEngine.withLifecycle(this.storageEngine, {
       start: (storageEngine) => storageEngine.start(),
@@ -88,6 +94,10 @@ export class ServiceContextContainer implements ServiceContext {
     this.lifeCycleEngine.withLifecycle(migrationManager, {
       // Migrations should be executed before the system starts
       start: () => migrationManager[Symbol.asyncDispose]()
+    });
+
+    this.lifeCycleEngine.withLifecycle(this.emitterEngine, {
+      stop: (emitterEngine) => emitterEngine.shutDown()
     });
   }
 

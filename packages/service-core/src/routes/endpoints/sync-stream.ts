@@ -1,4 +1,4 @@
-import { ErrorCode, errors, logger, router, schema } from '@powersync/lib-services-framework';
+import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import { Readable } from 'stream';
 
@@ -9,6 +9,7 @@ import { authUser } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
 import { APIMetric } from '@powersync/service-types';
+import { EventNames } from '../../emitters/emitter-interfaces.js';
 
 export enum SyncRoutes {
   STREAM = '/sync/stream'
@@ -20,7 +21,7 @@ export const syncStreamed = routeDefinition({
   authorize: authUser,
   validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
   handler: async (payload) => {
-    const { service_context, logger } = payload.context;
+    const { service_context, logger, token_payload } = payload.context;
     const { routerEngine, storageEngine, metricsEngine, syncContext } = service_context;
     const headers = payload.request.headers;
     const userAgent = headers['x-user-agent'] ?? headers['user-agent'];
@@ -32,6 +33,13 @@ export const syncStreamed = routeDefinition({
       user_agent: userAgent,
       client_id: clientId,
       user_id: payload.context.user_id
+    };
+
+    const sdkData = {
+      client_id: clientId,
+      user_id: payload.context.user_id!,
+      user_agent: userAgent as string,
+      jwt_token: token_payload
     };
 
     if (routerEngine.closed) {
@@ -61,6 +69,11 @@ export const syncStreamed = routeDefinition({
     const tracker = new sync.RequestTracker(metricsEngine);
     try {
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(1);
+      service_context.emitterEngine.emitEvent(EventNames.SDK_CONNECT_EVENT, {
+        type: EventNames.SDK_CONNECT_EVENT,
+        ...sdkData,
+        connect_at: streamStart
+      });
       const stream = Readable.from(
         sync.transformToBytesTracked(
           sync.ndjson(
@@ -123,6 +136,11 @@ export const syncStreamed = routeDefinition({
           }
           controller.abort();
           metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
+          service_context.emitterEngine.emitEvent(EventNames.SDK_DISCONNECT_EVENT, {
+            type: EventNames.SDK_DISCONNECT_EVENT,
+            ...sdkData,
+            disconnect_at: Date.now()
+          });
           logger.info(`Sync stream complete`, {
             ...tracker.getLogMeta(),
             stream_ms: Date.now() - streamStart,
@@ -133,6 +151,11 @@ export const syncStreamed = routeDefinition({
     } catch (ex) {
       controller.abort();
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
+      service_context.emitterEngine.emitEvent(EventNames.SDK_DISCONNECT_EVENT, {
+        type: EventNames.SDK_DISCONNECT_EVENT,
+        ...sdkData,
+        disconnect_at: Date.now()
+      });
     }
   }
 });
