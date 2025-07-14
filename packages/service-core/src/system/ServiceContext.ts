@@ -9,7 +9,6 @@ import * as storage from '../storage/storage-index.js';
 import { SyncContext } from '../sync/SyncContext.js';
 import * as utils from '../util/util-index.js';
 import { EmitterEngine } from '../emitters/EmitterEngine.js';
-import { events } from '../emitters/events/index.js';
 
 export interface ServiceContext {
   configuration: utils.ResolvedPowerSyncConfig;
@@ -70,7 +69,7 @@ export class ServiceContextContainer implements ServiceContext {
       }
     });
 
-    this.emitterEngine = new EmitterEngine(events, this.storageEngine);
+    this.emitterEngine = new EmitterEngine();
 
     this.lifeCycleEngine.withLifecycle(this.storageEngine, {
       start: (storageEngine) => storageEngine.start(),

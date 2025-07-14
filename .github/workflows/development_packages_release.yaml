@@ -6,7 +6,7 @@ on: workflow_dispatch
 
 jobs:
   publish_packages:
-    name: Publish Devevelopment Packages
+    name: Publish Development Packages
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

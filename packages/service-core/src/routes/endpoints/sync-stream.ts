@@ -7,9 +7,7 @@ import * as util from '../../util/util-index.js';
 
 import { authUser } from '../auth.js';
 import { routeDefinition } from '../router.js';
-
-import { APIMetric } from '@powersync/service-types';
-import { EventNames } from '../../emitters/emitter-interfaces.js';
+import { APIMetric, event_types } from '@powersync/service-types';
 
 export enum SyncRoutes {
   STREAM = '/sync/stream'
@@ -69,8 +67,7 @@ export const syncStreamed = routeDefinition({
     const tracker = new sync.RequestTracker(metricsEngine);
     try {
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(1);
-      service_context.emitterEngine.emitEvent(EventNames.SDK_CONNECT_EVENT, {
-        type: EventNames.SDK_CONNECT_EVENT,
+      service_context.emitterEngine.emitEvent(event_types.EmitterEngineEventNames.SDK_CONNECT_EVENT, {
         ...sdkData,
         connect_at: streamStart
       });
@@ -136,8 +133,7 @@ export const syncStreamed = routeDefinition({
           }
           controller.abort();
           metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
-          service_context.emitterEngine.emitEvent(EventNames.SDK_DISCONNECT_EVENT, {
-            type: EventNames.SDK_DISCONNECT_EVENT,
+          service_context.emitterEngine.emitEvent(event_types.EmitterEngineEventNames.SDK_DISCONNECT_EVENT, {
             ...sdkData,
             disconnect_at: Date.now()
           });
@@ -151,8 +147,7 @@ export const syncStreamed = routeDefinition({
     } catch (ex) {
       controller.abort();
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
-      service_context.emitterEngine.emitEvent(EventNames.SDK_DISCONNECT_EVENT, {
-        type: EventNames.SDK_DISCONNECT_EVENT,
+      service_context.emitterEngine.emitEvent(event_types.EmitterEngineEventNames.SDK_DISCONNECT_EVENT, {
         ...sdkData,
         disconnect_at: Date.now()
       });

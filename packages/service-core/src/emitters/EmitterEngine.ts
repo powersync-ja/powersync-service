@@ -1,41 +1,57 @@
-import { BaseEmitterEngine, EmitterEvent, EmitterEventData, EventNames } from './emitter-interfaces.js';
-import * as storage from '../storage/storage-index.js';
-import { AbstractEmitterEngine } from './AbstractEmitterEngine.js';
+import { BaseEmitterEngine } from './emitter-interfaces.js';
+import EventEmitter from 'node:events';
 import { logger } from '@powersync/lib-services-framework';
+import { event_types } from '@powersync/service-types';
 
-export class EmitterEngine extends AbstractEmitterEngine implements BaseEmitterEngine {
-  private active: boolean;
-  constructor(events: EmitterEvent[], storageRef: storage.StorageEngine) {
-    super(storageRef);
+export class EmitterEngine implements BaseEmitterEngine {
+  private emitter: EventEmitter;
+  eventsMap: Map<event_types.EmitterEngineEventNames, event_types.EmitterEvent> = new Map();
+  private readonly active: boolean;
+
+  constructor() {
     this.active = process.env.MICRO_SERVICE_NAME === 'powersync';
-    logger.info(`EmitterEngine initialized with active status: ${this.active}`);
-    this.bindEvents(events);
+    this.emitter = new EventEmitter({ captureRejections: true });
+    this.emitter.on('error', (error: Error) => {
+      logger.error(error.message);
+    });
   }
 
-  event(eventName: EventNames): EmitterEvent {
-    const event = this.eventsMap.get(eventName);
-    if (!event) {
+  eventNames(): event_types.EmitterEngineEventNames[] {
+    return this.emitter.eventNames() as event_types.EmitterEngineEventNames[];
+  }
+
+  getStoredEvent(eventName: event_types.EmitterEngineEventNames): event_types.EmitterEvent {
+    if (!this.eventsMap.has(eventName)) {
       throw new Error(`Event ${eventName} is not registered.`);
     }
-    return event;
+    return this.eventsMap.get(eventName) as event_types.EmitterEvent;
   }
 
-  removeListeners(eventName?: EventNames): void {
-    if (eventName) {
-      this.removeListeners(eventName);
+  get events(): event_types.EmitterEngineEventNames[] {
+    return this.emitter.eventNames() as event_types.EmitterEngineEventNames[];
+  }
+
+  bindEvent(event: event_types.EmitterEvent): void {
+    const eventNames = this.emitter.eventNames();
+    if (!eventNames.includes(event.name)) {
+      this.eventsMap.set(event.name, event);
+      this.emitter.on(event.name, event.handler.bind(event));
+    } else {
+      logger.warn(`Event ${event.name} is already registered. Skipping.`);
     }
   }
-  eventNames(): EventNames[] {
-    return this.events;
-  }
 
-  emitEvent(eventName: EventNames, data: EmitterEventData): void {
+  emitEvent(eventName: event_types.EmitterEngineEventNames, data: any): void {
+    if (!this.emitter.eventNames().includes(eventName)) {
+      throw new Error(`Event ${eventName} is not registered.`);
+    }
     if (this.active) {
-      return this.emit(eventName, data);
+      this.emitter.emit(eventName, { ...data, type: eventName });
     }
   }
 
-  async shutDown(): Promise<void> {
-    this.stop();
+  shutDown(): void {
+    this.emitter.removeAllListeners();
+    logger.info('Emitter engine shut down and all listeners removed.');
   }
 }
