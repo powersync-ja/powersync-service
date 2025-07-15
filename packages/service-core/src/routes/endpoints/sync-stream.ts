@@ -39,6 +39,11 @@ export const syncStreamed = routeDefinition({
       user_agent: userAgent as string,
       jwt_token: token_payload
     };
+    console.log('\n');
+    console.log('DATA: ', JSON.stringify(sdkData, null, 2));
+    console.log('\n');
+
+    console.log('EMITTER ENGINE', service_context.emitterEngine);
 
     if (routerEngine.closed) {
       throw new errors.ServiceError({
@@ -67,7 +72,6 @@ export const syncStreamed = routeDefinition({
     const tracker = new sync.RequestTracker(metricsEngine);
     try {
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(1);
-      console.log(service_context.emitterEngine.getStoredEvent(event_types.EmitterEngineEventNames.SDK_CONNECT_EVENT));
       service_context.emitterEngine.emitEvent(event_types.EmitterEngineEventNames.SDK_CONNECT_EVENT, {
         ...sdkData,
         connect_at: streamStart
