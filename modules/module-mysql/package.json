@@ -29,8 +29,8 @@
   },
   "dependencies": {
     "@powersync/lib-services-framework": "workspace:*",
-    "@powersync/service-core": "0.0.0-dev-20250714140103",
-    "@powersync/service-types": "0.0.0-dev-20250714140103",
+    "@powersync/service-core": "workspace:*",
+    "@powersync/service-types": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",
     "@powersync/service-jsonbig": "workspace:*",
     "@powersync/mysql-zongji": "0.2.0",

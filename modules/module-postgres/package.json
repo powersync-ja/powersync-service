@@ -30,8 +30,8 @@
   "dependencies": {
     "@powersync/lib-service-postgres": "workspace:*",
     "@powersync/lib-services-framework": "workspace:*",
-    "@powersync/service-core": "0.0.0-dev-20250714140103",
-    "@powersync/service-types": "0.0.0-dev-20250714140103",
+    "@powersync/service-core": "workspace:*",
+    "@powersync/service-types": "workspace:*",
     "@powersync/service-jpgwire": "workspace:*",
     "@powersync/service-jsonbig": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",

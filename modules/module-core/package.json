@@ -29,8 +29,8 @@
   },
   "dependencies": {
     "@powersync/lib-services-framework": "workspace:*",
-    "@powersync/service-core": "0.0.0-dev-20250714140103",
-    "@powersync/service-types": "0.0.0-dev-20250714140103",
+    "@powersync/service-core": "workspace:*",
+    "@powersync/service-types": "workspace:*",
     "@powersync/service-rsocket-router": "workspace:*",
     "fastify": "4.23.2",
     "@fastify/cors": "8.4.1"
