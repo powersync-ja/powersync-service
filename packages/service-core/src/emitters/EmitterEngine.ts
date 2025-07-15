@@ -30,7 +30,6 @@ export class EmitterEngine implements BaseEmitterEngine {
 
   bindEvent(event: event_types.EmitterEvent): void {
     const eventNames = this.emitter.eventNames();
-    console.log(event);
     if (!eventNames.includes(event.name)) {
       logger.info(`Registering event: ${event.name}`);
       this.eventsMap.set(event.name, event);
