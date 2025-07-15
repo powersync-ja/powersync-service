@@ -43,6 +43,7 @@ export class EmitterEngine implements BaseEmitterEngine {
     if (!this.emitter.eventNames().includes(eventName)) {
       logger.error(`Event ${eventName} is not registered.`);
     } else {
+      logger.info(`Emitting event: ${eventName}`, data);
       this.emitter.emit(eventName, { ...data, type: eventName });
     }
   }
