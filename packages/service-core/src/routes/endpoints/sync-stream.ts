@@ -67,6 +67,7 @@ export const syncStreamed = routeDefinition({
     const tracker = new sync.RequestTracker(metricsEngine);
     try {
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(1);
+      console.log(service_context.emitterEngine.getStoredEvent(event_types.EmitterEngineEventNames.SDK_CONNECT_EVENT));
       service_context.emitterEngine.emitEvent(event_types.EmitterEngineEventNames.SDK_CONNECT_EVENT, {
         ...sdkData,
         connect_at: streamStart

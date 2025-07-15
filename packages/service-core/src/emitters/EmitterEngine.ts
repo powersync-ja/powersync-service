@@ -30,10 +30,11 @@ export class EmitterEngine implements BaseEmitterEngine {
 
   bindEvent(event: event_types.EmitterEvent): void {
     const eventNames = this.emitter.eventNames();
+    console.log(event);
     if (!eventNames.includes(event.name)) {
-      logger.info('Registering event:', event.name);
+      logger.info(`Registering event: ${event.name}`);
       this.eventsMap.set(event.name, event);
-      this.emitter.on(event.name, event.handler.bind(event));
+      this.emitter.on(event.name, event.handler);
     } else {
       logger.warn(`Event ${event.name} is already registered. Skipping.`);
     }

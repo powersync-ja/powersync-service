@@ -6,5 +6,6 @@ export enum EmitterEngineEventNames {
 export type EventHandlerFunc = (data: any) => Promise<void> | void;
 export interface EmitterEvent {
   name: EmitterEngineEventNames;
+  setController?: (controller: any) => EmitterEvent;
   handler: EventHandlerFunc;
 }
