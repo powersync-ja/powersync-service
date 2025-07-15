@@ -7,7 +7,7 @@ import * as util from '../../util/util-index.js';
 import { SocketRouteGenerator } from '../router-socket.js';
 import { SyncRoutes } from './sync-stream.js';
 
-import { APIMetric } from '@powersync/service-types';
+import { APIMetric, event_types } from '@powersync/service-types';
 
 export const syncStreamReactive: SocketRouteGenerator = (router) =>
   router.reactiveStream<util.StreamingSyncRequest, any>(SyncRoutes.STREAM, {
@@ -22,6 +22,14 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         client_id: params.client_id,
         user_agent: context.user_agent
       };
+
+      const sdkData = {
+        client_id: params.client_id,
+        user_id: context.user_id!,
+        user_agent: context.user_agent,
+        jwt_token: context.token_payload
+      };
+
       const streamStart = Date.now();
 
       // Best effort guess on why the stream was closed.
@@ -86,6 +94,10 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       });
 
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(1);
+      service_context.emitterEngine.emitEvent(event_types.EmitterEngineEventNames.SDK_CONNECT_EVENT, {
+        ...sdkData,
+        connect_at: streamStart
+      });
       const tracker = new sync.RequestTracker(metricsEngine);
       try {
         for await (const data of sync.streamResponse({
@@ -165,6 +177,10 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
           close_reason: closeReason ?? 'unknown'
         });
         metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
+        service_context.emitterEngine.emitEvent(event_types.EmitterEngineEventNames.SDK_DISCONNECT_EVENT, {
+          ...sdkData,
+          disconnect_at: Date.now()
+        });
       }
     }
   });

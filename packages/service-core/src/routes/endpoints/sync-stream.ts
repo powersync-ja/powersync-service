@@ -39,11 +39,6 @@ export const syncStreamed = routeDefinition({
       user_agent: userAgent as string,
       jwt_token: token_payload
     };
-    console.log('\n');
-    console.log('DATA: ', JSON.stringify(sdkData, null, 2));
-    console.log('\n');
-
-    console.log('EMITTER ENGINE', service_context.emitterEngine);
 
     if (routerEngine.closed) {
       throw new errors.ServiceError({
