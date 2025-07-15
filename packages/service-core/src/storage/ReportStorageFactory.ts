@@ -1,5 +1,5 @@
 import {
-  CurrentConnectionsData,
+  PaginatedInstanceRequest,
   SdkConnectEventData,
   SdkDisconnectEventData
 } from '@powersync/service-types/dist/events.js';
@@ -7,5 +7,6 @@ import {
 export interface ReportStorageFactory extends AsyncDisposable {
   reportSdkConnect(data: SdkConnectEventData): Promise<void>;
   reportSdkDisconnect(data: SdkDisconnectEventData): Promise<void>;
-  listCurrentConnections(data: CurrentConnectionsData): Promise<void>;
+  listCurrentConnections(data: PaginatedInstanceRequest): Promise<void>;
+  scrapeSdkData(data: PaginatedInstanceRequest): Promise<void>;
 }

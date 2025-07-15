@@ -12,13 +12,17 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     this.db = db;
   }
 
+  async scrapeSdkData(data: event_types.PaginatedInstanceRequest): Promise<void> {
+    console.log('MongoReportStorage.scrapeSdkData', data);
+  }
+
   async reportSdkConnect(data: event_types.SdkConnectEventData): Promise<void> {
     console.log('MongoReportStorage.reportSdkConnect', data);
   }
   async reportSdkDisconnect(data: event_types.SdkDisconnectEventData): Promise<void> {
     console.log('MongoReportStorage.reportSdkDisconnect', data);
   }
-  async listCurrentConnections(data: event_types.CurrentConnectionsData): Promise<void> {
+  async listCurrentConnections(data: event_types.PaginatedInstanceRequest): Promise<void> {
     console.log('MongoReportStorage.listCurrentConnections', data);
   }
 

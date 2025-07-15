@@ -27,11 +27,10 @@ export type SdkDisconnectEventData = {
   jwt_token?: JwtPayload;
 };
 
-export type CurrentConnectionsData = {
+export type PaginatedInstanceRequest = {
   app_id: string;
   org_id: string;
-  id: string;
-  cursor: string;
+  cursor?: string;
   limit?: number;
 };
 export type EventHandlerFunc = (data: any) => Promise<void> | void;
