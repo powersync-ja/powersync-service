@@ -4,6 +4,7 @@ import { POWERSYNC_VERSION, storage } from '@powersync/service-core';
 import { MongoStorageConfig } from '../../types/types.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
+import { MongoReportStorage } from '../MongoReportStorage.js';
 
 export class MongoStorageProvider implements storage.BucketStorageProvider {
   get type() {
@@ -37,15 +38,19 @@ export class MongoStorageProvider implements storage.BucketStorageProvider {
     await client.connect();
 
     const database = new PowerSyncMongo(client, { database: resolvedConfig.storage.database });
-    const factory = new MongoBucketStorage(database, {
+    const syncStorageFactory = new MongoBucketStorage(database, {
       // TODO currently need the entire resolved config due to this
       slot_name_prefix: resolvedConfig.slot_name_prefix
     });
+
+    // TODO: CREATE REPORT STORAGE FACTORY
+    const reportStorageFactory = new MongoReportStorage(database);
     return {
-      storage: factory,
+      storage: syncStorageFactory,
+      reportStorage: reportStorageFactory,
       shutDown: async () => {
         shuttingDown = true;
-        await factory[Symbol.asyncDispose]();
+        await syncStorageFactory[Symbol.asyncDispose]();
         await client.close();
       },
       tearDown: () => {

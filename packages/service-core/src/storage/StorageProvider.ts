@@ -1,9 +1,12 @@
 import { ServiceError } from '@powersync/lib-services-framework';
 import * as util from '../util/util-index.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
+import { ReportStorageFactory } from './ReportStorageFactory.js';
 
 export interface ActiveStorage {
   storage: BucketStorageFactory;
+  // TODO: REMOVE THE NULL ONCE POSTGRES HAS BEEN IMPLEMENTED
+  reportStorage: ReportStorageFactory | null;
   shutDown(): Promise<void>;
 
   /**

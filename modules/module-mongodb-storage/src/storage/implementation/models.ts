@@ -213,3 +213,12 @@ export interface InstanceDocument {
   // The instance UUID
   _id: string;
 }
+
+export interface SdkConnectEventDocument {
+  version: string;
+  sdk: string;
+  user_agent: string;
+  client_id: string;
+  user_id: string;
+  jwt_exp: number;
+}
