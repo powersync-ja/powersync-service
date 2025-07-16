@@ -19,7 +19,7 @@ export const MONGO_SOCKET_TIMEOUT_MS = 60_000;
  *
  * Must be less than MONGO_SOCKET_TIMEOUT_MS to ensure proper error handling.
  */
-export const MONGO_OPERATION_TIMEOUT_MS = 30_000;
+export const MONGO_OPERATION_TIMEOUT_MS = 40_000;
 
 /**
  * Same as above, but specifically for clear operations.

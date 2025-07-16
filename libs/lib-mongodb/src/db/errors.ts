@@ -1,4 +1,9 @@
-import { DatabaseConnectionError, ErrorCode, ServiceError } from '@powersync/lib-services-framework';
+import {
+  DatabaseConnectionError,
+  DatabaseQueryError,
+  ErrorCode,
+  ServiceError
+} from '@powersync/lib-services-framework';
 import { isMongoServerError } from './mongo.js';
 import { MongoNetworkError, MongoServerSelectionError } from 'mongodb';
 
@@ -55,6 +60,22 @@ export function mapConnectionError(err: any): ServiceError {
   } else {
     // Fallback
     return new DatabaseConnectionError(ErrorCode.PSYNC_S1301, 'MongoDB connection error', err);
+  }
+}
+
+export function mapQueryError(err: any, context: string): ServiceError {
+  if (ServiceError.isServiceError(err)) {
+    return err;
+  } else if (isMongoServerError(err)) {
+    if (err.codeName == 'MaxTimeMSExpired') {
+      return new DatabaseQueryError(ErrorCode.PSYNC_S2403, `Query timed out ${context}`, err);
+    }
+
+    // Fallback
+    return new DatabaseQueryError(ErrorCode.PSYNC_S2404, `MongoDB server error ${context}: ${err.codeName}`, err);
+  } else {
+    // Fallback
+    return new DatabaseQueryError(ErrorCode.PSYNC_S2404, `MongoDB connection error ${context}`, err);
   }
 }
 
