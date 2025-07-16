@@ -21,7 +21,7 @@ export class EmitterEngine implements BaseEmitterEngine {
   }
 
   get listEvents(): event_types.EmitterEngineEvents[] {
-    return this.emitter.eventNames() as event_types.EmitterEngineEvents[];
+    return Array.from(this.events.values());
   }
 
   countListeners(eventName: event_types.EmitterEngineEvents): number {
@@ -36,7 +36,7 @@ export class EmitterEngine implements BaseEmitterEngine {
   }
 
   shutDown(): void {
-    logger.info(`Shutting down EmitterEngine and removing all listeners for ${this.listEvents}.`);
+    logger.info(`Shutting down EmitterEngine and removing all listeners for ${this.listEvents.join(', ')}.`);
     this.emitter.removeAllListeners();
   }
 }
