@@ -98,7 +98,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(1);
       service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_CONNECT_EVENT, {
         ...sdkData,
-        connect_at: streamStart
+        connect_at: new Date(streamStart)
       });
       const tracker = new sync.RequestTracker(metricsEngine);
       try {
@@ -181,7 +181,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
         service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_DISCONNECT_EVENT, {
           ...sdkData,
-          disconnect_at: Date.now()
+          disconnect_at: new Date()
         });
       }
     }
