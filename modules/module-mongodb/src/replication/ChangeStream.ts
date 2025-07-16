@@ -947,6 +947,16 @@ export class ChangeStream {
               timestamp: changeDocument.clusterTime!,
               resume_token: changeDocument._id
             });
+            if (batch.lastCheckpointLsn != null && lsn < batch.lastCheckpointLsn) {
+              // Checkpoint out of order - should never happen with MongoDB.
+              // If it does happen, we throw an error to stop the replication - restarting should recover.
+              // Since we use batch.lastCheckpointLsn for the next resumeAfter, this should not result in an infinite loop.
+              // This is a workaround for the issue below, but we can keep this as a safety-check even if the issue is fixed.
+              // Driver issue report: https://jira.mongodb.org/browse/NODE-7042
+              throw new ReplicationAssertionError(
+                `Change resumeToken ${(changeDocument._id as any)._data} (${timestampToDate(changeDocument.clusterTime!).toISOString()}) is less than last checkpoint LSN ${batch.lastCheckpointLsn}. Restarting replication.`
+              );
+            }
 
             if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
               waitForCheckpointLsn = null;
