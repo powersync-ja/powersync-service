@@ -4,9 +4,6 @@ export enum EmitterEngineEvents {
   SDK_CONNECT_EVENT = 'sdk-connect-event',
   SDK_DISCONNECT_EVENT = 'sdk-disconnect-event'
 }
-type JwtExp = {
-  exp?: number;
-};
 
 export type SubscribeEvents = {
   [EmitterEngineEvents.SDK_CONNECT_EVENT]: SdkConnectEventData;
@@ -18,7 +15,7 @@ export type SdkUserData = {
   client_id?: string;
   user_id: string;
   user_agent?: string;
-  jwt_exp: JwtExp;
+  jwt_exp?: Date;
 };
 
 export type SdkConnectEventData = {

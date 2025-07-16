@@ -29,7 +29,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         client_id: params.client_id,
         user_id: context.user_id!,
         user_agent: context.user_agent,
-        jwt_exp: { exp: context.token_payload?.exp }
+        jwt_exp: context.token_payload?.exp ? new Date(context.token_payload.exp) : undefined
       };
 
       const streamStart = Date.now();
