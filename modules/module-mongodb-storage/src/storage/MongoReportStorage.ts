@@ -4,6 +4,7 @@ import { event_types } from '@powersync/service-types';
 import { PowerSyncMongo } from './implementation/db.js';
 import { SdkConnectDocument } from './implementation/models.js';
 
+// import { SdkConnectDocument } from './implementation/models.js';
 export class MongoReportStorage implements storage.ReportStorageFactory {
   private readonly client: mongo.MongoClient;
   public readonly db: PowerSyncMongo;

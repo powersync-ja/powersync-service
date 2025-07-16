@@ -26,7 +26,6 @@ export type SdkDisconnectEventData = {
   disconnect_at: Date;
 } & SdkUserData;
 
-// Mongodb document type for SDK connect and disconnect events
 export type SdkConnectDocument = {
   _id: bson.ObjectId;
   sdk: string;

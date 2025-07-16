@@ -43,7 +43,7 @@ export class MongoStorageProvider implements storage.BucketStorageProvider {
       slot_name_prefix: resolvedConfig.slot_name_prefix
     });
 
-    // TODO: CREATE REPORT STORAGE FACTORY
+    // Storage factory for reports
     const reportStorageFactory = new MongoReportStorage(database);
     return {
       storage: syncStorageFactory,

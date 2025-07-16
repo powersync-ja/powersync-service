@@ -5,7 +5,7 @@ import { ReportStorageFactory } from './ReportStorageFactory.js';
 
 export interface ActiveStorage {
   storage: BucketStorageFactory;
-  // TODO: REMOVE THE NULL ONCE POSTGRES HAS BEEN IMPLEMENTED
+  // TODO: REMOVE THE NULL ONCE POSTGRES HAS BEEN IMPLEMENTED THIS IS JUST SO I CAN TEST MONGO
   reportStorage: ReportStorageFactory | null;
   shutDown(): Promise<void>;
 

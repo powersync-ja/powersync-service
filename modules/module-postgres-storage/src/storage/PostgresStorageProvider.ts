@@ -29,6 +29,7 @@ export class PostgresStorageProvider implements storage.BucketStorageProvider {
       slot_name_prefix: options.resolvedConfig.slot_name_prefix
     });
     return {
+      // TODO: IMPLEMENT REPORT STORAGE
       reportStorage: null,
       storage: storageFactory,
       shutDown: async () => storageFactory.db[Symbol.asyncDispose](),
