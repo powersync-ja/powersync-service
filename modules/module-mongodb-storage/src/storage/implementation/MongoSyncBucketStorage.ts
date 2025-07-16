@@ -348,7 +348,10 @@ export class MongoSyncBucketStorage
         // 1. We can calculate the document size accurately without serializing again.
         // 2. We can delay parsing the results until it's needed.
         // We manually use bson.deserialize below
-        raw: true
+        raw: true,
+
+        // Limit the time for the operation to complete, to avoid getting connection timeouts
+        maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
       }
     ) as unknown as mongo.FindCursor<Buffer>;
 
@@ -486,7 +489,7 @@ export class MongoSyncBucketStorage
             }
           }
         ],
-        { session: undefined, readConcern: 'snapshot' }
+        { session: undefined, readConcern: 'snapshot', maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS }
       )
       .toArray();
 
