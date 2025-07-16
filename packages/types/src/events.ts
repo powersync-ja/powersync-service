@@ -34,6 +34,6 @@ export type PaginatedInstanceRequest = {
 };
 export type EventHandlerFunc<K extends EmitterEngineEvents> = (data: SubscribeEvents[K]) => Promise<void> | void;
 export interface EmitterEvent<K extends EmitterEngineEvents> {
-  name: EmitterEngineEvents;
+  event: K;
   handler: EventHandlerFunc<K>;
 }

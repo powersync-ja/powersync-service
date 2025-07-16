@@ -14,10 +14,10 @@ export class EmitterEngine implements BaseEmitterEngine {
   }
 
   subscribe<K extends event_types.EmitterEngineEvents>(event: event_types.EmitterEvent<K>): void {
-    if (!this.events.has(event.name)) {
-      this.events.add(event.name);
+    if (!this.events.has(event.event)) {
+      this.events.add(event.event);
     }
-    this.emitter.on(event.name, event.handler.bind(event));
+    this.emitter.on(event.event, event.handler.bind(event));
   }
 
   get listEvents(): event_types.EmitterEngineEvents[] {
