@@ -360,7 +360,9 @@ export class MongoSyncBucketStorage
     // to the lower of the batch count and size limits.
     // This is similar to using `singleBatch: true` in the find options, but allows
     // detecting "hasMore".
-    let { data, hasMore: batchHasMore } = await readSingleBatch(cursor);
+    let { data, hasMore: batchHasMore } = await readSingleBatch(cursor).catch((e) => {
+      throw lib_mongo.mapQueryError(e, 'while reading bucket data');
+    });
     if (data.length == batchLimit) {
       // Limit reached - could have more data, despite the cursor being drained.
       batchHasMore = true;
@@ -491,7 +493,10 @@ export class MongoSyncBucketStorage
         ],
         { session: undefined, readConcern: 'snapshot', maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS }
       )
-      .toArray();
+      .toArray()
+      .catch((e) => {
+        throw lib_mongo.mapQueryError(e, 'while reading checksums');
+      });
 
     return new Map<string, storage.PartialChecksum>(
       aggregate.map((doc) => {
