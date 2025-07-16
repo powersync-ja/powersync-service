@@ -37,7 +37,7 @@ export type SdkConnectDocument = {
   client_id: string;
   user_id: string;
   jwt_exp?: Date;
-  connect_at: Date;
+  connect_at?: Date;
   disconnect_at?: Date;
 };
 
