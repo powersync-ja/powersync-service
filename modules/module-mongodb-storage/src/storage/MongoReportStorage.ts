@@ -23,12 +23,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
   }
   async reportSdkDisconnect(data: SdkConnectDocument): Promise<void> {
     const { _id, ...rest } = data;
-    console.log(data);
-    try {
-      await this.db.sdk_report_events.findOneAndUpdate({ _id }, rest, { upsert: true });
-    } catch (error) {
-      console.log(error);
-    }
+    await this.db.sdk_report_events.findOneAndUpdate({ _id }, { $set: rest }, { upsert: true });
   }
   async listCurrentConnections(data: event_types.PaginatedInstanceRequest): Promise<void> {
     console.log('MongoReportStorage.listCurrentConnections', data);
