@@ -32,7 +32,7 @@ export class EmitterEngine implements BaseEmitterEngine {
     if (!this.events.has(event) || this.countListeners(event) === 0) {
       logger.warn(`${event} has no listener registered.`);
     }
-    this.emitter.emit(event, { ...data, type: event });
+    this.emitter.emit(event, data);
   }
 
   shutDown(): void {
