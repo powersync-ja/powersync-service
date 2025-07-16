@@ -1,31 +1,30 @@
-export enum EmitterEngineEventNames {
+export enum EmitterEngineEvents {
   SDK_CONNECT_EVENT = 'sdk-connect-event',
   SDK_DISCONNECT_EVENT = 'sdk-disconnect-event'
 }
-type JwtPayload = {
-  sub: string;
-  iss?: string | undefined;
-  exp: number;
-  iat: number;
+type JwtExp = {
+  exp?: number;
+};
+
+export type SubscribeEvents = {
+  [EmitterEngineEvents.SDK_CONNECT_EVENT]: SdkConnectEventData;
+  [EmitterEngineEvents.SDK_DISCONNECT_EVENT]: SdkDisconnectEventData;
+};
+
+export type SdkUserData = {
+  client_id?: string;
+  user_id: string;
+  user_agent?: string;
+  jwt_exp: JwtExp;
 };
 
 export type SdkConnectEventData = {
-  type: EmitterEngineEventNames.SDK_DISCONNECT_EVENT;
-  client_id?: string;
-  user_id: string;
   connect_at: number;
-  user_agent: string;
-  jwt_token?: JwtPayload;
-};
+} & SdkUserData;
 
 export type SdkDisconnectEventData = {
-  type: EmitterEngineEventNames.SDK_DISCONNECT_EVENT;
-  client_id?: string;
-  user_id: string;
   disconnect_at: number;
-  user_agent: string;
-  jwt_token?: JwtPayload;
-};
+} & SdkUserData;
 
 export type PaginatedInstanceRequest = {
   app_id: string;
@@ -33,9 +32,8 @@ export type PaginatedInstanceRequest = {
   cursor?: string;
   limit?: number;
 };
-export type EventHandlerFunc = (data: any) => Promise<void> | void;
-export interface EmitterEvent {
-  name: EmitterEngineEventNames;
-  setController?: (controller: any) => EmitterEvent;
-  handler: EventHandlerFunc;
+export type EventHandlerFunc<K extends EmitterEngineEvents> = (data: SubscribeEvents[K]) => Promise<void> | void;
+export interface EmitterEvent<K extends EmitterEngineEvents> {
+  name: EmitterEngineEvents;
+  handler: EventHandlerFunc<K>;
 }

@@ -1,11 +1,11 @@
-import { BaseEmitterEngine } from './emitter-interfaces.js';
 import EventEmitter from 'node:events';
 import { logger } from '@powersync/lib-services-framework';
 import { event_types } from '@powersync/service-types';
+import { BaseEmitterEngine } from './emitter-interfaces.js';
 
 export class EmitterEngine implements BaseEmitterEngine {
   private emitter: EventEmitter;
-  eventsMap: Map<event_types.EmitterEngineEventNames, event_types.EmitterEvent> = new Map();
+  events: Set<event_types.EmitterEngineEvents> = new Set();
   constructor() {
     this.emitter = new EventEmitter({ captureRejections: true });
     this.emitter.on('error', (error: Error) => {
@@ -13,43 +13,30 @@ export class EmitterEngine implements BaseEmitterEngine {
     });
   }
 
-  eventNames(): event_types.EmitterEngineEventNames[] {
-    return this.emitter.eventNames() as event_types.EmitterEngineEventNames[];
-  }
-
-  getStoredEvent(eventName: event_types.EmitterEngineEventNames): event_types.EmitterEvent {
-    if (!this.eventsMap.has(eventName)) {
-      throw new Error(`Event ${eventName} is not registered.`);
+  subscribe<K extends event_types.EmitterEngineEvents>(event: event_types.EmitterEvent<K>): void {
+    if (!this.events.has(event.name)) {
+      this.events.add(event.name);
     }
-    return this.eventsMap.get(eventName) as event_types.EmitterEvent;
+    this.emitter.on(event.name, event.handler.bind(event));
   }
 
-  get listEvents(): event_types.EmitterEngineEventNames[] {
-    return this.emitter.eventNames() as event_types.EmitterEngineEventNames[];
+  get listEvents(): event_types.EmitterEngineEvents[] {
+    return this.emitter.eventNames() as event_types.EmitterEngineEvents[];
   }
 
-  bindEvent(event: event_types.EmitterEvent): void {
-    const eventNames = this.emitter.eventNames();
-    if (!eventNames.includes(event.name)) {
-      logger.info(`Registering event: ${event.name}`);
-      this.eventsMap.set(event.name, event);
-      this.emitter.on(event.name, event.handler.bind(event));
-    } else {
-      logger.warn(`Event ${event.name} is already registered. Skipping.`);
+  countListeners(eventName: event_types.EmitterEngineEvents): number {
+    return this.emitter.listenerCount(eventName);
+  }
+
+  emit<K extends keyof event_types.SubscribeEvents>(event: K, data: event_types.SubscribeEvents[K]): void {
+    if (!this.events.has(event) || this.countListeners(event) === 0) {
+      logger.warn(`${event} has no listener registered.`);
     }
-  }
-
-  emitEvent(eventName: event_types.EmitterEngineEventNames, data: any): void {
-    if (!this.emitter.eventNames().includes(eventName)) {
-      logger.error(`Event ${eventName} is not registered.`);
-    } else {
-      logger.info(`Emitting event: ${eventName}`, data);
-      this.emitter.emit(eventName, { ...data, type: eventName });
-    }
+    this.emitter.emit(event, { ...data, type: event });
   }
 
   shutDown(): void {
+    logger.info(`Shutting down EmitterEngine and removing all listeners for ${this.listEvents}.`);
     this.emitter.removeAllListeners();
-    logger.info('Emitter engine shut down and all listeners removed.');
   }
 }

@@ -33,11 +33,13 @@ export const syncStreamed = routeDefinition({
       user_id: payload.context.user_id
     };
 
-    const sdkData = {
+    const sdkData: event_types.SdkUserData = {
       client_id: clientId,
       user_id: payload.context.user_id!,
       user_agent: userAgent as string,
-      jwt_token: token_payload
+      jwt_exp: {
+        exp: token_payload?.exp
+      }
     };
 
     if (routerEngine.closed) {
@@ -67,7 +69,7 @@ export const syncStreamed = routeDefinition({
     const tracker = new sync.RequestTracker(metricsEngine);
     try {
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(1);
-      service_context.emitterEngine.emitEvent(event_types.EmitterEngineEventNames.SDK_CONNECT_EVENT, {
+      service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_CONNECT_EVENT, {
         ...sdkData,
         connect_at: streamStart
       });
@@ -133,7 +135,7 @@ export const syncStreamed = routeDefinition({
           }
           controller.abort();
           metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
-          service_context.emitterEngine.emitEvent(event_types.EmitterEngineEventNames.SDK_DISCONNECT_EVENT, {
+          service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_DISCONNECT_EVENT, {
             ...sdkData,
             disconnect_at: Date.now()
           });
@@ -147,7 +149,7 @@ export const syncStreamed = routeDefinition({
     } catch (ex) {
       controller.abort();
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
-      service_context.emitterEngine.emitEvent(event_types.EmitterEngineEventNames.SDK_DISCONNECT_EVENT, {
+      service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_DISCONNECT_EVENT, {
         ...sdkData,
         disconnect_at: Date.now()
       });
