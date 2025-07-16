@@ -18,7 +18,6 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
   }
 
   async reportSdkConnect(data: SdkConnectDocument): Promise<void> {
-    console.log(data);
     await this.db.sdk_report_events.insertOne(data);
   }
   async reportSdkDisconnect(data: SdkConnectDocument): Promise<void> {
