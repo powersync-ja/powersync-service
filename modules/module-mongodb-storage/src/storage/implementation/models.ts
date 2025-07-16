@@ -1,6 +1,7 @@
 import { InternalOpId, storage } from '@powersync/service-core';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
+import { event_types } from '@powersync/service-types';
 
 /**
  * Replica id uniquely identifying a row on the source database.
@@ -214,11 +215,4 @@ export interface InstanceDocument {
   _id: string;
 }
 
-export interface SdkConnectEventDocument {
-  version: string;
-  sdk: string;
-  user_agent: string;
-  client_id: string;
-  user_id: string;
-  jwt_exp: number;
-}
+export interface SdkConnectDocument extends event_types.SdkConnectDocument {}

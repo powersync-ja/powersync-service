@@ -1,7 +1,7 @@
 import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import { Readable } from 'stream';
-
+import * as bson from 'bson';
 import * as sync from '../../sync/sync-index.js';
 import * as util from '../../util/util-index.js';
 
@@ -34,6 +34,7 @@ export const syncStreamed = routeDefinition({
     };
 
     const sdkData: event_types.SdkUserData = {
+      _id: new bson.ObjectId(),
       client_id: clientId,
       user_id: payload.context.user_id!,
       user_agent: userAgent as string,

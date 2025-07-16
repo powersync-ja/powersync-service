@@ -2,6 +2,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { storage } from '@powersync/service-core';
 import { event_types } from '@powersync/service-types';
 import { PowerSyncMongo } from './implementation/db.js';
+import { SdkConnectDocument } from './implementation/models.js';
 
 export class MongoReportStorage implements storage.ReportStorageFactory {
   private readonly client: mongo.MongoClient;
@@ -16,10 +17,10 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     console.log('MongoReportStorage.scrapeSdkData', data);
   }
 
-  async reportSdkConnect(data: event_types.SdkConnectEventData): Promise<void> {
-    console.log('MongoReportStorage.reportSdkConnect', data);
+  async reportSdkConnect(data: SdkConnectDocument): Promise<void> {
+    await this.db.sdk_report_events.insertOne(data);
   }
-  async reportSdkDisconnect(data: event_types.SdkDisconnectEventData): Promise<void> {
+  async reportSdkDisconnect(data: SdkConnectDocument): Promise<void> {
     console.log('MongoReportStorage.reportSdkDisconnect', data);
   }
   async listCurrentConnections(data: event_types.PaginatedInstanceRequest): Promise<void> {

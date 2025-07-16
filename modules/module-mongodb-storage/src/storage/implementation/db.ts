@@ -12,7 +12,7 @@ import {
   CustomWriteCheckpointDocument,
   IdSequenceDocument,
   InstanceDocument,
-  SdkConnectEventDocument,
+  SdkConnectDocument,
   SourceTableDocument,
   SyncRuleDocument,
   WriteCheckpointDocument
@@ -38,7 +38,7 @@ export class PowerSyncMongo {
   readonly locks: mongo.Collection<lib_mongo.locks.Lock>;
   readonly bucket_state: mongo.Collection<BucketStateDocument>;
   readonly checkpoint_events: mongo.Collection<CheckpointEventDocument>;
-  readonly sdk_connect_events: mongo.Collection<SdkConnectEventDocument>;
+  readonly sdk_report_events: mongo.Collection<SdkConnectDocument>;
 
   readonly client: mongo.MongoClient;
   readonly db: mongo.Db;
@@ -63,7 +63,7 @@ export class PowerSyncMongo {
     this.locks = this.db.collection('locks');
     this.bucket_state = this.db.collection('bucket_state');
     this.checkpoint_events = this.db.collection('checkpoint_events');
-    this.sdk_connect_events = this.db.collection('sdk_connect_events');
+    this.sdk_report_events = this.db.collection('sdk_report_events');
   }
 
   /**
@@ -129,6 +129,20 @@ export class PowerSyncMongo {
       size: 50 * 1024, // size in bytes
       max: 50 // max number of documents
     });
+  }
+
+  /**
+   * Only use in migrations and tests.
+   */
+  async createSdkReportingCollection() {
+    const existingCollections = await this.db
+      .listCollections({ name: 'sdk_report_events' }, { nameOnly: false })
+      .toArray();
+    const collection = existingCollections[0];
+    if (collection != null) {
+      return;
+    }
+    await this.db.createCollection('sdk_report_events');
   }
 }
 
