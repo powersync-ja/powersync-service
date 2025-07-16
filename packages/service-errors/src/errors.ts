@@ -243,3 +243,19 @@ export class DatabaseConnectionError extends ServiceError {
     this.cause = cause;
   }
 }
+
+export class DatabaseQueryError extends ServiceError {
+  public cause: any;
+
+  constructor(code: ErrorCode, message: string, cause?: any) {
+    super({
+      code: code,
+      status: 500,
+      description: message,
+      // Cause is always logged. Return details via the API only in development mode
+      details: process.env.NODE_ENV !== 'production' && cause != null ? `cause: ${cause.message}` : undefined,
+      stack: process.env.NODE_ENV !== 'production' ? cause.stack : undefined
+    });
+    this.cause = cause;
+  }
+}

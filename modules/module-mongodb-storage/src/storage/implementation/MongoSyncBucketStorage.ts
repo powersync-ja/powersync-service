@@ -348,7 +348,10 @@ export class MongoSyncBucketStorage
         // 1. We can calculate the document size accurately without serializing again.
         // 2. We can delay parsing the results until it's needed.
         // We manually use bson.deserialize below
-        raw: true
+        raw: true,
+
+        // Limit the time for the operation to complete, to avoid getting connection timeouts
+        maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
       }
     ) as unknown as mongo.FindCursor<Buffer>;
 
@@ -357,7 +360,9 @@ export class MongoSyncBucketStorage
     // to the lower of the batch count and size limits.
     // This is similar to using `singleBatch: true` in the find options, but allows
     // detecting "hasMore".
-    let { data, hasMore: batchHasMore } = await readSingleBatch(cursor);
+    let { data, hasMore: batchHasMore } = await readSingleBatch(cursor).catch((e) => {
+      throw lib_mongo.mapQueryError(e, 'while reading bucket data');
+    });
     if (data.length == batchLimit) {
       // Limit reached - could have more data, despite the cursor being drained.
       batchHasMore = true;
@@ -486,9 +491,12 @@ export class MongoSyncBucketStorage
             }
           }
         ],
-        { session: undefined, readConcern: 'snapshot' }
+        { session: undefined, readConcern: 'snapshot', maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS }
       )
-      .toArray();
+      .toArray()
+      .catch((e) => {
+        throw lib_mongo.mapQueryError(e, 'while reading checksums');
+      });
 
     return new Map<string, storage.PartialChecksum>(
       aggregate.map((doc) => {
