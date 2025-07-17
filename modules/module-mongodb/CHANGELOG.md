@@ -1,5 +1,21 @@
 # @powersync/service-module-mongodb
 
+## 0.10.4
+
+### Patch Changes
+
+- 71cf892: Add 'powersync' or 'powersync-storage' as the app name for database connections.
+- 60bf5f9: [MongoDB Replication] Fix resumeTokens going back in time on busy change streams.
+- Updated dependencies [a60f2c7]
+- Updated dependencies [71cf892]
+- Updated dependencies [ba1ceef]
+- Updated dependencies [60bf5f9]
+- Updated dependencies [f1431b6]
+  - @powersync/lib-service-mongodb@0.6.2
+  - @powersync/service-core@1.13.4
+  - @powersync/service-types@0.12.1
+  - @powersync/lib-services-framework@0.7.1
+
 ## 0.10.3
 
 ### Patch Changes

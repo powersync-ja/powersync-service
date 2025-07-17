@@ -1,5 +1,11 @@
 # @powersync/service-errors
 
+## 0.3.2
+
+### Patch Changes
+
+- a60f2c7: [MongoDB Storage] Improve error messages for checksum query timeouts
+
 ## 0.3.1
 
 ### Patch Changes

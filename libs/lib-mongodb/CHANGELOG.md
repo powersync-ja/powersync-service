@@ -1,5 +1,14 @@
 # @powersync/lib-service-mongodb
 
+## 0.6.2
+
+### Patch Changes
+
+- a60f2c7: [MongoDB Storage] Improve error messages for checksum query timeouts
+- 71cf892: Add 'powersync' or 'powersync-storage' as the app name for database connections.
+- 60bf5f9: [MongoDB Replication] Fix resumeTokens going back in time on busy change streams.
+  - @powersync/lib-services-framework@0.7.1
+
 ## 0.6.1
 
 ### Patch Changes
