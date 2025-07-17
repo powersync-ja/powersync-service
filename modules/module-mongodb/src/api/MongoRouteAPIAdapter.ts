@@ -5,7 +5,7 @@ import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 
 import { MongoManager } from '../replication/MongoManager.js';
-import { constructAfterRecord, createCheckpoint, STANDALONE_CHECKPOINT_ID } from '../replication/MongoRelation.js';
+import { constructAfterRecord, STANDALONE_CHECKPOINT_ID } from '../replication/MongoRelation.js';
 import { CHECKPOINTS_COLLECTION } from '../replication/replication-utils.js';
 import * as types from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
@@ -137,15 +137,15 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
       if (tablePattern.isWildcard) {
         patternResult.tables = [];
         for (let collection of collections) {
-          const sourceTable = new SourceTable(
-            0,
-            this.connectionTag,
-            collection.name,
-            schema,
-            collection.name,
-            [],
-            true
-          );
+          const sourceTable = new SourceTable({
+            id: 0,
+            connectionTag: this.connectionTag,
+            objectId: collection.name,
+            schema: schema,
+            name: collection.name,
+            replicaIdColumns: [],
+            snapshotComplete: true
+          });
           let errors: service_types.ReplicationError[] = [];
           if (collection.type == 'view') {
             errors.push({ level: 'warning', message: `Collection ${schema}.${tablePattern.name} is a view` });
@@ -164,15 +164,15 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
           });
         }
       } else {
-        const sourceTable = new SourceTable(
-          0,
-          this.connectionTag,
-          tablePattern.name,
-          schema,
-          tablePattern.name,
-          [],
-          true
-        );
+        const sourceTable = new SourceTable({
+          id: 0,
+          connectionTag: this.connectionTag,
+          objectId: tablePattern.name,
+          schema: schema,
+          name: tablePattern.name,
+          replicaIdColumns: [],
+          snapshotComplete: true
+        });
 
         const syncData = sqlSyncRules.tableSyncsData(sourceTable);
         const syncParameters = sqlSyncRules.tableSyncsParameters(sourceTable);

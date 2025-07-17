@@ -93,7 +93,7 @@ export class BaseSqlDataQuery {
     if (this.sourceTable.isWildcard) {
       return {
         ...row,
-        _table_suffix: this.sourceTable.suffix(table.table)
+        _table_suffix: this.sourceTable.suffix(table.name)
       };
     } else {
       return row;
@@ -130,7 +130,7 @@ export class BaseSqlDataQuery {
         this.getColumnOutputsFor(schemaTable, output);
 
         result.push({
-          name: this.getOutputName(schemaTable.table),
+          name: this.getOutputName(schemaTable.name),
           columns: Object.values(output)
         });
       }

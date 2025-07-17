@@ -5,7 +5,8 @@ import {
   BinLogRotationEvent,
   BinLogTableMapEvent,
   BinLogRowUpdateEvent,
-  BinLogXidEvent
+  BinLogXidEvent,
+  BinLogQueryEvent
 } from '@powersync/mysql-zongji';
 
 export function eventIsGTIDLog(event: BinLogEvent): event is BinLogGTIDLogEvent {
@@ -34,4 +35,8 @@ export function eventIsDeleteMutation(event: BinLogEvent): event is BinLogRowEve
 
 export function eventIsUpdateMutation(event: BinLogEvent): event is BinLogRowUpdateEvent {
   return event.getEventName() == 'updaterows';
+}
+
+export function eventIsQuery(event: BinLogEvent): event is BinLogQueryEvent {
+  return event.getEventName() == 'query';
 }

@@ -183,6 +183,9 @@ export function toSQLiteRow(row: Record<string, any>, columns: Map<string, Colum
           result[key] = row[key];
           break;
       }
+    } else {
+      // If the value is null, we just set it to null
+      result[key] = null;
     }
   }
   return sync_rules.toSyncRulesRow(result);
