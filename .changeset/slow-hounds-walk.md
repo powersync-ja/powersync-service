@@ -5,8 +5,8 @@
 '@powersync/service-module-postgres': patch
 '@powersync/service-module-mysql': patch
 '@powersync/lib-service-mongodb': patch
-'@powersync/service-core': minor
-'@powersync/service-image': minor
+'@powersync/service-core': patch
+'@powersync/service-image': patch
 ---
 
 Add 'powersync' or 'powersync-storage' as the app name for database connections.
