@@ -134,6 +134,37 @@ export async function getSyncRulesStatus(
     })
   );
 
+  if (live_status && status?.active) {
+    // Check replication lag for active sync rules.
+    if (sync_rules.last_checkpoint_ts == null && sync_rules.last_keepalive_ts == null) {
+      errors.push({
+        level: 'warning',
+        message: 'No checkpoint found, cannot calculate replication lag'
+      });
+    } else {
+      const lastTime = Math.max(
+        sync_rules.last_checkpoint_ts?.getTime() ?? 0,
+        sync_rules.last_keepalive_ts?.getTime() ?? 0
+      );
+      const lagSeconds = Math.round((Date.now() - lastTime) / 1000);
+      // On idle instances, keepalive messages are only persisted every 60 seconds.
+      // So we use 2 minutes as a threshold for warnings, and 15 minutes for critical.
+      // The replication lag metric should give a more granular value, but that is not available directly
+      // in the API containers used for diagnostics, and this should give a good enough indication.
+      if (lagSeconds > 15 * 60) {
+        errors.push({
+          level: 'fatal',
+          message: `No replicated commit in more than ${lagSeconds}s`
+        });
+      } else if (lagSeconds > 120) {
+        errors.push({
+          level: 'warning',
+          message: `No replicated commit in more than ${lagSeconds}s`
+        });
+      }
+    }
+  }
+
   return {
     content: include_content ? sync_rules.sync_rules_content : undefined,
     connections: [
