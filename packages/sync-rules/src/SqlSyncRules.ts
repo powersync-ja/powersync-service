@@ -411,16 +411,16 @@ export class SqlSyncRules implements SyncRules {
             hasExplicitDefaultSubscription = true;
           }
 
-          queriers.push(descriptor.getBucketParameterQuerier(subscriptionParams));
+          descriptor.pushBucketParameterQueriers(queriers, options, subscriptionParams);
         }
 
         // If the stream is subscribed to by default and there is no explicit subscription that would match the default
         // subscription, also include the default querier.
         if (descriptor.subscribedToByDefault && !hasExplicitDefaultSubscription) {
-          queriers.push(descriptor.getBucketParameterQuerier(params));
+          descriptor.pushBucketParameterQueriers(queriers, options, params);
         }
       } else {
-        queriers.push(descriptor.getBucketParameterQuerier(params));
+        descriptor.pushBucketParameterQueriers(queriers, options, params);
       }
     }
 
