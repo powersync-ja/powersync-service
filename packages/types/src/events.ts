@@ -29,18 +29,25 @@ export type SdkConnectDocument = {
   client_id: string;
   user_id: string;
   jwt_exp?: Date;
-  connect_at?: Date;
-  disconnect_at?: Date;
+  connect_at: Date;
 };
 
 export type InstanceRequest = {
   app_id: string;
   org_id: string;
-  user_count: number;
-  client_id_count: number;
+};
+export type ListCurrentConnections = {
+  users: string[];
+  clients: string[];
   sdk: string[];
 };
-export type ListCurrentConnectionsResponse = {} & InstanceRequest;
+
+export type ListCurrentConnectionsResponse = {
+  users: string[];
+  clients: string[];
+  sdk: string[];
+} & InstanceRequest;
+
 export type EventHandlerFunc<K extends EmitterEngineEvents> = (data: SubscribeEvents[K]) => Promise<void> | void;
 export interface EmitterEvent<K extends EmitterEngineEvents> {
   event: K;

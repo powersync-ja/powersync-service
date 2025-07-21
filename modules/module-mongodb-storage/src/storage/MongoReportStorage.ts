@@ -3,7 +3,7 @@ import { storage } from '@powersync/service-core';
 import { event_types } from '@powersync/service-types';
 import { PowerSyncMongo } from './implementation/db.js';
 import { SdkConnectDocument } from './implementation/models.js';
-import { ListCurrentConnectionsResponse } from '@powersync/service-types/dist/events.js';
+import { ListCurrentConnections, ListCurrentConnectionsResponse } from '@powersync/service-types/dist/events.js';
 
 export class MongoReportStorage implements storage.ReportStorageFactory {
   private readonly client: mongo.MongoClient;
@@ -14,8 +14,32 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     this.db = db;
   }
 
-  async scrapeSdkData(data: event_types.InstanceRequest): Promise<void> {
-    console.log('MongoReportStorage.scrapeSdkData', data);
+  async scrapeSdkData(data: event_types.InstanceRequest): Promise<ListCurrentConnectionsResponse> {
+    const result = await this.db.sdk_report_events
+      .aggregate<ListCurrentConnections>([
+        {
+          $group: {
+            _id: null,
+            user_ids: { $addToSet: '$user_id' },
+            client_ids: { $addToSet: '$client_id' },
+            sdks: { $addToSet: '$sdk' }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            users: '$user_ids',
+            clients: '$client_ids',
+            sdks: '$sdks'
+          }
+        }
+      ])
+      .toArray();
+    return {
+      app_id: data.app_id,
+      org_id: data.org_id,
+      ...result[0]
+    };
   }
 
   async reportSdkConnect(data: SdkConnectDocument): Promise<void> {
@@ -34,7 +58,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
   }
   async listCurrentConnections(data: event_types.InstanceRequest): Promise<ListCurrentConnectionsResponse> {
     const result = await this.db.sdk_report_events
-      .aggregate([
+      .aggregate<ListCurrentConnections>([
         {
           $group: {
             _id: null,
@@ -46,16 +70,16 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
         {
           $project: {
             _id: 0,
-            user_count: { $size: '$user_ids' },
-            client_id_count: { $size: '$client_ids' },
-            sdk: '$sdks'
+            users: '$user_ids',
+            clients: '$client_ids',
+            sdks: '$sdks'
           }
         }
       ])
       .toArray();
-    console.log(result);
     return {
-      ...data,
+      app_id: data.app_id,
+      org_id: data.org_id,
       ...result[0]
     };
   }
