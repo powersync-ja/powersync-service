@@ -1,4 +1,12 @@
-import { BucketDescription, isValidPriority, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
+import {
+  BucketDescription,
+  BucketPriority,
+  isValidPriority,
+  RequestedStream,
+  RequestParameters,
+  ResolvedBucket,
+  SqlSyncRules
+} from '@powersync/service-sync-rules';
 
 import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
@@ -355,7 +363,9 @@ export class BucketParameterState {
   private readonly querier: BucketParameterQuerier;
   private readonly staticBuckets: Map<string, BucketDescription>;
   private readonly includeDefaultStreams: boolean;
-  private readonly explicitlyOpenedStreams: Record<string, util.OpenedStream>;
+  // Indexed by the client-side id
+  private readonly explicitStreamSubscriptions: Record<string, util.RequestedStreamSubscription>;
+  private readonly subscribedStreamNames: Set<string>;
   private readonly logger: Logger;
   private cachedDynamicBuckets: BucketDescription[] | null = null;
   private cachedDynamicBucketSet: Set<string> | null = null;
@@ -376,51 +386,73 @@ export class BucketParameterState {
     this.syncParams = syncParams;
     this.logger = logger;
 
-    const explicitlyOpenedStreams: Record<string, util.OpenedStream> = {};
+    const idToStreamSubscription: Record<string, util.RequestedStreamSubscription> = {};
+    const streamsByName: Record<string, RequestedStream[]> = {};
     const subscriptions = request.subscriptions;
     if (subscriptions) {
       for (const subscription of subscriptions.opened) {
-        explicitlyOpenedStreams[subscription.stream] = subscription;
+        idToStreamSubscription[subscription.stream] = subscription;
+
+        const syncRuleStream: RequestedStream = {
+          parameters: subscription.parameters ?? {},
+          opaque_id: subscription.client_id
+        };
+        if (Object.hasOwn(streamsByName, subscription.stream)) {
+          streamsByName[subscription.stream].push(syncRuleStream);
+        } else {
+          streamsByName[subscription.stream] = [syncRuleStream];
+        }
       }
     }
     this.includeDefaultStreams = subscriptions?.include_defaults ?? true;
-    this.explicitlyOpenedStreams = explicitlyOpenedStreams;
+    this.explicitStreamSubscriptions = idToStreamSubscription;
 
     this.querier = syncRules.getBucketParameterQuerier({
       globalParameters: this.syncParams,
       hasDefaultStreams: this.includeDefaultStreams,
-      resolveOpenedStream(name) {
-        const subscription = explicitlyOpenedStreams[name];
-        if (subscription) {
-          return subscription.parameters ?? {};
-        } else {
-          return null;
-        }
-      }
+      streams: streamsByName
     });
     this.staticBuckets = new Map<string, BucketDescription>(this.querier.staticBuckets.map((b) => [b.bucket, b]));
     this.lookups = new Set<string>(this.querier.parameterQueryLookups.map((l) => JSONBig.stringify(l.values)));
+    this.subscribedStreamNames = new Set(Object.keys(streamsByName));
   }
 
   /**
-   * Overrides the `description` based on subscriptions from the client.
-   *
-   * In partiuclar, this can override the priority assigned to a bucket.
+   * Translates an internal sync-rules {@link ResolvedBucket} instance to the public
+   * {@link util.ClientBucketDescription}.
    */
-  overrideBucketDescription(description: BucketDescription): BucketDescription {
-    const changedPriority = this.explicitlyOpenedStreams[description.definition]?.override_priority;
-    if (changedPriority != null && isValidPriority(changedPriority)) {
-      return {
-        ...description,
-        priority: changedPriority
-      };
-    } else {
-      return description;
+  translateResolvedBucket(description: ResolvedBucket): util.ClientBucketDescription {
+    // Assign
+    let priorityOverride: BucketPriority | null = null;
+    for (const reason of description.inclusion_reasons) {
+      if (reason != 'default') {
+        const requestedPriority = this.explicitStreamSubscriptions[reason.subscription]?.override_priority;
+        if (requestedPriority != null) {
+          if (priorityOverride == null) {
+            priorityOverride = requestedPriority as BucketPriority;
+          } else {
+            priorityOverride = Math.min(requestedPriority, priorityOverride) as BucketPriority;
+          }
+        }
+      }
     }
+
+    return {
+      definition: description.definition,
+      bucket: description.bucket,
+      priority: priorityOverride ?? description.priority,
+      subscriptions: description.inclusion_reasons.map((reason) => {
+        if (reason == 'default') {
+          return { def: description.definition };
+        } else {
+          return { sub: reason.subscription };
+        }
+      })
+    };
   }
 
   isSubscribedToStream(desc: SqlBucketDescriptor): boolean {
-    return (desc.subscribedToByDefault && this.includeDefaultStreams) || desc.name in this.explicitlyOpenedStreams;
+    return (desc.subscribedToByDefault && this.includeDefaultStreams) || this.subscribedStreamNames.has(desc.name);
   }
 
   async getCheckpointUpdate(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate> {
