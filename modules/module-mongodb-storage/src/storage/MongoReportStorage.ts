@@ -62,7 +62,17 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     );
   }
   async reportSdkDisconnect(data: SdkDisconnectEventData): Promise<void> {
-    await this.db.sdk_report_events.findOneAndDelete({ user_id: data.user_id, client_id: data.client_id });
+    await this.db.sdk_report_events.findOneAndUpdate(
+      { user_id: data.user_id, client_id: data.client_id },
+      {
+        $set: {
+          disconnect_at: data.disconnect_at
+        },
+        $unset: {
+          jwt_exp: ''
+        }
+      }
+    );
   }
   async listCurrentConnections(data: event_types.InstanceRequest): Promise<ListCurrentConnectionsResponse> {
     const result = await this.db.sdk_report_events
