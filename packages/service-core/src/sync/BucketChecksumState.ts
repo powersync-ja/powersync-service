@@ -112,7 +112,7 @@ export class BucketChecksumState {
 
     /** Set of all buckets in this checkpoint. */
     const bucketDescriptionMap = new Map(
-      allBuckets.map((b) => [b.bucket, this.parameterState.overrideBucketDescription(b)])
+      allBuckets.map((b) => [b.bucket, this.parameterState.translateResolvedBucket(b)])
     );
 
     if (bucketDescriptionMap.size > this.context.maxBuckets) {
@@ -345,7 +345,7 @@ export interface CheckpointUpdate {
   /**
    * All buckets forming part of the checkpoint.
    */
-  buckets: BucketDescription[];
+  buckets: ResolvedBucket[];
 
   /**
    * If present, a set of buckets that have been updated since the last checkpoint.
@@ -367,7 +367,7 @@ export class BucketParameterState {
   private readonly explicitStreamSubscriptions: Record<string, util.RequestedStreamSubscription>;
   private readonly subscribedStreamNames: Set<string>;
   private readonly logger: Logger;
-  private cachedDynamicBuckets: BucketDescription[] | null = null;
+  private cachedDynamicBuckets: ResolvedBucket[] | null = null;
   private cachedDynamicBucketSet: Set<string> | null = null;
 
   private readonly lookups: Set<string>;
@@ -412,7 +412,10 @@ export class BucketParameterState {
       hasDefaultStreams: this.includeDefaultStreams,
       streams: streamsByName
     });
-    this.staticBuckets = new Map<string, BucketDescription>(this.querier.staticBuckets.map((b) => [b.bucket, b]));
+
+    this.staticBuckets = new Map<string, BucketDescription>(
+      mergeBuckets(this.querier.staticBuckets).map((b) => [b.bucket, b])
+    );
     this.lookups = new Set<string>(this.querier.parameterQueryLookups.map((l) => JSONBig.stringify(l.values)));
     this.subscribedStreamNames = new Set(Object.keys(streamsByName));
   }
@@ -422,7 +425,8 @@ export class BucketParameterState {
    * {@link util.ClientBucketDescription}.
    */
   translateResolvedBucket(description: ResolvedBucket): util.ClientBucketDescription {
-    // Assign
+    // If the client is overriding the priority of any stream that yields this bucket, sync the bucket with that
+    // priority.
     let priorityOverride: BucketPriority | null = null;
     for (const reason of description.inclusion_reasons) {
       if (reason != 'default') {
@@ -531,7 +535,7 @@ export class BucketParameterState {
       }
     }
 
-    let dynamicBuckets: BucketDescription[];
+    let dynamicBuckets: ResolvedBucket[];
     if (hasParameterChange || this.cachedDynamicBuckets == null || this.cachedDynamicBucketSet == null) {
       dynamicBuckets = await querier.queryDynamicBucketDescriptions({
         getParameterSets(lookups) {
@@ -611,4 +615,33 @@ function limitedBuckets(buckets: string[] | { bucket: string }[], limit: number)
   }
   const limited = buckets.slice(0, limit);
   return `${JSON.stringify(limited)}...`;
+}
+
+/**
+ * Resolves duplicate buckets in the given array, merging the inclusion reasons for duplicate.
+ *
+ * It's possible for duplicates to occur when a stream has multiple subscriptions, consider e.g.
+ *
+ * ```
+ * sync_streams:
+ *  assets_by_category:
+ *    query: select * from assets where category in (request.parameters() -> 'categories')
+ * ```
+ *
+ * Here, a client might subscribe once with `{"categories": [1]}` and once with `{"categories": [1, 2]}`. Since each
+ * subscription is evaluated independently, this would lead to three buckets, with a duplicate `assets_by_category[1]`
+ * bucket.
+ */
+function mergeBuckets(buckets: ResolvedBucket[]): ResolvedBucket[] {
+  const byDefinition: Record<string, ResolvedBucket> = {};
+
+  for (const bucket of buckets) {
+    if (Object.hasOwn(byDefinition, bucket.definition)) {
+      byDefinition[bucket.definition].inclusion_reasons.push(...bucket.inclusion_reasons);
+    } else {
+      byDefinition[bucket.definition] = bucket;
+    }
+  }
+
+  return Object.values(byDefinition);
 }
