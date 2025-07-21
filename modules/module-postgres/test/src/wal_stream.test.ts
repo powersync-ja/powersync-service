@@ -35,11 +35,12 @@ bucket_definitions:
     );
 
     await context.replicateSnapshot();
+    context.startStreaming();
+    // Make sure we're up to date
+    await context.getCheckpoint();
 
     const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
     const startTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
-
-    context.startStreaming();
 
     const [{ test_id }] = pgwireRows(
       await pool.query(
@@ -169,6 +170,9 @@ bucket_definitions:
     await context.replicateSnapshot();
     context.startStreaming();
 
+    // Make sure we're up to date
+    await context.getCheckpoint();
+
     const [{ test_id }] = pgwireRows(
       await pool.query(`INSERT INTO test_data(description) VALUES('test1') returning id as test_id`)
     );
@@ -266,14 +270,14 @@ bucket_definitions:
 
     await context.replicateSnapshot();
 
+    context.startStreaming();
+    // Make sure we're up to date
+    await context.getCheckpoint();
+
     const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
     const startTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
 
-    context.startStreaming();
-
-    const [{ test_id }] = pgwireRows(
-      await pool.query(`INSERT INTO test_donotsync(description) VALUES('test1') returning id as test_id`)
-    );
+    await pool.query(`INSERT INTO test_donotsync(description) VALUES('test1') returning id as test_id`);
 
     const data = await context.getBucketData('global[]');
 
