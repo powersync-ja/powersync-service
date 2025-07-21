@@ -177,7 +177,10 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
           close_reason: closeReason ?? 'unknown'
         });
         metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
-        service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_DISCONNECT_EVENT, sdkData);
+        service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_DISCONNECT_EVENT, {
+          ...sdkData,
+          disconnect_at: new Date()
+        });
       }
     }
   });

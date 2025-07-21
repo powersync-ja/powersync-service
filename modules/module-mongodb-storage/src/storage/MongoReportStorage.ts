@@ -6,7 +6,7 @@ import { SdkConnectDocument } from './implementation/models.js';
 import {
   ListCurrentConnections,
   ListCurrentConnectionsResponse,
-  SdkUserData
+  SdkDisconnectEventData
 } from '@powersync/service-types/dist/events.js';
 
 export class MongoReportStorage implements storage.ReportStorageFactory {
@@ -16,6 +16,10 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
   constructor(db: PowerSyncMongo) {
     this.client = db.client;
     this.db = db;
+  }
+
+  async deleteOldSdkData(data: event_types.DeleteOldSdkData): Promise<void> {
+    console.log(data);
   }
 
   async scrapeSdkData(data: event_types.InstanceRequest): Promise<ListCurrentConnectionsResponse> {
@@ -57,7 +61,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
       }
     );
   }
-  async reportSdkDisconnect(data: SdkUserData): Promise<void> {
+  async reportSdkDisconnect(data: SdkDisconnectEventData): Promise<void> {
     await this.db.sdk_report_events.findOneAndDelete({ user_id: data.user_id, client_id: data.client_id });
   }
   async listCurrentConnections(data: event_types.InstanceRequest): Promise<ListCurrentConnectionsResponse> {
