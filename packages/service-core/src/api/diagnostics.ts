@@ -134,8 +134,9 @@ export async function getSyncRulesStatus(
     })
   );
 
-  if (live_status && status?.active) {
+  if (live_status && status?.active && sourceConfig.type != 'mysql') {
     // Check replication lag for active sync rules.
+    // Right now we exclude mysql, since it we don't have consistent keepalives for it.
     if (sync_rules.last_checkpoint_ts == null && sync_rules.last_keepalive_ts == null) {
       errors.push({
         level: 'warning',
