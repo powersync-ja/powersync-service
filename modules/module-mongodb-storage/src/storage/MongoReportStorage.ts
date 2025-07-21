@@ -22,10 +22,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     await this.db.sdk_report_events.findOneAndUpdate(
       { user_id: data.user_id, client_id: data.client_id },
       {
-        $set: data,
-        $unset: {
-          disconnect_at: ''
-        }
+        $set: data
       },
       {
         upsert: true
@@ -33,21 +30,17 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     );
   }
   async reportSdkDisconnect(data: SdkConnectDocument): Promise<void> {
-    await this.db.sdk_report_events.findOneAndUpdate(
-      { user_id: data.user_id, client_id: data.client_id },
-      {
-        $set: {
-          disconnect_at: data.disconnect_at
-        },
-        $unset: {
-          jwt_exp: ''
-        }
-      },
-      { upsert: true }
-    );
+    await this.db.sdk_report_events.findOneAndDelete({ user_id: data.user_id, client_id: data.client_id });
   }
   async listCurrentConnections(data: event_types.InstanceRequest): Promise<ListCurrentConnectionsResponse> {
-    return this.db.sdk_report_events.aggregate([{ $match: {} }]);
+    return this.db.sdk_report_events.aggregate([
+      {
+        $group: {
+          user_id: '$user_id',
+          client_id: '$client_id'
+        }
+      }
+    ]);
   }
 
   async [Symbol.asyncDispose]() {
