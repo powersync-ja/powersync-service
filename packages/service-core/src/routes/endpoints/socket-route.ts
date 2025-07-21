@@ -1,5 +1,6 @@
 import { ErrorCode, errors, schema } from '@powersync/lib-services-framework';
 import { RequestParameters } from '@powersync/service-sync-rules';
+import * as bson from 'bson';
 import { serialize } from 'bson';
 
 import * as sync from '../../sync/sync-index.js';
@@ -23,6 +24,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         user_agent: context.user_agent
       };
 
+      const sdkReportId = new bson.ObjectId();
       const sdkData: event_types.SdkUserData = {
         client_id: params.client_id,
         user_id: context.user_id!,
@@ -95,8 +97,11 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
 
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(1);
       service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_CONNECT_EVENT, {
-        ...sdkData,
-        connect_at: new Date(streamStart)
+        id: sdkReportId,
+        data: {
+          ...sdkData,
+          connect_at: new Date(streamStart)
+        }
       });
       const tracker = new sync.RequestTracker(metricsEngine);
       try {
@@ -178,8 +183,11 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         });
         metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
         service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_DISCONNECT_EVENT, {
-          ...sdkData,
-          disconnect_at: new Date()
+          id: sdkReportId,
+          data: {
+            ...sdkData,
+            disconnect_at: new Date()
+          }
         });
       }
     }

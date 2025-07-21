@@ -3,6 +3,7 @@ import { RequestParameters } from '@powersync/service-sync-rules';
 import { Readable } from 'stream';
 import * as sync from '../../sync/sync-index.js';
 import * as util from '../../util/util-index.js';
+import * as bson from 'bson';
 
 import { authUser } from '../auth.js';
 import { routeDefinition } from '../router.js';
@@ -31,7 +32,7 @@ export const syncStreamed = routeDefinition({
       client_id: clientId,
       user_id: payload.context.user_id
     };
-
+    const sdkReportId = new bson.ObjectId();
     const sdkData: event_types.SdkUserData = {
       client_id: clientId,
       user_id: payload.context.user_id!,
@@ -67,8 +68,11 @@ export const syncStreamed = routeDefinition({
     try {
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(1);
       service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_CONNECT_EVENT, {
-        ...sdkData,
-        connect_at: new Date(streamStart)
+        id: sdkReportId,
+        data: {
+          ...sdkData,
+          connect_at: new Date(streamStart)
+        }
       });
       const stream = Readable.from(
         sync.transformToBytesTracked(
@@ -133,8 +137,11 @@ export const syncStreamed = routeDefinition({
           controller.abort();
           metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
           service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_DISCONNECT_EVENT, {
-            ...sdkData,
-            disconnect_at: new Date()
+            id: sdkReportId,
+            data: {
+              ...sdkData,
+              disconnect_at: new Date()
+            }
           });
           logger.info(`Sync stream complete`, {
             ...tracker.getLogMeta(),
@@ -147,8 +154,11 @@ export const syncStreamed = routeDefinition({
       controller.abort();
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
       service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_DISCONNECT_EVENT, {
-        ...sdkData,
-        disconnect_at: new Date()
+        id: sdkReportId,
+        data: {
+          ...sdkData,
+          disconnect_at: new Date()
+        }
       });
     }
   }

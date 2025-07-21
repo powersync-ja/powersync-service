@@ -2,10 +2,10 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { storage } from '@powersync/service-core';
 import { event_types } from '@powersync/service-types';
 import { PowerSyncMongo } from './implementation/db.js';
-import { SdkConnectDocument } from './implementation/models.js';
 import {
   ListCurrentConnections,
   ListCurrentConnectionsResponse,
+  SdkConnectEventData,
   SdkDisconnectEventData
 } from '@powersync/service-types/dist/events.js';
 
@@ -50,11 +50,11 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     };
   }
 
-  async reportSdkConnect(data: SdkConnectDocument): Promise<void> {
+  async reportSdkConnect(data: SdkConnectEventData): Promise<void> {
     await this.db.sdk_report_events.findOneAndUpdate(
-      { user_id: data.user_id, client_id: data.client_id },
+      { _id: data.id },
       {
-        $set: data
+        $set: data.data
       },
       {
         upsert: true
@@ -63,10 +63,10 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
   }
   async reportSdkDisconnect(data: SdkDisconnectEventData): Promise<void> {
     await this.db.sdk_report_events.findOneAndUpdate(
-      { user_id: data.user_id, client_id: data.client_id },
+      { _id: data.id },
       {
         $set: {
-          disconnect_at: data.disconnect_at
+          disconnect_at: data.data.disconnect_at
         },
         $unset: {
           jwt_exp: ''

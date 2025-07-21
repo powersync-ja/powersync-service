@@ -1,3 +1,5 @@
+import * as bson from 'bson';
+
 export enum EmitterEngineEvents {
   SDK_CONNECT_EVENT = 'sdk-connect-event',
   SDK_DISCONNECT_EVENT = 'sdk-disconnect-event',
@@ -23,12 +25,18 @@ export type DeleteOldSdkData = {
 };
 
 export type SdkConnectEventData = {
-  connect_at: Date;
-} & SdkUserData;
+  data: {
+    connect_at: Date;
+  } & SdkUserData;
+  id: bson.ObjectId;
+};
 
 export type SdkDisconnectEventData = {
-  disconnect_at: Date;
-} & SdkUserData;
+  data: {
+    disconnect_at: Date;
+  } & SdkUserData;
+  id: bson.ObjectId;
+};
 
 export type SdkConnectDocument = {
   sdk: string;
