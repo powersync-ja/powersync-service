@@ -691,6 +691,10 @@ bucket_definitions:
     });
 
     const bucketStorage = await f.getInstance(syncRules);
+    // Activate
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.keepalive('0/0');
+    });
 
     const stream = sync.streamResponse({
       syncContext,
@@ -761,6 +765,10 @@ bucket_definitions:
     const listsTable = test_utils.makeTestTable('lists', ['id']);
 
     const bucketStorage = await f.getInstance(syncRules);
+    // Activate
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.keepalive('0/0');
+    });
 
     const stream = sync.streamResponse({
       syncContext,
@@ -900,6 +908,10 @@ bucket_definitions:
     const listsTable = test_utils.makeTestTable('lists', ['id']);
 
     const bucketStorage = await f.getInstance(syncRules);
+    // Activate
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.keepalive('0/0');
+    });
 
     const stream = sync.streamResponse({
       syncContext,
@@ -962,6 +974,10 @@ bucket_definitions:
     });
 
     const bucketStorage = await f.getInstance(syncRules);
+    // Activate
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.keepalive('0/0');
+    });
 
     const exp = Date.now() / 1000 + 0.1;
 

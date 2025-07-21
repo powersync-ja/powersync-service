@@ -49,6 +49,7 @@ export interface MongoBucketBatchOptions {
   lastCheckpointLsn: string | null;
   keepaliveOp: InternalOpId | null;
   noCheckpointBeforeLsn: string;
+  resumeFromLsn: string | null;
   storeCurrentData: boolean;
   /**
    * Set to true for initial replication.
@@ -99,6 +100,18 @@ export class MongoBucketBatch
    */
   public last_flushed_op: InternalOpId | null = null;
 
+  /**
+   * lastCheckpointLsn is the last consistent commit.
+   *
+   * While that is generally a "safe" point to resume from, there are cases where we may want to resume from a different point:
+   * 1. After an initial snapshot, we don't have a consistent commit yet, but need to resume from the snapshot LSN.
+   * 2. If "no_checkpoint_before_lsn" is set far in advance, it may take a while to reach that point. We
+   *    may want to resume at incremental points before that.
+   *
+   * This is set when creating the batch, but may not be updated afterwards.
+   */
+  public resumeFromLsn: string | null = null;
+
   private needsActivation = true;
 
   constructor(options: MongoBucketBatchOptions) {
@@ -109,6 +122,7 @@ export class MongoBucketBatch
     this.group_id = options.groupId;
     this.last_checkpoint_lsn = options.lastCheckpointLsn;
     this.no_checkpoint_before_lsn = options.noCheckpointBeforeLsn;
+    this.resumeFromLsn = options.resumeFromLsn;
     this.session = this.client.startSession();
     this.slot_name = options.slotName;
     this.sync_rules = options.syncRules;

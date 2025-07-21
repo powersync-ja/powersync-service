@@ -31,6 +31,7 @@ export interface PostgresBucketBatchOptions {
   no_checkpoint_before_lsn: string;
   store_current_data: boolean;
   keep_alive_op?: InternalOpId | null;
+  resumeFromLsn: string | null;
   /**
    * Set to true for initial replication.
    */
@@ -61,6 +62,8 @@ export class PostgresBucketBatch
 
   public last_flushed_op: InternalOpId | null = null;
 
+  public resumeFromLsn: string | null;
+
   protected db: lib_postgres.DatabaseClient;
   protected group_id: number;
   protected last_checkpoint_lsn: string | null;
@@ -82,6 +85,7 @@ export class PostgresBucketBatch
     this.group_id = options.group_id;
     this.last_checkpoint_lsn = options.last_checkpoint_lsn;
     this.no_checkpoint_before_lsn = options.no_checkpoint_before_lsn;
+    this.resumeFromLsn = options.resumeFromLsn;
     this.write_checkpoint_batch = [];
     this.sync_rules = options.sync_rules;
     this.markRecordUnavailable = options.markRecordUnavailable;

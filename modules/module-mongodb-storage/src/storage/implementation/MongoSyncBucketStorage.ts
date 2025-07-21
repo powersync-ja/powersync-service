@@ -16,6 +16,7 @@ import {
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
+  maxLsn,
   ProtocolOpId,
   ReplicationCheckpoint,
   storage,
@@ -131,7 +132,7 @@ export class MongoSyncBucketStorage
       {
         _id: this.group_id
       },
-      { projection: { last_checkpoint_lsn: 1, no_checkpoint_before: 1, keepalive_op: 1 } }
+      { projection: { last_checkpoint_lsn: 1, no_checkpoint_before: 1, keepalive_op: 1, snapshot_lsn: 1 } }
     );
     const checkpoint_lsn = doc?.last_checkpoint_lsn ?? null;
 
@@ -142,6 +143,7 @@ export class MongoSyncBucketStorage
       groupId: this.group_id,
       slotName: this.slot_name,
       lastCheckpointLsn: checkpoint_lsn,
+      resumeFromLsn: maxLsn(checkpoint_lsn, doc?.snapshot_lsn),
       noCheckpointBeforeLsn: doc?.no_checkpoint_before ?? options.zeroLSN,
       keepaliveOp: doc?.keepalive_op ? BigInt(doc.keepalive_op) : null,
       storeCurrentData: options.storeCurrentData,

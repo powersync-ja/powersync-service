@@ -512,6 +512,7 @@ bucket_definitions:
     await collection.insertOne({ description: 'test1', num: 1152921504606846976n });
 
     await context.replicateSnapshot();
+    await context.markSnapshotConsistent();
 
     // Simulate an error
     await context.storage!.reportError(new Error('simulated error'));

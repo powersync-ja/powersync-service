@@ -376,6 +376,11 @@ export class ChangeStream {
         const checkpoint = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
         await batch.markSnapshotDone([], checkpoint);
 
+        // We cannot create a consistent commit at this point. We previously had
+        // commit(snapshotLsn), but since snapshotLsn < checkpoint, it does no more
+        // than a flush().
+        await batch.flush();
+
         this.logger.info(`Snapshot done. Need to replicate from ${snapshotLsn} to ${checkpoint} to be consistent`);
       }
     );
@@ -669,7 +674,6 @@ export class ChangeStream {
     try {
       // If anything errors here, the entire replication process is halted, and
       // all connections automatically closed, including this one.
-
       await this.initReplication();
       await this.streamChanges();
     } catch (e) {
@@ -779,8 +783,11 @@ export class ChangeStream {
         storeCurrentData: false
       },
       async (batch) => {
-        const { lastCheckpointLsn } = batch;
-        const lastLsn = MongoLSN.fromSerialized(lastCheckpointLsn!);
+        const { resumeFromLsn } = batch;
+        if (resumeFromLsn == null) {
+          throw new ReplicationAssertionError(`No LSN found to resume from`);
+        }
+        const lastLsn = MongoLSN.fromSerialized(resumeFromLsn);
         const startAfter = lastLsn?.timestamp;
 
         // It is normal for this to be a minute or two old when there is a low volume
@@ -789,7 +796,7 @@ export class ChangeStream {
 
         this.logger.info(`Resume streaming at ${startAfter?.inspect()} / ${lastLsn}  | Token age: ${tokenAgeSeconds}s`);
 
-        await using streamManager = this.openChangeStream({ lsn: lastCheckpointLsn });
+        await using streamManager = this.openChangeStream({ lsn: resumeFromLsn });
         const { stream, filters } = streamManager;
         if (this.abort_signal.aborted) {
           await stream.close();

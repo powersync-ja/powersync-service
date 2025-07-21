@@ -72,6 +72,13 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
    */
   lastCheckpointLsn: string | null;
 
+  /**
+   * LSN to resume from.
+   *
+   * Not relevant for streams where the source keeps track of replication progress, such as Postgres.
+   */
+  resumeFromLsn: string | null;
+
   markSnapshotDone(tables: SourceTable[], no_checkpoint_before_lsn: string): Promise<SourceTable[]>;
 
   updateTableProgress(table: SourceTable, progress: Partial<TableSnapshotStatus>): Promise<SourceTable>;

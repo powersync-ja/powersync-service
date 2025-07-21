@@ -7,6 +7,7 @@ import {
   InternalOpId,
   internalToExternalOpId,
   LastValueSink,
+  maxLsn,
   storage,
   utils,
   WatchWriteCheckpointOptions
@@ -310,13 +311,14 @@ export class PostgresSyncRulesStorage
       SELECT
         last_checkpoint_lsn,
         no_checkpoint_before,
-        keepalive_op
+        keepalive_op,
+        snapshot_lsn
       FROM
         sync_rules
       WHERE
         id = ${{ type: 'int4', value: this.group_id }}
     `
-      .decoded(pick(models.SyncRules, ['last_checkpoint_lsn', 'no_checkpoint_before', 'keepalive_op']))
+      .decoded(pick(models.SyncRules, ['last_checkpoint_lsn', 'no_checkpoint_before', 'keepalive_op', 'snapshot_lsn']))
       .first();
 
     const checkpoint_lsn = syncRules?.last_checkpoint_lsn ?? null;
@@ -330,6 +332,7 @@ export class PostgresSyncRulesStorage
       last_checkpoint_lsn: checkpoint_lsn,
       keep_alive_op: syncRules?.keepalive_op,
       no_checkpoint_before_lsn: syncRules?.no_checkpoint_before ?? options.zeroLSN,
+      resumeFromLsn: maxLsn(syncRules?.snapshot_lsn, checkpoint_lsn),
       store_current_data: options.storeCurrentData,
       skip_existing_rows: options.skipExistingRows ?? false,
       batch_limits: this.options.batchLimits,
