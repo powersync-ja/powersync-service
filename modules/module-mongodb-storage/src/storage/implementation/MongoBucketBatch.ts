@@ -99,6 +99,8 @@ export class MongoBucketBatch
    */
   public last_flushed_op: InternalOpId | null = null;
 
+  private needsActivation = true;
+
   constructor(options: MongoBucketBatchOptions) {
     super();
     this.logger = options.logger ?? defaultLogger;
@@ -685,6 +687,7 @@ export class MongoBucketBatch
 
     if (!createEmptyCheckpoints && this.persisted_op == null) {
       // Nothing to commit - also return true
+      await this.autoActivate(lsn);
       return true;
     }
 
@@ -729,10 +732,63 @@ export class MongoBucketBatch
       },
       { session: this.session }
     );
+    await this.autoActivate(lsn);
     await this.db.notifyCheckpoint();
     this.persisted_op = null;
     this.last_checkpoint_lsn = lsn;
     return true;
+  }
+
+  /**
+   * Switch from processing -> active if relevant.
+   *
+   * Called on new commits.
+   */
+  private async autoActivate(lsn: string) {
+    if (!this.needsActivation) {
+      return;
+    }
+
+    // Activate the batch, so it can start processing.
+    // This is done automatically when the first save() is called.
+
+    const session = this.session;
+    let activated = false;
+    await session.withTransaction(async () => {
+      const doc = await this.db.sync_rules.findOne({ _id: this.group_id }, { session });
+      if (doc && doc.state == 'PROCESSING') {
+        await this.db.sync_rules.updateOne(
+          {
+            _id: this.group_id
+          },
+          {
+            $set: {
+              state: storage.SyncRuleState.ACTIVE
+            }
+          },
+          { session }
+        );
+
+        await this.db.sync_rules.updateMany(
+          {
+            _id: { $ne: this.group_id },
+            state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
+          },
+          {
+            $set: {
+              state: storage.SyncRuleState.STOP
+            }
+          },
+          { session }
+        );
+        activated = true;
+      }
+    });
+    if (activated) {
+      this.logger.info(`Activated new sync rules at ${lsn}`);
+      await this.db.notifyCheckpoint();
+    }
+    this.needsActivation = false;
   }
 
   async keepalive(lsn: string): Promise<boolean> {
@@ -782,6 +838,7 @@ export class MongoBucketBatch
       },
       { session: this.session }
     );
+    await this.autoActivate(lsn);
     await this.db.notifyCheckpoint();
     this.last_checkpoint_lsn = lsn;
 

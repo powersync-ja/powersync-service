@@ -73,6 +73,7 @@ export class PostgresBucketBatch
   protected batch: OperationBatch | null;
   private lastWaitingLogThrottled = 0;
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
+  private needsActivation = true;
 
   constructor(protected options: PostgresBucketBatchOptions) {
     super();
@@ -321,6 +322,7 @@ export class PostgresBucketBatch
     // Don't create a checkpoint if there were no changes
     if (!createEmptyCheckpoints && this.persisted_op == null) {
       // Nothing to commit - return true
+      await this.autoActivate(lsn);
       return true;
     }
 
@@ -363,6 +365,7 @@ export class PostgresBucketBatch
       .decoded(StatefulCheckpoint)
       .first();
 
+    await this.autoActivate(lsn);
     await notifySyncRulesUpdate(this.db, doc!);
 
     this.persisted_op = null;
@@ -914,6 +917,59 @@ export class PostgresBucketBatch
     }
 
     return result;
+  }
+
+  /**
+   * Switch from processing -> active if relevant.
+   *
+   * Called on new commits.
+   */
+  private async autoActivate(lsn: string): Promise<void> {
+    if (!this.needsActivation) {
+      // Already activated
+      return;
+    }
+
+    let didActivate = false;
+    await this.db.transaction(async (db) => {
+      const syncRulesRow = await db.sql`
+        SELECT
+          state
+        FROM
+          sync_rules
+        WHERE
+          id = ${{ type: 'int4', value: this.group_id }}
+      `
+        .decoded(pick(models.SyncRules, ['state']))
+        .first();
+
+      if (syncRulesRow && syncRulesRow.state == storage.SyncRuleState.PROCESSING) {
+        await db.sql`
+          UPDATE sync_rules
+          SET
+            state = ${{ type: 'varchar', value: storage.SyncRuleState.ACTIVE }}
+          WHERE
+            id = ${{ type: 'int4', value: this.group_id }}
+        `.execute();
+        didActivate = true;
+      }
+
+      await db.sql`
+        UPDATE sync_rules
+        SET
+          state = ${{ type: 'varchar', value: storage.SyncRuleState.STOP }}
+        WHERE
+          (
+            state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
+            OR state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
+          )
+          AND id != ${{ type: 'int4', value: this.group_id }}
+      `.execute();
+    });
+    if (didActivate) {
+      this.logger.info(`Activated new sync rules at ${lsn}`);
+    }
+    this.needsActivation = false;
   }
 
   /**

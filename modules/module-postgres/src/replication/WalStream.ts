@@ -837,7 +837,6 @@ WHERE  oid = $1::regclass`,
 
   async streamChanges(replicationConnection: pgwire.PgConnection) {
     // When changing any logic here, check /docs/wal-lsns.md.
-
     const { createEmptyCheckpoints } = await this.ensureStorageCompatibility();
 
     const replicationOptions: Record<string, string> = {
@@ -866,9 +865,6 @@ WHERE  oid = $1::regclass`,
     });
 
     this.startedStreaming = true;
-
-    // Auto-activate as soon as initial replication is done
-    await this.storage.autoActivate();
 
     let resnapshot: { table: storage.SourceTable; key: PrimaryKeyValue }[] = [];
 

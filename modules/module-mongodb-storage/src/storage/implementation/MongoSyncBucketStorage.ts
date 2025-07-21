@@ -640,41 +640,6 @@ export class MongoSyncBucketStorage
     );
   }
 
-  async autoActivate(): Promise<void> {
-    await this.db.client.withSession(async (session) => {
-      await session.withTransaction(async () => {
-        const doc = await this.db.sync_rules.findOne({ _id: this.group_id }, { session });
-        if (doc && doc.state == 'PROCESSING') {
-          await this.db.sync_rules.updateOne(
-            {
-              _id: this.group_id
-            },
-            {
-              $set: {
-                state: storage.SyncRuleState.ACTIVE
-              }
-            },
-            { session }
-          );
-
-          await this.db.sync_rules.updateMany(
-            {
-              _id: { $ne: this.group_id },
-              state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
-            },
-            {
-              $set: {
-                state: storage.SyncRuleState.STOP
-              }
-            },
-            { session }
-          );
-          await this.db.notifyCheckpoint();
-        }
-      });
-    });
-  }
-
   async reportError(e: any): Promise<void> {
     const message = String(e.message ?? 'Replication failure');
     await this.db.sync_rules.updateOne(

@@ -644,43 +644,6 @@ export class PostgresSyncRulesStorage
     `.execute();
   }
 
-  async autoActivate(): Promise<void> {
-    await this.db.transaction(async (db) => {
-      const syncRulesRow = await db.sql`
-        SELECT
-          state
-        FROM
-          sync_rules
-        WHERE
-          id = ${{ type: 'int4', value: this.group_id }}
-      `
-        .decoded(pick(models.SyncRules, ['state']))
-        .first();
-
-      if (syncRulesRow && syncRulesRow.state == storage.SyncRuleState.PROCESSING) {
-        await db.sql`
-          UPDATE sync_rules
-          SET
-            state = ${{ type: 'varchar', value: storage.SyncRuleState.ACTIVE }}
-          WHERE
-            id = ${{ type: 'int4', value: this.group_id }}
-        `.execute();
-      }
-
-      await db.sql`
-        UPDATE sync_rules
-        SET
-          state = ${{ type: 'varchar', value: storage.SyncRuleState.STOP }}
-        WHERE
-          (
-            state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
-            OR state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
-          )
-          AND id != ${{ type: 'int4', value: this.group_id }}
-      `.execute();
-    });
-  }
-
   private async getChecksumsInternal(batch: storage.FetchPartialBucketChecksum[]): Promise<storage.PartialChecksumMap> {
     if (batch.length == 0) {
       return new Map();

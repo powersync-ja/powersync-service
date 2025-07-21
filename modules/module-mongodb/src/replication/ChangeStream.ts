@@ -218,6 +218,11 @@ export class ChangeStream {
     return await db.collection(table.table).estimatedDocumentCount();
   }
 
+  /**
+   * This gets a LSN before starting a snapshot, which we can resume streaming from after the snapshot.
+   *
+   * This LSN can survive initial replication restarts.
+   */
   private async getSnapshotLsn(): Promise<string> {
     const hello = await this.defaultDb.command({ hello: 1 });
     // Basic sanity check
@@ -292,6 +297,9 @@ export class ChangeStream {
     );
   }
 
+  /**
+   * Given a snapshot LSN, validate that we can read from it, by opening a change stream.
+   */
   private async validateSnapshotLsn(lsn: string) {
     await using streamManager = this.openChangeStream({ lsn: lsn, maxAwaitTimeMs: 0 });
     const { stream } = streamManager;
@@ -362,8 +370,13 @@ export class ChangeStream {
           await touch();
         }
 
-        this.logger.info(`Snapshot commit at ${snapshotLsn}`);
-        await batch.commit(snapshotLsn);
+        // The checkpoint here is a marker - we need to replicate up to at least this
+        // point before the data can be considered consistent.
+        // We could do this for each individual table, but may as well just do it once for the entire snapshot.
+        const checkpoint = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
+        await batch.markSnapshotDone([], checkpoint);
+
+        this.logger.info(`Snapshot done. Need to replicate from ${snapshotLsn} to ${checkpoint} to be consistent`);
       }
     );
   }
@@ -757,14 +770,12 @@ export class ChangeStream {
   }
 
   async streamChangesInternal() {
-    // Auto-activate as soon as initial replication is done
-    await this.storage.autoActivate();
-
     await this.storage.startBatch(
       {
         logger: this.logger,
         zeroLSN: MongoLSN.ZERO.comparable,
         defaultSchema: this.defaultDb.databaseName,
+        // We get a complete postimage for every change, so we don't need to store the current data.
         storeCurrentData: false
       },
       async (batch) => {
