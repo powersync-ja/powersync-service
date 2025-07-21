@@ -1,6 +1,5 @@
 import { ErrorCode, errors, schema } from '@powersync/lib-services-framework';
 import { RequestParameters } from '@powersync/service-sync-rules';
-import * as bson from 'bson';
 import { serialize } from 'bson';
 
 import * as sync from '../../sync/sync-index.js';
@@ -25,7 +24,6 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       };
 
       const sdkData: event_types.SdkUserData = {
-        _id: new bson.ObjectId(),
         client_id: params.client_id,
         user_id: context.user_id!,
         user_agent: context.user_agent,

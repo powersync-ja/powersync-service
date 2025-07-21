@@ -4,7 +4,6 @@ import { event_types } from '@powersync/service-types';
 import { PowerSyncMongo } from './implementation/db.js';
 import { SdkConnectDocument } from './implementation/models.js';
 
-// import { SdkConnectDocument } from './implementation/models.js';
 export class MongoReportStorage implements storage.ReportStorageFactory {
   private readonly client: mongo.MongoClient;
   public readonly db: PowerSyncMongo;
@@ -19,11 +18,26 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
   }
 
   async reportSdkConnect(data: SdkConnectDocument): Promise<void> {
-    await this.db.sdk_report_events.insertOne(data);
+    await this.db.sdk_report_events.findOneAndUpdate(
+      { user_id: data.user_id, client_id: data.client_id },
+      {
+        $set: data
+      },
+      {
+        upsert: true
+      }
+    );
   }
   async reportSdkDisconnect(data: SdkConnectDocument): Promise<void> {
-    const { _id, ...rest } = data;
-    await this.db.sdk_report_events.findOneAndUpdate({ _id }, { $set: rest }, { upsert: true });
+    await this.db.sdk_report_events.findOneAndUpdate(
+      { user_id: data.user_id, client_id: data.client_id },
+      {
+        $set: {
+          disconnect_at: data.disconnect_at
+        }
+      },
+      { upsert: true }
+    );
   }
   async listCurrentConnections(data: event_types.PaginatedInstanceRequest): Promise<void> {
     console.log('MongoReportStorage.listCurrentConnections', data);
