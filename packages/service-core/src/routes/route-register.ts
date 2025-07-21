@@ -1,8 +1,17 @@
 import type fastify from 'fastify';
 import * as uuid from 'uuid';
 
-import { errors, HTTPMethod, logger, router } from '@powersync/lib-services-framework';
+import {
+  ErrorCode,
+  errors,
+  HTTPMethod,
+  logger,
+  RouteNotFound,
+  router,
+  ServiceError
+} from '@powersync/lib-services-framework';
 import { Context, ContextProvider, RequestEndpoint, RequestEndpointHandlerPayload } from './router.js';
+import { FastifyReply } from 'fastify';
 
 export type FastifyEndpoint<I, O, C> = RequestEndpoint<I, O, C> & {
   parse?: boolean;
@@ -69,23 +78,11 @@ export function registerFastifyRoutes(
             const serviceError = errors.asServiceError(ex);
             requestLogger.error(`Request failed`, serviceError);
 
-            response = new router.RouterResponse({
-              status: serviceError.errorData.status || 500,
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              data: {
-                error: serviceError.errorData
-              }
-            });
+            response = serviceErrorToResponse(serviceError);
           }
 
-          Object.keys(response.headers).forEach((key) => {
-            reply.header(key, response.headers[key]);
-          });
-          reply.status(response.status);
           try {
-            await reply.send(response.data);
+            await respond(reply, response);
           } finally {
             await response.afterSend?.({ clientClosed: request.socket.closed });
             requestLogger.info(`${e.method} ${request.url}`, {
@@ -105,4 +102,33 @@ export function registerFastifyRoutes(
       e.plugins?.forEach((plugin) => fastify.register(plugin));
     });
   }
+}
+
+/**
+ * Registers a custom not-found handler to ensure 404 error responses have the same schema as other service errors.
+ */
+export function registerFastifyNotFoundHandler(app: fastify.FastifyInstance) {
+  app.setNotFoundHandler(async (request, reply) => {
+    await respond(reply, serviceErrorToResponse(new RouteNotFound(request.originalUrl, request.method)));
+  });
+}
+
+function serviceErrorToResponse(error: ServiceError): router.RouterResponse {
+  return new router.RouterResponse({
+    status: error.errorData.status || 500,
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    data: {
+      error: error.errorData
+    }
+  });
+}
+
+async function respond(reply: FastifyReply, response: router.RouterResponse) {
+  Object.keys(response.headers).forEach((key) => {
+    reply.header(key, response.headers[key]);
+  });
+  reply.status(response.status);
+  await reply.send(response.data);
 }
