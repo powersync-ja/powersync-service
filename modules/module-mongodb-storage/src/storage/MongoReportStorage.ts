@@ -21,7 +21,10 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     await this.db.sdk_report_events.findOneAndUpdate(
       { user_id: data.user_id, client_id: data.client_id },
       {
-        $set: data
+        $set: data,
+        $unset: {
+          disconnect_at: ''
+        }
       },
       {
         upsert: true
