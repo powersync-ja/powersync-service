@@ -19,9 +19,7 @@ export type SdkConnectEventData = {
   connect_at: Date;
 } & SdkUserData;
 
-export type SdkDisconnectEventData = {
-  disconnect_at: Date;
-} & SdkUserData;
+export type SdkDisconnectEventData = SdkUserData;
 
 export type SdkConnectDocument = {
   sdk: string;

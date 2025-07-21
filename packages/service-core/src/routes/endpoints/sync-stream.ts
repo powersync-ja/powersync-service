@@ -132,10 +132,7 @@ export const syncStreamed = routeDefinition({
           }
           controller.abort();
           metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
-          service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_DISCONNECT_EVENT, {
-            ...sdkData,
-            disconnect_at: new Date()
-          });
+          service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_DISCONNECT_EVENT, sdkData);
           logger.info(`Sync stream complete`, {
             ...tracker.getLogMeta(),
             stream_ms: Date.now() - streamStart,
@@ -146,10 +143,7 @@ export const syncStreamed = routeDefinition({
     } catch (ex) {
       controller.abort();
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
-      service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_DISCONNECT_EVENT, {
-        ...sdkData,
-        disconnect_at: new Date()
-      });
+      service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_DISCONNECT_EVENT, sdkData);
     }
   }
 });
