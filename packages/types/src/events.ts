@@ -25,7 +25,6 @@ export type SdkDisconnectEventData = {
 
 export type SdkConnectDocument = {
   sdk: string;
-  version: string;
   user_agent: string;
   client_id: string;
   user_id: string;
@@ -34,11 +33,11 @@ export type SdkConnectDocument = {
   disconnect_at?: Date;
 };
 
-export type PaginatedInstanceRequest = {
+export type ListCurrentConnectionsResponse = {};
+
+export type InstanceRequest = {
   app_id: string;
   org_id: string;
-  cursor?: string;
-  limit?: number;
 };
 export type EventHandlerFunc<K extends EmitterEngineEvents> = (data: SubscribeEvents[K]) => Promise<void> | void;
 export interface EmitterEvent<K extends EmitterEngineEvents> {

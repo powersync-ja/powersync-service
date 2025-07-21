@@ -3,6 +3,7 @@ import { storage } from '@powersync/service-core';
 import { event_types } from '@powersync/service-types';
 import { PowerSyncMongo } from './implementation/db.js';
 import { SdkConnectDocument } from './implementation/models.js';
+import { ListCurrentConnectionsResponse } from '@powersync/service-types/dist/events.js';
 
 export class MongoReportStorage implements storage.ReportStorageFactory {
   private readonly client: mongo.MongoClient;
@@ -13,7 +14,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     this.db = db;
   }
 
-  async scrapeSdkData(data: event_types.PaginatedInstanceRequest): Promise<void> {
+  async scrapeSdkData(data: event_types.InstanceRequest): Promise<void> {
     console.log('MongoReportStorage.scrapeSdkData', data);
   }
 
@@ -37,13 +38,16 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
       {
         $set: {
           disconnect_at: data.disconnect_at
+        },
+        $unset: {
+          jwt_exp: ''
         }
       },
       { upsert: true }
     );
   }
-  async listCurrentConnections(data: event_types.PaginatedInstanceRequest): Promise<void> {
-    console.log('MongoReportStorage.listCurrentConnections', data);
+  async listCurrentConnections(data: event_types.InstanceRequest): Promise<ListCurrentConnectionsResponse> {
+    return this.db.sdk_report_events.aggregate([{ $match: {} }]);
   }
 
   async [Symbol.asyncDispose]() {
