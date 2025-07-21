@@ -737,6 +737,9 @@ WHERE  oid = $1::regclass`,
           rows.map((r) => r.key)
         );
       }
+      // Even with resnapshot, we need to wait until we get a new consistent checkpoint
+      // after the snapshot, so we need to send a keepalive message.
+      await sendKeepAlive(db);
     } finally {
       await db.end();
     }

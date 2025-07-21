@@ -16,6 +16,7 @@ import {
   BucketStorageMarkRecordUnavailable,
   deserializeBson,
   InternalOpId,
+  isCompleteRow,
   SaveOperationTag,
   storage,
   utils
@@ -348,7 +349,7 @@ export class MongoBucketBatch
         // Not an error if we re-apply a transaction
         existing_buckets = [];
         existing_lookups = [];
-        if (this.storeCurrentData) {
+        if (!isCompleteRow(this.storeCurrentData, after!)) {
           if (this.markRecordUnavailable != null) {
             // This will trigger a "resnapshot" of the record.
             // This is not relevant if storeCurrentData is false, since we'll get the full row

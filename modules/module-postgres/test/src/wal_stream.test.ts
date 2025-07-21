@@ -179,8 +179,8 @@ bucket_definitions:
       )
     );
 
-    // This update may fail replicating with:
-    // Error: Update on missing record public.test_data:074a601e-fc78-4c33-a15d-f89fdd4af31d :: {"g":1,"t":"651e9fbe9fec6155895057ec","k":"1a0b34da-fb8c-5e6f-8421-d7a3c5d4df4f"}
+    // Since we don't have an old copy of the record with the new primary key, this
+    // may trigger a "resnapshot".
     await pool.query(`UPDATE test_data SET description = 'test2b' WHERE id = '${test_id2}'`);
 
     // Re-use old id again
