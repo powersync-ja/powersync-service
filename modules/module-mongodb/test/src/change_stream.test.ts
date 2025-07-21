@@ -516,7 +516,9 @@ bucket_definitions:
 
     // Simulate an error
     await context.storage!.reportError(new Error('simulated error'));
-    expect((await context.factory.getActiveSyncRulesContent())?.last_fatal_error).toEqual('simulated error');
+    const syncRules = await context.factory.getActiveSyncRulesContent();
+    expect(syncRules).toBeTruthy();
+    expect(syncRules?.last_fatal_error).toEqual('simulated error');
 
     // startStreaming() should automatically clear the error.
     context.startStreaming();

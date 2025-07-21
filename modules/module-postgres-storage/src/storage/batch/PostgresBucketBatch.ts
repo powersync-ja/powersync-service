@@ -413,6 +413,7 @@ export class PostgresBucketBatch
       .decoded(StatefulCheckpoint)
       .first();
 
+    await this.autoActivate(lsn);
     await notifySyncRulesUpdate(this.db, updated!);
 
     this.last_checkpoint_lsn = lsn;
