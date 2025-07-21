@@ -33,12 +33,14 @@ export type SdkConnectDocument = {
   disconnect_at?: Date;
 };
 
-export type ListCurrentConnectionsResponse = {};
-
 export type InstanceRequest = {
   app_id: string;
   org_id: string;
+  user_count: number;
+  client_id_count: number;
+  sdk: string[];
 };
+export type ListCurrentConnectionsResponse = {} & InstanceRequest;
 export type EventHandlerFunc<K extends EmitterEngineEvents> = (data: SubscribeEvents[K]) => Promise<void> | void;
 export interface EmitterEvent<K extends EmitterEngineEvents> {
   event: K;

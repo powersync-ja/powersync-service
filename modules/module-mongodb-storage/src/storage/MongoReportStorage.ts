@@ -33,14 +33,31 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     await this.db.sdk_report_events.findOneAndDelete({ user_id: data.user_id, client_id: data.client_id });
   }
   async listCurrentConnections(data: event_types.InstanceRequest): Promise<ListCurrentConnectionsResponse> {
-    return this.db.sdk_report_events.aggregate([
-      {
-        $group: {
-          user_id: '$user_id',
-          client_id: '$client_id'
+    const result = await this.db.sdk_report_events
+      .aggregate([
+        {
+          $group: {
+            _id: null,
+            user_ids: { $addToSet: '$user_id' },
+            client_ids: { $addToSet: '$client_id' },
+            sdks: { $addToSet: '$sdk' }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            user_count: { $size: '$user_ids' },
+            client_id_count: { $size: '$client_ids' },
+            sdk: '$sdks'
+          }
         }
-      }
-    ]);
+      ])
+      .toArray();
+    console.log(result);
+    return {
+      ...data,
+      ...result[0]
+    };
   }
 
   async [Symbol.asyncDispose]() {
