@@ -16,11 +16,17 @@ export type BucketRequest = t.Decoded<typeof BucketRequest>;
 /**
  * A sync steam that a client has expressed interest in by explicitly opening it on the client side.
  */
-export const OpenedStream = t.object({
+export const RequestedStreamSubscription = t.object({
   /**
    * The defined name of the stream as it appears in sync stream definitions.
    */
   stream: t.string,
+  /**
+   * An opaque textual identifier assigned to this request by the client.
+   *
+   * Wh
+   */
+  client_id: t.string,
   /**
    * An optional dictionary of parameters to pass to this specific stream.
    */
@@ -34,26 +40,26 @@ export const OpenedStream = t.object({
   override_priority: t.number.optional()
 });
 
-export type OpenedStream = t.Decoded<typeof OpenedStream>;
+export type RequestedStreamSubscription = t.Decoded<typeof RequestedStreamSubscription>;
 
 /**
- * An overview of all opened streams as part of a streaming sync request.
+ * An overview of all subscribed streams as part of a streaming sync request.
  */
-export const OpenedStreams = t.object({
+export const StreamSubscriptionRequest = t.object({
   /**
    * Whether to sync default streams.
    *
-   * When disabled,only
+   * When disabled, only explicitly-opened subscriptions are included.
    */
   include_defaults: t.boolean.optional(),
 
   /**
    * An array of sync streams the client has opened explicitly.
    */
-  opened: t.array(OpenedStream)
+  opened: t.array(RequestedStreamSubscription)
 });
 
-export type StreamSubscriptions = t.Decoded<typeof OpenedStreams>;
+export type StreamSubscriptionRequest = t.Decoded<typeof StreamSubscriptionRequest>;
 
 export const StreamingSyncRequest = t.object({
   /**
@@ -94,7 +100,7 @@ export const StreamingSyncRequest = t.object({
   /**
    * If the client is aware of streams, an array of streams the client has opened.
    */
-  subscriptions: OpenedStreams.optional()
+  subscriptions: StreamSubscriptionRequest.optional()
 });
 
 export type StreamingSyncRequest = t.Decoded<typeof StreamingSyncRequest>;
@@ -107,7 +113,7 @@ export interface StreamingSyncCheckpointDiff {
   checkpoint_diff: {
     last_op_id: ProtocolOpId;
     write_checkpoint?: ProtocolOpId;
-    updated_buckets: BucketChecksumWithDescription[];
+    updated_buckets: CheckpointBucket[];
     removed_buckets: string[];
   };
 }
@@ -154,7 +160,7 @@ export interface StreamDescription {
 export interface Checkpoint {
   last_op_id: ProtocolOpId;
   write_checkpoint?: ProtocolOpId;
-  buckets: BucketChecksumWithDescription[];
+  buckets: CheckpointBucket[];
   streams: StreamDescription[];
 }
 
@@ -211,4 +217,31 @@ export interface BucketChecksum {
   count: number;
 }
 
-export interface BucketChecksumWithDescription extends BucketChecksum, BucketDescription {}
+/**
+ * The reason a particular bucket is included in a checkpoint.
+ *
+ * This information allows clients to associate individual buckets with sync streams they're subscribed to. Having that
+ * association is useful because it enables clients to track progress for individual sync streams.
+ */
+export type BucketSubscriptionReason = BucketDerivedFromDefaultStream | BucketDerivedFromExplicitSubscription;
+
+/**
+ * A bucket has been included in a checkpoint because it's part of a default stream.
+ *
+ * The string is the name of the stream definition.
+ */
+export type BucketDerivedFromDefaultStream = { def: string };
+
+/**
+ * The bucket has been included in a checkpoint because it's part of a stream that a client has explicitly subscribed
+ * to.
+ *
+ * The string is the client id associated with the subscription in {@link RequestedStreamSubscription}.
+ */
+export type BucketDerivedFromExplicitSubscription = { sub: string };
+
+export interface ClientBucketDescription extends BucketDescription {
+  subscriptions: BucketSubscriptionReason[];
+}
+
+export interface CheckpointBucket extends BucketChecksum, ClientBucketDescription {}

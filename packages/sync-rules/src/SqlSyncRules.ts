@@ -20,6 +20,7 @@ import {
   QueryParseOptions,
   RequestParameters,
   SourceSchema,
+  SqliteJsonRow,
   SqliteRow,
   StreamParseOptions,
   SyncRules
@@ -39,6 +40,21 @@ export interface SyncRulesOptions {
   throwOnError?: boolean;
 }
 
+export interface RequestedStream {
+  /**
+   * The parameters for the explicit stream subscription.
+   *
+   * Unlike {@link GetQuerierOptions.globalParameters}, these parameters are only applied to the particular stream.
+   */
+  parameters: SqliteJsonRow | null;
+
+  /**
+   * An opaque id of the stream subscription, used to associate buckets with the stream subscriptions that have caused
+   * them to be included.
+   */
+  opaque_id: string;
+}
+
 export interface GetQuerierOptions {
   globalParameters: RequestParameters;
   /**
@@ -48,13 +64,14 @@ export interface GetQuerierOptions {
    */
   hasDefaultStreams: boolean;
   /**
+   *
    * For streams, this is invoked to check whether the client has opened the relevant stream.
    *
    * @param name The name of the stream as it appears in the sync rule definitions.
    * @returns If the strema has been opened by the client, the stream parameters for that particular stream. Otherwise
    * null.
    */
-  resolveOpenedStream: (name: string) => Record<string, any> | null;
+  streams: Record<string, RequestedStream[]>;
 }
 
 export class SqlSyncRules implements SyncRules {
@@ -378,21 +395,33 @@ export class SqlSyncRules implements SyncRules {
       let params = options.globalParameters;
 
       if (descriptor.type == SqlBucketDescriptorType.STREAM) {
-        const opened = options.resolveOpenedStream(descriptor.name);
+        const subscriptions = options.streams[descriptor.name] ?? [];
 
-        if (!descriptor.subscribedToByDefault && opened == null) {
+        if (!descriptor.subscribedToByDefault && subscriptions.length) {
           // The client is not subscribing to this stream, so don't query buckets related to it.
           continue;
         }
 
-        if (opened != null) {
-          params = params.withAddedStreamParameters(opened);
+        let hasExplicitDefaultSubscription = false;
+        for (const subscription of subscriptions) {
+          let subscriptionParams = params;
+          if (subscription.parameters != null) {
+            subscriptionParams = params.withAddedStreamParameters(subscription.parameters);
+          } else {
+            hasExplicitDefaultSubscription = true;
+          }
+
+          queriers.push(descriptor.getBucketParameterQuerier(subscriptionParams));
         }
 
+        // If the stream is subscribed to by default and there is no explicit subscription that would match the default
+        // subscription, also include the default querier.
+        if (descriptor.subscribedToByDefault && !hasExplicitDefaultSubscription) {
+          queriers.push(descriptor.getBucketParameterQuerier(params));
+        }
+      } else {
         queriers.push(descriptor.getBucketParameterQuerier(params));
       }
-
-      queriers.push(descriptor.getBucketParameterQuerier(params));
     }
 
     return mergeBucketParameterQueriers(queriers);
