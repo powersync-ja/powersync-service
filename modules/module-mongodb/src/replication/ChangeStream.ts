@@ -376,10 +376,9 @@ export class ChangeStream {
         const checkpoint = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
         await batch.markSnapshotDone([], checkpoint);
 
-        // We cannot create a consistent commit at this point. We previously had
-        // commit(snapshotLsn), but since snapshotLsn < checkpoint, it does no more
-        // than a flush().
-        await batch.flush();
+        // This will not create a consistent checkpoint yet, but will persist the op.
+        // Actual checkpoint will be created when streaming replication caught up.
+        await batch.commit(snapshotLsn);
 
         this.logger.info(`Snapshot done. Need to replicate from ${snapshotLsn} to ${checkpoint} to be consistent`);
       }

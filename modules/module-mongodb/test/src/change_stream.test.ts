@@ -354,6 +354,9 @@ bucket_definitions:
     const test_id = result.insertedId.toHexString();
 
     await context.replicateSnapshot();
+    // Note: snapshot is only consistent some time into the streaming request.
+    // At the point that we get the first acknowledged checkpoint, as is required
+    // for getBucketData(), the data should be consistent.
     context.startStreaming();
 
     const data = await context.getBucketData('global[]');
