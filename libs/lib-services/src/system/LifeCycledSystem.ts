@@ -9,7 +9,7 @@
 import { ServiceError } from '@powersync/service-errors';
 import { container } from '../container.js';
 import { logger } from '../logger/Logger.js';
-// TODO: REMOVE THIS COMMENT
+
 export type LifecycleCallback<T> = (singleton: T) => Promise<void> | void;
 
 export type PartialLifecycle<T> = {
