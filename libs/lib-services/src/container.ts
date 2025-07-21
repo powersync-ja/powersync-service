@@ -47,7 +47,6 @@ export type Newable<T> = new (...args: never[]) => T;
  * Identifier used to get and register implementations
  */
 export type ServiceIdentifier<T = unknown> = string | symbol | Newable<T> | Abstract<T> | ContainerImplementation;
-// TODO: REMOVE THIS COMMENT, DEV PACKAGES
 const DEFAULT_GENERATORS: ContainerImplementationDefaultGenerators = {
   [ContainerImplementation.REPORTER]: () => NoOpReporter,
   [ContainerImplementation.PROBES]: () => createInMemoryProbe(),
