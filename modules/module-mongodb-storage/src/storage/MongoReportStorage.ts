@@ -5,7 +5,7 @@ import { PowerSyncMongo } from './implementation/db.js';
 import {
   ListCurrentConnections,
   ListCurrentConnectionsResponse,
-  SdkConnectEventData,
+  SdkConnectBucketData,
   SdkDisconnectEventData
 } from '@powersync/service-types/dist/events.js';
 
@@ -50,7 +50,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     };
   }
 
-  async reportSdkConnect(data: SdkConnectEventData): Promise<void> {
+  async reportSdkConnect(data: SdkConnectBucketData): Promise<void> {
     await this.db.sdk_report_events.findOneAndUpdate(
       { _id: data.id },
       {

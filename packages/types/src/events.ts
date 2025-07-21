@@ -31,6 +31,14 @@ export type SdkConnectEventData = {
   id: bson.ObjectId;
 };
 
+export type SdkConnectBucketData = {
+  data: {
+    connect_at: Date;
+    sdk: string;
+  } & SdkUserData;
+  id: bson.ObjectId;
+};
+
 export type SdkDisconnectEventData = {
   data: {
     disconnect_at: Date;

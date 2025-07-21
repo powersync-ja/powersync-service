@@ -2,13 +2,13 @@ import {
   DeleteOldSdkData,
   InstanceRequest,
   ListCurrentConnectionsResponse,
-  SdkConnectEventData,
+  SdkConnectBucketData,
   SdkDisconnectEventData
 } from '@powersync/service-types/dist/events.js';
 
 // Interface for the ReportStorageFactory
 export interface ReportStorageFactory extends AsyncDisposable {
-  reportSdkConnect(data: SdkConnectEventData): Promise<void>;
+  reportSdkConnect(data: SdkConnectBucketData): Promise<void>;
   reportSdkDisconnect(data: SdkDisconnectEventData): Promise<void>;
   listCurrentConnections(data: InstanceRequest): Promise<ListCurrentConnectionsResponse>;
   scrapeSdkData(data: InstanceRequest): Promise<ListCurrentConnectionsResponse>;
