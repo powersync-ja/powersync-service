@@ -1,5 +1,19 @@
 # @powersync/service-core
 
+## 1.13.4
+
+### Patch Changes
+
+- a60f2c7: [MongoDB Storage] Improve error messages for checksum query timeouts
+- 71cf892: Add 'powersync' or 'powersync-storage' as the app name for database connections.
+- ba1ceef: Remove unused dev config.
+- 60bf5f9: [MongoDB Replication] Fix resumeTokens going back in time on busy change streams.
+- f1431b6: Improve diagnostics in logs for JWKS timeouts.
+- Updated dependencies [ba1ceef]
+  - @powersync/service-types@0.12.1
+  - @powersync/lib-services-framework@0.7.1
+  - @powersync/service-rsocket-router@0.1.2
+
 ## 1.13.3
 
 ### Patch Changes
