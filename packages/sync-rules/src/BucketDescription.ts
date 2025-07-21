@@ -24,6 +24,7 @@ export interface BucketDescription {
    * The name of the sync rule or stream definition from which the bucket is derived.
    */
   definition: string;
+
   /**
    * The id of the bucket, which is derived from the name of the bucket's definition
    * in the sync rules as well as the values returned by the parameter queries.
@@ -34,3 +35,15 @@ export interface BucketDescription {
    */
   priority: BucketPriority;
 }
+
+/**
+ * A bucket that was resolved to a specific request including stream subscriptions.
+ *
+ * This includes information on why the bucket has been included in a checkpoint subset
+ * shown to clients.
+ */
+export interface ResolvedBucket extends BucketDescription {
+  inclusion_reasons: BucketInclusionReason[];
+}
+
+export type BucketInclusionReason = 'default' | { subscription: string };
