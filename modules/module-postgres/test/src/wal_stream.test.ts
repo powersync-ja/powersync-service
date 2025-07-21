@@ -34,10 +34,7 @@ bucket_definitions:
       `CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text, num int8)`
     );
 
-    await context.replicateSnapshot();
-    context.startStreaming();
-    // Make sure we're up to date
-    await context.getCheckpoint();
+    await context.initializeReplication();
 
     const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
     const startTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
@@ -70,12 +67,10 @@ bucket_definitions:
     await pool.query(`DROP TABLE IF EXISTS "test_DATA"`);
     await pool.query(`CREATE TABLE "test_DATA"(id uuid primary key default uuid_generate_v4(), description text)`);
 
-    await context.replicateSnapshot();
+    await context.initializeReplication();
 
     const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
     const startTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
-
-    context.startStreaming();
 
     const [{ test_id }] = pgwireRows(
       await pool.query(`INSERT INTO "test_DATA"(description) VALUES('test1') returning id as test_id`)
@@ -144,8 +139,7 @@ bucket_definitions:
     await pool.query(`DROP TABLE IF EXISTS test_data`);
     await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);
 
-    await context.replicateSnapshot();
-    context.startStreaming();
+    await context.initializeReplication();
 
     const [{ test_id }] = pgwireRows(
       await pool.query(`INSERT INTO test_data(description) VALUES('test1') returning id as test_id`)
@@ -167,11 +161,7 @@ bucket_definitions:
     await pool.query(`DROP TABLE IF EXISTS test_data`);
     await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);
 
-    await context.replicateSnapshot();
-    context.startStreaming();
-
-    // Make sure we're up to date
-    await context.getCheckpoint();
+    await context.initializeReplication();
 
     const [{ test_id }] = pgwireRows(
       await pool.query(`INSERT INTO test_data(description) VALUES('test1') returning id as test_id`)
@@ -268,11 +258,7 @@ bucket_definitions:
 
     await pool.query(`CREATE TABLE test_donotsync(id uuid primary key default uuid_generate_v4(), description text)`);
 
-    await context.replicateSnapshot();
-
-    context.startStreaming();
-    // Make sure we're up to date
-    await context.getCheckpoint();
+    await context.initializeReplication();
 
     const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
     const startTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;

@@ -118,6 +118,16 @@ export class WalStreamTestContext implements AsyncDisposable {
     return this._walStream!;
   }
 
+  /**
+   * Replicate a snapshot, start streaming, and wait for a consistent checkpoint.
+   */
+  async initializeReplication() {
+    await this.replicateSnapshot();
+    this.startStreaming();
+    // Make sure we're up to date
+    await this.getCheckpoint();
+  }
+
   async replicateSnapshot() {
     const promise = (async () => {
       this.replicationConnection = await this.connectionManager.replicationConnection();
