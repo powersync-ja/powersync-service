@@ -1,7 +1,7 @@
 import type fastify from 'fastify';
 import * as uuid from 'uuid';
 
-import { registerFastifyRoutes } from './route-register.js';
+import { registerFastifyNotFoundHandler, registerFastifyRoutes } from './route-register.js';
 
 import * as system from '../system/system-index.js';
 
@@ -76,6 +76,8 @@ export function configureFastifyServer(server: fastify.FastifyInstance, options:
    */
   server.register(async function (childContext) {
     registerFastifyRoutes(childContext, generateContext, routes.api?.routes ?? DEFAULT_ROUTE_OPTIONS.api.routes);
+    registerFastifyNotFoundHandler(childContext);
+
     // Limit the active concurrent requests
     childContext.addHook(
       'onRequest',
