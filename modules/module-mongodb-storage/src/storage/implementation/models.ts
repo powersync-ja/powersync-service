@@ -118,9 +118,15 @@ export interface SyncRuleDocument {
   snapshot_done: boolean;
 
   /**
+   * This is now used for "resumeLsn".
+   *
    * If snapshot_done = false, this may be the lsn at which we started the snapshot.
    *
    * This can be used for resuming the snapshot after a restart.
+   *
+   * If snapshot_done is true, this is treated as the point to restart replication from.
+   *
+   * More specifically, we resume replication from max(snapshot_lsn, last_checkpoint_lsn).
    */
   snapshot_lsn: string | undefined;
 
