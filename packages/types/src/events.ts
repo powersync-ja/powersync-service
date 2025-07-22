@@ -4,12 +4,7 @@ export enum EmitterEngineEvents {
   SDK_DELETE_OLD = 'sdk-delete-old'
 }
 
-export enum TimeFrames {
-  DAY = 'day',
-  WEEK = 'week',
-  MONTH = 'month'
-}
-
+export type TimeFrames = 'day' | 'week' | 'month';
 export type SubscribeEvents = {
   [EmitterEngineEvents.SDK_CONNECT_EVENT]: SdkConnectEventData;
   [EmitterEngineEvents.SDK_DISCONNECT_EVENT]: SdkDisconnectEventData;

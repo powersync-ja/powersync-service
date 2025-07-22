@@ -32,7 +32,7 @@ function timeSpan(timeframe: event_types.TimeFrames): mongo.Filter<mongo.Documen
   const date = new Date();
   const { year, month, day, today } = parseDate(date);
   switch (timeframe) {
-    case event_types.TimeFrames.MONTH: {
+    case 'month': {
       // Cron should run the first day of the new month, this then retrieves from the 1st to the last day of the month
       const thisMonth = month;
       const nextMonth = month == 11 ? 0 : month + 1;
@@ -40,7 +40,7 @@ function timeSpan(timeframe: event_types.TimeFrames): mongo.Filter<mongo.Documen
         connect_at: { $gte: new Date(year, thisMonth, 1, 0, 0, 0), $lte: new Date(year, nextMonth, 1, 0, 0, 0) }
       };
     }
-    case event_types.TimeFrames.WEEK: {
+    case 'week': {
       // Back tracks the date to the previous week Monday to Sunday
       const daysToSunday = 0 - day;
       const weekEndDate = new Date(date);
