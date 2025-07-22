@@ -32,13 +32,16 @@ export const syncStreamed = routeDefinition({
     const clientId = payload.params.client_id;
     const streamStart = Date.now();
     // This falls back to JSON unless there's preference for the bson-stream in the Accept header.
-    const useBson = new Negotiator(payload.request).mediaType(supportedContentTypes) == concatenatedBsonContentType;
+    const useBson =
+      payload.request.headers.accept &&
+      new Negotiator(payload.request).mediaType(supportedContentTypes) == concatenatedBsonContentType;
 
     logger.defaultMeta = {
       ...logger.defaultMeta,
       user_agent: userAgent,
       client_id: clientId,
-      user_id: payload.context.user_id
+      user_id: payload.context.user_id,
+      bson: useBson
     };
 
     if (routerEngine.closed) {
