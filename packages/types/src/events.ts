@@ -51,16 +51,17 @@ export type InstanceRequest = {
 };
 
 export type ListCurrentConnections = {
-  user_count: number;
-  client_count: number;
-  user_per_sdk: {
+  unique_user_count: number;
+  unique_user_client_count: number;
+  unique_user_sdk_count: number;
+  sdk_versions: {
     [sdk_version: string]: number;
   };
 };
 export type ScrapeSdkDataRequest = {
   scrape_time: TimeFrames;
 };
-export type ListCurrentConnectionsResponse = ListCurrentConnections & InstanceRequest;
+export type ListCurrentConnectionsResponse = ListCurrentConnections;
 
 export type EventHandlerFunc<K extends EmitterEngineEvents> = (data: SubscribeEvents[K]) => Promise<void> | void;
 export interface EmitterEvent<K extends EmitterEngineEvents> {
