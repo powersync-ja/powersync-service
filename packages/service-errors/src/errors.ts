@@ -218,12 +218,17 @@ export class InternalServerError extends ServiceError {
 export class RouteNotFound extends ServiceError {
   static readonly CODE = ErrorCode.PSYNC_S2002;
 
-  constructor(path: string) {
+  constructor(path: string, method?: string) {
+    let pathDescription = JSON.stringify(path);
+    if (method != null) {
+      pathDescription = `${method} ${pathDescription}`;
+    }
+
     super({
       code: RouteNotFound.CODE,
       status: 404,
       description: 'The path does not exist on this server',
-      details: `The path ${JSON.stringify(path)} does not exist on this server`,
+      details: `The path ${pathDescription} does not exist on this server`,
       severity: ErrorSeverity.INFO
     });
   }
