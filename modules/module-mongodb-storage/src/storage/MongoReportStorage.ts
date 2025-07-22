@@ -88,7 +88,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
         },
         {
           $facet: {
-            unique_user_ids: [
+            unique_users: [
               {
                 $group: {
                   _id: '$user_id'
@@ -123,7 +123,20 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
               {
                 $count: 'count'
               }
+            ],
+            unique_sdks: [
+              {
+                $group: {
+                  _id: '$sdk'
+                }
+              }
             ]
+          },
+          $project: {
+            unique_users_count: { $ifNull: [{ $arrayElemAt: ['$unique_users.count', 0] }, 0] },
+            unique_user_sdk_count: { $ifNull: [{ $arrayElemAt: ['$unique_user_sdk.count', 0] }, 0] },
+            unique_user_client_count: { $ifNull: [{ $arrayElemAt: ['$unique_user_client.count', 0] }, 0] },
+            sdk_versions: '$unique_sdks._id'
           }
         }
       ])
