@@ -12,7 +12,7 @@ import {
 function dateFilter(userId: string, clientId: string): mongo.Filter<mongo.Document> {
   const date = new Date();
   const year = date.getFullYear();
-  const month = date.getMonth() + 1;
+  const month = date.getMonth();
   const day = date.getDate();
   const query = {
     user_id: userId,
