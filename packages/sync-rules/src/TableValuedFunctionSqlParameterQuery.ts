@@ -222,9 +222,7 @@ export class TableValuedFunctionSqlParameterQuery {
 
   private getIndividualBucketDescription(row: SqliteRow, parameters: RequestParameters): BucketDescription | null {
     const mergedParams: ParameterValueSet = {
-      rawTokenPayload: parameters.rawTokenPayload,
-      rawUserParameters: parameters.rawUserParameters,
-      userId: parameters.userId,
+      ...parameters,
       lookup: (table, column) => {
         if (table == this.callTableName) {
           return row[column]!;
@@ -249,6 +247,7 @@ export class TableValuedFunctionSqlParameterQuery {
     }
 
     return {
+      definition: this.descriptorName,
       bucket: getBucketId(this.descriptorName, this.bucketParameters, result),
       priority: this.priority
     };

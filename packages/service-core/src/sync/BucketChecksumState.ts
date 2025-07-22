@@ -1,4 +1,12 @@
-import { BucketDescription, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
+import {
+  BucketDescription,
+  BucketPriority,
+  isValidPriority,
+  RequestedStream,
+  RequestParameters,
+  ResolvedBucket,
+  SqlSyncRules
+} from '@powersync/service-sync-rules';
 
 import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
@@ -14,12 +22,14 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import { BucketParameterQuerier } from '@powersync/service-sync-rules/src/BucketParameterQuerier.js';
 import { SyncContext } from './SyncContext.js';
 import { getIntersection, hasIntersection } from './util.js';
+import { SqlBucketDescriptor, SqlBucketDescriptorType } from '@powersync/service-sync-rules/src/SqlBucketDescriptor.js';
 
 export interface BucketChecksumStateOptions {
   syncContext: SyncContext;
   bucketStorage: BucketChecksumStateStorage;
   syncRules: SqlSyncRules;
   syncParams: RequestParameters;
+  syncRequest: util.StreamingSyncRequest;
   logger?: Logger;
   initialBucketPositions?: { name: string; after: util.InternalOpId }[];
 }
@@ -70,6 +80,7 @@ export class BucketChecksumState {
       options.bucketStorage,
       options.syncRules,
       options.syncParams,
+      options.syncRequest,
       this.logger
     );
     this.bucketDataPositions = new Map();
@@ -100,7 +111,9 @@ export class BucketChecksumState {
     const { buckets: allBuckets, updatedBuckets } = update;
 
     /** Set of all buckets in this checkpoint. */
-    const bucketDescriptionMap = new Map(allBuckets.map((b) => [b.bucket, b]));
+    const bucketDescriptionMap = new Map(
+      allBuckets.map((b) => [b.bucket, this.parameterState.translateResolvedBucket(b)])
+    );
 
     if (bucketDescriptionMap.size > this.context.maxBuckets) {
       throw new ServiceError(
@@ -182,12 +195,12 @@ export class BucketChecksumState {
 
       const updatedBucketDescriptions = diff.updatedBuckets.map((e) => ({
         ...e,
-        priority: bucketDescriptionMap.get(e.bucket)!.priority
+        ...bucketDescriptionMap.get(e.bucket)!
       }));
       bucketsToFetch = [...generateBucketsToFetch].map((b) => {
         return {
-          bucket: b,
-          priority: bucketDescriptionMap.get(b)!.priority
+          ...bucketDescriptionMap.get(b)!,
+          bucket: b
         };
       });
 
@@ -221,14 +234,27 @@ export class BucketChecksumState {
         this.logger.info(message, { checkpoint: base.checkpoint, user_id: user_id, buckets: allBuckets.length });
       };
       bucketsToFetch = allBuckets;
+      this.parameterState.syncRules.bucketDescriptors;
+
+      const subscriptions: util.StreamDescription[] = [];
+      for (const desc of this.parameterState.syncRules.bucketDescriptors) {
+        if (desc.type == SqlBucketDescriptorType.STREAM && this.parameterState.isSubscribedToStream(desc)) {
+          subscriptions.push({
+            name: desc.name,
+            is_default: desc.subscribedToByDefault
+          });
+        }
+      }
+
       checkpointLine = {
         checkpoint: {
           last_op_id: util.internalToExternalOpId(base.checkpoint),
           write_checkpoint: writeCheckpoint ? String(writeCheckpoint) : undefined,
           buckets: [...checksumMap.values()].map((e) => ({
             ...e,
-            priority: bucketDescriptionMap.get(e.bucket)!.priority
-          }))
+            ...bucketDescriptionMap.get(e.bucket)!
+          })),
+          streams: subscriptions
         }
       } satisfies util.StreamingSyncCheckpoint;
     }
@@ -319,7 +345,7 @@ export interface CheckpointUpdate {
   /**
    * All buckets forming part of the checkpoint.
    */
-  buckets: BucketDescription[];
+  buckets: ResolvedBucket[];
 
   /**
    * If present, a set of buckets that have been updated since the last checkpoint.
@@ -336,8 +362,12 @@ export class BucketParameterState {
   public readonly syncParams: RequestParameters;
   private readonly querier: BucketParameterQuerier;
   private readonly staticBuckets: Map<string, BucketDescription>;
+  private readonly includeDefaultStreams: boolean;
+  // Indexed by the client-side id
+  private readonly explicitStreamSubscriptions: Record<string, util.RequestedStreamSubscription>;
+  private readonly subscribedStreamNames: Set<string>;
   private readonly logger: Logger;
-  private cachedDynamicBuckets: BucketDescription[] | null = null;
+  private cachedDynamicBuckets: ResolvedBucket[] | null = null;
   private cachedDynamicBucketSet: Set<string> | null = null;
 
   private readonly lookups: Set<string>;
@@ -347,6 +377,7 @@ export class BucketParameterState {
     bucketStorage: BucketChecksumStateStorage,
     syncRules: SqlSyncRules,
     syncParams: RequestParameters,
+    request: util.StreamingSyncRequest,
     logger: Logger
   ) {
     this.context = context;
@@ -355,9 +386,77 @@ export class BucketParameterState {
     this.syncParams = syncParams;
     this.logger = logger;
 
-    this.querier = syncRules.getBucketParameterQuerier(this.syncParams);
-    this.staticBuckets = new Map<string, BucketDescription>(this.querier.staticBuckets.map((b) => [b.bucket, b]));
+    const idToStreamSubscription: Record<string, util.RequestedStreamSubscription> = {};
+    const streamsByName: Record<string, RequestedStream[]> = {};
+    const subscriptions = request.subscriptions;
+    if (subscriptions) {
+      for (const subscription of subscriptions.opened) {
+        idToStreamSubscription[subscription.stream] = subscription;
+
+        const syncRuleStream: RequestedStream = {
+          parameters: subscription.parameters ?? {},
+          opaque_id: subscription.client_id
+        };
+        if (Object.hasOwn(streamsByName, subscription.stream)) {
+          streamsByName[subscription.stream].push(syncRuleStream);
+        } else {
+          streamsByName[subscription.stream] = [syncRuleStream];
+        }
+      }
+    }
+    this.includeDefaultStreams = subscriptions?.include_defaults ?? true;
+    this.explicitStreamSubscriptions = idToStreamSubscription;
+
+    this.querier = syncRules.getBucketParameterQuerier({
+      globalParameters: this.syncParams,
+      hasDefaultStreams: this.includeDefaultStreams,
+      streams: streamsByName
+    });
+
+    this.staticBuckets = new Map<string, BucketDescription>(
+      mergeBuckets(this.querier.staticBuckets).map((b) => [b.bucket, b])
+    );
     this.lookups = new Set<string>(this.querier.parameterQueryLookups.map((l) => JSONBig.stringify(l.values)));
+    this.subscribedStreamNames = new Set(Object.keys(streamsByName));
+  }
+
+  /**
+   * Translates an internal sync-rules {@link ResolvedBucket} instance to the public
+   * {@link util.ClientBucketDescription}.
+   */
+  translateResolvedBucket(description: ResolvedBucket): util.ClientBucketDescription {
+    // If the client is overriding the priority of any stream that yields this bucket, sync the bucket with that
+    // priority.
+    let priorityOverride: BucketPriority | null = null;
+    for (const reason of description.inclusion_reasons) {
+      if (reason != 'default') {
+        const requestedPriority = this.explicitStreamSubscriptions[reason.subscription]?.override_priority;
+        if (requestedPriority != null) {
+          if (priorityOverride == null) {
+            priorityOverride = requestedPriority as BucketPriority;
+          } else {
+            priorityOverride = Math.min(requestedPriority, priorityOverride) as BucketPriority;
+          }
+        }
+      }
+    }
+
+    return {
+      definition: description.definition,
+      bucket: description.bucket,
+      priority: priorityOverride ?? description.priority,
+      subscriptions: description.inclusion_reasons.map((reason) => {
+        if (reason == 'default') {
+          return { def: description.definition };
+        } else {
+          return { sub: reason.subscription };
+        }
+      })
+    };
+  }
+
+  isSubscribedToStream(desc: SqlBucketDescriptor): boolean {
+    return (desc.subscribedToByDefault && this.includeDefaultStreams) || this.subscribedStreamNames.has(desc.name);
   }
 
   async getCheckpointUpdate(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate> {
@@ -436,7 +535,7 @@ export class BucketParameterState {
       }
     }
 
-    let dynamicBuckets: BucketDescription[];
+    let dynamicBuckets: ResolvedBucket[];
     if (hasParameterChange || this.cachedDynamicBuckets == null || this.cachedDynamicBucketSet == null) {
       dynamicBuckets = await querier.queryDynamicBucketDescriptions({
         getParameterSets(lookups) {
@@ -516,4 +615,33 @@ function limitedBuckets(buckets: string[] | { bucket: string }[], limit: number)
   }
   const limited = buckets.slice(0, limit);
   return `${JSON.stringify(limited)}...`;
+}
+
+/**
+ * Resolves duplicate buckets in the given array, merging the inclusion reasons for duplicate.
+ *
+ * It's possible for duplicates to occur when a stream has multiple subscriptions, consider e.g.
+ *
+ * ```
+ * sync_streams:
+ *  assets_by_category:
+ *    query: select * from assets where category in (request.parameters() -> 'categories')
+ * ```
+ *
+ * Here, a client might subscribe once with `{"categories": [1]}` and once with `{"categories": [1, 2]}`. Since each
+ * subscription is evaluated independently, this would lead to three buckets, with a duplicate `assets_by_category[1]`
+ * bucket.
+ */
+function mergeBuckets(buckets: ResolvedBucket[]): ResolvedBucket[] {
+  const byDefinition: Record<string, ResolvedBucket> = {};
+
+  for (const bucket of buckets) {
+    if (Object.hasOwn(byDefinition, bucket.definition)) {
+      byDefinition[bucket.definition].inclusion_reasons.push(...bucket.inclusion_reasons);
+    } else {
+      byDefinition[bucket.definition] = bucket;
+    }
+  }
+
+  return Object.values(byDefinition);
 }

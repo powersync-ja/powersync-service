@@ -13,9 +13,57 @@ export const BucketRequest = t.object({
 
 export type BucketRequest = t.Decoded<typeof BucketRequest>;
 
+/**
+ * A sync steam that a client has expressed interest in by explicitly opening it on the client side.
+ */
+export const RequestedStreamSubscription = t.object({
+  /**
+   * The defined name of the stream as it appears in sync stream definitions.
+   */
+  stream: t.string,
+  /**
+   * An opaque textual identifier assigned to this request by the client.
+   *
+   * Wh
+   */
+  client_id: t.string,
+  /**
+   * An optional dictionary of parameters to pass to this specific stream.
+   */
+  parameters: t.record(t.any).optional(),
+  /**
+   * Set when the client wishes to re-assign a different priority to this stream.
+   *
+   * Streams and sync rules can also assign a default priority, but clients are allowed to override those. This can be
+   * useful when the priority for partial syncs depends on e.g. the current page opened in a client.
+   */
+  override_priority: t.number.optional()
+});
+
+export type RequestedStreamSubscription = t.Decoded<typeof RequestedStreamSubscription>;
+
+/**
+ * An overview of all subscribed streams as part of a streaming sync request.
+ */
+export const StreamSubscriptionRequest = t.object({
+  /**
+   * Whether to sync default streams.
+   *
+   * When disabled, only explicitly-opened subscriptions are included.
+   */
+  include_defaults: t.boolean.optional(),
+
+  /**
+   * An array of sync streams the client has opened explicitly.
+   */
+  opened: t.array(RequestedStreamSubscription)
+});
+
+export type StreamSubscriptionRequest = t.Decoded<typeof StreamSubscriptionRequest>;
+
 export const StreamingSyncRequest = t.object({
   /**
-   * Existing bucket states.
+   * Existing client-side bucket states.
    */
   buckets: t.array(BucketRequest).optional(),
 
@@ -47,7 +95,12 @@ export const StreamingSyncRequest = t.object({
   /**
    * Unique client id.
    */
-  client_id: t.string.optional()
+  client_id: t.string.optional(),
+
+  /**
+   * If the client is aware of streams, an array of streams the client has opened.
+   */
+  subscriptions: StreamSubscriptionRequest.optional()
 });
 
 export type StreamingSyncRequest = t.Decoded<typeof StreamingSyncRequest>;
@@ -60,7 +113,7 @@ export interface StreamingSyncCheckpointDiff {
   checkpoint_diff: {
     last_op_id: ProtocolOpId;
     write_checkpoint?: ProtocolOpId;
-    updated_buckets: BucketChecksumWithDescription[];
+    updated_buckets: CheckpointBucket[];
     removed_buckets: string[];
   };
 }
@@ -99,10 +152,16 @@ export type StreamingSyncLine =
  */
 export type ProtocolOpId = string;
 
+export interface StreamDescription {
+  name: string;
+  is_default: boolean;
+}
+
 export interface Checkpoint {
   last_op_id: ProtocolOpId;
   write_checkpoint?: ProtocolOpId;
-  buckets: BucketChecksumWithDescription[];
+  buckets: CheckpointBucket[];
+  streams: StreamDescription[];
 }
 
 export interface BucketState {
@@ -158,4 +217,31 @@ export interface BucketChecksum {
   count: number;
 }
 
-export interface BucketChecksumWithDescription extends BucketChecksum, BucketDescription {}
+/**
+ * The reason a particular bucket is included in a checkpoint.
+ *
+ * This information allows clients to associate individual buckets with sync streams they're subscribed to. Having that
+ * association is useful because it enables clients to track progress for individual sync streams.
+ */
+export type BucketSubscriptionReason = BucketDerivedFromDefaultStream | BucketDerivedFromExplicitSubscription;
+
+/**
+ * A bucket has been included in a checkpoint because it's part of a default stream.
+ *
+ * The string is the name of the stream definition.
+ */
+export type BucketDerivedFromDefaultStream = { def: string };
+
+/**
+ * The bucket has been included in a checkpoint because it's part of a stream that a client has explicitly subscribed
+ * to.
+ *
+ * The string is the client id associated with the subscription in {@link RequestedStreamSubscription}.
+ */
+export type BucketDerivedFromExplicitSubscription = { sub: string };
+
+export interface ClientBucketDescription extends BucketDescription {
+  subscriptions: BucketSubscriptionReason[];
+}
+
+export interface CheckpointBucket extends BucketChecksum, ClientBucketDescription {}

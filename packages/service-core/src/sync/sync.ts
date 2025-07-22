@@ -100,6 +100,7 @@ async function* streamResponseInner(
     bucketStorage,
     syncRules,
     syncParams,
+    syncRequest: params,
     initialBucketPositions: params.buckets?.map((bucket) => ({
       name: bucket.name,
       after: BigInt(bucket.after)

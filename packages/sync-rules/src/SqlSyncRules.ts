@@ -1,12 +1,11 @@
 import { isScalar, LineCounter, parseDocument, Scalar, YAMLMap, YAMLSeq } from 'yaml';
-import { BucketPriority, isValidPriority } from './BucketDescription.js';
+import { isValidPriority } from './BucketDescription.js';
 import { BucketParameterQuerier, mergeBucketParameterQueriers } from './BucketParameterQuerier.js';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
-import { IdSequence } from './IdSequence.js';
 import { validateSyncRulesSchema } from './json_schema.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
-import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js';
+import { QueryParseResult, SqlBucketDescriptor, SqlBucketDescriptorType } from './SqlBucketDescriptor.js';
 import { TablePattern } from './TablePattern.js';
 import {
   EvaluatedParameters,
@@ -21,7 +20,9 @@ import {
   QueryParseOptions,
   RequestParameters,
   SourceSchema,
+  SqliteJsonRow,
   SqliteRow,
+  StreamParseOptions,
   SyncRules
 } from './types.js';
 
@@ -37,6 +38,40 @@ export interface SyncRulesOptions {
   defaultSchema: string;
 
   throwOnError?: boolean;
+}
+
+export interface RequestedStream {
+  /**
+   * The parameters for the explicit stream subscription.
+   *
+   * Unlike {@link GetQuerierOptions.globalParameters}, these parameters are only applied to the particular stream.
+   */
+  parameters: SqliteJsonRow | null;
+
+  /**
+   * An opaque id of the stream subscription, used to associate buckets with the stream subscriptions that have caused
+   * them to be included.
+   */
+  opaque_id: string;
+}
+
+export interface GetQuerierOptions {
+  globalParameters: RequestParameters;
+  /**
+   * Whether the client is subscribing to default query streams.
+   *
+   * Client do this by default, but can disable the behavior if needed.
+   */
+  hasDefaultStreams: boolean;
+  /**
+   *
+   * For streams, this is invoked to check whether the client has opened the relevant stream.
+   *
+   * @param name The name of the stream as it appears in the sync rule definitions.
+   * @returns If the strema has been opened by the client, the stream parameters for that particular stream. Otherwise
+   * null.
+   */
+  streams: Record<string, RequestedStream[]>;
 }
 
 export class SqlSyncRules implements SyncRules {
@@ -95,9 +130,23 @@ export class SqlSyncRules implements SyncRules {
       return rules;
     }
 
+    // Bucket definitions using explicit parameter and data queries.
     const bucketMap = parsed.get('bucket_definitions') as YAMLMap;
-    if (bucketMap == null) {
-      rules.errors.push(new YamlError(new Error(`'bucket_definitions' is required`)));
+    // Streams (which also map to buckets internally) with a new syntax and options.
+    const streamMap = parsed.get('streams') as YAMLMap;
+    const definitionNames = new Set<string>();
+    const checkUniqueName = (name: string, literal: Scalar) => {
+      if (definitionNames.has(name)) {
+        rules.errors.push(this.tokenError(literal, 'Duplicate stream or bucket definition.'));
+        return false;
+      }
+
+      definitionNames.add(name);
+      return true;
+    };
+
+    if (bucketMap == null && streamMap == null) {
+      rules.errors.push(new YamlError(new Error(`Either 'bucket_definitions' or 'streams' are required`)));
 
       if (throwOnError) {
         rules.throwOnError();
@@ -105,9 +154,12 @@ export class SqlSyncRules implements SyncRules {
       return rules;
     }
 
-    for (let entry of bucketMap.items) {
+    for (let entry of bucketMap?.items ?? []) {
       const { key: keyScalar, value } = entry as { key: Scalar; value: YAMLMap };
       const key = keyScalar.toString();
+      if (!checkUniqueName(key, keyScalar)) {
+        continue;
+      }
 
       if (value == null || !(value instanceof YAMLMap)) {
         rules.errors.push(this.tokenError(keyScalar, `'${key}' bucket definition must be an object`));
@@ -116,17 +168,7 @@ export class SqlSyncRules implements SyncRules {
 
       const accept_potentially_dangerous_queries =
         value.get('accept_potentially_dangerous_queries', true)?.value == true;
-      let parseOptionPriority: BucketPriority | undefined = undefined;
-      if (value.has('priority')) {
-        const priorityValue = value.get('priority', true)!;
-        if (typeof priorityValue.value != 'number' || !isValidPriority(priorityValue.value)) {
-          rules.errors.push(
-            this.tokenError(priorityValue, 'Invalid priority, expected a number between 0 and 3 (inclusive).')
-          );
-        } else {
-          parseOptionPriority = priorityValue.value;
-        }
-      }
+      const parseOptionPriority = rules.parsePriority(value);
 
       const queryOptions: QueryParseOptions = {
         ...options,
@@ -136,7 +178,7 @@ export class SqlSyncRules implements SyncRules {
       const parameters = value.get('parameters', true) as unknown;
       const dataQueries = value.get('data', true) as unknown;
 
-      const descriptor = new SqlBucketDescriptor(key);
+      const descriptor = new SqlBucketDescriptor(key, SqlBucketDescriptorType.SYNC_RULE);
 
       if (parameters instanceof Scalar) {
         rules.withScalar(parameters, (q) => {
@@ -161,6 +203,38 @@ export class SqlSyncRules implements SyncRules {
           return descriptor.addDataQuery(q, queryOptions);
         });
       }
+      rules.bucketDescriptors.push(descriptor);
+    }
+
+    for (const entry of streamMap?.items ?? []) {
+      const { key: keyScalar, value } = entry as { key: Scalar; value: YAMLMap };
+      const key = keyScalar.toString();
+      if (!checkUniqueName(key, keyScalar)) {
+        continue;
+      }
+
+      const descriptor = new SqlBucketDescriptor(key, SqlBucketDescriptorType.STREAM);
+
+      const accept_potentially_dangerous_queries =
+        value.get('accept_potentially_dangerous_queries', true)?.value == true;
+
+      const queryOptions: StreamParseOptions = {
+        ...options,
+        accept_potentially_dangerous_queries,
+        priority: rules.parsePriority(value),
+        default: value.get('default', true)?.value == true
+      };
+
+      const data = value.get('query', true) as unknown;
+      if (data instanceof Scalar) {
+        rules.withScalar(data, (q) => {
+          return descriptor.addUnifiedStreamQuery(q, queryOptions);
+        });
+      } else {
+        rules.errors.push(this.tokenError(data, 'Must be a string.'));
+        continue;
+      }
+
       rules.bucketDescriptors.push(descriptor);
     }
 
@@ -315,8 +389,41 @@ export class SqlSyncRules implements SyncRules {
     return { results, errors };
   }
 
-  getBucketParameterQuerier(parameters: RequestParameters): BucketParameterQuerier {
-    const queriers = this.bucketDescriptors.map((query) => query.getBucketParameterQuerier(parameters));
+  getBucketParameterQuerier(options: GetQuerierOptions): BucketParameterQuerier {
+    const queriers: BucketParameterQuerier[] = [];
+    for (const descriptor of this.bucketDescriptors) {
+      let params = options.globalParameters;
+
+      if (descriptor.type == SqlBucketDescriptorType.STREAM) {
+        const subscriptions = options.streams[descriptor.name] ?? [];
+
+        if (!descriptor.subscribedToByDefault && subscriptions.length) {
+          // The client is not subscribing to this stream, so don't query buckets related to it.
+          continue;
+        }
+
+        let hasExplicitDefaultSubscription = false;
+        for (const subscription of subscriptions) {
+          let subscriptionParams = params;
+          if (subscription.parameters != null) {
+            subscriptionParams = params.withAddedStreamParameters(subscription.parameters);
+          } else {
+            hasExplicitDefaultSubscription = true;
+          }
+
+          descriptor.pushBucketParameterQueriers(queriers, options, subscriptionParams);
+        }
+
+        // If the stream is subscribed to by default and there is no explicit subscription that would match the default
+        // subscription, also include the default querier.
+        if (descriptor.subscribedToByDefault && !hasExplicitDefaultSubscription) {
+          descriptor.pushBucketParameterQueriers(queriers, options, params);
+        }
+      } else {
+        descriptor.pushBucketParameterQueriers(queriers, options, params);
+      }
+    }
+
     return mergeBucketParameterQueriers(queriers);
   }
 
@@ -390,5 +497,18 @@ export class SqlSyncRules implements SyncRules {
       }
     }
     return result;
+  }
+
+  private parsePriority(value: YAMLMap) {
+    if (value.has('priority')) {
+      const priorityValue = value.get('priority', true)!;
+      if (typeof priorityValue.value != 'number' || !isValidPriority(priorityValue.value)) {
+        this.errors.push(
+          SqlSyncRules.tokenError(priorityValue, 'Invalid priority, expected a number between 0 and 3 (inclusive).')
+        );
+      } else {
+        return priorityValue.value;
+      }
+    }
   }
 }
