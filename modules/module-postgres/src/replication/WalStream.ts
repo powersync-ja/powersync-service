@@ -321,7 +321,7 @@ export class WalStream {
 
     // Check that replication slot exists
     for (let i = 120; i >= 0; i--) {
-      await touch();
+      this.touch();
 
       if (i == 0) {
         container.reporter.captureException(last_error, {
@@ -479,7 +479,7 @@ WHERE  oid = $1::regclass`,
 
         for (let table of tablesWithStatus) {
           await this.snapshotTableInTx(batch, db, table);
-          await touch();
+          this.touch();
         }
 
         // Always commit the initial snapshot at zero.
@@ -628,7 +628,7 @@ WHERE  oid = $1::regclass`,
         at += rows.length;
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(rows.length);
 
-        await touch();
+        this.touch();
       }
 
       // Important: flush before marking progress
@@ -910,7 +910,7 @@ WHERE  oid = $1::regclass`,
         let count = 0;
 
         for await (const chunk of replicationStream.pgoutputDecode()) {
-          await touch();
+          this.touch();
 
           if (this.abort_signal.aborted) {
             break;
@@ -1090,11 +1090,10 @@ WHERE  oid = $1::regclass`,
     }
     return Date.now() - this.oldestUncommittedChange.getTime();
   }
-}
 
-async function touch() {
-  // FIXME: The hosted Kubernetes probe does not actually check the timestamp on this.
-  // FIXME: We need a timeout of around 5+ minutes in Kubernetes if we do start checking the timestamp,
-  // or reduce PING_INTERVAL here.
-  return container.probes.touch();
+  private touch() {
+    container.probes.touch().catch((e) => {
+      this.logger.error(`Error touching probe`, e);
+    });
+  }
 }

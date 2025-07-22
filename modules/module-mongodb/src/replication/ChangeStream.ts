@@ -367,7 +367,7 @@ export class ChangeStream {
           await this.snapshotTable(batch, table);
           await batch.markSnapshotDone([table], MongoLSN.ZERO.comparable);
 
-          await touch();
+          this.touch();
         }
 
         // The checkpoint here is a marker - we need to replicate up to at least this
@@ -509,7 +509,7 @@ export class ChangeStream {
       this.logger.info(
         `Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} in ${duration.toFixed(0)}ms`
       );
-      await touch();
+      this.touch();
     }
     // In case the loop was interrupted, make sure we await the last promise.
     await nextChunkPromise;
@@ -849,7 +849,7 @@ export class ChangeStream {
             if (waitForCheckpointLsn == null && performance.now() - lastEmptyResume > 60_000) {
               const { comparable: lsn, timestamp } = MongoLSN.fromResumeToken(stream.resumeToken);
               await batch.keepalive(lsn);
-              await touch();
+              this.touch();
               lastEmptyResume = performance.now();
               // Log the token update. This helps as a general "replication is still active" message in the logs.
               // This token would typically be around 10s behind.
@@ -861,7 +861,7 @@ export class ChangeStream {
             continue;
           }
 
-          await touch();
+          this.touch();
 
           if (startAfter != null && originalChangeDocument.clusterTime?.lte(startAfter)) {
             continue;
@@ -1069,13 +1069,18 @@ export class ChangeStream {
     }
     return Date.now() - this.oldestUncommittedChange.getTime();
   }
-}
 
-async function touch() {
-  // FIXME: The hosted Kubernetes probe does not actually check the timestamp on this.
-  // FIXME: We need a timeout of around 5+ minutes in Kubernetes if we do start checking the timestamp,
-  // or reduce PING_INTERVAL here.
-  return container.probes.touch();
+  private lastTouchedAt = performance.now();
+
+  private touch() {
+    if (performance.now() - this.lastTouchedAt > 1_000) {
+      this.lastTouchedAt = performance.now();
+      // Update the probes, but don't wait for it
+      container.probes.touch().catch((e) => {
+        this.logger.error(`Failed to touch the container probe: ${e.message}`, e);
+      });
+    }
+  }
 }
 
 function mapChangeStreamError(e: any) {
