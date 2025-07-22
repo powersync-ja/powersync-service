@@ -1,10 +1,7 @@
-import { JSONBig } from '@powersync/service-jsonbig';
+import { first } from 'ix/iterable/first.js';
 import { LRUCache } from 'lru-cache/min';
-import { OplogEntry } from '../util/protocol-types.js';
 import { InternalOpId } from '../util/utils.js';
 import { BucketDataBatchOptions, SyncBucketDataChunk } from './SyncRulesBucketStorage.js';
-import { ServiceAssertionError } from '@powersync/lib-services-framework';
-import { first } from 'ix/iterable/first.js';
 
 export interface FetchBucketDataArgs {
   bucket: string;
@@ -65,11 +62,34 @@ const TTL_MS = 60_000;
  * 4. Avoid over-fetching data - each client can only process one response at a time.
  *
  * General strategy:
- * 1. Track each client with all its requests.
- * 2. For each client, track which requests are in progress.
+ * 1. Track each session with all its requests.
+ * 2. Track which requests are in progress and which are cached already.
  * 3. Have a number of workers that can process requests in parallel.
- * 4. On each worker iteration, pick up to 10 requests. Prioritize clients with the least number of active requests.
+ * 4. On each worker iteration, pick a batch of requests, prioritizing clients that are blocked.
  * 5. Process these requests, cache the results, and notify each client that results are available.
+ *
+ * Requests and responses are not always "exact":
+ * 1. A cached response may contain more data than the client requested, so we need to trim it to the checkpoint.
+ * 2. A response may be split into multiple chunks, and we need to cache each chunk separately.
+ * 3. When a chunk partially satisfies a request, we need to add a new request for the next chunk.
+ *
+ * For managing the cache, we have three main states for each item:
+ * 1. Active: A session is actively waiting for the chunk, and will be able to use it right now.
+ * 2. Lookahead: A session has requested the chunk, but cannot use it just yet, since it is still processing previous chunks.
+ * 3. Cached: No sessions are actively waiting for the chunk, but it is cached for future use.
+ *
+ * Active chunks should always take priority, and not be evicted by other chunks. If the cache is full with active chunks,
+ * we should stop fetching new data.
+ *
+ * Generally prioritize lookahead over other cached chunks.
+ * If the cache is full with lookahead chunks, avoid fetching more lookahead data, but still prioritize active requests.
+ *
+ * Next steps:
+ * 1. Error handling
+ * 2. Worker thread management: Implement worker pool / limit concurrency.
+ * 3. Timeout handling.
+ * 4. Cache size management.
+ * 5. Optimize.
  */
 export class BucketDataCache {
   private cache: LRUCache<string, SyncBucketDataChunk>;
@@ -196,25 +216,29 @@ export class BucketDataCache {
     dataBuckets: Map<string, InternalOpId>,
     options?: BucketDataBatchOptions
   ): AsyncIterableIterator<SyncBucketDataChunk> {
-    const request = new ClientSession(checkpoint, dataBuckets, options);
-    console.log('getBucketData', request);
-    this.sessions.add(request);
+    const session = new ClientSession(checkpoint, dataBuckets, options);
+    console.log('getBucketData', session);
+    this.sessions.add(session);
+    try {
+      while (dataBuckets.size > 0) {
+        console.log('getting next batch', session);
+        const chunk = await this.getNextBatch(session);
+        console.log('got chunk', chunk);
+        if (chunk == null) {
+          break;
+        }
+        const sanitized = sanitizeChunkForClient(chunk, session.checkpoint);
 
-    while (dataBuckets.size > 0) {
-      console.log('getting next batch', request);
-      const chunk = await this.getNextBatch(request);
-      console.log('got chunk', chunk);
-      if (chunk == null) {
-        break;
-      }
+        if (sanitized.chunkData.has_more) {
+          session.bucketState.set(sanitized.chunkData.bucket, BigInt(sanitized.chunkData.next_after));
+        } else {
+          session.bucketState.delete(sanitized.chunkData.bucket);
+        }
 
-      if (chunk.chunkData.has_more) {
-        request.bucketState.set(chunk.chunkData.bucket, BigInt(chunk.chunkData.next_after));
-      } else {
-        request.bucketState.delete(chunk.chunkData.bucket);
+        yield sanitized;
       }
-      // TODO: sanitize chunk (remove data past the checkpoint)
-      yield chunk;
+    } finally {
+      this.sessions.delete(session);
     }
   }
 
@@ -327,4 +351,26 @@ class ClientSession {
       };
     });
   }
+}
+
+function sanitizeChunkForClient(chunk: SyncBucketDataChunk, checkpoint: InternalOpId): SyncBucketDataChunk {
+  // Remove data past the checkpoint.
+  if (chunk.chunkData.data.length > 0) {
+    const lastOpId = BigInt(chunk.chunkData.data[chunk.chunkData.data.length - 1].op_id);
+    if (lastOpId > checkpoint) {
+      // Chunk has more data than this client requested, so we need to trim it.
+      // Don't modify the original chunk, but return a new one.
+      return {
+        ...chunk,
+        chunkData: {
+          bucket: chunk.chunkData.bucket,
+          after: chunk.chunkData.after,
+          data: chunk.chunkData.data.filter((entry) => BigInt(entry.op_id) <= checkpoint),
+          has_more: false, // We don't have more data past the checkpoint - the request is complete
+          next_after: checkpoint.toString() // Resume from the checkpoint, not the last entry.
+        }
+      };
+    }
+  }
+  return chunk;
 }
