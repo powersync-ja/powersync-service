@@ -1,5 +1,18 @@
 # @powersync/service-core
 
+## 1.14.0
+
+### Minor Changes
+
+- 4ebc3bf: Report lack of commits or keepalives as issues in the diagnostics api.
+- d56eeb9: Delay switching over to new sync rules until we have a consistent checkpoint.
+
+### Patch Changes
+
+- 1aafdaf: Make 404 error body consistent with other error responses.
+  - @powersync/lib-services-framework@0.7.2
+  - @powersync/service-rsocket-router@0.1.3
+
 ## 1.13.4
 
 ### Patch Changes

@@ -1,5 +1,18 @@
 # @powersync/service-core-tests
 
+## 0.11.0
+
+### Minor Changes
+
+- d56eeb9: Delay switching over to new sync rules until we have a consistent checkpoint.
+
+### Patch Changes
+
+- Updated dependencies [4ebc3bf]
+- Updated dependencies [1aafdaf]
+- Updated dependencies [d56eeb9]
+  - @powersync/service-core@1.14.0
+
 ## 0.10.4
 
 ### Patch Changes
