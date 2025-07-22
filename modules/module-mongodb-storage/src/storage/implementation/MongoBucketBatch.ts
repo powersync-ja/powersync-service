@@ -860,7 +860,7 @@ export class MongoBucketBatch
     return true;
   }
 
-  async setSnapshotLsn(lsn: string): Promise<void> {
+  async setResumeLsn(lsn: string): Promise<void> {
     const update: Partial<SyncRuleDocument> = {
       snapshot_lsn: lsn
     };

@@ -329,7 +329,7 @@ export class ChangeStream {
         if (snapshotLsn == null) {
           // First replication attempt - get a snapshot and store the timestamp
           snapshotLsn = await this.getSnapshotLsn();
-          await batch.setSnapshotLsn(snapshotLsn);
+          await batch.setResumeLsn(snapshotLsn);
           this.logger.info(`Marking snapshot at ${snapshotLsn}`);
         } else {
           this.logger.info(`Resuming snapshot at ${snapshotLsn}`);
@@ -814,6 +814,7 @@ export class ChangeStream {
         let splitDocument: mongo.ChangeStreamDocument | null = null;
 
         let flexDbNameWorkaroundLogged = false;
+        let changesSinceLastCheckpoint = 0;
 
         let lastEmptyResume = performance.now();
 
@@ -983,6 +984,7 @@ export class ChangeStream {
             if (didCommit) {
               this.oldestUncommittedChange = null;
               this.isStartingReplication = false;
+              changesSinceLastCheckpoint = 0;
             }
           } else if (
             changeDocument.operationType == 'insert' ||
@@ -1005,7 +1007,21 @@ export class ChangeStream {
               if (this.oldestUncommittedChange == null && changeDocument.clusterTime != null) {
                 this.oldestUncommittedChange = timestampToDate(changeDocument.clusterTime);
               }
-              await this.writeChange(batch, table, changeDocument);
+              const flushResult = await this.writeChange(batch, table, changeDocument);
+              changesSinceLastCheckpoint += 1;
+              if (flushResult != null && changesSinceLastCheckpoint >= 20_000) {
+                // When we are catching up replication after an initial snapshot, there may be a very long delay
+                // before we do a commit(). In that case, we need to periodically persist the resume LSN, so
+                // we don't restart from scratch if we restart replication.
+                // The same could apply if we need to catch up on replication after some downtime.
+                const { comparable: lsn } = new MongoLSN({
+                  timestamp: changeDocument.clusterTime!,
+                  resume_token: changeDocument._id
+                });
+                this.logger.info(`Updating resume LSN to ${lsn} after ${changesSinceLastCheckpoint} changes`);
+                await batch.setResumeLsn(lsn);
+                changesSinceLastCheckpoint = 0;
+              }
             }
           } else if (changeDocument.operationType == 'drop') {
             const rel = getMongoRelation(changeDocument.ns);

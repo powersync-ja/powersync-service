@@ -420,7 +420,7 @@ export class PostgresBucketBatch
     return true;
   }
 
-  async setSnapshotLsn(lsn: string): Promise<void> {
+  async setResumeLsn(lsn: string): Promise<void> {
     await this.db.sql`
       UPDATE sync_rules
       SET
