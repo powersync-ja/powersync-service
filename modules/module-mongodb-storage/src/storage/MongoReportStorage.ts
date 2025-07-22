@@ -9,6 +9,19 @@ import {
   SdkDisconnectEventData
 } from '@powersync/service-types/dist/events.js';
 
+function dateFilter(userId: string, clientId: string): mongo.Filter<mongo.Document> {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  return {
+    user_id: userId,
+    client_id: clientId,
+    $gte: new Date(year, month, day, 0, 0, 0),
+    $lt: new Date(year, month, day + 1, 0, 0, 0)
+  };
+}
+
 export class MongoReportStorage implements storage.ReportStorageFactory {
   private readonly client: mongo.MongoClient;
   public readonly db: PowerSyncMongo;
@@ -52,9 +65,12 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
 
   async reportSdkConnect(data: SdkConnectBucketData): Promise<void> {
     await this.db.sdk_report_events.findOneAndUpdate(
-      { _id: data.id },
+      dateFilter(data.user_id, data.client_id!),
       {
-        $set: data.data
+        $set: data,
+        $unset: {
+          disconnect_at: ''
+        }
       },
       {
         upsert: true
@@ -62,17 +78,14 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     );
   }
   async reportSdkDisconnect(data: SdkDisconnectEventData): Promise<void> {
-    await this.db.sdk_report_events.findOneAndUpdate(
-      { _id: data.id },
-      {
-        $set: {
-          disconnect_at: data.data.disconnect_at
-        },
-        $unset: {
-          jwt_exp: ''
-        }
+    await this.db.sdk_report_events.findOneAndUpdate(dateFilter(data.user_id, data.client_id!), {
+      $set: {
+        disconnect_at: data.disconnect_at
+      },
+      $unset: {
+        jwt_exp: ''
       }
-    );
+    });
   }
   async listCurrentConnections(data: event_types.InstanceRequest): Promise<ListCurrentConnectionsResponse> {
     const result = await this.db.sdk_report_events
