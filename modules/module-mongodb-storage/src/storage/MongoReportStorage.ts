@@ -83,11 +83,13 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
   }
 
   async scrapeSdkData(data: event_types.ScrapeSdkDataRequest): Promise<event_types.ListCurrentConnectionsResponse> {
+    const timespanFilter = timeSpan(data.scrape_time);
+    console.log(timespanFilter);
     const result = await this.db.sdk_report_events
       .aggregate([
         {
           $match: {
-            connect_at: timeSpan(data.scrape_time)
+            connect_at: timespanFilter
           }
         },
         {
@@ -132,7 +134,6 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
         }
       ])
       .toArray();
-    console.log(result[0]);
     return result[0] as event_types.ListCurrentConnectionsResponse;
   }
 
