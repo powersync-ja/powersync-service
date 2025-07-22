@@ -85,7 +85,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
           $match: {
             connect_at: timespanFilter
           }
-        }
+        },
         {
           $facet: {
             unique_user_ids: [
