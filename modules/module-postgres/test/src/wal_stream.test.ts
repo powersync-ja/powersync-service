@@ -51,7 +51,8 @@ bucket_definitions:
     const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
     const endTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
     expect(endRowCount - startRowCount).toEqual(1);
-    expect(endTxCount - startTxCount).toEqual(1);
+    // In some rare cases there may be additional empty transactions, so we allow for that.
+    expect(endTxCount - startTxCount).toBeGreaterThanOrEqual(1);
   });
 
   test('replicating case sensitive table', async () => {
@@ -82,7 +83,7 @@ bucket_definitions:
     const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
     const endTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
     expect(endRowCount - startRowCount).toEqual(1);
-    expect(endTxCount - startTxCount).toEqual(1);
+    expect(endTxCount - startTxCount).toBeGreaterThanOrEqual(1);
   });
 
   test('replicating TOAST values', async () => {
@@ -273,7 +274,7 @@ bucket_definitions:
 
     // There was a transaction, but we should not replicate any actual data
     expect(endRowCount - startRowCount).toEqual(0);
-    expect(endTxCount - startTxCount).toEqual(1);
+    expect(endTxCount - startTxCount).toBeGreaterThanOrEqual(1);
   });
 
   test('reporting slot issues', async () => {
