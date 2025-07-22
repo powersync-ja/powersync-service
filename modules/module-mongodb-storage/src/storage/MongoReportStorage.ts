@@ -22,8 +22,8 @@ function updateDocFilter(userId: string, clientId: string): mongo.Filter<mongo.D
     user_id: userId,
     client_id: clientId,
     connect_at: {
-      $gte: new Date(year, month, today, 0, 0, 0),
-      $lt: new Date(year, month, nextDay, 0, 0, 0)
+      $gte: new Date(`${year}-${month}-${today}`),
+      $lt: new Date(`${year}-${month}-${nextDay}`)
     }
   };
 }
@@ -37,7 +37,7 @@ function timeSpan(timeframe: event_types.TimeFrames): mongo.Filter<mongo.Documen
       const thisMonth = month;
       const nextMonth = month == 11 ? 0 : month + 1;
       return {
-        connect_at: { $gte: new Date(year, thisMonth, 1, 0, 0, 0), $lte: new Date(year, nextMonth, 1, 0, 0, 0) }
+        connect_at: { $gte: new Date(`${year}-${thisMonth}-${1}`), $lte: new Date(`${year}-${nextMonth}-${1}`) }
       };
     }
     case 'week': {
@@ -51,8 +51,8 @@ function timeSpan(timeframe: event_types.TimeFrames): mongo.Filter<mongo.Documen
       const weekEnd = parseDate(weekEndDate);
       return {
         connect_at: {
-          $gte: new Date(weekStart.year, weekStart.month, weekStart.today, 0, 0, 0),
-          $lte: new Date(weekEnd.year, weekEnd.month, weekEnd.today, 0, 0, 0)
+          $gte: new Date(`${weekStart.year}-${weekStart.month}-${weekStart.today}`),
+          $lte: new Date(`${weekEnd.year}-${weekEnd.month}-${weekEnd.today + 1}`) // +1 to include the end date
         }
       };
     }
@@ -61,8 +61,8 @@ function timeSpan(timeframe: event_types.TimeFrames): mongo.Filter<mongo.Documen
       const nextDay = today + 1;
       return {
         connect_at: {
-          $gte: new Date(year, month, today, 0, 0, 0),
-          $lt: new Date(year, month, nextDay, 0, 0, 0)
+          $gte: new Date(`${year}-${month}-${today}`),
+          $lt: new Date(`${year}-${month}-${nextDay}`)
         }
       };
     }
