@@ -133,6 +133,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
               },
               {
                 $project: {
+                  _id: 0,
                   k: '$_id',
                   v: '$count'
                 }
@@ -145,7 +146,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
             unique_users_count: { $ifNull: [{ $arrayElemAt: ['$unique_users.count', 0] }, 0] },
             unique_user_sdk_count: { $ifNull: [{ $arrayElemAt: ['$unique_user_sdk.count', 0] }, 0] },
             unique_user_client_count: { $ifNull: [{ $arrayElemAt: ['$unique_user_client.count', 0] }, 0] },
-            sdk_versions: '$sdk_versions_array'
+            sdk_versions: { $arrayToObject: '$sdk_versions_array' }
           }
         }
       ])
