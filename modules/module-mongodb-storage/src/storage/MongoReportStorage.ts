@@ -199,8 +199,6 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
       ])
       .toArray();
     return {
-      app_id: data.app_id,
-      org_id: data.org_id,
       ...result[0]
     };
   }
