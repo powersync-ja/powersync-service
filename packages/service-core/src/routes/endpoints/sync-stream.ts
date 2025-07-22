@@ -35,7 +35,7 @@ export const syncStreamed = routeDefinition({
       client_id: clientId,
       user_id: payload.context.user_id!,
       user_agent: userAgent as string,
-      jwt_exp: token_payload?.exp ? new Date(token_payload?.exp) : undefined
+      jwt_exp: token_payload?.exp ? new Date(token_payload?.exp * 1000) : undefined
     };
 
     if (routerEngine.closed) {

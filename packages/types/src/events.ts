@@ -4,6 +4,12 @@ export enum EmitterEngineEvents {
   SDK_DELETE_OLD = 'sdk-delete-old'
 }
 
+export enum TimeFrames {
+  DAY = 'day',
+  WEEK = 'week',
+  MONTH = 'month'
+}
+
 export type SubscribeEvents = {
   [EmitterEngineEvents.SDK_CONNECT_EVENT]: SdkConnectEventData;
   [EmitterEngineEvents.SDK_DISCONNECT_EVENT]: SdkDisconnectEventData;
@@ -19,7 +25,7 @@ export type SdkUserData = {
 
 export type DeleteOldSdkData = {
   interval: number;
-  timeframe: 'month' | 'week' | 'day';
+  timeframe: TimeFrames;
 };
 
 export type SdkConnectEventData = {
@@ -56,7 +62,9 @@ export type ListCurrentConnections = {
     [sdk_version: string]: number;
   };
 };
-
+export type ScrapeSdkDataRequest = {
+  scrape_time: TimeFrames;
+};
 export type ListCurrentConnectionsResponse = ListCurrentConnections & InstanceRequest;
 
 export type EventHandlerFunc<K extends EmitterEngineEvents> = (data: SubscribeEvents[K]) => Promise<void> | void;
