@@ -17,8 +17,10 @@ function dateFilter(userId: string, clientId: string): mongo.Filter<mongo.Docume
   return {
     user_id: userId,
     client_id: clientId,
-    $gte: new Date(year, month, day, 0, 0, 0),
-    $lt: new Date(year, month, day + 1, 0, 0, 0)
+    connect_at: {
+      $gte: new Date(year, month, day, 0, 0, 0),
+      $lt: new Date(year, month, day + 1, 0, 0, 0)
+    }
   };
 }
 
