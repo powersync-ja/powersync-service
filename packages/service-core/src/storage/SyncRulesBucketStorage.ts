@@ -50,8 +50,6 @@ export interface SyncRulesBucketStorage
    */
   clear(options?: ClearStorageOptions): Promise<void>;
 
-  autoActivate(): Promise<void>;
-
   /**
    * Record a replication error.
    *

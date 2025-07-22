@@ -1603,7 +1603,9 @@ bucket_definitions:
 
     const r = await f.configureSyncRules({ content: 'bucket_definitions: {}', validate: false });
     const storage = f.getInstance(r.persisted_sync_rules!);
-    await storage.autoActivate();
+    await storage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.keepalive('1/0');
+    });
 
     const metrics2 = await f.getStorageMetrics();
     expect(metrics2).toMatchSnapshot();
@@ -1656,7 +1658,6 @@ bucket_definitions:
       validate: false
     });
     const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
-    await bucketStorage.autoActivate();
 
     const abortController = new AbortController();
     context.onTestFinished(() => abortController.abort());
@@ -1697,7 +1698,6 @@ bucket_definitions:
       validate: false
     });
     const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
-    await bucketStorage.autoActivate();
 
     const abortController = new AbortController();
     context.onTestFinished(() => abortController.abort());
@@ -1760,7 +1760,6 @@ bucket_definitions:
       validate: false
     });
     const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
-    await bucketStorage.autoActivate();
     bucketStorage.setWriteCheckpointMode(storage.WriteCheckpointMode.CUSTOM);
 
     const abortController = new AbortController();
@@ -1801,7 +1800,6 @@ bucket_definitions:
       validate: false
     });
     const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
-    await bucketStorage.autoActivate();
     bucketStorage.setWriteCheckpointMode(storage.WriteCheckpointMode.CUSTOM);
 
     const abortController = new AbortController();
@@ -1845,7 +1843,6 @@ bucket_definitions:
       validate: false
     });
     const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
-    await bucketStorage.autoActivate();
     bucketStorage.setWriteCheckpointMode(storage.WriteCheckpointMode.CUSTOM);
 
     const abortController = new AbortController();

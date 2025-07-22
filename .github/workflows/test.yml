@@ -168,10 +168,10 @@ jobs:
         shell: bash
         run: pnpm build
 
-      - name: Test
+      - name: Test Replication
         run: pnpm test --filter='./modules/module-postgres'
 
-      - name: Test
+      - name: Test Storage
         run: pnpm test --filter='./modules/module-postgres-storage'
 
   run-mysql-tests:
@@ -252,7 +252,7 @@ jobs:
         shell: bash
         run: pnpm build
 
-      - name: Test
+      - name: Test Replication
         run: pnpm test --filter='./modules/module-mysql'
 
   run-mongodb-tests:
@@ -320,7 +320,7 @@ jobs:
         shell: bash
         run: pnpm build
 
-      - name: Test
+      - name: Test Replication
         run: pnpm test --filter='./modules/module-mongodb'
 
       - name: Test Storage
