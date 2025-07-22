@@ -131,7 +131,9 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
                 }
               }
             ]
-          },
+          }
+        },
+        {
           $project: {
             unique_users_count: { $ifNull: [{ $arrayElemAt: ['$unique_users.count', 0] }, 0] },
             unique_user_sdk_count: { $ifNull: [{ $arrayElemAt: ['$unique_user_sdk.count', 0] }, 0] },
