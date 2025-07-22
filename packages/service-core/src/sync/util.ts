@@ -3,6 +3,7 @@ import * as timers from 'timers/promises';
 import { SemaphoreInterface } from 'async-mutex';
 import * as util from '../util/util-index.js';
 import { RequestTracker } from './RequestTracker.js';
+import { serialize } from 'bson';
 
 export type TokenStreamOptions = {
   /**
@@ -76,6 +77,27 @@ export async function* tokenStream(
   }
 }
 
+export function syncLineToBson(line: string | Record<string, any>): Buffer {
+  if (typeof line == 'string') {
+    // Should not happen with binary_data: true
+    throw new Error(`Unexpected string data: ${line}`);
+  } else {
+    // On NodeJS, serialize always returns a Buffer
+    return serialize(line) as Buffer;
+  }
+}
+
+export async function* bsonLines(iterator: AsyncIterable<string | null | Record<string, any>>): AsyncGenerator<Buffer> {
+  for await (let line of iterator) {
+    if (line == null) {
+      // Empty value just to flush iterator memory
+      continue;
+    } else {
+      yield syncLineToBson(line);
+    }
+  }
+}
+
 export async function* ndjson(iterator: AsyncIterable<string | null | Record<string, any>>): AsyncGenerator<string> {
   for await (let data of iterator) {
     if (data == null) {
@@ -91,11 +113,18 @@ export async function* ndjson(iterator: AsyncIterable<string | null | Record<str
 }
 
 export async function* transformToBytesTracked(
-  iterator: AsyncIterable<string>,
+  iterator: AsyncIterable<string | Buffer>,
   tracker: RequestTracker
 ): AsyncGenerator<Buffer> {
   for await (let data of iterator) {
-    const encoded = Buffer.from(data, 'utf8');
+    let encoded: Buffer;
+
+    if (typeof data == 'string') {
+      encoded = Buffer.from(data, 'utf8');
+    } else {
+      encoded = data;
+    }
+
     tracker.addDataSynced(encoded.length);
     yield encoded;
   }

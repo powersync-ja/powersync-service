@@ -1,6 +1,5 @@
 import { ErrorCode, errors, schema } from '@powersync/lib-services-framework';
 import { RequestParameters } from '@powersync/service-sync-rules';
-import { serialize } from 'bson';
 
 import * as sync from '../../sync/sync-index.js';
 import * as util from '../../util/util-index.js';
@@ -110,16 +109,11 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
             break;
           }
           if (data == null) {
-            // Empty value just to flush iterator memory
             continue;
-          } else if (typeof data == 'string') {
-            // Should not happen with binary_data: true
-            throw new Error(`Unexpected string data: ${data}`);
           }
 
           {
-            // On NodeJS, serialize always returns a Buffer
-            const serialized = serialize(data) as Buffer;
+            const serialized = sync.syncLineToBson(data);
             responder.onNext({ data: serialized }, false);
             requestedN--;
             tracker.addDataSynced(serialized.length);

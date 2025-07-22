@@ -1,6 +1,7 @@
 import { ErrorCode, errors, logger, router, schema } from '@powersync/lib-services-framework';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import { Readable } from 'stream';
+import Negotiator from 'negotiator';
 
 import * as sync from '../../sync/sync-index.js';
 import * as util from '../../util/util-index.js';
@@ -14,6 +15,10 @@ export enum SyncRoutes {
   STREAM = '/sync/stream'
 }
 
+const ndJsonContentType = 'application/x-ndjson';
+const concatenatedBsonContentType = 'application/vnd.powersync.bson-stream';
+const supportedContentTypes = [ndJsonContentType, concatenatedBsonContentType];
+
 export const syncStreamed = routeDefinition({
   path: SyncRoutes.STREAM,
   method: router.HTTPMethod.POST,
@@ -26,6 +31,8 @@ export const syncStreamed = routeDefinition({
     const userAgent = headers['x-user-agent'] ?? headers['user-agent'];
     const clientId = payload.params.client_id;
     const streamStart = Date.now();
+    // This falls back to JSON unless there's preference for the bson-stream in the Accept header.
+    const useBson = new Negotiator(payload.request).mediaType(supportedContentTypes) == concatenatedBsonContentType;
 
     logger.defaultMeta = {
       ...logger.defaultMeta,
@@ -61,25 +68,23 @@ export const syncStreamed = routeDefinition({
     const tracker = new sync.RequestTracker(metricsEngine);
     try {
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(1);
-      const stream = Readable.from(
-        sync.transformToBytesTracked(
-          sync.ndjson(
-            sync.streamResponse({
-              syncContext: syncContext,
-              bucketStorage,
-              syncRules: syncRules,
-              params,
-              syncParams,
-              token: payload.context.token_payload!,
-              tracker,
-              signal: controller.signal,
-              logger
-            })
-          ),
-          tracker
-        ),
-        { objectMode: false, highWaterMark: 16 * 1024 }
-      );
+      const syncLines = sync.streamResponse({
+        syncContext: syncContext,
+        bucketStorage,
+        syncRules: syncRules,
+        params,
+        syncParams,
+        token: payload.context.token_payload!,
+        tracker,
+        signal: controller.signal,
+        logger
+      });
+
+      const byteContents = useBson ? sync.bsonLines(syncLines) : sync.ndjson(syncLines);
+      const stream = Readable.from(sync.transformToBytesTracked(byteContents, tracker), {
+        objectMode: false,
+        highWaterMark: 16 * 1024
+      });
 
       // Best effort guess on why the stream was closed.
       // We use the `??=` operator everywhere, so that we catch the first relevant
@@ -114,7 +119,7 @@ export const syncStreamed = routeDefinition({
       return new router.RouterResponse({
         status: 200,
         headers: {
-          'Content-Type': 'application/x-ndjson'
+          'Content-Type': useBson ? concatenatedBsonContentType : ndJsonContentType
         },
         data: stream,
         afterSend: async (details) => {
