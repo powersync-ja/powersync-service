@@ -15,20 +15,20 @@ function parseDate(date: Date) {
     day
   };
 }
-function updateDocFilter(userId: string, clientId: string): mongo.Filter<mongo.Document> {
+function updateDocFilter(userId: string, clientId: string) {
   const { year, month, today } = parseDate(new Date());
   const nextDay = today + 1;
   return {
     user_id: userId,
     client_id: clientId,
     connect_at: {
-      $gte: new Date(`${year}-${month}-${today}`),
-      $lt: new Date(`${year}-${month}-${nextDay}`)
+      $gte: new Date(year, month, today),
+      $lt: new Date(year, month, nextDay)
     }
   };
 }
 
-function timeSpan(timeframe: event_types.TimeFrames): mongo.Filter<mongo.Document> {
+function timeSpan(timeframe: event_types.TimeFrames) {
   const date = new Date();
   const { year, month, day, today } = parseDate(date);
   switch (timeframe) {
@@ -36,9 +36,7 @@ function timeSpan(timeframe: event_types.TimeFrames): mongo.Filter<mongo.Documen
       // Cron should run the first day of the new month, this then retrieves from the 1st to the last day of the month
       const thisMonth = month;
       const nextMonth = month == 11 ? 0 : month + 1;
-      return {
-        connect_at: { $gte: new Date(`${year}-${thisMonth}-${1}`), $lte: new Date(`${year}-${nextMonth}-${1}`) }
-      };
+      return { $gte: new Date(year, thisMonth), $lte: new Date(year, nextMonth) };
     }
     case 'week': {
       // Back tracks the date to the previous week Monday to Sunday
@@ -50,20 +48,16 @@ function timeSpan(timeframe: event_types.TimeFrames): mongo.Filter<mongo.Documen
       const weekStart = parseDate(weekStartDate);
       const weekEnd = parseDate(weekEndDate);
       return {
-        connect_at: {
-          $gte: new Date(`${weekStart.year}-${weekStart.month}-${weekStart.today}`),
-          $lte: new Date(`${weekEnd.year}-${weekEnd.month}-${weekEnd.today + 1}`) // +1 to include the end date
-        }
+        $gte: new Date(weekStart.year, weekStart.month, weekStart.today),
+        $lte: new Date(weekEnd.year, weekEnd.month, weekEnd.today)
       };
     }
     default: {
       // Start from today to just before tomorrow
       const nextDay = today + 1;
       return {
-        connect_at: {
-          $gte: new Date(`${year}-${month}-${today}`),
-          $lt: new Date(`${year}-${month}-${nextDay}`)
-        }
+        $gte: new Date(year, month, today),
+        $lt: new Date(year, month, nextDay)
       };
     }
   }
@@ -92,46 +86,46 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
             connect_at: timespanFilter
           }
         }
-        // {
-        //   $facet: {
-        //     unique_user_ids: [
-        //       {
-        //         $group: {
-        //           _id: '$user_id'
-        //         }
-        //       },
-        //       {
-        //         $count: 'count'
-        //       }
-        //     ],
-        //     unique_user_sdk: [
-        //       {
-        //         $group: {
-        //           _id: {
-        //             user_id: '$user_id',
-        //             sdk: '$sdk'
-        //           }
-        //         }
-        //       },
-        //       {
-        //         $count: 'count'
-        //       }
-        //     ],
-        //     unique_user_client: [
-        //       {
-        //         $group: {
-        //           _id: {
-        //             user_id: '$user_id',
-        //             client_id: '$client_id'
-        //           }
-        //         }
-        //       },
-        //       {
-        //         $count: 'count'
-        //       }
-        //     ]
-        //   }
-        // }
+        {
+          $facet: {
+            unique_user_ids: [
+              {
+                $group: {
+                  _id: '$user_id'
+                }
+              },
+              {
+                $count: 'count'
+              }
+            ],
+            unique_user_sdk: [
+              {
+                $group: {
+                  _id: {
+                    user_id: '$user_id',
+                    sdk: '$sdk'
+                  }
+                }
+              },
+              {
+                $count: 'count'
+              }
+            ],
+            unique_user_client: [
+              {
+                $group: {
+                  _id: {
+                    user_id: '$user_id',
+                    client_id: '$client_id'
+                  }
+                }
+              },
+              {
+                $count: 'count'
+              }
+            ]
+          }
+        }
       ])
       .toArray();
     return result[0] as event_types.ListCurrentConnectionsResponse;
