@@ -14,7 +14,7 @@ function dateFilter(userId: string, clientId: string): mongo.Filter<mongo.Docume
   const year = date.getFullYear();
   const month = date.getMonth() + 1;
   const day = date.getDate();
-  return {
+  const query = {
     user_id: userId,
     client_id: clientId,
     connect_at: {
@@ -22,6 +22,8 @@ function dateFilter(userId: string, clientId: string): mongo.Filter<mongo.Docume
       $lt: new Date(year, month, day + 1, 0, 0, 0)
     }
   };
+  console.log({ query, date });
+  return query;
 }
 
 export class MongoReportStorage implements storage.ReportStorageFactory {
