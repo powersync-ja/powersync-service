@@ -36,6 +36,8 @@ const checkpointTests = (factory: TestStorageFactory) => {
     await context.replicateSnapshot();
 
     context.startStreaming();
+    // Wait for a consistent checkpoint before we start.
+    await context.getCheckpoint();
     const storage = context.storage!;
 
     const controller = new AbortController();

@@ -87,7 +87,6 @@ function defineBatchTests(factory: storage.TestStorageFactory) {
       const start = Date.now();
 
       await context.replicateSnapshot();
-      await context.storage!.autoActivate();
       context.startStreaming();
 
       const checkpoint = await context.getCheckpoint({ timeout: 100_000 });
