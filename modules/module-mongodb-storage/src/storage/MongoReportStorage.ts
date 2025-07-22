@@ -58,11 +58,11 @@ function timeSpan(timeframe: event_types.TimeFrames): mongo.Filter<mongo.Documen
     }
     default: {
       // Start from today to just before tomorrow
-      const tomorrow = today + 1;
+      const nextDay = today + 1;
       return {
         connect_at: {
-          $gte: new Date(date.getFullYear(), date.getMonth(), today, 0, 0, 0),
-          $lte: new Date(date.getFullYear(), date.getMonth(), tomorrow, 0, 0, 0)
+          $gte: new Date(year, month, today, 0, 0, 0),
+          $lt: new Date(year, month, nextDay, 0, 0, 0)
         }
       };
     }
