@@ -91,47 +91,47 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
           $match: {
             connect_at: timespanFilter
           }
-        },
-        {
-          $facet: {
-            unique_user_ids: [
-              {
-                $group: {
-                  _id: '$user_id'
-                }
-              },
-              {
-                $count: 'count'
-              }
-            ],
-            unique_user_sdk: [
-              {
-                $group: {
-                  _id: {
-                    user_id: '$user_id',
-                    sdk: '$sdk'
-                  }
-                }
-              },
-              {
-                $count: 'count'
-              }
-            ],
-            unique_user_client: [
-              {
-                $group: {
-                  _id: {
-                    user_id: '$user_id',
-                    client_id: '$client_id'
-                  }
-                }
-              },
-              {
-                $count: 'count'
-              }
-            ]
-          }
         }
+        // {
+        //   $facet: {
+        //     unique_user_ids: [
+        //       {
+        //         $group: {
+        //           _id: '$user_id'
+        //         }
+        //       },
+        //       {
+        //         $count: 'count'
+        //       }
+        //     ],
+        //     unique_user_sdk: [
+        //       {
+        //         $group: {
+        //           _id: {
+        //             user_id: '$user_id',
+        //             sdk: '$sdk'
+        //           }
+        //         }
+        //       },
+        //       {
+        //         $count: 'count'
+        //       }
+        //     ],
+        //     unique_user_client: [
+        //       {
+        //         $group: {
+        //           _id: {
+        //             user_id: '$user_id',
+        //             client_id: '$client_id'
+        //           }
+        //         }
+        //       },
+        //       {
+        //         $count: 'count'
+        //       }
+        //     ]
+        //   }
+        // }
       ])
       .toArray();
     return result[0] as event_types.ListCurrentConnectionsResponse;
