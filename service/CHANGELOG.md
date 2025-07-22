@@ -1,5 +1,26 @@
 # @powersync/service-image
 
+## 1.14.0
+
+### Minor Changes
+
+- 4ebc3bf: Report lack of commits or keepalives as issues in the diagnostics api.
+
+### Patch Changes
+
+- Updated dependencies [4ebc3bf]
+- Updated dependencies [1aafdaf]
+- Updated dependencies [d56eeb9]
+  - @powersync/service-core@1.14.0
+  - @powersync/service-module-postgres-storage@0.9.0
+  - @powersync/service-module-mongodb-storage@0.11.0
+  - @powersync/service-module-postgres@0.15.0
+  - @powersync/service-module-mongodb@0.11.0
+  - @powersync/service-module-mysql@0.8.0
+  - @powersync/lib-services-framework@0.7.2
+  - @powersync/service-module-core@0.1.7
+  - @powersync/service-rsocket-router@0.1.3
+
 ## 1.13.4
 
 ### Patch Changes

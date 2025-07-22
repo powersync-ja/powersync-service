@@ -1,5 +1,11 @@
 # @powersync/service-jpgwire
 
+## 0.20.1
+
+### Patch Changes
+
+- a882b94: Change application_name on postgres connections from 'PowerSync' to 'powersync/{version}'.
+
 ## 0.20.0
 
 ### Minor Changes
