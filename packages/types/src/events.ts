@@ -69,6 +69,6 @@ export type ScrapeSdkDataRequest = {
 export type ListCurrentConnectionsRequest = {
   range?: {
     period: 'day';
-    start: Date;
+    start: string;
   };
 };
