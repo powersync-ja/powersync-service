@@ -6,6 +6,7 @@ import { Logger, logger as defaultLogger } from '@powersync/lib-services-framewo
 import { MySQLConnectionManager } from '../MySQLConnectionManager.js';
 import timers from 'timers/promises';
 import pkg, {
+  AST,
   BaseFrom,
   DropIndexStatement,
   Parser as ParserType,
@@ -24,12 +25,9 @@ import {
   isTruncate,
   matchedSchemaChangeQuery
 } from '../../utils/parser-utils.js';
+import { TablePattern } from '@powersync/service-sync-rules';
 
 const { Parser } = pkg;
-
-// Maximum time the Zongji listener can be paused before resuming automatically
-// MySQL server automatically terminates replication connections after 60 seconds of inactivity
-const MAX_PAUSE_TIME_MS = 45_000;
 
 export type Row = Record<string, any>;
 
@@ -39,11 +37,11 @@ export type Row = Record<string, any>;
  *  are received for them.
  */
 export enum SchemaChangeType {
-  RENAME_TABLE = 'rename_table',
-  DROP_TABLE = 'drop_table',
-  TRUNCATE_TABLE = 'truncate_table',
-  ALTER_TABLE_COLUMN = 'alter_table_column',
-  REPLICATION_IDENTITY = 'replication_identity'
+  RENAME_TABLE = 'Rename Table',
+  DROP_TABLE = 'Drop Table',
+  TRUNCATE_TABLE = 'Truncate Table',
+  ALTER_TABLE_COLUMN = 'Alter Table Column',
+  REPLICATION_IDENTITY = 'Alter Replication Identity'
 }
 
 export interface SchemaChange {
@@ -52,7 +50,11 @@ export interface SchemaChange {
    *  The table that the schema change applies to.
    */
   table: string;
-  newTable?: string; // Only for table renames
+  schema: string;
+  /**
+   *  Populated for table renames if the newTable was matched by the DatabaseFilter
+   */
+  newTable?: string;
 }
 
 export interface BinLogEventHandler {
@@ -68,8 +70,7 @@ export interface BinLogEventHandler {
 export interface BinLogListenerOptions {
   connectionManager: MySQLConnectionManager;
   eventHandler: BinLogEventHandler;
-  // Filter for tables to include in the replication
-  tableFilter: (tableName: string) => boolean;
+  sourceTables: TablePattern[];
   serverId: number;
   startPosition: common.BinLogPosition;
   logger?: Logger;
@@ -87,6 +88,7 @@ export class BinLogListener {
   private currentGTID: common.ReplicatedGTID | null;
   private logger: Logger;
   private listenerError: Error | null;
+  private databaseFilter: { [schema: string]: (table: string) => boolean };
 
   zongji: ZongJi;
   processingQueue: async.QueueObject<BinLogEvent>;
@@ -108,6 +110,7 @@ export class BinLogListener {
     this.processingQueue = this.createProcessingQueue();
     this.zongji = this.createZongjiListener();
     this.listenerError = null;
+    this.databaseFilter = this.createDatabaseFilter(options.sourceTables);
   }
 
   /**
@@ -139,7 +142,7 @@ export class BinLogListener {
           if (error) {
             reject(error);
           } else {
-            this.logger.info('Successfully set up replication connection heartbeat...');
+            this.logger.info('Successfully set up replication connection heartbeat.');
             resolve(results);
           }
         }
@@ -158,7 +161,7 @@ export class BinLogListener {
       // We ignore the unknown/heartbeat event since it currently serves no purpose other than to keep the connection alive
       // tablemap events always need to be included for the other row events to work
       includeEvents: ['tablemap', 'writerows', 'updaterows', 'deleterows', 'xid', 'rotate', 'gtidlog', 'query'],
-      includeSchema: { [this.connectionManager.databaseName]: this.options.tableFilter },
+      includeSchema: this.databaseFilter,
       filename: this.binLogPosition.filename,
       position: this.binLogPosition.offset,
       serverId: this.options.serverId
@@ -244,11 +247,10 @@ export class BinLogListener {
         this.logger.info(
           `BinLog processing queue has reached its memory limit of [${this.connectionManager.options.binlog_queue_memory_limit}MB]. Pausing BinLog Listener.`
         );
-        zongji.pause();
-        const resumeTimeoutPromise = timers.setTimeout(MAX_PAUSE_TIME_MS);
-        await Promise.race([this.processingQueue.drain(), resumeTimeoutPromise]);
+        await this.stopZongji();
+        await this.processingQueue.drain();
         this.logger.info(`BinLog processing queue backlog cleared. Resuming BinLog Listener.`);
-        zongji.resume();
+        await this.restartZongji();
       }
     });
 
@@ -284,14 +286,11 @@ export class BinLogListener {
           });
           this.binLogPosition.offset = evt.nextPosition;
           await this.eventHandler.onTransactionStart({ timestamp: new Date(evt.timestamp) });
-          this.logger.debug(
-            `Processed GTID event. Next position in BinLog: ${this.binLogPosition.filename}:${this.binLogPosition.offset}`
-          );
+          this.logger.info(`Processed GTID event: ${this.currentGTID.comparable}`);
           break;
         case zongji_utils.eventIsRotation(evt):
           const newFile = this.binLogPosition.filename !== evt.binlogName;
           this.binLogPosition.filename = evt.binlogName;
-          this.binLogPosition.offset = evt.position;
           await this.eventHandler.onRotate();
 
           if (newFile) {
@@ -301,9 +300,10 @@ export class BinLogListener {
           }
           break;
         case zongji_utils.eventIsWriteMutation(evt):
-          await this.eventHandler.onWrite(evt.rows, evt.tableMap[evt.tableId]);
+          const tableMap = evt.tableMap[evt.tableId];
+          await this.eventHandler.onWrite(evt.rows, tableMap);
           this.logger.info(
-            `Processed Write event for table:${evt.tableMap[evt.tableId].tableName}. ${evt.rows.length} row(s) inserted.`
+            `Processed Write event for table [${tableMap.parentSchema}.${tableMap.tableName}]. ${evt.rows.length} row(s) inserted.`
           );
           break;
         case zongji_utils.eventIsUpdateMutation(evt):
@@ -313,13 +313,13 @@ export class BinLogListener {
             evt.tableMap[evt.tableId]
           );
           this.logger.info(
-            `Processed Update event for table:${evt.tableMap[evt.tableId].tableName}. ${evt.rows.length} row(s) updated.`
+            `Processed Update event for table [${evt.tableMap[evt.tableId].tableName}]. ${evt.rows.length} row(s) updated.`
           );
           break;
         case zongji_utils.eventIsDeleteMutation(evt):
           await this.eventHandler.onDelete(evt.rows, evt.tableMap[evt.tableId]);
           this.logger.info(
-            `Processed Delete event for table:${evt.tableMap[evt.tableId].tableName}. ${evt.rows.length} row(s) deleted.`
+            `Processed Delete event for table [${evt.tableMap[evt.tableId].tableName}]. ${evt.rows.length} row(s) deleted.`
           );
           break;
         case zongji_utils.eventIsXid(evt):
@@ -329,13 +329,15 @@ export class BinLogListener {
             position: this.binLogPosition
           }).comparable;
           await this.eventHandler.onCommit(LSN);
-          this.logger.debug(`Processed Xid event - transaction complete. LSN: ${LSN}.`);
+          this.logger.info(`Processed Xid event - transaction complete. LSN: ${LSN}.`);
           break;
         case zongji_utils.eventIsQuery(evt):
           await this.processQueryEvent(evt);
           break;
       }
 
+      // Update the binlog position after processing the event
+      this.binLogPosition.offset = evt.nextPosition;
       this.queueMemoryUsage -= evt.size;
     };
   }
@@ -348,29 +350,19 @@ export class BinLogListener {
       return;
     }
 
-    let schemaChanges: SchemaChange[] = [];
-    try {
-      schemaChanges = this.toSchemaChanges(query);
-    } catch (error) {
-      if (matchedSchemaChangeQuery(query, this.options.tableFilter)) {
-        this.logger.warn(
-          `Failed to parse query: [${query}]. 
-      Please review for the schema changes and manually redeploy the sync rules if required.`
-        );
-      }
-      return;
-    }
+    const schemaChanges = this.toSchemaChanges(query, event.schema);
     if (schemaChanges.length > 0) {
       // Since handling the schema changes can take a long time, we need to stop the Zongji listener instead of pausing it.
       await this.stopZongji();
 
       for (const change of schemaChanges) {
-        this.logger.info(`Processing ${change.type} for table:${change.table}...`);
+        this.logger.info(`Processing schema change ${change.type} for table [${change.schema}.${change.table}]`);
         await this.eventHandler.onSchemaChange(change);
       }
 
-      // DDL queries are auto commited, and so do not come with a corresponding Xid event.
-      // This is problematic for DDL queries which result in row events, so we manually commit here.
+      // DDL queries are auto commited, but do not come with a corresponding Xid event.
+      // This is problematic for DDL queries which result in row events because the checkpoint is not moved on,
+      // so we manually commit here.
       this.binLogPosition.offset = nextPosition;
       const LSN = new common.ReplicatedGTID({
         raw_gtid: this.currentGTID!.raw,
@@ -395,12 +387,26 @@ export class BinLogListener {
   /**
    *  Function that interprets a DDL query for any applicable schema changes.
    *  If the query does not contain any relevant schema changes, an empty array is returned.
+   *  The defaultSchema is derived from the database set on the MySQL Node.js connection client.
+   *  It is used as a fallback when the schema/database cannot be determined from the query DDL.
    *
    *  @param query
+   *  @param defaultSchema
    */
-  private toSchemaChanges(query: string): SchemaChange[] {
-    const ast = this.sqlParser.astify(query, { database: 'MySQL' });
-    const statements = Array.isArray(ast) ? ast : [ast];
+  private toSchemaChanges(query: string, defaultSchema: string): SchemaChange[] {
+    let statements: AST[] = [];
+    try {
+      const ast = this.sqlParser.astify(query, { database: 'MySQL' });
+      statements = Array.isArray(ast) ? ast : [ast];
+    } catch (error) {
+      if (matchedSchemaChangeQuery(query, Object.values(this.databaseFilter))) {
+        this.logger.warn(
+          `Failed to parse query: [${query}]. 
+      Please review for the schema changes and manually redeploy the sync rules if required.`
+        );
+      }
+      return [];
+    }
 
     const changes: SchemaChange[] = [];
     for (const statement of statements) {
@@ -408,33 +414,43 @@ export class BinLogListener {
         const truncateStatement = statement as TruncateStatement;
         // Truncate statements can apply to multiple tables
         for (const entity of truncateStatement.name) {
-          changes.push({ type: SchemaChangeType.TRUNCATE_TABLE, table: entity.table });
+          changes.push({
+            type: SchemaChangeType.TRUNCATE_TABLE,
+            table: entity.table,
+            schema: entity.db ?? defaultSchema
+          });
         }
       } else if (isDropTable(statement)) {
         for (const entity of statement.name) {
-          changes.push({ type: SchemaChangeType.DROP_TABLE, table: entity.table });
+          changes.push({ type: SchemaChangeType.DROP_TABLE, table: entity.table, schema: entity.db ?? defaultSchema });
         }
       } else if (isDropIndex(statement)) {
         const dropStatement = statement as DropIndexStatement;
         changes.push({
           type: SchemaChangeType.REPLICATION_IDENTITY,
-          table: dropStatement.table.table
+          table: dropStatement.table.table,
+          schema: dropStatement.table.db ?? defaultSchema
         });
       } else if (isCreateUniqueIndex(statement)) {
         // Potential change to the replication identity if the table has no prior unique constraint
         changes.push({
           type: SchemaChangeType.REPLICATION_IDENTITY,
           // @ts-ignore - The type definitions for node-sql-parser do not reflect the correct structure here
-          table: statement.table!.table
+          table: statement.table!.table,
+          // @ts-ignore
+          schema: statement.table!.db ?? defaultSchema
         });
       } else if (isRenameTable(statement)) {
         const renameStatement = statement as RenameStatement;
         // Rename statements can apply to multiple tables
         for (const table of renameStatement.table) {
+          const schema = table[0].db ?? defaultSchema;
+          const isNewTableIncluded = this.databaseFilter[schema](table[1].table);
           changes.push({
             type: SchemaChangeType.RENAME_TABLE,
             table: table[0].table,
-            newTable: table[1].table
+            newTable: isNewTableIncluded ? table[1].table : undefined,
+            schema
           });
         }
       } else if (isAlterTable(statement)) {
@@ -444,18 +460,21 @@ export class BinLogListener {
             changes.push({
               type: SchemaChangeType.RENAME_TABLE,
               table: fromTable.table,
-              newTable: expression.table
+              newTable: expression.table,
+              schema: fromTable.db ?? defaultSchema
             });
           } else if (isColumnExpression(expression)) {
             changes.push({
               type: SchemaChangeType.ALTER_TABLE_COLUMN,
-              table: fromTable.table
+              table: fromTable.table,
+              schema: fromTable.db ?? defaultSchema
             });
           } else if (isConstraintExpression(expression)) {
             // Potential changes to the replication identity
             changes.push({
               type: SchemaChangeType.REPLICATION_IDENTITY,
-              table: fromTable.table
+              table: fromTable.table,
+              schema: fromTable.db ?? defaultSchema
             });
           }
         }
@@ -464,7 +483,38 @@ export class BinLogListener {
     // Filter out schema changes that are not relevant to the included tables
     return changes.filter(
       (change) =>
-        this.options.tableFilter(change.table) || (change.newTable && this.options.tableFilter(change.newTable))
+        this.isTableIncluded(change.table, change.schema) ||
+        (change.newTable && this.isTableIncluded(change.newTable, change.schema))
     );
+  }
+
+  private isTableIncluded(tableName: string, schema: string): boolean {
+    return this.databaseFilter[schema] && this.databaseFilter[schema](tableName);
+  }
+
+  private createDatabaseFilter(sourceTables: TablePattern[]): { [schema: string]: (table: string) => boolean } {
+    // Group sync rule tables by schema
+    const schemaMap = new Map<string, TablePattern[]>();
+    for (const table of sourceTables) {
+      if (!schemaMap.has(table.schema)) {
+        const tables = [table];
+        schemaMap.set(table.schema, tables);
+      } else {
+        schemaMap.get(table.schema)!.push(table);
+      }
+    }
+
+    const databaseFilter: { [schema: string]: (table: string) => boolean } = {};
+    for (const entry of schemaMap.entries()) {
+      const [schema, sourceTables] = entry;
+      databaseFilter[schema] = (table: string) =>
+        sourceTables.findIndex((sourceTable) =>
+          sourceTable.isWildcard
+            ? table.startsWith(sourceTable.tablePattern.substring(0, sourceTable.tablePattern.length - 1))
+            : table === sourceTable.name
+        ) !== -1;
+    }
+
+    return databaseFilter;
   }
 }
