@@ -74,8 +74,8 @@ function dayDateRange(data: event_types.ListCurrentConnectionsRequest) {
   }
   return {
     connect_at: {
-      $lte: parsedDate,
-      $gt: new Date(range.start_date)
+      $lte: date,
+      $gt: parsedDate
     }
   };
 }
