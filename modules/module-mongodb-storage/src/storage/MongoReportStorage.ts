@@ -2,6 +2,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { storage } from '@powersync/service-core';
 import { event_types } from '@powersync/service-types';
 import { PowerSyncMongo } from './implementation/db.js';
+import { logger } from '@powersync/lib-services-framework';
 
 function parseDate(date: Date) {
   const year = date.getFullYear();
@@ -71,16 +72,90 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     this.db = db;
   }
 
+  private sdkFacetPipeline() {
+    return {
+      $facet: {
+        unique_users: [
+          {
+            $group: {
+              _id: '$user_id'
+            }
+          },
+          {
+            $count: 'count'
+          }
+        ],
+        unique_user_sdk: [
+          {
+            $group: {
+              _id: {
+                user_id: '$user_id',
+                sdk: '$sdk'
+              }
+            }
+          },
+          {
+            $count: 'count'
+          }
+        ],
+        unique_user_client: [
+          {
+            $group: {
+              _id: {
+                user_id: '$user_id',
+                client_id: '$client_id'
+              }
+            }
+          },
+          {
+            $count: 'count'
+          }
+        ],
+        sdk_versions_array: [
+          {
+            $group: {
+              _id: '$sdk',
+              count: { $sum: 1 }
+            }
+          },
+          {
+            $project: {
+              _id: 0,
+              k: '$_id',
+              v: '$count'
+            }
+          }
+        ]
+      }
+    };
+  }
+
+  private sdkProjectPipeline() {
+    return {
+      $project: {
+        users: { $ifNull: [{ $arrayElemAt: ['$unique_users.count', 0] }, 0] },
+        user_sdk: { $ifNull: [{ $arrayElemAt: ['$unique_user_sdk.count', 0] }, 0] },
+        client_user: { $ifNull: [{ $arrayElemAt: ['$unique_user_client.count', 0] }, 0] },
+        sdk_versions: { $arrayToObject: '$sdk_versions_array' }
+      }
+    };
+  }
+
   async deleteOldSdkData(data: event_types.DeleteOldSdkData): Promise<void> {
     const { period, timeframe } = data;
-    await this.db.sdk_report_events.deleteMany({
+    const result = await this.db.sdk_report_events.deleteMany({
       connect_at: timeSpan(period, timeframe),
       $or: [{ disconnect_at: { $exists: true } }, { jwt_exp: { $lt: new Date() }, disconnect_at: { $exists: false } }]
     });
+    console.log(result);
+    if (result.deletedCount > 0) {
+      logger.info(`TTL: ${result.deletedCount} documents have been removed from sdk_report_events collection`);
+    }
   }
 
   async scrapeSdkData(data: event_types.ScrapeSdkDataRequest): Promise<event_types.ListCurrentConnectionsResponse> {
-    const timespanFilter = timeSpan(data.period);
+    const timespanFilter = timeSpan(data.period, data.interval);
+    console.log({ timespanFilter });
     const result = await this.db.sdk_report_events
       .aggregate([
         {
@@ -88,69 +163,8 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
             connect_at: timespanFilter
           }
         },
-        {
-          $facet: {
-            unique_users: [
-              {
-                $group: {
-                  _id: '$user_id'
-                }
-              },
-              {
-                $count: 'count'
-              }
-            ],
-            unique_user_sdk: [
-              {
-                $group: {
-                  _id: {
-                    user_id: '$user_id',
-                    sdk: '$sdk'
-                  }
-                }
-              },
-              {
-                $count: 'count'
-              }
-            ],
-            unique_user_client: [
-              {
-                $group: {
-                  _id: {
-                    user_id: '$user_id',
-                    client_id: '$client_id'
-                  }
-                }
-              },
-              {
-                $count: 'count'
-              }
-            ],
-            sdk_versions_array: [
-              {
-                $group: {
-                  _id: '$sdk',
-                  count: { $sum: 1 }
-                }
-              },
-              {
-                $project: {
-                  _id: 0,
-                  k: '$_id',
-                  v: '$count'
-                }
-              }
-            ]
-          }
-        },
-        {
-          $project: {
-            users: { $ifNull: [{ $arrayElemAt: ['$unique_users.count', 0] }, 0] },
-            user_sdk: { $ifNull: [{ $arrayElemAt: ['$unique_user_sdk.count', 0] }, 0] },
-            client_user: { $ifNull: [{ $arrayElemAt: ['$unique_user_client.count', 0] }, 0] },
-            sdk_versions: { $arrayToObject: '$sdk_versions_array' }
-          }
-        }
+        this.sdkFacetPipeline(),
+        this.sdkProjectPipeline()
       ])
       .toArray();
     return result[0] as event_types.ListCurrentConnectionsResponse;
@@ -184,7 +198,6 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     data: event_types.ListCurrentConnectionsRequest
   ): Promise<event_types.ListCurrentConnectionsResponse> {
     const timespanFilter = data.period ? { connect_at: timeSpan(data.period) } : undefined;
-    console.log({ timespanFilter });
     const result = await this.db.sdk_report_events
       .aggregate([
         {
@@ -194,69 +207,8 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
             ...timespanFilter
           }
         },
-        {
-          $facet: {
-            unique_users: [
-              {
-                $group: {
-                  _id: '$user_id'
-                }
-              },
-              {
-                $count: 'count'
-              }
-            ],
-            unique_user_sdk: [
-              {
-                $group: {
-                  _id: {
-                    user_id: '$user_id',
-                    sdk: '$sdk'
-                  }
-                }
-              },
-              {
-                $count: 'count'
-              }
-            ],
-            unique_user_client: [
-              {
-                $group: {
-                  _id: {
-                    user_id: '$user_id',
-                    client_id: '$client_id'
-                  }
-                }
-              },
-              {
-                $count: 'count'
-              }
-            ],
-            sdk_versions_array: [
-              {
-                $group: {
-                  _id: '$sdk',
-                  count: { $sum: 1 }
-                }
-              },
-              {
-                $project: {
-                  _id: 0,
-                  k: '$_id',
-                  v: '$count'
-                }
-              }
-            ]
-          }
-        },
-        {
-          $project: {
-            users: { $ifNull: [{ $arrayElemAt: ['$unique_users.count', 0] }, 0] },
-            user_sdk: { $ifNull: [{ $arrayElemAt: ['$unique_user_sdk.count', 0] }, 0] },
-            client_user: { $ifNull: [{ $arrayElemAt: ['$unique_user_client.count', 0] }, 0] },
-            sdk_versions: { $arrayToObject: '$sdk_versions_array' }
-          }
-        }
+        this.sdkFacetPipeline(),
+        this.sdkProjectPipeline()
       ])
       .toArray();
     return result[0] as event_types.ListCurrentConnectionsResponse;

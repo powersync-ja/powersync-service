@@ -64,10 +64,11 @@ export type ListCurrentConnections = {
 };
 export type ScrapeSdkDataRequest = {
   period: TimeFrames;
+  interval?: number;
 };
 
 export type ListCurrentConnectionsRequest = {
-  period?: TimeFrames;
+  period?: 'day';
 };
 
 export type ListCurrentConnectionsResponse = ListCurrentConnections;

@@ -1,6 +1,5 @@
 import { event_types } from '@powersync/service-types';
 
-// Interface for the ReportStorageFactory
 export interface ReportStorageFactory extends AsyncDisposable {
   reportSdkConnect(data: event_types.SdkConnectBucketData): Promise<void>;
   reportSdkDisconnect(data: event_types.SdkDisconnectEventData): Promise<void>;
