@@ -92,6 +92,15 @@ export function satisfiesVersion(version: string, targetVersion: string): boolea
   return satisfies(coercedVersion!, targetVersion!, { loose: true });
 }
 
-export function escapeMysqlTableName(table: SourceTable): string {
-  return `\`${table.schema.replaceAll('`', '``')}\`.\`${table.name.replaceAll('`', '``')}\``;
+export function qualifiedMySQLTable(table: SourceEntityDescriptor): string;
+export function qualifiedMySQLTable(table: string, schema: string): string;
+
+export function qualifiedMySQLTable(table: SourceEntityDescriptor | string, schema?: string): string {
+  if (typeof table === 'object') {
+    return `\`${table.schema.replaceAll('`', '``')}\`.\`${table.name.replaceAll('`', '``')}\``;
+  } else if (schema) {
+    return `\`${schema.replaceAll('`', '``')}\`.\`${table.replaceAll('`', '``')}\``;
+  } else {
+    return `\`${table.replaceAll('`', '``')}\``;
+  }
 }

@@ -4,7 +4,8 @@ import { ReplicationMetric } from '@powersync/service-types';
 import { v4 as uuid } from 'uuid';
 import { describe, expect, test } from 'vitest';
 import { BinlogStreamTestContext } from './BinlogStreamUtils.js';
-import { describeWithStorage } from './util.js';
+import { createTestDb, describeWithStorage } from './util.js';
+import { qualifiedMySQLTable } from '@module/utils/mysql-utils.js';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -46,6 +47,55 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
     const endTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
     expect(endRowCount - startRowCount).toEqual(1);
     expect(endTxCount - startTxCount).toEqual(1);
+  });
+
+  test('Replicate multi schema sync rules', async () => {
+    await using context = await BinlogStreamTestContext.open(factory);
+    const { connectionManager } = context;
+    await context.updateSyncRules(`
+  bucket_definitions:
+    default_schema_test_data:
+      data:
+        - SELECT id, description, num FROM "${connectionManager.databaseName}"."test_data"
+    multi_schema_test_data:
+      data:
+        - SELECT id, description, num FROM "multi_schema"."test_data"
+        `);
+
+    await createTestDb(connectionManager, 'multi_schema');
+
+    await connectionManager.query(`CREATE TABLE test_data (id CHAR(36) PRIMARY KEY, description TEXT, num BIGINT)`);
+    const testTable = qualifiedMySQLTable('test_data', 'multi_schema');
+    await connectionManager.query(
+      `CREATE TABLE IF NOT EXISTS ${testTable} (id CHAR(36) PRIMARY KEY,description TEXT);`
+    );
+    await context.replicateSnapshot();
+
+    const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
+    const startTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
+
+    await context.startStreaming();
+
+    const testId = uuid();
+    await connectionManager.query(
+      `INSERT INTO test_data(id, description, num) VALUES('${testId}', 'test1', 1152921504606846976)`
+    );
+
+    const testId2 = uuid();
+    await connectionManager.query(`INSERT INTO ${testTable}(id, description) VALUES('${testId2}', 'test2')`);
+
+    const default_data = await context.getBucketData('default_schema_test_data[]');
+    expect(default_data).toMatchObject([
+      putOp('test_data', { id: testId, description: 'test1', num: 1152921504606846976n })
+    ]);
+
+    const multi_schema_data = await context.getBucketData('multi_schema_test_data[]');
+    expect(multi_schema_data).toMatchObject([putOp('test_data', { id: testId2, description: 'test2' })]);
+
+    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
+    const endTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
+    expect(endRowCount - startRowCount).toEqual(2);
+    expect(endTxCount - startTxCount).toEqual(2);
   });
 
   test('Replicate case sensitive table', async () => {

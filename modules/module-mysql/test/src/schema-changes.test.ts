@@ -2,11 +2,11 @@ import { compareIds, putOp, removeOp, test_utils } from '@powersync/service-core
 import { beforeAll, describe, expect, test } from 'vitest';
 
 import { storage } from '@powersync/service-core';
-import { describeWithStorage, TEST_CONNECTION_OPTIONS } from './util.js';
+import { createTestDb, describeWithStorage, TEST_CONNECTION_OPTIONS } from './util.js';
 import { BinlogStreamTestContext } from './BinlogStreamUtils.js';
 import timers from 'timers/promises';
 import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManager.js';
-import { getMySQLVersion, satisfiesVersion } from '@module/utils/mysql-utils.js';
+import { getMySQLVersion, qualifiedMySQLTable, satisfiesVersion } from '@module/utils/mysql-utils.js';
 
 describe('MySQL Schema Changes', () => {
   describeWithStorage({ timeout: 20_000 }, defineTests);
@@ -119,6 +119,7 @@ function defineTests(factory: storage.TestStorageFactory) {
 
       // Add table after initial replication
       await connectionManager.query(`CREATE TABLE test_data SELECT * FROM test_data_from`);
+
       const data = await context.getBucketData('global[]');
 
       // Interestingly, the create with select triggers binlog row write events
@@ -589,5 +590,74 @@ function defineTests(factory: storage.TestStorageFactory) {
       REMOVE_T1,
       REMOVE_T2
     ]);
+  });
+
+  test('Schema changes for tables in other schemas in the sync rules', async () => {
+    await using context = await BinlogStreamTestContext.open(factory);
+    // Technically not a schema change, but fits here.
+    await context.updateSyncRules(`
+  bucket_definitions:
+    multi_schema_test_data:
+      data:
+        - SELECT id, description, num FROM "multi_schema"."test_data"
+        `);
+
+    const { connectionManager } = context;
+    await createTestDb(connectionManager, 'multi_schema');
+    const testTable = qualifiedMySQLTable('test_data', 'multi_schema');
+    await connectionManager.query(
+      `CREATE TABLE IF NOT EXISTS ${testTable} (id CHAR(36) PRIMARY KEY,description TEXT);`
+    );
+    await connectionManager.query(`INSERT INTO ${testTable}(id, description) VALUES('t1','test1')`);
+    await connectionManager.query(`INSERT INTO ${testTable}(id, description) VALUES('t2','test2')`);
+
+    await context.replicateSnapshot();
+    await context.startStreaming();
+
+    await connectionManager.query(`DROP TABLE ${testTable}`);
+
+    const data = await context.getBucketData('multi_schema_test_data[]');
+
+    expect(data.slice(0, 2)).toMatchObject([
+      // Initial inserts
+      PUT_T1,
+      PUT_T2
+    ]);
+
+    expect(data.slice(2).sort(compareIds)).toMatchObject([
+      // Drop
+      REMOVE_T1,
+      REMOVE_T2
+    ]);
+  });
+
+  test('Changes for tables in schemas not in the sync rules are ignored', async () => {
+    await using context = await BinlogStreamTestContext.open(factory);
+    await context.updateSyncRules(BASIC_SYNC_RULES);
+
+    const { connectionManager } = context;
+    await connectionManager.query(`CREATE TABLE test_data (id CHAR(36), description CHAR(100))`);
+
+    await createTestDb(connectionManager, 'multi_schema');
+    const testTable = qualifiedMySQLTable('test_data_ignored', 'multi_schema');
+    await connectionManager.query(
+      `CREATE TABLE IF NOT EXISTS ${testTable} (id CHAR(36) PRIMARY KEY,description TEXT);`
+    );
+    await connectionManager.query(`INSERT INTO ${testTable}(id, description) VALUES('t1','test1')`);
+    await connectionManager.query(`INSERT INTO ${testTable}(id, description) VALUES('t2','test2')`);
+
+    await context.replicateSnapshot();
+    await context.startStreaming();
+
+    await connectionManager.query(`INSERT INTO ${testTable}(id, description) VALUES('t3','test3')`);
+    await connectionManager.query(`DROP TABLE ${testTable}`);
+
+    // Force a commit on the watched schema to advance the checkpoint
+    await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t1','test1')`);
+
+    const data = await context.getBucketData('global[]');
+
+    // Should only include the entry used to advance the checkpoint
+    expect(data).toMatchObject([PUT_T1]);
   });
 }
