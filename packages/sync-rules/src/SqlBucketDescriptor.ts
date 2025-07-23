@@ -1,5 +1,6 @@
 import { BucketDescription, BucketInclusionReason, ResolvedBucket } from './BucketDescription.js';
 import { BucketParameterQuerier, mergeBucketParameterQueriers } from './BucketParameterQuerier.js';
+import { BucketSource, ResultSetDescription } from './BucketSource.js';
 import { IdSequence } from './IdSequence.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SqlDataQuery } from './SqlDataQuery.js';
@@ -16,6 +17,7 @@ import {
   EvaluationResult,
   QueryParseOptions,
   RequestParameters,
+  SourceSchema,
   SqliteRow,
   StreamParseOptions
 } from './types.js';
@@ -34,7 +36,7 @@ export enum SqlBucketDescriptorType {
   STREAM
 }
 
-export class SqlBucketDescriptor {
+export class SqlBucketDescriptor implements BucketSource {
   name: string;
   bucketParameters?: string[];
   type: SqlBucketDescriptorType;
@@ -137,19 +139,16 @@ export class SqlBucketDescriptor {
   /**
    * @deprecated Use `pushBucketParameterQueriers` instead and merge at the top-level.
    */
-  getBucketParameterQuerier(options: GetQuerierOptions, parameters: RequestParameters): BucketParameterQuerier {
+  getBucketParameterQuerier(options: GetQuerierOptions): BucketParameterQuerier {
     const queriers: BucketParameterQuerier[] = [];
-    this.pushBucketParameterQueriers(queriers, options, parameters);
+    this.pushBucketParameterQueriers(queriers, options);
 
     return mergeBucketParameterQueriers(queriers);
   }
 
-  pushBucketParameterQueriers(
-    result: BucketParameterQuerier[],
-    options: GetQuerierOptions,
-    parameters: RequestParameters
-  ) {
+  pushBucketParameterQueriers(result: BucketParameterQuerier[], options: GetQuerierOptions) {
     const reasons = [this.bucketInclusionReason(options)];
+    const parameters = options.globalParameters;
     const staticBuckets = this.getStaticBucketDescriptions(parameters, reasons);
     const staticQuerier = {
       staticBuckets,
@@ -222,5 +221,14 @@ export class SqlBucketDescriptor {
       }
     }
     return false;
+  }
+
+  resolveResultSets(schema: SourceSchema): ResultSetDescription[] {
+    const descriptions: ResultSetDescription[] = [];
+    for (const query of this.dataQueries) {
+      descriptions.push(...query.getColumnOutputs(schema));
+    }
+
+    return descriptions;
   }
 }
