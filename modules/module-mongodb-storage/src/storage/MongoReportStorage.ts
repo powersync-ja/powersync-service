@@ -36,16 +36,12 @@ function timeSpan(period: event_types.TimeFrames, timeframe: number = 1): mongo.
       return { $lte: date, $gte: new Date(year, date.getMonth() - timeframe) };
     }
     case 'week': {
-      // Back tracks the date to the previous week Monday to Sunday
-      // const daysToSunday = 0 - day;
-      // const weekEndDate = new Date(date);
-      // weekEndDate.setDate(weekEndDate.getDate() + daysToSunday);
       const weekStartDate = new Date(date);
       weekStartDate.setDate(weekStartDate.getDate() - 6 * timeframe);
       const weekStart = parseDate(weekStartDate);
       return {
         $gte: new Date(weekStart.year, weekStart.month, weekStart.today),
-        $lte: new Date(year, month, today)
+        $lte: date
       };
     }
     case 'hour': {
@@ -59,7 +55,7 @@ function timeSpan(period: event_types.TimeFrames, timeframe: number = 1): mongo.
     default: {
       // Start from today to just before tomorrow
       return {
-        $lte: new Date(year, month, today),
+        $lte: date,
         $gte: new Date(year, month, today - timeframe)
       };
     }
