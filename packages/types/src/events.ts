@@ -58,7 +58,7 @@ export type ListCurrentConnections = {
     sdk: string;
     users: number;
     clients: number;
-  };
+  }[];
 };
 
 export type ScrapeSdkDataRequest = {
