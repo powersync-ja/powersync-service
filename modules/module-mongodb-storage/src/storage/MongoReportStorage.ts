@@ -34,15 +34,15 @@ function timeSpan(period: event_types.TimeFrames, timeframe: number = 1): mongo.
   const { year, month, today } = parseDate(date);
   switch (period) {
     case 'month': {
-      return { $lte: date, $gte: new Date(year, date.getMonth() - timeframe) };
+      return { $lte: date, $gt: new Date(year, date.getMonth() - timeframe) };
     }
     case 'week': {
       const weekStartDate = new Date(date);
       weekStartDate.setDate(weekStartDate.getDate() - 6 * timeframe);
       const weekStart = parseDate(weekStartDate);
       return {
-        $gte: new Date(weekStart.year, weekStart.month, weekStart.today),
-        $lte: date
+        $lte: date,
+        $gt: new Date(weekStart.year, weekStart.month, weekStart.today)
       };
     }
     case 'hour': {
@@ -57,7 +57,7 @@ function timeSpan(period: event_types.TimeFrames, timeframe: number = 1): mongo.
       // Start from today to just before tomorrow
       return {
         $lte: date,
-        $gte: new Date(year, month, today - timeframe)
+        $gt: new Date(year, month, today - timeframe)
       };
     }
   }
