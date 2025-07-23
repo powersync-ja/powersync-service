@@ -743,21 +743,45 @@ export function evaluateOperator(op: string, a: SqliteValue, b: SqliteValue): Sq
       return sqliteBool(sqliteBool(a) && sqliteBool(b));
     case 'OR':
       return sqliteBool(sqliteBool(a) || sqliteBool(b));
-    case 'IN':
+    case 'IN': {
       if (a == null || b == null) {
         return null;
       }
-      if (typeof b != 'string') {
-        throw new Error('IN is only supported on JSON arrays');
-      }
-      const bParsed = JSON.parse(b);
-      if (!Array.isArray(bParsed)) {
-        throw new Error('IN is only supported on JSON arrays');
-      }
+      const bParsed = checkJsonArray(b, 'IN is only supported on JSON arrays');
       return sqliteBool(bParsed.includes(a));
+    }
+    case '&&': {
+      // a && b evaluates to true iff they're both arrays and have a non-empty intersection.
+      if (a == null || b == null) {
+        return null;
+      }
+
+      const aParsed = checkJsonArray(a, '&& is only supported on JSON arrays');
+      const bParsed = checkJsonArray(a, '&& is only supported on JSON arrays');
+
+      for (const elementInA in aParsed) {
+        if (bParsed.includes(elementInA)) {
+          return sqliteBool(true);
+        }
+      }
+      return sqliteBool(false);
+    }
     default:
       throw new Error(`Operator not supported: ${op}`);
   }
+}
+
+export function checkJsonArray(value: SqliteValue, errorMessage: string): any[] {
+  if (typeof value != 'string') {
+    throw new Error(errorMessage);
+  }
+
+  const parsed = JSON.parse(value);
+  if (!Array.isArray(parsed)) {
+    throw new Error(value);
+  }
+
+  return parsed;
 }
 
 export function getOperatorReturnType(op: string, left: ExpressionType, right: ExpressionType) {
@@ -799,6 +823,7 @@ export function getOperatorReturnType(op: string, left: ExpressionType, right: E
     case 'OR':
       return ExpressionType.INTEGER;
     case 'IN':
+    case '&&':
       return ExpressionType.INTEGER;
     default:
       return ExpressionType.NONE;
@@ -927,6 +952,8 @@ export const OPERATOR_NOT: SqlFunction = {
 };
 
 export const OPERATOR_IN = getOperatorFunction('IN');
+
+export const OPERATOR_OVERLAP = getOperatorFunction('&&');
 
 export function castOperator(castTo: string | undefined): SqlFunction | null {
   if (castTo == null || !CAST_TYPES.has(castTo)) {

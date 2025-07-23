@@ -28,7 +28,7 @@ const request_parameters: SqlParameterFunction = {
   usesUnauthenticatedRequestParameters: true
 };
 
-const request_jwt: SqlParameterFunction = {
+export const request_jwt: SqlParameterFunction = {
   debugName: 'request.jwt',
   call(parameters: ParameterValueSet) {
     return parameters.rawTokenPayload;
@@ -42,7 +42,7 @@ const request_jwt: SqlParameterFunction = {
   usesUnauthenticatedRequestParameters: false
 };
 
-const request_user_id: SqlParameterFunction = {
+export const request_user_id: SqlParameterFunction = {
   debugName: 'request.user_id',
   call(parameters: ParameterValueSet) {
     return parameters.userId;
