@@ -92,9 +92,14 @@ export class ReplicatedGTID {
    * @returns A comparable string in the format
    *   `padded_end_transaction|raw_gtid|binlog_filename|binlog_position`
    */
-  get comparable() {
+  get comparable(): string {
     const { raw, position } = this;
     const [, transactionRanges] = this.raw.split(':');
+
+    // This means no transactions have been executed on the database yet
+    if (!transactionRanges) {
+      return ReplicatedGTID.ZERO.comparable;
+    }
 
     let maxTransactionId = 0;
 
