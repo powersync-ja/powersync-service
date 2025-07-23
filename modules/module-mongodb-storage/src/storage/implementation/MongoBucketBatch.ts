@@ -16,6 +16,7 @@ import {
   BucketStorageMarkRecordUnavailable,
   deserializeBson,
   InternalOpId,
+  isCompleteRow,
   SaveOperationTag,
   storage,
   utils
@@ -49,6 +50,7 @@ export interface MongoBucketBatchOptions {
   lastCheckpointLsn: string | null;
   keepaliveOp: InternalOpId | null;
   noCheckpointBeforeLsn: string;
+  resumeFromLsn: string | null;
   storeCurrentData: boolean;
   /**
    * Set to true for initial replication.
@@ -99,6 +101,20 @@ export class MongoBucketBatch
    */
   public last_flushed_op: InternalOpId | null = null;
 
+  /**
+   * lastCheckpointLsn is the last consistent commit.
+   *
+   * While that is generally a "safe" point to resume from, there are cases where we may want to resume from a different point:
+   * 1. After an initial snapshot, we don't have a consistent commit yet, but need to resume from the snapshot LSN.
+   * 2. If "no_checkpoint_before_lsn" is set far in advance, it may take a while to reach that point. We
+   *    may want to resume at incremental points before that.
+   *
+   * This is set when creating the batch, but may not be updated afterwards.
+   */
+  public resumeFromLsn: string | null = null;
+
+  private needsActivation = true;
+
   constructor(options: MongoBucketBatchOptions) {
     super();
     this.logger = options.logger ?? defaultLogger;
@@ -107,6 +123,7 @@ export class MongoBucketBatch
     this.group_id = options.groupId;
     this.last_checkpoint_lsn = options.lastCheckpointLsn;
     this.no_checkpoint_before_lsn = options.noCheckpointBeforeLsn;
+    this.resumeFromLsn = options.resumeFromLsn;
     this.session = this.client.startSession();
     this.slot_name = options.slotName;
     this.sync_rules = options.syncRules;
@@ -332,7 +349,7 @@ export class MongoBucketBatch
         // Not an error if we re-apply a transaction
         existing_buckets = [];
         existing_lookups = [];
-        if (this.storeCurrentData) {
+        if (!isCompleteRow(this.storeCurrentData, after!)) {
           if (this.markRecordUnavailable != null) {
             // This will trigger a "resnapshot" of the record.
             // This is not relevant if storeCurrentData is false, since we'll get the full row
@@ -685,6 +702,7 @@ export class MongoBucketBatch
 
     if (!createEmptyCheckpoints && this.persisted_op == null) {
       // Nothing to commit - also return true
+      await this.autoActivate(lsn);
       return true;
     }
 
@@ -729,10 +747,63 @@ export class MongoBucketBatch
       },
       { session: this.session }
     );
+    await this.autoActivate(lsn);
     await this.db.notifyCheckpoint();
     this.persisted_op = null;
     this.last_checkpoint_lsn = lsn;
     return true;
+  }
+
+  /**
+   * Switch from processing -> active if relevant.
+   *
+   * Called on new commits.
+   */
+  private async autoActivate(lsn: string) {
+    if (!this.needsActivation) {
+      return;
+    }
+
+    // Activate the batch, so it can start processing.
+    // This is done automatically when the first save() is called.
+
+    const session = this.session;
+    let activated = false;
+    await session.withTransaction(async () => {
+      const doc = await this.db.sync_rules.findOne({ _id: this.group_id }, { session });
+      if (doc && doc.state == 'PROCESSING') {
+        await this.db.sync_rules.updateOne(
+          {
+            _id: this.group_id
+          },
+          {
+            $set: {
+              state: storage.SyncRuleState.ACTIVE
+            }
+          },
+          { session }
+        );
+
+        await this.db.sync_rules.updateMany(
+          {
+            _id: { $ne: this.group_id },
+            state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
+          },
+          {
+            $set: {
+              state: storage.SyncRuleState.STOP
+            }
+          },
+          { session }
+        );
+        activated = true;
+      }
+    });
+    if (activated) {
+      this.logger.info(`Activated new sync rules at ${lsn}`);
+      await this.db.notifyCheckpoint();
+    }
+    this.needsActivation = false;
   }
 
   async keepalive(lsn: string): Promise<boolean> {
@@ -782,13 +853,14 @@ export class MongoBucketBatch
       },
       { session: this.session }
     );
+    await this.autoActivate(lsn);
     await this.db.notifyCheckpoint();
     this.last_checkpoint_lsn = lsn;
 
     return true;
   }
 
-  async setSnapshotLsn(lsn: string): Promise<void> {
+  async setResumeLsn(lsn: string): Promise<void> {
     const update: Partial<SyncRuleDocument> = {
       snapshot_lsn: lsn
     };

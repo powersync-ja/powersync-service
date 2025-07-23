@@ -1,5 +1,11 @@
 # @powersync/service-types
 
+## 0.12.1
+
+### Patch Changes
+
+- ba1ceef: Remove unused dev config.
+
 ## 0.12.0
 
 ### Minor Changes

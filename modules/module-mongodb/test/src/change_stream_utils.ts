@@ -17,7 +17,7 @@ import { MongoManager } from '@module/replication/MongoManager.js';
 import { createCheckpoint, STANDALONE_CHECKPOINT_ID } from '@module/replication/MongoRelation.js';
 import { NormalizedMongoConnectionConfig } from '@module/types/types.js';
 
-import { TEST_CONNECTION_OPTIONS, clearTestDb } from './util.js';
+import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
 
 export class ChangeStreamTestContext {
   private _walStream?: ChangeStream;
@@ -119,7 +119,20 @@ export class ChangeStreamTestContext {
 
   async replicateSnapshot() {
     await this.walStream.initReplication();
-    await this.storage!.autoActivate();
+  }
+
+  /**
+   * A snapshot is not consistent until streaming replication has caught up.
+   * We simulate that for tests.
+   * Do not use if there are any writes performed while doing the snapshot, as that
+   * would result in inconsistent data.
+   */
+  async markSnapshotConsistent() {
+    const checkpoint = await createCheckpoint(this.client, this.db, STANDALONE_CHECKPOINT_ID);
+
+    await this.storage!.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.keepalive(checkpoint);
+    });
   }
 
   startStreaming() {
@@ -195,12 +208,11 @@ export async function getClientCheckpoint(
   while (Date.now() - start < timeout) {
     const storage = await storageFactory.getActiveStorage();
     const cp = await storage?.getCheckpoint();
-    if (cp == null) {
-      throw new Error('No sync rules available');
-    }
-    lastCp = cp;
-    if (cp.lsn && cp.lsn >= lsn) {
-      return cp.checkpoint;
+    if (cp != null) {
+      lastCp = cp;
+      if (cp.lsn && cp.lsn >= lsn) {
+        return cp.checkpoint;
+      }
     }
     await new Promise((resolve) => setTimeout(resolve, 30));
   }

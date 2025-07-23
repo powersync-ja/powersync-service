@@ -31,6 +31,7 @@ export interface PostgresBucketBatchOptions {
   no_checkpoint_before_lsn: string;
   store_current_data: boolean;
   keep_alive_op?: InternalOpId | null;
+  resumeFromLsn: string | null;
   /**
    * Set to true for initial replication.
    */
@@ -61,6 +62,8 @@ export class PostgresBucketBatch
 
   public last_flushed_op: InternalOpId | null = null;
 
+  public resumeFromLsn: string | null;
+
   protected db: lib_postgres.DatabaseClient;
   protected group_id: number;
   protected last_checkpoint_lsn: string | null;
@@ -73,6 +76,7 @@ export class PostgresBucketBatch
   protected batch: OperationBatch | null;
   private lastWaitingLogThrottled = 0;
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
+  private needsActivation = true;
 
   constructor(protected options: PostgresBucketBatchOptions) {
     super();
@@ -81,6 +85,7 @@ export class PostgresBucketBatch
     this.group_id = options.group_id;
     this.last_checkpoint_lsn = options.last_checkpoint_lsn;
     this.no_checkpoint_before_lsn = options.no_checkpoint_before_lsn;
+    this.resumeFromLsn = options.resumeFromLsn;
     this.write_checkpoint_batch = [];
     this.sync_rules = options.sync_rules;
     this.markRecordUnavailable = options.markRecordUnavailable;
@@ -321,6 +326,7 @@ export class PostgresBucketBatch
     // Don't create a checkpoint if there were no changes
     if (!createEmptyCheckpoints && this.persisted_op == null) {
       // Nothing to commit - return true
+      await this.autoActivate(lsn);
       return true;
     }
 
@@ -363,6 +369,7 @@ export class PostgresBucketBatch
       .decoded(StatefulCheckpoint)
       .first();
 
+    await this.autoActivate(lsn);
     await notifySyncRulesUpdate(this.db, doc!);
 
     this.persisted_op = null;
@@ -406,13 +413,14 @@ export class PostgresBucketBatch
       .decoded(StatefulCheckpoint)
       .first();
 
+    await this.autoActivate(lsn);
     await notifySyncRulesUpdate(this.db, updated!);
 
     this.last_checkpoint_lsn = lsn;
     return true;
   }
 
-  async setSnapshotLsn(lsn: string): Promise<void> {
+  async setResumeLsn(lsn: string): Promise<void> {
     await this.db.sql`
       UPDATE sync_rules
       SET
@@ -914,6 +922,59 @@ export class PostgresBucketBatch
     }
 
     return result;
+  }
+
+  /**
+   * Switch from processing -> active if relevant.
+   *
+   * Called on new commits.
+   */
+  private async autoActivate(lsn: string): Promise<void> {
+    if (!this.needsActivation) {
+      // Already activated
+      return;
+    }
+
+    let didActivate = false;
+    await this.db.transaction(async (db) => {
+      const syncRulesRow = await db.sql`
+        SELECT
+          state
+        FROM
+          sync_rules
+        WHERE
+          id = ${{ type: 'int4', value: this.group_id }}
+      `
+        .decoded(pick(models.SyncRules, ['state']))
+        .first();
+
+      if (syncRulesRow && syncRulesRow.state == storage.SyncRuleState.PROCESSING) {
+        await db.sql`
+          UPDATE sync_rules
+          SET
+            state = ${{ type: 'varchar', value: storage.SyncRuleState.ACTIVE }}
+          WHERE
+            id = ${{ type: 'int4', value: this.group_id }}
+        `.execute();
+        didActivate = true;
+      }
+
+      await db.sql`
+        UPDATE sync_rules
+        SET
+          state = ${{ type: 'varchar', value: storage.SyncRuleState.STOP }}
+        WHERE
+          (
+            state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
+            OR state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
+          )
+          AND id != ${{ type: 'int4', value: this.group_id }}
+      `.execute();
+    });
+    if (didActivate) {
+      this.logger.info(`Activated new sync rules at ${lsn}`);
+    }
+    this.needsActivation = false;
   }
 
   /**

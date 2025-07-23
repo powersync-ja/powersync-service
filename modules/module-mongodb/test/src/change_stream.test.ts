@@ -23,7 +23,9 @@ describe('change stream', () => {
 
 function defineChangeStreamTests(factory: storage.TestStorageFactory) {
   test('replicating basic values', async () => {
-    await using context = await ChangeStreamTestContext.open(factory);
+    await using context = await ChangeStreamTestContext.open(factory, {
+      mongoOptions: { postImages: PostImagesOption.READ_ONLY }
+    });
     const { db } = context;
     await context.updateSyncRules(`
 bucket_definitions:
@@ -32,7 +34,7 @@ bucket_definitions:
       - SELECT _id as id, description, num FROM "test_data"`);
 
     await db.createCollection('test_data', {
-      changeStreamPreAndPostImages: { enabled: false }
+      changeStreamPreAndPostImages: { enabled: true }
     });
     const collection = db.collection('test_data');
 
@@ -42,11 +44,8 @@ bucket_definitions:
 
     const result = await collection.insertOne({ description: 'test1', num: 1152921504606846976n });
     const test_id = result.insertedId;
-    await setTimeout(30);
     await collection.updateOne({ _id: test_id }, { $set: { description: 'test2' } });
-    await setTimeout(30);
     await collection.replaceOne({ _id: test_id }, { description: 'test3' });
-    await setTimeout(30);
     await collection.deleteOne({ _id: test_id });
 
     const data = await context.getBucketData('global[]');
@@ -354,6 +353,9 @@ bucket_definitions:
     const test_id = result.insertedId.toHexString();
 
     await context.replicateSnapshot();
+    // Note: snapshot is only consistent some time into the streaming request.
+    // At the point that we get the first acknowledged checkpoint, as is required
+    // for getBucketData(), the data should be consistent.
     context.startStreaming();
 
     const data = await context.getBucketData('global[]');
@@ -512,10 +514,13 @@ bucket_definitions:
     await collection.insertOne({ description: 'test1', num: 1152921504606846976n });
 
     await context.replicateSnapshot();
+    await context.markSnapshotConsistent();
 
     // Simulate an error
     await context.storage!.reportError(new Error('simulated error'));
-    expect((await context.factory.getActiveSyncRulesContent())?.last_fatal_error).toEqual('simulated error');
+    const syncRules = await context.factory.getActiveSyncRulesContent();
+    expect(syncRules).toBeTruthy();
+    expect(syncRules?.last_fatal_error).toEqual('simulated error');
 
     // startStreaming() should automatically clear the error.
     context.startStreaming();

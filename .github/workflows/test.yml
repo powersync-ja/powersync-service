@@ -18,6 +18,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -40,6 +46,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Start MongoDB
         uses: supercharge/mongodb-github-action@1.12.0
@@ -90,6 +102,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Start PostgreSQL
         run: |
@@ -150,10 +168,10 @@ jobs:
         shell: bash
         run: pnpm build
 
-      - name: Test
+      - name: Test Replication
         run: pnpm test --filter='./modules/module-postgres'
 
-      - name: Test
+      - name: Test Storage
         run: pnpm test --filter='./modules/module-postgres-storage'
 
   run-mysql-tests:
@@ -168,6 +186,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Start MySQL
         run: |
@@ -228,7 +252,7 @@ jobs:
         shell: bash
         run: pnpm build
 
-      - name: Test
+      - name: Test Replication
         run: pnpm test --filter='./modules/module-mysql'
 
   run-mongodb-tests:
@@ -243,6 +267,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Start MongoDB
         uses: supercharge/mongodb-github-action@1.12.0
@@ -290,7 +320,7 @@ jobs:
         shell: bash
         run: pnpm build
 
-      - name: Test
+      - name: Test Replication
         run: pnpm test --filter='./modules/module-mongodb'
 
       - name: Test Storage

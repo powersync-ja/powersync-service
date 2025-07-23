@@ -34,12 +34,10 @@ bucket_definitions:
       `CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text, num int8)`
     );
 
-    await context.replicateSnapshot();
+    await context.initializeReplication();
 
     const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
     const startTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
-
-    context.startStreaming();
 
     const [{ test_id }] = pgwireRows(
       await pool.query(
@@ -53,7 +51,8 @@ bucket_definitions:
     const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
     const endTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
     expect(endRowCount - startRowCount).toEqual(1);
-    expect(endTxCount - startTxCount).toEqual(1);
+    // In some rare cases there may be additional empty transactions, so we allow for that.
+    expect(endTxCount - startTxCount).toBeGreaterThanOrEqual(1);
   });
 
   test('replicating case sensitive table', async () => {
@@ -69,12 +68,10 @@ bucket_definitions:
     await pool.query(`DROP TABLE IF EXISTS "test_DATA"`);
     await pool.query(`CREATE TABLE "test_DATA"(id uuid primary key default uuid_generate_v4(), description text)`);
 
-    await context.replicateSnapshot();
+    await context.initializeReplication();
 
     const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
     const startTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
-
-    context.startStreaming();
 
     const [{ test_id }] = pgwireRows(
       await pool.query(`INSERT INTO "test_DATA"(description) VALUES('test1') returning id as test_id`)
@@ -86,7 +83,7 @@ bucket_definitions:
     const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
     const endTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
     expect(endRowCount - startRowCount).toEqual(1);
-    expect(endTxCount - startTxCount).toEqual(1);
+    expect(endTxCount - startTxCount).toBeGreaterThanOrEqual(1);
   });
 
   test('replicating TOAST values', async () => {
@@ -143,8 +140,7 @@ bucket_definitions:
     await pool.query(`DROP TABLE IF EXISTS test_data`);
     await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);
 
-    await context.replicateSnapshot();
-    context.startStreaming();
+    await context.initializeReplication();
 
     const [{ test_id }] = pgwireRows(
       await pool.query(`INSERT INTO test_data(description) VALUES('test1') returning id as test_id`)
@@ -166,8 +162,7 @@ bucket_definitions:
     await pool.query(`DROP TABLE IF EXISTS test_data`);
     await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);
 
-    await context.replicateSnapshot();
-    context.startStreaming();
+    await context.initializeReplication();
 
     const [{ test_id }] = pgwireRows(
       await pool.query(`INSERT INTO test_data(description) VALUES('test1') returning id as test_id`)
@@ -179,8 +174,8 @@ bucket_definitions:
       )
     );
 
-    // This update may fail replicating with:
-    // Error: Update on missing record public.test_data:074a601e-fc78-4c33-a15d-f89fdd4af31d :: {"g":1,"t":"651e9fbe9fec6155895057ec","k":"1a0b34da-fb8c-5e6f-8421-d7a3c5d4df4f"}
+    // Since we don't have an old copy of the record with the new primary key, this
+    // may trigger a "resnapshot".
     await pool.query(`UPDATE test_data SET description = 'test2b' WHERE id = '${test_id2}'`);
 
     // Re-use old id again
@@ -264,16 +259,12 @@ bucket_definitions:
 
     await pool.query(`CREATE TABLE test_donotsync(id uuid primary key default uuid_generate_v4(), description text)`);
 
-    await context.replicateSnapshot();
+    await context.initializeReplication();
 
     const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
     const startTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
 
-    context.startStreaming();
-
-    const [{ test_id }] = pgwireRows(
-      await pool.query(`INSERT INTO test_donotsync(description) VALUES('test1') returning id as test_id`)
-    );
+    await pool.query(`INSERT INTO test_donotsync(description) VALUES('test1') returning id as test_id`);
 
     const data = await context.getBucketData('global[]');
 
@@ -283,7 +274,7 @@ bucket_definitions:
 
     // There was a transaction, but we should not replicate any actual data
     expect(endRowCount - startRowCount).toEqual(0);
-    expect(endTxCount - startTxCount).toEqual(1);
+    expect(endTxCount - startTxCount).toBeGreaterThanOrEqual(1);
   });
 
   test('reporting slot issues', async () => {

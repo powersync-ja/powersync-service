@@ -218,12 +218,17 @@ export class InternalServerError extends ServiceError {
 export class RouteNotFound extends ServiceError {
   static readonly CODE = ErrorCode.PSYNC_S2002;
 
-  constructor(path: string) {
+  constructor(path: string, method?: string) {
+    let pathDescription = JSON.stringify(path);
+    if (method != null) {
+      pathDescription = `${method} ${pathDescription}`;
+    }
+
     super({
       code: RouteNotFound.CODE,
       status: 404,
       description: 'The path does not exist on this server',
-      details: `The path ${JSON.stringify(path)} does not exist on this server`,
+      details: `The path ${pathDescription} does not exist on this server`,
       severity: ErrorSeverity.INFO
     });
   }
@@ -238,6 +243,22 @@ export class DatabaseConnectionError extends ServiceError {
       status: 500,
       description: message,
       details: `cause: ${cause.message}`,
+      stack: process.env.NODE_ENV !== 'production' ? cause.stack : undefined
+    });
+    this.cause = cause;
+  }
+}
+
+export class DatabaseQueryError extends ServiceError {
+  public cause: any;
+
+  constructor(code: ErrorCode, message: string, cause?: any) {
+    super({
+      code: code,
+      status: 500,
+      description: message,
+      // Cause is always logged. Return details via the API only in development mode
+      details: process.env.NODE_ENV !== 'production' && cause != null ? `cause: ${cause.message}` : undefined,
       stack: process.env.NODE_ENV !== 'production' ? cause.stack : undefined
     });
     this.cause = cause;

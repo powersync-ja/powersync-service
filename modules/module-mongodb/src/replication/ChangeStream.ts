@@ -218,6 +218,11 @@ export class ChangeStream {
     return await db.collection(table.name).estimatedDocumentCount();
   }
 
+  /**
+   * This gets a LSN before starting a snapshot, which we can resume streaming from after the snapshot.
+   *
+   * This LSN can survive initial replication restarts.
+   */
   private async getSnapshotLsn(): Promise<string> {
     const hello = await this.defaultDb.command({ hello: 1 });
     // Basic sanity check
@@ -292,6 +297,9 @@ export class ChangeStream {
     );
   }
 
+  /**
+   * Given a snapshot LSN, validate that we can read from it, by opening a change stream.
+   */
   private async validateSnapshotLsn(lsn: string) {
     await using streamManager = this.openChangeStream({ lsn: lsn, maxAwaitTimeMs: 0 });
     const { stream } = streamManager;
@@ -321,7 +329,7 @@ export class ChangeStream {
         if (snapshotLsn == null) {
           // First replication attempt - get a snapshot and store the timestamp
           snapshotLsn = await this.getSnapshotLsn();
-          await batch.setSnapshotLsn(snapshotLsn);
+          await batch.setResumeLsn(snapshotLsn);
           this.logger.info(`Marking snapshot at ${snapshotLsn}`);
         } else {
           this.logger.info(`Resuming snapshot at ${snapshotLsn}`);
@@ -359,11 +367,20 @@ export class ChangeStream {
           await this.snapshotTable(batch, table);
           await batch.markSnapshotDone([table], MongoLSN.ZERO.comparable);
 
-          await touch();
+          this.touch();
         }
 
-        this.logger.info(`Snapshot commit at ${snapshotLsn}`);
+        // The checkpoint here is a marker - we need to replicate up to at least this
+        // point before the data can be considered consistent.
+        // We could do this for each individual table, but may as well just do it once for the entire snapshot.
+        const checkpoint = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
+        await batch.markSnapshotDone([], checkpoint);
+
+        // This will not create a consistent checkpoint yet, but will persist the op.
+        // Actual checkpoint will be created when streaming replication caught up.
         await batch.commit(snapshotLsn);
+
+        this.logger.info(`Snapshot done. Need to replicate from ${snapshotLsn} to ${checkpoint} to be consistent`);
       }
     );
   }
@@ -492,7 +509,7 @@ export class ChangeStream {
       this.logger.info(
         `Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} in ${duration.toFixed(0)}ms`
       );
-      await touch();
+      this.touch();
     }
     // In case the loop was interrupted, make sure we await the last promise.
     await nextChunkPromise;
@@ -656,7 +673,6 @@ export class ChangeStream {
     try {
       // If anything errors here, the entire replication process is halted, and
       // all connections automatically closed, including this one.
-
       await this.initReplication();
       await this.streamChanges();
     } catch (e) {
@@ -757,19 +773,20 @@ export class ChangeStream {
   }
 
   async streamChangesInternal() {
-    // Auto-activate as soon as initial replication is done
-    await this.storage.autoActivate();
-
     await this.storage.startBatch(
       {
         logger: this.logger,
         zeroLSN: MongoLSN.ZERO.comparable,
         defaultSchema: this.defaultDb.databaseName,
+        // We get a complete postimage for every change, so we don't need to store the current data.
         storeCurrentData: false
       },
       async (batch) => {
-        const { lastCheckpointLsn } = batch;
-        const lastLsn = MongoLSN.fromSerialized(lastCheckpointLsn!);
+        const { resumeFromLsn } = batch;
+        if (resumeFromLsn == null) {
+          throw new ReplicationAssertionError(`No LSN found to resume from`);
+        }
+        const lastLsn = MongoLSN.fromSerialized(resumeFromLsn);
         const startAfter = lastLsn?.timestamp;
 
         // It is normal for this to be a minute or two old when there is a low volume
@@ -778,7 +795,7 @@ export class ChangeStream {
 
         this.logger.info(`Resume streaming at ${startAfter?.inspect()} / ${lastLsn}  | Token age: ${tokenAgeSeconds}s`);
 
-        await using streamManager = this.openChangeStream({ lsn: lastCheckpointLsn });
+        await using streamManager = this.openChangeStream({ lsn: resumeFromLsn });
         const { stream, filters } = streamManager;
         if (this.abort_signal.aborted) {
           await stream.close();
@@ -797,6 +814,7 @@ export class ChangeStream {
         let splitDocument: mongo.ChangeStreamDocument | null = null;
 
         let flexDbNameWorkaroundLogged = false;
+        let changesSinceLastCheckpoint = 0;
 
         let lastEmptyResume = performance.now();
 
@@ -831,7 +849,7 @@ export class ChangeStream {
             if (waitForCheckpointLsn == null && performance.now() - lastEmptyResume > 60_000) {
               const { comparable: lsn, timestamp } = MongoLSN.fromResumeToken(stream.resumeToken);
               await batch.keepalive(lsn);
-              await touch();
+              this.touch();
               lastEmptyResume = performance.now();
               // Log the token update. This helps as a general "replication is still active" message in the logs.
               // This token would typically be around 10s behind.
@@ -843,7 +861,7 @@ export class ChangeStream {
             continue;
           }
 
-          await touch();
+          this.touch();
 
           if (startAfter != null && originalChangeDocument.clusterTime?.lte(startAfter)) {
             continue;
@@ -947,6 +965,16 @@ export class ChangeStream {
               timestamp: changeDocument.clusterTime!,
               resume_token: changeDocument._id
             });
+            if (batch.lastCheckpointLsn != null && lsn < batch.lastCheckpointLsn) {
+              // Checkpoint out of order - should never happen with MongoDB.
+              // If it does happen, we throw an error to stop the replication - restarting should recover.
+              // Since we use batch.lastCheckpointLsn for the next resumeAfter, this should not result in an infinite loop.
+              // This is a workaround for the issue below, but we can keep this as a safety-check even if the issue is fixed.
+              // Driver issue report: https://jira.mongodb.org/browse/NODE-7042
+              throw new ReplicationAssertionError(
+                `Change resumeToken ${(changeDocument._id as any)._data} (${timestampToDate(changeDocument.clusterTime!).toISOString()}) is less than last checkpoint LSN ${batch.lastCheckpointLsn}. Restarting replication.`
+              );
+            }
 
             if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
               waitForCheckpointLsn = null;
@@ -956,6 +984,7 @@ export class ChangeStream {
             if (didCommit) {
               this.oldestUncommittedChange = null;
               this.isStartingReplication = false;
+              changesSinceLastCheckpoint = 0;
             }
           } else if (
             changeDocument.operationType == 'insert' ||
@@ -978,7 +1007,21 @@ export class ChangeStream {
               if (this.oldestUncommittedChange == null && changeDocument.clusterTime != null) {
                 this.oldestUncommittedChange = timestampToDate(changeDocument.clusterTime);
               }
-              await this.writeChange(batch, table, changeDocument);
+              const flushResult = await this.writeChange(batch, table, changeDocument);
+              changesSinceLastCheckpoint += 1;
+              if (flushResult != null && changesSinceLastCheckpoint >= 20_000) {
+                // When we are catching up replication after an initial snapshot, there may be a very long delay
+                // before we do a commit(). In that case, we need to periodically persist the resume LSN, so
+                // we don't restart from scratch if we restart replication.
+                // The same could apply if we need to catch up on replication after some downtime.
+                const { comparable: lsn } = new MongoLSN({
+                  timestamp: changeDocument.clusterTime!,
+                  resume_token: changeDocument._id
+                });
+                this.logger.info(`Updating resume LSN to ${lsn} after ${changesSinceLastCheckpoint} changes`);
+                await batch.setResumeLsn(lsn);
+                changesSinceLastCheckpoint = 0;
+              }
             }
           } else if (changeDocument.operationType == 'drop') {
             const rel = getMongoRelation(changeDocument.ns);
@@ -1026,13 +1069,18 @@ export class ChangeStream {
     }
     return Date.now() - this.oldestUncommittedChange.getTime();
   }
-}
 
-async function touch() {
-  // FIXME: The hosted Kubernetes probe does not actually check the timestamp on this.
-  // FIXME: We need a timeout of around 5+ minutes in Kubernetes if we do start checking the timestamp,
-  // or reduce PING_INTERVAL here.
-  return container.probes.touch();
+  private lastTouchedAt = performance.now();
+
+  private touch() {
+    if (performance.now() - this.lastTouchedAt > 1_000) {
+      this.lastTouchedAt = performance.now();
+      // Update the probes, but don't wait for it
+      container.probes.touch().catch((e) => {
+        this.logger.error(`Failed to touch the container probe: ${e.message}`, e);
+      });
+    }
+  }
 }
 
 function mapChangeStreamError(e: any) {

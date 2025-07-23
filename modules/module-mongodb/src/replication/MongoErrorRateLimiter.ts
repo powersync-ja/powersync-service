@@ -28,7 +28,7 @@ export class MongoErrorRateLimiter implements ErrorRateLimiter {
       // Could be fail2ban or similar
       this.setDelay(120_000);
     } else {
-      this.setDelay(30_000);
+      this.setDelay(5_000);
     }
   }
 

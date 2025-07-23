@@ -16,6 +16,7 @@ import {
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
+  maxLsn,
   ProtocolOpId,
   ReplicationCheckpoint,
   storage,
@@ -131,7 +132,7 @@ export class MongoSyncBucketStorage
       {
         _id: this.group_id
       },
-      { projection: { last_checkpoint_lsn: 1, no_checkpoint_before: 1, keepalive_op: 1 } }
+      { projection: { last_checkpoint_lsn: 1, no_checkpoint_before: 1, keepalive_op: 1, snapshot_lsn: 1 } }
     );
     const checkpoint_lsn = doc?.last_checkpoint_lsn ?? null;
 
@@ -142,6 +143,7 @@ export class MongoSyncBucketStorage
       groupId: this.group_id,
       slotName: this.slot_name,
       lastCheckpointLsn: checkpoint_lsn,
+      resumeFromLsn: maxLsn(checkpoint_lsn, doc?.snapshot_lsn),
       noCheckpointBeforeLsn: doc?.no_checkpoint_before ?? options.zeroLSN,
       keepaliveOp: doc?.keepalive_op ? BigInt(doc.keepalive_op) : null,
       storeCurrentData: options.storeCurrentData,
@@ -349,7 +351,10 @@ export class MongoSyncBucketStorage
         // 1. We can calculate the document size accurately without serializing again.
         // 2. We can delay parsing the results until it's needed.
         // We manually use bson.deserialize below
-        raw: true
+        raw: true,
+
+        // Limit the time for the operation to complete, to avoid getting connection timeouts
+        maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
       }
     ) as unknown as mongo.FindCursor<Buffer>;
 
@@ -358,7 +363,9 @@ export class MongoSyncBucketStorage
     // to the lower of the batch count and size limits.
     // This is similar to using `singleBatch: true` in the find options, but allows
     // detecting "hasMore".
-    let { data, hasMore: batchHasMore } = await readSingleBatch(cursor);
+    let { data, hasMore: batchHasMore } = await readSingleBatch(cursor).catch((e) => {
+      throw lib_mongo.mapQueryError(e, 'while reading bucket data');
+    });
     if (data.length == batchLimit) {
       // Limit reached - could have more data, despite the cursor being drained.
       batchHasMore = true;
@@ -487,9 +494,12 @@ export class MongoSyncBucketStorage
             }
           }
         ],
-        { session: undefined, readConcern: 'snapshot' }
+        { session: undefined, readConcern: 'snapshot', maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS }
       )
-      .toArray();
+      .toArray()
+      .catch((e) => {
+        throw lib_mongo.mapQueryError(e, 'while reading checksums');
+      });
 
     return new Map<string, storage.PartialChecksum>(
       aggregate.map((doc) => {
@@ -630,41 +640,6 @@ export class MongoSyncBucketStorage
       },
       { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
     );
-  }
-
-  async autoActivate(): Promise<void> {
-    await this.db.client.withSession(async (session) => {
-      await session.withTransaction(async () => {
-        const doc = await this.db.sync_rules.findOne({ _id: this.group_id }, { session });
-        if (doc && doc.state == 'PROCESSING') {
-          await this.db.sync_rules.updateOne(
-            {
-              _id: this.group_id
-            },
-            {
-              $set: {
-                state: storage.SyncRuleState.ACTIVE
-              }
-            },
-            { session }
-          );
-
-          await this.db.sync_rules.updateMany(
-            {
-              _id: { $ne: this.group_id },
-              state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
-            },
-            {
-              $set: {
-                state: storage.SyncRuleState.STOP
-              }
-            },
-            { session }
-          );
-          await this.db.notifyCheckpoint();
-        }
-      });
-    });
   }
 
   async reportError(e: any): Promise<void> {

@@ -10,8 +10,8 @@ import { AbstractReplicationJob } from './AbstractReplicationJob.js';
 import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 import { ConnectionTestResult } from './ReplicationModule.js';
 
-// 5 minutes
-const PING_INTERVAL = 1_000_000_000n * 300n;
+// 1 minute
+const PING_INTERVAL = 1_000_000_000n * 60n;
 
 export interface CreateJobOptions {
   lock: storage.ReplicationLock;

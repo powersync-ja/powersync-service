@@ -1,5 +1,28 @@
 # @powersync/service-image
 
+## 1.13.4
+
+### Patch Changes
+
+- a60f2c7: [MongoDB Storage] Improve error messages for checksum query timeouts
+- fc87e1e: Use node:22.17.0-slim
+- 71cf892: Add 'powersync' or 'powersync-storage' as the app name for database connections.
+- 60bf5f9: [MongoDB Replication] Fix resumeTokens going back in time on busy change streams.
+- Updated dependencies [a60f2c7]
+- Updated dependencies [71cf892]
+- Updated dependencies [ba1ceef]
+- Updated dependencies [60bf5f9]
+- Updated dependencies [f1431b6]
+  - @powersync/service-module-mongodb-storage@0.10.4
+  - @powersync/service-core@1.13.4
+  - @powersync/service-module-postgres-storage@0.8.4
+  - @powersync/service-module-mongodb@0.10.4
+  - @powersync/service-module-postgres@0.14.4
+  - @powersync/service-module-mysql@0.7.4
+  - @powersync/lib-services-framework@0.7.1
+  - @powersync/service-module-core@0.1.6
+  - @powersync/service-rsocket-router@0.1.2
+
 ## 1.13.3
 
 ### Patch Changes

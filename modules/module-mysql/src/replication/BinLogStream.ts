@@ -400,8 +400,6 @@ export class BinLogStream {
   }
 
   async streamChanges() {
-    // Auto-activate as soon as initial replication is done
-    await this.storage.autoActivate();
     const serverId = createRandomServerId(this.storage.group_id);
 
     const connection = await this.connections.getConnection();
