@@ -28,36 +28,24 @@ function updateDocFilter(userId: string, clientId: string) {
   };
 }
 
-function parseMonthInterval(currentMonth: number, interval: number) {
-  const readableMonth = currentMonth + 1;
-  const difference = readableMonth - interval;
-  if (difference < 0) {
-    return 12 + difference - 1;
-  }
-  return difference - 1;
-}
-
 function timeSpan(period: event_types.TimeFrames, timeframe: number = 1): mongo.Filter<mongo.Document> {
   const date = new Date();
-  const { year, month, day, today } = parseDate(date);
+  const { year, month, today } = parseDate(date);
   switch (period) {
     case 'month': {
-      const thisMonth = month;
-      const previousMonth = parseMonthInterval(thisMonth, timeframe);
-      return { $gte: new Date(year, thisMonth), $lt: new Date(year, previousMonth) };
+      return { $lte: date, $gte: new Date(year, date.getMonth() - timeframe) };
     }
     case 'week': {
       // Back tracks the date to the previous week Monday to Sunday
-      const daysToSunday = 0 - day;
-      const weekEndDate = new Date(date);
-      weekEndDate.setDate(weekEndDate.getDate() + daysToSunday);
-      const weekStartDate = new Date(weekEndDate);
+      // const daysToSunday = 0 - day;
+      // const weekEndDate = new Date(date);
+      // weekEndDate.setDate(weekEndDate.getDate() + daysToSunday);
+      const weekStartDate = new Date(date);
       weekStartDate.setDate(weekStartDate.getDate() - 6 * timeframe);
       const weekStart = parseDate(weekStartDate);
-      const weekEnd = parseDate(weekEndDate);
       return {
         $gte: new Date(weekStart.year, weekStart.month, weekStart.today),
-        $lte: new Date(weekEnd.year, weekEnd.month, weekEnd.today)
+        $lte: new Date(year, month, today)
       };
     }
     case 'hour': {
@@ -71,8 +59,8 @@ function timeSpan(period: event_types.TimeFrames, timeframe: number = 1): mongo.
     default: {
       // Start from today to just before tomorrow
       return {
-        $gte: new Date(year, month, today),
-        $lte: new Date(year, month, today - timeframe)
+        $lte: new Date(year, month, today),
+        $gte: new Date(year, month, today - timeframe)
       };
     }
   }
