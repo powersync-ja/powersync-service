@@ -3,6 +3,7 @@ import { storage } from '@powersync/service-core';
 import { event_types } from '@powersync/service-types';
 import { PowerSyncMongo } from './implementation/db.js';
 import { logger } from '@powersync/lib-services-framework';
+import { parseJsDate } from './implementation/util.js';
 
 function parseDate(date: Date) {
   const year = date.getFullYear();
@@ -15,68 +16,6 @@ function parseDate(date: Date) {
     today,
     day,
     parsedDate: date
-  };
-}
-function updateDocFilter(userId: string, clientId: string) {
-  const { year, month, today, parsedDate } = parseDate(new Date());
-  const nextDay = today + 1;
-  return {
-    user_id: userId,
-    client_id: clientId,
-    connect_at: {
-      $gte: parsedDate,
-      $lt: new Date(year, month, nextDay)
-    }
-  };
-}
-
-function timeSpan(period: event_types.TimeFrames, timeframe: number = 1): mongo.Filter<mongo.Document> {
-  const { year, month, today, parsedDate } = parseDate(new Date());
-  switch (period) {
-    case 'month': {
-      return { $lte: parsedDate, $gt: new Date(year, parsedDate.getMonth() - timeframe) };
-    }
-    case 'week': {
-      const weekStartDate = new Date(parsedDate);
-      weekStartDate.setDate(weekStartDate.getDate() - 6 * timeframe);
-      const weekStart = parseDate(weekStartDate);
-      return {
-        $lte: parsedDate,
-        $gt: new Date(weekStart.year, weekStart.month, weekStart.today)
-      };
-    }
-    case 'hour': {
-      // Get the last hour from the current time
-      const previousHour = parsedDate.getHours() - timeframe;
-      return {
-        $gte: new Date(year, month, today, previousHour),
-        $lt: new Date(year, month, today, parsedDate.getHours())
-      };
-    }
-    default: {
-      return {
-        $lte: parsedDate,
-        $gt: new Date(year, month, today - timeframe)
-      };
-    }
-  }
-}
-
-function dayDateRange(data: event_types.ListCurrentConnectionsRequest) {
-  const { range } = data;
-  if (!range) {
-    return undefined;
-  }
-  const date = new Date();
-  const { day, parsedDate } = parseDate(new Date(range.start_date));
-  if (day - date.getDay() > 2 || day - date.getDay() < -2) {
-    throw new Error('Invalid start date for `day` period. Max period is withing 2 days');
-  }
-  return {
-    connect_at: {
-      $lte: date,
-      $gt: parsedDate
-    }
   };
 }
 
@@ -133,10 +72,73 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     };
   }
 
+  private updateDocFilter(userId: string, clientId: string) {
+    const { year, month, today, parsedDate } = parseDate(new Date());
+    const nextDay = today + 1;
+    return {
+      user_id: userId,
+      client_id: clientId,
+      connect_at: {
+        $gte: parsedDate,
+        $lt: new Date(year, month, nextDay)
+      }
+    };
+  }
+
+  private dayDateRange(data: event_types.ListCurrentConnectionsRequest) {
+    const { range } = data;
+    if (!range) {
+      return undefined;
+    }
+    const date = new Date();
+    const { day, parsedDate } = parseJsDate(new Date(range.start_date));
+    if (day - date.getDay() > 2 || day - date.getDay() < -2) {
+      throw new Error('Invalid start date for `day` period. Max period is withing 2 days');
+    }
+    return {
+      connect_at: {
+        $lte: date,
+        $gt: parsedDate
+      }
+    };
+  }
+
+  private timeStampQuery(period: event_types.TimeFrames, timeframe: number = 1): mongo.Filter<mongo.Document> {
+    const { year, month, today, parsedDate } = parseJsDate(new Date());
+    switch (period) {
+      case 'month': {
+        return { $lte: parsedDate, $gt: new Date(year, parsedDate.getMonth() - timeframe) };
+      }
+      case 'week': {
+        const weekStartDate = new Date(parsedDate);
+        weekStartDate.setDate(weekStartDate.getDate() - 6 * timeframe);
+        const weekStart = parseJsDate(weekStartDate);
+        return {
+          $lte: parsedDate,
+          $gt: new Date(weekStart.year, weekStart.month, weekStart.today)
+        };
+      }
+      case 'hour': {
+        // Get the last hour from the current time
+        const previousHour = parsedDate.getHours() - timeframe;
+        return {
+          $gte: new Date(year, month, today, previousHour),
+          $lt: new Date(year, month, today, parsedDate.getHours())
+        };
+      }
+      default: {
+        return {
+          $lte: parsedDate,
+          $gt: new Date(year, month, today - timeframe)
+        };
+      }
+    }
+  }
+
   async deleteOldSdkData(data: event_types.DeleteOldSdkData): Promise<void> {
     const { period, timeframe } = data;
     const result = await this.db.sdk_report_events.deleteMany({
-      connect_at: timeSpan(period, timeframe),
+      connect_at: this.timeStampQuery(period, timeframe),
       $or: [{ disconnect_at: { $exists: true } }, { jwt_exp: { $lt: new Date() }, disconnect_at: { $exists: false } }]
     });
     if (result.deletedCount > 0) {
@@ -145,7 +147,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
   }
 
   async scrapeSdkData(data: event_types.ScrapeSdkDataRequest): Promise<event_types.ListCurrentConnections> {
-    const timespanFilter = timeSpan(data.period, data.interval);
+    const timespanFilter = this.timeStampQuery(data.period, data.interval);
     const result = await this.db.sdk_report_events
       .aggregate([
         {
@@ -162,7 +164,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
 
   async reportSdkConnect(data: event_types.SdkConnectBucketData): Promise<void> {
     await this.db.sdk_report_events.findOneAndUpdate(
-      updateDocFilter(data.user_id, data.client_id!),
+      this.updateDocFilter(data.user_id, data.client_id!),
       {
         $set: data,
         $unset: {
@@ -175,7 +177,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     );
   }
   async reportSdkDisconnect(data: event_types.SdkDisconnectEventData): Promise<void> {
-    await this.db.sdk_report_events.findOneAndUpdate(updateDocFilter(data.user_id, data.client_id!), {
+    await this.db.sdk_report_events.findOneAndUpdate(this.updateDocFilter(data.user_id, data.client_id!), {
       $set: {
         disconnect_at: data.disconnect_at
       },
@@ -193,7 +195,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
           $match: {
             disconnect_at: { $exists: false },
             jwt_exp: { $gt: new Date() },
-            ...dayDateRange(data)
+            ...this.dayDateRange(data)
           }
         },
         this.sdkFacetPipeline(),

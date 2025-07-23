@@ -1,7 +1,6 @@
 import * as bson from 'bson';
 import * as crypto from 'crypto';
 import * as uuid from 'uuid';
-
 import { mongo } from '@powersync/lib-service-mongodb';
 import { storage, utils } from '@powersync/service-core';
 
@@ -117,3 +116,17 @@ export const connectMongoForTests = (url: string, isCI: boolean) => {
   });
   return new PowerSyncMongo(client);
 };
+
+export function parseJsDate(date: Date) {
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  const today = date.getDate();
+  const day = date.getDay();
+  return {
+    year,
+    month,
+    today,
+    day,
+    parsedDate: date
+  };
+}

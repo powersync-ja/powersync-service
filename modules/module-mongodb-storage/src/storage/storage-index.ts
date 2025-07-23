@@ -12,3 +12,4 @@ export * from './implementation/OperationBatch.js';
 export * from './implementation/PersistedBatch.js';
 export * from './implementation/util.js';
 export * from './MongoBucketStorage.js';
+export * from './MongoReportStorage.js';
