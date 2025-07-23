@@ -13,49 +13,49 @@ function parseDate(date: Date) {
     year,
     month,
     today,
-    day
+    day,
+    parsedDate: date
   };
 }
 function updateDocFilter(userId: string, clientId: string) {
-  const { year, month, today } = parseDate(new Date());
+  const { year, month, today, parsedDate } = parseDate(new Date());
   const nextDay = today + 1;
   return {
     user_id: userId,
     client_id: clientId,
     connect_at: {
-      $gte: new Date(year, month, today),
+      $gte: parsedDate,
       $lt: new Date(year, month, nextDay)
     }
   };
 }
 
 function timeSpan(period: event_types.TimeFrames, timeframe: number = 1): mongo.Filter<mongo.Document> {
-  const date = new Date();
-  const { year, month, today } = parseDate(date);
+  const { year, month, today, parsedDate } = parseDate(new Date());
   switch (period) {
     case 'month': {
-      return { $lte: date, $gt: new Date(year, date.getMonth() - timeframe) };
+      return { $lte: parsedDate, $gt: new Date(year, parsedDate.getMonth() - timeframe) };
     }
     case 'week': {
-      const weekStartDate = new Date(date);
+      const weekStartDate = new Date(parsedDate);
       weekStartDate.setDate(weekStartDate.getDate() - 6 * timeframe);
       const weekStart = parseDate(weekStartDate);
       return {
-        $lte: date,
+        $lte: parsedDate,
         $gt: new Date(weekStart.year, weekStart.month, weekStart.today)
       };
     }
     case 'hour': {
       // Get the last hour from the current time
-      const previousHour = date.getHours() - timeframe;
+      const previousHour = parsedDate.getHours() - timeframe;
       return {
         $gte: new Date(year, month, today, previousHour),
-        $lt: new Date(year, month, today, date.getHours())
+        $lt: new Date(year, month, today, parsedDate.getHours())
       };
     }
     default: {
       return {
-        $lte: date,
+        $lte: parsedDate,
         $gt: new Date(year, month, today - timeframe)
       };
     }
@@ -68,9 +68,13 @@ function dayDateRange(data: event_types.ListCurrentConnectionsRequest) {
     return undefined;
   }
   const date = new Date();
+  const { today, parsedDate } = parseDate(new Date(range.start));
+  if (today - date.getDay() > 2) {
+    throw new Error('Invalid start date for `day` period. Max period is withing 2 days');
+  }
   return {
     connect_at: {
-      $lte: date,
+      $lte: parsedDate,
       $gt: new Date(range.start)
     }
   };
