@@ -28,15 +28,23 @@ function updateDocFilter(userId: string, clientId: string) {
   };
 }
 
-function timeSpan(timeframe: event_types.TimeFrames) {
+function parseMonthInterval(currentMonth: number, interval: number) {
+  const readableMonth = currentMonth + 1;
+  const difference = readableMonth - interval;
+  if (difference < 0) {
+    return 12 + difference - 1;
+  }
+  return difference - 1;
+}
+
+function timeSpan(period: event_types.TimeFrames, timeframe: number = 1): mongo.Filter<mongo.Document> {
   const date = new Date();
   const { year, month, day, today } = parseDate(date);
-  switch (timeframe) {
+  switch (period) {
     case 'month': {
-      // Cron should run the first day of the new month, this then retrieves from the 1st to the last day of the month
       const thisMonth = month;
-      const nextMonth = month == 11 ? 0 : month + 1;
-      return { $gte: new Date(year, thisMonth), $lte: new Date(year, nextMonth) };
+      const previousMonth = parseMonthInterval(thisMonth, timeframe);
+      return { $gte: new Date(year, thisMonth), $lt: new Date(year, previousMonth) };
     }
     case 'week': {
       // Back tracks the date to the previous week Monday to Sunday
@@ -44,7 +52,7 @@ function timeSpan(timeframe: event_types.TimeFrames) {
       const weekEndDate = new Date(date);
       weekEndDate.setDate(weekEndDate.getDate() + daysToSunday);
       const weekStartDate = new Date(weekEndDate);
-      weekStartDate.setDate(weekStartDate.getDate() - 6);
+      weekStartDate.setDate(weekStartDate.getDate() - 6 * timeframe);
       const weekStart = parseDate(weekStartDate);
       const weekEnd = parseDate(weekEndDate);
       return {
@@ -52,12 +60,19 @@ function timeSpan(timeframe: event_types.TimeFrames) {
         $lte: new Date(weekEnd.year, weekEnd.month, weekEnd.today)
       };
     }
+    case 'hour': {
+      // Get the last hour from the current time
+      const previousHour = date.getHours() - timeframe;
+      return {
+        $gte: new Date(year, month, today, previousHour),
+        $lt: new Date(year, month, today, date.getHours())
+      };
+    }
     default: {
       // Start from today to just before tomorrow
-      const nextDay = today + 1;
       return {
         $gte: new Date(year, month, today),
-        $lt: new Date(year, month, nextDay)
+        $lte: new Date(year, month, today - timeframe)
       };
     }
   }
@@ -73,12 +88,15 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
   }
 
   async deleteOldSdkData(data: event_types.DeleteOldSdkData): Promise<void> {
-    console.log(data);
+    const { period, timeframe } = data;
+    await this.db.sdk_report_events.deleteMany({
+      connect_at: timeSpan(period, timeframe),
+      $or: [{ disconnect_at: { $exists: true } }, { jwt_exp: { $lt: new Date() }, disconnect_at: { $exists: false } }]
+    });
   }
 
   async scrapeSdkData(data: event_types.ScrapeSdkDataRequest): Promise<event_types.ListCurrentConnectionsResponse> {
-    const timespanFilter = timeSpan(data.scrape_time);
-    console.log(timespanFilter);
+    const timespanFilter = timeSpan(data.period);
     const result = await this.db.sdk_report_events
       .aggregate([
         {
@@ -143,9 +161,9 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
         },
         {
           $project: {
-            unique_users_count: { $ifNull: [{ $arrayElemAt: ['$unique_users.count', 0] }, 0] },
-            unique_user_sdk_count: { $ifNull: [{ $arrayElemAt: ['$unique_user_sdk.count', 0] }, 0] },
-            unique_user_client_count: { $ifNull: [{ $arrayElemAt: ['$unique_user_client.count', 0] }, 0] },
+            users: { $ifNull: [{ $arrayElemAt: ['$unique_users.count', 0] }, 0] },
+            user_sdk: { $ifNull: [{ $arrayElemAt: ['$unique_user_sdk.count', 0] }, 0] },
+            client_user: { $ifNull: [{ $arrayElemAt: ['$unique_user_client.count', 0] }, 0] },
             sdk_versions: { $arrayToObject: '$sdk_versions_array' }
           }
         }
@@ -178,30 +196,86 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
       }
     });
   }
-  async listCurrentConnections(data: event_types.InstanceRequest): Promise<event_types.ListCurrentConnectionsResponse> {
+  async listCurrentConnections(
+    data: event_types.ListCurrentConnectionsRequest
+  ): Promise<event_types.ListCurrentConnectionsResponse> {
+    const timespanFilter = data.period ? { connect_at: timeSpan(data.period) } : undefined;
+    console.log({ timespanFilter });
     const result = await this.db.sdk_report_events
-      .aggregate<event_types.ListCurrentConnections>([
+      .aggregate([
         {
-          $group: {
-            _id: null,
-            user_ids: { $addToSet: '$user_id' },
-            client_ids: { $addToSet: '$client_id' },
-            sdks: { $addToSet: '$sdk' }
+          $match: {
+            disconnect_at: { $exists: false },
+            jwt_exp: { $gt: new Date() },
+            ...timespanFilter
+          }
+        },
+        {
+          $facet: {
+            unique_users: [
+              {
+                $group: {
+                  _id: '$user_id'
+                }
+              },
+              {
+                $count: 'count'
+              }
+            ],
+            unique_user_sdk: [
+              {
+                $group: {
+                  _id: {
+                    user_id: '$user_id',
+                    sdk: '$sdk'
+                  }
+                }
+              },
+              {
+                $count: 'count'
+              }
+            ],
+            unique_user_client: [
+              {
+                $group: {
+                  _id: {
+                    user_id: '$user_id',
+                    client_id: '$client_id'
+                  }
+                }
+              },
+              {
+                $count: 'count'
+              }
+            ],
+            sdk_versions_array: [
+              {
+                $group: {
+                  _id: '$sdk',
+                  count: { $sum: 1 }
+                }
+              },
+              {
+                $project: {
+                  _id: 0,
+                  k: '$_id',
+                  v: '$count'
+                }
+              }
+            ]
           }
         },
         {
           $project: {
-            _id: 0,
-            users: '$user_ids',
-            clients: '$client_ids',
-            sdks: '$sdks'
+            users: { $ifNull: [{ $arrayElemAt: ['$unique_users.count', 0] }, 0] },
+            user_sdk: { $ifNull: [{ $arrayElemAt: ['$unique_user_sdk.count', 0] }, 0] },
+            client_user: { $ifNull: [{ $arrayElemAt: ['$unique_user_client.count', 0] }, 0] },
+            sdk_versions: { $arrayToObject: '$sdk_versions_array' }
           }
         }
       ])
       .toArray();
-    return {
-      ...result[0]
-    };
+    return result[0] as event_types.ListCurrentConnectionsResponse;
   }
 
   async [Symbol.asyncDispose]() {
