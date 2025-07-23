@@ -85,44 +85,21 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
             $count: 'count'
           }
         ],
-        unique_user_sdk: [
-          {
-            $group: {
-              _id: {
-                user_id: '$user_id',
-                sdk: '$sdk'
-              }
-            }
-          },
-          {
-            $count: 'count'
-          }
-        ],
-        unique_user_client: [
-          {
-            $group: {
-              _id: {
-                user_id: '$user_id',
-                client_id: '$client_id'
-              }
-            }
-          },
-          {
-            $count: 'count'
-          }
-        ],
         sdk_versions_array: [
           {
             $group: {
               _id: '$sdk',
-              count: { $sum: 1 }
+              total: { $sum: 1 },
+              client_ids: { $addToSet: '$client_id' },
+              user_ids: { $addToSet: '$user_id' }
             }
           },
           {
             $project: {
               _id: 0,
-              k: '$_id',
-              v: '$count'
+              sdk: '$_id',
+              users: { $size: '$user_ids' },
+              clients: { $size: '$client_ids' }
             }
           }
         ]
@@ -134,9 +111,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     return {
       $project: {
         users: { $ifNull: [{ $arrayElemAt: ['$unique_users.count', 0] }, 0] },
-        user_sdk: { $ifNull: [{ $arrayElemAt: ['$unique_user_sdk.count', 0] }, 0] },
-        client_user: { $ifNull: [{ $arrayElemAt: ['$unique_user_client.count', 0] }, 0] },
-        sdk_versions: { $arrayToObject: '$sdk_versions_array' }
+        sdks: '$sdk_versions_array'
       }
     };
   }
@@ -153,7 +128,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     }
   }
 
-  async scrapeSdkData(data: event_types.ScrapeSdkDataRequest): Promise<event_types.ListCurrentConnectionsResponse> {
+  async scrapeSdkData(data: event_types.ScrapeSdkDataRequest): Promise<event_types.ListCurrentConnections> {
     const timespanFilter = timeSpan(data.period, data.interval);
     console.log({ timespanFilter });
     const result = await this.db.sdk_report_events
@@ -167,7 +142,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
         this.sdkProjectPipeline()
       ])
       .toArray();
-    return result[0] as event_types.ListCurrentConnectionsResponse;
+    return result[0] as event_types.ListCurrentConnections;
   }
 
   async reportSdkConnect(data: event_types.SdkConnectBucketData): Promise<void> {
@@ -196,7 +171,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
   }
   async listCurrentConnections(
     data: event_types.ListCurrentConnectionsRequest
-  ): Promise<event_types.ListCurrentConnectionsResponse> {
+  ): Promise<event_types.ListCurrentConnections> {
     const timespanFilter = data.period ? { connect_at: timeSpan(data.period) } : undefined;
     const result = await this.db.sdk_report_events
       .aggregate([
@@ -211,7 +186,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
         this.sdkProjectPipeline()
       ])
       .toArray();
-    return result[0] as event_types.ListCurrentConnectionsResponse;
+    return result[0] as event_types.ListCurrentConnections;
   }
 
   async [Symbol.asyncDispose]() {

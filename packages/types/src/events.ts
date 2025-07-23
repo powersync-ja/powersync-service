@@ -11,6 +11,12 @@ export type SubscribeEvents = {
   [EmitterEngineEvents.SDK_DELETE_OLD]: DeleteOldSdkData;
 };
 
+export type EventHandlerFunc<K extends EmitterEngineEvents> = (data: SubscribeEvents[K]) => Promise<void> | void;
+export interface EmitterEvent<K extends EmitterEngineEvents> {
+  event: K;
+  handler: EventHandlerFunc<K>;
+}
+
 export type SdkUserData = {
   client_id?: string;
   user_id: string;
@@ -46,22 +52,15 @@ export type SdkConnectDocument = {
   disconnect_at?: Date;
 };
 
-export type InstanceRequest = {
-  app_id: string;
-  org_id: string;
-};
-
 export type ListCurrentConnections = {
   users: number;
-  // Grouping user_id and sdk versions
-  user_sdk: number;
-  // Grouping user_id and client_ids
-  client_user: number;
-  // Counts of used sdk versions ( outdated sdks will have the key of unknown)
   sdks: {
-    [sdk_version: string]: number;
+    sdk: string;
+    users: number;
+    clients: number;
   };
 };
+
 export type ScrapeSdkDataRequest = {
   period: TimeFrames;
   interval?: number;
@@ -70,11 +69,3 @@ export type ScrapeSdkDataRequest = {
 export type ListCurrentConnectionsRequest = {
   period?: 'day';
 };
-
-export type ListCurrentConnectionsResponse = ListCurrentConnections;
-
-export type EventHandlerFunc<K extends EmitterEngineEvents> = (data: SubscribeEvents[K]) => Promise<void> | void;
-export interface EmitterEvent<K extends EmitterEngineEvents> {
-  event: K;
-  handler: EventHandlerFunc<K>;
-}
