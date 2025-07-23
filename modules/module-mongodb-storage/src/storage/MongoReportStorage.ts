@@ -163,8 +163,10 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
   }
 
   async reportSdkConnect(data: event_types.SdkConnectBucketData): Promise<void> {
+    const updateFilter = this.updateDocFilter(data.user_id, data.client_id!);
+    console.log(updateFilter);
     await this.db.sdk_report_events.findOneAndUpdate(
-      this.updateDocFilter(data.user_id, data.client_id!),
+      updateFilter,
       {
         $set: data,
         $unset: {
@@ -177,7 +179,9 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     );
   }
   async reportSdkDisconnect(data: event_types.SdkDisconnectEventData): Promise<void> {
-    await this.db.sdk_report_events.findOneAndUpdate(this.updateDocFilter(data.user_id, data.client_id!), {
+    const updateFilter = this.updateDocFilter(data.user_id, data.client_id!);
+    console.log(updateFilter);
+    await this.db.sdk_report_events.findOneAndUpdate(updateFilter, {
       $set: {
         disconnect_at: data.disconnect_at
       },
