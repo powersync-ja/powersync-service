@@ -73,13 +73,14 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
   }
 
   private updateDocFilter(userId: string, clientId: string) {
-    const { year, month, today, parsedDate } = parseDate(new Date());
+    const { year, month, today } = parseDate(new Date());
     const nextDay = today + 1;
     return {
       user_id: userId,
       client_id: clientId,
       connect_at: {
-        $gte: parsedDate,
+        // Need to create a new date here to sett the time to 00:00:00
+        $gte: new Date(year, month, today),
         $lt: new Date(year, month, nextDay)
       }
     };
@@ -164,7 +165,6 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
 
   async reportSdkConnect(data: event_types.SdkConnectBucketData): Promise<void> {
     const updateFilter = this.updateDocFilter(data.user_id, data.client_id!);
-    console.log(updateFilter);
     await this.db.sdk_report_events.findOneAndUpdate(
       updateFilter,
       {
@@ -180,7 +180,6 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
   }
   async reportSdkDisconnect(data: event_types.SdkDisconnectEventData): Promise<void> {
     const updateFilter = this.updateDocFilter(data.user_id, data.client_id!);
-    console.log(updateFilter);
     await this.db.sdk_report_events.findOneAndUpdate(updateFilter, {
       $set: {
         disconnect_at: data.disconnect_at
