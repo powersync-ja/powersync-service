@@ -19,7 +19,7 @@ import mysqlPromise from 'mysql2/promise';
 
 import { TableMapEntry } from '@powersync/mysql-zongji';
 import * as common from '../common/common-index.js';
-import { createRandomServerId, qualifiedMySQLTable, retriedQuery } from '../utils/mysql-utils.js';
+import { createRandomServerId, qualifiedMySQLTable } from '../utils/mysql-utils.js';
 import { MySQLConnectionManager } from './MySQLConnectionManager.js';
 import { ReplicationMetric } from '@powersync/service-types';
 import { BinLogEventHandler, BinLogListener, Row, SchemaChange, SchemaChangeType } from './zongji/BinLogListener.js';
@@ -59,13 +59,6 @@ export class BinlogConfigurationError extends Error {
  */
 function getMysqlRelId(source: MysqlRelId): string {
   return `${source.schema}.${source.name}`;
-}
-
-export async function sendKeepAlive(connection: mysqlPromise.Connection) {
-  await retriedQuery({ connection: connection, query: `XA START 'powersync_keepalive'` });
-  await retriedQuery({ connection: connection, query: `XA END 'powersync_keepalive'` });
-  await retriedQuery({ connection: connection, query: `XA PREPARE 'powersync_keepalive'` });
-  await retriedQuery({ connection: connection, query: `XA COMMIT 'powersync_keepalive'` });
 }
 
 export class BinLogStream {
