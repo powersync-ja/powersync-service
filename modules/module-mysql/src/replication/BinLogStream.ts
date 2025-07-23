@@ -19,7 +19,7 @@ import mysqlPromise from 'mysql2/promise';
 
 import { TableMapEntry } from '@powersync/mysql-zongji';
 import * as common from '../common/common-index.js';
-import { createRandomServerId, escapeMysqlTableName } from '../utils/mysql-utils.js';
+import { createRandomServerId, qualifiedMySQLTable, retriedQuery } from '../utils/mysql-utils.js';
 import { MySQLConnectionManager } from './MySQLConnectionManager.js';
 import { ReplicationMetric } from '@powersync/service-types';
 import { BinLogEventHandler, BinLogListener, Row, SchemaChange, SchemaChangeType } from './zongji/BinLogListener.js';
@@ -59,6 +59,13 @@ export class BinlogConfigurationError extends Error {
  */
 function getMysqlRelId(source: MysqlRelId): string {
   return `${source.schema}.${source.name}`;
+}
+
+export async function sendKeepAlive(connection: mysqlPromise.Connection) {
+  await retriedQuery({ connection: connection, query: `XA START 'powersync_keepalive'` });
+  await retriedQuery({ connection: connection, query: `XA END 'powersync_keepalive'` });
+  await retriedQuery({ connection: connection, query: `XA PREPARE 'powersync_keepalive'` });
+  await retriedQuery({ connection: connection, query: `XA COMMIT 'powersync_keepalive'` });
 }
 
 export class BinLogStream {
@@ -192,7 +199,7 @@ export class BinLogStream {
 
     let tables: storage.SourceTable[] = [];
     for (const matchedTable of matchedTables) {
-      const replicaIdColumns = await this.getReplicaIdColumns(matchedTable);
+      const replicaIdColumns = await this.getReplicaIdColumns(matchedTable, tablePattern.schema);
 
       const table = await this.handleRelation(
         batch,
@@ -300,11 +307,11 @@ export class BinLogStream {
     batch: storage.BucketStorageBatch,
     table: storage.SourceTable
   ) {
-    this.logger.info(`Replicating ${table.qualifiedName}`);
+    this.logger.info(`Replicating ${qualifiedMySQLTable(table)}`);
     // TODO count rows and log progress at certain batch sizes
 
     // MAX_EXECUTION_TIME(0) hint disables execution timeout for this query
-    const query = connection.query(`SELECT /*+ MAX_EXECUTION_TIME(0) */ * FROM ${escapeMysqlTableName(table)}`);
+    const query = connection.query(`SELECT /*+ MAX_EXECUTION_TIME(0) */ * FROM ${qualifiedMySQLTable(table)}`);
     const stream = query.stream();
 
     let columns: Map<string, ColumnDescriptor> | undefined = undefined;
@@ -415,7 +422,7 @@ export class BinLogStream {
           const binlogEventHandler = this.createBinlogEventHandler(batch);
           const binlogListener = new BinLogListener({
             logger: this.logger,
-            tableFilter: (table: string) => this.matchesTable(table),
+            sourceTables: this.syncRules.getSourceTables(),
             startPosition: binLogPositionState,
             connectionManager: this.connections,
             serverId: serverId,
@@ -436,18 +443,6 @@ export class BinLogStream {
         }
       );
     }
-  }
-
-  private matchesTable(tableName: string): boolean {
-    const sourceTables = this.syncRules.getSourceTables();
-
-    return (
-      sourceTables.findIndex((table) =>
-        table.isWildcard
-          ? tableName.startsWith(table.tablePattern.substring(0, table.tablePattern.length - 1))
-          : tableName === table.name
-      ) !== -1
-    );
   }
 
   private createBinlogEventHandler(batch: storage.BucketStorageBatch): BinLogEventHandler {
@@ -499,24 +494,24 @@ export class BinLogStream {
 
   private async handleSchemaChange(batch: storage.BucketStorageBatch, change: SchemaChange): Promise<void> {
     if (change.type === SchemaChangeType.RENAME_TABLE) {
-      const oldTableId = getMysqlRelId({
-        schema: this.connections.databaseName,
+      const fromTableId = getMysqlRelId({
+        schema: change.schema,
         name: change.table
       });
 
-      const table = this.tableCache.get(oldTableId);
+      const fromTable = this.tableCache.get(fromTableId);
       // Old table needs to be cleaned up
-      if (table) {
-        await batch.drop([table]);
-        this.tableCache.delete(oldTableId);
+      if (fromTable) {
+        await batch.drop([fromTable]);
+        this.tableCache.delete(fromTableId);
       }
-      // If the new table matches the sync rules, we need to add it to the cache and snapshot it
-      if (this.matchesTable(change.newTable!)) {
-        await this.handleCreateOrUpdateTable(batch, change.newTable!, this.connections.databaseName);
+      // The new table matched a table in the sync rules
+      if (change.newTable) {
+        await this.handleCreateOrUpdateTable(batch, change.newTable!, change.schema);
       }
     } else {
       const tableId = getMysqlRelId({
-        schema: this.connections.databaseName,
+        schema: change.schema,
         name: change.table
       });
 
@@ -526,7 +521,7 @@ export class BinLogStream {
         case SchemaChangeType.ALTER_TABLE_COLUMN:
         case SchemaChangeType.REPLICATION_IDENTITY:
           // For these changes, we need to update the table if the replication identity columns have changed.
-          await this.handleCreateOrUpdateTable(batch, change.table, this.connections.databaseName);
+          await this.handleCreateOrUpdateTable(batch, change.table, change.schema);
           break;
         case SchemaChangeType.TRUNCATE_TABLE:
           await batch.truncate([table]);
@@ -542,11 +537,11 @@ export class BinLogStream {
     }
   }
 
-  private async getReplicaIdColumns(tableName: string) {
+  private async getReplicaIdColumns(tableName: string, schema: string) {
     const connection = await this.connections.getConnection();
     const replicaIdColumns = await common.getReplicationIdentityColumns({
       connection,
-      schema: this.connections.databaseName,
+      schema,
       tableName
     });
     connection.release();
@@ -559,7 +554,7 @@ export class BinLogStream {
     tableName: string,
     schema: string
   ): Promise<SourceTable> {
-    const replicaIdColumns = await this.getReplicaIdColumns(tableName);
+    const replicaIdColumns = await this.getReplicaIdColumns(tableName, schema);
     return await this.handleRelation(
       batch,
       {
