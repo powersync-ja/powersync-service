@@ -54,13 +54,26 @@ function timeSpan(period: event_types.TimeFrames, timeframe: number = 1): mongo.
       };
     }
     default: {
-      // Start from today to just before tomorrow
       return {
         $lte: date,
         $gt: new Date(year, month, today - timeframe)
       };
     }
   }
+}
+
+function dayDateRange(data: event_types.ListCurrentConnectionsRequest) {
+  const { range } = data;
+  if (!range) {
+    return undefined;
+  }
+  const date = new Date();
+  return {
+    connect_at: {
+      $lte: date,
+      $gt: new Date(range.start)
+    }
+  };
 }
 
 export class MongoReportStorage implements storage.ReportStorageFactory {
@@ -122,7 +135,6 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
       connect_at: timeSpan(period, timeframe),
       $or: [{ disconnect_at: { $exists: true } }, { jwt_exp: { $lt: new Date() }, disconnect_at: { $exists: false } }]
     });
-    console.log(result);
     if (result.deletedCount > 0) {
       logger.info(`TTL: ${result.deletedCount} documents have been removed from sdk_report_events collection`);
     }
@@ -130,7 +142,6 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
 
   async scrapeSdkData(data: event_types.ScrapeSdkDataRequest): Promise<event_types.ListCurrentConnections> {
     const timespanFilter = timeSpan(data.period, data.interval);
-    console.log({ timespanFilter });
     const result = await this.db.sdk_report_events
       .aggregate([
         {
@@ -172,14 +183,13 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
   async listCurrentConnections(
     data: event_types.ListCurrentConnectionsRequest
   ): Promise<event_types.ListCurrentConnections> {
-    const timespanFilter = data.period ? { connect_at: timeSpan(data.period) } : undefined;
     const result = await this.db.sdk_report_events
       .aggregate([
         {
           $match: {
             disconnect_at: { $exists: false },
             jwt_exp: { $gt: new Date() },
-            ...timespanFilter
+            ...dayDateRange(data)
           }
         },
         this.sdkFacetPipeline(),
