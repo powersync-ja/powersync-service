@@ -3,7 +3,7 @@ import mysql from 'mysql2';
 import mysqlPromise from 'mysql2/promise';
 import * as types from '../types/types.js';
 import { coerce, gte, satisfies } from 'semver';
-import { SourceTable } from '@powersync/service-core';
+import { SourceEntityDescriptor } from '@powersync/service-core';
 
 export type RetriedQueryOptions = {
   connection: mysqlPromise.Connection;
