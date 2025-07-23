@@ -68,14 +68,14 @@ function dayDateRange(data: event_types.ListCurrentConnectionsRequest) {
     return undefined;
   }
   const date = new Date();
-  const { today, parsedDate } = parseDate(new Date(range.start));
+  const { today, parsedDate } = parseDate(new Date(range.start_date));
   if (today - date.getDay() > 2) {
     throw new Error('Invalid start date for `day` period. Max period is withing 2 days');
   }
   return {
     connect_at: {
       $lte: parsedDate,
-      $gt: new Date(range.start)
+      $gt: new Date(range.start_date)
     }
   };
 }
