@@ -29,9 +29,6 @@ export class EmitterEngine implements BaseEmitterEngine {
   }
 
   emit<K extends keyof event_types.SubscribeEvents>(event: K, data: event_types.SubscribeEvents[K]): void {
-    if (!this.events.has(event) || this.countListeners(event) === 0) {
-      logger.warn(`${event} has no listener registered.`);
-    }
     this.emitter.emit(event, data);
   }
 
