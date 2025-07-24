@@ -104,15 +104,15 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     };
   }
 
-  private timeStampQuery(period: event_types.TimeFrames, timeframe: number = 1): mongo.Filter<mongo.Document> {
+  private timeFrameQuery(timeframe: event_types.TimeFrames, interval: number = 1): mongo.Filter<mongo.Document> {
     const { year, month, today, parsedDate } = parseJsDate(new Date());
-    switch (period) {
+    switch (timeframe) {
       case 'month': {
-        return { $lte: parsedDate, $gt: new Date(year, parsedDate.getMonth() - timeframe) };
+        return { $lte: parsedDate, $gt: new Date(year, parsedDate.getMonth() - interval) };
       }
       case 'week': {
         const weekStartDate = new Date(parsedDate);
-        weekStartDate.setDate(weekStartDate.getDate() - 6 * timeframe);
+        weekStartDate.setDate(weekStartDate.getDate() - 6 * interval);
         const weekStart = parseJsDate(weekStartDate);
         return {
           $lte: parsedDate,
@@ -121,25 +121,55 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
       }
       case 'hour': {
         // Get the last hour from the current time
-        const previousHour = parsedDate.getHours() - timeframe;
+        const previousHour = parsedDate.getHours() - interval;
         return {
-          $gte: new Date(year, month, today, previousHour),
-          $lt: new Date(year, month, today, parsedDate.getHours())
+          $gt: new Date(year, month, today, previousHour),
+          $lte: new Date(year, month, today, parsedDate.getHours())
         };
       }
       default: {
         return {
           $lte: parsedDate,
-          $gt: new Date(year, month, today - timeframe)
+          $gt: new Date(year, month, today - interval)
+        };
+      }
+    }
+  }
+
+  private timeFrameDeleteQuery(timeframe: event_types.TimeFrames, interval: number = 1): mongo.Filter<mongo.Document> {
+    const { year, month, today, parsedDate } = parseJsDate(new Date());
+    switch (timeframe) {
+      case 'month': {
+        return { $lt: new Date(year, parsedDate.getMonth() - interval) };
+      }
+      case 'week': {
+        const weekStartDate = new Date(parsedDate);
+        weekStartDate.setDate(weekStartDate.getDate() - 6 * interval);
+        const { month, year, today } = parseJsDate(weekStartDate);
+        return {
+          $lt: new Date(year, month, today)
+        };
+      }
+      case 'hour': {
+        const previousHour = parsedDate.getHours() - interval;
+        return {
+          $lt: new Date(year, month, today, previousHour)
+        };
+      }
+      default: {
+        return {
+          $lt: new Date(year, month, today - interval)
         };
       }
     }
   }
 
   async deleteOldSdkData(data: event_types.DeleteOldSdkData): Promise<void> {
-    const { period, timeframe } = data;
+    const { interval, timeframe } = data;
+    const timeframeFilter = this.timeFrameDeleteQuery(timeframe, interval);
+    console.log(timeframeFilter);
     const result = await this.db.sdk_report_events.deleteMany({
-      connect_at: this.timeStampQuery(period, timeframe),
+      connect_at: timeframeFilter,
       $or: [{ disconnect_at: { $exists: true } }, { jwt_exp: { $lt: new Date() }, disconnect_at: { $exists: false } }]
     });
     if (result.deletedCount > 0) {
@@ -148,12 +178,13 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
   }
 
   async scrapeSdkData(data: event_types.ScrapeSdkDataRequest): Promise<event_types.ListCurrentConnections> {
-    const timespanFilter = this.timeStampQuery(data.period, data.interval);
+    const { interval, timeframe } = data;
+    const timeframeFilter = this.timeFrameQuery(timeframe, interval);
     const result = await this.db.sdk_report_events
       .aggregate([
         {
           $match: {
-            connect_at: timespanFilter
+            connect_at: timeframeFilter
           }
         },
         this.sdkFacetPipeline(),
