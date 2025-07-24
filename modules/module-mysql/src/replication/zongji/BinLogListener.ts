@@ -32,8 +32,8 @@ const { Parser } = pkg;
 export type Row = Record<string, any>;
 
 /**
- *  Schema changes that can be detected by inspecting query events.
- *  Note that create table statements are not included here, since new tables are automatically detected when row events
+ *  Schema changes that are detectable by inspecting query events.
+ *  Create table statements are not included here, since new tables are automatically detected when row events
  *  are received for them.
  */
 export enum SchemaChangeType {

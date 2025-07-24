@@ -32,11 +32,6 @@ export interface BinLogStreamOptions {
   logger?: Logger;
 }
 
-interface MysqlRelId {
-  schema: string;
-  name: string;
-}
-
 interface WriteChangePayload {
   type: storage.SaveOperationTag;
   row: Row;
@@ -54,11 +49,14 @@ export class BinlogConfigurationError extends Error {
 }
 
 /**
- * MySQL does not have same relation structure. Just returning unique key as string.
- * @param source
+ * Unlike Postgres' relation id, MySQL's tableId is only guaranteed to be unique and stay the same
+ * in the context of a single replication session.
+ * Instead, we create a unique key by combining the source schema and table name
+ * @param schema
+ * @param tableName
  */
-function getMysqlRelId(source: MysqlRelId): string {
-  return `${source.schema}.${source.name}`;
+function createTableId(schema: string, tableName: string): string {
+  return `${schema}.${tableName}`;
 }
 
 export class BinLogStream {
@@ -69,11 +67,11 @@ export class BinLogStream {
 
   private readonly connections: MySQLConnectionManager;
 
-  private abortSignal: AbortSignal;
+  private readonly abortSignal: AbortSignal;
+
+  private readonly logger: Logger;
 
   private tableCache = new Map<string | number, storage.SourceTable>();
-
-  private logger: Logger;
 
   /**
    * Time of the oldest uncommitted change, according to the source db.
@@ -135,15 +133,15 @@ export class BinLogStream {
       entity_descriptor: entity,
       sync_rules: this.syncRules
     });
-    // objectId is always defined for mysql
+    // Since we create the objectId ourselves, this is always defined
     this.tableCache.set(entity.objectId!, result.table);
 
-    // Drop conflicting tables. This includes for example renamed tables.
+    // Drop conflicting tables. In the MySQL case with ObjectIds created from the table name, renames cannot be detected by the storage.
     await batch.drop(result.dropTables);
 
     // Snapshot if:
     // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
-    // 2. Snapshot is not already done, AND:
+    // 2. Snapshot is not done yet, AND:
     // 3. The table is used in sync rules.
     const shouldSnapshot = snapshot && !result.table.snapshotComplete && result.table.syncAny;
 
@@ -199,10 +197,7 @@ export class BinLogStream {
         {
           name: matchedTable,
           schema: tablePattern.schema,
-          objectId: getMysqlRelId({
-            schema: tablePattern.schema,
-            name: matchedTable
-          }),
+          objectId: createTableId(tablePattern.schema, matchedTable),
           replicaIdColumns: replicaIdColumns
         },
         false
@@ -214,7 +209,7 @@ export class BinLogStream {
   }
 
   /**
-   * Checks if the initial sync has been completed yet.
+   * Checks if the initial sync has already been completed
    */
   protected async checkInitialReplicated(): Promise<boolean> {
     const status = await this.storage.getStatus();
@@ -223,7 +218,7 @@ export class BinLogStream {
       this.logger.info(`Initial replication already done.`);
 
       if (lastKnowGTID) {
-        // Check if the binlog is still available. If it isn't we need to snapshot again.
+        // Check if the specific binlog file is still available. If it isn't, we need to snapshot again.
         const connection = await this.connections.getConnection();
         try {
           const isAvailable = await common.isBinlogStillAvailable(connection, lastKnowGTID.position.filename);
@@ -485,10 +480,7 @@ export class BinLogStream {
 
   private async handleSchemaChange(batch: storage.BucketStorageBatch, change: SchemaChange): Promise<void> {
     if (change.type === SchemaChangeType.RENAME_TABLE) {
-      const fromTableId = getMysqlRelId({
-        schema: change.schema,
-        name: change.table
-      });
+      const fromTableId = createTableId(change.schema, change.table);
 
       const fromTable = this.tableCache.get(fromTableId);
       // Old table needs to be cleaned up
@@ -501,10 +493,7 @@ export class BinLogStream {
         await this.handleCreateOrUpdateTable(batch, change.newTable!, change.schema);
       }
     } else {
-      const tableId = getMysqlRelId({
-        schema: change.schema,
-        name: change.table
-      });
+      const tableId = createTableId(change.schema, change.table);
 
       const table = this.getTable(tableId);
 
@@ -551,10 +540,7 @@ export class BinLogStream {
       {
         name: tableName,
         schema: schema,
-        objectId: getMysqlRelId({
-          schema: schema,
-          name: tableName
-        }),
+        objectId: createTableId(schema, tableName),
         replicaIdColumns: replicaIdColumns
       },
       true
@@ -571,14 +557,11 @@ export class BinLogStream {
     }
   ): Promise<storage.FlushedResult | null> {
     const columns = common.toColumnDescriptors(msg.tableEntry);
-    const tableId = getMysqlRelId({
-      schema: msg.tableEntry.parentSchema,
-      name: msg.tableEntry.tableName
-    });
+    const tableId = createTableId(msg.tableEntry.parentSchema, msg.tableEntry.tableName);
 
     let table = this.tableCache.get(tableId);
     if (table == null) {
-      // This write event is for a new table that matches a table in the sync rules
+      // This is an insert for a new table that matches a table in the sync rules
       // We need to create the table in the storage and cache it.
       table = await this.handleCreateOrUpdateTable(batch, msg.tableEntry.tableName, msg.tableEntry.parentSchema);
     }
@@ -615,7 +598,7 @@ export class BinLogStream {
         });
       case storage.SaveOperationTag.UPDATE:
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
-        // "before" may be null if the replica id columns are unchanged
+        // The previous row may be null if the replica id columns are unchanged.
         // It's fine to treat that the same as an insert.
         const beforeUpdated = payload.previous_row
           ? common.toSQLiteRow(payload.previous_row, payload.columns)
@@ -656,7 +639,7 @@ export class BinLogStream {
         // We don't have anything to compute replication lag with yet.
         return undefined;
       } else {
-        // We don't have any uncommitted changes, so replication is up-to-date.
+        // We don't have any uncommitted changes, so replication is up to date.
         return 0;
       }
     }
