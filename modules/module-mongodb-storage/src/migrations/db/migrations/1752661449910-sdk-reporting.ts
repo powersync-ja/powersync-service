@@ -17,14 +17,12 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
         jwt_exp: 1,
         disconnect_at: 1
       },
-      { name: 'connect_at' }
+      { name: 'list_index' }
     );
 
     await db.sdk_report_events.createIndex(
       {
-        user_id: 1,
-        sdk: 1,
-        version: 1
+        user_id: 1
       },
       { name: 'user_id' }
     );
@@ -33,6 +31,12 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
         client_id: 1
       },
       { name: 'client_id' }
+    );
+    await db.sdk_report_events.createIndex(
+      {
+        sdk: 1
+      },
+      { name: 'sdk' }
     );
   } finally {
     await db.client.close();

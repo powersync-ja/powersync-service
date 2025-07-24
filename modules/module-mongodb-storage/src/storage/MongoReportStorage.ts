@@ -86,7 +86,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     };
   }
 
-  private dayDateRange(data: event_types.ListCurrentConnectionsRequest) {
+  private listConnectionsDateRange(data: event_types.ListCurrentConnectionsRequest) {
     const { range } = data;
     if (!range) {
       return undefined;
@@ -97,10 +97,8 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
       throw new Error('Invalid start date for `day` period. Max period is withing 2 days');
     }
     return {
-      connect_at: {
-        $lte: date,
-        $gt: parsedDate
-      }
+      $lte: date,
+      $gt: parsedDate
     };
   }
 
@@ -167,7 +165,6 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
   async deleteOldSdkData(data: event_types.DeleteOldSdkData): Promise<void> {
     const { interval, timeframe } = data;
     const timeframeFilter = this.timeFrameDeleteQuery(timeframe, interval);
-    console.log(timeframeFilter);
     const result = await this.db.sdk_report_events.deleteMany({
       connect_at: timeframeFilter,
       $or: [{ disconnect_at: { $exists: true } }, { jwt_exp: { $lt: new Date() }, disconnect_at: { $exists: false } }]
@@ -223,13 +220,28 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
   async listCurrentConnections(
     data: event_types.ListCurrentConnectionsRequest
   ): Promise<event_types.ListCurrentConnections> {
+    const timeframeFilter = this.listConnectionsDateRange(data);
+    const explain = await this.db.sdk_report_events
+      .aggregate([
+        {
+          $match: {
+            disconnect_at: { $exists: false },
+            jwt_exp: { $gt: new Date() },
+            connect_at: timeframeFilter
+          }
+        },
+        this.sdkFacetPipeline(),
+        this.sdkProjectPipeline()
+      ])
+      .explain();
+    console.log(explain);
     const result = await this.db.sdk_report_events
       .aggregate([
         {
           $match: {
             disconnect_at: { $exists: false },
             jwt_exp: { $gt: new Date() },
-            ...this.dayDateRange(data)
+            connect_at: timeframeFilter
           }
         },
         this.sdkFacetPipeline(),
