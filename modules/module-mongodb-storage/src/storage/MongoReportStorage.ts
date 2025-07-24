@@ -91,14 +91,11 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     if (!range) {
       return undefined;
     }
-    const date = new Date();
-    const { day, parsedDate } = parseJsDate(new Date(range.start_date));
-    if (day - date.getDay() > 2 || day - date.getDay() < -2) {
-      throw new Error('Invalid start date for `day` period. Max period is withing 2 days');
-    }
+    const endDate = data.range?.end_date ? new Date(data.range.end_date) : new Date();
+    const startDate = new Date(range.start_date);
     return {
-      $lte: date,
-      $gt: parsedDate
+      $lte: endDate,
+      $gt: startDate
     };
   }
 
