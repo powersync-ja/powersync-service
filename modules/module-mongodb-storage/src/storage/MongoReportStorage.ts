@@ -178,7 +178,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     const { interval, timeframe } = data;
     const timeframeFilter = this.timeFrameQuery(timeframe, interval);
     const result = await this.db.sdk_report_events
-      .aggregate([
+      .aggregate<event_types.ListCurrentConnections>([
         {
           $match: {
             connect_at: timeframeFilter
@@ -188,7 +188,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
         this.sdkProjectPipeline()
       ])
       .toArray();
-    return result[0] as event_types.ListCurrentConnections;
+    return result[0];
   }
 
   async reportSdkConnect(data: event_types.SdkConnectBucketData): Promise<void> {
@@ -234,9 +234,12 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
         this.sdkProjectPipeline()
       ])
       .explain();
-    console.log(explain);
+    explain.stages.map((stage: any) => {
+      const key = Object.keys(stage)[0];
+      console.log(JSON.stringify(stage[key], null, 2));
+    });
     const result = await this.db.sdk_report_events
-      .aggregate([
+      .aggregate<event_types.ListCurrentConnections>([
         {
           $match: {
             disconnect_at: { $exists: false },
@@ -248,7 +251,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
         this.sdkProjectPipeline()
       ])
       .toArray();
-    return result[0] as event_types.ListCurrentConnections;
+    return result[0];
   }
 
   async [Symbol.asyncDispose]() {
