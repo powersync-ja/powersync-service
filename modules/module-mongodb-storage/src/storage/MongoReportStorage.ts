@@ -221,23 +221,6 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     data: event_types.ListCurrentConnectionsRequest
   ): Promise<event_types.ListCurrentConnections> {
     const timeframeFilter = this.listConnectionsDateRange(data);
-    const explain = await this.db.sdk_report_events
-      .aggregate([
-        {
-          $match: {
-            disconnect_at: { $exists: false },
-            jwt_exp: { $gt: new Date() },
-            connect_at: timeframeFilter
-          }
-        },
-        this.sdkFacetPipeline(),
-        this.sdkProjectPipeline()
-      ])
-      .explain();
-    explain.stages.map((stage: any) => {
-      const key = Object.keys(stage)[0];
-      console.log(JSON.stringify(stage[key], null, 2));
-    });
     const result = await this.db.sdk_report_events
       .aggregate<event_types.ListCurrentConnections>([
         {
