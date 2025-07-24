@@ -97,7 +97,6 @@ bucket_definitions:
     await pool.query(`ALTER TABLE test_data REPLICA IDENTITY FULL`);
 
     await walStream.initReplication(replicationConnection);
-    await storage.autoActivate();
     let abort = false;
     streamPromise = walStream.streamChanges(replicationConnection).finally(() => {
       abort = true;
@@ -348,7 +347,6 @@ bucket_definitions:
       let initialReplicationDone = false;
       streamPromise = (async () => {
         await walStream.initReplication(replicationConnection);
-        await storage.autoActivate();
         initialReplicationDone = true;
         await walStream.streamChanges(replicationConnection);
       })()

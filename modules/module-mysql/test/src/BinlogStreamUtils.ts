@@ -112,7 +112,6 @@ export class BinlogStreamTestContext {
 
   async replicateSnapshot() {
     await this.binlogStream.initReplication();
-    await this.storage!.autoActivate();
     this.replicationDone = true;
   }
 

@@ -1,5 +1,6 @@
 export * from './alerting.js';
 export * from './env.js';
+export * from './lsn.js';
 export * from './memory-tracking.js';
 export * from './Mutex.js';
 export * from './protocol-types.js';
