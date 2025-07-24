@@ -215,7 +215,7 @@ export class ChangeStream {
 
   async estimatedCountNumber(table: storage.SourceTable): Promise<number> {
     const db = this.client.db(table.schema);
-    return await db.collection(table.table).estimatedDocumentCount();
+    return await db.collection(table.name).estimatedDocumentCount();
   }
 
   /**
@@ -449,7 +449,7 @@ export class ChangeStream {
     const totalEstimatedCount = await this.estimatedCountNumber(table);
     let at = table.snapshotStatus?.replicatedCount ?? 0;
     const db = this.client.db(table.schema);
-    const collection = db.collection(table.table);
+    const collection = db.collection(table.name);
     await using query = new ChunkedSnapshotQuery({
       collection,
       key: table.snapshotStatus?.lastKey,

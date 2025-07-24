@@ -1,15 +1,61 @@
 import * as common from '../../common/common-index.js';
 import async from 'async';
-import { BinLogEvent, StartOptions, TableMapEntry, ZongJi } from '@powersync/mysql-zongji';
+import { BinLogEvent, BinLogQueryEvent, StartOptions, TableMapEntry, ZongJi } from '@powersync/mysql-zongji';
 import * as zongji_utils from './zongji-utils.js';
 import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
 import { MySQLConnectionManager } from '../MySQLConnectionManager.js';
+import timers from 'timers/promises';
+import pkg, {
+  AST,
+  BaseFrom,
+  DropIndexStatement,
+  Parser as ParserType,
+  RenameStatement,
+  TruncateStatement
+} from 'node-sql-parser';
+import {
+  isAlterTable,
+  isColumnExpression,
+  isConstraintExpression,
+  isCreateUniqueIndex,
+  isDropIndex,
+  isDropTable,
+  isRenameExpression,
+  isRenameTable,
+  isTruncate,
+  matchedSchemaChangeQuery
+} from '../../utils/parser-utils.js';
+import { TablePattern } from '@powersync/service-sync-rules';
 
-// Maximum time the processing queue can be paused before resuming automatically
-// MySQL server will automatically terminate replication connections after 60 seconds of inactivity, so this guards against that.
-const MAX_QUEUE_PAUSE_TIME_MS = 45_000;
+const { Parser } = pkg;
 
 export type Row = Record<string, any>;
+
+/**
+ *  Schema changes that are detectable by inspecting query events.
+ *  Create table statements are not included here, since new tables are automatically detected when row events
+ *  are received for them.
+ */
+export enum SchemaChangeType {
+  RENAME_TABLE = 'Rename Table',
+  DROP_TABLE = 'Drop Table',
+  TRUNCATE_TABLE = 'Truncate Table',
+  ALTER_TABLE_COLUMN = 'Alter Table Column',
+  REPLICATION_IDENTITY = 'Alter Replication Identity'
+}
+
+export interface SchemaChange {
+  type: SchemaChangeType;
+  /**
+   *  The table that the schema change applies to.
+   */
+  table: string;
+  schema: string;
+  /**
+   *  Populated for table renames if the newTable was matched by the DatabaseFilter
+   */
+  newTable?: string;
+}
 
 export interface BinLogEventHandler {
   onTransactionStart: (options: { timestamp: Date }) => Promise<void>;
@@ -18,12 +64,13 @@ export interface BinLogEventHandler {
   onUpdate: (rowsAfter: Row[], rowsBefore: Row[], tableMap: TableMapEntry) => Promise<void>;
   onDelete: (rows: Row[], tableMap: TableMapEntry) => Promise<void>;
   onCommit: (lsn: string) => Promise<void>;
+  onSchemaChange: (change: SchemaChange) => Promise<void>;
 }
 
 export interface BinLogListenerOptions {
   connectionManager: MySQLConnectionManager;
   eventHandler: BinLogEventHandler;
-  includedTables: string[];
+  sourceTables: TablePattern[];
   serverId: number;
   startPosition: common.BinLogPosition;
   logger?: Logger;
@@ -34,18 +81,24 @@ export interface BinLogListenerOptions {
  *  events on the provided BinLogEventHandler.
  */
 export class BinLogListener {
+  private sqlParser: ParserType;
   private connectionManager: MySQLConnectionManager;
   private eventHandler: BinLogEventHandler;
   private binLogPosition: common.BinLogPosition;
   private currentGTID: common.ReplicatedGTID | null;
   private logger: Logger;
+  private listenerError: Error | null;
+  private databaseFilter: { [schema: string]: (table: string) => boolean };
 
   zongji: ZongJi;
   processingQueue: async.QueueObject<BinLogEvent>;
+
+  isStopped: boolean = false;
+  isStopping: boolean = false;
   /**
    *  The combined size in bytes of all the binlog events currently in the processing queue.
    */
-  queueMemoryUsage: number;
+  queueMemoryUsage: number = 0;
 
   constructor(public options: BinLogListenerOptions) {
     this.logger = options.logger ?? defaultLogger;
@@ -53,10 +106,11 @@ export class BinLogListener {
     this.eventHandler = options.eventHandler;
     this.binLogPosition = options.startPosition;
     this.currentGTID = null;
-
-    this.processingQueue = async.queue(this.createQueueWorker(), 1);
-    this.queueMemoryUsage = 0;
+    this.sqlParser = new Parser();
+    this.processingQueue = this.createProcessingQueue();
     this.zongji = this.createZongjiListener();
+    this.listenerError = null;
+    this.databaseFilter = this.createDatabaseFilter(options.sourceTables);
   }
 
   /**
@@ -67,124 +121,153 @@ export class BinLogListener {
     return this.connectionManager.options.binlog_queue_memory_limit * 1024 * 1024;
   }
 
-  public async start(): Promise<void> {
+  public async start(isRestart: boolean = false): Promise<void> {
     if (this.isStopped) {
       return;
     }
-    this.logger.info(`Starting replication. Created replica client with serverId:${this.options.serverId}`);
+
+    this.logger.info(
+      `${isRestart ? 'Restarting' : 'Starting'} BinLog Listener with replica client id:${this.options.serverId}...`
+    );
+
+    // Set a heartbeat interval for the Zongji replication connection
+    // Zongji does not explicitly handle the heartbeat events - they are categorized as event:unknown
+    // The heartbeat events are enough to keep the connection alive for setTimeout to work on the socket.
+    // The heartbeat needs to be set before starting the listener, since the replication connection is locked once replicating
+    await new Promise((resolve, reject) => {
+      this.zongji.connection.query(
+        // In nanoseconds, 10^9 = 1s
+        'set @master_heartbeat_period=28*1000000000',
+        (error: any, results: any, _fields: any) => {
+          if (error) {
+            reject(error);
+          } else {
+            this.logger.info('Successfully set up replication connection heartbeat.');
+            resolve(results);
+          }
+        }
+      );
+    });
+
+    // The _socket member is only set after a query is run on the connection, so we set the timeout after setting the heartbeat.
+    // The timeout here must be greater than the master_heartbeat_period.
+    const socket = this.zongji.connection._socket!;
+    socket.setTimeout(60_000, () => {
+      this.logger.info('Destroying socket due to replication connection timeout.');
+      socket.destroy(new Error('Replication connection timeout.'));
+    });
 
     this.zongji.start({
       // We ignore the unknown/heartbeat event since it currently serves no purpose other than to keep the connection alive
       // tablemap events always need to be included for the other row events to work
-      includeEvents: ['tablemap', 'writerows', 'updaterows', 'deleterows', 'xid', 'rotate', 'gtidlog'],
-      includeSchema: { [this.connectionManager.databaseName]: this.options.includedTables },
+      includeEvents: ['tablemap', 'writerows', 'updaterows', 'deleterows', 'xid', 'rotate', 'gtidlog', 'query'],
+      includeSchema: this.databaseFilter,
       filename: this.binLogPosition.filename,
       position: this.binLogPosition.offset,
       serverId: this.options.serverId
     } satisfies StartOptions);
 
-    return new Promise<void>((resolve, reject) => {
-      // Handle an edge case where the listener has already been stopped before completing startup
-      if (this.isStopped) {
-        this.logger.info('BinLog listener was stopped before startup completed.');
+    return new Promise((resolve) => {
+      this.zongji.once('ready', () => {
+        this.logger.info(
+          `BinLog Listener ${isRestart ? 'restarted' : 'started'}. Listening for events from position: ${this.binLogPosition.filename}:${this.binLogPosition.offset}`
+        );
         resolve();
-      }
-
-      this.zongji.on('error', (error) => {
-        if (!this.isStopped) {
-          this.logger.error('Binlog listener error:', error);
-          this.stop();
-          reject(error);
-        } else {
-          this.logger.warn('Binlog listener error during shutdown:', error);
-        }
-      });
-
-      this.processingQueue.error((error) => {
-        if (!this.isStopped) {
-          this.logger.error('BinlogEvent processing error:', error);
-          this.stop();
-          reject(error);
-        } else {
-          this.logger.warn('BinlogEvent processing error during shutdown:', error);
-        }
-      });
-
-      this.zongji.on('stopped', () => {
-        resolve();
-        this.logger.info('BinLog listener stopped. Replication ended.');
       });
     });
   }
 
-  public stop(): void {
-    if (!this.isStopped) {
-      this.zongji.stop();
-      this.processingQueue.kill();
+  private async restartZongji(): Promise<void> {
+    if (this.zongji.stopped) {
+      this.zongji = this.createZongjiListener();
+      await this.start(true);
     }
   }
 
-  private get isStopped(): boolean {
-    return this.zongji.stopped;
+  private async stopZongji(): Promise<void> {
+    if (!this.zongji.stopped) {
+      this.logger.info('Stopping BinLog Listener...');
+      await new Promise<void>((resolve) => {
+        this.zongji.once('stopped', () => {
+          resolve();
+        });
+        this.zongji.stop();
+      });
+      this.logger.info('BinLog Listener stopped.');
+    }
+  }
+
+  public async stop(): Promise<void> {
+    if (!(this.isStopped || this.isStopping)) {
+      this.isStopping = true;
+      await this.stopZongji();
+      this.processingQueue.kill();
+
+      this.isStopped = true;
+    }
+  }
+
+  public async replicateUntilStopped(): Promise<void> {
+    while (!this.isStopped) {
+      await timers.setTimeout(1_000);
+    }
+
+    if (this.listenerError) {
+      this.logger.error('BinLog Listener stopped due to an error:', this.listenerError);
+      throw this.listenerError;
+    }
+  }
+
+  private createProcessingQueue(): async.QueueObject<BinLogEvent> {
+    const queue = async.queue(this.createQueueWorker(), 1);
+
+    queue.error((error) => {
+      if (!(this.isStopped || this.isStopping)) {
+        this.listenerError = error;
+        this.stop();
+      } else {
+        this.logger.warn('Error processing BinLog event during shutdown:', error);
+      }
+    });
+
+    return queue;
   }
 
   private createZongjiListener(): ZongJi {
     const zongji = this.connectionManager.createBinlogListener();
 
     zongji.on('binlog', async (evt) => {
-      this.logger.info(`Received Binlog event:${evt.getEventName()}`);
+      this.logger.debug(`Received BinLog event:${evt.getEventName()}`);
+
       this.processingQueue.push(evt);
       this.queueMemoryUsage += evt.size;
 
       // When the processing queue grows past the threshold, we pause the binlog listener
       if (this.isQueueOverCapacity()) {
         this.logger.info(
-          `Binlog processing queue has reached its memory limit of [${this.connectionManager.options.binlog_queue_memory_limit}MB]. Pausing Binlog listener.`
+          `BinLog processing queue has reached its memory limit of [${this.connectionManager.options.binlog_queue_memory_limit}MB]. Pausing BinLog Listener.`
         );
-        zongji.pause();
-        const resumeTimeoutPromise = new Promise((resolve) => {
-          setTimeout(() => resolve('timeout'), MAX_QUEUE_PAUSE_TIME_MS);
-        });
-
-        await Promise.race([this.processingQueue.empty(), resumeTimeoutPromise]);
-
-        this.logger.info(`Binlog processing queue backlog cleared. Resuming Binlog listener.`);
-        zongji.resume();
+        await this.stopZongji();
+        await this.processingQueue.drain();
+        this.logger.info(`BinLog processing queue backlog cleared. Resuming BinLog Listener.`);
+        await this.restartZongji();
       }
     });
 
-    zongji.on('ready', async () => {
-      // Set a heartbeat interval for the Zongji replication connection
-      // Zongji does not explicitly handle the heartbeat events - they are categorized as event:unknown
-      // The heartbeat events are enough to keep the connection alive for setTimeout to work on the socket.
-      await new Promise((resolve, reject) => {
-        this.zongji.connection.query(
-          // In nanoseconds, 10^9 = 1s
-          'set @master_heartbeat_period=28*1000000000',
-          (error: any, results: any, fields: any) => {
-            if (error) {
-              reject(error);
-            } else {
-              this.logger.info('Successfully set up replication connection heartbeat...');
-              resolve(results);
-            }
-          }
-        );
-      });
-
-      // The _socket member is only set after a query is run on the connection, so we set the timeout after setting the heartbeat.
-      // The timeout here must be greater than the master_heartbeat_period.
-      const socket = this.zongji.connection._socket!;
-      socket.setTimeout(60_000, () => {
-        this.logger.info('Destroying socket due to replication connection timeout.');
-        socket.destroy(new Error('Replication connection timeout.'));
-      });
-      this.logger.info(
-        `BinLog listener setup complete. Reading binlog from: ${this.binLogPosition.filename}:${this.binLogPosition.offset}`
-      );
+    zongji.on('error', (error) => {
+      if (!(this.isStopped || this.isStopping)) {
+        this.listenerError = error;
+        this.stop();
+      } else {
+        this.logger.warn('Ignored BinLog Listener error during shutdown:', error);
+      }
     });
 
     return zongji;
+  }
+
+  isQueueOverCapacity(): boolean {
+    return this.queueMemoryUsage >= this.queueMemoryLimit;
   }
 
   private createQueueWorker() {
@@ -201,15 +284,27 @@ export class BinLogListener {
               offset: evt.nextPosition
             }
           });
+          this.binLogPosition.offset = evt.nextPosition;
           await this.eventHandler.onTransactionStart({ timestamp: new Date(evt.timestamp) });
+          this.logger.info(`Processed GTID event: ${this.currentGTID.comparable}`);
           break;
         case zongji_utils.eventIsRotation(evt):
+          const newFile = this.binLogPosition.filename !== evt.binlogName;
           this.binLogPosition.filename = evt.binlogName;
-          this.binLogPosition.offset = evt.position;
           await this.eventHandler.onRotate();
+
+          if (newFile) {
+            this.logger.info(
+              `Processed Rotate event. New BinLog file is: ${this.binLogPosition.filename}:${this.binLogPosition.offset}`
+            );
+          }
           break;
         case zongji_utils.eventIsWriteMutation(evt):
-          await this.eventHandler.onWrite(evt.rows, evt.tableMap[evt.tableId]);
+          const tableMap = evt.tableMap[evt.tableId];
+          await this.eventHandler.onWrite(evt.rows, tableMap);
+          this.logger.info(
+            `Processed Write event for table [${tableMap.parentSchema}.${tableMap.tableName}]. ${evt.rows.length} row(s) inserted.`
+          );
           break;
         case zongji_utils.eventIsUpdateMutation(evt):
           await this.eventHandler.onUpdate(
@@ -217,27 +312,209 @@ export class BinLogListener {
             evt.rows.map((row) => row.before),
             evt.tableMap[evt.tableId]
           );
+          this.logger.info(
+            `Processed Update event for table [${evt.tableMap[evt.tableId].tableName}]. ${evt.rows.length} row(s) updated.`
+          );
           break;
         case zongji_utils.eventIsDeleteMutation(evt):
           await this.eventHandler.onDelete(evt.rows, evt.tableMap[evt.tableId]);
+          this.logger.info(
+            `Processed Delete event for table [${evt.tableMap[evt.tableId].tableName}]. ${evt.rows.length} row(s) deleted.`
+          );
           break;
         case zongji_utils.eventIsXid(evt):
+          this.binLogPosition.offset = evt.nextPosition;
           const LSN = new common.ReplicatedGTID({
             raw_gtid: this.currentGTID!.raw,
-            position: {
-              filename: this.binLogPosition.filename,
-              offset: evt.nextPosition
-            }
+            position: this.binLogPosition
           }).comparable;
           await this.eventHandler.onCommit(LSN);
+          this.logger.info(`Processed Xid event - transaction complete. LSN: ${LSN}.`);
+          break;
+        case zongji_utils.eventIsQuery(evt):
+          await this.processQueryEvent(evt);
           break;
       }
 
+      // Update the binlog position after processing the event
+      this.binLogPosition.offset = evt.nextPosition;
       this.queueMemoryUsage -= evt.size;
     };
   }
 
-  isQueueOverCapacity(): boolean {
-    return this.queueMemoryUsage >= this.queueMemoryLimit;
+  private async processQueryEvent(event: BinLogQueryEvent): Promise<void> {
+    const { query, nextPosition } = event;
+
+    // BEGIN query events mark the start of a transaction before any row events. They are not relevant for schema changes
+    if (query === 'BEGIN') {
+      return;
+    }
+
+    const schemaChanges = this.toSchemaChanges(query, event.schema);
+    if (schemaChanges.length > 0) {
+      // Since handling the schema changes can take a long time, we need to stop the Zongji listener instead of pausing it.
+      await this.stopZongji();
+
+      for (const change of schemaChanges) {
+        this.logger.info(`Processing schema change ${change.type} for table [${change.schema}.${change.table}]`);
+        await this.eventHandler.onSchemaChange(change);
+      }
+
+      // DDL queries are auto commited, but do not come with a corresponding Xid event.
+      // This is problematic for DDL queries which result in row events because the checkpoint is not moved on,
+      // so we manually commit here.
+      this.binLogPosition.offset = nextPosition;
+      const LSN = new common.ReplicatedGTID({
+        raw_gtid: this.currentGTID!.raw,
+        position: this.binLogPosition
+      }).comparable;
+      await this.eventHandler.onCommit(LSN);
+
+      this.logger.info(`Successfully processed ${schemaChanges.length} schema change(s).`);
+
+      // If there are still events in the processing queue, we need to process those before restarting Zongji
+      if (!this.processingQueue.idle()) {
+        this.logger.info(`Processing [${this.processingQueue.length()}] events(s) before resuming...`);
+        this.processingQueue.drain(async () => {
+          await this.restartZongji();
+        });
+      } else {
+        await this.restartZongji();
+      }
+    }
+  }
+
+  /**
+   *  Function that interprets a DDL query for any applicable schema changes.
+   *  If the query does not contain any relevant schema changes, an empty array is returned.
+   *  The defaultSchema is derived from the database set on the MySQL Node.js connection client.
+   *  It is used as a fallback when the schema/database cannot be determined from the query DDL.
+   *
+   *  @param query
+   *  @param defaultSchema
+   */
+  private toSchemaChanges(query: string, defaultSchema: string): SchemaChange[] {
+    let statements: AST[] = [];
+    try {
+      const ast = this.sqlParser.astify(query, { database: 'MySQL' });
+      statements = Array.isArray(ast) ? ast : [ast];
+    } catch (error) {
+      if (matchedSchemaChangeQuery(query, Object.values(this.databaseFilter))) {
+        this.logger.warn(
+          `Failed to parse query: [${query}]. 
+      Please review for the schema changes and manually redeploy the sync rules if required.`
+        );
+      }
+      return [];
+    }
+
+    const changes: SchemaChange[] = [];
+    for (const statement of statements) {
+      if (isTruncate(statement)) {
+        const truncateStatement = statement as TruncateStatement;
+        // Truncate statements can apply to multiple tables
+        for (const entity of truncateStatement.name) {
+          changes.push({
+            type: SchemaChangeType.TRUNCATE_TABLE,
+            table: entity.table,
+            schema: entity.db ?? defaultSchema
+          });
+        }
+      } else if (isDropTable(statement)) {
+        for (const entity of statement.name) {
+          changes.push({ type: SchemaChangeType.DROP_TABLE, table: entity.table, schema: entity.db ?? defaultSchema });
+        }
+      } else if (isDropIndex(statement)) {
+        const dropStatement = statement as DropIndexStatement;
+        changes.push({
+          type: SchemaChangeType.REPLICATION_IDENTITY,
+          table: dropStatement.table.table,
+          schema: dropStatement.table.db ?? defaultSchema
+        });
+      } else if (isCreateUniqueIndex(statement)) {
+        // Potential change to the replication identity if the table has no prior unique constraint
+        changes.push({
+          type: SchemaChangeType.REPLICATION_IDENTITY,
+          // @ts-ignore - The type definitions for node-sql-parser do not reflect the correct structure here
+          table: statement.table!.table,
+          // @ts-ignore
+          schema: statement.table!.db ?? defaultSchema
+        });
+      } else if (isRenameTable(statement)) {
+        const renameStatement = statement as RenameStatement;
+        // Rename statements can apply to multiple tables
+        for (const table of renameStatement.table) {
+          const schema = table[0].db ?? defaultSchema;
+          const isNewTableIncluded = this.databaseFilter[schema](table[1].table);
+          changes.push({
+            type: SchemaChangeType.RENAME_TABLE,
+            table: table[0].table,
+            newTable: isNewTableIncluded ? table[1].table : undefined,
+            schema
+          });
+        }
+      } else if (isAlterTable(statement)) {
+        const fromTable = statement.table[0] as BaseFrom;
+        for (const expression of statement.expr) {
+          if (isRenameExpression(expression)) {
+            changes.push({
+              type: SchemaChangeType.RENAME_TABLE,
+              table: fromTable.table,
+              newTable: expression.table,
+              schema: fromTable.db ?? defaultSchema
+            });
+          } else if (isColumnExpression(expression)) {
+            changes.push({
+              type: SchemaChangeType.ALTER_TABLE_COLUMN,
+              table: fromTable.table,
+              schema: fromTable.db ?? defaultSchema
+            });
+          } else if (isConstraintExpression(expression)) {
+            // Potential changes to the replication identity
+            changes.push({
+              type: SchemaChangeType.REPLICATION_IDENTITY,
+              table: fromTable.table,
+              schema: fromTable.db ?? defaultSchema
+            });
+          }
+        }
+      }
+    }
+    // Filter out schema changes that are not relevant to the included tables
+    return changes.filter(
+      (change) =>
+        this.isTableIncluded(change.table, change.schema) ||
+        (change.newTable && this.isTableIncluded(change.newTable, change.schema))
+    );
+  }
+
+  private isTableIncluded(tableName: string, schema: string): boolean {
+    return this.databaseFilter[schema] && this.databaseFilter[schema](tableName);
+  }
+
+  private createDatabaseFilter(sourceTables: TablePattern[]): { [schema: string]: (table: string) => boolean } {
+    // Group sync rule tables by schema
+    const schemaMap = new Map<string, TablePattern[]>();
+    for (const table of sourceTables) {
+      if (!schemaMap.has(table.schema)) {
+        const tables = [table];
+        schemaMap.set(table.schema, tables);
+      } else {
+        schemaMap.get(table.schema)!.push(table);
+      }
+    }
+
+    const databaseFilter: { [schema: string]: (table: string) => boolean } = {};
+    for (const entry of schemaMap.entries()) {
+      const [schema, sourceTables] = entry;
+      databaseFilter[schema] = (table: string) =>
+        sourceTables.findIndex((sourceTable) =>
+          sourceTable.isWildcard
+            ? table.startsWith(sourceTable.tablePattern.substring(0, sourceTable.tablePattern.length - 1))
+            : table === sourceTable.name
+        ) !== -1;
+    }
+
+    return databaseFilter;
   }
 }

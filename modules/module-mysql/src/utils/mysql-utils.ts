@@ -2,8 +2,8 @@ import { logger } from '@powersync/lib-services-framework';
 import mysql from 'mysql2';
 import mysqlPromise from 'mysql2/promise';
 import * as types from '../types/types.js';
-import { coerce, gte } from 'semver';
-import { SourceTable } from '@powersync/service-core';
+import { coerce, gte, satisfies } from 'semver';
+import { SourceEntityDescriptor } from '@powersync/service-core';
 
 export type RetriedQueryOptions = {
   connection: mysqlPromise.Connection;
@@ -86,6 +86,21 @@ export function isVersionAtLeast(version: string, minimumVersion: string): boole
   return gte(coercedVersion!, coercedMinimumVersion!, { loose: true });
 }
 
-export function escapeMysqlTableName(table: SourceTable): string {
-  return `\`${table.schema.replaceAll('`', '``')}\`.\`${table.table.replaceAll('`', '``')}\``;
+export function satisfiesVersion(version: string, targetVersion: string): boolean {
+  const coercedVersion = coerce(version);
+
+  return satisfies(coercedVersion!, targetVersion!, { loose: true });
+}
+
+export function qualifiedMySQLTable(table: SourceEntityDescriptor): string;
+export function qualifiedMySQLTable(table: string, schema: string): string;
+
+export function qualifiedMySQLTable(table: SourceEntityDescriptor | string, schema?: string): string {
+  if (typeof table === 'object') {
+    return `\`${table.schema.replaceAll('`', '``')}\`.\`${table.name.replaceAll('`', '``')}\``;
+  } else if (schema) {
+    return `\`${schema.replaceAll('`', '``')}\`.\`${table.replaceAll('`', '``')}\``;
+  } else {
+    return `\`${table.replaceAll('`', '``')}\``;
+  }
 }
