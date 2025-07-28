@@ -1,5 +1,8 @@
 import { AuthorizationError, ErrorCode } from '@powersync/lib-services-framework';
 import * as jose from 'jose';
+import * as urijs from 'uri-js';
+import { KeySpec } from './KeySpec.js';
+import { KeyStore } from './KeyStore.js';
 
 export function mapJoseError(error: jose.errors.JOSEError, token: string): AuthorizationError {
   const tokenDetails = tokenDebugDetails(token);
@@ -61,15 +64,28 @@ export function mapAuthConfigError(error: any): AuthorizationError {
  * We use this to add details to our logs. We don't log the entire token, since it may for example
  * a password incorrectly used as a token.
  */
-function tokenDebugDetails(token: string): string {
+export function tokenDebugDetails(token: string): string {
+  return parseTokenDebug(token).description;
+}
+
+function parseTokenDebug(token: string) {
   try {
     // For valid tokens, we return the header and payload
     const header = jose.decodeProtectedHeader(token);
     const payload = jose.decodeJwt(token);
-    return `<header: ${JSON.stringify(header)} payload: ${JSON.stringify(payload)}>`;
+    const isSupabase = typeof payload.iss == 'string' && payload.iss.includes('supabase.co');
+    const isLegacySupabase = isSupabase && header.alg === 'HS256';
+
+    return {
+      header,
+      payload,
+      isSupabase,
+      isLegacySupabase,
+      description: `<header: ${JSON.stringify(header)} payload: ${JSON.stringify(payload)}>`
+    };
   } catch (e) {
     // Token fails to parse. Return some details.
-    return invalidTokenDetails(token);
+    return { description: invalidTokenDetails(token) };
   }
 }
 
@@ -99,4 +115,95 @@ function invalidTokenDetails(token: string): string {
   }
 
   return `<invalid JWT, length=${token.length}>`;
+}
+
+export interface SupabaseAuthDetails {
+  projectId: string;
+  url: string;
+  hostname: string;
+}
+
+export function getSupabaseJwksUrl(connection: any): SupabaseAuthDetails | null {
+  if (connection == null) {
+    return null;
+  } else if (connection.type != 'postgresql') {
+    return null;
+  }
+
+  let hostname: string | undefined = connection.hostname;
+  if (hostname == null && typeof connection.uri == 'string') {
+    hostname = urijs.parse(connection.uri).host;
+  }
+  if (hostname == null) {
+    return null;
+  }
+
+  const match = /db.(\w+).supabase.co/.exec(hostname);
+  if (match == null) {
+    return null;
+  }
+  const projectId = match[1];
+
+  return { projectId, hostname, url: `https://${projectId}.supabase.co/auth/v1/.well-known/jwks.json` };
+}
+
+export function debugKeyNotFound(
+  keyStore: KeyStore,
+  keys: KeySpec[],
+  token: string
+): { configurationDetails: string; tokenDetails: string } {
+  const knownKeys = keys.map((key) => key.description).join(', ');
+  const td = parseTokenDebug(token);
+  const tokenDetails = td.description;
+  const configuredSupabase = keyStore.supabaseAuthDebug;
+
+  // Cases to check:
+  // 1. Is Supabase token, but supabase auth not enabled.
+  // 2. Is Supabase HS256 token, but no secret configured.
+  // 3. Is Supabase singing key token, but no Supabase signing keys configured.
+  // 4. Supabase project id mismatch.
+
+  if (td.isSupabase) {
+    if (td.isLegacySupabase && !configuredSupabase.legacyEnabled) {
+      return {
+        configurationDetails: `Token is a legacy Supabase token, but Supabase JWT secret is not configured`,
+        tokenDetails
+      };
+    } else if (td.isLegacySupabase) {
+      return {
+        // This is an educated guess
+        configurationDetails: `Token is a legacy Supabase token, but configured Supabase JWT secret does not match`,
+        tokenDetails
+      };
+    } else if (!td.isLegacySupabase && !configuredSupabase.jwksEnabled) {
+      if (configuredSupabase.jwksDetails != null) {
+        return {
+          configurationDetails: `Token uses Supabase JWT Signing Keys, but Supabase Auth is not enabled`,
+          tokenDetails
+        };
+      } else {
+        return {
+          configurationDetails: `Token uses Supabase JWT Signing Keys, but no Supabase connection is configured`,
+          tokenDetails
+        };
+      }
+    } else if (!td.isLegacySupabase && configuredSupabase.jwksDetails != null) {
+      const configuredProjectId = configuredSupabase.jwksDetails.projectId;
+      const issuer = td.payload.iss as string; // Is a string since since isSupabase is true
+      if (!issuer.includes(configuredProjectId)) {
+        return {
+          configurationDetails: `Supabase project id mismatch. Expected project: ${configuredProjectId}, got issuer: ${issuer}`,
+          tokenDetails
+        };
+      } else {
+        // Project id matches, but no matching keys found
+        return {
+          configurationDetails: `Supabase signing keys configured, but no matching keys found. Known keys: ${knownKeys}`,
+          tokenDetails
+        };
+      }
+    }
+  }
+
+  return { configurationDetails: `Known keys: ${knownKeys}`, tokenDetails: tokenDebugDetails(token) };
 }

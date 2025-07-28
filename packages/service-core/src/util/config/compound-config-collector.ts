@@ -17,7 +17,6 @@ import { FileSystemSyncRulesCollector } from './sync-rules/impl/filesystem-sync-
 import { InlineSyncRulesCollector } from './sync-rules/impl/inline-sync-rules-collector.js';
 import { SyncRulesCollector } from './sync-rules/sync-collector.js';
 import { ResolvedPowerSyncConfig, RunnerConfig, SyncRulesConfig } from './types.js';
-import { getSupabaseJwksUrl } from './util.js';
 
 export type CompoundConfigCollectorOptions = {
   /**
@@ -90,6 +89,7 @@ export class CompoundConfigCollector {
           }
         ])
       );
+      keyStore.supabaseAuthDebug.legacyEnabled = true;
     }
 
     let jwks_uris = baseConfig.client_auth?.jwks_uri ?? [];
@@ -115,25 +115,27 @@ export class CompoundConfigCollector {
     for (let uri of jwks_uris) {
       collectors.add(new auth.CachedKeyCollector(new auth.RemoteJWKSCollector(uri, { lookupOptions: jwksLookup })));
     }
-    const supabaseJwksUrl = getSupabaseJwksUrl(baseConfig.replication?.connections?.[0]);
+    const supabaseAuthDetails = auth.getSupabaseJwksUrl(baseConfig.replication?.connections?.[0]);
+    keyStore.supabaseAuthDebug.jwksDetails = supabaseAuthDetails;
 
     if (baseConfig.client_auth?.supabase) {
       // Automatic support for Supabase signing keys:
       // https://supabase.com/docs/guides/auth/signing-keys
-      if (supabaseJwksUrl != null) {
-        const collector = new auth.RemoteJWKSCollector(supabaseJwksUrl, {
+      if (supabaseAuthDetails != null) {
+        const collector = new auth.RemoteJWKSCollector(supabaseAuthDetails.url, {
           lookupOptions: jwksLookup,
           // Special case aud and max lifetime for Supabase keys
           keyOptions: auth.SUPABASE_KEY_OPTIONS
         });
         collectors.add(new auth.CachedKeyCollector(collector));
-        logger.info(`Configured Supabase Auth with ${supabaseJwksUrl}`);
+        keyStore.supabaseAuthDebug.jwksEnabled = true;
+        logger.info(`Configured Supabase Auth with ${supabaseAuthDetails.url}`);
       } else {
         logger.warn(
           'Supabase Auth is enabled, but no Supabase connection string found. Skipping Supabase JWKS URL configuration.'
         );
       }
-    } else if (supabaseJwksUrl != null) {
+    } else if (supabaseAuthDetails != null) {
       logger.warn(`Supabase connection string found, but Supabase Auth is not enabled in the config.`);
     }
 

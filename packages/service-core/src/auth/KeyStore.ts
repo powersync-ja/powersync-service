@@ -4,7 +4,7 @@ import secs from '../util/secs.js';
 import { JwtPayload } from './JwtPayload.js';
 import { KeyCollector } from './KeyCollector.js';
 import { KeyOptions, KeySpec, SUPPORTED_ALGORITHMS } from './KeySpec.js';
-import { mapAuthError } from './utils.js';
+import { debugKeyNotFound, mapAuthError, SupabaseAuthDetails, tokenDebugDetails } from './utils.js';
 
 /**
  * KeyStore to get keys and verify tokens.
@@ -38,6 +38,29 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
    * @internal
    */
   collector: Collector;
+
+  /**
+   * For debug purposes only.
+   *
+   * This is very Supabase-specific, but we need the info on this level. For example,
+   * we want to detect cases where a Supabase token is used, but Supabase auth is not enabled
+   * (no Supabase collector configured).
+   */
+  supabaseAuthDebug: {
+    /**
+     * This can be populated without jwksEnabled, but not the other way around.
+     */
+    jwksDetails: SupabaseAuthDetails | null;
+    jwksEnabled: boolean;
+    /**
+     * This can be enabled without jwksDetails populated.
+     */
+    legacyEnabled: boolean;
+  } = {
+    jwksDetails: null,
+    jwksEnabled: false,
+    legacyEnabled: false
+  };
 
   constructor(collector: Collector) {
     this.collector = collector;
@@ -131,7 +154,7 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
           if (!key.matchesAlgorithm(header.alg)) {
             throw new AuthorizationError(ErrorCode.PSYNC_S2101, `Unexpected token algorithm ${header.alg}`, {
               configurationDetails: `Key kid: ${key.source.kid}, alg: ${key.source.alg}, kty: ${key.source.kty}`
-              // Token details automatically populated elsewhere
+              // tokenDetails automatically populated higher up the stack
             });
           }
           return key;
@@ -165,12 +188,13 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
         logger.error(`Failed to refresh keys`, e);
       });
 
+      const details = debugKeyNotFound(this, keys, token);
+
       throw new AuthorizationError(
         ErrorCode.PSYNC_S2101,
         'Could not find an appropriate key in the keystore. The key is missing or no key matched the token KID',
         {
-          configurationDetails: `Known keys: ${keys.map((key) => key.description).join(', ')}`
-          // tokenDetails automatically populated later
+          ...details
         }
       );
     }
