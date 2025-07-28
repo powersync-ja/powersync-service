@@ -1,3 +1,4 @@
+/// <reference path="../matchers.d.ts" />
 import { describe, expect, test } from 'vitest';
 import {
   BucketParameterQuerier,
@@ -123,6 +124,23 @@ describe('streams', () => {
           }
         })
       ).toStrictEqual([]);
+    });
+  });
+
+  describe('errors', () => {
+    test('IN operator with static left clause', () => {
+      const [_, errors] = syncStreamFromSql(
+        's',
+        "SELECT * FROM issues WHERE 'static' IN (SELECT id FROM users WHERE is_admin)",
+        options
+      );
+
+      expect(errors).toMatchObject([
+        expect.toBeSqlRuleError(
+          'For IN subqueries, the left operand must either depend on the row to sync or stream parameters.',
+          "'static'"
+        )
+      ]);
     });
   });
 

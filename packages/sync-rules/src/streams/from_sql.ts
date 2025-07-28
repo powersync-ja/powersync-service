@@ -1,21 +1,5 @@
 import { SqlRuleError } from '../errors.js';
-import {
-  ClauseError,
-  CompiledClause,
-  FilterParameters,
-  InputParameter,
-  ParameterMatchClause,
-  ParameterValueClause,
-  ParameterValueSet,
-  QueryParameters,
-  QuerySchema,
-  RowValueClause,
-  SqliteJsonValue,
-  SqliteValue,
-  StaticValueClause,
-  StreamParseOptions,
-  TrueIfParametersMatch
-} from '../types.js';
+import { CompiledClause, QuerySchema, StaticValueClause, StreamParseOptions } from '../types.js';
 import { isSelectStatement } from '../utils.js';
 import {
   andFilters,
@@ -72,7 +56,6 @@ class SyncStreamCompiler {
 
   compile(): SyncStream {
     const [stmt, ...illegalRest] = parse(this.sql, { locationTracking: true });
-    const errors: SqlRuleError[] = [];
 
     // TODO: Share more of this code with SqlDataQuery
     if (illegalRest.length > 0) {
@@ -100,7 +83,7 @@ class SyncStreamCompiler {
     stream.subscribedToByDefault = this.options.default ?? false;
     stream.variants = filter.compileVariants(this.descriptorName);
 
-    errors.push(...tools.errors);
+    this.errors.push(...tools.errors);
     return stream;
   }
 
@@ -282,7 +265,15 @@ class SyncStreamCompiler {
       }
       const [subquery, subqueryTools] = subqueryResult;
 
-      if (isStaticValueClause(left) || isParameterValueClause(left)) {
+      if (isStaticValueClause(left)) {
+        tools.error(
+          'For IN subqueries, the left operand must either depend on the row to sync or stream parameters.',
+          clause.left
+        );
+        return recoverErrorClause(tools);
+      }
+
+      if (isParameterValueClause(left)) {
         // Case 2: We can't implement this as an actual IN operator because we need to use exact parameter lookups (so
         // we can't, for instance, resolve `SELECT * FROM users WHERE is_admin` via parameter data sets). Since the
         // left clause doesn't depend on row data however, we can push it down into the subquery where it would be
