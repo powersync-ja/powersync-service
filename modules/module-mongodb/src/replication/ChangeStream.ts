@@ -1,4 +1,4 @@
-import { isMongoNetworkTimeoutError, isMongoServerError, mongo } from '@powersync/lib-service-mongodb';
+import { mongo } from '@powersync/lib-service-mongodb';
 import {
   container,
   DatabaseConnectionError,
@@ -31,7 +31,7 @@ import {
   STANDALONE_CHECKPOINT_ID
 } from './MongoRelation.js';
 import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
-import { CHECKPOINTS_COLLECTION, timestampToDate } from './replication-utils.js';
+import { CHECKPOINTS_COLLECTION, rawChangeStreamBatches, timestampToDate } from './replication-utils.js';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;
@@ -710,124 +710,23 @@ export class ChangeStream {
     }
   }
 
-  private async *rawChangeStreamBatches(options: {
+  private rawChangeStreamBatches(options: {
     lsn: string | null;
     maxAwaitTimeMs?: number;
     batchSize?: number;
     filters: { $match: any; multipleDatabases: boolean };
     signal?: AbortSignal;
   }): AsyncIterableIterator<{ eventBatch: mongo.ChangeStreamDocument[]; resumeToken: unknown }> {
-    const lastLsn = options.lsn ? MongoLSN.fromSerialized(options.lsn) : null;
-    const startAfter = lastLsn?.timestamp;
-    const resumeAfter = lastLsn?.resumeToken;
-
-    const filters = options.filters;
-
-    let fullDocument: 'required' | 'updateLookup';
-
-    if (this.usePostImages) {
-      // 'read_only' or 'auto_configure'
-      // Configuration happens during snapshot, or when we see new
-      // collections.
-      fullDocument = 'required';
-    } else {
-      fullDocument = 'updateLookup';
-    }
-
-    const streamOptions: mongo.ChangeStreamOptions = {
-      showExpandedEvents: true,
-      fullDocument: fullDocument
-    };
-    /**
-     * Only one of these options can be supplied at a time.
-     */
-    if (resumeAfter) {
-      streamOptions.resumeAfter = resumeAfter;
-    } else {
-      // Legacy: We don't persist lsns without resumeTokens anymore, but we do still handle the
-      // case if we have an old one.
-      streamOptions.startAtOperationTime = startAfter;
-    }
-
-    const pipeline: mongo.Document[] = [
-      {
-        $changeStream: streamOptions
-      },
-      {
-        $match: filters.$match
-      },
-      { $changeStreamSplitLargeEvent: {} }
-    ];
-
-    let cursorId: bigint | null = null;
-
-    const db = filters.multipleDatabases ? this.client.db('admin') : this.defaultDb;
-    const maxTimeMS = options.maxAwaitTimeMs ?? this.maxAwaitTimeMS;
-    const batchSize = options.batchSize ?? this.snapshotChunkLength;
-    options?.signal?.addEventListener('abort', () => {
-      if (cursorId != null && cursorId !== 0n) {
-        // This would result in a CursorKilled error.
-        db.command({
-          killCursors: '$cmd.aggregate',
-          cursors: [cursorId]
-        });
-      }
+    return rawChangeStreamBatches({
+      client: this.client,
+      filters: options.filters,
+      db: options.filters.multipleDatabases ? this.client.db('admin') : this.defaultDb,
+      batchSize: options.batchSize ?? this.snapshotChunkLength,
+      maxAwaitTimeMs: options.maxAwaitTimeMs ?? this.maxAwaitTimeMS,
+      lsn: options.lsn,
+      usePostImages: this.usePostImages,
+      signal: options.signal
     });
-
-    const session = this.client.startSession();
-    try {
-      // Step 1: Send the aggregate command to start the change stream
-      const aggregateResult = await db
-        .command(
-          {
-            aggregate: 1,
-            pipeline,
-            cursor: { batchSize }
-          },
-          { session }
-        )
-        .catch((e) => {
-          throw mapChangeStreamError(e);
-        });
-
-      cursorId = BigInt(aggregateResult.cursor.id);
-      let batch = aggregateResult.cursor.firstBatch;
-
-      yield { eventBatch: batch, resumeToken: aggregateResult.cursor.postBatchResumeToken };
-
-      // Step 2: Poll using getMore until the cursor is closed
-      while (cursorId && cursorId !== 0n) {
-        if (options.signal?.aborted) {
-          break;
-        }
-        const getMoreResult: mongo.Document = await db
-          .command(
-            {
-              getMore: cursorId,
-              collection: '$cmd.aggregate',
-              batchSize,
-              maxTimeMS
-            },
-            { session }
-          )
-          .catch((e) => {
-            throw mapChangeStreamError(e);
-          });
-
-        cursorId = BigInt(getMoreResult.cursor.id);
-        const nextBatch = getMoreResult.cursor.nextBatch;
-
-        yield { eventBatch: nextBatch, resumeToken: getMoreResult.cursor.postBatchResumeToken };
-      }
-    } finally {
-      if (cursorId != null && cursorId !== 0n) {
-        await db.command({
-          killCursors: '$cmd.aggregate',
-          cursors: [cursorId]
-        });
-      }
-      await session.endSession();
-    }
   }
 
   async streamChangesInternal() {
@@ -1126,23 +1025,5 @@ export class ChangeStream {
         this.logger.error(`Failed to touch the container probe: ${e.message}`, e);
       });
     }
-  }
-}
-
-function mapChangeStreamError(e: any) {
-  if (isMongoNetworkTimeoutError(e)) {
-    // This typically has an unhelpful message like "connection 2 to 159.41.94.47:27017 timed out".
-    // We wrap the error to make it more useful.
-    throw new DatabaseConnectionError(ErrorCode.PSYNC_S1345, `Timeout while reading MongoDB ChangeStream`, e);
-  } else if (
-    isMongoServerError(e) &&
-    e.codeName == 'NoMatchingDocument' &&
-    e.errmsg?.includes('post-image was not found')
-  ) {
-    throw new ChangeStreamInvalidatedError(e.errmsg, e);
-  } else if (isMongoServerError(e) && e.hasErrorLabel('NonResumableChangeStreamError')) {
-    throw new ChangeStreamInvalidatedError(e.message, e);
-  } else {
-    throw new DatabaseConnectionError(ErrorCode.PSYNC_S1346, `Error reading MongoDB ChangeStream`, e);
   }
 }
