@@ -495,11 +495,11 @@ describe('JWT Auth', () => {
       );
     });
 
-    test('Supabase signing key token without JWKS enabled', async () => {
+    test('Supabase signing key token with no Supabase connection', async () => {
       const keys = await StaticSupabaseKeyCollector.importKeys([]);
       const store = new KeyStore(keys);
 
-      // Mock Supabase debug info - JWKS not enabled
+      // Mock Supabase debug info - no Supabase connection
       store.supabaseAuthDebug = {
         jwksDetails: null,
         jwksEnabled: false,
@@ -522,11 +522,11 @@ describe('JWT Auth', () => {
       );
     });
 
-    test('Supabase signing key token without JWKS enabled', async () => {
+    test('Supabase signing key token with Supabase auth disabled', async () => {
       const keys = await StaticSupabaseKeyCollector.importKeys([]);
       const store = new KeyStore(keys);
 
-      // Mock Supabase debug info - Supabse project, but Supabase auth not enabled
+      // Mock Supabase debug info - Supabase project, but Supabase auth not enabled
       store.supabaseAuthDebug = {
         jwksDetails: {
           projectId: 'abc123',
@@ -662,14 +662,14 @@ describe('JWT Auth', () => {
       const keys = await StaticSupabaseKeyCollector.importKeys([privateKeyECDSA]);
       const store = new KeyStore(keys);
 
-      // Mock Supabase debug info - legacy enabled
+      // Mock Supabase debug info - JWKS enabled, legacy disabled
       store.supabaseAuthDebug = {
         jwksDetails: null,
         jwksEnabled: true,
         legacyEnabled: false
       };
 
-      // Create a legacy Supabase token (HS256)
+      // Create a modern Supabase signing key token (ES256)
       const token = await new jose.SignJWT({})
         .setProtectedHeader({ alg: 'ES256', kid: privateKeyECDSA.kid })
         .setSubject('test')
@@ -711,14 +711,14 @@ describe('JWT Auth', () => {
       const keys = await StaticSupabaseKeyCollector.importKeys([privateKeyECDSA]);
       const store = new KeyStore(keys);
 
-      // Mock Supabase debug info - legacy enabled
+      // Mock Supabase debug info - JWKS enabled
       store.supabaseAuthDebug = {
         jwksDetails: null,
         jwksEnabled: true,
         legacyEnabled: false
       };
 
-      // Create a legacy Supabase token (HS256)
+      // Create a modern Supabase signing key token (ES256)
       const token = await new jose.SignJWT({})
         .setProtectedHeader({ alg: 'ES256', kid: privateKeyECDSA.kid })
         .setSubject('test')
