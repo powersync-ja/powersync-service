@@ -26,6 +26,8 @@ import {
   SyncRules
 } from './types.js';
 import { BucketSource } from './BucketSource.js';
+import { SyncStream } from './streams/stream.js';
+import { syncStreamFromSql } from './streams/from_sql.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -214,8 +216,6 @@ export class SqlSyncRules implements SyncRules {
         continue;
       }
 
-      const descriptor = new SqlBucketDescriptor(key, SqlBucketDescriptorType.STREAM);
-
       const accept_potentially_dangerous_queries =
         value.get('accept_potentially_dangerous_queries', true)?.value == true;
 
@@ -229,14 +229,17 @@ export class SqlSyncRules implements SyncRules {
       const data = value.get('query', true) as unknown;
       if (data instanceof Scalar) {
         rules.withScalar(data, (q) => {
-          return descriptor.addUnifiedStreamQuery(q, queryOptions);
+          const [parsed, errors] = syncStreamFromSql(key, q, options);
+          rules.bucketSources.push(parsed);
+          return {
+            parsed: true,
+            errors
+          };
         });
       } else {
         rules.errors.push(this.tokenError(data, 'Must be a string.'));
         continue;
       }
-
-      rules.bucketSources.push(descriptor);
     }
 
     const eventMap = parsed.get('event_definitions') as YAMLMap;

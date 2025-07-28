@@ -1,17 +1,93 @@
-import { assert, describe, expect, test } from 'vitest';
-import { SqlSyncRules } from '../../src/index.js';
-import { ASSETS, BASIC_SCHEMA, PARSE_OPTIONS } from './util.js';
+import { describe, expect, test } from 'vitest';
+import {
+  BucketParameterQuerier,
+  DEFAULT_TAG,
+  EvaluateRowOptions,
+  ParameterLookup,
+  ParameterLookupSource,
+  ResolvedBucket,
+  SqliteJsonRow,
+  StaticSchema,
+  SyncStream,
+  syncStreamFromSql
+} from '../../src/index.js';
+import { normalizeQuerierOptions, PARSE_OPTIONS, TestSourceTable } from './util.js';
 
 describe('streams', () => {
-  test('without parameters', () => {
-    const desc = parseSingleBucketDescription(`
-streams:
-  lists:
-    query: SELECT * FROM assets
-`);
-    expect(desc.bucketParameters).toBeFalsy();
+  test('without filter', () => {
+    const desc = parseStream('SELECT * FROM comments');
+
+    expect(desc.variants).toHaveLength(1);
+    expect(evaluateBucketIds(desc, { sourceTable: COMMENTS, record: { id: 'foo' } })).toStrictEqual(['stream|0[]']);
+    expect(desc.evaluateRow({ sourceTable: USERS, record: { id: 'foo' } })).toHaveLength(0);
   });
 
+  test('row condition', () => {
+    const desc = parseStream('SELECT * FROM comments WHERE length(content) > 5');
+    expect(evaluateBucketIds(desc, { sourceTable: COMMENTS, record: { id: 'foo', content: 'a' } })).toStrictEqual([]);
+    expect(evaluateBucketIds(desc, { sourceTable: COMMENTS, record: { id: 'foo', content: 'aaaaaa' } })).toStrictEqual([
+      'stream|0[]'
+    ]);
+  });
+
+  test('stream parameter', () => {
+    const desc = parseStream('SELECT * FROM comments WHERE issue_id = subscription_parameters.id');
+    expect(evaluateBucketIds(desc, { sourceTable: COMMENTS, record: { id: 'foo', issue_id: 'a' } })).toStrictEqual([
+      'stream|0["a"]'
+    ]);
+  });
+
+  test('row filter and stream parameter', async () => {
+    const desc = parseStream(
+      'SELECT * FROM comments WHERE length(content) > 5 AND issue_id = subscription_parameters.id'
+    );
+    expect(
+      evaluateBucketIds(desc, { sourceTable: COMMENTS, record: { id: 'foo', content: 'a', issue_id: 'a' } })
+    ).toStrictEqual([]);
+    expect(
+      evaluateBucketIds(desc, { sourceTable: COMMENTS, record: { id: 'foo', content: 'aaaaaa', issue_id: 'i' } })
+    ).toStrictEqual(['stream|0["i"]']);
+
+    expect(await queryBucketIds(desc, { parameters: { id: 'subscribed_issue' } })).toStrictEqual([
+      'stream|0["subscribed_issue"]'
+    ]);
+  });
+
+  describe('in', () => {
+    test('row value in subquery', async () => {
+      const desc = parseStream(
+        'SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = request.user_id())'
+      );
+
+      expect(desc.tableSyncsParameters(ISSUES)).toBe(true);
+      expect(desc.evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })).toStrictEqual([
+        {
+          lookup: ParameterLookup.normalized('stream', '0', ['user1']),
+          bucketParameters: [
+            {
+              result: 'issue_id'
+            }
+          ]
+        }
+      ]);
+      expect(
+        evaluateBucketIds(desc, { sourceTable: COMMENTS, record: { id: 'c', issue_id: 'issue_id' } })
+      ).toStrictEqual(['stream|0["issue_id"]']);
+
+      expect(
+        await queryBucketIds(desc, {
+          token_parameters: { user_id: 'user1' },
+          getParameterSets(lookups) {
+            expect(lookups).toStrictEqual([ParameterLookup.normalized('stream', '0', ['user1'])]);
+
+            return [{ result: 'issue_id' }];
+          }
+        })
+      ).toStrictEqual(['stream|0["issue_id"]']);
+    });
+  });
+
+  /*
   test('static filter', () => {
     const desc = parseSingleBucketDescription(`
 streams:
@@ -73,54 +149,112 @@ streams:
     const [data] = desc.dataQueries;
     expect(data.bucketParameters).toEqual(['bucket.p0']);
   });
+  */
 });
 
-/**
+const USERS = new TestSourceTable('users');
+const ISSUES = new TestSourceTable('issues');
+const COMMENTS = new TestSourceTable('comments');
 
-SELECT * FROM assets WHERE id IN (SELECT id FROM asset_groups WHERE owner = request.user_id())
-  parameter: SELECT id AS p0 FROM asset_groups WHERE owner = request.user_id()
-  data: SELECT * FROM assets WHERE id = bucket.p0
+const schema = new StaticSchema([
+  {
+    tag: DEFAULT_TAG,
+    schemas: [
+      {
+        name: 'test_schema',
+        tables: [
+          {
+            name: 'users',
+            columns: [
+              { name: 'id', pg_type: 'uuid' },
+              { name: 'name', pg_type: 'text' },
+              { name: 'is_admin', pg_type: 'bool' }
+            ]
+          },
+          {
+            name: 'issues',
+            columns: [
+              { name: 'id', pg_type: 'uuid' },
+              { name: 'owner_id', pg_type: 'uuid' },
+              { name: 'name', pg_type: 'text' }
+            ]
+          },
+          {
+            name: 'comments',
+            columns: [
+              { name: 'id', pg_type: 'uuid' },
+              { name: 'issue_id', pg_type: 'uuid' },
+              { name: 'content', pg_type: 'text' },
+              { name: 'tagged_users', pg_type: 'text' }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]);
 
-SELECT * FROM assets WHERE id IN (SELECT id FROM asset_groups WHERE owner = request.user_id())
-                        OR count > 10
-  parameter: SELECT id AS p0 FROM asset_groups WHERE owner = request.user_id()
-  data: SELECT * FROM assets WHERE id = bucket.p0 OR count > 10
+const options = { schema: schema, ...PARSE_OPTIONS };
 
-SELECT * FROM assets WHERE id IN (SELECT id FROM asset_groups WHERE owner = request.user_id())
-                       OR request.jwt() ->> 'isAdmin'
-  parameter: SELECT id AS p0, request.jwt() ->> 'isAdmin' AS p1 FROM asset_groups WHERE owner = request.user_id()
-  parameter: SELECT NULL as p0, request.jwt() ->> 'isAdmin' AS p1
-  data: SELECT * FROM assets WHERE id = bucket.p0 OR bucket.p1
+function evaluateBucketIds(stream: SyncStream, options: EvaluateRowOptions) {
+  return stream.evaluateRow(options).map((r) => {
+    if ('error' in r) {
+      throw new Error(`Unexpected error evaluating row: ${r.error}`);
+    }
 
-SELECT * FROM assets WHERE id IN (SELECT id FROM asset_groups WHERE owner = request.user_id())
-                       AND request.jwt() ->> 'isAdmin'
-  parameter: SELECT id AS p0, request.jwt() ->> 'isAdmin' AS p1 FROM asset_groups WHERE owner = request.user_id()
-                                                                                        AND request.jwt() ->> 'isAdmin'
-  data: SELECT * FROM assets WHERE id = bucket.p0
-
-SELECT * FROM assets WHERE id IN (SELECT id FROM asset_groups WHERE owner = request.user_id())
-                        OR name IN (SELECT name FROM test2 WHERE owner = request.user_id())
-  parameter: SELECT id AS p0, NULL AS p1 FROM asset_groups WHERE owner = request.user_id()
-  parameter: SELECT NULL AS p0, NULL AS p1 FROM test2 WHERE owner = request.user_id()
-  data: SELECT * FROM assets WHERE id = bucket.p0 OR name = bucket.p1
-
-SELECT * FROM assets WHERE id IN (SELECT id FROM asset_groups WHERE owner = request.user_id())
-                        AND name IN (SELECT name FROM test2 WHERE owner = request.user_id())
-  parameter: SELECT id AS p0, NULL AS p1 FROM asset_groups WHERE owner = request.user_id()
-  parameter: SELECT NULL AS p0, NULL AS p1 FROM test2 WHERE owner = request.user_id()
-  data: SELECT * FROM assets WHERE id = bucket.p0 AND name = bucket.p1
-  */
-
-const options = { schema: BASIC_SCHEMA, ...PARSE_OPTIONS };
-
-function parseSyncRules(yaml: string) {
-  const rules = SqlSyncRules.fromYaml(yaml, options);
-  assert.isEmpty(rules.errors);
-  return rules;
+    return r.bucket;
+  });
 }
 
-function parseSingleBucketDescription(yaml: string) {
-  const rules = parseSyncRules(yaml);
-  expect(rules.bucketDescriptors).toHaveLength(1);
-  return rules.bucketDescriptors[0];
+async function queryBucketIds(
+  stream: SyncStream,
+  options?: {
+    token_parameters?: Record<string, any>;
+    parameters?: Record<string, any>;
+    getParameterSets?: (lookups: ParameterLookup[]) => SqliteJsonRow[];
+  }
+) {
+  const queriers: BucketParameterQuerier[] = [];
+  stream.pushBucketParameterQueriers(
+    queriers,
+    normalizeQuerierOptions(
+      options?.token_parameters ?? {},
+      {},
+      { stream: [{ opaque_id: 'test_subscription', parameters: options?.parameters ?? null }] }
+    )
+  );
+
+  async function getParameterSets(lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
+    const provided = options?.getParameterSets;
+    if (provided) {
+      return provided(lookups);
+    } else {
+      throw 'unexpected dynamic lookup';
+    }
+  }
+
+  const buckets: string[] = [];
+  for (const querier of queriers) {
+    buckets.push(...querier.staticBuckets.map((b) => b.bucket));
+
+    if (querier.hasDynamicBuckets) {
+      buckets.push(
+        ...(
+          await querier.queryDynamicBucketDescriptions({
+            getParameterSets
+          })
+        ).map((e) => e.bucket)
+      );
+    }
+  }
+  return buckets;
+}
+
+function parseStream(sql: string, name = 'stream') {
+  const [stream, errors] = syncStreamFromSql(name, sql, options);
+  if (errors.length) {
+    throw new Error(`Unexpected errors when parsing stream ${sql}: ${errors}`);
+  }
+
+  return stream;
 }

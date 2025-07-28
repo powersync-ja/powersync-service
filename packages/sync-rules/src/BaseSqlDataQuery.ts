@@ -36,7 +36,6 @@ export interface BaseSqlDataQueryOptions {
   descriptorName: string;
   bucketParameters: string[];
   tools: SqlTools;
-
   errors?: SqlRuleError[];
 }
 

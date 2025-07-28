@@ -28,7 +28,7 @@ const request_parameters: SqlParameterFunction = {
   usesUnauthenticatedRequestParameters: true
 };
 
-const request_jwt: SqlParameterFunction = {
+export const request_jwt: SqlParameterFunction = {
   debugName: 'request.jwt',
   call(parameters: ParameterValueSet) {
     return parameters.rawTokenPayload;
@@ -42,7 +42,7 @@ const request_jwt: SqlParameterFunction = {
   usesUnauthenticatedRequestParameters: false
 };
 
-const request_user_id: SqlParameterFunction = {
+export const request_user_id: SqlParameterFunction = {
   debugName: 'request.user_id',
   call(parameters: ParameterValueSet) {
     return parameters.userId;
@@ -60,21 +60,4 @@ export const REQUEST_FUNCTIONS: Record<string, SqlParameterFunction> = {
   parameters: request_parameters,
   jwt: request_jwt,
   user_id: request_user_id
-};
-
-export const QUERY_FUNCTIONS: Record<string, SqlParameterFunction> = {
-  params: {
-    debugName: 'stream.params',
-    call(parameters: ParameterValueSet) {
-      return parameters.rawUserParameters;
-    },
-    getReturnType() {
-      return ExpressionType.TEXT;
-    },
-    detail: 'Unauthenticated stream parameters as JSON',
-    documentation:
-      'Returns stream passed by the client when opening the stream. These parameters are not authenticated - any value can be passed in by the client.',
-    usesAuthenticatedRequestParameters: false,
-    usesUnauthenticatedRequestParameters: true
-  }
 };

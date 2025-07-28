@@ -1,4 +1,4 @@
-import { BucketDescription, BucketInclusionReason, ResolvedBucket } from './BucketDescription.js';
+import { BucketInclusionReason, ResolvedBucket } from './BucketDescription.js';
 import { BucketParameterQuerier, mergeBucketParameterQueriers } from './BucketParameterQuerier.js';
 import { BucketSource, ResultSetDescription } from './BucketSource.js';
 import { IdSequence } from './IdSequence.js';
@@ -7,7 +7,6 @@ import { SqlDataQuery } from './SqlDataQuery.js';
 import { SqlParameterQuery } from './SqlParameterQuery.js';
 import { GetQuerierOptions, SyncRulesOptions } from './SqlSyncRules.js';
 import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
-import { StreamQuery } from './StreamQuery.js';
 import { TablePattern } from './TablePattern.js';
 import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
 import { SqlRuleError } from './errors.js';
@@ -18,8 +17,7 @@ import {
   QueryParseOptions,
   RequestParameters,
   SourceSchema,
-  SqliteRow,
-  StreamParseOptions
+  SqliteRow
 } from './types.js';
 
 export interface QueryParseResult {
@@ -93,24 +91,6 @@ export class SqlBucketDescriptor implements BucketSource {
     return {
       parsed: true,
       errors: parameterQuery.errors
-    };
-  }
-
-  addUnifiedStreamQuery(sql: string, options: StreamParseOptions): QueryParseResult {
-    const [query, errors] = StreamQuery.fromSql(this.name, sql, options);
-    for (const parameterQuery of query.inferredParameters) {
-      if (parameterQuery instanceof StaticSqlParameterQuery) {
-        this.globalParameterQueries.push(parameterQuery);
-      } else {
-        this.parameterQueries.push(parameterQuery);
-      }
-    }
-    this.dataQueries.push(query.data);
-    this.subscribedToByDefault = options.default ?? false;
-
-    return {
-      parsed: true,
-      errors
     };
   }
 

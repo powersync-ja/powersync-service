@@ -4,7 +4,7 @@ import { nil } from 'pgsql-ast-parser/src/utils.js';
 import { BucketPriority, isValidPriority } from './BucketDescription.js';
 import { ExpressionType } from './ExpressionType.js';
 import { SqlRuleError } from './errors.js';
-import { QUERY_FUNCTIONS, REQUEST_FUNCTIONS } from './request_functions.js';
+import { REQUEST_FUNCTIONS } from './request_functions.js';
 import {
   BASIC_OPERATORS,
   OPERATOR_IN,
@@ -46,6 +46,7 @@ import {
   TrueIfParametersMatch
 } from './types.js';
 import { isJsonValue } from './utils.js';
+import { STREAM_FUNCTIONS } from './streams/functions.js';
 
 export const MATCH_CONST_FALSE: TrueIfParametersMatch = [];
 export const MATCH_CONST_TRUE: TrueIfParametersMatch = [{}];
@@ -94,10 +95,7 @@ export interface SqlToolsOptions {
    */
   supportsParameterExpressions?: boolean;
 
-  /**
-   * true if expressions on stream parameters are supported.
-   */
-  supportsStreamInputs?: boolean;
+  isStream?: boolean;
 
   /**
    * Schema for validations.
@@ -118,7 +116,7 @@ export class SqlTools {
 
   readonly supportsExpandingParameters: boolean;
   readonly supportsParameterExpressions: boolean;
-  readonly supportsStreamInputs: boolean;
+  readonly isSyncStream: boolean;
 
   private inferredStaticParameters: Map<string, InferredBucketParameter> = new Map();
 
@@ -139,7 +137,7 @@ export class SqlTools {
     this.sql = options.sql;
     this.supportsExpandingParameters = options.supportsExpandingParameters ?? false;
     this.supportsParameterExpressions = options.supportsParameterExpressions ?? false;
-    this.supportsStreamInputs = options.supportsStreamInputs ?? false;
+    this.isSyncStream = options.isStream ?? false;
   }
 
   error(message: string, expr: NodeLocation | Expr | undefined): ClauseError {
@@ -312,83 +310,7 @@ export class SqlTools {
           throw new Error('Unexpected');
         }
       } else if (op == 'IN') {
-        // Special cases:
-        //  parameterValue IN rowValue
-        //  rowValue IN parameterValue
-        // All others are handled by standard function composition
-
-        const composeType = this.getComposeType(OPERATOR_IN, [leftFilter, rightFilter], [left, right]);
-        if (composeType.errorClause != null) {
-          return composeType.errorClause;
-        } else if (composeType.argsType != null) {
-          // This is a standard supported configuration, takes precedence over
-          // the special cases below.
-          return this.composeFunction(OPERATOR_IN, [leftFilter, rightFilter], [left, right]);
-        } else if (isParameterValueClause(leftFilter) && isRowValueClause(rightFilter)) {
-          // token_parameters.value IN table.some_array
-          // bucket.param IN table.some_array
-          const inputParam = this.basicInputParameter(leftFilter);
-
-          return {
-            error: false,
-            inputParameters: [inputParam],
-            unbounded: true,
-            filterRow(tables: QueryParameters): TrueIfParametersMatch {
-              const aValue = rightFilter.evaluate(tables);
-              if (aValue == null) {
-                return MATCH_CONST_FALSE;
-              }
-              const values = JSON.parse(aValue as string);
-              if (!Array.isArray(values)) {
-                throw new Error('Not an array');
-              }
-              return values.map((value) => {
-                return { [inputParam.key]: value };
-              });
-            },
-            usesAuthenticatedRequestParameters: leftFilter.usesAuthenticatedRequestParameters,
-            usesUnauthenticatedRequestParameters: leftFilter.usesUnauthenticatedRequestParameters
-          } satisfies ParameterMatchClause;
-        } else if (
-          this.supportsExpandingParameters &&
-          isRowValueClause(leftFilter) &&
-          isParameterValueClause(rightFilter)
-        ) {
-          // table.some_value IN token_parameters.some_array
-          // This expands into "table_some_value = <value>" for each value of the array.
-          // We only support one such filter per query
-          const key = `${rightFilter.key}[*]`;
-
-          const inputParam: InputParameter = {
-            key: key,
-            expands: true,
-            filteredRowToLookupValue: (filterParameters) => {
-              return filterParameters[key];
-            },
-            parametersToLookupValue: (parameters) => {
-              return rightFilter.lookupParameterValue(parameters);
-            }
-          };
-
-          return {
-            error: false,
-            inputParameters: [inputParam],
-            unbounded: false,
-            filterRow(tables: QueryParameters): TrueIfParametersMatch {
-              const value = leftFilter.evaluate(tables);
-              if (!isJsonValue(value)) {
-                // Cannot persist, e.g. BLOB
-                return MATCH_CONST_FALSE;
-              }
-              return [{ [inputParam.key]: value }];
-            },
-            usesAuthenticatedRequestParameters: rightFilter.usesAuthenticatedRequestParameters,
-            usesUnauthenticatedRequestParameters: rightFilter.usesUnauthenticatedRequestParameters
-          } satisfies ParameterMatchClause;
-        } else {
-          // Not supported, return the error previously computed
-          return this.error(composeType.error!, composeType.errorExpr);
-        }
+        return this.compileInClause(left, leftFilter, right, rightFilter);
       } else if (BASIC_OPERATORS.has(op)) {
         const fnImpl = getOperatorFunction(op);
         return this.composeFunction(fnImpl, [leftFilter, rightFilter], [left, right]);
@@ -421,7 +343,7 @@ export class SqlTools {
         const argClauses = expr.args.map((arg) => this.compileClause(arg));
         const composed = this.composeFunction(fnImpl, argClauses, expr.args);
         return composed;
-      } else if (schema == 'request') {
+      } else if (schema == 'request' && !this.isSyncStream) {
         // Special function
         if (!this.supportsParameterExpressions) {
           return this.error(`${schema} schema is not available in data queries`, expr);
@@ -434,7 +356,7 @@ export class SqlTools {
         if (fn in REQUEST_FUNCTIONS) {
           const fnImpl = REQUEST_FUNCTIONS[fn];
           return {
-            key: `stream.${fn}()`,
+            key: 'request.parameters()',
             lookupParameterValue(parameters) {
               return fnImpl.call(parameters);
             },
@@ -444,28 +366,22 @@ export class SqlTools {
         } else {
           return this.error(`Function '${schema}.${fn}' is not defined`, expr);
         }
-      } else if (schema == 'stream') {
-        if (!this.supportsStreamInputs) {
-          return this.error(`${schema} schema is only available in stream definitions`, expr);
-        }
-
-        if (fn in QUERY_FUNCTIONS) {
-          const fnImpl = QUERY_FUNCTIONS[fn];
+      } else if (this.isSyncStream && schema in STREAM_FUNCTIONS) {
+        const impl = STREAM_FUNCTIONS[schema][fn];
+        if (impl) {
           return {
-            key: `stream.${fn}()`,
+            key: `${schema}.${fn}()`,
             lookupParameterValue(parameters) {
-              return fnImpl.call(parameters);
+              return impl.call(parameters);
             },
-            usesAuthenticatedRequestParameters: fnImpl.usesAuthenticatedRequestParameters,
-            usesUnauthenticatedRequestParameters: fnImpl.usesUnauthenticatedRequestParameters
+            usesAuthenticatedRequestParameters: impl.usesAuthenticatedRequestParameters,
+            usesUnauthenticatedRequestParameters: impl.usesUnauthenticatedRequestParameters
           } satisfies ParameterValueClause;
-        } else {
-          return this.error(`Function '${schema}.${fn}' is not defined`, expr);
         }
-      } else {
-        // Unknown function with schema
-        return this.error(`Function '${schema}.${fn}' is not defined`, expr);
       }
+
+      // Unknown function with schema
+      return this.error(`Function '${schema}.${fn}' is not defined`, expr);
     } else if (expr.type == 'member') {
       const operand = this.compileClause(expr.operand);
 
@@ -490,6 +406,86 @@ export class SqlTools {
       return this.composeFunction(castFn, [operand], [expr.operand]);
     } else {
       return this.error(`${expr.type} not supported here`, expr);
+    }
+  }
+
+  compileInClause(left: Expr, leftFilter: CompiledClause, right: Expr, rightFilter: CompiledClause): CompiledClause {
+    // Special cases:
+    //  parameterValue IN rowValue
+    //  rowValue IN parameterValue
+    // All others are handled by standard function composition
+
+    const composeType = this.getComposeType(OPERATOR_IN, [leftFilter, rightFilter], [left, right]);
+    if (composeType.errorClause != null) {
+      return composeType.errorClause;
+    } else if (composeType.argsType != null) {
+      // This is a standard supported configuration, takes precedence over
+      // the special cases below.
+      return this.composeFunction(OPERATOR_IN, [leftFilter, rightFilter], [left, right]);
+    } else if (isParameterValueClause(leftFilter) && isRowValueClause(rightFilter)) {
+      // token_parameters.value IN table.some_array
+      // bucket.param IN table.some_array
+      const inputParam = this.basicInputParameter(leftFilter);
+
+      return {
+        error: false,
+        inputParameters: [inputParam],
+        unbounded: true,
+        filterRow(tables: QueryParameters): TrueIfParametersMatch {
+          const aValue = rightFilter.evaluate(tables);
+          if (aValue == null) {
+            return MATCH_CONST_FALSE;
+          }
+          const values = JSON.parse(aValue as string);
+          if (!Array.isArray(values)) {
+            throw new Error('Not an array');
+          }
+          return values.map((value) => {
+            return { [inputParam.key]: value };
+          });
+        },
+        usesAuthenticatedRequestParameters: leftFilter.usesAuthenticatedRequestParameters,
+        usesUnauthenticatedRequestParameters: leftFilter.usesUnauthenticatedRequestParameters
+      } satisfies ParameterMatchClause;
+    } else if (
+      this.supportsExpandingParameters &&
+      isRowValueClause(leftFilter) &&
+      isParameterValueClause(rightFilter)
+    ) {
+      // table.some_value IN token_parameters.some_array
+      // This expands into "table_some_value = <value>" for each value of the array.
+      // We only support one such filter per query
+      const key = `${rightFilter.key}[*]`;
+
+      const inputParam: InputParameter = {
+        key: key,
+        expands: true,
+        filteredRowToLookupValue: (filterParameters) => {
+          return filterParameters[key];
+        },
+        parametersToLookupValue: (parameters) => {
+          return rightFilter.lookupParameterValue(parameters);
+        }
+      };
+
+      return {
+        error: false,
+        inputParameters: [inputParam],
+        unbounded: false,
+        filterRow(tables: QueryParameters): TrueIfParametersMatch {
+          const value = leftFilter.evaluate(tables);
+          if (!isJsonValue(value)) {
+            // Cannot persist, e.g. BLOB
+            return MATCH_CONST_FALSE;
+          }
+          return [{ [inputParam.key]: value }];
+        },
+        usesAuthenticatedRequestParameters: rightFilter.usesAuthenticatedRequestParameters,
+        usesUnauthenticatedRequestParameters: rightFilter.usesUnauthenticatedRequestParameters
+      } satisfies ParameterMatchClause;
+    } else {
+      // Not supported, return the error previously computed
+      return this.error(composeType.error!, composeType.errorExpr);
     }
   }
 
@@ -786,29 +782,6 @@ export class SqlTools {
   }
 
   private basicInputParameter(clause: ParameterValueClause): InputParameter {
-    if (this.supportsStreamInputs) {
-      let key = this.inferredStaticParameters.get(clause.key)?.name;
-      if (key == null) {
-        key = this.newInferredBucketParameterName();
-        this.inferredStaticParameters.set(clause.key, {
-          name: key,
-          variant: 'static',
-          clause
-        });
-      }
-
-      return {
-        key,
-        expands: false,
-        filteredRowToLookupValue: () => {
-          return SQLITE_FALSE; // Only relevant for parameter queries, but this is a stream query.
-        },
-        parametersToLookupValue: () => {
-          return SQLITE_FALSE;
-        }
-      };
-    }
-
     return {
       key: clause.key,
       expands: false,

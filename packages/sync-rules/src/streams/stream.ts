@@ -1,4 +1,5 @@
 import { BaseSqlDataQuery } from '../BaseSqlDataQuery.js';
+import { BucketInclusionReason, BucketPriority, DEFAULT_BUCKET_PRIORITY } from '../BucketDescription.js';
 import { BucketParameterQuerier } from '../BucketParameterQuerier.js';
 import { BucketSource, ResultSetDescription } from '../BucketSource.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
@@ -12,25 +13,27 @@ import {
   SourceSchema,
   SqliteRow
 } from '../types.js';
-import { StreamVariant } from './filter.js';
+import { isDynamicLookup, StreamVariant } from './filter.js';
 
 export class SyncStream implements BucketSource {
   name: string;
   subscribedToByDefault: boolean;
+  priority: BucketPriority;
   variants: StreamVariant[];
   data: BaseSqlDataQuery;
 
-  constructor(name: string) {
+  constructor(name: string, data: BaseSqlDataQuery) {
     this.name = name;
     this.subscribedToByDefault = false;
+    this.priority = DEFAULT_BUCKET_PRIORITY;
     this.variants = [];
-    this.data = '' as any;
+    this.data = data;
   }
 
   pushBucketParameterQueriers(result: BucketParameterQuerier[], options: GetQuerierOptions): void {
     const subscriptions = options.streams[this.name] ?? [];
 
-    if (!this.subscribedToByDefault && subscriptions.length) {
+    if (!this.subscribedToByDefault && !subscriptions.length) {
       // The client is not subscribing to this stream, so don't query buckets related to it.
       return;
     }
@@ -58,18 +61,36 @@ export class SyncStream implements BucketSource {
     result: BucketParameterQuerier[],
     subscription_id: string | null,
     params: RequestParameters
-  ) {}
+  ) {
+    const reason: BucketInclusionReason = subscription_id != null ? { subscription: subscription_id } : 'default';
+
+    for (const variant of this.variants) {
+      const querier = variant.querier(this, reason, params);
+      if (querier) {
+        result.push(querier);
+      }
+    }
+  }
 
   hasDynamicBucketQueries(): boolean {
     throw new Error('Method not implemented.');
   }
 
   tableSyncsData(table: SourceTableInterface): boolean {
-    throw new Error('Method not implemented.');
+    return this.data.applies(table);
   }
 
   tableSyncsParameters(table: SourceTableInterface): boolean {
-    throw new Error('Method not implemented.');
+    for (const variant of this.variants) {
+      for (const parameter of variant.parameters) {
+        const lookup = parameter.lookup;
+        if (isDynamicLookup(lookup) && lookup.parameterTable.matches(table)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   getSourceTables(): Set<TablePattern> {
@@ -81,7 +102,13 @@ export class SyncStream implements BucketSource {
   }
 
   evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[] {
-    throw new Error('Method not implemented.');
+    const result: EvaluatedParametersResult[] = [];
+
+    for (const variant of this.variants) {
+      variant.pushParameterRowEvaluation(result, sourceTable, row);
+    }
+
+    return result;
   }
 
   evaluateRow(options: EvaluateRowOptions): EvaluationResult[] {
