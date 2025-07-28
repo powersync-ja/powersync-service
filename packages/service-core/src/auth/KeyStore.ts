@@ -55,11 +55,11 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
     /**
      * This can be enabled without jwksDetails populated.
      */
-    legacyEnabled: boolean;
+    sharedSecretEnabled: boolean;
   } = {
     jwksDetails: null,
     jwksEnabled: false,
-    legacyEnabled: false
+    sharedSecretEnabled: false
   };
 
   constructor(collector: Collector) {

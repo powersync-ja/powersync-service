@@ -1,6 +1,7 @@
 import { AuthorizationError, ErrorCode } from '@powersync/lib-services-framework';
 import * as jose from 'jose';
 import * as urijs from 'uri-js';
+import * as uuid from 'uuid';
 import { KeySpec } from './KeySpec.js';
 import { KeyStore } from './KeyStore.js';
 
@@ -74,13 +75,13 @@ function parseTokenDebug(token: string) {
     const header = jose.decodeProtectedHeader(token);
     const payload = jose.decodeJwt(token);
     const isSupabase = typeof payload.iss == 'string' && payload.iss.includes('supabase.co');
-    const isLegacySupabase = isSupabase && header.alg === 'HS256';
+    const isSharedSecret = isSupabase && header.alg === 'HS256';
 
     return {
       header,
       payload,
       isSupabase,
-      isLegacySupabase,
+      isSharedSecret: isSharedSecret,
       description: `<header: ${JSON.stringify(header)} payload: ${JSON.stringify(payload)}>`
     };
   } catch (e) {
@@ -163,19 +164,31 @@ export function debugKeyNotFound(
   // 3. Is Supabase singing key token, but no Supabase signing keys configured.
   // 4. Supabase project id mismatch.
 
-  if (td.isSupabase) {
-    if (td.isLegacySupabase && !configuredSupabase.legacyEnabled) {
+  if (td.isSharedSecret) {
+    // Supabase HS256 token
+    // UUID: HS256 (Shared Secret)
+    // Other: Legacy HS256 (Shared Secret)
+    // Not a big difference between the two other than terminology used on Supabase.
+    const isLegacy = uuid.validate(td.header.kid) ? false : true;
+    const addMessage =
+      configuredSupabase.jwksEnabled && !isLegacy
+        ? ' Use asymmetric keys on Supabase (RSA or ECC) to allow automatic key retrieval.'
+        : '';
+    if (!configuredSupabase.sharedSecretEnabled) {
       return {
-        configurationDetails: `Token is a legacy Supabase token, but Supabase JWT secret is not configured`,
+        configurationDetails: `Token is a Supabase ${isLegacy ? 'Legacy ' : ''}HS256 (Shared Secret) token, but Supabase JWT secret is not configured.${addMessage}`,
         tokenDetails
       };
-    } else if (td.isLegacySupabase) {
+    } else {
       return {
         // This is an educated guess
-        configurationDetails: `Token is a legacy Supabase token, but configured Supabase JWT secret does not match`,
+        configurationDetails: `Token is a Supabase ${isLegacy ? 'Legacy ' : ''}HS256 (Shared Secret) token, but configured Supabase JWT secret does not match.${addMessage}`,
         tokenDetails
       };
-    } else if (!td.isLegacySupabase && !configuredSupabase.jwksEnabled) {
+    }
+  } else if (td.isSupabase) {
+    // Supabase JWT Signing Keys
+    if (!configuredSupabase.jwksEnabled) {
       if (configuredSupabase.jwksDetails != null) {
         return {
           configurationDetails: `Token uses Supabase JWT Signing Keys, but Supabase Auth is not enabled`,
@@ -187,7 +200,7 @@ export function debugKeyNotFound(
           tokenDetails
         };
       }
-    } else if (!td.isLegacySupabase && configuredSupabase.jwksDetails != null) {
+    } else if (configuredSupabase.jwksDetails != null) {
       const configuredProjectId = configuredSupabase.jwksDetails.projectId;
       const issuer = td.payload.iss as string; // Is a string since since isSupabase is true
       if (!issuer.includes(configuredProjectId)) {

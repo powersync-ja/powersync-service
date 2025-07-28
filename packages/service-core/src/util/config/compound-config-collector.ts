@@ -89,7 +89,7 @@ export class CompoundConfigCollector {
           }
         ])
       );
-      keyStore.supabaseAuthDebug.legacyEnabled = true;
+      keyStore.supabaseAuthDebug.sharedSecretEnabled = true;
     }
 
     let jwks_uris = baseConfig.client_auth?.jwks_uri ?? [];

@@ -449,7 +449,7 @@ describe('JWT Auth', () => {
       store.supabaseAuthDebug = {
         jwksDetails: null,
         jwksEnabled: false,
-        legacyEnabled: false
+        sharedSecretEnabled: false
       };
 
       // Create a legacy Supabase token (HS256)
@@ -464,7 +464,7 @@ describe('JWT Auth', () => {
 
       const err = await store.verifyJwt(token, { defaultAudiences: [], maxAge: '1d' }).catch((e) => e);
       expect(err.configurationDetails).toMatch(
-        'Token is a legacy Supabase token, but Supabase JWT secret is not configured'
+        'Token is a Supabase Legacy HS256 (Shared Secret) token, but Supabase JWT secret is not configured'
       );
     });
 
@@ -476,7 +476,7 @@ describe('JWT Auth', () => {
       store.supabaseAuthDebug = {
         jwksDetails: null,
         jwksEnabled: false,
-        legacyEnabled: true
+        sharedSecretEnabled: true
       };
 
       // Create a legacy Supabase token (HS256)
@@ -491,7 +491,35 @@ describe('JWT Auth', () => {
 
       const err = await store.verifyJwt(token, { defaultAudiences: [], maxAge: '1d' }).catch((e) => e);
       expect(err.configurationDetails).toMatch(
-        'Token is a legacy Supabase token, but configured Supabase JWT secret does not match'
+        'Token is a Supabase Legacy HS256 (Shared Secret) token, but configured Supabase JWT secret does not match'
+      );
+    });
+
+    test('New HS256 Supabase token with wrong secret', async () => {
+      const keys = await StaticSupabaseKeyCollector.importKeys([sharedKey]);
+      const store = new KeyStore(keys);
+
+      // Mock Supabase debug info - legacy enabled
+      store.supabaseAuthDebug = {
+        jwksDetails: null,
+        jwksEnabled: false,
+        sharedSecretEnabled: true
+      };
+
+      // Create a new HS256 Supabase token.
+      // The only real difference here is that the kid is a UUID
+      const token = await new jose.SignJWT({})
+        .setProtectedHeader({ alg: 'HS256', kid: '2fc01f1d-90fb-4c8b-b646-1c06ed86be46' })
+        .setSubject('test')
+        .setIssuer('https://abc123.supabase.co/auth/v1')
+        .setAudience('authenticated')
+        .setExpirationTime('1h')
+        .setIssuedAt()
+        .sign(await jose.importJWK(sharedKey2));
+
+      const err = await store.verifyJwt(token, { defaultAudiences: [], maxAge: '1d' }).catch((e) => e);
+      expect(err.configurationDetails).toMatch(
+        'Token is a Supabase HS256 (Shared Secret) token, but configured Supabase JWT secret does not match'
       );
     });
 
@@ -503,7 +531,7 @@ describe('JWT Auth', () => {
       store.supabaseAuthDebug = {
         jwksDetails: null,
         jwksEnabled: false,
-        legacyEnabled: false
+        sharedSecretEnabled: false
       };
 
       const signKey = await jose.importJWK(privateKeyECDSA);
@@ -534,7 +562,7 @@ describe('JWT Auth', () => {
           url: 'https://abc123.supabase.co/auth/v1/.well-known/jwks.json'
         },
         jwksEnabled: false,
-        legacyEnabled: false
+        sharedSecretEnabled: false
       };
 
       const signKey = await jose.importJWK(privateKeyECDSA);
@@ -565,7 +593,7 @@ describe('JWT Auth', () => {
           url: 'https://expected123.supabase.co/auth/v1/.well-known/jwks.json'
         },
         jwksEnabled: true,
-        legacyEnabled: false
+        sharedSecretEnabled: false
       };
 
       // Create a modern Supabase token with different project ID
@@ -596,7 +624,7 @@ describe('JWT Auth', () => {
           url: 'https://abc123.supabase.co/auth/v1/.well-known/jwks.json'
         },
         jwksEnabled: true,
-        legacyEnabled: false
+        sharedSecretEnabled: false
       };
 
       // Create a modern Supabase token with matching project ID
@@ -642,7 +670,7 @@ describe('JWT Auth', () => {
       store.supabaseAuthDebug = {
         jwksDetails: null,
         jwksEnabled: false,
-        legacyEnabled: true
+        sharedSecretEnabled: true
       };
 
       // Create a legacy Supabase token (HS256)
@@ -666,7 +694,7 @@ describe('JWT Auth', () => {
       store.supabaseAuthDebug = {
         jwksDetails: null,
         jwksEnabled: true,
-        legacyEnabled: false
+        sharedSecretEnabled: false
       };
 
       // Create a modern Supabase signing key token (ES256)
@@ -690,7 +718,7 @@ describe('JWT Auth', () => {
       store.supabaseAuthDebug = {
         jwksDetails: null,
         jwksEnabled: false,
-        legacyEnabled: true
+        sharedSecretEnabled: true
       };
 
       // Create a legacy Supabase token (HS256)
@@ -715,7 +743,7 @@ describe('JWT Auth', () => {
       store.supabaseAuthDebug = {
         jwksDetails: null,
         jwksEnabled: true,
-        legacyEnabled: false
+        sharedSecretEnabled: false
       };
 
       // Create a modern Supabase signing key token (ES256)
