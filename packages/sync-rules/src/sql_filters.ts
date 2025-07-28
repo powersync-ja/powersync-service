@@ -13,6 +13,7 @@ import {
   OPERATOR_JSON_EXTRACT_JSON,
   OPERATOR_JSON_EXTRACT_SQL,
   OPERATOR_NOT,
+  OPERATOR_OVERLAP,
   SQL_FUNCTIONS,
   SqlFunction,
   castOperator,
@@ -456,6 +457,98 @@ export class SqlTools {
             return MATCH_CONST_FALSE;
           }
           return [{ [inputParam.key]: value }];
+        },
+        usesAuthenticatedRequestParameters: rightFilter.usesAuthenticatedRequestParameters,
+        usesUnauthenticatedRequestParameters: rightFilter.usesUnauthenticatedRequestParameters
+      } satisfies ParameterMatchClause;
+    } else {
+      // Not supported, return the error previously computed
+      return this.error(composeType.error!, composeType.errorExpr);
+    }
+  }
+
+  compileOverlapClause(
+    left: Expr,
+    leftFilter: CompiledClause,
+    right: Expr,
+    rightFilter: CompiledClause
+  ): CompiledClause {
+    // Special cases:
+    //  parameterValue IN rowValue
+    //  rowValue IN parameterValue
+    // All others are handled by standard function composition
+
+    const composeType = this.getComposeType(OPERATOR_OVERLAP, [leftFilter, rightFilter], [left, right]);
+    if (composeType.errorClause != null) {
+      return composeType.errorClause;
+    } else if (composeType.argsType != null) {
+      // This is a standard supported configuration, takes precedence over
+      // the special cases below.
+      return this.composeFunction(OPERATOR_OVERLAP, [leftFilter, rightFilter], [left, right]);
+    } else if (isParameterValueClause(leftFilter) && isRowValueClause(rightFilter)) {
+      // token_parameters.value IN table.some_array
+      // bucket.param IN table.some_array
+      const inputParam = this.basicInputParameter(leftFilter);
+
+      return {
+        error: false,
+        inputParameters: [inputParam],
+        unbounded: true,
+        filterRow(tables: QueryParameters): TrueIfParametersMatch {
+          const aValue = rightFilter.evaluate(tables);
+          if (aValue == null) {
+            return MATCH_CONST_FALSE;
+          }
+          const values = JSON.parse(aValue as string);
+          if (!Array.isArray(values)) {
+            throw new Error('Not an array');
+          }
+          return values.map((value) => {
+            return { [inputParam.key]: value };
+          });
+        },
+        usesAuthenticatedRequestParameters: leftFilter.usesAuthenticatedRequestParameters,
+        usesUnauthenticatedRequestParameters: leftFilter.usesUnauthenticatedRequestParameters
+      } satisfies ParameterMatchClause;
+    } else if (
+      this.supportsExpandingParameters &&
+      isRowValueClause(leftFilter) &&
+      isParameterValueClause(rightFilter)
+    ) {
+      // table.some_value && token_parameters.some_array
+      // This expands into "OR(table_some_value = <value>)" for each value of both arrays.
+      // We only support one such filter per query
+      const key = `${rightFilter.key}[*]`;
+
+      const inputParam: InputParameter = {
+        key: key,
+        expands: true,
+        filteredRowToLookupValue: (filterParameters) => {
+          return filterParameters[key];
+        },
+        parametersToLookupValue: (parameters) => {
+          return rightFilter.lookupParameterValue(parameters);
+        }
+      };
+
+      return {
+        error: false,
+        inputParameters: [inputParam],
+        unbounded: false,
+        filterRow(tables: QueryParameters): TrueIfParametersMatch {
+          const value = leftFilter.evaluate(tables);
+          if (!isJsonValue(value)) {
+            // Cannot persist, e.g. BLOB
+            return MATCH_CONST_FALSE;
+          }
+
+          const values = JSON.parse(value as string);
+          if (!Array.isArray(values)) {
+            throw new Error('Not an array');
+          }
+          return values.map((value) => {
+            return { [inputParam.key]: value };
+          });
         },
         usesAuthenticatedRequestParameters: rightFilter.usesAuthenticatedRequestParameters,
         usesUnauthenticatedRequestParameters: rightFilter.usesUnauthenticatedRequestParameters

@@ -26,6 +26,7 @@ import {
   InOperator,
   Not,
   Or,
+  OverlapOperator,
   ScalarExpression,
   Subquery
 } from './filter.js';
@@ -297,7 +298,35 @@ class SyncStreamCompiler {
   }
 
   private compileOverlapOperator(tools: SqlTools, clause: ExprBinary): FilterOperator {
-    throw 'todo';
+    const left = tools.compileClause(clause.left);
+    if (isClauseError(left)) {
+      return recoverErrorClause(tools);
+    }
+
+    if (clause.right.type == 'select') {
+      if (!isRowValueClause(left)) {
+        if (!isClauseError(left)) {
+          tools.error('The left-hand side of an && operator must be derived from the row to sync..', clause.left);
+        }
+
+        return recoverErrorClause(tools);
+      }
+
+      const subqueryResult = this.compileSubquery(clause.right);
+      if (!subqueryResult) {
+        return recoverErrorClause(tools);
+      }
+      const [subquery] = subqueryResult;
+      return new OverlapOperator(left, subquery);
+    }
+
+    const right = tools.compileClause(clause.right);
+
+    // For cases 3-5, we can actually uses SqlTools.compileClause. Case 3 and 4 are handled specially in there and return
+    // a ParameterMatchClause, which we can translate via CompareRowValueWithStreamParameter. Case 5 is either a row-value
+    // or a parameter-value clause which we can wrap in EvaluateSimpleCondition.
+    const combined = tools.compileOverlapClause(clause.left, left, clause.right, right);
+    return compiledClauseToFilter(tools, combined);
   }
 
   private compileSubquery(stmt: SelectStatement): [Subquery, SqlTools] | undefined {

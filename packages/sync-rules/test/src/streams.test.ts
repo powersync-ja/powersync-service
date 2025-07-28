@@ -127,6 +127,40 @@ describe('streams', () => {
     });
   });
 
+  describe('overlap', () => {
+    test('row value in subquery', async () => {
+      const desc = parseStream(
+        'SELECT * FROM comments WHERE tagged_users && (SELECT user_a FROM friends WHERE user_b = request.user_id())'
+      );
+
+      expect(desc.tableSyncsParameters(FRIENDS)).toBe(true);
+      expect(desc.evaluateParameterRow(FRIENDS, { user_a: 'a', user_b: 'b' })).toStrictEqual([
+        {
+          lookup: ParameterLookup.normalized('stream', '0', ['b']),
+          bucketParameters: [
+            {
+              result: 'a'
+            }
+          ]
+        }
+      ]);
+      expect(
+        evaluateBucketIds(desc, { sourceTable: COMMENTS, record: { id: 'c', tagged_users: '["a", "b"]' } })
+      ).toStrictEqual(['stream|0["a"]', 'stream|0["b"]']);
+
+      expect(
+        await queryBucketIds(desc, {
+          token_parameters: { user_id: 'user1' },
+          getParameterSets(lookups) {
+            expect(lookups).toStrictEqual([ParameterLookup.normalized('stream', '0', ['user1'])]);
+
+            return [{ result: 'issue_id' }];
+          }
+        })
+      ).toStrictEqual(['stream|0["issue_id"]']);
+    });
+  });
+
   describe('errors', () => {
     test('IN operator with static left clause', () => {
       const [_, errors] = syncStreamFromSql(
@@ -212,6 +246,7 @@ streams:
 const USERS = new TestSourceTable('users');
 const ISSUES = new TestSourceTable('issues');
 const COMMENTS = new TestSourceTable('comments');
+const FRIENDS = new TestSourceTable('friends');
 
 const schema = new StaticSchema([
   {
@@ -243,6 +278,13 @@ const schema = new StaticSchema([
               { name: 'issue_id', pg_type: 'uuid' },
               { name: 'content', pg_type: 'text' },
               { name: 'tagged_users', pg_type: 'text' }
+            ]
+          },
+          {
+            name: 'friends',
+            columns: [
+              { name: 'user_a', pg_type: 'uuid' },
+              { name: 'user_b', pg_type: 'uuid' }
             ]
           }
         ]

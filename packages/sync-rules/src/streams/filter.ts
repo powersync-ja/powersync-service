@@ -4,7 +4,7 @@ import { TablePattern } from '../TablePattern.js';
 import { ParameterMatchClause, ParameterValueClause, RowValueClause, SqliteJsonValue } from '../types.js';
 import { isJsonValue, normalizeParameterValue } from '../utils.js';
 import { SqlTools } from '../sql_filters.js';
-import { OPERATOR_NOT } from '../sql_functions.js';
+import { checkJsonArray, OPERATOR_NOT } from '../sql_functions.js';
 import { ParameterLookup } from '../BucketParameterQuerier.js';
 
 import { StreamVariant } from './variant.js';
@@ -107,6 +107,10 @@ export class Subquery {
       const id = context.queryCounter.toString();
       context.queryCounter++;
 
+      if (variant.parameters.length == 0) {
+        throw new Error('Unsupported subquery without parameter, must depend on request parameters');
+      }
+
       return [variant, id] satisfies [StreamVariant, string];
     });
 
@@ -175,38 +179,36 @@ export class InOperator extends FilterOperator {
 
   compile(context: BucketCompilationContext): void {
     const subqueryEvaluator = this.right.compileEvaluator(context);
-
     const filter = this.left;
-    // Something like `SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issue WHERE owner_id = request.user())`
-    // This groups rows into buckets identified by comments.issue_id, which happens in filterRow.
-    // When a user connects, we need to resolve all the issue ids they own. This happens with an indirection:
-    //  1. In the subquery evaluator, we create an index from owner_id to issue ids.
-    //  2. When we have users, we use that index to find issue ids dynamically, with which we can build the buckets
-    //     to sync.
-    context.currentVariant.parameters.push({
-      lookup: {
-        type: 'in',
-        subquery: subqueryEvaluator
-      },
-      filterRow(options) {
-        const tables = { [options.sourceTable.table]: options.record };
-        const value = filter.evaluate(tables);
-        if (isJsonValue(value)) {
-          return [normalizeParameterValue(value)];
-        } else {
-          return [];
-        }
-      }
-    });
 
     if (isRowValueClause(this.left)) {
+      // Something like `SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issue WHERE owner_id = request.user())`
+      // This groups rows into buckets identified by comments.issue_id, which happens in filterRow.
+      // When a user connects, we need to resolve all the issue ids they own. This happens with an indirection:
+      //  1. In the subquery evaluator, we create an index from owner_id to issue ids.
+      //  2. When we have users, we use that index to find issue ids dynamically, with which we can build the buckets
+      //     to sync.
+      context.currentVariant.parameters.push({
+        lookup: {
+          type: 'in',
+          subquery: subqueryEvaluator
+        },
+        filterRow(options) {
+          const tables = { [options.sourceTable.table]: options.record };
+          const value = filter.evaluate(tables);
+          if (isJsonValue(value)) {
+            return [normalizeParameterValue(value)];
+          } else {
+            return [];
+          }
+        }
+      });
     } else if (isParameterValueClause(this.left)) {
       // Something like `SELECT * FROM comments WHERE request.user_id() IN (SELECT id FROM users WHERE is_admin)`.
       // This doesn't introduce a bucket parameter, but we still need to create a parameter lookup to determine whether
       // a given user should have access to the bucket or not. Because lookups can only be exact (we can't evaluate
       // `SELECT id FROM users WHERE is_admin` into a single ParameterLookup), we need to push the filter down into
       // the subquery, e.g. `WHERE EXISTS(SELECT id FROM users WHERE is_admin AND id = request.user_id())`.
-      const left = this.left;
       const subqueryEvaluator = this.right.compileEvaluator(context);
 
       context.currentVariant.requestFilters.push({
@@ -219,6 +221,42 @@ export class InOperator extends FilterOperator {
     } else {
       const _: never = this.left; // Exhaustive check
     }
+  }
+}
+
+/**
+ * An operator of the form `<left> && <right>`, where `right` is a subqery.
+ */
+export class OverlapOperator extends FilterOperator {
+  private left: RowValueClause;
+  private right: Subquery;
+
+  constructor(left: RowValueClause, right: Subquery) {
+    super();
+    this.left = left;
+    this.right = right;
+  }
+
+  compile(context: BucketCompilationContext): void {
+    const subqueryEvaluator = this.right.compileEvaluator(context);
+    const filter = this.left;
+
+    context.currentVariant.parameters.push({
+      lookup: {
+        type: 'overlap',
+        subquery: subqueryEvaluator
+      },
+      filterRow(options) {
+        const tables = { [options.sourceTable.table]: options.record };
+        const value = filter.evaluate(tables);
+        if (value == null) {
+          return [];
+        }
+
+        const parsed = checkJsonArray(value, 'Left side of && must evaluate to an array');
+        return parsed.map(normalizeParameterValue);
+      }
+    });
   }
 }
 
