@@ -149,7 +149,7 @@ export async function getSyncRulesStatus(
       );
       const lagSeconds = Math.round((Date.now() - lastTime) / 1000);
       // On idle instances, keepalive messages are only persisted every 60 seconds.
-      // So we use 2 minutes as a threshold for warnings, and 15 minutes for critical.
+      // So we use 5 minutes as a threshold for warnings, and 15 minutes for critical.
       // The replication lag metric should give a more granular value, but that is not available directly
       // in the API containers used for diagnostics, and this should give a good enough indication.
       if (lagSeconds > 15 * 60) {
@@ -157,7 +157,7 @@ export async function getSyncRulesStatus(
           level: 'fatal',
           message: `No replicated commit in more than ${lagSeconds}s`
         });
-      } else if (lagSeconds > 120) {
+      } else if (lagSeconds > 5 * 60) {
         errors.push({
           level: 'warning',
           message: `No replicated commit in more than ${lagSeconds}s`
