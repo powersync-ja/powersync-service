@@ -2,10 +2,19 @@ import { SqlRuleError } from '../errors.js';
 import {
   ClauseError,
   CompiledClause,
+  FilterParameters,
+  InputParameter,
+  ParameterMatchClause,
+  ParameterValueClause,
+  ParameterValueSet,
+  QueryParameters,
   QuerySchema,
   RowValueClause,
+  SqliteJsonValue,
+  SqliteValue,
   StaticValueClause,
-  StreamParseOptions
+  StreamParseOptions,
+  TrueIfParametersMatch
 } from '../types.js';
 import { isSelectStatement } from '../utils.js';
 import {
@@ -28,6 +37,7 @@ import {
   And,
   CompareRowValueWithStreamParameter,
   EvaluateSimpleCondition,
+  ExistsOperator,
   FilterOperator,
   InOperator,
   Not,
@@ -266,11 +276,24 @@ class SyncStreamCompiler {
         return recoverErrorClause(tools);
       }
 
-      const subquery = this.compileSubquery(clause.right);
-      if (!subquery) {
+      const subqueryResult = this.compileSubquery(clause.right);
+      if (!subqueryResult) {
         return recoverErrorClause(tools);
       }
-      return new InOperator(left, subquery);
+      const [subquery, subqueryTools] = subqueryResult;
+
+      if (isStaticValueClause(left) || isParameterValueClause(left)) {
+        // Case 2: We can't implement this as an actual IN operator because we need to use exact parameter lookups (so
+        // we can't, for instance, resolve `SELECT * FROM users WHERE is_admin` via parameter data sets). Since the
+        // left clause doesn't depend on row data however, we can push it down into the subquery where it would be
+        // introduced as a parameter: `EXISTS (SELECT _ FROM users WHERE is_admin AND user_id = request.user_id())`.
+        const additionalClause = subqueryTools.parameterMatchClause(subquery.column, left);
+        subquery.addFilter(compiledClauseToFilter(subqueryTools, additionalClause));
+        return new ExistsOperator(subquery);
+      } else {
+        // Case 1
+        return new InOperator(left, subquery);
+      }
     }
 
     const right = tools.compileClause(clause.right);
@@ -286,7 +309,7 @@ class SyncStreamCompiler {
     throw 'todo';
   }
 
-  private compileSubquery(stmt: SelectStatement): Subquery | undefined {
+  private compileSubquery(stmt: SelectStatement): [Subquery, SqlTools] | undefined {
     // A subquery is similar to a data query in legacy sync rules. Importantly, despite being an expression, subqueries
     // can't reference columns from the outer query! The syntax is always `SELECT <single column> FROM <table> WHERE
     // <compiled clause>`.
@@ -325,7 +348,7 @@ class SyncStreamCompiler {
     const where = tools.compileClause(query.where);
 
     this.errors.push(...tools.errors);
-    return new Subquery(sourceTable, column, compiledClauseToFilter(tools, where));
+    return [new Subquery(sourceTable, column, compiledClauseToFilter(tools, where)), tools];
   }
 
   private checkValidSelectStatement(stmt: Statement) {

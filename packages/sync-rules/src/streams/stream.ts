@@ -13,7 +13,7 @@ import {
   SourceSchema,
   SqliteRow
 } from '../types.js';
-import { isDynamicLookup, StreamVariant } from './filter.js';
+import { StreamVariant } from './variant.js';
 
 export class SyncStream implements BucketSource {
   name: string;
@@ -82,9 +82,8 @@ export class SyncStream implements BucketSource {
 
   tableSyncsParameters(table: SourceTableInterface): boolean {
     for (const variant of this.variants) {
-      for (const parameter of variant.parameters) {
-        const lookup = parameter.lookup;
-        if (isDynamicLookup(lookup) && lookup.parameterTable.matches(table)) {
+      for (const subquery of variant.subqueries) {
+        if (subquery.parameterTable.matches(table)) {
           return true;
         }
       }

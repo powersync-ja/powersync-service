@@ -277,30 +277,7 @@ export class SqlTools {
           // 1. row value = row value
           return compileStaticOperator(op, leftFilter as RowValueClause, rightFilter as RowValueClause);
         } else if (isParameterValueClause(otherFilter)) {
-          // 2. row value = parameter value
-          const inputParam = this.basicInputParameter(otherFilter);
-
-          return {
-            error: false,
-            inputParameters: [inputParam],
-            unbounded: false,
-            filterRow(tables: QueryParameters): TrueIfParametersMatch {
-              const value = staticFilter.evaluate(tables);
-              if (value == null) {
-                // null never matches on =
-                // Should technically return null, but "false" is sufficient here
-                return MATCH_CONST_FALSE;
-              }
-              if (!isJsonValue(value)) {
-                // Cannot persist this, e.g. BLOB
-                return MATCH_CONST_FALSE;
-              }
-
-              return [{ [inputParam.key]: value }];
-            },
-            usesAuthenticatedRequestParameters: otherFilter.usesAuthenticatedRequestParameters,
-            usesUnauthenticatedRequestParameters: otherFilter.usesUnauthenticatedRequestParameters
-          } satisfies ParameterMatchClause;
+          return this.parameterMatchClause(staticFilter, otherFilter);
         } else if (isParameterMatchClause(otherFilter)) {
           // 3. row value = parameterMatch
           // (bucket.param = 'something') = staticValue
@@ -487,6 +464,32 @@ export class SqlTools {
       // Not supported, return the error previously computed
       return this.error(composeType.error!, composeType.errorExpr);
     }
+  }
+
+  parameterMatchClause(staticFilter: RowValueClause, otherFilter: ParameterValueClause) {
+    const inputParam = this.basicInputParameter(otherFilter);
+
+    return {
+      error: false,
+      inputParameters: [inputParam],
+      unbounded: false,
+      filterRow(tables: QueryParameters): TrueIfParametersMatch {
+        const value = staticFilter.evaluate(tables);
+        if (value == null) {
+          // null never matches on =
+          // Should technically return null, but "false" is sufficient here
+          return MATCH_CONST_FALSE;
+        }
+        if (!isJsonValue(value)) {
+          // Cannot persist this, e.g. BLOB
+          return MATCH_CONST_FALSE;
+        }
+
+        return [{ [inputParam.key]: value }];
+      },
+      usesAuthenticatedRequestParameters: otherFilter.usesAuthenticatedRequestParameters,
+      usesUnauthenticatedRequestParameters: otherFilter.usesUnauthenticatedRequestParameters
+    } satisfies ParameterMatchClause;
   }
 
   /**

@@ -4,8 +4,6 @@ import {
   DEFAULT_TAG,
   EvaluateRowOptions,
   ParameterLookup,
-  ParameterLookupSource,
-  ResolvedBucket,
   SqliteJsonRow,
   StaticSchema,
   SyncStream,
@@ -84,6 +82,47 @@ describe('streams', () => {
           }
         })
       ).toStrictEqual(['stream|0["issue_id"]']);
+    });
+
+    test('parameter value in subquery', async () => {
+      const desc = parseStream('SELECT * FROM issues WHERE request.user_id() IN (SELECT id FROM users WHERE is_admin)');
+
+      expect(desc.tableSyncsParameters(ISSUES)).toBe(false);
+      expect(desc.tableSyncsParameters(USERS)).toBe(true);
+
+      expect(desc.evaluateParameterRow(USERS, { id: 'u', is_admin: 1n })).toStrictEqual([
+        {
+          lookup: ParameterLookup.normalized('stream', '0', ['u']),
+          bucketParameters: [
+            {
+              result: 'u'
+            }
+          ]
+        }
+      ]);
+      expect(desc.evaluateParameterRow(USERS, { id: 'u', is_admin: 0n })).toStrictEqual([]);
+
+      // Should return bucket id for admin users
+      expect(
+        await queryBucketIds(desc, {
+          token_parameters: { user_id: 'u' },
+          getParameterSets: (lookups: ParameterLookup[]) => {
+            expect(lookups).toStrictEqual([ParameterLookup.normalized('stream', '0', ['u'])]);
+            return [{ result: 'u' }];
+          }
+        })
+      ).toStrictEqual(['stream|0[]']);
+
+      // And not for others
+      expect(
+        await queryBucketIds(desc, {
+          token_parameters: { user_id: 'u2' },
+          getParameterSets: (lookups: ParameterLookup[]) => {
+            expect(lookups).toStrictEqual([ParameterLookup.normalized('stream', '0', ['u2'])]);
+            return [];
+          }
+        })
+      ).toStrictEqual([]);
     });
   });
 
