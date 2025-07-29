@@ -2,7 +2,7 @@ import * as jose from 'jose';
 import { KeySpec, KeyOptions } from './KeySpec.js';
 import { KeyCollector, KeyResult } from './KeyCollector.js';
 
-const SUPABASE_KEY_OPTIONS: KeyOptions = {
+export const SUPABASE_KEY_OPTIONS: KeyOptions = {
   requiresAudience: ['authenticated'],
   maxLifetimeSeconds: 86400 * 7 + 1200 // 1 week + 20 minutes margin
 };

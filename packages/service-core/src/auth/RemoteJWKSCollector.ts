@@ -12,10 +12,11 @@ import {
   ServiceError
 } from '@powersync/lib-services-framework';
 import { KeyCollector, KeyResult } from './KeyCollector.js';
-import { KeySpec } from './KeySpec.js';
+import { KeyOptions, KeySpec } from './KeySpec.js';
 
 export type RemoteJWKSCollectorOptions = {
   lookupOptions?: LookupOptions;
+  keyOptions?: KeyOptions;
 };
 
 /**
@@ -24,6 +25,7 @@ export type RemoteJWKSCollectorOptions = {
 export class RemoteJWKSCollector implements KeyCollector {
   private url: URL;
   private agent: http.Agent;
+  private keyOptions: KeyOptions;
 
   constructor(
     url: string,
@@ -34,6 +36,7 @@ export class RemoteJWKSCollector implements KeyCollector {
     } catch (e: any) {
       throw new ServiceError(ErrorCode.PSYNC_S3102, `Invalid jwks_uri: ${JSON.stringify(url)} Details: ${e.message}`);
     }
+    this.keyOptions = options?.keyOptions ?? {};
 
     // We do support http here for self-hosting use cases.
     // Management service restricts this to https for hosted versions.
@@ -123,7 +126,7 @@ export class RemoteJWKSCollector implements KeyCollector {
         }
       }
 
-      const key = await KeySpec.importKey(keyData);
+      const key = await KeySpec.importKey(keyData, this.keyOptions);
       keys.push(key);
     }
 

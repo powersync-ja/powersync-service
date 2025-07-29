@@ -1,6 +1,6 @@
+import { baseUri, NormalizedBasePostgresConnectionConfig } from '@powersync/lib-service-postgres';
 import {
   api,
-  auth,
   ConfigurationFileSyncRulesProvider,
   ConnectionTestResult,
   modules,
@@ -8,8 +8,8 @@ import {
   system
 } from '@powersync/service-core';
 import * as jpgwire from '@powersync/service-jpgwire';
+import { ReplicationMetric } from '@powersync/service-types';
 import { PostgresRouteAPIAdapter } from '../api/PostgresRouteAPIAdapter.js';
-import { SupabaseKeyCollector } from '../auth/SupabaseKeyCollector.js';
 import { ConnectionManagerFactory } from '../replication/ConnectionManagerFactory.js';
 import { PgManager } from '../replication/PgManager.js';
 import { PostgresErrorRateLimiter } from '../replication/PostgresErrorRateLimiter.js';
@@ -18,8 +18,6 @@ import { PUBLICATION_NAME } from '../replication/WalStream.js';
 import { WalStreamReplicator } from '../replication/WalStreamReplicator.js';
 import * as types from '../types/types.js';
 import { PostgresConnectionConfig } from '../types/types.js';
-import { baseUri, NormalizedBasePostgresConnectionConfig } from '@powersync/lib-service-postgres';
-import { ReplicationMetric } from '@powersync/service-types';
 import { getApplicationName } from '../utils/application-name.js';
 
 export class PostgresModule extends replication.ReplicationModule<types.PostgresConnectionConfig> {
@@ -32,19 +30,6 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
   }
 
   async onInitialized(context: system.ServiceContextContainer): Promise<void> {
-    const client_auth = context.configuration.base_config.client_auth;
-
-    if (client_auth?.supabase && client_auth?.supabase_jwt_secret == null) {
-      // Only use the deprecated SupabaseKeyCollector when there is no
-      // secret hardcoded. Hardcoded secrets are handled elsewhere, using
-      // StaticSupabaseKeyCollector.
-
-      // Support for SupabaseKeyCollector is deprecated and support will be
-      // completely removed by Supabase soon. We can keep support a while
-      // longer for self-hosted setups, before also removing that on our side.
-      this.registerSupabaseAuth(context);
-    }
-
     // Record replicated bytes using global jpgwire metrics. Only registered if this module is replicating
     if (context.replicationEngine) {
       jpgwire.setMetricsRecorder({
@@ -108,32 +93,6 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
     } finally {
       await connectionManager.end();
     }
-  }
-
-  // TODO: This should rather be done by registering the key collector in some kind of auth engine
-  private registerSupabaseAuth(context: system.ServiceContextContainer) {
-    const { configuration } = context;
-    // Register the Supabase key collector(s)
-    configuration.connections
-      ?.map((baseConfig) => {
-        if (baseConfig.type != types.POSTGRES_CONNECTION_TYPE) {
-          return;
-        }
-        try {
-          return this.resolveConfig(types.PostgresConnectionConfig.decode(baseConfig as any));
-        } catch (ex) {
-          this.logger.warn('Failed to decode configuration.', ex);
-        }
-      })
-      .filter((c) => !!c)
-      .forEach((config) => {
-        const keyCollector = new SupabaseKeyCollector(config!);
-        context.lifeCycleEngine.withLifecycle(keyCollector, {
-          // Close the internal pool
-          stop: (collector) => collector.shutdown()
-        });
-        configuration.client_keystore.collector.add(new auth.CachedKeyCollector(keyCollector));
-      });
   }
 
   async testConnection(config: PostgresConnectionConfig): Promise<ConnectionTestResult> {
