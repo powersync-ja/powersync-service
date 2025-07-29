@@ -186,17 +186,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     const connectIsoString = connect_at.toISOString();
     const jwtExpIsoString = jwt_exp!.toISOString();
     const { gte, lt } = this.updateTableFilter();
-    const param = {
-      user_id: { type: 'varchar', value: user_id },
-      client_id: { type: 'varchar', value: client_id },
-      connect_at: { type: 1184, value: connectIsoString },
-      sdk: { type: 'varchar', value: sdk },
-      user_agent: { type: 'varchar', value: user_agent },
-      jwt_exp: { type: 1184, value: jwtExpIsoString },
-      id: { type: 'varchar', value: v4() },
-      gte: { type: 1184, value: gte },
-      lt: { type: 1184, value: lt }
-    };
+    const uuid = v4();
     await this.db.query('BEGIN;');
     try {
       const result = await this.db.query({
@@ -210,20 +200,22 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
                   WHERE user_id = $5
                     AND client_id = $6
                     AND connect_at >= $7::timestamptz
-                    AND connect_at < $8::timestamptz;`,
+                    AND connect_at < $8::timestamptz;
+`,
         params: [
-          param.connect_at,
-          param.sdk,
-          param.user_agent,
-          param.jwt_exp,
-          param.user_id,
-          param.client_id,
-          param.gte,
-          param.lt
+          { type: 1184, value: connectIsoString },
+          { type: 'varchar', value: sdk },
+          { type: 'varchar', value: user_agent },
+          { type: 1184, value: jwtExpIsoString },
+          { type: 'varchar', value: user_id },
+          { type: 'varchar', value: client_id },
+          { type: 1184, value: gte },
+          { type: 1184, value: lt }
         ]
       });
-      if (result.rowCount === 0) {
-        await this.db.query({
+      console.log(result.rows);
+      if (result.rows.length === 0) {
+        const result = await this.db.query({
           statement: `
                     INSERT INTO sdk_report_events (
                       user_id, client_id, connect_at, sdk, user_agent, jwt_exp, id
@@ -237,17 +229,18 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
                       AND connect_at < $9::timestamptz
                       );`,
           params: [
-            param.user_id,
-            param.client_id,
-            param.connect_at,
-            param.sdk,
-            param.user_agent,
-            param.jwt_exp,
-            param.id
+            { type: 'varchar', value: user_id },
+            { type: 'varchar', value: client_id },
+            { type: 1184, value: connectIsoString },
+            { type: 'varchar', value: sdk },
+            { type: 'varchar', value: user_agent },
+            { type: 1184, value: jwtExpIsoString },
+            { type: 'varchar', value: uuid }
           ]
         });
-        await this.db.query('COMMIT;');
+        console.log(result.rows);
       }
+      await this.db.query('COMMIT;');
     } catch (error) {
       await this.db.query('ROLLBACK;');
       console.log(error);
