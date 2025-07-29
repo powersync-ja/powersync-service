@@ -187,15 +187,13 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     const jwtExpIsoString = jwt_exp!.toISOString();
     const { gte, lt } = this.updateTableFilter();
     try {
-      await this.db.query('BEGIN');
       const query = `
       UPDATE sdk_report_events
-      SET
-        connect_at = $3::timestamptz,
-        sdk = $4,
-        user_agent = $5,
-        jwt_exp = $6::timestamptz,
-        disconnect_at = NULL
+      SET connect_at = $3::timestamptz,
+          sdk = $4,
+          user_agent = $5,
+          jwt_exp = $6::timestamptz,
+          disconnect_at = NULL
       WHERE user_id = $1
         AND client_id = $2
         AND connect_at >= $8::timestamptz
@@ -203,14 +201,14 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
 
       INSERT INTO sdk_report_events (
         user_id, client_id, connect_at, sdk, user_agent, jwt_exp, id
-      )
+                                    )
       SELECT $1, $2, $3::timestamptz, $4, $5, $6::timestamptz, $7
       WHERE NOT EXISTS (
         SELECT 1 FROM sdk_report_events
         WHERE user_id = $1
-              AND client_id = $2
-              AND connect_at >= $8::timestamptz
-              AND connect_at < $9::timestamptz
+          AND client_id = $2
+          AND connect_at >= $8::timestamptz
+          AND connect_at < $9::timestamptz
         );`;
 
       await this.db.query({
@@ -227,10 +225,8 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
           { type: 1184, value: lt }
         ]
       });
-      await this.db.query('COMMIT');
     } catch (error) {
       console.log(error);
-      await this.db.query('ROLLBACK');
     }
   }
   async reportSdkDisconnect(data: SdkDisconnectEventData): Promise<void> {
