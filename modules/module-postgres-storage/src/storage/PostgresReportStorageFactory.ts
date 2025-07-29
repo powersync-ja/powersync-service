@@ -195,18 +195,25 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
       disconnect_at = NULL
     WHERE sdk_report_events.connect_at >= $8
       AND sdk_report_events.connect_at < $9;`;
-    const params = [
-      { value: user_id },
-      { value: client_id },
-      { value: connect_at },
-      { value: sdk },
-      { value: user_agent },
-      { value: jwt_exp },
-      { value: v4() },
-      { value: gte },
-      { value: lt }
-    ];
-    await this.db.query({ statement: query, params });
+    try {
+      const result = await this.db.query({
+        statement: query,
+        params: [
+          { type: 'varchar', value: user_id },
+          { type: 'varchar', value: client_id },
+          { type: 'varchar', value: connect_at },
+          { type: 'varchar', value: sdk },
+          { type: 'varchar', value: user_agent },
+          { type: 1184, value: jwt_exp?.toISOString() },
+          { type: 'varchar', value: v4() },
+          { type: 1184, value: gte },
+          { type: 1184, value: lt }
+        ]
+      });
+      console.log(result.rows);
+    } catch (error) {
+      console.log(error);
+    }
   }
   async reportSdkDisconnect(data: SdkDisconnectEventData): Promise<void> {
     const { user_id, client_id, disconnect_at } = data;
@@ -220,8 +227,22 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
         AND client_id = $3
         AND connect_at >= $4
         AND connect_at < $5;`;
-    const params = [{ value: disconnect_at }, { value: user_id }, { value: client_id }, { value: gte }, { value: lt }];
-    await this.db.query({ statement: query, params });
+
+    try {
+      const result = await this.db.query({
+        statement: query,
+        params: [
+          { type: 1184, value: disconnect_at },
+          { type: 'varchar', value: user_id },
+          { type: 'varchar', value: client_id },
+          { type: 1184, value: gte },
+          { type: 1184, value: lt }
+        ]
+      });
+      console.log(result.rows);
+    } catch (error) {
+      console.log(error);
+    }
   }
   async listCurrentConnections(data: ListCurrentConnectionsRequest): Promise<ListCurrentConnections> {
     const statement = this.listConnectionsDateRangeQuery(data);
