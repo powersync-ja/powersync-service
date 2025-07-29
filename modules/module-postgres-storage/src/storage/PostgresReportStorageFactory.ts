@@ -49,16 +49,17 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
   }
   private timeFrameQuery(timeframe: event_types.TimeFrames, interval: number = 1) {
     const { year, month, today, parsedDate } = this.parseJsDate(new Date());
+    const parsedIsoString = parsedDate.toISOString();
     switch (timeframe) {
       case 'month': {
-        return { lt: parsedDate.toISOString(), gt: new Date(year, parsedDate.getMonth() - interval).toISOString() };
+        return { lt: parsedIsoString, gt: new Date(year, parsedDate.getMonth() - interval).toISOString() };
       }
       case 'week': {
         const weekStartDate = new Date(parsedDate);
         weekStartDate.setDate(weekStartDate.getDate() - 6 * interval);
         const weekStart = this.parseJsDate(weekStartDate);
         return {
-          lt: parsedDate.toISOString(),
+          lt: parsedIsoString,
           gt: new Date(weekStart.year, weekStart.month, weekStart.today).toISOString()
         };
       }
@@ -72,7 +73,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
       }
       default: {
         return {
-          lt: parsedDate.toISOString(),
+          lt: parsedIsoString,
           gt: new Date(year, month, today - interval).toISOString()
         };
       }
@@ -101,7 +102,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
       }
       default: {
         return {
-          $lt: new Date(year, month, today - interval).toISOString()
+          lt: new Date(year, month, today - interval).toISOString()
         };
       }
     }
@@ -182,6 +183,8 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
 
   async reportSdkConnect(data: SdkConnectBucketData): Promise<void> {
     const { sdk, connect_at, user_id, user_agent, jwt_exp, client_id } = data;
+    const connectIsoString = connect_at.toISOString();
+    const jwtExpIsoString = jwt_exp!.toISOString();
     const { gte, lt } = this.updateTableFilter();
     const query = `
     INSERT INTO sdk_report_events (user_id, client_id, connect_at, sdk, user_agent, jwt_exp, id)
@@ -201,10 +204,10 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
         params: [
           { type: 'varchar', value: user_id },
           { type: 'varchar', value: client_id },
-          { type: 1184, value: connect_at },
+          { type: 1184, value: connectIsoString },
           { type: 'varchar', value: sdk },
           { type: 'varchar', value: user_agent },
-          { type: 1184, value: jwt_exp?.toISOString() },
+          { type: 1184, value: jwtExpIsoString },
           { type: 'varchar', value: v4() },
           { type: 1184, value: gte },
           { type: 1184, value: lt }
@@ -217,6 +220,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
   }
   async reportSdkDisconnect(data: SdkDisconnectEventData): Promise<void> {
     const { user_id, client_id, disconnect_at } = data;
+    const disconnectIsoString = disconnect_at.toISOString();
     const { gte, lt } = this.updateTableFilter();
     const query = `
       UPDATE sdk_report_events
@@ -232,7 +236,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
       const result = await this.db.query({
         statement: query,
         params: [
-          { type: 1184, value: disconnect_at },
+          { type: 1184, value: disconnectIsoString },
           { type: 'varchar', value: user_id },
           { type: 'varchar', value: client_id },
           { type: 1184, value: gte },
