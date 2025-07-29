@@ -235,7 +235,9 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
             { type: 'varchar', value: sdk },
             { type: 'varchar', value: user_agent },
             { type: 1184, value: jwtExpIsoString },
-            { type: 'varchar', value: uuid }
+            { type: 'varchar', value: uuid },
+            { type: 1184, value: gte },
+            { type: 1184, value: lt }
           ]
         });
         console.log(result.rows);
