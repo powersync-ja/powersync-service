@@ -191,9 +191,8 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     const jwtExpIsoString = jwt_exp!.toISOString();
     const { gte, lt } = this.updateTableFilter();
     const uuid = v4();
-    try {
-      const result = await this.db.query({
-        statement: `
+    const result = await this.db.query({
+      statement: `
                   UPDATE sdk_report_events
                   SET connect_at = $1::timestamptz,
                       sdk = $2,
@@ -205,21 +204,20 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
                     AND connect_at >= $7::timestamptz
                     AND connect_at < $8::timestamptz;
 `,
-        params: [
-          { type: 1184, value: connectIsoString },
-          { type: 'varchar', value: sdk },
-          { type: 'varchar', value: user_agent },
-          { type: 1184, value: jwtExpIsoString },
-          { type: 'varchar', value: user_id },
-          { type: 'varchar', value: client_id },
-          { type: 1184, value: gte },
-          { type: 1184, value: lt }
-        ]
-      });
-      console.log(result.rows);
-      if (result.rows.length === 0) {
-        const result = await this.db.query({
-          statement: `
+      params: [
+        { type: 1184, value: connectIsoString },
+        { type: 'varchar', value: sdk },
+        { type: 'varchar', value: user_agent },
+        { type: 1184, value: jwtExpIsoString },
+        { type: 'varchar', value: user_id },
+        { type: 'varchar', value: client_id },
+        { type: 1184, value: gte },
+        { type: 1184, value: lt }
+      ]
+    });
+    if (result.rows.length === 0) {
+      await this.db.query({
+        statement: `
                     INSERT INTO sdk_report_events (
                       user_id, client_id, connect_at, sdk, user_agent, jwt_exp, id
                     )
@@ -231,22 +229,18 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
                       AND connect_at >= $8::timestamptz
                       AND connect_at < $9::timestamptz
                       );`,
-          params: [
-            { type: 'varchar', value: user_id },
-            { type: 'varchar', value: client_id },
-            { type: 1184, value: connectIsoString },
-            { type: 'varchar', value: sdk },
-            { type: 'varchar', value: user_agent },
-            { type: 1184, value: jwtExpIsoString },
-            { type: 'varchar', value: uuid },
-            { type: 1184, value: gte },
-            { type: 1184, value: lt }
-          ]
-        });
-        console.log(result.rows);
-      }
-    } catch (error) {
-      console.log(error);
+        params: [
+          { type: 'varchar', value: user_id },
+          { type: 'varchar', value: client_id },
+          { type: 1184, value: connectIsoString },
+          { type: 'varchar', value: sdk },
+          { type: 'varchar', value: user_agent },
+          { type: 1184, value: jwtExpIsoString },
+          { type: 'varchar', value: uuid },
+          { type: 1184, value: gte },
+          { type: 1184, value: lt }
+        ]
+      });
     }
   }
   async reportSdkDisconnect(data: SdkDisconnectEventData): Promise<void> {
@@ -263,21 +257,16 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
         AND connect_at >= CAST($4 AS TIMESTAMP WITH TIME ZONE)
         AND connect_at < CAST($5 AS TIMESTAMP WITH TIME ZONE);`;
 
-    try {
-      const result = await this.db.query({
-        statement: query,
-        params: [
-          { type: 1184, value: disconnectIsoString },
-          { type: 'varchar', value: user_id },
-          { type: 'varchar', value: client_id },
-          { type: 1184, value: gte },
-          { type: 1184, value: lt }
-        ]
-      });
-      console.log(result.rows);
-    } catch (error) {
-      console.log(error);
-    }
+    const result = await this.db.query({
+      statement: query,
+      params: [
+        { type: 1184, value: disconnectIsoString },
+        { type: 'varchar', value: user_id },
+        { type: 'varchar', value: client_id },
+        { type: 1184, value: gte },
+        { type: 1184, value: lt }
+      ]
+    });
   }
   async listCurrentConnections(data: ListCurrentConnectionsRequest): Promise<ListCurrentConnections> {
     const statement = this.listConnectionsDateRangeQuery(data);
@@ -290,6 +279,8 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
         }
       })
     );
+    const parsedResult = result.results[1].rows[1];
+    console.log(parsedResult);
     return {
       users: 0,
       sdks: []
