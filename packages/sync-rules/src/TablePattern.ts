@@ -49,9 +49,9 @@ export class TablePattern {
       return false;
     }
     if (this.isWildcard) {
-      return table.table.startsWith(this.tablePrefix);
+      return table.name.startsWith(this.tablePrefix);
     } else {
-      return this.tablePattern == table.table;
+      return this.tablePattern == table.name;
     }
   }
 
