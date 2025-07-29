@@ -35,14 +35,17 @@ export class PostgresStorageProvider implements storage.BucketStorageProvider {
     });
 
     return {
-      // TODO: IMPLEMENT REPORT STORAGE
       reportStorage: reportStorageFactory,
       storage: storageFactory,
-      shutDown: async () => storageFactory.db[Symbol.asyncDispose](),
+      shutDown: async () => {
+        await storageFactory.db[Symbol.asyncDispose]();
+        await reportStorageFactory.db[Symbol.asyncDispose]();
+      },
       tearDown: async () => {
         logger.info(`Tearing down Postgres storage: ${normalizedConfig.database}...`);
         await dropTables(storageFactory.db);
         await storageFactory.db[Symbol.asyncDispose]();
+        await reportStorageFactory.db[Symbol.asyncDispose]();
         return true;
       }
     } satisfies storage.ActiveStorage;

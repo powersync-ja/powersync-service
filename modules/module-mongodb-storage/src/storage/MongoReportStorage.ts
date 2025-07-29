@@ -3,21 +3,6 @@ import { storage } from '@powersync/service-core';
 import { event_types } from '@powersync/service-types';
 import { PowerSyncMongo } from './implementation/db.js';
 import { logger } from '@powersync/lib-services-framework';
-import { parseJsDate } from './implementation/util.js';
-
-function parseDate(date: Date) {
-  const year = date.getFullYear();
-  const month = date.getMonth();
-  const today = date.getDate();
-  const day = date.getDay();
-  return {
-    year,
-    month,
-    today,
-    day,
-    parsedDate: date
-  };
-}
 
 export class MongoReportStorage implements storage.ReportStorageFactory {
   private readonly client: mongo.MongoClient;
@@ -26,6 +11,20 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
   constructor(db: PowerSyncMongo) {
     this.client = db.client;
     this.db = db;
+  }
+
+  private parseJsDate(date: Date) {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const today = date.getDate();
+    const day = date.getDay();
+    return {
+      year,
+      month,
+      today,
+      day,
+      parsedDate: date
+    };
   }
 
   private sdkFacetPipeline() {
@@ -73,7 +72,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
   }
 
   private updateDocFilter(userId: string, clientId: string) {
-    const { year, month, today } = parseDate(new Date());
+    const { year, month, today } = this.parseJsDate(new Date());
     const nextDay = today + 1;
     return {
       user_id: userId,
@@ -100,7 +99,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
   }
 
   private timeFrameQuery(timeframe: event_types.TimeFrames, interval: number = 1): mongo.Filter<mongo.Document> {
-    const { year, month, today, parsedDate } = parseJsDate(new Date());
+    const { year, month, today, parsedDate } = this.parseJsDate(new Date());
     switch (timeframe) {
       case 'month': {
         return { $lte: parsedDate, $gt: new Date(year, parsedDate.getMonth() - interval) };
@@ -108,7 +107,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
       case 'week': {
         const weekStartDate = new Date(parsedDate);
         weekStartDate.setDate(weekStartDate.getDate() - 6 * interval);
-        const weekStart = parseJsDate(weekStartDate);
+        const weekStart = this.parseJsDate(weekStartDate);
         return {
           $lte: parsedDate,
           $gt: new Date(weekStart.year, weekStart.month, weekStart.today)
@@ -132,7 +131,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
   }
 
   private timeFrameDeleteQuery(timeframe: event_types.TimeFrames, interval: number = 1): mongo.Filter<mongo.Document> {
-    const { year, month, today, parsedDate } = parseJsDate(new Date());
+    const { year, month, today, parsedDate } = this.parseJsDate(new Date());
     switch (timeframe) {
       case 'month': {
         return { $lt: new Date(year, parsedDate.getMonth() - interval) };
@@ -140,7 +139,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
       case 'week': {
         const weekStartDate = new Date(parsedDate);
         weekStartDate.setDate(weekStartDate.getDate() - 6 * interval);
-        const { month, year, today } = parseJsDate(weekStartDate);
+        const { month, year, today } = this.parseJsDate(weekStartDate);
         return {
           $lt: new Date(year, month, today)
         };

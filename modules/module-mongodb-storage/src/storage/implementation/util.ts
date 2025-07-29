@@ -116,17 +116,3 @@ export const connectMongoForTests = (url: string, isCI: boolean) => {
   });
   return new PowerSyncMongo(client);
 };
-
-export function parseJsDate(date: Date) {
-  const year = date.getFullYear();
-  const month = date.getMonth();
-  const today = date.getDate();
-  const day = date.getDay();
-  return {
-    year,
-    month,
-    today,
-    day,
-    parsedDate: date
-  };
-}
