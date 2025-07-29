@@ -1,5 +1,5 @@
 import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
-import { SqlSyncRules, SyncRulesErrors } from '@powersync/service-sync-rules';
+import { SqlBucketDescriptor, SqlSyncRules, SyncRulesErrors } from '@powersync/service-sync-rules';
 import type { FastifyPluginAsync } from 'fastify';
 import * as t from 'ts-codec';
 
@@ -202,33 +202,36 @@ async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
 
     return {
       valid: true,
-      bucket_definitions: rules.bucketDescriptors.map((d) => {
-        let all_parameter_queries = [...d.parameterQueries.values()].flat();
-        let all_data_queries = [...d.dataQueries.values()].flat();
-        return {
-          name: d.name,
-          bucket_parameters: d.bucketParameters,
-          global_parameter_queries: d.globalParameterQueries.map((q) => {
-            return {
-              sql: q.sql
-            };
-          }),
-          parameter_queries: all_parameter_queries.map((q) => {
-            return {
-              sql: q.sql,
-              table: q.sourceTable,
-              input_parameters: q.inputParameters
-            };
-          }),
+      bucket_definitions: rules.bucketSources.map((d) => {
+        // TODO: Equivalent for streams
+        if (d instanceof SqlBucketDescriptor) {
+          let all_parameter_queries = [...d.parameterQueries.values()].flat();
+          let all_data_queries = [...d.dataQueries.values()].flat();
+          return {
+            name: d.name,
+            bucket_parameters: d.bucketParameters,
+            global_parameter_queries: d.globalParameterQueries.map((q) => {
+              return {
+                sql: q.sql
+              };
+            }),
+            parameter_queries: all_parameter_queries.map((q) => {
+              return {
+                sql: q.sql,
+                table: q.sourceTable,
+                input_parameters: q.inputParameters
+              };
+            }),
 
-          data_queries: all_data_queries.map((q) => {
-            return {
-              sql: q.sql,
-              table: q.sourceTable,
-              columns: q.columnOutputNames()
-            };
-          })
-        };
+            data_queries: all_data_queries.map((q) => {
+              return {
+                sql: q.sql,
+                table: q.sourceTable,
+                columns: q.columnOutputNames()
+              };
+            })
+          };
+        }
       }),
       source_tables: resolved_tables,
       data_tables: rules.debugGetOutputTables()

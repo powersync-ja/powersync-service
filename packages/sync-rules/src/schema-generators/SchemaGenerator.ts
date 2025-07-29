@@ -10,15 +10,12 @@ export abstract class SchemaGenerator {
   protected getAllTables(source: SqlSyncRules, schema: SourceSchema) {
     let tables: Record<string, Record<string, ColumnDefinition>> = {};
 
-    for (let descriptor of source.bucketDescriptors) {
-      for (let query of descriptor.dataQueries) {
-        const outTables = query.getColumnOutputs(schema);
-        for (let table of outTables) {
-          tables[table.name] ??= {};
-          for (let column of table.columns) {
-            if (column.name != 'id') {
-              tables[table.name][column.name] ??= column;
-            }
+    for (let descriptor of source.bucketSources) {
+      for (const table of descriptor.resolveResultSets(schema)) {
+        tables[table.name] ??= {};
+        for (let column of table.columns) {
+          if (column.name != 'id') {
+            tables[table.name][column.name] ??= column;
           }
         }
       }

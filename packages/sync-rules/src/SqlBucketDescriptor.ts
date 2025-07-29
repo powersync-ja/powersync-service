@@ -1,12 +1,12 @@
-import { BucketDescription, BucketInclusionReason, ResolvedBucket } from './BucketDescription.js';
+import { BucketInclusionReason, ResolvedBucket } from './BucketDescription.js';
 import { BucketParameterQuerier, mergeBucketParameterQueriers } from './BucketParameterQuerier.js';
+import { BucketSource, ResultSetDescription } from './BucketSource.js';
 import { IdSequence } from './IdSequence.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SqlDataQuery } from './SqlDataQuery.js';
 import { SqlParameterQuery } from './SqlParameterQuery.js';
 import { GetQuerierOptions, SyncRulesOptions } from './SqlSyncRules.js';
 import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
-import { StreamQuery } from './StreamQuery.js';
 import { TablePattern } from './TablePattern.js';
 import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
 import { SqlRuleError } from './errors.js';
@@ -16,8 +16,8 @@ import {
   EvaluationResult,
   QueryParseOptions,
   RequestParameters,
-  SqliteRow,
-  StreamParseOptions
+  SourceSchema,
+  SqliteRow
 } from './types.js';
 
 export interface QueryParseResult {
@@ -34,7 +34,7 @@ export enum SqlBucketDescriptorType {
   STREAM
 }
 
-export class SqlBucketDescriptor {
+export class SqlBucketDescriptor implements BucketSource {
   name: string;
   bucketParameters?: string[];
   type: SqlBucketDescriptorType;
@@ -94,24 +94,6 @@ export class SqlBucketDescriptor {
     };
   }
 
-  addUnifiedStreamQuery(sql: string, options: StreamParseOptions): QueryParseResult {
-    const [query, errors] = StreamQuery.fromSql(this.name, sql, options);
-    for (const parameterQuery of query.inferredParameters) {
-      if (parameterQuery instanceof StaticSqlParameterQuery) {
-        this.globalParameterQueries.push(parameterQuery);
-      } else {
-        this.parameterQueries.push(parameterQuery);
-      }
-    }
-    this.dataQueries.push(query.data);
-    this.subscribedToByDefault = options.default ?? false;
-
-    return {
-      parsed: true,
-      errors
-    };
-  }
-
   evaluateRow(options: EvaluateRowOptions): EvaluationResult[] {
     let results: EvaluationResult[] = [];
     for (let query of this.dataQueries) {
@@ -137,19 +119,16 @@ export class SqlBucketDescriptor {
   /**
    * @deprecated Use `pushBucketParameterQueriers` instead and merge at the top-level.
    */
-  getBucketParameterQuerier(options: GetQuerierOptions, parameters: RequestParameters): BucketParameterQuerier {
+  getBucketParameterQuerier(options: GetQuerierOptions): BucketParameterQuerier {
     const queriers: BucketParameterQuerier[] = [];
-    this.pushBucketParameterQueriers(queriers, options, parameters);
+    this.pushBucketParameterQueriers(queriers, options);
 
     return mergeBucketParameterQueriers(queriers);
   }
 
-  pushBucketParameterQueriers(
-    result: BucketParameterQuerier[],
-    options: GetQuerierOptions,
-    parameters: RequestParameters
-  ) {
+  pushBucketParameterQueriers(result: BucketParameterQuerier[], options: GetQuerierOptions) {
     const reasons = [this.bucketInclusionReason(options)];
+    const parameters = options.globalParameters;
     const staticBuckets = this.getStaticBucketDescriptions(parameters, reasons);
     const staticQuerier = {
       staticBuckets,
@@ -222,5 +201,14 @@ export class SqlBucketDescriptor {
       }
     }
     return false;
+  }
+
+  resolveResultSets(schema: SourceSchema): ResultSetDescription[] {
+    const descriptions: ResultSetDescription[] = [];
+    for (const query of this.dataQueries) {
+      descriptions.push(...query.getColumnOutputs(schema));
+    }
+
+    return descriptions;
   }
 }

@@ -1,11 +1,11 @@
 import {
   BucketDescription,
   BucketPriority,
-  isValidPriority,
   RequestedStream,
   RequestParameters,
   ResolvedBucket,
-  SqlSyncRules
+  SqlSyncRules,
+  SyncStream
 } from '@powersync/service-sync-rules';
 
 import * as storage from '../storage/storage-index.js';
@@ -234,11 +234,10 @@ export class BucketChecksumState {
         this.logger.info(message, { checkpoint: base.checkpoint, user_id: user_id, buckets: allBuckets.length });
       };
       bucketsToFetch = allBuckets;
-      this.parameterState.syncRules.bucketDescriptors;
 
       const subscriptions: util.StreamDescription[] = [];
-      for (const desc of this.parameterState.syncRules.bucketDescriptors) {
-        if (desc.type == SqlBucketDescriptorType.STREAM && this.parameterState.isSubscribedToStream(desc)) {
+      for (const desc of this.parameterState.syncRules.bucketSources) {
+        if (desc instanceof SyncStream && this.parameterState.isSubscribedToStream(desc)) {
           subscriptions.push({
             name: desc.name,
             is_default: desc.subscribedToByDefault
@@ -455,7 +454,7 @@ export class BucketParameterState {
     };
   }
 
-  isSubscribedToStream(desc: SqlBucketDescriptor): boolean {
+  isSubscribedToStream(desc: SyncStream): boolean {
     return (desc.subscribedToByDefault && this.includeDefaultStreams) || this.subscribedStreamNames.has(desc.name);
   }
 

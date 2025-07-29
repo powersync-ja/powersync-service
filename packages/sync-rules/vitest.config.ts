@@ -2,5 +2,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   plugins: [],
-  test: {}
+  test: {
+    setupFiles: ['test/matchers.ts']
+  }
 });
