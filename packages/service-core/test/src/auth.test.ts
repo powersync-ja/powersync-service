@@ -6,7 +6,8 @@ import { KeySpec } from '../../src/auth/KeySpec.js';
 import { RemoteJWKSCollector } from '../../src/auth/RemoteJWKSCollector.js';
 import { KeyResult } from '../../src/auth/KeyCollector.js';
 import { CachedKeyCollector } from '../../src/auth/CachedKeyCollector.js';
-import { JwtPayload } from '@/index.js';
+import { JwtPayload, StaticSupabaseKeyCollector } from '@/index.js';
+import { debugKeyNotFound } from '../../src/auth/utils.js';
 
 const publicKeyRSA: jose.JWK = {
   use: 'sig',
@@ -437,5 +438,326 @@ describe('JWT Auth', () => {
     })) as JwtPayload & { claim: string };
 
     expect(verified.claim).toEqual('test-claim-2');
+  });
+
+  describe('debugKeyNotFound', () => {
+    test('Supabase token with legacy auth not configured', async () => {
+      const keys = await StaticSupabaseKeyCollector.importKeys([]);
+      const store = new KeyStore(keys);
+
+      // Mock Supabase debug info - legacy not enabled
+      store.supabaseAuthDebug = {
+        jwksDetails: null,
+        jwksEnabled: false,
+        sharedSecretEnabled: false
+      };
+
+      // Create a legacy Supabase token (HS256)
+      const token = await new jose.SignJWT({})
+        .setProtectedHeader({ alg: 'HS256', kid: 'test' })
+        .setSubject('test')
+        .setIssuer('https://abc123.supabase.co/auth/v1')
+        .setAudience('authenticated')
+        .setExpirationTime('1h')
+        .setIssuedAt()
+        .sign(Buffer.from('secret'));
+
+      const err = await store.verifyJwt(token, { defaultAudiences: [], maxAge: '1d' }).catch((e) => e);
+      expect(err.configurationDetails).toMatch(
+        'Token is a Supabase Legacy HS256 (Shared Secret) token, but Supabase JWT secret is not configured'
+      );
+    });
+
+    test('Legacy Supabase token with wrong secret', async () => {
+      const keys = await StaticSupabaseKeyCollector.importKeys([sharedKey]);
+      const store = new KeyStore(keys);
+
+      // Mock Supabase debug info - legacy enabled
+      store.supabaseAuthDebug = {
+        jwksDetails: null,
+        jwksEnabled: false,
+        sharedSecretEnabled: true
+      };
+
+      // Create a legacy Supabase token (HS256)
+      const token = await new jose.SignJWT({})
+        .setProtectedHeader({ alg: 'HS256', kid: sharedKey2.kid })
+        .setSubject('test')
+        .setIssuer('https://abc123.supabase.co/auth/v1')
+        .setAudience('authenticated')
+        .setExpirationTime('1h')
+        .setIssuedAt()
+        .sign(await jose.importJWK(sharedKey2));
+
+      const err = await store.verifyJwt(token, { defaultAudiences: [], maxAge: '1d' }).catch((e) => e);
+      expect(err.configurationDetails).toMatch(
+        'Token is a Supabase Legacy HS256 (Shared Secret) token, but configured Supabase JWT secret does not match'
+      );
+    });
+
+    test('New HS256 Supabase token with wrong secret', async () => {
+      const keys = await StaticSupabaseKeyCollector.importKeys([sharedKey]);
+      const store = new KeyStore(keys);
+
+      // Mock Supabase debug info - legacy enabled
+      store.supabaseAuthDebug = {
+        jwksDetails: null,
+        jwksEnabled: false,
+        sharedSecretEnabled: true
+      };
+
+      // Create a new HS256 Supabase token.
+      // The only real difference here is that the kid is a UUID
+      const token = await new jose.SignJWT({})
+        .setProtectedHeader({ alg: 'HS256', kid: '2fc01f1d-90fb-4c8b-b646-1c06ed86be46' })
+        .setSubject('test')
+        .setIssuer('https://abc123.supabase.co/auth/v1')
+        .setAudience('authenticated')
+        .setExpirationTime('1h')
+        .setIssuedAt()
+        .sign(await jose.importJWK(sharedKey2));
+
+      const err = await store.verifyJwt(token, { defaultAudiences: [], maxAge: '1d' }).catch((e) => e);
+      expect(err.configurationDetails).toMatch(
+        'Token is a Supabase HS256 (Shared Secret) token, but configured Supabase JWT secret does not match'
+      );
+    });
+
+    test('Supabase signing key token with no Supabase connection', async () => {
+      const keys = await StaticSupabaseKeyCollector.importKeys([]);
+      const store = new KeyStore(keys);
+
+      // Mock Supabase debug info - no Supabase connection
+      store.supabaseAuthDebug = {
+        jwksDetails: null,
+        jwksEnabled: false,
+        sharedSecretEnabled: false
+      };
+
+      const signKey = await jose.importJWK(privateKeyECDSA);
+      const token = await new jose.SignJWT({})
+        .setProtectedHeader({ alg: 'ES256', kid: 'test-kid' })
+        .setSubject('test')
+        .setIssuer('https://abc123.supabase.co/auth/v1')
+        .setAudience('authenticated')
+        .setExpirationTime('1h')
+        .setIssuedAt()
+        .sign(signKey);
+
+      const err = await store.verifyJwt(token, { defaultAudiences: [], maxAge: '1d' }).catch((e) => e);
+      expect(err.configurationDetails).toMatch(
+        'Token uses Supabase JWT Signing Keys, but no Supabase connection is configured'
+      );
+    });
+
+    test('Supabase signing key token with Supabase auth disabled', async () => {
+      const keys = await StaticSupabaseKeyCollector.importKeys([]);
+      const store = new KeyStore(keys);
+
+      // Mock Supabase debug info - Supabase project, but Supabase auth not enabled
+      store.supabaseAuthDebug = {
+        jwksDetails: {
+          projectId: 'abc123',
+          hostname: 'db.abc123.supabase.co',
+          url: 'https://abc123.supabase.co/auth/v1/.well-known/jwks.json'
+        },
+        jwksEnabled: false,
+        sharedSecretEnabled: false
+      };
+
+      const signKey = await jose.importJWK(privateKeyECDSA);
+      const token = await new jose.SignJWT({})
+        .setProtectedHeader({ alg: 'ES256', kid: 'test-kid' })
+        .setSubject('test')
+        .setIssuer('https://abc123.supabase.co/auth/v1')
+        .setAudience('authenticated')
+        .setExpirationTime('1h')
+        .setIssuedAt()
+        .sign(signKey);
+
+      const err = await store.verifyJwt(token, { defaultAudiences: [], maxAge: '1d' }).catch((e) => e);
+      expect(err.configurationDetails).toMatch(
+        'Token uses Supabase JWT Signing Keys, but Supabase Auth is not enabled'
+      );
+    });
+
+    test('Supabase project ID mismatch', async () => {
+      const keys = await StaticSupabaseKeyCollector.importKeys([publicKeyRSA]);
+      const store = new KeyStore(keys);
+
+      // Mock Supabase debug info - JWKS enabled with different project ID
+      store.supabaseAuthDebug = {
+        jwksDetails: {
+          projectId: 'expected123',
+          hostname: 'db.expected123.supabase.co',
+          url: 'https://expected123.supabase.co/auth/v1/.well-known/jwks.json'
+        },
+        jwksEnabled: true,
+        sharedSecretEnabled: false
+      };
+
+      // Create a modern Supabase token with different project ID
+      const token = await new jose.SignJWT({})
+        .setProtectedHeader({ alg: 'ES256', kid: privateKeyECDSA.kid })
+        .setSubject('test')
+        .setIssuer('https://different456.supabase.co/auth/v1')
+        .setAudience('authenticated')
+        .setExpirationTime('1h')
+        .setIssuedAt()
+        .sign(await jose.importJWK(privateKeyECDSA));
+
+      const err = await store.verifyJwt(token, { defaultAudiences: [], maxAge: '1d' }).catch((e) => e);
+      expect(err.configurationDetails).toMatch(
+        'Supabase project id mismatch. Expected project: expected123, got issuer: https://different456.supabase.co/auth/v1'
+      );
+    });
+
+    test('Supabase signing keys configured but no matching keys', async () => {
+      const keys = await StaticSupabaseKeyCollector.importKeys([publicKeyRSA]);
+      const store = new KeyStore(keys);
+
+      // Mock Supabase debug info - JWKS enabled with matching project ID
+      store.supabaseAuthDebug = {
+        jwksDetails: {
+          projectId: 'abc123',
+          hostname: 'db.abc123.supabase.co',
+          url: 'https://abc123.supabase.co/auth/v1/.well-known/jwks.json'
+        },
+        jwksEnabled: true,
+        sharedSecretEnabled: false
+      };
+
+      // Create a modern Supabase token with matching project ID
+      const token = await new jose.SignJWT({})
+        .setProtectedHeader({ alg: 'ES256', kid: privateKeyECDSA.kid })
+        .setSubject('test')
+        .setIssuer('https://abc123.supabase.co/auth/v1')
+        .setAudience('authenticated')
+        .setExpirationTime('1h')
+        .setIssuedAt()
+        .sign(await jose.importJWK(privateKeyECDSA));
+
+      const err = await store.verifyJwt(token, { defaultAudiences: [], maxAge: '1d' }).catch((e) => e);
+      expect(err.configurationDetails).toMatch(
+        'Supabase signing keys configured, but no matching keys found. Known keys: '
+      );
+    });
+
+    test('non-Supabase token', async () => {
+      const keys = await StaticSupabaseKeyCollector.importKeys([sharedKey]);
+      const store = new KeyStore(keys);
+
+      // Create a regular JWT token (not Supabase)
+      const token = await new jose.SignJWT({})
+        .setProtectedHeader({ alg: 'ES256', kid: privateKeyECDSA.kid })
+        .setSubject('test')
+        .setIssuer('https://regular-issuer.com')
+        .setAudience('my-audience')
+        .setExpirationTime('1h')
+        .setIssuedAt()
+        .sign(await jose.importJWK(privateKeyECDSA));
+
+      // Treated as just a generic unknown key
+      const err = await store.verifyJwt(token, { defaultAudiences: ['my-audience'], maxAge: '1d' }).catch((e) => e);
+      expect(err.configurationDetails).toMatch('Known keys:');
+    });
+
+    test('Valid legacy Supabase token', async () => {
+      const keys = await StaticSupabaseKeyCollector.importKeys([sharedKey]);
+      const store = new KeyStore(keys);
+
+      // Mock Supabase debug info - legacy enabled
+      store.supabaseAuthDebug = {
+        jwksDetails: null,
+        jwksEnabled: false,
+        sharedSecretEnabled: true
+      };
+
+      // Create a legacy Supabase token (HS256)
+      const token = await new jose.SignJWT({})
+        .setProtectedHeader({ alg: 'HS256', kid: sharedKey.kid })
+        .setSubject('test')
+        .setIssuer('https://abc123.supabase.co/auth/v1')
+        .setAudience('authenticated')
+        .setExpirationTime('1h')
+        .setIssuedAt()
+        .sign(await jose.importJWK(sharedKey));
+
+      await store.verifyJwt(token, { defaultAudiences: [], maxAge: '1d' });
+    });
+
+    test('Valid Supabase signing key', async () => {
+      const keys = await StaticSupabaseKeyCollector.importKeys([privateKeyECDSA]);
+      const store = new KeyStore(keys);
+
+      // Mock Supabase debug info - JWKS enabled, legacy disabled
+      store.supabaseAuthDebug = {
+        jwksDetails: null,
+        jwksEnabled: true,
+        sharedSecretEnabled: false
+      };
+
+      // Create a modern Supabase signing key token (ES256)
+      const token = await new jose.SignJWT({})
+        .setProtectedHeader({ alg: 'ES256', kid: privateKeyECDSA.kid })
+        .setSubject('test')
+        .setIssuer('https://abc123.supabase.co/auth/v1')
+        .setAudience('authenticated')
+        .setExpirationTime('1h')
+        .setIssuedAt()
+        .sign(await jose.importJWK(privateKeyECDSA));
+
+      await store.verifyJwt(token, { defaultAudiences: [], maxAge: '1d' });
+    });
+
+    test('Legacy Supabase anon token', async () => {
+      const keys = await StaticSupabaseKeyCollector.importKeys([sharedKey]);
+      const store = new KeyStore(keys);
+
+      // Mock Supabase debug info - legacy enabled
+      store.supabaseAuthDebug = {
+        jwksDetails: null,
+        jwksEnabled: false,
+        sharedSecretEnabled: true
+      };
+
+      // Create a legacy Supabase token (HS256)
+      const token = await new jose.SignJWT({})
+        .setProtectedHeader({ alg: 'HS256', kid: sharedKey.kid })
+        .setSubject('test')
+        .setIssuer('https://abc123.supabase.co/auth/v1')
+        .setAudience('anon')
+        .setExpirationTime('1h')
+        .setIssuedAt()
+        .sign(await jose.importJWK(sharedKey));
+
+      const err = await store.verifyJwt(token, { defaultAudiences: [], maxAge: '1d' }).catch((e) => e);
+      expect(err.message).toMatch('[PSYNC_S2105] Unexpected "aud" claim value: "anon"');
+    });
+
+    test('Supabase signing key anon token', async () => {
+      const keys = await StaticSupabaseKeyCollector.importKeys([privateKeyECDSA]);
+      const store = new KeyStore(keys);
+
+      // Mock Supabase debug info - JWKS enabled
+      store.supabaseAuthDebug = {
+        jwksDetails: null,
+        jwksEnabled: true,
+        sharedSecretEnabled: false
+      };
+
+      // Create a modern Supabase signing key token (ES256)
+      const token = await new jose.SignJWT({})
+        .setProtectedHeader({ alg: 'ES256', kid: privateKeyECDSA.kid })
+        .setSubject('test')
+        .setIssuer('https://abc123.supabase.co/auth/v1')
+        .setAudience('anon')
+        .setExpirationTime('1h')
+        .setIssuedAt()
+        .sign(await jose.importJWK(privateKeyECDSA));
+
+      const err = await store.verifyJwt(token, { defaultAudiences: [], maxAge: '1d' }).catch((e) => e);
+      expect(err.message).toMatch('[PSYNC_S2105] Unexpected "aud" claim value: "anon"');
+    });
   });
 });
