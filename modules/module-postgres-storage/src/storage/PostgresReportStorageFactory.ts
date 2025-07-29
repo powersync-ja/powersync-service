@@ -186,20 +186,36 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     const connectIsoString = connect_at.toISOString();
     const jwtExpIsoString = jwt_exp!.toISOString();
     const { gte, lt } = this.updateTableFilter();
-    const query = `
-    INSERT INTO sdk_report_events (user_id, client_id, connect_at, sdk, user_agent, jwt_exp, id)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
-    ON CONFLICT (user_id, client_id, connect_at)
-    DO UPDATE SET
-      connect_at = CAST($3 AS TIMESTAMP WITH TIME ZONE),
-      sdk = $4,
-      user_agent = $5,
-      jwt_exp = CAST($6 AS TIMESTAMP WITH TIME ZONE),
-      disconnect_at = NULL
-    WHERE sdk_report_events.connect_at >= CAST($8 AS TIMESTAMP WITH TIME ZONE)
-      AND sdk_report_events.connect_at < CAST($9 AS TIMESTAMP WITH TIME ZONE);`;
     try {
-      const result = await this.db.query({
+      await this.db.query('BEGIN');
+      const query = `
+      UPDATE sdk_report_events
+      SET
+        connect_at = $3::timestamptz,
+        sdk = $4,
+        user_agent = $5,
+        jwt_exp = $6::timestamptz,
+        disconnect_at = NULL
+      WHERE user_id = $1
+        AND client_id = $2
+        AND connect_at = $3::timestamptz
+        AND connect_at >= $8::timestamptz
+        AND connect_at < $9::timestamptz;
+
+      INSERT INTO sdk_report_events (
+        user_id, client_id, connect_at, sdk, user_agent, jwt_exp, id
+      )
+      SELECT $1, $2, $3::timestamptz, $4, $5, $6::timestamptz, $7
+      WHERE NOT EXISTS (
+        SELECT 1 FROM sdk_report_events
+        WHERE user_id = $1
+              AND client_id = $2
+              AND connect_at = $3::timestamptz
+              AND connect_at >= $8::timestamptz
+              AND connect_at < $9::timestamptz
+        );`;
+
+      await this.db.query({
         statement: query,
         params: [
           { type: 'varchar', value: user_id },
@@ -213,9 +229,10 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
           { type: 1184, value: lt }
         ]
       });
-      console.log(result.rows);
+      await this.db.query('COMMIT');
     } catch (error) {
       console.log(error);
+      await this.db.query('ROLLBACK');
     }
   }
   async reportSdkDisconnect(data: SdkDisconnectEventData): Promise<void> {
