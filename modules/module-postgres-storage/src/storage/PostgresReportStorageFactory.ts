@@ -186,46 +186,70 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     const connectIsoString = connect_at.toISOString();
     const jwtExpIsoString = jwt_exp!.toISOString();
     const { gte, lt } = this.updateTableFilter();
+    const param = {
+      user_id: { type: 'varchar', value: user_id },
+      client_id: { type: 'varchar', value: client_id },
+      connect_at: { type: 1184, value: connectIsoString },
+      sdk: { type: 'varchar', value: sdk },
+      user_agent: { type: 'varchar', value: user_agent },
+      jwt_exp: { type: 1184, value: jwtExpIsoString },
+      id: { type: 'varchar', value: v4() },
+      gte: { type: 1184, value: gte },
+      lt: { type: 1184, value: lt }
+    };
+    await this.db.query('BEGIN;');
     try {
-      const query = `
-      UPDATE sdk_report_events
-      SET connect_at = $3::timestamptz,
-          sdk = $4,
-          user_agent = $5,
-          jwt_exp = $6::timestamptz,
-          disconnect_at = NULL
-      WHERE user_id = $1
-        AND client_id = $2
-        AND connect_at >= $8::timestamptz
-        AND connect_at < $9::timestamptz;
-
-      INSERT INTO sdk_report_events (
-        user_id, client_id, connect_at, sdk, user_agent, jwt_exp, id
-                                    )
-      SELECT $1, $2, $3::timestamptz, $4, $5, $6::timestamptz, $7
-      WHERE NOT EXISTS (
-        SELECT 1 FROM sdk_report_events
-        WHERE user_id = $1
-          AND client_id = $2
-          AND connect_at >= $8::timestamptz
-          AND connect_at < $9::timestamptz
-        );`;
-
-      await this.db.query({
-        statement: query,
+      const result = await this.db.query({
+        statement: `
+                  UPDATE sdk_report_events
+                  SET connect_at = $1::timestamptz,
+                      sdk = $2,
+                      user_agent = $3,
+                      jwt_exp = $4::timestamptz,
+                      disconnect_at = NULL
+                  WHERE user_id = $5
+                    AND client_id = $6
+                    AND connect_at >= $7::timestamptz
+                    AND connect_at < $8::timestamptz;`,
         params: [
-          { type: 'varchar', value: user_id },
-          { type: 'varchar', value: client_id },
-          { type: 1184, value: connectIsoString },
-          { type: 'varchar', value: sdk },
-          { type: 'varchar', value: user_agent },
-          { type: 1184, value: jwtExpIsoString },
-          { type: 'varchar', value: v4() },
-          { type: 1184, value: gte },
-          { type: 1184, value: lt }
+          param.connect_at,
+          param.sdk,
+          param.user_agent,
+          param.jwt_exp,
+          param.user_id,
+          param.client_id,
+          param.gte,
+          param.lt
         ]
       });
+      if (result.rowCount === 0) {
+        await this.db.query({
+          statement: `
+                    INSERT INTO sdk_report_events (
+                      user_id, client_id, connect_at, sdk, user_agent, jwt_exp, id
+                    )
+                    SELECT $1, $2, $3::timestamptz, $4, $5, $6::timestamptz, $7
+                      WHERE NOT EXISTS (
+                    SELECT 1 FROM sdk_report_events
+                    WHERE user_id = $1
+                      AND client_id = $2
+                      AND connect_at >= $8::timestamptz
+                      AND connect_at < $9::timestamptz
+                      );`,
+          params: [
+            param.user_id,
+            param.client_id,
+            param.connect_at,
+            param.sdk,
+            param.user_agent,
+            param.jwt_exp,
+            param.id
+          ]
+        });
+        await this.db.query('COMMIT;');
+      }
     } catch (error) {
+      await this.db.query('ROLLBACK;');
       console.log(error);
     }
   }
