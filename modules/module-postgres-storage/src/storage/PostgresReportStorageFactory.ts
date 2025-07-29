@@ -187,8 +187,8 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     const jwtExpIsoString = jwt_exp!.toISOString();
     const { gte, lt } = this.updateTableFilter();
     try {
-      await this.db.query('BEGIN');
       const query = `
+      BEGIN;
       UPDATE sdk_report_events
       SET
         connect_at = $3::timestamptz,
@@ -213,7 +213,9 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
               AND connect_at = $3::timestamptz
               AND connect_at >= $8::timestamptz
               AND connect_at < $9::timestamptz
-        );`;
+        );
+        
+        COMMIT;`;
 
       await this.db.query({
         statement: query,
@@ -229,7 +231,6 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
           { type: 1184, value: lt }
         ]
       });
-      await this.db.query('COMMIT');
     } catch (error) {
       console.log(error);
       await this.db.query('ROLLBACK');
