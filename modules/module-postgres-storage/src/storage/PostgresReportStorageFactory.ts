@@ -187,7 +187,6 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     const jwtExpIsoString = jwt_exp!.toISOString();
     const { gte, lt } = this.updateTableFilter();
     const uuid = v4();
-    await this.db.query('BEGIN;');
     try {
       const result = await this.db.query({
         statement: `
@@ -242,9 +241,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
         });
         console.log(result.rows);
       }
-      await this.db.query('COMMIT;');
     } catch (error) {
-      await this.db.query('ROLLBACK;');
       console.log(error);
     }
   }
