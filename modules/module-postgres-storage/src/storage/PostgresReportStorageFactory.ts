@@ -130,11 +130,11 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
               FROM filtered
               GROUP BY sdk
                             )
-        SELECT
-          COALESCE(u.count, 0) AS users,
-          JSON_AGG(ROW_TO_JSON(s)) AS sdks
-        FROM unique_users u
-        JOIN sdk_versions_array s ON TRUE;
+--         SELECT
+--           COALESCE(u.count, 0) AS users,
+--           JSON_AGG(ROW_TO_JSON(s)) AS sdks
+--         FROM unique_users u
+--         JOIN sdk_versions_array s ON TRUE;
     `;
       return {
         statement: query
@@ -163,13 +163,19 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
               FROM filtered
               GROUP BY sdk
                             )
-      SELECT COALESCE(u.count, 0) AS users, JSON_AGG(ROW_TO_JSON(s)) AS sdks
-      FROM unique_users u
-      JOIN sdk_versions_array s ON TRUE;
+--       SELECT
+--           (SELECT COALESCE(count, 0) FROM unique_users) AS users,
+--           (SELECT JSON_AGG(ROW_TO_JSON(s)) FROM sdk_versions_array s) AS sdks;
     `;
     const lt = endDate.toISOString();
     const gt = startDate.toISOString();
-    return { statement: query, params: [{ value: gt }, { value: lt }] };
+    return {
+      statement: query,
+      params: [
+        { type: 1184, value: gt },
+        { type: 1184, value: lt }
+      ]
+    };
   }
 
   private updateTableFilter() {
@@ -278,7 +284,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
   async listCurrentConnections(data: ListCurrentConnectionsRequest): Promise<ListCurrentConnections> {
     const statement = this.listConnectionsDateRangeQuery(data);
     const result = await this.db.query(statement);
-    console.log(result.rows);
+    console.log(result);
     return {
       users: 0,
       sdks: []
@@ -331,7 +337,6 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
 `;
     const params = [{ value: lt }];
     const result = await this.db.query({ statement: query, params });
-    console.log(result.rows);
   }
 
   async [Symbol.asyncDispose]() {
