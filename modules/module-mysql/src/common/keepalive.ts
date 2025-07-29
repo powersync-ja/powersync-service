@@ -10,7 +10,7 @@ export async function ensureKeepAliveConfiguration(connection: mysqlPromise.Conn
       CREATE TABLE IF NOT EXISTS
         ${KEEP_ALIVE_TABLE}(
           id INT PRIMARY KEY DEFAULT 1, 
-          last_ping TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          last_ping TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3)
         )`
   });
 
@@ -25,7 +25,7 @@ export async function pingKeepAlive(connection: mysqlPromise.Connection): Promis
   await mysql_utils.retriedQuery({
     connection,
     // The last_ping timestamp is automatically updated
-    query: `UPDATE ${KEEP_ALIVE_TABLE} SET last_ping = NOW() WHERE id = 1`
+    query: `UPDATE ${KEEP_ALIVE_TABLE} SET last_ping = NOW(3) WHERE id = 1`
   });
 }
 

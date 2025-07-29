@@ -7,6 +7,10 @@ import { env } from './env.js';
 import { describe, TestOptions } from 'vitest';
 import { TestStorageFactory } from '@powersync/service-core';
 import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManager.js';
+import { BinLogEventHandler, Row, SchemaChange } from '@module/replication/zongji/BinLogListener.js';
+import { TableMapEntry } from '@powersync/mysql-zongji';
+import * as common from '@module/common/common-index.js';
+import { KEEP_ALIVE_TABLE } from '@module/common/keepalive.js';
 
 export const TEST_URI = env.MYSQL_TEST_URI;
 
@@ -48,7 +52,7 @@ export async function clearTestDb(connection: mysqlPromise.Connection) {
   );
   for (let row of result) {
     const name = row.TABLE_NAME;
-    if (name.startsWith('test_')) {
+    if (name.startsWith('test_') || name === KEEP_ALIVE_TABLE) {
       await connection.query(`DROP TABLE ${name}`);
     }
   }
@@ -57,4 +61,54 @@ export async function clearTestDb(connection: mysqlPromise.Connection) {
 export async function createTestDb(connectionManager: MySQLConnectionManager, dbName: string) {
   await connectionManager.query(`DROP DATABASE IF EXISTS ${dbName}`);
   await connectionManager.query(`CREATE DATABASE IF NOT EXISTS ${dbName}`);
+}
+
+export async function getFromGTID(connectionManager: MySQLConnectionManager) {
+  const connection = await connectionManager.getConnection();
+  const fromGTID = await common.readExecutedGtid(connection);
+  connection.release();
+
+  return fromGTID;
+}
+
+export class TestBinLogEventHandler implements BinLogEventHandler {
+  rowsWritten = 0;
+  rowsUpdated = 0;
+  rowsDeleted = 0;
+  commitCount = 0;
+  schemaChanges: SchemaChange[] = [];
+
+  unpause: ((value: void | PromiseLike<void>) => void) | undefined;
+  private pausedPromise: Promise<void> | undefined;
+
+  pause() {
+    this.pausedPromise = new Promise((resolve) => {
+      this.unpause = resolve;
+    });
+  }
+
+  async onWrite(rows: Row[], tableMap: TableMapEntry) {
+    if (this.pausedPromise) {
+      await this.pausedPromise;
+    }
+    this.rowsWritten = this.rowsWritten + rows.length;
+  }
+
+  async onUpdate(afterRows: Row[], beforeRows: Row[], tableMap: TableMapEntry) {
+    this.rowsUpdated = this.rowsUpdated + afterRows.length;
+  }
+
+  async onDelete(rows: Row[], tableMap: TableMapEntry) {
+    this.rowsDeleted = this.rowsDeleted + rows.length;
+  }
+
+  async onCommit(lsn: string) {
+    this.commitCount++;
+  }
+
+  async onSchemaChange(change: SchemaChange) {
+    this.schemaChanges.push(change);
+  }
+  async onTransactionStart(options: { timestamp: Date }) {}
+  async onRotate() {}
 }

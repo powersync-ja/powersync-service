@@ -38,7 +38,6 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
       const connection = await this.connectionManager.getConnection();
       try {
         await pingKeepAlive(connection);
-        this.logger.info(`KeepAlive pinged`);
       } catch (e) {
         this.logger.warn(`KeepAlive failed, unable to update ${KEEP_ALIVE_TABLE} table.`, e);
       } finally {

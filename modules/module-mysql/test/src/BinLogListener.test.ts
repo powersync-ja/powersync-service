@@ -1,13 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
-import {
-  BinLogEventHandler,
-  BinLogListener,
-  Row,
-  SchemaChange,
-  SchemaChangeType
-} from '@module/replication/zongji/BinLogListener.js';
+import { BinLogListener, SchemaChange, SchemaChangeType } from '@module/replication/zongji/BinLogListener.js';
 import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManager.js';
-import { clearTestDb, createTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
+import { clearTestDb, createTestDb, getFromGTID, TEST_CONNECTION_OPTIONS, TestBinLogEventHandler } from './util.js';
 import { v4 as uuid } from 'uuid';
 import * as common from '@module/common/common-index.js';
 import {
@@ -16,7 +10,6 @@ import {
   qualifiedMySQLTable,
   satisfiesVersion
 } from '@module/utils/mysql-utils.js';
-import { TableMapEntry } from '@powersync/mysql-zongji';
 import crypto from 'crypto';
 import { TablePattern } from '@powersync/service-sync-rules';
 
@@ -477,14 +470,6 @@ describe('BinlogListener tests', () => {
   }
 });
 
-async function getFromGTID(connectionManager: MySQLConnectionManager) {
-  const connection = await connectionManager.getConnection();
-  const fromGTID = await common.readExecutedGtid(connection);
-  connection.release();
-
-  return fromGTID;
-}
-
 async function insertRows(connectionManager: MySQLConnectionManager, count: number) {
   for (let i = 0; i < count; i++) {
     await connectionManager.query(
@@ -499,46 +484,4 @@ async function updateRows(connectionManager: MySQLConnectionManager) {
 
 async function deleteRows(connectionManager: MySQLConnectionManager) {
   await connectionManager.query(`DELETE FROM test_DATA`);
-}
-
-class TestBinLogEventHandler implements BinLogEventHandler {
-  rowsWritten = 0;
-  rowsUpdated = 0;
-  rowsDeleted = 0;
-  commitCount = 0;
-  schemaChanges: SchemaChange[] = [];
-
-  unpause: ((value: void | PromiseLike<void>) => void) | undefined;
-  private pausedPromise: Promise<void> | undefined;
-
-  pause() {
-    this.pausedPromise = new Promise((resolve) => {
-      this.unpause = resolve;
-    });
-  }
-
-  async onWrite(rows: Row[], tableMap: TableMapEntry) {
-    if (this.pausedPromise) {
-      await this.pausedPromise;
-    }
-    this.rowsWritten = this.rowsWritten + rows.length;
-  }
-
-  async onUpdate(afterRows: Row[], beforeRows: Row[], tableMap: TableMapEntry) {
-    this.rowsUpdated = this.rowsUpdated + afterRows.length;
-  }
-
-  async onDelete(rows: Row[], tableMap: TableMapEntry) {
-    this.rowsDeleted = this.rowsDeleted + rows.length;
-  }
-
-  async onCommit(lsn: string) {
-    this.commitCount++;
-  }
-
-  async onSchemaChange(change: SchemaChange) {
-    this.schemaChanges.push(change);
-  }
-  async onTransactionStart(options: { timestamp: Date }) {}
-  async onRotate() {}
 }
