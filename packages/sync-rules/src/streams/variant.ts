@@ -11,6 +11,7 @@ import {
 import { isJsonValue, JSONBucketNameSerialize, normalizeParameterValue } from '../utils.js';
 import { BucketParameter, SubqueryEvaluator } from './parameter.js';
 import { SyncStream } from './stream.js';
+import { cartesianProduct } from './utils.js';
 
 /**
  * A variant of a stream.
@@ -108,26 +109,7 @@ export class StreamVariant {
    * @returns Each instantiation, with each sub-array having a value for a parameter.
    */
   private cartesianProductOfParameterInstantiations(instantiations: SqliteJsonValue[][]): SqliteJsonValue[][] {
-    if (instantiations.length == 0) {
-      return [[]];
-    }
-
-    const cartesianProduct: SqliteJsonValue[][] = [];
-
-    const totalLength = instantiations.reduce((a, b) => a * b.length, 1);
-    for (let i = 0; i < totalLength; i++) {
-      const instantiation: SqliteJsonValue[] = [];
-      let indexInSet = i;
-
-      for (const parameterSet of instantiations) {
-        instantiation.push(normalizeParameterValue(parameterSet[Math.floor(indexInSet % parameterSet.length)]));
-        indexInSet = Math.floor(indexInSet / parameterSet.length);
-      }
-
-      cartesianProduct.push(instantiation);
-    }
-
-    return cartesianProduct;
+    return [...cartesianProduct(...instantiations)];
   }
 
   querier(stream: SyncStream, reason: BucketInclusionReason, params: RequestParameters): BucketParameterQuerier | null {

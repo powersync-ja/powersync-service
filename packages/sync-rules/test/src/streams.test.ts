@@ -193,8 +193,6 @@ describe('streams', () => {
         await queryBucketIds(desc, { token_parameters: { user_id: 'u1', is_admin: true }, getParameterSets })
       ).toStrictEqual(['stream|0["i1"]', 'stream|1[]']);
     });
-
-    // TODO: Two subqueries
   });
 
   describe('in', () => {
@@ -369,71 +367,124 @@ describe('streams', () => {
         )
       ]);
     });
+
+    test('negated subquery', () => {
+      const [_, errors] = syncStreamFromSql(
+        's',
+        'select * from comments where issue_id not in (select id from issues where owner_id = request.user_id())',
+        options
+      );
+
+      expect(errors).toMatchObject([
+        expect.toBeSqlRuleError(
+          'Negations are not allowed here',
+          'issue_id not in (select id from issues where owner_id = request.user_id()'
+        )
+      ]);
+    });
+
+    test('negated subquery from outer not operator', () => {
+      const [_, errors] = syncStreamFromSql('s', 'select * from comments where not ()', options);
+    });
   });
 
-  /*
-  test('static filter', () => {
-    const desc = parseSingleBucketDescription(`
-streams:
-  lists:
-    query: SELECT * FROM assets WHERE count > 5
-`);
-    expect(desc.bucketParameters).toBeFalsy();
-    assert.isEmpty(desc.parameterQueries);
+  describe('normalization', () => {
+    test('double negation', async () => {
+      const desc = parseStream(
+        'select * from comments where NOT (issue_id not in (select id from issues where owner_id = request.user_id()))'
+      );
 
-    assert.isEmpty(
-      desc.evaluateRow({
-        sourceTable: ASSETS,
-        record: {
-          count: 4
+      expect(desc.evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })).toStrictEqual([
+        {
+          lookup: ParameterLookup.normalized('stream', '0', ['user1']),
+          bucketParameters: [
+            {
+              result: 'issue_id'
+            }
+          ]
         }
-      })
-    );
+      ]);
+      expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', issue_id: 'issue_id' })).toStrictEqual([
+        'stream|0["issue_id"]'
+      ]);
 
-    expect(
-      desc.evaluateRow({
-        sourceTable: ASSETS,
-        record: {
-          count: 6
-        }
-      })
-    ).toHaveLength(1);
+      expect(
+        await queryBucketIds(desc, {
+          token_parameters: { user_id: 'user1' },
+          getParameterSets(lookups) {
+            expect(lookups).toStrictEqual([ParameterLookup.normalized('stream', '0', ['user1'])]);
+
+            return [{ result: 'issue_id' }];
+          }
+        })
+      ).toStrictEqual(['stream|0["issue_id"]']);
+    });
+
+    test('negated or', () => {
+      const desc = parseStream(
+        'select * from comments where not (length(content) = 5 OR issue_id not in (select id from issues where owner_id = request.user_id()))'
+      );
+
+      expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', issue_id: 'issue_id', content: 'foo' })).toStrictEqual([
+        'stream|0["issue_id"]'
+      ]);
+      expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', issue_id: 'issue_id', content: 'foooo' })).toStrictEqual([]);
+    });
+
+    test('negated and', () => {
+      const desc = parseStream(
+        'select * from comments where not (length(content) = 5 AND issue_id not in (select id from issues where owner_id = request.user_id()))'
+      );
+      expect(desc.variants).toHaveLength(2);
+
+      expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', issue_id: 'issue_id', content: 'foo' })).toStrictEqual([
+        'stream|0[]',
+        'stream|1["issue_id"]'
+      ]);
+      expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', issue_id: 'issue_id', content: 'foooo' })).toStrictEqual([
+        'stream|1["issue_id"]'
+      ]);
+    });
+
+    test('distribute and', async () => {
+      const desc = parseStream(
+        `select * from comments where 
+          (issue_id in (select id from issues where owner_id = request.user_id())
+            OR token_parameters.is_admin)
+          AND
+          LENGTH(content) > 2
+        `
+      );
+      expect(desc.variants).toHaveLength(2);
+
+      expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', issue_id: 'issue_id', content: 'a' })).toStrictEqual([]);
+      expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', issue_id: 'issue_id', content: 'aaa' })).toStrictEqual([
+        'stream|0["issue_id"]',
+        'stream|1[]'
+      ]);
+
+      expect(
+        await queryBucketIds(desc, {
+          token_parameters: { user_id: 'user1' },
+          getParameterSets(lookups) {
+            expect(lookups).toStrictEqual([ParameterLookup.normalized('stream', '0', ['user1'])]);
+
+            return [{ result: 'issue_id' }];
+          }
+        })
+      ).toStrictEqual(['stream|0["issue_id"]']);
+      expect(
+        await queryBucketIds(desc, {
+          token_parameters: { user_id: 'user1', is_admin: true },
+          getParameterSets(lookups) {
+            expect(lookups).toStrictEqual([ParameterLookup.normalized('stream', '0', ['user1'])]);
+
+            return [{ result: 'issue_id' }];
+          }
+        })
+      ).toStrictEqual(['stream|0["issue_id"]', 'stream|1[]']);
+    });
   });
-
-  test('stream param', () => {
-    const desc = parseSingleBucketDescription(`
-streams:
-  lists:
-    query: SELECT * FROM assets WHERE id = stream.params() ->> 'id';
-`);
-
-    // This should be desuraged to
-    //  params: SELECT request.params() ->> 'id' AS p0
-    //  data: SELECT * FROM assets WHERE id = bucket.p0
-
-    expect(desc.globalParameterQueries).toHaveLength(1);
-    const [parameter] = desc.globalParameterQueries;
-    expect(parameter.bucketParameters).toEqual(['p0']);
-
-    const [data] = desc.dataQueries;
-    expect(data.bucketParameters).toEqual(['bucket.p0']);
-  });
-
-  test('user filter', () => {
-    const desc = parseSingleBucketDescription(`
-streams:
-  lists:
-    query: SELECT * FROM assets WHERE request.jwt() ->> 'isAdmin'
-`);
-
-    // This should be desuraged to
-    //  params: SELECT request.params() ->> 'id' AS p0
-    //  data: SELECT * FROM assets WHERE id = bucket.p0
-
-    const [data] = desc.dataQueries;
-    expect(data.bucketParameters).toEqual(['bucket.p0']);
-  });
-  */
 });
 
 const USERS = new TestSourceTable('users');

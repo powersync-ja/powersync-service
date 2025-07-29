@@ -16,6 +16,10 @@ beforeAll(() => {
 
         return {
           pass: received.message == expectedMessage && actualLocation == expectedLocation,
+          actual: {
+            message: received.message,
+            location: actualLocation
+          },
           message
         };
       } else {

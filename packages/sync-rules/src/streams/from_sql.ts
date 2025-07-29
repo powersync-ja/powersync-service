@@ -30,7 +30,16 @@ import {
   ScalarExpression,
   Subquery
 } from './filter.js';
-import { Expr, ExprBinary, nil, parse, SelectFromStatement, SelectStatement, Statement } from 'pgsql-ast-parser';
+import {
+  Expr,
+  ExprBinary,
+  nil,
+  NodeLocation,
+  parse,
+  SelectFromStatement,
+  SelectStatement,
+  Statement
+} from 'pgsql-ast-parser';
 
 export function syncStreamFromSql(
   descriptorName: string,
@@ -75,14 +84,17 @@ class SyncStreamCompiler {
       isStream: true
     });
     tools.checkSpecificNameCase(tableRef);
-    const filter = this.whereClauseToFilters(tools, query.where);
+    let filter = this.whereClauseToFilters(tools, query.where);
+    filter = filter.toDisjunctiveNormalForm(tools);
 
     const stream = new SyncStream(
       this.descriptorName,
       new BaseSqlDataQuery(this.compileDataQuery(tools, query, alias, sourceTable))
     );
     stream.subscribedToByDefault = this.options.default ?? false;
-    stream.variants = filter.compileVariants(this.descriptorName);
+    if (filter.isValid(tools)) {
+      stream.variants = filter.compileVariants(this.descriptorName);
+    }
 
     this.errors.push(...tools.errors);
     return stream;
@@ -191,7 +203,7 @@ class SyncStreamCompiler {
           scalarCombinator = orFilters;
         } else if (clause.op == 'IN' || clause.op == 'NOT IN') {
           const filter = this.compileInOperator(tools, clause);
-          return clause.op == 'NOT IN' ? new Not(filter) : filter;
+          return clause.op == 'NOT IN' ? new Not(clause._location ?? null, filter) : filter;
         } else if (clause.op == '&&') {
           return this.compileOverlapOperator(tools, clause);
         }
@@ -212,11 +224,11 @@ class SyncStreamCompiler {
             }
 
             if (directCombination && isScalarExpression(directCombination)) {
-              return new EvaluateSimpleCondition(directCombination);
+              return new EvaluateSimpleCondition(clause._location ?? null, directCombination);
             }
           }
 
-          return new operator(left, right);
+          return new operator(clause._location ?? null, left, right);
         }
       } else if (clause.type == 'unary') {
         if (clause.op == 'NOT') {
@@ -225,14 +237,14 @@ class SyncStreamCompiler {
             // We can just negate that directly.
             return inner.negate(tools);
           } else {
-            return new Not(inner);
+            return new Not(clause._location ?? null, inner);
           }
         }
       }
     }
 
     const regularClause = tools.compileClause(clause);
-    return compiledClauseToFilter(tools, regularClause);
+    return compiledClauseToFilter(tools, clause?._location ?? null, regularClause);
   }
 
   private compileInOperator(tools: SqlTools, clause: ExprBinary): FilterOperator {
@@ -244,6 +256,7 @@ class SyncStreamCompiler {
     //   4. Left row clause, right parameter data: `WHERE id IN subscription_parameters.ids`.
     //   5. Left and right both row clauses, both parameter clauses, or mix or static and row/parameter clauses.
     const left = tools.compileClause(clause.left);
+    const location = clause._location ?? null;
     if (isClauseError(left)) {
       return recoverErrorClause(tools);
     }
@@ -280,11 +293,11 @@ class SyncStreamCompiler {
         // left clause doesn't depend on row data however, we can push it down into the subquery where it would be
         // introduced as a parameter: `EXISTS (SELECT _ FROM users WHERE is_admin AND user_id = request.user_id())`.
         const additionalClause = subqueryTools.parameterMatchClause(subquery.column, left);
-        subquery.addFilter(compiledClauseToFilter(subqueryTools, additionalClause));
-        return new ExistsOperator(subquery);
+        subquery.addFilter(compiledClauseToFilter(subqueryTools, null, additionalClause));
+        return new ExistsOperator(location, subquery);
       } else {
         // Case 1
-        return new InOperator(left, subquery);
+        return new InOperator(location, left, subquery);
       }
     }
 
@@ -294,11 +307,13 @@ class SyncStreamCompiler {
     // a ParameterMatchClause, which we can translate via CompareRowValueWithStreamParameter. Case 5 is either a row-value
     // or a parameter-value clause which we can wrap in EvaluateSimpleCondition.
     const combined = tools.compileInClause(clause.left, left, clause.right, right);
-    return compiledClauseToFilter(tools, combined);
+    return compiledClauseToFilter(tools, location, combined);
   }
 
   private compileOverlapOperator(tools: SqlTools, clause: ExprBinary): FilterOperator {
     const left = tools.compileClause(clause.left);
+    const location = clause._location ?? null;
+
     if (isClauseError(left)) {
       return recoverErrorClause(tools);
     }
@@ -317,7 +332,7 @@ class SyncStreamCompiler {
         return recoverErrorClause(tools);
       }
       const [subquery] = subqueryResult;
-      return new OverlapOperator(left, subquery);
+      return new OverlapOperator(location, left, subquery);
     }
 
     const right = tools.compileClause(clause.right);
@@ -326,7 +341,7 @@ class SyncStreamCompiler {
     // a ParameterMatchClause, which we can translate via CompareRowValueWithStreamParameter. Case 5 is either a row-value
     // or a parameter-value clause which we can wrap in EvaluateSimpleCondition.
     const combined = tools.compileOverlapClause(clause.left, left, clause.right, right);
-    return compiledClauseToFilter(tools, combined);
+    return compiledClauseToFilter(tools, location, combined);
   }
 
   private compileSubquery(stmt: SelectStatement): [Subquery, SqlTools] | undefined {
@@ -368,7 +383,7 @@ class SyncStreamCompiler {
     const where = tools.compileClause(query.where);
 
     this.errors.push(...tools.errors);
-    return [new Subquery(sourceTable, column, compiledClauseToFilter(tools, where)), tools];
+    return [new Subquery(sourceTable, column, compiledClauseToFilter(tools, query.where?._location, where)), tools];
   }
 
   private checkValidSelectStatement(stmt: Statement) {
@@ -423,14 +438,14 @@ function isScalarExpression(clause: CompiledClause): clause is ScalarExpression 
 
 function recoverErrorClause(tools: SqlTools): EvaluateSimpleCondition {
   // An error has already been logged.
-  return new EvaluateSimpleCondition(tools.compileClause(null) as StaticValueClause);
+  return new EvaluateSimpleCondition(null, tools.compileClause(null) as StaticValueClause);
 }
 
-function compiledClauseToFilter(tools: SqlTools, regularClause: CompiledClause) {
+function compiledClauseToFilter(tools: SqlTools, location: NodeLocation | nil, regularClause: CompiledClause) {
   if (isScalarExpression(regularClause)) {
-    return new EvaluateSimpleCondition(regularClause);
+    return new EvaluateSimpleCondition(location ?? null, regularClause);
   } else if (isParameterMatchClause(regularClause)) {
-    return new CompareRowValueWithStreamParameter(regularClause);
+    return new CompareRowValueWithStreamParameter(location ?? null, regularClause);
   } else if (isClauseError(regularClause)) {
     return recoverErrorClause(tools);
   } else {

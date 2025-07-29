@@ -8,9 +8,26 @@ import { ParameterLookup } from '../BucketParameterQuerier.js';
 
 import { StreamVariant } from './variant.js';
 import { SubqueryEvaluator } from './parameter.js';
+import { cartesianProduct } from './utils.js';
+import { NodeLocation } from 'pgsql-ast-parser';
 
+/**
+ * An intermediate representation of a `WHERE` clause for stream queries.
+ *
+ * This representation is only used to compile expressions into the {@link StreamVariant}s representing streams in the
+ * end.
+ */
 export abstract class FilterOperator {
-  abstract compile(context: BucketCompilationContext): void;
+  /**
+   * The syntactic source creating this filter operator.
+   */
+  readonly location: NodeLocation | null;
+
+  constructor(location: NodeLocation | null) {
+    this.location = location;
+  }
+
+  abstract compile(context: StreamCompilationContext): void;
 
   compileVariants(streamName: string): StreamVariant[] {
     const initialVariant = new StreamVariant(0);
@@ -19,9 +36,111 @@ export abstract class FilterOperator {
     this.compile({ streamName, currentVariant: initialVariant, allVariants, queryCounter: 0 });
     return allVariants;
   }
+
+  /**
+   * Transforms this filter operator to a DNF representation, a {@link Or} operator consisting of {@link And} operators
+   * internally.
+   *
+   * We need to represent filters as a sum-of-products because that lets us turn each product into a
+   * {@link StreamVariant}, simplifying the rest of the compilation.
+   */
+  toDisjunctiveNormalForm(tools: SqlTools): FilterOperator {
+    // https://en.wikipedia.org/wiki/Disjunctive_normal_form#..._by_syntactic_means
+    if (this instanceof Not) {
+      const inner = this.operand;
+      if (inner instanceof Not) {
+        // !!x => x
+        return inner.operand.toDisjunctiveNormalForm(tools);
+      }
+
+      if (inner instanceof EvaluateSimpleCondition) {
+        // We can push the NOT into the simple condition to eliminate it.
+        return inner.negate(tools);
+      }
+
+      let inverse;
+      if (inner instanceof And) {
+        inverse = Or; // !(a AND b) => (!a) OR (!b)
+      } else if (inner instanceof Or) {
+        inverse = And; // !(a OR B) => (!a) AND (!b)
+      } else {
+        return this;
+      }
+
+      const terms = inner.inner.map((e) => new Not(e.location, e).toDisjunctiveNormalForm(tools));
+      return new inverse(inner.location, ...terms);
+    } else if (this instanceof And) {
+      const atomarFactors: FilterOperator[] = [];
+      const orTerms: Or[] = [];
+
+      for (const originalTerm of this.inner) {
+        const normalized = originalTerm.toDisjunctiveNormalForm(tools);
+        if (normalized instanceof And) {
+          atomarFactors.push(...normalized.inner);
+        } else if (normalized instanceof Or) {
+          orTerms.push(normalized);
+        } else {
+          atomarFactors.push(normalized);
+        }
+      }
+
+      if (orTerms.length == 0) {
+        return new And(this.location, ...atomarFactors);
+      }
+
+      // If there's an OR term within the AND, apply the distributive law to turn the term into an ANDs within an outer
+      // OR.
+      // First, apply distributive law on orTerms to turn e.g. [[a, b], [c, d]] into [ac, ad, bc, bd].
+      const multiplied = [...cartesianProduct(...orTerms.map((e) => e.inner))];
+
+      // Then, combine those with the inner AND to turn e.g `A & (B | C) & D` into `(B & A & D) | (C & A & D)`.
+      return new Or(
+        this.location,
+        ...multiplied.map((distributedTerms) => new And(this.location, ...distributedTerms, ...atomarFactors))
+      );
+    } else if (this instanceof Or) {
+      // Already in DNF, but we want to simplify `(A OR B) OR C` into `A OR B OR C` if necessary.
+      return new Or(
+        this.location,
+        ...this.inner.flatMap((e) => {
+          const normalized = e.toDisjunctiveNormalForm(tools);
+          return normalized instanceof Or ? normalized.inner : [normalized];
+        })
+      );
+    }
+
+    return this;
+  }
+
+  /**
+   * Checks that this filter is valid, meaning that no `NOT` operators appear before subqueries or other operators that
+   * don't support negations.
+   */
+  isValid(tools: SqlTools): boolean {
+    let hasError = false;
+
+    for (const literal of this.visitLiterals()) {
+      if (literal instanceof Not) {
+        tools.error('Negations are not allowed here', literal.location ?? undefined);
+        hasError = true;
+      }
+    }
+
+    return !hasError;
+  }
+
+  private *visitLiterals(): Generator<FilterOperator> {
+    if (this instanceof Or || this instanceof And) {
+      for (const term of this.inner) {
+        yield* term.visitLiterals();
+      }
+    } else {
+      yield this;
+    }
+  }
 }
 
-interface BucketCompilationContext {
+interface StreamCompilationContext {
   streamName: string;
   allVariants: StreamVariant[];
   currentVariant: StreamVariant;
@@ -38,10 +157,10 @@ interface BucketCompilationContext {
  * negation into the inner evaluator.
  */
 export class Not extends FilterOperator {
-  private operand: FilterOperator;
+  readonly operand: FilterOperator;
 
-  constructor(operand: FilterOperator) {
-    super();
+  constructor(location: NodeLocation | null, operand: FilterOperator) {
+    super(location);
     this.operand = operand;
   }
 
@@ -51,14 +170,14 @@ export class Not extends FilterOperator {
 }
 
 export class And extends FilterOperator {
-  private inner: FilterOperator[];
+  readonly inner: FilterOperator[];
 
-  constructor(...operators: FilterOperator[]) {
-    super();
+  constructor(location: NodeLocation | null, ...operators: FilterOperator[]) {
+    super(location);
     this.inner = operators;
   }
 
-  compile(context: BucketCompilationContext) {
+  compile(context: StreamCompilationContext) {
     // Within a variant, added conditions and parameters form a conjunction.
     for (const condition of this.inner) {
       condition.compile(context);
@@ -67,14 +186,14 @@ export class And extends FilterOperator {
 }
 
 export class Or extends FilterOperator {
-  private inner: FilterOperator[];
+  readonly inner: FilterOperator[];
 
-  constructor(...operators: FilterOperator[]) {
-    super();
+  constructor(location: NodeLocation | null, ...operators: FilterOperator[]) {
+    super(location);
     this.inner = operators;
   }
 
-  compile(context: BucketCompilationContext): void {
+  compile(context: StreamCompilationContext): void {
     throw Error('An OR operator can only appear at the highest level of the filter chain');
   }
 
@@ -92,7 +211,7 @@ export class Or extends FilterOperator {
       allVariants.push(variant);
 
       context.currentVariant = variant;
-      condition.compile(context as BucketCompilationContext);
+      condition.compile(context as StreamCompilationContext);
     }
 
     return allVariants;
@@ -115,10 +234,10 @@ export class Subquery {
   }
 
   addFilter(filter: CompareRowValueWithStreamParameter | EvaluateSimpleCondition) {
-    this.filter = new And(this.filter, filter);
+    this.filter = new And(this.filter.location, this.filter, filter);
   }
 
-  compileEvaluator(context: BucketCompilationContext): SubqueryEvaluator {
+  compileEvaluator(context: StreamCompilationContext): SubqueryEvaluator {
     const innerVariants = this.filter.compileVariants(context.streamName).map((variant) => {
       const id = context.queryCounter.toString();
       context.queryCounter++;
@@ -172,7 +291,7 @@ export class Subquery {
 export type ScalarExpression = RowValueClause | ParameterValueClause;
 
 /**
- * A filter that matches when _something_ is contained in a subquery.
+ * A filter that matches when row values are contained in a subquery depending on parameter values.
  *
  * Examples:
  *
@@ -182,18 +301,25 @@ export type ScalarExpression = RowValueClause | ParameterValueClause;
  *
  *  - `SELECT * FROM comments WHERE id IN request.params('id')` ({@link CompareRowValueWithStreamParameter})
  *  - `SELECT * FROM comments WHERE request.user() IN comments.tagged_users` ({@link CompareRowValueWithStreamParameter})
+ *
+ * Finally, it's also possible to `IN` operators for parameter values:
+ *
+ *  - `SELECT * FROM comments WHERE request.user_id() IN (SELECT * FROM users WHERE is_admin)`.
+ *
+ * However, these are not represented as {@link InOperator}s in the filter graph. Instead, we push the
+ * `request.user_id()` filter into the subquery and then compile the operator into a {@link ExistsOperator}.
  */
 export class InOperator extends FilterOperator {
   private left: RowValueClause;
   private right: Subquery;
 
-  constructor(left: RowValueClause, right: Subquery) {
-    super();
+  constructor(location: NodeLocation | null, left: RowValueClause, right: Subquery) {
+    super(location);
     this.left = left;
     this.right = right;
   }
 
-  compile(context: BucketCompilationContext): void {
+  compile(context: StreamCompilationContext): void {
     const subqueryEvaluator = this.right.compileEvaluator(context);
     const filter = this.left;
 
@@ -247,13 +373,13 @@ export class OverlapOperator extends FilterOperator {
   private left: RowValueClause;
   private right: Subquery;
 
-  constructor(left: RowValueClause, right: Subquery) {
-    super();
+  constructor(location: NodeLocation | null, left: RowValueClause, right: Subquery) {
+    super(location);
     this.left = left;
     this.right = right;
   }
 
-  compile(context: BucketCompilationContext): void {
+  compile(context: StreamCompilationContext): void {
     const subqueryEvaluator = this.right.compileEvaluator(context);
     const filter = this.left;
 
@@ -289,12 +415,12 @@ export class OverlapOperator extends FilterOperator {
 export class ExistsOperator extends FilterOperator {
   private subquery: Subquery;
 
-  constructor(subquery: Subquery) {
-    super();
+  constructor(location: NodeLocation | null, subquery: Subquery) {
+    super(location);
     this.subquery = subquery;
   }
 
-  compile(context: BucketCompilationContext): void {
+  compile(context: StreamCompilationContext): void {
     const subqueryEvaluator = this.subquery.compileEvaluator(context);
 
     context.currentVariant.requestFilters.push({
@@ -318,12 +444,12 @@ export class ExistsOperator extends FilterOperator {
 export class CompareRowValueWithStreamParameter extends FilterOperator {
   private match: ParameterMatchClause;
 
-  constructor(match: ParameterMatchClause) {
-    super();
+  constructor(location: NodeLocation | null, match: ParameterMatchClause) {
+    super(location);
     this.match = match;
   }
 
-  compile(context: BucketCompilationContext): void {
+  compile(context: StreamCompilationContext): void {
     const match = this.match;
 
     for (const filters of match.inputParameters) {
@@ -359,12 +485,12 @@ export class CompareRowValueWithStreamParameter extends FilterOperator {
 export class EvaluateSimpleCondition extends FilterOperator {
   expression: ScalarExpression;
 
-  constructor(expression: ScalarExpression) {
-    super();
+  constructor(location: NodeLocation | null, expression: ScalarExpression) {
+    super(location);
     this.expression = expression;
   }
 
-  compile(context: BucketCompilationContext): void {
+  compile(context: StreamCompilationContext): void {
     if (isRowValueClause(this.expression)) {
       const filter = this.expression;
 
@@ -386,6 +512,9 @@ export class EvaluateSimpleCondition extends FilterOperator {
   }
 
   negate(tools: SqlTools): EvaluateSimpleCondition {
-    return new EvaluateSimpleCondition(tools.composeFunction(OPERATOR_NOT, [this.expression], []) as ScalarExpression);
+    return new EvaluateSimpleCondition(
+      this.location,
+      tools.composeFunction(OPERATOR_NOT, [this.expression], []) as ScalarExpression
+    );
   }
 }
