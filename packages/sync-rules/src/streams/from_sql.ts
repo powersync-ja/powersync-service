@@ -190,7 +190,11 @@ class SyncStreamCompiler {
   }
 
   private whereClauseToFilters(tools: SqlTools, clause: Expr | nil): FilterOperator {
-    // We need to handle some functions specially here, apart from that we can rely on compileClause
+    // We need to handle some functions specially here:
+    //   1. IN subqueries are not allowed in regular data queries, so we handle them here instead of relying on SqlTools
+    //   2. Since IN operators can be composed with other operators using AND and OR, we need to handle those operators
+    //      as well.
+    // Apart from that we can rely on compileClause
     if (clause != null) {
       if (clause.type == 'binary') {
         let operator, scalarCombinator;

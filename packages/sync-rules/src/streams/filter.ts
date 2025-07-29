@@ -323,46 +323,27 @@ export class InOperator extends FilterOperator {
     const subqueryEvaluator = this.right.compileEvaluator(context);
     const filter = this.left;
 
-    if (isRowValueClause(this.left)) {
-      // Something like `SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issue WHERE owner_id = request.user())`
-      // This groups rows into buckets identified by comments.issue_id, which happens in filterRow.
-      // When a user connects, we need to resolve all the issue ids they own. This happens with an indirection:
-      //  1. In the subquery evaluator, we create an index from owner_id to issue ids.
-      //  2. When we have users, we use that index to find issue ids dynamically, with which we can build the buckets
-      //     to sync.
-      context.currentVariant.parameters.push({
-        lookup: {
-          type: 'in',
-          subquery: subqueryEvaluator
-        },
-        filterRow(options) {
-          const tables = { [options.sourceTable.table]: options.record };
-          const value = filter.evaluate(tables);
-          if (isJsonValue(value)) {
-            return [normalizeParameterValue(value)];
-          } else {
-            return [];
-          }
+    // Something like `SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issue WHERE owner_id = request.user())`
+    // This groups rows into buckets identified by comments.issue_id, which happens in filterRow.
+    // When a user connects, we need to resolve all the issue ids they own. This happens with an indirection:
+    //  1. In the subquery evaluator, we create an index from owner_id to issue ids.
+    //  2. When we have users, we use that index to find issue ids dynamically, with which we can build the buckets
+    //     to sync.
+    context.currentVariant.parameters.push({
+      lookup: {
+        type: 'in',
+        subquery: subqueryEvaluator
+      },
+      filterRow(options) {
+        const tables = { [options.sourceTable.table]: options.record };
+        const value = filter.evaluate(tables);
+        if (isJsonValue(value)) {
+          return [normalizeParameterValue(value)];
+        } else {
+          return [];
         }
-      });
-    } else if (isParameterValueClause(this.left)) {
-      // Something like `SELECT * FROM comments WHERE request.user_id() IN (SELECT id FROM users WHERE is_admin)`.
-      // This doesn't introduce a bucket parameter, but we still need to create a parameter lookup to determine whether
-      // a given user should have access to the bucket or not. Because lookups can only be exact (we can't evaluate
-      // `SELECT id FROM users WHERE is_admin` into a single ParameterLookup), we need to push the filter down into
-      // the subquery, e.g. `WHERE EXISTS(SELECT id FROM users WHERE is_admin AND id = request.user_id())`.
-      const subqueryEvaluator = this.right.compileEvaluator(context);
-
-      context.currentVariant.requestFilters.push({
-        type: 'dynamic',
-        subquery: subqueryEvaluator,
-        matches(_, results) {
-          return results.length > 0;
-        }
-      });
-    } else {
-      const _: never = this.left; // Exhaustive check
-    }
+      }
+    });
   }
 }
 
