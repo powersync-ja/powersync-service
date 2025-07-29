@@ -418,7 +418,6 @@ export class BinLogStream {
           this.abortSignal.addEventListener(
             'abort',
             async () => {
-              this.logger.info('Abort signal received, stopping replication...');
               await binlogListener.stop();
             },
             { once: true }
