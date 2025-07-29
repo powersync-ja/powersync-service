@@ -3,9 +3,10 @@ import { describe, expect, test } from 'vitest';
 import {
   BucketParameterQuerier,
   DEFAULT_TAG,
-  EvaluateRowOptions,
   ParameterLookup,
+  SourceTableInterface,
   SqliteJsonRow,
+  SqliteRow,
   StaticSchema,
   SyncStream,
   syncStreamFromSql
@@ -17,39 +18,183 @@ describe('streams', () => {
     const desc = parseStream('SELECT * FROM comments');
 
     expect(desc.variants).toHaveLength(1);
-    expect(evaluateBucketIds(desc, { sourceTable: COMMENTS, record: { id: 'foo' } })).toStrictEqual(['stream|0[]']);
+    expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo' })).toStrictEqual(['stream|0[]']);
     expect(desc.evaluateRow({ sourceTable: USERS, record: { id: 'foo' } })).toHaveLength(0);
   });
 
   test('row condition', () => {
     const desc = parseStream('SELECT * FROM comments WHERE length(content) > 5');
-    expect(evaluateBucketIds(desc, { sourceTable: COMMENTS, record: { id: 'foo', content: 'a' } })).toStrictEqual([]);
-    expect(evaluateBucketIds(desc, { sourceTable: COMMENTS, record: { id: 'foo', content: 'aaaaaa' } })).toStrictEqual([
-      'stream|0[]'
-    ]);
+    expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'a' })).toStrictEqual([]);
+    expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'aaaaaa' })).toStrictEqual(['stream|0[]']);
   });
 
   test('stream parameter', () => {
     const desc = parseStream('SELECT * FROM comments WHERE issue_id = subscription_parameters.id');
-    expect(evaluateBucketIds(desc, { sourceTable: COMMENTS, record: { id: 'foo', issue_id: 'a' } })).toStrictEqual([
-      'stream|0["a"]'
-    ]);
+    expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', issue_id: 'a' })).toStrictEqual(['stream|0["a"]']);
   });
 
   test('row filter and stream parameter', async () => {
     const desc = parseStream(
       'SELECT * FROM comments WHERE length(content) > 5 AND issue_id = subscription_parameters.id'
     );
-    expect(
-      evaluateBucketIds(desc, { sourceTable: COMMENTS, record: { id: 'foo', content: 'a', issue_id: 'a' } })
-    ).toStrictEqual([]);
-    expect(
-      evaluateBucketIds(desc, { sourceTable: COMMENTS, record: { id: 'foo', content: 'aaaaaa', issue_id: 'i' } })
-    ).toStrictEqual(['stream|0["i"]']);
+    expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'a', issue_id: 'a' })).toStrictEqual([]);
+    expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'aaaaaa', issue_id: 'i' })).toStrictEqual([
+      'stream|0["i"]'
+    ]);
 
     expect(await queryBucketIds(desc, { parameters: { id: 'subscribed_issue' } })).toStrictEqual([
       'stream|0["subscribed_issue"]'
     ]);
+  });
+
+  describe('or', () => {
+    test('parameter match or request condition', async () => {
+      const desc = parseStream('SELECT * FROM issues WHERE owner_id = request.user_id() OR token_parameters.is_admin');
+
+      expect(evaluateBucketIds(desc, ISSUES, { id: 'foo', owner_id: 'u1' })).toStrictEqual([
+        'stream|0["u1"]',
+        'stream|1[]'
+      ]);
+
+      expect(
+        await queryBucketIds(desc, {
+          token_parameters: {
+            user_id: 'u1',
+            is_admin: false
+          }
+        })
+      ).toStrictEqual(['stream|0["u1"]']);
+
+      expect(
+        await queryBucketIds(desc, {
+          token_parameters: {
+            user_id: 'u1',
+            is_admin: true
+          }
+        })
+      ).toStrictEqual(['stream|0["u1"]', 'stream|1[]']);
+    });
+
+    test('parameter match or row condition', async () => {
+      const desc = parseStream('SELECT * FROM issues WHERE owner_id = request.user_id() OR LENGTH(name) = 3');
+      expect(evaluateBucketIds(desc, ISSUES, { id: 'foo', owner_id: 'a', name: '' })).toStrictEqual(['stream|0["a"]']);
+      expect(evaluateBucketIds(desc, ISSUES, { id: 'foo', owner_id: 'a', name: 'aaa' })).toStrictEqual([
+        'stream|0["a"]',
+        'stream|1[]'
+      ]);
+
+      expect(
+        await queryBucketIds(desc, {
+          token_parameters: {
+            user_id: 'u1'
+          }
+        })
+      ).toStrictEqual(['stream|0["u1"]', 'stream|1[]']);
+    });
+
+    test('row condition or parameter condition', async () => {
+      const desc = parseStream('SELECT * FROM comments WHERE LENGTH(content) > 5 OR token_parameters.is_admin');
+
+      expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'short' })).toStrictEqual(['stream|1[]']);
+      expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'longer' })).toStrictEqual([
+        'stream|0[]',
+        'stream|1[]'
+      ]);
+
+      expect(
+        await queryBucketIds(desc, {
+          token_parameters: {
+            is_admin: false
+          }
+        })
+      ).toStrictEqual(['stream|0[]']);
+      expect(
+        await queryBucketIds(desc, {
+          token_parameters: {
+            is_admin: true
+          }
+        })
+      ).toStrictEqual(['stream|0[]', 'stream|1[]']);
+    });
+
+    test('row condition or row condition', () => {
+      const desc = parseStream(
+        'SELECT * FROM comments WHERE LENGTH(content) > 5 OR json_array_length(tagged_users) > 1'
+      );
+      // Complex conditions that only operate on row data don't need variants.
+      expect(desc.variants).toHaveLength(1);
+
+      expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'short', tagged_users: '[]' })).toStrictEqual([]);
+      expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'longer', tagged_users: '[]' })).toStrictEqual([
+        'stream|0[]'
+      ]);
+      expect(
+        evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'longer', tagged_users: '["a","b"]' })
+      ).toStrictEqual(['stream|0[]']);
+      expect(
+        evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'short', tagged_users: '["a","b"]' })
+      ).toStrictEqual(['stream|0[]']);
+    });
+
+    test('request condition or request condition', async () => {
+      const desc = parseStream('SELECT * FROM comments WHERE token_parameters.a OR token_parameters.b');
+      // Complex conditions that only operate on request data don't need variants.
+      expect(desc.variants).toHaveLength(1);
+
+      expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'whatever]' })).toStrictEqual(['stream|0[]']);
+      expect(
+        await queryBucketIds(desc, {
+          token_parameters: {
+            a: false,
+            b: false
+          }
+        })
+      ).toStrictEqual([]);
+      expect(
+        await queryBucketIds(desc, {
+          token_parameters: {
+            a: true,
+            b: false
+          }
+        })
+      ).toStrictEqual(['stream|0[]']);
+    });
+
+    test('subquery or token parameter', async () => {
+      const desc = parseStream(
+        'SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = request.user_id()) OR token_parameters.is_admin'
+      );
+
+      expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', issue_id: 'i1' })).toStrictEqual([
+        'stream|0["i1"]',
+        'stream|1[]'
+      ]);
+
+      expect(desc.evaluateParameterRow(ISSUES, { id: 'i1', owner_id: 'u1' })).toStrictEqual([
+        {
+          lookup: ParameterLookup.normalized('stream', '0', ['u1']),
+          bucketParameters: [
+            {
+              result: 'i1'
+            }
+          ]
+        }
+      ]);
+
+      function getParameterSets(lookups: ParameterLookup[]) {
+        expect(lookups).toStrictEqual([ParameterLookup.normalized('stream', '0', ['u1'])]);
+
+        return [{ result: 'i1' }];
+      }
+      expect(
+        await queryBucketIds(desc, { token_parameters: { user_id: 'u1', is_admin: false }, getParameterSets })
+      ).toStrictEqual(['stream|0["i1"]']);
+      expect(
+        await queryBucketIds(desc, { token_parameters: { user_id: 'u1', is_admin: true }, getParameterSets })
+      ).toStrictEqual(['stream|0["i1"]', 'stream|1[]']);
+    });
+
+    // TODO: Two subqueries
   });
 
   describe('in', () => {
@@ -69,9 +214,9 @@ describe('streams', () => {
           ]
         }
       ]);
-      expect(
-        evaluateBucketIds(desc, { sourceTable: COMMENTS, record: { id: 'c', issue_id: 'issue_id' } })
-      ).toStrictEqual(['stream|0["issue_id"]']);
+      expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', issue_id: 'issue_id' })).toStrictEqual([
+        'stream|0["issue_id"]'
+      ]);
 
       expect(
         await queryBucketIds(desc, {
@@ -125,6 +270,53 @@ describe('streams', () => {
         })
       ).toStrictEqual([]);
     });
+
+    test('two subqueries', async () => {
+      const desc = parseStream(`SELECT * FROM users WHERE
+            id IN (SELECT user_a FROM friends WHERE user_b = request.user_id()) OR
+            id IN (SELECT user_b FROM friends WHERE user_a = request.user_id())
+        `);
+
+      expect(evaluateBucketIds(desc, USERS, { id: 'a', name: 'a' })).toStrictEqual(['stream|0["a"]', 'stream|1["a"]']);
+
+      expect(desc.evaluateParameterRow(FRIENDS, { user_a: 'a', user_b: 'b' })).toStrictEqual([
+        {
+          lookup: ParameterLookup.normalized('stream', '0', ['b']),
+          bucketParameters: [
+            {
+              result: 'a'
+            }
+          ]
+        },
+        {
+          lookup: ParameterLookup.normalized('stream', '1', ['a']),
+          bucketParameters: [
+            {
+              result: 'b'
+            }
+          ]
+        }
+      ]);
+
+      function getParameterSets(lookups: ParameterLookup[]) {
+        expect(lookups).toHaveLength(1);
+        const [lookup] = lookups;
+        if (lookup.values[1] == '0') {
+          expect(lookup).toStrictEqual(ParameterLookup.normalized('stream', '0', ['a']));
+          return [];
+        } else {
+          expect(lookup).toStrictEqual(ParameterLookup.normalized('stream', '1', ['a']));
+          return [{ result: 'b' }];
+        }
+      }
+
+      expect(
+        await queryBucketIds(desc, {
+          token_parameters: { user_id: 'a' },
+          getParameterSets
+        })
+      ).toStrictEqual(['stream|1["b"]']);
+    });
   });
 
   describe('overlap', () => {
@@ -144,9 +336,10 @@ describe('streams', () => {
           ]
         }
       ]);
-      expect(
-        evaluateBucketIds(desc, { sourceTable: COMMENTS, record: { id: 'c', tagged_users: '["a", "b"]' } })
-      ).toStrictEqual(['stream|0["a"]', 'stream|0["b"]']);
+      expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', tagged_users: '["a", "b"]' })).toStrictEqual([
+        'stream|0["a"]',
+        'stream|0["b"]'
+      ]);
 
       expect(
         await queryBucketIds(desc, {
@@ -283,6 +476,7 @@ const schema = new StaticSchema([
           {
             name: 'friends',
             columns: [
+              { name: 'id', pg_type: 'uuid' },
               { name: 'user_a', pg_type: 'uuid' },
               { name: 'user_b', pg_type: 'uuid' }
             ]
@@ -295,8 +489,8 @@ const schema = new StaticSchema([
 
 const options = { schema: schema, ...PARSE_OPTIONS };
 
-function evaluateBucketIds(stream: SyncStream, options: EvaluateRowOptions) {
-  return stream.evaluateRow(options).map((r) => {
+function evaluateBucketIds(stream: SyncStream, sourceTable: SourceTableInterface, record: SqliteRow) {
+  return stream.evaluateRow({ sourceTable, record }).map((r) => {
     if ('error' in r) {
       throw new Error(`Unexpected error evaluating row: ${r.error}`);
     }

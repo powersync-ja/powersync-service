@@ -1,6 +1,6 @@
 import { SelectFromStatement } from 'pgsql-ast-parser';
 import { SqlRuleError } from './errors.js';
-import { ExpressionType } from './ExpressionType.js';
+import { ColumnDefinition, ExpressionType } from './ExpressionType.js';
 import { MATCH_CONST_FALSE, MATCH_CONST_TRUE } from './sql_filters.js';
 import { evaluateOperator, getOperatorReturnType } from './sql_functions.js';
 import {
@@ -10,7 +10,9 @@ import {
   InputParameter,
   ParameterMatchClause,
   ParameterValueClause,
+  ParameterValueSet,
   QueryParameters,
+  QuerySchema,
   RowValueClause,
   SqliteValue,
   StaticValueClause,
@@ -59,6 +61,58 @@ export function sqliteNot(value: SqliteValue | boolean) {
   return sqliteBool(!sqliteBool(value));
 }
 
+/**
+ * Applies a combinator on row values that itself is also a row value.
+ */
+export function composeRowValues<T extends Record<string, RowValueClause>>(options: {
+  values: T;
+  compose: (values: { [K in keyof T]: SqliteValue }) => SqliteValue;
+  getColumnDefinition: RowValueClause['getColumnDefinition'];
+}): RowValueClause {
+  return {
+    evaluate: function (tables: QueryParameters): SqliteValue {
+      const evaluated = Object.fromEntries(
+        Object.entries(options.values).map((e) => {
+          const [key, clause] = e;
+          return [key, clause.evaluate(tables)];
+        })
+      ) as { [K in keyof T]: SqliteValue };
+
+      return options.compose(evaluated);
+    },
+    getColumnDefinition: function (schema: QuerySchema): ColumnDefinition | undefined {
+      return options.getColumnDefinition(schema);
+    }
+  };
+}
+
+/**
+ * Applies a combinator on parameter values that itself is also a parameter value.
+ */
+export function composeParameterValues<T extends Record<string, ParameterValueClause>>(options: {
+  values: T;
+  key: string;
+  compose: (values: { [K in keyof T]: SqliteValue }) => SqliteValue;
+}): ParameterValueClause {
+  const entries = Object.entries(options.values);
+
+  return {
+    usesAuthenticatedRequestParameters: entries.some((e) => e[1].usesAuthenticatedRequestParameters),
+    usesUnauthenticatedRequestParameters: entries.some((e) => e[1].usesUnauthenticatedRequestParameters),
+    key: `${options.key}${entries.map((e) => e[1].key).join(',')}`,
+    lookupParameterValue: function (parameters: ParameterValueSet): SqliteValue {
+      const evaluated = Object.fromEntries(
+        Object.entries(options.values).map((e) => {
+          const [key, clause] = e;
+          return [key, clause.lookupParameterValue(parameters)];
+        })
+      ) as { [K in keyof T]: SqliteValue };
+
+      return options.compose(evaluated);
+    }
+  };
+}
+
 export function compileStaticOperator(op: string, left: RowValueClause, right: RowValueClause): RowValueClause {
   return {
     evaluate: (tables) => {
@@ -79,18 +133,27 @@ export function compileStaticOperator(op: string, left: RowValueClause, right: R
 }
 
 export function andFilters(a: CompiledClause, b: CompiledClause): CompiledClause {
+  // Optimizations: If the two clauses both only depend on row or parameter data, we can merge them into a single
+  // clause.
   if (isRowValueClause(a) && isRowValueClause(b)) {
-    // Optimization
-    return {
-      evaluate(tables: QueryParameters): SqliteValue {
-        const aValue = sqliteBool(a.evaluate(tables));
-        const bValue = sqliteBool(b.evaluate(tables));
-        return sqliteBool(aValue && bValue);
+    return composeRowValues({
+      values: { a, b },
+      compose(values) {
+        return sqliteBool(sqliteBool(values.a) && sqliteBool(values.b));
       },
       getColumnDefinition() {
         return { name: 'and', type: ExpressionType.INTEGER };
       }
-    } satisfies RowValueClause;
+    });
+  }
+  if (isParameterValueClause(a) && isParameterValueClause(b)) {
+    return composeParameterValues({
+      values: { a, b },
+      key: 'and',
+      compose(values) {
+        return sqliteBool(sqliteBool(values.a) && sqliteBool(values.b));
+      }
+    });
   }
 
   const aFilter = toBooleanParameterSetClause(a);
@@ -140,18 +203,27 @@ export function andFilters(a: CompiledClause, b: CompiledClause): CompiledClause
 }
 
 export function orFilters(a: CompiledClause, b: CompiledClause): CompiledClause {
+  // Optimizations: If the two clauses both only depend on row or parameter data, we can merge them into a single
+  // clause.
   if (isRowValueClause(a) && isRowValueClause(b)) {
-    // Optimization
-    return {
-      evaluate(tables: QueryParameters): SqliteValue {
-        const aValue = sqliteBool(a.evaluate(tables));
-        const bValue = sqliteBool(b.evaluate(tables));
-        return sqliteBool(aValue || bValue);
+    return composeRowValues({
+      values: { a, b },
+      compose(values) {
+        return sqliteBool(sqliteBool(values.a) || sqliteBool(values.b));
       },
       getColumnDefinition() {
         return { name: 'or', type: ExpressionType.INTEGER };
       }
-    } satisfies RowValueClause;
+    });
+  }
+  if (isParameterValueClause(a) && isParameterValueClause(b)) {
+    return composeParameterValues({
+      values: { a, b },
+      key: 'or',
+      compose(values) {
+        return sqliteBool(sqliteBool(values.a) || sqliteBool(values.b));
+      }
+    });
   }
 
   const aFilter = toBooleanParameterSetClause(a);

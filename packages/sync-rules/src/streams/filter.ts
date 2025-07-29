@@ -1,4 +1,3 @@
-import _ from 'lodash';
 import { isParameterValueClause, isRowValueClause, SQLITE_TRUE, sqliteBool } from '../sql_support.js';
 import { TablePattern } from '../TablePattern.js';
 import { ParameterMatchClause, ParameterValueClause, RowValueClause, SqliteJsonValue } from '../types.js';
@@ -52,34 +51,51 @@ export class Not extends FilterOperator {
 }
 
 export class And extends FilterOperator {
-  private left: FilterOperator;
-  private right: FilterOperator;
+  private inner: FilterOperator[];
 
-  constructor(left: FilterOperator, right: FilterOperator) {
+  constructor(...operators: FilterOperator[]) {
     super();
-    this.left = left;
-    this.right = right;
+    this.inner = operators;
   }
 
   compile(context: BucketCompilationContext) {
     // Within a variant, added conditions and parameters form a conjunction.
-    this.left.compile(context);
-    this.right.compile(context);
+    for (const condition of this.inner) {
+      condition.compile(context);
+    }
   }
 }
 
 export class Or extends FilterOperator {
-  private left: FilterOperator;
-  private right: FilterOperator;
+  private inner: FilterOperator[];
 
-  constructor(left: FilterOperator, right: FilterOperator) {
+  constructor(...operators: FilterOperator[]) {
     super();
-    this.left = left;
-    this.right = right;
+    this.inner = operators;
   }
 
   compile(context: BucketCompilationContext): void {
-    throw 'todo: compile or operators';
+    throw Error('An OR operator can only appear at the highest level of the filter chain');
+  }
+
+  compileVariants(streamName: string): StreamVariant[] {
+    const allVariants: StreamVariant[] = [];
+    const context = {
+      streamName,
+      currentVariant: undefined as StreamVariant | undefined,
+      allVariants,
+      queryCounter: 0
+    };
+
+    for (const condition of this.inner) {
+      const variant = new StreamVariant(allVariants.length);
+      allVariants.push(variant);
+
+      context.currentVariant = variant;
+      condition.compile(context as BucketCompilationContext);
+    }
+
+    return allVariants;
   }
 }
 

@@ -1,4 +1,3 @@
-import _ from 'lodash';
 import { BucketInclusionReason, ResolvedBucket } from '../BucketDescription.js';
 import { BucketParameterQuerier, ParameterLookup } from '../BucketParameterQuerier.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
@@ -30,6 +29,10 @@ import { SyncStream } from './stream.js';
  *
  * The introduction of stream variants allows the `evaluateParameterRow` and `queriersForSubscription` implementations
  * to operate independently.
+ *
+ * Multiple variants may cause the same row to get synced via different buckets. Depending on the request, users may
+ * also receive multiple buckets with the same data. This is not an issue! Clients deduplicate rows received across
+ * buckets, so we don't have to filter for this case in the sync service.
  */
 export class StreamVariant {
   id: number;
@@ -110,7 +113,8 @@ export class StreamVariant {
     }
 
     const cartesianProduct: SqliteJsonValue[][] = [];
-    const totalLength = _.reduce(instantiations, (a, b) => a * b.length, 1);
+
+    const totalLength = instantiations.reduce((a, b) => a * b.length, 1);
     for (let i = 0; i < totalLength; i++) {
       const instantiation: SqliteJsonValue[] = [];
       let indexInSet = i;

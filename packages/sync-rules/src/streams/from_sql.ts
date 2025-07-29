@@ -67,7 +67,7 @@ class SyncStreamCompiler {
 
     const tools = new SqlTools({
       table: alias,
-      parameterTables: ['subscription_parameters'],
+      parameterTables: ['subscription_parameters', 'token_parameters'],
       valueTables: [alias],
       sql: this.sql,
       schema: querySchema,
@@ -347,7 +347,7 @@ class SyncStreamCompiler {
     // Create a new tools instance for this - the subquery does not have access to the outer one.
     const tools = new SqlTools({
       table: alias,
-      parameterTables: ['subscription_parameters'],
+      parameterTables: ['subscription_parameters', 'token_parameters'],
       valueTables: [alias],
       sql: this.sql,
       schema: querySchema,
