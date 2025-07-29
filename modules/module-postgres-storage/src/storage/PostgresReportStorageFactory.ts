@@ -201,7 +201,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
         params: [
           { type: 'varchar', value: user_id },
           { type: 'varchar', value: client_id },
-          { type: 'varchar', value: connect_at },
+          { type: 1184, value: connect_at },
           { type: 'varchar', value: sdk },
           { type: 'varchar', value: user_agent },
           { type: 1184, value: jwt_exp?.toISOString() },
