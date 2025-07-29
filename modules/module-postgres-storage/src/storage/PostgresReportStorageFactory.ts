@@ -147,8 +147,8 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
               FROM sdk_report_events
               WHERE disconnect_at IS NULL
               AND jwt_exp > NOW()
-              AND connect_at > TIMESTAMP WITH TIME ZONE $1
-              AND connect_at <= TIMESTAMP WITH TIME ZONE $2
+              AND connect_at > CAST($1 AS TIMESTAMP WITH TIME ZONE)
+              AND connect_at <= CAST($2 AS TIMESTAMP WITH TIME ZONE)
       ),
       unique_users AS (
               SELECT COUNT(DISTINCT user_id) AS count
@@ -188,13 +188,13 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     VALUES ($1, $2, $3, $4, $5, $6, $7)
     ON CONFLICT (user_id, client_id, connect_at)
     DO UPDATE SET
-      connect_at = TIMESTAMP WITH TIME ZONE $3,
+      connect_at = CAST($3 AS TIMESTAMP WITH TIME ZONE),
       sdk = $4,
       user_agent = $5,
-      jwt_exp = TIMESTAMP WITH TIME ZONE $6,
+      jwt_exp = CAST($6 AS TIMESTAMP WITH TIME ZONE),
       disconnect_at = NULL
-    WHERE sdk_report_events.connect_at >= TIMESTAMP WITH TIME ZONE $8
-      AND sdk_report_events.connect_at < TIMESTAMP WITH TIME ZONE $9;`;
+    WHERE sdk_report_events.connect_at >= CAST($8 AS TIMESTAMP WITH TIME ZONE)
+      AND sdk_report_events.connect_at < CAST($9 AS TIMESTAMP WITH TIME ZONE);`;
     try {
       const result = await this.db.query({
         statement: query,
@@ -221,12 +221,12 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     const query = `
       UPDATE sdk_report_events
       SET
-        disconnect_at = $1,
+        disconnect_at = CAST($1 AS TIMESTAMP WITH TIME ZONE),
         jwt_exp = NULL
       WHERE user_id = $2
         AND client_id = $3
-        AND connect_at >= TIMESTAMP WITH TIME ZONE $4
-        AND connect_at < TIMESTAMP WITH TIME ZONE $5;`;
+        AND connect_at >= CAST($4 AS TIMESTAMP WITH TIME ZONE)
+        AND connect_at < CAST($5 AS TIMESTAMP WITH TIME ZONE);`;
 
     try {
       const result = await this.db.query({
@@ -261,8 +261,8 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
       WITH filtered AS (
             SELECT *
             FROM sdk_report_events
-            WHERE connect_at > TIMESTAMP WITH TIME ZONE $1
-            AND connect_at <= TIMESTAMP WITH TIME ZONE $2
+            WHERE connect_at > CAST($1 AS TIMESTAMP WITH TIME ZONE)
+            AND connect_at <= CAST($2 AS TIMESTAMP WITH TIME ZONE)
                         ),
       unique_users AS (
             SELECT COUNT(DISTINCT user_id) AS count
@@ -292,7 +292,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     const { lt } = this.timeFrameDeleteQuery(timeframe, interval);
     const query = `
     DELETE FROM sdk_report_events
-    WHERE connect_at < TIMESTAMP WITH TIME ZONE $1
+    WHERE connect_at < CAST($1 AS TIMESTAMP WITH TIME ZONE)
       AND (
         disconnect_at IS NOT NULL
         OR (jwt_exp < NOW() AND disconnect_at IS NULL)
