@@ -335,11 +335,18 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
             sdk
         )
       SELECT
-        COALESCE(u.count, 0) AS users,
-        JSON_AGG(ROW_TO_JSON(s)) AS sdks
-      FROM
-        unique_users u
-        JOIN sdk_versions_array s ON TRUE;
+        (
+          SELECT
+            COALESCE(count, 0)
+          FROM
+            unique_users
+        ) AS users,
+        (
+          SELECT
+            JSON_AGG(ROW_TO_JSON(s))
+          FROM
+            sdk_versions_array s
+        ) AS sdks;
     `
       .decoded(SdkReporting)
       .first();
