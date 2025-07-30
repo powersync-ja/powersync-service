@@ -355,7 +355,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
   async deleteOldSdkData(data: DeleteOldSdkData): Promise<void> {
     const { timeframe, interval } = data;
     const { lt } = this.timeFrameDeleteQuery(timeframe, interval);
-    await this.db.sql`
+    const result = await this.db.sql`
       DELETE FROM sdk_report_events
       WHERE
         connect_at < ${{ type: 1184, value: lt }}
@@ -367,6 +367,11 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
           )
         );
     `.execute();
+    if (result.rows.length > 0) {
+      result.rows.forEach((row) => {
+        console.log(row);
+      });
+    }
   }
 
   async [Symbol.asyncDispose]() {
