@@ -110,6 +110,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
   }
 
   private mapListCurrentConnectionsResponse(result: SdkReportingDecoded): ListCurrentConnections {
+    console.log(result.sdks);
     return {
       users: Number(result.users),
       sdks: []
@@ -313,7 +314,6 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
         sdks: []
       };
     }
-    console.log(result);
     return this.mapListCurrentConnectionsResponse(result);
   }
 
@@ -362,7 +362,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
           );
 `;
     const params = [{ value: lt }];
-    const result = await this.db.query({ statement: query, params });
+    await this.db.query({ statement: query, params });
   }
 
   async [Symbol.asyncDispose]() {
