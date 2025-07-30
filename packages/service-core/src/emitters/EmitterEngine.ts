@@ -9,7 +9,7 @@ export class EmitterEngine implements BaseEmitterEngine {
   constructor() {
     this.emitter = new EventEmitter({ captureRejections: true });
     this.emitter.on('error', (error: Error) => {
-      logger.error(error);
+      logger.error(error.message, { stack: error.stack });
     });
   }
 
