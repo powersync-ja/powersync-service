@@ -109,7 +109,13 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     }
   }
 
-  private mapListCurrentConnectionsResponse(result: SdkReportingDecoded): ListCurrentConnections {
+  private mapListCurrentConnectionsResponse(result: SdkReportingDecoded | null): ListCurrentConnections {
+    if (!result) {
+      return {
+        users: 0,
+        sdks: []
+      };
+    }
     return {
       users: Number(result.users),
       sdks: result.sdks?.data || []
@@ -228,140 +234,132 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     const jwtExpIsoString = jwt_exp!.toISOString();
     const { gte, lt } = this.updateTableFilter();
     const uuid = v4();
-    const result = await this.db.query({
-      statement: `
-                  UPDATE sdk_report_events
-                  SET connect_at = $1::timestamptz,
-                      sdk = $2,
-                      user_agent = $3,
-                      jwt_exp = $4::timestamptz,
-                      disconnect_at = NULL
-                  WHERE user_id = $5
-                    AND client_id = $6
-                    AND connect_at >= $7::timestamptz
-                    AND connect_at < $8::timestamptz;
-`,
-      params: [
-        { type: 1184, value: connectIsoString },
-        { type: 'varchar', value: sdk },
-        { type: 'varchar', value: user_agent },
-        { type: 1184, value: jwtExpIsoString },
-        { type: 'varchar', value: user_id },
-        { type: 'varchar', value: client_id },
-        { type: 1184, value: gte },
-        { type: 1184, value: lt }
-      ]
-    });
-    if (result.rows.length === 0) {
-      await this.db.query({
-        statement: `
-                    INSERT INTO sdk_report_events (
-                      user_id, client_id, connect_at, sdk, user_agent, jwt_exp, id
-                    )
-                    SELECT $1, $2, $3::timestamptz, $4, $5, $6::timestamptz, $7
-                      WHERE NOT EXISTS (
-                    SELECT 1 FROM sdk_report_events
-                    WHERE user_id = $1
-                      AND client_id = $2
-                      AND connect_at >= $8::timestamptz
-                      AND connect_at < $9::timestamptz
-                      );`,
-        params: [
-          { type: 'varchar', value: user_id },
-          { type: 'varchar', value: client_id },
-          { type: 1184, value: connectIsoString },
-          { type: 'varchar', value: sdk },
-          { type: 'varchar', value: user_agent },
-          { type: 1184, value: jwtExpIsoString },
-          { type: 'varchar', value: uuid },
-          { type: 1184, value: gte },
-          { type: 1184, value: lt }
-        ]
-      });
+    const result = await this.db.sql`
+      UPDATE sdk_report_events
+      SET
+        connect_at = ${{ type: 1184, value: connectIsoString }},
+        sdk = ${{ type: 'varchar', value: sdk }},
+        user_agent = ${{ type: 'varchar', value: user_agent }},
+        jwt_exp = ${{ type: 1184, value: jwtExpIsoString }},
+        disconnect_at = NULL
+      WHERE
+        user_id = ${{ type: 'varchar', value: user_id }}
+        AND client_id = ${{ type: 'varchar', value: client_id }}
+        AND connect_at >= ${{ type: 1184, value: gte }}
+        AND connect_at < ${{ type: 1184, value: lt }};
+    `.rows();
+    if (result.length === 0) {
+      await this.db.sql`
+        INSERT INTO
+          sdk_report_events (
+            user_id,
+            client_id,
+            connect_at,
+            sdk,
+            user_agent,
+            jwt_exp,
+            id
+          )
+        SELECT
+          ${{ type: 'varchar', value: user_id }},
+          ${{ type: 'varchar', value: client_id }},
+          ${{ type: 1184, value: connectIsoString }},
+          ${{ type: 'varchar', value: sdk }},
+          ${{ type: 'varchar', value: user_agent }},
+          ${{ type: 1184, value: jwtExpIsoString }},
+          ${{ type: 'varchar', value: uuid }}
+        WHERE
+          NOT EXISTS (
+            SELECT
+              1
+            FROM
+              sdk_report_events
+            WHERE
+              user_id = ${{ type: 'varchar', value: user_id }}
+              AND client_id = ${{ type: 'varchar', value: client_id }}
+              AND connect_at >= ${{ type: 1184, value: gte }}
+              AND connect_at < ${{ type: 1184, value: lt }}
+          );
+      `.execute();
     }
   }
   async reportSdkDisconnect(data: SdkDisconnectEventData): Promise<void> {
     const { user_id, client_id, disconnect_at } = data;
     const disconnectIsoString = disconnect_at.toISOString();
     const { gte, lt } = this.updateTableFilter();
-    const query = `
+    await this.db.sql`
       UPDATE sdk_report_events
       SET
-        disconnect_at = CAST($1 AS TIMESTAMP WITH TIME ZONE),
+        disconnect_at = ${{ type: 1184, value: disconnectIsoString }},
         jwt_exp = NULL
-      WHERE user_id = $2
-        AND client_id = $3
-        AND connect_at >= CAST($4 AS TIMESTAMP WITH TIME ZONE)
-        AND connect_at < CAST($5 AS TIMESTAMP WITH TIME ZONE);`;
-
-    const result = await this.db.query({
-      statement: query,
-      params: [
-        { type: 1184, value: disconnectIsoString },
-        { type: 'varchar', value: user_id },
-        { type: 'varchar', value: client_id },
-        { type: 1184, value: gte },
-        { type: 1184, value: lt }
-      ]
-    });
+      WHERE
+        user_id = ${{ type: 'varchar', value: user_id }}
+        AND client_id = ${{ type: 'varchar', value: client_id }}
+        AND connect_at >= ${{ type: 1184, value: gte }}
+        AND connect_at < ${{ type: 1184, value: lt }};
+    `.execute();
   }
   async listCurrentConnections(data: ListCurrentConnectionsRequest): Promise<ListCurrentConnections> {
     const result = await this.listConnectionsQuery(data);
-    if (!result) {
-      return {
-        users: 0,
-        sdks: []
-      };
-    }
     return this.mapListCurrentConnectionsResponse(result);
   }
 
   async scrapeSdkData(data: ScrapeSdkDataRequest): Promise<ListCurrentConnections> {
     const { timeframe, interval } = data;
     const { lt, gt } = this.timeFrameQuery(timeframe, interval);
-    const query = `
-      WITH filtered AS (
-            SELECT *
-            FROM sdk_report_events
-            WHERE connect_at > CAST($1 AS TIMESTAMP WITH TIME ZONE)
-            AND connect_at <= CAST($2 AS TIMESTAMP WITH TIME ZONE)
-                        ),
-      unique_users AS (
-            SELECT COUNT(DISTINCT user_id) AS count
-            FROM filtered
-                        ),
-      sdk_versions_array AS (
-            SELECT sdk,
-            COUNT(*) AS total,
+    const result = await this.db.sql`
+      WITH
+        filtered AS (
+          SELECT
+            *
+          FROM
+            sdk_report_events
+          WHERE
+            connect_at > ${{ type: 1184, value: gt }}
+            AND connect_at <= ${{ type: 1184, value: lt }}
+        ),
+        unique_users AS (
+          SELECT
+            COUNT(DISTINCT user_id) AS count
+          FROM
+            filtered
+        ),
+        sdk_versions_array AS (
+          SELECT
+            sdk,
             COUNT(DISTINCT client_id) AS clients,
             COUNT(DISTINCT user_id) AS users
-            FROM filtered
-            GROUP BY sdk
-                            )
-      SELECT COALESCE(u.count, 0) AS users, JSON_AGG(ROW_TO_JSON(s)) AS sdks
-      FROM unique_users u
-      JOIN sdk_versions_array s ON TRUE;
-    `;
-    const result = await this.db.query({ statement: query, params: [{ value: gt }, { value: lt }] });
-    console.log(result.rows);
-    return {
-      users: 0,
-      sdks: []
-    };
+          FROM
+            filtered
+          GROUP BY
+            sdk
+        )
+      SELECT
+        COALESCE(u.count, 0) AS users,
+        JSON_AGG(ROW_TO_JSON(s)) AS sdks
+      FROM
+        unique_users u
+        JOIN sdk_versions_array s ON TRUE;
+    `
+      .decoded(SdkReporting)
+      .first();
+    return this.mapListCurrentConnectionsResponse(result);
   }
   async deleteOldSdkData(data: DeleteOldSdkData): Promise<void> {
     const { timeframe, interval } = data;
     const { lt } = this.timeFrameDeleteQuery(timeframe, interval);
-    const query = `
-    DELETE FROM sdk_report_events
-    WHERE connect_at < CAST($1 AS TIMESTAMP WITH TIME ZONE)
-      AND (
-        disconnect_at IS NOT NULL
-        OR (jwt_exp < NOW() AND disconnect_at IS NULL)
-          );
-`;
-    const params = [{ value: lt }];
-    await this.db.query({ statement: query, params });
+    await this.db.sql`
+      DELETE FROM sdk_report_events
+      WHERE
+        connect_at < ${{ type: 1184, value: lt }}
+        AND (
+          disconnect_at IS NOT NULL
+          OR (
+            jwt_exp < NOW()
+            AND disconnect_at IS NULL
+          )
+        );
+    `.execute();
   }
 
   async [Symbol.asyncDispose]() {
