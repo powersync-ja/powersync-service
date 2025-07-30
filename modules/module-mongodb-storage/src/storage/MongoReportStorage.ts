@@ -166,7 +166,9 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
       $or: [{ disconnect_at: { $exists: true } }, { jwt_exp: { $lt: new Date() }, disconnect_at: { $exists: false } }]
     });
     if (result.deletedCount > 0) {
-      logger.info(`TTL: ${result.deletedCount} documents have been removed from sdk_report_events collection`);
+      logger.info(
+        `TTL ${interval}/${timeframe}: ${result.deletedCount} MongoDB documents have been removed from sdk_report_events.`
+      );
     }
   }
 

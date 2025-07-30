@@ -16,6 +16,8 @@ import {
   SdkDisconnectEventData
 } from '@powersync/service-types/src/events.js';
 import { SdkReporting, SdkReportingDecoded } from '../types/models/SdkReporting.js';
+import { toInteger } from 'ix/util/tointeger.js';
+import { logger } from '@powersync/lib-services-framework';
 
 export type PostgresReportStorageOptions = {
   config: NormalizedPostgresStorageConfig;
@@ -367,7 +369,12 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
           )
         );
     `.execute();
-    console.log(result);
+    const deletedRows = toInteger(result.results[1].status.split(' ')[1] || '0');
+    if (deletedRows > 0) {
+      logger.info(
+        `TTL ${interval}/${timeframe}: ${deletedRows} PostgresSQL rows have been removed from sdk_report_events.`
+      );
+    }
   }
 
   async [Symbol.asyncDispose]() {
