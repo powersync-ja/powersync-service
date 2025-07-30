@@ -9,7 +9,7 @@ export class EmitterEngine implements BaseEmitterEngine {
   constructor() {
     this.emitter = new EventEmitter({ captureRejections: true });
     this.emitter.on('error', (error: Error) => {
-      logger.error(error.message, { stack: error.stack });
+      logger.error(error.message);
     });
   }
 
@@ -29,11 +29,7 @@ export class EmitterEngine implements BaseEmitterEngine {
   }
 
   emit<K extends keyof event_types.SubscribeEvents>(event: K, data: event_types.SubscribeEvents[K]): void {
-    if (!this.events.has(event as event_types.EmitterEngineEvents)) {
-      this.emitter.emit('error', new Error(`There are no subscribed events for "${event}".`));
-    } else {
-      this.emitter.emit(event, data);
-    }
+    this.emitter.emit(event, data);
   }
 
   shutDown(): void {
