@@ -69,9 +69,7 @@ export function normalizeQuerierOptions(
   const globalParameters = normalizeTokenParameters(token_parameters, user_parameters);
   return {
     globalParameters,
-    hasDefaultSubscriptions: true,
-    resolveSubscription(name) {
-      return null;
-    }
+    hasDefaultStreams: true,
+    streams: {}
   };
 }
