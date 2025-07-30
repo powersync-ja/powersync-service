@@ -204,7 +204,7 @@ export class SqlDataQuery extends BaseSqlDataQuery {
         // anything.
         id = castAsText(id) ?? '';
       }
-      const outputTable = this.getOutputName(table.table);
+      const outputTable = this.getOutputName(table.name);
 
       return bucketIds.map((bucketId) => {
         return {

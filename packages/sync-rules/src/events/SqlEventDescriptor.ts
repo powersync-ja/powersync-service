@@ -1,5 +1,4 @@
 import { SqlRuleError } from '../errors.js';
-import { IdSequence } from '../IdSequence.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { QueryParseResult } from '../SqlBucketDescriptor.js';
 import { SyncRulesOptions } from '../SqlSyncRules.js';
@@ -43,7 +42,7 @@ export class SqlEventDescriptor {
     const matchingQuery = this.sourceQueries.find((q) => q.applies(options.sourceTable));
     if (!matchingQuery) {
       return {
-        errors: [{ error: `No marching source query found for table ${options.sourceTable.table}` }]
+        errors: [{ error: `No matching source query found for table ${options.sourceTable.name}` }]
       };
     }
 

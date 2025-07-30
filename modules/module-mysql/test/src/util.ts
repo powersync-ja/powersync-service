@@ -6,6 +6,7 @@ import mysqlPromise from 'mysql2/promise';
 import { env } from './env.js';
 import { describe, TestOptions } from 'vitest';
 import { TestStorageFactory } from '@powersync/service-core';
+import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManager.js';
 
 export const TEST_URI = env.MYSQL_TEST_URI;
 
@@ -51,4 +52,9 @@ export async function clearTestDb(connection: mysqlPromise.Connection) {
       await connection.query(`DROP TABLE ${name}`);
     }
   }
+}
+
+export async function createTestDb(connectionManager: MySQLConnectionManager, dbName: string) {
+  await connectionManager.query(`DROP DATABASE IF EXISTS ${dbName}`);
+  await connectionManager.query(`CREATE DATABASE IF NOT EXISTS ${dbName}`);
 }

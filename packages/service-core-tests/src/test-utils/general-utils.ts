@@ -37,15 +37,15 @@ export function testRules(content: string): storage.PersistedSyncRulesContent {
 export function makeTestTable(name: string, replicaIdColumns?: string[] | undefined) {
   const relId = utils.hashData('table', name, (replicaIdColumns ?? ['id']).join(','));
   const id = new bson.ObjectId('6544e3899293153fa7b38331');
-  return new storage.SourceTable(
-    id,
-    storage.SourceTable.DEFAULT_TAG,
-    relId,
-    'public',
-    name,
-    (replicaIdColumns ?? ['id']).map((column) => ({ name: column, type: 'VARCHAR', typeId: 25 })),
-    true
-  );
+  return new storage.SourceTable({
+    id: id,
+    connectionTag: storage.SourceTable.DEFAULT_TAG,
+    objectId: relId,
+    schema: 'public',
+    name: name,
+    replicaIdColumns: (replicaIdColumns ?? ['id']).map((column) => ({ name: column, type: 'VARCHAR', typeId: 25 })),
+    snapshotComplete: true
+  });
 }
 
 export function getBatchData(
