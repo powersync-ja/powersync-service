@@ -30,9 +30,10 @@ export class EmitterEngine implements BaseEmitterEngine {
 
   emit<K extends keyof event_types.SubscribeEvents>(event: K, data: event_types.SubscribeEvents[K]): void {
     if (!this.events.has(event as event_types.EmitterEngineEvents)) {
-      return;
+      this.emitter.emit('error', new Error(`There are no subscribed events for "${event}".`));
+    } else {
+      this.emitter.emit(event, data);
     }
-    this.emitter.emit(event, data);
   }
 
   shutDown(): void {
