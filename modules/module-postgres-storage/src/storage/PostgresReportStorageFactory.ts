@@ -250,31 +250,30 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
         AND connect_at >= ${{ type: 1184, value: gte }}
         AND connect_at < ${{ type: 1184, value: lt }};
     `.execute();
-    console.log(result.results);
-    // if (result.results[] === 0) {
-    //   await this.db.sql`
-    //     INSERT INTO
-    //       sdk_report_events (
-    //         user_id,
-    //         client_id,
-    //         connect_at,
-    //         sdk,
-    //         user_agent,
-    //         jwt_exp,
-    //         id
-    //       )
-    //     VALUES
-    //       (
-    //         ${{ type: 'varchar', value: user_id }},
-    //         ${{ type: 'varchar', value: client_id }},
-    //         ${{ type: 1184, value: connectIsoString }},
-    //         ${{ type: 'varchar', value: sdk }},
-    //         ${{ type: 'varchar', value: user_agent }},
-    //         ${{ type: 1184, value: jwtExpIsoString }},
-    //         ${{ type: 'varchar', value: uuid }}
-    //       )
-    //   `.execute();
-    // }
+    if (result.results[1].status === 'UPDATE 0') {
+      await this.db.sql`
+        INSERT INTO
+          sdk_report_events (
+            user_id,
+            client_id,
+            connect_at,
+            sdk,
+            user_agent,
+            jwt_exp,
+            id
+          )
+        VALUES
+          (
+            ${{ type: 'varchar', value: user_id }},
+            ${{ type: 'varchar', value: client_id }},
+            ${{ type: 1184, value: connectIsoString }},
+            ${{ type: 'varchar', value: sdk }},
+            ${{ type: 'varchar', value: user_agent }},
+            ${{ type: 1184, value: jwtExpIsoString }},
+            ${{ type: 'varchar', value: uuid }}
+          )
+      `.execute();
+    }
   }
   async reportSdkDisconnect(data: SdkDisconnectEventData): Promise<void> {
     const { user_id, client_id, disconnect_at } = data;
