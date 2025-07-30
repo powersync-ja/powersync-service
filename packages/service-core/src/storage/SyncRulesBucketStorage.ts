@@ -69,7 +69,7 @@ export interface SyncRulesBucketStorage
   /**
    * Used to resolve "dynamic" parameter queries.
    */
-  getParameterSets(checkpoint: util.InternalOpId, lookups: ParameterLookup[]): Promise<SqliteJsonRow[]>;
+  getParameterSets(checkpoint: ReplicationCheckpoint, lookups: ParameterLookup[]): Promise<SqliteJsonRow[]>;
 
   /**
    * Given two checkpoints, return the changes in bucket data and parameters that may have occurred
@@ -243,6 +243,7 @@ export interface SyncBucketDataChunk {
 export interface ReplicationCheckpoint {
   readonly checkpoint: util.InternalOpId;
   readonly lsn: string | null;
+  readonly clusterTime: unknown;
 }
 
 export interface WatchWriteCheckpointOptions {

@@ -109,17 +109,19 @@ export class MongoSyncBucketStorage
     const doc = await this.db.sync_rules.findOne(
       { _id: this.group_id },
       {
-        projection: { last_checkpoint: 1, last_checkpoint_lsn: 1, snapshot_done: 1 }
+        projection: { last_checkpoint: 1, last_checkpoint_lsn: 1, snapshot_done: 1, last_checkpoint_clustertime: 1 }
       }
     );
     if (!doc?.snapshot_done) {
       return {
         checkpoint: 0n,
+        clusterTime: null,
         lsn: null
       };
     }
     return {
       checkpoint: doc?.last_checkpoint ?? 0n,
+      clusterTime: doc?.last_checkpoint_clustertime ?? null,
       lsn: doc?.last_checkpoint_lsn ?? null
     };
   }
@@ -261,17 +263,24 @@ export class MongoSyncBucketStorage
     return result!;
   }
 
-  async getParameterSets(checkpoint: utils.InternalOpId, lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
+  async getParameterSets(checkpoint: ReplicationCheckpoint, lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
+    console.trace('getParameterSets', checkpoint);
     const lookupFilter = lookups.map((lookup) => {
       return storage.serializeLookup(lookup);
     });
+    // 1. Filter by sync rules version (group_id)
+    // 2. Filter by lookup keys
+    // 3. Filter by checkpoint (_id <= checkpoint)
+    // 4. Return the latest parameter set for each (key, lookup)
+    // This is indexed on  {'key.g', lookup, _id}, which should cover the $match stage.
+    // To prevent having too many results after the $match stage, we need to compact periodically.
     const rows = await this.db.bucket_parameters
       .aggregate([
         {
           $match: {
             'key.g': this.group_id,
             lookup: { $in: lookupFilter },
-            _id: { $lte: checkpoint }
+            _id: { $lte: checkpoint.checkpoint }
           }
         },
         {
@@ -289,6 +298,17 @@ export class MongoSyncBucketStorage
         }
       ])
       .toArray();
+
+    if (checkpoint.clusterTime != null) {
+      console.log('snapshot query', checkpoint.clusterTime);
+      const d = await this.db.db.command({
+        find: 'bucket_parameters',
+        readConcern: {
+          level: 'snapshot',
+          atClusterTime: checkpoint.clusterTime
+        }
+      });
+    }
     const groupedParameters = rows.map((row) => {
       return row.bucket_parameters;
     });
@@ -661,9 +681,10 @@ export class MongoSyncBucketStorage
     return new MongoCompactor(this.db, this.group_id, options).compact();
   }
 
-  private makeActiveCheckpoint(doc: SyncRuleCheckpointState | null) {
+  private makeActiveCheckpoint(doc: SyncRuleCheckpointState | null): ReplicationCheckpoint {
     return {
       checkpoint: doc?.last_checkpoint ?? 0n,
+      clusterTime: doc?.last_checkpoint_clustertime ?? null,
       lsn: doc?.last_checkpoint_lsn ?? null
     };
   }
@@ -698,7 +719,8 @@ export class MongoSyncBucketStorage
             _id: 1,
             state: 1,
             last_checkpoint: 1,
-            last_checkpoint_lsn: 1
+            last_checkpoint_lsn: 1,
+            last_checkpoint_clustertime: 1
           }
         }
       );

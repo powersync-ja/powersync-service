@@ -718,6 +718,7 @@ export class MongoBucketBatch
 
     if (this.persisted_op != null) {
       update.last_checkpoint = this.persisted_op;
+      update.last_checkpoint_clustertime = '$$CLUSTER_TIME' as any;
     }
 
     // Mark relevant write checkpoints as "processed".
@@ -741,10 +742,14 @@ export class MongoBucketBatch
       {
         _id: this.group_id
       },
-      {
-        $set: update,
-        $unset: { snapshot_lsn: 1 }
-      },
+      [
+        {
+          $set: update
+        },
+        {
+          $unset: ['snapshot_lsn']
+        }
+      ],
       { session: this.session }
     );
     await this.autoActivate(lsn);

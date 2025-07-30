@@ -137,6 +137,8 @@ export interface SyncRuleDocument {
    */
   last_checkpoint: bigint | null;
 
+  last_checkpoint_clustertime?: bson.Timestamp | null;
+
   /**
    * The LSN associated with the last consistent checkpoint.
    */
@@ -185,7 +187,7 @@ export interface CheckpointEventDocument {
 
 export type SyncRuleCheckpointState = Pick<
   SyncRuleDocument,
-  'last_checkpoint' | 'last_checkpoint_lsn' | '_id' | 'state'
+  'last_checkpoint' | 'last_checkpoint_lsn' | '_id' | 'state' | 'last_checkpoint_clustertime'
 >;
 
 export interface CustomWriteCheckpointDocument {
