@@ -1,4 +1,4 @@
-import mysqlPromise from 'mysql2/promise';
+import mysqlPromise, { ResultSetHeader } from 'mysql2/promise';
 import * as mysql_utils from '../utils/mysql-utils.js';
 
 export const KEEP_ALIVE_TABLE = 'powersync_keepalive';
@@ -51,11 +51,14 @@ async function createKeepAliveTable(connection: mysqlPromise.Connection): Promis
 }
 
 export async function pingKeepAlive(connection: mysqlPromise.Connection): Promise<void> {
-  await mysql_utils.retriedQuery({
-    connection,
-    // The last_ping timestamp is automatically updated
-    query: `UPDATE ${KEEP_ALIVE_TABLE} SET last_ping = NOW(3) WHERE id = 1`
-  });
+  const [result] = await connection.query<ResultSetHeader>(
+    `UPDATE ${KEEP_ALIVE_TABLE} SET last_ping = NOW(3) WHERE id = 1` // The last_ping timestamp is automatically updated
+  );
+
+  if (result.affectedRows === 0) {
+    // If no rows were affected, it means the table was not set up correctly
+    throw new Error(`Failed to update ${KEEP_ALIVE_TABLE} table.`);
+  }
 }
 
 export async function getLastKeepAlive(connection: mysqlPromise.Connection): Promise<Date | null> {
@@ -64,7 +67,7 @@ export async function getLastKeepAlive(connection: mysqlPromise.Connection): Pro
     query: `SELECT last_ping FROM ${KEEP_ALIVE_TABLE} WHERE id = 1`
   });
 
-  return result.last_ping ? new Date(result.last_ping) : null;
+  return result?.last_ping ? new Date(result.last_ping) : null;
 }
 
 export async function tearDownKeepAlive(connection: mysqlPromise.Connection): Promise<void> {
