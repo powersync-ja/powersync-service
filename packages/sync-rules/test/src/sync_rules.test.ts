@@ -10,11 +10,12 @@ import {
   normalizeQuerierOptions,
   normalizeTokenParameters
 } from './util.js';
+import { SqlBucketDescriptor } from '../../src/SqlBucketDescriptor.js';
 
 describe('sync rules', () => {
   test('parse empty sync rules', () => {
     const rules = SqlSyncRules.fromYaml('bucket_definitions: {}', PARSE_OPTIONS);
-    expect(rules.bucketDescriptors).toEqual([]);
+    expect(rules.bucketSources).toEqual([]);
   });
 
   test('parse global sync rules', () => {
@@ -27,7 +28,7 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const bucket = rules.bucketDescriptors[0];
+    const bucket = rules.bucketSources[0] as SqlBucketDescriptor;
     expect(bucket.name).toEqual('mybucket');
     expect(bucket.bucketParameters).toEqual([]);
     const dataQuery = bucket.dataQueries[0];
@@ -61,7 +62,7 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const bucket = rules.bucketDescriptors[0];
+    const bucket = rules.bucketSources[0] as SqlBucketDescriptor;
     expect(bucket.bucketParameters).toEqual([]);
     const param_query = bucket.globalParameterQueries[0];
 
@@ -93,7 +94,7 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const bucket = rules.bucketDescriptors[0];
+    const bucket = rules.bucketSources[0] as SqlBucketDescriptor;
     expect(bucket.bucketParameters).toEqual([]);
     const param_query = bucket.parameterQueries[0];
     expect(param_query.bucketParameters).toEqual([]);
@@ -117,14 +118,16 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const bucket = rules.bucketDescriptors[0];
+    const bucket = rules.bucketSources[0] as SqlBucketDescriptor;
     expect(bucket.bucketParameters).toEqual(['user_id', 'device_id']);
     const param_query = bucket.globalParameterQueries[0];
     expect(param_query.bucketParameters).toEqual(['user_id', 'device_id']);
     expect(
       rules.getBucketParameterQuerier(normalizeQuerierOptions({ user_id: 'user1' }, { device_id: 'device1' }))
         .staticBuckets
-    ).toEqual([{ bucket: 'mybucket["user1","device1"]', priority: 3 }]);
+    ).toEqual([
+      { bucket: 'mybucket["user1","device1"]', definition: 'mybucket', inclusion_reasons: ['default'], priority: 3 }
+    ]);
 
     const data_query = bucket.dataQueries[0];
     expect(data_query.bucketParameters).toEqual(['user_id', 'device_id']);
@@ -163,12 +166,12 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const bucket = rules.bucketDescriptors[0];
+    const bucket = rules.bucketSources[0] as SqlBucketDescriptor;
     expect(bucket.bucketParameters).toEqual(['user_id']);
     const param_query = bucket.globalParameterQueries[0];
     expect(param_query.bucketParameters).toEqual(['user_id']);
     expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({ user_id: 'user1' })).staticBuckets).toEqual([
-      { bucket: 'mybucket["user1"]', priority: 3 }
+      { bucket: 'mybucket["user1"]', definition: 'mybucket', inclusion_reasons: ['default'], priority: 3 }
     ]);
 
     const data_query = bucket.dataQueries[0];
@@ -307,7 +310,7 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const bucket = rules.bucketDescriptors[0];
+    const bucket = rules.bucketSources[0] as SqlBucketDescriptor;
     expect(bucket.bucketParameters).toEqual(['user_id']);
     expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({ user_id: 'user1' }))).toMatchObject({
       staticBuckets: [{ bucket: 'mybucket["USER1"]', priority: 3 }],
@@ -344,7 +347,7 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const bucket = rules.bucketDescriptors[0];
+    const bucket = rules.bucketSources[0] as SqlBucketDescriptor;
     expect(bucket.bucketParameters).toEqual(['user_id']);
     expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({ user_id: 'user1' }))).toMatchObject({
       staticBuckets: [{ bucket: 'mybucket["USER1"]', priority: 3 }],
@@ -512,7 +515,7 @@ bucket_definitions:
     ]);
 
     expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({ is_admin: true })).staticBuckets).toEqual([
-      { bucket: 'mybucket[1]', priority: 3 }
+      { bucket: 'mybucket[1]', definition: 'mybucket', inclusion_reasons: ['default'], priority: 3 }
     ]);
   });
 
@@ -921,7 +924,7 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const bucket = rules.bucketDescriptors[0];
+    const bucket = rules.bucketSources[0] as SqlBucketDescriptor;
     expect(bucket.bucketParameters).toEqual(['user_id']);
     expect(rules.hasDynamicBucketQueries()).toBe(true);
 
