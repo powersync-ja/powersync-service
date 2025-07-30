@@ -262,25 +262,26 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
             jwt_exp,
             id
           )
-        SELECT
+        VALUES
           ${{ type: 'varchar', value: user_id }},
           ${{ type: 'varchar', value: client_id }},
           ${{ type: 1184, value: connectIsoString }},
           ${{ type: 'varchar', value: sdk }},
           ${{ type: 'varchar', value: user_agent }},
           ${{ type: 1184, value: jwtExpIsoString }},
-          ${{ type: 'varchar', value: uuid }}
+          ${{ type: 'varchar', value: uuid }} / /
         WHERE
-          NOT EXISTS (
+          / / NOT EXISTS (
+            / /
             SELECT
-              1
+              / / 1 / /
             FROM
-              sdk_report_events
+              / / sdk_report_events / /
             WHERE
-              user_id = ${{ type: 'varchar', value: user_id }}
-              AND client_id = ${{ type: 'varchar', value: client_id }}
-              AND connect_at >= ${{ type: 1184, value: gte }}
-              AND connect_at < ${{ type: 1184, value: lt }}
+              / / user_id = ${{ type: 'varchar', value: user_id }} / /
+              AND client_id = ${{ type: 'varchar', value: client_id }} / /
+              AND connect_at >= ${{ type: 1184, value: gte }} / /
+              AND connect_at < ${{ type: 1184, value: lt }} / /
           );
       `.execute();
     }
