@@ -263,13 +263,15 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
             id
           )
         VALUES
-          ${{ type: 'varchar', value: user_id }},
-          ${{ type: 'varchar', value: client_id }},
-          ${{ type: 1184, value: connectIsoString }},
-          ${{ type: 'varchar', value: sdk }},
-          ${{ type: 'varchar', value: user_agent }},
-          ${{ type: 1184, value: jwtExpIsoString }},
-          ${{ type: 'varchar', value: uuid }}
+          (
+            ${{ type: 'varchar', value: user_id }},
+            ${{ type: 'varchar', value: client_id }},
+            ${{ type: 1184, value: connectIsoString }},
+            ${{ type: 'varchar', value: sdk }},
+            ${{ type: 'varchar', value: user_agent }},
+            ${{ type: 1184, value: jwtExpIsoString }},
+            ${{ type: 'varchar', value: uuid }}
+          )
       `.execute();
     }
   }
