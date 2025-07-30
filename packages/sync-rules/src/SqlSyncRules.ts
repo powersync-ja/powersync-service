@@ -5,7 +5,7 @@ import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
 import { validateSyncRulesSchema } from './json_schema.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
-import { QueryParseResult, SqlBucketDescriptor, SqlBucketDescriptorType } from './SqlBucketDescriptor.js';
+import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js';
 import { TablePattern } from './TablePattern.js';
 import {
   EvaluatedParameters,
@@ -22,9 +22,9 @@ import {
   SourceSchema,
   SqliteJsonRow,
   SqliteRow,
-  StreamParseOptions,
   SyncRules
 } from './types.js';
+import { BucketSource } from './BucketSource.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -75,7 +75,7 @@ export interface GetQuerierOptions {
 }
 
 export class SqlSyncRules implements SyncRules {
-  bucketDescriptors: SqlBucketDescriptor[] = [];
+  bucketSources: BucketSource[] = [];
   eventDescriptors: SqlEventDescriptor[] = [];
 
   content: string;
@@ -132,8 +132,6 @@ export class SqlSyncRules implements SyncRules {
 
     // Bucket definitions using explicit parameter and data queries.
     const bucketMap = parsed.get('bucket_definitions') as YAMLMap;
-    // Streams (which also map to buckets internally) with a new syntax and options.
-    const streamMap = parsed.get('streams') as YAMLMap;
     const definitionNames = new Set<string>();
     const checkUniqueName = (name: string, literal: Scalar) => {
       if (definitionNames.has(name)) {
@@ -145,8 +143,8 @@ export class SqlSyncRules implements SyncRules {
       return true;
     };
 
-    if (bucketMap == null && streamMap == null) {
-      rules.errors.push(new YamlError(new Error(`Either 'bucket_definitions' or 'streams' are required`)));
+    if (bucketMap == null) {
+      rules.errors.push(new YamlError(new Error(`'bucket_definitions' is required`)));
 
       if (throwOnError) {
         rules.throwOnError();
@@ -178,7 +176,7 @@ export class SqlSyncRules implements SyncRules {
       const parameters = value.get('parameters', true) as unknown;
       const dataQueries = value.get('data', true) as unknown;
 
-      const descriptor = new SqlBucketDescriptor(key, SqlBucketDescriptorType.SYNC_RULE);
+      const descriptor = new SqlBucketDescriptor(key);
 
       if (parameters instanceof Scalar) {
         rules.withScalar(parameters, (q) => {
@@ -203,39 +201,7 @@ export class SqlSyncRules implements SyncRules {
           return descriptor.addDataQuery(q, queryOptions);
         });
       }
-      rules.bucketDescriptors.push(descriptor);
-    }
-
-    for (const entry of streamMap?.items ?? []) {
-      const { key: keyScalar, value } = entry as { key: Scalar; value: YAMLMap };
-      const key = keyScalar.toString();
-      if (!checkUniqueName(key, keyScalar)) {
-        continue;
-      }
-
-      const descriptor = new SqlBucketDescriptor(key, SqlBucketDescriptorType.STREAM);
-
-      const accept_potentially_dangerous_queries =
-        value.get('accept_potentially_dangerous_queries', true)?.value == true;
-
-      const queryOptions: StreamParseOptions = {
-        ...options,
-        accept_potentially_dangerous_queries,
-        priority: rules.parsePriority(value),
-        default: value.get('default', true)?.value == true
-      };
-
-      const data = value.get('query', true) as unknown;
-      if (data instanceof Scalar) {
-        rules.withScalar(data, (q) => {
-          return descriptor.addUnifiedStreamQuery(q, queryOptions);
-        });
-      } else {
-        rules.errors.push(this.tokenError(data, 'Must be a string.'));
-        continue;
-      }
-
-      rules.bucketDescriptors.push(descriptor);
+      rules.bucketSources.push(descriptor);
     }
 
     const eventMap = parsed.get('event_definitions') as YAMLMap;
@@ -354,8 +320,8 @@ export class SqlSyncRules implements SyncRules {
 
   evaluateRowWithErrors(options: EvaluateRowOptions): { results: EvaluatedRow[]; errors: EvaluationError[] } {
     let rawResults: EvaluationResult[] = [];
-    for (let query of this.bucketDescriptors) {
-      rawResults.push(...query.evaluateRow(options));
+    for (let source of this.bucketSources) {
+      rawResults.push(...source.evaluateRow(options));
     }
 
     const results = rawResults.filter(isEvaluatedRow) as EvaluatedRow[];
@@ -380,8 +346,8 @@ export class SqlSyncRules implements SyncRules {
     row: SqliteRow
   ): { results: EvaluatedParameters[]; errors: EvaluationError[] } {
     let rawResults: EvaluatedParametersResult[] = [];
-    for (let query of this.bucketDescriptors) {
-      rawResults.push(...query.evaluateParameterRow(table, row));
+    for (let source of this.bucketSources) {
+      rawResults.push(...source.evaluateParameterRow(table, row));
     }
 
     const results = rawResults.filter(isEvaluatedParameters) as EvaluatedParameters[];
@@ -391,49 +357,20 @@ export class SqlSyncRules implements SyncRules {
 
   getBucketParameterQuerier(options: GetQuerierOptions): BucketParameterQuerier {
     const queriers: BucketParameterQuerier[] = [];
-    for (const descriptor of this.bucketDescriptors) {
-      let params = options.globalParameters;
-
-      if (descriptor.type == SqlBucketDescriptorType.STREAM) {
-        const subscriptions = options.streams[descriptor.name] ?? [];
-
-        if (!descriptor.subscribedToByDefault && subscriptions.length) {
-          // The client is not subscribing to this stream, so don't query buckets related to it.
-          continue;
-        }
-
-        let hasExplicitDefaultSubscription = false;
-        for (const subscription of subscriptions) {
-          let subscriptionParams = params;
-          if (subscription.parameters != null) {
-            subscriptionParams = params.withAddedStreamParameters(subscription.parameters);
-          } else {
-            hasExplicitDefaultSubscription = true;
-          }
-
-          descriptor.pushBucketParameterQueriers(queriers, options, subscriptionParams);
-        }
-
-        // If the stream is subscribed to by default and there is no explicit subscription that would match the default
-        // subscription, also include the default querier.
-        if (descriptor.subscribedToByDefault && !hasExplicitDefaultSubscription) {
-          descriptor.pushBucketParameterQueriers(queriers, options, params);
-        }
-      } else {
-        descriptor.pushBucketParameterQueriers(queriers, options, params);
-      }
+    for (const source of this.bucketSources) {
+      source.pushBucketParameterQueriers(queriers, options);
     }
 
     return mergeBucketParameterQueriers(queriers);
   }
 
   hasDynamicBucketQueries() {
-    return this.bucketDescriptors.some((query) => query.hasDynamicBucketQueries());
+    return this.bucketSources.some((s) => s.hasDynamicBucketQueries());
   }
 
   getSourceTables(): TablePattern[] {
     const sourceTables = new Map<String, TablePattern>();
-    for (const bucket of this.bucketDescriptors) {
+    for (const bucket of this.bucketSources) {
       for (const r of bucket.getSourceTables()) {
         const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
         sourceTables.set(key, r);
@@ -467,34 +404,17 @@ export class SqlSyncRules implements SyncRules {
   }
 
   tableSyncsData(table: SourceTableInterface): boolean {
-    for (const bucket of this.bucketDescriptors) {
-      if (bucket.tableSyncsData(table)) {
-        return true;
-      }
-    }
-    return false;
+    return this.bucketSources.some((b) => b.tableSyncsData(table));
   }
 
   tableSyncsParameters(table: SourceTableInterface): boolean {
-    for (let bucket of this.bucketDescriptors) {
-      if (bucket.tableSyncsParameters(table)) {
-        return true;
-      }
-    }
-    return false;
+    return this.bucketSources.some((b) => b.tableSyncsParameters(table));
   }
 
   debugGetOutputTables() {
     let result: Record<string, any[]> = {};
-    for (let bucket of this.bucketDescriptors) {
-      for (let q of bucket.dataQueries) {
-        result[q.table!] ??= [];
-        const r = {
-          query: q.sql
-        };
-
-        result[q.table!].push(r);
-      }
+    for (let bucket of this.bucketSources) {
+      bucket.debugWriteOutputTables(result);
     }
     return result;
   }

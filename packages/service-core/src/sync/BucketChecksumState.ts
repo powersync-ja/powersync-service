@@ -1,7 +1,8 @@
 import {
   BucketDescription,
   BucketPriority,
-  isValidPriority,
+  BucketSource,
+  BucketSourceType,
   RequestedStream,
   RequestParameters,
   ResolvedBucket,
@@ -22,7 +23,6 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import { BucketParameterQuerier } from '@powersync/service-sync-rules/src/BucketParameterQuerier.js';
 import { SyncContext } from './SyncContext.js';
 import { getIntersection, hasIntersection } from './util.js';
-import { SqlBucketDescriptor, SqlBucketDescriptorType } from '@powersync/service-sync-rules/src/SqlBucketDescriptor.js';
 
 export interface BucketChecksumStateOptions {
   syncContext: SyncContext;
@@ -234,14 +234,13 @@ export class BucketChecksumState {
         this.logger.info(message, { checkpoint: base.checkpoint, user_id: user_id, buckets: allBuckets.length });
       };
       bucketsToFetch = allBuckets;
-      this.parameterState.syncRules.bucketDescriptors;
 
       const subscriptions: util.StreamDescription[] = [];
-      for (const desc of this.parameterState.syncRules.bucketDescriptors) {
-        if (desc.type == SqlBucketDescriptorType.STREAM && this.parameterState.isSubscribedToStream(desc)) {
+      for (const source of this.parameterState.syncRules.bucketSources) {
+        if (source.type == BucketSourceType.SYNC_STREAM && this.parameterState.isSubscribedToStream(source)) {
           subscriptions.push({
-            name: desc.name,
-            is_default: desc.subscribedToByDefault
+            name: source.name,
+            is_default: source.subscribedToByDefault
           });
         }
       }
@@ -455,7 +454,7 @@ export class BucketParameterState {
     };
   }
 
-  isSubscribedToStream(desc: SqlBucketDescriptor): boolean {
+  isSubscribedToStream(desc: BucketSource): boolean {
     return (desc.subscribedToByDefault && this.includeDefaultStreams) || this.subscribedStreamNames.has(desc.name);
   }
 
