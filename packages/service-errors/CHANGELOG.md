@@ -1,5 +1,11 @@
 # @powersync/service-errors
 
+## 0.3.3
+
+### Patch Changes
+
+- 1aafdaf: Report HTTP method in `RouteNotFound` error
+
 ## 0.3.2
 
 ### Patch Changes
