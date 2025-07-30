@@ -15,6 +15,7 @@ import {
   SdkConnectBucketData,
   SdkDisconnectEventData
 } from '@powersync/service-types/src/events.js';
+import { SdkReporting } from '../types/models/SdkReporting.js';
 
 export type PostgresReportStorageOptions = {
   config: NormalizedPostgresStorageConfig;
@@ -152,7 +153,9 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
             FROM
               sdk_versions_array s
           ) AS sdks;
-      `.first();
+      `
+        .decoded(SdkReporting)
+        .first();
     }
     const endDate = data.range?.end_date ? new Date(data.range.end_date) : new Date();
     const startDate = new Date(range.start_date);
@@ -201,7 +204,9 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
           FROM
             sdk_versions_array s
         ) AS sdks;
-    `.first();
+    `
+      .decoded(SdkReporting)
+      .first();
   }
 
   private updateTableFilter() {
@@ -300,7 +305,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     const rows = await this.listConnectionsDateRangeQuery(data);
     console.log({ rows });
     // @ts-ignore
-    console.log(JSON.stringify(rows.sdks, null, 2));
+    console.log(rows.sdks);
     return {
       // @ts-ignore
       users: Number(rows.users),
