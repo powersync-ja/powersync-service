@@ -108,72 +108,100 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     }
   }
 
-  private listConnectionsDateRangeQuery(data: event_types.ListCurrentConnectionsRequest) {
+  private async listConnectionsDateRangeQuery(data: event_types.ListCurrentConnectionsRequest) {
     const { range } = data;
     if (!range) {
-      const query = `
-        WITH filtered AS (
-              SELECT *
-              FROM sdk_report_events
-              WHERE disconnect_at IS NULL
+      return this.db.sql`
+        WITH
+          filtered AS (
+            SELECT
+              *
+            FROM
+              sdk_report_events
+            WHERE
+              disconnect_at IS NULL
               AND jwt_exp > NOW()
-                        ),
-        unique_users AS (
-              SELECT COUNT(DISTINCT user_id) AS count
-              FROM filtered
-                        ),
-        sdk_versions_array AS (
-              SELECT sdk,
+          ),
+          unique_users AS (
+            SELECT
+              COUNT(DISTINCT user_id) AS count
+            FROM
+              filtered
+          ),
+          sdk_versions_array AS (
+            SELECT
+              sdk,
               COUNT(*) AS total,
               COUNT(DISTINCT client_id) AS clients,
               COUNT(DISTINCT user_id) AS users
-              FROM filtered
-              GROUP BY sdk
-                            )
+            FROM
+              filtered
+            GROUP BY
+              sdk
+          )
         SELECT
-            (SELECT COALESCE(count, 0) FROM unique_users) AS users,
-            (SELECT JSON_AGG(ROW_TO_JSON(s)) FROM sdk_versions_array s) AS sdks;
-    `;
-      return {
-        statement: query
-      };
+          (
+            SELECT
+              COALESCE(count, 0)
+            FROM
+              unique_users
+          ) AS users,
+          (
+            SELECT
+              JSON_AGG(ROW_TO_JSON(s))
+            FROM
+              sdk_versions_array s
+          ) AS sdks;
+      `.first();
     }
     const endDate = data.range?.end_date ? new Date(data.range.end_date) : new Date();
     const startDate = new Date(range.start_date);
-    const query = `
-      WITH filtered AS (
-              SELECT *
-              FROM sdk_report_events
-              WHERE disconnect_at IS NULL
-              AND jwt_exp > NOW()
-              AND connect_at > CAST($1 AS TIMESTAMP WITH TIME ZONE)
-              AND connect_at <= CAST($2 AS TIMESTAMP WITH TIME ZONE)
-      ),
-      unique_users AS (
-              SELECT COUNT(DISTINCT user_id) AS count
-              FROM filtered
-                        ),
-      sdk_versions_array AS (
-              SELECT sdk,
-              COUNT(*) AS total,
-              COUNT(DISTINCT client_id) AS clients,
-              COUNT(DISTINCT user_id) AS users
-              FROM filtered
-              GROUP BY sdk
-                            )
-      SELECT
-          (SELECT COALESCE(count, 0) FROM unique_users) AS users,
-          (SELECT JSON_AGG(ROW_TO_JSON(s)) FROM sdk_versions_array s) AS sdks;
-    `;
     const lt = endDate.toISOString();
     const gt = startDate.toISOString();
-    return {
-      statement: query,
-      params: [
-        { type: 1184, value: gt },
-        { type: 1184, value: lt }
-      ]
-    };
+    return await this.db.sql`
+      WITH
+        filtered AS (
+          SELECT
+            *
+          FROM
+            sdk_report_events
+          WHERE
+            disconnect_at IS NULL
+            AND jwt_exp > NOW()
+            AND connect_at > ${{ type: 1184, value: gt }}
+            AND connect_at <= ${{ type: 1184, value: lt }}
+        ),
+        unique_users AS (
+          SELECT
+            COUNT(DISTINCT user_id) AS count
+          FROM
+            filtered
+        ),
+        sdk_versions_array AS (
+          SELECT
+            sdk,
+            COUNT(*) AS total,
+            COUNT(DISTINCT client_id) AS clients,
+            COUNT(DISTINCT user_id) AS users
+          FROM
+            filtered
+          GROUP BY
+            sdk
+        )
+      SELECT
+        (
+          SELECT
+            COALESCE(count, 0)
+          FROM
+            unique_users
+        ) AS users,
+        (
+          SELECT
+            JSON_AGG(ROW_TO_JSON(s))
+          FROM
+            sdk_versions_array s
+        ) AS sdks;
+    `.first();
   }
 
   private updateTableFilter() {
@@ -269,18 +297,8 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     });
   }
   async listCurrentConnections(data: ListCurrentConnectionsRequest): Promise<ListCurrentConnections> {
-    const statement = this.listConnectionsDateRangeQuery(data);
-    const result = await this.db.query(statement);
-    console.log(
-      result.results.map((result) => {
-        if (result.rows.length > 0) {
-          console.log(result.columns);
-          console.log(result.rows);
-        }
-      })
-    );
-    const parsedResult = result.results[1].rows[1];
-    console.log(parsedResult);
+    const rows = await this.listConnectionsDateRangeQuery(data);
+    console.log(rows);
     return {
       users: 0,
       sdks: []
