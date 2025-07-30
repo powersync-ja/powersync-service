@@ -132,7 +132,6 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
           sdk_versions_array AS (
             SELECT
               sdk,
-              COUNT(*) AS total,
               COUNT(DISTINCT client_id) AS clients,
               COUNT(DISTINCT user_id) AS users
             FROM
@@ -183,7 +182,6 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
         sdk_versions_array AS (
           SELECT
             sdk,
-            COUNT(*) AS total,
             COUNT(DISTINCT client_id) AS clients,
             COUNT(DISTINCT user_id) AS users
           FROM
