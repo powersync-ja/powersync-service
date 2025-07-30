@@ -18,7 +18,7 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
         sdk TEXT NOT NULL,
         jwt_exp TIMESTAMP WITH TIME ZONE,
         connect_at TIMESTAMP WITH TIME ZONE NOT NULL,
-        disconnect_at TIMESTAMP WITH TIME ZONE,
+        disconnect_at TIMESTAMP WITH TIME ZONE
       )
     `.execute();
 
