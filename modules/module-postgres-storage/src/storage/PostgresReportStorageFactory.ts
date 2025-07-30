@@ -367,11 +367,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
           )
         );
     `.execute();
-    if (result.rows.length > 0) {
-      result.rows.forEach((row) => {
-        console.log(row);
-      });
-    }
+    console.log(result);
   }
 
   async [Symbol.asyncDispose]() {
