@@ -112,7 +112,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
   private mapListCurrentConnectionsResponse(result: SdkReportingDecoded): ListCurrentConnections {
     return {
       users: Number(result.users),
-      sdks: result.sdks.data
+      sdks: []
     };
   }
   private async listConnectionsQuery(data: event_types.ListCurrentConnectionsRequest) {
@@ -313,6 +313,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
         sdks: []
       };
     }
+    console.log(result);
     return this.mapListCurrentConnectionsResponse(result);
   }
 
