@@ -297,12 +297,8 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     });
   }
   async listCurrentConnections(data: ListCurrentConnectionsRequest): Promise<ListCurrentConnections> {
-    const rows = await this.listConnectionsDateRangeQuery(data);
-    console.log(rows);
-    return {
-      users: 0,
-      sdks: []
-    };
+    // @ts-ignore
+    return await this.listConnectionsDateRangeQuery(data);
   }
 
   async scrapeSdkData(data: ScrapeSdkDataRequest): Promise<ListCurrentConnections> {
