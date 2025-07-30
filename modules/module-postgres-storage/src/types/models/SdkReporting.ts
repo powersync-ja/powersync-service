@@ -11,9 +11,12 @@ export type Sdks = t.Encoded<typeof Sdks>;
 
 export const SdkReporting = t.object({
   users: bigint,
-  sdks: t.object({
-    data: jsonb<Sdks[]>(t.array(Sdks))
-  })
+  sdks: t
+    .object({
+      data: jsonb<Sdks[]>(t.array(Sdks))
+    })
+    .optional()
+    .or(t.Null)
 });
 
 export type SdkReporting = t.Encoded<typeof SdkReporting>;

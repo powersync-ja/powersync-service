@@ -303,7 +303,6 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
   }
   async listCurrentConnections(data: ListCurrentConnectionsRequest): Promise<ListCurrentConnections> {
     const result = await this.listConnectionsQuery(data);
-    console.log(result);
     return this.mapListCurrentConnectionsResponse(result);
   }
 
