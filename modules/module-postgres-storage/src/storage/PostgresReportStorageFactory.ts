@@ -15,7 +15,7 @@ import {
   SdkConnectBucketData,
   SdkDisconnectEventData
 } from '@powersync/service-types/src/events.js';
-import { SdkReporting } from '../types/models/SdkReporting.js';
+import { SdkReporting, SdkReportingDecoded } from '../types/models/SdkReporting.js';
 
 export type PostgresReportStorageOptions = {
   config: NormalizedPostgresStorageConfig;
@@ -109,7 +109,13 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     }
   }
 
-  private async listConnectionsDateRangeQuery(data: event_types.ListCurrentConnectionsRequest) {
+  private mapListCurrentConnectionsResponse(result: SdkReportingDecoded): ListCurrentConnections {
+    return {
+      users: Number(result.users),
+      sdks: result.sdks.data
+    };
+  }
+  private async listConnectionsQuery(data: event_types.ListCurrentConnectionsRequest) {
     const { range } = data;
     if (!range) {
       return this.db.sql`
@@ -300,15 +306,14 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     });
   }
   async listCurrentConnections(data: ListCurrentConnectionsRequest): Promise<ListCurrentConnections> {
-    const rows = await this.listConnectionsDateRangeQuery(data);
-    console.log({ rows });
-    // @ts-ignore
-    console.log(rows.sdks);
-    return {
-      // @ts-ignore
-      users: Number(rows.users),
-      sdks: []
-    };
+    const result = await this.listConnectionsQuery(data);
+    if (!result) {
+      return {
+        users: 0,
+        sdks: []
+      };
+    }
+    return this.mapListCurrentConnectionsResponse(result);
   }
 
   async scrapeSdkData(data: ScrapeSdkDataRequest): Promise<ListCurrentConnections> {
