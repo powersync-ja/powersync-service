@@ -29,6 +29,9 @@ export class EmitterEngine implements BaseEmitterEngine {
   }
 
   emit<K extends keyof event_types.SubscribeEvents>(event: K, data: event_types.SubscribeEvents[K]): void {
+    if (!this.events.has(event as event_types.EmitterEngineEvents)) {
+      return;
+    }
     this.emitter.emit(event, data);
   }
 
