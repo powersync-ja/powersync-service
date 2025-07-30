@@ -1,5 +1,5 @@
 import * as types from '@module/types/types.js';
-import { getMySQLVersion, isVersionAtLeast } from '@module/utils/mysql-utils.js';
+import { createRandomServerId, getMySQLVersion, isVersionAtLeast } from '@module/utils/mysql-utils.js';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
 import mysqlPromise from 'mysql2/promise';
@@ -7,10 +7,11 @@ import { env } from './env.js';
 import { describe, TestOptions } from 'vitest';
 import { TestStorageFactory } from '@powersync/service-core';
 import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManager.js';
-import { BinLogEventHandler, Row, SchemaChange } from '@module/replication/zongji/BinLogListener.js';
+import { BinLogEventHandler, BinLogListener, Row, SchemaChange } from '@module/replication/zongji/BinLogListener.js';
 import { TableMapEntry } from '@powersync/mysql-zongji';
 import * as common from '@module/common/common-index.js';
 import { KEEP_ALIVE_TABLE } from '@module/common/keepalive.js';
+import { TablePattern } from '@powersync/service-sync-rules';
 
 export const TEST_URI = env.MYSQL_TEST_URI;
 
@@ -69,6 +70,29 @@ export async function getFromGTID(connectionManager: MySQLConnectionManager) {
   connection.release();
 
   return fromGTID;
+}
+
+export interface CreateBinlogListenerParams {
+  connectionManager: MySQLConnectionManager;
+  eventHandler: BinLogEventHandler;
+  sourceTables: TablePattern[];
+  startPosition?: common.BinLogPosition;
+}
+export async function createBinlogListener(params: CreateBinlogListenerParams): Promise<BinLogListener> {
+  let { connectionManager, eventHandler, sourceTables, startPosition } = params;
+
+  if (!startPosition) {
+    const fromGTID = await getFromGTID(connectionManager);
+    startPosition = fromGTID.position;
+  }
+
+  return new BinLogListener({
+    connectionManager: connectionManager,
+    eventHandler: eventHandler,
+    startPosition: startPosition,
+    sourceTables: sourceTables,
+    serverId: createRandomServerId(1)
+  });
 }
 
 export class TestBinLogEventHandler implements BinLogEventHandler {

@@ -4,6 +4,35 @@ import * as mysql_utils from '../utils/mysql-utils.js';
 export const KEEP_ALIVE_TABLE = 'powersync_keepalive';
 
 export async function ensureKeepAliveConfiguration(connection: mysqlPromise.Connection): Promise<void> {
+  const [results] = await mysql_utils.retriedQuery({
+    connection,
+    query: `
+        SELECT TABLE_NAME
+        FROM information_schema.tables
+        WHERE TABLE_NAME = '${KEEP_ALIVE_TABLE}'
+    `
+  });
+  if (results.length > 0) {
+    const lastKeepAlive = await getLastKeepAlive(connection);
+    if (lastKeepAlive) {
+      // If the table exists and has an entry, we can assume it's already set up
+      return;
+    } else {
+      // If the table exists but has no entry, we need to ensure it has an initial entry
+      await mysql_utils.retriedQuery({
+        connection,
+        query: `INSERT IGNORE INTO ${KEEP_ALIVE_TABLE} (id) VALUES (1)`
+      });
+      return;
+    }
+  }
+
+  // Try to create the keep-alive table
+  await createKeepAliveTable(connection);
+}
+
+async function createKeepAliveTable(connection: mysqlPromise.Connection): Promise<void> {
+  // Try to create the keep-alive table
   await mysql_utils.retriedQuery({
     connection,
     query: `

@@ -1,9 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
-import { BinLogListener } from '@module/replication/zongji/BinLogListener.js';
 import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManager.js';
-import { clearTestDb, getFromGTID, TEST_CONNECTION_OPTIONS, TestBinLogEventHandler } from './util.js';
-import * as mysql_utils from '@module/utils/mysql-utils.js';
-import { createRandomServerId } from '@module/utils/mysql-utils.js';
+import { clearTestDb, createBinlogListener, TEST_CONNECTION_OPTIONS, TestBinLogEventHandler } from './util.js';
 import { TablePattern } from '@powersync/service-sync-rules';
 import {
   ensureKeepAliveConfiguration,
@@ -12,6 +9,7 @@ import {
   pingKeepAlive,
   tearDownKeepAlive
 } from '@module/common/keepalive.js';
+import { RowDataPacket } from 'mysql2';
 
 describe('MySQL Binlog KeepAlive tests', () => {
   const BINLOG_LISTENER_CONNECTION_OPTIONS = {
@@ -37,14 +35,13 @@ describe('MySQL Binlog KeepAlive tests', () => {
 
   test('EnsureKeepAliveConfiguration - Table is created when absent', async () => {
     const connection = await connectionManager.getConnection();
-    const [results] = await mysql_utils.retriedQuery({
-      connection: connection,
-      query: `
+    const [results] = await connection.query<RowDataPacket[]>(
+      `
         SELECT TABLE_NAME
         FROM information_schema.tables
         WHERE TABLE_NAME = '${KEEP_ALIVE_TABLE}'
       `
-    });
+    );
     // Confirms table doesn't exist yet
     expect(results.length).toBe(0);
     await ensureKeepAliveConfiguration(connection);
@@ -83,14 +80,11 @@ describe('MySQL Binlog KeepAlive tests', () => {
     await ensureKeepAliveConfiguration(connection);
 
     const sourceTables = [new TablePattern(connectionManager.databaseName, KEEP_ALIVE_TABLE)];
-    const fromGTID = await getFromGTID(connectionManager);
     const eventHandler = new TestBinLogEventHandler();
-    const binLogListener = new BinLogListener({
-      connectionManager: connectionManager,
-      eventHandler: eventHandler,
-      startPosition: fromGTID.position,
-      sourceTables: sourceTables,
-      serverId: createRandomServerId(1)
+    const binLogListener = await createBinlogListener({
+      connectionManager,
+      eventHandler,
+      sourceTables
     });
 
     await binLogListener.start();
@@ -111,14 +105,11 @@ describe('MySQL Binlog KeepAlive tests', () => {
     await ensureKeepAliveConfiguration(connection);
 
     const sourceTables: TablePattern[] = [];
-    const fromGTID = await getFromGTID(connectionManager);
     const eventHandler = new TestBinLogEventHandler();
-    const binLogListener = new BinLogListener({
-      connectionManager: connectionManager,
-      eventHandler: eventHandler,
-      startPosition: fromGTID.position,
-      sourceTables: sourceTables,
-      serverId: createRandomServerId(1)
+    const binLogListener = await createBinlogListener({
+      connectionManager,
+      eventHandler,
+      sourceTables
     });
 
     await binLogListener.start();
@@ -141,14 +132,13 @@ describe('MySQL Binlog KeepAlive tests', () => {
 
     await tearDownKeepAlive(connection);
 
-    const [results] = await mysql_utils.retriedQuery({
-      connection: connection,
-      query: `
+    const [results] = await connection.query<RowDataPacket[]>(
+      `
         SELECT TABLE_NAME
         FROM information_schema.tables
         WHERE TABLE_NAME = '${KEEP_ALIVE_TABLE}'
       `
-    });
+    );
     // Confirms table doesn't exist anymore
     expect(results.length).toBe(0);
 

@@ -1,15 +1,15 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { BinLogListener, SchemaChange, SchemaChangeType } from '@module/replication/zongji/BinLogListener.js';
 import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManager.js';
-import { clearTestDb, createTestDb, getFromGTID, TEST_CONNECTION_OPTIONS, TestBinLogEventHandler } from './util.js';
-import { v4 as uuid } from 'uuid';
-import * as common from '@module/common/common-index.js';
 import {
-  createRandomServerId,
-  getMySQLVersion,
-  qualifiedMySQLTable,
-  satisfiesVersion
-} from '@module/utils/mysql-utils.js';
+  clearTestDb,
+  createBinlogListener,
+  createTestDb,
+  TEST_CONNECTION_OPTIONS,
+  TestBinLogEventHandler
+} from './util.js';
+import { v4 as uuid } from 'uuid';
+import { getMySQLVersion, qualifiedMySQLTable, satisfiesVersion } from '@module/utils/mysql-utils.js';
 import crypto from 'crypto';
 import { TablePattern } from '@powersync/service-sync-rules';
 
@@ -39,7 +39,11 @@ describe('BinlogListener tests', () => {
     await connectionManager.query(`CREATE TABLE test_DATA (id CHAR(36) PRIMARY KEY, description MEDIUMTEXT)`);
     connection.release();
     eventHandler = new TestBinLogEventHandler();
-    binLogListener = await createBinlogListener();
+    binLogListener = await createBinlogListener({
+      connectionManager,
+      sourceTables: [new TablePattern(connectionManager.databaseName, 'test_DATA')],
+      eventHandler
+    });
   });
 
   afterAll(async () => {
@@ -269,7 +273,11 @@ describe('BinlogListener tests', () => {
   test('Schema change event: Drop and Add primary key', async () => {
     await connectionManager.query(`CREATE TABLE test_constraints (id CHAR(36), description VARCHAR(100))`);
     const sourceTables = [new TablePattern(connectionManager.databaseName, 'test_constraints')];
-    binLogListener = await createBinlogListener(sourceTables);
+    binLogListener = await createBinlogListener({
+      connectionManager,
+      eventHandler,
+      sourceTables
+    });
     await binLogListener.start();
     await connectionManager.query(`ALTER TABLE test_constraints ADD PRIMARY KEY (id)`);
     await connectionManager.query(`ALTER TABLE test_constraints DROP PRIMARY KEY`);
@@ -294,7 +302,11 @@ describe('BinlogListener tests', () => {
   test('Schema change event: Add and drop unique constraint', async () => {
     await connectionManager.query(`CREATE TABLE test_constraints (id CHAR(36), description VARCHAR(100))`);
     const sourceTables = [new TablePattern(connectionManager.databaseName, 'test_constraints')];
-    binLogListener = await createBinlogListener(sourceTables);
+    binLogListener = await createBinlogListener({
+      connectionManager,
+      eventHandler,
+      sourceTables
+    });
     await binLogListener.start();
     await connectionManager.query(`ALTER TABLE test_constraints ADD UNIQUE (description)`);
     await connectionManager.query(`ALTER TABLE test_constraints DROP INDEX description`);
@@ -319,7 +331,11 @@ describe('BinlogListener tests', () => {
   test('Schema change event: Add and drop a unique index', async () => {
     await connectionManager.query(`CREATE TABLE test_constraints (id CHAR(36), description VARCHAR(100))`);
     const sourceTables = [new TablePattern(connectionManager.databaseName, 'test_constraints')];
-    binLogListener = await createBinlogListener(sourceTables);
+    binLogListener = await createBinlogListener({
+      connectionManager,
+      eventHandler,
+      sourceTables
+    });
     await binLogListener.start();
     await connectionManager.query(`CREATE UNIQUE INDEX description_idx ON test_constraints (description)`);
     await connectionManager.query(`DROP INDEX description_idx ON test_constraints`);
@@ -360,7 +376,11 @@ describe('BinlogListener tests', () => {
     // If there are multiple schema changes in the binlog processing queue, we only restart the binlog listener once
     // all the schema changes have been processed
     const sourceTables = [new TablePattern(connectionManager.databaseName, 'test_multiple')];
-    binLogListener = await createBinlogListener(sourceTables);
+    binLogListener = await createBinlogListener({
+      connectionManager,
+      eventHandler,
+      sourceTables
+    });
 
     await connectionManager.query(`CREATE TABLE test_multiple (id CHAR(36), description VARCHAR(100))`);
     await connectionManager.query(`ALTER TABLE test_multiple ADD COLUMN new_column VARCHAR(10)`);
@@ -381,7 +401,11 @@ describe('BinlogListener tests', () => {
   test('Unprocessed binlog event received that does match the current table schema', async () => {
     // If we process a binlog event for a table which has since had its schema changed, we expect the binlog listener to stop with an error
     const sourceTables = [new TablePattern(connectionManager.databaseName, 'test_failure')];
-    binLogListener = await createBinlogListener(sourceTables);
+    binLogListener = await createBinlogListener({
+      connectionManager,
+      eventHandler,
+      sourceTables
+    });
 
     await connectionManager.query(`CREATE TABLE test_failure (id CHAR(36), description VARCHAR(100))`);
     await connectionManager.query(`INSERT INTO test_failure(id, description) VALUES('${uuid()}','test_failure')`);
@@ -396,7 +420,11 @@ describe('BinlogListener tests', () => {
 
   test('Unprocessed binlog event received for a dropped table', async () => {
     const sourceTables = [new TablePattern(connectionManager.databaseName, 'test_failure')];
-    binLogListener = await createBinlogListener(sourceTables);
+    binLogListener = await createBinlogListener({
+      connectionManager,
+      eventHandler,
+      sourceTables
+    });
 
     // If we process a binlog event for a table which has since been dropped, we expect the binlog listener to stop with an error
     await connectionManager.query(`CREATE TABLE test_failure (id CHAR(36), description VARCHAR(100))`);
@@ -417,7 +445,11 @@ describe('BinlogListener tests', () => {
       new TablePattern(connectionManager.databaseName, 'test_DATA'),
       new TablePattern('multi_schema', 'test_DATA_multi')
     ];
-    binLogListener = await createBinlogListener(sourceTables);
+    binLogListener = await createBinlogListener({
+      connectionManager,
+      eventHandler,
+      sourceTables
+    });
     await binLogListener.start();
 
     // Default database insert into test_DATA
@@ -431,28 +463,6 @@ describe('BinlogListener tests', () => {
     expect(eventHandler.rowsWritten).toBe(2);
     assertSchemaChange(eventHandler.schemaChanges[0], SchemaChangeType.DROP_TABLE, 'multi_schema', 'test_DATA_multi');
   });
-
-  async function createBinlogListener(
-    sourceTables?: TablePattern[],
-    startPosition?: common.BinLogPosition
-  ): Promise<BinLogListener> {
-    if (!sourceTables) {
-      sourceTables = [new TablePattern(connectionManager.databaseName, 'test_DATA')];
-    }
-
-    if (!startPosition) {
-      const fromGTID = await getFromGTID(connectionManager);
-      startPosition = fromGTID.position;
-    }
-
-    return new BinLogListener({
-      connectionManager: connectionManager,
-      eventHandler: eventHandler,
-      startPosition: startPosition,
-      sourceTables: sourceTables,
-      serverId: createRandomServerId(1)
-    });
-  }
 
   function assertSchemaChange(
     change: SchemaChange,
