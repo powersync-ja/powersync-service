@@ -1,5 +1,5 @@
 import { storage, utils } from '@powersync/service-core';
-import { SqlSyncRules } from '@powersync/service-sync-rules';
+import { GetQuerierOptions, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 export const ZERO_LSN = '0/0';
@@ -101,4 +101,12 @@ function getFirst(
  */
 export function rid(id: string): bson.UUID {
   return utils.getUuidReplicaIdentityBson({ id: id }, [{ name: 'id', type: 'VARCHAR', typeId: 25 }]);
+}
+
+export function querierOptions(globalParameters: RequestParameters): GetQuerierOptions {
+  return {
+    globalParameters,
+    hasDefaultStreams: true,
+    streams: {}
+  };
 }

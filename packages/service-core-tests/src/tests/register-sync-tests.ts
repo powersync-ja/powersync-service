@@ -89,8 +89,7 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      token: { exp: Date.now() / 1000 + 10 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 10 } as any
     });
 
     const lines = await consumeCheckpointLines(stream);
@@ -150,8 +149,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      token: { exp: Date.now() / 1000 + 10 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 10 } as any
     });
 
     const lines = await consumeCheckpointLines(stream);
@@ -213,8 +211,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      token: { exp: Date.now() / 1000 + 10 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 10 } as any
     });
 
     let sentCheckpoints = 0;
@@ -323,7 +320,6 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: 'user_one' }, {}),
       token: { sub: 'user_one', exp: Date.now() / 1000 + 100000 } as any
     });
 
@@ -464,8 +460,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      token: { exp: Date.now() / 1000 + 10 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 10 } as any
     });
 
     let sentRows = 0;
@@ -580,8 +575,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      token: { exp: Date.now() / 1000 + 100000 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 100000 } as any
     });
 
     const lines: any[] = [];
@@ -646,8 +640,7 @@ bucket_definitions:
         raw_data: false
       },
       tracker,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      token: { exp: Date.now() / 1000 + 10 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 10 } as any
     });
 
     const lines = await consumeCheckpointLines(stream);
@@ -675,8 +668,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      token: { exp: 0 } as any
+      token: { sub: '', exp: 0 } as any
     });
 
     const lines = await consumeCheckpointLines(stream);
@@ -706,8 +698,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      token: { exp: Date.now() / 1000 + 10 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 10 } as any
     });
     const iter = stream[Symbol.asyncIterator]();
     context.onTestFinished(() => {
@@ -780,8 +771,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: 'user1' }, {}),
-      token: { exp: Date.now() / 1000 + 100 } as any
+      token: { sub: 'user1', exp: Date.now() / 1000 + 100 } as any
     });
     const iter = stream[Symbol.asyncIterator]();
     context.onTestFinished(() => {
@@ -856,8 +846,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: 'user1' }, {}),
-      token: { exp: Date.now() / 1000 + 100 } as any
+      token: { sub: 'user1', exp: Date.now() / 1000 + 100 } as any
     });
     const iter = stream[Symbol.asyncIterator]();
     context.onTestFinished(() => {
@@ -923,8 +912,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: 'user1' }, {}),
-      token: { exp: Date.now() / 1000 + 100 } as any
+      token: { sub: 'user1', exp: Date.now() / 1000 + 100 } as any
     });
     const iter = stream[Symbol.asyncIterator]();
     context.onTestFinished(() => {
@@ -991,8 +979,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      token: { exp: exp } as any
+      token: { sub: '', exp: exp } as any
     });
     const iter = stream[Symbol.asyncIterator]();
     context.onTestFinished(() => {
@@ -1054,8 +1041,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      token: { exp: Date.now() / 1000 + 10 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 10 } as any
     });
 
     const iter = stream[Symbol.asyncIterator]();
@@ -1180,7 +1166,6 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: 'test' }, {}),
       token: { sub: 'test', exp: Date.now() / 1000 + 10 } as any
     };
     const stream1 = sync.streamResponse(params);
