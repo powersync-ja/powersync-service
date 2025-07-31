@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { POSTGRES_REPORT_STORAGE_FACTORY } from './util.js';
 
 describe('SDK reporting storage', async () => {
@@ -155,9 +155,6 @@ describe('SDK reporting storage', async () => {
         )
     `.execute();
     console.log(result);
-  });
-  afterAll(async () => {
-    await factory.db.sql`DELETE FROM sdk_report_events`.execute();
   });
   it('Should show connected users with start range', async () => {
     const current = await factory.listCurrentConnections({

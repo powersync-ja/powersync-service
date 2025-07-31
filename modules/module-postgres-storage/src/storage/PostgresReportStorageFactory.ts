@@ -1,11 +1,9 @@
-import { POWERSYNC_VERSION, storage } from '@powersync/service-core';
+import { storage } from '@powersync/service-core';
 import * as pg_wire from '@powersync/service-jpgwire';
 import { event_types } from '@powersync/service-types';
 import { v4 } from 'uuid';
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { NormalizedPostgresStorageConfig } from '../types/types.js';
-
-import { STORAGE_SCHEMA_NAME } from '../utils/db.js';
 import {
   DeleteOldSdkData,
   ListCurrentConnections,
@@ -17,6 +15,8 @@ import {
 import { SdkReporting, SdkReportingDecoded } from '../types/models/SdkReporting.js';
 import { toInteger } from 'ix/util/tointeger.js';
 import { logger } from '@powersync/lib-services-framework';
+import { getStorageApplicationName } from '../utils/application-name.js';
+import { STORAGE_SCHEMA_NAME } from '../utils/db.js';
 
 export type PostgresReportStorageOptions = {
   config: NormalizedPostgresStorageConfig;
@@ -28,7 +28,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     this.db = new lib_postgres.DatabaseClient({
       config: options.config,
       schema: STORAGE_SCHEMA_NAME,
-      applicationName: `powersync-report-storage/${POWERSYNC_VERSION}`
+      applicationName: getStorageApplicationName()
     });
 
     this.db.registerListener({
