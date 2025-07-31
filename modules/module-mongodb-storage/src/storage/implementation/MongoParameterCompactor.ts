@@ -3,6 +3,13 @@ import { bson, InternalOpId } from '@powersync/service-core';
 import { LRUCache } from 'lru-cache';
 import { PowerSyncMongo } from './db.js';
 
+/**
+ * Compacts parameter lookup data (the bucket_parameters collection).
+ *
+ * This scans through the entire collection to find data to compact.
+ *
+ * For background, see the `/docs/parameters-lookups.md` file.
+ */
 export class MongoParameterCompactor {
   constructor(
     private db: PowerSyncMongo,

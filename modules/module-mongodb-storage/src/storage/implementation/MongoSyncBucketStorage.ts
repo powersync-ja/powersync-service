@@ -295,6 +295,7 @@ export class MongoSyncBucketStorage
       // on {'key.g': 1, lookup: 1, 'key.t': 1, 'key.k': 1, _id: -1},
       // but could not do the same using $group.
       // For now, just rely on compacting to remove extraneous data.
+      // For a description of the data format, see the `/docs/parameters-lookups.md` file.
       const rows = await this.db.bucket_parameters
         .aggregate(
           [
