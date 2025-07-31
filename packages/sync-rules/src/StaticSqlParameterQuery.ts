@@ -177,7 +177,6 @@ export class StaticSqlParameterQuery {
 
     return [
       {
-        definition: this.descriptorName,
         bucket: getBucketId(this.descriptorName, this.bucketParameters, result),
         priority: this.priority
       }

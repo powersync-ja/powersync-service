@@ -372,7 +372,6 @@ export class SqlParameterQuery {
         }
 
         return {
-          definition: this.descriptorName,
           bucket: getBucketId(this.descriptorName, this.bucketParameters, result),
           priority: this.priority
         };
@@ -480,6 +479,7 @@ export class SqlParameterQuery {
         const bucketParameters = await source.getParameterSets(lookups);
         return this.resolveBucketDescriptions(bucketParameters, requestParameters).map((bucket) => ({
           ...bucket,
+          definition: this.descriptorName,
           inclusion_reasons: reasons
         }));
       }
