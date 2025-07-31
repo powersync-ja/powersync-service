@@ -33,6 +33,7 @@ import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from './util.js';
+import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 
 export class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
@@ -677,7 +678,11 @@ export class MongoSyncBucketStorage
   }
 
   async compact(options?: storage.CompactOptions) {
-    return new MongoCompactor(this.db, this.group_id, options).compact();
+    const checkpoint = await this.getCheckpointInternal();
+    await new MongoCompactor(this.db, this.group_id, options).compact();
+    if (checkpoint != null && options?.compactParameterData) {
+      await new MongoParameterCompactor(this.db, this.group_id, checkpoint.checkpoint).compact();
+    }
   }
 
   /**

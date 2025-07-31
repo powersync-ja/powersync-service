@@ -193,6 +193,8 @@ export interface CompactOptions {
    */
   compactBuckets?: string[];
 
+  compactParameterData?: boolean;
+
   /** Minimum of 2 */
   clearBatchLimit?: number;
 
