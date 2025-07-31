@@ -314,9 +314,17 @@ export class MongoSyncBucketStorage
               }
             }
           ],
-          { session, readConcern: 'snapshot' }
+          {
+            session,
+            readConcern: 'snapshot',
+            // Limit the time for the operation to complete, to avoid getting connection timeouts
+            maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
+          }
         )
-        .toArray();
+        .toArray()
+        .catch((e) => {
+          throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
+        });
       const groupedParameters = rows.map((row) => {
         return row.bucket_parameters;
       });
