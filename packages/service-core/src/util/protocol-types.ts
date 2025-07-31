@@ -23,8 +23,6 @@ export const RequestedStreamSubscription = t.object({
   stream: t.string,
   /**
    * An opaque textual identifier assigned to this request by the client.
-   *
-   * Wh
    */
   client_id: t.string,
   /**
@@ -56,7 +54,7 @@ export const StreamSubscriptionRequest = t.object({
   /**
    * An array of sync streams the client has opened explicitly.
    */
-  opened: t.array(RequestedStreamSubscription)
+  subscriptions: t.array(RequestedStreamSubscription)
 });
 
 export type StreamSubscriptionRequest = t.Decoded<typeof StreamSubscriptionRequest>;
@@ -100,7 +98,7 @@ export const StreamingSyncRequest = t.object({
   /**
    * If the client is aware of streams, an array of streams the client has opened.
    */
-  subscriptions: StreamSubscriptionRequest.optional()
+  streams: StreamSubscriptionRequest.optional()
 });
 
 export type StreamingSyncRequest = t.Decoded<typeof StreamingSyncRequest>;
@@ -227,10 +225,13 @@ export type BucketSubscriptionReason = BucketDerivedFromDefaultStream | BucketDe
 
 /**
  * A bucket has been included in a checkpoint because it's part of a default stream.
- *
- * The string is the name of the stream definition.
  */
-export type BucketDerivedFromDefaultStream = { def: string };
+export type BucketDerivedFromDefaultStream = {
+  /**
+   * The index (into {@link Checkpoint.streams}) of the stream defining the bucket.
+   */
+  default: number;
+};
 
 /**
  * The bucket has been included in a checkpoint because it's part of a stream that a client has explicitly subscribed
@@ -238,9 +239,18 @@ export type BucketDerivedFromDefaultStream = { def: string };
  *
  * The string is the client id associated with the subscription in {@link RequestedStreamSubscription}.
  */
-export type BucketDerivedFromExplicitSubscription = { sub: string };
+export type BucketDerivedFromExplicitSubscription = string;
 
-export interface ClientBucketDescription extends BucketDescription {
+export interface ClientBucketDescription {
+  /**
+   * An opaque id of the bucket.
+   */
+  bucket: string;
+  /**
+   * The priority used to synchronize this bucket, derived from its definition and an optional priority override from
+   * the stream subscription.
+   */
+  priority: BucketPriority;
   subscriptions: BucketSubscriptionReason[];
 }
 

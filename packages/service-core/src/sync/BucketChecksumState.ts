@@ -4,6 +4,7 @@ import {
   BucketSource,
   BucketSourceType,
   RequestedStream,
+  RequestJwtPayload,
   RequestParameters,
   ResolvedBucket,
   SqlSyncRules
@@ -28,10 +29,9 @@ export interface BucketChecksumStateOptions {
   syncContext: SyncContext;
   bucketStorage: BucketChecksumStateStorage;
   syncRules: SqlSyncRules;
-  syncParams: RequestParameters;
+  tokenPayload: RequestJwtPayload;
   syncRequest: util.StreamingSyncRequest;
   logger?: Logger;
-  initialBucketPositions?: { name: string; after: util.InternalOpId }[];
 }
 
 type BucketSyncState = {
@@ -79,14 +79,14 @@ export class BucketChecksumState {
       options.syncContext,
       options.bucketStorage,
       options.syncRules,
-      options.syncParams,
+      options.tokenPayload,
       options.syncRequest,
       this.logger
     );
     this.bucketDataPositions = new Map();
 
-    for (let { name, after: start } of options.initialBucketPositions ?? []) {
-      this.bucketDataPositions.set(name, { start_op_id: start });
+    for (let { name, after: start } of options.syncRequest.buckets ?? []) {
+      this.bucketDataPositions.set(name, { start_op_id: BigInt(start) });
     }
   }
 
@@ -199,7 +199,7 @@ export class BucketChecksumState {
       }));
       bucketsToFetch = [...generateBucketsToFetch].map((b) => {
         return {
-          ...bucketDescriptionMap.get(b)!,
+          priority: bucketDescriptionMap.get(b)!.priority,
           bucket: b
         };
       });
@@ -233,11 +233,11 @@ export class BucketChecksumState {
         message += `buckets: ${allBuckets.length} ${limitedBuckets(allBuckets, 20)}`;
         this.logger.info(message, { checkpoint: base.checkpoint, user_id: user_id, buckets: allBuckets.length });
       };
-      bucketsToFetch = allBuckets;
+      bucketsToFetch = allBuckets.map((b) => ({ bucket: b.bucket, priority: b.priority }));
 
       const subscriptions: util.StreamDescription[] = [];
       for (const source of this.parameterState.syncRules.bucketSources) {
-        if (source.type == BucketSourceType.SYNC_STREAM && this.parameterState.isSubscribedToStream(source)) {
+        if (this.parameterState.isSubscribedToStream(source)) {
           subscriptions.push({
             name: source.name,
             is_default: source.subscribedToByDefault
@@ -360,7 +360,11 @@ export class BucketParameterState {
   public readonly syncRules: SqlSyncRules;
   public readonly syncParams: RequestParameters;
   private readonly querier: BucketParameterQuerier;
-  private readonly staticBuckets: Map<string, BucketDescription>;
+  /**
+   * Static buckets. This map is guaranteed not to change during a request, since resolving static buckets can only
+   * take request parameters into account,
+   */
+  private readonly staticBuckets: Map<string, ResolvedBucket>;
   private readonly includeDefaultStreams: boolean;
   // Indexed by the client-side id
   private readonly explicitStreamSubscriptions: Record<string, util.RequestedStreamSubscription>;
@@ -375,22 +379,22 @@ export class BucketParameterState {
     context: SyncContext,
     bucketStorage: BucketChecksumStateStorage,
     syncRules: SqlSyncRules,
-    syncParams: RequestParameters,
+    tokenPayload: RequestJwtPayload,
     request: util.StreamingSyncRequest,
     logger: Logger
   ) {
     this.context = context;
     this.bucketStorage = bucketStorage;
     this.syncRules = syncRules;
-    this.syncParams = syncParams;
+    this.syncParams = new RequestParameters(tokenPayload, request.parameters ?? {});
     this.logger = logger;
 
     const idToStreamSubscription: Record<string, util.RequestedStreamSubscription> = {};
     const streamsByName: Record<string, RequestedStream[]> = {};
-    const subscriptions = request.subscriptions;
+    const subscriptions = request.streams;
     if (subscriptions) {
-      for (const subscription of subscriptions.opened) {
-        idToStreamSubscription[subscription.stream] = subscription;
+      for (const subscription of subscriptions.subscriptions) {
+        idToStreamSubscription[subscription.client_id] = subscription;
 
         const syncRuleStream: RequestedStream = {
           parameters: subscription.parameters ?? {},
@@ -412,7 +416,7 @@ export class BucketParameterState {
       streams: streamsByName
     });
 
-    this.staticBuckets = new Map<string, BucketDescription>(
+    this.staticBuckets = new Map<string, ResolvedBucket>(
       mergeBuckets(this.querier.staticBuckets).map((b) => [b.bucket, b])
     );
     this.lookups = new Set<string>(this.querier.parameterQueryLookups.map((l) => JSONBig.stringify(l.values)));
@@ -441,14 +445,13 @@ export class BucketParameterState {
     }
 
     return {
-      definition: description.definition,
       bucket: description.bucket,
       priority: priorityOverride ?? description.priority,
       subscriptions: description.inclusion_reasons.map((reason) => {
         if (reason == 'default') {
-          return { def: description.definition };
+          return { default: 0 }; // TODO
         } else {
-          return { sub: reason.subscription };
+          return reason.subscription;
         }
       })
     };
@@ -489,19 +492,19 @@ export class BucketParameterState {
    * For static buckets, we can keep track of which buckets have been updated.
    */
   private async getCheckpointUpdateStatic(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate> {
-    const querier = this.querier;
+    const staticBuckets = [...this.staticBuckets.values()];
     const update = checkpoint.update;
 
     if (update.invalidateDataBuckets) {
       return {
-        buckets: querier.staticBuckets,
+        buckets: staticBuckets,
         updatedBuckets: INVALIDATE_ALL_BUCKETS
       };
     }
 
     const updatedBuckets = new Set<string>(getIntersection(this.staticBuckets, update.updatedDataBuckets));
     return {
-      buckets: querier.staticBuckets,
+      buckets: staticBuckets,
       updatedBuckets
     };
   }
@@ -512,7 +515,7 @@ export class BucketParameterState {
   private async getCheckpointUpdateDynamic(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate> {
     const querier = this.querier;
     const storage = this.bucketStorage;
-    const staticBuckets = querier.staticBuckets;
+    const staticBuckets = this.staticBuckets.values();
     const update = checkpoint.update;
 
     let hasParameterChange = false;
@@ -556,7 +559,7 @@ export class BucketParameterState {
         }
       }
     }
-    const allBuckets = [...staticBuckets, ...dynamicBuckets];
+    const allBuckets = [...staticBuckets, ...mergeBuckets(dynamicBuckets)];
 
     if (invalidateDataBuckets) {
       return {
@@ -632,15 +635,15 @@ function limitedBuckets(buckets: string[] | { bucket: string }[], limit: number)
  * bucket.
  */
 function mergeBuckets(buckets: ResolvedBucket[]): ResolvedBucket[] {
-  const byDefinition: Record<string, ResolvedBucket> = {};
+  const byBucketId: Record<string, ResolvedBucket> = {};
 
   for (const bucket of buckets) {
-    if (Object.hasOwn(byDefinition, bucket.definition)) {
-      byDefinition[bucket.definition].inclusion_reasons.push(...bucket.inclusion_reasons);
+    if (Object.hasOwn(byBucketId, bucket.bucket)) {
+      byBucketId[bucket.bucket].inclusion_reasons.push(...bucket.inclusion_reasons);
     } else {
-      byDefinition[bucket.definition] = bucket;
+      byBucketId[bucket.bucket] = structuredClone(bucket);
     }
   }
 
-  return Object.values(byDefinition);
+  return Object.values(byBucketId);
 }

@@ -1,5 +1,11 @@
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
-import { BucketDescription, BucketPriority, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
+import {
+  BucketDescription,
+  BucketPriority,
+  RequestJwtPayload,
+  RequestParameters,
+  SqlSyncRules
+} from '@powersync/service-sync-rules';
 
 import { AbortError } from 'ix/aborterror.js';
 
@@ -19,7 +25,6 @@ export interface SyncStreamParameters {
   bucketStorage: storage.SyncRulesBucketStorage;
   syncRules: SqlSyncRules;
   params: util.StreamingSyncRequest;
-  syncParams: RequestParameters;
   token: auth.JwtPayload;
   logger?: Logger;
   /**
@@ -34,8 +39,7 @@ export interface SyncStreamParameters {
 export async function* streamResponse(
   options: SyncStreamParameters
 ): AsyncIterable<util.StreamingSyncLine | string | null> {
-  const { syncContext, bucketStorage, syncRules, params, syncParams, token, tokenStreamOptions, tracker, signal } =
-    options;
+  const { syncContext, bucketStorage, syncRules, params, token, tokenStreamOptions, tracker, signal } = options;
   const logger = options.logger ?? defaultLogger;
 
   // We also need to be able to abort, so we create our own controller.
@@ -58,7 +62,7 @@ export async function* streamResponse(
     bucketStorage,
     syncRules,
     params,
-    syncParams,
+    token,
     tracker,
     controller.signal,
     logger
@@ -86,25 +90,22 @@ async function* streamResponseInner(
   bucketStorage: storage.SyncRulesBucketStorage,
   syncRules: SqlSyncRules,
   params: util.StreamingSyncRequest,
-  syncParams: RequestParameters,
+  tokenPayload: RequestJwtPayload,
   tracker: RequestTracker,
   signal: AbortSignal,
   logger: Logger
 ): AsyncGenerator<util.StreamingSyncLine | string | null> {
   const { raw_data, binary_data } = params;
 
-  const checkpointUserId = util.checkpointUserId(syncParams.tokenParameters.user_id as string, params.client_id);
+  const userId = tokenPayload.sub;
+  const checkpointUserId = util.checkpointUserId(userId as string, params.client_id);
 
   const checksumState = new BucketChecksumState({
     syncContext,
     bucketStorage,
     syncRules,
-    syncParams,
+    tokenPayload,
     syncRequest: params,
-    initialBucketPositions: params.buckets?.map((bucket) => ({
-      name: bucket.name,
-      after: BigInt(bucket.after)
-    })),
     logger: logger
   });
   const stream = bucketStorage.watchCheckpointChanges({
@@ -229,7 +230,7 @@ async function* streamResponseInner(
           onRowsSent: markOperationsSent,
           abort_connection: signal,
           abort_batch: abortCheckpointSignal,
-          user_id: syncParams.userId,
+          user_id: userId,
           // Passing null here will emit a full sync complete message at the end. If we pass a priority, we'll emit a partial
           // sync complete message instead.
           forPriority: !isLast ? priority : null,
