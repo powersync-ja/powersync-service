@@ -75,8 +75,6 @@ bucket_definitions:
     });
 
     const checkpoint = await bucketStorage.getCheckpoint();
-    console.log('Checkpoint:', checkpoint);
-    console.log(await bucketStorage.getStatus());
     const parameters = await checkpoint.getParameterSets([ParameterLookup.normalized('mybucket', '1', ['user1'])]);
     expect(parameters).toEqual([
       {

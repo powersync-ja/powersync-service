@@ -32,7 +32,7 @@ import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey, Sour
 import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
-import { idPrefixFilter, mapOpEntry, readSingleBatch } from './util.js';
+import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from './util.js';
 
 export class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
@@ -123,7 +123,7 @@ export class MongoSyncBucketStorage
         // null/0n is a valid checkpoint in some cases, for example if the initial snapshot was empty
         doc.last_checkpoint ?? 0n,
         doc.last_checkpoint_lsn ?? null,
-        clusterTime.clusterTime
+        clusterTime
       );
     });
   }
@@ -265,38 +265,53 @@ export class MongoSyncBucketStorage
     return result!;
   }
 
-  async getParameterSets(checkpoint: ReplicationCheckpoint, lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
-    const lookupFilter = lookups.map((lookup) => {
-      return storage.serializeLookup(lookup);
-    });
-    const rows = await this.db.bucket_parameters
-      .aggregate([
-        {
-          $match: {
-            'key.g': this.group_id,
-            lookup: { $in: lookupFilter },
-            _id: { $lte: checkpoint.checkpoint }
-          }
-        },
-        {
-          $sort: {
-            _id: -1
-          }
-        },
-        {
-          $group: {
-            _id: { key: '$key', lookup: '$lookup' },
-            bucket_parameters: {
-              $first: '$bucket_parameters'
+  async getParameterSets(checkpoint: MongoReplicationCheckpoint, lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
+    return this.db.client.withSession({ snapshot: true }, async (session) => {
+      // Set the session's snapshot time to the checkpoint's cluster time.
+      // An alternative would be to create the session when the checkpoint is created, but managing
+      // the session lifetime would become more complex.
+      // Starting and ending sessions are cheap (synchronous when no transactions are used),
+      // so this should be fine.
+      // This is a roundabout way of setting {readConcern: {atClusterTime: clusterTime}}, since
+      // that is not exposed directly by the driver.
+      // Future versions of the driver may change the snapshotTime behavior, so we need tests to
+      // validate that this works as expected.
+      setSessionSnapshotTime(session, checkpoint.clusterTime.clusterTime);
+      const lookupFilter = lookups.map((lookup) => {
+        return storage.serializeLookup(lookup);
+      });
+      const rows = await this.db.bucket_parameters
+        .aggregate(
+          [
+            {
+              $match: {
+                'key.g': this.group_id,
+                lookup: { $in: lookupFilter },
+                _id: { $lte: checkpoint.checkpoint }
+              }
+            },
+            {
+              $sort: {
+                _id: -1
+              }
+            },
+            {
+              $group: {
+                _id: { key: '$key', lookup: '$lookup' },
+                bucket_parameters: {
+                  $first: '$bucket_parameters'
+                }
+              }
             }
-          }
-        }
-      ])
-      .toArray();
-    const groupedParameters = rows.map((row) => {
-      return row.bucket_parameters;
+          ],
+          { session, readConcern: 'snapshot' }
+        )
+        .toArray();
+      const groupedParameters = rows.map((row) => {
+        return row.bucket_parameters;
+      });
+      return groupedParameters.flat();
     });
-    return groupedParameters.flat();
   }
 
   async *getBucketDataBatch(
@@ -963,7 +978,7 @@ class MongoReplicationCheckpoint implements ReplicationCheckpoint {
     private storage: MongoSyncBucketStorage,
     public readonly checkpoint: InternalOpId,
     public readonly lsn: string | null,
-    private clusterTime: mongo.Timestamp
+    public clusterTime: mongo.ClusterTime
   ) {}
 
   async getParameterSets(lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
