@@ -2,7 +2,6 @@ import {
   BucketDescription,
   BucketPriority,
   BucketSource,
-  BucketSourceType,
   RequestedStream,
   RequestJwtPayload,
   RequestParameters,
@@ -60,6 +59,17 @@ export class BucketChecksumState {
    */
   private lastChecksums: util.ChecksumMap | null = null;
   private lastWriteCheckpoint: bigint | null = null;
+  /**
+   * Once we've sent the first full checkpoint line including all {@link util.Checkpoint.streams} that the user is
+   * subscribed to, we keep an index of the stream names to their index in that array.
+   *
+   * This is used to compress the representation of buckets in `checkpoint` and `checkpoint_diff` lines: For buckets
+   * that are part of sync rules or default streams, we need to include the name of the defining sync rule or definition
+   * yielding that bucket (so that clients can track progress for default streams).
+   * But instead of sending the name for each bucket, we use the fact that it's part of the streams array and only send
+   * their index, reducing the size of those messages.
+   */
+  private streamNameToIndex: Map<string, number> | null = null;
 
   private readonly parameterState: BucketParameterState;
 
@@ -111,9 +121,7 @@ export class BucketChecksumState {
     const { buckets: allBuckets, updatedBuckets } = update;
 
     /** Set of all buckets in this checkpoint. */
-    const bucketDescriptionMap = new Map(
-      allBuckets.map((b) => [b.bucket, this.parameterState.translateResolvedBucket(b)])
-    );
+    const bucketDescriptionMap = new Map(allBuckets.map((b) => [b.bucket, b]));
 
     if (bucketDescriptionMap.size > this.context.maxBuckets) {
       throw new ServiceError(
@@ -171,6 +179,7 @@ export class BucketChecksumState {
       // TODO: If updatedBuckets is present, we can use that to more efficiently calculate a diff,
       // and avoid any unnecessary loops through the entire list of buckets.
       const diff = util.checksumsDiff(this.lastChecksums, checksumMap);
+      const streamNameToIndex = this.streamNameToIndex!;
 
       if (
         this.lastWriteCheckpoint == writeCheckpoint &&
@@ -195,7 +204,7 @@ export class BucketChecksumState {
 
       const updatedBucketDescriptions = diff.updatedBuckets.map((e) => ({
         ...e,
-        ...bucketDescriptionMap.get(e.bucket)!
+        ...this.parameterState.translateResolvedBucket(bucketDescriptionMap.get(e.bucket)!, streamNameToIndex)
       }));
       bucketsToFetch = [...generateBucketsToFetch].map((b) => {
         return {
@@ -236,8 +245,13 @@ export class BucketChecksumState {
       bucketsToFetch = allBuckets.map((b) => ({ bucket: b.bucket, priority: b.priority }));
 
       const subscriptions: util.StreamDescription[] = [];
+      const streamNameToIndex = new Map<string, number>();
+      this.streamNameToIndex = streamNameToIndex;
+
       for (const source of this.parameterState.syncRules.bucketSources) {
         if (this.parameterState.isSubscribedToStream(source)) {
+          streamNameToIndex.set(source.name, subscriptions.length);
+
           subscriptions.push({
             name: source.name,
             is_default: source.subscribedToByDefault
@@ -251,7 +265,7 @@ export class BucketChecksumState {
           write_checkpoint: writeCheckpoint ? String(writeCheckpoint) : undefined,
           buckets: [...checksumMap.values()].map((e) => ({
             ...e,
-            ...bucketDescriptionMap.get(e.bucket)!
+            ...this.parameterState.translateResolvedBucket(bucketDescriptionMap.get(e.bucket)!, streamNameToIndex)
           })),
           streams: subscriptions
         }
@@ -426,8 +440,11 @@ export class BucketParameterState {
   /**
    * Translates an internal sync-rules {@link ResolvedBucket} instance to the public
    * {@link util.ClientBucketDescription}.
+   *
+   * @param lookupIndex A map from stream names to their index in {@link util.Checkpoint.streams}. These are used to
+   * reference default buckets by their stream index instead of duplicating the name on wire.
    */
-  translateResolvedBucket(description: ResolvedBucket): util.ClientBucketDescription {
+  translateResolvedBucket(description: ResolvedBucket, lookupIndex: Map<string, number>): util.ClientBucketDescription {
     // If the client is overriding the priority of any stream that yields this bucket, sync the bucket with that
     // priority.
     let priorityOverride: BucketPriority | null = null;
@@ -449,7 +466,8 @@ export class BucketParameterState {
       priority: priorityOverride ?? description.priority,
       subscriptions: description.inclusion_reasons.map((reason) => {
         if (reason == 'default') {
-          return { default: 0 }; // TODO
+          const stream = description.definition;
+          return { default: lookupIndex.get(stream)! };
         } else {
           return reason.subscription;
         }
