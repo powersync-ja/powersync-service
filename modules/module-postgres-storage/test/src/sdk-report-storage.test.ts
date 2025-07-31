@@ -154,7 +154,6 @@ describe('SDK reporting storage', async () => {
           ${{ type: 1184, value: user_month.disconnect_at }}
         )
     `.execute();
-    console.log(result);
   });
   it('Should show connected users with start range', async () => {
     const current = await factory.listCurrentConnections({

@@ -54,7 +54,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     const parsedIsoString = parsedDate.toISOString();
     switch (timeframe) {
       case 'month': {
-        return { lt: parsedIsoString, gt: new Date(year, parsedDate.getMonth() - interval).toISOString() };
+        return { lt: parsedIsoString, gt: new Date(year, parsedDate.getMonth() - interval - 1).toISOString() };
       }
       case 'week': {
         const weekStartDate = new Date(parsedDate);

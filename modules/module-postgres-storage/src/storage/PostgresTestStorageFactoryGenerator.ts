@@ -51,9 +51,9 @@ export const postgresTestSetup = (factoryOptions: PostgresTestStorageOptions) =>
   return {
     reportFactory: async (options?: TestStorageOptions) => {
       try {
-        // if (!options?.doNotClear) {
-        //   await migrate(framework.migrations.Direction.Up);
-        // }
+        if (!options?.doNotClear) {
+          await migrate(framework.migrations.Direction.Up);
+        }
 
         return new PostgresReportStorageFactory({
           config: TEST_CONNECTION_OPTIONS

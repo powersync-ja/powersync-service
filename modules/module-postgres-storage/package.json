@@ -12,7 +12,7 @@
     "build": "tsc -b",
     "build:tests": "tsc -b test/tsconfig.json",
     "clean": "rm -rf ./lib && tsc -b --clean",
-    "test": "vitest --poolOptions.threads.singleThread"
+    "test": "vitest"
   },
   "exports": {
     ".": {
