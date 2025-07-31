@@ -1,5 +1,10 @@
 import { parse, SelectedColumn } from 'pgsql-ast-parser';
-import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY } from './BucketDescription.js';
+import {
+  BucketDescription,
+  BucketInclusionReason,
+  BucketPriority,
+  DEFAULT_BUCKET_PRIORITY
+} from './BucketDescription.js';
 import { BucketParameterQuerier, ParameterLookup, ParameterLookupSource } from './BucketParameterQuerier.js';
 import { SqlRuleError } from './errors.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
@@ -450,7 +455,10 @@ export class SqlParameterQuery {
     }
   }
 
-  getBucketParameterQuerier(requestParameters: RequestParameters): BucketParameterQuerier {
+  getBucketParameterQuerier(
+    requestParameters: RequestParameters,
+    reasons: BucketInclusionReason[]
+  ): BucketParameterQuerier {
     const lookups = this.getLookups(requestParameters);
     if (lookups.length == 0) {
       // This typically happens when the query is pre-filtered using a where clause
@@ -469,7 +477,11 @@ export class SqlParameterQuery {
       parameterQueryLookups: lookups,
       queryDynamicBucketDescriptions: async (source: ParameterLookupSource) => {
         const bucketParameters = await source.getParameterSets(lookups);
-        return this.resolveBucketDescriptions(bucketParameters, requestParameters);
+        return this.resolveBucketDescriptions(bucketParameters, requestParameters).map((bucket) => ({
+          ...bucket,
+          definition: this.descriptorName,
+          inclusion_reasons: reasons
+        }));
       }
     };
   }

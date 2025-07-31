@@ -1,5 +1,6 @@
 export * from './BucketDescription.js';
 export * from './BucketParameterQuerier.js';
+export * from './BucketSource.js';
 export * from './errors.js';
 export * from './events/SqlEventDescriptor.js';
 export * from './events/SqlEventSourceQuery.js';
