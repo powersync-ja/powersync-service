@@ -358,7 +358,9 @@ export class SqlSyncRules implements SyncRules {
   getBucketParameterQuerier(options: GetQuerierOptions): BucketParameterQuerier {
     const queriers: BucketParameterQuerier[] = [];
     for (const source of this.bucketSources) {
-      source.pushBucketParameterQueriers(queriers, options);
+      if ((source.subscribedToByDefault && options.hasDefaultStreams) || source.name in options.streams) {
+        source.pushBucketParameterQueriers(queriers, options);
+      }
     }
 
     return mergeBucketParameterQueriers(queriers);

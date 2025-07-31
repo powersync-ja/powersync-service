@@ -16,10 +16,10 @@ import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, Source
  * definitions that only consist of a single query.
  */
 export interface BucketSource {
-  name: string;
-  type: BucketSourceType;
+  readonly name: string;
+  readonly type: BucketSourceType;
 
-  subscribedToByDefault: boolean;
+  readonly subscribedToByDefault: boolean;
 
   /**
    * Given a row in a source table that affects sync parameters, returns a structure to index which buckets rows should

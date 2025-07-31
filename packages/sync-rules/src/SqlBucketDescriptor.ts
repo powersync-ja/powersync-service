@@ -151,6 +151,7 @@ export class SqlBucketDescriptor implements BucketSource {
       for (const desc of query.getStaticBucketDescriptions(parameters)) {
         results.push({
           ...desc,
+          definition: this.name,
           inclusion_reasons: reasons
         });
       }
