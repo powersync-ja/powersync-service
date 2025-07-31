@@ -261,7 +261,7 @@ export class MongoSyncBucketStorage
     return result!;
   }
 
-  async getParameterSets(checkpoint: utils.InternalOpId, lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
+  async getParameterSets(checkpoint: ReplicationCheckpoint, lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
     const lookupFilter = lookups.map((lookup) => {
       return storage.serializeLookup(lookup);
     });
@@ -271,7 +271,7 @@ export class MongoSyncBucketStorage
           $match: {
             'key.g': this.group_id,
             lookup: { $in: lookupFilter },
-            _id: { $lte: checkpoint }
+            _id: { $lte: checkpoint.checkpoint }
           }
         },
         {

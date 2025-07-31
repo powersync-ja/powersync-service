@@ -440,7 +440,7 @@ export class BucketParameterState {
     if (hasParameterChange || this.cachedDynamicBuckets == null || this.cachedDynamicBucketSet == null) {
       dynamicBuckets = await querier.queryDynamicBucketDescriptions({
         getParameterSets(lookups) {
-          return storage.getParameterSets(checkpoint.base.checkpoint, lookups);
+          return storage.getParameterSets(checkpoint.base, lookups);
         }
       });
       this.cachedDynamicBuckets = dynamicBuckets;

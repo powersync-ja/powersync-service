@@ -8,6 +8,7 @@ import {
   internalToExternalOpId,
   LastValueSink,
   maxLsn,
+  ReplicationCheckpoint,
   storage,
   utils,
   WatchWriteCheckpointOptions
@@ -350,7 +351,7 @@ export class PostgresSyncRulesStorage
   }
 
   async getParameterSets(
-    checkpoint: utils.InternalOpId,
+    checkpoint: ReplicationCheckpoint,
     lookups: sync_rules.ParameterLookup[]
   ): Promise<sync_rules.SqliteJsonRow[]> {
     const rows = await this.db.sql`
@@ -373,7 +374,7 @@ export class PostgresSyncRulesStorage
         value: lookups.map((l) => storage.serializeLookupBuffer(l).toString('hex'))
       }}) AS FILTER
         )
-        AND id <= ${{ type: 'int8', value: checkpoint }}
+        AND id <= ${{ type: 'int8', value: checkpoint.checkpoint }}
       ORDER BY
         lookup,
         source_table,

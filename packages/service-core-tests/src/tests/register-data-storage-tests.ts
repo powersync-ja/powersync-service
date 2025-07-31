@@ -34,18 +34,19 @@ const normalizeOplogData = (data: OplogEntry['data']) => {
  */
 export function registerDataStorageTests(generateStorageFactory: storage.TestStorageFactory) {
   test('save and load parameters', async () => {
-    const sync_rules = test_utils.testRules(`
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
 bucket_definitions:
   mybucket:
     parameters:
       - SELECT group_id FROM test WHERE id1 = token_parameters.user_id OR id2 = token_parameters.user_id
-    data: [] 
-    `);
+    data: []
+    `
+    });
+    const bucketStorage = factory.getInstance(syncRules);
 
-    await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules);
-
-    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -69,9 +70,14 @@ bucket_definitions:
         },
         afterReplicaId: test_utils.rid('t1')
       });
+
+      await batch.commit('1/1');
     });
 
-    const parameters = await bucketStorage.getParameterSets(result!.flushed_op, [
+    const checkpoint = await bucketStorage.getCheckpoint();
+    console.log('Checkpoint:', checkpoint);
+    console.log(await bucketStorage.getStatus());
+    const parameters = await bucketStorage.getParameterSets(checkpoint, [
       ParameterLookup.normalized('mybucket', '1', ['user1'])
     ]);
     expect(parameters).toEqual([
@@ -82,20 +88,19 @@ bucket_definitions:
   });
 
   test('it should use the latest version', async () => {
-    const sync_rules = test_utils.testRules(
-      `
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
 bucket_definitions:
   mybucket:
     parameters:
       - SELECT group_id FROM test WHERE id = token_parameters.user_id
-    data: [] 
+    data: []
     `
-    );
+    });
+    const bucketStorage = factory.getInstance(syncRules);
 
-    await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules);
-
-    const result1 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -105,8 +110,10 @@ bucket_definitions:
         },
         afterReplicaId: test_utils.rid('user1')
       });
+      await batch.commit('1/1');
     });
-    const result2 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+    const checkpoint1 = await bucketStorage.getCheckpoint();
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -116,9 +123,11 @@ bucket_definitions:
         },
         afterReplicaId: test_utils.rid('user1')
       });
+      await batch.commit('1/2');
     });
+    const checkpoint2 = await bucketStorage.getCheckpoint();
 
-    const parameters = await bucketStorage.getParameterSets(result2!.flushed_op, [
+    const parameters = await bucketStorage.getParameterSets(checkpoint2, [
       ParameterLookup.normalized('mybucket', '1', ['user1'])
     ]);
     expect(parameters).toEqual([
@@ -128,7 +137,7 @@ bucket_definitions:
     ]);
 
     // Use the checkpoint to get older data if relevant
-    const parameters2 = await bucketStorage.getParameterSets(result1!.flushed_op, [
+    const parameters2 = await bucketStorage.getParameterSets(checkpoint1, [
       ParameterLookup.normalized('mybucket', '1', ['user1'])
     ]);
     expect(parameters2).toEqual([
@@ -139,20 +148,19 @@ bucket_definitions:
   });
 
   test('it should use the latest version after updates', async () => {
-    const sync_rules = test_utils.testRules(
-      `
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
 bucket_definitions:
   mybucket:
     parameters:
       - SELECT id AS todo_id
         FROM todos
         WHERE list_id IN token_parameters.list_id
-    data: [] 
+    data: []
     `
-    );
-
-    await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules);
+    });
+    const bucketStorage = factory.getInstance(syncRules);
 
     const table = test_utils.makeTestTable('todos', ['id', 'list_id']);
 
@@ -176,9 +184,11 @@ bucket_definitions:
         },
         afterReplicaId: test_utils.rid('todo2')
       });
+
+      await batch.commit('1/1');
     });
 
-    const result2 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       // Update the second todo item to now belong to list 1
       await batch.save({
         sourceTable: table,
@@ -189,12 +199,15 @@ bucket_definitions:
         },
         afterReplicaId: test_utils.rid('todo2')
       });
+
+      await batch.commit('1/1');
     });
 
     // We specifically request the todo_ids for both lists.
     // There removal operation for the association of `list2`::`todo2` should not interfere with the new
     // association of `list1`::`todo2`
-    const parameters = await bucketStorage.getParameterSets(result2!.flushed_op, [
+    const checkpoint = await bucketStorage.getCheckpoint();
+    const parameters = await bucketStorage.getParameterSets(checkpoint, [
       ParameterLookup.normalized('mybucket', '1', ['list1']),
       ParameterLookup.normalized('mybucket', '1', ['list2'])
     ]);
@@ -210,20 +223,19 @@ bucket_definitions:
   });
 
   test('save and load parameters with different number types', async () => {
-    const sync_rules = test_utils.testRules(
-      `
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
 bucket_definitions:
   mybucket:
     parameters:
       - SELECT group_id FROM test WHERE n1 = token_parameters.n1 and f2 = token_parameters.f2 and f3 = token_parameters.f3
     data: []
     `
-    );
+    });
+    const bucketStorage = factory.getInstance(syncRules);
 
-    await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules);
-
-    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -236,11 +248,13 @@ bucket_definitions:
         },
         afterReplicaId: test_utils.rid('t1')
       });
+
+      await batch.commit('1/1');
     });
 
     const TEST_PARAMS = { group_id: 'group1' };
 
-    const checkpoint = result!.flushed_op;
+    const checkpoint = await bucketStorage.getCheckpoint();
 
     const parameters1 = await bucketStorage.getParameterSets(checkpoint, [
       ParameterLookup.normalized('mybucket', '1', [314n, 314, 3.14])
@@ -261,20 +275,19 @@ bucket_definitions:
     // This specific case tested here cannot happen with postgres in practice, but we still
     // test this to ensure correct deserialization.
 
-    const sync_rules = test_utils.testRules(
-      `
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
 bucket_definitions:
   mybucket:
     parameters:
       - SELECT group_id FROM test WHERE n1 = token_parameters.n1
     data: []
     `
-    );
+    });
+    const bucketStorage = factory.getInstance(syncRules);
 
-    await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules);
-
-    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -298,11 +311,13 @@ bucket_definitions:
         },
         afterReplicaId: test_utils.rid('t1')
       });
+
+      await batch.commit('1/1');
     });
 
     const TEST_PARAMS = { group_id: 'group1' };
 
-    const checkpoint = result!.flushed_op;
+    const checkpoint = await bucketStorage.getCheckpoint();
 
     const parameters1 = await bucketStorage.getParameterSets(checkpoint, [
       ParameterLookup.normalized('mybucket', '1', [1152921504606846976n])
@@ -311,18 +326,18 @@ bucket_definitions:
   });
 
   test('removing row', async () => {
-    const sync_rules = test_utils.testRules(
-      `
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
 bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "%"
 `
-    );
-    await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules);
+    });
+    const bucketStorage = factory.getInstance(syncRules);
 
-    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       await batch.save({
@@ -339,9 +354,10 @@ bucket_definitions:
         tag: storage.SaveOperationTag.DELETE,
         beforeReplicaId: test_utils.rid('test1')
       });
+      await batch.commit('1/1');
     });
 
-    const checkpoint = result!.flushed_op;
+    const { checkpoint } = await bucketStorage.getCheckpoint();
 
     const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]])));
     const data = batch[0].chunkData.data.map((d) => {
@@ -373,8 +389,9 @@ bucket_definitions:
   test('save and load parameters with workspaceId', async () => {
     const WORKSPACE_TABLE = test_utils.makeTestTable('workspace', ['id']);
 
-    const sync_rules_content = test_utils.testRules(
-      `
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
 bucket_definitions:
     by_workspace:
       parameters:
@@ -382,13 +399,11 @@ bucket_definitions:
           workspace."userId" = token_parameters.user_id
       data: []
     `
-    );
-    const sync_rules = sync_rules_content.parsed(test_utils.PARSE_OPTIONS).sync_rules;
+    });
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).sync_rules;
+    const bucketStorage = factory.getInstance(syncRules);
 
-    await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules_content);
-
-    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -398,9 +413,9 @@ bucket_definitions:
         },
         afterReplicaId: test_utils.rid('workspace1')
       });
+      await batch.commit('1/1');
     });
-
-    const checkpoint = result!.flushed_op;
+    const checkpoint = await bucketStorage.getCheckpoint();
 
     const parameters = new RequestParameters({ sub: 'u1' }, {});
 
@@ -423,8 +438,9 @@ bucket_definitions:
   test('save and load parameters with dynamic global buckets', async () => {
     const WORKSPACE_TABLE = test_utils.makeTestTable('workspace');
 
-    const sync_rules_content = test_utils.testRules(
-      `
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
 bucket_definitions:
     by_public_workspace:
       parameters:
@@ -432,13 +448,11 @@ bucket_definitions:
           workspace.visibility = 'public'
       data: []
     `
-    );
-    const sync_rules = sync_rules_content.parsed(test_utils.PARSE_OPTIONS).sync_rules;
+    });
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).sync_rules;
+    const bucketStorage = factory.getInstance(syncRules);
 
-    await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules_content);
-
-    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -468,9 +482,11 @@ bucket_definitions:
         },
         afterReplicaId: test_utils.rid('workspace3')
       });
+
+      await batch.commit('1/1');
     });
 
-    const checkpoint = result!.flushed_op;
+    const checkpoint = await bucketStorage.getCheckpoint();
 
     const parameters = new RequestParameters({ sub: 'unknown' }, {});
 
@@ -498,8 +514,9 @@ bucket_definitions:
   test('multiple parameter queries', async () => {
     const WORKSPACE_TABLE = test_utils.makeTestTable('workspace');
 
-    const sync_rules_content = test_utils.testRules(
-      `
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
 bucket_definitions:
     by_workspace:
       parameters:
@@ -509,13 +526,11 @@ bucket_definitions:
             workspace.user_id = token_parameters.user_id
       data: []
     `
-    );
-    const sync_rules = sync_rules_content.parsed(test_utils.PARSE_OPTIONS).sync_rules;
+    });
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).sync_rules;
+    const bucketStorage = factory.getInstance(syncRules);
 
-    await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules_content);
-
-    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -557,9 +572,11 @@ bucket_definitions:
         },
         afterReplicaId: test_utils.rid('workspace4')
       });
+
+      await batch.commit('1/1');
     });
 
-    const checkpoint = result!.flushed_op;
+    const checkpoint = await bucketStorage.getCheckpoint();
 
     const parameters = new RequestParameters({ sub: 'u1' }, {});
 
@@ -593,20 +610,19 @@ bucket_definitions:
   });
 
   test('changing client ids', async () => {
-    const sync_rules = test_utils.testRules(
-      `
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
 bucket_definitions:
   global:
     data:
       - SELECT client_id as id, description FROM "%"
 `
-    );
-    await using factory = await generateStorageFactory();
-
-    const bucketStorage = factory.getInstance(sync_rules);
+    });
+    const bucketStorage = factory.getInstance(syncRules);
 
     const sourceTable = TEST_TABLE;
-    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable,
         tag: storage.SaveOperationTag.INSERT,
@@ -638,8 +654,10 @@ bucket_definitions:
         },
         afterReplicaId: test_utils.rid('test2')
       });
+
+      await batch.commit('1/1');
     });
-    const checkpoint = result!.flushed_op;
+    const { checkpoint } = await bucketStorage.getCheckpoint();
     const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]])));
     const data = batch[0].chunkData.data.map((d) => {
       return {
@@ -657,16 +675,16 @@ bucket_definitions:
   });
 
   test('re-apply delete', async () => {
-    const sync_rules = test_utils.testRules(
-      `
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
 bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "%"
 `
-    );
-    await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules);
+    });
+    const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       const sourceTable = TEST_TABLE;
@@ -690,9 +708,11 @@ bucket_definitions:
         tag: storage.SaveOperationTag.DELETE,
         beforeReplicaId: test_utils.rid('test1')
       });
+
+      await batch.commit('1/1');
     });
 
-    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       await batch.save({
@@ -702,7 +722,7 @@ bucket_definitions:
       });
     });
 
-    const checkpoint = result!.flushed_op;
+    const { checkpoint } = await bucketStorage.getCheckpoint();
 
     const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]])));
     const data = batch[0].chunkData.data.map((d) => {
@@ -732,16 +752,16 @@ bucket_definitions:
   });
 
   test('re-apply update + delete', async () => {
-    const sync_rules = test_utils.testRules(
-      `
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
 bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "%"
 `
-    );
-    await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules);
+    });
+    const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       const sourceTable = TEST_TABLE;
@@ -785,9 +805,11 @@ bucket_definitions:
         tag: storage.SaveOperationTag.DELETE,
         beforeReplicaId: test_utils.rid('test1')
       });
+
+      await batch.commit('1/1');
     });
 
-    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       await batch.save({
@@ -815,9 +837,11 @@ bucket_definitions:
         tag: storage.SaveOperationTag.DELETE,
         beforeReplicaId: test_utils.rid('test1')
       });
+
+      await batch.commit('2/1');
     });
 
-    const checkpoint = result!.flushed_op;
+    const { checkpoint } = await bucketStorage.getCheckpoint();
 
     const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]])));
 
@@ -850,18 +874,17 @@ bucket_definitions:
   });
 
   test('truncate parameters', async () => {
-    const sync_rules = test_utils.testRules(
-      `
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
 bucket_definitions:
   mybucket:
     parameters:
       - SELECT group_id FROM test WHERE id1 = token_parameters.user_id OR id2 = token_parameters.user_id
     data: []
     `
-    );
-
-    await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules);
+    });
+    const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
@@ -879,7 +902,7 @@ bucket_definitions:
       await batch.truncate([TEST_TABLE]);
     });
 
-    const { checkpoint } = await bucketStorage.getCheckpoint();
+    const checkpoint = await bucketStorage.getCheckpoint();
 
     const parameters = await bucketStorage.getParameterSets(checkpoint, [
       ParameterLookup.normalized('mybucket', '1', ['user1'])
@@ -896,16 +919,16 @@ bucket_definitions:
     // 1. Not getting the correct "current_data" state for each operation.
     // 2. Output order not being correct.
 
-    const sync_rules = test_utils.testRules(
-      `
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
 bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "test"
 `
-    );
-    await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules);
+    });
+    const bucketStorage = factory.getInstance(syncRules);
 
     // Pre-setup
     const result1 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -1048,14 +1071,6 @@ bucket_definitions:
   });
 
   test('changed data with replica identity full', async () => {
-    const sync_rules = test_utils.testRules(
-      `
-bucket_definitions:
-  global:
-    data:
-      - SELECT id, description FROM "test"
-`
-    );
     function rid2(id: string, description: string) {
       return getUuidReplicaIdentityBson({ id, description }, [
         { name: 'id', type: 'VARCHAR', typeId: 25 },
@@ -1063,7 +1078,15 @@ bucket_definitions:
       ]);
     }
     await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules);
+    const syncRules = await factory.updateSyncRules({
+      content: `
+bucket_definitions:
+  global:
+    data:
+      - SELECT id, description FROM "test"
+`
+    });
+    const bucketStorage = factory.getInstance(syncRules);
 
     const sourceTable = test_utils.makeTestTable('test', ['id', 'description']);
 
@@ -1155,14 +1178,6 @@ bucket_definitions:
   });
 
   test('unchanged data with replica identity full', async () => {
-    const sync_rules = test_utils.testRules(
-      `
-bucket_definitions:
-  global:
-    data:
-      - SELECT id, description FROM "test"
-`
-    );
     function rid2(id: string, description: string) {
       return getUuidReplicaIdentityBson({ id, description }, [
         { name: 'id', type: 'VARCHAR', typeId: 25 },
@@ -1171,7 +1186,15 @@ bucket_definitions:
     }
 
     await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules);
+    const syncRules = await factory.updateSyncRules({
+      content: `
+bucket_definitions:
+  global:
+    data:
+      - SELECT id, description FROM "test"
+`
+    });
+    const bucketStorage = factory.getInstance(syncRules);
 
     const sourceTable = test_utils.makeTestTable('test', ['id', 'description']);
 
@@ -1260,18 +1283,18 @@ bucket_definitions:
     // but large enough in size to be split over multiple returned batches.
     // The specific batch splits is an implementation detail of the storage driver,
     // and the test will have to updated when other implementations are added.
-    const sync_rules = test_utils.testRules(
-      `
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
 bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "%"
 `
-    );
-    await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules);
+    });
+    const bucketStorage = factory.getInstance(syncRules);
 
-    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       const largeDescription = '0123456789'.repeat(12_000_00);
@@ -1316,9 +1339,11 @@ bucket_definitions:
         },
         afterReplicaId: test_utils.rid('test3')
       });
+
+      await batch.commit('1/1');
     });
 
-    const checkpoint = result!.flushed_op;
+    const { checkpoint } = await bucketStorage.getCheckpoint();
 
     const options: storage.BucketDataBatchOptions = {
       chunkLimitBytes: 16 * 1024 * 1024
@@ -1367,18 +1392,18 @@ bucket_definitions:
 
   test('long batch', async () => {
     // Test syncing a batch of data that is limited by count.
-    const sync_rules = test_utils.testRules(
-      `
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
 bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "%"
 `
-    );
-    await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules);
+    });
+    const bucketStorage = factory.getInstance(syncRules);
 
-    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       const sourceTable = TEST_TABLE;
 
       for (let i = 1; i <= 6; i++) {
@@ -1392,9 +1417,11 @@ bucket_definitions:
           afterReplicaId: `test${i}`
         });
       }
+
+      await batch.commit('1/1');
     });
 
-    const checkpoint = result!.flushed_op;
+    const { checkpoint } = await bucketStorage.getCheckpoint();
 
     const batch1 = await test_utils.oneFromAsync(
       bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]), { limit: 4 })
@@ -1441,8 +1468,9 @@ bucket_definitions:
 
   describe('batch has_more', () => {
     const setup = async (options: BucketDataBatchOptions) => {
-      const sync_rules = test_utils.testRules(
-        `
+      await using factory = await generateStorageFactory();
+      const syncRules = await factory.updateSyncRules({
+        content: `
   bucket_definitions:
     global1:
       data:
@@ -1451,11 +1479,10 @@ bucket_definitions:
       data:
         - SELECT id, description FROM test WHERE bucket = 'global2'
   `
-      );
-      await using factory = await generateStorageFactory();
-      const bucketStorage = factory.getInstance(sync_rules);
+      });
+      const bucketStorage = factory.getInstance(syncRules);
 
-      const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
         const sourceTable = TEST_TABLE;
 
         for (let i = 1; i <= 10; i++) {
@@ -1470,9 +1497,11 @@ bucket_definitions:
             afterReplicaId: `test${i}`
           });
         }
+
+        await batch.commit('1/1');
       });
 
-      const checkpoint = result!.flushed_op;
+      const { checkpoint } = await bucketStorage.getCheckpoint();
       return await test_utils.fromAsync(
         bucketStorage.getBucketDataBatch(
           checkpoint,
@@ -1612,8 +1641,9 @@ bucket_definitions:
   });
 
   test('invalidate cached parsed sync rules', async () => {
-    const sync_rules_content = test_utils.testRules(
-      `
+    await using bucketStorageFactory = await generateStorageFactory();
+    const syncRules = await bucketStorageFactory.updateSyncRules({
+      content: `
 bucket_definitions:
     by_workspace:
       parameters:
@@ -1621,10 +1651,8 @@ bucket_definitions:
           workspace."userId" = token_parameters.user_id
       data: []
     `
-    );
-
-    await using bucketStorageFactory = await generateStorageFactory();
-    const syncBucketStorage = bucketStorageFactory.getInstance(sync_rules_content);
+    });
+    const syncBucketStorage = bucketStorageFactory.getInstance(syncRules);
 
     const parsedSchema1 = syncBucketStorage.getParsedSyncRules({
       defaultSchema: 'public'
@@ -1653,7 +1681,7 @@ bucket_definitions:
       content: `
 bucket_definitions:
   mybucket:
-    data: [] 
+    data: []
     `,
       validate: false
     });
@@ -1913,17 +1941,17 @@ bucket_definitions:
     // Test syncing a batch of data that is small in count,
     // but large enough in size to be split over multiple returned chunks.
     // Similar to the above test, but splits over 1MB chunks.
-    const sync_rules = test_utils.testRules(
-      `
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
   bucket_definitions:
     global:
       data:
         - SELECT id FROM test
         - SELECT id FROM test_ignore WHERE false
   `
-    );
-    await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules);
+    });
+    const bucketStorage = factory.getInstance(syncRules);
 
     const sourceTable = test_utils.makeTestTable('test', ['id']);
     const sourceTableIgnore = test_utils.makeTestTable('test_ignore', ['id']);

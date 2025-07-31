@@ -5,6 +5,7 @@ import {
   CHECKPOINT_INVALIDATE_ALL,
   ChecksumMap,
   InternalOpId,
+  ReplicationCheckpoint,
   SyncContext,
   WatchFilterEvent
 } from '@/index.js';
@@ -485,10 +486,10 @@ bucket_definitions:
     });
 
     storage.getParameterSets = async (
-      checkpoint: InternalOpId,
+      checkpoint: ReplicationCheckpoint,
       lookups: ParameterLookup[]
     ): Promise<SqliteJsonRow[]> => {
-      expect(checkpoint).toEqual(1n);
+      expect(checkpoint.checkpoint).toEqual(1n);
       expect(lookups).toEqual([ParameterLookup.normalized('by_project', '1', ['u1'])]);
       return [{ id: 1 }, { id: 2 }];
     };
@@ -532,10 +533,10 @@ bucket_definitions:
     line.updateBucketPosition({ bucket: 'by_project[2]', nextAfter: 1n, hasMore: false });
 
     storage.getParameterSets = async (
-      checkpoint: InternalOpId,
+      checkpoint: ReplicationCheckpoint,
       lookups: ParameterLookup[]
     ): Promise<SqliteJsonRow[]> => {
-      expect(checkpoint).toEqual(2n);
+      expect(checkpoint.checkpoint).toEqual(2n);
       expect(lookups).toEqual([ParameterLookup.normalized('by_project', '1', ['u1'])]);
       return [{ id: 1 }, { id: 2 }, { id: 3 }];
     };
@@ -595,7 +596,7 @@ class MockBucketChecksumStateStorage implements BucketChecksumStateStorage {
     );
   }
 
-  async getParameterSets(checkpoint: InternalOpId, lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
+  async getParameterSets(checkpoint: ReplicationCheckpoint, lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
     throw new Error('Method not implemented.');
   }
 }
