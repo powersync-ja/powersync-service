@@ -64,6 +64,7 @@ export class MongoParameterCompactor {
         }
         const rawDoc: RawParameterData = {
           _id: doc._id,
+          // Serializing to a Buffer is an easy way to check for exact equality of arbitrary BSON values.
           data: bson.serialize({
             key: doc.key,
             lookup: doc.lookup

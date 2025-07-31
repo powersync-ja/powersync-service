@@ -276,7 +276,7 @@ export class MongoSyncBucketStorage
       // This is a roundabout way of setting {readConcern: {atClusterTime: clusterTime}}, since
       // that is not exposed directly by the driver.
       // Future versions of the driver may change the snapshotTime behavior, so we need tests to
-      // validate that this works as expected.
+      // validate that this works as expected. We test this in the compacting tests.
       setSessionSnapshotTime(session, checkpoint.clusterTime.clusterTime);
       const lookupFilter = lookups.map((lookup) => {
         return storage.serializeLookup(lookup);
