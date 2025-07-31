@@ -1,5 +1,6 @@
 import { logger } from '@powersync/lib-services-framework';
 import { bson, InternalOpId } from '@powersync/service-core';
+import { LRUCache } from 'lru-cache';
 import { PowerSyncMongo } from './db.js';
 
 export class MongoParameterCompactor {
@@ -8,24 +9,6 @@ export class MongoParameterCompactor {
     private group_id: number,
     private checkpoint: InternalOpId
   ) {}
-
-  /**
-   * This is the oldest checkpoint that we consider safe to still use. We cleanup old parameter
-   * but no data that would be used by this checkpoint.
-   *
-   * Specifically, we return a checkpoint that has been available for at least 5 minutes, then
-   * we can delete data only used for checkpoints older than that.
-   *
-   * @returns null if there is no safe checkpoint available.
-   */
-  async getActiveCheckpoint(): Promise<InternalOpId | null> {
-    const syncRules = await this.db.sync_rules.findOne({ _id: this.group_id });
-    if (syncRules == null) {
-      return null;
-    }
-
-    return syncRules.last_checkpoint;
-  }
 
   async compact() {
     logger.info(`Compacting parameters for group ${this.group_id} up to checkpoint ${this.checkpoint}`);
@@ -53,7 +36,10 @@ export class MongoParameterCompactor {
       }
     );
 
-    let lastDoc: RawParameterData | null = null;
+    // The index doesn't cover sorting by key, so we keep our own cache of the last seen key.
+    let lastByKey = new LRUCache<string, InternalOpId>({
+      max: 10_000
+    });
     let removeIds: InternalOpId[] = [];
 
     while (await cursor.hasNext()) {
@@ -62,19 +48,18 @@ export class MongoParameterCompactor {
         if (doc._id >= checkpoint) {
           continue;
         }
-        const rawDoc: RawParameterData = {
-          _id: doc._id,
-          // Serializing to a Buffer is an easy way to check for exact equality of arbitrary BSON values.
-          data: bson.serialize({
-            key: doc.key,
-            lookup: doc.lookup
+        const uniqueKey = (
+          bson.serialize({
+            k: doc.key,
+            l: doc.lookup
           }) as Buffer
-        };
-        if (lastDoc != null && lastDoc.data.equals(rawDoc.data) && lastDoc._id < doc._id) {
-          removeIds.push(lastDoc._id);
+        ).toString('base64');
+        const previous = lastByKey.get(uniqueKey);
+        if (previous != null && previous < doc._id) {
+          // We have a newer entry for the same key, so we can remove the old one.
+          removeIds.push(previous);
         }
-
-        lastDoc = rawDoc;
+        lastByKey.set(uniqueKey, doc._id);
       }
 
       if (removeIds.length >= 1000) {
@@ -90,9 +75,4 @@ export class MongoParameterCompactor {
     }
     logger.info('Parameter compaction completed');
   }
-}
-
-interface RawParameterData {
-  _id: InternalOpId;
-  data: Buffer;
 }

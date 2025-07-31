@@ -290,6 +290,11 @@ export class MongoSyncBucketStorage
       const lookupFilter = lookups.map((lookup) => {
         return storage.serializeLookup(lookup);
       });
+      // This query does not use indexes super efficiently, apart from the lookup filter.
+      // From some experimentation I could do individual lookups more efficient using an index
+      // on {'key.g': 1, lookup: 1, 'key.t': 1, 'key.k': 1, _id: -1},
+      // but could not do the same using $group.
+      // For now, just rely on compacting to remove extraneous data.
       const rows = await this.db.bucket_parameters
         .aggregate(
           [
