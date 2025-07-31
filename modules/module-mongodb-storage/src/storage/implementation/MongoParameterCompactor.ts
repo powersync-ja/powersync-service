@@ -2,6 +2,8 @@ import { logger } from '@powersync/lib-services-framework';
 import { bson, InternalOpId } from '@powersync/service-core';
 import { LRUCache } from 'lru-cache';
 import { PowerSyncMongo } from './db.js';
+import { mongo } from '@powersync/lib-service-mongodb';
+import { BucketParameterDocument } from './models.js';
 
 /**
  * Compacts parameter lookup data (the bucket_parameters collection).
@@ -39,7 +41,7 @@ export class MongoParameterCompactor {
       {
         sort: { lookup: 1, _id: 1 },
         batchSize: 10_000,
-        projection: { _id: 1, key: 1, lookup: 1 }
+        projection: { _id: 1, key: 1, lookup: 1, bucket_parameters: 1 }
       }
     );
 
@@ -48,6 +50,21 @@ export class MongoParameterCompactor {
       max: 10_000
     });
     let removeIds: InternalOpId[] = [];
+    let removeDeleted: mongo.AnyBulkWriteOperation<BucketParameterDocument>[] = [];
+
+    const flush = async (force: boolean) => {
+      if (removeIds.length >= 1000 || (force && removeIds.length > 0)) {
+        const results = await this.db.bucket_parameters.deleteMany({ _id: { $in: removeIds } });
+        logger.info(`Removed ${results.deletedCount} (${removeIds.length}) superseded parameter entries`);
+        removeIds = [];
+      }
+
+      if (removeDeleted.length > 10 || (force && removeDeleted.length > 0)) {
+        const results = await this.db.bucket_parameters.bulkWrite(removeDeleted);
+        logger.info(`Removed ${results.deletedCount} (${removeDeleted.length}) deleted parameter entries`);
+        removeDeleted = [];
+      }
+    };
 
     while (await cursor.hasNext()) {
       const batch = cursor.readBufferedDocuments();
@@ -67,19 +84,24 @@ export class MongoParameterCompactor {
           removeIds.push(previous);
         }
         lastByKey.set(uniqueKey, doc._id);
+
+        if (doc.bucket_parameters?.length == 0) {
+          // This is a delete operation, so we can remove it completely.
+          // For this we cannot remove the operation itself only: There is a possibility that
+          // there is still an earlier operation with the same key and lookup, that we don't have
+          // in the cache due to cache size limits. So we need to explicitly remove all earlier operations.
+          removeDeleted.push({
+            deleteOne: {
+              filter: { 'key.g': doc.key.g, lookup: doc.lookup, _id: { $lte: doc._id }, key: doc.key }
+            }
+          });
+        }
       }
 
-      if (removeIds.length >= 1000) {
-        await this.db.bucket_parameters.deleteMany({ _id: { $in: removeIds } });
-        logger.info(`Removed ${removeIds.length} stale parameter entries`);
-        removeIds = [];
-      }
+      await flush(false);
     }
 
-    if (removeIds.length > 0) {
-      await this.db.bucket_parameters.deleteMany({ _id: { $in: removeIds } });
-      logger.info(`Removed ${removeIds.length} stale parameter entries`);
-    }
+    await flush(true);
     logger.info('Parameter compaction completed');
   }
 }
