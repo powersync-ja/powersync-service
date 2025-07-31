@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { POSTGRES_REPORT_STORAGE_FACTORY } from './util.js';
 
-describe('SDK reporting storage', () => {
+describe('SDK reporting storage', async () => {
+  const factory = await POSTGRES_REPORT_STORAGE_FACTORY();
   const now = new Date();
   const nowAdd5minutes = new Date(
     now.getFullYear(),
@@ -18,6 +19,8 @@ describe('SDK reporting storage', () => {
     now.getMinutes() - 5
   );
   const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  const weekAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+  const monthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
   const user_one = {
     user_id: 'user_one',
     client_id: 'client_one',
@@ -48,7 +51,7 @@ describe('SDK reporting storage', () => {
 
   const user_four = {
     user_id: 'user_four',
-    client_id: 'user_five',
+    client_id: 'client_four',
     connect_at: now.toISOString(),
     sdk: 'powersync-js/1.21.0',
     user_agent: 'powersync-js/1.21.0 powersync-web Firefox/141 linux',
@@ -56,9 +59,28 @@ describe('SDK reporting storage', () => {
     id: '4'
   };
 
+  const user_week = {
+    user_id: 'user_week',
+    client_id: 'client_week',
+    connect_at: weekAgo.toISOString(),
+    sdk: 'powersync-js/1.24.0',
+    user_agent: 'powersync-js/1.21.0 powersync-web Firefox/141 linux',
+    disconnect_at: weekAgo.toISOString(),
+    id: 'week'
+  };
+
+  const user_month = {
+    user_id: 'user_month',
+    client_id: 'client_month',
+    connect_at: monthAgo.toISOString(),
+    sdk: 'powersync-js/1.23.0',
+    user_agent: 'powersync-js/1.23.0 powersync-web Firefox/141 linux',
+    disconnect_at: monthAgo.toISOString(),
+    id: 'month'
+  };
+
   beforeAll(async () => {
-    const { db } = await POSTGRES_REPORT_STORAGE_FACTORY();
-    const result = await db.sql`
+    const result = await factory.db.sql`
       INSERT INTO
         sdk_report_events (
           user_id,
@@ -110,6 +132,26 @@ describe('SDK reporting storage', () => {
           NULL,
           ${{ type: 'varchar', value: user_three.id }},
           ${{ type: 1184, value: user_three.disconnect_at }}
+        ),
+        (
+          ${{ type: 'varchar', value: user_week.user_id }},
+          ${{ type: 'varchar', value: user_week.client_id }},
+          ${{ type: 1184, value: user_week.connect_at }},
+          ${{ type: 'varchar', value: user_week.sdk }},
+          ${{ type: 'varchar', value: user_week.user_agent }},
+          NULL,
+          ${{ type: 'varchar', value: user_week.id }},
+          ${{ type: 1184, value: user_week.disconnect_at }}
+        ),
+        (
+          ${{ type: 'varchar', value: user_month.user_id }},
+          ${{ type: 'varchar', value: user_month.client_id }},
+          ${{ type: 1184, value: user_month.connect_at }},
+          ${{ type: 'varchar', value: user_month.sdk }},
+          ${{ type: 'varchar', value: user_month.user_agent }},
+          NULL,
+          ${{ type: 'varchar', value: user_month.id }},
+          ${{ type: 1184, value: user_month.disconnect_at }}
         )
     `.execute();
     console.log(result);
@@ -118,8 +160,7 @@ describe('SDK reporting storage', () => {
     const { db } = await POSTGRES_REPORT_STORAGE_FACTORY();
     await db.sql`DELETE FROM sdk_report_events`.execute();
   });
-  it('Should show currently connected users with start range', async () => {
-    const factory = await POSTGRES_REPORT_STORAGE_FACTORY();
+  it('Should show connected users with start range', async () => {
     const current = await factory.listCurrentConnections({
       range: {
         start_date: new Date(
@@ -133,8 +174,7 @@ describe('SDK reporting storage', () => {
     });
     expect(current).toMatchSnapshot();
   });
-  it('Should show currently connected users with start range and end range', async () => {
-    const factory = await POSTGRES_REPORT_STORAGE_FACTORY();
+  it('Should show connected users with start range and end range', async () => {
     const current = await factory.listCurrentConnections({
       range: {
         end_date: nowLess5minutes.toISOString(),
@@ -148,5 +188,26 @@ describe('SDK reporting storage', () => {
       }
     });
     expect(current).toMatchSnapshot();
+  });
+  it('Should show SDK scrape data for user over the past month', async () => {
+    const sdk = await factory.scrapeSdkData({
+      interval: 1,
+      timeframe: 'month'
+    });
+    expect(sdk).toMatchSnapshot();
+  });
+  it('Should show SDK scrape data for user over the past week', async () => {
+    const sdk = await factory.scrapeSdkData({
+      interval: 1,
+      timeframe: 'week'
+    });
+    expect(sdk).toMatchSnapshot();
+  });
+  it('Should show SDK scrape data for user over the past day', async () => {
+    const sdk = await factory.scrapeSdkData({
+      interval: 1,
+      timeframe: 'day'
+    });
+    expect(sdk).toMatchSnapshot();
   });
 });

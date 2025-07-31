@@ -1,6 +1,88 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`SDK reporting storage > Should show currently connected users with start range 1`] = `
+exports[`SDK reporting storage > Should show SDK scrape data for user over the past day 1`] = `
+{
+  "sdks": [
+    {
+      "clients": 1,
+      "sdk": "powersync-dart/1.6.4",
+      "users": 1,
+    },
+    {
+      "clients": 2,
+      "sdk": "powersync-js/1.21.0",
+      "users": 2,
+    },
+  ],
+  "users": 3,
+}
+`;
+
+exports[`SDK reporting storage > Should show SDK scrape data for user over the past month 1`] = `
+{
+  "sdks": [
+    {
+      "clients": 1,
+      "sdk": "powersync-dart/1.6.4",
+      "users": 1,
+    },
+    {
+      "clients": 3,
+      "sdk": "powersync-js/1.21.0",
+      "users": 3,
+    },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.23.0",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.24.0",
+      "users": 1,
+    },
+  ],
+  "users": 6,
+}
+`;
+
+exports[`SDK reporting storage > Should show SDK scrape data for user over the past week 1`] = `
+{
+  "sdks": [
+    {
+      "clients": 1,
+      "sdk": "powersync-dart/1.6.4",
+      "users": 1,
+    },
+    {
+      "clients": 3,
+      "sdk": "powersync-js/1.21.0",
+      "users": 3,
+    },
+  ],
+  "users": 4,
+}
+`;
+
+exports[`SDK reporting storage > Should show all currently connected users 1`] = `
+{
+  "sdks": [
+    {
+      "clients": 1,
+      "sdk": "powersync-dart/1.6.4",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.21.0",
+      "users": 1,
+    },
+  ],
+  "users": 2,
+}
+`;
+
+exports[`SDK reporting storage > Should show connected users with start range 1`] = `
 {
   "sdks": [
     {
@@ -13,7 +95,7 @@ exports[`SDK reporting storage > Should show currently connected users with star
 }
 `;
 
-exports[`SDK reporting storage > Should show currently connected users with start range and end range 1`] = `
+exports[`SDK reporting storage > Should show connected users with start range and end range 1`] = `
 {
   "sdks": [
     {
