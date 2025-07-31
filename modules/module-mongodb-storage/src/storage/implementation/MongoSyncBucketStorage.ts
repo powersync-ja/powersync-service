@@ -2,11 +2,9 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import {
   BaseObserver,
-  ErrorCode,
   logger,
   ReplicationAbortedError,
-  ServiceAssertionError,
-  ServiceError
+  ServiceAssertionError
 } from '@powersync/lib-services-framework';
 import {
   BroadcastIterable,
@@ -30,14 +28,7 @@ import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
-import {
-  BucketDataDocument,
-  BucketDataKey,
-  BucketStateDocument,
-  SourceKey,
-  SourceTableDocument,
-  SyncRuleCheckpointState
-} from './models.js';
+import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey, SourceTableDocument } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
@@ -106,16 +97,35 @@ export class MongoSyncBucketStorage
   }
 
   async getCheckpoint(): Promise<storage.ReplicationCheckpoint> {
-    const doc = await this.db.sync_rules.findOne(
-      { _id: this.group_id },
-      {
-        projection: { last_checkpoint: 1, last_checkpoint_lsn: 1, snapshot_done: 1 }
+    return (await this.getCheckpointInternal()) ?? new EmptyReplicationCheckpoint();
+  }
+
+  async getCheckpointInternal(): Promise<storage.ReplicationCheckpoint | null> {
+    return await this.db.client.withSession(async (session) => {
+      const doc = await this.db.sync_rules.findOne(
+        { _id: this.group_id },
+        {
+          session,
+          projection: { _id: 1, state: 1, last_checkpoint: 1, last_checkpoint_lsn: 1, snapshot_done: 1 }
+        }
+      );
+      if (!doc?.snapshot_done || !['ACTIVE', 'ERRORED'].includes(doc.state)) {
+        // Sync rules not active - return null
+        return null;
       }
-    );
-    if (!doc?.snapshot_done) {
-      return new MongoReplicationCheckpoint(this, 0n, null);
-    }
-    return new MongoReplicationCheckpoint(this, doc.last_checkpoint ?? 0n, doc.last_checkpoint_lsn ?? null);
+
+      const clusterTime = session.clusterTime;
+      if (clusterTime == null) {
+        throw new ServiceAssertionError('Missing clusterTime in getCheckpoint()');
+      }
+      return new MongoReplicationCheckpoint(
+        this,
+        // null/0n is a valid checkpoint in some cases, for example if the initial snapshot was empty
+        doc.last_checkpoint ?? 0n,
+        doc.last_checkpoint_lsn ?? null,
+        clusterTime.clusterTime
+      );
+    });
   }
 
   async startBatch(
@@ -655,10 +665,6 @@ export class MongoSyncBucketStorage
     return new MongoCompactor(this.db, this.group_id, options).compact();
   }
 
-  private makeActiveCheckpoint(doc: SyncRuleCheckpointState | null): ReplicationCheckpoint {
-    return new MongoReplicationCheckpoint(this, doc?.last_checkpoint ?? 0n, doc?.last_checkpoint_lsn ?? null);
-  }
-
   /**
    * Instance-wide watch on the latest available checkpoint (op_id + lsn).
    */
@@ -678,33 +684,13 @@ export class MongoSyncBucketStorage
         break;
       }
 
-      const doc = await this.db.sync_rules.findOne(
-        {
-          _id: this.group_id,
-          state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
-        },
-        {
-          limit: 1,
-          projection: {
-            _id: 1,
-            state: 1,
-            last_checkpoint: 1,
-            last_checkpoint_lsn: 1
-          }
-        }
-      );
-
-      if (doc == null) {
-        // Sync rules not present or not active.
-        // Abort the connections - clients will have to retry later.
-        throw new ServiceError(ErrorCode.PSYNC_S2302, 'No active sync rules available');
-      } else if (doc.state != storage.SyncRuleState.ACTIVE && doc.state != storage.SyncRuleState.ERRORED) {
+      const op = await this.getCheckpointInternal();
+      if (op == null) {
         // Sync rules have changed - abort and restart.
         // We do a soft close of the stream here - no error
         break;
       }
 
-      const op = this.makeActiveCheckpoint(doc);
       // Check for LSN / checkpoint changes - ignore other metadata changes
       if (lastOp == null || op.lsn != lastOp.lsn || op.checkpoint != lastOp.checkpoint) {
         lastOp = op;
@@ -976,10 +962,20 @@ class MongoReplicationCheckpoint implements ReplicationCheckpoint {
   constructor(
     private storage: MongoSyncBucketStorage,
     public readonly checkpoint: InternalOpId,
-    public readonly lsn: string | null
+    public readonly lsn: string | null,
+    private clusterTime: mongo.Timestamp
   ) {}
 
   async getParameterSets(lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
     return this.storage.getParameterSets(this, lookups);
+  }
+}
+
+class EmptyReplicationCheckpoint implements ReplicationCheckpoint {
+  readonly checkpoint: InternalOpId = 0n;
+  readonly lsn: string | null = null;
+
+  async getParameterSets(lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
+    return [];
   }
 }
