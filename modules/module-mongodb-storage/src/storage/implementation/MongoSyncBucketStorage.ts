@@ -113,15 +113,9 @@ export class MongoSyncBucketStorage
       }
     );
     if (!doc?.snapshot_done) {
-      return {
-        checkpoint: 0n,
-        lsn: null
-      };
+      return new MongoReplicationCheckpoint(this, 0n, null);
     }
-    return {
-      checkpoint: doc?.last_checkpoint ?? 0n,
-      lsn: doc?.last_checkpoint_lsn ?? null
-    };
+    return new MongoReplicationCheckpoint(this, doc.last_checkpoint ?? 0n, doc.last_checkpoint_lsn ?? null);
   }
 
   async startBatch(
@@ -661,11 +655,8 @@ export class MongoSyncBucketStorage
     return new MongoCompactor(this.db, this.group_id, options).compact();
   }
 
-  private makeActiveCheckpoint(doc: SyncRuleCheckpointState | null) {
-    return {
-      checkpoint: doc?.last_checkpoint ?? 0n,
-      lsn: doc?.last_checkpoint_lsn ?? null
-    };
+  private makeActiveCheckpoint(doc: SyncRuleCheckpointState | null): ReplicationCheckpoint {
+    return new MongoReplicationCheckpoint(this, doc?.last_checkpoint ?? 0n, doc?.last_checkpoint_lsn ?? null);
   }
 
   /**
@@ -979,4 +970,16 @@ export class MongoSyncBucketStorage
 interface InternalCheckpointChanges extends CheckpointChanges {
   updatedWriteCheckpoints: Map<string, bigint>;
   invalidateWriteCheckpoints: boolean;
+}
+
+class MongoReplicationCheckpoint implements ReplicationCheckpoint {
+  constructor(
+    private storage: MongoSyncBucketStorage,
+    public readonly checkpoint: InternalOpId,
+    public readonly lsn: string | null
+  ) {}
+
+  async getParameterSets(lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
+    return this.storage.getParameterSets(this, lookups);
+  }
 }

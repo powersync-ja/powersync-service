@@ -440,7 +440,7 @@ export class BucketParameterState {
     if (hasParameterChange || this.cachedDynamicBuckets == null || this.cachedDynamicBucketSet == null) {
       dynamicBuckets = await querier.queryDynamicBucketDescriptions({
         getParameterSets(lookups) {
-          return storage.getParameterSets(checkpoint.base, lookups);
+          return checkpoint.base.getParameterSets(lookups);
         }
       });
       this.cachedDynamicBuckets = dynamicBuckets;
@@ -501,7 +501,7 @@ export interface CheckpointLine {
 }
 
 // Use a more specific type to simplify testing
-export type BucketChecksumStateStorage = Pick<storage.SyncRulesBucketStorage, 'getChecksums' | 'getParameterSets'>;
+export type BucketChecksumStateStorage = Pick<storage.SyncRulesBucketStorage, 'getChecksums'>;
 
 function limitedBuckets(buckets: string[] | { bucket: string }[], limit: number) {
   buckets = buckets.map((b) => {
