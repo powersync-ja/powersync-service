@@ -157,8 +157,7 @@ describe('SDK reporting storage', async () => {
     console.log(result);
   });
   afterAll(async () => {
-    const { db } = await POSTGRES_REPORT_STORAGE_FACTORY();
-    await db.sql`DELETE FROM sdk_report_events`.execute();
+    await factory.db.sql`DELETE FROM sdk_report_events`.execute();
   });
   it('Should show connected users with start range', async () => {
     const current = await factory.listCurrentConnections({

@@ -1,4 +1,4 @@
-import { storage } from '@powersync/service-core';
+import { POWERSYNC_VERSION, storage } from '@powersync/service-core';
 import * as pg_wire from '@powersync/service-jpgwire';
 import { event_types } from '@powersync/service-types';
 import { v4 } from 'uuid';
@@ -6,7 +6,6 @@ import * as lib_postgres from '@powersync/lib-service-postgres';
 import { NormalizedPostgresStorageConfig } from '../types/types.js';
 
 import { STORAGE_SCHEMA_NAME } from '../utils/db.js';
-import { getStorageApplicationName } from '../utils/application-name.js';
 import {
   DeleteOldSdkData,
   ListCurrentConnections,
@@ -29,7 +28,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     this.db = new lib_postgres.DatabaseClient({
       config: options.config,
       schema: STORAGE_SCHEMA_NAME,
-      applicationName: getStorageApplicationName()
+      applicationName: `powersync-report-storage/${POWERSYNC_VERSION}`
     });
 
     this.db.registerListener({
@@ -368,7 +367,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
   }
 
   async [Symbol.asyncDispose]() {
-    await this.db[Symbol.asyncDispose]();
+    // await this.db[Symbol.asyncDispose]();
   }
 
   async prepareStatements(connection: pg_wire.PgConnection) {
