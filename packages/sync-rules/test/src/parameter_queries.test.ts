@@ -84,11 +84,11 @@ describe('parameter queries', () => {
     // We _do_ need to care about the bucket string representation.
     expect(
       query.resolveBucketDescriptions([{ int1: 314, float1: 3.14, float2: 314 }], normalizeTokenParameters({}))
-    ).toEqual([{ bucket: 'mybucket[314,3.14,314]', definition: 'mybucket', priority: 3 }]);
+    ).toEqual([{ bucket: 'mybucket[314,3.14,314]', priority: 3 }]);
 
     expect(
       query.resolveBucketDescriptions([{ int1: 314n, float1: 3.14, float2: 314 }], normalizeTokenParameters({}))
-    ).toEqual([{ bucket: 'mybucket[314,3.14,314]', definition: 'mybucket', priority: 3 }]);
+    ).toEqual([{ bucket: 'mybucket[314,3.14,314]', priority: 3 }]);
   });
 
   test('plain token_parameter (baseline)', () => {
@@ -365,7 +365,7 @@ describe('parameter queries', () => {
         [{ user_id: 'user1' }],
         normalizeTokenParameters({ user_id: 'user1', is_admin: true })
       )
-    ).toEqual([{ bucket: 'mybucket["user1",1]', definition: 'mybucket', priority: 3 }]);
+    ).toEqual([{ bucket: 'mybucket["user1",1]', priority: 3 }]);
   });
 
   test('case-sensitive parameter queries (1)', () => {
