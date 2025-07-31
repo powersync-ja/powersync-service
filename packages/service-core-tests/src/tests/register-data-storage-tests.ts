@@ -8,6 +8,7 @@ import {
 import { ParameterLookup, RequestParameters } from '@powersync/service-sync-rules';
 import { expect, test, describe, beforeEach } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
+import { SqlBucketDescriptor } from '@powersync/service-sync-rules/src/SqlBucketDescriptor.js';
 
 export const TEST_TABLE = test_utils.makeTestTable('test', ['id']);
 
@@ -404,7 +405,7 @@ bucket_definitions:
 
     const parameters = new RequestParameters({ sub: 'u1' }, {});
 
-    const q1 = sync_rules.bucketDescriptors[0].parameterQueries[0];
+    const q1 = (sync_rules.bucketSources[0] as SqlBucketDescriptor).parameterQueries[0];
 
     const lookups = q1.getLookups(parameters);
     expect(lookups).toEqual([ParameterLookup.normalized('by_workspace', '1', ['u1'])]);
@@ -412,11 +413,13 @@ bucket_definitions:
     const parameter_sets = await bucketStorage.getParameterSets(checkpoint, lookups);
     expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }]);
 
-    const buckets = await sync_rules.getBucketParameterQuerier(parameters).queryDynamicBucketDescriptions({
-      getParameterSets(lookups) {
-        return bucketStorage.getParameterSets(checkpoint, lookups);
-      }
-    });
+    const buckets = await sync_rules
+      .getBucketParameterQuerier(test_utils.querierOptions(parameters))
+      .queryDynamicBucketDescriptions({
+        getParameterSets(lookups) {
+          return bucketStorage.getParameterSets(checkpoint, lookups);
+        }
+      });
     expect(buckets).toEqual([{ bucket: 'by_workspace["workspace1"]', priority: 3 }]);
   });
 
@@ -474,7 +477,7 @@ bucket_definitions:
 
     const parameters = new RequestParameters({ sub: 'unknown' }, {});
 
-    const q1 = sync_rules.bucketDescriptors[0].parameterQueries[0];
+    const q1 = (sync_rules.bucketSources[0] as SqlBucketDescriptor).parameterQueries[0];
 
     const lookups = q1.getLookups(parameters);
     expect(lookups).toEqual([ParameterLookup.normalized('by_public_workspace', '1', [])]);
@@ -483,11 +486,13 @@ bucket_definitions:
     parameter_sets.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }, { workspace_id: 'workspace3' }]);
 
-    const buckets = await sync_rules.getBucketParameterQuerier(parameters).queryDynamicBucketDescriptions({
-      getParameterSets(lookups) {
-        return bucketStorage.getParameterSets(checkpoint, lookups);
-      }
-    });
+    const buckets = await sync_rules
+      .getBucketParameterQuerier(test_utils.querierOptions(parameters))
+      .queryDynamicBucketDescriptions({
+        getParameterSets(lookups) {
+          return bucketStorage.getParameterSets(checkpoint, lookups);
+        }
+      });
     buckets.sort((a, b) => a.bucket.localeCompare(b.bucket));
     expect(buckets).toEqual([
       { bucket: 'by_public_workspace["workspace1"]', priority: 3 },
@@ -564,7 +569,7 @@ bucket_definitions:
     const parameters = new RequestParameters({ sub: 'u1' }, {});
 
     // Test intermediate values - could be moved to sync_rules.test.ts
-    const q1 = sync_rules.bucketDescriptors[0].parameterQueries[0];
+    const q1 = (sync_rules.bucketSources[0] as SqlBucketDescriptor).parameterQueries[0];
     const lookups1 = q1.getLookups(parameters);
     expect(lookups1).toEqual([ParameterLookup.normalized('by_workspace', '1', [])]);
 
@@ -572,7 +577,7 @@ bucket_definitions:
     parameter_sets1.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     expect(parameter_sets1).toEqual([{ workspace_id: 'workspace1' }]);
 
-    const q2 = sync_rules.bucketDescriptors[0].parameterQueries[1];
+    const q2 = (sync_rules.bucketSources[0] as SqlBucketDescriptor).parameterQueries[1];
     const lookups2 = q2.getLookups(parameters);
     expect(lookups2).toEqual([ParameterLookup.normalized('by_workspace', '2', ['u1'])]);
 
@@ -582,7 +587,7 @@ bucket_definitions:
 
     // Test final values - the important part
     const buckets = (
-      await sync_rules.getBucketParameterQuerier(parameters).queryDynamicBucketDescriptions({
+      await sync_rules.getBucketParameterQuerier(test_utils.querierOptions(parameters)).queryDynamicBucketDescriptions({
         getParameterSets(lookups) {
           return bucketStorage.getParameterSets(checkpoint, lookups);
         }
