@@ -147,9 +147,9 @@ export class PostgresSyncRulesStorage
   async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
     const { group_id, connection_id, connection_tag, entity_descriptor } = options;
 
-    const { schema, name: table, objectId, replicationColumns } = entity_descriptor;
+    const { schema, name: table, objectId, replicaIdColumns } = entity_descriptor;
 
-    const columns = replicationColumns.map((column) => ({
+    const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
       name: column.name,
       type: column.type,
       // The PGWire returns this as a BigInt. We want to store this as JSONB
@@ -169,7 +169,7 @@ export class PostgresSyncRulesStorage
             AND relation_id = ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }}
             AND schema_name = ${{ type: 'varchar', value: schema }}
             AND table_name = ${{ type: 'varchar', value: table }}
-            AND replica_id_columns = ${{ type: 'jsonb', value: columns }}
+            AND replica_id_columns = ${{ type: 'jsonb', value: normalizedReplicaIdColumns }}
         `
           .decoded(models.SourceTable)
           .first();
@@ -184,7 +184,7 @@ export class PostgresSyncRulesStorage
             AND connection_id = ${{ type: 'int4', value: connection_id }}
             AND schema_name = ${{ type: 'varchar', value: schema }}
             AND table_name = ${{ type: 'varchar', value: table }}
-            AND replica_id_columns = ${{ type: 'jsonb', value: columns }}
+            AND replica_id_columns = ${{ type: 'jsonb', value: normalizedReplicaIdColumns }}
         `
           .decoded(models.SourceTable)
           .first();
@@ -211,7 +211,7 @@ export class PostgresSyncRulesStorage
               ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }},
               ${{ type: 'varchar', value: schema }},
               ${{ type: 'varchar', value: table }},
-              ${{ type: 'jsonb', value: columns }}
+              ${{ type: 'jsonb', value: normalizedReplicaIdColumns }}
             )
           RETURNING
             *
@@ -221,15 +221,15 @@ export class PostgresSyncRulesStorage
         sourceTableRow = row;
       }
 
-      const sourceTable = new storage.SourceTable(
-        sourceTableRow!.id,
-        connection_tag,
-        objectId,
-        schema,
-        table,
-        replicationColumns,
-        sourceTableRow!.snapshot_done ?? true
-      );
+      const sourceTable = new storage.SourceTable({
+        id: sourceTableRow!.id,
+        connectionTag: connection_tag,
+        objectId: objectId,
+        schema: schema,
+        name: table,
+        replicaIdColumns: replicaIdColumns,
+        snapshotComplete: sourceTableRow!.snapshot_done ?? true
+      });
       if (!sourceTable.snapshotComplete) {
         sourceTable.snapshotStatus = {
           totalEstimatedCount: Number(sourceTableRow!.snapshot_total_estimated_count ?? -1n),
@@ -287,19 +287,20 @@ export class PostgresSyncRulesStorage
         table: sourceTable,
         dropTables: truncatedTables.map(
           (doc) =>
-            new storage.SourceTable(
-              doc.id,
-              connection_tag,
-              doc.relation_id?.object_id ?? 0,
-              doc.schema_name,
-              doc.table_name,
-              doc.replica_id_columns?.map((c) => ({
-                name: c.name,
-                typeOid: c.typeId,
-                type: c.type
-              })) ?? [],
-              doc.snapshot_done ?? true
-            )
+            new storage.SourceTable({
+              id: doc.id,
+              connectionTag: connection_tag,
+              objectId: doc.relation_id?.object_id ?? 0,
+              schema: doc.schema_name,
+              name: doc.table_name,
+              replicaIdColumns:
+                doc.replica_id_columns?.map((c) => ({
+                  name: c.name,
+                  typeOid: c.typeId,
+                  type: c.type
+                })) ?? [],
+              snapshotComplete: doc.snapshot_done ?? true
+            })
         )
       };
     });

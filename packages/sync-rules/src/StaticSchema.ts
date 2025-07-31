@@ -46,13 +46,13 @@ export interface SourceConnectionDefinition {
 class SourceTableDetails implements SourceTableInterface, SourceSchemaTable {
   readonly connectionTag: string;
   readonly schema: string;
-  readonly table: string;
+  readonly name: string;
   private readonly columns: Record<string, ColumnDefinition>;
 
   constructor(connection: SourceConnectionDefinition, schema: SourceSchemaDefinition, table: SourceTableDefinition) {
     this.connectionTag = connection.tag;
     this.schema = schema.name;
-    this.table = table.name;
+    this.name = table.name;
     this.columns = Object.fromEntries(
       table.columns.map((column) => {
         return [column.name, mapColumn(column)];
