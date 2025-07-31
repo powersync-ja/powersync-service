@@ -1,0 +1,27 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`SDK reporting storage > Should show currently connected users with start range 1`] = `
+{
+  "sdks": [
+    {
+      "clients": 1,
+      "sdk": "powersync-dart/1.6.4",
+      "users": 1,
+    },
+  ],
+  "users": 1,
+}
+`;
+
+exports[`SDK reporting storage > Should show currently connected users with start range and end range 1`] = `
+{
+  "sdks": [
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.21.0",
+      "users": 1,
+    },
+  ],
+  "users": 1,
+}
+`;
