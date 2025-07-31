@@ -102,7 +102,7 @@ export class MongoSyncBucketStorage
   }
 
   async getCheckpointInternal(): Promise<storage.ReplicationCheckpoint | null> {
-    return await this.db.client.withSession(async (session) => {
+    return await this.db.client.withSession({ snapshot: true }, async (session) => {
       const doc = await this.db.sync_rules.findOne(
         { _id: this.group_id },
         {
@@ -115,16 +115,25 @@ export class MongoSyncBucketStorage
         return null;
       }
 
-      const clusterTime = session.clusterTime;
-      if (clusterTime == null) {
-        throw new ServiceAssertionError('Missing clusterTime in getCheckpoint()');
+      // Specifically using operationTime instead of clusterTime
+      // There are 3 fields in the response:
+      // 1. operationTime, not exposed for snapshot sessions (used for causal consistency)
+      // 2. clusterTime (used for connection management)
+      // 3. atClusterTime, which is session.snapshotTime
+      // We use atClusterTime, to match the driver's internal snapshot handling.
+      // There are cases where clusterTime > operationTime and atClusterTime,
+      // which could cause snapshot queries using this as the snapshotTime to timeout.
+      // This was specifically observed on MongoDB 6.0 and 7.0.
+      const snapshotTime = (session as any).snapshotTime as bson.Timestamp | undefined;
+      if (snapshotTime == null) {
+        throw new ServiceAssertionError('Missing snapshotTime in getCheckpoint()');
       }
       return new MongoReplicationCheckpoint(
         this,
         // null/0n is a valid checkpoint in some cases, for example if the initial snapshot was empty
         doc.last_checkpoint ?? 0n,
         doc.last_checkpoint_lsn ?? null,
-        clusterTime
+        snapshotTime
       );
     });
   }
@@ -268,7 +277,7 @@ export class MongoSyncBucketStorage
 
   async getParameterSets(checkpoint: MongoReplicationCheckpoint, lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
     return this.db.client.withSession({ snapshot: true }, async (session) => {
-      // Set the session's snapshot time to the checkpoint's cluster time.
+      // Set the session's snapshot time to the checkpoint's snapshot time.
       // An alternative would be to create the session when the checkpoint is created, but managing
       // the session lifetime would become more complex.
       // Starting and ending sessions are cheap (synchronous when no transactions are used),
@@ -277,7 +286,7 @@ export class MongoSyncBucketStorage
       // that is not exposed directly by the driver.
       // Future versions of the driver may change the snapshotTime behavior, so we need tests to
       // validate that this works as expected. We test this in the compacting tests.
-      setSessionSnapshotTime(session, checkpoint.clusterTime.clusterTime);
+      setSessionSnapshotTime(session, checkpoint.snapshotTime);
       const lookupFilter = lookups.map((lookup) => {
         return storage.serializeLookup(lookup);
       });
@@ -983,7 +992,7 @@ class MongoReplicationCheckpoint implements ReplicationCheckpoint {
     private storage: MongoSyncBucketStorage,
     public readonly checkpoint: InternalOpId,
     public readonly lsn: string | null,
-    public clusterTime: mongo.ClusterTime
+    public snapshotTime: mongo.Timestamp
   ) {}
 
   async getParameterSets(lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
