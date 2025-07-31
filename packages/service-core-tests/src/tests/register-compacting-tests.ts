@@ -5,17 +5,6 @@ import { ParameterLookup } from '@powersync/service-sync-rules';
 
 const TEST_TABLE = test_utils.makeTestTable('test', ['id']);
 
-/**
- * @example
- * ```TypeScript
- * // Test with the default options - large batch sizes
- * describe('compacting buckets - default options', () => registerCompactTests(() => new MongoStorageFactory(), {}));
- *
- *  // Also test with the miniumum batch sizes, forcing usage of multiple batches internally
- * describe('compacting buckets - batched', () =>
- * compactTests(() => new MongoStorageFactory(), { clearBatchLimit: 2, moveBatchLimit: 1, moveBatchQueryLimit: 1 }));
- * ```
- */
 export function registerCompactTests(generateStorageFactory: storage.TestStorageFactory) {
   test('compacting (1)', async () => {
     const sync_rules = test_utils.testRules(`
@@ -443,7 +432,9 @@ bucket_definitions:
       ])
     );
   });
+}
 
+export function registerParameterCompactTests(generateStorageFactory: storage.TestStorageFactory) {
   test('compacting parameters', async () => {
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules({
@@ -512,11 +503,17 @@ bucket_definitions:
     const parameters2 = await checkpoint2.getParameterSets([lookup]);
     expect(parameters2).toEqual([]);
 
+    const statsBefore = await bucketStorage.factory.getStorageMetrics();
     await bucketStorage.compact({ compactParameterData: true });
 
+    // Check consistency
     const parameters1b = await checkpoint1.getParameterSets([lookup]);
     const parameters2b = await checkpoint2.getParameterSets([lookup]);
     expect(parameters1b).toEqual([{ id: 't1' }]);
     expect(parameters2b).toEqual([]);
+
+    // Check storage size
+    const statsAfter = await bucketStorage.factory.getStorageMetrics();
+    expect(statsAfter.parameters_size_bytes).toBeLessThan(statsBefore.parameters_size_bytes);
   });
 }
