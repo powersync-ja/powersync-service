@@ -203,6 +203,11 @@ export interface CompactOptions {
 
   /** Minimum of 1 */
   moveBatchQueryLimit?: number;
+
+  /**
+   * Internal/testing use: Cache size for compacting parameters.
+   */
+  compactParameterCacheLimit?: number;
 }
 
 export interface ClearStorageOptions {

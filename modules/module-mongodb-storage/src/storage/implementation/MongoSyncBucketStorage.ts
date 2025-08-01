@@ -704,7 +704,7 @@ export class MongoSyncBucketStorage
     const checkpoint = await this.getCheckpointInternal();
     await new MongoCompactor(this.db, this.group_id, options).compact();
     if (checkpoint != null && options?.compactParameterData) {
-      await new MongoParameterCompactor(this.db, this.group_id, checkpoint.checkpoint).compact();
+      await new MongoParameterCompactor(this.db, this.group_id, checkpoint.checkpoint, options).compact();
     }
   }
 

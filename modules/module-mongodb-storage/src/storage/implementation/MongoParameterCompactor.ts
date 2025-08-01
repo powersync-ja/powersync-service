@@ -1,5 +1,5 @@
 import { logger } from '@powersync/lib-services-framework';
-import { bson, InternalOpId } from '@powersync/service-core';
+import { bson, CompactOptions, InternalOpId } from '@powersync/service-core';
 import { LRUCache } from 'lru-cache';
 import { PowerSyncMongo } from './db.js';
 import { mongo } from '@powersync/lib-service-mongodb';
@@ -16,7 +16,8 @@ export class MongoParameterCompactor {
   constructor(
     private db: PowerSyncMongo,
     private group_id: number,
-    private checkpoint: InternalOpId
+    private checkpoint: InternalOpId,
+    private options: CompactOptions
   ) {}
 
   async compact() {
@@ -47,7 +48,7 @@ export class MongoParameterCompactor {
 
     // The index doesn't cover sorting by key, so we keep our own cache of the last seen key.
     let lastByKey = new LRUCache<string, InternalOpId>({
-      max: 10_000
+      max: this.options.compactParameterCacheLimit ?? 10_000
     });
     let removeIds: InternalOpId[] = [];
     let removeDeleted: mongo.AnyBulkWriteOperation<BucketParameterDocument>[] = [];
@@ -91,7 +92,7 @@ export class MongoParameterCompactor {
           // there is still an earlier operation with the same key and lookup, that we don't have
           // in the cache due to cache size limits. So we need to explicitly remove all earlier operations.
           removeDeleted.push({
-            deleteOne: {
+            deleteMany: {
               filter: { 'key.g': doc.key.g, lookup: doc.lookup, _id: { $lte: doc._id }, key: doc.key }
             }
           });
