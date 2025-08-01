@@ -4,17 +4,6 @@ import * as test_utils from '../test-utils/test-utils-index.js';
 
 const TEST_TABLE = test_utils.makeTestTable('test', ['id']);
 
-/**
- * @example
- * ```TypeScript
- * // Test with the default options - large batch sizes
- * describe('compacting buckets - default options', () => registerCompactTests(() => new MongoStorageFactory(), {}));
- *
- *  // Also test with the miniumum batch sizes, forcing usage of multiple batches internally
- * describe('compacting buckets - batched', () =>
- * compactTests(() => new MongoStorageFactory(), { clearBatchLimit: 2, moveBatchLimit: 1, moveBatchQueryLimit: 1 }));
- * ```
- */
 export function registerCompactTests(generateStorageFactory: storage.TestStorageFactory) {
   test('compacting (1)', async () => {
     const sync_rules = test_utils.testRules(`
