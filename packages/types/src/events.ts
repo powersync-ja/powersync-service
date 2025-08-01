@@ -43,6 +43,7 @@ export type SdkDisconnectEventData = {
 } & SdkUserData;
 
 export type SdkConnectDocument = {
+  id: string;
   sdk: string;
   user_agent: string;
   client_id: string;

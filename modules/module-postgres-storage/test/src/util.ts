@@ -1,8 +1,6 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { normalizePostgresStorageConfig } from '../../src//types/types.js';
-import { PostgresMigrationAgent } from '../../src/migrations/PostgresMigrationAgent.js';
-import { postgresTestSetup } from '../../src/storage/PostgresTestStorageFactoryGenerator.js';
+import { normalizePostgresStorageConfig, PostgresMigrationAgent, postgresTestSetup } from '../../src/index.js';
 import { env } from './env.js';
 
 const __filename = fileURLToPath(import.meta.url);

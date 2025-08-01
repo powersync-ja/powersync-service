@@ -82,8 +82,8 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     }
   }
 
-  private timeFrameDeleteQuery(timeframe: event_types.TimeFrames, interval: number = 1) {
-    const { year, month, today, parsedDate } = this.parseJsDate(new Date());
+  private timeFrameDeleteQuery(timeframe: event_types.TimeFrames, interval: number = 1, test_date?: Date) {
+    const { year, month, today, parsedDate } = test_date ? this.parseJsDate(test_date) : this.parseJsDate(new Date());
     switch (timeframe) {
       case 'month': {
         return { lt: new Date(year, parsedDate.getMonth() - interval).toISOString() };
