@@ -56,6 +56,11 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
               users: { $size: '$user_ids' },
               clients: { $size: '$client_ids' }
             }
+          },
+          {
+            $sort: {
+              sdk: 1
+            }
           }
         ]
       }
