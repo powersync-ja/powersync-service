@@ -2,6 +2,7 @@ import { first } from 'ix/iterable/first.js';
 import { LRUCache } from 'lru-cache/min';
 import { InternalOpId } from '../util/utils.js';
 import { BucketDataBatchOptions, SyncBucketDataChunk } from './SyncRulesBucketStorage.js';
+import { logger, ServiceAssertionError } from '@powersync/lib-services-framework';
 
 export interface FetchBucketDataArgs {
   bucket: string;
@@ -17,6 +18,15 @@ export interface FetchBucketDataArgs {
   end: InternalOpId;
 }
 
+/**
+ * Fetch a batch of bucket data.
+ *
+ * The source may choose to only return limited chunks of data.
+ *
+ * If there is no data for a request, the source must return an empty chunk.
+ *
+ * More specifically, the response may never be an empty array.
+ */
 export type FetchData = (batch: FetchBucketDataArgs[]) => Promise<SyncBucketDataChunk[]>;
 
 export interface BucketDataCacheOptions {
@@ -95,6 +105,8 @@ export class BucketDataCache {
   private cache: LRUCache<string, SyncBucketDataChunk>;
   private inProgress = new Set<string>();
   private sessions = new Set<ClientSession>();
+  private activeWorkers = new Set<unknown>();
+  private workerLimit = 5;
 
   private fetchData: FetchData;
 
@@ -110,17 +122,17 @@ export class BucketDataCache {
         return value.chunkData.data.length + 10;
       },
 
-      // We use a TTL so that data can eventually be refreshed
-      // after a compact. This only has effect if the bucket has
-      // not been checked in the meantime.
+      // We treat this as a "least-recently-fetched" cache, not a "least-recently-used" cache.
+      updateAgeOnGet: false,
       ttl: TTL_MS,
       ttlResolution: 1_000,
       allowStale: false
     });
   }
 
-  private getRequestBatch(): FetchBucketDataArgs[] {
+  private getRequestBatch(): { requests: FetchBucketDataArgs[]; sessions: Set<ClientSession> } {
     let requests: FetchBucketDataArgs[] = [];
+    let sessions = new Set<ClientSession>();
 
     let firstSession: ClientSession | null = null;
 
@@ -159,43 +171,75 @@ export class BucketDataCache {
       const key = makeCacheKey(request);
       this.inProgress.add(key);
       requests.push(request);
+      sessions.add(next);
     }
 
-    return requests;
+    return { requests, sessions };
   }
 
-  private async triggerWork() {
-    // TODO: limit concurrentcy
-    await this.workIteration();
+  private triggerWork() {
+    if (this.activeWorkers.size >= this.workerLimit) {
+      return;
+    }
+    const promise = this.workIteration();
+    this.activeWorkers.add(promise);
+    promise
+      .then((hadData) => {
+        this.activeWorkers.delete(promise);
+        if (hadData) {
+          // If we had data, trigger another work iteration.
+          this.triggerWork();
+        }
+      })
+      .catch((e) => {
+        this.activeWorkers.delete(promise);
+        logger.error('BucketDataCache work iteration failed', e);
+        // Don't trigger another iteration here - let the client retry.
+      });
   }
 
   private async workIteration() {
-    const requests = this.getRequestBatch();
+    const { requests, sessions } = this.getRequestBatch();
     console.log('workIteration', requests);
     if (requests.length === 0) {
-      return;
+      return false;
     }
-
-    const results = await this.fetchData(requests);
-    console.log('workIteration results', results);
-    for (const result of results) {
-      const key = makeCacheKey({
-        bucket: result.chunkData.bucket,
-        start: BigInt(result.chunkData.after)
-      });
-      this.cache.set(
-        makeCacheKey({
+    try {
+      const results = await this.fetchData(requests);
+      // Note that there results may be more than requests, since a single request may return multiple chunks,
+      // and the source may "over-fetch" data.
+      // It may also be less than requests, if the first chunk is large.
+      // However, it may never be empty.
+      if (results.length == 0) {
+        throw new ServiceAssertionError(`Empty response while fetching bucket data`);
+      }
+      console.log('workIteration results', results);
+      for (const result of results) {
+        const key = makeCacheKey({
           bucket: result.chunkData.bucket,
           start: BigInt(result.chunkData.after)
-        }),
-        result
-      );
-      this.inProgress.delete(key);
-    }
+        });
+        this.cache.set(key, result);
+      }
 
-    for (let session of this.sessions) {
-      // Notify all sessions that data is available.
-      session.notify?.();
+      for (let session of this.sessions) {
+        // Notify _all_ sessions that data is available.
+        // We can optimize this later to only notify affected sessions.
+        session.notify?.();
+      }
+      return true;
+    } catch (e) {
+      logger.error('BucketDataCache work iteration failed', e);
+      // Notify _these specific sessions_ that an error occurred.
+      for (let session of sessions) {
+        session.notifyError?.(e);
+      }
+      return false;
+    } finally {
+      for (let r of requests) {
+        const key = makeCacheKey(r);
+        this.inProgress.delete(key);
+      }
     }
   }
 
@@ -310,8 +354,7 @@ export class BucketDataCache {
 
       const promise = session.wait();
       console.log('triggerWork');
-
-      await this.triggerWork();
+      this.triggerWork();
       console.log('waiting for promise');
       await promise;
       console.log('got promise');
@@ -334,7 +377,7 @@ class ClientSession {
   bucketState: Map<string, InternalOpId>;
 
   public notify: (() => void) | undefined;
-
+  public notifyError: ((e: Error) => void) | undefined;
   constructor(
     checkpoint: InternalOpId,
     dataBuckets: Map<string, InternalOpId>,
@@ -345,9 +388,12 @@ class ClientSession {
   }
 
   wait() {
-    return new Promise<void>((resolve) => {
+    return new Promise<void>((resolve, reject) => {
       this.notify = () => {
         resolve();
+      };
+      this.notifyError = (e: Error) => {
+        reject(e);
       };
     });
   }
