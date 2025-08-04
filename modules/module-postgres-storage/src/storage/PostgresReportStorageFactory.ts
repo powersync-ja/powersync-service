@@ -367,7 +367,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
   }
 
   async [Symbol.asyncDispose]() {
-    // await this.db[Symbol.asyncDispose]();
+    await this.db[Symbol.asyncDispose]();
   }
 
   async prepareStatements(connection: pg_wire.PgConnection) {
