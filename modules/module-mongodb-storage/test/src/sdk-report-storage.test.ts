@@ -208,12 +208,13 @@ describe('SDK reporting storage', async () => {
     await factory.reportSdkDisconnect({
       disconnect_at: disconnectAt,
       jwt_exp: jwtExp,
-      client_id: user_one.client_id,
-      user_id: user_one.user_id,
-      user_agent: user_one.user_agent
+      client_id: user_three.client_id,
+      user_id: user_three.user_id,
+      user_agent: user_three.user_agent,
+      connect_at: user_three.connect_at
     });
 
-    const sdk = await factory.db.sdk_report_events.find({ user_id: user_one.user_id }).toArray();
+    const sdk = await factory.db.sdk_report_events.find({ user_id: user_three.user_id }).toArray();
     expect(sdk).toHaveLength(1);
     expect(new Date(sdk[0].disconnect_at!)).toEqual(disconnectAt);
     const cleaned = removeVolatileFields(sdk);

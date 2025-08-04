@@ -14,6 +14,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
     handler: async ({ context, params, responder, observer, initialN, signal: upstreamSignal }) => {
       const { service_context, logger } = context;
       const { routerEngine, metricsEngine, syncContext } = service_context;
+      const streamStart = Date.now();
 
       logger.defaultMeta = {
         ...logger.defaultMeta,
@@ -26,10 +27,9 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         client_id: params.client_id,
         user_id: context.user_id!,
         user_agent: context.user_agent,
-        jwt_exp: context.token_payload?.exp ? new Date(context.token_payload.exp * 1000) : undefined
+        jwt_exp: context.token_payload?.exp ? new Date(context.token_payload.exp * 1000) : undefined,
+        connect_at: new Date(streamStart)
       };
-
-      const streamStart = Date.now();
 
       // Best effort guess on why the stream was closed.
       // We use the `??=` operator everywhere, so that we catch the first relevant
@@ -93,10 +93,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       });
 
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(1);
-      service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_CONNECT_EVENT, {
-        ...sdkData,
-        connect_at: new Date(streamStart)
-      });
+      service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_CONNECT_EVENT, sdkData);
       const tracker = new sync.RequestTracker(metricsEngine);
       try {
         for await (const data of sync.streamResponse({

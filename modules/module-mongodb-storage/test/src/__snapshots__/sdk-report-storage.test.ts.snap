@@ -168,10 +168,10 @@ exports[`SDK reporting storage > Should show connected users with start range an
 exports[`SDK reporting storage > Should update a connected sdk event and make it disconnected 1`] = `
 [
   {
-    "client_id": "client_one",
-    "sdk": "powersync-dart/1.6.4",
-    "user_agent": "powersync-dart/1.6.4 Dart (flutter-web) Chrome/128 android",
-    "user_id": "user_one",
+    "client_id": "client_three",
+    "sdk": "powersync-js/1.21.2",
+    "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
+    "user_id": "user_three",
   },
 ]
 `;

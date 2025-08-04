@@ -289,13 +289,14 @@ describe('SDK reporting storage', async () => {
     await factory.reportSdkDisconnect({
       disconnect_at: disconnectAt,
       jwt_exp: jwtExp,
-      client_id: user_one.client_id,
-      user_id: user_one.user_id,
-      user_agent: user_one.user_agent
+      client_id: user_three.client_id,
+      user_id: user_three.user_id,
+      user_agent: user_three.user_agent,
+      connect_at: yesterday
     });
 
     const sdk = await factory.db
-      .sql`SELECT * FROM sdk_report_events WHERE user_id = ${{ type: 'varchar', value: user_one.user_id }}`.rows<event_types.SdkConnectDocument>();
+      .sql`SELECT * FROM sdk_report_events WHERE user_id = ${{ type: 'varchar', value: user_three.user_id }}`.rows<event_types.SdkConnectDocument>();
     expect(sdk).toHaveLength(1);
     expect(new Date(sdk[0].disconnect_at!).toISOString()).toEqual(disconnectAt.toISOString());
     const cleaned = removeVolatileFields(sdk);

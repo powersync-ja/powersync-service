@@ -275,9 +275,9 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     }
   }
   async reportSdkDisconnect(data: SdkDisconnectEventData): Promise<void> {
-    const { user_id, client_id, disconnect_at } = data;
+    const { user_id, client_id, disconnect_at, connect_at } = data;
     const disconnectIsoString = disconnect_at.toISOString();
-    const { gte, lt } = this.updateTableFilter();
+    const connectIsoString = connect_at.toISOString();
     await this.db.sql`
       UPDATE sdk_report_events
       SET
@@ -286,8 +286,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
       WHERE
         user_id = ${{ type: 'varchar', value: user_id }}
         AND client_id = ${{ type: 'varchar', value: client_id }}
-        AND connect_at >= ${{ type: 1184, value: gte }}
-        AND connect_at < ${{ type: 1184, value: lt }};
+        AND connect_at = ${{ type: 1184, value: connectIsoString }}
     `.execute();
   }
   async listCurrentConnections(data: ListCurrentConnectionsRequest): Promise<ListCurrentConnections> {

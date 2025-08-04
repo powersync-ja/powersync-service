@@ -1,4 +1,4 @@
-import { ErrorCode, errors, logger, router, schema } from '@powersync/lib-services-framework';
+import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import { Readable } from 'stream';
 import Negotiator from 'negotiator';
@@ -46,7 +46,8 @@ export const syncStreamed = routeDefinition({
       client_id: clientId,
       user_id: payload.context.user_id!,
       user_agent: userAgent as string,
-      jwt_exp: token_payload?.exp ? new Date(token_payload?.exp * 1000) : undefined
+      jwt_exp: token_payload?.exp ? new Date(token_payload?.exp * 1000) : undefined,
+      connect_at: new Date(streamStart)
     };
 
     if (routerEngine.closed) {
@@ -93,11 +94,7 @@ export const syncStreamed = routeDefinition({
         objectMode: false,
         highWaterMark: 16 * 1024
       });
-      service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_CONNECT_EVENT, {
-        ...sdkData,
-        connect_at: new Date(streamStart)
-      });
-
+      service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_CONNECT_EVENT, sdkData);
 
       // Best effort guess on why the stream was closed.
       // We use the `??=` operator everywhere, so that we catch the first relevant
