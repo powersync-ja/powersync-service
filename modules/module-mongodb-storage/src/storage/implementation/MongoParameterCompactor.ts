@@ -26,10 +26,7 @@ export class MongoParameterCompactor {
     // We do not remove any data that may be used by this checkpoint.
     // snapshot queries ensure that if any clients are still using older checkpoints, they would
     // not be affected by this compaction.
-    const checkpoint = await this.checkpoint;
-    if (checkpoint == null) {
-      return;
-    }
+    const checkpoint = this.checkpoint;
 
     // Index on {'key.g': 1, lookup: 1, _id: 1}
     // In theory, we could let MongoDB do more of the work here, by grouping by (key, lookup)
