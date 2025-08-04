@@ -1,4 +1,4 @@
-import { ReplicationAssertionError, ServiceError } from '@powersync/lib-services-framework';
+import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import { PgoutputRelation } from '@powersync/service-jpgwire';
 
@@ -27,6 +27,6 @@ export function getPgOutputRelation(source: PgoutputRelation): storage.SourceEnt
     name: source.name,
     schema: source.schema,
     objectId: getRelId(source),
-    replicationColumns: getReplicaIdColumns(source)
+    replicaIdColumns: getReplicaIdColumns(source)
   } satisfies storage.SourceEntityDescriptor;
 }

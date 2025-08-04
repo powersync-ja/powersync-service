@@ -164,9 +164,9 @@ export class MongoSyncBucketStorage
   async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
     const { group_id, connection_id, connection_tag, entity_descriptor } = options;
 
-    const { schema, name: table, objectId, replicationColumns } = entity_descriptor;
+    const { schema, name, objectId, replicaIdColumns } = entity_descriptor;
 
-    const columns = replicationColumns.map((column) => ({
+    const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
       name: column.name,
       type: column.type,
       type_oid: column.typeId
@@ -178,8 +178,8 @@ export class MongoSyncBucketStorage
         group_id: group_id,
         connection_id: connection_id,
         schema_name: schema,
-        table_name: table,
-        replica_id_columns2: columns
+        table_name: name,
+        replica_id_columns2: normalizedReplicaIdColumns
       };
       if (objectId != null) {
         filter.relation_id = objectId;
@@ -192,24 +192,24 @@ export class MongoSyncBucketStorage
           connection_id: connection_id,
           relation_id: objectId,
           schema_name: schema,
-          table_name: table,
+          table_name: name,
           replica_id_columns: null,
-          replica_id_columns2: columns,
+          replica_id_columns2: normalizedReplicaIdColumns,
           snapshot_done: false,
           snapshot_status: undefined
         };
 
         await col.insertOne(doc, { session });
       }
-      const sourceTable = new storage.SourceTable(
-        doc._id,
-        connection_tag,
-        objectId,
-        schema,
-        table,
-        replicationColumns,
-        doc.snapshot_done ?? true
-      );
+      const sourceTable = new storage.SourceTable({
+        id: doc._id,
+        connectionTag: connection_tag,
+        objectId: objectId,
+        schema: schema,
+        name: name,
+        replicaIdColumns: replicaIdColumns,
+        snapshotComplete: doc.snapshot_done ?? true
+      });
       sourceTable.syncEvent = options.sync_rules.tableTriggersEvent(sourceTable);
       sourceTable.syncData = options.sync_rules.tableSyncsData(sourceTable);
       sourceTable.syncParameters = options.sync_rules.tableSyncsParameters(sourceTable);
@@ -224,7 +224,7 @@ export class MongoSyncBucketStorage
 
       let dropTables: storage.SourceTable[] = [];
       // Detect tables that are either renamed, or have different replica_id_columns
-      let truncateFilter = [{ schema_name: schema, table_name: table }] as any[];
+      let truncateFilter = [{ schema_name: schema, table_name: name }] as any[];
       if (objectId != null) {
         // Only detect renames if the source uses relation ids.
         truncateFilter.push({ relation_id: objectId });
@@ -242,15 +242,16 @@ export class MongoSyncBucketStorage
         .toArray();
       dropTables = truncate.map(
         (doc) =>
-          new storage.SourceTable(
-            doc._id,
-            connection_tag,
-            doc.relation_id,
-            doc.schema_name,
-            doc.table_name,
-            doc.replica_id_columns2?.map((c) => ({ name: c.name, typeOid: c.type_oid, type: c.type })) ?? [],
-            doc.snapshot_done ?? true
-          )
+          new storage.SourceTable({
+            id: doc._id,
+            connectionTag: connection_tag,
+            objectId: doc.relation_id,
+            schema: doc.schema_name,
+            name: doc.table_name,
+            replicaIdColumns:
+              doc.replica_id_columns2?.map((c) => ({ name: c.name, typeOid: c.type_oid, type: c.type })) ?? [],
+            snapshotComplete: doc.snapshot_done ?? true
+          })
       );
 
       result = {
@@ -577,7 +578,6 @@ export class MongoSyncBucketStorage
             `${this.slot_name} Cleared batch of data in ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, continuing...`
           );
           await timers.setTimeout(lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS / 5);
-          continue;
         } else {
           throw e;
         }
