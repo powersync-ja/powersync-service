@@ -5,6 +5,7 @@ import { storage } from '@powersync/service-core';
 import { isPostgresStorageConfig, normalizePostgresStorageConfig, PostgresStorageConfig } from '../types/types.js';
 import { dropTables } from '../utils/db.js';
 import { PostgresBucketStorageFactory } from './PostgresBucketStorageFactory.js';
+import { PostgresReportStorageFactory } from './PostgresReportStorageFactory.js';
 
 export class PostgresStorageProvider implements storage.BucketStorageProvider {
   get type() {
@@ -28,13 +29,23 @@ export class PostgresStorageProvider implements storage.BucketStorageProvider {
       config: normalizedConfig,
       slot_name_prefix: options.resolvedConfig.slot_name_prefix
     });
+
+    const reportStorageFactory = new PostgresReportStorageFactory({
+      config: normalizedConfig
+    });
+
     return {
+      reportStorage: reportStorageFactory,
       storage: storageFactory,
-      shutDown: async () => storageFactory.db[Symbol.asyncDispose](),
+      shutDown: async () => {
+        await storageFactory.db[Symbol.asyncDispose]();
+        await reportStorageFactory.db[Symbol.asyncDispose]();
+      },
       tearDown: async () => {
         logger.info(`Tearing down Postgres storage: ${normalizedConfig.database}...`);
         await dropTables(storageFactory.db);
         await storageFactory.db[Symbol.asyncDispose]();
+        await reportStorageFactory.db[Symbol.asyncDispose]();
         return true;
       }
     } satisfies storage.ActiveStorage;

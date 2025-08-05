@@ -6,7 +6,7 @@ import * as util from '../../util/util-index.js';
 import { SocketRouteGenerator } from '../router-socket.js';
 import { SyncRoutes } from './sync-stream.js';
 
-import { APIMetric } from '@powersync/service-types';
+import { APIMetric, event_types } from '@powersync/service-types';
 
 export const syncStreamReactive: SocketRouteGenerator = (router) =>
   router.reactiveStream<util.StreamingSyncRequest, any>(SyncRoutes.STREAM, {
@@ -14,6 +14,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
     handler: async ({ context, params, responder, observer, initialN, signal: upstreamSignal }) => {
       const { service_context, logger } = context;
       const { routerEngine, metricsEngine, syncContext } = service_context;
+      const streamStart = Date.now();
 
       logger.defaultMeta = {
         ...logger.defaultMeta,
@@ -21,7 +22,14 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         client_id: params.client_id,
         user_agent: context.user_agent
       };
-      const streamStart = Date.now();
+
+      const sdkData: event_types.SdkUserData = {
+        client_id: params.client_id,
+        user_id: context.user_id!,
+        user_agent: context.user_agent,
+        jwt_exp: context.token_payload?.exp ? new Date(context.token_payload.exp * 1000) : undefined,
+        connect_at: new Date(streamStart)
+      };
 
       // Best effort guess on why the stream was closed.
       // We use the `??=` operator everywhere, so that we catch the first relevant
@@ -85,6 +93,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       });
 
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(1);
+      service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_CONNECT_EVENT, sdkData);
       const tracker = new sync.RequestTracker(metricsEngine);
       try {
         for await (const data of sync.streamResponse({
@@ -159,6 +168,10 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
           close_reason: closeReason ?? 'unknown'
         });
         metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
+        service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_DISCONNECT_EVENT, {
+          ...sdkData,
+          disconnect_at: new Date()
+        });
       }
     }
   });

@@ -2,6 +2,7 @@ import { framework, PowerSyncMigrationManager, ServiceContext, TestStorageOption
 import { PostgresMigrationAgent } from '../migrations/PostgresMigrationAgent.js';
 import { normalizePostgresStorageConfig, PostgresStorageConfigDecoded } from '../types/types.js';
 import { PostgresBucketStorageFactory } from './PostgresBucketStorageFactory.js';
+import { PostgresReportStorageFactory } from './PostgresReportStorageFactory.js';
 
 export type PostgresTestStorageOptions = {
   url: string;
@@ -48,6 +49,21 @@ export const postgresTestSetup = (factoryOptions: PostgresTestStorageOptions) =>
   };
 
   return {
+    reportFactory: async (options?: TestStorageOptions) => {
+      try {
+        if (!options?.doNotClear) {
+          await migrate(framework.migrations.Direction.Up);
+        }
+
+        return new PostgresReportStorageFactory({
+          config: TEST_CONNECTION_OPTIONS
+        });
+      } catch (ex) {
+        // Vitest does not display these errors nicely when using the `await using` syntx
+        console.error(ex, ex.cause);
+        throw ex;
+      }
+    },
     factory: async (options?: TestStorageOptions) => {
       try {
         if (!options?.doNotClear) {

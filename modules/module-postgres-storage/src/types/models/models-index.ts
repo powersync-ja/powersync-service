@@ -8,3 +8,4 @@ export * from './Migration.js';
 export * from './SourceTable.js';
 export * from './SyncRules.js';
 export * from './WriteCheckpoint.js';
+export * from './SdkReporting.js';
