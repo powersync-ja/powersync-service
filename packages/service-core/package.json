@@ -5,7 +5,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "1.13.4",
+  "version": "1.14.0",
   "main": "dist/index.js",
   "license": "FSL-1.1-Apache-2.0",
   "type": "module",
@@ -37,6 +37,7 @@
     "jose": "^4.15.1",
     "lodash": "^4.17.21",
     "lru-cache": "^10.2.2",
+    "negotiator": "^1.0.0",
     "node-fetch": "^3.3.2",
     "ts-codec": "^1.3.0",
     "uri-js": "^4.4.1",
@@ -46,6 +47,7 @@
   },
   "devDependencies": {
     "@types/async": "^3.2.24",
+    "@types/negotiator": "^0.6.4",
     "@types/lodash": "^4.17.5",
     "fastify": "4.23.2",
     "fastify-plugin": "^4.5.1"

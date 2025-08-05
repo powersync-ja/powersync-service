@@ -8,6 +8,7 @@ import {
   internalToExternalOpId,
   LastValueSink,
   maxLsn,
+  ReplicationCheckpoint,
   storage,
   utils,
   WatchWriteCheckpointOptions
@@ -136,10 +137,11 @@ export class PostgresSyncRulesStorage
       .decoded(pick(models.SyncRules, ['last_checkpoint', 'last_checkpoint_lsn']))
       .first();
 
-    return {
-      checkpoint: checkpointRow?.last_checkpoint ?? 0n,
-      lsn: checkpointRow?.last_checkpoint_lsn ?? null
-    };
+    return new PostgresReplicationCheckpoint(
+      this,
+      checkpointRow?.last_checkpoint ?? 0n,
+      checkpointRow?.last_checkpoint_lsn ?? null
+    );
   }
 
   async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
@@ -351,7 +353,7 @@ export class PostgresSyncRulesStorage
   }
 
   async getParameterSets(
-    checkpoint: utils.InternalOpId,
+    checkpoint: ReplicationCheckpoint,
     lookups: sync_rules.ParameterLookup[]
   ): Promise<sync_rules.SqliteJsonRow[]> {
     const rows = await this.db.sql`
@@ -374,7 +376,7 @@ export class PostgresSyncRulesStorage
         value: lookups.map((l) => storage.serializeLookupBuffer(l).toString('hex'))
       }}) AS FILTER
         )
-        AND id <= ${{ type: 'int8', value: checkpoint }}
+        AND id <= ${{ type: 'int8', value: checkpoint.checkpoint }}
       ORDER BY
         lookup,
         source_table,
@@ -834,9 +836,18 @@ export class PostgresSyncRulesStorage
   }
 
   private makeActiveCheckpoint(row: models.ActiveCheckpointDecoded | null) {
-    return {
-      checkpoint: row?.last_checkpoint ?? 0n,
-      lsn: row?.last_checkpoint_lsn ?? null
-    } satisfies storage.ReplicationCheckpoint;
+    return new PostgresReplicationCheckpoint(this, row?.last_checkpoint ?? 0n, row?.last_checkpoint_lsn ?? null);
+  }
+}
+
+class PostgresReplicationCheckpoint implements storage.ReplicationCheckpoint {
+  constructor(
+    private storage: PostgresSyncRulesStorage,
+    public readonly checkpoint: utils.InternalOpId,
+    public readonly lsn: string | null
+  ) {}
+
+  getParameterSets(lookups: sync_rules.ParameterLookup[]): Promise<sync_rules.SqliteJsonRow[]> {
+    return this.storage.getParameterSets(this, lookups);
   }
 }

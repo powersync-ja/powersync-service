@@ -1,5 +1,34 @@
 # @powersync/service-image
 
+## 1.14.0
+
+### Minor Changes
+
+- b1add5a: [MongoDB Storage] Compact action now also compacts parameter lookup storage.
+- 2378e36: Drop support for legacy Supabase keys via app.settings.jwt_secret.
+- 4ebc3bf: Report lack of commits or keepalives as issues in the diagnostics api.
+- 2378e36: Add automatic support for Supabase JWT Signing Keys.
+
+### Patch Changes
+
+- Updated dependencies [b1add5a]
+- Updated dependencies [2378e36]
+- Updated dependencies [4a34a51]
+- Updated dependencies [4ebc3bf]
+- Updated dependencies [2378e36]
+- Updated dependencies [1aafdaf]
+- Updated dependencies [d56eeb9]
+- Updated dependencies [d4db4e2]
+  - @powersync/service-module-postgres-storage@0.9.0
+  - @powersync/service-module-mongodb-storage@0.11.0
+  - @powersync/service-core@1.14.0
+  - @powersync/service-module-postgres@0.15.0
+  - @powersync/service-module-mongodb@0.11.0
+  - @powersync/service-module-mysql@0.8.0
+  - @powersync/service-module-core@0.1.7
+  - @powersync/lib-services-framework@0.7.2
+  - @powersync/service-rsocket-router@0.1.3
+
 ## 1.13.4
 
 ### Patch Changes

@@ -546,6 +546,9 @@ importers:
       lru-cache:
         specifier: ^10.2.2
         version: 10.4.3
+      negotiator:
+        specifier: ^1.0.0
+        version: 1.0.0
       node-fetch:
         specifier: ^3.3.2
         version: 3.3.2
@@ -571,6 +574,9 @@ importers:
       '@types/lodash':
         specifier: ^4.17.5
         version: 4.17.6
+      '@types/negotiator':
+        specifier: ^0.6.4
+        version: 0.6.4
       fastify:
         specifier: 4.23.2
         version: 4.23.2
@@ -1516,6 +1522,9 @@ packages:
 
   '@types/mysql@2.15.22':
     resolution: {integrity: sha512-wK1pzsJVVAjYCSZWQoWHziQZbNggXFDUEIGf54g4ZM/ERuP86uGdWeKZWMYlqTPMZfHJJvLPyogXGvCOg87yLQ==}
+
+  '@types/negotiator@0.6.4':
+    resolution: {integrity: sha512-elf6BsTq+AkyNsb2h5cGNst2Mc7dPliVoAPm1fXglC/BM3f2pFA40BaSSv3E5lyHteEawVKLP+8TwiY1DMNb3A==}
 
   '@types/node@12.20.55':
     resolution: {integrity: sha512-J8xLz7q2OFulZ2cyGTLE1TbbZcjpno7FaN6zdJNrgAdrJ+DZzh/uFR6YrTb4C+nXakvud8Q4+rbhoIWlYQbUFQ==}
@@ -2874,6 +2883,10 @@ packages:
 
   negotiator@0.6.3:
     resolution: {integrity: sha512-+EUsqGPLsM+j/zdChZjsnX51g4XrHFOIXwfnCVPGlQk/k5giakcKsuxCObBRu6DSm9opw/O6slWbJdghQM4bBg==}
+    engines: {node: '>= 0.6'}
+
+  negotiator@1.0.0:
+    resolution: {integrity: sha512-8Ofs/AUQh8MaEcrlq5xOX0CQ9ypTF5dl78mjlMNfOK08fzpgTHQRQPBxcPlEtIw0yRpws+Zo/3r+5WRby7u3Gg==}
     engines: {node: '>= 0.6'}
 
   node-cleanup@2.1.2:
@@ -4972,6 +4985,8 @@ snapshots:
     dependencies:
       '@types/node': 22.16.2
 
+  '@types/negotiator@0.6.4': {}
+
   '@types/node@12.20.55': {}
 
   '@types/node@13.13.52': {}
@@ -6354,6 +6369,8 @@ snapshots:
       randexp: 0.4.6
 
   negotiator@0.6.3: {}
+
+  negotiator@1.0.0: {}
 
   node-cleanup@2.1.2: {}
 

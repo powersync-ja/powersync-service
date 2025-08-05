@@ -59,7 +59,15 @@ export function registerCompactAction(program: Command) {
         return;
       }
       logger.info('Performing compaction...');
-      await active.compact({ memoryLimitMB: COMPACT_MEMORY_LIMIT_MB, compactBuckets: buckets });
+      if (buckets != null) {
+        await active.compact({
+          memoryLimitMB: COMPACT_MEMORY_LIMIT_MB,
+          compactBuckets: buckets,
+          compactParameterData: false
+        });
+      } else {
+        await active.compact({ memoryLimitMB: COMPACT_MEMORY_LIMIT_MB, compactParameterData: true });
+      }
       logger.info('Successfully compacted storage.');
     } catch (e) {
       logger.error(`Failed to compact: ${e.toString()}`);
