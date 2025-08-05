@@ -1,5 +1,34 @@
 # @powersync/service-core
 
+## 1.14.0
+
+### Minor Changes
+
+- b1add5a: [MongoDB Storage] Compact action now also compacts parameter lookup storage.
+- 2378e36: Drop support for legacy Supabase keys via app.settings.jwt_secret.
+- 4ebc3bf: Report lack of commits or keepalives as issues in the diagnostics api.
+- 2378e36: Add automatic support for Supabase JWT Signing Keys.
+- d56eeb9: Delay switching over to new sync rules until we have a consistent checkpoint.
+- d4db4e2: MySQL:
+  - Added schema change handling
+  - Except for some edge cases, the following schema changes are now handled automatically:
+    - Creation, renaming, dropping and truncation of tables.
+    - Creation and dropping of unique indexes and primary keys.
+    - Adding, modifying, dropping and renaming of table columns.
+  - If a schema change cannot handled automatically, a warning with details will be logged.
+  - Mismatches in table schema from the Zongji binlog listener are now handled more gracefully.
+  - Replication of wildcard tables is now supported.
+  - Improved logging for binlog event processing.
+
+### Patch Changes
+
+- 4a34a51: Support BSON lines through the HTTP endpoint via the `application/vnd.powersync.bson-stream` content-type.
+- 1aafdaf: Make 404 error body consistent with other error responses.
+- Updated dependencies [d4db4e2]
+  - @powersync/service-sync-rules@0.28.0
+  - @powersync/lib-services-framework@0.7.2
+  - @powersync/service-rsocket-router@0.1.3
+
 ## 1.13.4
 
 ### Patch Changes
