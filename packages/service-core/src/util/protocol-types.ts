@@ -22,10 +22,6 @@ export const RequestedStreamSubscription = t.object({
    */
   stream: t.string,
   /**
-   * An opaque textual identifier assigned to this request by the client.
-   */
-  client_id: t.string,
-  /**
    * An optional dictionary of parameters to pass to this specific stream.
    */
   parameters: t.record(t.any).optional(),
@@ -151,7 +147,16 @@ export type StreamingSyncLine =
 export type ProtocolOpId = string;
 
 export interface StreamDescription {
+  /**
+   * The name of the stream as it appears in the sync configuration.
+   */
   name: string;
+
+  /**
+   * Whether this stream is subscribed to by default.
+   *
+   * For default streams, this field is still `true` if clients have an explicit subscription to the stream.
+   */
   is_default: boolean;
 }
 
@@ -159,6 +164,18 @@ export interface Checkpoint {
   last_op_id: ProtocolOpId;
   write_checkpoint?: ProtocolOpId;
   buckets: CheckpointBucket[];
+
+  /**
+   * All streams that the client is subscribed to.
+   *
+   * This field has two purposes:
+   *
+   *  1. It allows clients to determine which of their subscriptions actually works. E.g. if a user does
+   *     `db.syncStream('non_existent_stream').subscribe()`, clients don't immediately know that the stream doesn't
+   *     exist. Only after the next `checkpoint` line can they query this field and mark unresolved subscriptions.
+   *. 2. It allows clients to learn which default streams they have been subscribed to. This is relevant for APIs
+   *     listing all streams on the client-side.
+   */
   streams: StreamDescription[];
 }
 
@@ -236,10 +253,13 @@ export type BucketDerivedFromDefaultStream = {
 /**
  * The bucket has been included in a checkpoint because it's part of a stream that a client has explicitly subscribed
  * to.
- *
- * The string is the client id associated with the subscription in {@link RequestedStreamSubscription}.
  */
-export type BucketDerivedFromExplicitSubscription = string;
+export type BucketDerivedFromExplicitSubscription = {
+  /**
+   * The index (into {@link StreamSubscriptionRequest.subscriptions}) of the subscription yielding this bucket.
+   */
+  sub: number;
+};
 
 export interface ClientBucketDescription {
   /**

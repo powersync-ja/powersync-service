@@ -45,4 +45,4 @@ export interface ResolvedBucket extends BucketDescription {
   inclusion_reasons: BucketInclusionReason[];
 }
 
-export type BucketInclusionReason = 'default' | { subscription: string };
+export type BucketInclusionReason = 'default' | { subscription: number };
