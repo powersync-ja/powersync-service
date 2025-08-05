@@ -381,7 +381,7 @@ export class BucketParameterState {
   private readonly staticBuckets: Map<string, ResolvedBucket>;
   private readonly includeDefaultStreams: boolean;
   // Indexed by the client-side id
-  private readonly explicitStreamSubscriptions: Record<string, util.RequestedStreamSubscription>;
+  private readonly explicitStreamSubscriptions: util.RequestedStreamSubscription[];
   private readonly subscribedStreamNames: Set<string>;
   private readonly logger: Logger;
   private cachedDynamicBuckets: ResolvedBucket[] | null = null;
@@ -403,16 +403,16 @@ export class BucketParameterState {
     this.syncParams = new RequestParameters(tokenPayload, request.parameters ?? {});
     this.logger = logger;
 
-    const idToStreamSubscription: Record<string, util.RequestedStreamSubscription> = {};
     const streamsByName: Record<string, RequestedStream[]> = {};
     const subscriptions = request.streams;
+    const explicitStreamSubscriptions: util.RequestedStreamSubscription[] = subscriptions?.subscriptions ?? [];
     if (subscriptions) {
-      for (const subscription of subscriptions.subscriptions) {
-        idToStreamSubscription[subscription.client_id] = subscription;
+      for (let i = 0; i < explicitStreamSubscriptions.length; i++) {
+        const subscription = explicitStreamSubscriptions[i];
 
         const syncRuleStream: RequestedStream = {
           parameters: subscription.parameters ?? {},
-          opaque_id: subscription.client_id
+          opaque_id: i
         };
         if (Object.hasOwn(streamsByName, subscription.stream)) {
           streamsByName[subscription.stream].push(syncRuleStream);
@@ -422,7 +422,7 @@ export class BucketParameterState {
       }
     }
     this.includeDefaultStreams = subscriptions?.include_defaults ?? true;
-    this.explicitStreamSubscriptions = idToStreamSubscription;
+    this.explicitStreamSubscriptions = explicitStreamSubscriptions;
 
     this.querier = syncRules.getBucketParameterQuerier({
       globalParameters: this.syncParams,
@@ -469,7 +469,7 @@ export class BucketParameterState {
           const stream = description.definition;
           return { default: lookupIndex.get(stream)! };
         } else {
-          return reason.subscription;
+          return { sub: reason.subscription };
         }
       })
     };

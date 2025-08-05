@@ -52,7 +52,7 @@ export interface RequestedStream {
    * An opaque id of the stream subscription, used to associate buckets with the stream subscriptions that have caused
    * them to be included.
    */
-  opaque_id: string;
+  opaque_id: number;
 }
 
 export interface GetQuerierOptions {
