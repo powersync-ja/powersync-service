@@ -1,5 +1,35 @@
 # @powersync/service-core-tests
 
+## 0.11.0
+
+### Minor Changes
+
+- b1add5a: [MongoDB Storage] Compact action now also compacts parameter lookup storage.
+- d56eeb9: Delay switching over to new sync rules until we have a consistent checkpoint.
+- d4db4e2: MySQL:
+  - Added schema change handling
+  - Except for some edge cases, the following schema changes are now handled automatically:
+    - Creation, renaming, dropping and truncation of tables.
+    - Creation and dropping of unique indexes and primary keys.
+    - Adding, modifying, dropping and renaming of table columns.
+  - If a schema change cannot handled automatically, a warning with details will be logged.
+  - Mismatches in table schema from the Zongji binlog listener are now handled more gracefully.
+  - Replication of wildcard tables is now supported.
+  - Improved logging for binlog event processing.
+
+### Patch Changes
+
+- Updated dependencies [b1add5a]
+- Updated dependencies [2378e36]
+- Updated dependencies [4a34a51]
+- Updated dependencies [4ebc3bf]
+- Updated dependencies [2378e36]
+- Updated dependencies [1aafdaf]
+- Updated dependencies [d56eeb9]
+- Updated dependencies [d4db4e2]
+  - @powersync/service-core@1.14.0
+  - @powersync/service-sync-rules@0.28.0
+
 ## 0.10.4
 
 ### Patch Changes
