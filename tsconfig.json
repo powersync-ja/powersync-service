@@ -13,6 +13,9 @@
     {
       "path": "./packages/service-core"
     },
+        {
+      "path": "./packages/service-core-tests"
+    },
     {
       "path": "./packages/service-errors"
     },

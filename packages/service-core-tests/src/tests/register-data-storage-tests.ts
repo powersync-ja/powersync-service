@@ -424,10 +424,12 @@ bucket_definitions:
       .getBucketParameterQuerier(test_utils.querierOptions(parameters))
       .queryDynamicBucketDescriptions({
         getParameterSets(lookups) {
-          return bucketStorage.getParameterSets(lookups);
+          return checkpoint.getParameterSets(lookups);
         }
       });
-    expect(buckets).toEqual([{ bucket: 'by_workspace["workspace1"]', priority: 3 }]);
+    expect(buckets).toEqual([
+      { bucket: 'by_workspace["workspace1"]', priority: 3, definition: 'by_workspace', inclusion_reasons: ['default'] }
+    ]);
   });
 
   test('save and load parameters with dynamic global buckets', async () => {
@@ -498,13 +500,23 @@ bucket_definitions:
       .getBucketParameterQuerier(test_utils.querierOptions(parameters))
       .queryDynamicBucketDescriptions({
         getParameterSets(lookups) {
-          return bucketStorage.getParameterSets(lookups);
+          return checkpoint.getParameterSets(lookups);
         }
       });
     buckets.sort((a, b) => a.bucket.localeCompare(b.bucket));
     expect(buckets).toEqual([
-      { bucket: 'by_public_workspace["workspace1"]', priority: 3 },
-      { bucket: 'by_public_workspace["workspace3"]', priority: 3 }
+      {
+        bucket: 'by_public_workspace["workspace1"]',
+        priority: 3,
+        definition: 'by_public_workspace',
+        inclusion_reasons: ['default']
+      },
+      {
+        bucket: 'by_public_workspace["workspace3"]',
+        priority: 3,
+        definition: 'by_public_workspace',
+        inclusion_reasons: ['default']
+      }
     ]);
   });
 

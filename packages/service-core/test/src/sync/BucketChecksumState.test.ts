@@ -622,7 +622,7 @@ bucket_definitions:
       });
     }
 
-    function createQuerier(ids: string[], subscription: string | null): BucketParameterQuerier {
+    function createQuerier(ids: string[], subscription: number | null): BucketParameterQuerier {
       return {
         staticBuckets: ids.map((bucket) => ({
           definition: 'stream',
@@ -686,7 +686,7 @@ bucket_definitions:
       const state = checksumState();
 
       const line = await state.buildNextCheckpointLine({
-        base: { checkpoint: 1n, lsn: '1' },
+        base: storage.makeCheckpoint(1n),
         writeCheckpoint: null,
         update: CHECKPOINT_INVALIDATE_ALL
       })!;
@@ -708,7 +708,7 @@ bucket_definitions:
       const state = checksumState({ syncRequest: { streams: { include_defaults: false, subscriptions: [] } } });
 
       const line = await state.buildNextCheckpointLine({
-        base: { checkpoint: 1n, lsn: '1' },
+        base: storage.makeCheckpoint(1n),
         writeCheckpoint: null,
         update: CHECKPOINT_INVALIDATE_ALL
       })!;
@@ -730,15 +730,15 @@ bucket_definitions:
         syncRequest: {
           streams: {
             subscriptions: [
-              { stream: 'stream', client_id: '1', parameters: { ids: '["a"]' } },
-              { stream: 'stream', client_id: '2', parameters: { ids: '["b"]' }, override_priority: 1 }
+              { stream: 'stream', parameters: { ids: '["a"]' } },
+              { stream: 'stream', parameters: { ids: '["b"]' }, override_priority: 1 }
             ]
           }
         }
       });
 
       const line = await state.buildNextCheckpointLine({
-        base: { checkpoint: 1n, lsn: '1' },
+        base: storage.makeCheckpoint(1n),
         writeCheckpoint: null,
         update: CHECKPOINT_INVALIDATE_ALL
       })!;
@@ -746,8 +746,8 @@ bucket_definitions:
       expect(line?.checkpointLine).toEqual({
         checkpoint: {
           buckets: [
-            { bucket: 'stream["a"]', checksum: 1, count: 1, priority: 3, subscriptions: ['1'] },
-            { bucket: 'stream["b"]', checksum: 1, count: 1, priority: 1, subscriptions: ['2'] },
+            { bucket: 'stream["a"]', checksum: 1, count: 1, priority: 3, subscriptions: [{ sub: 0 }] },
+            { bucket: 'stream["b"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 1 }] },
             { bucket: 'stream["default"]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }
           ],
           last_op_id: '1',
@@ -762,15 +762,15 @@ bucket_definitions:
         syncRequest: {
           streams: {
             subscriptions: [
-              { stream: 'stream', client_id: '1', parameters: { ids: '["a", "b"]' } },
-              { stream: 'stream', client_id: '2', parameters: { ids: '["b"]' }, override_priority: 1 }
+              { stream: 'stream', parameters: { ids: '["a", "b"]' } },
+              { stream: 'stream', parameters: { ids: '["b"]' }, override_priority: 1 }
             ]
           }
         }
       });
 
       const line = await state.buildNextCheckpointLine({
-        base: { checkpoint: 1n, lsn: '1' },
+        base: storage.makeCheckpoint(1n),
         writeCheckpoint: null,
         update: CHECKPOINT_INVALIDATE_ALL
       })!;
@@ -778,8 +778,8 @@ bucket_definitions:
       expect(line?.checkpointLine).toEqual({
         checkpoint: {
           buckets: [
-            { bucket: 'stream["a"]', checksum: 1, count: 1, priority: 3, subscriptions: ['1'] },
-            { bucket: 'stream["b"]', checksum: 1, count: 1, priority: 1, subscriptions: ['1', '2'] }
+            { bucket: 'stream["a"]', checksum: 1, count: 1, priority: 3, subscriptions: [{ sub: 0 }] },
+            { bucket: 'stream["b"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }, { sub: 1 }] }
           ],
           last_op_id: '1',
           write_checkpoint: undefined,
@@ -793,15 +793,13 @@ bucket_definitions:
       const state = checksumState({
         syncRequest: {
           streams: {
-            subscriptions: [
-              { stream: 'stream', client_id: '1', parameters: { ids: '["a", "default"]' }, override_priority: 1 }
-            ]
+            subscriptions: [{ stream: 'stream', parameters: { ids: '["a", "default"]' }, override_priority: 1 }]
           }
         }
       });
 
       const line = await state.buildNextCheckpointLine({
-        base: { checkpoint: 1n, lsn: '1' },
+        base: storage.makeCheckpoint(1n),
         writeCheckpoint: null,
         update: CHECKPOINT_INVALIDATE_ALL
       })!;
@@ -809,8 +807,14 @@ bucket_definitions:
       expect(line?.checkpointLine).toEqual({
         checkpoint: {
           buckets: [
-            { bucket: 'stream["a"]', checksum: 1, count: 1, priority: 1, subscriptions: ['1'] },
-            { bucket: 'stream["default"]', checksum: 1, count: 1, priority: 1, subscriptions: ['1', { default: 0 }] }
+            { bucket: 'stream["a"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }] },
+            {
+              bucket: 'stream["default"]',
+              checksum: 1,
+              count: 1,
+              priority: 1,
+              subscriptions: [{ sub: 0 }, { default: 0 }]
+            }
           ],
           last_op_id: '1',
           write_checkpoint: undefined,
