@@ -10,7 +10,6 @@ import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManag
 import { BinLogEventHandler, BinLogListener, Row, SchemaChange } from '@module/replication/zongji/BinLogListener.js';
 import { TableMapEntry } from '@powersync/mysql-zongji';
 import * as common from '@module/common/common-index.js';
-import { KEEP_ALIVE_TABLE } from '@module/common/keepalive.js';
 import { TablePattern } from '@powersync/service-sync-rules';
 
 export const TEST_URI = env.MYSQL_TEST_URI;
@@ -53,7 +52,7 @@ export async function clearTestDb(connection: mysqlPromise.Connection) {
   );
   for (let row of result) {
     const name = row.TABLE_NAME;
-    if (name.startsWith('test_') || name === KEEP_ALIVE_TABLE) {
+    if (name.startsWith('test_')) {
       await connection.query(`DROP TABLE ${name}`);
     }
   }
@@ -76,20 +75,19 @@ export interface CreateBinlogListenerParams {
   connectionManager: MySQLConnectionManager;
   eventHandler: BinLogEventHandler;
   sourceTables: TablePattern[];
-  startPosition?: common.BinLogPosition;
+  startGTID?: common.ReplicatedGTID;
 }
 export async function createBinlogListener(params: CreateBinlogListenerParams): Promise<BinLogListener> {
-  let { connectionManager, eventHandler, sourceTables, startPosition } = params;
+  let { connectionManager, eventHandler, sourceTables, startGTID } = params;
 
-  if (!startPosition) {
-    const fromGTID = await getFromGTID(connectionManager);
-    startPosition = fromGTID.position;
+  if (!startGTID) {
+    startGTID = await getFromGTID(connectionManager);
   }
 
   return new BinLogListener({
     connectionManager: connectionManager,
     eventHandler: eventHandler,
-    startPosition: startPosition,
+    startGTID: startGTID!,
     sourceTables: sourceTables,
     serverId: createRandomServerId(1)
   });
@@ -101,6 +99,7 @@ export class TestBinLogEventHandler implements BinLogEventHandler {
   rowsDeleted = 0;
   commitCount = 0;
   schemaChanges: SchemaChange[] = [];
+  lastKeepAlive: string | undefined;
 
   unpause: ((value: void | PromiseLike<void>) => void) | undefined;
   private pausedPromise: Promise<void> | undefined;
@@ -135,4 +134,7 @@ export class TestBinLogEventHandler implements BinLogEventHandler {
   }
   async onTransactionStart(options: { timestamp: Date }) {}
   async onRotate() {}
+  async onKeepAlive(lsn: string) {
+    this.lastKeepAlive = lsn;
+  }
 }

@@ -23,7 +23,6 @@ import { createRandomServerId, qualifiedMySQLTable } from '../utils/mysql-utils.
 import { MySQLConnectionManager } from './MySQLConnectionManager.js';
 import { ReplicationMetric } from '@powersync/service-types';
 import { BinLogEventHandler, BinLogListener, Row, SchemaChange, SchemaChangeType } from './zongji/BinLogListener.js';
-import { ensureKeepAliveConfiguration, KEEP_ALIVE_TABLE } from '../common/keepalive.js';
 
 export interface BinLogStreamOptions {
   connections: MySQLConnectionManager;
@@ -84,11 +83,6 @@ export class BinLogStream {
    * We can only compute replication lag if isStartingReplication == false, or oldestUncommittedChange is present.
    */
   isStartingReplication = true;
-
-  /**
-   *  True if the keepalive table could be configured.
-   */
-  keepAliveConfigured = false;
 
   constructor(private options: BinLogStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
@@ -359,17 +353,6 @@ export class BinLogStream {
       throw new BinlogConfigurationError(`BinLog Configuration Errors: ${errors.join(', ')}`);
     }
 
-    try {
-      await ensureKeepAliveConfiguration(connection);
-      this.keepAliveConfigured = true;
-      this.logger.info(`Table ${KEEP_ALIVE_TABLE} successfully configured. Keepalive mechanism enabled.`);
-    } catch (err) {
-      this.keepAliveConfigured = false;
-      this.logger.warn(
-        `Unable to configure ${KEEP_ALIVE_TABLE} table. This can result in less frequent checkpoints when the source database is idle.`,
-        err
-      );
-    }
     connection.release();
 
     const initialReplicationCompleted = await this.checkInitialReplicated();
@@ -416,7 +399,6 @@ export class BinLogStream {
     const fromGTID = checkpoint_lsn
       ? common.ReplicatedGTID.fromSerialized(checkpoint_lsn)
       : await common.readExecutedGtid(connection);
-    const binLogPositionState = fromGTID.position;
     connection.release();
 
     if (!this.stopped) {
@@ -427,7 +409,7 @@ export class BinLogStream {
           const binlogListener = new BinLogListener({
             logger: this.logger,
             sourceTables: this.syncRules.getSourceTables(),
-            startPosition: binLogPositionState,
+            startGTID: fromGTID,
             connectionManager: this.connections,
             serverId: serverId,
             eventHandler: binlogEventHandler
@@ -472,6 +454,12 @@ export class BinLogStream {
           rows: rows,
           tableEntry: tableMap
         });
+      },
+      onKeepAlive: async (lsn: string) => {
+        const didCommit = await batch.keepalive(lsn);
+        if (didCommit) {
+          this.oldestUncommittedChange = null;
+        }
       },
       onCommit: async (lsn: string) => {
         this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);

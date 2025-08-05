@@ -103,6 +103,14 @@ describe('BinlogListener tests', () => {
     await binLogListener.stop();
   });
 
+  test('Keepalive event', async () => {
+    binLogListener.options.keepAliveIntervalSeconds = 1;
+    await binLogListener.start();
+    await vi.waitFor(() => expect(eventHandler.lastKeepAlive).toBeDefined(), { timeout: 10000 });
+    await binLogListener.stop();
+    expect(eventHandler.lastKeepAlive).toEqual(binLogListener.options.startGTID.comparable);
+  });
+
   test('Schema change event: Rename table', async () => {
     await binLogListener.start();
     await connectionManager.query(`ALTER TABLE test_DATA RENAME test_DATA_new`);

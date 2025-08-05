@@ -2,7 +2,6 @@ import { container, logger as defaultLogger } from '@powersync/lib-services-fram
 import { POWERSYNC_VERSION, replication } from '@powersync/service-core';
 import { BinlogConfigurationError, BinLogStream } from './BinLogStream.js';
 import { MySQLConnectionManagerFactory } from './MySQLConnectionManagerFactory.js';
-import { KEEP_ALIVE_TABLE, pingKeepAlive } from '../common/keepalive.js';
 import { MySQLConnectionManager } from './MySQLConnectionManager.js';
 
 export interface BinLogReplicationJobOptions extends replication.AbstractReplicationJobOptions {
@@ -34,16 +33,7 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
   }
 
   async keepAlive() {
-    if (this.lastStream && this.lastStream.keepAliveConfigured) {
-      const connection = await this.connectionManager.getConnection();
-      try {
-        await pingKeepAlive(connection);
-      } catch (e) {
-        this.logger.warn(`KeepAlive failed, unable to update ${KEEP_ALIVE_TABLE} table.`, e);
-      } finally {
-        connection.release();
-      }
-    }
+    // Keepalives are handled by the binlog heartbeat mechanism
   }
 
   async replicate() {

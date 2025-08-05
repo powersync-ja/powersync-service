@@ -33,7 +33,7 @@
     "@powersync/service-sync-rules": "workspace:*",
     "@powersync/service-types": "workspace:*",
     "@powersync/service-jsonbig": "workspace:*",
-    "@powersync/mysql-zongji": "^0.4.0",
+    "@powersync/mysql-zongji": "0.0.0-dev-20250805145355",
     "async": "^3.2.4",
     "mysql2": "^3.11.0",
     "node-sql-parser": "^5.3.9",
