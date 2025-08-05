@@ -10,9 +10,20 @@ exports[`sync - postgres > compacting data - invalidate checkpoint 1`] = `
           "checksum": -93886621,
           "count": 2,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "last_op_id": "2",
+      "streams": [
+        {
+          "is_default": true,
+          "name": "mybucket",
+        },
+      ],
       "write_checkpoint": undefined,
     },
   },
@@ -46,6 +57,11 @@ exports[`sync - postgres > compacting data - invalidate checkpoint 2`] = `
           "checksum": 499012468,
           "count": 4,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "write_checkpoint": undefined,
@@ -105,9 +121,20 @@ exports[`sync - postgres > expiring token 1`] = `
           "checksum": 0,
           "count": 0,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "last_op_id": "0",
+      "streams": [
+        {
+          "is_default": true,
+          "name": "mybucket",
+        },
+      ],
       "write_checkpoint": undefined,
     },
   },
@@ -137,9 +164,20 @@ exports[`sync - postgres > sends checkpoint complete line for empty checkpoint 1
           "checksum": -1221282404,
           "count": 1,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "last_op_id": "1",
+      "streams": [
+        {
+          "is_default": true,
+          "name": "mybucket",
+        },
+      ],
       "write_checkpoint": undefined,
     },
   },
@@ -193,15 +231,35 @@ exports[`sync - postgres > sync buckets in order 1`] = `
           "checksum": 920318466,
           "count": 1,
           "priority": 2,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
         {
           "bucket": "b1[]",
           "checksum": -1382098757,
           "count": 1,
           "priority": 1,
+          "subscriptions": [
+            {
+              "default": 1,
+            },
+          ],
         },
       ],
       "last_op_id": "2",
+      "streams": [
+        {
+          "is_default": true,
+          "name": "b0",
+        },
+        {
+          "is_default": true,
+          "name": "b1",
+        },
+      ],
       "write_checkpoint": undefined,
     },
   },
@@ -267,9 +325,20 @@ exports[`sync - postgres > sync global data 1`] = `
           "checksum": -93886621,
           "count": 2,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "last_op_id": "2",
+      "streams": [
+        {
+          "is_default": true,
+          "name": "mybucket",
+        },
+      ],
       "write_checkpoint": undefined,
     },
   },
@@ -319,21 +388,50 @@ exports[`sync - postgres > sync interrupts low-priority buckets on new checkpoin
           "checksum": -659831575,
           "count": 2000,
           "priority": 2,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
         {
           "bucket": "b0b[]",
           "checksum": -659831575,
           "count": 2000,
           "priority": 2,
+          "subscriptions": [
+            {
+              "default": 1,
+            },
+          ],
         },
         {
           "bucket": "b1[]",
           "checksum": -1096116670,
           "count": 1,
           "priority": 1,
+          "subscriptions": [
+            {
+              "default": 2,
+            },
+          ],
         },
       ],
       "last_op_id": "4001",
+      "streams": [
+        {
+          "is_default": true,
+          "name": "b0a",
+        },
+        {
+          "is_default": true,
+          "name": "b0b",
+        },
+        {
+          "is_default": true,
+          "name": "b1",
+        },
+      ],
       "write_checkpoint": undefined,
     },
   },
@@ -380,18 +478,33 @@ exports[`sync - postgres > sync interrupts low-priority buckets on new checkpoin
           "checksum": 883076828,
           "count": 2001,
           "priority": 2,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
         {
           "bucket": "b0b[]",
           "checksum": 883076828,
           "count": 2001,
           "priority": 2,
+          "subscriptions": [
+            {
+              "default": 1,
+            },
+          ],
         },
         {
           "bucket": "b1[]",
           "checksum": 1841937527,
           "count": 2,
           "priority": 1,
+          "subscriptions": [
+            {
+              "default": 2,
+            },
+          ],
         },
       ],
       "write_checkpoint": undefined,
@@ -466,9 +579,20 @@ exports[`sync - postgres > sync legacy non-raw data 1`] = `
           "checksum": -852817836,
           "count": 1,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "last_op_id": "1",
+      "streams": [
+        {
+          "is_default": true,
+          "name": "mybucket",
+        },
+      ],
       "write_checkpoint": undefined,
     },
   },
@@ -514,9 +638,20 @@ exports[`sync - postgres > sync updates to data query only 1`] = `
           "checksum": 0,
           "count": 0,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "last_op_id": "1",
+      "streams": [
+        {
+          "is_default": true,
+          "name": "by_user",
+        },
+      ],
       "write_checkpoint": undefined,
     },
   },
@@ -540,6 +675,11 @@ exports[`sync - postgres > sync updates to data query only 2`] = `
           "checksum": 1418351250,
           "count": 1,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "write_checkpoint": undefined,
@@ -582,9 +722,20 @@ exports[`sync - postgres > sync updates to global data 1`] = `
           "checksum": 0,
           "count": 0,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "last_op_id": "0",
+      "streams": [
+        {
+          "is_default": true,
+          "name": "mybucket",
+        },
+      ],
       "write_checkpoint": undefined,
     },
   },
@@ -608,6 +759,11 @@ exports[`sync - postgres > sync updates to global data 2`] = `
           "checksum": 920318466,
           "count": 1,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "write_checkpoint": undefined,
@@ -652,6 +808,11 @@ exports[`sync - postgres > sync updates to global data 3`] = `
           "checksum": -93886621,
           "count": 2,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "write_checkpoint": undefined,
@@ -690,6 +851,12 @@ exports[`sync - postgres > sync updates to parameter query + data 1`] = `
     "checkpoint": {
       "buckets": [],
       "last_op_id": "0",
+      "streams": [
+        {
+          "is_default": true,
+          "name": "by_user",
+        },
+      ],
       "write_checkpoint": undefined,
     },
   },
@@ -713,6 +880,11 @@ exports[`sync - postgres > sync updates to parameter query + data 2`] = `
           "checksum": 1418351250,
           "count": 1,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "write_checkpoint": undefined,
@@ -751,6 +923,12 @@ exports[`sync - postgres > sync updates to parameter query only 1`] = `
     "checkpoint": {
       "buckets": [],
       "last_op_id": "0",
+      "streams": [
+        {
+          "is_default": true,
+          "name": "by_user",
+        },
+      ],
       "write_checkpoint": undefined,
     },
   },
@@ -774,6 +952,11 @@ exports[`sync - postgres > sync updates to parameter query only 2`] = `
           "checksum": 0,
           "count": 0,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "write_checkpoint": undefined,
