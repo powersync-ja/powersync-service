@@ -20,7 +20,7 @@ import {
   logger as defaultLogger
 } from '@powersync/lib-services-framework';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { BucketParameterQuerier } from '@powersync/service-sync-rules/src/BucketParameterQuerier.js';
+import { BucketParameterQuerier, QuerierError } from '@powersync/service-sync-rules/src/BucketParameterQuerier.js';
 import { SyncContext } from './SyncContext.js';
 import { getIntersection, hasIntersection } from './util.js';
 
@@ -254,7 +254,12 @@ export class BucketChecksumState {
 
           subscriptions.push({
             name: source.name,
-            is_default: source.subscribedToByDefault
+            is_default: source.subscribedToByDefault,
+            errors:
+              this.parameterState.streamErrors[source.name]?.map((e) => ({
+                subscription: e.subscription?.opaque_id ?? 'default',
+                message: e.message
+              })) ?? []
           });
         }
       }
@@ -382,6 +387,8 @@ export class BucketParameterState {
   private readonly includeDefaultStreams: boolean;
   // Indexed by the client-side id
   private readonly explicitStreamSubscriptions: util.RequestedStreamSubscription[];
+  // Indexed by descriptor name.
+  readonly streamErrors: Record<string, QuerierError[]>;
   private readonly subscribedStreamNames: Set<string>;
   private readonly logger: Logger;
   private cachedDynamicBuckets: ResolvedBucket[] | null = null;
@@ -424,11 +431,13 @@ export class BucketParameterState {
     this.includeDefaultStreams = subscriptions?.include_defaults ?? true;
     this.explicitStreamSubscriptions = explicitStreamSubscriptions;
 
-    this.querier = syncRules.getBucketParameterQuerier({
+    const { querier, errors } = syncRules.getBucketParameterQuerier({
       globalParameters: this.syncParams,
       hasDefaultStreams: this.includeDefaultStreams,
       streams: streamsByName
     });
+    this.querier = querier;
+    this.streamErrors = Object.groupBy(errors, (e) => e.descriptor) as Record<string, QuerierError[]>;
 
     this.staticBuckets = new Map<string, ResolvedBucket>(
       mergeBuckets(this.querier.staticBuckets).map((b) => [b.bucket, b])

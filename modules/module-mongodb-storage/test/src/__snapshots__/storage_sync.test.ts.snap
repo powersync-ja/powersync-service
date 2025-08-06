@@ -20,6 +20,7 @@ exports[`sync - mongodb > compacting data - invalidate checkpoint 1`] = `
       "last_op_id": "2",
       "streams": [
         {
+          "errors": [],
           "is_default": true,
           "name": "mybucket",
         },
@@ -131,6 +132,7 @@ exports[`sync - mongodb > expiring token 1`] = `
       "last_op_id": "0",
       "streams": [
         {
+          "errors": [],
           "is_default": true,
           "name": "mybucket",
         },
@@ -174,6 +176,7 @@ exports[`sync - mongodb > sends checkpoint complete line for empty checkpoint 1`
       "last_op_id": "1",
       "streams": [
         {
+          "errors": [],
           "is_default": true,
           "name": "mybucket",
         },
@@ -252,10 +255,12 @@ exports[`sync - mongodb > sync buckets in order 1`] = `
       "last_op_id": "2",
       "streams": [
         {
+          "errors": [],
           "is_default": true,
           "name": "b0",
         },
         {
+          "errors": [],
           "is_default": true,
           "name": "b1",
         },
@@ -335,6 +340,7 @@ exports[`sync - mongodb > sync global data 1`] = `
       "last_op_id": "2",
       "streams": [
         {
+          "errors": [],
           "is_default": true,
           "name": "mybucket",
         },
@@ -420,14 +426,17 @@ exports[`sync - mongodb > sync interrupts low-priority buckets on new checkpoint
       "last_op_id": "4001",
       "streams": [
         {
+          "errors": [],
           "is_default": true,
           "name": "b0a",
         },
         {
+          "errors": [],
           "is_default": true,
           "name": "b0b",
         },
         {
+          "errors": [],
           "is_default": true,
           "name": "b1",
         },
@@ -589,6 +598,7 @@ exports[`sync - mongodb > sync legacy non-raw data 1`] = `
       "last_op_id": "1",
       "streams": [
         {
+          "errors": [],
           "is_default": true,
           "name": "mybucket",
         },
@@ -648,6 +658,7 @@ exports[`sync - mongodb > sync updates to data query only 1`] = `
       "last_op_id": "1",
       "streams": [
         {
+          "errors": [],
           "is_default": true,
           "name": "by_user",
         },
@@ -732,6 +743,7 @@ exports[`sync - mongodb > sync updates to global data 1`] = `
       "last_op_id": "0",
       "streams": [
         {
+          "errors": [],
           "is_default": true,
           "name": "mybucket",
         },
@@ -853,6 +865,7 @@ exports[`sync - mongodb > sync updates to parameter query + data 1`] = `
       "last_op_id": "0",
       "streams": [
         {
+          "errors": [],
           "is_default": true,
           "name": "by_user",
         },
@@ -925,6 +938,7 @@ exports[`sync - mongodb > sync updates to parameter query only 1`] = `
       "last_op_id": "0",
       "streams": [
         {
+          "errors": [],
           "is_default": true,
           "name": "by_user",
         },

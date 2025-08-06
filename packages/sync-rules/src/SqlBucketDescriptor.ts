@@ -1,5 +1,5 @@
 import { BucketInclusionReason, ResolvedBucket } from './BucketDescription.js';
-import { BucketParameterQuerier, mergeBucketParameterQueriers } from './BucketParameterQuerier.js';
+import { BucketParameterQuerier, mergeBucketParameterQueriers, PendingQueriers } from './BucketParameterQuerier.js';
 import { BucketSource, BucketSourceType, ResultSetDescription } from './BucketSource.js';
 import { ColumnDefinition } from './ExpressionType.js';
 import { IdSequence } from './IdSequence.js';
@@ -119,12 +119,12 @@ export class SqlBucketDescriptor implements BucketSource {
    */
   getBucketParameterQuerier(options: GetQuerierOptions): BucketParameterQuerier {
     const queriers: BucketParameterQuerier[] = [];
-    this.pushBucketParameterQueriers(queriers, options);
+    this.pushBucketParameterQueriers({ queriers, errors: [] }, options);
 
     return mergeBucketParameterQueriers(queriers);
   }
 
-  pushBucketParameterQueriers(result: BucketParameterQuerier[], options: GetQuerierOptions) {
+  pushBucketParameterQueriers(result: PendingQueriers, options: GetQuerierOptions) {
     const reasons = [this.bucketInclusionReason()];
     const staticBuckets = this.getStaticBucketDescriptions(options.globalParameters, reasons);
     const staticQuerier = {
@@ -133,7 +133,7 @@ export class SqlBucketDescriptor implements BucketSource {
       parameterQueryLookups: [],
       queryDynamicBucketDescriptions: async () => []
     } satisfies BucketParameterQuerier;
-    result.push(staticQuerier);
+    result.queriers.push(staticQuerier);
 
     if (this.parameterQueries.length == 0) {
       return;
@@ -142,7 +142,7 @@ export class SqlBucketDescriptor implements BucketSource {
     const dynamicQueriers = this.parameterQueries.map((query) =>
       query.getBucketParameterQuerier(options.globalParameters, reasons)
     );
-    result.push(...dynamicQueriers);
+    result.queriers.push(...dynamicQueriers);
   }
 
   getStaticBucketDescriptions(parameters: RequestParameters, reasons: BucketInclusionReason[]): ResolvedBucket[] {

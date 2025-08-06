@@ -1,4 +1,4 @@
-import { BucketParameterQuerier, ParameterLookup } from './BucketParameterQuerier.js';
+import { BucketParameterQuerier, ParameterLookup, PendingQueriers } from './BucketParameterQuerier.js';
 import { ColumnDefinition } from './ExpressionType.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { GetQuerierOptions } from './SqlSyncRules.js';
@@ -39,10 +39,10 @@ export interface BucketSource {
   /**
    * Reports {@link BucketParameterQuerier}s resolving buckets that a specific stream request should have access to.
    *
-   * @param result The target array to insert queriers into.
+   * @param result The target array to insert queriers and errors into.
    * @param options Options, including parameters that may affect the buckets loaded by this source.
    */
-  pushBucketParameterQueriers(result: BucketParameterQuerier[], options: GetQuerierOptions): void;
+  pushBucketParameterQueriers(result: PendingQueriers, options: GetQuerierOptions): void;
 
   /**
    * Whether {@link pushBucketParameterQueriers} may include a querier where
