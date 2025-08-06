@@ -1,5 +1,21 @@
 # @powersync/service-image
 
+## 1.14.1
+
+### Patch Changes
+
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+- Updated dependencies [060b829]
+  - @powersync/service-module-postgres-storage@0.9.1
+  - @powersync/service-module-mongodb-storage@0.11.1
+  - @powersync/service-module-postgres@0.15.1
+  - @powersync/service-rsocket-router@0.1.4
+  - @powersync/service-module-mongodb@0.11.1
+  - @powersync/service-core@1.14.1
+  - @powersync/service-module-mysql@0.8.1
+  - @powersync/service-module-core@0.1.8
+  - @powersync/lib-services-framework@0.7.3
+
 ## 1.14.0
 
 ### Minor Changes

@@ -1,5 +1,18 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.11.1
+
+### Patch Changes
+
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+- Updated dependencies [060b829]
+  - @powersync/service-core@1.14.1
+  - @powersync/service-sync-rules@0.28.1
+  - @powersync/lib-services-framework@0.7.3
+  - @powersync/lib-service-mongodb@0.6.4
+  - @powersync/service-jsonbig@0.17.11
+  - @powersync/service-types@0.12.2
+
 ## 0.11.0
 
 ### Minor Changes
