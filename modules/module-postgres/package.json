@@ -7,7 +7,7 @@
   },
   "version": "0.15.0",
   "main": "dist/index.js",
-  "license": "FSL-1.1-Apache-2.0",
+  "license": "FSL-1.1-ALv2",
   "type": "module",
   "scripts": {
     "build": "tsc -b",

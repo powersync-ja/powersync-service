@@ -3,7 +3,7 @@
   "repository": "https://github.com/powersync-ja/powersync-service",
   "types": "dist/index.d.ts",
   "version": "0.8.0",
-  "license": "FSL-1.1-Apache-2.0",
+  "license": "FSL-1.1-ALv2",
   "main": "dist/index.js",
   "type": "module",
   "publishConfig": {
