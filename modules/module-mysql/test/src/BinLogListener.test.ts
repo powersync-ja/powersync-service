@@ -104,7 +104,7 @@ describe('BinlogListener tests', () => {
   });
 
   test('Keepalive event', async () => {
-    binLogListener.options.keepAliveIntervalSeconds = 1;
+    binLogListener.options.keepAliveInactivitySeconds = 1;
     await binLogListener.start();
     await vi.waitFor(() => expect(eventHandler.lastKeepAlive).toBeDefined(), { timeout: 10000 });
     await binLogListener.stop();
