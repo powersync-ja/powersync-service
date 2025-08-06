@@ -348,12 +348,11 @@ export class BinLogStream {
   async initReplication() {
     const connection = await this.connections.getConnection();
     const errors = await common.checkSourceConfiguration(connection);
+    connection.release();
 
     if (errors.length > 0) {
       throw new BinlogConfigurationError(`BinLog Configuration Errors: ${errors.join(', ')}`);
     }
-
-    connection.release();
 
     const initialReplicationCompleted = await this.checkInitialReplicated();
     if (!initialReplicationCompleted) {

@@ -2,7 +2,6 @@ import { container, logger as defaultLogger } from '@powersync/lib-services-fram
 import { POWERSYNC_VERSION, replication } from '@powersync/service-core';
 import { BinlogConfigurationError, BinLogStream } from './BinLogStream.js';
 import { MySQLConnectionManagerFactory } from './MySQLConnectionManagerFactory.js';
-import { MySQLConnectionManager } from './MySQLConnectionManager.js';
 
 export interface BinLogReplicationJobOptions extends replication.AbstractReplicationJobOptions {
   connectionFactory: MySQLConnectionManagerFactory;
@@ -10,22 +9,12 @@ export interface BinLogReplicationJobOptions extends replication.AbstractReplica
 
 export class BinLogReplicationJob extends replication.AbstractReplicationJob {
   private connectionFactory: MySQLConnectionManagerFactory;
-  private readonly connectionManager: MySQLConnectionManager;
   private lastStream: BinLogStream | null = null;
 
   constructor(options: BinLogReplicationJobOptions) {
     super(options);
     this.logger = defaultLogger.child({ prefix: `[powersync_${this.options.storage.group_id}] ` });
     this.connectionFactory = options.connectionFactory;
-    this.connectionManager = this.connectionFactory.create({
-      // Pool connections are only used intermittently.
-      idleTimeout: 30_000,
-      connectionLimit: 2,
-      connectAttributes: {
-        program_name: 'powersync',
-        program_version: POWERSYNC_VERSION
-      }
-    });
   }
 
   get slot_name() {
