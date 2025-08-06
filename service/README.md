@@ -42,7 +42,7 @@ PowerSync may collect telemetry data about your usage. Telemetry data allows us 
 
 # License
 
-This image is published under the [FSL-1.1-Apache-2.0](https://www.powersync.com/legal/fsl) license.
+This image is published under the [FSL-1.1-ALv2](https://www.powersync.com/legal/fsl) license.
 
 View [license information](https://github.com/powersync-ja/powersync-service/blob/main/service/LICENSE) for the software contained in this image.
 
