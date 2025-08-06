@@ -1,6 +1,6 @@
 import { isScalar, LineCounter, parseDocument, Scalar, YAMLMap, YAMLSeq } from 'yaml';
 import { isValidPriority } from './BucketDescription.js';
-import { BucketParameterQuerier, mergeBucketParameterQueriers } from './BucketParameterQuerier.js';
+import { BucketParameterQuerier, mergeBucketParameterQueriers, QuerierError } from './BucketParameterQuerier.js';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
 import { validateSyncRulesSchema } from './json_schema.js';
@@ -72,6 +72,11 @@ export interface GetQuerierOptions {
    * null.
    */
   streams: Record<string, RequestedStream[]>;
+}
+
+export interface GetBucketParameterQuerierResult {
+  querier: BucketParameterQuerier;
+  errors: QuerierError[];
 }
 
 export class SqlSyncRules implements SyncRules {
@@ -355,15 +360,19 @@ export class SqlSyncRules implements SyncRules {
     return { results, errors };
   }
 
-  getBucketParameterQuerier(options: GetQuerierOptions): BucketParameterQuerier {
+  getBucketParameterQuerier(options: GetQuerierOptions): GetBucketParameterQuerierResult {
     const queriers: BucketParameterQuerier[] = [];
+    const errors: QuerierError[] = [];
+    const pending = { queriers, errors };
+
     for (const source of this.bucketSources) {
       if ((source.subscribedToByDefault && options.hasDefaultStreams) || source.name in options.streams) {
-        source.pushBucketParameterQueriers(queriers, options);
+        source.pushBucketParameterQueriers(pending, options);
       }
     }
 
-    return mergeBucketParameterQueriers(queriers);
+    const querier = mergeBucketParameterQueriers(queriers);
+    return { querier, errors };
   }
 
   hasDynamicBucketQueries() {

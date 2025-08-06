@@ -158,6 +158,22 @@ export interface StreamDescription {
    * For default streams, this field is still `true` if clients have an explicit subscription to the stream.
    */
   is_default: boolean;
+
+  /**
+   * If some subscriptions on this stream could not be resolved, e.g. due to an error, tis
+   */
+  errors: StreamSubscriptionError[];
+}
+
+export interface StreamSubscriptionError {
+  /**
+   * The subscription that errored - either the default subscription or some of the explicit subscriptions.
+   */
+  subscription: 'default' | number;
+  /**
+   * A message describing the error on the subscription.
+   */
+  message: string;
 }
 
 export interface Checkpoint {

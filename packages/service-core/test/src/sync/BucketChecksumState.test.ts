@@ -92,7 +92,7 @@ bucket_definitions:
         buckets: [{ bucket: 'global[]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }],
         last_op_id: '1',
         write_checkpoint: undefined,
-        streams: [{ name: 'global', is_default: true }]
+        streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
     expect(line.bucketsToFetch).toEqual([
@@ -162,7 +162,7 @@ bucket_definitions:
         buckets: [{ bucket: 'global[]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }],
         last_op_id: '1',
         write_checkpoint: undefined,
-        streams: [{ name: 'global', is_default: true }]
+        streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
     expect(line.bucketsToFetch).toEqual([
@@ -202,7 +202,7 @@ bucket_definitions:
         ],
         last_op_id: '1',
         write_checkpoint: undefined,
-        streams: [{ name: 'global', is_default: true }]
+        streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
     expect(line.bucketsToFetch).toEqual([
@@ -270,7 +270,7 @@ bucket_definitions:
         buckets: [{ bucket: 'global[]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }],
         last_op_id: '1',
         write_checkpoint: undefined,
-        streams: [{ name: 'global', is_default: true }]
+        streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
     expect(line.bucketsToFetch).toEqual([
@@ -420,7 +420,7 @@ bucket_definitions:
         ],
         last_op_id: '3',
         write_checkpoint: undefined,
-        streams: [{ name: 'global', is_default: true }]
+        streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
     expect(line.bucketsToFetch).toEqual([
@@ -540,7 +540,8 @@ bucket_definitions:
         streams: [
           {
             is_default: true,
-            name: 'by_project'
+            name: 'by_project',
+            errors: []
           }
         ],
         write_checkpoint: undefined
@@ -645,7 +646,7 @@ bucket_definitions:
         type: BucketSourceType.SYNC_STREAM,
         subscribedToByDefault: false,
         pushBucketParameterQueriers(result, options) {
-          // Create a fake querier that resolves teh global stream["default"] bucket by default and allows extracting
+          // Create a fake querier that resolves the global stream["default"] bucket by default and allows extracting
           // additional buckets from parameters.
           const subscriptions = options.streams['stream'] ?? [];
           if (!this.subscribedToByDefault && !subscriptions.length) {
@@ -654,23 +655,31 @@ bucket_definitions:
 
           let hasExplicitDefaultSubscription = false;
           for (const subscription of subscriptions) {
-            let subscriptionParameters = [];
+            try {
+              let subscriptionParameters = [];
 
-            if (subscription.parameters != null) {
-              subscriptionParameters = JSON.parse(subscription.parameters['ids'] as string).map(
-                (e: string) => `stream["${e}"]`
-              );
-            } else {
-              hasExplicitDefaultSubscription = true;
+              if (subscription.parameters != null) {
+                subscriptionParameters = JSON.parse(subscription.parameters['ids'] as string).map(
+                  (e: string) => `stream["${e}"]`
+                );
+              } else {
+                hasExplicitDefaultSubscription = true;
+              }
+
+              result.queriers.push(createQuerier([...subscriptionParameters], subscription.opaque_id));
+            } catch (e) {
+              result.errors.push({
+                descriptor: 'stream',
+                subscription,
+                message: `Error evaluating bucket ids: ${e.message}`
+              });
             }
-
-            result.push(createQuerier([...subscriptionParameters], subscription.opaque_id));
           }
 
           // If the stream is subscribed to by default and there is no explicit subscription that would match the default
           // subscription, also include the default querier.
           if (this.subscribedToByDefault && !hasExplicitDefaultSubscription) {
-            result.push(createQuerier(['stream["default"]'], null));
+            result.queriers.push(createQuerier(['stream["default"]'], null));
           }
         }
       } satisfies Partial<BucketSource> as any;
@@ -698,7 +707,7 @@ bucket_definitions:
           ],
           last_op_id: '1',
           write_checkpoint: undefined,
-          streams: [{ name: 'stream', is_default: true }]
+          streams: [{ name: 'stream', is_default: true, errors: [] }]
         }
       });
     });
@@ -752,7 +761,7 @@ bucket_definitions:
           ],
           last_op_id: '1',
           write_checkpoint: undefined,
-          streams: [{ name: 'stream', is_default: true }]
+          streams: [{ name: 'stream', is_default: true, errors: [] }]
         }
       });
     });
@@ -783,7 +792,7 @@ bucket_definitions:
           ],
           last_op_id: '1',
           write_checkpoint: undefined,
-          streams: [{ name: 'stream', is_default: false }]
+          streams: [{ name: 'stream', is_default: false, errors: [] }]
         }
       });
     });
@@ -818,7 +827,58 @@ bucket_definitions:
           ],
           last_op_id: '1',
           write_checkpoint: undefined,
-          streams: [{ name: 'stream', is_default: true }]
+          streams: [{ name: 'stream', is_default: true, errors: [] }]
+        }
+      });
+    });
+
+    test('reports errors', async () => {
+      source.subscribedToByDefault = true;
+
+      const state = checksumState({
+        syncRequest: {
+          streams: {
+            subscriptions: [
+              { stream: 'stream', parameters: { ids: '["a", "b"]' }, override_priority: 1 },
+              { stream: 'stream', parameters: { ids: 'invalid json' } }
+            ]
+          }
+        }
+      });
+
+      const line = await state.buildNextCheckpointLine({
+        base: storage.makeCheckpoint(1n),
+        writeCheckpoint: null,
+        update: CHECKPOINT_INVALIDATE_ALL
+      })!;
+      line?.advance();
+      expect(line?.checkpointLine).toEqual({
+        checkpoint: {
+          buckets: [
+            { bucket: 'stream["a"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }] },
+            { bucket: 'stream["b"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }] },
+            {
+              bucket: 'stream["default"]',
+              checksum: 1,
+              count: 1,
+              priority: 3,
+              subscriptions: [{ default: 0 }]
+            }
+          ],
+          last_op_id: '1',
+          write_checkpoint: undefined,
+          streams: [
+            {
+              name: 'stream',
+              is_default: true,
+              errors: [
+                {
+                  message: 'Error evaluating bucket ids: Unexpected token \'i\', "invalid json" is not valid JSON',
+                  subscription: 1
+                }
+              ]
+            }
+          ]
         }
       });
     });

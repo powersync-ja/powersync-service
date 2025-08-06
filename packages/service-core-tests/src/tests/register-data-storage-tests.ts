@@ -422,7 +422,7 @@ bucket_definitions:
 
     const buckets = await sync_rules
       .getBucketParameterQuerier(test_utils.querierOptions(parameters))
-      .queryDynamicBucketDescriptions({
+      .querier.queryDynamicBucketDescriptions({
         getParameterSets(lookups) {
           return checkpoint.getParameterSets(lookups);
         }
@@ -498,7 +498,7 @@ bucket_definitions:
 
     const buckets = await sync_rules
       .getBucketParameterQuerier(test_utils.querierOptions(parameters))
-      .queryDynamicBucketDescriptions({
+      .querier.queryDynamicBucketDescriptions({
         getParameterSets(lookups) {
           return checkpoint.getParameterSets(lookups);
         }
@@ -608,11 +608,13 @@ bucket_definitions:
 
     // Test final values - the important part
     const buckets = (
-      await sync_rules.getBucketParameterQuerier(test_utils.querierOptions(parameters)).queryDynamicBucketDescriptions({
-        getParameterSets(lookups) {
-          return checkpoint.getParameterSets(lookups);
-        }
-      })
+      await sync_rules
+        .getBucketParameterQuerier(test_utils.querierOptions(parameters))
+        .querier.queryDynamicBucketDescriptions({
+          getParameterSets(lookups) {
+            return checkpoint.getParameterSets(lookups);
+          }
+        })
     ).map((e) => e.bucket);
     buckets.sort();
     expect(buckets).toEqual(['by_workspace["workspace1"]', 'by_workspace["workspace3"]']);
