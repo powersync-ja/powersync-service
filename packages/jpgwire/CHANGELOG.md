@@ -1,5 +1,13 @@
 # @powersync/service-jpgwire
 
+## 0.20.2
+
+### Patch Changes
+
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+- Updated dependencies [060b829]
+  - @powersync/service-jsonbig@0.17.11
+
 ## 0.20.1
 
 ### Patch Changes
