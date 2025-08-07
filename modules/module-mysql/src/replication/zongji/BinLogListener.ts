@@ -29,6 +29,10 @@ import { TablePattern } from '@powersync/service-sync-rules';
 
 const { Parser } = pkg;
 
+/**
+ *  Seconds of inactivity after which a keepalive event is sent by the MySQL server.
+ */
+export const KEEPALIVE_INACTIVITY_THRESHOLD = 30;
 export type Row = Record<string, any>;
 
 /**
@@ -65,6 +69,7 @@ export interface BinLogEventHandler {
   onDelete: (rows: Row[], tableMap: TableMapEntry) => Promise<void>;
   onCommit: (lsn: string) => Promise<void>;
   onSchemaChange: (change: SchemaChange) => Promise<void>;
+  onKeepAlive: (lsn: string) => Promise<void>;
 }
 
 export interface BinLogListenerOptions {
@@ -72,8 +77,9 @@ export interface BinLogListenerOptions {
   eventHandler: BinLogEventHandler;
   sourceTables: TablePattern[];
   serverId: number;
-  startPosition: common.BinLogPosition;
+  startGTID: common.ReplicatedGTID;
   logger?: Logger;
+  keepAliveInactivitySeconds?: number;
 }
 
 /**
@@ -85,16 +91,19 @@ export class BinLogListener {
   private connectionManager: MySQLConnectionManager;
   private eventHandler: BinLogEventHandler;
   private binLogPosition: common.BinLogPosition;
-  private currentGTID: common.ReplicatedGTID | null;
+  private currentGTID: common.ReplicatedGTID;
   private logger: Logger;
   private listenerError: Error | null;
   private databaseFilter: { [schema: string]: (table: string) => boolean };
 
+  private isStopped: boolean = false;
+  private isStopping: boolean = false;
+
+  // Flag to indicate if are currently in a transaction that involves multiple row mutation events.
+  private isTransactionOpen = false;
   zongji: ZongJi;
   processingQueue: async.QueueObject<BinLogEvent>;
 
-  isStopped: boolean = false;
-  isStopping: boolean = false;
   /**
    *  The combined size in bytes of all the binlog events currently in the processing queue.
    */
@@ -104,8 +113,8 @@ export class BinLogListener {
     this.logger = options.logger ?? defaultLogger;
     this.connectionManager = options.connectionManager;
     this.eventHandler = options.eventHandler;
-    this.binLogPosition = options.startPosition;
-    this.currentGTID = null;
+    this.binLogPosition = options.startGTID.position;
+    this.currentGTID = options.startGTID;
     this.sqlParser = new Parser();
     this.processingQueue = this.createProcessingQueue();
     this.zongji = this.createZongjiListener();
@@ -130,14 +139,13 @@ export class BinLogListener {
       `${isRestart ? 'Restarting' : 'Starting'} BinLog Listener with replica client id:${this.options.serverId}...`
     );
 
-    // Set a heartbeat interval for the Zongji replication connection
-    // Zongji does not explicitly handle the heartbeat events - they are categorized as event:unknown
-    // The heartbeat events are enough to keep the connection alive for setTimeout to work on the socket.
+    // Set a heartbeat interval for the Zongji replication connection, these events are enough to keep the connection
+    // alive for setTimeout to work on the socket.
     // The heartbeat needs to be set before starting the listener, since the replication connection is locked once replicating
     await new Promise((resolve, reject) => {
       this.zongji.connection.query(
         // In nanoseconds, 10^9 = 1s
-        'set @master_heartbeat_period=28*1000000000',
+        `set @master_heartbeat_period=${this.options.keepAliveInactivitySeconds ?? KEEPALIVE_INACTIVITY_THRESHOLD}*1000000000`,
         (error: any, results: any, _fields: any) => {
           if (error) {
             reject(error);
@@ -158,9 +166,19 @@ export class BinLogListener {
     });
 
     this.zongji.start({
-      // We ignore the unknown/heartbeat event since it currently serves no purpose other than to keep the connection alive
-      // tablemap events always need to be included for the other row events to work
-      includeEvents: ['tablemap', 'writerows', 'updaterows', 'deleterows', 'xid', 'rotate', 'gtidlog', 'query'],
+      // Tablemap events always need to be included for the other row events to work
+      includeEvents: [
+        'tablemap',
+        'writerows',
+        'updaterows',
+        'deleterows',
+        'xid',
+        'rotate',
+        'gtidlog',
+        'query',
+        'heartbeat',
+        'heartbeat_v2'
+      ],
       includeSchema: this.databaseFilter,
       filename: this.binLogPosition.filename,
       position: this.binLogPosition.offset,
@@ -289,19 +307,24 @@ export class BinLogListener {
           this.logger.info(`Processed GTID event: ${this.currentGTID.comparable}`);
           break;
         case zongji_utils.eventIsRotation(evt):
-          const newFile = this.binLogPosition.filename !== evt.binlogName;
+          // The first event when starting replication is a synthetic Rotate event
+          // It describes the last binlog file and position that the replica client processed
           this.binLogPosition.filename = evt.binlogName;
+          this.binLogPosition.offset = evt.nextPosition !== 0 ? evt.nextPosition : evt.position;
           await this.eventHandler.onRotate();
 
+          const newFile = this.binLogPosition.filename !== evt.binlogName;
           if (newFile) {
             this.logger.info(
               `Processed Rotate event. New BinLog file is: ${this.binLogPosition.filename}:${this.binLogPosition.offset}`
             );
           }
+
           break;
         case zongji_utils.eventIsWriteMutation(evt):
           const tableMap = evt.tableMap[evt.tableId];
           await this.eventHandler.onWrite(evt.rows, tableMap);
+          this.binLogPosition.offset = evt.nextPosition;
           this.logger.info(
             `Processed Write event for table [${tableMap.parentSchema}.${tableMap.tableName}]. ${evt.rows.length} row(s) inserted.`
           );
@@ -312,20 +335,33 @@ export class BinLogListener {
             evt.rows.map((row) => row.before),
             evt.tableMap[evt.tableId]
           );
+          this.binLogPosition.offset = evt.nextPosition;
           this.logger.info(
             `Processed Update event for table [${evt.tableMap[evt.tableId].tableName}]. ${evt.rows.length} row(s) updated.`
           );
           break;
         case zongji_utils.eventIsDeleteMutation(evt):
           await this.eventHandler.onDelete(evt.rows, evt.tableMap[evt.tableId]);
+          this.binLogPosition.offset = evt.nextPosition;
           this.logger.info(
             `Processed Delete event for table [${evt.tableMap[evt.tableId].tableName}]. ${evt.rows.length} row(s) deleted.`
           );
           break;
+        case zongji_utils.eventIsHeartbeat(evt):
+        case zongji_utils.eventIsHeartbeat_v2(evt):
+          // Heartbeats are sent by the master to keep the connection alive after a period of inactivity. They are synthetic
+          // so are not written to the binlog. Consequently, they have no effect on the binlog position.
+          // We forward these along with the current GTID to the event handler, but don't want to do this if a transaction is in progress.
+          if (!this.isTransactionOpen) {
+            await this.eventHandler.onKeepAlive(this.currentGTID.comparable);
+          }
+          this.logger.debug(`Processed Heartbeat event. Current GTID is: ${this.currentGTID.comparable}`);
+          break;
         case zongji_utils.eventIsXid(evt):
+          this.isTransactionOpen = false;
           this.binLogPosition.offset = evt.nextPosition;
           const LSN = new common.ReplicatedGTID({
-            raw_gtid: this.currentGTID!.raw,
+            raw_gtid: this.currentGTID.raw,
             position: this.binLogPosition
           }).comparable;
           await this.eventHandler.onCommit(LSN);
@@ -336,8 +372,6 @@ export class BinLogListener {
           break;
       }
 
-      // Update the binlog position after processing the event
-      this.binLogPosition.offset = evt.nextPosition;
       this.queueMemoryUsage -= evt.size;
     };
   }
@@ -345,14 +379,15 @@ export class BinLogListener {
   private async processQueryEvent(event: BinLogQueryEvent): Promise<void> {
     const { query, nextPosition } = event;
 
-    // BEGIN query events mark the start of a transaction before any row events. They are not relevant for schema changes
+    // BEGIN query events mark the start of a transaction before any row events. They are not schema changes so no further parsing is necessary.
     if (query === 'BEGIN') {
+      this.isTransactionOpen = true;
       return;
     }
 
     const schemaChanges = this.toSchemaChanges(query, event.schema);
     if (schemaChanges.length > 0) {
-      // Since handling the schema changes can take a long time, we need to stop the Zongji listener instead of pausing it.
+      // Handling schema changes can take a long time, so we stop the Zongji listener whilst handling them to prevent the listener from timing out.
       await this.stopZongji();
 
       for (const change of schemaChanges) {
@@ -360,19 +395,21 @@ export class BinLogListener {
         await this.eventHandler.onSchemaChange(change);
       }
 
-      // DDL queries are auto commited, but do not come with a corresponding Xid event.
-      // This is problematic for DDL queries which result in row events because the checkpoint is not moved on,
-      // so we manually commit here.
-      this.binLogPosition.offset = nextPosition;
-      const LSN = new common.ReplicatedGTID({
-        raw_gtid: this.currentGTID!.raw,
-        position: this.binLogPosition
-      }).comparable;
-      await this.eventHandler.onCommit(LSN);
+      // DDL queries are auto commited, but do not come with a corresponding Xid event, in those cases we trigger a manual commit if we are not already in a transaction.
+      // Some DDL queries include row events, and in those cases will include a Xid event.
+      if (!this.isTransactionOpen) {
+        this.binLogPosition.offset = nextPosition;
+        const LSN = new common.ReplicatedGTID({
+          raw_gtid: this.currentGTID.raw,
+          position: this.binLogPosition
+        }).comparable;
+        await this.eventHandler.onCommit(LSN);
+      }
 
       this.logger.info(`Successfully processed ${schemaChanges.length} schema change(s).`);
 
       // If there are still events in the processing queue, we need to process those before restarting Zongji
+      // This avoids potentially processing the same events again after a restart.
       if (!this.processingQueue.idle()) {
         this.logger.info(`Processing [${this.processingQueue.length()}] events(s) before resuming...`);
         this.processingQueue.drain(async () => {
@@ -381,6 +418,13 @@ export class BinLogListener {
       } else {
         await this.restartZongji();
       }
+    } else if (!this.isTransactionOpen) {
+      this.binLogPosition.offset = nextPosition;
+      const LSN = new common.ReplicatedGTID({
+        raw_gtid: this.currentGTID.raw,
+        position: this.binLogPosition
+      }).comparable;
+      await this.eventHandler.onCommit(LSN);
     }
   }
 

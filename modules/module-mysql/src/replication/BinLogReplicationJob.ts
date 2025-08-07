@@ -21,7 +21,9 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
     return this.options.storage.slot_name;
   }
 
-  async keepAlive() {}
+  async keepAlive() {
+    // Keepalives are handled by the binlog heartbeat mechanism
+  }
 
   async replicate() {
     try {
@@ -56,6 +58,7 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
     const connectionManager = this.connectionFactory.create({
       // Pool connections are only used intermittently.
       idleTimeout: 30_000,
+      connectionLimit: 2,
 
       connectAttributes: {
         // https://dev.mysql.com/doc/refman/8.0/en/performance-schema-connection-attribute-tables.html
