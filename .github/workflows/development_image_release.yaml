@@ -67,6 +67,11 @@ jobs:
         id: get_version
         run: echo "SERVICE_VERSION=$(node -p "require('./service/package.json').version")" >> $GITHUB_OUTPUT
 
+      - name: Extract metadata for the image
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ vars.DOCKER_REGISTRY }}
+
       - name: Build Image and Push
         uses: docker/build-push-action@v5
         with:
@@ -76,4 +81,8 @@ jobs:
           #   This should not be taged as latest
           tags: ${{vars.DOCKER_REGISTRY}}:${{steps.get_version.outputs.SERVICE_VERSION}}
           push: true
+          # Note: This includes build args in the published provenance.
+          # Do not use this if secrets are passed in as args.
+          provenance: mode=max
+          sbom: true
           file: ./service/Dockerfile
