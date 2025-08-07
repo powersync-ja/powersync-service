@@ -34,7 +34,7 @@
     "@powersync/service-core": "workspace:*",
     "@powersync/service-core-tests": "workspace:*",
     "@powersync/service-jpgwire": "workspace:*",
-    "@powersync/service-jsonbig": "^0.17.10",
+    "@powersync/service-jsonbig": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",
     "@powersync/service-types": "workspace:*",
     "ix": "^5.0.0",

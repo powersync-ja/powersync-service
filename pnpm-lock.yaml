@@ -383,8 +383,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/jpgwire
       '@powersync/service-jsonbig':
-        specifier: ^0.17.10
-        version: 0.17.10
+        specifier: workspace:*
+        version: link:../../packages/jsonbig
       '@powersync/service-sync-rules':
         specifier: workspace:*
         version: link:../../packages/sync-rules
@@ -1293,9 +1293,6 @@ packages:
   '@powersync/mysql-zongji@0.5.0':
     resolution: {integrity: sha512-wJfZFIsNK8aIyGYvTvz98wxNeo2tv7i05pSkPTEVOeOcsbEF8+CO0vRJpGOLr5or1+BzGDlpUkxJU21JbKFBzA==}
     engines: {node: '>=22.0.0'}
-
-  '@powersync/service-jsonbig@0.17.10':
-    resolution: {integrity: sha512-BgxgUewuw4HFCM9MzuzlIuRKHya6rimNPYqUItt7CO3ySUeUnX8Qn9eZpMxu9AT5Y8zqkSyxvduY36zZueNojg==}
 
   '@prisma/instrumentation@5.16.1':
     resolution: {integrity: sha512-4m5gRFWnQb8s/yTyGbMZkL7A5uJgqOWcWJxapwcAD0T0kh5sGPEVSQl/zTQvE9aduXhFAxOtC3gO+R8Hb5xO1Q==}
@@ -4770,10 +4767,6 @@ snapshots:
       '@vlasky/mysql': 2.18.6
       big-integer: 1.6.52
       iconv-lite: 0.6.3
-
-  '@powersync/service-jsonbig@0.17.10':
-    dependencies:
-      lossless-json: 2.0.11
 
   '@prisma/instrumentation@5.16.1':
     dependencies:
