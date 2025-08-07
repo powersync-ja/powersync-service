@@ -13,7 +13,7 @@ import {
   TimeValuePrecision
 } from '@powersync/service-sync-rules';
 
-import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
+import { ErrorCode, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
 
@@ -170,7 +170,8 @@ export const STANDALONE_CHECKPOINT_ID = '_standalone_checkpoint';
 export async function createCheckpoint(
   client: mongo.MongoClient,
   db: mongo.Db,
-  id: mongo.ObjectId | string
+  id: mongo.ObjectId | string,
+  options?: { forceCosmosDb?: boolean }
 ): Promise<string> {
   const session = client.startSession();
   try {
@@ -190,9 +191,19 @@ export async function createCheckpoint(
         session
       }
     );
-    const time = session.operationTime!;
+
+    let time = session.operationTime;
+    if (time == null) {
+      // CosmosDB workaround
+      const hello = await db.command({ hello: 1 }, { session });
+      if (hello.operationTime == null) {
+        throw new ServiceAssertionError('Failed to create checkpoint: no operation time available');
+      }
+      time = hello.operationTime!;
+    }
+
     // TODO: Use the above when we support custom write checkpoints
-    return new MongoLSN({ timestamp: time }).comparable;
+    return new MongoLSN({ timestamp: time! }).comparable;
   } finally {
     await session.endSession();
   }

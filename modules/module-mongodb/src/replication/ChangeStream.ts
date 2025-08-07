@@ -59,6 +59,16 @@ export interface ChangeStreamOptions {
    */
   snapshotChunkLength?: number;
 
+  /**
+   * Force Cosmos DB mode for testing. When set, this.isCosmosDb = true regardless of hello response.
+   */
+  cosmosDbMode?: boolean;
+
+  /**
+   * Override keepalive interval for testing (defaults to 60_000ms).
+   */
+  keepaliveIntervalMs?: number;
+
   logger?: Logger;
 }
 
@@ -110,6 +120,10 @@ export class ChangeStream {
 
   private changeStreamTimeout: number;
 
+  private isCosmosDb = false;
+
+  private keepaliveIntervalMs: number;
+
   constructor(options: ChangeStreamOptions) {
     this.storage = options.storage;
     this.metrics = options.metrics;
@@ -117,6 +131,8 @@ export class ChangeStream {
     this.connections = options.connections;
     this.maxAwaitTimeMS = options.maxAwaitTimeMS ?? 10_000;
     this.snapshotChunkLength = options.snapshotChunkLength ?? 6_000;
+    this.isCosmosDb = options.cosmosDbMode ?? false;
+    this.keepaliveIntervalMs = options.keepaliveIntervalMs ?? 60_000;
     this.client = this.connections.client;
     this.defaultDb = this.connections.db;
     this.sync_rules = options.storage.getParsedSyncRules({
@@ -230,7 +246,12 @@ export class ChangeStream {
   private async getSnapshotLsn(): Promise<string> {
     const hello = await this.defaultDb.command({ hello: 1 });
     // Basic sanity check
-    if (hello.msg == 'isdbgrid') {
+    if (hello.internal?.cosmos_versions != null) {
+      // Example: internal: { cosmos_versions: [ '1.104-1', '1.105.0', '12.1-1' ] },
+      this.isCosmosDb = true;
+      this.logger.info('CosmosDB detected. CosmosDB support is experimental.');
+    }
+    if (hello.msg == 'isdbgrid' && !this.isCosmosDb) {
       throw new ServiceError(
         ErrorCode.PSYNC_S1341,
         'Sharded MongoDB Clusters are not supported yet (including MongoDB Serverless instances).'
@@ -287,10 +308,13 @@ export class ChangeStream {
         if (!this.checkpointStreamId.equals(checkpointId)) {
           continue;
         }
+
+        // CosmosDB workaround: use walltime
         const { comparable: lsn } = new MongoLSN({
-          timestamp: changeDocument.clusterTime!,
+          timestamp: mongo.Timestamp.fromBits(0, (changeDocument as any).wallTime!.getTime() / 1000),
           resume_token: changeDocument._id
         });
+
         return lsn;
       }
 
@@ -397,7 +421,8 @@ export class ChangeStream {
     const collection = await this.getCollectionInfo(this.defaultDb.databaseName, CHECKPOINTS_COLLECTION);
     if (collection == null) {
       await this.defaultDb.createCollection(CHECKPOINTS_COLLECTION, {
-        changeStreamPreAndPostImages: { enabled: true }
+        // Not supported by CosmosDB:
+        // changeStreamPreAndPostImages: { enabled: true }
       });
     } else if (this.usePostImages && collection.options?.changeStreamPreAndPostImages?.enabled != true) {
       // Drop + create requires less permissions than collMod,
@@ -753,6 +778,11 @@ export class ChangeStream {
     }
   }
 
+  private getEventTimestamp(changeDocument: mongo.ChangeStreamDocument): mongo.Timestamp {
+    // Stub: will be implemented in Phase B to support wallTime fallback
+    return changeDocument.clusterTime!;
+  }
+
   private openChangeStream(options: { lsn: string | null; maxAwaitTimeMs?: number }) {
     const lastLsn = options.lsn ? MongoLSN.fromSerialized(options.lsn) : null;
     const startAfter = lastLsn?.timestamp;
@@ -763,8 +793,9 @@ export class ChangeStream {
     const pipeline: mongo.Document[] = [
       {
         $match: filters.$match
-      },
-      { $changeStreamSplitLargeEvent: {} }
+      }
+
+      // { $changeStreamSplitLargeEvent: {} } // not supported on CosmosDB
     ];
 
     let fullDocument: 'required' | 'updateLookup';
@@ -778,7 +809,7 @@ export class ChangeStream {
       fullDocument = 'updateLookup';
     }
     const streamOptions: mongo.ChangeStreamOptions = {
-      showExpandedEvents: true,
+      // showExpandedEvents: true, // not supported on CosmosDB
       maxAwaitTimeMS: options.maxAwaitTimeMs ?? this.maxAwaitTimeMS,
       fullDocument: fullDocument,
       maxTimeMS: this.changeStreamTimeout
@@ -789,7 +820,7 @@ export class ChangeStream {
      */
     if (resumeAfter) {
       streamOptions.resumeAfter = resumeAfter;
-    } else {
+    } else if (streamOptions.startAtOperationTime != null) {
       // Legacy: We don't persist lsns without resumeTokens anymore, but we do still handle the
       // case if we have an old one.
       // This is also relevant for getSnapshotLSN().
@@ -802,7 +833,10 @@ export class ChangeStream {
       stream = this.client.watch(pipeline, streamOptions);
     } else {
       // Same general result, but requires less permissions than the above
-      stream = this.defaultDb.watch(pipeline, streamOptions);
+      // Core issue: Watching on an entire database is not supported on CosmosDB.
+      // stream = this.defaultDb.watch(pipeline, streamOptions);
+      // Temp workaround just to test other behavior
+      stream = this.defaultDb.collection('_powersync_checkpoints').watch(pipeline, streamOptions);
     }
 
     this.abort_signal.addEventListener('abort', () => {
@@ -910,6 +944,8 @@ export class ChangeStream {
             break;
           }
 
+          console.log('change doc', originalChangeDocument);
+
           if (originalChangeDocument == null) {
             // We get a new null document after `maxAwaitTimeMS` if there were no other events.
             // In this case, stream.resumeToken is the resume token associated with the last response.
@@ -921,7 +957,7 @@ export class ChangeStream {
             // We throttle this further by only persisting a keepalive once a minute.
             // We add an additional check for waitForCheckpointLsn == null, to make sure we're not
             // doing a keepalive in the middle of a transaction.
-            if (waitForCheckpointLsn == null && performance.now() - lastEmptyResume > 60_000) {
+            if (waitForCheckpointLsn == null && performance.now() - lastEmptyResume > this.keepaliveIntervalMs) {
               const { comparable: lsn, timestamp } = MongoLSN.fromResumeToken(stream.resumeToken);
               await batch.keepalive(lsn);
               this.touch();
@@ -1049,10 +1085,17 @@ export class ChangeStream {
             } else if (!this.checkpointStreamId.equals(checkpointId)) {
               continue;
             }
+
+            // CosmosDB workaround: use walltime
+            const wallTime = (changeDocument as any).wallTime;
             const { comparable: lsn } = new MongoLSN({
-              timestamp: changeDocument.clusterTime!,
+              timestamp: mongo.Timestamp.fromBits(0, wallTime!.getTime() / 1000),
               resume_token: changeDocument._id
             });
+            // const { comparable: lsn } = new MongoLSN({
+            //   timestamp: changeDocument.clusterTime!,
+            //   resume_token: changeDocument._id
+            // });
             if (batch.lastCheckpointLsn != null && lsn < batch.lastCheckpointLsn) {
               // Checkpoint out of order - should never happen with MongoDB.
               // If it does happen, we throw an error to stop the replication - restarting should recover.

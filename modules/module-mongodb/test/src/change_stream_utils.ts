@@ -145,7 +145,9 @@ export class ChangeStreamTestContext {
       // Specifically reduce this from the default for tests on MongoDB <= 6.0, otherwise it can take
       // a long time to abort the stream.
       maxAwaitTimeMS: this.streamOptions?.maxAwaitTimeMS ?? 200,
-      snapshotChunkLength: this.streamOptions?.snapshotChunkLength
+      snapshotChunkLength: this.streamOptions?.snapshotChunkLength,
+      cosmosDbMode: this.streamOptions?.cosmosDbMode,
+      keepaliveIntervalMs: this.streamOptions?.keepaliveIntervalMs
     };
     this._walStream = new ChangeStream(options);
     return this._walStream!;

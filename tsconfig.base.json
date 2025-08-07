@@ -1,8 +1,7 @@
 {
   "compilerOptions": {
     "lib": ["es2024"],
-    // esnext for native `await using` support
-    "target": "esnext",
+    "target": "ES2024",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
