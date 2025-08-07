@@ -160,7 +160,8 @@ export interface StreamDescription {
   is_default: boolean;
 
   /**
-   * If some subscriptions on this stream could not be resolved, e.g. due to an error, tis
+   * If some subscriptions on this stream could not be resolved, e.g. due to an error, this array contains the faulty
+   * subscriptions along with an error message.
    */
   errors: StreamSubscriptionError[];
 }
