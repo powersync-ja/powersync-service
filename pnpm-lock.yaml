@@ -376,9 +376,6 @@ importers:
       '@powersync/service-core':
         specifier: workspace:*
         version: link:../../packages/service-core
-      '@powersync/service-core-tests':
-        specifier: workspace:*
-        version: link:../../packages/service-core-tests
       '@powersync/service-jpgwire':
         specifier: workspace:*
         version: link:../../packages/jpgwire
@@ -407,6 +404,9 @@ importers:
         specifier: ^11.1.0
         version: 11.1.0
     devDependencies:
+      '@powersync/service-core-tests':
+        specifier: workspace:*
+        version: link:../../packages/service-core-tests
       typescript:
         specifier: ^5.7.3
         version: 5.7.3
