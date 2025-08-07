@@ -32,8 +32,8 @@
     "@powersync/service-core": "workspace:*",
     "@powersync/service-rsocket-router": "workspace:*",
     "@powersync/service-types": "workspace:*",
-    "fastify": "4.23.2",
-    "@fastify/cors": "8.4.1"
+    "fastify": "^5.4.0",
+    "@fastify/cors": "^11.1.0"
   },
   "devDependencies": {}
 }
