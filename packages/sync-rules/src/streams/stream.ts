@@ -2,6 +2,7 @@ import { BaseSqlDataQuery } from '../BaseSqlDataQuery.js';
 import { BucketInclusionReason, BucketPriority, DEFAULT_BUCKET_PRIORITY } from '../BucketDescription.js';
 import { BucketParameterQuerier, PendingQueriers } from '../BucketParameterQuerier.js';
 import { BucketSource, BucketSourceType, ResultSetDescription } from '../BucketSource.js';
+import { ColumnDefinition } from '../ExpressionType.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { GetQuerierOptions, RequestedStream } from '../SqlSyncRules.js';
 import { TablePattern } from '../TablePattern.js';
@@ -88,7 +89,7 @@ export class SyncStream implements BucketSource {
   }
 
   hasDynamicBucketQueries(): boolean {
-    throw new Error('Method not implemented.');
+    return this.variants.some((v) => v.hasDynamicBucketQueries);
   }
 
   tableSyncsData(table: SourceTableInterface): boolean {
@@ -108,19 +109,44 @@ export class SyncStream implements BucketSource {
   }
 
   getSourceTables(): Set<TablePattern> {
-    throw new Error('Method not implemented.');
+    let result = new Set<TablePattern>();
+    result.add(this.data.sourceTable);
+    for (let variant of this.variants) {
+      for (const subquery of variant.subqueries) {
+        result.add(subquery.parameterTable);
+      }
+    }
+
+    // Note: No physical tables for global_parameter_queries
+
+    return result;
   }
 
-  resolveResultSets(schema: SourceSchema): ResultSetDescription[] {
-    throw new Error('Method not implemented.');
+  resolveResultSets(schema: SourceSchema, tables: Record<string, Record<string, ColumnDefinition>>) {
+    this.data.resolveResultSets(schema, tables);
   }
 
   debugRepresentation() {
+    return {
+      name: this.name,
+      type: this.type.toString(),
+      variants: this.variants.map((v) => v.debugRepresentation()),
+      data: {
+        table: this.data.sourceTable,
+        columns: this.data.columnOutputNames()
+      }
+    };
+
     throw new Error('Method not implemented.');
   }
 
   debugWriteOutputTables(result: Record<string, { query: string }[]>): void {
-    throw new Error('Method not implemented.');
+    result[this.data.table!] ??= [];
+    const r = {
+      query: this.data.sql
+    };
+
+    result[this.data.table!].push(r);
   }
 
   evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[] {
