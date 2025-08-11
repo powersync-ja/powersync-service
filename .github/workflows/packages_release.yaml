@@ -118,7 +118,7 @@ jobs:
           images: ${{ vars.DOCKER_REGISTRY }}
 
       - name: Build Image and Push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           platforms: linux/arm64,linux/amd64
           cache-from: type=registry,ref=${{vars.DOCKER_REGISTRY}}:latest
