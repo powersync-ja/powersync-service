@@ -40,6 +40,7 @@ import {
   SelectStatement,
   Statement
 } from 'pgsql-ast-parser';
+import { STREAM_FUNCTIONS } from './functions.js';
 
 export function syncStreamFromSql(
   descriptorName: string,
@@ -80,9 +81,9 @@ class SyncStreamCompiler {
       valueTables: [alias],
       sql: this.sql,
       schema: querySchema,
+      parameterFunctions: STREAM_FUNCTIONS,
       supportsParameterExpressions: true,
-      supportsExpandingParameters: true, // needed for table.column IN (subscription.parameters() -> ...)
-      isStream: true
+      supportsExpandingParameters: true // needed for table.column IN (subscription.parameters() -> ...)
     });
     tools.checkSpecificNameCase(tableRef);
     let filter = this.whereClauseToFilters(tools, query.where);
@@ -372,7 +373,7 @@ class SyncStreamCompiler {
       sql: this.sql,
       schema: querySchema,
       supportsParameterExpressions: true,
-      isStream: true
+      parameterFunctions: STREAM_FUNCTIONS
     });
     tools.checkSpecificNameCase(tableRef);
 

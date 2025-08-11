@@ -4,7 +4,7 @@ import { nil } from 'pgsql-ast-parser/src/utils.js';
 import { BucketPriority, isValidPriority } from './BucketDescription.js';
 import { ExpressionType } from './ExpressionType.js';
 import { SqlRuleError } from './errors.js';
-import { REQUEST_FUNCTIONS } from './request_functions.js';
+import { REQUEST_FUNCTIONS, SqlParameterFunction } from './request_functions.js';
 import {
   BASIC_OPERATORS,
   OPERATOR_IN,
@@ -96,7 +96,10 @@ export interface SqlToolsOptions {
    */
   supportsParameterExpressions?: boolean;
 
-  isStream?: boolean;
+  /**
+   * For each schema, all available parameter functions.
+   */
+  parameterFunctions?: Record<string, Record<string, SqlParameterFunction>>;
 
   /**
    * Schema for validations.
@@ -117,7 +120,7 @@ export class SqlTools {
 
   readonly supportsExpandingParameters: boolean;
   readonly supportsParameterExpressions: boolean;
-  readonly isSyncStream: boolean;
+  readonly parameterFunctions: Record<string, Record<string, SqlParameterFunction>>;
 
   schema?: QuerySchema;
 
@@ -136,7 +139,7 @@ export class SqlTools {
     this.sql = options.sql;
     this.supportsExpandingParameters = options.supportsExpandingParameters ?? false;
     this.supportsParameterExpressions = options.supportsParameterExpressions ?? false;
-    this.isSyncStream = options.isStream ?? false;
+    this.parameterFunctions = options.parameterFunctions ?? { request: REQUEST_FUNCTIONS };
   }
 
   error(message: string, expr: NodeLocation | Expr | undefined): ClauseError {
@@ -309,6 +312,7 @@ export class SqlTools {
     } else if (expr.type == 'call' && expr.function?.name != null) {
       const schema = expr.function.schema; // schema.function()
       const fn = expr.function.name;
+
       if (schema == null) {
         // Just fn()
         const fnImpl = SQL_FUNCTIONS[fn];
@@ -319,36 +323,41 @@ export class SqlTools {
         const argClauses = expr.args.map((arg) => this.compileClause(arg));
         const composed = this.composeFunction(fnImpl, argClauses, expr.args);
         return composed;
-      } else if (schema == 'request' && !this.isSyncStream) {
-        // Special function
+      } else if (schema in this.parameterFunctions) {
         if (!this.supportsParameterExpressions) {
           return this.error(`${schema} schema is not available in data queries`, expr);
         }
 
-        if (expr.args.length > 0) {
-          return this.error(`Function '${schema}.${fn}' does not take arguments`, expr);
-        }
+        const impl = this.parameterFunctions[schema][fn];
 
-        if (fn in REQUEST_FUNCTIONS) {
-          const fnImpl = REQUEST_FUNCTIONS[fn];
-          return {
-            key: 'request.parameters()',
-            lookupParameterValue(parameters) {
-              return fnImpl.call(parameters);
-            },
-            usesAuthenticatedRequestParameters: fnImpl.usesAuthenticatedRequestParameters,
-            usesUnauthenticatedRequestParameters: fnImpl.usesUnauthenticatedRequestParameters
-          } satisfies ParameterValueClause;
-        } else {
-          return this.error(`Function '${schema}.${fn}' is not defined`, expr);
-        }
-      } else if (this.isSyncStream && schema in STREAM_FUNCTIONS) {
-        const impl = STREAM_FUNCTIONS[schema][fn];
         if (impl) {
+          if (expr.args.length != impl.parameterCount) {
+            return this.error(`Function '${schema}.${fn}' takes ${impl.parameterCount} arguments.`, expr);
+          }
+
+          const compiledArguments = expr.args.map(this.compileClause);
+          let hasInvalidArgument = false;
+          for (let i = 0; i < expr.args.length; i++) {
+            const argument = compiledArguments[i];
+
+            if (!isParameterValueClause(argument)) {
+              hasInvalidArgument = true;
+              if (!isClauseError(argument)) {
+                this.error('Must only depend on data derived from request.', expr.args[i]);
+              }
+            }
+          }
+
+          if (hasInvalidArgument) {
+            return { error: true };
+          }
+
+          const parameterArguments = compiledArguments as ParameterValueClause[];
           return {
-            key: `${schema}.${fn}()`,
+            key: `${schema}.${fn}(${parameterArguments.map((p) => p.key).join(',')})`,
             lookupParameterValue(parameters) {
-              return impl.call(parameters);
+              const evaluatedArgs = parameterArguments.map((p) => p.lookupParameterValue(parameters));
+              return impl.call(parameters, ...evaluatedArgs);
             },
             usesAuthenticatedRequestParameters: impl.usesAuthenticatedRequestParameters,
             usesUnauthenticatedRequestParameters: impl.usesUnauthenticatedRequestParameters
