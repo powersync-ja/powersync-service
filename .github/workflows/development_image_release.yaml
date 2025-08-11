@@ -69,8 +69,17 @@ jobs:
 
       - name: Extract metadata for the image
         uses: docker/metadata-action@v5
+        id: meta
         with:
           images: ${{ vars.DOCKER_REGISTRY }}
+          labels: |
+            org.opencontainers.image.licenses=FSL-1.1-ALv2
+            org.opencontainers.image.version=${{ steps.get_version.outputs.SERVICE_VERSION }}
+            org.opencontainers.image.vendor=Journey Mobile, Inc
+          annotations: |
+            org.opencontainers.image.licenses=FSL-1.1-ALv2
+            org.opencontainers.image.version=${{ steps.get_version.outputs.SERVICE_VERSION }}
+            org.opencontainers.image.vendor=Journey Mobile, Inc
 
       - name: Build Image and Push
         uses: docker/build-push-action@v6
