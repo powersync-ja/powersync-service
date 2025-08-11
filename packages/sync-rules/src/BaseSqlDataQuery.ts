@@ -163,6 +163,18 @@ export class BaseSqlDataQuery {
     return result;
   }
 
+  resolveResultSets(schema: SourceSchema, tables: Record<string, Record<string, ColumnDefinition>>) {
+    const outTables = this.getColumnOutputs(schema);
+    for (let table of outTables) {
+      tables[table.name] ??= {};
+      for (let column of table.columns) {
+        if (column.name != 'id') {
+          tables[table.name][column.name] ??= column;
+        }
+      }
+    }
+  }
+
   evaluateRowWithOptions(options: EvaluateRowOptions): EvaluationResult[] {
     try {
       const { table, row, bucketIds } = options;
