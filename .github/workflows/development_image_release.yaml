@@ -69,6 +69,7 @@ jobs:
 
       - name: Extract metadata for the image
         uses: docker/metadata-action@v5
+        id: meta
         with:
           images: ${{ vars.DOCKER_REGISTRY }}
           labels: |
