@@ -146,7 +146,10 @@ export class StreamVariant {
     const staticBuckets: ResolvedBucket[] = [];
     if (dynamicParameters.length == 0 && dynamicRequestFilters.length == 0) {
       // When we have no dynamic parameters, the partial evaluation is a full instantiation.
-      staticBuckets.push(this.resolveBucket(stream, instantiation as SqliteJsonValue[], reason));
+      const instantiations = this.cartesianProductOfParameterInstantiations(instantiation as SqliteJsonValue[][]);
+      for (const instantiation of instantiations) {
+        staticBuckets.push(this.resolveBucket(stream, instantiation, reason));
+      }
     }
 
     const variant = this;
@@ -173,7 +176,13 @@ export class StreamVariant {
 
         const perParameterInstantiation: (SqliteJsonValue | BucketParameter)[][] = [];
         for (const parameter of instantiation) {
-          perParameterInstantiation.push([parameter]);
+          if (Array.isArray(parameter)) {
+            // Statically-resolved values
+            perParameterInstantiation.push(parameter);
+          } else {
+            // to be instantiated with dynamic lookup
+            perParameterInstantiation.push([parameter as BucketParameter]);
+          }
         }
 
         for (const lookup of dynamicParameters) {
@@ -189,13 +198,13 @@ export class StreamVariant {
     };
   }
 
-  findStaticInstantiation(params: RequestParameters): SqliteJsonValue[] | null {
+  findStaticInstantiations(params: RequestParameters): SqliteJsonValue[][] {
     if (this.subqueries.length) {
-      return null;
+      return [];
     }
 
     // This will be an array of values (i.e. a total evaluation) because there are no dynamic parameters.
-    return this.partiallyEvaluateParameters(params) as SqliteJsonValue[];
+    return this.partiallyEvaluateParameters(params) as SqliteJsonValue[][];
   }
 
   /**
@@ -239,23 +248,25 @@ export class StreamVariant {
    * Dynamic parameters that depend on subquery results are not replaced.
    * This returns null if there's a {@link StaticRequestFilter} that doesn't match the request.
    */
-  private partiallyEvaluateParameters(params: RequestParameters): (SqliteJsonValue | BucketParameter)[] | null {
+  private partiallyEvaluateParameters(params: RequestParameters): (SqliteJsonValue[] | BucketParameter)[] | null {
     for (const filter of this.requestFilters) {
       if (filter.type == 'static' && !filter.matches(params)) {
         return null;
       }
     }
 
-    const instantiation: (SqliteJsonValue | BucketParameter)[] = [];
+    const instantiation: (SqliteJsonValue[] | BucketParameter)[] = [];
     for (const parameter of this.parameters) {
       const lookup = parameter.lookup;
       if (lookup.type == 'static') {
-        const value = lookup.fromRequest(params);
-        if (isJsonValue(value)) {
-          instantiation.push(value);
-        } else {
+        const values = lookup.fromRequest(params)?.filter(isJsonValue);
+        if (values.length == 0) {
+          // Parameter not instantiable for this request. Since parameters in a single variant form a conjunction, that
+          // means the whole request won't find anything here.
           return null;
         }
+
+        instantiation.push(values);
       } else {
         instantiation.push(parameter);
       }
