@@ -80,12 +80,14 @@ jobs:
           context: .
           # This should not be taged as latest
           tags: ${{vars.DOCKER_REGISTRY}}:${{steps.get_version.outputs.SERVICE_VERSION}}
-          # Add labels from metadata-action above.
+          file: ./service/Dockerfile
+          push: true
+
+          # Add labels and annotations from metadata-action above.
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
-          push: true
           # Note: This includes build args in the published provenance.
           # Do not use this if secrets are passed in as args.
           provenance: mode=max
+          # Pre-generate an SBOM file, which can be used for vulnerability scanning or listing licenses.
           sbom: true
-          file: ./service/Dockerfile

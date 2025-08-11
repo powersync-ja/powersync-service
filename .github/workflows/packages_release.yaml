@@ -112,6 +112,11 @@ jobs:
         id: get_version
         run: echo "SERVICE_VERSION=$(node -p "require('./service/package.json').version")" >> $GITHUB_OUTPUT
 
+      - name: Extract metadata for the image
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ vars.DOCKER_REGISTRY }}
+
       - name: Build Image and Push
         uses: docker/build-push-action@v5
         with:
@@ -122,7 +127,16 @@ jobs:
           push: true
           file: ./service/Dockerfile
 
-      #   # Updates the README section on the DockerHub page
+          # Add labels and annotations from metadata-action above.
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          # Note: This includes build args in the published provenance.
+          # Do not use this if secrets are passed in as args.
+          provenance: mode=max
+          # Pre-generate an SBOM file, which can be used for vulnerability scanning or listing licenses.
+          sbom: true
+
+      # Updates the README section on the DockerHub page
       - name: Update repo description
         #  Note that this 3rd party extention is recommended in the DockerHub docs:
         #  https://docs.docker.com/build/ci/github-actions/update-dockerhub-desc/
