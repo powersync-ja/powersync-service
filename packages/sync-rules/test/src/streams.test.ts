@@ -318,6 +318,18 @@ describe('streams', () => {
         })
       ).toStrictEqual(['stream|1["b"]']);
     });
+
+    test('on parameter data', async () => {
+      const desc = parseStream("SELECT * FROM comments WHERE issue_id IN (subscription.parameters() -> 'issue_id')");
+
+      expect(evaluateBucketIds(desc, COMMENTS, { id: 'a', issue_id: 'i' })).toStrictEqual(['stream|0["i"]']);
+      expect(
+        await queryBucketIds(desc, {
+          token_parameters: { user_id: 'a' },
+          parameters: { issue_id: ['i1', 'i2'] }
+        })
+      ).toStrictEqual(['stream|0["i1"]', 'stream|0["i2"]']);
+    });
   });
 
   describe('overlap', () => {
@@ -397,6 +409,21 @@ describe('streams', () => {
         expect.toBeSqlRuleError(
           'Negations are not allowed here',
           'not (issue_id in (select id from issues where owner_id = request.user_id()'
+        )
+      ]);
+    });
+
+    test('subquery with two columns', () => {
+      const [_, errors] = syncStreamFromSql(
+        's',
+        'select * from comments where issue_id in (select id, owner_id from issues where owner_id = request.user_id())',
+        options
+      );
+
+      expect(errors).toMatchObject([
+        expect.toBeSqlRuleError(
+          'This subquery must return exactly one column',
+          'select id, owner_id from issues where owner_id = request.user_id()'
         )
       ]);
     });
