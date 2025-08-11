@@ -84,16 +84,19 @@ export interface ParameterValueSet {
    * JSON string of raw request parameters.
    */
   rawUserParameters: string;
+  userParameters: SqliteJsonRow;
 
   /**
    * For streams, the raw JSON string of stream parameters.
    */
   rawStreamParameters: string | null;
+  streamParameters: SqliteJsonRow | null;
 
   /**
    * JSON string of raw request parameters.
    */
   rawTokenPayload: string;
+  tokenParameters: SqliteJsonRow;
 
   userId: string;
 }

@@ -32,13 +32,13 @@ describe('streams', () => {
   });
 
   test('stream parameter', () => {
-    const desc = parseStream('SELECT * FROM comments WHERE issue_id = subscription_parameters.id');
+    const desc = parseStream("SELECT * FROM comments WHERE issue_id = subscription.parameter('id')");
     expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', issue_id: 'a' })).toStrictEqual(['stream|0["a"]']);
   });
 
   test('row filter and stream parameter', async () => {
     const desc = parseStream(
-      'SELECT * FROM comments WHERE length(content) > 5 AND issue_id = subscription_parameters.id'
+      "SELECT * FROM comments WHERE length(content) > 5 AND issue_id = subscription.parameter('id')"
     );
     expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'a', issue_id: 'a' })).toStrictEqual([]);
     expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'aaaaaa', issue_id: 'i' })).toStrictEqual([
@@ -52,7 +52,7 @@ describe('streams', () => {
 
   describe('or', () => {
     test('parameter match or request condition', async () => {
-      const desc = parseStream('SELECT * FROM issues WHERE owner_id = request.user_id() OR token_parameters.is_admin');
+      const desc = parseStream("SELECT * FROM issues WHERE owner_id = auth.user_id() OR auth.parameter('is_admin')");
 
       expect(evaluateBucketIds(desc, ISSUES, { id: 'foo', owner_id: 'u1' })).toStrictEqual([
         'stream|0["u1"]',
@@ -79,7 +79,7 @@ describe('streams', () => {
     });
 
     test('parameter match or row condition', async () => {
-      const desc = parseStream('SELECT * FROM issues WHERE owner_id = request.user_id() OR LENGTH(name) = 3');
+      const desc = parseStream('SELECT * FROM issues WHERE owner_id = auth.user_id() OR LENGTH(name) = 3');
       expect(evaluateBucketIds(desc, ISSUES, { id: 'foo', owner_id: 'a', name: '' })).toStrictEqual(['stream|0["a"]']);
       expect(evaluateBucketIds(desc, ISSUES, { id: 'foo', owner_id: 'a', name: 'aaa' })).toStrictEqual([
         'stream|0["a"]',
@@ -96,7 +96,7 @@ describe('streams', () => {
     });
 
     test('row condition or parameter condition', async () => {
-      const desc = parseStream('SELECT * FROM comments WHERE LENGTH(content) > 5 OR token_parameters.is_admin');
+      const desc = parseStream("SELECT * FROM comments WHERE LENGTH(content) > 5 OR auth.parameter('is_admin')");
 
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'short' })).toStrictEqual(['stream|1[]']);
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'longer' })).toStrictEqual([
@@ -140,7 +140,7 @@ describe('streams', () => {
     });
 
     test('request condition or request condition', async () => {
-      const desc = parseStream('SELECT * FROM comments WHERE token_parameters.a OR token_parameters.b');
+      const desc = parseStream("SELECT * FROM comments WHERE auth.parameter('a') OR auth.parameters() ->> 'b'");
       // Complex conditions that only operate on request data don't need variants.
       expect(desc.variants).toHaveLength(1);
 
@@ -165,7 +165,7 @@ describe('streams', () => {
 
     test('subquery or token parameter', async () => {
       const desc = parseStream(
-        'SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = request.user_id()) OR token_parameters.is_admin'
+        "SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id()) OR auth.parameter('is_admin')"
       );
 
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', issue_id: 'i1' })).toStrictEqual([
@@ -201,7 +201,7 @@ describe('streams', () => {
   describe('in', () => {
     test('row value in subquery', async () => {
       const desc = parseStream(
-        'SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = request.user_id())'
+        'SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id())'
       );
 
       expect(desc.tableSyncsParameters(ISSUES)).toBe(true);
@@ -232,7 +232,7 @@ describe('streams', () => {
     });
 
     test('parameter value in subquery', async () => {
-      const desc = parseStream('SELECT * FROM issues WHERE request.user_id() IN (SELECT id FROM users WHERE is_admin)');
+      const desc = parseStream('SELECT * FROM issues WHERE auth.user_id() IN (SELECT id FROM users WHERE is_admin)');
 
       expect(desc.tableSyncsParameters(ISSUES)).toBe(false);
       expect(desc.tableSyncsParameters(USERS)).toBe(true);
@@ -274,8 +274,8 @@ describe('streams', () => {
 
     test('two subqueries', async () => {
       const desc = parseStream(`SELECT * FROM users WHERE
-            id IN (SELECT user_a FROM friends WHERE user_b = request.user_id()) OR
-            id IN (SELECT user_b FROM friends WHERE user_a = request.user_id())
+            id IN (SELECT user_a FROM friends WHERE user_b = auth.user_id()) OR
+            id IN (SELECT user_b FROM friends WHERE user_a = auth.user_id())
         `);
 
       expect(evaluateBucketIds(desc, USERS, { id: 'a', name: 'a' })).toStrictEqual(['stream|0["a"]', 'stream|1["a"]']);
@@ -330,12 +330,34 @@ describe('streams', () => {
         })
       ).toStrictEqual(['stream|0["i1"]', 'stream|0["i2"]']);
     });
+
+    test('on parameter data and table', async () => {
+      const desc = parseStream(
+        "SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id()) AND label IN (subscription.parameters() -> 'labels')"
+      );
+
+      expect(evaluateBucketIds(desc, COMMENTS, { id: 'a', issue_id: 'i', label: 'l' })).toStrictEqual([
+        'stream|0["i","l"]'
+      ]);
+      expect(
+        await queryBucketIds(desc, {
+          token_parameters: { user_id: 'a' },
+          parameters: { labels: ['l1', 'l2'] },
+          getParameterSets(lookups) {
+            expect(lookups).toHaveLength(1);
+            const [lookup] = lookups;
+            expect(lookup).toStrictEqual(ParameterLookup.normalized('stream', '0', ['a']));
+            return [{ result: 'i1' }, { result: 'i2' }];
+          }
+        })
+      ).toStrictEqual(['stream|0["i1","l1"]', 'stream|0["i1","l2"]', 'stream|0["i2","l1"]', 'stream|0["i2","l2"]']);
+    });
   });
 
   describe('overlap', () => {
     test('row value in subquery', async () => {
       const desc = parseStream(
-        'SELECT * FROM comments WHERE tagged_users && (SELECT user_a FROM friends WHERE user_b = request.user_id())'
+        'SELECT * FROM comments WHERE tagged_users && (SELECT user_a FROM friends WHERE user_b = auth.user_id())'
       );
 
       expect(desc.tableSyncsParameters(FRIENDS)).toBe(true);
@@ -386,14 +408,14 @@ describe('streams', () => {
     test('negated subquery', () => {
       const [_, errors] = syncStreamFromSql(
         's',
-        'select * from comments where issue_id not in (select id from issues where owner_id = request.user_id())',
+        'select * from comments where issue_id not in (select id from issues where owner_id = auth.user_id())',
         options
       );
 
       expect(errors).toMatchObject([
         expect.toBeSqlRuleError(
           'Negations are not allowed here',
-          'issue_id not in (select id from issues where owner_id = request.user_id()'
+          'issue_id not in (select id from issues where owner_id = auth.user_id()'
         )
       ]);
     });
@@ -401,14 +423,14 @@ describe('streams', () => {
     test('negated subquery from outer not operator', () => {
       const [_, errors] = syncStreamFromSql(
         's',
-        'select * from comments where not (issue_id in (select id from issues where owner_id = request.user_id()))',
+        'select * from comments where not (issue_id in (select id from issues where owner_id = auth.user_id()))',
         options
       );
 
       expect(errors).toMatchObject([
         expect.toBeSqlRuleError(
           'Negations are not allowed here',
-          'not (issue_id in (select id from issues where owner_id = request.user_id()'
+          'not (issue_id in (select id from issues where owner_id = auth.user_id()'
         )
       ]);
     });
@@ -416,15 +438,23 @@ describe('streams', () => {
     test('subquery with two columns', () => {
       const [_, errors] = syncStreamFromSql(
         's',
-        'select * from comments where issue_id in (select id, owner_id from issues where owner_id = request.user_id())',
+        'select * from comments where issue_id in (select id, owner_id from issues where owner_id = auth.user_id())',
         options
       );
 
       expect(errors).toMatchObject([
         expect.toBeSqlRuleError(
           'This subquery must return exactly one column',
-          'select id, owner_id from issues where owner_id = request.user_id()'
+          'select id, owner_id from issues where owner_id = auth.user_id()'
         )
+      ]);
+    });
+
+    test('legacy request function', () => {
+      const [_, errors] = syncStreamFromSql('s', 'select * from issues where owner_id = request.user_id()', options);
+
+      expect(errors).toMatchObject([
+        expect.toBeSqlRuleError("Function 'request.user_id' is not defined", 'request.user_id()')
       ]);
     });
   });
@@ -432,7 +462,7 @@ describe('streams', () => {
   describe('normalization', () => {
     test('double negation', async () => {
       const desc = parseStream(
-        'select * from comments where NOT (issue_id not in (select id from issues where owner_id = request.user_id()))'
+        'select * from comments where NOT (issue_id not in (select id from issues where owner_id = auth.user_id()))'
       );
 
       expect(desc.evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })).toStrictEqual([
@@ -463,7 +493,7 @@ describe('streams', () => {
 
     test('negated or', () => {
       const desc = parseStream(
-        'select * from comments where not (length(content) = 5 OR issue_id not in (select id from issues where owner_id = request.user_id()))'
+        'select * from comments where not (length(content) = 5 OR issue_id not in (select id from issues where owner_id = auth.user_id()))'
       );
 
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', issue_id: 'issue_id', content: 'foo' })).toStrictEqual([
@@ -474,7 +504,7 @@ describe('streams', () => {
 
     test('negated and', () => {
       const desc = parseStream(
-        'select * from comments where not (length(content) = 5 AND issue_id not in (select id from issues where owner_id = request.user_id()))'
+        'select * from comments where not (length(content) = 5 AND issue_id not in (select id from issues where owner_id = auth.user_id()))'
       );
       expect(desc.variants).toHaveLength(2);
 
@@ -490,8 +520,8 @@ describe('streams', () => {
     test('distribute and', async () => {
       const desc = parseStream(
         `select * from comments where 
-          (issue_id in (select id from issues where owner_id = request.user_id())
-            OR token_parameters.is_admin)
+          (issue_id in (select id from issues where owner_id = auth.user_id())
+            OR auth.parameter('is_admin'))
           AND
           LENGTH(content) > 2
         `
@@ -562,7 +592,8 @@ const schema = new StaticSchema([
               { name: 'id', pg_type: 'uuid' },
               { name: 'issue_id', pg_type: 'uuid' },
               { name: 'content', pg_type: 'text' },
-              { name: 'tagged_users', pg_type: 'text' }
+              { name: 'tagged_users', pg_type: 'text' },
+              { name: 'label', pg_type: 'text' }
             ]
           },
           {
