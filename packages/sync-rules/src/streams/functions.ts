@@ -17,11 +17,29 @@ const subscription_parameters: SqlParameterFunction = {
   usesUnauthenticatedRequestParameters: true
 };
 
+const connection_parameters: SqlParameterFunction = {
+  debugName: 'connection.parameters',
+  call(parameters: ParameterValueSet) {
+    return parameters.rawUserParameters;
+  },
+  getReturnType() {
+    return ExpressionType.TEXT;
+  },
+  detail: 'Unauthenticated connection parameters as JSON',
+  documentation:
+    'Returns parameters passed by the client as a JSON string. These parameters are not authenticated - any value can be passed in by the client.',
+  usesAuthenticatedRequestParameters: false,
+  usesUnauthenticatedRequestParameters: true
+};
+
 export const STREAM_FUNCTIONS: Record<string, Record<string, SqlParameterFunction>> = {
   subscription: {
-    parameter: subscription_parameters
+    parameters: subscription_parameters
   },
-  request: {
+  connection: {
+    parameters: connection_parameters
+  },
+  token: {
     user_id: request_user_id,
     jwt: request_jwt
   }

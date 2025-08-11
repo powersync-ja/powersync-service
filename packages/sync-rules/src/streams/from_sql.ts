@@ -76,11 +76,12 @@ class SyncStreamCompiler {
 
     const tools = new SqlTools({
       table: alias,
-      parameterTables: ['subscription_parameters', 'token_parameters'],
+      parameterTables: [],
       valueTables: [alias],
       sql: this.sql,
       schema: querySchema,
       supportsParameterExpressions: true,
+      supportsExpandingParameters: true, // needed for table.column IN (subscription.parameters() -> ...)
       isStream: true
     });
     tools.checkSpecificNameCase(tableRef);
@@ -307,7 +308,7 @@ class SyncStreamCompiler {
 
     const right = tools.compileClause(clause.right);
 
-    // For cases 3-5, we can actually uses SqlTools.compileClause. Case 3 and 4 are handled specially in there and return
+    // For cases 3-5, we can actually use SqlTools.compileClause. Case 3 and 4 are handled specially in there and return
     // a ParameterMatchClause, which we can translate via CompareRowValueWithStreamParameter. Case 5 is either a row-value
     // or a parameter-value clause which we can wrap in EvaluateSimpleCondition.
     const combined = tools.compileInClause(clause.left, left, clause.right, right);
@@ -366,7 +367,7 @@ class SyncStreamCompiler {
     // Create a new tools instance for this - the subquery does not have access to the outer one.
     const tools = new SqlTools({
       table: alias,
-      parameterTables: ['subscription_parameters', 'token_parameters'],
+      parameterTables: [],
       valueTables: [alias],
       sql: this.sql,
       schema: querySchema,

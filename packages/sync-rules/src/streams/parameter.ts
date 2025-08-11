@@ -55,7 +55,14 @@ export interface SubqueryLookups {
  */
 export interface StaticLookup {
   type: 'static';
-  fromRequest(parameters: ParameterValueSet): SqliteValue | null;
+
+  /**
+   * The value this lookup evaluates to for a specific request.
+   *
+   * This is typically a singleton array, e.g. the user's id in `WHERE owner_id = token.user_id()`. To desugar `IN`
+   * queries on parameter data, this can also return multiple values though: `WHERE owner_id IN subscription.parameters() -> 'user_ids'`.
+   */
+  fromRequest(parameters: ParameterValueSet): SqliteValue[];
 }
 
 /**

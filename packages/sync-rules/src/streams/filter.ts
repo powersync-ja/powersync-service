@@ -271,12 +271,10 @@ export class Subquery {
         const lookups: ParameterLookup[] = [];
 
         for (const [variant, id] of innerVariants) {
-          const instantiation = variant.findStaticInstantiation(parameters);
-          if (instantiation == null) {
-            continue;
+          const instantiations = variant.findStaticInstantiations(parameters);
+          for (const instantiation of instantiations) {
+            lookups.push(ParameterLookup.normalized(context.streamName, id, instantiation));
           }
-
-          lookups.push(ParameterLookup.normalized(context.streamName, id, instantiation));
         }
 
         return lookups;
@@ -438,7 +436,20 @@ export class CompareRowValueWithStreamParameter extends FilterOperator {
         lookup: {
           type: 'static',
           fromRequest(parameters) {
-            return filters.parametersToLookupValue(parameters);
+            const value = filters.parametersToLookupValue(parameters);
+            if (filters.expands) {
+              if (typeof value != 'string') {
+                return [];
+              }
+              let values: SqliteJsonValue[] = JSON.parse(value);
+              if (!Array.isArray(values)) {
+                return [];
+              }
+
+              return values;
+            } else {
+              return [value];
+            }
           }
         },
         filterRow(options) {
