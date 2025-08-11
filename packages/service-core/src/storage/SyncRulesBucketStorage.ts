@@ -67,11 +67,6 @@ export interface SyncRulesBucketStorage
   getCheckpoint(): Promise<ReplicationCheckpoint>;
 
   /**
-   * Used to resolve "dynamic" parameter queries.
-   */
-  getParameterSets(checkpoint: util.InternalOpId, lookups: ParameterLookup[]): Promise<SqliteJsonRow[]>;
-
-  /**
    * Given two checkpoints, return the changes in bucket data and parameters that may have occurred
    * in that period.
    *
@@ -198,6 +193,8 @@ export interface CompactOptions {
    */
   compactBuckets?: string[];
 
+  compactParameterData?: boolean;
+
   /** Minimum of 2 */
   clearBatchLimit?: number;
 
@@ -206,6 +203,11 @@ export interface CompactOptions {
 
   /** Minimum of 1 */
   moveBatchQueryLimit?: number;
+
+  /**
+   * Internal/testing use: Cache size for compacting parameters.
+   */
+  compactParameterCacheLimit?: number;
 }
 
 export interface ClearStorageOptions {
@@ -243,6 +245,13 @@ export interface SyncBucketDataChunk {
 export interface ReplicationCheckpoint {
   readonly checkpoint: util.InternalOpId;
   readonly lsn: string | null;
+
+  /**
+   * Used to resolve "dynamic" parameter queries.
+   *
+   * This gets parameter sets specific to this checkpoint.
+   */
+  getParameterSets(lookups: ParameterLookup[]): Promise<SqliteJsonRow[]>;
 }
 
 export interface WatchWriteCheckpointOptions {

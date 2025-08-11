@@ -2,11 +2,9 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import {
   BaseObserver,
-  ErrorCode,
   logger,
   ReplicationAbortedError,
-  ServiceAssertionError,
-  ServiceError
+  ServiceAssertionError
 } from '@powersync/lib-services-framework';
 import {
   BroadcastIterable,
@@ -30,18 +28,12 @@ import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
-import {
-  BucketDataDocument,
-  BucketDataKey,
-  BucketStateDocument,
-  SourceKey,
-  SourceTableDocument,
-  SyncRuleCheckpointState
-} from './models.js';
+import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey, SourceTableDocument } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
-import { idPrefixFilter, mapOpEntry, readSingleBatch } from './util.js';
+import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from './util.js';
+import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 
 export class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
@@ -106,22 +98,44 @@ export class MongoSyncBucketStorage
   }
 
   async getCheckpoint(): Promise<storage.ReplicationCheckpoint> {
-    const doc = await this.db.sync_rules.findOne(
-      { _id: this.group_id },
-      {
-        projection: { last_checkpoint: 1, last_checkpoint_lsn: 1, snapshot_done: 1 }
+    return (await this.getCheckpointInternal()) ?? new EmptyReplicationCheckpoint();
+  }
+
+  async getCheckpointInternal(): Promise<storage.ReplicationCheckpoint | null> {
+    return await this.db.client.withSession({ snapshot: true }, async (session) => {
+      const doc = await this.db.sync_rules.findOne(
+        { _id: this.group_id },
+        {
+          session,
+          projection: { _id: 1, state: 1, last_checkpoint: 1, last_checkpoint_lsn: 1, snapshot_done: 1 }
+        }
+      );
+      if (!doc?.snapshot_done || !['ACTIVE', 'ERRORED'].includes(doc.state)) {
+        // Sync rules not active - return null
+        return null;
       }
-    );
-    if (!doc?.snapshot_done) {
-      return {
-        checkpoint: 0n,
-        lsn: null
-      };
-    }
-    return {
-      checkpoint: doc?.last_checkpoint ?? 0n,
-      lsn: doc?.last_checkpoint_lsn ?? null
-    };
+
+      // Specifically using operationTime instead of clusterTime
+      // There are 3 fields in the response:
+      // 1. operationTime, not exposed for snapshot sessions (used for causal consistency)
+      // 2. clusterTime (used for connection management)
+      // 3. atClusterTime, which is session.snapshotTime
+      // We use atClusterTime, to match the driver's internal snapshot handling.
+      // There are cases where clusterTime > operationTime and atClusterTime,
+      // which could cause snapshot queries using this as the snapshotTime to timeout.
+      // This was specifically observed on MongoDB 6.0 and 7.0.
+      const snapshotTime = (session as any).snapshotTime as bson.Timestamp | undefined;
+      if (snapshotTime == null) {
+        throw new ServiceAssertionError('Missing snapshotTime in getCheckpoint()');
+      }
+      return new MongoReplicationCheckpoint(
+        this,
+        // null/0n is a valid checkpoint in some cases, for example if the initial snapshot was empty
+        doc.last_checkpoint ?? 0n,
+        doc.last_checkpoint_lsn ?? null,
+        snapshotTime
+      );
+    });
   }
 
   async startBatch(
@@ -262,38 +276,67 @@ export class MongoSyncBucketStorage
     return result!;
   }
 
-  async getParameterSets(checkpoint: utils.InternalOpId, lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
-    const lookupFilter = lookups.map((lookup) => {
-      return storage.serializeLookup(lookup);
-    });
-    const rows = await this.db.bucket_parameters
-      .aggregate([
-        {
-          $match: {
-            'key.g': this.group_id,
-            lookup: { $in: lookupFilter },
-            _id: { $lte: checkpoint }
-          }
-        },
-        {
-          $sort: {
-            _id: -1
-          }
-        },
-        {
-          $group: {
-            _id: { key: '$key', lookup: '$lookup' },
-            bucket_parameters: {
-              $first: '$bucket_parameters'
+  async getParameterSets(checkpoint: MongoReplicationCheckpoint, lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
+    return this.db.client.withSession({ snapshot: true }, async (session) => {
+      // Set the session's snapshot time to the checkpoint's snapshot time.
+      // An alternative would be to create the session when the checkpoint is created, but managing
+      // the session lifetime would become more complex.
+      // Starting and ending sessions are cheap (synchronous when no transactions are used),
+      // so this should be fine.
+      // This is a roundabout way of setting {readConcern: {atClusterTime: clusterTime}}, since
+      // that is not exposed directly by the driver.
+      // Future versions of the driver may change the snapshotTime behavior, so we need tests to
+      // validate that this works as expected. We test this in the compacting tests.
+      setSessionSnapshotTime(session, checkpoint.snapshotTime);
+      const lookupFilter = lookups.map((lookup) => {
+        return storage.serializeLookup(lookup);
+      });
+      // This query does not use indexes super efficiently, apart from the lookup filter.
+      // From some experimentation I could do individual lookups more efficient using an index
+      // on {'key.g': 1, lookup: 1, 'key.t': 1, 'key.k': 1, _id: -1},
+      // but could not do the same using $group.
+      // For now, just rely on compacting to remove extraneous data.
+      // For a description of the data format, see the `/docs/parameters-lookups.md` file.
+      const rows = await this.db.bucket_parameters
+        .aggregate(
+          [
+            {
+              $match: {
+                'key.g': this.group_id,
+                lookup: { $in: lookupFilter },
+                _id: { $lte: checkpoint.checkpoint }
+              }
+            },
+            {
+              $sort: {
+                _id: -1
+              }
+            },
+            {
+              $group: {
+                _id: { key: '$key', lookup: '$lookup' },
+                bucket_parameters: {
+                  $first: '$bucket_parameters'
+                }
+              }
             }
+          ],
+          {
+            session,
+            readConcern: 'snapshot',
+            // Limit the time for the operation to complete, to avoid getting connection timeouts
+            maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
           }
-        }
-      ])
-      .toArray();
-    const groupedParameters = rows.map((row) => {
-      return row.bucket_parameters;
+        )
+        .toArray()
+        .catch((e) => {
+          throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
+        });
+      const groupedParameters = rows.map((row) => {
+        return row.bucket_parameters;
+      });
+      return groupedParameters.flat();
     });
-    return groupedParameters.flat();
   }
 
   async *getBucketDataBatch(
@@ -658,14 +701,11 @@ export class MongoSyncBucketStorage
   }
 
   async compact(options?: storage.CompactOptions) {
-    return new MongoCompactor(this.db, this.group_id, options).compact();
-  }
-
-  private makeActiveCheckpoint(doc: SyncRuleCheckpointState | null) {
-    return {
-      checkpoint: doc?.last_checkpoint ?? 0n,
-      lsn: doc?.last_checkpoint_lsn ?? null
-    };
+    const checkpoint = await this.getCheckpointInternal();
+    await new MongoCompactor(this.db, this.group_id, options).compact();
+    if (checkpoint != null && options?.compactParameterData) {
+      await new MongoParameterCompactor(this.db, this.group_id, checkpoint.checkpoint, options).compact();
+    }
   }
 
   /**
@@ -687,33 +727,13 @@ export class MongoSyncBucketStorage
         break;
       }
 
-      const doc = await this.db.sync_rules.findOne(
-        {
-          _id: this.group_id,
-          state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
-        },
-        {
-          limit: 1,
-          projection: {
-            _id: 1,
-            state: 1,
-            last_checkpoint: 1,
-            last_checkpoint_lsn: 1
-          }
-        }
-      );
-
-      if (doc == null) {
-        // Sync rules not present or not active.
-        // Abort the connections - clients will have to retry later.
-        throw new ServiceError(ErrorCode.PSYNC_S2302, 'No active sync rules available');
-      } else if (doc.state != storage.SyncRuleState.ACTIVE && doc.state != storage.SyncRuleState.ERRORED) {
+      const op = await this.getCheckpointInternal();
+      if (op == null) {
         // Sync rules have changed - abort and restart.
         // We do a soft close of the stream here - no error
         break;
       }
 
-      const op = this.makeActiveCheckpoint(doc);
       // Check for LSN / checkpoint changes - ignore other metadata changes
       if (lastOp == null || op.lsn != lastOp.lsn || op.checkpoint != lastOp.checkpoint) {
         lastOp = op;
@@ -979,4 +999,26 @@ export class MongoSyncBucketStorage
 interface InternalCheckpointChanges extends CheckpointChanges {
   updatedWriteCheckpoints: Map<string, bigint>;
   invalidateWriteCheckpoints: boolean;
+}
+
+class MongoReplicationCheckpoint implements ReplicationCheckpoint {
+  constructor(
+    private storage: MongoSyncBucketStorage,
+    public readonly checkpoint: InternalOpId,
+    public readonly lsn: string | null,
+    public snapshotTime: mongo.Timestamp
+  ) {}
+
+  async getParameterSets(lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
+    return this.storage.getParameterSets(this, lookups);
+  }
+}
+
+class EmptyReplicationCheckpoint implements ReplicationCheckpoint {
+  readonly checkpoint: InternalOpId = 0n;
+  readonly lsn: string | null = null;
+
+  async getParameterSets(lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
+    return [];
+  }
 }
