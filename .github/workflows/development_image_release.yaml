@@ -78,8 +78,11 @@ jobs:
           platforms: linux/arm64,linux/amd64
           cache-from: type=registry,ref=${{vars.DOCKER_REGISTRY}}:latest
           context: .
-          #   This should not be taged as latest
+          # This should not be taged as latest
           tags: ${{vars.DOCKER_REGISTRY}}:${{steps.get_version.outputs.SERVICE_VERSION}}
+          # Add labels from metadata-action above.
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
           push: true
           # Note: This includes build args in the published provenance.
           # Do not use this if secrets are passed in as args.
