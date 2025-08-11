@@ -1,5 +1,5 @@
 import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
-import { SqlBucketDescriptor, SqlSyncRules, SyncRulesErrors } from '@powersync/service-sync-rules';
+import { SqlSyncRules, SyncRulesErrors } from '@powersync/service-sync-rules';
 import type { FastifyPluginAsync } from 'fastify';
 import * as t from 'ts-codec';
 

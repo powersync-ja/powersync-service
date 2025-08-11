@@ -21,7 +21,6 @@ import {
  */
 export interface BucketParameter {
   lookup: StaticLookup | EqualsRowInSubqueryLookup | OverlapsSubqueryLookup;
-
   /**
    * Given a row in the table the stream is selecting from, return all possible instantiations of this parameter that
    * would match the row.

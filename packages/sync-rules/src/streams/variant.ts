@@ -112,6 +112,10 @@ export class StreamVariant {
     return [...cartesianProduct(...instantiations)];
   }
 
+  get hasDynamicBucketQueries(): boolean {
+    return this.requestFilters.some((f) => f.type == 'dynamic');
+  }
+
   querier(stream: SyncStream, reason: BucketInclusionReason, params: RequestParameters): BucketParameterQuerier | null {
     const instantiation = this.partiallyEvaluateParameters(params);
     if (instantiation == null) {
@@ -240,6 +244,20 @@ export class StreamVariant {
         );
       }
     }
+  }
+
+  debugRepresentation(): any {
+    return {
+      id: this.id,
+      parameters: this.parameters.map((p) => ({
+        type: p.lookup.type
+      })),
+      subqueries: this.subqueries.map((s) => ({
+        table: s.parameterTable
+      })),
+      additional_row_filters: this.additionalRowFilters.length,
+      request_filters: this.requestFilters.map((f) => f.type)
+    };
   }
 
   /**
