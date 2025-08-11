@@ -98,8 +98,10 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     const endDate = data.range?.end_date ? new Date(data.range.end_date) : new Date();
     const startDate = new Date(range.start_date);
     return {
-      $lte: endDate,
-      $gt: startDate
+      connect_at: {
+        $lte: endDate,
+        $gt: startDate
+      }
     };
   }
 
@@ -237,7 +239,7 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
           $match: {
             disconnect_at: { $exists: false },
             jwt_exp: { $gt: new Date() },
-            connect_at: timeframeFilter
+            ...timeframeFilter
           }
         },
         this.sdkFacetPipeline(),
