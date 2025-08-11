@@ -1,6 +1,6 @@
 import { JSONBig } from '@powersync/service-jsonbig';
 import { SQLITE_FALSE, SQLITE_TRUE, sqliteBool, sqliteNot } from './sql_support.js';
-import { SqliteValue } from './types.js';
+import { SqliteRow, SqliteValue } from './types.js';
 import { jsonValueToSqlite } from './utils.js';
 // Declares @syncpoint/wkx module
 // This allows for consumers of this lib to resolve types correctly
@@ -870,8 +870,17 @@ function concat(a: SqliteValue, b: SqliteValue): string | null {
 
 export function jsonExtract(sourceValue: SqliteValue, path: SqliteValue, operator: string) {
   const valueText = castAsText(sourceValue);
+  if (valueText == null || path == null) {
+    return null;
+  }
+
+  let value = JSONBig.parse(valueText) as any;
+  return jsonExtractFromRecord(value, path, operator);
+}
+
+export function jsonExtractFromRecord(value: any, path: SqliteValue, operator: string) {
   const pathText = castAsText(path);
-  if (valueText == null || pathText == null) {
+  if (value == null || pathText == null) {
     return null;
   }
 
@@ -882,7 +891,6 @@ export function jsonExtract(sourceValue: SqliteValue, path: SqliteValue, operato
     throw new Error(`JSON path must start with $.`);
   }
 
-  let value = JSONBig.parse(valueText) as any;
   for (let c of components) {
     if (value == null) {
       break;
