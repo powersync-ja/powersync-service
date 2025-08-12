@@ -93,7 +93,7 @@ class SyncStreamCompiler {
       this.descriptorName,
       new BaseSqlDataQuery(this.compileDataQuery(tools, query, alias, sourceTable))
     );
-    stream.subscribedToByDefault = this.options.default ?? false;
+    stream.subscribedToByDefault = this.options.auto_subscribe ?? false;
     if (filter.isValid(tools)) {
       stream.variants = filter.compileVariants(this.descriptorName);
     }
