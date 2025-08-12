@@ -129,7 +129,7 @@ export class SyncStream implements BucketSource {
   debugRepresentation() {
     return {
       name: this.name,
-      type: this.type.toString(),
+      type: BucketSourceType[this.type],
       variants: this.variants.map((v) => v.debugRepresentation()),
       data: {
         table: this.data.sourceTable,
