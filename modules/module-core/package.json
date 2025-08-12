@@ -30,8 +30,8 @@
   "dependencies": {
     "@powersync/lib-services-framework": "workspace:*",
     "@powersync/service-core": "workspace:*",
-    "@powersync/service-types": "workspace:*",
     "@powersync/service-rsocket-router": "workspace:*",
+    "@powersync/service-types": "workspace:*",
     "fastify": "4.23.2",
     "@fastify/cors": "8.4.1"
   },
