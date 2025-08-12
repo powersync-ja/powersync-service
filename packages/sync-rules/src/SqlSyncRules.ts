@@ -152,8 +152,8 @@ export class SqlSyncRules implements SyncRules {
       return true;
     };
 
-    if (bucketMap == null) {
-      rules.errors.push(new YamlError(new Error(`'bucket_definitions' is required`)));
+    if (bucketMap == null && streamMap == null) {
+      rules.errors.push(new YamlError(new Error(`'bucket_definitions' or 'streams' is required`)));
 
       if (throwOnError) {
         rules.throwOnError();

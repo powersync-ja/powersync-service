@@ -56,8 +56,8 @@ export const syncRulesSchema: ajvModule.Schema = {
       patternProperties: {
         '.*': {
           type: 'object',
-          required: ['data'],
-          examples: [{ data: ['select * from mytable'] }],
+          required: ['query'],
+          examples: [{ query: ['select * from mytable'] }],
           properties: {
             accept_potentially_dangerous_queries: {
               description: 'If true, disables warnings on potentially dangerous queries',
