@@ -1,5 +1,23 @@
 # @powersync/service-module-postgres-storage
 
+## 0.9.1
+
+### Patch Changes
+
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+- d49bebe: - Hooked up the MySQL binlog heartbeat events with the bucket batch keepalive mechanism.
+  Heartbeat events will now update the latest keepalive timestamp in the sync rules.
+- Updated dependencies [060b829]
+- Updated dependencies [d49bebe]
+  - @powersync/service-core-tests@0.11.1
+  - @powersync/service-core@1.14.1
+  - @powersync/service-sync-rules@0.28.1
+  - @powersync/lib-service-postgres@0.4.7
+  - @powersync/lib-services-framework@0.7.3
+  - @powersync/service-jpgwire@0.20.2
+  - @powersync/service-jsonbig@0.17.11
+  - @powersync/service-types@0.12.2
+
 ## 0.9.0
 
 ### Minor Changes
