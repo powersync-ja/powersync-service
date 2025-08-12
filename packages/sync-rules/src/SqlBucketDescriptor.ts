@@ -221,7 +221,7 @@ export class SqlBucketDescriptor implements BucketSource {
     let all_data_queries = [...this.dataQueries.values()].flat();
     return {
       name: this.name,
-      type: this.type.toString(),
+      type: BucketSourceType[this.type],
       bucket_parameters: this.bucketParameters,
       global_parameter_queries: this.globalParameterQueries.map((q) => {
         return {
