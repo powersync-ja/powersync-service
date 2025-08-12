@@ -49,6 +49,36 @@ export const syncRulesSchema: ajvModule.Schema = {
         }
       }
     },
+    streams: {
+      type: 'object',
+      description: 'List of stream definitions',
+      examples: [{ user_details: { query: 'select * from users where id = auth.user_id()' } }],
+      patternProperties: {
+        '.*': {
+          type: 'object',
+          required: ['data'],
+          examples: [{ data: ['select * from mytable'] }],
+          properties: {
+            accept_potentially_dangerous_queries: {
+              description: 'If true, disables warnings on potentially dangerous queries',
+              type: 'boolean'
+            },
+            auto_subscribe: {
+              description: 'Whether clients will subscribe to this stream by default.',
+              type: 'boolean'
+            },
+            priority: {
+              description: 'Priority for the bucket (lower values indicate higher priority).',
+              type: 'integer'
+            },
+            query: {
+              description: 'The SQL query defining content to sync in this stream.',
+              type: 'string'
+            }
+          }
+        }
+      }
+    },
     event_definitions: {
       type: 'object',
       description: 'Record of sync replication event definitions',
@@ -79,7 +109,7 @@ export const syncRulesSchema: ajvModule.Schema = {
       }
     }
   },
-  required: ['bucket_definitions'],
+  required: [],
   additionalProperties: false
 } as const;
 
