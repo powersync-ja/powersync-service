@@ -227,13 +227,13 @@ export class SqlSyncRules implements SyncRules {
         ...options,
         accept_potentially_dangerous_queries,
         priority: rules.parsePriority(value),
-        default: value.get('default', true)?.value == true
+        auto_subscribe: value.get('auto_subscribe', true)?.value == true
       };
 
       const data = value.get('query', true) as unknown;
       if (data instanceof Scalar) {
         rules.withScalar(data, (q) => {
-          const [parsed, errors] = syncStreamFromSql(key, q, options);
+          const [parsed, errors] = syncStreamFromSql(key, q, queryOptions);
           rules.bucketSources.push(parsed);
           return {
             parsed: true,

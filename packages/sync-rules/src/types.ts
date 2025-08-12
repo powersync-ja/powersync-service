@@ -19,7 +19,7 @@ export interface QueryParseOptions extends SyncRulesOptions {
 }
 
 export interface StreamParseOptions extends QueryParseOptions {
-  default?: boolean;
+  auto_subscribe?: boolean;
 }
 
 export interface EvaluatedParameters {
