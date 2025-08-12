@@ -652,12 +652,8 @@ function defineTests(factory: storage.TestStorageFactory) {
     await connectionManager.query(`INSERT INTO ${testTable}(id, description) VALUES('t3','test3')`);
     await connectionManager.query(`DROP TABLE ${testTable}`);
 
-    // Force a commit on the watched schema to advance the checkpoint
-    await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t1','test1')`);
-
     const data = await context.getBucketData('global[]');
 
-    // Should only include the entry used to advance the checkpoint
-    expect(data).toMatchObject([PUT_T1]);
+    expect(data).toMatchObject([]);
   });
 }

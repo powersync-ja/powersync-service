@@ -6,7 +6,9 @@ import {
   BinLogTableMapEvent,
   BinLogRowUpdateEvent,
   BinLogXidEvent,
-  BinLogQueryEvent
+  BinLogQueryEvent,
+  BinLogHeartbeatEvent,
+  BinLogHeartbeatEvent_V2
 } from '@powersync/mysql-zongji';
 
 export function eventIsGTIDLog(event: BinLogEvent): event is BinLogGTIDLogEvent {
@@ -19,6 +21,14 @@ export function eventIsTableMap(event: BinLogEvent): event is BinLogTableMapEven
 
 export function eventIsXid(event: BinLogEvent): event is BinLogXidEvent {
   return event.getEventName() == 'xid';
+}
+
+export function eventIsHeartbeat(event: BinLogEvent): event is BinLogHeartbeatEvent {
+  return event.getEventName() == 'heartbeat';
+}
+
+export function eventIsHeartbeat_v2(event: BinLogEvent): event is BinLogHeartbeatEvent_V2 {
+  return event.getEventName() == 'heartbeat_v2';
 }
 
 export function eventIsRotation(event: BinLogEvent): event is BinLogRotationEvent {
