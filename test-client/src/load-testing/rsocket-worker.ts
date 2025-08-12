@@ -21,6 +21,8 @@ const client = new RSocketConnector({
   setup: {
     dataMimeType: 'application/bson',
     metadataMimeType: 'application/bson',
+    keepAlive: 15_000,
+    lifetime: 120_000,
     payload: {
       data: null,
       metadata: Buffer.from(
@@ -51,7 +53,7 @@ const stream = rsocket.requestStream(
   SYNC_QUEUE_REQUEST_N, // The initial N amount
   {
     onError: (e) => {
-      console.error(e);
+      console.error(new Date().toISOString(), i, e);
     },
     onNext: (payload) => {
       const { data } = payload;
