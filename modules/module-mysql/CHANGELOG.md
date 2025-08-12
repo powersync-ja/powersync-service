@@ -1,5 +1,23 @@
 # @powersync/service-module-mysql
 
+## 0.9.0
+
+### Minor Changes
+
+- d49bebe: - Hooked up the MySQL binlog heartbeat events with the bucket batch keepalive mechanism.
+  Heartbeat events will now update the latest keepalive timestamp in the sync rules.
+
+### Patch Changes
+
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+- Updated dependencies [060b829]
+- Updated dependencies [d49bebe]
+  - @powersync/service-core@1.14.1
+  - @powersync/service-sync-rules@0.28.1
+  - @powersync/lib-services-framework@0.7.3
+  - @powersync/service-jsonbig@0.17.11
+  - @powersync/service-types@0.12.2
+
 ## 0.8.0
 
 ### Minor Changes

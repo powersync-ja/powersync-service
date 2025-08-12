@@ -1,5 +1,15 @@
 # @powersync/lib-service-postgres
 
+## 0.4.7
+
+### Patch Changes
+
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+- Updated dependencies [060b829]
+  - @powersync/lib-services-framework@0.7.3
+  - @powersync/service-jpgwire@0.20.2
+  - @powersync/service-types@0.12.2
+
 ## 0.4.6
 
 ### Patch Changes
