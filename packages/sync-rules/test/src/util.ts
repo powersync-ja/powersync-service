@@ -1,6 +1,7 @@
 import {
   DEFAULT_TAG,
   GetQuerierOptions,
+  RequestedStream,
   RequestJwtPayload,
   RequestParameters,
   SourceTableInterface,
@@ -64,12 +65,13 @@ export function normalizeTokenParameters(
 
 export function normalizeQuerierOptions(
   token_parameters: Record<string, any>,
-  user_parameters?: Record<string, any>
+  user_parameters?: Record<string, any>,
+  streams?: Record<string, RequestedStream[]>
 ): GetQuerierOptions {
   const globalParameters = normalizeTokenParameters(token_parameters, user_parameters);
   return {
     globalParameters,
     hasDefaultStreams: true,
-    streams: {}
+    streams: streams ?? {}
   };
 }

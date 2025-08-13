@@ -18,6 +18,10 @@ export interface QueryParseOptions extends SyncRulesOptions {
   priority?: BucketPriority;
 }
 
+export interface StreamParseOptions extends QueryParseOptions {
+  auto_subscribe?: boolean;
+}
+
 export interface EvaluatedParameters {
   lookup: ParameterLookup;
 
@@ -80,16 +84,19 @@ export interface ParameterValueSet {
    * JSON string of raw request parameters.
    */
   rawUserParameters: string;
+  userParameters: SqliteJsonRow;
 
   /**
    * For streams, the raw JSON string of stream parameters.
    */
   rawStreamParameters: string | null;
+  streamParameters: SqliteJsonRow | null;
 
   /**
    * JSON string of raw request parameters.
    */
   rawTokenPayload: string;
+  tokenParameters: SqliteJsonRow;
 
   userId: string;
 }
@@ -103,6 +110,7 @@ export class RequestParameters implements ParameterValueSet {
    */
   rawUserParameters: string;
 
+  streamParameters: SqliteJsonRow | null;
   rawStreamParameters: string | null;
 
   /**
@@ -112,7 +120,21 @@ export class RequestParameters implements ParameterValueSet {
 
   userId: string;
 
-  constructor(tokenPayload: RequestJwtPayload, clientParameters: Record<string, any>) {
+  constructor(tokenPayload: RequestJwtPayload, clientParameters: Record<string, any>);
+  constructor(params: RequestParameters);
+
+  constructor(tokenPayload: RequestJwtPayload | RequestParameters, clientParameters?: Record<string, any>) {
+    if (tokenPayload instanceof RequestParameters) {
+      this.tokenParameters = tokenPayload.tokenParameters;
+      this.userParameters = tokenPayload.userParameters;
+      this.rawUserParameters = tokenPayload.rawUserParameters;
+      this.rawTokenPayload = tokenPayload.rawTokenPayload;
+      this.streamParameters = tokenPayload.streamParameters;
+      this.rawStreamParameters = tokenPayload.rawStreamParameters;
+      this.userId = tokenPayload.userId;
+      return;
+    }
+
     // This type is verified when we verify the token
     const legacyParameters = tokenPayload.parameters as Record<string, any> | undefined;
 
@@ -127,7 +149,8 @@ export class RequestParameters implements ParameterValueSet {
     this.rawTokenPayload = JSONBig.stringify(tokenPayload);
 
     this.rawUserParameters = JSONBig.stringify(clientParameters);
-    this.userParameters = toSyncRulesParameters(clientParameters);
+    this.userParameters = toSyncRulesParameters(clientParameters!);
+    this.streamParameters = null;
     this.rawStreamParameters = null;
   }
 
@@ -136,12 +159,15 @@ export class RequestParameters implements ParameterValueSet {
       return this.tokenParameters[column];
     } else if (table == 'user_parameters') {
       return this.userParameters[column];
+    } else if (table == 'subscription_parameters' && this.streamParameters != null) {
+      return this.streamParameters[column];
     }
     throw new Error(`Unknown table: ${table}`);
   }
 
   withAddedStreamParameters(params: Record<string, any>): RequestParameters {
-    const clone = structuredClone(this);
+    const clone = new RequestParameters(this);
+    clone.streamParameters = params;
     clone.rawStreamParameters = JSONBig.stringify(params);
 
     return clone;
@@ -249,7 +275,7 @@ export interface EvaluateRowOptions {
 }
 
 /**
- * This is a clause that matches row and parameter values.
+ * This is a clause that matches row and parameter values for equality.
  *
  * Example:
  * [WHERE] users.org_id = bucket.org_id
@@ -265,6 +291,9 @@ export interface ParameterMatchClause {
    *  * ['token_parameters.user_id'] for a parameter query
    *
    * These parameters are always matched by this clause, and no additional parameters are matched.
+   *
+   * For a single match clause, this array will have a single element. When match clauses are combined with `AND`,
+   * the result is represented as a {@link ParameterMatchClause} with multiple input parameters.
    */
   inputParameters: InputParameter[];
 

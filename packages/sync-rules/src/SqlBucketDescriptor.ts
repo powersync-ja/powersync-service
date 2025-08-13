@@ -201,15 +201,7 @@ export class SqlBucketDescriptor implements BucketSource {
 
   resolveResultSets(schema: SourceSchema, tables: Record<string, Record<string, ColumnDefinition>>) {
     for (let query of this.dataQueries) {
-      const outTables = query.getColumnOutputs(schema);
-      for (let table of outTables) {
-        tables[table.name] ??= {};
-        for (let column of table.columns) {
-          if (column.name != 'id') {
-            tables[table.name][column.name] ??= column;
-          }
-        }
-      }
+      query.resolveResultSets(schema, tables);
     }
   }
 
@@ -229,7 +221,7 @@ export class SqlBucketDescriptor implements BucketSource {
     let all_data_queries = [...this.dataQueries.values()].flat();
     return {
       name: this.name,
-      type: this.type.toString(),
+      type: BucketSourceType[this.type],
       bucket_parameters: this.bucketParameters,
       global_parameter_queries: this.globalParameterQueries.map((q) => {
         return {

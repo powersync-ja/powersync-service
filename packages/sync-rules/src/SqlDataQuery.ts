@@ -186,36 +186,15 @@ export class SqlDataQuery extends BaseSqlDataQuery {
   }
 
   evaluateRow(table: SourceTableInterface, row: SqliteRow): EvaluationResult[] {
-    try {
-      const tables = { [this.table]: this.addSpecialParameters(table, row) };
-      const bucketParameters = this.filter.filterRow(tables);
-      const bucketIds = bucketParameters.map((params) =>
-        getBucketId(this.descriptorName, this.bucketParameters, params)
-      );
+    const query = this;
 
-      const data = this.transformRow(tables);
-      let id = data.id;
-      if (typeof id != 'string') {
-        // While an explicit cast would be better, this covers against very common
-        // issues when initially testing out sync, for example when the id column is an
-        // auto-incrementing integer.
-        // If there is no id column, we use a blank id. This will result in the user syncing
-        // a single arbitrary row for this table - better than just not being able to sync
-        // anything.
-        id = castAsText(id) ?? '';
+    return this.evaluateRowWithOptions({
+      table,
+      row,
+      bucketIds(tables) {
+        const bucketParameters = query.filter.filterRow(tables);
+        return bucketParameters.map((params) => getBucketId(query.descriptorName, query.bucketParameters, params));
       }
-      const outputTable = this.getOutputName(table.name);
-
-      return bucketIds.map((bucketId) => {
-        return {
-          bucket: bucketId,
-          table: outputTable,
-          id: id,
-          data
-        } as EvaluationResult;
-      });
-    } catch (e) {
-      return [{ error: e.message ?? `Evaluating data query failed` }];
-    }
+    });
   }
 }
