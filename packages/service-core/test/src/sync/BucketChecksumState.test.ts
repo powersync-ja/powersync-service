@@ -739,7 +739,7 @@ bucket_definitions:
         syncRequest: {
           streams: {
             subscriptions: [
-              { stream: 'stream', parameters: { ids: '["a"]' } },
+              { stream: 'stream', parameters: { ids: '["a"]' }, override_priority: null },
               { stream: 'stream', parameters: { ids: '["b"]' }, override_priority: 1 }
             ]
           }
@@ -771,7 +771,7 @@ bucket_definitions:
         syncRequest: {
           streams: {
             subscriptions: [
-              { stream: 'stream', parameters: { ids: '["a", "b"]' } },
+              { stream: 'stream', parameters: { ids: '["a", "b"]' }, override_priority: null },
               { stream: 'stream', parameters: { ids: '["b"]' }, override_priority: 1 }
             ]
           }
@@ -840,7 +840,7 @@ bucket_definitions:
           streams: {
             subscriptions: [
               { stream: 'stream', parameters: { ids: '["a", "b"]' }, override_priority: 1 },
-              { stream: 'stream', parameters: { ids: 'invalid json' } }
+              { stream: 'stream', parameters: { ids: 'invalid json' }, override_priority: null }
             ]
           }
         }
