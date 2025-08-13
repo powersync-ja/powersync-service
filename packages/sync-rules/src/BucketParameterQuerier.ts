@@ -1,4 +1,5 @@
-import { BucketDescription } from './BucketDescription.js';
+import { BucketDescription, ResolvedBucket } from './BucketDescription.js';
+import { RequestedStream } from './SqlSyncRules.js';
 import { RequestParameters, SqliteJsonRow, SqliteJsonValue } from './types.js';
 import { normalizeParameterValue } from './utils.js';
 
@@ -14,7 +15,7 @@ export interface BucketParameterQuerier {
    *     select request.user_id() as user_id()
    *     select value as project_id from json_each(request.jwt() -> 'project_ids')
    */
-  readonly staticBuckets: BucketDescription[];
+  readonly staticBuckets: ResolvedBucket[];
 
   /**
    * True if there are dynamic buckets, meaning queryDynamicBucketDescriptions() should be used.
@@ -36,7 +37,24 @@ export interface BucketParameterQuerier {
    *
    *     select id as user_id from users where users.id = request.user_id()
    */
-  queryDynamicBucketDescriptions(source: ParameterLookupSource): Promise<BucketDescription[]>;
+  queryDynamicBucketDescriptions(source: ParameterLookupSource): Promise<ResolvedBucket[]>;
+}
+
+/**
+ * An error that occurred while trying to resolve the bucket ids a request should have access to.
+ *
+ * A common scenario that could cause this to happen is when parameters need to have a certain structure. For instance,
+ * `... WHERE id IN stream.parameters -> 'ids'` is unresolvable when `ids` is not set to a JSON array.
+ */
+export interface QuerierError {
+  descriptor: string;
+  subscription?: RequestedStream;
+  message: string;
+}
+
+export interface PendingQueriers {
+  queriers: BucketParameterQuerier[];
+  errors: QuerierError[];
 }
 
 export interface ParameterLookupSource {
@@ -54,7 +72,7 @@ export function mergeBucketParameterQueriers(queriers: BucketParameterQuerier[])
     hasDynamicBuckets: parameterQueryLookups.length > 0,
     parameterQueryLookups: parameterQueryLookups,
     async queryDynamicBucketDescriptions(source: ParameterLookupSource) {
-      let results: BucketDescription[] = [];
+      let results: ResolvedBucket[] = [];
       for (let q of queriers) {
         if (q.hasDynamicBuckets) {
           results.push(...(await q.queryDynamicBucketDescriptions(source)));

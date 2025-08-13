@@ -52,9 +52,6 @@ export const syncStreamed = routeDefinition({
       });
     }
 
-    const params: util.StreamingSyncRequest = payload.params;
-    const syncParams = new RequestParameters(payload.context.token_payload!, payload.params.parameters ?? {});
-
     const bucketStorage = await storageEngine.activeBucketStorage.getActiveStorage();
 
     if (bucketStorage == null) {
@@ -75,8 +72,7 @@ export const syncStreamed = routeDefinition({
         syncContext: syncContext,
         bucketStorage,
         syncRules: syncRules,
-        params,
-        syncParams,
+        params: payload.params,
         token: payload.context.token_payload!,
         tracker,
         signal: controller.signal,
