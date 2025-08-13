@@ -398,7 +398,6 @@ export class BinLogStream {
     const fromGTID = checkpoint_lsn
       ? common.ReplicatedGTID.fromSerialized(checkpoint_lsn)
       : await common.readExecutedGtid(connection);
-    const binLogPositionState = fromGTID.position;
     connection.release();
 
     if (!this.stopped) {
@@ -409,7 +408,7 @@ export class BinLogStream {
           const binlogListener = new BinLogListener({
             logger: this.logger,
             sourceTables: this.syncRules.getSourceTables(),
-            startPosition: binLogPositionState,
+            startGTID: fromGTID,
             connectionManager: this.connections,
             serverId: serverId,
             eventHandler: binlogEventHandler
@@ -454,6 +453,12 @@ export class BinLogStream {
           rows: rows,
           tableEntry: tableMap
         });
+      },
+      onKeepAlive: async (lsn: string) => {
+        const didCommit = await batch.keepalive(lsn);
+        if (didCommit) {
+          this.oldestUncommittedChange = null;
+        }
       },
       onCommit: async (lsn: string) => {
         this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
