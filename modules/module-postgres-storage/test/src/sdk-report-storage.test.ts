@@ -28,6 +28,7 @@ describe('SDK reporting storage', async () => {
     now.getHours(),
     now.getMinutes() - 5
   );
+  const dayAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, now.getHours());
   const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
   const weekAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
   const monthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
@@ -228,22 +229,22 @@ describe('SDK reporting storage', async () => {
   });
   it('Should show SDK scrape data for user over the past month', async () => {
     const sdk = await factory.scrapeSdkData({
-      interval: 1,
-      timeframe: 'month'
+      start: monthAgo,
+      end: now
     });
     expect(sdk).toMatchSnapshot();
   });
   it('Should show SDK scrape data for user over the past week', async () => {
     const sdk = await factory.scrapeSdkData({
-      interval: 1,
-      timeframe: 'week'
+      start: weekAgo,
+      end: now
     });
     expect(sdk).toMatchSnapshot();
   });
   it('Should show SDK scrape data for user over the past day', async () => {
     const sdk = await factory.scrapeSdkData({
-      interval: 1,
-      timeframe: 'day'
+      start: dayAgo,
+      end: now
     });
     expect(sdk).toMatchSnapshot();
   });
@@ -327,12 +328,11 @@ describe('SDK reporting storage', async () => {
     await deleteData();
     await loadData();
     await factory.deleteOldSdkData({
-      interval: 1,
-      timeframe: 'week'
+      date: weekAgo
     });
     const sdk = await factory.scrapeSdkData({
-      interval: 1,
-      timeframe: 'month'
+      start: monthAgo,
+      end: now
     });
     expect(sdk).toMatchSnapshot();
   });

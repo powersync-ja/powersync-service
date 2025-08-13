@@ -26,8 +26,7 @@ export type SdkUserData = {
 };
 
 export type DeleteOldSdkData = {
-  interval: number;
-  timeframe: TimeFrames;
+  date: Date;
 };
 
 export type SdkConnectEventData = {
@@ -65,8 +64,8 @@ export type ListCurrentConnections = {
 };
 
 export type ScrapeSdkDataRequest = {
-  timeframe: TimeFrames;
-  interval?: number;
+  start: Date;
+  end: Date;
 };
 
 export type ListCurrentConnectionsRequest = {

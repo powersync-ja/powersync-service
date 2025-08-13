@@ -40,8 +40,13 @@ exports[`SDK reporting storage > Should delete rows older than specified range 1
       "sdk": "powersync-js/1.21.4",
       "users": 1,
     },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.24.5",
+      "users": 1,
+    },
   ],
-  "users": 4,
+  "users": 5,
 }
 `;
 
@@ -134,8 +139,13 @@ exports[`SDK reporting storage > Should show SDK scrape data for user over the p
       "sdk": "powersync-js/1.21.4",
       "users": 1,
     },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.24.5",
+      "users": 1,
+    },
   ],
-  "users": 4,
+  "users": 5,
 }
 `;
 

@@ -49,66 +49,6 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
       parsedDate: date
     };
   }
-  private timeFrameQuery(timeframe: event_types.TimeFrames, interval: number = 1) {
-    const { year, month, today, parsedDate } = this.parseJsDate(new Date());
-    const parsedIsoString = parsedDate.toISOString();
-    switch (timeframe) {
-      case 'month': {
-        return { lt: parsedIsoString, gt: new Date(year, parsedDate.getMonth() - interval - 1).toISOString() };
-      }
-      case 'week': {
-        const weekStartDate = new Date(parsedDate);
-        weekStartDate.setDate(weekStartDate.getDate() - 6 * interval);
-        const weekStart = this.parseJsDate(weekStartDate);
-        return {
-          lt: parsedIsoString,
-          gt: new Date(weekStart.year, weekStart.month, weekStart.today).toISOString()
-        };
-      }
-      case 'hour': {
-        // Get the last hour from the current time
-        const previousHour = parsedDate.getHours() - interval;
-        return {
-          lt: new Date(year, month, today, parsedDate.getHours()).toISOString(),
-          gt: new Date(year, month, today, previousHour).toISOString()
-        };
-      }
-      default: {
-        return {
-          lt: parsedIsoString,
-          gt: new Date(year, month, today - interval).toISOString()
-        };
-      }
-    }
-  }
-
-  private timeFrameDeleteQuery(timeframe: event_types.TimeFrames, interval: number = 1, test_date?: Date) {
-    const { year, month, today, parsedDate } = test_date ? this.parseJsDate(test_date) : this.parseJsDate(new Date());
-    switch (timeframe) {
-      case 'month': {
-        return { lt: new Date(year, parsedDate.getMonth() - interval).toISOString() };
-      }
-      case 'week': {
-        const weekStartDate = new Date(parsedDate);
-        weekStartDate.setDate(weekStartDate.getDate() - 6 * interval);
-        const { month, year, today } = this.parseJsDate(weekStartDate);
-        return {
-          lt: new Date(year, month, today).toISOString()
-        };
-      }
-      case 'hour': {
-        const previousHour = parsedDate.getHours() - interval;
-        return {
-          lt: new Date(year, month, today, previousHour).toISOString()
-        };
-      }
-      default: {
-        return {
-          lt: new Date(year, month, today - interval).toISOString()
-        };
-      }
-    }
-  }
 
   private mapListCurrentConnectionsResponse(result: SdkReportingDecoded | null): ListCurrentConnections {
     if (!result) {
@@ -183,7 +123,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
           WHERE
             disconnect_at IS NULL
             AND jwt_exp > NOW()
-            AND connect_at > ${{ type: 1184, value: gt }}
+            AND connect_at >= ${{ type: 1184, value: gt }}
             AND connect_at <= ${{ type: 1184, value: lt }}
         ),
         unique_users AS (
@@ -295,8 +235,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
   }
 
   async scrapeSdkData(data: ScrapeSdkDataRequest): Promise<ListCurrentConnections> {
-    const { timeframe, interval } = data;
-    const { lt, gt } = this.timeFrameQuery(timeframe, interval);
+    const { start, end } = data;
     const result = await this.db.sql`
       WITH
         filtered AS (
@@ -305,8 +244,8 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
           FROM
             sdk_report_events
           WHERE
-            connect_at > ${{ type: 1184, value: gt }}
-            AND connect_at <= ${{ type: 1184, value: lt }}
+            connect_at >= ${{ type: 1184, value: start.toISOString() }}
+            AND connect_at <= ${{ type: 1184, value: end.toISOString() }}
         ),
         unique_users AS (
           SELECT
@@ -343,12 +282,11 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     return this.mapListCurrentConnectionsResponse(result);
   }
   async deleteOldSdkData(data: DeleteOldSdkData): Promise<void> {
-    const { timeframe, interval } = data;
-    const { lt } = this.timeFrameDeleteQuery(timeframe, interval);
+    const { date } = data;
     const result = await this.db.sql`
       DELETE FROM sdk_report_events
       WHERE
-        connect_at < ${{ type: 1184, value: lt }}
+        connect_at < ${{ type: 1184, value: date.toISOString() }}
         AND (
           disconnect_at IS NOT NULL
           OR (
@@ -360,7 +298,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
     const deletedRows = toInteger(result.results[1].status.split(' ')[1] || '0');
     if (deletedRows > 0) {
       logger.info(
-        `TTL ${interval}/${timeframe}: ${deletedRows} PostgresSQL rows have been removed from sdk_report_events.`
+        `TTL from ${date.toISOString()}: ${deletedRows} PostgresSQL rows have been removed from sdk_report_events.`
       );
     }
   }
