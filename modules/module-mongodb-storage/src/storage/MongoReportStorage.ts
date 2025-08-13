@@ -95,8 +95,8 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     if (!range) {
       return undefined;
     }
-    const endDate = data.range?.end_date ? new Date(data.range.end_date) : new Date();
-    const startDate = new Date(range.start_date);
+    const endDate = data.range?.end ? new Date(data.range.end) : new Date();
+    const startDate = new Date(range.start);
     return {
       connect_at: {
         $lte: endDate,

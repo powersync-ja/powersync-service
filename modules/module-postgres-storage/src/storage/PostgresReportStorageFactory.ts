@@ -109,8 +109,8 @@ export class PostgresReportStorageFactory implements storage.ReportStorageFactor
         .decoded(SdkReporting)
         .first();
     }
-    const endDate = data.range?.end_date ? new Date(data.range.end_date) : new Date();
-    const startDate = new Date(range.start_date);
+    const endDate = data.range?.end ? new Date(data.range.end) : new Date();
+    const startDate = new Date(range.start);
     const lt = endDate.toISOString();
     const gt = startDate.toISOString();
     return await this.db.sql`

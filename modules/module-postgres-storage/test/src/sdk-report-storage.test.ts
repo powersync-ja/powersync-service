@@ -201,7 +201,7 @@ describe('SDK reporting storage', async () => {
   it('Should show connected users with start range', async () => {
     const current = await factory.listCurrentConnections({
       range: {
-        start_date: new Date(
+        start: new Date(
           now.getFullYear(),
           now.getMonth(),
           now.getDate(),
@@ -215,8 +215,8 @@ describe('SDK reporting storage', async () => {
   it('Should show connected users with start range and end range', async () => {
     const current = await factory.listCurrentConnections({
       range: {
-        end_date: nowLess5minutes.toISOString(),
-        start_date: new Date(
+        end: nowLess5minutes.toISOString(),
+        start: new Date(
           now.getFullYear(),
           now.getMonth(),
           now.getDate(),
