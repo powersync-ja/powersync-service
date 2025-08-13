@@ -31,7 +31,7 @@ export const RequestedStreamSubscription = t.object({
    * Streams and sync rules can also assign a default priority, but clients are allowed to override those. This can be
    * useful when the priority for partial syncs depends on e.g. the current page opened in a client.
    */
-  override_priority: t.number.optional()
+  override_priority: t.union(t.number, t.Null)
 });
 
 export type RequestedStreamSubscription = t.Decoded<typeof RequestedStreamSubscription>;
