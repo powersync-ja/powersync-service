@@ -8,7 +8,7 @@ import * as routes from '../routes/routes-index.js';
 import * as storage from '../storage/storage-index.js';
 import { SyncContext } from '../sync/SyncContext.js';
 import * as utils from '../util/util-index.js';
-import { EmitterEngine } from '../emitters/EmitterEngine.js';
+import { EventsEngine } from '../emitters/EventsEngine.js';
 
 export interface ServiceContext {
   configuration: utils.ResolvedPowerSyncConfig;
@@ -20,7 +20,7 @@ export interface ServiceContext {
   migrations: PowerSyncMigrationManager;
   syncContext: SyncContext;
   serviceMode: ServiceContextMode;
-  emitterEngine: EmitterEngine;
+  emitterEngine: EventsEngine;
 }
 
 export enum ServiceContextMode {
@@ -47,7 +47,7 @@ export class ServiceContextContainer implements ServiceContext {
   configuration: utils.ResolvedPowerSyncConfig;
   lifeCycleEngine: LifeCycledSystem;
   storageEngine: storage.StorageEngine;
-  emitterEngine: EmitterEngine;
+  emitterEngine: EventsEngine;
   syncContext: SyncContext;
   routerEngine: routes.RouterEngine;
   serviceMode: ServiceContextMode;
@@ -69,7 +69,10 @@ export class ServiceContextContainer implements ServiceContext {
       }
     });
 
-    this.emitterEngine = new EmitterEngine();
+    this.emitterEngine = new EventsEngine();
+    this.lifeCycleEngine.withLifecycle(this.emitterEngine, {
+      stop: (emitterEngine) => emitterEngine.shutDown()
+    });
 
     this.lifeCycleEngine.withLifecycle(this.storageEngine, {
       start: (storageEngine) => storageEngine.start(),

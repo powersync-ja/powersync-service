@@ -1,11 +1,10 @@
 import EventEmitter from 'node:events';
 import { logger } from '@powersync/lib-services-framework';
 import { event_types } from '@powersync/service-types';
-import { BaseEmitterEngine } from './emitter-interfaces.js';
 
-export class EmitterEngine implements BaseEmitterEngine {
+export class EventsEngine {
   private emitter: EventEmitter;
-  events: Set<event_types.EmitterEngineEvents> = new Set();
+  private events: Set<event_types.EmitterEngineEvents> = new Set();
   constructor() {
     this.emitter = new EventEmitter({ captureRejections: true });
     this.emitter.on('error', (error: Error) => {
