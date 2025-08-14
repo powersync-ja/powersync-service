@@ -1,6 +1,6 @@
 import { event_types } from '@powersync/service-types';
 
-export interface ReportStorageFactory extends AsyncDisposable {
+export interface ReportStorage extends AsyncDisposable {
   reportSdkConnect(data: event_types.SdkConnectBucketData): Promise<void>;
   reportSdkDisconnect(data: event_types.SdkDisconnectEventData): Promise<void>;
   listCurrentConnections(data: event_types.ListCurrentConnectionsRequest): Promise<event_types.ListCurrentConnections>;

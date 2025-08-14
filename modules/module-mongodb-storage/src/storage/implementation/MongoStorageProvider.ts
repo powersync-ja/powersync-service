@@ -6,7 +6,7 @@ import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
 import { MongoReportStorage } from '../MongoReportStorage.js';
 
-export class MongoStorageProvider implements storage.BucketStorageProvider {
+export class MongoStorageProvider implements storage.StorageProvider {
   get type() {
     return lib_mongo.MONGO_CONNECTION_TYPE;
   }

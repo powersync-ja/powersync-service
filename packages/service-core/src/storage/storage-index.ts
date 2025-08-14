@@ -13,4 +13,4 @@ export * from './BucketStorageBatch.js';
 export * from './SyncRulesBucketStorage.js';
 export * from './PersistedSyncRulesContent.js';
 export * from './ReplicationLock.js';
-export * from './ReportStorageFactory.js';
+export * from './ReportStorage.js';

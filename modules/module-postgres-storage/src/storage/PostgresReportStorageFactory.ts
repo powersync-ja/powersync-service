@@ -22,7 +22,7 @@ export type PostgresReportStorageOptions = {
   config: NormalizedPostgresStorageConfig;
 };
 
-export class PostgresReportStorageFactory implements storage.ReportStorageFactory {
+export class PostgresReportStorageFactory implements storage.ReportStorage {
   readonly db: lib_postgres.DatabaseClient;
   constructor(protected options: PostgresReportStorageOptions) {
     this.db = new lib_postgres.DatabaseClient({

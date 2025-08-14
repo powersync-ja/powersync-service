@@ -4,7 +4,7 @@ import { event_types } from '@powersync/service-types';
 import { PowerSyncMongo } from './implementation/db.js';
 import { logger } from '@powersync/lib-services-framework';
 
-export class MongoReportStorage implements storage.ReportStorageFactory {
+export class MongoReportStorage implements storage.ReportStorage {
   private readonly client: mongo.MongoClient;
   public readonly db: PowerSyncMongo;
 
@@ -189,5 +189,4 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
       }
     };
   }
-
 }

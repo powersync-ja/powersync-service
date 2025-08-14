@@ -7,7 +7,7 @@ import { dropTables } from '../utils/db.js';
 import { PostgresBucketStorageFactory } from './PostgresBucketStorageFactory.js';
 import { PostgresReportStorageFactory } from './PostgresReportStorageFactory.js';
 
-export class PostgresStorageProvider implements storage.BucketStorageProvider {
+export class PostgresStorageProvider implements storage.StorageProvider {
   get type() {
     return lib_postgres.POSTGRES_CONNECTION_TYPE;
   }
