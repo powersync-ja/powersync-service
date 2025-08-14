@@ -1,4 +1,4 @@
-import { ErrorCode, errors, logger, router, schema } from '@powersync/lib-services-framework';
+import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import { Readable } from 'stream';
 import Negotiator from 'negotiator';
@@ -8,8 +8,7 @@ import * as util from '../../util/util-index.js';
 
 import { authUser } from '../auth.js';
 import { routeDefinition } from '../router.js';
-
-import { APIMetric } from '@powersync/service-types';
+import { APIMetric, event_types } from '@powersync/service-types';
 
 export enum SyncRoutes {
   STREAM = '/sync/stream'
@@ -25,7 +24,7 @@ export const syncStreamed = routeDefinition({
   authorize: authUser,
   validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
   handler: async (payload) => {
-    const { service_context, logger } = payload.context;
+    const { service_context, logger, token_payload } = payload.context;
     const { routerEngine, storageEngine, metricsEngine, syncContext } = service_context;
     const headers = payload.request.headers;
     const userAgent = headers['x-user-agent'] ?? headers['user-agent'];
@@ -42,6 +41,13 @@ export const syncStreamed = routeDefinition({
       client_id: clientId,
       user_id: payload.context.user_id,
       bson: useBson
+    };
+    const sdkData: event_types.SdkUserData = {
+      client_id: clientId,
+      user_id: payload.context.user_id!,
+      user_agent: userAgent as string,
+      jwt_exp: token_payload?.exp ? new Date(token_payload?.exp * 1000) : undefined,
+      connect_at: new Date(streamStart)
     };
 
     if (routerEngine.closed) {
@@ -71,6 +77,7 @@ export const syncStreamed = routeDefinition({
     const tracker = new sync.RequestTracker(metricsEngine);
     try {
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(1);
+      service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_CONNECT_EVENT, sdkData);
       const syncLines = sync.streamResponse({
         syncContext: syncContext,
         bucketStorage,
@@ -131,6 +138,10 @@ export const syncStreamed = routeDefinition({
           }
           controller.abort();
           metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
+          service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_DISCONNECT_EVENT, {
+            ...sdkData,
+            disconnect_at: new Date()
+          });
           logger.info(`Sync stream complete`, {
             ...tracker.getLogMeta(),
             stream_ms: Date.now() - streamStart,
@@ -141,6 +152,10 @@ export const syncStreamed = routeDefinition({
     } catch (ex) {
       controller.abort();
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
+      service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_DISCONNECT_EVENT, {
+        ...sdkData,
+        disconnect_at: new Date()
+      });
     }
   }
 });
