@@ -51,14 +51,17 @@ export const down: migrations.PowerSyncMigrationFunction = async (context) => {
   const db = storage.createPowerSyncMongo(configuration.storage as MongoStorageConfig);
 
   try {
-    if (await db.write_checkpoints.indexExists('connect_at')) {
-      await db.write_checkpoints.dropIndex('connect_at');
+    if (await db.sdk_report_events.indexExists('sdk_list_index')) {
+      await db.sdk_report_events.dropIndex('sdk_list_index');
     }
-    if (await db.custom_write_checkpoints.indexExists('user_id')) {
-      await db.custom_write_checkpoints.dropIndex('user_id');
+    if (await db.sdk_report_events.indexExists('sdk_user_id_index')) {
+      await db.sdk_report_events.dropIndex('sdk_user_id_index');
     }
-    if (await db.custom_write_checkpoints.indexExists('client_id')) {
-      await db.custom_write_checkpoints.dropIndex('client_id');
+    if (await db.sdk_report_events.indexExists('sdk_client_id_index')) {
+      await db.sdk_report_events.dropIndex('sdk_client_id_index');
+    }
+    if (await db.sdk_report_events.indexExists('sdk_index')) {
+      await db.sdk_report_events.dropIndex('sdk_index');
     }
     await db.db.dropCollection('sdk_report_events');
   } finally {
