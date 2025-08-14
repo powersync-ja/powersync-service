@@ -12,7 +12,7 @@ import {
   CustomWriteCheckpointDocument,
   IdSequenceDocument,
   InstanceDocument,
-  SdkConnectDocument,
+  SdkConnectEventDocument,
   SourceTableDocument,
   SyncRuleDocument,
   WriteCheckpointDocument
@@ -38,7 +38,7 @@ export class PowerSyncMongo {
   readonly locks: mongo.Collection<lib_mongo.locks.Lock>;
   readonly bucket_state: mongo.Collection<BucketStateDocument>;
   readonly checkpoint_events: mongo.Collection<CheckpointEventDocument>;
-  readonly sdk_report_events: mongo.Collection<SdkConnectDocument>;
+  readonly sdk_report_events: mongo.Collection<SdkConnectEventDocument>;
 
   readonly client: mongo.MongoClient;
   readonly db: mongo.Db;
