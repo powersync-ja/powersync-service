@@ -12,6 +12,91 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     this.client = db.client;
     this.db = db;
   }
+  async deleteOldSdkData(data: event_types.DeleteOldSdkData): Promise<void> {
+    const { date } = data;
+    const result = await this.db.sdk_report_events.deleteMany({
+      connect_at: { $lt: date },
+      $or: [{ disconnect_at: { $exists: true } }, { jwt_exp: { $lt: new Date() }, disconnect_at: { $exists: false } }]
+    });
+    if (result.deletedCount > 0) {
+      logger.info(
+        `TTL from ${date.toISOString()}: ${result.deletedCount} MongoDB documents have been removed from sdk_report_events.`
+      );
+    }
+  }
+
+  async scrapeSdkData(data: event_types.ScrapeSdkDataRequest): Promise<event_types.ListCurrentConnections> {
+    const { start, end } = data;
+    const result = await this.db.sdk_report_events
+      .aggregate<event_types.ListCurrentConnections>([
+        {
+          $match: {
+            connect_at: { $lte: end, $gte: start }
+          }
+        },
+        this.sdkFacetPipeline(),
+        this.sdkProjectPipeline()
+      ])
+      .toArray();
+    return result[0];
+  }
+
+  async reportSdkConnect(data: event_types.SdkConnectBucketData): Promise<void> {
+    const updateFilter = this.updateDocFilter(data.user_id, data.client_id!);
+    await this.db.sdk_report_events.findOneAndUpdate(
+      updateFilter,
+      {
+        $set: data,
+        $unset: {
+          disconnect_at: ''
+        }
+      },
+      {
+        upsert: true
+      }
+    );
+  }
+  async reportSdkDisconnect(data: event_types.SdkDisconnectEventData): Promise<void> {
+    const { connect_at, user_id, client_id } = data;
+    await this.db.sdk_report_events.findOneAndUpdate(
+      {
+        client_id,
+        user_id,
+        connect_at
+      },
+      {
+        $set: {
+          disconnect_at: data.disconnect_at
+        },
+        $unset: {
+          jwt_exp: ''
+        }
+      }
+    );
+  }
+  async listCurrentConnections(
+    data: event_types.ListCurrentConnectionsRequest
+  ): Promise<event_types.ListCurrentConnections> {
+    const timeframeFilter = this.listConnectionsDateRange(data);
+    const result = await this.db.sdk_report_events
+      .aggregate<event_types.ListCurrentConnections>([
+        {
+          $match: {
+            disconnect_at: { $exists: false },
+            jwt_exp: { $gt: new Date() },
+            ...timeframeFilter
+          }
+        },
+        this.sdkFacetPipeline(),
+        this.sdkProjectPipeline()
+      ])
+      .toArray();
+    return result[0];
+  }
+
+  async [Symbol.asyncDispose]() {
+    // No-op
+  }
 
   private parseJsDate(date: Date) {
     const year = date.getFullYear();
@@ -105,89 +190,4 @@ export class MongoReportStorage implements storage.ReportStorageFactory {
     };
   }
 
-  async deleteOldSdkData(data: event_types.DeleteOldSdkData): Promise<void> {
-    const { date } = data;
-    const result = await this.db.sdk_report_events.deleteMany({
-      connect_at: { $lt: date },
-      $or: [{ disconnect_at: { $exists: true } }, { jwt_exp: { $lt: new Date() }, disconnect_at: { $exists: false } }]
-    });
-    if (result.deletedCount > 0) {
-      logger.info(
-        `TTL from ${date.toISOString()}: ${result.deletedCount} MongoDB documents have been removed from sdk_report_events.`
-      );
-    }
-  }
-
-  async scrapeSdkData(data: event_types.ScrapeSdkDataRequest): Promise<event_types.ListCurrentConnections> {
-    const { start, end } = data;
-    const result = await this.db.sdk_report_events
-      .aggregate<event_types.ListCurrentConnections>([
-        {
-          $match: {
-            connect_at: { $lte: end, $gte: start }
-          }
-        },
-        this.sdkFacetPipeline(),
-        this.sdkProjectPipeline()
-      ])
-      .toArray();
-    return result[0];
-  }
-
-  async reportSdkConnect(data: event_types.SdkConnectBucketData): Promise<void> {
-    const updateFilter = this.updateDocFilter(data.user_id, data.client_id!);
-    await this.db.sdk_report_events.findOneAndUpdate(
-      updateFilter,
-      {
-        $set: data,
-        $unset: {
-          disconnect_at: ''
-        }
-      },
-      {
-        upsert: true
-      }
-    );
-  }
-  async reportSdkDisconnect(data: event_types.SdkDisconnectEventData): Promise<void> {
-    const { connect_at, user_id, client_id } = data;
-    await this.db.sdk_report_events.findOneAndUpdate(
-      {
-        client_id,
-        user_id,
-        connect_at
-      },
-      {
-        $set: {
-          disconnect_at: data.disconnect_at
-        },
-        $unset: {
-          jwt_exp: ''
-        }
-      }
-    );
-  }
-  async listCurrentConnections(
-    data: event_types.ListCurrentConnectionsRequest
-  ): Promise<event_types.ListCurrentConnections> {
-    const timeframeFilter = this.listConnectionsDateRange(data);
-    const result = await this.db.sdk_report_events
-      .aggregate<event_types.ListCurrentConnections>([
-        {
-          $match: {
-            disconnect_at: { $exists: false },
-            jwt_exp: { $gt: new Date() },
-            ...timeframeFilter
-          }
-        },
-        this.sdkFacetPipeline(),
-        this.sdkProjectPipeline()
-      ])
-      .toArray();
-    return result[0];
-  }
-
-  async [Symbol.asyncDispose]() {
-    // No-op
-  }
 }
