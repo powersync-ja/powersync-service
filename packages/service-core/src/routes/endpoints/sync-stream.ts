@@ -77,6 +77,7 @@ export const syncStreamed = routeDefinition({
     const tracker = new sync.RequestTracker(metricsEngine);
     try {
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(1);
+      service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_CONNECT_EVENT, sdkData);
       const syncLines = sync.streamResponse({
         syncContext: syncContext,
         bucketStorage,
@@ -94,7 +95,6 @@ export const syncStreamed = routeDefinition({
         objectMode: false,
         highWaterMark: 16 * 1024
       });
-      service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_CONNECT_EVENT, sdkData);
 
       // Best effort guess on why the stream was closed.
       // We use the `??=` operator everywhere, so that we catch the first relevant
