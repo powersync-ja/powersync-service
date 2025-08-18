@@ -22,7 +22,6 @@ export type SdkUserData = {
   user_id: string;
   user_agent?: string;
   jwt_exp?: Date;
-  connect_at: Date;
 };
 
 export type DeleteOldSdkData = {
@@ -43,7 +42,7 @@ export type SdkDisconnectEventData = {
   connect_at: Date;
 } & SdkUserData;
 
-export type SdkConnectDocument = {
+export type SdkConnection = {
   id?: string;
   sdk: string;
   user_agent: string;
@@ -54,7 +53,7 @@ export type SdkConnectDocument = {
   disconnect_at?: Date;
 };
 
-export type ListCurrentConnections = {
+export type SdkConnections = {
   users: number;
   sdks: {
     sdk: string;

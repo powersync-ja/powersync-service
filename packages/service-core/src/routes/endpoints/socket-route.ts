@@ -23,7 +23,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         user_agent: context.user_agent
       };
 
-      const sdkData: event_types.SdkUserData = {
+      const sdkData: event_types.SdkUserData & event_types.SdkConnectEventData = {
         client_id: params.client_id,
         user_id: context.user_id!,
         user_agent: context.user_agent,

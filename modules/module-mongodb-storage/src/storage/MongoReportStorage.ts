@@ -25,10 +25,10 @@ export class MongoReportStorage implements storage.ReportStorage {
     }
   }
 
-  async scrapeSdkData(data: event_types.ScrapeSdkDataRequest): Promise<event_types.ListCurrentConnections> {
+  async scrapeSdkData(data: event_types.ScrapeSdkDataRequest): Promise<event_types.SdkConnections> {
     const { start, end } = data;
     const result = await this.db.sdk_report_events
-      .aggregate<event_types.ListCurrentConnections>([
+      .aggregate<event_types.SdkConnections>([
         {
           $match: {
             connect_at: { $lte: end, $gte: start }
@@ -74,12 +74,10 @@ export class MongoReportStorage implements storage.ReportStorage {
       }
     );
   }
-  async listCurrentConnections(
-    data: event_types.ListCurrentConnectionsRequest
-  ): Promise<event_types.ListCurrentConnections> {
+  async listCurrentConnections(data: event_types.ListCurrentConnectionsRequest): Promise<event_types.SdkConnections> {
     const timeframeFilter = this.listConnectionsDateRange(data);
     const result = await this.db.sdk_report_events
-      .aggregate<event_types.ListCurrentConnections>([
+      .aggregate<event_types.SdkConnections>([
         {
           $match: {
             disconnect_at: { $exists: false },

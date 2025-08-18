@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { POSTGRES_REPORT_STORAGE_FACTORY } from './util.js';
 import { event_types } from '@powersync/service-types';
 
-function removeVolatileFields(sdks: event_types.SdkConnectDocument[]): Partial<event_types.SdkConnectDocument>[] {
+function removeVolatileFields(sdks: event_types.SdkConnection[]): Partial<event_types.SdkConnection>[] {
   return sdks.map((sdk) => {
     const { id, disconnect_at, connect_at, jwt_exp, ...rest } = sdk;
     return {
@@ -268,7 +268,7 @@ describe('SDK reporting storage', async () => {
     });
 
     const sdk = await factory.db
-      .sql`SELECT * FROM sdk_report_events WHERE user_id = ${{ type: 'varchar', value: user_one.user_id }}`.rows<event_types.SdkConnectDocument>();
+      .sql`SELECT * FROM sdk_report_events WHERE user_id = ${{ type: 'varchar', value: user_one.user_id }}`.rows<event_types.SdkConnection>();
     expect(sdk).toHaveLength(1);
     expect(new Date(sdk[0].connect_at).toISOString()).toEqual(newConnectAt.toISOString());
     expect(new Date(sdk[0].jwt_exp!).toISOString()).toEqual(jwtExp.toISOString());
@@ -297,7 +297,7 @@ describe('SDK reporting storage', async () => {
     });
 
     const sdk = await factory.db
-      .sql`SELECT * FROM sdk_report_events WHERE user_id = ${{ type: 'varchar', value: user_three.user_id }}`.rows<event_types.SdkConnectDocument>();
+      .sql`SELECT * FROM sdk_report_events WHERE user_id = ${{ type: 'varchar', value: user_three.user_id }}`.rows<event_types.SdkConnection>();
     expect(sdk).toHaveLength(1);
     expect(new Date(sdk[0].disconnect_at!).toISOString()).toEqual(disconnectAt.toISOString());
     const cleaned = removeVolatileFields(sdk);
@@ -318,7 +318,7 @@ describe('SDK reporting storage', async () => {
     });
 
     const sdk = await factory.db
-      .sql`SELECT * FROM sdk_report_events WHERE user_id = ${{ type: 'varchar', value: user_week.user_id }}`.rows<event_types.SdkConnectDocument>();
+      .sql`SELECT * FROM sdk_report_events WHERE user_id = ${{ type: 'varchar', value: user_week.user_id }}`.rows<event_types.SdkConnection>();
     expect(sdk).toHaveLength(2);
     const cleaned = removeVolatileFields(sdk);
     expect(cleaned).toMatchSnapshot();

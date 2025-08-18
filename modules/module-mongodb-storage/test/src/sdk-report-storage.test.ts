@@ -3,9 +3,9 @@ import { INITIALIZED_MONGO_REPORT_STORAGE_FACTORY } from './util.js';
 import { event_types } from '@powersync/service-types';
 
 function removeVolatileFields(
-  sdks: event_types.SdkConnectDocument[]
-): Partial<event_types.SdkConnectDocument & { _id: string }>[] {
-  return sdks.map((sdk: Partial<event_types.SdkConnectDocument & { _id: string }>) => {
+  sdks: event_types.SdkConnection[]
+): Partial<event_types.SdkConnection & { _id: string }>[] {
+  return sdks.map((sdk: Partial<event_types.SdkConnection & { _id: string }>) => {
     const { _id, disconnect_at, connect_at, jwt_exp, ...rest } = sdk;
     return {
       ...rest

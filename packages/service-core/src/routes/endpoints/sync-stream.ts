@@ -42,7 +42,7 @@ export const syncStreamed = routeDefinition({
       user_id: payload.context.user_id,
       bson: useBson
     };
-    const sdkData: event_types.SdkUserData = {
+    const sdkData: event_types.SdkUserData & event_types.SdkConnectEventData = {
       client_id: clientId,
       user_id: payload.context.user_id!,
       user_agent: userAgent as string,

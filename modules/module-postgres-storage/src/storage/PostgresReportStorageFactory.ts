@@ -6,10 +6,10 @@ import * as lib_postgres from '@powersync/lib-service-postgres';
 import { NormalizedPostgresStorageConfig } from '../types/types.js';
 import {
   DeleteOldSdkData,
-  ListCurrentConnections,
   ListCurrentConnectionsRequest,
   ScrapeSdkDataRequest,
   SdkConnectBucketData,
+  SdkConnections,
   SdkDisconnectEventData
 } from '@powersync/service-types/src/events.js';
 import { SdkReporting, SdkReportingDecoded } from '../types/models/SdkReporting.js';
@@ -50,7 +50,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
     };
   }
 
-  private mapListCurrentConnectionsResponse(result: SdkReportingDecoded | null): ListCurrentConnections {
+  private mapListCurrentConnectionsResponse(result: SdkReportingDecoded | null): SdkConnections {
     if (!result) {
       return {
         users: 0,
@@ -229,12 +229,12 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
         AND connect_at = ${{ type: 1184, value: connectIsoString }}
     `.execute();
   }
-  async listCurrentConnections(data: ListCurrentConnectionsRequest): Promise<ListCurrentConnections> {
+  async listCurrentConnections(data: ListCurrentConnectionsRequest): Promise<SdkConnections> {
     const result = await this.listConnectionsQuery(data);
     return this.mapListCurrentConnectionsResponse(result);
   }
 
-  async scrapeSdkData(data: ScrapeSdkDataRequest): Promise<ListCurrentConnections> {
+  async scrapeSdkData(data: ScrapeSdkDataRequest): Promise<SdkConnections> {
     const { start, end } = data;
     const result = await this.db.sql`
       WITH
