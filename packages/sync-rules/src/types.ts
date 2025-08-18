@@ -82,6 +82,11 @@ export interface ParameterValueSet {
   rawUserParameters: string;
 
   /**
+   * For streams, the raw JSON string of stream parameters.
+   */
+  rawStreamParameters: string | null;
+
+  /**
    * JSON string of raw request parameters.
    */
   rawTokenPayload: string;
@@ -97,6 +102,8 @@ export class RequestParameters implements ParameterValueSet {
    * JSON string of raw request parameters.
    */
   rawUserParameters: string;
+
+  rawStreamParameters: string | null;
 
   /**
    * JSON string of raw request parameters.
@@ -121,6 +128,7 @@ export class RequestParameters implements ParameterValueSet {
 
     this.rawUserParameters = JSONBig.stringify(clientParameters);
     this.userParameters = toSyncRulesParameters(clientParameters);
+    this.rawStreamParameters = null;
   }
 
   lookup(table: string, column: string): SqliteJsonValue {
@@ -130,6 +138,13 @@ export class RequestParameters implements ParameterValueSet {
       return this.userParameters[column];
     }
     throw new Error(`Unknown table: ${table}`);
+  }
+
+  withAddedStreamParameters(params: Record<string, any>): RequestParameters {
+    const clone = structuredClone(this);
+    clone.rawStreamParameters = JSONBig.stringify(params);
+
+    return clone;
   }
 }
 

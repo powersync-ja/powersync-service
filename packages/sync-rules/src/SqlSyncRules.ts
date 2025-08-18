@@ -1,9 +1,8 @@
 import { isScalar, LineCounter, parseDocument, Scalar, YAMLMap, YAMLSeq } from 'yaml';
-import { BucketPriority, isValidPriority } from './BucketDescription.js';
-import { BucketParameterQuerier, mergeBucketParameterQueriers } from './BucketParameterQuerier.js';
+import { isValidPriority } from './BucketDescription.js';
+import { BucketParameterQuerier, mergeBucketParameterQueriers, QuerierError } from './BucketParameterQuerier.js';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
-import { IdSequence } from './IdSequence.js';
 import { validateSyncRulesSchema } from './json_schema.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js';
@@ -21,9 +20,11 @@ import {
   QueryParseOptions,
   RequestParameters,
   SourceSchema,
+  SqliteJsonRow,
   SqliteRow,
   SyncRules
 } from './types.js';
+import { BucketSource } from './BucketSource.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -39,8 +40,47 @@ export interface SyncRulesOptions {
   throwOnError?: boolean;
 }
 
+export interface RequestedStream {
+  /**
+   * The parameters for the explicit stream subscription.
+   *
+   * Unlike {@link GetQuerierOptions.globalParameters}, these parameters are only applied to the particular stream.
+   */
+  parameters: SqliteJsonRow | null;
+
+  /**
+   * An opaque id of the stream subscription, used to associate buckets with the stream subscriptions that have caused
+   * them to be included.
+   */
+  opaque_id: number;
+}
+
+export interface GetQuerierOptions {
+  globalParameters: RequestParameters;
+  /**
+   * Whether the client is subscribing to default query streams.
+   *
+   * Client do this by default, but can disable the behavior if needed.
+   */
+  hasDefaultStreams: boolean;
+  /**
+   *
+   * For streams, this is invoked to check whether the client has opened the relevant stream.
+   *
+   * @param name The name of the stream as it appears in the sync rule definitions.
+   * @returns If the strema has been opened by the client, the stream parameters for that particular stream. Otherwise
+   * null.
+   */
+  streams: Record<string, RequestedStream[]>;
+}
+
+export interface GetBucketParameterQuerierResult {
+  querier: BucketParameterQuerier;
+  errors: QuerierError[];
+}
+
 export class SqlSyncRules implements SyncRules {
-  bucketDescriptors: SqlBucketDescriptor[] = [];
+  bucketSources: BucketSource[] = [];
   eventDescriptors: SqlEventDescriptor[] = [];
 
   content: string;
@@ -95,7 +135,19 @@ export class SqlSyncRules implements SyncRules {
       return rules;
     }
 
+    // Bucket definitions using explicit parameter and data queries.
     const bucketMap = parsed.get('bucket_definitions') as YAMLMap;
+    const definitionNames = new Set<string>();
+    const checkUniqueName = (name: string, literal: Scalar) => {
+      if (definitionNames.has(name)) {
+        rules.errors.push(this.tokenError(literal, 'Duplicate stream or bucket definition.'));
+        return false;
+      }
+
+      definitionNames.add(name);
+      return true;
+    };
+
     if (bucketMap == null) {
       rules.errors.push(new YamlError(new Error(`'bucket_definitions' is required`)));
 
@@ -105,9 +157,12 @@ export class SqlSyncRules implements SyncRules {
       return rules;
     }
 
-    for (let entry of bucketMap.items) {
+    for (let entry of bucketMap?.items ?? []) {
       const { key: keyScalar, value } = entry as { key: Scalar; value: YAMLMap };
       const key = keyScalar.toString();
+      if (!checkUniqueName(key, keyScalar)) {
+        continue;
+      }
 
       if (value == null || !(value instanceof YAMLMap)) {
         rules.errors.push(this.tokenError(keyScalar, `'${key}' bucket definition must be an object`));
@@ -116,17 +171,7 @@ export class SqlSyncRules implements SyncRules {
 
       const accept_potentially_dangerous_queries =
         value.get('accept_potentially_dangerous_queries', true)?.value == true;
-      let parseOptionPriority: BucketPriority | undefined = undefined;
-      if (value.has('priority')) {
-        const priorityValue = value.get('priority', true)!;
-        if (typeof priorityValue.value != 'number' || !isValidPriority(priorityValue.value)) {
-          rules.errors.push(
-            this.tokenError(priorityValue, 'Invalid priority, expected a number between 0 and 3 (inclusive).')
-          );
-        } else {
-          parseOptionPriority = priorityValue.value;
-        }
-      }
+      const parseOptionPriority = rules.parsePriority(value);
 
       const queryOptions: QueryParseOptions = {
         ...options,
@@ -161,7 +206,7 @@ export class SqlSyncRules implements SyncRules {
           return descriptor.addDataQuery(q, queryOptions);
         });
       }
-      rules.bucketDescriptors.push(descriptor);
+      rules.bucketSources.push(descriptor);
     }
 
     const eventMap = parsed.get('event_definitions') as YAMLMap;
@@ -280,8 +325,8 @@ export class SqlSyncRules implements SyncRules {
 
   evaluateRowWithErrors(options: EvaluateRowOptions): { results: EvaluatedRow[]; errors: EvaluationError[] } {
     let rawResults: EvaluationResult[] = [];
-    for (let query of this.bucketDescriptors) {
-      rawResults.push(...query.evaluateRow(options));
+    for (let source of this.bucketSources) {
+      rawResults.push(...source.evaluateRow(options));
     }
 
     const results = rawResults.filter(isEvaluatedRow) as EvaluatedRow[];
@@ -306,8 +351,8 @@ export class SqlSyncRules implements SyncRules {
     row: SqliteRow
   ): { results: EvaluatedParameters[]; errors: EvaluationError[] } {
     let rawResults: EvaluatedParametersResult[] = [];
-    for (let query of this.bucketDescriptors) {
-      rawResults.push(...query.evaluateParameterRow(table, row));
+    for (let source of this.bucketSources) {
+      rawResults.push(...source.evaluateParameterRow(table, row));
     }
 
     const results = rawResults.filter(isEvaluatedParameters) as EvaluatedParameters[];
@@ -315,18 +360,28 @@ export class SqlSyncRules implements SyncRules {
     return { results, errors };
   }
 
-  getBucketParameterQuerier(parameters: RequestParameters): BucketParameterQuerier {
-    const queriers = this.bucketDescriptors.map((query) => query.getBucketParameterQuerier(parameters));
-    return mergeBucketParameterQueriers(queriers);
+  getBucketParameterQuerier(options: GetQuerierOptions): GetBucketParameterQuerierResult {
+    const queriers: BucketParameterQuerier[] = [];
+    const errors: QuerierError[] = [];
+    const pending = { queriers, errors };
+
+    for (const source of this.bucketSources) {
+      if ((source.subscribedToByDefault && options.hasDefaultStreams) || source.name in options.streams) {
+        source.pushBucketParameterQueriers(pending, options);
+      }
+    }
+
+    const querier = mergeBucketParameterQueriers(queriers);
+    return { querier, errors };
   }
 
   hasDynamicBucketQueries() {
-    return this.bucketDescriptors.some((query) => query.hasDynamicBucketQueries());
+    return this.bucketSources.some((s) => s.hasDynamicBucketQueries());
   }
 
   getSourceTables(): TablePattern[] {
     const sourceTables = new Map<String, TablePattern>();
-    for (const bucket of this.bucketDescriptors) {
+    for (const bucket of this.bucketSources) {
       for (const r of bucket.getSourceTables()) {
         const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
         sourceTables.set(key, r);
@@ -360,35 +415,31 @@ export class SqlSyncRules implements SyncRules {
   }
 
   tableSyncsData(table: SourceTableInterface): boolean {
-    for (const bucket of this.bucketDescriptors) {
-      if (bucket.tableSyncsData(table)) {
-        return true;
-      }
-    }
-    return false;
+    return this.bucketSources.some((b) => b.tableSyncsData(table));
   }
 
   tableSyncsParameters(table: SourceTableInterface): boolean {
-    for (let bucket of this.bucketDescriptors) {
-      if (bucket.tableSyncsParameters(table)) {
-        return true;
-      }
-    }
-    return false;
+    return this.bucketSources.some((b) => b.tableSyncsParameters(table));
   }
 
   debugGetOutputTables() {
     let result: Record<string, any[]> = {};
-    for (let bucket of this.bucketDescriptors) {
-      for (let q of bucket.dataQueries) {
-        result[q.table!] ??= [];
-        const r = {
-          query: q.sql
-        };
-
-        result[q.table!].push(r);
-      }
+    for (let bucket of this.bucketSources) {
+      bucket.debugWriteOutputTables(result);
     }
     return result;
+  }
+
+  private parsePriority(value: YAMLMap) {
+    if (value.has('priority')) {
+      const priorityValue = value.get('priority', true)!;
+      if (typeof priorityValue.value != 'number' || !isValidPriority(priorityValue.value)) {
+        this.errors.push(
+          SqlSyncRules.tokenError(priorityValue, 'Invalid priority, expected a number between 0 and 3 (inclusive).')
+        );
+      } else {
+        return priorityValue.value;
+      }
+    }
   }
 }
