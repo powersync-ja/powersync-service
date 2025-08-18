@@ -109,7 +109,7 @@ export const syncRulesSchema: ajvModule.Schema = {
       }
     }
   },
-  required: [],
+  anyOf: [{ required: ['bucket_definitions'] }, { required: ['streams'] }],
   additionalProperties: false
 } as const;
 
