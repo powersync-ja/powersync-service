@@ -6,7 +6,7 @@ function removeVolatileFields(
   sdks: event_types.SdkConnection[]
 ): Partial<event_types.SdkConnection & { _id: string }>[] {
   return sdks.map((sdk: Partial<event_types.SdkConnection & { _id: string }>) => {
-    const { _id, disconnect_at, connect_at, jwt_exp, ...rest } = sdk;
+    const { _id, disconnected_at, connected_at, jwt_exp, ...rest } = sdk;
     return {
       ...rest
     };
@@ -37,7 +37,7 @@ describe('SDK reporting storage', async () => {
   const user_one = {
     user_id: 'user_one',
     client_id: 'client_one',
-    connect_at: now,
+    connected_at: now,
     sdk: 'powersync-dart/1.6.4',
     user_agent: 'powersync-dart/1.6.4 Dart (flutter-web) Chrome/128 android',
     jwt_exp: nowAdd5minutes
@@ -45,7 +45,7 @@ describe('SDK reporting storage', async () => {
   const user_two = {
     user_id: 'user_two',
     client_id: 'client_two',
-    connect_at: nowLess5minutes,
+    connected_at: nowLess5minutes,
     sdk: 'powersync-js/1.21.1',
     user_agent: 'powersync-js/1.21.0 powersync-web Chromium/138 linux',
     jwt_exp: nowAdd5minutes
@@ -53,16 +53,16 @@ describe('SDK reporting storage', async () => {
   const user_three = {
     user_id: 'user_three',
     client_id: 'client_three',
-    connect_at: yesterday,
+    connected_at: yesterday,
     sdk: 'powersync-js/1.21.2',
     user_agent: 'powersync-js/1.21.0 powersync-web Firefox/141 linux',
-    disconnect_at: yesterday
+    disconnected_at: yesterday
   };
 
   const user_four = {
     user_id: 'user_four',
     client_id: 'client_four',
-    connect_at: now,
+    connected_at: now,
     sdk: 'powersync-js/1.21.4',
     user_agent: 'powersync-js/1.21.0 powersync-web Firefox/141 linux',
     jwt_exp: nowLess5minutes
@@ -71,25 +71,25 @@ describe('SDK reporting storage', async () => {
   const user_week = {
     user_id: 'user_week',
     client_id: 'client_week',
-    connect_at: weekAgo,
+    connected_at: weekAgo,
     sdk: 'powersync-js/1.24.5',
     user_agent: 'powersync-js/1.21.0 powersync-web Firefox/141 linux',
-    disconnect_at: weekAgo
+    disconnected_at: weekAgo
   };
 
   const user_month = {
     user_id: 'user_month',
     client_id: 'client_month',
-    connect_at: monthAgo,
+    connected_at: monthAgo,
     sdk: 'powersync-js/1.23.6',
     user_agent: 'powersync-js/1.23.0 powersync-web Firefox/141 linux',
-    disconnect_at: monthAgo
+    disconnected_at: monthAgo
   };
 
   const user_expired = {
     user_id: 'user_expired',
     client_id: 'client_expired',
-    connect_at: monthAgo,
+    connected_at: monthAgo,
     sdk: 'powersync-js/1.23.7',
     user_agent: 'powersync-js/1.23.0 powersync-web Firefox/141 linux',
     jwt_exp: monthAgo
@@ -180,7 +180,7 @@ describe('SDK reporting storage', async () => {
     const jwtExp = new Date(newConnectAt.getFullYear(), newConnectAt.getMonth(), newConnectAt.getDate() + 1);
     await factory.reportSdkConnect({
       sdk: user_one.sdk,
-      connect_at: newConnectAt,
+      connected_at: newConnectAt,
       jwt_exp: jwtExp,
       client_id: user_one.client_id,
       user_id: user_one.user_id,
@@ -189,9 +189,9 @@ describe('SDK reporting storage', async () => {
 
     const sdk = await factory.db.sdk_report_events.find({ user_id: user_one.user_id }).toArray();
     expect(sdk).toHaveLength(1);
-    expect(new Date(sdk[0].connect_at)).toEqual(newConnectAt);
+    expect(new Date(sdk[0].connected_at)).toEqual(newConnectAt);
     expect(new Date(sdk[0].jwt_exp!)).toEqual(jwtExp);
-    expect(sdk[0].disconnect_at).toBeUndefined();
+    expect(sdk[0].disconnected_at).toBeUndefined();
     const cleaned = removeVolatileFields(sdk);
     expect(cleaned).toMatchSnapshot();
   });
@@ -207,17 +207,17 @@ describe('SDK reporting storage', async () => {
     const jwtExp = new Date(disconnectAt.getFullYear(), disconnectAt.getMonth(), disconnectAt.getDate() + 1);
 
     await factory.reportSdkDisconnect({
-      disconnect_at: disconnectAt,
+      disconnected_at: disconnectAt,
       jwt_exp: jwtExp,
       client_id: user_three.client_id,
       user_id: user_three.user_id,
       user_agent: user_three.user_agent,
-      connect_at: user_three.connect_at
+      connected_at: user_three.connected_at
     });
 
     const sdk = await factory.db.sdk_report_events.find({ user_id: user_three.user_id }).toArray();
     expect(sdk).toHaveLength(1);
-    expect(new Date(sdk[0].disconnect_at!)).toEqual(disconnectAt);
+    expect(new Date(sdk[0].disconnected_at!)).toEqual(disconnectAt);
     const cleaned = removeVolatileFields(sdk);
     expect(cleaned).toMatchSnapshot();
   });
@@ -228,7 +228,7 @@ describe('SDK reporting storage', async () => {
 
     await factory.reportSdkConnect({
       sdk: user_week.sdk,
-      connect_at: newConnectAt,
+      connected_at: newConnectAt,
       jwt_exp: jwtExp,
       client_id: user_week.client_id,
       user_id: user_week.user_id,

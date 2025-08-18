@@ -4,7 +4,7 @@ import { event_types } from '@powersync/service-types';
 
 function removeVolatileFields(sdks: event_types.SdkConnection[]): Partial<event_types.SdkConnection>[] {
   return sdks.map((sdk) => {
-    const { id, disconnect_at, connect_at, jwt_exp, ...rest } = sdk;
+    const { id, disconnected_at, connected_at, jwt_exp, ...rest } = sdk;
     return {
       ...rest
     };
@@ -35,7 +35,7 @@ describe('SDK reporting storage', async () => {
   const user_one = {
     user_id: 'user_one',
     client_id: 'client_one',
-    connect_at: now.toISOString(),
+    connected_at: now.toISOString(),
     sdk: 'powersync-dart/1.6.4',
     user_agent: 'powersync-dart/1.6.4 Dart (flutter-web) Chrome/128 android',
     jwt_exp: nowAdd5minutes.toISOString(),
@@ -44,7 +44,7 @@ describe('SDK reporting storage', async () => {
   const user_two = {
     user_id: 'user_two',
     client_id: 'client_two',
-    connect_at: nowLess5minutes.toISOString(),
+    connected_at: nowLess5minutes.toISOString(),
     sdk: 'powersync-js/1.21.1',
     user_agent: 'powersync-js/1.21.0 powersync-web Chromium/138 linux',
     jwt_exp: nowAdd5minutes.toISOString(),
@@ -53,17 +53,17 @@ describe('SDK reporting storage', async () => {
   const user_three = {
     user_id: 'user_three',
     client_id: 'client_three',
-    connect_at: yesterday.toISOString(),
+    connected_at: yesterday.toISOString(),
     sdk: 'powersync-js/1.21.2',
     user_agent: 'powersync-js/1.21.0 powersync-web Firefox/141 linux',
-    disconnect_at: yesterday.toISOString(),
+    disconnected_at: yesterday.toISOString(),
     id: '3'
   };
 
   const user_four = {
     user_id: 'user_four',
     client_id: 'client_four',
-    connect_at: now.toISOString(),
+    connected_at: now.toISOString(),
     sdk: 'powersync-js/1.21.4',
     user_agent: 'powersync-js/1.21.0 powersync-web Firefox/141 linux',
     jwt_exp: nowLess5minutes.toISOString(),
@@ -73,27 +73,27 @@ describe('SDK reporting storage', async () => {
   const user_week = {
     user_id: 'user_week',
     client_id: 'client_week',
-    connect_at: weekAgo.toISOString(),
+    connected_at: weekAgo.toISOString(),
     sdk: 'powersync-js/1.24.5',
     user_agent: 'powersync-js/1.21.0 powersync-web Firefox/141 linux',
-    disconnect_at: weekAgo.toISOString(),
+    disconnected_at: weekAgo.toISOString(),
     id: 'week'
   };
 
   const user_month = {
     user_id: 'user_month',
     client_id: 'client_month',
-    connect_at: monthAgo.toISOString(),
+    connected_at: monthAgo.toISOString(),
     sdk: 'powersync-js/1.23.6',
     user_agent: 'powersync-js/1.23.0 powersync-web Firefox/141 linux',
-    disconnect_at: monthAgo.toISOString(),
+    disconnected_at: monthAgo.toISOString(),
     id: 'month'
   };
 
   const user_expired = {
     user_id: 'user_expired',
     client_id: 'client_expired',
-    connect_at: monthAgo.toISOString(),
+    connected_at: monthAgo.toISOString(),
     sdk: 'powersync-js/1.23.7',
     user_agent: 'powersync-js/1.23.0 powersync-web Firefox/141 linux',
     jwt_exp: monthAgo.toISOString(),
@@ -106,18 +106,18 @@ describe('SDK reporting storage', async () => {
         sdk_report_events (
           user_id,
           client_id,
-          connect_at,
+          connected_at,
           sdk,
           user_agent,
           jwt_exp,
           id,
-          disconnect_at
+          disconnected_at
         )
       VALUES
         (
           ${{ type: 'varchar', value: user_one.user_id }},
           ${{ type: 'varchar', value: user_one.client_id }},
-          ${{ type: 1184, value: user_one.connect_at }},
+          ${{ type: 1184, value: user_one.connected_at }},
           ${{ type: 'varchar', value: user_one.sdk }},
           ${{ type: 'varchar', value: user_one.user_agent }},
           ${{ type: 1184, value: user_one.jwt_exp }},
@@ -127,7 +127,7 @@ describe('SDK reporting storage', async () => {
         (
           ${{ type: 'varchar', value: user_two.user_id }},
           ${{ type: 'varchar', value: user_two.client_id }},
-          ${{ type: 1184, value: user_two.connect_at }},
+          ${{ type: 1184, value: user_two.connected_at }},
           ${{ type: 'varchar', value: user_two.sdk }},
           ${{ type: 'varchar', value: user_two.user_agent }},
           ${{ type: 1184, value: user_two.jwt_exp }},
@@ -137,7 +137,7 @@ describe('SDK reporting storage', async () => {
         (
           ${{ type: 'varchar', value: user_four.user_id }},
           ${{ type: 'varchar', value: user_four.client_id }},
-          ${{ type: 1184, value: user_four.connect_at }},
+          ${{ type: 1184, value: user_four.connected_at }},
           ${{ type: 'varchar', value: user_four.sdk }},
           ${{ type: 'varchar', value: user_four.user_agent }},
           ${{ type: 1184, value: user_four.jwt_exp }},
@@ -147,37 +147,37 @@ describe('SDK reporting storage', async () => {
         (
           ${{ type: 'varchar', value: user_three.user_id }},
           ${{ type: 'varchar', value: user_three.client_id }},
-          ${{ type: 1184, value: user_three.connect_at }},
+          ${{ type: 1184, value: user_three.connected_at }},
           ${{ type: 'varchar', value: user_three.sdk }},
           ${{ type: 'varchar', value: user_three.user_agent }},
           NULL,
           ${{ type: 'varchar', value: user_three.id }},
-          ${{ type: 1184, value: user_three.disconnect_at }}
+          ${{ type: 1184, value: user_three.disconnected_at }}
         ),
         (
           ${{ type: 'varchar', value: user_week.user_id }},
           ${{ type: 'varchar', value: user_week.client_id }},
-          ${{ type: 1184, value: user_week.connect_at }},
+          ${{ type: 1184, value: user_week.connected_at }},
           ${{ type: 'varchar', value: user_week.sdk }},
           ${{ type: 'varchar', value: user_week.user_agent }},
           NULL,
           ${{ type: 'varchar', value: user_week.id }},
-          ${{ type: 1184, value: user_week.disconnect_at }}
+          ${{ type: 1184, value: user_week.disconnected_at }}
         ),
         (
           ${{ type: 'varchar', value: user_month.user_id }},
           ${{ type: 'varchar', value: user_month.client_id }},
-          ${{ type: 1184, value: user_month.connect_at }},
+          ${{ type: 1184, value: user_month.connected_at }},
           ${{ type: 'varchar', value: user_month.sdk }},
           ${{ type: 'varchar', value: user_month.user_agent }},
           NULL,
           ${{ type: 'varchar', value: user_month.id }},
-          ${{ type: 1184, value: user_month.disconnect_at }}
+          ${{ type: 1184, value: user_month.disconnected_at }}
         ),
         (
           ${{ type: 'varchar', value: user_expired.user_id }},
           ${{ type: 'varchar', value: user_expired.client_id }},
-          ${{ type: 1184, value: user_expired.connect_at }},
+          ${{ type: 1184, value: user_expired.connected_at }},
           ${{ type: 'varchar', value: user_expired.sdk }},
           ${{ type: 'varchar', value: user_expired.user_agent }},
           ${{ type: 1184, value: user_expired.jwt_exp }},
@@ -260,7 +260,7 @@ describe('SDK reporting storage', async () => {
     const jwtExp = new Date(newConnectAt.getFullYear(), newConnectAt.getMonth(), newConnectAt.getDate() + 1);
     await factory.reportSdkConnect({
       sdk: user_one.sdk,
-      connect_at: newConnectAt,
+      connected_at: newConnectAt,
       jwt_exp: jwtExp,
       client_id: user_one.client_id,
       user_id: user_one.user_id,
@@ -270,9 +270,9 @@ describe('SDK reporting storage', async () => {
     const sdk = await factory.db
       .sql`SELECT * FROM sdk_report_events WHERE user_id = ${{ type: 'varchar', value: user_one.user_id }}`.rows<event_types.SdkConnection>();
     expect(sdk).toHaveLength(1);
-    expect(new Date(sdk[0].connect_at).toISOString()).toEqual(newConnectAt.toISOString());
+    expect(new Date(sdk[0].connected_at).toISOString()).toEqual(newConnectAt.toISOString());
     expect(new Date(sdk[0].jwt_exp!).toISOString()).toEqual(jwtExp.toISOString());
-    expect(sdk[0].disconnect_at).toBeNull();
+    expect(sdk[0].disconnected_at).toBeNull();
     const cleaned = removeVolatileFields(sdk);
     expect(cleaned).toMatchSnapshot();
   });
@@ -288,18 +288,18 @@ describe('SDK reporting storage', async () => {
     const jwtExp = new Date(disconnectAt.getFullYear(), disconnectAt.getMonth(), disconnectAt.getDate() + 1);
 
     await factory.reportSdkDisconnect({
-      disconnect_at: disconnectAt,
+      disconnected_at: disconnectAt,
       jwt_exp: jwtExp,
       client_id: user_three.client_id,
       user_id: user_three.user_id,
       user_agent: user_three.user_agent,
-      connect_at: yesterday
+      connected_at: yesterday
     });
 
     const sdk = await factory.db
       .sql`SELECT * FROM sdk_report_events WHERE user_id = ${{ type: 'varchar', value: user_three.user_id }}`.rows<event_types.SdkConnection>();
     expect(sdk).toHaveLength(1);
-    expect(new Date(sdk[0].disconnect_at!).toISOString()).toEqual(disconnectAt.toISOString());
+    expect(new Date(sdk[0].disconnected_at!).toISOString()).toEqual(disconnectAt.toISOString());
     const cleaned = removeVolatileFields(sdk);
     expect(cleaned).toMatchSnapshot();
   });
@@ -310,7 +310,7 @@ describe('SDK reporting storage', async () => {
 
     await factory.reportSdkConnect({
       sdk: user_week.sdk,
-      connect_at: newConnectAt,
+      connected_at: newConnectAt,
       jwt_exp: jwtExp,
       client_id: user_week.client_id,
       user_id: user_week.user_id,

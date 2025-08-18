@@ -47,7 +47,7 @@ export const syncStreamed = routeDefinition({
       user_id: payload.context.user_id!,
       user_agent: userAgent as string,
       jwt_exp: token_payload?.exp ? new Date(token_payload?.exp * 1000) : undefined,
-      connect_at: new Date(streamStart)
+      connected_at: new Date(streamStart)
     };
 
     if (routerEngine.closed) {
@@ -140,7 +140,7 @@ export const syncStreamed = routeDefinition({
           metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
           service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_DISCONNECT_EVENT, {
             ...sdkData,
-            disconnect_at: new Date()
+            disconnected_at: new Date()
           });
           logger.info(`Sync stream complete`, {
             ...tracker.getLogMeta(),
@@ -154,7 +154,7 @@ export const syncStreamed = routeDefinition({
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
       service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_DISCONNECT_EVENT, {
         ...sdkData,
-        disconnect_at: new Date()
+        disconnected_at: new Date()
       });
     }
   }

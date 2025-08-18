@@ -73,7 +73,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
             FROM
               sdk_report_events
             WHERE
-              disconnect_at IS NULL
+              disconnected_at IS NULL
               AND jwt_exp > NOW()
           ),
           unique_users AS (
@@ -121,10 +121,10 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
           FROM
             sdk_report_events
           WHERE
-            disconnect_at IS NULL
+            disconnected_at IS NULL
             AND jwt_exp > NOW()
-            AND connect_at >= ${{ type: 1184, value: gt }}
-            AND connect_at <= ${{ type: 1184, value: lt }}
+            AND connected_at >= ${{ type: 1184, value: gt }}
+            AND connected_at <= ${{ type: 1184, value: lt }}
         ),
         unique_users AS (
           SELECT
@@ -170,24 +170,24 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
   }
 
   async reportSdkConnect(data: SdkConnectBucketData): Promise<void> {
-    const { sdk, connect_at, user_id, user_agent, jwt_exp, client_id } = data;
-    const connectIsoString = connect_at.toISOString();
+    const { sdk, connected_at, user_id, user_agent, jwt_exp, client_id } = data;
+    const connectIsoString = connected_at.toISOString();
     const jwtExpIsoString = jwt_exp!.toISOString();
     const { gte, lt } = this.updateTableFilter();
     const uuid = v4();
     const result = await this.db.sql`
       UPDATE sdk_report_events
       SET
-        connect_at = ${{ type: 1184, value: connectIsoString }},
+        connected_at = ${{ type: 1184, value: connectIsoString }},
         sdk = ${{ type: 'varchar', value: sdk }},
         user_agent = ${{ type: 'varchar', value: user_agent }},
         jwt_exp = ${{ type: 1184, value: jwtExpIsoString }},
-        disconnect_at = NULL
+        disconnected_at = NULL
       WHERE
         user_id = ${{ type: 'varchar', value: user_id }}
         AND client_id = ${{ type: 'varchar', value: client_id }}
-        AND connect_at >= ${{ type: 1184, value: gte }}
-        AND connect_at < ${{ type: 1184, value: lt }};
+        AND connected_at >= ${{ type: 1184, value: gte }}
+        AND connected_at < ${{ type: 1184, value: lt }};
     `.execute();
     if (result.results[1].status === 'UPDATE 0') {
       await this.db.sql`
@@ -195,7 +195,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
           sdk_report_events (
             user_id,
             client_id,
-            connect_at,
+            connected_at,
             sdk,
             user_agent,
             jwt_exp,
@@ -215,18 +215,18 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
     }
   }
   async reportSdkDisconnect(data: SdkDisconnectEventData): Promise<void> {
-    const { user_id, client_id, disconnect_at, connect_at } = data;
-    const disconnectIsoString = disconnect_at.toISOString();
-    const connectIsoString = connect_at.toISOString();
+    const { user_id, client_id, disconnected_at, connected_at } = data;
+    const disconnectIsoString = disconnected_at.toISOString();
+    const connectIsoString = connected_at.toISOString();
     await this.db.sql`
       UPDATE sdk_report_events
       SET
-        disconnect_at = ${{ type: 1184, value: disconnectIsoString }},
+        disconnected_at = ${{ type: 1184, value: disconnectIsoString }},
         jwt_exp = NULL
       WHERE
         user_id = ${{ type: 'varchar', value: user_id }}
         AND client_id = ${{ type: 'varchar', value: client_id }}
-        AND connect_at = ${{ type: 1184, value: connectIsoString }}
+        AND connected_at = ${{ type: 1184, value: connectIsoString }}
     `.execute();
   }
   async listCurrentConnections(data: ListCurrentConnectionsRequest): Promise<SdkConnections> {
@@ -244,8 +244,8 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
           FROM
             sdk_report_events
           WHERE
-            connect_at >= ${{ type: 1184, value: start.toISOString() }}
-            AND connect_at <= ${{ type: 1184, value: end.toISOString() }}
+            connected_at >= ${{ type: 1184, value: start.toISOString() }}
+            AND connected_at <= ${{ type: 1184, value: end.toISOString() }}
         ),
         unique_users AS (
           SELECT
@@ -286,12 +286,12 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
     const result = await this.db.sql`
       DELETE FROM sdk_report_events
       WHERE
-        connect_at < ${{ type: 1184, value: date.toISOString() }}
+        connected_at < ${{ type: 1184, value: date.toISOString() }}
         AND (
-          disconnect_at IS NOT NULL
+          disconnected_at IS NOT NULL
           OR (
             jwt_exp < NOW()
-            AND disconnect_at IS NULL
+            AND disconnected_at IS NULL
           )
         );
     `.execute();

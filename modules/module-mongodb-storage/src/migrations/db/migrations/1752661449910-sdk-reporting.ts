@@ -13,9 +13,9 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
 
     await db.sdk_report_events.createIndex(
       {
-        connect_at: 1,
+        connected_at: 1,
         jwt_exp: 1,
-        disconnect_at: 1
+        disconnected_at: 1
       },
       { name: 'sdk_list_index' }
     );

@@ -136,12 +136,12 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
         user_id TEXT NOT NULL,
         sdk TEXT NOT NULL,
         jwt_exp TIMESTAMP WITH TIME ZONE,
-        connect_at TIMESTAMP WITH TIME ZONE NOT NULL,
-        disconnect_at TIMESTAMP WITH TIME ZONE
+        connected_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        disconnected_at TIMESTAMP WITH TIME ZONE
       )
     `.execute();
 
-    await db.sql` CREATE INDEX sdk_list_index ON sdk_report_events (connect_at, jwt_exp, disconnect_at) `.execute();
+    await db.sql` CREATE INDEX sdk_list_index ON sdk_report_events (connected_at, jwt_exp, disconnected_at) `.execute();
 
     await db.sql`CREATE INDEX sdk_user_id_index ON sdk_report_events (user_id)`.execute();
 

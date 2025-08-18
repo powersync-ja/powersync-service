@@ -28,7 +28,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         user_id: context.user_id!,
         user_agent: context.user_agent,
         jwt_exp: context.token_payload?.exp ? new Date(context.token_payload.exp * 1000) : undefined,
-        connect_at: new Date(streamStart)
+        connected_at: new Date(streamStart)
       };
 
       // Best effort guess on why the stream was closed.
@@ -170,7 +170,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
         service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_DISCONNECT_EVENT, {
           ...sdkData,
-          disconnect_at: new Date()
+          disconnected_at: new Date()
         });
       }
     }

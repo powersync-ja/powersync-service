@@ -15,8 +15,11 @@ export class MongoReportStorage implements storage.ReportStorage {
   async deleteOldSdkData(data: event_types.DeleteOldSdkData): Promise<void> {
     const { date } = data;
     const result = await this.db.sdk_report_events.deleteMany({
-      connect_at: { $lt: date },
-      $or: [{ disconnect_at: { $exists: true } }, { jwt_exp: { $lt: new Date() }, disconnect_at: { $exists: false } }]
+      connected_at: { $lt: date },
+      $or: [
+        { disconnected_at: { $exists: true } },
+        { jwt_exp: { $lt: new Date() }, disconnected_at: { $exists: false } }
+      ]
     });
     if (result.deletedCount > 0) {
       logger.info(
@@ -31,7 +34,7 @@ export class MongoReportStorage implements storage.ReportStorage {
       .aggregate<event_types.SdkConnections>([
         {
           $match: {
-            connect_at: { $lte: end, $gte: start }
+            connected_at: { $lte: end, $gte: start }
           }
         },
         this.sdkFacetPipeline(),
@@ -48,7 +51,7 @@ export class MongoReportStorage implements storage.ReportStorage {
       {
         $set: data,
         $unset: {
-          disconnect_at: ''
+          disconnected_at: ''
         }
       },
       {
@@ -57,16 +60,16 @@ export class MongoReportStorage implements storage.ReportStorage {
     );
   }
   async reportSdkDisconnect(data: event_types.SdkDisconnectEventData): Promise<void> {
-    const { connect_at, user_id, client_id } = data;
+    const { connected_at, user_id, client_id } = data;
     await this.db.sdk_report_events.findOneAndUpdate(
       {
         client_id,
         user_id,
-        connect_at
+        connected_at
       },
       {
         $set: {
-          disconnect_at: data.disconnect_at
+          disconnected_at: data.disconnected_at
         },
         $unset: {
           jwt_exp: ''
@@ -80,7 +83,7 @@ export class MongoReportStorage implements storage.ReportStorage {
       .aggregate<event_types.SdkConnections>([
         {
           $match: {
-            disconnect_at: { $exists: false },
+            disconnected_at: { $exists: false },
             jwt_exp: { $gt: new Date() },
             ...timeframeFilter
           }
@@ -165,7 +168,7 @@ export class MongoReportStorage implements storage.ReportStorage {
     return {
       user_id: userId,
       client_id: clientId,
-      connect_at: {
+      connected_at: {
         // Need to create a new date here to sett the time to 00:00:00
         $gte: new Date(year, month, today),
         $lt: new Date(year, month, nextDay)
@@ -181,7 +184,7 @@ export class MongoReportStorage implements storage.ReportStorage {
     const endDate = data.range?.end ? new Date(data.range.end) : new Date();
     const startDate = new Date(range.start);
     return {
-      connect_at: {
+      connected_at: {
         $lte: endDate,
         $gte: startDate
       }
