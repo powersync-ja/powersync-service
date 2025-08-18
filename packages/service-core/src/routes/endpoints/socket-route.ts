@@ -58,8 +58,6 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         return;
       }
 
-      const syncParams = new RequestParameters(context.token_payload!, params.parameters ?? {});
-
       const {
         storageEngine: { activeBucketStorage }
       } = service_context;
@@ -95,7 +93,6 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
             ...params,
             binary_data: true // always true for web sockets
           },
-          syncParams,
           token: context!.token_payload!,
           tokenStreamOptions: {
             // RSocket handles keepalive events by default
