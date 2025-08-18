@@ -186,14 +186,12 @@ export class SqlDataQuery extends BaseSqlDataQuery {
   }
 
   evaluateRow(table: SourceTableInterface, row: SqliteRow): EvaluationResult[] {
-    const query = this;
-
     return this.evaluateRowWithOptions({
       table,
       row,
-      bucketIds(tables) {
-        const bucketParameters = query.filter.filterRow(tables);
-        return bucketParameters.map((params) => getBucketId(query.descriptorName, query.bucketParameters, params));
+      bucketIds: (tables) => {
+        const bucketParameters = this.filter.filterRow(tables);
+        return bucketParameters.map((params) => getBucketId(this.descriptorName, this.bucketParameters, params));
       }
     });
   }
