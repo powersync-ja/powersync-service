@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'vitest';
-import { CustomSqliteValue, SqlSyncRules, TimeValue } from '../../src/index.js';
+import { CustomSqliteValue, SqlSyncRules, TimeValue, toSyncRulesValue } from '../../src/index.js';
 
 import { ASSETS, PARSE_OPTIONS } from './util.js';
 
 describe('handling historical quirks', () => {
   describe('timestamps', () => {
-    const value = new TimeValue('2025-08-19 09:21:00Z', '2025-08-19T09:21:00Z');
+    const value = new TimeValue('2025-08-19T09:21:00Z');
 
     test('uses old format by default', () => {
       const rules = SqlSyncRules.fromYaml(
@@ -77,7 +77,7 @@ fixed_quirks:
   });
 
   test('arrays', () => {
-    const data = CustomSqliteValue.wrapArray(['static value', new TimeValue('old', 'fixed')]);
+    const data = toSyncRulesValue(['static value', new TimeValue('2025-08-19T09:21:00Z')]);
 
     for (const withFixedQuirk of [false, true]) {
       let syncRules = `
@@ -106,7 +106,12 @@ fixed_quirks:
       ).toStrictEqual([
         {
           bucket: 'mybucket[]',
-          data: { description: withFixedQuirk ? '["static value","fixed"]' : '["static value","old"]', id: 'id' },
+          data: {
+            description: withFixedQuirk
+              ? '["static value","2025-08-19T09:21:00Z"]'
+              : '["static value","2025-08-19 09:21:00Z"]',
+            id: 'id'
+          },
           id: 'id',
           table: 'assets'
         }

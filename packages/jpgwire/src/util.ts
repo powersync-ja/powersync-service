@@ -241,9 +241,9 @@ export function timestamptzToSqlite(source?: string): TimeValue | null {
   const match = /^([\d\-]+) ([\d:]+)(\.\d+)?([+-][\d:]+)$/.exec(source);
   if (match == null) {
     if (source == 'infinity') {
-      return new TimeValue('9999-12-31 23:59:59Z', '9999-12-31T23:59:59Z');
+      return new TimeValue('9999-12-31T23:59:59Z');
     } else if (source == '-infinity') {
-      return new TimeValue('0000-01-01 00:00:00Z', '0000-01-01T00:00:00Z');
+      return new TimeValue('0000-01-01T00:00:00Z');
     } else {
       return null;
     }
@@ -261,7 +261,7 @@ export function timestamptzToSqlite(source?: string): TimeValue | null {
   const baseValue = parsed.toISOString().replace('.000', '').replace('Z', '');
   const baseText = `${baseValue}${precision ?? ''}Z`;
 
-  return new TimeValue(baseText.replace('T', ' '), baseText);
+  return new TimeValue(baseText);
 }
 
 /**
@@ -276,11 +276,11 @@ export function timestampToSqlite(source?: string): TimeValue | null {
     return null;
   }
   if (source == 'infinity') {
-    return new TimeValue('9999-12-31 23:59:59', '9999-12-31T23:59:59');
+    return new TimeValue('9999-12-31T23:59:59');
   } else if (source == '-infinity') {
-    return new TimeValue('0000-01-01 00:00:00', '0000-01-01T00:00:00');
+    return new TimeValue('0000-01-01T00:00:00');
   } else {
-    return new TimeValue(source, source.replace(' ', 'T'));
+    return new TimeValue(source.replace(' ', 'T'));
   }
 }
 /**

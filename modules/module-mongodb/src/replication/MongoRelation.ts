@@ -2,6 +2,9 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { storage } from '@powersync/service-core';
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import {
+  CompatibilityContext,
+  CustomArray,
+  CustomObject,
   CustomSqliteValue,
   DatabaseInputValue,
   SqliteInputRow,
@@ -69,7 +72,7 @@ export function toMongoSyncRulesValue(data: any): SqliteInputValue {
     return data.toHexString();
   } else if (data instanceof Date) {
     const isoString = data.toISOString();
-    return new TimeValue(isoString.replace('T', ' '), isoString);
+    return new TimeValue(isoString);
   } else if (data instanceof mongo.Binary) {
     return new Uint8Array(data.buffer);
   } else if (data instanceof mongo.Long) {
@@ -81,17 +84,13 @@ export function toMongoSyncRulesValue(data: any): SqliteInputValue {
   } else if (data instanceof RegExp) {
     return JSON.stringify({ pattern: data.source, options: data.flags });
   } else if (Array.isArray(data)) {
-    return CustomSqliteValue.wrapArray(data.map((element) => filterJsonData(element)));
+    return new CustomArray(data, filterJsonData);
   } else if (data instanceof Uint8Array) {
     return data;
   } else if (data instanceof JsonContainer) {
     return data.toString();
   } else if (typeof data == 'object') {
-    let record: Record<string, any> = {};
-    for (let key of Object.keys(data)) {
-      record[key] = filterJsonData(data[key]);
-    }
-    return JSONBig.stringify(record);
+    return new CustomObject(data, filterJsonData);
   } else {
     return null;
   }
@@ -99,7 +98,7 @@ export function toMongoSyncRulesValue(data: any): SqliteInputValue {
 
 const DEPTH_LIMIT = 20;
 
-function filterJsonData(data: any, depth = 0): DatabaseInputValue | undefined {
+function filterJsonData(data: any, context: CompatibilityContext, depth = 0): any {
   const autoBigNum = true;
   if (depth > DEPTH_LIMIT) {
     // This is primarily to prevent infinite recursion
@@ -126,7 +125,7 @@ function filterJsonData(data: any, depth = 0): DatabaseInputValue | undefined {
     return data;
   } else if (data instanceof Date) {
     const isoString = data.toISOString();
-    return new TimeValue(isoString.replace('T', ' '), isoString);
+    return new TimeValue(isoString).toSqliteValue(context);
   } else if (data instanceof mongo.ObjectId) {
     return data.toHexString();
   } else if (data instanceof mongo.UUID) {
@@ -142,16 +141,18 @@ function filterJsonData(data: any, depth = 0): DatabaseInputValue | undefined {
   } else if (data instanceof RegExp) {
     return { pattern: data.source, options: data.flags };
   } else if (Array.isArray(data)) {
-    return CustomSqliteValue.wrapArray(data.map((element) => filterJsonData(element, depth + 1)));
+    return data.map((element) => filterJsonData(element, context, depth + 1));
   } else if (ArrayBuffer.isView(data)) {
     return undefined;
+  } else if (data instanceof CustomSqliteValue) {
+    return data.toSqliteValue(context);
   } else if (data instanceof JsonContainer) {
     // Can be stringified directly when using our JSONBig implementation
     return data;
   } else if (typeof data == 'object') {
     let record: Record<string, any> = {};
     for (let key of Object.keys(data)) {
-      record[key] = filterJsonData(data[key], depth + 1);
+      record[key] = filterJsonData(data[key], context, depth + 1);
     }
     return record;
   } else {

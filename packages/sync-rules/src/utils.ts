@@ -12,7 +12,7 @@ import {
   SqliteValue
 } from './types.js';
 import { SyncRuleProcessingError as SyncRulesProcessingError } from './errors.js';
-import { CustomSqliteValue } from './types/custom_sqlite_value.js';
+import { CustomArray, CustomObject, CustomSqliteValue } from './types/custom_sqlite_value.js';
 import { CompatibilityContext } from './quirks.js';
 
 export function isSelectStatement(q: Statement): q is SelectFromStatement {
@@ -69,7 +69,7 @@ export function isJsonValue(value: SqliteValue): value is SqliteJsonValue {
   return value == null || typeof value == 'string' || typeof value == 'number' || typeof value == 'bigint';
 }
 
-function filterJsonData(data: any, depth = 0): SqliteInputValue | undefined {
+function filterJsonData(data: any, context: CompatibilityContext, depth = 0): any {
   if (depth > DEPTH_LIMIT) {
     // This is primarily to prevent infinite recursion
     // TODO: Proper error class
@@ -88,16 +88,18 @@ function filterJsonData(data: any, depth = 0): SqliteInputValue | undefined {
   } else if (typeof data == 'bigint') {
     return data;
   } else if (Array.isArray(data)) {
-    return CustomSqliteValue.wrapArray(data.map((element) => filterJsonData(element, depth + 1)));
+    return data.map((element) => filterJsonData(element, context, depth + 1));
   } else if (ArrayBuffer.isView(data)) {
     return undefined;
   } else if (data instanceof JsonContainer) {
     // Can be stringified directly when using our JSONBig implementation
     return data as any;
+  } else if (data instanceof CustomSqliteValue) {
+    return data.toSqliteValue(context);
   } else if (typeof data == 'object') {
     let record: Record<string, any> = {};
     for (let key of Object.keys(data)) {
-      record[key] = filterJsonData(data[key], depth + 1);
+      record[key] = filterJsonData(data[key], context, depth + 1);
     }
     return record as any;
   } else {
@@ -158,17 +160,13 @@ export function toSyncRulesValue(
   } else if (typeof data == 'boolean') {
     return data ? SQLITE_TRUE : SQLITE_FALSE;
   } else if (Array.isArray(data)) {
-    return CustomSqliteValue.wrapArray(data.map(filterJsonData));
+    return new CustomArray(data, filterJsonData);
   } else if (data instanceof Uint8Array || data instanceof CustomSqliteValue) {
     return data;
   } else if (data instanceof JsonContainer) {
     return data.toString();
   } else if (typeof data == 'object') {
-    let record: Record<string, any> = {};
-    for (let key of Object.keys(data)) {
-      record[key] = filterJsonData(data[key]);
-    }
-    return JSONBig.stringify(record);
+    return new CustomObject(data, filterJsonData);
   } else {
     return null;
   }

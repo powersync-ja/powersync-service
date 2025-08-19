@@ -10,15 +10,17 @@ import { CustomSqliteValue } from './custom_sqlite_value.js';
  * disabled by default until a major upgrade.
  */
 export class TimeValue extends CustomSqliteValue {
-  // YYYY-MM-DD hh:mm:ss.sss / YYYY-MM-DD hh:mm:ss.sssZ
-  readonly legacyRepresentation: string;
   // YYYY-MM-DDThh:mm:ss.sss / YYYY-MM-DDThh:mm:ss.sssZ
   readonly iso8601Representation: string;
 
-  constructor(legacyRepresentation: string, iso8601Representation: string) {
+  constructor(iso8601Representation: string) {
     super();
-    this.legacyRepresentation = legacyRepresentation;
     this.iso8601Representation = iso8601Representation;
+  }
+
+  // YYYY-MM-DD hh:mm:ss.sss / YYYY-MM-DD hh:mm:ss.sssZ
+  public get legacyRepresentation(): string {
+    return this.iso8601Representation.replace('T', ' ');
   }
 
   get sqliteType(): SqliteValueType {

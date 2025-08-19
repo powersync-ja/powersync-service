@@ -1,5 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { CustomSqliteValue, SqliteInputRow, SqliteRow, SqlSyncRules, TimeValue } from '@powersync/service-sync-rules';
+import { applyRowContext, CompatibilityContext, SqliteInputRow, SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
@@ -138,8 +138,10 @@ describe('mongo data types', () => {
     ]);
   }
 
-  function checkResults(transformed: Record<string, any>[]) {
-    expect(transformed[0]).toMatchObject({
+  function checkResults(transformed: SqliteInputRow[]) {
+    const sqliteValue = transformed.map((e) => applyRowContext(e, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY));
+
+    expect(sqliteValue[0]).toMatchObject({
       _id: 1n,
       text: 'text',
       uuid: 'baeb2514-4c57-436d-b3cc-c1256211656d',
@@ -152,17 +154,17 @@ describe('mongo data types', () => {
       null: null,
       decimal: '3.14'
     });
-    expect(transformed[1]).toMatchObject({
+    expect(sqliteValue[1]).toMatchObject({
       _id: 2n,
       nested: '{"test":"thing"}'
     });
 
-    expect(transformed[2]).toMatchObject({
+    expect(sqliteValue[2]).toMatchObject({
       _id: 3n,
-      date: new TimeValue('2023-03-06 13:47:00.000Z', '2023-03-06T13:47:00.000Z')
+      date: '2023-03-06 13:47:00.000Z'
     });
 
-    expect(transformed[3]).toMatchObject({
+    expect(sqliteValue[3]).toMatchObject({
       _id: 4n,
       objectId: '66e834cc91d805df11fa0ecb',
       timestamp: 1958505087099n,
@@ -177,9 +179,9 @@ describe('mongo data types', () => {
     });
 
     // This must specifically be null, and not undefined.
-    expect(transformed[4].undefined).toBeNull();
+    expect(sqliteValue[4].undefined).toBeNull();
 
-    expect(transformed[5]).toMatchObject({
+    expect(sqliteValue[5]).toMatchObject({
       _id: 6n,
       int4: -1n,
       int8: -9007199254740993n,
@@ -188,8 +190,10 @@ describe('mongo data types', () => {
     });
   }
 
-  function checkResultsNested(transformed: Record<string, any>[]) {
-    expect(transformed[0]).toMatchObject({
+  function checkResultsNested(transformed: SqliteInputRow[]) {
+    const sqliteValue = transformed.map((e) => applyRowContext(e, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY));
+
+    expect(sqliteValue[0]).toMatchObject({
       _id: 1n,
       text: `["text"]`,
       uuid: '["baeb2514-4c57-436d-b3cc-c1256211656d"]',
@@ -204,22 +208,22 @@ describe('mongo data types', () => {
 
     // Note: Depending on to what extent we use the original postgres value, the whitespace may change, and order may change.
     // We do expect that decimals and big numbers are preserved.
-    expect(transformed[1]).toMatchObject({
+    expect(sqliteValue[1]).toMatchObject({
       _id: 2n,
       nested: '[{"test":"thing"}]'
     });
 
-    expect(transformed[2]).toMatchObject({
+    expect(sqliteValue[2]).toMatchObject({
       _id: 3n,
-      date: CustomSqliteValue.wrapArray([new TimeValue('2023-03-06 13:47:00.000Z', '2023-03-06T13:47:00.000Z')])
+      date: '["2023-03-06 13:47:00.000Z"]'
     });
 
-    expect(transformed[3]).toMatchObject({
+    expect(sqliteValue[3]).toMatchObject({
       _id: 5n,
       undefined: '[null]'
     });
 
-    expect(transformed[4]).toMatchObject({
+    expect(sqliteValue[4]).toMatchObject({
       _id: 6n,
       int4: '[-1]',
       int8: '[-9007199254740993]',
@@ -227,7 +231,7 @@ describe('mongo data types', () => {
       decimal: '["-3.14"]'
     });
 
-    expect(transformed[5]).toMatchObject({
+    expect(sqliteValue[5]).toMatchObject({
       _id: 10n,
       objectId: '["66e834cc91d805df11fa0ecb"]',
       timestamp: '[1958505087099]',
