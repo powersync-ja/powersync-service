@@ -6,6 +6,8 @@ import { TablePattern } from './TablePattern.js';
 import { toSyncRulesParameters } from './utils.js';
 import { BucketPriority } from './BucketDescription.js';
 import { ParameterLookup } from './BucketParameterQuerier.js';
+import { TimeValue } from './types/time.js';
+import { CustomSqliteType } from './types/custom_sqlite_type.js';
 
 export interface SyncRules {
   evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
@@ -187,6 +189,12 @@ export type SqliteJsonValue = number | string | bigint | null;
 export type SqliteValue = number | string | null | bigint | Uint8Array;
 
 /**
+ * A value that is either supported by SQLite natively, or one that can be lowered into a SQLite-value given additional
+ * context.
+ */
+export type SqliteInputValue = SqliteValue | CustomSqliteType;
+
+/**
  * A set of values that are both SQLite and JSON-compatible.
  *
  * This is a flat object -> no nested arrays or objects.
@@ -197,7 +205,9 @@ export type SqliteJsonRow = { [column: string]: SqliteJsonValue };
  * SQLite-compatible row (NULL, TEXT, INTEGER, REAL, BLOB).
  * JSON is represented as TEXT.
  */
-export type SqliteRow = { [column: string]: SqliteValue };
+export type SqliteRow<T = SqliteValue> = { [column: string]: T };
+
+export type SqliteInputRow = SqliteRow<SqliteInputValue>;
 
 /**
  * SQLite-compatible row (NULL, TEXT, INTEGER, REAL, BLOB).
@@ -205,7 +215,7 @@ export type SqliteRow = { [column: string]: SqliteValue };
  *
  * Toasted values are `undefined`.
  */
-export type ToastableSqliteRow = { [column: string]: SqliteValue | undefined };
+export type ToastableSqliteRow = SqliteRow<SqliteInputValue | undefined>;
 
 /**
  * A value as received from the database.
@@ -215,6 +225,7 @@ export type DatabaseInputValue =
   | boolean
   | DatabaseInputValue[]
   | JsonContainer
+  | CustomSqliteType
   | { [key: string]: DatabaseInputValue };
 
 /**
@@ -271,7 +282,7 @@ export interface InputParameter {
 
 export interface EvaluateRowOptions {
   sourceTable: SourceTableInterface;
-  record: SqliteRow;
+  record: SqliteInputRow;
 }
 
 /**

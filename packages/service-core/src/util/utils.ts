@@ -148,7 +148,10 @@ export function hasToastedValues(row: sync_rules.ToastableSqliteRow) {
  *
  * If we don't store data, we assume we always have a complete row.
  */
-export function isCompleteRow(storeData: boolean, row: sync_rules.ToastableSqliteRow): row is sync_rules.SqliteRow {
+export function isCompleteRow(
+  storeData: boolean,
+  row: sync_rules.ToastableSqliteRow
+): row is sync_rules.SqliteInputRow {
   if (!storeData) {
     // Assume the row is complete - no need to check
     return true;

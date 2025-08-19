@@ -102,7 +102,10 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
              */
             return fields.map((c) => {
               const value = row[c.name];
-              const sqlValue = sync_rules.toSyncRulesValue(value);
+              const sqlValue = sync_rules.applyValueContext(
+                sync_rules.toSyncRulesValue(value),
+                sync_rules.CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY
+              );
               if (typeof sqlValue == 'bigint') {
                 return Number(value);
               } else if (value instanceof Date) {

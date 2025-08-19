@@ -1,6 +1,7 @@
 // Adapted from https://github.com/kagis/pgwire/blob/0dc927f9f8990a903f238737326e53ba1c8d094f/mod.js#L2218
 
 import { JsonContainer } from '@powersync/service-jsonbig';
+import { type DatabaseInputValue } from '@powersync/service-sync-rules';
 import { dateToSqlite, lsnMakeComparable, timestampToSqlite, timestamptzToSqlite } from './util.js';
 
 export enum PgTypeOid {
@@ -105,7 +106,7 @@ export class PgType {
     return ELEM_OID_TO_ARRAY.get(typeOid);
   }
 
-  static decode(text: string, typeOid: number) {
+  static decode(text: string, typeOid: number): DatabaseInputValue {
     switch (typeOid) {
       // add line here when register new type
       case PgTypeOid.TEXT:
@@ -178,7 +179,14 @@ export class PgType {
           const decoded = this.decode(unescaped, elemTypeOid);
           stack[0].push(decoded);
         }
-        result = ch == 0x7d /*}*/ && stack.shift();
+
+        if (ch == 0x7d /*}*/) {
+          const entry = stack.shift();
+          result = entry;
+        } else {
+          result = false;
+        }
+
         elStart = i + 1; // TODO dry
       }
     }

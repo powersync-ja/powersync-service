@@ -105,7 +105,10 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
           columns: result.columns.map((c) => c.name),
           rows: result.rows.map((row) => {
             return row.map((value) => {
-              const sqlValue = sync_rules.toSyncRulesValue(value);
+              const sqlValue = sync_rules.applyValueContext(
+                sync_rules.toSyncRulesValue(value),
+                sync_rules.CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY
+              );
               if (typeof sqlValue == 'bigint') {
                 return Number(value);
               } else if (sync_rules.isJsonValue(sqlValue)) {

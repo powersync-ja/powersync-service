@@ -4,8 +4,8 @@ import { BucketStorageBatch, SaveOp } from './BucketStorageBatch.js';
 
 export type EventData = {
   op: SaveOp;
-  before?: sync_rules.SqliteRow;
-  after?: sync_rules.SqliteRow;
+  before?: sync_rules.SqliteInputRow;
+  after?: sync_rules.SqliteInputRow;
 };
 
 export type ReplicationEventPayload = {
