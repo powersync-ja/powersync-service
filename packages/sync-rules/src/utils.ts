@@ -69,7 +69,7 @@ export function isJsonValue(value: SqliteValue): value is SqliteJsonValue {
   return value == null || typeof value == 'string' || typeof value == 'number' || typeof value == 'bigint';
 }
 
-export function filterJsonData(data: any, depth = 0): any {
+function filterJsonData(data: any, depth = 0): any {
   if (depth > DEPTH_LIMIT) {
     // This is primarily to prevent infinite recursion
     // TODO: Proper error class
@@ -88,7 +88,7 @@ export function filterJsonData(data: any, depth = 0): any {
   } else if (typeof data == 'bigint') {
     return data;
   } else if (Array.isArray(data)) {
-    return data.map((element) => filterJsonData(element, depth + 1));
+    return CustomSqliteType.wrapArray(data.map((element) => filterJsonData(element, depth + 1)));
   } else if (ArrayBuffer.isView(data)) {
     return undefined;
   } else if (data instanceof JsonContainer) {
@@ -158,7 +158,7 @@ export function toSyncRulesValue(
   } else if (typeof data == 'boolean') {
     return data ? SQLITE_TRUE : SQLITE_FALSE;
   } else if (Array.isArray(data)) {
-    return CustomSqliteType.wrapArray(data);
+    return CustomSqliteType.wrapArray(data.map(filterJsonData));
   } else if (data instanceof Uint8Array || data instanceof CustomSqliteType) {
     return data;
   } else if (data instanceof JsonContainer) {

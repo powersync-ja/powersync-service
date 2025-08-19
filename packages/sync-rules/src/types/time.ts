@@ -1,3 +1,4 @@
+import { SqliteValueType } from '../ExpressionType.js';
 import { CompatibilityContext, Quirk } from '../quirks.js';
 import { CustomSqliteType } from './custom_sqlite_type.js';
 
@@ -18,6 +19,10 @@ export class TimeValue extends CustomSqliteType {
     super();
     this.legacyRepresentation = legacyRepresentation;
     this.iso8601Representation = iso8601Representation;
+  }
+
+  get sqliteType(): SqliteValueType {
+    return 'text';
   }
 
   toSqliteValue(context: CompatibilityContext) {

@@ -1,13 +1,14 @@
 import { JSONBig } from '@powersync/service-jsonbig';
 import { SQLITE_FALSE, SQLITE_TRUE, sqliteBool, sqliteNot } from './sql_support.js';
-import { SqliteRow, SqliteValue } from './types.js';
+import { SqliteInputValue, SqliteValue } from './types.js';
 import { jsonValueToSqlite } from './utils.js';
 // Declares @syncpoint/wkx module
 // This allows for consumers of this lib to resolve types correctly
 /// <reference types="./wkx.d.ts" />
 import wkx from '@syncpoint/wkx';
-import { ExpressionType, SqliteType, TYPE_INTEGER } from './ExpressionType.js';
+import { ExpressionType, SqliteType, SqliteValueType, TYPE_INTEGER } from './ExpressionType.js';
 import * as uuid from 'uuid';
+import { CustomSqliteType } from './types/custom_sqlite_type.js';
 
 export const BASIC_OPERATORS = new Set<string>([
   '=',
@@ -635,7 +636,7 @@ export function cast(value: SqliteValue, to: string) {
   }
 }
 
-export function sqliteTypeOf(arg: SqliteValue) {
+export function sqliteTypeOf(arg: SqliteInputValue): SqliteValueType {
   if (arg == null) {
     return 'null';
   } else if (typeof arg == 'string') {
@@ -646,6 +647,8 @@ export function sqliteTypeOf(arg: SqliteValue) {
     return 'real';
   } else if (arg instanceof Uint8Array) {
     return 'blob';
+  } else if (arg instanceof CustomSqliteType) {
+    return arg.sqliteType;
   } else {
     // Should not happen
     throw new Error(`Unknown type: ${arg}`);

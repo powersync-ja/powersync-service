@@ -1,7 +1,7 @@
 import { JSONBig } from '@powersync/service-jsonbig';
 import { CompatibilityContext } from '../quirks.js';
 import { SqliteValue, EvaluatedRow, SqliteInputValue, DatabaseInputValue } from '../types.js';
-import { filterJsonData } from '../utils.js';
+import { SqliteValueType } from '../ExpressionType.js';
 
 /**
  * A value that decays into a {@link SqliteValue} in a context-specific way.
@@ -23,6 +23,8 @@ export abstract class CustomSqliteType {
    */
   abstract toSqliteValue(context: CompatibilityContext): SqliteValue;
 
+  abstract get sqliteType(): SqliteValueType;
+
   static wrapArray(elements: DatabaseInputValue[]): SqliteInputValue {
     const hasCustomValue = elements.some((v) => v instanceof CustomSqliteType);
     if (hasCustomValue) {
@@ -30,7 +32,7 @@ export abstract class CustomSqliteType {
       return new CustomArray(elements);
     } else {
       // We can encode the array statically.
-      return JSONBig.stringify(elements.map((element) => filterJsonData(element)));
+      return JSONBig.stringify(elements);
     }
   }
 }
@@ -40,11 +42,14 @@ class CustomArray extends CustomSqliteType {
     super();
   }
 
+  get sqliteType(): SqliteValueType {
+    return 'text';
+  }
+
   toSqliteValue(context: CompatibilityContext): SqliteValue {
     return JSONBig.stringify(
       this.elements.map((element) => {
-        const mapped = element instanceof CustomSqliteType ? element.toSqliteValue(context) : element;
-        return filterJsonData(mapped);
+        return element instanceof CustomSqliteType ? element.toSqliteValue(context) : element;
       })
     );
   }

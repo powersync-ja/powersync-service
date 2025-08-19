@@ -1,7 +1,14 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { storage } from '@powersync/service-core';
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
-import { SqliteRow, SqliteValue } from '@powersync/service-sync-rules';
+import {
+  CustomSqliteType,
+  SqliteInputRow,
+  SqliteInputValue,
+  SqliteRow,
+  SqliteValue,
+  TimeValue
+} from '@powersync/service-sync-rules';
 
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { MongoLSN } from '../common/MongoLSN.js';
@@ -27,15 +34,15 @@ export function getCacheIdentifier(source: storage.SourceEntityDescriptor | stor
   return `${source.schema}.${source.name}`;
 }
 
-export function constructAfterRecord(document: mongo.Document): SqliteRow {
-  let record: SqliteRow = {};
+export function constructAfterRecord(document: mongo.Document): SqliteInputRow {
+  let record: SqliteInputRow = {};
   for (let key of Object.keys(document)) {
     record[key] = toMongoSyncRulesValue(document[key]);
   }
   return record;
 }
 
-export function toMongoSyncRulesValue(data: any): SqliteValue {
+export function toMongoSyncRulesValue(data: any): SqliteInputValue {
   const autoBigNum = true;
   if (data === null) {
     return null;
@@ -60,7 +67,8 @@ export function toMongoSyncRulesValue(data: any): SqliteValue {
   } else if (data instanceof mongo.UUID) {
     return data.toHexString();
   } else if (data instanceof Date) {
-    return data.toISOString().replace('T', ' ');
+    const isoString = data.toISOString();
+    return new TimeValue(isoString.replace('T', ' '), isoString);
   } else if (data instanceof mongo.Binary) {
     return new Uint8Array(data.buffer);
   } else if (data instanceof mongo.Long) {
@@ -72,8 +80,7 @@ export function toMongoSyncRulesValue(data: any): SqliteValue {
   } else if (data instanceof RegExp) {
     return JSON.stringify({ pattern: data.source, options: data.flags });
   } else if (Array.isArray(data)) {
-    // We may be able to avoid some parse + stringify cycles here for JsonSqliteContainer.
-    return JSONBig.stringify(data.map((element) => filterJsonData(element)));
+    return CustomSqliteType.wrapArray(data.map((element) => filterJsonData(element)));
   } else if (data instanceof Uint8Array) {
     return data;
   } else if (data instanceof JsonContainer) {
@@ -117,7 +124,8 @@ function filterJsonData(data: any, depth = 0): any {
   } else if (typeof data == 'bigint') {
     return data;
   } else if (data instanceof Date) {
-    return data.toISOString().replace('T', ' ');
+    const isoString = data.toISOString();
+    return new TimeValue(isoString.replace('T', ' '), isoString);
   } else if (data instanceof mongo.ObjectId) {
     return data.toHexString();
   } else if (data instanceof mongo.UUID) {
@@ -133,7 +141,7 @@ function filterJsonData(data: any, depth = 0): any {
   } else if (data instanceof RegExp) {
     return { pattern: data.source, options: data.flags };
   } else if (Array.isArray(data)) {
-    return data.map((element) => filterJsonData(element, depth + 1));
+    return CustomSqliteType.wrapArray(data.map((element) => filterJsonData(element, depth + 1)));
   } else if (ArrayBuffer.isView(data)) {
     return undefined;
   } else if (data instanceof JsonContainer) {
