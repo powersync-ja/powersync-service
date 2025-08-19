@@ -7,7 +7,7 @@ import { toSyncRulesParameters } from './utils.js';
 import { BucketPriority } from './BucketDescription.js';
 import { ParameterLookup } from './BucketParameterQuerier.js';
 import { TimeValue } from './types/time.js';
-import { CustomSqliteType } from './types/custom_sqlite_type.js';
+import { CustomSqliteValue } from './types/custom_sqlite_value.js';
 
 export interface SyncRules {
   evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
@@ -192,7 +192,7 @@ export type SqliteValue = number | string | null | bigint | Uint8Array;
  * A value that is either supported by SQLite natively, or one that can be lowered into a SQLite-value given additional
  * context.
  */
-export type SqliteInputValue = SqliteValue | CustomSqliteType;
+export type SqliteInputValue = SqliteValue | CustomSqliteValue;
 
 /**
  * A set of values that are both SQLite and JSON-compatible.
@@ -225,7 +225,7 @@ export type DatabaseInputValue =
   | boolean
   | DatabaseInputValue[]
   | JsonContainer
-  | CustomSqliteType
+  | CustomSqliteValue
   | { [key: string]: DatabaseInputValue };
 
 /**

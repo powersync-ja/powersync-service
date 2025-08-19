@@ -8,14 +8,14 @@ import { SqliteValueType } from '../ExpressionType.js';
  *
  * This is used to conditionally render some values in different formats depending on compatibility options. For
  * instance, old versions of the sync service used to [encode timestamp values incorrectly](https://github.com/powersync-ja/powersync-service/issues/286).
- * To fix this without breaking backwards-compatibility, we now represent timestamp values as a {@link CustomSqliteType}
+ * To fix this without breaking backwards-compatibility, we now represent timestamp values as a {@link CustomSqliteValue}
  * subtype where `toSqliteValue` returns the old or the new format depending on options.
  *
- * Instances of {@link CustomSqliteType} are always temporary structures that aren't persisted. They are created by the
+ * Instances of {@link CustomSqliteValue} are always temporary structures that aren't persisted. They are created by the
  * replicator implementations, the sync rule implementation will invoke {@link toSqliteValue} to ensure that an
  * {@link EvaluatedRow} only consists of proper SQLite values.
  */
-export abstract class CustomSqliteType {
+export abstract class CustomSqliteValue {
   /**
    * Renders this custom value into a {@link SqliteValue}.
    *
@@ -26,7 +26,7 @@ export abstract class CustomSqliteType {
   abstract get sqliteType(): SqliteValueType;
 
   static wrapArray(elements: DatabaseInputValue[]): SqliteInputValue {
-    const hasCustomValue = elements.some((v) => v instanceof CustomSqliteType);
+    const hasCustomValue = elements.some((v) => v instanceof CustomSqliteValue);
     if (hasCustomValue) {
       // We need access to the compatibility context before encoding contents as JSON.
       return new CustomArray(elements);
@@ -37,7 +37,7 @@ export abstract class CustomSqliteType {
   }
 }
 
-class CustomArray extends CustomSqliteType {
+class CustomArray extends CustomSqliteValue {
   constructor(private readonly elements: DatabaseInputValue[]) {
     super();
   }
@@ -49,7 +49,7 @@ class CustomArray extends CustomSqliteType {
   toSqliteValue(context: CompatibilityContext): SqliteValue {
     return JSONBig.stringify(
       this.elements.map((element) => {
-        return element instanceof CustomSqliteType ? element.toSqliteValue(context) : element;
+        return element instanceof CustomSqliteValue ? element.toSqliteValue(context) : element;
       })
     );
   }

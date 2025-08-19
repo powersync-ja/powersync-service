@@ -12,7 +12,7 @@ import {
   SqliteValue
 } from './types.js';
 import { SyncRuleProcessingError as SyncRulesProcessingError } from './errors.js';
-import { CustomSqliteType } from './types/custom_sqlite_type.js';
+import { CustomSqliteValue } from './types/custom_sqlite_value.js';
 import { CompatibilityContext } from './quirks.js';
 
 export function isSelectStatement(q: Statement): q is SelectFromStatement {
@@ -88,7 +88,7 @@ function filterJsonData(data: any, depth = 0): any {
   } else if (typeof data == 'bigint') {
     return data;
   } else if (Array.isArray(data)) {
-    return CustomSqliteType.wrapArray(data.map((element) => filterJsonData(element, depth + 1)));
+    return CustomSqliteValue.wrapArray(data.map((element) => filterJsonData(element, depth + 1)));
   } else if (ArrayBuffer.isView(data)) {
     return undefined;
   } else if (data instanceof JsonContainer) {
@@ -158,8 +158,8 @@ export function toSyncRulesValue(
   } else if (typeof data == 'boolean') {
     return data ? SQLITE_TRUE : SQLITE_FALSE;
   } else if (Array.isArray(data)) {
-    return CustomSqliteType.wrapArray(data.map(filterJsonData));
-  } else if (data instanceof Uint8Array || data instanceof CustomSqliteType) {
+    return CustomSqliteValue.wrapArray(data.map(filterJsonData));
+  } else if (data instanceof Uint8Array || data instanceof CustomSqliteValue) {
     return data;
   } else if (data instanceof JsonContainer) {
     return data.toString();
@@ -175,7 +175,7 @@ export function toSyncRulesValue(
 }
 
 export function applyValueContext(value: SqliteInputValue, context: CompatibilityContext): SqliteValue {
-  if (value instanceof CustomSqliteType) {
+  if (value instanceof CustomSqliteValue) {
     return value.toSqliteValue(context);
   } else {
     return value;

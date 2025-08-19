@@ -2,7 +2,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { storage } from '@powersync/service-core';
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import {
-  CustomSqliteType,
+  CustomSqliteValue,
   SqliteInputRow,
   SqliteInputValue,
   SqliteRow,
@@ -80,7 +80,7 @@ export function toMongoSyncRulesValue(data: any): SqliteInputValue {
   } else if (data instanceof RegExp) {
     return JSON.stringify({ pattern: data.source, options: data.flags });
   } else if (Array.isArray(data)) {
-    return CustomSqliteType.wrapArray(data.map((element) => filterJsonData(element)));
+    return CustomSqliteValue.wrapArray(data.map((element) => filterJsonData(element)));
   } else if (data instanceof Uint8Array) {
     return data;
   } else if (data instanceof JsonContainer) {
@@ -141,7 +141,7 @@ function filterJsonData(data: any, depth = 0): any {
   } else if (data instanceof RegExp) {
     return { pattern: data.source, options: data.flags };
   } else if (Array.isArray(data)) {
-    return CustomSqliteType.wrapArray(data.map((element) => filterJsonData(element, depth + 1)));
+    return CustomSqliteValue.wrapArray(data.map((element) => filterJsonData(element, depth + 1)));
   } else if (ArrayBuffer.isView(data)) {
     return undefined;
   } else if (data instanceof JsonContainer) {
