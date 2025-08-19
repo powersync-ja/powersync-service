@@ -8,6 +8,7 @@ import { BucketPriority } from './BucketDescription.js';
 import { ParameterLookup } from './BucketParameterQuerier.js';
 import { TimeValue } from './types/time.js';
 import { CustomSqliteValue } from './types/custom_sqlite_value.js';
+import { CompatibilityContext } from './quirks.js';
 
 export interface SyncRules {
   evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
@@ -146,12 +147,14 @@ export class RequestParameters implements ParameterValueSet {
       user_id: tokenPayload.sub
     };
 
-    this.tokenParameters = toSyncRulesParameters(tokenParameters);
+    // Client and token parameters don't contain DateTime values or other custom types, so we don't need to consider
+    // compatibility.
+    this.tokenParameters = toSyncRulesParameters(tokenParameters, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
     this.userId = tokenPayload.sub;
     this.rawTokenPayload = JSONBig.stringify(tokenPayload);
 
     this.rawUserParameters = JSONBig.stringify(clientParameters);
-    this.userParameters = toSyncRulesParameters(clientParameters!);
+    this.userParameters = toSyncRulesParameters(clientParameters!, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
     this.streamParameters = null;
     this.rawStreamParameters = null;
   }

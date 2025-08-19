@@ -258,8 +258,8 @@ export function timestamptzToSqlite(source?: string): TimeValue | null {
     return null;
   }
 
-  const baseValue = parsed.toISOString().replace('.000', '').replace('Z', '');
-  const baseText = `${baseValue}${precision ?? ''}Z`;
+  const baseValue = parsed.toISOString().replace('Z', '');
+  const baseText = `${baseValue}Z`;
 
   return new TimeValue(baseText);
 }
