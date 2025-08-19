@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { CustomSqliteValue, SqlSyncRules, DateTimeValue, toSyncRulesValue } from '../../src/index.js';
+import { SqlSyncRules, DateTimeValue, toSyncRulesValue } from '../../src/index.js';
 
 import { ASSETS, PARSE_OPTIONS } from './util.js';
 
