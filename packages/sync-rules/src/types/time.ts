@@ -1,6 +1,6 @@
 import { SqliteValueType } from '../ExpressionType.js';
 import { CompatibilityContext, Quirk } from '../quirks.js';
-import { CustomSqliteType } from './custom_sqlite_type.js';
+import { CustomSqliteValue } from './custom_sqlite_value.js';
 
 /**
  * In old versions of the sync service, timestamp values were formatted with a space between the date and time
@@ -9,7 +9,7 @@ import { CustomSqliteType } from './custom_sqlite_type.js';
  * This is not ISO 6801 compatible, but changing it would be breaking existing users. So, this option is opt-in and
  * disabled by default until a major upgrade.
  */
-export class TimeValue extends CustomSqliteType {
+export class TimeValue extends CustomSqliteValue {
   // YYYY-MM-DD hh:mm:ss.sss / YYYY-MM-DD hh:mm:ss.sssZ
   readonly legacyRepresentation: string;
   // YYYY-MM-DDThh:mm:ss.sss / YYYY-MM-DDThh:mm:ss.sssZ

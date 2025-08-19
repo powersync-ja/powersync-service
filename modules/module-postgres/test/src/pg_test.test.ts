@@ -1,6 +1,6 @@
 import { constructAfterRecord } from '@module/utils/pgwire_utils.js';
 import * as pgwire from '@powersync/service-jpgwire';
-import { CustomSqliteType, SqliteInputRow, SqliteRow, TimeValue } from '@powersync/service-sync-rules';
+import { CustomSqliteValue, SqliteInputRow, SqliteRow, TimeValue } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { clearTestDb, connectPgPool, connectPgWire, TEST_URI } from './util.js';
 import { WalStream } from '@module/replication/WalStream.js';
@@ -235,8 +235,8 @@ VALUES(10, ARRAY['null']::TEXT[]);
       id: 3n,
       date: `["2023-03-06"]`,
       time: `["15:47:00"]`,
-      timestamp: CustomSqliteType.wrapArray([new TimeValue('2023-03-06 15:47:00', '2023-03-06T15:47:00')]),
-      timestamptz: CustomSqliteType.wrapArray([
+      timestamp: CustomSqliteValue.wrapArray([new TimeValue('2023-03-06 15:47:00', '2023-03-06T15:47:00')]),
+      timestamptz: CustomSqliteValue.wrapArray([
         new TimeValue('2023-03-06 13:47:00Z', '2023-03-06T13:47:00Z'),
         new TimeValue('2023-03-06 13:47:00.12345Z', '2023-03-06T13:47:00.12345Z')
       ])

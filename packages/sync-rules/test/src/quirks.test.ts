@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { CustomSqliteType, SqlSyncRules, TimeValue } from '../../src/index.js';
+import { CustomSqliteValue, SqlSyncRules, TimeValue } from '../../src/index.js';
 
 import { ASSETS, PARSE_OPTIONS } from './util.js';
 
@@ -77,7 +77,7 @@ fixed_quirks:
   });
 
   test('arrays', () => {
-    const data = CustomSqliteType.wrapArray(['static value', new TimeValue('old', 'fixed')]);
+    const data = CustomSqliteValue.wrapArray(['static value', new TimeValue('old', 'fixed')]);
 
     for (const withFixedQuirk of [false, true]) {
       let syncRules = `

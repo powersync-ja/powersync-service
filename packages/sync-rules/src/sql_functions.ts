@@ -8,7 +8,7 @@ import { jsonValueToSqlite } from './utils.js';
 import wkx from '@syncpoint/wkx';
 import { ExpressionType, SqliteType, SqliteValueType, TYPE_INTEGER } from './ExpressionType.js';
 import * as uuid from 'uuid';
-import { CustomSqliteType } from './types/custom_sqlite_type.js';
+import { CustomSqliteValue } from './types/custom_sqlite_value.js';
 
 export const BASIC_OPERATORS = new Set<string>([
   '=',
@@ -647,7 +647,7 @@ export function sqliteTypeOf(arg: SqliteInputValue): SqliteValueType {
     return 'real';
   } else if (arg instanceof Uint8Array) {
     return 'blob';
-  } else if (arg instanceof CustomSqliteType) {
+  } else if (arg instanceof CustomSqliteValue) {
     return arg.sqliteType;
   } else {
     // Should not happen

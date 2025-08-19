@@ -22,6 +22,6 @@ export { SyncStream } from './streams/stream.js';
 export { syncStreamFromSql } from './streams/from_sql.js';
 export * from './TablePattern.js';
 export * from './types.js';
-export * from './types/custom_sqlite_type.js';
+export * from './types/custom_sqlite_value.js';
 export * from './types/time.js';
 export * from './utils.js';
