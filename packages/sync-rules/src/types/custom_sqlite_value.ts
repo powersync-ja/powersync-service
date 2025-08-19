@@ -25,7 +25,7 @@ export abstract class CustomSqliteValue {
 
   abstract get sqliteType(): SqliteValueType;
 
-  static wrapArray(elements: DatabaseInputValue[]): SqliteInputValue {
+  static wrapArray(elements: (DatabaseInputValue | undefined)[]): SqliteInputValue {
     const hasCustomValue = elements.some((v) => v instanceof CustomSqliteValue);
     if (hasCustomValue) {
       // We need access to the compatibility context before encoding contents as JSON.
@@ -38,7 +38,7 @@ export abstract class CustomSqliteValue {
 }
 
 class CustomArray extends CustomSqliteValue {
-  constructor(private readonly elements: DatabaseInputValue[]) {
+  constructor(private readonly elements: (DatabaseInputValue | undefined)[]) {
     super();
   }
 
