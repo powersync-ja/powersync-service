@@ -1,5 +1,11 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { applyRowContext, CompatibilityContext, SqliteInputRow, SqlSyncRules } from '@powersync/service-sync-rules';
+import {
+  applyRowContext,
+  CompatibilityContext,
+  CompatibilityLevel,
+  SqliteInputRow,
+  SqlSyncRules
+} from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
@@ -525,6 +531,38 @@ bucket_definitions:
       parameter_queries: false,
       errors: []
     });
+  });
+
+  test('date format', async () => {
+    const { db, client } = await connectMongoData();
+    const collection = db.collection('test_data');
+    try {
+      await setupTable(db);
+      await collection.insertOne({
+        fraction: new Date('2023-03-06 15:47:01.123+02'),
+        noFraction: new Date('2023-03-06 15:47:01+02')
+      });
+
+      const rawResults = await db
+        .collection('test_data')
+        .find({}, { sort: { _id: 1 } })
+        .toArray();
+      const [row] = [...ChangeStream.getQueryData(rawResults)];
+
+      const oldFormat = applyRowContext(row, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+      expect(oldFormat).toMatchObject({
+        fraction: '2023-03-06 13:47:01.123Z',
+        noFraction: '2023-03-06 13:47:01.000Z'
+      });
+
+      const newFormat = applyRowContext(row, new CompatibilityContext(CompatibilityLevel.SYNC_STREAMS));
+      expect(newFormat).toMatchObject({
+        fraction: '2023-03-06T13:47:01.123Z',
+        noFraction: '2023-03-06T13:47:01.000Z'
+      });
+    } finally {
+      await client.close();
+    }
   });
 });
 
