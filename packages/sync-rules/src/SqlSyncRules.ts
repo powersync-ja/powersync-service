@@ -20,6 +20,7 @@ import {
   QueryParseOptions,
   RequestParameters,
   SourceSchema,
+  SqliteInputRow,
   SqliteJsonRow,
   SqliteRow,
   StreamParseOptions,
@@ -28,6 +29,7 @@ import {
 import { BucketSource } from './BucketSource.js';
 import { SyncStream } from './streams/stream.js';
 import { syncStreamFromSql } from './streams/from_sql.js';
+import { CompatibilityContext, Quirk } from './quirks.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -138,6 +140,18 @@ export class SqlSyncRules implements SyncRules {
       return rules;
     }
 
+    const rawFixedQuirks = parsed.get('fixed_quirks') as YAMLSeq<Scalar> | null;
+    const fixedQuirks: Quirk[] = [];
+    if (rawFixedQuirks != null) {
+      for (const entry of rawFixedQuirks.items) {
+        const quirk = Quirk.byName[entry.value as string];
+        if (quirk != null) {
+          fixedQuirks.push(quirk);
+        }
+        // Note: We don't need a custom warning message for unknown names here, the schema will reject those values.
+      }
+    }
+
     // Bucket definitions using explicit parameter and data queries.
     const bucketMap = parsed.get('bucket_definitions') as YAMLMap;
     const streamMap = parsed.get('streams') as YAMLMap | null;
@@ -185,7 +199,7 @@ export class SqlSyncRules implements SyncRules {
       const parameters = value.get('parameters', true) as unknown;
       const dataQueries = value.get('data', true) as unknown;
 
-      const descriptor = new SqlBucketDescriptor(key);
+      const descriptor = new SqlBucketDescriptor(key, CompatibilityContext.ofFixedQuirks(fixedQuirks));
 
       if (parameters instanceof Scalar) {
         rules.withScalar(parameters, (q) => {
@@ -261,7 +275,7 @@ export class SqlSyncRules implements SyncRules {
         continue;
       }
 
-      const eventDescriptor = new SqlEventDescriptor(key.toString());
+      const eventDescriptor = new SqlEventDescriptor(key.toString(), CompatibilityContext.ofFixedQuirks(fixedQuirks));
       for (let item of payloads.items) {
         if (!isScalar(item)) {
           rules.errors.push(new YamlError(new Error(`Payload queries for events must be scalar.`)));
@@ -375,7 +389,7 @@ export class SqlSyncRules implements SyncRules {
   /**
    * Throws errors.
    */
-  evaluateParameterRow(table: SourceTableInterface, row: SqliteRow): EvaluatedParameters[] {
+  evaluateParameterRow(table: SourceTableInterface, row: SqliteInputRow): EvaluatedParameters[] {
     const { results, errors } = this.evaluateParameterRowWithErrors(table, row);
     if (errors.length > 0) {
       throw new Error(errors[0].error);
@@ -385,7 +399,7 @@ export class SqlSyncRules implements SyncRules {
 
   evaluateParameterRowWithErrors(
     table: SourceTableInterface,
-    row: SqliteRow
+    row: SqliteInputRow
   ): { results: EvaluatedParameters[]; errors: EvaluationError[] } {
     let rawResults: EvaluatedParametersResult[] = [];
     for (let source of this.bucketSources) {

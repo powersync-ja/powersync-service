@@ -5,6 +5,7 @@ import { DEFAULT_CERTS } from './certs.js';
 import * as pgwire from './pgwire.js';
 import { PgType } from './pgwire_types.js';
 import { ConnectOptions } from './socket_adapter.js';
+import { DatabaseInputValue, TimeValue } from '@powersync/service-sync-rules';
 
 // TODO this is duplicated, but maybe that is ok
 export interface NormalizedConnectionConfig {
@@ -132,7 +133,7 @@ export async function connectPgWire(
   return connection;
 }
 
-function _recvDataRow(this: any, _message: any, row: Uint8Array[], batch: any) {
+function _recvDataRow(this: any, _message: any, row: (Uint8Array | DatabaseInputValue)[], batch: any) {
   for (let i = 0; i < this._rowColumns.length; i++) {
     const valbuf = row[i];
     if (valbuf == null) {
@@ -232,7 +233,7 @@ export function lsnMakeComparable(text: string) {
  *
  * We have specific exceptions for -infinity and infinity.
  */
-export function timestamptzToSqlite(source?: string) {
+export function timestamptzToSqlite(source?: string): TimeValue | null {
   if (source == null) {
     return null;
   }
@@ -240,9 +241,9 @@ export function timestamptzToSqlite(source?: string) {
   const match = /^([\d\-]+) ([\d:]+)(\.\d+)?([+-][\d:]+)$/.exec(source);
   if (match == null) {
     if (source == 'infinity') {
-      return '9999-12-31 23:59:59Z';
+      return new TimeValue('9999-12-31 23:59:59Z', '9999-12-31T23:59:59Z');
     } else if (source == '-infinity') {
-      return '0000-01-01 00:00:00Z';
+      return new TimeValue('0000-01-01 00:00:00Z', '0000-01-01T00:00:00Z');
     } else {
       return null;
     }
@@ -256,9 +257,11 @@ export function timestamptzToSqlite(source?: string) {
   if (isNaN(parsed.getTime())) {
     return null;
   }
-  const text = parsed.toISOString().replace('T', ' ').replace('.000', '').replace('Z', '');
 
-  return `${text}${precision ?? ''}Z`;
+  const baseValue = parsed.toISOString().replace('.000', '').replace('Z', '');
+  const baseText = `${baseValue}${precision ?? ''}Z`;
+
+  return new TimeValue(baseText.replace('T', ' '), baseText);
 }
 
 /**
@@ -268,16 +271,16 @@ export function timestamptzToSqlite(source?: string) {
  *
  * https://www.postgresql.org/docs/current/datatype-datetime.html#DATATYPE-DATETIME-SPECIAL-VALUES
  */
-export function timestampToSqlite(source?: string) {
+export function timestampToSqlite(source?: string): TimeValue | null {
   if (source == null) {
     return null;
   }
   if (source == 'infinity') {
-    return '9999-12-31 23:59:59';
+    return new TimeValue('9999-12-31 23:59:59', '9999-12-31T23:59:59');
   } else if (source == '-infinity') {
-    return '0000-01-01 00:00:00';
+    return new TimeValue('0000-01-01 00:00:00', '0000-01-01T00:00:00');
   } else {
-    return source;
+    return new TimeValue(source, source.replace(' ', 'T'));
   }
 }
 /**

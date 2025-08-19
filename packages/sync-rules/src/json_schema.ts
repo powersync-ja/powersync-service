@@ -1,4 +1,5 @@
 import ajvModule from 'ajv';
+import { Quirk } from './quirks.js';
 // Hack to make this work both in NodeJS and a browser
 const Ajv = ajvModule.default ?? ajvModule;
 const ajv = new Ajv({ allErrors: true, verbose: true });
@@ -106,6 +107,13 @@ export const syncRulesSchema: ajvModule.Schema = {
             uniqueItems: true
           }
         }
+      }
+    },
+    fixed_quirks: {
+      type: 'array',
+      description: 'Opt-in to backwards-incompatible fixes of historical quirks and issues of the sync service.',
+      items: {
+        enum: Object.keys(Quirk.byName)
       }
     }
   },
