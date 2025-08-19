@@ -29,6 +29,10 @@ export class DateTimeValue extends CustomSqliteValue {
     return 'text';
   }
 
+  get sqliteType(): SqliteValueType {
+    return 'text';
+  }
+
   toSqliteValue(context: CompatibilityContext) {
     return context.isFixed(Quirk.nonIso8601Timestamps) ? this.iso8601Representation : this.legacyRepresentation;
   }
