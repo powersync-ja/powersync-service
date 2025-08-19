@@ -50,7 +50,7 @@ export class CompatibilityContext {
    */
   readonly explicitlyFixed: Quirk[];
 
-  constructor(level: CompatibilityLevel, explicitlyFixed: Quirk[]) {
+  constructor(level: CompatibilityLevel, explicitlyFixed: Quirk[] = []) {
     this.level = level;
     this.explicitlyFixed = explicitlyFixed;
   }

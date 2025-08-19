@@ -11,7 +11,7 @@ import {
   SqliteInputValue,
   SqliteRow,
   SqliteValue,
-  TimeValue
+  DateTimeValue
 } from '@powersync/service-sync-rules';
 
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
@@ -72,7 +72,7 @@ export function toMongoSyncRulesValue(data: any): SqliteInputValue {
     return data.toHexString();
   } else if (data instanceof Date) {
     const isoString = data.toISOString();
-    return new TimeValue(isoString);
+    return new DateTimeValue(isoString);
   } else if (data instanceof mongo.Binary) {
     return new Uint8Array(data.buffer);
   } else if (data instanceof mongo.Long) {
@@ -125,7 +125,7 @@ function filterJsonData(data: any, context: CompatibilityContext, depth = 0): an
     return data;
   } else if (data instanceof Date) {
     const isoString = data.toISOString();
-    return new TimeValue(isoString).toSqliteValue(context);
+    return new DateTimeValue(isoString).toSqliteValue(context);
   } else if (data instanceof mongo.ObjectId) {
     return data.toHexString();
   } else if (data instanceof mongo.UUID) {

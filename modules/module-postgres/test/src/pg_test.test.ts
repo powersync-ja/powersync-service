@@ -1,6 +1,12 @@
 import { constructAfterRecord } from '@module/utils/pgwire_utils.js';
 import * as pgwire from '@powersync/service-jpgwire';
-import { applyRowContext, CompatibilityContext, SqliteInputRow, TimeValue } from '@powersync/service-sync-rules';
+import {
+  applyRowContext,
+  CompatibilityContext,
+  SqliteInputRow,
+  DateTimeValue,
+  TimeValue
+} from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { clearTestDb, connectPgPool, connectPgWire, TEST_URI } from './util.js';
 import { WalStream } from '@module/replication/WalStream.js';
@@ -158,9 +164,9 @@ VALUES(10, ARRAY['null']::TEXT[]);
     expect(transformed[2]).toMatchObject({
       id: 3n,
       date: '2023-03-06',
-      time: '15:47:00',
-      timestamp: new TimeValue('2023-03-06T15:47:00'),
-      timestamptz: new TimeValue('2023-03-06T13:47:00Z')
+      time: new TimeValue('15:47:00'),
+      timestamp: new DateTimeValue('2023-03-06T15:47:00.000000', '2023-03-06 15:47:00'),
+      timestamptz: new DateTimeValue('2023-03-06T13:47:00.000000Z', '2023-03-06 13:47:00Z')
     });
 
     expect(transformed[3]).toMatchObject({
@@ -175,26 +181,26 @@ VALUES(10, ARRAY['null']::TEXT[]);
     expect(transformed[4]).toMatchObject({
       id: 5n,
       date: '0000-01-01',
-      time: '00:00:00',
-      timestamp: new TimeValue('0000-01-01T00:00:00'),
-      timestamptz: new TimeValue('0000-01-01T00:00:00Z')
+      time: new TimeValue('00:00:00'),
+      timestamp: new DateTimeValue('0000-01-01T00:00:00'),
+      timestamptz: new DateTimeValue('0000-01-01T00:00:00Z')
     });
 
     expect(transformed[5]).toMatchObject({
       id: 6n,
-      timestamp: new TimeValue('1970-01-01T00:00:00'),
-      timestamptz: new TimeValue('1970-01-01T00:00:00Z')
+      timestamp: new DateTimeValue('1970-01-01T00:00:00.000000', '1970-01-01 00:00:00'),
+      timestamptz: new DateTimeValue('1970-01-01T00:00:00.000000Z', '1970-01-01 00:00:00Z')
     });
 
     expect(transformed[6]).toMatchObject({
       id: 7n,
-      timestamp: new TimeValue('9999-12-31T23:59:59'),
-      timestamptz: new TimeValue('9999-12-31T23:59:59Z')
+      timestamp: new DateTimeValue('9999-12-31T23:59:59'),
+      timestamptz: new DateTimeValue('9999-12-31T23:59:59Z')
     });
 
     expect(transformed[7]).toMatchObject({
       id: 8n,
-      timestamptz: new TimeValue('0022-02-03T09:13:14Z')
+      timestamptz: new DateTimeValue('0022-02-03T09:13:14.000000Z', '0022-02-03 09:13:14Z')
     });
 
     expect(transformed[8]).toMatchObject({
