@@ -6,7 +6,6 @@ import { TablePattern } from './TablePattern.js';
 import { toSyncRulesParameters } from './utils.js';
 import { BucketPriority } from './BucketDescription.js';
 import { ParameterLookup } from './BucketParameterQuerier.js';
-import { DateTimeValue } from './types/time.js';
 import { CustomSqliteValue } from './types/custom_sqlite_value.js';
 import { CompatibilityContext, Quirk } from './quirks.js';
 
