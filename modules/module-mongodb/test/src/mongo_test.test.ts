@@ -1,5 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { SqliteRow, SqlSyncRules } from '@powersync/service-sync-rules';
+import { CustomSqliteType, SqliteInputRow, SqliteRow, SqlSyncRules, TimeValue } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
@@ -159,7 +159,7 @@ describe('mongo data types', () => {
 
     expect(transformed[2]).toMatchObject({
       _id: 3n,
-      date: '2023-03-06 13:47:00.000Z'
+      date: new TimeValue('2023-03-06 13:47:00.000Z', '2023-03-06T13:47:00.000Z')
     });
 
     expect(transformed[3]).toMatchObject({
@@ -211,7 +211,7 @@ describe('mongo data types', () => {
 
     expect(transformed[2]).toMatchObject({
       _id: 3n,
-      date: '["2023-03-06 13:47:00.000Z"]'
+      date: CustomSqliteType.wrapArray([new TimeValue('2023-03-06 13:47:00.000Z', '2023-03-06T13:47:00.000Z')])
     });
 
     expect(transformed[3]).toMatchObject({
@@ -528,7 +528,7 @@ bucket_definitions:
  * Return all the inserts from the first transaction in the replication stream.
  */
 async function getReplicationTx(replicationStream: mongo.ChangeStream, count: number) {
-  let transformed: SqliteRow[] = [];
+  let transformed: SqliteInputRow[] = [];
   for await (const doc of replicationStream) {
     // Specifically filter out map_input / map_output collections
     if (!(doc as any)?.ns?.coll?.startsWith('test_data')) {

@@ -6,6 +6,8 @@ export const TYPE_REAL = 8;
 
 export type SqliteType = 'null' | 'blob' | 'text' | 'integer' | 'real' | 'numeric';
 
+export type SqliteValueType = 'null' | 'blob' | 'text' | 'integer' | 'real';
+
 export interface ColumnDefinition {
   name: string;
   type: ExpressionType;
