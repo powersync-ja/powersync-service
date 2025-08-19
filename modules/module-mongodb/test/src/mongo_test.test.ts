@@ -5,8 +5,7 @@ import {
   CompatibilityEdition,
   SqliteInputRow,
   SqlSyncRules,
-  TimeValue,
-  CustomArray
+  TimeValue
 } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 
