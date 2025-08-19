@@ -69,7 +69,7 @@ export function isJsonValue(value: SqliteValue): value is SqliteJsonValue {
   return value == null || typeof value == 'string' || typeof value == 'number' || typeof value == 'bigint';
 }
 
-function filterJsonData(data: any, depth = 0): any {
+function filterJsonData(data: any, depth = 0): SqliteInputValue | undefined {
   if (depth > DEPTH_LIMIT) {
     // This is primarily to prevent infinite recursion
     // TODO: Proper error class
@@ -93,13 +93,13 @@ function filterJsonData(data: any, depth = 0): any {
     return undefined;
   } else if (data instanceof JsonContainer) {
     // Can be stringified directly when using our JSONBig implementation
-    return data;
+    return data as any;
   } else if (typeof data == 'object') {
     let record: Record<string, any> = {};
     for (let key of Object.keys(data)) {
       record[key] = filterJsonData(data[key], depth + 1);
     }
-    return record;
+    return record as any;
   } else {
     return undefined;
   }

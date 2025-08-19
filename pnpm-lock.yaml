@@ -113,6 +113,9 @@ importers:
       '@powersync/service-errors':
         specifier: workspace:*
         version: link:../../packages/service-errors
+      '@powersync/service-sync-rules':
+        specifier: workspace:*
+        version: link:../../packages/sync-rules
       ajv:
         specifier: ^8.12.0
         version: 8.16.0

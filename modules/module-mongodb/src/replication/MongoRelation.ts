@@ -3,6 +3,7 @@ import { storage } from '@powersync/service-core';
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import {
   CustomSqliteValue,
+  DatabaseInputValue,
   SqliteInputRow,
   SqliteInputValue,
   SqliteRow,
@@ -98,7 +99,7 @@ export function toMongoSyncRulesValue(data: any): SqliteInputValue {
 
 const DEPTH_LIMIT = 20;
 
-function filterJsonData(data: any, depth = 0): any {
+function filterJsonData(data: any, depth = 0): DatabaseInputValue | undefined {
   const autoBigNum = true;
   if (depth > DEPTH_LIMIT) {
     // This is primarily to prevent infinite recursion
