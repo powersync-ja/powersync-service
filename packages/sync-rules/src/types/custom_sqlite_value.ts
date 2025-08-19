@@ -24,21 +24,13 @@ export abstract class CustomSqliteValue {
   abstract toSqliteValue(context: CompatibilityContext): SqliteValue;
 
   abstract get sqliteType(): SqliteValueType;
-
-  static wrapArray(elements: (DatabaseInputValue | undefined)[]): SqliteInputValue {
-    const hasCustomValue = elements.some((v) => v instanceof CustomSqliteValue);
-    if (hasCustomValue) {
-      // We need access to the compatibility context before encoding contents as JSON.
-      return new CustomArray(elements);
-    } else {
-      // We can encode the array statically.
-      return JSONBig.stringify(elements);
-    }
-  }
 }
 
-class CustomArray extends CustomSqliteValue {
-  constructor(private readonly elements: (DatabaseInputValue | undefined)[]) {
+export class CustomArray extends CustomSqliteValue {
+  constructor(
+    private readonly elements: any[],
+    private readonly map: (element: any, context: CompatibilityContext) => void
+  ) {
     super();
   }
 
@@ -47,10 +39,27 @@ class CustomArray extends CustomSqliteValue {
   }
 
   toSqliteValue(context: CompatibilityContext): SqliteValue {
-    return JSONBig.stringify(
-      this.elements.map((element) => {
-        return element instanceof CustomSqliteValue ? element.toSqliteValue(context) : element;
-      })
-    );
+    return JSONBig.stringify(this.elements.map((element) => this.map(element, context)));
+  }
+}
+
+export class CustomObject extends CustomSqliteValue {
+  constructor(
+    private readonly source: Record<string, any>,
+    private readonly map: (element: any, context: CompatibilityContext) => void
+  ) {
+    super();
+  }
+
+  get sqliteType(): SqliteValueType {
+    return 'text';
+  }
+
+  toSqliteValue(context: CompatibilityContext): SqliteValue {
+    let record: Record<string, any> = {};
+    for (let key of Object.keys(this.source)) {
+      record[key] = this.map(this.source[key], context);
+    }
+    return JSONBig.stringify(record);
   }
 }
