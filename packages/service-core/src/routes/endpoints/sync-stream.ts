@@ -1,5 +1,4 @@
 import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
-import { RequestParameters } from '@powersync/service-sync-rules';
 import { Readable } from 'stream';
 import Negotiator from 'negotiator';
 
@@ -42,7 +41,7 @@ export const syncStreamed = routeDefinition({
       user_id: payload.context.user_id,
       bson: useBson
     };
-    const sdkData: event_types.SdkUserData & event_types.SdkConnectEventData = {
+    const sdkData: event_types.ConnectedUserData & event_types.ClientConnectionEventData = {
       client_id: clientId,
       user_id: payload.context.user_id!,
       user_agent: userAgent as string,
@@ -74,7 +73,7 @@ export const syncStreamed = routeDefinition({
     const tracker = new sync.RequestTracker(metricsEngine);
     try {
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(1);
-      service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_CONNECT_EVENT, sdkData);
+      service_context.eventsEngine.emit(event_types.EventsEngineEventType.SDK_CONNECT_EVENT, sdkData);
       const syncLines = sync.streamResponse({
         syncContext: syncContext,
         bucketStorage,
@@ -134,7 +133,7 @@ export const syncStreamed = routeDefinition({
           }
           controller.abort();
           metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
-          service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_DISCONNECT_EVENT, {
+          service_context.eventsEngine.emit(event_types.EventsEngineEventType.SDK_DISCONNECT_EVENT, {
             ...sdkData,
             disconnected_at: new Date()
           });
@@ -148,7 +147,7 @@ export const syncStreamed = routeDefinition({
     } catch (ex) {
       controller.abort();
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
-      service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_DISCONNECT_EVENT, {
+      service_context.eventsEngine.emit(event_types.EventsEngineEventType.SDK_DISCONNECT_EVENT, {
         ...sdkData,
         disconnected_at: new Date()
       });

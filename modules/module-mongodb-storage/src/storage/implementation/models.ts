@@ -221,4 +221,4 @@ export interface InstanceDocument {
   _id: string;
 }
 
-export interface SdkConnectEventDocument extends event_types.SdkConnection {}
+export interface ClientConnectionDocument extends event_types.ClientConnection {}

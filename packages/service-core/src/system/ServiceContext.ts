@@ -8,7 +8,7 @@ import * as routes from '../routes/routes-index.js';
 import * as storage from '../storage/storage-index.js';
 import { SyncContext } from '../sync/SyncContext.js';
 import * as utils from '../util/util-index.js';
-import { EventsEngine } from '../emitters/EventsEngine.js';
+import { EventsEngine } from '../events/EventsEngine.js';
 
 export interface ServiceContext {
   configuration: utils.ResolvedPowerSyncConfig;
@@ -20,7 +20,7 @@ export interface ServiceContext {
   migrations: PowerSyncMigrationManager;
   syncContext: SyncContext;
   serviceMode: ServiceContextMode;
-  emitterEngine: EventsEngine;
+  eventsEngine: EventsEngine;
 }
 
 export enum ServiceContextMode {
@@ -47,7 +47,7 @@ export class ServiceContextContainer implements ServiceContext {
   configuration: utils.ResolvedPowerSyncConfig;
   lifeCycleEngine: LifeCycledSystem;
   storageEngine: storage.StorageEngine;
-  emitterEngine: EventsEngine;
+  eventsEngine: EventsEngine;
   syncContext: SyncContext;
   routerEngine: routes.RouterEngine;
   serviceMode: ServiceContextMode;
@@ -69,8 +69,8 @@ export class ServiceContextContainer implements ServiceContext {
       }
     });
 
-    this.emitterEngine = new EventsEngine();
-    this.lifeCycleEngine.withLifecycle(this.emitterEngine, {
+    this.eventsEngine = new EventsEngine();
+    this.lifeCycleEngine.withLifecycle(this.eventsEngine, {
       stop: (emitterEngine) => emitterEngine.shutDown()
     });
 
@@ -98,7 +98,7 @@ export class ServiceContextContainer implements ServiceContext {
       start: () => migrationManager[Symbol.asyncDispose]()
     });
 
-    this.lifeCycleEngine.withLifecycle(this.emitterEngine, {
+    this.lifeCycleEngine.withLifecycle(this.eventsEngine, {
       stop: (emitterEngine) => emitterEngine.shutDown()
     });
   }

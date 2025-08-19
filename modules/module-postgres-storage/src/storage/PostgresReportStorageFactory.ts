@@ -4,14 +4,6 @@ import { event_types } from '@powersync/service-types';
 import { v4 } from 'uuid';
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { NormalizedPostgresStorageConfig } from '../types/types.js';
-import {
-  DeleteOldSdkData,
-  ListCurrentConnectionsRequest,
-  ScrapeSdkDataRequest,
-  SdkConnectBucketData,
-  SdkConnections,
-  SdkDisconnectEventData
-} from '@powersync/service-types/src/events.js';
 import { SdkReporting, SdkReportingDecoded } from '../types/models/SdkReporting.js';
 import { toInteger } from 'ix/util/tointeger.js';
 import { logger } from '@powersync/lib-services-framework';
@@ -50,7 +42,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
     };
   }
 
-  private mapListCurrentConnectionsResponse(result: SdkReportingDecoded | null): SdkConnections {
+  private mapListCurrentConnectionsResponse(result: SdkReportingDecoded | null): event_types.ClientConnectionReport {
     if (!result) {
       return {
         users: 0,
@@ -62,7 +54,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
       sdks: result.sdks?.data || []
     };
   }
-  private async listConnectionsQuery(data: event_types.ListCurrentConnectionsRequest) {
+  private async listConnectionsQuery(data: event_types.ClientConnectionsRequest) {
     const { range } = data;
     if (!range) {
       return this.db.sql`
@@ -169,7 +161,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
     };
   }
 
-  async reportSdkConnect(data: SdkConnectBucketData): Promise<void> {
+  async reportClientConnection(data: event_types.ClientConnectionBucketData): Promise<void> {
     const { sdk, connected_at, user_id, user_agent, jwt_exp, client_id } = data;
     const connectIsoString = connected_at.toISOString();
     const jwtExpIsoString = jwt_exp!.toISOString();
@@ -214,7 +206,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
       `.execute();
     }
   }
-  async reportSdkDisconnect(data: SdkDisconnectEventData): Promise<void> {
+  async reportClientDisconnection(data: event_types.ClientDisconnectionEventData): Promise<void> {
     const { user_id, client_id, disconnected_at, connected_at } = data;
     const disconnectIsoString = disconnected_at.toISOString();
     const connectIsoString = connected_at.toISOString();
@@ -229,12 +221,14 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
         AND connected_at = ${{ type: 1184, value: connectIsoString }}
     `.execute();
   }
-  async listCurrentConnections(data: ListCurrentConnectionsRequest): Promise<SdkConnections> {
+  async getConnectedClients(data: event_types.ClientConnectionsRequest): Promise<event_types.ClientConnectionReport> {
     const result = await this.listConnectionsQuery(data);
     return this.mapListCurrentConnectionsResponse(result);
   }
 
-  async scrapeSdkData(data: ScrapeSdkDataRequest): Promise<SdkConnections> {
+  async getClientConnectionReports(
+    data: event_types.ClientConnectionReportRequest
+  ): Promise<event_types.ClientConnectionReport> {
     const { start, end } = data;
     const result = await this.db.sql`
       WITH
@@ -281,7 +275,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
       .first();
     return this.mapListCurrentConnectionsResponse(result);
   }
-  async deleteOldSdkData(data: DeleteOldSdkData): Promise<void> {
+  async deleteOldConnectionData(data: event_types.DeleteOldConnectionData): Promise<void> {
     const { date } = data;
     const result = await this.db.sql`
       DELETE FROM sdk_report_events

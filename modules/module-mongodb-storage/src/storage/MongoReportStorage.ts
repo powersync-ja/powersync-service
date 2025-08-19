@@ -12,7 +12,7 @@ export class MongoReportStorage implements storage.ReportStorage {
     this.client = db.client;
     this.db = db;
   }
-  async deleteOldSdkData(data: event_types.DeleteOldSdkData): Promise<void> {
+  async deleteOldConnectionData(data: event_types.DeleteOldConnectionData): Promise<void> {
     const { date } = data;
     const result = await this.db.sdk_report_events.deleteMany({
       connected_at: { $lt: date },
@@ -28,23 +28,25 @@ export class MongoReportStorage implements storage.ReportStorage {
     }
   }
 
-  async scrapeSdkData(data: event_types.ScrapeSdkDataRequest): Promise<event_types.SdkConnections> {
+  async getClientConnectionReports(
+    data: event_types.ClientConnectionReportRequest
+  ): Promise<event_types.ClientConnectionReport> {
     const { start, end } = data;
     const result = await this.db.sdk_report_events
-      .aggregate<event_types.SdkConnections>([
+      .aggregate<event_types.ClientConnectionReport>([
         {
           $match: {
             connected_at: { $lte: end, $gte: start }
           }
         },
-        this.sdkFacetPipeline(),
-        this.sdkProjectPipeline()
+        this.connectionsFacetPipeline(),
+        this.connectionsProjectPipeline()
       ])
       .toArray();
     return result[0];
   }
 
-  async reportSdkConnect(data: event_types.SdkConnectBucketData): Promise<void> {
+  async reportClientConnection(data: event_types.ClientConnectionBucketData): Promise<void> {
     const updateFilter = this.updateDocFilter(data.user_id, data.client_id!);
     await this.db.sdk_report_events.findOneAndUpdate(
       updateFilter,
@@ -59,7 +61,7 @@ export class MongoReportStorage implements storage.ReportStorage {
       }
     );
   }
-  async reportSdkDisconnect(data: event_types.SdkDisconnectEventData): Promise<void> {
+  async reportClientDisconnection(data: event_types.ClientDisconnectionEventData): Promise<void> {
     const { connected_at, user_id, client_id } = data;
     await this.db.sdk_report_events.findOneAndUpdate(
       {
@@ -77,10 +79,10 @@ export class MongoReportStorage implements storage.ReportStorage {
       }
     );
   }
-  async listCurrentConnections(data: event_types.ListCurrentConnectionsRequest): Promise<event_types.SdkConnections> {
+  async getConnectedClients(data: event_types.ClientConnectionsRequest): Promise<event_types.ClientConnectionReport> {
     const timeframeFilter = this.listConnectionsDateRange(data);
     const result = await this.db.sdk_report_events
-      .aggregate<event_types.SdkConnections>([
+      .aggregate<event_types.ClientConnectionReport>([
         {
           $match: {
             disconnected_at: { $exists: false },
@@ -88,8 +90,8 @@ export class MongoReportStorage implements storage.ReportStorage {
             ...timeframeFilter
           }
         },
-        this.sdkFacetPipeline(),
-        this.sdkProjectPipeline()
+        this.connectionsFacetPipeline(),
+        this.connectionsProjectPipeline()
       ])
       .toArray();
     return result[0];
@@ -113,7 +115,7 @@ export class MongoReportStorage implements storage.ReportStorage {
     };
   }
 
-  private sdkFacetPipeline() {
+  private connectionsFacetPipeline() {
     return {
       $facet: {
         unique_users: [
@@ -153,7 +155,7 @@ export class MongoReportStorage implements storage.ReportStorage {
     };
   }
 
-  private sdkProjectPipeline() {
+  private connectionsProjectPipeline() {
     return {
       $project: {
         users: { $ifNull: [{ $arrayElemAt: ['$unique_users.count', 0] }, 0] },
@@ -176,7 +178,7 @@ export class MongoReportStorage implements storage.ReportStorage {
     };
   }
 
-  private listConnectionsDateRange(data: event_types.ListCurrentConnectionsRequest) {
+  private listConnectionsDateRange(data: event_types.ClientConnectionsRequest) {
     const { range } = data;
     if (!range) {
       return undefined;

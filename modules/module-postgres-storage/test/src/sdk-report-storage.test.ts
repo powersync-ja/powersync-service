@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { POSTGRES_REPORT_STORAGE_FACTORY } from './util.js';
 import { event_types } from '@powersync/service-types';
 
-function removeVolatileFields(sdks: event_types.SdkConnection[]): Partial<event_types.SdkConnection>[] {
+function removeVolatileFields(sdks: event_types.ClientConnection[]): Partial<event_types.ClientConnection>[] {
   return sdks.map((sdk) => {
     const { id, disconnected_at, connected_at, jwt_exp, ...rest } = sdk;
     return {
@@ -199,7 +199,7 @@ describe('SDK reporting storage', async () => {
     await deleteData();
   });
   it('Should show connected users with start range', async () => {
-    const current = await factory.listCurrentConnections({
+    const current = await factory.getConnectedClients({
       range: {
         start: new Date(
           now.getFullYear(),
@@ -213,7 +213,7 @@ describe('SDK reporting storage', async () => {
     expect(current).toMatchSnapshot();
   });
   it('Should show connected users with start range and end range', async () => {
-    const current = await factory.listCurrentConnections({
+    const current = await factory.getConnectedClients({
       range: {
         end: nowLess5minutes.toISOString(),
         start: new Date(
@@ -228,21 +228,21 @@ describe('SDK reporting storage', async () => {
     expect(current).toMatchSnapshot();
   });
   it('Should show SDK scrape data for user over the past month', async () => {
-    const sdk = await factory.scrapeSdkData({
+    const sdk = await factory.getClientConnectionReports({
       start: monthAgo,
       end: now
     });
     expect(sdk).toMatchSnapshot();
   });
   it('Should show SDK scrape data for user over the past week', async () => {
-    const sdk = await factory.scrapeSdkData({
+    const sdk = await factory.getClientConnectionReports({
       start: weekAgo,
       end: now
     });
     expect(sdk).toMatchSnapshot();
   });
   it('Should show SDK scrape data for user over the past day', async () => {
-    const sdk = await factory.scrapeSdkData({
+    const sdk = await factory.getClientConnectionReports({
       start: dayAgo,
       end: now
     });
@@ -258,7 +258,7 @@ describe('SDK reporting storage', async () => {
       now.getMinutes() + 20
     );
     const jwtExp = new Date(newConnectAt.getFullYear(), newConnectAt.getMonth(), newConnectAt.getDate() + 1);
-    await factory.reportSdkConnect({
+    await factory.reportClientConnection({
       sdk: user_one.sdk,
       connected_at: newConnectAt,
       jwt_exp: jwtExp,
@@ -268,7 +268,7 @@ describe('SDK reporting storage', async () => {
     });
 
     const sdk = await factory.db
-      .sql`SELECT * FROM sdk_report_events WHERE user_id = ${{ type: 'varchar', value: user_one.user_id }}`.rows<event_types.SdkConnection>();
+      .sql`SELECT * FROM sdk_report_events WHERE user_id = ${{ type: 'varchar', value: user_one.user_id }}`.rows<event_types.ClientConnection>();
     expect(sdk).toHaveLength(1);
     expect(new Date(sdk[0].connected_at).toISOString()).toEqual(newConnectAt.toISOString());
     expect(new Date(sdk[0].jwt_exp!).toISOString()).toEqual(jwtExp.toISOString());
@@ -287,7 +287,7 @@ describe('SDK reporting storage', async () => {
     );
     const jwtExp = new Date(disconnectAt.getFullYear(), disconnectAt.getMonth(), disconnectAt.getDate() + 1);
 
-    await factory.reportSdkDisconnect({
+    await factory.reportClientDisconnection({
       disconnected_at: disconnectAt,
       jwt_exp: jwtExp,
       client_id: user_three.client_id,
@@ -297,7 +297,7 @@ describe('SDK reporting storage', async () => {
     });
 
     const sdk = await factory.db
-      .sql`SELECT * FROM sdk_report_events WHERE user_id = ${{ type: 'varchar', value: user_three.user_id }}`.rows<event_types.SdkConnection>();
+      .sql`SELECT * FROM sdk_report_events WHERE user_id = ${{ type: 'varchar', value: user_three.user_id }}`.rows<event_types.ClientConnection>();
     expect(sdk).toHaveLength(1);
     expect(new Date(sdk[0].disconnected_at!).toISOString()).toEqual(disconnectAt.toISOString());
     const cleaned = removeVolatileFields(sdk);
@@ -308,7 +308,7 @@ describe('SDK reporting storage', async () => {
     const newConnectAt = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, now.getHours());
     const jwtExp = new Date(newConnectAt.getFullYear(), newConnectAt.getMonth(), newConnectAt.getDate() + 1);
 
-    await factory.reportSdkConnect({
+    await factory.reportClientConnection({
       sdk: user_week.sdk,
       connected_at: newConnectAt,
       jwt_exp: jwtExp,
@@ -318,7 +318,7 @@ describe('SDK reporting storage', async () => {
     });
 
     const sdk = await factory.db
-      .sql`SELECT * FROM sdk_report_events WHERE user_id = ${{ type: 'varchar', value: user_week.user_id }}`.rows<event_types.SdkConnection>();
+      .sql`SELECT * FROM sdk_report_events WHERE user_id = ${{ type: 'varchar', value: user_week.user_id }}`.rows<event_types.ClientConnection>();
     expect(sdk).toHaveLength(2);
     const cleaned = removeVolatileFields(sdk);
     expect(cleaned).toMatchSnapshot();
@@ -327,10 +327,10 @@ describe('SDK reporting storage', async () => {
   it('Should delete rows older than specified range', async () => {
     await deleteData();
     await loadData();
-    await factory.deleteOldSdkData({
+    await factory.deleteOldConnectionData({
       date: weekAgo
     });
-    const sdk = await factory.scrapeSdkData({
+    const sdk = await factory.getClientConnectionReports({
       start: monthAgo,
       end: now
     });

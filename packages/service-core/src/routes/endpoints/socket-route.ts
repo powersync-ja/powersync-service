@@ -1,5 +1,4 @@
 import { ErrorCode, errors, schema } from '@powersync/lib-services-framework';
-import { RequestParameters } from '@powersync/service-sync-rules';
 
 import * as sync from '../../sync/sync-index.js';
 import * as util from '../../util/util-index.js';
@@ -23,7 +22,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         user_agent: context.user_agent
       };
 
-      const sdkData: event_types.SdkUserData & event_types.SdkConnectEventData = {
+      const sdkData: event_types.ConnectedUserData & event_types.ClientConnectionEventData = {
         client_id: params.client_id,
         user_id: context.user_id!,
         user_agent: context.user_agent,
@@ -91,7 +90,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       });
 
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(1);
-      service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_CONNECT_EVENT, sdkData);
+      service_context.eventsEngine.emit(event_types.EventsEngineEventType.SDK_CONNECT_EVENT, sdkData);
       const tracker = new sync.RequestTracker(metricsEngine);
       try {
         for await (const data of sync.streamResponse({
@@ -165,7 +164,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
           close_reason: closeReason ?? 'unknown'
         });
         metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
-        service_context.emitterEngine.emit(event_types.EmitterEngineEvents.SDK_DISCONNECT_EVENT, {
+        service_context.eventsEngine.emit(event_types.EventsEngineEventType.SDK_DISCONNECT_EVENT, {
           ...sdkData,
           disconnected_at: new Date()
         });

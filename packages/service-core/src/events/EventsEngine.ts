@@ -4,7 +4,7 @@ import { event_types } from '@powersync/service-types';
 
 export class EventsEngine {
   private emitter: EventEmitter;
-  private events: Set<event_types.EmitterEngineEvents> = new Set();
+  private events: Set<event_types.EventsEngineEventType> = new Set();
   constructor() {
     this.emitter = new EventEmitter({ captureRejections: true });
     this.emitter.on('error', (error: Error) => {
@@ -12,18 +12,18 @@ export class EventsEngine {
     });
   }
 
-  subscribe<K extends event_types.EmitterEngineEvents>(event: event_types.EmitterEvent<K>): void {
+  subscribe<K extends event_types.EventsEngineEventType>(event: event_types.EmitterEvent<K>): void {
     if (!this.events.has(event.event)) {
       this.events.add(event.event);
     }
     this.emitter.on(event.event, event.handler.bind(event));
   }
 
-  get listEvents(): event_types.EmitterEngineEvents[] {
+  get listEvents(): event_types.EventsEngineEventType[] {
     return Array.from(this.events.values());
   }
 
-  countListeners(eventName: event_types.EmitterEngineEvents): number {
+  countListeners(eventName: event_types.EventsEngineEventType): number {
     return this.emitter.listenerCount(eventName);
   }
 
