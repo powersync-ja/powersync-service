@@ -123,10 +123,10 @@ export function toSyncRulesRow(row: DatabaseInputRow): SqliteInputRow {
  *
  * @param parameters Generic JSON input
  */
-export function toSyncRulesParameters(parameters: Record<string, any>): SqliteJsonRow {
+export function toSyncRulesParameters(parameters: Record<string, any>, context: CompatibilityContext): SqliteJsonRow {
   let record: SqliteJsonRow = {};
   for (let key of Object.keys(parameters)) {
-    record[key] = toSyncRulesValue(parameters[key], true, false) as SqliteJsonValue;
+    record[key] = applyValueContext(toSyncRulesValue(parameters[key], true, false), context) as SqliteJsonValue;
   }
   return record;
 }
