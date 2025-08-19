@@ -29,10 +29,6 @@ export class DateTimeValue extends CustomSqliteValue {
     return 'text';
   }
 
-  get sqliteType(): SqliteValueType {
-    return 'text';
-  }
-
   toSqliteValue(context: CompatibilityContext) {
     return context.isEnabled(CompatibilityOption.timestampsIso8601)
       ? this.iso8601Representation
