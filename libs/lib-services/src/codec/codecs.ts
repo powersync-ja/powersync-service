@@ -1,6 +1,6 @@
 import * as t from 'ts-codec';
 import * as bson from 'bson';
-import { TimeValue } from '@powersync/service-sync-rules';
+import { DateTimeValue } from '@powersync/service-sync-rules';
 
 export const buffer = t.codec<Buffer, string>(
   'Buffer',
@@ -13,7 +13,7 @@ export const buffer = t.codec<Buffer, string>(
   (buffer) => Buffer.from(buffer, 'base64')
 );
 
-export const date = t.codec<Date, string | TimeValue>(
+export const date = t.codec<Date, string | DateTimeValue>(
   'Date',
   (date) => {
     if (!(date instanceof Date)) {
@@ -24,7 +24,7 @@ export const date = t.codec<Date, string | TimeValue>(
   (date) => {
     // In our jpgwire wrapper, we patch the row decoding logic to map timestamps into TimeValue instances, so we need to
     // support those here.
-    const parsed = new Date(date instanceof TimeValue ? date.iso8601Representation : date);
+    const parsed = new Date(date instanceof DateTimeValue ? date.iso8601Representation : date);
     if (isNaN(parsed.getTime())) {
       throw new t.TransformError([`Invalid date`]);
     }

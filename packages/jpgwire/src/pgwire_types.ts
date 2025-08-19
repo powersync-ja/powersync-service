@@ -1,7 +1,7 @@
 // Adapted from https://github.com/kagis/pgwire/blob/0dc927f9f8990a903f238737326e53ba1c8d094f/mod.js#L2218
 
 import { JsonContainer } from '@powersync/service-jsonbig';
-import { type DatabaseInputValue } from '@powersync/service-sync-rules';
+import { TimeValue, type DatabaseInputValue } from '@powersync/service-sync-rules';
 import { dateToSqlite, lsnMakeComparable, timestampToSqlite, timestamptzToSqlite } from './util.js';
 
 export enum PgTypeOid {
@@ -19,6 +19,7 @@ export enum PgTypeOid {
   DATE = 1082,
   TIMESTAMP = 1114,
   TIMESTAMPTZ = 1184,
+  TIME = 1083,
   JSON = 114,
   JSONB = 3802,
   PG_LSN = 3220
@@ -131,6 +132,8 @@ export class PgType {
         return timestampToSqlite(text);
       case PgTypeOid.TIMESTAMPTZ:
         return timestamptzToSqlite(text);
+      case PgTypeOid.TIME:
+        return TimeValue.parse(text);
       case PgTypeOid.JSON:
       case PgTypeOid.JSONB:
         // Don't parse the contents
