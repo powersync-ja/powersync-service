@@ -16,7 +16,7 @@ export function maybeCompressResponseStream(
   negotiator: Negotiator,
   stream: Readable
 ): { stream: Readable; encodingHeaders: Record<string, string> } {
-  const encoding = (negotiator as any).encoding(['identity', 'gzip', 'zstd'], { preferred: 'identity' });
+  const encoding = (negotiator as any).encoding(['identity', 'gzip', 'zstd'], { preferred: 'zstd' });
   if (encoding == 'zstd') {
     return {
       stream: stream.pipe(
