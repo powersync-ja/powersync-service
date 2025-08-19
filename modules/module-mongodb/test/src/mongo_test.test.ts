@@ -4,7 +4,9 @@ import {
   CompatibilityContext,
   CompatibilityEdition,
   SqliteInputRow,
-  SqlSyncRules
+  SqlSyncRules,
+  TimeValue,
+  CustomArray
 } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 
@@ -167,7 +169,7 @@ describe('mongo data types', () => {
 
     expect(sqliteValue[2]).toMatchObject({
       _id: 3n,
-      date: '2023-03-06 13:47:00.000Z'
+      date: new TimeValue('2023-03-06 13:47:00.000Z', '2023-03-06T13:47:00.000Z')
     });
 
     expect(sqliteValue[3]).toMatchObject({
@@ -221,7 +223,7 @@ describe('mongo data types', () => {
 
     expect(sqliteValue[2]).toMatchObject({
       _id: 3n,
-      date: '["2023-03-06 13:47:00.000Z"]'
+      date: ['2023-03-06 13:47:00.000Z']
     });
 
     expect(sqliteValue[3]).toMatchObject({
