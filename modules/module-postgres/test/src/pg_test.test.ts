@@ -5,7 +5,8 @@ import {
   CompatibilityContext,
   SqliteInputRow,
   DateTimeValue,
-  TimeValue
+  TimeValue,
+  CompatibilityLevel
 } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { clearTestDb, connectPgPool, connectPgWire, TEST_URI } from './util.js';
@@ -435,6 +436,39 @@ VALUES(10, ARRAY['null']::TEXT[]);
     // TODO need a test for adapter
     // const schema = await api.getConnectionsSchema(db);
     // expect(schema).toMatchSnapshot();
+  });
+
+  test('date formats', async () => {
+    const db = await connectPgWire();
+    try {
+      await setupTable(db);
+
+      await db.query(`
+INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12', '2023-03-06 15:47:12.4', '2023-03-06 15:47+02');
+`);
+
+      const [row] = [
+        ...WalStream.getQueryData(
+          pgwire.pgwireRows(await db.query(`SELECT time, timestamp, timestamptz FROM test_data`))
+        )
+      ];
+
+      const oldFormat = applyRowContext(row, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+      expect(oldFormat).toMatchObject({
+        time: '17:42:01.12',
+        timestamp: '2023-03-06 15:47:12.4',
+        timestamptz: '2023-03-06 13:47:00Z'
+      });
+
+      const newFormat = applyRowContext(row, new CompatibilityContext(CompatibilityLevel.SYNC_STREAMS));
+      expect(newFormat).toMatchObject({
+        time: '17:42:01.120000',
+        timestamp: '2023-03-06T15:47:12.400000',
+        timestamptz: '2023-03-06T13:47:00.000000Z'
+      });
+    } finally {
+      await db.end();
+    }
   });
 });
 
