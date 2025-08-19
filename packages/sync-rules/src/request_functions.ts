@@ -1,5 +1,5 @@
 import { ExpressionType } from './ExpressionType.js';
-import { jsonExtract, jsonExtractFromRecord } from './sql_functions.js';
+import { jsonExtractFromRecord } from './sql_functions.js';
 import { ParameterValueSet, SqliteValue } from './types.js';
 
 export interface SqlParameterFunction {
