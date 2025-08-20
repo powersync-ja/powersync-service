@@ -89,7 +89,8 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      isEncodingAsBson: false
     });
 
     const lines = await consumeCheckpointLines(stream);
@@ -149,7 +150,8 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      isEncodingAsBson: false
     });
 
     const lines = await consumeCheckpointLines(stream);
@@ -211,7 +213,8 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      isEncodingAsBson: false
     });
 
     let sentCheckpoints = 0;
@@ -320,7 +323,8 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: 'user_one', exp: Date.now() / 1000 + 100000 } as any
+      token: { sub: 'user_one', exp: Date.now() / 1000 + 100000 } as any,
+      isEncodingAsBson: false
     });
 
     let sentCheckpoints = 0;
@@ -460,7 +464,8 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      isEncodingAsBson: false
     });
 
     let sentRows = 0;
@@ -575,7 +580,8 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 100000 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 100000 } as any,
+      isEncodingAsBson: false
     });
 
     const lines: any[] = [];
@@ -640,7 +646,8 @@ bucket_definitions:
         raw_data: false
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      isEncodingAsBson: false
     });
 
     const lines = await consumeCheckpointLines(stream);
@@ -668,7 +675,8 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: 0 } as any
+      token: { sub: '', exp: 0 } as any,
+      isEncodingAsBson: false
     });
 
     const lines = await consumeCheckpointLines(stream);
@@ -698,7 +706,8 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
     context.onTestFinished(() => {
@@ -771,7 +780,8 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: 'user1', exp: Date.now() / 1000 + 100 } as any
+      token: { sub: 'user1', exp: Date.now() / 1000 + 100 } as any,
+      isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
     context.onTestFinished(() => {
@@ -846,7 +856,8 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: 'user1', exp: Date.now() / 1000 + 100 } as any
+      token: { sub: 'user1', exp: Date.now() / 1000 + 100 } as any,
+      isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
     context.onTestFinished(() => {
@@ -912,7 +923,8 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: 'user1', exp: Date.now() / 1000 + 100 } as any
+      token: { sub: 'user1', exp: Date.now() / 1000 + 100 } as any,
+      isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
     context.onTestFinished(() => {
@@ -979,7 +991,8 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: exp } as any
+      token: { sub: '', exp: exp } as any,
+      isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
     context.onTestFinished(() => {
@@ -1041,7 +1054,8 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      isEncodingAsBson: false
     });
 
     const iter = stream[Symbol.asyncIterator]();
@@ -1166,7 +1180,8 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: 'test', exp: Date.now() / 1000 + 10 } as any
+      token: { sub: 'test', exp: Date.now() / 1000 + 10 } as any,
+      isEncodingAsBson: false
     };
     const stream1 = sync.streamResponse(params);
     const lines1 = await consumeCheckpointLines(stream1);
