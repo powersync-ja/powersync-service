@@ -1,5 +1,22 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`Connection report storage > Should create a connection event if its after a day 1`] = `
+[
+  {
+    "client_id": "client_week",
+    "sdk": "powersync-js/1.24.5",
+    "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
+    "user_id": "user_week",
+  },
+  {
+    "client_id": "client_week",
+    "sdk": "powersync-js/1.24.5",
+    "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
+    "user_id": "user_week",
+  },
+]
+`;
+
 exports[`Connection report storage > Should create a sdk event if its after a day 1`] = `
 [
   {
@@ -182,6 +199,28 @@ exports[`Connection report storage > Should update a connected sdk event and mak
     "sdk": "powersync-js/1.21.2",
     "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
     "user_id": "user_three",
+  },
+]
+`;
+
+exports[`Connection report storage > Should update a connection event and make it disconnected 1`] = `
+[
+  {
+    "client_id": "client_three",
+    "sdk": "powersync-js/1.21.2",
+    "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
+    "user_id": "user_three",
+  },
+]
+`;
+
+exports[`Connection report storage > Should update a connection event if its within a day 1`] = `
+[
+  {
+    "client_id": "client_one",
+    "sdk": "powersync-dart/1.6.4",
+    "user_agent": "powersync-dart/1.6.4 Dart (flutter-web) Chrome/128 android",
+    "user_id": "user_one",
   },
 ]
 `;
