@@ -39,7 +39,7 @@ exports[`sync - mongodb > compacting data - invalidate checkpoint 2`] = `
       "bucket": "mybucket[]",
       "data": [
         {
-          "checksum": -93886621n,
+          "checksum": -93886621,
           "op": "CLEAR",
           "op_id": "2",
         },
@@ -74,7 +74,7 @@ exports[`sync - mongodb > compacting data - invalidate checkpoint 2`] = `
       "bucket": "mybucket[]",
       "data": [
         {
-          "checksum": 1859363232n,
+          "checksum": 1859363232,
           "data": "{"id":"t1","description":"Test 1b"}",
           "object_id": "t1",
           "object_type": "test",
@@ -83,7 +83,7 @@ exports[`sync - mongodb > compacting data - invalidate checkpoint 2`] = `
           "subkey": "e5aa2ddc-1328-58fa-a000-0b5ed31eaf1a",
         },
         {
-          "checksum": 3028503153n,
+          "checksum": 3028503153,
           "data": "{"id":"t2","description":"Test 2b"}",
           "object_id": "t2",
           "object_type": "test",
@@ -203,6 +203,7 @@ exports[`sync - mongodb > sends checkpoint complete line for empty checkpoint 1`
       "next_after": "1",
     },
   },
+  null,
   {
     "checkpoint_complete": {
       "last_op_id": "1",
@@ -274,7 +275,7 @@ exports[`sync - mongodb > sync buckets in order 1`] = `
       "bucket": "b1[]",
       "data": [
         {
-          "checksum": 2912868539n,
+          "checksum": 2912868539,
           "data": "{"id":"earlier","description":"Test 2"}",
           "object_id": "earlier",
           "object_type": "test",
@@ -299,7 +300,7 @@ exports[`sync - mongodb > sync buckets in order 1`] = `
       "bucket": "b0[]",
       "data": [
         {
-          "checksum": 920318466n,
+          "checksum": 920318466,
           "data": "{"id":"t1","description":"Test 1"}",
           "object_id": "t1",
           "object_type": "test",
@@ -354,7 +355,7 @@ exports[`sync - mongodb > sync global data 1`] = `
       "bucket": "mybucket[]",
       "data": [
         {
-          "checksum": 920318466n,
+          "checksum": 920318466,
           "data": "{"id":"t1","description":"Test 1"}",
           "object_id": "t1",
           "object_type": "test",
@@ -363,7 +364,7 @@ exports[`sync - mongodb > sync global data 1`] = `
           "subkey": "e5aa2ddc-1328-58fa-a000-0b5ed31eaf1a",
         },
         {
-          "checksum": 3280762209n,
+          "checksum": 3280762209,
           "data": "{"id":"t2","description":"Test 2"}",
           "object_id": "t2",
           "object_type": "test",
@@ -702,7 +703,7 @@ exports[`sync - mongodb > sync updates to data query only 2`] = `
       "bucket": "by_user["user1"]",
       "data": [
         {
-          "checksum": 1418351250n,
+          "checksum": 1418351250,
           "data": "{"id":"list1","user_id":"user1","name":"User 1"}",
           "object_id": "list1",
           "object_type": "lists",
@@ -787,7 +788,7 @@ exports[`sync - mongodb > sync updates to global data 2`] = `
       "bucket": "mybucket[]",
       "data": [
         {
-          "checksum": 920318466n,
+          "checksum": 920318466,
           "data": "{"id":"t1","description":"Test 1"}",
           "object_id": "t1",
           "object_type": "test",
@@ -836,7 +837,7 @@ exports[`sync - mongodb > sync updates to global data 3`] = `
       "bucket": "mybucket[]",
       "data": [
         {
-          "checksum": 3280762209n,
+          "checksum": 3280762209,
           "data": "{"id":"t2","description":"Test 2"}",
           "object_id": "t2",
           "object_type": "test",
@@ -909,7 +910,7 @@ exports[`sync - mongodb > sync updates to parameter query + data 2`] = `
       "bucket": "by_user["user1"]",
       "data": [
         {
-          "checksum": 1418351250n,
+          "checksum": 1418351250,
           "data": "{"id":"list1","user_id":"user1","name":"User 1"}",
           "object_id": "list1",
           "object_type": "lists",
