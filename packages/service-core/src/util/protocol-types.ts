@@ -77,11 +77,6 @@ export const StreamingSyncRequest = t.object({
   raw_data: t.boolean.optional(),
 
   /**
-   * Data is received in a serialized BSON Buffer
-   */
-  binary_data: t.boolean.optional(),
-
-  /**
    * Client parameters to be passed to the sync rules.
    */
   parameters: t.record(t.any).optional(),

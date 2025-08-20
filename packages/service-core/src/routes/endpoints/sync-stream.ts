@@ -32,9 +32,9 @@ export const syncStreamed = routeDefinition({
     const clientId = payload.params.client_id;
     const streamStart = Date.now();
     // This falls back to JSON unless there's preference for the bson-stream in the Accept header.
-    const useBson =
-      payload.request.headers.accept &&
-      new Negotiator(payload.request).mediaType(supportedContentTypes) == concatenatedBsonContentType;
+    const useBson = payload.request.headers.accept
+      ? new Negotiator(payload.request).mediaType(supportedContentTypes) == concatenatedBsonContentType
+      : false;
 
     logger.defaultMeta = {
       ...logger.defaultMeta,
@@ -76,7 +76,8 @@ export const syncStreamed = routeDefinition({
         token: payload.context.token_payload!,
         tracker,
         signal: controller.signal,
-        logger
+        logger,
+        isEncodingAsBson: useBson
       });
 
       const byteContents = useBson ? sync.bsonLines(syncLines) : sync.ndjson(syncLines);

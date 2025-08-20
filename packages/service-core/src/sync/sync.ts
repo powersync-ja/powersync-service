@@ -27,6 +27,7 @@ export interface SyncStreamParameters {
   params: util.StreamingSyncRequest;
   token: auth.JwtPayload;
   logger?: Logger;
+  isEncodingAsBson: boolean;
   /**
    * If this signal is aborted, the stream response ends as soon as possible, without error.
    */
@@ -39,7 +40,17 @@ export interface SyncStreamParameters {
 export async function* streamResponse(
   options: SyncStreamParameters
 ): AsyncIterable<util.StreamingSyncLine | string | null> {
-  const { syncContext, bucketStorage, syncRules, params, token, tokenStreamOptions, tracker, signal } = options;
+  const {
+    syncContext,
+    bucketStorage,
+    syncRules,
+    params,
+    token,
+    tokenStreamOptions,
+    tracker,
+    signal,
+    isEncodingAsBson
+  } = options;
   const logger = options.logger ?? defaultLogger;
 
   // We also need to be able to abort, so we create our own controller.
@@ -65,7 +76,8 @@ export async function* streamResponse(
     token,
     tracker,
     controller.signal,
-    logger
+    logger,
+    isEncodingAsBson
   );
   // Merge the two streams, and abort as soon as one of the streams end.
   const merged = mergeAsyncIterables([stream, ki], controller.signal);
@@ -93,9 +105,10 @@ async function* streamResponseInner(
   tokenPayload: RequestJwtPayload,
   tracker: RequestTracker,
   signal: AbortSignal,
-  logger: Logger
+  logger: Logger,
+  isEncodingAsBson: boolean
 ): AsyncGenerator<util.StreamingSyncLine | string | null> {
-  const { raw_data, binary_data } = params;
+  const { raw_data } = params;
 
   const userId = tokenPayload.sub;
   const checkpointUserId = util.checkpointUserId(userId as string, params.client_id);
@@ -226,7 +239,7 @@ async function* streamResponseInner(
           bucketsToFetch: buckets,
           checkpointLine: line,
           raw_data,
-          binary_data,
+          binary_data: isEncodingAsBson,
           onRowsSent: markOperationsSent,
           abort_connection: signal,
           abort_batch: abortCheckpointSignal,
