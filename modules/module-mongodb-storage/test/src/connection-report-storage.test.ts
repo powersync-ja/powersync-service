@@ -96,7 +96,7 @@ describe('SDK reporting storage', async () => {
   };
 
   async function loadData() {
-    await factory.db.sdk_report_events.insertMany([
+    await factory.db.connection_report_events.insertMany([
       user_one,
       user_two,
       user_three,
@@ -108,7 +108,7 @@ describe('SDK reporting storage', async () => {
   }
 
   function deleteData() {
-    return factory.db.sdk_report_events.deleteMany();
+    return factory.db.connection_report_events.deleteMany();
   }
 
   beforeAll(async () => {
@@ -147,21 +147,21 @@ describe('SDK reporting storage', async () => {
     });
     expect(current).toMatchSnapshot();
   });
-  it('Should show SDK scrape data for user over the past month', async () => {
+  it('Should show connection report data for user over the past month', async () => {
     const sdk = await factory.getClientConnectionReports({
       start: monthAgo,
       end: now
     });
     expect(sdk).toMatchSnapshot();
   });
-  it('Should show SDK scrape data for user over the past week', async () => {
+  it('Should show connection report data for user over the past week', async () => {
     const sdk = await factory.getClientConnectionReports({
       start: weekAgo,
       end: now
     });
     expect(sdk).toMatchSnapshot();
   });
-  it('Should show SDK scrape data for user over the past day', async () => {
+  it('Should show connection report data for user over the past day', async () => {
     const sdk = await factory.getClientConnectionReports({
       start: dayAgo,
       end: now
@@ -169,7 +169,7 @@ describe('SDK reporting storage', async () => {
     expect(sdk).toMatchSnapshot();
   });
 
-  it('Should update a sdk event if its within a day', async () => {
+  it('Should update a connection report if its within a day', async () => {
     const newConnectAt = new Date(
       now.getFullYear(),
       now.getMonth(),
@@ -187,7 +187,7 @@ describe('SDK reporting storage', async () => {
       user_agent: user_one.user_agent
     });
 
-    const sdk = await factory.db.sdk_report_events.find({ user_id: user_one.user_id }).toArray();
+    const sdk = await factory.db.connection_report_events.find({ user_id: user_one.user_id }).toArray();
     expect(sdk).toHaveLength(1);
     expect(new Date(sdk[0].connected_at)).toEqual(newConnectAt);
     expect(new Date(sdk[0].jwt_exp!)).toEqual(jwtExp);
@@ -196,7 +196,7 @@ describe('SDK reporting storage', async () => {
     expect(cleaned).toMatchSnapshot();
   });
 
-  it('Should update a connected sdk event and make it disconnected', async () => {
+  it('Should update a connected connection report and make it disconnected', async () => {
     const disconnectAt = new Date(
       now.getFullYear(),
       now.getMonth(),
@@ -215,14 +215,14 @@ describe('SDK reporting storage', async () => {
       connected_at: user_three.connected_at
     });
 
-    const sdk = await factory.db.sdk_report_events.find({ user_id: user_three.user_id }).toArray();
+    const sdk = await factory.db.connection_report_events.find({ user_id: user_three.user_id }).toArray();
     expect(sdk).toHaveLength(1);
     expect(new Date(sdk[0].disconnected_at!)).toEqual(disconnectAt);
     const cleaned = removeVolatileFields(sdk);
     expect(cleaned).toMatchSnapshot();
   });
 
-  it('Should create a sdk event if its after a day', async () => {
+  it('Should create a connection report if its after a day', async () => {
     const newConnectAt = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, now.getHours());
     const jwtExp = new Date(newConnectAt.getFullYear(), newConnectAt.getMonth(), newConnectAt.getDate() + 1);
 
@@ -235,7 +235,7 @@ describe('SDK reporting storage', async () => {
       user_agent: user_week.user_agent
     });
 
-    const sdk = await factory.db.sdk_report_events.find({ user_id: user_week.user_id }).toArray();
+    const sdk = await factory.db.connection_report_events.find({ user_id: user_week.user_id }).toArray();
     expect(sdk).toHaveLength(2);
     const cleaned = removeVolatileFields(sdk);
     expect(cleaned).toMatchSnapshot();

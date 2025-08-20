@@ -38,7 +38,7 @@ export class PowerSyncMongo {
   readonly locks: mongo.Collection<lib_mongo.locks.Lock>;
   readonly bucket_state: mongo.Collection<BucketStateDocument>;
   readonly checkpoint_events: mongo.Collection<CheckpointEventDocument>;
-  readonly sdk_report_events: mongo.Collection<ClientConnectionDocument>;
+  readonly connection_report_events: mongo.Collection<ClientConnectionDocument>;
 
   readonly client: mongo.MongoClient;
   readonly db: mongo.Db;
@@ -63,7 +63,7 @@ export class PowerSyncMongo {
     this.locks = this.db.collection('locks');
     this.bucket_state = this.db.collection('bucket_state');
     this.checkpoint_events = this.db.collection('checkpoint_events');
-    this.sdk_report_events = this.db.collection('sdk_report_events');
+    this.connection_report_events = this.db.collection('connection_report_events');
   }
 
   /**
@@ -81,7 +81,7 @@ export class PowerSyncMongo {
     await this.locks.deleteMany({});
     await this.bucket_state.deleteMany({});
     await this.custom_write_checkpoints.deleteMany({});
-    await this.sdk_report_events.deleteMany({});
+    await this.connection_report_events.deleteMany({});
   }
 
   /**
@@ -135,15 +135,15 @@ export class PowerSyncMongo {
   /**
    * Only use in migrations and tests.
    */
-  async createSdkReportingCollection() {
+  async createConnectionReportingCollection() {
     const existingCollections = await this.db
-      .listCollections({ name: 'sdk_report_events' }, { nameOnly: false })
+      .listCollections({ name: 'connection_report_events' }, { nameOnly: false })
       .toArray();
     const collection = existingCollections[0];
     if (collection != null) {
       return;
     }
-    await this.db.createCollection('sdk_report_events');
+    await this.db.createCollection('connection_report_events');
   }
 }
 

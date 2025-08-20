@@ -11,7 +11,7 @@ export const MongoTestReportStorageFactoryGenerator = (factoryOptions: MongoTest
   return async (options?: TestStorageOptions) => {
     const db = connectMongoForTests(factoryOptions.url, factoryOptions.isCI);
 
-    await db.createSdkReportingCollection();
+    await db.createConnectionReportingCollection();
 
     if (!options?.doNotClear) {
       await db.clear();

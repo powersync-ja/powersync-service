@@ -63,7 +63,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
             SELECT
               *
             FROM
-              sdk_report_events
+              connection_report_events
             WHERE
               disconnected_at IS NULL
               AND jwt_exp > NOW()
@@ -111,7 +111,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
           SELECT
             *
           FROM
-            sdk_report_events
+            connection_report_events
           WHERE
             disconnected_at IS NULL
             AND jwt_exp > NOW()
@@ -168,7 +168,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
     const { gte, lt } = this.updateTableFilter();
     const uuid = v4();
     const result = await this.db.sql`
-      UPDATE sdk_report_events
+      UPDATE connection_report_events
       SET
         connected_at = ${{ type: 1184, value: connectIsoString }},
         sdk = ${{ type: 'varchar', value: sdk }},
@@ -184,7 +184,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
     if (result.results[1].status === 'UPDATE 0') {
       await this.db.sql`
         INSERT INTO
-          sdk_report_events (
+          connection_report_events (
             user_id,
             client_id,
             connected_at,
@@ -211,7 +211,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
     const disconnectIsoString = disconnected_at.toISOString();
     const connectIsoString = connected_at.toISOString();
     await this.db.sql`
-      UPDATE sdk_report_events
+      UPDATE connection_report_events
       SET
         disconnected_at = ${{ type: 1184, value: disconnectIsoString }},
         jwt_exp = NULL
@@ -236,7 +236,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
           SELECT
             *
           FROM
-            sdk_report_events
+            connection_report_events
           WHERE
             connected_at >= ${{ type: 1184, value: start.toISOString() }}
             AND connected_at <= ${{ type: 1184, value: end.toISOString() }}
@@ -278,7 +278,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
   async deleteOldConnectionData(data: event_types.DeleteOldConnectionData): Promise<void> {
     const { date } = data;
     const result = await this.db.sql`
-      DELETE FROM sdk_report_events
+      DELETE FROM connection_report_events
       WHERE
         connected_at < ${{ type: 1184, value: date.toISOString() }}
         AND (
@@ -292,7 +292,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
     const deletedRows = toInteger(result.results[1].status.split(' ')[1] || '0');
     if (deletedRows > 0) {
       logger.info(
-        `TTL from ${date.toISOString()}: ${deletedRows} PostgresSQL rows have been removed from sdk_report_events.`
+        `TTL from ${date.toISOString()}: ${deletedRows} PostgresSQL rows have been removed from connection_report_events.`
       );
     }
   }

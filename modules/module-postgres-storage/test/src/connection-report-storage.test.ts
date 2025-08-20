@@ -11,7 +11,7 @@ function removeVolatileFields(sdks: event_types.ClientConnection[]): Partial<eve
   });
 }
 
-describe('SDK reporting storage', async () => {
+describe('Connection report storage', async () => {
   const factory = await POSTGRES_REPORT_STORAGE_FACTORY();
   const now = new Date();
   const nowAdd5minutes = new Date(
@@ -103,7 +103,7 @@ describe('SDK reporting storage', async () => {
   async function loadData() {
     await factory.db.sql`
       INSERT INTO
-        sdk_report_events (
+        connection_report_events (
           user_id,
           client_id,
           connected_at,
@@ -188,7 +188,7 @@ describe('SDK reporting storage', async () => {
   }
 
   function deleteData() {
-    return factory.db.sql`TRUNCATE TABLE sdk_report_events`.execute();
+    return factory.db.sql`TRUNCATE TABLE connection_report_events`.execute();
   }
 
   beforeAll(async () => {
@@ -227,21 +227,21 @@ describe('SDK reporting storage', async () => {
     });
     expect(current).toMatchSnapshot();
   });
-  it('Should show SDK scrape data for user over the past month', async () => {
+  it('Should show connection report data for user over the past month', async () => {
     const sdk = await factory.getClientConnectionReports({
       start: monthAgo,
       end: now
     });
     expect(sdk).toMatchSnapshot();
   });
-  it('Should show SDK scrape data for user over the past week', async () => {
+  it('Should show connection report data for user over the past week', async () => {
     const sdk = await factory.getClientConnectionReports({
       start: weekAgo,
       end: now
     });
     expect(sdk).toMatchSnapshot();
   });
-  it('Should show SDK scrape data for user over the past day', async () => {
+  it('Should show connection report data for user over the past day', async () => {
     const sdk = await factory.getClientConnectionReports({
       start: dayAgo,
       end: now
@@ -249,7 +249,7 @@ describe('SDK reporting storage', async () => {
     expect(sdk).toMatchSnapshot();
   });
 
-  it('Should update a sdk event if its within a day', async () => {
+  it('Should update a connection event if its within a day', async () => {
     const newConnectAt = new Date(
       now.getFullYear(),
       now.getMonth(),
@@ -268,7 +268,7 @@ describe('SDK reporting storage', async () => {
     });
 
     const sdk = await factory.db
-      .sql`SELECT * FROM sdk_report_events WHERE user_id = ${{ type: 'varchar', value: user_one.user_id }}`.rows<event_types.ClientConnection>();
+      .sql`SELECT * FROM connection_report_events WHERE user_id = ${{ type: 'varchar', value: user_one.user_id }}`.rows<event_types.ClientConnection>();
     expect(sdk).toHaveLength(1);
     expect(new Date(sdk[0].connected_at).toISOString()).toEqual(newConnectAt.toISOString());
     expect(new Date(sdk[0].jwt_exp!).toISOString()).toEqual(jwtExp.toISOString());
@@ -277,7 +277,7 @@ describe('SDK reporting storage', async () => {
     expect(cleaned).toMatchSnapshot();
   });
 
-  it('Should update a connected sdk event and make it disconnected', async () => {
+  it('Should update a connection event and make it disconnected', async () => {
     const disconnectAt = new Date(
       now.getFullYear(),
       now.getMonth(),
@@ -297,14 +297,14 @@ describe('SDK reporting storage', async () => {
     });
 
     const sdk = await factory.db
-      .sql`SELECT * FROM sdk_report_events WHERE user_id = ${{ type: 'varchar', value: user_three.user_id }}`.rows<event_types.ClientConnection>();
+      .sql`SELECT * FROM connection_report_events WHERE user_id = ${{ type: 'varchar', value: user_three.user_id }}`.rows<event_types.ClientConnection>();
     expect(sdk).toHaveLength(1);
     expect(new Date(sdk[0].disconnected_at!).toISOString()).toEqual(disconnectAt.toISOString());
     const cleaned = removeVolatileFields(sdk);
     expect(cleaned).toMatchSnapshot();
   });
 
-  it('Should create a sdk event if its after a day', async () => {
+  it('Should create a connection event if its after a day', async () => {
     const newConnectAt = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, now.getHours());
     const jwtExp = new Date(newConnectAt.getFullYear(), newConnectAt.getMonth(), newConnectAt.getDate() + 1);
 
@@ -318,7 +318,7 @@ describe('SDK reporting storage', async () => {
     });
 
     const sdk = await factory.db
-      .sql`SELECT * FROM sdk_report_events WHERE user_id = ${{ type: 'varchar', value: user_week.user_id }}`.rows<event_types.ClientConnection>();
+      .sql`SELECT * FROM connection_report_events WHERE user_id = ${{ type: 'varchar', value: user_week.user_id }}`.rows<event_types.ClientConnection>();
     expect(sdk).toHaveLength(2);
     const cleaned = removeVolatileFields(sdk);
     expect(cleaned).toMatchSnapshot();

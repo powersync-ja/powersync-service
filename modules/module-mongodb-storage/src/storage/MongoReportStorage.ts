@@ -14,7 +14,7 @@ export class MongoReportStorage implements storage.ReportStorage {
   }
   async deleteOldConnectionData(data: event_types.DeleteOldConnectionData): Promise<void> {
     const { date } = data;
-    const result = await this.db.sdk_report_events.deleteMany({
+    const result = await this.db.connection_report_events.deleteMany({
       connected_at: { $lt: date },
       $or: [
         { disconnected_at: { $exists: true } },
@@ -23,7 +23,7 @@ export class MongoReportStorage implements storage.ReportStorage {
     });
     if (result.deletedCount > 0) {
       logger.info(
-        `TTL from ${date.toISOString()}: ${result.deletedCount} MongoDB documents have been removed from sdk_report_events.`
+        `TTL from ${date.toISOString()}: ${result.deletedCount} MongoDB documents have been removed from connection_report_events.`
       );
     }
   }
@@ -32,7 +32,7 @@ export class MongoReportStorage implements storage.ReportStorage {
     data: event_types.ClientConnectionReportRequest
   ): Promise<event_types.ClientConnectionReport> {
     const { start, end } = data;
-    const result = await this.db.sdk_report_events
+    const result = await this.db.connection_report_events
       .aggregate<event_types.ClientConnectionReport>([
         {
           $match: {
@@ -48,7 +48,7 @@ export class MongoReportStorage implements storage.ReportStorage {
 
   async reportClientConnection(data: event_types.ClientConnectionBucketData): Promise<void> {
     const updateFilter = this.updateDocFilter(data.user_id, data.client_id!);
-    await this.db.sdk_report_events.findOneAndUpdate(
+    await this.db.connection_report_events.findOneAndUpdate(
       updateFilter,
       {
         $set: data,
@@ -63,7 +63,7 @@ export class MongoReportStorage implements storage.ReportStorage {
   }
   async reportClientDisconnection(data: event_types.ClientDisconnectionEventData): Promise<void> {
     const { connected_at, user_id, client_id } = data;
-    await this.db.sdk_report_events.findOneAndUpdate(
+    await this.db.connection_report_events.findOneAndUpdate(
       {
         client_id,
         user_id,
@@ -81,7 +81,7 @@ export class MongoReportStorage implements storage.ReportStorage {
   }
   async getConnectedClients(data: event_types.ClientConnectionsRequest): Promise<event_types.ClientConnectionReport> {
     const timeframeFilter = this.listConnectionsDateRange(data);
-    const result = await this.db.sdk_report_events
+    const result = await this.db.connection_report_events
       .aggregate<event_types.ClientConnectionReport>([
         {
           $match: {
