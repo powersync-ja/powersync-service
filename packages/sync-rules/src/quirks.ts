@@ -20,7 +20,7 @@ export class Quirk {
     this.fixedIn = fixedIn;
   }
 
-  static nonIso8601Timestampts = new Quirk(
+  static nonIso8601Timestamps = new Quirk(
     'non_iso8601_timestamps',
     'Old versions of the sync service used to encode timestamps as `YYYY-MM-DD hh:mm:ss.sss`. With this quirk fixed, `YYYY-MM-DDThh:mm:ss.sssZ` is used instead.',
     CompatibilityLevel.SYNC_STREAMS
@@ -28,7 +28,7 @@ export class Quirk {
 
   static byName: Record<string, Quirk> = (() => {
     const byName: Record<string, Quirk> = {};
-    for (const entry of [this.nonIso8601Timestampts]) {
+    for (const entry of [this.nonIso8601Timestamps]) {
       byName[entry.name] = entry;
     }
 
