@@ -7,7 +7,8 @@ import {
   RequestParameters,
   SqliteJsonValue,
   SqliteRow,
-  SqliteValue
+  SqliteValue,
+  TableRow
 } from '../types.js';
 
 /**
@@ -31,7 +32,7 @@ export interface BucketParameter {
    * When a user connects, {@link StaticLookup.fromRequest} would return the user ID from the token. A matching bucket would
    * then contain the oplog data for assets with the matching `owner` column.
    */
-  filterRow(options: EvaluateRowOptions): SqliteJsonValue[];
+  filterRow(row: TableRow): SqliteJsonValue[];
 }
 
 export interface SubqueryEvaluator {

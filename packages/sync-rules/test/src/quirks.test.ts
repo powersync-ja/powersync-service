@@ -57,6 +57,29 @@ fixed_quirks:
         { bucket: 'mybucket[]', data: { description: '2025-08-19T09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
       ]);
     });
+
+    test('streams use new format by default', () => {
+      const rules = SqlSyncRules.fromYaml(
+        `
+streams:
+  stream:
+    query: SELECT id, description FROM assets
+    `,
+        PARSE_OPTIONS
+      );
+
+      expect(
+        rules.evaluateRow({
+          sourceTable: ASSETS,
+          record: {
+            id: 'id',
+            description: value
+          }
+        })
+      ).toStrictEqual([
+        { bucket: 'stream|0[]', data: { description: '2025-08-19T09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
+      ]);
+    });
   });
 
   test('warning for unknown quirk', () => {

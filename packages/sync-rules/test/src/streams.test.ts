@@ -11,6 +11,7 @@ import {
   SqliteJsonRow,
   SqliteRow,
   StaticSchema,
+  StreamParseOptions,
   SyncStream,
   syncStreamFromSql
 } from '../../src/index.js';
@@ -610,7 +611,11 @@ const schema = new StaticSchema([
   }
 ]);
 
-const options = { schema: schema, ...PARSE_OPTIONS };
+const options: StreamParseOptions = {
+  schema: schema,
+  ...PARSE_OPTIONS,
+  fixedQuirks: []
+};
 
 function evaluateBucketIds(stream: SyncStream, sourceTable: SourceTableInterface, record: SqliteRow) {
   return stream.evaluateRow({ sourceTable, record }).map((r) => {
