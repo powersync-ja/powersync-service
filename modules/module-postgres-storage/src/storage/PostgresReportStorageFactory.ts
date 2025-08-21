@@ -56,53 +56,8 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
   }
   private async listConnectionsQuery(data: event_types.ClientConnectionsRequest) {
     const { range } = data;
-    if (!range) {
-      return this.db.sql`
-        WITH
-          filtered AS (
-            SELECT
-              *
-            FROM
-              connection_report_events
-            WHERE
-              disconnected_at IS NULL
-              AND jwt_exp > NOW()
-          ),
-          unique_users AS (
-            SELECT
-              COUNT(DISTINCT user_id) AS count
-            FROM
-              filtered
-          ),
-          sdk_versions_array AS (
-            SELECT
-              sdk,
-              COUNT(DISTINCT client_id) AS clients,
-              COUNT(DISTINCT user_id) AS users
-            FROM
-              filtered
-            GROUP BY
-              sdk
-          )
-        SELECT
-          (
-            SELECT
-              COALESCE(count, 0)
-            FROM
-              unique_users
-          ) AS users,
-          (
-            SELECT
-              JSON_AGG(ROW_TO_JSON(s))
-            FROM
-              sdk_versions_array s
-          ) AS sdks;
-      `
-        .decoded(SdkReporting)
-        .first();
-    }
     const endDate = data.range?.end ? new Date(data.range.end) : new Date();
-    const startDate = new Date(range.start);
+    const startDate = !range ? new Date(0) : new Date(range.start);
     const lt = endDate.toISOString();
     const gt = startDate.toISOString();
     return await this.db.sql`
