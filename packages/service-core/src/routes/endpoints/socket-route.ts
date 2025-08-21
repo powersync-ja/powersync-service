@@ -88,7 +88,10 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         for await (const data of sync.streamResponse({
           syncContext: syncContext,
           bucketStorage: bucketStorage,
-          syncRules: syncRules,
+          syncRules: {
+            syncRules,
+            version: bucketStorage.group_id
+          },
           params: {
             ...params
           },

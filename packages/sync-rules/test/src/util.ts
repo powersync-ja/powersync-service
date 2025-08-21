@@ -1,5 +1,6 @@
 import {
   CompatibilityContext,
+  BucketIdTransformer,
   DEFAULT_TAG,
   GetQuerierOptions,
   RequestedStream,
@@ -68,12 +69,14 @@ export function normalizeTokenParameters(
 export function normalizeQuerierOptions(
   token_parameters: Record<string, any>,
   user_parameters?: Record<string, any>,
-  streams?: Record<string, RequestedStream[]>
+  streams?: Record<string, RequestedStream[]>,
+  bucketIdTransformer?: BucketIdTransformer
 ): GetQuerierOptions {
   const globalParameters = normalizeTokenParameters(token_parameters, user_parameters);
   return {
     globalParameters,
     hasDefaultStreams: true,
-    streams: streams ?? {}
+    streams: streams ?? {},
+    bucketIdTransformer: bucketIdTransformer ?? ((id) => id)
   };
 }

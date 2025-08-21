@@ -2,6 +2,7 @@ import { BucketInclusionReason, ResolvedBucket } from '../BucketDescription.js';
 import { BucketParameterQuerier, ParameterLookup } from '../BucketParameterQuerier.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import {
+  BucketIdTransformer,
   EvaluatedParametersResult,
   EvaluateRowOptions,
   RequestParameters,
@@ -117,7 +118,12 @@ export class StreamVariant {
     return this.requestFilters.some((f) => f.type == 'dynamic');
   }
 
-  querier(stream: SyncStream, reason: BucketInclusionReason, params: RequestParameters): BucketParameterQuerier | null {
+  querier(
+    stream: SyncStream,
+    reason: BucketInclusionReason,
+    params: RequestParameters,
+    bucketIdTransformer: BucketIdTransformer
+  ): BucketParameterQuerier | null {
     const instantiation = this.partiallyEvaluateParameters(params);
     if (instantiation == null) {
       return null;
@@ -153,7 +159,7 @@ export class StreamVariant {
       // When we have no dynamic parameters, the partial evaluation is a full instantiation.
       const instantiations = this.cartesianProductOfParameterInstantiations(instantiation as SqliteJsonValue[][]);
       for (const instantiation of instantiations) {
-        staticBuckets.push(this.resolveBucket(stream, instantiation, reason));
+        staticBuckets.push(this.resolveBucket(stream, instantiation, reason, bucketIdTransformer));
       }
     }
 
@@ -198,7 +204,7 @@ export class StreamVariant {
           perParameterInstantiation as SqliteJsonValue[][]
         );
 
-        return Promise.resolve(product.map((e) => variant.resolveBucket(stream, e, reason)));
+        return Promise.resolve(product.map((e) => variant.resolveBucket(stream, e, reason, bucketIdTransformer)));
       }
     };
   }
@@ -312,12 +318,13 @@ export class StreamVariant {
   private resolveBucket(
     stream: SyncStream,
     instantiation: SqliteJsonValue[],
-    reason: BucketInclusionReason
+    reason: BucketInclusionReason,
+    bucketIdTransformer: BucketIdTransformer
   ): ResolvedBucket {
     return {
       definition: stream.name,
       inclusion_reasons: [reason],
-      bucket: this.buildBucketId(stream.name, instantiation),
+      bucket: bucketIdTransformer(this.buildBucketId(stream.name, instantiation)),
       priority: stream.priority
     };
   }
