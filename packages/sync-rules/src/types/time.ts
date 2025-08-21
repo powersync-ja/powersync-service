@@ -30,7 +30,7 @@ export class DateTimeValue extends CustomSqliteValue {
   }
 
   toSqliteValue(context: CompatibilityContext) {
-    return context.isFixed(Quirk.nonIso8601Timestampts) ? this.iso8601Representation : this.legacyRepresentation;
+    return context.isFixed(Quirk.nonIso8601Timestamps) ? this.iso8601Representation : this.legacyRepresentation;
   }
 }
 
@@ -59,7 +59,7 @@ export class TimeValue extends CustomSqliteValue {
   }
 
   toSqliteValue(context: CompatibilityContext): SqliteValue {
-    if (context.isFixed(Quirk.nonIso8601Timestampts)) {
+    if (context.isFixed(Quirk.nonIso8601Timestamps)) {
       const fraction = this.fraction?.padEnd(7, '0') ?? '.000000';
       return `${this.timeSeconds}${fraction}`;
     } else {
