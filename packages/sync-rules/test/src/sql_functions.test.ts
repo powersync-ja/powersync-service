@@ -1,7 +1,15 @@
-import { SQL_FUNCTIONS_CALL, cast, jsonExtract } from '../../src/index.js';
+import {
+  cast,
+  CompatibilityContext,
+  generateSqlFunctions,
+  CompatibilityOption,
+  CompatibilityEdition
+} from '../../src/index.js';
 import { describe, expect, test } from 'vitest';
 
-const fn = SQL_FUNCTIONS_CALL;
+const compatibilityFunctions = generateSqlFunctions(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+const fn = compatibilityFunctions.callable;
+
 describe('SQL functions', () => {
   test('json extract', () => {
     expect(fn.json_extract(JSON.stringify({ foo: 'bar' }), '$.foo')).toEqual('bar');
@@ -19,6 +27,8 @@ describe('SQL functions', () => {
   });
 
   test('->>', () => {
+    const jsonExtract = compatibilityFunctions.jsonExtract;
+
     expect(jsonExtract(JSON.stringify({ foo: 'bar' }), '$.foo', '->>')).toEqual('bar');
     expect(jsonExtract(JSON.stringify({ foo: 42 }), '$.foo', '->>')).toEqual(42n);
     expect(jsonExtract(`{"foo": 42.0}`, '$.foo', '->>')).toEqual(42.0);
@@ -34,11 +44,14 @@ describe('SQL functions', () => {
   });
 
   test('->', () => {
+    const jsonExtract = compatibilityFunctions.jsonExtract;
+
     expect(jsonExtract(JSON.stringify({ foo: 'bar' }), '$.foo', '->')).toEqual('"bar"');
     expect(jsonExtract(JSON.stringify({ foo: 42 }), '$.foo', '->')).toEqual('42');
     expect(jsonExtract(`{"foo": 42.0}`, '$.foo', '->')).toEqual('42.0');
     expect(jsonExtract(JSON.stringify({ foo: 'bar' }), 'foo', '->')).toEqual('"bar"');
     expect(jsonExtract(JSON.stringify({ foo: 42 }), 'foo', '->')).toEqual('42');
+    expect(jsonExtract(JSON.stringify({ foo: 42 }), 'bar', '->')).toBeNull();
     expect(jsonExtract(`{"foo": 42.0}`, 'foo', '->')).toEqual('42.0');
     expect(jsonExtract(`{"foo": 42.0}`, '$', '->')).toEqual(`{"foo":42.0}`);
     expect(jsonExtract(`{"foo": true}`, '$.foo', '->')).toEqual('true');
@@ -46,6 +59,16 @@ describe('SQL functions', () => {
     expect(jsonExtract(`{"foo": null}`, '$.foo', '->')).toBeNull();
     // Matches SQLite
     expect(jsonExtract(`{}`, '$.foo', '->')).toBeNull();
+  });
+
+  test('fixed json extract', () => {
+    const { jsonExtract, callable } = generateSqlFunctions(new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS));
+
+    expect(callable.json_extract(`{"foo": null}`, '$.foo')).toBeNull();
+    expect(jsonExtract(`{"foo": null}`, '$.foo', '->>')).toBeNull();
+
+    expect(jsonExtract(`{"foo": null}`, '$.foo', '->')).toStrictEqual('null');
+    expect(jsonExtract(`{"foo": null}`, '$.bar', '->')).toBeNull();
   });
 
   test('json_array_length', () => {

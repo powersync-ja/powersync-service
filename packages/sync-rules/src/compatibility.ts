@@ -28,9 +28,16 @@ export class CompatibilityOption {
     CompatibilityEdition.SYNC_STREAMS
   );
 
+  static fixedJsonExtract = new CompatibilityOption(
+    'fixed_json_extract',
+    "Old versions of the sync service used to treat `->> 'foo.bar'` as a two-element JSON path. With this compatibility option enabled, it follows modern SQLite and treats it as a single key. The `$.` prefix would be required to split on `.`.",
+    CompatibilityEdition.SYNC_STREAMS
+  );
+
   static byName: Record<string, CompatibilityOption> = Object.freeze({
     timestamps_iso8601: this.timestampsIso8601,
-    versioned_bucket_ids: this.versionedBucketIds
+    versioned_bucket_ids: this.versionedBucketIds,
+    fixed_json_extract: this.fixedJsonExtract
   });
 }
 

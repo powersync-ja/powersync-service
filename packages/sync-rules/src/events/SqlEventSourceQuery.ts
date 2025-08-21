@@ -10,6 +10,7 @@ import { TablePattern } from '../TablePattern.js';
 import { TableQuerySchema } from '../TableQuerySchema.js';
 import { EvaluationError, QuerySchema, SqliteJsonRow, SqliteRow } from '../types.js';
 import { isSelectStatement } from '../utils.js';
+import { CompatibilityContext } from '../compatibility.js';
 
 export type EvaluatedEventSourceRow = {
   data: SqliteJsonRow;
@@ -24,7 +25,7 @@ export type EvaluatedEventRowWithErrors = {
  * Defines how a Replicated Row is mapped to source parameters for events.
  */
 export class SqlEventSourceQuery extends BaseSqlDataQuery {
-  static fromSql(descriptor_name: string, sql: string, options: SyncRulesOptions) {
+  static fromSql(descriptor_name: string, sql: string, options: SyncRulesOptions, compatibility: CompatibilityContext) {
     const parsed = parse(sql, { locationTracking: true });
     const schema = options.schema;
 
@@ -73,7 +74,8 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
       parameterTables: [],
       valueTables: [alias],
       sql,
-      schema: querySchema
+      schema: querySchema,
+      compatibilityContext: compatibility
     });
 
     let extractors: RowValueExtractor[] = [];
