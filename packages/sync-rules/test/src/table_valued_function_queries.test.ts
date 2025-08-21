@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { RequestParameters, SqlParameterQuery } from '../../src/index.js';
+import { Quirk, RequestParameters, SqlParameterQuery } from '../../src/index.js';
 import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
 import { PARSE_OPTIONS } from './util.js';
 
@@ -18,10 +18,34 @@ describe('table-valued function queries', () => {
     expect(query.errors).toEqual([]);
     expect(query.bucketParameters).toEqual(['v']);
 
-    expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }))).toEqual([
+    expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3, null] }))).toEqual([
       { bucket: 'mybucket[1]', priority: 3 },
       { bucket: 'mybucket[2]', priority: 3 },
-      { bucket: 'mybucket[3]', priority: 3 }
+      { bucket: 'mybucket[3]', priority: 3 },
+      { bucket: 'mybucket["null"]', priority: 3 }
+    ]);
+  });
+
+  test('json_each(array param), fixed json', function () {
+    const sql = "SELECT json_each.value as v FROM json_each(request.parameters() -> 'array')";
+    const query = SqlParameterQuery.fromSql(
+      'mybucket',
+      sql,
+      {
+        ...PARSE_OPTIONS,
+        accept_potentially_dangerous_queries: true,
+        fixedQuirks: [Quirk.legacyJsonExtract]
+      },
+      '1'
+    ) as StaticSqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    expect(query.bucketParameters).toEqual(['v']);
+
+    expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3, null] }))).toEqual([
+      { bucket: 'mybucket[1]', priority: 3 },
+      { bucket: 'mybucket[2]', priority: 3 },
+      { bucket: 'mybucket[3]', priority: 3 },
+      { bucket: 'mybucket[null]', priority: 3 }
     ]);
   });
 
