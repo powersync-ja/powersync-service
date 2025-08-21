@@ -51,18 +51,6 @@ export const down: migrations.PowerSyncMigrationFunction = async (context) => {
   const db = storage.createPowerSyncMongo(configuration.storage as MongoStorageConfig);
 
   try {
-    if (await db.connection_report_events.indexExists('connection_list_index')) {
-      await db.connection_report_events.dropIndex('connection_list_index');
-    }
-    if (await db.connection_report_events.indexExists('connection_user_id_index')) {
-      await db.connection_report_events.dropIndex('connection_user_id_index');
-    }
-    if (await db.connection_report_events.indexExists('connection_client_id_index')) {
-      await db.connection_report_events.dropIndex('connection_client_id_index');
-    }
-    if (await db.connection_report_events.indexExists('connection_index')) {
-      await db.connection_report_events.dropIndex('connection_index');
-    }
     await db.db.dropCollection('connection_report_events');
   } finally {
     await db.client.close();
