@@ -45,6 +45,7 @@ const replicationMutex = new utils.Mutex();
 export interface MongoBucketBatchOptions {
   db: PowerSyncMongo;
   syncRules: SqlSyncRules;
+  syncRulesId: string;
   groupId: number;
   slotName: string;
   lastCheckpointLsn: string | null;
@@ -72,6 +73,7 @@ export class MongoBucketBatch
   public readonly db: PowerSyncMongo;
   public readonly session: mongo.ClientSession;
   private readonly sync_rules: SqlSyncRules;
+  private readonly syncRulesId: string;
 
   private readonly group_id: number;
 
@@ -127,6 +129,7 @@ export class MongoBucketBatch
     this.session = this.client.startSession();
     this.slot_name = options.slotName;
     this.sync_rules = options.syncRules;
+    this.syncRulesId = options.syncRulesId;
     this.storeCurrentData = options.storeCurrentData;
     this.skipExistingRows = options.skipExistingRows;
     this.markRecordUnavailable = options.markRecordUnavailable;
@@ -461,7 +464,8 @@ export class MongoBucketBatch
       if (sourceTable.syncData) {
         const { results: evaluated, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
           record: after,
-          sourceTable
+          sourceTable,
+          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(this.syncRulesId)
         });
 
         for (let error of syncErrors) {

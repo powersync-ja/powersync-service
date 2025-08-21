@@ -104,7 +104,17 @@ export class SqlBucketDescriptor implements BucketSource {
         continue;
       }
 
-      results.push(...query.evaluateRow(options.sourceTable, applyRowContext(options.record, this.compatibility)));
+      const bucketIdTransformer = this.compatibility.isFixed(Quirk.versionedBucketIds)
+        ? options.bucketIdTransformer
+        : null;
+
+      results.push(
+        ...query.evaluateRow(
+          options.sourceTable,
+          applyRowContext(options.record, this.compatibility),
+          bucketIdTransformer
+        )
+      );
     }
     return results;
   }

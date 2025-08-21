@@ -13,6 +13,8 @@ import {
 import { SqlBucketDescriptor } from '../../src/SqlBucketDescriptor.js';
 
 describe('sync rules', () => {
+  const bucketIdTransformer = SqlSyncRules.versionedBucketIdTransformer('');
+
   test('parse empty sync rules', () => {
     const rules = SqlSyncRules.fromYaml('bucket_definitions: {}', PARSE_OPTIONS);
     expect(rules.bucketSources).toEqual([]);
@@ -34,7 +36,13 @@ bucket_definitions:
     const dataQuery = bucket.dataQueries[0];
     expect(dataQuery.bucketParameters).toEqual([]);
     expect(dataQuery.columnOutputNames()).toEqual(['id', 'description']);
-    expect(rules.evaluateRow({ sourceTable: ASSETS, record: { id: 'asset1', description: 'test' } })).toEqual([
+    expect(
+      rules.evaluateRow({
+        sourceTable: ASSETS,
+        bucketIdTransformer,
+        record: { id: 'asset1', description: 'test' }
+      })
+    ).toEqual([
       {
         table: 'assets',
         id: 'asset1',
@@ -134,6 +142,7 @@ bucket_definitions:
     expect(
       rules.evaluateRow({
         sourceTable: ASSETS,
+        bucketIdTransformer,
         record: { id: 'asset1', description: 'test', user_id: 'user1', device_id: 'device1' }
       })
     ).toEqual([
@@ -150,6 +159,7 @@ bucket_definitions:
     expect(
       rules.evaluateRow({
         sourceTable: ASSETS,
+        bucketIdTransformer,
         record: { id: 'asset1', description: 'test', user_id: 'user1', archived: 1, device_id: 'device1' }
       })
     ).toEqual([]);
@@ -179,6 +189,7 @@ bucket_definitions:
     expect(
       rules.evaluateRow({
         sourceTable: ASSETS,
+        bucketIdTransformer,
         record: { id: 'asset1', description: 'test', user_id: 'user1' }
       })
     ).toEqual([
@@ -195,6 +206,7 @@ bucket_definitions:
     expect(
       rules.evaluateRow({
         sourceTable: ASSETS,
+        bucketIdTransformer,
         record: { id: 'asset1', description: 'test', owner_id: 'user1' }
       })
     ).toEqual([
@@ -320,6 +332,7 @@ bucket_definitions:
     expect(
       rules.evaluateRow({
         sourceTable: ASSETS,
+        bucketIdTransformer,
         record: { id: 'asset1', description: 'test', user_id: 'user1' }
       })
     ).toEqual([
@@ -357,6 +370,7 @@ bucket_definitions:
     expect(
       rules.evaluateRow({
         sourceTable: ASSETS,
+        bucketIdTransformer,
         record: { id: 'asset1', description: 'test', user_id: 'user1' }
       })
     ).toEqual([
@@ -385,6 +399,7 @@ bucket_definitions:
     expect(
       rules.evaluateRow({
         sourceTable: ASSETS,
+        bucketIdTransformer,
         record: { id: 'asset1', data: JSON.stringify({ count: 5, bool: true }) }
       })
     ).toEqual([
@@ -419,6 +434,7 @@ bucket_definitions:
     expect(
       rules.evaluateRow({
         sourceTable: ASSETS,
+        bucketIdTransformer,
         record: {
           id: 'asset1',
           description: 'test',
@@ -461,7 +477,11 @@ bucket_definitions:
     );
 
     expect(
-      rules.evaluateRow({ sourceTable: ASSETS, record: { id: 'asset1', description: 'test', role: 'admin' } })
+      rules.evaluateRow({
+        sourceTable: ASSETS,
+        bucketIdTransformer,
+        record: { id: 'asset1', description: 'test', role: 'admin' }
+      })
     ).toEqual([
       {
         bucket: 'mybucket[1]',
@@ -477,7 +497,11 @@ bucket_definitions:
     ]);
 
     expect(
-      rules.evaluateRow({ sourceTable: ASSETS, record: { id: 'asset2', description: 'test', role: 'normal' } })
+      rules.evaluateRow({
+        sourceTable: ASSETS,
+        bucketIdTransformer,
+        record: { id: 'asset2', description: 'test', role: 'normal' }
+      })
     ).toEqual([
       {
         bucket: 'mybucket[1]',
@@ -530,7 +554,7 @@ bucket_definitions:
       PARSE_OPTIONS
     );
 
-    expect(rules.evaluateRow({ sourceTable: ASSETS, record: { id: 'asset1' } })).toEqual([
+    expect(rules.evaluateRow({ sourceTable: ASSETS, bucketIdTransformer, record: { id: 'asset1' } })).toEqual([
       {
         bucket: 'mybucket[]',
         id: 'asset1',
@@ -561,7 +585,11 @@ bucket_definitions:
     ).toMatchObject({ staticBuckets: [{ bucket: 'mybucket[314,3.14,314]', priority: 3 }] });
 
     expect(
-      rules.evaluateRow({ sourceTable: ASSETS, record: { id: 'asset1', int1: 314n, float1: 3.14, float2: 314 } })
+      rules.evaluateRow({
+        sourceTable: ASSETS,
+        bucketIdTransformer,
+        record: { id: 'asset1', int1: 314n, float1: 3.14, float2: 314 }
+      })
     ).toEqual([
       {
         bucket: 'mybucket[314,3.14,314]',
@@ -606,6 +634,7 @@ bucket_definitions:
     expect(
       rules.evaluateRow({
         sourceTable: new TestSourceTable('assets_123'),
+        bucketIdTransformer,
         record: { client_id: 'asset1', description: 'test', archived: 0n, other_id: 'other1' }
       })
     ).toEqual([
@@ -646,6 +675,7 @@ bucket_definitions:
     expect(
       rules.evaluateRow({
         sourceTable: new TestSourceTable('assets_123'),
+        bucketIdTransformer,
         record: { client_id: 'asset1', description: 'test', archived: 0n, other_id: 'other1' }
       })
     ).toEqual([
@@ -679,6 +709,7 @@ bucket_definitions:
     expect(
       rules.evaluateRow({
         sourceTable: ASSETS,
+        bucketIdTransformer,
         record: { id: 'asset1', description: 'test', archived: 0n }
       })
     ).toEqual([
@@ -714,6 +745,7 @@ bucket_definitions:
     expect(
       rules.evaluateRow({
         sourceTable: ASSETS,
+        bucketIdTransformer,
         record: { id: 'asset1' }
       })
     ).toEqual([

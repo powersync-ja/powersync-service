@@ -494,4 +494,8 @@ export class SqlSyncRules implements SyncRules {
       }
     }
   }
+
+  static versionedBucketIdTransformer(version: string) {
+    return (bucketId: string) => `${version}#${bucketId}`;
+  }
 }
