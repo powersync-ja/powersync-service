@@ -8,6 +8,7 @@ import { SourceTableInterface } from './SourceTableInterface.js';
 import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js';
 import { TablePattern } from './TablePattern.js';
 import {
+  BucketIdTransformer,
   EvaluatedParameters,
   EvaluatedParametersResult,
   EvaluatedRow,
@@ -59,6 +60,13 @@ export interface RequestedStream {
 }
 
 export interface GetQuerierOptions {
+  /**
+   * A bucket id transformer, compatible to the one used when evaluating rows.
+   *
+   * Typically, this transformer only depends on the sync rule id (which is known to both the bucket storage
+   * implementation responsible for evaluating rows and the sync endpoint).
+   */
+  bucketIdTransformer: BucketIdTransformer;
   globalParameters: RequestParameters;
   /**
    * Whether the client is subscribing to default query streams.

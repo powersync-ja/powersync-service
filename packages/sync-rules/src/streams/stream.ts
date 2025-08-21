@@ -8,6 +8,7 @@ import { SourceTableInterface } from '../SourceTableInterface.js';
 import { GetQuerierOptions, RequestedStream } from '../SqlSyncRules.js';
 import { TablePattern } from '../TablePattern.js';
 import {
+  BucketIdTransformer,
   EvaluatedParametersResult,
   EvaluateRowOptions,
   EvaluationResult,
@@ -59,27 +60,28 @@ export class SyncStream implements BucketSource {
         hasExplicitDefaultSubscription = true;
       }
 
-      this.queriersForSubscription(result, subscription, subscriptionParams);
+      this.queriersForSubscription(result, subscription, subscriptionParams, options.bucketIdTransformer);
     }
 
     // If the stream is subscribed to by default and there is no explicit subscription that would match the default
     // subscription, also include the default querier.
     if (this.subscribedToByDefault && !hasExplicitDefaultSubscription) {
-      this.queriersForSubscription(result, null, options.globalParameters);
+      this.queriersForSubscription(result, null, options.globalParameters, options.bucketIdTransformer);
     }
   }
 
   private queriersForSubscription(
     result: PendingQueriers,
     subscription: RequestedStream | null,
-    params: RequestParameters
+    params: RequestParameters,
+    bucketIdTransformer: BucketIdTransformer
   ) {
     const reason: BucketInclusionReason = subscription != null ? { subscription: subscription.opaque_id } : 'default';
     const queriers: BucketParameterQuerier[] = [];
 
     try {
       for (const variant of this.variants) {
-        const querier = variant.querier(this, reason, params);
+        const querier = variant.querier(this, reason, params, bucketIdTransformer);
         if (querier) {
           queriers.push(querier);
         }

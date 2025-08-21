@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { ExpressionType, SqlDataQuery } from '../../src/index.js';
+import { ExpressionType, SqlDataQuery, SqlSyncRules } from '../../src/index.js';
 import { ASSETS, BASIC_SCHEMA, PARSE_OPTIONS } from './util.js';
 
 describe('data queries', () => {
