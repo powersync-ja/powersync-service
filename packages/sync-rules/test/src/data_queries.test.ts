@@ -8,7 +8,7 @@ describe('data queries', () => {
     const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql, PARSE_OPTIONS);
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: 'org1' })).toEqual([
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: 'org1' }, null)).toEqual([
       {
         bucket: 'mybucket["org1"]',
         table: 'assets',
@@ -17,7 +17,7 @@ describe('data queries', () => {
       }
     ]);
 
-    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: null })).toEqual([]);
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: null }, null)).toEqual([]);
   });
 
   test('bucket parameters IN query', function () {
@@ -25,7 +25,9 @@ describe('data queries', () => {
     const query = SqlDataQuery.fromSql('mybucket', ['category'], sql, PARSE_OPTIONS);
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateRow(ASSETS, { id: 'asset1', categories: JSON.stringify(['red', 'green']) })).toMatchObject([
+    expect(
+      query.evaluateRow(ASSETS, { id: 'asset1', categories: JSON.stringify(['red', 'green']) }, null)
+    ).toMatchObject([
       {
         bucket: 'mybucket["red"]',
         table: 'assets',
@@ -38,7 +40,7 @@ describe('data queries', () => {
       }
     ]);
 
-    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: null })).toEqual([]);
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: null }, null)).toEqual([]);
   });
 
   test('static IN data query', function () {
@@ -46,7 +48,9 @@ describe('data queries', () => {
     const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS);
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateRow(ASSETS, { id: 'asset1', categories: JSON.stringify(['red', 'green']) })).toMatchObject([
+    expect(
+      query.evaluateRow(ASSETS, { id: 'asset1', categories: JSON.stringify(['red', 'green']) }, null)
+    ).toMatchObject([
       {
         bucket: 'mybucket[]',
         table: 'assets',
@@ -54,7 +58,7 @@ describe('data queries', () => {
       }
     ]);
 
-    expect(query.evaluateRow(ASSETS, { id: 'asset1', categories: JSON.stringify(['red', 'blue']) })).toEqual([]);
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', categories: JSON.stringify(['red', 'blue']) }, null)).toEqual([]);
   });
 
   test('data IN static query', function () {
@@ -62,7 +66,7 @@ describe('data queries', () => {
     const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS);
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateRow(ASSETS, { id: 'asset1', condition: 'good' })).toMatchObject([
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', condition: 'good' }, null)).toMatchObject([
       {
         bucket: 'mybucket[]',
         table: 'assets',
@@ -70,7 +74,7 @@ describe('data queries', () => {
       }
     ]);
 
-    expect(query.evaluateRow(ASSETS, { id: 'asset1', condition: 'bad' })).toEqual([]);
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', condition: 'bad' }, null)).toEqual([]);
   });
 
   test('table alias', function () {
@@ -78,7 +82,7 @@ describe('data queries', () => {
     const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql, PARSE_OPTIONS);
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: 'org1' })).toEqual([
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: 'org1' }, null)).toEqual([
       {
         bucket: 'mybucket["org1"]',
         table: 'others',

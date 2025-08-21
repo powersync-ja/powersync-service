@@ -21,6 +21,7 @@ bucket_definitions:
       expect(
         rules.evaluateRow({
           sourceTable: ASSETS,
+          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(''),
           record: {
             id: 'id',
             description: value
@@ -48,6 +49,7 @@ config:
       expect(
         rules.evaluateRow({
           sourceTable: ASSETS,
+          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(''),
           record: {
             id: 'id',
             description: value
@@ -73,6 +75,7 @@ config:
 
       expect(
         rules.evaluateRow({
+          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1'),
           sourceTable: ASSETS,
           record: {
             id: 'id',
@@ -100,6 +103,7 @@ config:
 
       expect(
         rules.evaluateRow({
+          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1'),
           sourceTable: ASSETS,
           record: {
             id: 'id',
@@ -110,6 +114,32 @@ config:
         { bucket: 'stream|0[]', data: { description: '2025-08-19 09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
       ]);
     });
+  });
+
+  test('can use versioned bucket ids', () => {
+    const rules = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    data:
+      - SELECT id, description FROM assets
+
+fixed_quirks:
+  - versioned_bucket_ids
+    `,
+      PARSE_OPTIONS
+    );
+
+    expect(
+      rules.evaluateRow({
+        sourceTable: ASSETS,
+        bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1'),
+        record: {
+          id: 'id',
+          description: 'desc'
+        }
+      })
+    ).toStrictEqual([{ bucket: '1#mybucket[]', data: { description: 'desc', id: 'id' }, id: 'id', table: 'assets' }]);
   });
 
   test('warning for unknown option', () => {
@@ -151,6 +181,7 @@ config:
       expect(
         rules.evaluateRow({
           sourceTable: ASSETS,
+          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(''),
           record: {
             id: 'id',
             description: data

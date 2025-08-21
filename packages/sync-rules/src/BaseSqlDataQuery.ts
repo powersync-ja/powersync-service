@@ -5,6 +5,7 @@ import { SourceTableInterface } from './SourceTableInterface.js';
 import { SqlTools } from './sql_filters.js';
 import { TablePattern } from './TablePattern.js';
 import {
+  BucketIdTransformer,
   EvaluationResult,
   QueryParameters,
   QuerySchema,
@@ -25,6 +26,7 @@ export interface EvaluateRowOptions {
   table: SourceTableInterface;
   row: SqliteRow;
   bucketIds: (params: QueryParameters) => string[];
+  bucketIdTransformer: BucketIdTransformer | null;
 }
 
 export interface BaseSqlDataQueryOptions {
@@ -177,7 +179,7 @@ export class BaseSqlDataQuery {
 
   evaluateRowWithOptions(options: EvaluateRowOptions): EvaluationResult[] {
     try {
-      const { table, row, bucketIds } = options;
+      const { table, row, bucketIds, bucketIdTransformer } = options;
 
       const tables = { [this.table]: this.addSpecialParameters(table, row) };
       const resolvedBucketIds = bucketIds(tables);
@@ -197,7 +199,7 @@ export class BaseSqlDataQuery {
 
       return resolvedBucketIds.map((bucketId) => {
         return {
-          bucket: bucketId,
+          bucket: bucketIdTransformer ? bucketIdTransformer(bucketId) : bucketId,
           table: outputTable,
           id: id,
           data

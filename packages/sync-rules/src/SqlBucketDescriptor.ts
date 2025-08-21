@@ -104,7 +104,13 @@ export class SqlBucketDescriptor implements BucketSource {
         continue;
       }
 
-      results.push(...query.evaluateRow(options.sourceTable, applyRowContext(options.record, this.compatibility)));
+      results.push(
+        ...query.evaluateRow(
+          options.sourceTable,
+          applyRowContext(options.record, this.compatibility),
+          options.bucketIdTransformer
+        )
+      );
     }
     return results;
   }
