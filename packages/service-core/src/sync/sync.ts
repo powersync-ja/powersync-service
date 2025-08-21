@@ -14,7 +14,7 @@ import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
 import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
-import { BucketChecksumState, CheckpointLine } from './BucketChecksumState.js';
+import { BucketChecksumState, CheckpointLine, VersionedSyncRules } from './BucketChecksumState.js';
 import { mergeAsyncIterables } from '../streams/streams-index.js';
 import { acquireSemaphoreAbortable, settledPromise, tokenStream, TokenStreamOptions } from './util.js';
 import { SyncContext } from './SyncContext.js';
@@ -23,7 +23,7 @@ import { OperationsSentStats, RequestTracker, statsForBatch } from './RequestTra
 export interface SyncStreamParameters {
   syncContext: SyncContext;
   bucketStorage: storage.SyncRulesBucketStorage;
-  syncRules: SqlSyncRules;
+  syncRules: VersionedSyncRules;
   params: util.StreamingSyncRequest;
   token: auth.JwtPayload;
   logger?: Logger;
@@ -100,7 +100,7 @@ export async function* streamResponse(
 async function* streamResponseInner(
   syncContext: SyncContext,
   bucketStorage: storage.SyncRulesBucketStorage,
-  syncRules: SqlSyncRules,
+  syncRules: VersionedSyncRules,
   params: util.StreamingSyncRequest,
   tokenPayload: RequestJwtPayload,
   tracker: RequestTracker,

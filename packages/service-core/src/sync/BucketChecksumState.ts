@@ -24,10 +24,15 @@ import { BucketParameterQuerier, QuerierError } from '@powersync/service-sync-ru
 import { SyncContext } from './SyncContext.js';
 import { getIntersection, hasIntersection } from './util.js';
 
+export interface VersionedSyncRules {
+  syncRules: SqlSyncRules;
+  version: number;
+}
+
 export interface BucketChecksumStateOptions {
   syncContext: SyncContext;
   bucketStorage: BucketChecksumStateStorage;
-  syncRules: SqlSyncRules;
+  syncRules: VersionedSyncRules;
   tokenPayload: RequestJwtPayload;
   syncRequest: util.StreamingSyncRequest;
   logger?: Logger;
@@ -248,7 +253,7 @@ export class BucketChecksumState {
       const streamNameToIndex = new Map<string, number>();
       this.streamNameToIndex = streamNameToIndex;
 
-      for (const source of this.parameterState.syncRules.bucketSources) {
+      for (const source of this.parameterState.syncRules.syncRules.bucketSources) {
         if (this.parameterState.isSubscribedToStream(source)) {
           streamNameToIndex.set(source.name, subscriptions.length);
 
@@ -376,7 +381,7 @@ export interface CheckpointUpdate {
 export class BucketParameterState {
   private readonly context: SyncContext;
   public readonly bucketStorage: BucketChecksumStateStorage;
-  public readonly syncRules: SqlSyncRules;
+  public readonly syncRules: VersionedSyncRules;
   public readonly syncParams: RequestParameters;
   private readonly querier: BucketParameterQuerier;
   /**
@@ -399,7 +404,7 @@ export class BucketParameterState {
   constructor(
     context: SyncContext,
     bucketStorage: BucketChecksumStateStorage,
-    syncRules: SqlSyncRules,
+    syncRules: VersionedSyncRules,
     tokenPayload: RequestJwtPayload,
     request: util.StreamingSyncRequest,
     logger: Logger
@@ -431,10 +436,11 @@ export class BucketParameterState {
     this.includeDefaultStreams = subscriptions?.include_defaults ?? true;
     this.explicitStreamSubscriptions = explicitStreamSubscriptions;
 
-    const { querier, errors } = syncRules.getBucketParameterQuerier({
+    const { querier, errors } = syncRules.syncRules.getBucketParameterQuerier({
       globalParameters: this.syncParams,
       hasDefaultStreams: this.includeDefaultStreams,
-      streams: streamsByName
+      streams: streamsByName,
+      bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(`${syncRules.version}`)
     });
     this.querier = querier;
     this.streamErrors = Object.groupBy(errors, (e) => e.descriptor) as Record<string, QuerierError[]>;

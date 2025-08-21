@@ -104,6 +104,116 @@ exports[`sync - postgres > compacting data - invalidate checkpoint 2`] = `
 ]
 `;
 
+exports[`sync - postgres > encodes sync rules id in buckes for streams 1`] = `
+[
+  {
+    "checkpoint": {
+      "buckets": [
+        {
+          "bucket": "1#test|0[]",
+          "checksum": 920318466,
+          "count": 1,
+          "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
+        },
+      ],
+      "last_op_id": "1",
+      "streams": [
+        {
+          "errors": [],
+          "is_default": true,
+          "name": "test",
+        },
+      ],
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "data": {
+      "after": "0",
+      "bucket": "1#test|0[]",
+      "data": [
+        {
+          "checksum": 920318466,
+          "data": "{"id":"t1","description":"Test 1"}",
+          "object_id": "t1",
+          "object_type": "test",
+          "op": "PUT",
+          "op_id": "1",
+          "subkey": "02d285ac-4f96-5124-8fba-c6d1df992dd1",
+        },
+      ],
+      "has_more": false,
+      "next_after": "1",
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "1",
+    },
+  },
+]
+`;
+
+exports[`sync - postgres > encodes sync rules id in buckes for streams 2`] = `
+[
+  {
+    "checkpoint": {
+      "buckets": [
+        {
+          "bucket": "2#test|0[]",
+          "checksum": 920318466,
+          "count": 1,
+          "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
+        },
+      ],
+      "last_op_id": "2",
+      "streams": [
+        {
+          "errors": [],
+          "is_default": true,
+          "name": "test",
+        },
+      ],
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "data": {
+      "after": "0",
+      "bucket": "2#test|0[]",
+      "data": [
+        {
+          "checksum": 920318466,
+          "data": "{"id":"t1","description":"Test 1"}",
+          "object_id": "t1",
+          "object_type": "test",
+          "op": "PUT",
+          "op_id": "2",
+          "subkey": "02d285ac-4f96-5124-8fba-c6d1df992dd1",
+        },
+      ],
+      "has_more": false,
+      "next_after": "2",
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "2",
+    },
+  },
+]
+`;
+
 exports[`sync - postgres > expired token 1`] = `
 [
   {

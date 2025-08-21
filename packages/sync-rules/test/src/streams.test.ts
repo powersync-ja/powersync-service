@@ -10,6 +10,7 @@ import {
   SourceTableInterface,
   SqliteJsonRow,
   SqliteRow,
+  SqlSyncRules,
   StaticSchema,
   StreamParseOptions,
   SyncStream,
@@ -22,19 +23,19 @@ describe('streams', () => {
     const desc = parseStream('SELECT * FROM comments');
 
     expect(desc.variants).toHaveLength(1);
-    expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo' })).toStrictEqual(['stream|0[]']);
-    expect(desc.evaluateRow({ sourceTable: USERS, record: { id: 'foo' } })).toHaveLength(0);
+    expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo' })).toStrictEqual(['1#stream|0[]']);
+    expect(desc.evaluateRow({ sourceTable: USERS, bucketIdTransformer, record: { id: 'foo' } })).toHaveLength(0);
   });
 
   test('row condition', () => {
     const desc = parseStream('SELECT * FROM comments WHERE length(content) > 5');
     expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'a' })).toStrictEqual([]);
-    expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'aaaaaa' })).toStrictEqual(['stream|0[]']);
+    expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'aaaaaa' })).toStrictEqual(['1#stream|0[]']);
   });
 
   test('stream parameter', () => {
     const desc = parseStream("SELECT * FROM comments WHERE issue_id = subscription.parameter('id')");
-    expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', issue_id: 'a' })).toStrictEqual(['stream|0["a"]']);
+    expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', issue_id: 'a' })).toStrictEqual(['1#stream|0["a"]']);
   });
 
   test('row filter and stream parameter', async () => {
@@ -43,11 +44,11 @@ describe('streams', () => {
     );
     expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'a', issue_id: 'a' })).toStrictEqual([]);
     expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'aaaaaa', issue_id: 'i' })).toStrictEqual([
-      'stream|0["i"]'
+      '1#stream|0["i"]'
     ]);
 
     expect(await queryBucketIds(desc, { parameters: { id: 'subscribed_issue' } })).toStrictEqual([
-      'stream|0["subscribed_issue"]'
+      '1#stream|0["subscribed_issue"]'
     ]);
   });
 
@@ -56,8 +57,8 @@ describe('streams', () => {
       const desc = parseStream("SELECT * FROM issues WHERE owner_id = auth.user_id() OR auth.parameter('is_admin')");
 
       expect(evaluateBucketIds(desc, ISSUES, { id: 'foo', owner_id: 'u1' })).toStrictEqual([
-        'stream|0["u1"]',
-        'stream|1[]'
+        '1#stream|0["u1"]',
+        '1#stream|1[]'
       ]);
 
       expect(
@@ -67,7 +68,7 @@ describe('streams', () => {
             is_admin: false
           }
         })
-      ).toStrictEqual(['stream|0["u1"]']);
+      ).toStrictEqual(['1#stream|0["u1"]']);
 
       expect(
         await queryBucketIds(desc, {
@@ -76,15 +77,17 @@ describe('streams', () => {
             is_admin: true
           }
         })
-      ).toStrictEqual(['stream|0["u1"]', 'stream|1[]']);
+      ).toStrictEqual(['1#stream|0["u1"]', '1#stream|1[]']);
     });
 
     test('parameter match or row condition', async () => {
       const desc = parseStream('SELECT * FROM issues WHERE owner_id = auth.user_id() OR LENGTH(name) = 3');
-      expect(evaluateBucketIds(desc, ISSUES, { id: 'foo', owner_id: 'a', name: '' })).toStrictEqual(['stream|0["a"]']);
+      expect(evaluateBucketIds(desc, ISSUES, { id: 'foo', owner_id: 'a', name: '' })).toStrictEqual([
+        '1#stream|0["a"]'
+      ]);
       expect(evaluateBucketIds(desc, ISSUES, { id: 'foo', owner_id: 'a', name: 'aaa' })).toStrictEqual([
-        'stream|0["a"]',
-        'stream|1[]'
+        '1#stream|0["a"]',
+        '1#stream|1[]'
       ]);
 
       expect(
@@ -93,16 +96,16 @@ describe('streams', () => {
             user_id: 'u1'
           }
         })
-      ).toStrictEqual(['stream|0["u1"]', 'stream|1[]']);
+      ).toStrictEqual(['1#stream|0["u1"]', '1#stream|1[]']);
     });
 
     test('row condition or parameter condition', async () => {
       const desc = parseStream("SELECT * FROM comments WHERE LENGTH(content) > 5 OR auth.parameter('is_admin')");
 
-      expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'short' })).toStrictEqual(['stream|1[]']);
+      expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'short' })).toStrictEqual(['1#stream|1[]']);
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'longer' })).toStrictEqual([
-        'stream|0[]',
-        'stream|1[]'
+        '1#stream|0[]',
+        '1#stream|1[]'
       ]);
 
       expect(
@@ -111,14 +114,14 @@ describe('streams', () => {
             is_admin: false
           }
         })
-      ).toStrictEqual(['stream|0[]']);
+      ).toStrictEqual(['1#stream|0[]']);
       expect(
         await queryBucketIds(desc, {
           token_parameters: {
             is_admin: true
           }
         })
-      ).toStrictEqual(['stream|0[]', 'stream|1[]']);
+      ).toStrictEqual(['1#stream|0[]', '1#stream|1[]']);
     });
 
     test('row condition or row condition', () => {
@@ -130,14 +133,14 @@ describe('streams', () => {
 
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'short', tagged_users: '[]' })).toStrictEqual([]);
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'longer', tagged_users: '[]' })).toStrictEqual([
-        'stream|0[]'
+        '1#stream|0[]'
       ]);
       expect(
         evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'longer', tagged_users: '["a","b"]' })
-      ).toStrictEqual(['stream|0[]']);
+      ).toStrictEqual(['1#stream|0[]']);
       expect(
         evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'short', tagged_users: '["a","b"]' })
-      ).toStrictEqual(['stream|0[]']);
+      ).toStrictEqual(['1#stream|0[]']);
     });
 
     test('request condition or request condition', async () => {
@@ -145,7 +148,7 @@ describe('streams', () => {
       // Complex conditions that only operate on request data don't need variants.
       expect(desc.variants).toHaveLength(1);
 
-      expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'whatever]' })).toStrictEqual(['stream|0[]']);
+      expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'whatever]' })).toStrictEqual(['1#stream|0[]']);
       expect(
         await queryBucketIds(desc, {
           token_parameters: {
@@ -161,7 +164,7 @@ describe('streams', () => {
             b: false
           }
         })
-      ).toStrictEqual(['stream|0[]']);
+      ).toStrictEqual(['1#stream|0[]']);
     });
 
     test('subquery or token parameter', async () => {
@@ -170,8 +173,8 @@ describe('streams', () => {
       );
 
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', issue_id: 'i1' })).toStrictEqual([
-        'stream|0["i1"]',
-        'stream|1[]'
+        '1#stream|0["i1"]',
+        '1#stream|1[]'
       ]);
 
       expect(desc.evaluateParameterRow(ISSUES, { id: 'i1', owner_id: 'u1' })).toStrictEqual([
@@ -192,10 +195,10 @@ describe('streams', () => {
       }
       expect(
         await queryBucketIds(desc, { token_parameters: { user_id: 'u1', is_admin: false }, getParameterSets })
-      ).toStrictEqual(['stream|0["i1"]']);
+      ).toStrictEqual(['1#stream|0["i1"]']);
       expect(
         await queryBucketIds(desc, { token_parameters: { user_id: 'u1', is_admin: true }, getParameterSets })
-      ).toStrictEqual(['stream|1[]', 'stream|0["i1"]']);
+      ).toStrictEqual(['1#stream|1[]', '1#stream|0["i1"]']);
     });
   });
 
@@ -217,7 +220,7 @@ describe('streams', () => {
         }
       ]);
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', issue_id: 'issue_id' })).toStrictEqual([
-        'stream|0["issue_id"]'
+        '1#stream|0["issue_id"]'
       ]);
 
       expect(
@@ -229,7 +232,7 @@ describe('streams', () => {
             return [{ result: 'issue_id' }];
           }
         })
-      ).toStrictEqual(['stream|0["issue_id"]']);
+      ).toStrictEqual(['1#stream|0["issue_id"]']);
     });
 
     test('parameter value in subquery', async () => {
@@ -259,7 +262,7 @@ describe('streams', () => {
             return [{ result: 'u' }];
           }
         })
-      ).toStrictEqual(['stream|0[]']);
+      ).toStrictEqual(['1#stream|0[]']);
 
       // And not for others
       expect(
@@ -279,7 +282,10 @@ describe('streams', () => {
             id IN (SELECT user_b FROM friends WHERE user_a = auth.user_id())
         `);
 
-      expect(evaluateBucketIds(desc, USERS, { id: 'a', name: 'a' })).toStrictEqual(['stream|0["a"]', 'stream|1["a"]']);
+      expect(evaluateBucketIds(desc, USERS, { id: 'a', name: 'a' })).toStrictEqual([
+        '1#stream|0["a"]',
+        '1#stream|1["a"]'
+      ]);
 
       expect(desc.evaluateParameterRow(FRIENDS, { user_a: 'a', user_b: 'b' })).toStrictEqual([
         {
@@ -317,19 +323,19 @@ describe('streams', () => {
           token_parameters: { user_id: 'a' },
           getParameterSets
         })
-      ).toStrictEqual(['stream|1["b"]']);
+      ).toStrictEqual(['1#stream|1["b"]']);
     });
 
     test('on parameter data', async () => {
       const desc = parseStream("SELECT * FROM comments WHERE issue_id IN (subscription.parameters() -> 'issue_id')");
 
-      expect(evaluateBucketIds(desc, COMMENTS, { id: 'a', issue_id: 'i' })).toStrictEqual(['stream|0["i"]']);
+      expect(evaluateBucketIds(desc, COMMENTS, { id: 'a', issue_id: 'i' })).toStrictEqual(['1#stream|0["i"]']);
       expect(
         await queryBucketIds(desc, {
           token_parameters: { user_id: 'a' },
           parameters: { issue_id: ['i1', 'i2'] }
         })
-      ).toStrictEqual(['stream|0["i1"]', 'stream|0["i2"]']);
+      ).toStrictEqual(['1#stream|0["i1"]', '1#stream|0["i2"]']);
     });
 
     test('on parameter data and table', async () => {
@@ -338,7 +344,7 @@ describe('streams', () => {
       );
 
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'a', issue_id: 'i', label: 'l' })).toStrictEqual([
-        'stream|0["i","l"]'
+        '1#stream|0["i","l"]'
       ]);
       expect(
         await queryBucketIds(desc, {
@@ -351,7 +357,12 @@ describe('streams', () => {
             return [{ result: 'i1' }, { result: 'i2' }];
           }
         })
-      ).toStrictEqual(['stream|0["i1","l1"]', 'stream|0["i1","l2"]', 'stream|0["i2","l1"]', 'stream|0["i2","l2"]']);
+      ).toStrictEqual([
+        '1#stream|0["i1","l1"]',
+        '1#stream|0["i1","l2"]',
+        '1#stream|0["i2","l1"]',
+        '1#stream|0["i2","l2"]'
+      ]);
     });
   });
 
@@ -373,8 +384,8 @@ describe('streams', () => {
         }
       ]);
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', tagged_users: '["a", "b"]' })).toStrictEqual([
-        'stream|0["a"]',
-        'stream|0["b"]'
+        '1#stream|0["a"]',
+        '1#stream|0["b"]'
       ]);
 
       expect(
@@ -386,7 +397,7 @@ describe('streams', () => {
             return [{ result: 'issue_id' }];
           }
         })
-      ).toStrictEqual(['stream|0["issue_id"]']);
+      ).toStrictEqual(['1#stream|0["issue_id"]']);
     });
   });
 
@@ -477,7 +488,7 @@ describe('streams', () => {
         }
       ]);
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', issue_id: 'issue_id' })).toStrictEqual([
-        'stream|0["issue_id"]'
+        '1#stream|0["issue_id"]'
       ]);
 
       expect(
@@ -489,7 +500,7 @@ describe('streams', () => {
             return [{ result: 'issue_id' }];
           }
         })
-      ).toStrictEqual(['stream|0["issue_id"]']);
+      ).toStrictEqual(['1#stream|0["issue_id"]']);
     });
 
     test('negated or', () => {
@@ -498,7 +509,7 @@ describe('streams', () => {
       );
 
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', issue_id: 'issue_id', content: 'foo' })).toStrictEqual([
-        'stream|0["issue_id"]'
+        '1#stream|0["issue_id"]'
       ]);
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', issue_id: 'issue_id', content: 'foooo' })).toStrictEqual([]);
     });
@@ -510,11 +521,11 @@ describe('streams', () => {
       expect(desc.variants).toHaveLength(2);
 
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', issue_id: 'issue_id', content: 'foo' })).toStrictEqual([
-        'stream|0[]',
-        'stream|1["issue_id"]'
+        '1#stream|0[]',
+        '1#stream|1["issue_id"]'
       ]);
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', issue_id: 'issue_id', content: 'foooo' })).toStrictEqual([
-        'stream|1["issue_id"]'
+        '1#stream|1["issue_id"]'
       ]);
     });
 
@@ -531,8 +542,8 @@ describe('streams', () => {
 
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', issue_id: 'issue_id', content: 'a' })).toStrictEqual([]);
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', issue_id: 'issue_id', content: 'aaa' })).toStrictEqual([
-        'stream|0["issue_id"]',
-        'stream|1[]'
+        '1#stream|0["issue_id"]',
+        '1#stream|1[]'
       ]);
 
       expect(
@@ -544,7 +555,7 @@ describe('streams', () => {
             return [{ result: 'issue_id' }];
           }
         })
-      ).toStrictEqual(['stream|0["issue_id"]']);
+      ).toStrictEqual(['1#stream|0["issue_id"]']);
       expect(
         await queryBucketIds(desc, {
           token_parameters: { user_id: 'user1', is_admin: true },
@@ -554,7 +565,7 @@ describe('streams', () => {
             return [{ result: 'issue_id' }];
           }
         })
-      ).toStrictEqual(['stream|1[]', 'stream|0["issue_id"]']);
+      ).toStrictEqual(['1#stream|1[]', '1#stream|0["issue_id"]']);
     });
   });
 });
@@ -617,8 +628,10 @@ const options: StreamParseOptions = {
   fixedQuirks: []
 };
 
+const bucketIdTransformer = SqlSyncRules.versionedBucketIdTransformer('1');
+
 function evaluateBucketIds(stream: SyncStream, sourceTable: SourceTableInterface, record: SqliteRow) {
-  return stream.evaluateRow({ sourceTable, record }).map((r) => {
+  return stream.evaluateRow({ sourceTable, record, bucketIdTransformer }).map((r) => {
     if ('error' in r) {
       throw new Error(`Unexpected error evaluating row: ${r.error}`);
     }
@@ -644,7 +657,8 @@ async function createQueriers(
     normalizeQuerierOptions(
       options?.token_parameters ?? {},
       {},
-      { stream: [{ opaque_id: 0, parameters: options?.parameters ?? null }] }
+      { stream: [{ opaque_id: 0, parameters: options?.parameters ?? null }] },
+      bucketIdTransformer
     )
   );
 

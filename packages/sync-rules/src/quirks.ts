@@ -26,9 +26,15 @@ export class Quirk {
     CompatibilityLevel.SYNC_STREAMS
   );
 
+  static versionedBucketIds = new Quirk(
+    'versioned_bucket_ids',
+    'Old versions of the sync service did not update bucket ids when sync rules change. This can lead to a resync on clients taking longer than necessary, and break client-side progress reports.',
+    CompatibilityLevel.SYNC_STREAMS
+  );
+
   static byName: Record<string, Quirk> = (() => {
     const byName: Record<string, Quirk> = {};
-    for (const entry of [this.nonIso8601Timestamps]) {
+    for (const entry of [this.nonIso8601Timestamps, this.versionedBucketIds]) {
       byName[entry.name] = entry;
     }
 

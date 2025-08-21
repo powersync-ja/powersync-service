@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { CustomSqliteValue, SqlSyncRules, DateTimeValue, toSyncRulesValue } from '../../src/index.js';
+import { SqlSyncRules, DateTimeValue, toSyncRulesValue } from '../../src/index.js';
 
 import { ASSETS, PARSE_OPTIONS } from './util.js';
 
@@ -21,6 +21,7 @@ bucket_definitions:
       expect(
         rules.evaluateRow({
           sourceTable: ASSETS,
+          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(''),
           record: {
             id: 'id',
             description: value
@@ -48,6 +49,7 @@ fixed_quirks:
       expect(
         rules.evaluateRow({
           sourceTable: ASSETS,
+          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(''),
           record: {
             id: 'id',
             description: value
@@ -57,29 +59,56 @@ fixed_quirks:
         { bucket: 'mybucket[]', data: { description: '2025-08-19T09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
       ]);
     });
+  });
 
-    test('streams use new format by default', () => {
-      const rules = SqlSyncRules.fromYaml(
-        `
+  test('can use versioned bucket ids', () => {
+    const rules = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    data:
+      - SELECT id, description FROM assets
+
+fixed_quirks:
+  - versioned_bucket_ids
+    `,
+      PARSE_OPTIONS
+    );
+
+    expect(
+      rules.evaluateRow({
+        sourceTable: ASSETS,
+        bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1'),
+        record: {
+          id: 'id',
+          description: 'desc'
+        }
+      })
+    ).toStrictEqual([{ bucket: '1#mybucket[]', data: { description: 'desc', id: 'id' }, id: 'id', table: 'assets' }]);
+  });
+
+  test('streams use new options by default', () => {
+    const rules = SqlSyncRules.fromYaml(
+      `
 streams:
   stream:
     query: SELECT id, description FROM assets
     `,
-        PARSE_OPTIONS
-      );
+      PARSE_OPTIONS
+    );
 
-      expect(
-        rules.evaluateRow({
-          sourceTable: ASSETS,
-          record: {
-            id: 'id',
-            description: value
-          }
-        })
-      ).toStrictEqual([
-        { bucket: 'stream|0[]', data: { description: '2025-08-19T09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
-      ]);
-    });
+    expect(
+      rules.evaluateRow({
+        sourceTable: ASSETS,
+        bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1'),
+        record: {
+          id: 'id',
+          description: new DateTimeValue('2025-08-19T09:21:00Z')
+        }
+      })
+    ).toStrictEqual([
+      { bucket: '1#stream|0[]', data: { description: '2025-08-19T09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
+    ]);
   });
 
   test('warning for unknown quirk', () => {
@@ -121,6 +150,7 @@ fixed_quirks:
       expect(
         rules.evaluateRow({
           sourceTable: ASSETS,
+          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(''),
           record: {
             id: 'id',
             description: data
