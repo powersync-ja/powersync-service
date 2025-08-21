@@ -45,6 +45,7 @@ export class StaticSqlParameterQuery {
       table: undefined,
       parameterTables: ['token_parameters', 'user_parameters'],
       supportsParameterExpressions: true,
+      compatibilityContext: options.compatibility,
       sql
     });
     const where = q.where;
