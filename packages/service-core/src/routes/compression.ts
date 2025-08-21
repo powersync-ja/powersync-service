@@ -1,4 +1,4 @@
-import { Readable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import type Negotiator from 'negotiator';
 import * as zlib from 'node:zlib';
 
@@ -19,7 +19,8 @@ export function maybeCompressResponseStream(
   const encoding = (negotiator as any).encoding(['identity', 'gzip', 'zstd'], { preferred: 'zstd' });
   if (encoding == 'zstd') {
     return {
-      stream: stream.pipe(
+      stream: transform(
+        stream,
         // Available since Node v23.8.0, v22.15.0
         // This does the actual compression in a background thread pool.
         zlib.createZstdCompress({
@@ -36,7 +37,8 @@ export function maybeCompressResponseStream(
     };
   } else if (encoding == 'gzip') {
     return {
-      stream: stream.pipe(
+      stream: transform(
+        stream,
         zlib.createGzip({
           // We need to flush the frame after every new input chunk, to avoid delaying data
           // in the output stream.
@@ -51,4 +53,17 @@ export function maybeCompressResponseStream(
       encodingHeaders: {}
     };
   }
+}
+
+function transform(source: Readable, transform: Transform) {
+  // pipe does not forward error events automatically, resulting in unhandled error
+  // events. Manually forward them.
+  source.on('error', (err) => transform.destroy(err));
+  return source.pipe(transform);
+  // This would be roughly equivalent:
+  // const out = new PassThrough();
+  // pipeline(source, transform, out, (err) => {
+  //   if (err) out.destroy(err); // propagate to consumer
+  // });
+  // return out;
 }
