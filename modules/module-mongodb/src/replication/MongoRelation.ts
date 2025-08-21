@@ -1,13 +1,16 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { storage } from '@powersync/service-core';
-import { JsonContainer } from '@powersync/service-jsonbig';
+import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import {
   CompatibilityContext,
   CustomArray,
   CustomObject,
   CustomSqliteValue,
+  DatabaseInputValue,
   SqliteInputRow,
   SqliteInputValue,
+  SqliteRow,
+  SqliteValue,
   DateTimeValue
 } from '@powersync/service-sync-rules';
 
