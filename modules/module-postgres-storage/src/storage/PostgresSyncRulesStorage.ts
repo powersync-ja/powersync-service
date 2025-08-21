@@ -330,7 +330,6 @@ export class PostgresSyncRulesStorage
       logger: options.logger ?? framework.logger,
       db: this.db,
       sync_rules: this.sync_rules.parsed(options).sync_rules,
-      syncRulesId: `${this.sync_rules.id}`,
       group_id: this.group_id,
       slot_name: this.slot_name,
       last_checkpoint_lsn: checkpoint_lsn,
