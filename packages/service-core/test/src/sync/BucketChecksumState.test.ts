@@ -77,7 +77,10 @@ bucket_definitions:
       syncContext,
       syncRequest,
       tokenPayload,
-      syncRules: SYNC_RULES_GLOBAL,
+      syncRules: {
+        syncRules: SYNC_RULES_GLOBAL,
+        version: 1
+      },
       bucketStorage: storage
     });
 
@@ -147,7 +150,10 @@ bucket_definitions:
       tokenPayload,
       // Client sets the initial state here
       syncRequest: { buckets: [{ name: 'global[]', after: '1' }] },
-      syncRules: SYNC_RULES_GLOBAL,
+      syncRules: {
+        syncRules: SYNC_RULES_GLOBAL,
+        version: 1
+      },
       bucketStorage: storage
     });
 
@@ -185,7 +191,10 @@ bucket_definitions:
       syncContext,
       tokenPayload,
       syncRequest,
-      syncRules: SYNC_RULES_GLOBAL_TWO,
+      syncRules: {
+        syncRules: SYNC_RULES_GLOBAL_TWO,
+        version: 2
+      },
       bucketStorage: storage
     });
 
@@ -253,7 +262,10 @@ bucket_definitions:
       tokenPayload,
       // Client sets the initial state here
       syncRequest: { buckets: [{ name: 'something_here[]', after: '1' }] },
-      syncRules: SYNC_RULES_GLOBAL,
+      syncRules: {
+        syncRules: SYNC_RULES_GLOBAL,
+        version: 1
+      },
       bucketStorage: storage
     });
 
@@ -294,7 +306,10 @@ bucket_definitions:
       syncContext,
       tokenPayload,
       syncRequest,
-      syncRules: SYNC_RULES_GLOBAL_TWO,
+      syncRules: {
+        syncRules: SYNC_RULES_GLOBAL_TWO,
+        version: 1
+      },
       bucketStorage: storage
     });
 
@@ -347,7 +362,10 @@ bucket_definitions:
       syncContext,
       tokenPayload,
       syncRequest,
-      syncRules: SYNC_RULES_GLOBAL_TWO,
+      syncRules: {
+        syncRules: SYNC_RULES_GLOBAL_TWO,
+        version: 2
+      },
       bucketStorage: storage
     });
 
@@ -402,7 +420,10 @@ bucket_definitions:
       syncContext,
       tokenPayload,
       syncRequest,
-      syncRules: SYNC_RULES_GLOBAL_TWO,
+      syncRules: {
+        syncRules: SYNC_RULES_GLOBAL_TWO,
+        version: 2
+      },
       bucketStorage: storage
     });
 
@@ -506,7 +527,10 @@ bucket_definitions:
       syncContext,
       tokenPayload: { sub: 'u1' },
       syncRequest,
-      syncRules: SYNC_RULES_DYNAMIC,
+      syncRules: {
+        syncRules: SYNC_RULES_DYNAMIC,
+        version: 1
+      },
       bucketStorage: storage
     });
 
@@ -629,7 +653,7 @@ config:
         syncContext,
         syncRequest,
         tokenPayload,
-        syncRules: rules,
+        syncRules: { syncRules: rules, version: 1 },
         bucketStorage: storage,
         ...options
       });
