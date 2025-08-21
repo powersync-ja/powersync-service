@@ -182,14 +182,7 @@ export class PgType {
           const decoded = this.decode(unescaped, elemTypeOid);
           stack[0].push(decoded);
         }
-
-        if (ch == 0x7d /*}*/) {
-          const entry = stack.shift();
-          result = entry;
-        } else {
-          result = false;
-        }
-
+        result = ch == 0x7d /*}*/ && stack.shift();
         elStart = i + 1; // TODO dry
       }
     }
