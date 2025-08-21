@@ -82,6 +82,56 @@ streams:
     });
   });
 
+  describe('json handling', () => {
+    const description = JSON.stringify({ foo: { bar: 'baz' } });
+
+    test('old behavior', () => {
+      const rules = SqlSyncRules.fromYaml(
+        `
+bucket_definitions:
+  a:
+    data:
+      - SELECT id, description ->> 'foo.bar' AS "desc" FROM assets
+    `,
+        PARSE_OPTIONS
+      );
+
+      expect(
+        rules.evaluateRow({
+          sourceTable: ASSETS,
+          record: {
+            id: 'id',
+            description: description
+          }
+        })
+      ).toStrictEqual([{ bucket: 'a[]', data: { desc: 'baz', id: 'id' }, id: 'id', table: 'assets' }]);
+    });
+
+    test('new behavior', () => {
+      const rules = SqlSyncRules.fromYaml(
+        `
+bucket_definitions:
+  a:
+    data:
+      - SELECT id, description ->> 'foo.bar' AS "desc" FROM assets
+fixed_quirks:
+  - legacy_json_extract
+    `,
+        PARSE_OPTIONS
+      );
+
+      expect(
+        rules.evaluateRow({
+          sourceTable: ASSETS,
+          record: {
+            id: 'id',
+            description: description
+          }
+        })
+      ).toStrictEqual([{ bucket: 'a[]', data: { desc: null, id: 'id' }, id: 'id', table: 'assets' }]);
+    });
+  });
+
   test('warning for unknown quirk', () => {
     expect(() => {
       SqlSyncRules.fromYaml(

@@ -12,13 +12,20 @@ import { TablePattern } from './TablePattern.js';
 import { TableQuerySchema } from './TableQuerySchema.js';
 import { EvaluationResult, ParameterMatchClause, QuerySchema, SqliteRow } from './types.js';
 import { getBucketId, isSelectStatement } from './utils.js';
+import { CompatibilityContext } from './quirks.js';
 
 export interface SqlDataQueryOptions extends BaseSqlDataQueryOptions {
   filter: ParameterMatchClause;
 }
 
 export class SqlDataQuery extends BaseSqlDataQuery {
-  static fromSql(descriptorName: string, bucketParameters: string[], sql: string, options: SyncRulesOptions) {
+  static fromSql(
+    descriptorName: string,
+    bucketParameters: string[],
+    sql: string,
+    options: SyncRulesOptions,
+    compatibility: CompatibilityContext
+  ) {
     const parsed = parse(sql, { locationTracking: true });
     const schema = options.schema;
 
@@ -67,6 +74,7 @@ export class SqlDataQuery extends BaseSqlDataQuery {
       table: alias,
       parameterTables: ['bucket'],
       valueTables: [alias],
+      compatibilityContext: compatibility,
       sql,
       schema: querySchema
     });

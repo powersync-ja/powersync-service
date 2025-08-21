@@ -5,6 +5,7 @@ import { SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, isParameterValueClause, sqliteBool } from './sql_support.js';
 import { ParameterValueClause, QueryParseOptions, RequestParameters, SqliteJsonValue } from './types.js';
 import { getBucketId, isJsonValue } from './utils.js';
+import { CompatibilityContext } from './quirks.js';
 
 export interface StaticSqlParameterQueryOptions {
   sql: string;
@@ -39,6 +40,7 @@ export class StaticSqlParameterQuery {
       table: undefined,
       parameterTables: ['token_parameters', 'user_parameters'],
       supportsParameterExpressions: true,
+      compatibilityContext: CompatibilityContext.ofFixedQuirks(options.fixedQuirks),
       sql
     });
     const where = q.where;

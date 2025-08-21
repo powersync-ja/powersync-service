@@ -56,6 +56,7 @@ class SyncStreamCompiler {
   descriptorName: string;
   sql: string;
   options: StreamParseOptions;
+  compatibility: CompatibilityContext;
 
   errors: SqlRuleError[];
 
@@ -64,6 +65,7 @@ class SyncStreamCompiler {
     this.sql = sql;
     this.options = options;
     this.errors = [];
+    this.compatibility = new CompatibilityContext(CompatibilityLevel.SYNC_STREAMS, options.fixedQuirks);
   }
 
   compile(): SyncStream {
@@ -83,6 +85,7 @@ class SyncStreamCompiler {
       sql: this.sql,
       schema: querySchema,
       parameterFunctions: STREAM_FUNCTIONS,
+      compatibilityContext: this.compatibility,
       supportsParameterExpressions: true,
       supportsExpandingParameters: true // needed for table.column IN (subscription.parameters() -> ...)
     });
@@ -375,6 +378,7 @@ class SyncStreamCompiler {
       sql: this.sql,
       schema: querySchema,
       supportsParameterExpressions: true,
+      compatibilityContext: this.compatibility,
       parameterFunctions: STREAM_FUNCTIONS
     });
     tools.checkSpecificNameCase(tableRef);
