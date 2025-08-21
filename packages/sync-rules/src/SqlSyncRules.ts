@@ -241,7 +241,8 @@ export class SqlSyncRules implements SyncRules {
         ...options,
         accept_potentially_dangerous_queries,
         priority: rules.parsePriority(value),
-        auto_subscribe: value.get('auto_subscribe', true)?.value == true
+        auto_subscribe: value.get('auto_subscribe', true)?.value == true,
+        fixedQuirks
       };
 
       const data = value.get('query', true) as unknown;

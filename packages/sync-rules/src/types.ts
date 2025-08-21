@@ -8,7 +8,7 @@ import { BucketPriority } from './BucketDescription.js';
 import { ParameterLookup } from './BucketParameterQuerier.js';
 import { DateTimeValue } from './types/time.js';
 import { CustomSqliteValue } from './types/custom_sqlite_value.js';
-import { CompatibilityContext } from './quirks.js';
+import { CompatibilityContext, Quirk } from './quirks.js';
 
 export interface SyncRules {
   evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
@@ -23,6 +23,7 @@ export interface QueryParseOptions extends SyncRulesOptions {
 
 export interface StreamParseOptions extends QueryParseOptions {
   auto_subscribe?: boolean;
+  fixedQuirks: Quirk[];
 }
 
 export interface EvaluatedParameters {
@@ -283,9 +284,14 @@ export interface InputParameter {
   parametersToLookupValue(parameters: ParameterValueSet): SqliteValue;
 }
 
-export interface EvaluateRowOptions {
+export interface EvaluateRowOptions extends TableRow<SqliteInputRow> {}
+
+/**
+ * A row associated with the table it's coming from.
+ */
+export interface TableRow<R = SqliteRow> {
   sourceTable: SourceTableInterface;
-  record: SqliteInputRow;
+  record: R;
 }
 
 /**

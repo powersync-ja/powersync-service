@@ -41,6 +41,7 @@ import {
   Statement
 } from 'pgsql-ast-parser';
 import { STREAM_FUNCTIONS } from './functions.js';
+import { CompatibilityContext, CompatibilityLevel } from '../quirks.js';
 
 export function syncStreamFromSql(
   descriptorName: string,
@@ -91,7 +92,8 @@ class SyncStreamCompiler {
 
     const stream = new SyncStream(
       this.descriptorName,
-      new BaseSqlDataQuery(this.compileDataQuery(tools, query, alias, sourceTable))
+      new BaseSqlDataQuery(this.compileDataQuery(tools, query, alias, sourceTable)),
+      new CompatibilityContext(CompatibilityLevel.SYNC_STREAMS, this.options.fixedQuirks)
     );
     stream.subscribedToByDefault = this.options.auto_subscribe ?? false;
     if (filter.isValid(tools)) {
