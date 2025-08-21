@@ -4,7 +4,6 @@ export enum EventsEngineEventType {
   SDK_DELETE_OLD = 'sdk-delete-old'
 }
 
-export type TimeFrames = 'hour' | 'day' | 'week' | 'month';
 export type SubscribeEvents = {
   [EventsEngineEventType.SDK_CONNECT_EVENT]: ClientConnectionEventData;
   [EventsEngineEventType.SDK_DISCONNECT_EVENT]: ClientDisconnectionEventData;
