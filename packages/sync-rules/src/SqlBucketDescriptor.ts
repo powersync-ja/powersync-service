@@ -64,7 +64,7 @@ export class SqlBucketDescriptor implements BucketSource {
     if (this.bucketParameters == null) {
       throw new Error('Bucket parameters must be defined');
     }
-    const dataRows = SqlDataQuery.fromSql(this.name, this.bucketParameters, sql, options);
+    const dataRows = SqlDataQuery.fromSql(this.name, this.bucketParameters, sql, options, this.compatibility);
 
     this.dataQueries.push(dataRows);
 

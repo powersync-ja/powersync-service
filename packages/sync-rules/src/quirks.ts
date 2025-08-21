@@ -26,9 +26,15 @@ export class Quirk {
     CompatibilityLevel.SYNC_STREAMS
   );
 
+  static legacyJsonExtract = new Quirk(
+    'legacy_json_extract',
+    "Old versions of the sync service used to treat `->> 'foo.bar'` as a two-element JSON path. With this quirk fixed, it follows modern SQLite and treats it as a single key. The `$.` prefix would be required to split on `.`.",
+    CompatibilityLevel.SYNC_STREAMS
+  );
+
   static byName: Record<string, Quirk> = (() => {
     const byName: Record<string, Quirk> = {};
-    for (const entry of [this.nonIso8601Timestamps]) {
+    for (const entry of [this.nonIso8601Timestamps, this.legacyJsonExtract]) {
       byName[entry.name] = entry;
     }
 

@@ -19,11 +19,11 @@ export interface SyncRules {
 export interface QueryParseOptions extends SyncRulesOptions {
   accept_potentially_dangerous_queries?: boolean;
   priority?: BucketPriority;
+  fixedQuirks: Quirk[];
 }
 
 export interface StreamParseOptions extends QueryParseOptions {
   auto_subscribe?: boolean;
-  fixedQuirks: Quirk[];
 }
 
 export interface EvaluatedParameters {

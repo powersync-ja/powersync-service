@@ -1,6 +1,7 @@
 import {
   DEFAULT_TAG,
   GetQuerierOptions,
+  QueryParseOptions,
   RequestedStream,
   RequestJwtPayload,
   RequestParameters,
@@ -15,8 +16,9 @@ export class TestSourceTable implements SourceTableInterface {
   constructor(public readonly name: string) {}
 }
 
-export const PARSE_OPTIONS = {
-  defaultSchema: 'test_schema'
+export const PARSE_OPTIONS: QueryParseOptions = {
+  defaultSchema: 'test_schema',
+  fixedQuirks: []
 };
 
 export const ASSETS = new TestSourceTable('assets');

@@ -194,7 +194,8 @@ export class SqlSyncRules implements SyncRules {
       const queryOptions: QueryParseOptions = {
         ...options,
         accept_potentially_dangerous_queries,
-        priority: parseOptionPriority
+        priority: parseOptionPriority,
+        fixedQuirks: fixedQuirks
       };
       const parameters = value.get('parameters', true) as unknown;
       const dataQueries = value.get('data', true) as unknown;

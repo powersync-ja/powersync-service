@@ -2,7 +2,7 @@ import { FromCall, SelectedColumn, SelectFromStatement } from 'pgsql-ast-parser'
 import { SqlRuleError } from './errors.js';
 import { SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, isParameterValueClause, sqliteBool } from './sql_support.js';
-import { TABLE_VALUED_FUNCTIONS, TableValuedFunction } from './TableValuedFunctions.js';
+import { generateTableValuedFunctions, TableValuedFunction } from './TableValuedFunctions.js';
 import {
   ParameterValueClause,
   ParameterValueSet,
@@ -13,6 +13,7 @@ import {
 } from './types.js';
 import { getBucketId, isJsonValue } from './utils.js';
 import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY } from './BucketDescription.js';
+import { CompatibilityContext } from './quirks.js';
 
 export interface TableValuedFunctionSqlParameterQueryOptions {
   sql: string;
@@ -48,11 +49,13 @@ export class TableValuedFunctionSqlParameterQuery {
     options: QueryParseOptions,
     queryId: string
   ): TableValuedFunctionSqlParameterQuery {
+    const compatibility = CompatibilityContext.ofFixedQuirks(options.fixedQuirks);
     let errors: SqlRuleError[] = [];
 
     errors.push(...checkUnsupportedFeatures(sql, q));
 
-    if (!(call.function.name in TABLE_VALUED_FUNCTIONS)) {
+    const tableValuedFunctions = generateTableValuedFunctions(compatibility);
+    if (!(call.function.name in tableValuedFunctions)) {
       throw new SqlRuleError(`Table-valued function ${call.function.name} is not defined.`, sql, call);
     }
 
@@ -63,6 +66,7 @@ export class TableValuedFunctionSqlParameterQuery {
       table: callTable,
       parameterTables: ['token_parameters', 'user_parameters', callTable],
       supportsParameterExpressions: true,
+      compatibilityContext: compatibility,
       sql
     });
     const where = q.where;
@@ -72,7 +76,7 @@ export class TableValuedFunctionSqlParameterQuery {
     const columns = q.columns ?? [];
     const bucketParameters = columns.map((column) => tools.getOutputName(column));
 
-    const functionImpl = TABLE_VALUED_FUNCTIONS[call.function.name]!;
+    const functionImpl = tableValuedFunctions[call.function.name]!;
     let priority = options.priority;
     let parameterExtractors: Record<string, ParameterValueClause> = {};
 

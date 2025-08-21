@@ -29,6 +29,7 @@ import {
   SqliteRow
 } from './types.js';
 import { filterJsonRow, getBucketId, isJsonValue, isSelectStatement, normalizeParameterValue } from './utils.js';
+import { CompatibilityContext } from './quirks.js';
 
 export interface SqlParameterQueryOptions {
   sourceTable: TablePattern;
@@ -122,6 +123,7 @@ export class SqlParameterQuery {
       sql,
       supportsExpandingParameters: true,
       supportsParameterExpressions: true,
+      compatibilityContext: CompatibilityContext.ofFixedQuirks(options.fixedQuirks),
       schema: querySchema
     });
     tools.checkSpecificNameCase(tableRef);
