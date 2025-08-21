@@ -85,6 +85,7 @@ export interface GetBucketParameterQuerierResult {
 export class SqlSyncRules implements SyncRules {
   bucketSources: BucketSource[] = [];
   eventDescriptors: SqlEventDescriptor[] = [];
+  compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
 
   content: string;
 
@@ -157,6 +158,7 @@ export class SqlSyncRules implements SyncRules {
       }
 
       compatibility = new CompatibilityContext(edition, options);
+      rules.compatibility = compatibility;
     }
 
     // Bucket definitions using explicit parameter and data queries.
@@ -384,9 +386,17 @@ export class SqlSyncRules implements SyncRules {
   }
 
   evaluateRowWithErrors(options: EvaluateRowOptions): { results: EvaluatedRow[]; errors: EvaluationError[] } {
+    const resolvedOptions = this.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)
+      ? options
+      : {
+          ...options,
+          // Disable bucket id transformer when the option is unused.
+          transformBucketIds: null
+        };
+
     let rawResults: EvaluationResult[] = [];
     for (let source of this.bucketSources) {
-      rawResults.push(...source.evaluateRow(options));
+      rawResults.push(...source.evaluateRow(resolvedOptions));
     }
 
     const results = rawResults.filter(isEvaluatedRow) as EvaluatedRow[];
@@ -501,5 +511,9 @@ export class SqlSyncRules implements SyncRules {
         return priorityValue.value;
       }
     }
+  }
+
+  static versionedBucketIdTransformer(version: string) {
+    return (bucketId: string) => `${version}#${bucketId}`;
   }
 }

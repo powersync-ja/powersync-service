@@ -22,8 +22,15 @@ export class CompatibilityOption {
     CompatibilityEdition.SYNC_STREAMS
   );
 
+  static versionedBucketIds = new CompatibilityOption(
+    'versioned_bucket_ids',
+    'Encode the version of sync rules in generated bucket ids, which avoids clients downloading data twice and improves client-side progress estimates.',
+    CompatibilityEdition.SYNC_STREAMS
+  );
+
   static byName: Record<string, CompatibilityOption> = Object.freeze({
-    timestamps_iso8601: this.timestampsIso8601
+    timestamps_iso8601: this.timestampsIso8601,
+    versioned_bucket_ids: this.versionedBucketIds
   });
 }
 

@@ -25,6 +25,7 @@ export interface PostgresBucketBatchOptions {
   logger: Logger;
   db: lib_postgres.DatabaseClient;
   sync_rules: sync_rules.SqlSyncRules;
+  syncRulesId: string;
   group_id: number;
   slot_name: string;
   last_checkpoint_lsn: string | null;
@@ -73,6 +74,7 @@ export class PostgresBucketBatch
 
   protected write_checkpoint_batch: storage.CustomWriteCheckpointOptions[];
   protected readonly sync_rules: sync_rules.SqlSyncRules;
+  private readonly syncRulesId: string;
   protected batch: OperationBatch | null;
   private lastWaitingLogThrottled = 0;
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
@@ -88,6 +90,7 @@ export class PostgresBucketBatch
     this.resumeFromLsn = options.resumeFromLsn;
     this.write_checkpoint_batch = [];
     this.sync_rules = options.sync_rules;
+    this.syncRulesId = options.syncRulesId;
     this.markRecordUnavailable = options.markRecordUnavailable;
     this.batch = null;
     this.persisted_op = null;
@@ -825,7 +828,8 @@ export class PostgresBucketBatch
       if (sourceTable.syncData) {
         const { results: evaluated, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
           record: after,
-          sourceTable
+          sourceTable,
+          bucketIdTransformer: sync_rules.SqlSyncRules.versionedBucketIdTransformer(this.syncRulesId)
         });
 
         for (const error of syncErrors) {

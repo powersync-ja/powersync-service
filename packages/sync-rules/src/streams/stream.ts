@@ -143,8 +143,6 @@ export class SyncStream implements BucketSource {
         columns: this.data.columnOutputNames()
       }
     };
-
-    throw new Error('Method not implemented.');
   }
 
   debugWriteOutputTables(result: Record<string, { query: string }[]>): void {
@@ -181,6 +179,7 @@ export class SyncStream implements BucketSource {
     return this.data.evaluateRowWithOptions({
       table: options.sourceTable,
       row: applyRowContext(options.record, this.compatibility),
+      bucketIdTransformer: options.bucketIdTransformer,
       bucketIds() {
         const bucketIds: string[] = [];
         for (const variant of stream.variants) {

@@ -154,6 +154,7 @@ export class MongoSyncBucketStorage
       logger: options.logger,
       db: this.db,
       syncRules: this.sync_rules.parsed(options).sync_rules,
+      syncRulesId: `${this.sync_rules.id}`,
       groupId: this.group_id,
       slotName: this.slot_name,
       lastCheckpointLsn: checkpoint_lsn,
