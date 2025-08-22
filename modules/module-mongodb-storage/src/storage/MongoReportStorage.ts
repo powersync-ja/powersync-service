@@ -30,10 +30,10 @@ export class MongoReportStorage implements storage.ReportStorage {
 
   async getClientConnectionReports(
     data: event_types.ClientConnectionReportRequest
-  ): Promise<event_types.ClientConnectionReport> {
+  ): Promise<event_types.ClientConnectionReportResponse> {
     const { start, end } = data;
     const result = await this.db.connection_report_events
-      .aggregate<event_types.ClientConnectionReport>([
+      .aggregate<event_types.ClientConnectionReportResponse>([
         {
           $match: {
             connected_at: { $lte: end, $gte: start }
@@ -79,10 +79,12 @@ export class MongoReportStorage implements storage.ReportStorage {
       }
     );
   }
-  async getConnectedClients(data: event_types.ClientConnectionsRequest): Promise<event_types.ClientConnectionReport> {
+  async getConnectedClients(
+    data: event_types.ClientConnectionsRequest
+  ): Promise<event_types.ClientConnectionReportResponse> {
     const timeframeFilter = this.listConnectionsDateRange(data);
     const result = await this.db.connection_report_events
-      .aggregate<event_types.ClientConnectionReport>([
+      .aggregate<event_types.ClientConnectionReportResponse>([
         {
           $match: {
             disconnected_at: { $exists: false },

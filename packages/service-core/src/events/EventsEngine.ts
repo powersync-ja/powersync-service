@@ -12,6 +12,10 @@ export class EventsEngine {
     });
   }
 
+  /**
+   * All new events added need to be subscribed to be used.
+   * @example engine.subscribe(new MyNewEvent(storageEngine));
+   */
   subscribe<K extends event_types.EventsEngineEventType>(event: event_types.EmitterEvent<K>): void {
     if (!this.events.has(event.event)) {
       this.events.add(event.event);
@@ -21,10 +25,6 @@ export class EventsEngine {
 
   get listEvents(): event_types.EventsEngineEventType[] {
     return Array.from(this.events.values());
-  }
-
-  countListeners(eventName: event_types.EventsEngineEventType): number {
-    return this.emitter.listenerCount(eventName);
   }
 
   emit<K extends keyof event_types.SubscribeEvents>(event: K, data: event_types.SubscribeEvents[K]): void {

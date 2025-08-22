@@ -45,7 +45,8 @@ export const syncStreamed = routeDefinition({
       client_id: clientId,
       user_id: payload.context.user_id!,
       user_agent: userAgent as string,
-      jwt_exp: token_payload?.exp ? new Date(token_payload?.exp * 1000) : undefined,
+      // At this point the token_payload is guaranteed to be present
+      jwt_exp: new Date(token_payload!.exp * 1000),
       connected_at: new Date(streamStart)
     };
 

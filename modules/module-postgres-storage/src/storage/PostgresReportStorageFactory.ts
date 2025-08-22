@@ -42,7 +42,9 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
     };
   }
 
-  private mapListCurrentConnectionsResponse(result: SdkReportingDecoded | null): event_types.ClientConnectionReport {
+  private mapListCurrentConnectionsResponse(
+    result: SdkReportingDecoded | null
+  ): event_types.ClientConnectionReportResponse {
     if (!result) {
       return {
         users: 0,
@@ -119,7 +121,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
   async reportClientConnection(data: event_types.ClientConnectionBucketData): Promise<void> {
     const { sdk, connected_at, user_id, user_agent, jwt_exp, client_id } = data;
     const connectIsoString = connected_at.toISOString();
-    const jwtExpIsoString = jwt_exp!.toISOString();
+    const jwtExpIsoString = jwt_exp.toISOString();
     const { gte, lt } = this.updateTableFilter();
     const uuid = v4();
     const result = await this.db.sql`
@@ -176,14 +178,16 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
         AND connected_at = ${{ type: 1184, value: connectIsoString }}
     `.execute();
   }
-  async getConnectedClients(data: event_types.ClientConnectionsRequest): Promise<event_types.ClientConnectionReport> {
+  async getConnectedClients(
+    data: event_types.ClientConnectionsRequest
+  ): Promise<event_types.ClientConnectionReportResponse> {
     const result = await this.listConnectionsQuery(data);
     return this.mapListCurrentConnectionsResponse(result);
   }
 
   async getClientConnectionReports(
     data: event_types.ClientConnectionReportRequest
-  ): Promise<event_types.ClientConnectionReport> {
+  ): Promise<event_types.ClientConnectionReportResponse> {
     const { start, end } = data;
     const result = await this.db.sql`
       WITH

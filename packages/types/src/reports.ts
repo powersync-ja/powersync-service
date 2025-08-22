@@ -4,13 +4,25 @@ export enum EventsEngineEventType {
   SDK_DELETE_OLD = 'sdk-delete-old'
 }
 
+/**
+ * Events engine event types.
+ * Any new events will need to be added here with the data structure they expect.
+ */
 export type SubscribeEvents = {
   [EventsEngineEventType.SDK_CONNECT_EVENT]: ClientConnectionEventData;
   [EventsEngineEventType.SDK_DISCONNECT_EVENT]: ClientDisconnectionEventData;
   [EventsEngineEventType.SDK_DELETE_OLD]: DeleteOldConnectionData;
 };
 
+/**
+ * Events handler functions
+ */
 export type EventHandlerFunc<K extends EventsEngineEventType> = (data: SubscribeEvents[K]) => Promise<void> | void;
+
+/**
+ * Emitter event interface.
+ * Create a class extending EmitterEvent and implement the handler function.
+ */
 export interface EmitterEvent<K extends EventsEngineEventType> {
   event: K;
   handler: EventHandlerFunc<K>;
@@ -20,10 +32,14 @@ export type ConnectedUserData = {
   client_id?: string;
   user_id: string;
   user_agent?: string;
-  jwt_exp?: Date;
+  jwt_exp: Date;
 };
 
 export type DeleteOldConnectionData = {
+  /**
+   * Date before which all connection data should be deleted.
+   * This is used to clean up old connection data that is no longer needed.
+   */
   date: Date;
 };
 
@@ -33,6 +49,7 @@ export type ClientConnectionEventData = {
 
 export type ClientConnectionBucketData = {
   connected_at: Date;
+  /** parsed sdk version from the user agent. */
   sdk: string;
 } & ConnectedUserData;
 
@@ -41,6 +58,7 @@ export type ClientDisconnectionEventData = {
   connected_at: Date;
 } & ConnectedUserData;
 
+/** client connection schema stored locally */
 export type ClientConnection = {
   id?: string;
   sdk: string;
@@ -52,7 +70,7 @@ export type ClientConnection = {
   disconnected_at?: Date;
 };
 
-export type ClientConnectionReport = {
+export type ClientConnectionReportResponse = {
   users: number;
   sdks: {
     sdk: string;
