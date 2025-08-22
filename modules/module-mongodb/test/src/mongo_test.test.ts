@@ -2,7 +2,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import {
   applyRowContext,
   CompatibilityContext,
-  CompatibilityLevel,
+  CompatibilityEdition,
   SqliteInputRow,
   SqlSyncRules
 } from '@powersync/service-sync-rules';
@@ -555,7 +555,7 @@ bucket_definitions:
         noFraction: '2023-03-06 13:47:01.000Z'
       });
 
-      const newFormat = applyRowContext(row, new CompatibilityContext(CompatibilityLevel.SYNC_STREAMS));
+      const newFormat = applyRowContext(row, new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS));
       expect(newFormat).toMatchObject({
         fraction: '2023-03-06T13:47:01.123Z',
         noFraction: '2023-03-06T13:47:01.000Z'
