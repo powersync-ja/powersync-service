@@ -6,7 +6,7 @@ import {
   SqliteInputRow,
   DateTimeValue,
   TimeValue,
-  CompatibilityLevel
+  CompatibilityEdition
 } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { clearTestDb, connectPgPool, connectPgWire, TEST_URI } from './util.js';
@@ -460,7 +460,7 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
         timestamptz: '2023-03-06 13:47:00Z'
       });
 
-      const newFormat = applyRowContext(row, new CompatibilityContext(CompatibilityLevel.SYNC_STREAMS));
+      const newFormat = applyRowContext(row, new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS));
       expect(newFormat).toMatchObject({
         time: '17:42:01.120000',
         timestamp: '2023-03-06T15:47:12.400000',
