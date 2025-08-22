@@ -615,6 +615,9 @@ streams:
   stream:
     auto_subscribe: ${source}
     query: SELECT * FROM assets WHERE id IN ifnull(subscription.parameter('ids'), '["default"]');
+
+config:
+  edition: 2
 `;
       }
 
