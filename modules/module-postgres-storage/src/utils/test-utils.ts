@@ -1,8 +1,8 @@
 import { framework, PowerSyncMigrationManager, ServiceContext, TestStorageOptions } from '@powersync/service-core';
 import { PostgresMigrationAgent } from '../migrations/PostgresMigrationAgent.js';
 import { normalizePostgresStorageConfig, PostgresStorageConfigDecoded } from '../types/types.js';
-import { PostgresBucketStorageFactory } from './PostgresBucketStorageFactory.js';
-import { PostgresReportStorageFactory } from './PostgresReportStorageFactory.js';
+import { PostgresReportStorageFactory } from '../storage/PostgresReportStorageFactory.js';
+import { PostgresBucketStorageFactory } from '../storage/PostgresBucketStorageFactory.js';
 
 export type PostgresTestStorageOptions = {
   url: string;
@@ -13,7 +13,7 @@ export type PostgresTestStorageOptions = {
   migrationAgent?: (config: PostgresStorageConfigDecoded) => PostgresMigrationAgent;
 };
 
-export const postgresTestSetup = (factoryOptions: PostgresTestStorageOptions) => {
+export function postgresTestSetup(factoryOptions: PostgresTestStorageOptions) {
   const BASE_CONFIG = {
     type: 'postgresql' as const,
     uri: factoryOptions.url,
@@ -82,8 +82,8 @@ export const postgresTestSetup = (factoryOptions: PostgresTestStorageOptions) =>
     },
     migrate
   };
-};
+}
 
-export const PostgresTestStorageFactoryGenerator = (factoryOptions: PostgresTestStorageOptions) => {
+export function postgresTestStorageFactoryGenerator(factoryOptions: PostgresTestStorageOptions) {
   return postgresTestSetup(factoryOptions).factory;
-};
+}

@@ -3,9 +3,7 @@ import * as crypto from 'crypto';
 import * as uuid from 'uuid';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { storage, utils } from '@powersync/service-core';
-
-import { PowerSyncMongo } from './db.js';
-import { BucketDataDocument } from './models.js';
+import { BucketDataDocument } from '../storage/implementation/models.js';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 
 export function idPrefixFilter<T>(prefix: Partial<T>, rest: (keyof T)[]): mongo.Condition<T> {
@@ -103,20 +101,6 @@ export function replicaIdToSubkey(table: bson.ObjectId, id: storage.ReplicaId): 
     return uuid.v5(repr, utils.ID_NAMESPACE);
   }
 }
-
-/**
- * Helper for unit tests
- */
-export const connectMongoForTests = (url: string, isCI: boolean) => {
-  // Short timeout for tests, to fail fast when the server is not available.
-  // Slightly longer timeouts for CI, to avoid arbitrary test failures
-  const client = new mongo.MongoClient(url, {
-    connectTimeoutMS: isCI ? 15_000 : 5_000,
-    socketTimeoutMS: isCI ? 15_000 : 5_000,
-    serverSelectionTimeoutMS: isCI ? 15_000 : 2_500
-  });
-  return new PowerSyncMongo(client);
-};
 
 export function setSessionSnapshotTime(session: mongo.ClientSession, time: bson.Timestamp) {
   // This is a workaround for the lack of direct support for snapshot reads in the MongoDB driver.

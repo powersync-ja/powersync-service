@@ -16,7 +16,7 @@ import {
   CurrentDataDocument,
   SourceKey
 } from './models.js';
-import { replicaIdToSubkey } from './util.js';
+import { replicaIdToSubkey } from '../../utils/util.js';
 
 /**
  * Maximum size of operations we write in a single transaction.
