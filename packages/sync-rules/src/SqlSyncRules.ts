@@ -22,14 +22,12 @@ import {
   SourceSchema,
   SqliteInputRow,
   SqliteJsonRow,
-  SqliteRow,
   StreamParseOptions,
   SyncRules
 } from './types.js';
 import { BucketSource } from './BucketSource.js';
-import { SyncStream } from './streams/stream.js';
 import { syncStreamFromSql } from './streams/from_sql.js';
-import { CompatibilityContext, Quirk } from './quirks.js';
+import { CompatibilityContext, CompatibilityEdition, CompatibilityOption } from './compatibility.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -140,16 +138,25 @@ export class SqlSyncRules implements SyncRules {
       return rules;
     }
 
-    const rawFixedQuirks = parsed.get('fixed_quirks') as YAMLSeq<Scalar> | null;
-    const fixedQuirks: Quirk[] = [];
-    if (rawFixedQuirks != null) {
-      for (const entry of rawFixedQuirks.items) {
-        const quirk = Quirk.byName[entry.value as string];
-        if (quirk != null) {
-          fixedQuirks.push(quirk);
+    const declaredOptions = parsed.get('config') as YAMLMap | null;
+    let compatibility = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
+    if (declaredOptions != null) {
+      const edition = (declaredOptions.get('edition') ?? CompatibilityEdition.LEGACY) as CompatibilityEdition;
+      const options = new Map<CompatibilityOption, boolean>();
+
+      for (const entry of declaredOptions.items) {
+        const {
+          key: { value: key },
+          value: { value }
+        } = entry as { key: Scalar<string>; value: Scalar<boolean> };
+
+        const option = CompatibilityOption.byName[key];
+        if (option) {
+          options.set(option, value);
         }
-        // Note: We don't need a custom warning message for unknown names here, the schema will reject those values.
       }
+
+      compatibility = new CompatibilityContext(edition, options);
     }
 
     // Bucket definitions using explicit parameter and data queries.
@@ -194,12 +201,13 @@ export class SqlSyncRules implements SyncRules {
       const queryOptions: QueryParseOptions = {
         ...options,
         accept_potentially_dangerous_queries,
-        priority: parseOptionPriority
+        priority: parseOptionPriority,
+        compatibility
       };
       const parameters = value.get('parameters', true) as unknown;
       const dataQueries = value.get('data', true) as unknown;
 
-      const descriptor = new SqlBucketDescriptor(key, CompatibilityContext.ofFixedQuirks(fixedQuirks));
+      const descriptor = new SqlBucketDescriptor(key, compatibility);
 
       if (parameters instanceof Scalar) {
         rules.withScalar(parameters, (q) => {
@@ -242,7 +250,7 @@ export class SqlSyncRules implements SyncRules {
         accept_potentially_dangerous_queries,
         priority: rules.parsePriority(value),
         auto_subscribe: value.get('auto_subscribe', true)?.value == true,
-        fixedQuirks
+        compatibility
       };
 
       const data = value.get('query', true) as unknown;
@@ -276,7 +284,7 @@ export class SqlSyncRules implements SyncRules {
         continue;
       }
 
-      const eventDescriptor = new SqlEventDescriptor(key.toString(), CompatibilityContext.ofFixedQuirks(fixedQuirks));
+      const eventDescriptor = new SqlEventDescriptor(key.toString(), compatibility);
       for (let item of payloads.items) {
         if (!isScalar(item)) {
           rules.errors.push(new YamlError(new Error(`Payload queries for events must be scalar.`)));

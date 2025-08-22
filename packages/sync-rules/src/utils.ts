@@ -13,7 +13,7 @@ import {
 } from './types.js';
 import { SyncRuleProcessingError as SyncRulesProcessingError } from './errors.js';
 import { CustomArray, CustomObject, CustomSqliteValue } from './types/custom_sqlite_value.js';
-import { CompatibilityContext } from './quirks.js';
+import { CompatibilityContext } from './compatibility.js';
 
 export function isSelectStatement(q: Statement): q is SelectFromStatement {
   return q.type == 'select';

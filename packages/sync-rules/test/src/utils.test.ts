@@ -1,11 +1,10 @@
 import {
   applyValueContext,
   CompatibilityContext,
-  evaluateOperator,
   DateTimeValue,
   toSyncRulesValue,
   TimeValue,
-  CompatibilityLevel
+  CompatibilityEdition
 } from '../../src/index.js';
 import { describe, expect, test } from 'vitest';
 
@@ -28,17 +27,17 @@ describe('toSyncRulesValue', () => {
 
   test('time value', () => {
     expect(
-      TimeValue.parse('12:13:14')?.toSqliteValue(new CompatibilityContext(CompatibilityLevel.SYNC_STREAMS))
+      TimeValue.parse('12:13:14')?.toSqliteValue(new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS))
     ).toStrictEqual('12:13:14.000000');
     expect(
-      TimeValue.parse('12:13:14')?.toSqliteValue(new CompatibilityContext(CompatibilityLevel.LEGACY))
+      TimeValue.parse('12:13:14')?.toSqliteValue(new CompatibilityContext(CompatibilityEdition.LEGACY))
     ).toStrictEqual('12:13:14');
 
     expect(
-      TimeValue.parse('12:13:14.15')?.toSqliteValue(new CompatibilityContext(CompatibilityLevel.SYNC_STREAMS))
+      TimeValue.parse('12:13:14.15')?.toSqliteValue(new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS))
     ).toStrictEqual('12:13:14.150000');
     expect(
-      TimeValue.parse('12:13:14.15')?.toSqliteValue(new CompatibilityContext(CompatibilityLevel.LEGACY))
+      TimeValue.parse('12:13:14.15')?.toSqliteValue(new CompatibilityContext(CompatibilityEdition.LEGACY))
     ).toStrictEqual('12:13:14.15');
   });
 });

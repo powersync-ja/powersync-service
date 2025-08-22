@@ -11,7 +11,7 @@ import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
 import { TablePattern } from './TablePattern.js';
 import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
 import { SqlRuleError } from './errors.js';
-import { CompatibilityContext, Quirk } from './quirks.js';
+import { CompatibilityContext } from './compatibility.js';
 import {
   EvaluatedParametersResult,
   EvaluateRowOptions,

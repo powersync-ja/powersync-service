@@ -1,5 +1,5 @@
 import { JSONBig } from '@powersync/service-jsonbig';
-import { CompatibilityContext } from '../quirks.js';
+import { CompatibilityContext } from '../compatibility.js';
 import { SqliteValue, EvaluatedRow, SqliteInputValue, DatabaseInputValue } from '../types.js';
 import { SqliteValueType } from '../ExpressionType.js';
 

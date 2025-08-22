@@ -1,5 +1,5 @@
 import { SqliteValueType } from '../ExpressionType.js';
-import { CompatibilityContext, Quirk } from '../quirks.js';
+import { CompatibilityContext, CompatibilityOption } from '../compatibility.js';
 import { SqliteValue } from '../types.js';
 import { CustomSqliteValue } from './custom_sqlite_value.js';
 
@@ -30,7 +30,9 @@ export class DateTimeValue extends CustomSqliteValue {
   }
 
   toSqliteValue(context: CompatibilityContext) {
-    return context.isFixed(Quirk.nonIso8601Timestamps) ? this.iso8601Representation : this.legacyRepresentation;
+    return context.isEnabled(CompatibilityOption.timestampsIso8601)
+      ? this.iso8601Representation
+      : this.legacyRepresentation;
   }
 }
 
@@ -59,7 +61,7 @@ export class TimeValue extends CustomSqliteValue {
   }
 
   toSqliteValue(context: CompatibilityContext): SqliteValue {
-    if (context.isFixed(Quirk.nonIso8601Timestamps)) {
+    if (context.isEnabled(CompatibilityOption.timestampsIso8601)) {
       const fraction = this.fraction?.padEnd(7, '0') ?? '.000000';
       return `${this.timeSeconds}${fraction}`;
     } else {

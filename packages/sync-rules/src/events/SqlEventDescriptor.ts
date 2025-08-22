@@ -1,5 +1,5 @@
 import { SqlRuleError } from '../errors.js';
-import { CompatibilityContext } from '../quirks.js';
+import { CompatibilityContext } from '../compatibility.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { QueryParseResult } from '../SqlBucketDescriptor.js';
 import { SyncRulesOptions } from '../SqlSyncRules.js';

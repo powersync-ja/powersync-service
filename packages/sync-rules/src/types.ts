@@ -6,9 +6,8 @@ import { TablePattern } from './TablePattern.js';
 import { toSyncRulesParameters } from './utils.js';
 import { BucketPriority } from './BucketDescription.js';
 import { ParameterLookup } from './BucketParameterQuerier.js';
-import { DateTimeValue } from './types/time.js';
 import { CustomSqliteValue } from './types/custom_sqlite_value.js';
-import { CompatibilityContext, Quirk } from './quirks.js';
+import { CompatibilityContext } from './compatibility.js';
 
 export interface SyncRules {
   evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
@@ -19,11 +18,11 @@ export interface SyncRules {
 export interface QueryParseOptions extends SyncRulesOptions {
   accept_potentially_dangerous_queries?: boolean;
   priority?: BucketPriority;
+  compatibility: CompatibilityContext;
 }
 
 export interface StreamParseOptions extends QueryParseOptions {
   auto_subscribe?: boolean;
-  fixedQuirks: Quirk[];
 }
 
 export interface EvaluatedParameters {

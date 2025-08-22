@@ -41,7 +41,7 @@ import {
   Statement
 } from 'pgsql-ast-parser';
 import { STREAM_FUNCTIONS } from './functions.js';
-import { CompatibilityContext, CompatibilityLevel } from '../quirks.js';
+import { CompatibilityContext, CompatibilityEdition } from '../compatibility.js';
 
 export function syncStreamFromSql(
   descriptorName: string,
@@ -67,6 +67,13 @@ class SyncStreamCompiler {
   }
 
   compile(): SyncStream {
+    if (this.options.compatibility.edition < CompatibilityEdition.SYNC_STREAMS) {
+      throw new SqlRuleError(
+        'Sync streams require edition 2 or later. Try adding a `config: {edition: 2} block to the end of the file.`',
+        this.sql
+      );
+    }
+
     const [stmt, ...illegalRest] = parse(this.sql, { locationTracking: true });
 
     // TODO: Share more of this code with SqlDataQuery
@@ -93,7 +100,7 @@ class SyncStreamCompiler {
     const stream = new SyncStream(
       this.descriptorName,
       new BaseSqlDataQuery(this.compileDataQuery(tools, query, alias, sourceTable)),
-      new CompatibilityContext(CompatibilityLevel.SYNC_STREAMS, this.options.fixedQuirks)
+      this.options.compatibility
     );
     stream.subscribedToByDefault = this.options.auto_subscribe ?? false;
     if (filter.isValid(tools)) {

@@ -3,7 +3,7 @@ import { CustomSqliteValue, SqlSyncRules, DateTimeValue, toSyncRulesValue } from
 
 import { ASSETS, PARSE_OPTIONS } from './util.js';
 
-describe('handling historical quirks', () => {
+describe('compatibility options', () => {
   describe('timestamps', () => {
     const value = new DateTimeValue('2025-08-19T09:21:00Z');
 
@@ -39,8 +39,8 @@ bucket_definitions:
     data:
       - SELECT id, description FROM assets
 
-fixed_quirks:
-  - non_iso8601_timestamps
+config:
+  timestamps_iso8601: true
     `,
         PARSE_OPTIONS
       );
@@ -64,6 +64,9 @@ fixed_quirks:
 streams:
   stream:
     query: SELECT id, description FROM assets
+
+config:
+  edition: 2
     `,
         PARSE_OPTIONS
       );
@@ -80,9 +83,36 @@ streams:
         { bucket: 'stream|0[]', data: { description: '2025-08-19T09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
       ]);
     });
+
+    test('streams can disable new format', () => {
+      const rules = SqlSyncRules.fromYaml(
+        `
+streams:
+  stream:
+    query: SELECT id, description FROM assets
+
+config:
+  edition: 2
+  timestamps_iso8601: false
+    `,
+        PARSE_OPTIONS
+      );
+
+      expect(
+        rules.evaluateRow({
+          sourceTable: ASSETS,
+          record: {
+            id: 'id',
+            description: value
+          }
+        })
+      ).toStrictEqual([
+        { bucket: 'stream|0[]', data: { description: '2025-08-19 09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
+      ]);
+    });
   });
 
-  test('warning for unknown quirk', () => {
+  test('warning for unknown option', () => {
     expect(() => {
       SqlSyncRules.fromYaml(
         `
@@ -91,12 +121,12 @@ bucket_definitions:
     data:
       - SELECT id, description FROM assets
 
-fixed_quirks:
-  - does_not_exist
+config:
+  unknown_option: true
     `,
         PARSE_OPTIONS
       );
-    }).toThrow(/must be equal to one of the allowed values/);
+    }).toThrow(/must NOT have additional properties/);
   });
 
   test('arrays', () => {
@@ -112,8 +142,8 @@ bucket_definitions:
 
       if (withFixedQuirk) {
         syncRules += `
-fixed_quirks:
-  - non_iso8601_timestamps
+config:
+  edition: 2
         `;
       }
 

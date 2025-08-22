@@ -1,5 +1,5 @@
 import ajvModule from 'ajv';
-import { Quirk } from './quirks.js';
+import { CompatibilityEdition, CompatibilityOption } from './compatibility.js';
 // Hack to make this work both in NodeJS and a browser
 const Ajv = ajvModule.default ?? ajvModule;
 const ajv = new Ajv({ allErrors: true, verbose: true });
@@ -109,12 +109,29 @@ export const syncRulesSchema: ajvModule.Schema = {
         }
       }
     },
-    fixed_quirks: {
-      type: 'array',
-      description: 'Opt-in to backwards-incompatible fixes of historical quirks and issues of the sync service.',
-      items: {
-        enum: Object.keys(Quirk.byName)
-      }
+    config: {
+      type: 'object',
+      description: 'Config declaring the compatibility level used to parse these definitions.',
+      properties: {
+        edition: {
+          type: 'integer',
+          default: CompatibilityEdition.LEGACY,
+          minimum: CompatibilityEdition.LEGACY,
+          exclusiveMaximum: CompatibilityEdition.SYNC_STREAMS + 1
+        },
+        ...Object.fromEntries(
+          Object.entries(CompatibilityOption.byName).map((e) => {
+            return [
+              e[0],
+              {
+                type: 'boolean',
+                description: `Enabled by default starting from edition ${e[1].fixedIn}: ${e[1].description}`
+              }
+            ];
+          })
+        )
+      },
+      additionalProperties: false
     }
   },
   anyOf: [{ required: ['bucket_definitions'] }, { required: ['streams'] }],
