@@ -24,7 +24,7 @@ export const INITIALIZED_MONGO_STORAGE_FACTORY = mongo_storage.test_utils.mongoT
   isCI: env.CI
 });
 
-export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.PostgresTestStorageFactoryGenerator({
+export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.test_utils.postgresTestStorageFactoryGenerator({
   url: env.PG_STORAGE_TEST_URL
 });
 
