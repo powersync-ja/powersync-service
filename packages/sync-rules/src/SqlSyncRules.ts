@@ -22,9 +22,12 @@ import {
   SourceSchema,
   SqliteJsonRow,
   SqliteRow,
+  StreamParseOptions,
   SyncRules
 } from './types.js';
 import { BucketSource } from './BucketSource.js';
+import { SyncStream } from './streams/stream.js';
+import { syncStreamFromSql } from './streams/from_sql.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -137,6 +140,7 @@ export class SqlSyncRules implements SyncRules {
 
     // Bucket definitions using explicit parameter and data queries.
     const bucketMap = parsed.get('bucket_definitions') as YAMLMap;
+    const streamMap = parsed.get('streams') as YAMLMap | null;
     const definitionNames = new Set<string>();
     const checkUniqueName = (name: string, literal: Scalar) => {
       if (definitionNames.has(name)) {
@@ -148,8 +152,8 @@ export class SqlSyncRules implements SyncRules {
       return true;
     };
 
-    if (bucketMap == null) {
-      rules.errors.push(new YamlError(new Error(`'bucket_definitions' is required`)));
+    if (bucketMap == null && streamMap == null) {
+      rules.errors.push(new YamlError(new Error(`'bucket_definitions' or 'streams' is required`)));
 
       if (throwOnError) {
         rules.throwOnError();
@@ -207,6 +211,39 @@ export class SqlSyncRules implements SyncRules {
         });
       }
       rules.bucketSources.push(descriptor);
+    }
+
+    for (const entry of streamMap?.items ?? []) {
+      const { key: keyScalar, value } = entry as { key: Scalar; value: YAMLMap };
+      const key = keyScalar.toString();
+      if (!checkUniqueName(key, keyScalar)) {
+        continue;
+      }
+
+      const accept_potentially_dangerous_queries =
+        value.get('accept_potentially_dangerous_queries', true)?.value == true;
+
+      const queryOptions: StreamParseOptions = {
+        ...options,
+        accept_potentially_dangerous_queries,
+        priority: rules.parsePriority(value),
+        auto_subscribe: value.get('auto_subscribe', true)?.value == true
+      };
+
+      const data = value.get('query', true) as unknown;
+      if (data instanceof Scalar) {
+        rules.withScalar(data, (q) => {
+          const [parsed, errors] = syncStreamFromSql(key, q, queryOptions);
+          rules.bucketSources.push(parsed);
+          return {
+            parsed: true,
+            errors
+          };
+        });
+      } else {
+        rules.errors.push(this.tokenError(data, 'Must be a string.'));
+        continue;
+      }
     }
 
     const eventMap = parsed.get('event_definitions') as YAMLMap;

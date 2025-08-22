@@ -99,8 +99,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
           bucketStorage: bucketStorage,
           syncRules: syncRules,
           params: {
-            ...params,
-            binary_data: true // always true for web sockets
+            ...params
           },
           token: context!.token_payload!,
           tokenStreamOptions: {
@@ -109,7 +108,8 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
           },
           tracker,
           signal,
-          logger
+          logger,
+          isEncodingAsBson: true
         })) {
           if (signal.aborted) {
             break;
