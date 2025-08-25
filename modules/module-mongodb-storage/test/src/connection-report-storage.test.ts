@@ -1,6 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { INITIALIZED_MONGO_REPORT_STORAGE_FACTORY } from './util.js';
+import { register, ReportUserData } from '@powersync/service-core-tests';
 import { event_types } from '@powersync/service-types';
+import { MongoReportStorage } from '@module/storage/MongoReportStorage.js';
+
+const userData = register.REPORT_TEST_USERS;
+const dates = register.REPORT_TEST_DATES;
+const factory = await INITIALIZED_MONGO_REPORT_STORAGE_FACTORY();
 
 function removeVolatileFields(
   sdks: event_types.ClientConnection[]
@@ -13,168 +19,70 @@ function removeVolatileFields(
   });
 }
 
-describe('SDK reporting storage', async () => {
-  const factory = await INITIALIZED_MONGO_REPORT_STORAGE_FACTORY();
-  const now = new Date();
-  const nowAdd5minutes = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-    now.getHours(),
-    now.getMinutes() + 5
-  );
-  const nowLess5minutes = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-    now.getHours(),
-    now.getMinutes() - 5
-  );
-  const dayAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, now.getHours());
-  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-  const weekAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
-  const monthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
-  const user_one = {
-    user_id: 'user_one',
-    client_id: 'client_one',
-    connected_at: now,
-    sdk: 'powersync-dart/1.6.4',
-    user_agent: 'powersync-dart/1.6.4 Dart (flutter-web) Chrome/128 android',
-    jwt_exp: nowAdd5minutes
-  };
-  const user_two = {
-    user_id: 'user_two',
-    client_id: 'client_two',
-    connected_at: nowLess5minutes,
-    sdk: 'powersync-js/1.21.1',
-    user_agent: 'powersync-js/1.21.0 powersync-web Chromium/138 linux',
-    jwt_exp: nowAdd5minutes
-  };
-  const user_three = {
-    user_id: 'user_three',
-    client_id: 'client_three',
-    connected_at: yesterday,
-    sdk: 'powersync-js/1.21.2',
-    user_agent: 'powersync-js/1.21.0 powersync-web Firefox/141 linux',
-    disconnected_at: yesterday
-  };
+async function loadData(data: ReportUserData, factory: MongoReportStorage) {
+  await factory.db.connection_report_events.insertMany(Object.values(data));
+}
 
-  const user_four = {
-    user_id: 'user_four',
-    client_id: 'client_four',
-    connected_at: now,
-    sdk: 'powersync-js/1.21.4',
-    user_agent: 'powersync-js/1.21.0 powersync-web Firefox/141 linux',
-    jwt_exp: nowLess5minutes
-  };
+async function deleteData(factory: MongoReportStorage) {
+  await factory.db.connection_report_events.deleteMany();
+}
 
-  const user_old = {
-    user_id: 'user_one',
-    client_id: '',
-    connected_at: now,
-    sdk: 'unknown',
-    user_agent: 'Dart (flutter-web) Chrome/128 android',
-    jwt_exp: nowAdd5minutes
-  };
+beforeAll(async () => {
+  await loadData(userData, factory);
+});
+afterAll(async () => {
+  await deleteData(factory);
+});
 
-  const user_week = {
-    user_id: 'user_week',
-    client_id: 'client_week',
-    connected_at: weekAgo,
-    sdk: 'powersync-js/1.24.5',
-    user_agent: 'powersync-js/1.21.0 powersync-web Firefox/141 linux',
-    disconnected_at: weekAgo
-  };
+describe('Report storage tests', async () => {
+  await register.registerReportTests(factory);
+});
 
-  const user_month = {
-    user_id: 'user_month',
-    client_id: 'client_month',
-    connected_at: monthAgo,
-    sdk: 'powersync-js/1.23.6',
-    user_agent: 'powersync-js/1.23.0 powersync-web Firefox/141 linux',
-    disconnected_at: monthAgo
-  };
+describe('Connection reporting storage', async () => {
+  it('Should create a connection report if its after a day', async () => {
+    const newConnectAt = new Date(
+      dates.now.getFullYear(),
+      dates.now.getMonth(),
+      dates.now.getDate() + 1,
+      dates.now.getHours()
+    );
+    const jwtExp = new Date(newConnectAt.getFullYear(), newConnectAt.getMonth(), newConnectAt.getDate() + 1);
 
-  const user_expired = {
-    user_id: 'user_expired',
-    client_id: 'client_expired',
-    connected_at: monthAgo,
-    sdk: 'powersync-js/1.23.7',
-    user_agent: 'powersync-js/1.23.0 powersync-web Firefox/141 linux',
-    jwt_exp: monthAgo
-  };
-
-  async function loadData() {
-    await factory.db.connection_report_events.insertMany([
-      user_one,
-      user_two,
-      user_three,
-      user_four,
-      user_week,
-      user_month,
-      user_expired,
-      user_old
-    ]);
-  }
-
-  function deleteData() {
-    return factory.db.connection_report_events.deleteMany();
-  }
-
-  beforeAll(async () => {
-    await loadData();
-  });
-
-  afterAll(async () => {
-    await deleteData();
-  });
-  it('Should show connected users with start range', async () => {
-    const current = await factory.getConnectedClients();
-    expect(current).toMatchSnapshot();
-  });
-
-  it('Should show connection report data for user over the past month', async () => {
-    const sdk = await factory.getClientConnectionReports({
-      start: monthAgo,
-      end: now
+    await factory.reportClientConnection({
+      sdk: userData.user_week.sdk,
+      connected_at: newConnectAt,
+      jwt_exp: jwtExp,
+      client_id: userData.user_week.client_id,
+      user_id: userData.user_week.user_id,
+      user_agent: userData.user_week.user_agent
     });
-    expect(sdk).toMatchSnapshot();
-  });
-  it('Should show connection report data for user over the past week', async () => {
-    const sdk = await factory.getClientConnectionReports({
-      start: weekAgo,
-      end: now
-    });
-    expect(sdk).toMatchSnapshot();
-  });
-  it('Should show connection report data for user over the past day', async () => {
-    const sdk = await factory.getClientConnectionReports({
-      start: dayAgo,
-      end: now
-    });
-    expect(sdk).toMatchSnapshot();
+
+    const sdk = await factory.db.connection_report_events.find({ user_id: userData.user_week.user_id }).toArray();
+    expect(sdk).toHaveLength(2);
+    const cleaned = removeVolatileFields(sdk);
+    expect(cleaned).toMatchSnapshot();
   });
 
   it('Should update a connection report if its within a day', async () => {
     const newConnectAt = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      now.getHours(),
-      now.getMinutes() + 20
+      dates.now.getFullYear(),
+      dates.now.getMonth(),
+      dates.now.getDate(),
+      dates.now.getHours(),
+      dates.now.getMinutes() + 20
     );
     const jwtExp = new Date(newConnectAt.getFullYear(), newConnectAt.getMonth(), newConnectAt.getDate() + 1);
     await factory.reportClientConnection({
-      sdk: user_one.sdk,
+      sdk: userData.user_one.sdk,
       connected_at: newConnectAt,
       jwt_exp: jwtExp,
-      client_id: user_one.client_id,
-      user_id: user_one.user_id,
-      user_agent: user_one.user_agent
+      client_id: userData.user_one.client_id,
+      user_id: userData.user_one.user_id,
+      user_agent: userData.user_one.user_agent
     });
 
     const sdk = await factory.db.connection_report_events
-      .find({ user_id: user_one.user_id, client_id: user_one.client_id })
+      .find({ user_id: userData.user_one.user_id, client_id: userData.user_one.client_id })
       .toArray();
     expect(sdk).toHaveLength(1);
     expect(new Date(sdk[0].connected_at)).toEqual(newConnectAt);
@@ -186,58 +94,39 @@ describe('SDK reporting storage', async () => {
 
   it('Should update a connected connection report and make it disconnected', async () => {
     const disconnectAt = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      now.getHours(),
-      now.getMinutes() + 20
+      dates.now.getFullYear(),
+      dates.now.getMonth(),
+      dates.now.getDate(),
+      dates.now.getHours(),
+      dates.now.getMinutes() + 20
     );
     const jwtExp = new Date(disconnectAt.getFullYear(), disconnectAt.getMonth(), disconnectAt.getDate() + 1);
 
     await factory.reportClientDisconnection({
       disconnected_at: disconnectAt,
       jwt_exp: jwtExp,
-      client_id: user_three.client_id,
-      user_id: user_three.user_id,
-      user_agent: user_three.user_agent,
-      connected_at: user_three.connected_at
+      client_id: userData.user_three.client_id,
+      user_id: userData.user_three.user_id,
+      user_agent: userData.user_three.user_agent,
+      connected_at: userData.user_three.connected_at
     });
 
-    const sdk = await factory.db.connection_report_events.find({ user_id: user_three.user_id }).toArray();
+    const sdk = await factory.db.connection_report_events.find({ user_id: userData.user_three.user_id }).toArray();
     expect(sdk).toHaveLength(1);
     expect(new Date(sdk[0].disconnected_at!)).toEqual(disconnectAt);
     const cleaned = removeVolatileFields(sdk);
     expect(cleaned).toMatchSnapshot();
   });
 
-  it('Should create a connection report if its after a day', async () => {
-    const newConnectAt = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, now.getHours());
-    const jwtExp = new Date(newConnectAt.getFullYear(), newConnectAt.getMonth(), newConnectAt.getDate() + 1);
-
-    await factory.reportClientConnection({
-      sdk: user_week.sdk,
-      connected_at: newConnectAt,
-      jwt_exp: jwtExp,
-      client_id: user_week.client_id,
-      user_id: user_week.user_id,
-      user_agent: user_week.user_agent
-    });
-
-    const sdk = await factory.db.connection_report_events.find({ user_id: user_week.user_id }).toArray();
-    expect(sdk).toHaveLength(2);
-    const cleaned = removeVolatileFields(sdk);
-    expect(cleaned).toMatchSnapshot();
-  });
-
   it('Should delete rows older than specified range', async () => {
-    await deleteData();
-    await loadData();
+    await deleteData(factory);
+    await loadData(userData, factory);
     await factory.deleteOldConnectionData({
-      date: weekAgo
+      date: dates.weekAgo
     });
     const sdk = await factory.getClientConnectionReports({
-      start: monthAgo,
-      end: now
+      start: dates.monthAgo,
+      end: dates.now
     });
     expect(sdk).toMatchSnapshot();
   });

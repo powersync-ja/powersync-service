@@ -1,6 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { POSTGRES_REPORT_STORAGE_FACTORY } from './util.js';
 import { event_types } from '@powersync/service-types';
+import { register, ReportUserData } from '@powersync/service-core-tests';
+import { PostgresReportStorageFactory } from '../../src/storage/PostgresReportStorageFactory.js';
+
+const factory = await POSTGRES_REPORT_STORAGE_FACTORY();
+const userData = register.REPORT_TEST_USERS;
+const dates = register.REPORT_TEST_DATES;
 
 function removeVolatileFields(sdks: event_types.ClientConnection[]): Partial<event_types.ClientConnection>[] {
   return sdks.map((sdk) => {
@@ -11,107 +17,8 @@ function removeVolatileFields(sdks: event_types.ClientConnection[]): Partial<eve
   });
 }
 
-describe('Connection report storage', async () => {
-  const factory = await POSTGRES_REPORT_STORAGE_FACTORY();
-  const now = new Date();
-  const nowAdd5minutes = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-    now.getHours(),
-    now.getMinutes() + 5
-  );
-  const nowLess5minutes = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-    now.getHours(),
-    now.getMinutes() - 5
-  );
-  const dayAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, now.getHours());
-  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-  const weekAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
-  const monthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
-  const user_one = {
-    user_id: 'user_one',
-    client_id: 'client_one',
-    connected_at: now.toISOString(),
-    sdk: 'powersync-dart/1.6.4',
-    user_agent: 'powersync-dart/1.6.4 Dart (flutter-web) Chrome/128 android',
-    jwt_exp: nowAdd5minutes.toISOString(),
-    id: '1'
-  };
-  const user_two = {
-    user_id: 'user_two',
-    client_id: 'client_two',
-    connected_at: nowLess5minutes.toISOString(),
-    sdk: 'powersync-js/1.21.1',
-    user_agent: 'powersync-js/1.21.0 powersync-web Chromium/138 linux',
-    jwt_exp: nowAdd5minutes.toISOString(),
-    id: '2'
-  };
-  const user_three = {
-    user_id: 'user_three',
-    client_id: 'client_three',
-    connected_at: yesterday.toISOString(),
-    sdk: 'powersync-js/1.21.2',
-    user_agent: 'powersync-js/1.21.0 powersync-web Firefox/141 linux',
-    disconnected_at: yesterday.toISOString(),
-    id: '3'
-  };
-
-  const user_four = {
-    user_id: 'user_four',
-    client_id: 'client_four',
-    connected_at: now.toISOString(),
-    sdk: 'powersync-js/1.21.4',
-    user_agent: 'powersync-js/1.21.0 powersync-web Firefox/141 linux',
-    jwt_exp: nowLess5minutes.toISOString(),
-    id: '4'
-  };
-
-  const user_old = {
-    user_id: 'user_one',
-    client_id: '',
-    connected_at: now.toISOString(),
-    sdk: 'unknown',
-    user_agent: 'powersync-dart/1.6.4 Dart (flutter-web) Chrome/128 android',
-    jwt_exp: nowAdd5minutes.toISOString(),
-    id: '5'
-  };
-
-  const user_week = {
-    user_id: 'user_week',
-    client_id: 'client_week',
-    connected_at: weekAgo.toISOString(),
-    sdk: 'powersync-js/1.24.5',
-    user_agent: 'powersync-js/1.21.0 powersync-web Firefox/141 linux',
-    disconnected_at: weekAgo.toISOString(),
-    id: 'week'
-  };
-
-  const user_month = {
-    user_id: 'user_month',
-    client_id: 'client_month',
-    connected_at: monthAgo.toISOString(),
-    sdk: 'powersync-js/1.23.6',
-    user_agent: 'powersync-js/1.23.0 powersync-web Firefox/141 linux',
-    disconnected_at: monthAgo.toISOString(),
-    id: 'month'
-  };
-
-  const user_expired = {
-    user_id: 'user_expired',
-    client_id: 'client_expired',
-    connected_at: monthAgo.toISOString(),
-    sdk: 'powersync-js/1.23.7',
-    user_agent: 'powersync-js/1.23.0 powersync-web Firefox/141 linux',
-    jwt_exp: monthAgo.toISOString(),
-    id: 'expired'
-  };
-
-  async function loadData() {
-    await factory.db.sql`
+async function loadData(userData: ReportUserData, factory: PostgresReportStorageFactory) {
+  await factory.db.sql`
       INSERT INTO
         connection_report_events (
           user_id,
@@ -125,148 +32,127 @@ describe('Connection report storage', async () => {
         )
       VALUES
         (
-          ${{ type: 'varchar', value: user_one.user_id }},
-          ${{ type: 'varchar', value: user_one.client_id }},
-          ${{ type: 1184, value: user_one.connected_at }},
-          ${{ type: 'varchar', value: user_one.sdk }},
-          ${{ type: 'varchar', value: user_one.user_agent }},
-          ${{ type: 1184, value: user_one.jwt_exp }},
-          ${{ type: 'varchar', value: user_one.id }},
+          ${{ type: 'varchar', value: userData.user_one.user_id }},
+          ${{ type: 'varchar', value: userData.user_one.client_id }},
+          ${{ type: 1184, value: userData.user_one.connected_at.toUTCString() }},
+          ${{ type: 'varchar', value: userData.user_one.sdk }},
+          ${{ type: 'varchar', value: userData.user_one.user_agent }},
+          ${{ type: 1184, value: userData.user_one.jwt_exp.toUTCString() }},
+          ${{ type: 'varchar', value: '1' }},
           NULL
         ),
         (
-          ${{ type: 'varchar', value: user_two.user_id }},
-          ${{ type: 'varchar', value: user_two.client_id }},
-          ${{ type: 1184, value: user_two.connected_at }},
-          ${{ type: 'varchar', value: user_two.sdk }},
-          ${{ type: 'varchar', value: user_two.user_agent }},
-          ${{ type: 1184, value: user_two.jwt_exp }},
-          ${{ type: 'varchar', value: user_two.id }},
+          ${{ type: 'varchar', value: userData.user_two.user_id }},
+          ${{ type: 'varchar', value: userData.user_two.client_id }},
+          ${{ type: 1184, value: userData.user_two.connected_at.toUTCString() }},
+          ${{ type: 'varchar', value: userData.user_two.sdk }},
+          ${{ type: 'varchar', value: userData.user_two.user_agent }},
+          ${{ type: 1184, value: userData.user_two.jwt_exp.toUTCString() }},
+          ${{ type: 'varchar', value: '2' }},
           NULL
         ),
         (
-          ${{ type: 'varchar', value: user_four.user_id }},
-          ${{ type: 'varchar', value: user_four.client_id }},
-          ${{ type: 1184, value: user_four.connected_at }},
-          ${{ type: 'varchar', value: user_four.sdk }},
-          ${{ type: 'varchar', value: user_four.user_agent }},
-          ${{ type: 1184, value: user_four.jwt_exp }},
-          ${{ type: 'varchar', value: user_four.id }},
+          ${{ type: 'varchar', value: userData.user_four.user_id }},
+          ${{ type: 'varchar', value: userData.user_four.client_id }},
+          ${{ type: 1184, value: userData.user_four.connected_at.toUTCString() }},
+          ${{ type: 'varchar', value: userData.user_four.sdk }},
+          ${{ type: 'varchar', value: userData.user_four.user_agent }},
+          ${{ type: 1184, value: userData.user_four.jwt_exp.toUTCString() }},
+          ${{ type: 'varchar', value: '4' }},
           NULL
         ),
         (
-          ${{ type: 'varchar', value: user_old.user_id }},
-          ${{ type: 'varchar', value: user_old.client_id }},
-          ${{ type: 1184, value: user_old.connected_at }},
-          ${{ type: 'varchar', value: user_old.sdk }},
-          ${{ type: 'varchar', value: user_old.user_agent }},
-          ${{ type: 1184, value: user_old.jwt_exp }},
-          ${{ type: 'varchar', value: user_old.id }},
+          ${{ type: 'varchar', value: userData.user_old.user_id }},
+          ${{ type: 'varchar', value: userData.user_old.client_id }},
+          ${{ type: 1184, value: userData.user_old.connected_at.toUTCString() }},
+          ${{ type: 'varchar', value: userData.user_old.sdk }},
+          ${{ type: 'varchar', value: userData.user_old.user_agent }},
+          ${{ type: 1184, value: userData.user_old.jwt_exp.toUTCString() }},
+          ${{ type: 'varchar', value: '5' }},
           NULL
         ),
         (
-          ${{ type: 'varchar', value: user_three.user_id }},
-          ${{ type: 'varchar', value: user_three.client_id }},
-          ${{ type: 1184, value: user_three.connected_at }},
-          ${{ type: 'varchar', value: user_three.sdk }},
-          ${{ type: 'varchar', value: user_three.user_agent }},
+          ${{ type: 'varchar', value: userData.user_three.user_id }},
+          ${{ type: 'varchar', value: userData.user_three.client_id }},
+          ${{ type: 1184, value: userData.user_three.connected_at.toUTCString() }},
+          ${{ type: 'varchar', value: userData.user_three.sdk }},
+          ${{ type: 'varchar', value: userData.user_three.user_agent }},
           NULL,
-          ${{ type: 'varchar', value: user_three.id }},
-          ${{ type: 1184, value: user_three.disconnected_at }}
+          ${{ type: 'varchar', value: '3' }},
+          ${{ type: 1184, value: userData.user_three.disconnected_at.toUTCString() }}
         ),
         (
-          ${{ type: 'varchar', value: user_week.user_id }},
-          ${{ type: 'varchar', value: user_week.client_id }},
-          ${{ type: 1184, value: user_week.connected_at }},
-          ${{ type: 'varchar', value: user_week.sdk }},
-          ${{ type: 'varchar', value: user_week.user_agent }},
+          ${{ type: 'varchar', value: userData.user_week.user_id }},
+          ${{ type: 'varchar', value: userData.user_week.client_id }},
+          ${{ type: 1184, value: userData.user_week.connected_at.toUTCString() }},
+          ${{ type: 'varchar', value: userData.user_week.sdk }},
+          ${{ type: 'varchar', value: userData.user_week.user_agent }},
           NULL,
-          ${{ type: 'varchar', value: user_week.id }},
-          ${{ type: 1184, value: user_week.disconnected_at }}
+          ${{ type: 'varchar', value: 'week' }},
+          ${{ type: 1184, value: userData.user_week.disconnected_at.toUTCString() }}
         ),
         (
-          ${{ type: 'varchar', value: user_month.user_id }},
-          ${{ type: 'varchar', value: user_month.client_id }},
-          ${{ type: 1184, value: user_month.connected_at }},
-          ${{ type: 'varchar', value: user_month.sdk }},
-          ${{ type: 'varchar', value: user_month.user_agent }},
+          ${{ type: 'varchar', value: userData.user_month.user_id }},
+          ${{ type: 'varchar', value: userData.user_month.client_id }},
+          ${{ type: 1184, value: userData.user_month.connected_at.toUTCString() }},
+          ${{ type: 'varchar', value: userData.user_month.sdk }},
+          ${{ type: 'varchar', value: userData.user_month.user_agent }},
           NULL,
-          ${{ type: 'varchar', value: user_month.id }},
-          ${{ type: 1184, value: user_month.disconnected_at }}
+          ${{ type: 'varchar', value: 'month' }},
+          ${{ type: 1184, value: userData.user_month.disconnected_at.toUTCString() }}
         ),
         (
-          ${{ type: 'varchar', value: user_expired.user_id }},
-          ${{ type: 'varchar', value: user_expired.client_id }},
-          ${{ type: 1184, value: user_expired.connected_at }},
-          ${{ type: 'varchar', value: user_expired.sdk }},
-          ${{ type: 'varchar', value: user_expired.user_agent }},
-          ${{ type: 1184, value: user_expired.jwt_exp }},
-          ${{ type: 'varchar', value: user_expired.id }},
+          ${{ type: 'varchar', value: userData.user_expired.user_id }},
+          ${{ type: 'varchar', value: userData.user_expired.client_id }},
+          ${{ type: 1184, value: userData.user_expired.connected_at.toUTCString() }},
+          ${{ type: 'varchar', value: userData.user_expired.sdk }},
+          ${{ type: 'varchar', value: userData.user_expired.user_agent }},
+          ${{ type: 1184, value: userData.user_expired.jwt_exp.toUTCString() }},
+          ${{ type: 'varchar', value: 'expired' }},
           NULL
         )
     `.execute();
-  }
+}
 
-  function deleteData() {
-    return factory.db.sql`TRUNCATE TABLE connection_report_events`.execute();
-  }
+async function deleteData(factory: PostgresReportStorageFactory) {
+  await factory.db.sql`TRUNCATE TABLE connection_report_events`.execute();
+}
 
-  beforeAll(async () => {
-    await loadData();
-  });
+beforeAll(async () => {
+  await loadData(userData, factory);
+});
+afterAll(async () => {
+  await deleteData(factory);
+});
 
-  afterAll(async () => {
-    await deleteData();
-  });
-  it('Should show connected users with start range', async () => {
-    const current = await factory.getConnectedClients();
-    expect(current).toMatchSnapshot();
-  });
-  it('Should show connection report data for user over the past month', async () => {
-    const sdk = await factory.getClientConnectionReports({
-      start: monthAgo,
-      end: now
-    });
-    expect(sdk).toMatchSnapshot();
-  });
-  it('Should show connection report data for user over the past week', async () => {
-    const sdk = await factory.getClientConnectionReports({
-      start: weekAgo,
-      end: now
-    });
-    expect(sdk).toMatchSnapshot();
-  });
-  it('Should show connection report data for user over the past day', async () => {
-    const sdk = await factory.getClientConnectionReports({
-      start: dayAgo,
-      end: now
-    });
-    expect(sdk).toMatchSnapshot();
-  });
+describe('Report storage tests', async () => {
+  await register.registerReportTests(factory);
+});
 
+describe('Connection report storage', async () => {
   it('Should update a connection event if its within a day', async () => {
     const newConnectAt = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      now.getHours(),
-      now.getMinutes() + 20
+      dates.now.getFullYear(),
+      dates.now.getMonth(),
+      dates.now.getDate(),
+      dates.now.getHours(),
+      dates.now.getMinutes() + 20
     );
     const jwtExp = new Date(newConnectAt.getFullYear(), newConnectAt.getMonth(), newConnectAt.getDate() + 1);
     await factory.reportClientConnection({
-      sdk: user_one.sdk,
+      sdk: userData.user_one.sdk,
       connected_at: newConnectAt,
       jwt_exp: jwtExp,
-      client_id: user_one.client_id,
-      user_id: user_one.user_id,
-      user_agent: user_one.user_agent
+      client_id: userData.user_one.client_id,
+      user_id: userData.user_one.user_id,
+      user_agent: userData.user_one.user_agent
     });
 
     const sdk = await factory.db
-      .sql`SELECT * FROM connection_report_events WHERE user_id = ${{ type: 'varchar', value: user_one.user_id }} AND client_id = ${{ type: 'varchar', value: user_one.client_id }}`.rows<event_types.ClientConnection>();
+      .sql`SELECT * FROM connection_report_events WHERE user_id = ${{ type: 'varchar', value: userData.user_one.user_id }} AND client_id = ${{ type: 'varchar', value: userData.user_one.client_id }}`.rows<event_types.ClientConnection>();
     expect(sdk).toHaveLength(1);
-    expect(new Date(sdk[0].connected_at).toISOString()).toEqual(newConnectAt.toISOString());
-    expect(new Date(sdk[0].jwt_exp!).toISOString()).toEqual(jwtExp.toISOString());
+    expect(new Date(sdk[0].connected_at).toUTCString()).toEqual(newConnectAt.toUTCString());
+    expect(new Date(sdk[0].jwt_exp!).toUTCString()).toEqual(jwtExp.toUTCString());
     expect(sdk[0].disconnected_at).toBeNull();
     const cleaned = removeVolatileFields(sdk);
     expect(cleaned).toMatchSnapshot();
@@ -274,60 +160,65 @@ describe('Connection report storage', async () => {
 
   it('Should update a connection event and make it disconnected', async () => {
     const disconnectAt = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      now.getHours(),
-      now.getMinutes() + 20
+      dates.now.getFullYear(),
+      dates.now.getMonth(),
+      dates.now.getDate(),
+      dates.now.getHours(),
+      dates.now.getMinutes() + 20
     );
     const jwtExp = new Date(disconnectAt.getFullYear(), disconnectAt.getMonth(), disconnectAt.getDate() + 1);
 
     await factory.reportClientDisconnection({
       disconnected_at: disconnectAt,
       jwt_exp: jwtExp,
-      client_id: user_three.client_id,
-      user_id: user_three.user_id,
-      user_agent: user_three.user_agent,
-      connected_at: yesterday
+      client_id: userData.user_three.client_id,
+      user_id: userData.user_three.user_id,
+      user_agent: userData.user_three.user_agent,
+      connected_at: dates.yesterday
     });
 
     const sdk = await factory.db
-      .sql`SELECT * FROM connection_report_events WHERE user_id = ${{ type: 'varchar', value: user_three.user_id }}`.rows<event_types.ClientConnection>();
+      .sql`SELECT * FROM connection_report_events WHERE user_id = ${{ type: 'varchar', value: userData.user_three.user_id }}`.rows<event_types.ClientConnection>();
     expect(sdk).toHaveLength(1);
-    expect(new Date(sdk[0].disconnected_at!).toISOString()).toEqual(disconnectAt.toISOString());
+    expect(new Date(sdk[0].disconnected_at!).toUTCString()).toEqual(disconnectAt.toUTCString());
     const cleaned = removeVolatileFields(sdk);
     expect(cleaned).toMatchSnapshot();
   });
 
   it('Should create a connection event if its after a day', async () => {
-    const newConnectAt = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, now.getHours());
+    const newConnectAt = new Date(
+      dates.now.getFullYear(),
+      dates.now.getMonth(),
+      dates.now.getDate() + 1,
+      dates.now.getHours()
+    );
     const jwtExp = new Date(newConnectAt.getFullYear(), newConnectAt.getMonth(), newConnectAt.getDate() + 1);
 
     await factory.reportClientConnection({
-      sdk: user_week.sdk,
+      sdk: userData.user_week.sdk,
       connected_at: newConnectAt,
       jwt_exp: jwtExp,
-      client_id: user_week.client_id,
-      user_id: user_week.user_id,
-      user_agent: user_week.user_agent
+      client_id: userData.user_week.client_id,
+      user_id: userData.user_week.user_id,
+      user_agent: userData.user_week.user_agent
     });
 
     const sdk = await factory.db
-      .sql`SELECT * FROM connection_report_events WHERE user_id = ${{ type: 'varchar', value: user_week.user_id }}`.rows<event_types.ClientConnection>();
+      .sql`SELECT * FROM connection_report_events WHERE user_id = ${{ type: 'varchar', value: userData.user_week.user_id }}`.rows<event_types.ClientConnection>();
     expect(sdk).toHaveLength(2);
     const cleaned = removeVolatileFields(sdk);
     expect(cleaned).toMatchSnapshot();
   });
 
   it('Should delete rows older than specified range', async () => {
-    await deleteData();
-    await loadData();
+    await deleteData(factory);
+    await loadData(userData, factory);
     await factory.deleteOldConnectionData({
-      date: weekAgo
+      date: dates.weekAgo
     });
     const sdk = await factory.getClientConnectionReports({
-      start: monthAgo,
-      end: now
+      start: dates.monthAgo,
+      end: dates.now
     });
     expect(sdk).toMatchSnapshot();
   });
