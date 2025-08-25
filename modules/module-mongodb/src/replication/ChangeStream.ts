@@ -17,7 +17,7 @@ import {
   SourceTable,
   storage
 } from '@powersync/service-core';
-import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
+import { DatabaseInputRow, SqliteInputRow, SqliteRow, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
@@ -439,7 +439,7 @@ export class ChangeStream {
     return { $match: { ns: { $in: $inFilters } }, multipleDatabases };
   }
 
-  static *getQueryData(results: Iterable<DatabaseInputRow>): Generator<SqliteRow> {
+  static *getQueryData(results: Iterable<DatabaseInputRow>): Generator<SqliteInputRow> {
     for (let row of results) {
       yield constructAfterRecord(row);
     }

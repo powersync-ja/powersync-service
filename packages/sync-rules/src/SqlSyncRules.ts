@@ -20,11 +20,14 @@ import {
   QueryParseOptions,
   RequestParameters,
   SourceSchema,
+  SqliteInputRow,
   SqliteJsonRow,
-  SqliteRow,
+  StreamParseOptions,
   SyncRules
 } from './types.js';
 import { BucketSource } from './BucketSource.js';
+import { syncStreamFromSql } from './streams/from_sql.js';
+import { CompatibilityContext, CompatibilityEdition, CompatibilityOption } from './compatibility.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -135,8 +138,30 @@ export class SqlSyncRules implements SyncRules {
       return rules;
     }
 
+    const declaredOptions = parsed.get('config') as YAMLMap | null;
+    let compatibility = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
+    if (declaredOptions != null) {
+      const edition = (declaredOptions.get('edition') ?? CompatibilityEdition.LEGACY) as CompatibilityEdition;
+      const options = new Map<CompatibilityOption, boolean>();
+
+      for (const entry of declaredOptions.items) {
+        const {
+          key: { value: key },
+          value: { value }
+        } = entry as { key: Scalar<string>; value: Scalar<boolean> };
+
+        const option = CompatibilityOption.byName[key];
+        if (option) {
+          options.set(option, value);
+        }
+      }
+
+      compatibility = new CompatibilityContext(edition, options);
+    }
+
     // Bucket definitions using explicit parameter and data queries.
     const bucketMap = parsed.get('bucket_definitions') as YAMLMap;
+    const streamMap = parsed.get('streams') as YAMLMap | null;
     const definitionNames = new Set<string>();
     const checkUniqueName = (name: string, literal: Scalar) => {
       if (definitionNames.has(name)) {
@@ -148,8 +173,8 @@ export class SqlSyncRules implements SyncRules {
       return true;
     };
 
-    if (bucketMap == null) {
-      rules.errors.push(new YamlError(new Error(`'bucket_definitions' is required`)));
+    if (bucketMap == null && streamMap == null) {
+      rules.errors.push(new YamlError(new Error(`'bucket_definitions' or 'streams' is required`)));
 
       if (throwOnError) {
         rules.throwOnError();
@@ -176,12 +201,13 @@ export class SqlSyncRules implements SyncRules {
       const queryOptions: QueryParseOptions = {
         ...options,
         accept_potentially_dangerous_queries,
-        priority: parseOptionPriority
+        priority: parseOptionPriority,
+        compatibility
       };
       const parameters = value.get('parameters', true) as unknown;
       const dataQueries = value.get('data', true) as unknown;
 
-      const descriptor = new SqlBucketDescriptor(key);
+      const descriptor = new SqlBucketDescriptor(key, compatibility);
 
       if (parameters instanceof Scalar) {
         rules.withScalar(parameters, (q) => {
@@ -209,6 +235,40 @@ export class SqlSyncRules implements SyncRules {
       rules.bucketSources.push(descriptor);
     }
 
+    for (const entry of streamMap?.items ?? []) {
+      const { key: keyScalar, value } = entry as { key: Scalar; value: YAMLMap };
+      const key = keyScalar.toString();
+      if (!checkUniqueName(key, keyScalar)) {
+        continue;
+      }
+
+      const accept_potentially_dangerous_queries =
+        value.get('accept_potentially_dangerous_queries', true)?.value == true;
+
+      const queryOptions: StreamParseOptions = {
+        ...options,
+        accept_potentially_dangerous_queries,
+        priority: rules.parsePriority(value),
+        auto_subscribe: value.get('auto_subscribe', true)?.value == true,
+        compatibility
+      };
+
+      const data = value.get('query', true) as unknown;
+      if (data instanceof Scalar) {
+        rules.withScalar(data, (q) => {
+          const [parsed, errors] = syncStreamFromSql(key, q, queryOptions);
+          rules.bucketSources.push(parsed);
+          return {
+            parsed: true,
+            errors
+          };
+        });
+      } else {
+        rules.errors.push(this.tokenError(data, 'Must be a string.'));
+        continue;
+      }
+    }
+
     const eventMap = parsed.get('event_definitions') as YAMLMap;
     for (const event of eventMap?.items ?? []) {
       const { key, value } = event as { key: Scalar; value: YAMLSeq };
@@ -224,7 +284,7 @@ export class SqlSyncRules implements SyncRules {
         continue;
       }
 
-      const eventDescriptor = new SqlEventDescriptor(key.toString());
+      const eventDescriptor = new SqlEventDescriptor(key.toString(), compatibility);
       for (let item of payloads.items) {
         if (!isScalar(item)) {
           rules.errors.push(new YamlError(new Error(`Payload queries for events must be scalar.`)));
@@ -338,7 +398,7 @@ export class SqlSyncRules implements SyncRules {
   /**
    * Throws errors.
    */
-  evaluateParameterRow(table: SourceTableInterface, row: SqliteRow): EvaluatedParameters[] {
+  evaluateParameterRow(table: SourceTableInterface, row: SqliteInputRow): EvaluatedParameters[] {
     const { results, errors } = this.evaluateParameterRowWithErrors(table, row);
     if (errors.length > 0) {
       throw new Error(errors[0].error);
@@ -348,7 +408,7 @@ export class SqlSyncRules implements SyncRules {
 
   evaluateParameterRowWithErrors(
     table: SourceTableInterface,
-    row: SqliteRow
+    row: SqliteInputRow
   ): { results: EvaluatedParameters[]; errors: EvaluationError[] } {
     let rawResults: EvaluatedParametersResult[] = [];
     for (let source of this.bucketSources) {

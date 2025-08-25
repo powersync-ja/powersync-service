@@ -6,6 +6,8 @@ import { TablePattern } from './TablePattern.js';
 import { toSyncRulesParameters } from './utils.js';
 import { BucketPriority } from './BucketDescription.js';
 import { ParameterLookup } from './BucketParameterQuerier.js';
+import { CustomSqliteValue } from './types/custom_sqlite_value.js';
+import { CompatibilityContext } from './compatibility.js';
 
 export interface SyncRules {
   evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
@@ -16,6 +18,11 @@ export interface SyncRules {
 export interface QueryParseOptions extends SyncRulesOptions {
   accept_potentially_dangerous_queries?: boolean;
   priority?: BucketPriority;
+  compatibility: CompatibilityContext;
+}
+
+export interface StreamParseOptions extends QueryParseOptions {
+  auto_subscribe?: boolean;
 }
 
 export interface EvaluatedParameters {
@@ -80,16 +87,19 @@ export interface ParameterValueSet {
    * JSON string of raw request parameters.
    */
   rawUserParameters: string;
+  userParameters: SqliteJsonRow;
 
   /**
    * For streams, the raw JSON string of stream parameters.
    */
   rawStreamParameters: string | null;
+  streamParameters: SqliteJsonRow | null;
 
   /**
    * JSON string of raw request parameters.
    */
   rawTokenPayload: string;
+  tokenParameters: SqliteJsonRow;
 
   userId: string;
 }
@@ -103,6 +113,7 @@ export class RequestParameters implements ParameterValueSet {
    */
   rawUserParameters: string;
 
+  streamParameters: SqliteJsonRow | null;
   rawStreamParameters: string | null;
 
   /**
@@ -112,7 +123,21 @@ export class RequestParameters implements ParameterValueSet {
 
   userId: string;
 
-  constructor(tokenPayload: RequestJwtPayload, clientParameters: Record<string, any>) {
+  constructor(tokenPayload: RequestJwtPayload, clientParameters: Record<string, any>);
+  constructor(params: RequestParameters);
+
+  constructor(tokenPayload: RequestJwtPayload | RequestParameters, clientParameters?: Record<string, any>) {
+    if (tokenPayload instanceof RequestParameters) {
+      this.tokenParameters = tokenPayload.tokenParameters;
+      this.userParameters = tokenPayload.userParameters;
+      this.rawUserParameters = tokenPayload.rawUserParameters;
+      this.rawTokenPayload = tokenPayload.rawTokenPayload;
+      this.streamParameters = tokenPayload.streamParameters;
+      this.rawStreamParameters = tokenPayload.rawStreamParameters;
+      this.userId = tokenPayload.userId;
+      return;
+    }
+
     // This type is verified when we verify the token
     const legacyParameters = tokenPayload.parameters as Record<string, any> | undefined;
 
@@ -122,12 +147,15 @@ export class RequestParameters implements ParameterValueSet {
       user_id: tokenPayload.sub
     };
 
-    this.tokenParameters = toSyncRulesParameters(tokenParameters);
+    // Client and token parameters don't contain DateTime values or other custom types, so we don't need to consider
+    // compatibility.
+    this.tokenParameters = toSyncRulesParameters(tokenParameters, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
     this.userId = tokenPayload.sub;
     this.rawTokenPayload = JSONBig.stringify(tokenPayload);
 
     this.rawUserParameters = JSONBig.stringify(clientParameters);
-    this.userParameters = toSyncRulesParameters(clientParameters);
+    this.userParameters = toSyncRulesParameters(clientParameters!, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+    this.streamParameters = null;
     this.rawStreamParameters = null;
   }
 
@@ -136,12 +164,15 @@ export class RequestParameters implements ParameterValueSet {
       return this.tokenParameters[column];
     } else if (table == 'user_parameters') {
       return this.userParameters[column];
+    } else if (table == 'subscription_parameters' && this.streamParameters != null) {
+      return this.streamParameters[column];
     }
     throw new Error(`Unknown table: ${table}`);
   }
 
   withAddedStreamParameters(params: Record<string, any>): RequestParameters {
-    const clone = structuredClone(this);
+    const clone = new RequestParameters(this);
+    clone.streamParameters = params;
     clone.rawStreamParameters = JSONBig.stringify(params);
 
     return clone;
@@ -161,6 +192,12 @@ export type SqliteJsonValue = number | string | bigint | null;
 export type SqliteValue = number | string | null | bigint | Uint8Array;
 
 /**
+ * A value that is either supported by SQLite natively, or one that can be lowered into a SQLite-value given additional
+ * context.
+ */
+export type SqliteInputValue = SqliteValue | CustomSqliteValue;
+
+/**
  * A set of values that are both SQLite and JSON-compatible.
  *
  * This is a flat object -> no nested arrays or objects.
@@ -171,7 +208,9 @@ export type SqliteJsonRow = { [column: string]: SqliteJsonValue };
  * SQLite-compatible row (NULL, TEXT, INTEGER, REAL, BLOB).
  * JSON is represented as TEXT.
  */
-export type SqliteRow = { [column: string]: SqliteValue };
+export type SqliteRow<T = SqliteValue> = { [column: string]: T };
+
+export type SqliteInputRow = SqliteRow<SqliteInputValue>;
 
 /**
  * SQLite-compatible row (NULL, TEXT, INTEGER, REAL, BLOB).
@@ -179,7 +218,7 @@ export type SqliteRow = { [column: string]: SqliteValue };
  *
  * Toasted values are `undefined`.
  */
-export type ToastableSqliteRow = { [column: string]: SqliteValue | undefined };
+export type ToastableSqliteRow = SqliteRow<SqliteInputValue | undefined>;
 
 /**
  * A value as received from the database.
@@ -189,6 +228,7 @@ export type DatabaseInputValue =
   | boolean
   | DatabaseInputValue[]
   | JsonContainer
+  | CustomSqliteValue
   | { [key: string]: DatabaseInputValue };
 
 /**
@@ -243,13 +283,18 @@ export interface InputParameter {
   parametersToLookupValue(parameters: ParameterValueSet): SqliteValue;
 }
 
-export interface EvaluateRowOptions {
+export interface EvaluateRowOptions extends TableRow<SqliteInputRow> {}
+
+/**
+ * A row associated with the table it's coming from.
+ */
+export interface TableRow<R = SqliteRow> {
   sourceTable: SourceTableInterface;
-  record: SqliteRow;
+  record: R;
 }
 
 /**
- * This is a clause that matches row and parameter values.
+ * This is a clause that matches row and parameter values for equality.
  *
  * Example:
  * [WHERE] users.org_id = bucket.org_id
@@ -265,6 +310,9 @@ export interface ParameterMatchClause {
    *  * ['token_parameters.user_id'] for a parameter query
    *
    * These parameters are always matched by this clause, and no additional parameters are matched.
+   *
+   * For a single match clause, this array will have a single element. When match clauses are combined with `AND`,
+   * the result is represented as a {@link ParameterMatchClause} with multiple input parameters.
    */
   inputParameters: InputParameter[];
 
