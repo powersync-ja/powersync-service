@@ -20,6 +20,8 @@ export interface ReportStorage extends AsyncDisposable {
    * Get currently connected clients.
    * This will return any short or long term connected clients.
    * Clients that have no disconnected_at timestamp and that have a valid jwt_exp timestamp are considered connected.
+   * @param data.range.start Needs to be UTC time string
+   * @param data.range.end Optional needs to be UTC time string
    */
   getConnectedClients(data: event_types.ClientConnectionsRequest): Promise<event_types.ClientConnectionReportResponse>;
   /**

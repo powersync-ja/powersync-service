@@ -71,7 +71,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
             connection_report_events
           WHERE
             disconnected_at IS NULL
-            AND jwt_exp > NOW()
+            AND jwt_exp > NOW() AT TIME ZONE 'UTC'
             AND connected_at >= ${{ type: 1184, value: gt }}
             AND connected_at <= ${{ type: 1184, value: lt }}
         ),
