@@ -1,8 +1,12 @@
 import { env } from './env.js';
+import { mongoTestReportStorageFactoryGenerator, mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
 
-import { MongoTestStorageFactoryGenerator } from '@module/storage/implementation/MongoTestStorageFactoryGenerator.js';
+export const INITIALIZED_MONGO_STORAGE_FACTORY = mongoTestStorageFactoryGenerator({
+  url: env.MONGO_TEST_URL,
+  isCI: env.CI
+});
 
-export const INITIALIZED_MONGO_STORAGE_FACTORY = MongoTestStorageFactoryGenerator({
+export const INITIALIZED_MONGO_REPORT_STORAGE_FACTORY = mongoTestReportStorageFactoryGenerator({
   url: env.MONGO_TEST_URL,
   isCI: env.CI
 });

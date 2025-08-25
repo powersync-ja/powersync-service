@@ -11,7 +11,7 @@
   "scripts": {
     "build": "tsc -b",
     "build:tests": "tsc -b test/tsconfig.json",
-    "clean": "rm -rf ./lib && tsc -b --clean",
+    "clean": "rm -rf ./dist && tsc -b --clean",
     "test": "vitest"
   },
   "exports": {
@@ -32,11 +32,11 @@
     "@powersync/lib-service-postgres": "workspace:*",
     "@powersync/lib-services-framework": "workspace:*",
     "@powersync/service-core": "workspace:*",
+    "@powersync/service-types": "workspace:*",
     "@powersync/service-core-tests": "workspace:*",
     "@powersync/service-jpgwire": "workspace:*",
     "@powersync/service-jsonbig": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",
-    "@powersync/service-types": "workspace:*",
     "ix": "^5.0.0",
     "lru-cache": "^10.2.2",
     "p-defer": "^4.0.1",

@@ -1,5 +1,4 @@
 import type fastify from 'fastify';
-import * as uuid from 'uuid';
 
 import { registerFastifyNotFoundHandler, registerFastifyRoutes } from './route-register.js';
 
