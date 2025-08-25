@@ -113,7 +113,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
             const serialized = sync.syncLineToBson(data);
             responder.onNext({ data: serialized }, false);
             requestedN--;
-            tracker.addDataSynced(serialized.length);
+            tracker.addPlaintextDataSynced(serialized.length);
           }
 
           if (requestedN <= 0 && !signal.aborted) {

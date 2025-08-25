@@ -2,6 +2,7 @@ import { MetricsEngine } from '../metrics/MetricsEngine.js';
 
 import { APIMetric } from '@powersync/service-types';
 import { SyncBucketData } from '../util/protocol-types.js';
+import { ServiceAssertionError } from '@powersync/lib-services-framework';
 
 /**
  * Record sync stats per request stream.
@@ -9,8 +10,11 @@ import { SyncBucketData } from '../util/protocol-types.js';
 export class RequestTracker {
   operationsSynced = 0;
   dataSyncedBytes = 0;
+  dataSentBytes = 0;
   operationCounts: OperationCounts = { put: 0, remove: 0, move: 0, clear: 0 };
   largeBuckets: Record<string, number> = {};
+
+  private encoding: string | undefined = undefined;
 
   constructor(private metrics: MetricsEngine) {
     this.metrics = metrics;
@@ -29,18 +33,39 @@ export class RequestTracker {
     this.metrics.getCounter(APIMetric.OPERATIONS_SYNCED).add(operations.total);
   }
 
-  addDataSynced(bytes: number) {
+  setCompressed(encoding: string) {
+    this.encoding = encoding;
+  }
+
+  addPlaintextDataSynced(bytes: number) {
     this.dataSyncedBytes += bytes;
 
     this.metrics.getCounter(APIMetric.DATA_SYNCED_BYTES).add(bytes);
+
+    if (this.encoding == null) {
+      // This avoids having to create a separate stream just to track this
+      this.dataSentBytes += bytes;
+
+      this.metrics.getCounter(APIMetric.DATA_SENT_BYTES).add(bytes);
+    }
+  }
+
+  addCompressedDataSent(bytes: number) {
+    if (this.encoding == null) {
+      throw new ServiceAssertionError('No compression encoding set');
+    }
+    this.dataSentBytes += bytes;
+    this.metrics.getCounter(APIMetric.DATA_SENT_BYTES).add(bytes);
   }
 
   getLogMeta() {
     return {
       operations_synced: this.operationsSynced,
       data_synced_bytes: this.dataSyncedBytes,
+      data_sent_bytes: this.dataSentBytes,
       operation_counts: this.operationCounts,
-      large_buckets: this.largeBuckets
+      large_buckets: this.largeBuckets,
+      encoding: this.encoding
     };
   }
 }

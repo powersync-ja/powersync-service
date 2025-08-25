@@ -1,6 +1,8 @@
 export enum APIMetric {
   // Uncompressed size of synced data from PowerSync to Clients
   DATA_SYNCED_BYTES = 'powersync_data_synced_bytes_total',
+  // Potentially-compressed size of data sent from PowerSync to Clients
+  DATA_SENT_BYTES = 'powersync_data_sent_bytes_total',
   // Number of operations synced
   OPERATIONS_SYNCED = 'powersync_operations_synced_total',
   // Number of concurrent sync connections
