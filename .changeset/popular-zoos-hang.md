@@ -3,4 +3,4 @@
 '@powersync/service-image': minor
 ---
 
-Add the `non_iso8601_timestamps` quirk which, when opting in to the fix, makes the service encode timestamps in an ISO-8601-compatible format.
+Add the `timestamps_iso8601` option in the `config:` block for sync rules. When enabled, timestmaps are consistently formatted using ISO 8601 format.

@@ -3,4 +3,4 @@
 '@powersync/service-image': minor
 ---
 
-Add the `fixed_quirks` option in sync rules which can be used to opt-in to backwards-incompatible changes of historical issues with the PowerSync service.
+Introduce the `config` option on sync rules which cna be used to opt-in to new features and backwards-incompatible fixes of historical issues with the PowerSync service.
