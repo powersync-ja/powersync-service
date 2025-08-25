@@ -15,7 +15,7 @@ import * as zlib from 'node:zlib';
 export function maybeCompressResponseStream(
   negotiator: Negotiator,
   stream: Readable
-): { stream: Readable; encodingHeaders: Record<string, string> } {
+): { stream: Readable; encodingHeaders: { 'content-encoding'?: string } } {
   const encoding = (negotiator as any).encoding(['identity', 'gzip', 'zstd'], { preferred: 'zstd' });
   if (encoding == 'zstd') {
     return {
@@ -33,7 +33,7 @@ export function maybeCompressResponseStream(
           }
         })
       ),
-      encodingHeaders: { 'Content-Encoding': 'zstd' }
+      encodingHeaders: { 'content-encoding': 'zstd' }
     };
   } else if (encoding == 'gzip') {
     return {
@@ -45,7 +45,7 @@ export function maybeCompressResponseStream(
           flush: zlib.constants.Z_SYNC_FLUSH
         })
       ),
-      encodingHeaders: { 'Content-Encoding': 'gzip' }
+      encodingHeaders: { 'content-encoding': 'gzip' }
     };
   } else {
     return {

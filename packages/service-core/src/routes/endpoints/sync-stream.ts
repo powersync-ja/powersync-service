@@ -132,7 +132,8 @@ export const syncStreamed = routeDefinition({
           logger.info(`Sync stream complete`, {
             ...tracker.getLogMeta(),
             stream_ms: Date.now() - streamStart,
-            close_reason: closeReason ?? 'unknown'
+            close_reason: closeReason ?? 'unknown',
+            encoding: encodingHeaders['content-encoding']
           });
         }
       });
