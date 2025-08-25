@@ -1,5 +1,25 @@
 # @powersync/service-core
 
+## 1.15.0
+
+### Patch Changes
+
+- d2be184: Refactor interface between service and sync rule bindings in preparation for sync streams.
+- 29a368e: Fix inconsistencies between binary data being requested and actually being sent.
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+- d49bebe: - Hooked up the MySQL binlog heartbeat events with the bucket batch keepalive mechanism.
+  Heartbeat events will now update the latest keepalive timestamp in the sync rules.
+- Updated dependencies [b0b8ae9]
+- Updated dependencies [d2be184]
+- Updated dependencies [5284fb5]
+- Updated dependencies [5284fb5]
+- Updated dependencies [060b829]
+  - @powersync/service-sync-rules@0.29.0
+  - @powersync/service-rsocket-router@0.1.4
+  - @powersync/lib-services-framework@0.7.3
+  - @powersync/service-jsonbig@0.17.11
+  - @powersync/service-types@0.12.2
+
 ## 1.14.0
 
 ### Minor Changes

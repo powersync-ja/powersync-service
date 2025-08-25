@@ -1,5 +1,32 @@
 # @powersync/service-image
 
+## 1.15.0
+
+### Minor Changes
+
+- b0b8ae9: Add support for streams, a new and simpler way to define what data gets synced to clients.
+- 5284fb5: Introduce the `config` option on sync rules which can be used to opt-in to new features and backwards-incompatible fixes of historical issues with the PowerSync service.
+- 5284fb5: Add the `timestamps_iso8601` option in the `config:` block for sync rules. When enabled, timestamps are consistently formatted using ISO 8601 format.
+
+### Patch Changes
+
+- d2be184: Refactor interface between service and sync rule bindings in preparation for sync streams.
+- c44e5bb: Add attestations to Docker image.
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+- Updated dependencies [d2be184]
+- Updated dependencies [29a368e]
+- Updated dependencies [060b829]
+- Updated dependencies [d49bebe]
+  - @powersync/service-core@1.15.0
+  - @powersync/service-module-postgres-storage@0.9.1
+  - @powersync/service-module-mongodb-storage@0.11.1
+  - @powersync/service-module-postgres@0.15.1
+  - @powersync/service-rsocket-router@0.1.4
+  - @powersync/service-module-mongodb@0.11.1
+  - @powersync/service-module-mysql@0.9.0
+  - @powersync/service-module-core@0.1.8
+  - @powersync/lib-services-framework@0.7.3
+
 ## 1.14.0
 
 ### Minor Changes
