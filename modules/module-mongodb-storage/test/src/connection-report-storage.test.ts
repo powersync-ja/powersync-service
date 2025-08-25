@@ -68,6 +68,15 @@ describe('SDK reporting storage', async () => {
     jwt_exp: nowLess5minutes
   };
 
+  const user_old = {
+    user_id: 'user_one',
+    client_id: '',
+    connected_at: now,
+    sdk: 'unknown',
+    user_agent: 'Dart (flutter-web) Chrome/128 android',
+    jwt_exp: nowAdd5minutes
+  };
+
   const user_week = {
     user_id: 'user_week',
     client_id: 'client_week',
@@ -103,7 +112,8 @@ describe('SDK reporting storage', async () => {
       user_four,
       user_week,
       user_month,
-      user_expired
+      user_expired,
+      user_old
     ]);
   }
 
@@ -119,34 +129,10 @@ describe('SDK reporting storage', async () => {
     await deleteData();
   });
   it('Should show connected users with start range', async () => {
-    const current = await factory.getConnectedClients({
-      range: {
-        start: new Date(
-          now.getFullYear(),
-          now.getMonth(),
-          now.getDate(),
-          now.getHours(),
-          now.getMinutes() - 1
-        ).toISOString()
-      }
-    });
+    const current = await factory.getConnectedClients();
     expect(current).toMatchSnapshot();
   });
-  it('Should show connected users with start range and end range', async () => {
-    const current = await factory.getConnectedClients({
-      range: {
-        end: nowLess5minutes.toISOString(),
-        start: new Date(
-          now.getFullYear(),
-          now.getMonth(),
-          now.getDate(),
-          now.getHours(),
-          now.getMinutes() - 6
-        ).toISOString()
-      }
-    });
-    expect(current).toMatchSnapshot();
-  });
+
   it('Should show connection report data for user over the past month', async () => {
     const sdk = await factory.getClientConnectionReports({
       start: monthAgo,
@@ -187,7 +173,9 @@ describe('SDK reporting storage', async () => {
       user_agent: user_one.user_agent
     });
 
-    const sdk = await factory.db.connection_report_events.find({ user_id: user_one.user_id }).toArray();
+    const sdk = await factory.db.connection_report_events
+      .find({ user_id: user_one.user_id, client_id: user_one.client_id })
+      .toArray();
     expect(sdk).toHaveLength(1);
     expect(new Date(sdk[0].connected_at)).toEqual(newConnectAt);
     expect(new Date(sdk[0].jwt_exp!)).toEqual(jwtExp);

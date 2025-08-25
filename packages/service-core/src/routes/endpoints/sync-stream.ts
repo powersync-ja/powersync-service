@@ -42,7 +42,7 @@ export const syncStreamed = routeDefinition({
       bson: useBson
     };
     const sdkData: event_types.ConnectedUserData & event_types.ClientConnectionEventData = {
-      client_id: clientId,
+      client_id: clientId ?? '',
       user_id: payload.context.user_id!,
       user_agent: userAgent as string,
       // At this point the token_payload is guaranteed to be present

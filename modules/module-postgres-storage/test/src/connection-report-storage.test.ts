@@ -70,6 +70,16 @@ describe('Connection report storage', async () => {
     id: '4'
   };
 
+  const user_old = {
+    user_id: 'user_one',
+    client_id: '',
+    connected_at: now.toISOString(),
+    sdk: 'unknown',
+    user_agent: 'powersync-dart/1.6.4 Dart (flutter-web) Chrome/128 android',
+    jwt_exp: nowAdd5minutes.toISOString(),
+    id: '5'
+  };
+
   const user_week = {
     user_id: 'user_week',
     client_id: 'client_week',
@@ -145,6 +155,16 @@ describe('Connection report storage', async () => {
           NULL
         ),
         (
+          ${{ type: 'varchar', value: user_old.user_id }},
+          ${{ type: 'varchar', value: user_old.client_id }},
+          ${{ type: 1184, value: user_old.connected_at }},
+          ${{ type: 'varchar', value: user_old.sdk }},
+          ${{ type: 'varchar', value: user_old.user_agent }},
+          ${{ type: 1184, value: user_old.jwt_exp }},
+          ${{ type: 'varchar', value: user_old.id }},
+          NULL
+        ),
+        (
           ${{ type: 'varchar', value: user_three.user_id }},
           ${{ type: 'varchar', value: user_three.client_id }},
           ${{ type: 1184, value: user_three.connected_at }},
@@ -199,32 +219,7 @@ describe('Connection report storage', async () => {
     await deleteData();
   });
   it('Should show connected users with start range', async () => {
-    const current = await factory.getConnectedClients({
-      range: {
-        start: new Date(
-          now.getFullYear(),
-          now.getMonth(),
-          now.getDate(),
-          now.getHours(),
-          now.getMinutes() - 1
-        ).toISOString()
-      }
-    });
-    expect(current).toMatchSnapshot();
-  });
-  it('Should show connected users with start range and end range', async () => {
-    const current = await factory.getConnectedClients({
-      range: {
-        end: nowLess5minutes.toISOString(),
-        start: new Date(
-          now.getFullYear(),
-          now.getMonth(),
-          now.getDate(),
-          now.getHours(),
-          now.getMinutes() - 6
-        ).toISOString()
-      }
-    });
+    const current = await factory.getConnectedClients();
     expect(current).toMatchSnapshot();
   });
   it('Should show connection report data for user over the past month', async () => {
@@ -268,7 +263,7 @@ describe('Connection report storage', async () => {
     });
 
     const sdk = await factory.db
-      .sql`SELECT * FROM connection_report_events WHERE user_id = ${{ type: 'varchar', value: user_one.user_id }}`.rows<event_types.ClientConnection>();
+      .sql`SELECT * FROM connection_report_events WHERE user_id = ${{ type: 'varchar', value: user_one.user_id }} AND client_id = ${{ type: 'varchar', value: user_one.client_id }}`.rows<event_types.ClientConnection>();
     expect(sdk).toHaveLength(1);
     expect(new Date(sdk[0].connected_at).toISOString()).toEqual(newConnectAt.toISOString());
     expect(new Date(sdk[0].jwt_exp!).toISOString()).toEqual(jwtExp.toISOString());

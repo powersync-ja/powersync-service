@@ -79,17 +79,13 @@ export class MongoReportStorage implements storage.ReportStorage {
       }
     );
   }
-  async getConnectedClients(
-    data: event_types.ClientConnectionsRequest
-  ): Promise<event_types.ClientConnectionReportResponse> {
-    const timeframeFilter = this.listConnectionsDateRange(data);
+  async getConnectedClients(): Promise<event_types.ClientConnectionReportResponse> {
     const result = await this.db.connection_report_events
       .aggregate<event_types.ClientConnectionReportResponse>([
         {
           $match: {
             disconnected_at: { $exists: false },
-            jwt_exp: { $gt: new Date() },
-            ...timeframeFilter
+            jwt_exp: { $gt: new Date() }
           }
         },
         this.connectionsFacetPipeline(),
@@ -176,21 +172,6 @@ export class MongoReportStorage implements storage.ReportStorage {
         // Need to create a new date here to sett the time to 00:00:00
         $gte: new Date(year, month, today),
         $lt: new Date(year, month, nextDay)
-      }
-    };
-  }
-
-  private listConnectionsDateRange(data: event_types.ClientConnectionsRequest) {
-    const { range } = data;
-    if (!range) {
-      return undefined;
-    }
-    const endDate = data.range?.end ? new Date(data.range.end) : new Date();
-    const startDate = new Date(range.start);
-    return {
-      connected_at: {
-        $lte: endDate,
-        $gte: startDate
       }
     };
   }

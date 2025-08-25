@@ -45,6 +45,11 @@ exports[`SDK reporting storage > Should delete rows older than specified range 1
       "sdk": "powersync-js/1.24.5",
       "users": 1,
     },
+    {
+      "clients": 1,
+      "sdk": "unknown",
+      "users": 1,
+    },
   ],
   "users": 5,
 }
@@ -58,8 +63,18 @@ exports[`SDK reporting storage > Should show connected users with start range 1`
       "sdk": "powersync-dart/1.6.4",
       "users": 1,
     },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.21.1",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "unknown",
+      "users": 1,
+    },
   ],
-  "users": 1,
+  "users": 2,
 }
 `;
 
@@ -92,6 +107,11 @@ exports[`SDK reporting storage > Should show connection report data for user ove
     {
       "clients": 1,
       "sdk": "powersync-js/1.21.4",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "unknown",
       "users": 1,
     },
   ],
@@ -137,6 +157,11 @@ exports[`SDK reporting storage > Should show connection report data for user ove
       "sdk": "powersync-js/1.24.5",
       "users": 1,
     },
+    {
+      "clients": 1,
+      "sdk": "unknown",
+      "users": 1,
+    },
   ],
   "users": 7,
 }
@@ -168,6 +193,11 @@ exports[`SDK reporting storage > Should show connection report data for user ove
     {
       "clients": 1,
       "sdk": "powersync-js/1.24.5",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "unknown",
       "users": 1,
     },
   ],

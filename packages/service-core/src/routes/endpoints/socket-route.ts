@@ -23,7 +23,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       };
 
       const sdkData: event_types.ConnectedUserData & event_types.ClientConnectionEventData = {
-        client_id: params.client_id,
+        client_id: params.client_id ?? '',
         user_id: context.user_id!,
         user_agent: context.user_agent,
         // At this point the token_payload is guaranteed to be present

@@ -56,12 +56,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
       sdks: result.sdks?.data || []
     };
   }
-  private async listConnectionsQuery(data: event_types.ClientConnectionsRequest) {
-    const { range } = data;
-    const endDate = data.range?.end ? new Date(data.range.end) : new Date();
-    const startDate = !range ? new Date(0) : new Date(range.start);
-    const lt = endDate.toISOString();
-    const gt = startDate.toISOString();
+  private async listConnectionsQuery() {
     return await this.db.sql`
       WITH
         filtered AS (
@@ -72,8 +67,6 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
           WHERE
             disconnected_at IS NULL
             AND jwt_exp > NOW() AT TIME ZONE 'UTC'
-            AND connected_at >= ${{ type: 1184, value: gt }}
-            AND connected_at <= ${{ type: 1184, value: lt }}
         ),
         unique_users AS (
           SELECT
@@ -178,10 +171,8 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
         AND connected_at = ${{ type: 1184, value: connectIsoString }}
     `.execute();
   }
-  async getConnectedClients(
-    data: event_types.ClientConnectionsRequest
-  ): Promise<event_types.ClientConnectionReportResponse> {
-    const result = await this.listConnectionsQuery(data);
+  async getConnectedClients(): Promise<event_types.ClientConnectionReportResponse> {
+    const result = await this.listConnectionsQuery();
     return this.mapListCurrentConnectionsResponse(result);
   }
 

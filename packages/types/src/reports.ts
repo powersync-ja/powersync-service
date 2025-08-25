@@ -29,7 +29,7 @@ export interface EmitterEvent<K extends EventsEngineEventType> {
 }
 
 export type ConnectedUserData = {
-  client_id?: string;
+  client_id: string;
   user_id: string;
   user_agent?: string;
   jwt_exp: Date;
@@ -82,11 +82,4 @@ export type ClientConnectionReportResponse = {
 export type ClientConnectionReportRequest = {
   start: Date;
   end: Date;
-};
-
-export type ClientConnectionsRequest = {
-  range?: {
-    start: string;
-    end?: string;
-  };
 };

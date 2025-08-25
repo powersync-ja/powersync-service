@@ -17,23 +17,6 @@ exports[`Connection report storage > Should create a connection event if its aft
 ]
 `;
 
-exports[`Connection report storage > Should create a sdk event if its after a day 1`] = `
-[
-  {
-    "client_id": "client_week",
-    "sdk": "powersync-js/1.24.5",
-    "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
-    "user_id": "user_week",
-  },
-  {
-    "client_id": "client_week",
-    "sdk": "powersync-js/1.24.5",
-    "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
-    "user_id": "user_week",
-  },
-]
-`;
-
 exports[`Connection report storage > Should delete rows older than specified range 1`] = `
 {
   "sdks": [
@@ -62,6 +45,11 @@ exports[`Connection report storage > Should delete rows older than specified ran
       "sdk": "powersync-js/1.24.5",
       "users": 1,
     },
+    {
+      "clients": 1,
+      "sdk": "unknown",
+      "users": 1,
+    },
   ],
   "users": 5,
 }
@@ -75,8 +63,18 @@ exports[`Connection report storage > Should show connected users with start rang
       "sdk": "powersync-dart/1.6.4",
       "users": 1,
     },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.21.1",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "unknown",
+      "users": 1,
+    },
   ],
-  "users": 1,
+  "users": 2,
 }
 `;
 
@@ -109,6 +107,11 @@ exports[`Connection report storage > Should show connection report data for user
     {
       "clients": 1,
       "sdk": "powersync-js/1.21.4",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "unknown",
       "users": 1,
     },
   ],
@@ -154,6 +157,11 @@ exports[`Connection report storage > Should show connection report data for user
       "sdk": "powersync-js/1.24.5",
       "users": 1,
     },
+    {
+      "clients": 1,
+      "sdk": "unknown",
+      "users": 1,
+    },
   ],
   "users": 7,
 }
@@ -185,6 +193,11 @@ exports[`Connection report storage > Should show connection report data for user
     {
       "clients": 1,
       "sdk": "powersync-js/1.24.5",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "unknown",
       "users": 1,
     },
   ],
