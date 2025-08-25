@@ -5,6 +5,7 @@ import { DEFAULT_CERTS } from './certs.js';
 import * as pgwire from './pgwire.js';
 import { PgType } from './pgwire_types.js';
 import { ConnectOptions } from './socket_adapter.js';
+import { DatabaseInputValue, DateTimeValue } from '@powersync/service-sync-rules';
 
 // TODO this is duplicated, but maybe that is ok
 export interface NormalizedConnectionConfig {
@@ -132,7 +133,7 @@ export async function connectPgWire(
   return connection;
 }
 
-function _recvDataRow(this: any, _message: any, row: Uint8Array[], batch: any) {
+function _recvDataRow(this: any, _message: any, row: (Uint8Array | DatabaseInputValue)[], batch: any) {
   for (let i = 0; i < this._rowColumns.length; i++) {
     const valbuf = row[i];
     if (valbuf == null) {
@@ -221,6 +222,8 @@ export function lsnMakeComparable(text: string) {
   return h.padStart(8, '0') + '/' + l.padStart(8, '0');
 }
 
+const timeRegex = /^([\d\-]+) ([\d:]+)(\.\d+)?([+-][\d:]+)?$/;
+
 /**
  * Convert a postgres timestamptz to a SQLite-compatible/normalized timestamp.
  *
@@ -232,17 +235,17 @@ export function lsnMakeComparable(text: string) {
  *
  * We have specific exceptions for -infinity and infinity.
  */
-export function timestamptzToSqlite(source?: string) {
+export function timestamptzToSqlite(source?: string): DateTimeValue | null {
   if (source == null) {
     return null;
   }
   // Make compatible with SQLite
-  const match = /^([\d\-]+) ([\d:]+)(\.\d+)?([+-][\d:]+)$/.exec(source);
+  const match = timeRegex.exec(source);
   if (match == null) {
     if (source == 'infinity') {
-      return '9999-12-31 23:59:59Z';
+      return new DateTimeValue('9999-12-31T23:59:59Z');
     } else if (source == '-infinity') {
-      return '0000-01-01 00:00:00Z';
+      return new DateTimeValue('0000-01-01T00:00:00Z');
     } else {
       return null;
     }
@@ -256,9 +259,16 @@ export function timestamptzToSqlite(source?: string) {
   if (isNaN(parsed.getTime())) {
     return null;
   }
-  const text = parsed.toISOString().replace('T', ' ').replace('.000', '').replace('Z', '');
 
-  return `${text}${precision ?? ''}Z`;
+  const baseValue = parsed.toISOString().replace('.000', '').replace('Z', '');
+
+  // In the new format, we always use ISO 8601. Since Postgres drops zeroes from the fractional seconds, we also pad
+  // that back to the highest theoretical precision (microseconds). This ensures that sorting returned values as text
+  // returns them in order of the time value they represent.
+  //
+  // In the old format, we keep the sub-second precision only if it's not `.000`.
+  const missingPrecision = precision?.padEnd(7, '0') ?? '.000000';
+  return new DateTimeValue(`${baseValue}${missingPrecision}Z`, `${baseValue.replace('T', ' ')}${precision ?? ''}Z`);
 }
 
 /**
@@ -268,17 +278,26 @@ export function timestamptzToSqlite(source?: string) {
  *
  * https://www.postgresql.org/docs/current/datatype-datetime.html#DATATYPE-DATETIME-SPECIAL-VALUES
  */
-export function timestampToSqlite(source?: string) {
+export function timestampToSqlite(source?: string): DateTimeValue | null {
   if (source == null) {
     return null;
   }
-  if (source == 'infinity') {
-    return '9999-12-31 23:59:59';
-  } else if (source == '-infinity') {
-    return '0000-01-01 00:00:00';
-  } else {
-    return source;
+
+  const match = timeRegex.exec(source);
+  if (match == null) {
+    if (source == 'infinity') {
+      return new DateTimeValue('9999-12-31T23:59:59');
+    } else if (source == '-infinity') {
+      return new DateTimeValue('0000-01-01T00:00:00');
+    } else {
+      return null;
+    }
   }
+
+  const [_, date, time, precision, __] = match as any;
+  const missingPrecision = precision?.padEnd(7, '0') ?? '.000000';
+
+  return new DateTimeValue(`${date}T${time}${missingPrecision}`, source);
 }
 /**
  * For date, we keep it mostly as-is.

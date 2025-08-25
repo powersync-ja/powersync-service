@@ -1,4 +1,5 @@
 import {
+  CompatibilityContext,
   DEFAULT_TAG,
   GetQuerierOptions,
   RequestedStream,
@@ -16,7 +17,8 @@ export class TestSourceTable implements SourceTableInterface {
 }
 
 export const PARSE_OPTIONS = {
-  defaultSchema: 'test_schema'
+  defaultSchema: 'test_schema',
+  compatibility: CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY
 };
 
 export const ASSETS = new TestSourceTable('assets');

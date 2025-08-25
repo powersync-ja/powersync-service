@@ -1,8 +1,19 @@
 import { JSONBig, JsonContainer, Replacer, stringifyRaw } from '@powersync/service-jsonbig';
 import { SelectFromStatement, Statement } from 'pgsql-ast-parser';
 import { SQLITE_FALSE, SQLITE_TRUE } from './sql_support.js';
-import { DatabaseInputRow, SqliteJsonRow, SqliteJsonValue, SqliteRow, SqliteValue } from './types.js';
+import {
+  DatabaseInputRow,
+  DatabaseInputValue,
+  SqliteInputValue,
+  SqliteInputRow,
+  SqliteJsonRow,
+  SqliteJsonValue,
+  SqliteRow,
+  SqliteValue
+} from './types.js';
 import { SyncRuleProcessingError as SyncRulesProcessingError } from './errors.js';
+import { CustomArray, CustomObject, CustomSqliteValue } from './types/custom_sqlite_value.js';
+import { CompatibilityContext } from './compatibility.js';
 
 export function isSelectStatement(q: Statement): q is SelectFromStatement {
   return q.type == 'select';
@@ -58,7 +69,7 @@ export function isJsonValue(value: SqliteValue): value is SqliteJsonValue {
   return value == null || typeof value == 'string' || typeof value == 'number' || typeof value == 'bigint';
 }
 
-function filterJsonData(data: any, depth = 0): any {
+function filterJsonData(data: any, context: CompatibilityContext, depth = 0): any {
   if (depth > DEPTH_LIMIT) {
     // This is primarily to prevent infinite recursion
     // TODO: Proper error class
@@ -77,18 +88,20 @@ function filterJsonData(data: any, depth = 0): any {
   } else if (typeof data == 'bigint') {
     return data;
   } else if (Array.isArray(data)) {
-    return data.map((element) => filterJsonData(element, depth + 1));
+    return data.map((element) => filterJsonData(element, context, depth + 1));
   } else if (ArrayBuffer.isView(data)) {
     return undefined;
   } else if (data instanceof JsonContainer) {
     // Can be stringified directly when using our JSONBig implementation
-    return data;
+    return data as any;
+  } else if (data instanceof CustomSqliteValue) {
+    return data.toSqliteValue(context);
   } else if (typeof data == 'object') {
     let record: Record<string, any> = {};
     for (let key of Object.keys(data)) {
-      record[key] = filterJsonData(data[key], depth + 1);
+      record[key] = filterJsonData(data[key], context, depth + 1);
     }
-    return record;
+    return record as any;
   } else {
     return undefined;
   }
@@ -97,8 +110,8 @@ function filterJsonData(data: any, depth = 0): any {
 /**
  * Map database row to SqliteRow for use in sync rules.
  */
-export function toSyncRulesRow(row: DatabaseInputRow): SqliteRow {
-  let record: SqliteRow = {};
+export function toSyncRulesRow(row: DatabaseInputRow): SqliteInputRow {
+  let record: SqliteInputRow = {};
   for (let key of Object.keys(row)) {
     record[key] = toSyncRulesValue(row[key], false, true);
   }
@@ -110,10 +123,10 @@ export function toSyncRulesRow(row: DatabaseInputRow): SqliteRow {
  *
  * @param parameters Generic JSON input
  */
-export function toSyncRulesParameters(parameters: Record<string, any>): SqliteJsonRow {
+export function toSyncRulesParameters(parameters: Record<string, any>, context: CompatibilityContext): SqliteJsonRow {
   let record: SqliteJsonRow = {};
   for (let key of Object.keys(parameters)) {
-    record[key] = toSyncRulesValue(parameters[key], true, false) as SqliteJsonValue;
+    record[key] = applyValueContext(toSyncRulesValue(parameters[key], true, false), context) as SqliteJsonValue;
   }
   return record;
 }
@@ -123,7 +136,11 @@ export function toSyncRulesParameters(parameters: Record<string, any>): SqliteJs
  *
  * Any object or array is converted to JSON TEXT.
  */
-export function toSyncRulesValue(data: any, autoBigNum?: boolean, keepUndefined?: boolean): SqliteValue {
+export function toSyncRulesValue(
+  data: DatabaseInputValue,
+  autoBigNum?: boolean,
+  keepUndefined?: boolean
+): SqliteInputValue {
   if (data == null) {
     // null or undefined
     if (keepUndefined) {
@@ -143,21 +160,32 @@ export function toSyncRulesValue(data: any, autoBigNum?: boolean, keepUndefined?
   } else if (typeof data == 'boolean') {
     return data ? SQLITE_TRUE : SQLITE_FALSE;
   } else if (Array.isArray(data)) {
-    // We may be able to avoid some parse + stringify cycles here for JsonSqliteContainer.
-    return JSONBig.stringify(data.map((element) => filterJsonData(element)));
-  } else if (data instanceof Uint8Array) {
+    return new CustomArray(data, filterJsonData);
+  } else if (data instanceof Uint8Array || data instanceof CustomSqliteValue) {
     return data;
   } else if (data instanceof JsonContainer) {
     return data.toString();
   } else if (typeof data == 'object') {
-    let record: Record<string, any> = {};
-    for (let key of Object.keys(data)) {
-      record[key] = filterJsonData(data[key]);
-    }
-    return JSONBig.stringify(record);
+    return new CustomObject(data, filterJsonData);
   } else {
     return null;
   }
+}
+
+export function applyValueContext(value: SqliteInputValue, context: CompatibilityContext): SqliteValue {
+  if (value instanceof CustomSqliteValue) {
+    return value.toSqliteValue(context);
+  } else {
+    return value;
+  }
+}
+
+export function applyRowContext(value: SqliteInputRow, context: CompatibilityContext): SqliteRow {
+  let record: SqliteRow = {};
+  for (let key of Object.keys(value)) {
+    record[key] = applyValueContext(value[key], context);
+  }
+  return record;
 }
 
 /**
