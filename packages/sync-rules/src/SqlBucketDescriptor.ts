@@ -11,6 +11,7 @@ import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
 import { TablePattern } from './TablePattern.js';
 import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
 import { SqlRuleError } from './errors.js';
+import { CompatibilityContext } from './compatibility.js';
 import {
   EvaluatedParametersResult,
   EvaluateRowOptions,
@@ -20,6 +21,7 @@ import {
   SourceSchema,
   SqliteRow
 } from './types.js';
+import { applyRowContext } from './utils.js';
 
 export interface QueryParseResult {
   /**
@@ -34,7 +36,10 @@ export class SqlBucketDescriptor implements BucketSource {
   name: string;
   bucketParameters?: string[];
 
-  constructor(name: string) {
+  constructor(
+    name: string,
+    private readonly compatibility: CompatibilityContext
+  ) {
     this.name = name;
   }
 
@@ -99,7 +104,7 @@ export class SqlBucketDescriptor implements BucketSource {
         continue;
       }
 
-      results.push(...query.evaluateRow(options.sourceTable, options.record));
+      results.push(...query.evaluateRow(options.sourceTable, applyRowContext(options.record, this.compatibility)));
     }
     return results;
   }

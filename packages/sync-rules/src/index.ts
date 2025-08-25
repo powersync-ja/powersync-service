@@ -1,6 +1,7 @@
 export * from './BucketDescription.js';
 export * from './BucketParameterQuerier.js';
 export * from './BucketSource.js';
+export * from './compatibility.js';
 export * from './errors.js';
 export * from './events/SqlEventDescriptor.js';
 export * from './events/SqlEventSourceQuery.js';
@@ -21,4 +22,6 @@ export { SyncStream } from './streams/stream.js';
 export { syncStreamFromSql } from './streams/from_sql.js';
 export * from './TablePattern.js';
 export * from './types.js';
+export * from './types/custom_sqlite_value.js';
+export * from './types/time.js';
 export * from './utils.js';

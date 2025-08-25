@@ -20,7 +20,15 @@ import {
   storage
 } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
-import { DatabaseInputRow, SqliteRow, SqlSyncRules, TablePattern, toSyncRulesRow } from '@powersync/service-sync-rules';
+import {
+  applyValueContext,
+  CompatibilityContext,
+  DatabaseInputRow,
+  SqliteInputRow,
+  SqlSyncRules,
+  TablePattern,
+  toSyncRulesRow
+} from '@powersync/service-sync-rules';
 import * as pg_utils from '../utils/pgwire_utils.js';
 
 import { PgManager } from './PgManager.js';
@@ -500,7 +508,7 @@ WHERE  oid = $1::regclass`,
     await sendKeepAlive(db);
   }
 
-  static *getQueryData(results: Iterable<DatabaseInputRow>): Generator<SqliteRow> {
+  static *getQueryData(results: Iterable<DatabaseInputRow>): Generator<SqliteInputRow> {
     for (let row of results) {
       yield toSyncRulesRow(row);
     }
@@ -885,7 +893,8 @@ WHERE  oid = $1::regclass`,
           // The key should always be present in the "after" record.
           return;
         }
-        key[name] = value;
+        // We just need a consistent representation of the primary key, and don't care about fixed quirks.
+        key[name] = applyValueContext(value, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
       }
       resnapshot.push({
         table: record.sourceTable,

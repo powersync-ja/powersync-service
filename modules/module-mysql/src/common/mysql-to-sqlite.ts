@@ -103,7 +103,10 @@ export function toColumnDescriptorFromDefinition(column: ColumnDefinition): Colu
   };
 }
 
-export function toSQLiteRow(row: Record<string, any>, columns: Map<string, ColumnDescriptor>): sync_rules.SqliteRow {
+export function toSQLiteRow(
+  row: Record<string, any>,
+  columns: Map<string, ColumnDescriptor>
+): sync_rules.SqliteInputRow {
   let result: sync_rules.DatabaseInputRow = {};
   for (let key in row) {
     // We are very much expecting the column to be there
