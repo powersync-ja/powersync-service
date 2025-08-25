@@ -20,6 +20,18 @@ export interface ReportStorage extends AsyncDisposable {
    * Get currently connected clients.
    * This will return any short or long term connected clients.
    * Clients that have no disconnected_at timestamp and that have a valid jwt_exp timestamp are considered connected.
+   *
+   * Usage:
+   * We have 3 connected clients ( Clients that have not been disconnected and have a valid jwt_exp timestamp ):
+   *  - Client A: connected_at = 2025-08-01T00:00Z
+   *  - Client B: connected_at = 2025-08-02T01:00Z
+   *  - Client C: connected_at = 2025-08-03T02:00Z
+   *
+   * If we request { start: '2025-08-02T00:00Z' } we will get Client B and Client C
+   * If we request { start: '2025-08-03T00:00Z', end: '2025-08-04T00:00Z' } we will get Client C
+   * If we have archived data of connections up to last week, we can request from the last report to get the latest connected now.
+   *
+   *
    * @param data.range.start Needs to be UTC time string
    * @param data.range.end Optional needs to be UTC time string
    */
