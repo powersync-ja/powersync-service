@@ -84,7 +84,7 @@ export const syncStreamed = routeDefinition({
         objectMode: false,
         highWaterMark: 16 * 1024
       });
-      const { stream, encodingHeaders } = maybeCompressResponseStream(negotiator, plainStream);
+      const { stream, encodingHeaders } = maybeCompressResponseStream(negotiator, plainStream, tracker);
 
       // Best effort guess on why the stream was closed.
       // We use the `??=` operator everywhere, so that we catch the first relevant
@@ -132,8 +132,7 @@ export const syncStreamed = routeDefinition({
           logger.info(`Sync stream complete`, {
             ...tracker.getLogMeta(),
             stream_ms: Date.now() - streamStart,
-            close_reason: closeReason ?? 'unknown',
-            encoding: encodingHeaders['content-encoding']
+            close_reason: closeReason ?? 'unknown'
           });
         }
       });

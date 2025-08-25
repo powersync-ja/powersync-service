@@ -1,6 +1,7 @@
-import { Readable, Transform } from 'node:stream';
+import { PassThrough, pipeline, Readable, Transform } from 'node:stream';
 import type Negotiator from 'negotiator';
 import * as zlib from 'node:zlib';
+import { RequestTracker } from '../sync/RequestTracker.js';
 
 /**
  * Compress a streamed response.
@@ -14,10 +15,12 @@ import * as zlib from 'node:zlib';
  */
 export function maybeCompressResponseStream(
   negotiator: Negotiator,
-  stream: Readable
+  stream: Readable,
+  tracker: RequestTracker
 ): { stream: Readable; encodingHeaders: { 'content-encoding'?: string } } {
   const encoding = (negotiator as any).encoding(['identity', 'gzip', 'zstd'], { preferred: 'zstd' });
   if (encoding == 'zstd') {
+    tracker.setCompressed(encoding);
     return {
       stream: transform(
         stream,
@@ -31,11 +34,13 @@ export function maybeCompressResponseStream(
             // Default compression level is 3. We reduce this slightly to limit CPU overhead
             [zlib.constants.ZSTD_c_compressionLevel]: 2
           }
-        })
+        }),
+        tracker
       ),
       encodingHeaders: { 'content-encoding': 'zstd' }
     };
   } else if (encoding == 'gzip') {
+    tracker.setCompressed(encoding);
     return {
       stream: transform(
         stream,
@@ -43,7 +48,8 @@ export function maybeCompressResponseStream(
           // We need to flush the frame after every new input chunk, to avoid delaying data
           // in the output stream.
           flush: zlib.constants.Z_SYNC_FLUSH
-        })
+        }),
+        tracker
       ),
       encodingHeaders: { 'content-encoding': 'gzip' }
     };
@@ -55,15 +61,18 @@ export function maybeCompressResponseStream(
   }
 }
 
-function transform(source: Readable, transform: Transform) {
+function transform(source: Readable, transform: Transform, tracker: RequestTracker) {
   // pipe does not forward error events automatically, resulting in unhandled error
-  // events. Manually forward them.
-  source.on('error', (err) => transform.destroy(err));
-  return source.pipe(transform);
-  // This would be roughly equivalent:
-  // const out = new PassThrough();
-  // pipeline(source, transform, out, (err) => {
-  //   if (err) out.destroy(err); // propagate to consumer
-  // });
-  // return out;
+  // events. This forwards it.
+  const out = new PassThrough();
+  const trackingTransform = new Transform({
+    transform(chunk, encoding, callback) {
+      tracker.addCompressedDataSent(chunk.length);
+      callback(null, chunk);
+    }
+  });
+  pipeline(source, transform, trackingTransform, out, (err) => {
+    if (err) out.destroy(err);
+  });
+  return out;
 }
