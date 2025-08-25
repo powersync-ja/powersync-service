@@ -1,5 +1,19 @@
 # @powersync/service-module-core
 
+## 0.1.8
+
+### Patch Changes
+
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+- Updated dependencies [d2be184]
+- Updated dependencies [29a368e]
+- Updated dependencies [060b829]
+- Updated dependencies [d49bebe]
+  - @powersync/service-core@1.15.0
+  - @powersync/service-rsocket-router@0.1.4
+  - @powersync/lib-services-framework@0.7.3
+  - @powersync/service-types@0.12.2
+
 ## 0.1.7
 
 ### Patch Changes
