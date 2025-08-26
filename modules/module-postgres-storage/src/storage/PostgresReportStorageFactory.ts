@@ -66,7 +66,7 @@ export class PostgresReportStorageFactory implements storage.ReportStorage {
             connection_report_events
           WHERE
             disconnected_at IS NULL
-            AND jwt_exp > NOW() AT TIME ZONE 'UTC'
+            AND jwt_exp > NOW()
         ),
         unique_users AS (
           SELECT
