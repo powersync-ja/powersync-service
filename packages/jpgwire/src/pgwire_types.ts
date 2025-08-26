@@ -3,6 +3,14 @@
 import { JsonContainer } from '@powersync/service-jsonbig';
 import { TimeValue, type DatabaseInputValue } from '@powersync/service-sync-rules';
 import { dateToSqlite, lsnMakeComparable, timestampToSqlite, timestamptzToSqlite } from './util.js';
+import {
+  CHAR_CODE_COMMA,
+  CHAR_CODE_LEFT_BRACE,
+  CHAR_CODE_RIGHT_BRACE,
+  decodeSequence,
+  Delimiters,
+  SequenceListener
+} from './sequence_tokenizer.js';
 
 export enum PgTypeOid {
   TEXT = 25,
@@ -141,52 +149,61 @@ export class PgType {
       case PgTypeOid.PG_LSN:
         return lsnMakeComparable(text);
     }
-    const elemTypeid = this._elemTypeOid(typeOid);
+    const elemTypeid = this.elemTypeOid(typeOid);
     if (elemTypeid != null) {
       return this._decodeArray(text, elemTypeid);
     }
     return text; // unknown type
   }
 
-  static _elemTypeOid(arrayTypeOid: number): number | undefined {
+  static elemTypeOid(arrayTypeOid: number): number | undefined {
     // select 'case ' || typarray || ': return ' || oid || '; // ' || typname from pg_catalog.pg_type WHERE typarray != 0;
     return ARRAY_TO_ELEM_OID.get(arrayTypeOid);
   }
 
-  static _decodeArray(text: string, elemTypeOid: number): any {
+  static _decodeArray(text: string, elemTypeOid: number): DatabaseInputValue[] {
     text = text.replace(/^\[.+=/, ''); // skip dimensions
-    let result: any;
-    for (let i = 0, inQuotes = false, elStart = 0, stack: any[] = []; i < text.length; i++) {
-      const ch = text.charCodeAt(i);
-      if (ch == 0x5c /*\*/) {
-        i++; // escape
-      } else if (ch == 0x22 /*"*/) {
-        inQuotes = !inQuotes;
-      } else if (inQuotes) {
-      } else if (ch == 0x7b /*{*/) {
-        // continue
-        stack.unshift([]), (elStart = i + 1);
-      } else if (ch == 0x7d /*}*/ || ch == 0x2c /*,*/) {
-        // TODO configurable delimiter
-        // TODO ensure .slice is cheap enough to do it unconditionally
-        const escaped = text.slice(elStart, i); // TODO trim ' \t\n\r\v\f'
-        if (result) {
-          stack[0].push(result);
-        } else if (/^NULL$/i.test(escaped)) {
-          stack[0].push(null);
-        } else if (escaped.length) {
-          const unescaped = escaped.replace(/^"|"$|(?<!\\)\\/g, '');
-          // TODO accept decodeFn as argument,
-          // extract parseArray logic out of decoder,
-          // do benchmark of static vs dynamic dispatch
-          const decoded = this.decode(unescaped, elemTypeOid);
-          stack[0].push(decoded);
+
+    let results: DatabaseInputValue[];
+    const stack: DatabaseInputValue[][] = [];
+    const delimiters: Delimiters = {
+      openingCharCode: CHAR_CODE_LEFT_BRACE,
+      closingCharCode: CHAR_CODE_RIGHT_BRACE,
+      delimiterCharCode: CHAR_CODE_COMMA
+    };
+
+    const listener: SequenceListener = {
+      maybeParseSubStructure: function (firstChar: number): Delimiters | null {
+        return firstChar == CHAR_CODE_LEFT_BRACE ? delimiters : null;
+      },
+      onStructureStart: () => {
+        // We're parsing a new array
+        stack.push([]);
+      },
+      onValue: function (value: string | null): void {
+        // Atomic (non-array) value, add to current array.
+        stack[stack.length - 1].push(value && PgType.decode(value, elemTypeOid));
+      },
+      onStructureEnd: () => {
+        // We're done parsing an array.
+        const subarray = stack.pop()!;
+        if (stack.length == 0) {
+          // We are done with the outermost array, set results.
+          results = subarray;
+        } else {
+          // We were busy parsing a nested array, continue outer array.
+          stack[stack.length - 1].push(subarray);
         }
-        result = ch == 0x7d /*}*/ && stack.shift();
-        elStart = i + 1; // TODO dry
       }
-    }
-    return result;
+    };
+
+    decodeSequence({
+      source: text,
+      listener,
+      delimiters
+    });
+
+    return results!;
   }
 
   static _decodeBytea(text: string): Uint8Array {

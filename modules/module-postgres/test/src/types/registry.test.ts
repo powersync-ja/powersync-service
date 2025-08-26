@@ -1,0 +1,114 @@
+import { describe, expect, test, beforeEach } from 'vitest';
+import { CustomTypeRegistry } from '@module/types/registry.js';
+import { CHAR_CODE_COMMA, PgTypeOid } from '@powersync/service-jpgwire';
+import {
+  applyValueContext,
+  CompatibilityContext,
+  CompatibilityEdition,
+  toSyncRulesValue
+} from '@powersync/service-sync-rules';
+
+describe('custom type registry', () => {
+  let registry: CustomTypeRegistry;
+
+  beforeEach(() => {
+    registry = new CustomTypeRegistry();
+  });
+
+  function checkResult(raw: string, type: number, old: any, fixed: any) {
+    const input = registry.decodeDatabaseValue(raw, type);
+    const syncRulesValue = toSyncRulesValue(input);
+
+    expect(applyValueContext(syncRulesValue, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY)).toStrictEqual(old);
+    expect(
+      applyValueContext(syncRulesValue, new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS))
+    ).toStrictEqual(fixed);
+  }
+
+  test('domain types', () => {
+    registry.setDomainType(1337, PgTypeOid.INT4); // create domain wrapping integer
+    checkResult('12', 1337, '12', 12n); // Should be raw text value without fix, parsed as inner type if enabled
+  });
+
+  test('array of domain types', () => {
+    registry.setDomainType(1337, PgTypeOid.INT4);
+    registry.set(1338, { type: 'array', separatorCharCode: CHAR_CODE_COMMA, innerId: 1337, sqliteType: () => 'text' });
+
+    checkResult('{1,2,3}', 1338, '{1,2,3}', '[1,2,3]');
+  });
+
+  test('nested array through domain type', () => {
+    registry.setDomainType(1337, PgTypeOid.INT4);
+    registry.set(1338, { type: 'array', separatorCharCode: CHAR_CODE_COMMA, innerId: 1337, sqliteType: () => 'text' });
+    registry.setDomainType(1339, 1338);
+
+    checkResult('{1,2,3}', 1339, '{1,2,3}', '[1,2,3]');
+  });
+
+  test('structure', () => {
+    registry.set(1337, {
+      type: 'composite',
+      sqliteType: () => 'text',
+      members: [
+        { name: 'a', typeId: PgTypeOid.BOOL },
+        { name: 'b', typeId: PgTypeOid.INT4 },
+        { name: 'c', typeId: 1009 } // text array
+      ]
+    });
+
+    checkResult('(t,123,{foo,bar})', 1337, '(t,123,{foo,bar})', '{"a":1,"b":123,"c":["foo","bar"]}');
+  });
+
+  test('array of structure', () => {
+    registry.set(1337, {
+      type: 'composite',
+      sqliteType: () => 'text',
+      members: [
+        { name: 'a', typeId: PgTypeOid.BOOL },
+        { name: 'b', typeId: PgTypeOid.INT4 },
+        { name: 'c', typeId: 1009 } // text array
+      ]
+    });
+    registry.set(1338, { type: 'array', separatorCharCode: CHAR_CODE_COMMA, innerId: 1337, sqliteType: () => 'text' });
+
+    checkResult(
+      '{(t,123,{foo,bar}),(f,0,{})}',
+      1338,
+      '{(t,123,{foo,bar}),(f,0,{})}',
+      '[{"a":1,"b":123,"c":["foo","bar"]},{"a":0,"b":0,"c":[]}]'
+    );
+  });
+
+  test('domain type of structure', () => {
+    registry.set(1337, {
+      type: 'composite',
+      sqliteType: () => 'text',
+      members: [
+        { name: 'a', typeId: PgTypeOid.BOOL },
+        { name: 'b', typeId: PgTypeOid.INT4 }
+      ]
+    });
+    registry.setDomainType(1338, 1337);
+
+    checkResult('(t,123)', 1337, '(t,123)', '{"a":1,"b":123}');
+  });
+
+  test('structure of another structure', () => {
+    registry.set(1337, {
+      type: 'composite',
+      sqliteType: () => 'text',
+      members: [
+        { name: 'a', typeId: PgTypeOid.BOOL },
+        { name: 'b', typeId: PgTypeOid.INT4 }
+      ]
+    });
+    registry.set(1338, { type: 'array', separatorCharCode: CHAR_CODE_COMMA, innerId: 1337, sqliteType: () => 'text' });
+    registry.set(1339, {
+      type: 'composite',
+      sqliteType: () => 'text',
+      members: [{ name: 'c', typeId: 1338 }]
+    });
+
+    checkResult('({(f,2)})', 1339, '({(f,2)})', '{"c":[{"a":0,"b":2}]}');
+  });
+});

@@ -29,7 +29,6 @@ import {
   TablePattern,
   toSyncRulesRow
 } from '@powersync/service-sync-rules';
-import * as pg_utils from '../utils/pgwire_utils.js';
 
 import { PgManager } from './PgManager.js';
 import { getPgOutputRelation, getRelId } from './PgRelation.js';
@@ -789,7 +788,7 @@ WHERE  oid = $1::regclass`,
 
       if (msg.tag == 'insert') {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
-        const baseRecord = pg_utils.constructAfterRecord(msg);
+        const baseRecord = this.connections.types.constructAfterRecord(msg);
         return await batch.save({
           tag: storage.SaveOperationTag.INSERT,
           sourceTable: table,
@@ -802,8 +801,8 @@ WHERE  oid = $1::regclass`,
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
         // "before" may be null if the replica id columns are unchanged
         // It's fine to treat that the same as an insert.
-        const before = pg_utils.constructBeforeRecord(msg);
-        const after = pg_utils.constructAfterRecord(msg);
+        const before = this.connections.types.constructBeforeRecord(msg);
+        const after = this.connections.types.constructAfterRecord(msg);
         return await batch.save({
           tag: storage.SaveOperationTag.UPDATE,
           sourceTable: table,
@@ -814,7 +813,7 @@ WHERE  oid = $1::regclass`,
         });
       } else if (msg.tag == 'delete') {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
-        const before = pg_utils.constructBeforeRecord(msg)!;
+        const before = this.connections.types.constructBeforeRecord(msg)!;
 
         return await batch.save({
           tag: storage.SaveOperationTag.DELETE,

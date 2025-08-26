@@ -1,4 +1,3 @@
-import { constructAfterRecord } from '@module/utils/pgwire_utils.js';
 import * as pgwire from '@powersync/service-jpgwire';
 import {
   applyRowContext,
@@ -11,6 +10,7 @@ import {
 import { describe, expect, test } from 'vitest';
 import { clearTestDb, connectPgPool, connectPgWire, TEST_URI } from './util.js';
 import { WalStream } from '@module/replication/WalStream.js';
+import { PostgresTypeCache } from '@module/types/custom.js';
 
 describe('pg data types', () => {
   async function setupTable(db: pgwire.PgClient) {
@@ -382,7 +382,7 @@ VALUES(10, ARRAY['null']::TEXT[]);
         }
       });
 
-      const transformed = await getReplicationTx(replicationStream);
+      const transformed = await getReplicationTx(db, replicationStream);
       await pg.end();
 
       checkResults(transformed);
@@ -419,7 +419,7 @@ VALUES(10, ARRAY['null']::TEXT[]);
         }
       });
 
-      const transformed = await getReplicationTx(replicationStream);
+      const transformed = await getReplicationTx(db, replicationStream);
       await pg.end();
 
       checkResultArrays(transformed.map((e) => applyRowContext(e, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY)));
@@ -470,17 +470,80 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
       await db.end();
     }
   });
+
+  test('test replication - custom types', async () => {
+    const db = await connectPgPool();
+    try {
+      await clearTestDb(db);
+      await db.query(`CREATE DOMAIN rating_value AS FLOAT CHECK (VALUE BETWEEN 0 AND 5);`);
+      await db.query(`CREATE TYPE composite AS (foo rating_value, bar TEXT);`);
+
+      await db.query(`CREATE TABLE test_custom(
+        id serial primary key,
+        rating rating_value,
+        composite composite
+      );`);
+
+      const slotName = 'test_slot';
+
+      await db.query({
+        statement: 'SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1',
+        params: [{ type: 'varchar', value: slotName }]
+      });
+
+      await db.query({
+        statement: `SELECT slot_name, lsn FROM pg_catalog.pg_create_logical_replication_slot($1, 'pgoutput')`,
+        params: [{ type: 'varchar', value: slotName }]
+      });
+
+      await db.query(`
+        INSERT INTO test_custom
+          (rating, composite)
+        VALUES (
+          1,
+          (2, 'bar')
+        );
+      `);
+
+      const pg: pgwire.PgConnection = await pgwire.pgconnect({ replication: 'database' }, TEST_URI);
+      const replicationStream = await pg.logicalReplication({
+        slot: slotName,
+        options: {
+          proto_version: '1',
+          publication_names: 'powersync'
+        }
+      });
+
+      const [transformed] = await getReplicationTx(db, replicationStream);
+      await pg.end();
+
+      const oldFormat = applyRowContext(transformed, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+      expect(oldFormat).toMatchObject({
+        rating: '1'
+      });
+
+      const newFormat = applyRowContext(transformed, new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS));
+      expect(newFormat).toMatchObject({
+        rating: 1
+      });
+    } finally {
+      await db.end();
+    }
+  });
 });
 
 /**
  * Return all the inserts from the first transaction in the replication stream.
  */
-async function getReplicationTx(replicationStream: pgwire.ReplicationStream) {
+async function getReplicationTx(db: pgwire.PgClient, replicationStream: pgwire.ReplicationStream) {
+  const typeCache = new PostgresTypeCache(db);
+  await typeCache.fetchTypesForSchema();
+
   let transformed: SqliteInputRow[] = [];
   for await (const batch of replicationStream.pgoutputDecode()) {
     for (const msg of batch.messages) {
       if (msg.tag == 'insert') {
-        transformed.push(constructAfterRecord(msg));
+        transformed.push(typeCache.constructAfterRecord(msg));
       } else if (msg.tag == 'commit') {
         return transformed;
       }

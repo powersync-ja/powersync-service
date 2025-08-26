@@ -2,6 +2,7 @@ import * as pgwire from '@powersync/service-jpgwire';
 import semver from 'semver';
 import { NormalizedPostgresConnectionConfig } from '../types/types.js';
 import { getApplicationName } from '../utils/application-name.js';
+import { PostgresTypeCache } from '../types/custom.js';
 
 /**
  * Shorter timeout for snapshot connections than for replication connections.
@@ -14,6 +15,8 @@ export class PgManager {
    */
   public readonly pool: pgwire.PgClient;
 
+  public readonly types: PostgresTypeCache;
+
   private connectionPromises: Promise<pgwire.PgConnection>[] = [];
 
   constructor(
@@ -22,6 +25,7 @@ export class PgManager {
   ) {
     // The pool is lazy - no connections are opened until a query is performed.
     this.pool = pgwire.connectPgWirePool(this.options, poolOptions);
+    this.types = new PostgresTypeCache(this.pool);
   }
 
   public get connectionTag() {
