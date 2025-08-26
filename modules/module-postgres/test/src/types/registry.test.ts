@@ -43,6 +43,9 @@ describe('custom type registry', () => {
     registry.setDomainType(1339, 1338);
 
     checkResult('{1,2,3}', 1339, '{1,2,3}', '[1,2,3]');
+
+    registry.set(1400, { type: 'array', separatorCharCode: CHAR_CODE_COMMA, innerId: 1339, sqliteType: () => 'text' });
+    checkResult('{{1,2,3}}', 1400, '{{1,2,3}}', '[[1,2,3]]');
   });
 
   test('structure', () => {

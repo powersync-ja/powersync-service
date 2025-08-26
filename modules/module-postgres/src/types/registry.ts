@@ -9,28 +9,41 @@ import {
   toSyncRulesValue
 } from '@powersync/service-sync-rules';
 import * as pgwire from '@powersync/service-jpgwire';
-import { JsonContainer } from '@powersync/service-jsonbig';
 
 interface BaseType {
   sqliteType: () => SqliteValueType;
 }
 
+/** A type natively supported by {@link pgwire.PgType.decode}. */
 interface BuiltinType extends BaseType {
   type: 'builtin';
   oid: number;
 }
 
+/**
+ * An array type.
+ */
 interface ArrayType extends BaseType {
   type: 'array';
   innerId: number;
   separatorCharCode: number;
 }
 
+/**
+ * A domain type, like `CREATE DOMAIN api.rating_value AS FLOAT CHECK (VALUE BETWEEN 0 AND 5);`
+ *
+ * This type gets decoded and synced as the inner type (`FLOAT` in the example above).
+ */
 interface DomainType extends BaseType {
   type: 'domain';
   innerId: number;
 }
 
+/**
+ * A composite type as created by `CREATE TYPE AS`.
+ *
+ * These types are encoded as a tuple of values, so we recover attribute names to restore them as a JSON object.
+ */
 interface CompositeType extends BaseType {
   type: 'composite';
   members: { name: string; typeId: number }[];
@@ -81,6 +94,12 @@ class CustomTypeValue extends CustomSqliteValue {
   }
 }
 
+/**
+ * A registry of custom types.
+ *
+ * These extend the builtin decoding behavior in {@link pgwire.PgType.decode} for user-defined types like `DOMAIN`s or
+ * composite types.
+ */
 export class CustomTypeRegistry {
   private readonly byOid: Map<number, KnownType>;
 
@@ -89,6 +108,7 @@ export class CustomTypeRegistry {
 
     for (const builtin of Object.values(pgwire.PgTypeOid)) {
       if (typeof builtin == 'number') {
+        // We need to know the SQLite type of builtins to implement CustomSqliteValue.sqliteType for DOMAIN types.
         let sqliteType: SqliteValueType;
         switch (builtin) {
           case pgwire.PgTypeOid.TEXT:
@@ -168,12 +188,6 @@ export class CustomTypeRegistry {
         return pgwire.PgType.decode(raw, oid);
       case 'domain':
         return this.decodeWithCustomTypes(raw, resolved.innerId);
-      case 'array':
-        return pgwire.decodeArray({
-          source: raw,
-          decodeElement: (source) => this.decodeWithCustomTypes(source, resolved.innerId),
-          delimiterCharCode: resolved.separatorCharCode
-        });
       case 'composite': {
         const parsed: [string, any][] = [];
 
@@ -196,6 +210,28 @@ export class CustomTypeRegistry {
 
         return Object.fromEntries(parsed);
       }
+      case 'array': {
+        // Nornalize "array of array of T" types into just "array of T", because Postgres arrays are natively multi-
+        // dimensional. This may be required when we have a DOMAIN wrapper around an array followed by another array
+        // around that domain.
+        let innerId = resolved.innerId;
+        while (true) {
+          const resolvedInner = this.lookupType(innerId);
+          if (resolvedInner.type == 'domain') {
+            innerId = resolvedInner.innerId;
+          } else if (resolvedInner.type == 'array') {
+            innerId = resolvedInner.innerId;
+          } else {
+            break;
+          }
+        }
+
+        return pgwire.decodeArray({
+          source: raw,
+          decodeElement: (source) => this.decodeWithCustomTypes(source, innerId),
+          delimiterCharCode: resolved.separatorCharCode
+        });
+      }
     }
   }
 
@@ -217,6 +253,8 @@ export class CustomTypeRegistry {
 
   decodeDatabaseValue(value: string, oid: number): DatabaseInputValue {
     const resolved = this.lookupType(oid);
+    // For backwards-compatibility, some types are only properly parsed with a compatibility option. Others are synced
+    // in the raw text representation by default, and are only parsed as JSON values when necessary.
     if (this.isParsedWithoutCustomTypesSupport(resolved)) {
       return pgwire.PgType.decode(value, oid);
     } else {

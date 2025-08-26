@@ -35,8 +35,8 @@ export class CompatibilityOption {
   );
 
   static customTypes = new CompatibilityOption(
-    'custom_types',
-    'Map custom types into appropriate structures.',
+    'custom_postgres_types',
+    'Map custom Postgres types into appropriate structures instead of syncing the raw string.',
     CompatibilityEdition.SYNC_STREAMS
   );
 
@@ -44,7 +44,7 @@ export class CompatibilityOption {
     timestamps_iso8601: this.timestampsIso8601,
     versioned_bucket_ids: this.versionedBucketIds,
     fixed_json_extract: this.fixedJsonExtract,
-    custom_types: this.customTypes
+    custom_postgres_types: this.customTypes
   });
 }
 
