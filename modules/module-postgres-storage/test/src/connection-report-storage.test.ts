@@ -34,80 +34,80 @@ async function loadData(userData: ReportUserData, factory: PostgresReportStorage
         (
           ${{ type: 'varchar', value: userData.user_one.user_id }},
           ${{ type: 'varchar', value: userData.user_one.client_id }},
-          ${{ type: 1184, value: userData.user_one.connected_at.toUTCString() }},
+          ${{ type: 1184, value: userData.user_one.connected_at.toISOString() }},
           ${{ type: 'varchar', value: userData.user_one.sdk }},
           ${{ type: 'varchar', value: userData.user_one.user_agent }},
-          ${{ type: 1184, value: userData.user_one.jwt_exp.toUTCString() }},
+          ${{ type: 1184, value: userData.user_one.jwt_exp.toISOString() }},
           ${{ type: 'varchar', value: '1' }},
           NULL
         ),
         (
           ${{ type: 'varchar', value: userData.user_two.user_id }},
           ${{ type: 'varchar', value: userData.user_two.client_id }},
-          ${{ type: 1184, value: userData.user_two.connected_at.toUTCString() }},
+          ${{ type: 1184, value: userData.user_two.connected_at.toISOString() }},
           ${{ type: 'varchar', value: userData.user_two.sdk }},
           ${{ type: 'varchar', value: userData.user_two.user_agent }},
-          ${{ type: 1184, value: userData.user_two.jwt_exp.toUTCString() }},
+          ${{ type: 1184, value: userData.user_two.jwt_exp.toISOString() }},
           ${{ type: 'varchar', value: '2' }},
           NULL
         ),
         (
           ${{ type: 'varchar', value: userData.user_four.user_id }},
           ${{ type: 'varchar', value: userData.user_four.client_id }},
-          ${{ type: 1184, value: userData.user_four.connected_at.toUTCString() }},
+          ${{ type: 1184, value: userData.user_four.connected_at.toISOString() }},
           ${{ type: 'varchar', value: userData.user_four.sdk }},
           ${{ type: 'varchar', value: userData.user_four.user_agent }},
-          ${{ type: 1184, value: userData.user_four.jwt_exp.toUTCString() }},
+          ${{ type: 1184, value: userData.user_four.jwt_exp.toISOString() }},
           ${{ type: 'varchar', value: '4' }},
           NULL
         ),
         (
           ${{ type: 'varchar', value: userData.user_old.user_id }},
           ${{ type: 'varchar', value: userData.user_old.client_id }},
-          ${{ type: 1184, value: userData.user_old.connected_at.toUTCString() }},
+          ${{ type: 1184, value: userData.user_old.connected_at.toISOString() }},
           ${{ type: 'varchar', value: userData.user_old.sdk }},
           ${{ type: 'varchar', value: userData.user_old.user_agent }},
-          ${{ type: 1184, value: userData.user_old.jwt_exp.toUTCString() }},
+          ${{ type: 1184, value: userData.user_old.jwt_exp.toISOString() }},
           ${{ type: 'varchar', value: '5' }},
           NULL
         ),
         (
           ${{ type: 'varchar', value: userData.user_three.user_id }},
           ${{ type: 'varchar', value: userData.user_three.client_id }},
-          ${{ type: 1184, value: userData.user_three.connected_at.toUTCString() }},
+          ${{ type: 1184, value: userData.user_three.connected_at.toISOString() }},
           ${{ type: 'varchar', value: userData.user_three.sdk }},
           ${{ type: 'varchar', value: userData.user_three.user_agent }},
           NULL,
           ${{ type: 'varchar', value: '3' }},
-          ${{ type: 1184, value: userData.user_three.disconnected_at.toUTCString() }}
+          ${{ type: 1184, value: userData.user_three.disconnected_at.toISOString() }}
         ),
         (
           ${{ type: 'varchar', value: userData.user_week.user_id }},
           ${{ type: 'varchar', value: userData.user_week.client_id }},
-          ${{ type: 1184, value: userData.user_week.connected_at.toUTCString() }},
+          ${{ type: 1184, value: userData.user_week.connected_at.toISOString() }},
           ${{ type: 'varchar', value: userData.user_week.sdk }},
           ${{ type: 'varchar', value: userData.user_week.user_agent }},
           NULL,
           ${{ type: 'varchar', value: 'week' }},
-          ${{ type: 1184, value: userData.user_week.disconnected_at.toUTCString() }}
+          ${{ type: 1184, value: userData.user_week.disconnected_at.toISOString() }}
         ),
         (
           ${{ type: 'varchar', value: userData.user_month.user_id }},
           ${{ type: 'varchar', value: userData.user_month.client_id }},
-          ${{ type: 1184, value: userData.user_month.connected_at.toUTCString() }},
+          ${{ type: 1184, value: userData.user_month.connected_at.toISOString() }},
           ${{ type: 'varchar', value: userData.user_month.sdk }},
           ${{ type: 'varchar', value: userData.user_month.user_agent }},
           NULL,
           ${{ type: 'varchar', value: 'month' }},
-          ${{ type: 1184, value: userData.user_month.disconnected_at.toUTCString() }}
+          ${{ type: 1184, value: userData.user_month.disconnected_at.toISOString() }}
         ),
         (
           ${{ type: 'varchar', value: userData.user_expired.user_id }},
           ${{ type: 'varchar', value: userData.user_expired.client_id }},
-          ${{ type: 1184, value: userData.user_expired.connected_at.toUTCString() }},
+          ${{ type: 1184, value: userData.user_expired.connected_at.toISOString() }},
           ${{ type: 'varchar', value: userData.user_expired.sdk }},
           ${{ type: 'varchar', value: userData.user_expired.user_agent }},
-          ${{ type: 1184, value: userData.user_expired.jwt_exp.toUTCString() }},
+          ${{ type: 1184, value: userData.user_expired.jwt_exp.toISOString() }},
           ${{ type: 'varchar', value: 'expired' }},
           NULL
         )
@@ -151,8 +151,8 @@ describe('Connection report storage', async () => {
     const sdk = await factory.db
       .sql`SELECT * FROM connection_report_events WHERE user_id = ${{ type: 'varchar', value: userData.user_one.user_id }} AND client_id = ${{ type: 'varchar', value: userData.user_one.client_id }}`.rows<event_types.ClientConnection>();
     expect(sdk).toHaveLength(1);
-    expect(new Date(sdk[0].connected_at).toUTCString()).toEqual(newConnectAt.toUTCString());
-    expect(new Date(sdk[0].jwt_exp!).toUTCString()).toEqual(jwtExp.toUTCString());
+    expect(new Date(sdk[0].connected_at).toISOString()).toEqual(newConnectAt.toISOString());
+    expect(new Date(sdk[0].jwt_exp!).toISOString()).toEqual(jwtExp.toISOString());
     expect(sdk[0].disconnected_at).toBeNull();
     const cleaned = removeVolatileFields(sdk);
     expect(cleaned).toMatchSnapshot();
@@ -180,7 +180,7 @@ describe('Connection report storage', async () => {
     const sdk = await factory.db
       .sql`SELECT * FROM connection_report_events WHERE user_id = ${{ type: 'varchar', value: userData.user_three.user_id }}`.rows<event_types.ClientConnection>();
     expect(sdk).toHaveLength(1);
-    expect(new Date(sdk[0].disconnected_at!).toUTCString()).toEqual(disconnectAt.toUTCString());
+    expect(new Date(sdk[0].disconnected_at!).toISOString()).toEqual(disconnectAt.toISOString());
     const cleaned = removeVolatileFields(sdk);
     expect(cleaned).toMatchSnapshot();
   });
