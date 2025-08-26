@@ -2,7 +2,7 @@ import * as pgwire from '@powersync/service-jpgwire';
 import semver from 'semver';
 import { NormalizedPostgresConnectionConfig } from '../types/types.js';
 import { getApplicationName } from '../utils/application-name.js';
-import { PostgresTypeCache } from '../types/custom.js';
+import { PostgresTypeCache } from '../types/cache.js';
 
 /**
  * Shorter timeout for snapshot connections than for replication connections.

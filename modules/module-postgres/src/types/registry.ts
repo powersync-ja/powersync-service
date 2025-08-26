@@ -9,6 +9,7 @@ import {
   toSyncRulesValue
 } from '@powersync/service-sync-rules';
 import * as pgwire from '@powersync/service-jpgwire';
+import { JsonContainer } from '@powersync/service-jsonbig';
 
 interface BaseType {
   sqliteType: () => SqliteValueType;
@@ -167,102 +168,34 @@ export class CustomTypeRegistry {
         return pgwire.PgType.decode(raw, oid);
       case 'domain':
         return this.decodeWithCustomTypes(raw, resolved.innerId);
-    }
-
-    type StructureState = (ArrayType & { parsed: any[] }) | (CompositeType & { parsed: [string, any][] });
-    const stateStack: StructureState[] = [];
-    let pendingNestedStructure: ArrayType | CompositeType | null = resolved;
-
-    const pushParsedValue = (value: any) => {
-      const top = stateStack[stateStack.length - 1];
-      if (top.type == 'array') {
-        top.parsed.push(value);
-      } else {
-        const nextMember = top.members[top.parsed.length];
-        if (nextMember) {
-          top.parsed.push([nextMember.name, value]);
-        }
-      }
-    };
-
-    const resolveCurrentStructureTypeId = () => {
-      const top = stateStack[stateStack.length - 1];
-      if (top.type == 'array') {
-        return top.innerId;
-      } else {
-        const nextMember = top.members[top.parsed.length];
-        if (nextMember) {
-          return nextMember.typeId;
-        } else {
-          return -1;
-        }
-      }
-    };
-
-    let result: any;
-    pgwire.decodeSequence({
-      source: raw,
-      delimiters: this.delimitersFor(resolved),
-      listener: {
-        onStructureStart: () => {
-          stateStack.push({
-            ...pendingNestedStructure!,
-            parsed: []
-          });
-          pendingNestedStructure = null;
-        },
-        onValue: (raw) => {
-          pushParsedValue(raw == null ? null : this.decodeWithCustomTypes(raw, resolveCurrentStructureTypeId()));
-        },
-        onStructureEnd: () => {
-          const top = stateStack.pop()!;
-          // For arrays, pop the parsed array. For compounds, create an object from the key-value entries.
-          const parsedValue = top.type == 'array' ? top.parsed : Object.fromEntries(top.parsed);
-
-          if (stateStack.length == 0) {
-            // We have exited the outermost structure, parsedValue is the result.
-            result = parsedValue;
-          } else {
-            // Add the result of parsing a nested structure to the current outer structure.
-            pushParsedValue(parsedValue);
-          }
-        },
-        maybeParseSubStructure: (firstChar: number) => {
-          const top = stateStack[stateStack.length - 1];
-          if (top.type == 'array' && firstChar == pgwire.CHAR_CODE_LEFT_BRACE) {
-            // Postgres arrays are natively multidimensional - so if we're in an array, we can always parse sub-arrays
-            // of the same type.
-            pendingNestedStructure = top;
-            return this.delimitersFor(top);
-          }
-
-          // If we're in a compound type, nested compound values or arrays are encoded as strings.
-          return null;
-        }
-      }
-    });
-
-    return result;
-  }
-
-  private resolveStructure(type: MaybeKnownType): [ArrayType | CompositeType, pgwire.Delimiters] | null {
-    switch (type.type) {
-      case 'builtin':
-      case 'unknown':
-        return null;
-      case 'domain':
-        return this.resolveStructure(this.lookupType(type.innerId));
       case 'array':
-      case 'composite':
-        return [type, this.delimitersFor(type)];
-    }
-  }
+        return pgwire.decodeArray({
+          source: raw,
+          decodeElement: (source) => this.decodeWithCustomTypes(source, resolved.innerId),
+          delimiterCharCode: resolved.separatorCharCode
+        });
+      case 'composite': {
+        const parsed: [string, any][] = [];
 
-  private delimitersFor(type: ArrayType | CompositeType): pgwire.Delimiters {
-    if (type.type == 'array') {
-      return pgwire.arrayDelimiters(type.separatorCharCode);
-    } else {
-      return pgwire.COMPOSITE_DELIMITERS;
+        pgwire.decodeSequence({
+          source: raw,
+          delimiters: pgwire.COMPOSITE_DELIMITERS,
+          listener: {
+            onValue: (raw) => {
+              const nextMember = resolved.members[parsed.length];
+              if (nextMember) {
+                const value = raw == null ? null : this.decodeWithCustomTypes(raw, nextMember.typeId);
+                parsed.push([nextMember.name, value]);
+              }
+            },
+            // These are only used for nested arrays
+            onStructureStart: () => {},
+            onStructureEnd: () => {}
+          }
+        });
+
+        return Object.fromEntries(parsed);
+      }
     }
   }
 

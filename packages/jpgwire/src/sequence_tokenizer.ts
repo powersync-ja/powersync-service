@@ -1,15 +1,5 @@
 export interface SequenceListener {
   /**
-   * Using the context of the listener, determine whether the given character starts a sub-sequence. If so, return the
-   * {@link Delimiters} for that structure.
-   *
-   * For nested arrays, the inner delimiters would always match the outer delimiters. But for other structures (e.g.
-   * a compound type where one element is an array, that's not the case). That's also why this information is part
-   * of the listener, as it is inherently stateful! If a compount type has another compound type as a field and an array
-   * as another, the behavior of this callback depends on the index in the outer compound.
-   */
-  maybeParseSubStructure(firstChar: number): Delimiters | null;
-  /**
    * Invoked whenever the tokenizer has begun decoding a structure (that is, once in the beginning and then for
    * every sub-structure).
    */
@@ -28,12 +18,23 @@ export interface SequenceListener {
 }
 
 export interface Delimiters {
+  /** The char code opening the structure, e.g. `{` for arrays */
   openingCharCode: number;
+  /** The char code opening the structure, e.g. `}` for arrays */
   closingCharCode: number;
+  /** The char code opening the structure, e.g. `,` */
   delimiterCharCode: number;
+  /**
+   * Whether two subsequent double quotes are allowed to escape values.
+   *
+   * This is the case for composite values, but not for arrays. */
   allowEscapingWithDoubleDoubleQuote: boolean;
+  /** Whether empty values are allowed, e.g. `(,)` */
   allowEmpty: boolean;
+  /** The string literal that denotes a `NULL` value. */
   nullLiteral: string;
+  /** Whether values can be nested sub-structures. */
+  multiDimensional: boolean;
 }
 
 export interface DecodeSequenceOptions {
@@ -48,22 +49,18 @@ export interface DecodeSequenceOptions {
 /**
  * Decodes a sequence of values, such as arrays or composite types represented as text.
  *
- * It supports nested arrays, composite types with nested array types, and so on. However, it does not know how to
- * parse
+ * It supports nested arrays and different options for escaping values needed for arrays and composites.
  */
 export function decodeSequence(options: DecodeSequenceOptions) {
   let { source, delimiters, listener } = options;
 
-  const olderStateStack: SequenceDecoderState[] = [];
-  const olderDelimiterStack: Delimiters[] = [];
+  const stateStackTail: SequenceDecoderState[] = [];
   let currentState: SequenceDecoderState = SequenceDecoderState.BEFORE_SEQUENCE as SequenceDecoderState;
 
   consumeChar: for (let i = 0; i < source.length; i++) {
     function error(msg: string): never {
       throw new Error(`Error decoding Postgres sequence at position ${i}: ${msg}`);
     }
-
-    const charCode = source.charCodeAt(i);
 
     function check(expected: number) {
       if (charCode != expected) {
@@ -137,12 +134,12 @@ export function decodeSequence(options: DecodeSequenceOptions) {
     function endStructure() {
       currentState = SequenceDecoderState.AFTER_SEQUENCE;
       listener.onStructureEnd();
-      if (olderStateStack.length > 0) {
-        currentState = olderStateStack.pop()!;
-        delimiters = olderDelimiterStack.pop()!;
+      if (stateStackTail.length > 0) {
+        currentState = stateStackTail.pop()!;
       }
     }
 
+    const charCode = source.charCodeAt(i);
     switch (currentState) {
       case SequenceDecoderState.BEFORE_SEQUENCE:
         check(delimiters.openingCharCode);
@@ -175,22 +172,19 @@ export function decodeSequence(options: DecodeSequenceOptions) {
           }
           break;
         } else {
-          const behavior = listener.maybeParseSubStructure(charCode);
-          if (behavior == null) {
-            // Parse the current cell as one value
-            const value = unquotedString();
-            listener.onValue(value == delimiters.nullLiteral ? null : value);
-          } else {
+          if (delimiters.multiDimensional && charCode == delimiters.openingCharCode) {
             currentState = SequenceDecoderState.AFTER_ELEMENT;
             listener.onStructureStart();
-            olderDelimiterStack.push(delimiters);
-            olderStateStack.push(currentState);
+            stateStackTail.push(currentState);
 
-            delimiters = behavior;
             // We've consumed the opening delimiter already, so the inner state can either parse an element or
             // immediately close.
             currentState = SequenceDecoderState.BEFORE_ELEMENT_OR_END;
             continue consumeChar;
+          } else {
+            // Parse the current cell as one value
+            const value = unquotedString();
+            listener.onValue(value == delimiters.nullLiteral ? null : value);
           }
         }
         currentState = SequenceDecoderState.AFTER_ELEMENT;
@@ -216,6 +210,55 @@ export function decodeSequence(options: DecodeSequenceOptions) {
   }
 }
 
+export type ElementOrArray<T> = null | T | ElementOrArray<T>[];
+
+export interface DecodeArrayOptions<T> {
+  source: string;
+  delimiterCharCode?: number;
+  decodeElement: (source: string) => T;
+}
+
+/**
+ * A variant of {@link decodeSequence} that specifically decodes arrays.
+ *
+ * The {@link DecodeArrayOptions.decodeElement} method is responsible for parsing individual values with the array,
+ * this method automatically recognizes multidimensional arrays and parses them appropriately.
+ */
+export function decodeArray<T>(options: DecodeArrayOptions<T>): ElementOrArray<T>[] {
+  let results: ElementOrArray<T>[] = [];
+  const stack: ElementOrArray<T>[][] = [];
+
+  const listener: SequenceListener = {
+    onStructureStart: () => {
+      // We're parsing a new array
+      stack.push([]);
+    },
+    onValue: function (value: string | null): void {
+      // Atomic (non-array) value, add to current array.
+      stack[stack.length - 1].push(value != null ? options.decodeElement(value) : null);
+    },
+    onStructureEnd: () => {
+      // We're done parsing an array.
+      const subarray = stack.pop()!;
+      if (stack.length == 0) {
+        // We are done with the outermost array, set results.
+        results = subarray;
+      } else {
+        // We were busy parsing a nested array, continue outer array.
+        stack[stack.length - 1].push(subarray);
+      }
+    }
+  };
+
+  decodeSequence({
+    source: options.source,
+    listener,
+    delimiters: arrayDelimiters(options.delimiterCharCode)
+  });
+
+  return results!;
+}
+
 const CHAR_CODE_DOUBLE_QUOTE = 0x22;
 const CHAR_CODE_BACKSLASH = 0x5c;
 export const CHAR_CODE_COMMA = 0x2c;
@@ -232,7 +275,8 @@ export function arrayDelimiters(delimiterCharCode: number = CHAR_CODE_COMMA): De
     allowEscapingWithDoubleDoubleQuote: false,
     nullLiteral: 'NULL',
     allowEmpty: false, // Empty values must be escaped
-    delimiterCharCode
+    delimiterCharCode,
+    multiDimensional: true
   };
 }
 
@@ -243,7 +287,8 @@ export const COMPOSITE_DELIMITERS = Object.freeze({
   delimiterCharCode: CHAR_CODE_COMMA,
   allowEscapingWithDoubleDoubleQuote: true,
   allowEmpty: true, // Empty values encode NULL
-  nullLiteral: ''
+  nullLiteral: '',
+  multiDimensional: false
 } satisfies Delimiters);
 
 enum SequenceDecoderState {

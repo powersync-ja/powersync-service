@@ -1,13 +1,14 @@
 // Adapted from https://github.com/kagis/pgwire/blob/0dc927f9f8990a903f238737326e53ba1c8d094f/mod.js#L2218
 
 import { JsonContainer } from '@powersync/service-jsonbig';
-import { TimeValue, type DatabaseInputValue } from '@powersync/service-sync-rules';
+import { CustomSqliteValue, TimeValue, type DatabaseInputValue } from '@powersync/service-sync-rules';
 import { dateToSqlite, lsnMakeComparable, timestampToSqlite, timestamptzToSqlite } from './util.js';
 import {
   arrayDelimiters,
   CHAR_CODE_COMMA,
   CHAR_CODE_LEFT_BRACE,
   CHAR_CODE_RIGHT_BRACE,
+  decodeArray,
   decodeSequence,
   Delimiters,
   SequenceListener
@@ -164,43 +165,10 @@ export class PgType {
 
   static _decodeArray(text: string, elemTypeOid: number): DatabaseInputValue[] {
     text = text.replace(/^\[.+=/, ''); // skip dimensions
-
-    let results: DatabaseInputValue[];
-    const stack: DatabaseInputValue[][] = [];
-    const delimiters = arrayDelimiters();
-
-    const listener: SequenceListener = {
-      maybeParseSubStructure: function (firstChar: number): Delimiters | null {
-        return firstChar == CHAR_CODE_LEFT_BRACE ? delimiters : null;
-      },
-      onStructureStart: () => {
-        // We're parsing a new array
-        stack.push([]);
-      },
-      onValue: function (value: string | null): void {
-        // Atomic (non-array) value, add to current array.
-        stack[stack.length - 1].push(value && PgType.decode(value, elemTypeOid));
-      },
-      onStructureEnd: () => {
-        // We're done parsing an array.
-        const subarray = stack.pop()!;
-        if (stack.length == 0) {
-          // We are done with the outermost array, set results.
-          results = subarray;
-        } else {
-          // We were busy parsing a nested array, continue outer array.
-          stack[stack.length - 1].push(subarray);
-        }
-      }
-    };
-
-    decodeSequence({
+    return decodeArray({
       source: text,
-      listener,
-      delimiters
+      decodeElement: (raw) => PgType.decode(raw, elemTypeOid)
     });
-
-    return results!;
   }
 
   static _decodeBytea(text: string): Uint8Array {
