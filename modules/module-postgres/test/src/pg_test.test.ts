@@ -1,6 +1,13 @@
 import { constructAfterRecord } from '@module/utils/pgwire_utils.js';
 import * as pgwire from '@powersync/service-jpgwire';
-import { SqliteRow } from '@powersync/service-sync-rules';
+import {
+  applyRowContext,
+  CompatibilityContext,
+  SqliteInputRow,
+  DateTimeValue,
+  TimeValue,
+  CompatibilityEdition
+} from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { clearTestDb, connectPgPool, connectPgWire, TEST_URI } from './util.js';
 import { WalStream } from '@module/replication/WalStream.js';
@@ -158,9 +165,9 @@ VALUES(10, ARRAY['null']::TEXT[]);
     expect(transformed[2]).toMatchObject({
       id: 3n,
       date: '2023-03-06',
-      time: '15:47:00',
-      timestamp: '2023-03-06 15:47:00',
-      timestamptz: '2023-03-06 13:47:00Z'
+      time: new TimeValue('15:47:00'),
+      timestamp: new DateTimeValue('2023-03-06T15:47:00.000000', '2023-03-06 15:47:00'),
+      timestamptz: new DateTimeValue('2023-03-06T13:47:00.000000Z', '2023-03-06 13:47:00Z')
     });
 
     expect(transformed[3]).toMatchObject({
@@ -175,26 +182,26 @@ VALUES(10, ARRAY['null']::TEXT[]);
     expect(transformed[4]).toMatchObject({
       id: 5n,
       date: '0000-01-01',
-      time: '00:00:00',
-      timestamp: '0000-01-01 00:00:00',
-      timestamptz: '0000-01-01 00:00:00Z'
+      time: new TimeValue('00:00:00'),
+      timestamp: new DateTimeValue('0000-01-01T00:00:00'),
+      timestamptz: new DateTimeValue('0000-01-01T00:00:00Z')
     });
 
     expect(transformed[5]).toMatchObject({
       id: 6n,
-      timestamp: '1970-01-01 00:00:00',
-      timestamptz: '1970-01-01 00:00:00Z'
+      timestamp: new DateTimeValue('1970-01-01T00:00:00.000000', '1970-01-01 00:00:00'),
+      timestamptz: new DateTimeValue('1970-01-01T00:00:00.000000Z', '1970-01-01 00:00:00Z')
     });
 
     expect(transformed[6]).toMatchObject({
       id: 7n,
-      timestamp: '9999-12-31 23:59:59',
-      timestamptz: '9999-12-31 23:59:59Z'
+      timestamp: new DateTimeValue('9999-12-31T23:59:59'),
+      timestamptz: new DateTimeValue('9999-12-31T23:59:59Z')
     });
 
     expect(transformed[7]).toMatchObject({
       id: 8n,
-      timestamptz: '0022-02-03 09:13:14Z'
+      timestamptz: new DateTimeValue('0022-02-03T09:13:14.000000Z', '0022-02-03 09:13:14Z')
     });
 
     expect(transformed[8]).toMatchObject({
@@ -235,8 +242,8 @@ VALUES(10, ARRAY['null']::TEXT[]);
       id: 3n,
       date: `["2023-03-06"]`,
       time: `["15:47:00"]`,
-      timestamp: `["2023-03-06 15:47:00"]`,
-      timestamptz: `["2023-03-06 13:47:00Z","2023-03-06 13:47:00.12345Z"]`
+      timestamp: '["2023-03-06 15:47:00"]',
+      timestamptz: '["2023-03-06 13:47:00Z","2023-03-06 13:47:00.12345Z"]'
     });
 
     expect(transformed[3]).toMatchObject({
@@ -339,7 +346,7 @@ VALUES(10, ARRAY['null']::TEXT[]);
 
       const transformed = [
         ...WalStream.getQueryData(pgwire.pgwireRows(await db.query(`SELECT * FROM test_data_arrays ORDER BY id`)))
-      ];
+      ].map((e) => applyRowContext(e, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY));
 
       checkResultArrays(transformed);
     } finally {
@@ -415,7 +422,7 @@ VALUES(10, ARRAY['null']::TEXT[]);
       const transformed = await getReplicationTx(replicationStream);
       await pg.end();
 
-      checkResultArrays(transformed);
+      checkResultArrays(transformed.map((e) => applyRowContext(e, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY)));
     } finally {
       await db.end();
     }
@@ -430,13 +437,46 @@ VALUES(10, ARRAY['null']::TEXT[]);
     // const schema = await api.getConnectionsSchema(db);
     // expect(schema).toMatchSnapshot();
   });
+
+  test('date formats', async () => {
+    const db = await connectPgWire();
+    try {
+      await setupTable(db);
+
+      await db.query(`
+INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12', '2023-03-06 15:47:12.4', '2023-03-06 15:47+02');
+`);
+
+      const [row] = [
+        ...WalStream.getQueryData(
+          pgwire.pgwireRows(await db.query(`SELECT time, timestamp, timestamptz FROM test_data`))
+        )
+      ];
+
+      const oldFormat = applyRowContext(row, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+      expect(oldFormat).toMatchObject({
+        time: '17:42:01.12',
+        timestamp: '2023-03-06 15:47:12.4',
+        timestamptz: '2023-03-06 13:47:00Z'
+      });
+
+      const newFormat = applyRowContext(row, new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS));
+      expect(newFormat).toMatchObject({
+        time: '17:42:01.120000',
+        timestamp: '2023-03-06T15:47:12.400000',
+        timestamptz: '2023-03-06T13:47:00.000000Z'
+      });
+    } finally {
+      await db.end();
+    }
+  });
 });
 
 /**
  * Return all the inserts from the first transaction in the replication stream.
  */
 async function getReplicationTx(replicationStream: pgwire.ReplicationStream) {
-  let transformed: SqliteRow[] = [];
+  let transformed: SqliteInputRow[] = [];
   for await (const batch of replicationStream.pgoutputDecode()) {
     for (const msg of batch.messages) {
       if (msg.tag == 'insert') {

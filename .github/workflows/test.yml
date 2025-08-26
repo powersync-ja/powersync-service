@@ -53,6 +53,11 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # The mongodb-github-action below doesn't use the Docker credentials for the pull.
+      # We pre-pull, so that the image is cached.
+      - name: Pre-pull Mongo image
+        run: docker pull mongo:8.0
+
       - name: Start MongoDB
         uses: supercharge/mongodb-github-action@1.12.0
         with:
@@ -134,6 +139,11 @@ jobs:
             -p 5431:5432 \
             -d postgres:${{ matrix.postgres-version }}
 
+      # The mongodb-github-action below doesn't use the Docker credentials for the pull.
+      # We pre-pull, so that the image is cached.
+      - name: Pre-pull Mongo image
+        run: docker pull mongo:8.0
+
       - name: Start MongoDB
         uses: supercharge/mongodb-github-action@1.12.0
         with:
@@ -206,6 +216,11 @@ jobs:
           --enforce_gtid_consistency=ON \
           --server-id=1
 
+      # The mongodb-github-action below doesn't use the Docker credentials for the pull.
+      # We pre-pull, so that the image is cached.
+      - name: Pre-pull Mongo image
+        run: docker pull mongo:8.0
+
       - name: Start MongoDB
         uses: supercharge/mongodb-github-action@1.12.0
         with:
@@ -273,6 +288,11 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # The mongodb-github-action below doesn't use the Docker credentials for the pull.
+      # We pre-pull, so that the image is cached.
+      - name: Pre-pull Mongo image
+        run: docker pull mongo:${{ matrix.mongodb-version }}
 
       - name: Start MongoDB
         uses: supercharge/mongodb-github-action@1.12.0

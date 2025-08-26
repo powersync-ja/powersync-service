@@ -6,7 +6,8 @@ import {
   EvaluateRowOptions,
   RequestParameters,
   SqliteJsonValue,
-  SqliteRow
+  SqliteRow,
+  TableRow
 } from '../types.js';
 import { isJsonValue, JSONBucketNameSerialize, normalizeParameterValue } from '../utils.js';
 import { BucketParameter, SubqueryEvaluator } from './parameter.js';
@@ -45,7 +46,7 @@ export class StreamVariant {
    *
    * This is introduced for streams like `SELECT * FROM assets WHERE LENGTH(assets.name < 10)`.
    */
-  additionalRowFilters: ((options: EvaluateRowOptions) => boolean)[];
+  additionalRowFilters: ((row: TableRow) => boolean)[];
 
   /**
    * Additional filters that are evaluated against the request of the stream subscription.
@@ -66,7 +67,7 @@ export class StreamVariant {
   /**
    * Given a row in the table this stream selects from, returns all ids of buckets to which that row belongs to.
    */
-  bucketIdsForRow(streamName: string, options: EvaluateRowOptions): string[] {
+  bucketIdsForRow(streamName: string, options: TableRow): string[] {
     return this.instantiationsForRow(options).map((values) => this.buildBucketId(streamName, values));
   }
 
@@ -75,7 +76,7 @@ export class StreamVariant {
    *
    * The inner arrays will have a length equal to the amount of parameters in this variant.
    */
-  instantiationsForRow(options: EvaluateRowOptions): SqliteJsonValue[][] {
+  instantiationsForRow(options: TableRow): SqliteJsonValue[][] {
     for (const additional of this.additionalRowFilters) {
       if (!additional(options)) {
         return [];

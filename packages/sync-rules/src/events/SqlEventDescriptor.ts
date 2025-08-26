@@ -1,9 +1,11 @@
 import { SqlRuleError } from '../errors.js';
+import { CompatibilityContext } from '../compatibility.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { QueryParseResult } from '../SqlBucketDescriptor.js';
 import { SyncRulesOptions } from '../SqlSyncRules.js';
 import { TablePattern } from '../TablePattern.js';
 import { EvaluateRowOptions } from '../types.js';
+import { applyRowContext } from '../utils.js';
 import { EvaluatedEventRowWithErrors, SqlEventSourceQuery } from './SqlEventSourceQuery.js';
 
 /**
@@ -13,7 +15,10 @@ export class SqlEventDescriptor {
   name: string;
   sourceQueries: SqlEventSourceQuery[] = [];
 
-  constructor(name: string) {
+  constructor(
+    name: string,
+    private readonly compatibility: CompatibilityContext
+  ) {
     this.name = name;
   }
 
@@ -46,7 +51,10 @@ export class SqlEventDescriptor {
       };
     }
 
-    return matchingQuery.evaluateRowWithErrors(options.sourceTable, options.record);
+    return matchingQuery.evaluateRowWithErrors(
+      options.sourceTable,
+      applyRowContext(options.record, this.compatibility)
+    );
   }
 
   getSourceTables(): Set<TablePattern> {

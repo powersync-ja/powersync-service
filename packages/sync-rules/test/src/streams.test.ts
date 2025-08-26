@@ -2,6 +2,8 @@
 import { describe, expect, test } from 'vitest';
 import {
   BucketParameterQuerier,
+  CompatibilityContext,
+  CompatibilityEdition,
   DEFAULT_TAG,
   GetBucketParameterQuerierResult,
   mergeBucketParameterQueriers,
@@ -11,12 +13,22 @@ import {
   SqliteJsonRow,
   SqliteRow,
   StaticSchema,
+  StreamParseOptions,
   SyncStream,
   syncStreamFromSql
 } from '../../src/index.js';
 import { normalizeQuerierOptions, PARSE_OPTIONS, TestSourceTable } from './util.js';
 
 describe('streams', () => {
+  test('refuses edition: 1', () => {
+    expect(() =>
+      syncStreamFromSql('stream', 'SELECT * FROM comments', {
+        compatibility: CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY,
+        defaultSchema: 'public'
+      })
+    ).throws('Sync streams require edition 2 or later');
+  });
+
   test('without filter', () => {
     const desc = parseStream('SELECT * FROM comments');
 
@@ -610,7 +622,11 @@ const schema = new StaticSchema([
   }
 ]);
 
-const options = { schema: schema, ...PARSE_OPTIONS };
+const options: StreamParseOptions = {
+  schema: schema,
+  ...PARSE_OPTIONS,
+  compatibility: new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS)
+};
 
 function evaluateBucketIds(stream: SyncStream, sourceTable: SourceTableInterface, record: SqliteRow) {
   return stream.evaluateRow({ sourceTable, record }).map((r) => {

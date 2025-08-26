@@ -3,6 +3,7 @@ import { BucketInclusionReason, BucketPriority, DEFAULT_BUCKET_PRIORITY } from '
 import { BucketParameterQuerier, PendingQueriers } from '../BucketParameterQuerier.js';
 import { BucketSource, BucketSourceType, ResultSetDescription } from '../BucketSource.js';
 import { ColumnDefinition } from '../ExpressionType.js';
+import { CompatibilityContext } from '../compatibility.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { GetQuerierOptions, RequestedStream } from '../SqlSyncRules.js';
 import { TablePattern } from '../TablePattern.js';
@@ -12,8 +13,10 @@ import {
   EvaluationResult,
   RequestParameters,
   SourceSchema,
-  SqliteRow
+  SqliteRow,
+  TableRow
 } from '../types.js';
+import { applyRowContext } from '../utils.js';
 import { StreamVariant } from './variant.js';
 
 export class SyncStream implements BucketSource {
@@ -23,7 +26,11 @@ export class SyncStream implements BucketSource {
   variants: StreamVariant[];
   data: BaseSqlDataQuery;
 
-  constructor(name: string, data: BaseSqlDataQuery) {
+  constructor(
+    name: string,
+    data: BaseSqlDataQuery,
+    private readonly compatibility: CompatibilityContext
+  ) {
     this.name = name;
     this.subscribedToByDefault = false;
     this.priority = DEFAULT_BUCKET_PRIORITY;
@@ -165,13 +172,19 @@ export class SyncStream implements BucketSource {
     }
 
     const stream = this;
+    const mappedRow = applyRowContext(options.record, this.compatibility);
+    const row: TableRow = {
+      sourceTable: options.sourceTable,
+      record: mappedRow
+    };
+
     return this.data.evaluateRowWithOptions({
       table: options.sourceTable,
-      row: options.record,
+      row: applyRowContext(options.record, this.compatibility),
       bucketIds() {
         const bucketIds: string[] = [];
         for (const variant of stream.variants) {
-          bucketIds.push(...variant.bucketIdsForRow(stream.name, options));
+          bucketIds.push(...variant.bucketIdsForRow(stream.name, row));
         }
 
         return bucketIds;
