@@ -31,6 +31,9 @@ export interface Delimiters {
   openingCharCode: number;
   closingCharCode: number;
   delimiterCharCode: number;
+  allowEscapingWithDoubleDoubleQuote: boolean;
+  allowEmpty: boolean;
+  nullLiteral: string;
 }
 
 export interface DecodeSequenceOptions {
@@ -83,6 +86,7 @@ export function decodeSequence(options: DecodeSequenceOptions) {
     }
 
     function quotedString(): string {
+      const start = i;
       const charCodes: number[] = [];
       let previousWasBackslash = false;
 
@@ -95,6 +99,15 @@ export function decodeSequence(options: DecodeSequenceOptions) {
           charCodes.push(next);
           previousWasBackslash = false;
         } else if (next == CHAR_CODE_DOUBLE_QUOTE) {
+          if (i != start && delimiters.allowEscapingWithDoubleDoubleQuote) {
+            // If the next character is also a double quote, that escapes a single double quote
+            if (i < source.length - 1 && peek() == CHAR_CODE_DOUBLE_QUOTE) {
+              i++;
+              charCodes.push(CHAR_CODE_DOUBLE_QUOTE);
+              continue;
+            }
+          }
+
           break; // End of string.
         } else if (next == CHAR_CODE_BACKSLASH) {
           previousWasBackslash = true;
@@ -148,12 +161,25 @@ export function decodeSequence(options: DecodeSequenceOptions) {
         if (charCode == CHAR_CODE_DOUBLE_QUOTE) {
           const value = quotedString();
           listener.onValue(value);
+        } else if (charCode == delimiters.delimiterCharCode || charCode == delimiters.closingCharCode) {
+          if (!delimiters.allowEmpty) {
+            error('invalid empty element');
+          }
+
+          listener.onValue('' == delimiters.nullLiteral ? null : '');
+          if (charCode == delimiters.delimiterCharCode) {
+            // Since this is a comma, there'll be an element afterwards
+            currentState = SequenceDecoderState.BEFORE_ELEMENT;
+          } else {
+            endStructure();
+          }
+          break;
         } else {
           const behavior = listener.maybeParseSubStructure(charCode);
           if (behavior == null) {
             // Parse the current cell as one value
             const value = unquotedString();
-            listener.onValue(value == 'NULL' ? null : value);
+            listener.onValue(value == delimiters.nullLiteral ? null : value);
           } else {
             currentState = SequenceDecoderState.AFTER_ELEMENT;
             listener.onStructureStart();
@@ -197,6 +223,28 @@ export const CHAR_CODE_LEFT_BRACE = 0x7b;
 export const CHAR_CODE_RIGHT_BRACE = 0x7d;
 export const CHAR_CODE_LEFT_PAREN = 0x28;
 export const CHAR_CODE_RIGHT_PAREN = 0x29;
+
+// https://www.postgresql.org/docs/current/arrays.html#ARRAYS-IO
+export function arrayDelimiters(delimiterCharCode: number = CHAR_CODE_COMMA): Delimiters {
+  return {
+    openingCharCode: CHAR_CODE_LEFT_BRACE,
+    closingCharCode: CHAR_CODE_RIGHT_BRACE,
+    allowEscapingWithDoubleDoubleQuote: false,
+    nullLiteral: 'NULL',
+    allowEmpty: false, // Empty values must be escaped
+    delimiterCharCode
+  };
+}
+
+// https://www.postgresql.org/docs/current/rowtypes.html#ROWTYPES-IO-SYNTAX
+export const COMPOSITE_DELIMITERS = Object.freeze({
+  openingCharCode: CHAR_CODE_LEFT_PAREN,
+  closingCharCode: CHAR_CODE_RIGHT_PAREN,
+  delimiterCharCode: CHAR_CODE_COMMA,
+  allowEscapingWithDoubleDoubleQuote: true,
+  allowEmpty: true, // Empty values encode NULL
+  nullLiteral: ''
+} satisfies Delimiters);
 
 enum SequenceDecoderState {
   BEFORE_SEQUENCE = 1,

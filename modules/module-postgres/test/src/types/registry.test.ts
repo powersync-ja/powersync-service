@@ -46,6 +46,7 @@ describe('custom type registry', () => {
   });
 
   test('structure', () => {
+    // create type c1 AS (a bool, b integer, c text[]);
     registry.set(1337, {
       type: 'composite',
       sqliteType: () => 'text',
@@ -56,10 +57,12 @@ describe('custom type registry', () => {
       ]
     });
 
-    checkResult('(t,123,{foo,bar})', 1337, '(t,123,{foo,bar})', '{"a":1,"b":123,"c":["foo","bar"]}');
+    // SELECT (TRUE, 123, ARRAY['foo', 'bar'])::c1;
+    checkResult('(t,123,"{foo,bar}")', 1337, '(t,123,"{foo,bar}")', '{"a":1,"b":123,"c":["foo","bar"]}');
   });
 
   test('array of structure', () => {
+    // create type c1 AS (a bool, b integer, c text[]);
     registry.set(1337, {
       type: 'composite',
       sqliteType: () => 'text',
@@ -71,11 +74,12 @@ describe('custom type registry', () => {
     });
     registry.set(1338, { type: 'array', separatorCharCode: CHAR_CODE_COMMA, innerId: 1337, sqliteType: () => 'text' });
 
+    // SELECT ARRAY[(TRUE, 123, ARRAY['foo', 'bar']),(FALSE, NULL, ARRAY[]::text[])]::c1[];
     checkResult(
-      '{(t,123,{foo,bar}),(f,0,{})}',
+      '{"(t,123,\\"{foo,bar}\\")","(f,,{})"}',
       1338,
-      '{(t,123,{foo,bar}),(f,0,{})}',
-      '[{"a":1,"b":123,"c":["foo","bar"]},{"a":0,"b":0,"c":[]}]'
+      '{"(t,123,\\"{foo,bar}\\")","(f,,{})"}',
+      '[{"a":1,"b":123,"c":["foo","bar"]},{"a":0,"b":null,"c":[]}]'
     );
   });
 
@@ -94,6 +98,7 @@ describe('custom type registry', () => {
   });
 
   test('structure of another structure', () => {
+    // CREATE TYPE c2 AS (a BOOLEAN, b INTEGER);
     registry.set(1337, {
       type: 'composite',
       sqliteType: () => 'text',
@@ -103,12 +108,14 @@ describe('custom type registry', () => {
       ]
     });
     registry.set(1338, { type: 'array', separatorCharCode: CHAR_CODE_COMMA, innerId: 1337, sqliteType: () => 'text' });
+    // CREATE TYPE c3 (c c2[]);
     registry.set(1339, {
       type: 'composite',
       sqliteType: () => 'text',
       members: [{ name: 'c', typeId: 1338 }]
     });
 
-    checkResult('({(f,2)})', 1339, '({(f,2)})', '{"c":[{"a":0,"b":2}]}');
+    // SELECT ROW(ARRAY[(FALSE,2)]::c2[])::c3;
+    checkResult('("{""(f,2)""}")', 1339, '("{""(f,2)""}")', '{"c":[{"a":0,"b":2}]}');
   });
 });

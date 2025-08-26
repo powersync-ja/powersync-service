@@ -13,19 +13,20 @@ export class PostgresTypeCache {
     let pending = oids.filter((id) => !(id in Object.values(pgwire.PgTypeOid)));
     // For details on columns, see https://www.postgresql.org/docs/current/catalog-pg-type.html
     const statement = `
-SELECT oid, pg_type.typtype,
-    CASE pg_type.typtype
-        WHEN 'd' THEN json_build_object('type', pg_type.typbasetype)
+SELECT oid, t.typtype,
+    CASE t.typtype
+        WHEN 'b' THEN json_build_object('element_type', t.typelem, 'delim', (SELECT typdelim FROM pg_type i WHERE i.oid = t.typelem))
+        WHEN 'd' THEN json_build_object('type', t.typbasetype)
         WHEN 'c' THEN json_build_object(
             'elements',
             (SELECT json_agg(json_build_object('name', a.attname, 'type', a.atttypid))
                 FROM pg_attribute a
-                WHERE a.attrelid = pg_type.typrelid)
+                WHERE a.attrelid = t.typrelid)
         )
         ELSE NULL
     END AS desc
-FROM pg_type
-WHERE pg_type.oid = ANY($1)
+FROM pg_type t
+WHERE t.oid = ANY($1)
 `;
 
     while (pending.length != 0) {
@@ -43,12 +44,18 @@ WHERE pg_type.oid = ANY($1)
         const desc = JSON.parse(row.desc);
 
         switch (row.typtype) {
-          case 'd':
-            // For domain values like CREATE DOMAIN api.rating_value AS FLOAT CHECK (VALUE BETWEEN 0 AND 5), we sync
-            // the inner type (pg_type.typbasetype).
-            const inner = Number(desc.type);
-            this.registry.setDomainType(oid, inner);
-            requireType(inner);
+          case 'b':
+            const { element_type, delim } = desc;
+
+            if (!this.registry.knows(oid)) {
+              // This type is an array of another custom type.
+              this.registry.set(oid, {
+                type: 'array',
+                innerId: Number(element_type),
+                separatorCharCode: (delim as string).charCodeAt(0),
+                sqliteType: () => 'text' // Since it's JSON
+              });
+            }
             break;
           case 'c':
             // For composite types, we sync the JSON representation.
@@ -64,6 +71,13 @@ WHERE pg_type.oid = ANY($1)
               members: elements,
               sqliteType: () => 'text' // Since it's JSON
             });
+            break;
+          case 'd':
+            // For domain values like CREATE DOMAIN api.rating_value AS FLOAT CHECK (VALUE BETWEEN 0 AND 5), we sync
+            // the inner type (pg_type.typbasetype).
+            const inner = Number(desc.type);
+            this.registry.setDomainType(oid, inner);
+            requireType(inner);
             break;
         }
       }

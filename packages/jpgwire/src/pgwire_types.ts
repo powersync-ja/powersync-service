@@ -4,6 +4,7 @@ import { JsonContainer } from '@powersync/service-jsonbig';
 import { TimeValue, type DatabaseInputValue } from '@powersync/service-sync-rules';
 import { dateToSqlite, lsnMakeComparable, timestampToSqlite, timestamptzToSqlite } from './util.js';
 import {
+  arrayDelimiters,
   CHAR_CODE_COMMA,
   CHAR_CODE_LEFT_BRACE,
   CHAR_CODE_RIGHT_BRACE,
@@ -166,11 +167,7 @@ export class PgType {
 
     let results: DatabaseInputValue[];
     const stack: DatabaseInputValue[][] = [];
-    const delimiters: Delimiters = {
-      openingCharCode: CHAR_CODE_LEFT_BRACE,
-      closingCharCode: CHAR_CODE_RIGHT_BRACE,
-      delimiterCharCode: CHAR_CODE_COMMA
-    };
+    const delimiters = arrayDelimiters();
 
     const listener: SequenceListener = {
       maybeParseSubStructure: function (firstChar: number): Delimiters | null {
