@@ -3,6 +3,7 @@ import { POSTGRES_REPORT_STORAGE_FACTORY } from './util.js';
 import { event_types } from '@powersync/service-types';
 import { register, ReportUserData } from '@powersync/service-core-tests';
 import { PostgresReportStorageFactory } from '../../src/storage/PostgresReportStorageFactory.js';
+import { DateTimeValue } from '@powersync/service-sync-rules';
 
 const factory = await POSTGRES_REPORT_STORAGE_FACTORY();
 const userData = register.REPORT_TEST_USERS;
@@ -151,8 +152,12 @@ describe('Connection report storage', async () => {
     const sdk = await factory.db
       .sql`SELECT * FROM connection_report_events WHERE user_id = ${{ type: 'varchar', value: userData.user_one.user_id }} AND client_id = ${{ type: 'varchar', value: userData.user_one.client_id }}`.rows<event_types.ClientConnection>();
     expect(sdk).toHaveLength(1);
-    expect(new Date(sdk[0].connected_at).toISOString()).toEqual(newConnectAt.toISOString());
-    expect(new Date(sdk[0].jwt_exp!).toISOString()).toEqual(jwtExp.toISOString());
+    expect(new Date((sdk[0].connected_at as unknown as DateTimeValue).iso8601Representation).toISOString()).toEqual(
+      newConnectAt.toISOString()
+    );
+    expect(new Date((sdk[0].jwt_exp! as unknown as DateTimeValue).iso8601Representation).toISOString()).toEqual(
+      jwtExp.toISOString()
+    );
     expect(sdk[0].disconnected_at).toBeNull();
     const cleaned = removeVolatileFields(sdk);
     expect(cleaned).toMatchSnapshot();
@@ -180,7 +185,10 @@ describe('Connection report storage', async () => {
     const sdk = await factory.db
       .sql`SELECT * FROM connection_report_events WHERE user_id = ${{ type: 'varchar', value: userData.user_three.user_id }}`.rows<event_types.ClientConnection>();
     expect(sdk).toHaveLength(1);
-    expect(new Date(sdk[0].disconnected_at!).toISOString()).toEqual(disconnectAt.toISOString());
+    console.log(sdk[0]);
+    expect(new Date((sdk[0].disconnected_at! as unknown as DateTimeValue).iso8601Representation).toISOString()).toEqual(
+      disconnectAt.toISOString()
+    );
     const cleaned = removeVolatileFields(sdk);
     expect(cleaned).toMatchSnapshot();
   });
