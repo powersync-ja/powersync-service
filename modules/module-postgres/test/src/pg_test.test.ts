@@ -476,12 +476,14 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
     try {
       await clearTestDb(db);
       await db.query(`CREATE DOMAIN rating_value AS FLOAT CHECK (VALUE BETWEEN 0 AND 5);`);
-      await db.query(`CREATE TYPE composite AS (foo rating_value, bar TEXT);`);
+      await db.query(`CREATE TYPE composite AS (foo rating_value[], bar TEXT);`);
+      await db.query(`CREATE TYPE nested_composite AS (a BOOLEAN, b composite);`);
 
       await db.query(`CREATE TABLE test_custom(
         id serial primary key,
         rating rating_value,
-        composite composite
+        composite composite,
+        nested_composite nested_composite
       );`);
 
       const slotName = 'test_slot';
@@ -498,10 +500,11 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
 
       await db.query(`
         INSERT INTO test_custom
-          (rating, composite)
+          (rating, composite, nested_composite)
         VALUES (
           1,
-          (2, 'bar')
+          (ARRAY[2,3], 'bar'),
+          (TRUE, (ARRAY[2,3], 'bar'))
         );
       `);
 
@@ -519,12 +522,16 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
 
       const oldFormat = applyRowContext(transformed, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
       expect(oldFormat).toMatchObject({
-        rating: '1'
+        rating: '1',
+        composite: '("{2,3}",bar)',
+        nested_composite: '(t,"(""{2,3}"",bar)")'
       });
 
       const newFormat = applyRowContext(transformed, new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS));
       expect(newFormat).toMatchObject({
-        rating: 1
+        rating: 1,
+        composite: '{"foo":[2.0,3.0],"bar":"bar"}',
+        nested_composite: '{"a":1,"b":{"foo":[2.0,3.0],"bar":"bar"}}'
       });
     } finally {
       await db.end();

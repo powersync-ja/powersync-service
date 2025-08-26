@@ -64,7 +64,8 @@ class CustomTypeValue extends CustomSqliteValue {
   toSqliteValue(context: CompatibilityContext): SqliteValue {
     if (context.isEnabled(CompatibilityOption.customTypes)) {
       try {
-        const value = toSyncRulesValue(this.cache.decodeWithCustomTypes(this.rawValue, this.oid));
+        const rawValue = this.cache.decodeWithCustomTypes(this.rawValue, this.oid);
+        const value = toSyncRulesValue(rawValue);
         return applyValueContext(value, context);
       } catch (_e) {
         return this.rawValue;
@@ -211,8 +212,6 @@ export class CustomTypeRegistry {
           pendingNestedStructure = null;
         },
         onValue: (raw) => {
-          // this isn't an array or a composite (because in that case we'd make maybeParseSubStructure return nested
-          // delimiters and this wouldn't get called).
           pushParsedValue(raw == null ? null : this.decodeWithCustomTypes(raw, resolveCurrentStructureTypeId()));
         },
         onStructureEnd: () => {
@@ -229,11 +228,6 @@ export class CustomTypeRegistry {
           }
         },
         maybeParseSubStructure: (firstChar: number) => {
-          if (firstChar != pgwire.CHAR_CODE_LEFT_BRACE && firstChar != pgwire.CHAR_CODE_LEFT_PAREN) {
-            // Fast path - definitely not a sub-structure.
-            return null;
-          }
-
           const top = stateStack[stateStack.length - 1];
           if (top.type == 'array' && firstChar == pgwire.CHAR_CODE_LEFT_BRACE) {
             // Postgres arrays are natively multidimensional - so if we're in an array, we can always parse sub-arrays
@@ -242,16 +236,7 @@ export class CustomTypeRegistry {
             return this.delimitersFor(top);
           }
 
-          const current = this.lookupType(resolveCurrentStructureTypeId());
-          const structure = this.resolveStructure(current);
-          if (structure != null) {
-            const [nestedType, delimiters] = structure;
-            if (delimiters.openingCharCode == firstChar) {
-              pendingNestedStructure = nestedType;
-              return delimiters;
-            }
-          }
-
+          // If we're in a compound type, nested compound values or arrays are encoded as strings.
           return null;
         }
       }
@@ -275,17 +260,9 @@ export class CustomTypeRegistry {
 
   private delimitersFor(type: ArrayType | CompositeType): pgwire.Delimiters {
     if (type.type == 'array') {
-      return {
-        openingCharCode: pgwire.CHAR_CODE_LEFT_BRACE,
-        closingCharCode: pgwire.CHAR_CODE_RIGHT_BRACE,
-        delimiterCharCode: type.separatorCharCode
-      };
+      return pgwire.arrayDelimiters(type.separatorCharCode);
     } else {
-      return {
-        openingCharCode: pgwire.CHAR_CODE_LEFT_PAREN,
-        closingCharCode: pgwire.CHAR_CODE_RIGHT_PAREN,
-        delimiterCharCode: pgwire.CHAR_CODE_COMMA
-      };
+      return pgwire.COMPOSITE_DELIMITERS;
     }
   }
 
