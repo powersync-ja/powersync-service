@@ -31,7 +31,7 @@ import {
 } from '@powersync/service-sync-rules';
 
 import { PgManager } from './PgManager.js';
-import { getPgOutputRelation, getRelId } from './PgRelation.js';
+import { getPgOutputRelation, getRelId, referencedColumnTypeIds } from './PgRelation.js';
 import { checkSourceConfiguration, checkTableRls, getReplicationIdentityColumns } from './replication-utils.js';
 import { ReplicationMetric } from '@powersync/service-types';
 import {
@@ -188,28 +188,30 @@ export class WalStream {
 
     let tableRows: any[];
     const prefix = tablePattern.isWildcard ? tablePattern.tablePrefix : undefined;
-    if (tablePattern.isWildcard) {
-      const result = await db.query({
-        statement: `SELECT c.oid AS relid, c.relname AS table_name
+
+    {
+      let query = `
+      SELECT
+        c.oid AS relid,
+        c.relname AS table_name,
+        (SELECT 
+          json_agg(DISTINCT a.atttypid)
+          FROM pg_attribute a
+          WHERE a.attnum > 0 AND NOT a.attisdropped AND a.attrelid = c.oid) 
+        AS column_types
       FROM pg_class c
       JOIN pg_namespace n ON n.oid = c.relnamespace
       WHERE n.nspname = $1
-      AND c.relkind = 'r'
-      AND c.relname LIKE $2`,
-        params: [
-          { type: 'varchar', value: schema },
-          { type: 'varchar', value: tablePattern.tablePattern }
-        ]
-      });
-      tableRows = pgwire.pgwireRows(result);
-    } else {
+      AND c.relkind = 'r'`;
+
+      if (tablePattern.isWildcard) {
+        query += ' AND c.relname LIKE $2';
+      } else {
+        query += ' AND c.relname = $2';
+      }
+
       const result = await db.query({
-        statement: `SELECT c.oid AS relid, c.relname AS table_name
-      FROM pg_class c
-      JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE n.nspname = $1
-      AND c.relkind = 'r'
-      AND c.relname = $2`,
+        statement: query,
         params: [
           { type: 'varchar', value: schema },
           { type: 'varchar', value: tablePattern.tablePattern }
@@ -218,6 +220,7 @@ export class WalStream {
 
       tableRows = pgwire.pgwireRows(result);
     }
+
     let result: storage.SourceTable[] = [];
 
     for (let row of tableRows) {
@@ -257,16 +260,18 @@ export class WalStream {
 
       const cresult = await getReplicationIdentityColumns(db, relid);
 
-      const table = await this.handleRelation(
+      const columnTypes = (JSON.parse(row.column_types) as string[]).map((e) => Number(e));
+      const table = await this.handleRelation({
         batch,
-        {
+        descriptor: {
           name,
           schema,
           objectId: relid,
           replicaIdColumns: cresult.replicationColumns
         } as SourceEntityDescriptor,
-        false
-      );
+        snapshot: false,
+        referencedTypeIds: columnTypes
+      });
 
       result.push(table);
     }
@@ -682,7 +687,14 @@ WHERE  oid = $1::regclass`,
     }
   }
 
-  async handleRelation(batch: storage.BucketStorageBatch, descriptor: SourceEntityDescriptor, snapshot: boolean) {
+  async handleRelation(options: {
+    batch: storage.BucketStorageBatch;
+    descriptor: SourceEntityDescriptor;
+    snapshot: boolean;
+    referencedTypeIds: number[];
+  }) {
+    const { batch, descriptor, snapshot, referencedTypeIds } = options;
+
     if (!descriptor.objectId && typeof descriptor.objectId != 'number') {
       throw new ReplicationAssertionError(`objectId expected, got ${typeof descriptor.objectId}`);
     }
@@ -707,6 +719,9 @@ WHERE  oid = $1::regclass`,
     if (shouldSnapshot) {
       // Truncate this table, in case a previous snapshot was interrupted.
       await batch.truncate([result.table]);
+
+      // Ensure we have a description for custom types referenced in the table.
+      await this.connections.types.fetchTypes(referencedTypeIds);
 
       // Start the snapshot inside a transaction.
       // We use a dedicated connection for this.
@@ -954,7 +969,12 @@ WHERE  oid = $1::regclass`,
 
           for (const msg of messages) {
             if (msg.tag == 'relation') {
-              await this.handleRelation(batch, getPgOutputRelation(msg), true);
+              await this.handleRelation({
+                batch,
+                descriptor: getPgOutputRelation(msg),
+                snapshot: true,
+                referencedTypeIds: referencedColumnTypeIds(msg)
+              });
             } else if (msg.tag == 'begin') {
               // This may span multiple transactions in the same chunk, or even across chunks.
               skipKeepalive = true;

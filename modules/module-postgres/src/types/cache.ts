@@ -10,7 +10,7 @@ export class PostgresTypeCache {
   }
 
   public async fetchTypes(oids: number[]) {
-    let pending = oids.filter((id) => !(id in Object.values(pgwire.PgTypeOid)));
+    let pending = oids.filter((id) => !this.registry.knows(id));
     // For details on columns, see https://www.postgresql.org/docs/current/catalog-pg-type.html
     const statement = `
 SELECT oid, t.typtype,
