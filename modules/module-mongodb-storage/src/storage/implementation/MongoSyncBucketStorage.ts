@@ -537,7 +537,7 @@ export class MongoSyncBucketStorage
             }
           }
         ],
-        { session: undefined, readConcern: 'snapshot', maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS }
+        { session: undefined, readConcern: 'snapshot', maxTimeMS: lib_mongo.db.MONGO_CHECKSUM_TIMEOUT_MS }
       )
       .toArray()
       .catch((e) => {
