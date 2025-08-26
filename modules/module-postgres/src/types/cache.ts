@@ -2,6 +2,9 @@ import { DatabaseInputRow, SqliteInputRow, toSyncRulesRow } from '@powersync/ser
 import * as pgwire from '@powersync/service-jpgwire';
 import { CustomTypeRegistry } from './registry.js';
 
+/**
+ * A cache of custom types for which information can be crawled from the source database.
+ */
 export class PostgresTypeCache {
   readonly registry: CustomTypeRegistry;
 
@@ -9,6 +12,12 @@ export class PostgresTypeCache {
     this.registry = new CustomTypeRegistry();
   }
 
+  /**
+   * Fetches information about indicated types.
+   *
+   * If a type references another custom type (e.g. because it's a composite type with a custom field), these are
+   * automatically crawled as well.
+   */
   public async fetchTypes(oids: number[]) {
     let pending = oids.filter((id) => !this.registry.knows(id));
     // For details on columns, see https://www.postgresql.org/docs/current/catalog-pg-type.html
@@ -30,6 +39,7 @@ WHERE t.oid = ANY($1)
 `;
 
     while (pending.length != 0) {
+      // 1016: int8 array
       const query = await this.pool.query({ statement, params: [{ type: 1016, value: pending }] });
       const stillPending: number[] = [];
 

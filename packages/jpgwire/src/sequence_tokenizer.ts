@@ -8,7 +8,7 @@ export interface SequenceListener {
    * Invoked whenever the tokenizer has finished parsing a value that isn't a nested structure.
    *
    * @param value the raw value, with escape characters related to the outer structure being removed. `null` for the
-   * literal text `NULL`.
+   * literal text {@link Delimiters.nullLiteral}.
    */
   onValue: (value: string | null) => void;
   /**
