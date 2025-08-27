@@ -32,6 +32,8 @@ SELECT oid, t.typtype,
                 FROM pg_attribute a
                 WHERE a.attrelid = t.typrelid)
         )
+        WHEN 'r' THEN json_build_object('inner', (SELECT rngsubtype FROM pg_range WHERE rngtypid = t.oid))
+        WHEN 'm' THEN json_build_object('inner', (SELECT rngsubtype FROM pg_range WHERE rngmultitypid = t.oid))
         ELSE NULL
     END AS desc
 FROM pg_type t
@@ -59,9 +61,11 @@ WHERE t.oid = ANY($1)
 
             if (!this.registry.knows(oid)) {
               // This type is an array of another custom type.
+              const inner = Number(element_type);
+              requireType(inner);
               this.registry.set(oid, {
                 type: 'array',
-                innerId: Number(element_type),
+                innerId: inner,
                 separatorCharCode: (delim as string).charCodeAt(0),
                 sqliteType: () => 'text' // Since it's JSON
               });
@@ -89,6 +93,15 @@ WHERE t.oid = ANY($1)
             this.registry.setDomainType(oid, inner);
             requireType(inner);
             break;
+          case 'r':
+          case 'm': {
+            const inner = Number(desc.inner);
+            this.registry.set(oid, {
+              type: row.typtype == 'r' ? 'range' : 'multirange',
+              innerId: inner,
+              sqliteType: () => 'text' // Since it's JSON
+            });
+          }
         }
       }
 
@@ -110,7 +123,6 @@ JOIN pg_namespace tn ON tn.oid = t.typnamespace
 WHERE a.attnum > 0
   AND NOT a.attisdropped
   AND cn.nspname = $1
-  AND tn.nspname NOT IN ('pg_catalog', 'information_schema');
     `;
 
     const query = await this.pool.query({ statement: sql, params: [{ type: 'varchar', value: schema }] });

@@ -3,16 +3,7 @@
 import { JsonContainer } from '@powersync/service-jsonbig';
 import { CustomSqliteValue, TimeValue, type DatabaseInputValue } from '@powersync/service-sync-rules';
 import { dateToSqlite, lsnMakeComparable, timestampToSqlite, timestamptzToSqlite } from './util.js';
-import {
-  arrayDelimiters,
-  CHAR_CODE_COMMA,
-  CHAR_CODE_LEFT_BRACE,
-  CHAR_CODE_RIGHT_BRACE,
-  decodeArray,
-  decodeSequence,
-  Delimiters,
-  SequenceListener
-} from './sequence_tokenizer.js';
+import { StructureParser } from './structure_parser.js';
 
 export enum PgTypeOid {
   TEXT = 25,
@@ -165,10 +156,7 @@ export class PgType {
 
   static _decodeArray(text: string, elemTypeOid: number): DatabaseInputValue[] {
     text = text.replace(/^\[.+=/, ''); // skip dimensions
-    return decodeArray({
-      source: text,
-      decodeElement: (raw) => PgType.decode(raw, elemTypeOid)
-    });
+    return new StructureParser(text).parseArray((raw) => (raw == null ? null : PgType.decode(raw, elemTypeOid)));
   }
 
   static _decodeBytea(text: string): Uint8Array {

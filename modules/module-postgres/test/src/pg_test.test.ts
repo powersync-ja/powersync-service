@@ -478,13 +478,16 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
       await db.query(`CREATE DOMAIN rating_value AS FLOAT CHECK (VALUE BETWEEN 0 AND 5);`);
       await db.query(`CREATE TYPE composite AS (foo rating_value[], bar TEXT);`);
       await db.query(`CREATE TYPE nested_composite AS (a BOOLEAN, b composite);`);
+      await db.query(`CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy')`);
 
       await db.query(`CREATE TABLE test_custom(
         id serial primary key,
         rating rating_value,
         composite composite,
         nested_composite nested_composite,
-        boxes box[]
+        boxes box[],
+        mood mood,
+        ranges int4multirange[]
       );`);
 
       const slotName = 'test_slot';
@@ -501,12 +504,14 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
 
       await db.query(`
         INSERT INTO test_custom
-          (rating, composite, nested_composite, boxes)
+          (rating, composite, nested_composite, boxes, mood, ranges)
         VALUES (
           1,
           (ARRAY[2,3], 'bar'),
           (TRUE, (ARRAY[2,3], 'bar')),
-          ARRAY[box(point '(1,2)', point '(3,4)'), box(point '(5, 6)', point '(7,8)')]
+          ARRAY[box(point '(1,2)', point '(3,4)'), box(point '(5, 6)', point '(7,8)')],
+          'happy',
+          ARRAY[int4multirange(int4range(2, 4), int4range(5, 7, '(]'))]::int4multirange[]
         );
       `);
 
@@ -527,7 +532,9 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
         rating: '1',
         composite: '("{2,3}",bar)',
         nested_composite: '(t,"(""{2,3}"",bar)")',
-        boxes: '["(3","4)","(1","2);(7","8)","(5","6)"]'
+        boxes: '["(3","4)","(1","2);(7","8)","(5","6)"]',
+        mood: 'happy',
+        ranges: '{"{[2,4),[6,8)}"}'
       });
 
       const newFormat = applyRowContext(transformed, new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS));
@@ -535,7 +542,14 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
         rating: 1,
         composite: '{"foo":[2.0,3.0],"bar":"bar"}',
         nested_composite: '{"a":1,"b":{"foo":[2.0,3.0],"bar":"bar"}}',
-        boxes: JSON.stringify(['(3,4),(1,2)', '(7,8),(5,6)'])
+        boxes: JSON.stringify(['(3,4),(1,2)', '(7,8),(5,6)']),
+        mood: 'happy',
+        ranges: JSON.stringify([
+          [
+            { lower: 2, upper: 4, lower_exclusive: 0, upper_exclusive: 1 },
+            { lower: 6, upper: 8, lower_exclusive: 0, upper_exclusive: 1 }
+          ]
+        ])
       });
     } finally {
       await db.end();
