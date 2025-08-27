@@ -12,7 +12,12 @@ describe('Stream Route', () => {
     it('handles missing sync rules', async () => {
       const context: Context = {
         logger: logger,
-        service_context: mockServiceContext(null)
+        service_context: mockServiceContext(null),
+        token_payload: {
+          sub: '',
+          exp: 0,
+          iat: 0
+        }
       };
 
       const request: BasicRouterRequest = {
@@ -21,9 +26,13 @@ describe('Stream Route', () => {
         protocol: 'http'
       };
 
-      const error = (await (syncStreamed.handler({ context, params: {}, request }) as Promise<RouterResponse>).catch(
-        (e) => e
-      )) as ServiceError;
+      const error = (await (
+        syncStreamed.handler({
+          context,
+          params: {},
+          request
+        }) as Promise<RouterResponse>
+      ).catch((e) => e)) as ServiceError;
       expect(error.errorData.status).toEqual(500);
       expect(error.errorData.code).toEqual('PSYNC_S2302');
     });
