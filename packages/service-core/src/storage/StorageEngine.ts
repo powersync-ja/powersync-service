@@ -1,7 +1,7 @@
 import { BaseObserver, logger, ServiceError } from '@powersync/lib-services-framework';
 import { ResolvedPowerSyncConfig } from '../util/util-index.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
-import { ActiveStorage, BucketStorageProvider } from './StorageProvider.js';
+import { ActiveStorage, StorageProvider } from './StorageProvider.js';
 
 export type StorageEngineOptions = {
   configuration: ResolvedPowerSyncConfig;
@@ -14,7 +14,7 @@ export interface StorageEngineListener {
 
 export class StorageEngine extends BaseObserver<StorageEngineListener> {
   // TODO: This will need to revisited when we actually support multiple storage providers.
-  private storageProviders: Map<string, BucketStorageProvider> = new Map();
+  private storageProviders: Map<string, StorageProvider> = new Map();
   private currentActiveStorage: ActiveStorage | null = null;
 
   constructor(private options: StorageEngineOptions) {
@@ -37,7 +37,7 @@ export class StorageEngine extends BaseObserver<StorageEngineListener> {
    * Register a provider which generates a {@link BucketStorageFactory}
    * given the matching config specified in the loaded {@link ResolvedPowerSyncConfig}
    */
-  registerProvider(provider: BucketStorageProvider) {
+  registerProvider(provider: StorageProvider) {
     this.storageProviders.set(provider.type, provider);
   }
 

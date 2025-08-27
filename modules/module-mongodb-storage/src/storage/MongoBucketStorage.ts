@@ -12,7 +12,7 @@ import { PowerSyncMongo } from './implementation/db.js';
 import { SyncRuleDocument } from './implementation/models.js';
 import { MongoPersistedSyncRulesContent } from './implementation/MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage } from './implementation/MongoSyncBucketStorage.js';
-import { generateSlotName } from './implementation/util.js';
+import { generateSlotName } from '../utils/util.js';
 
 export class MongoBucketStorage
   extends BaseObserver<storage.BucketStorageFactoryListener>

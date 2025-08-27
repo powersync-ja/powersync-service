@@ -32,7 +32,7 @@ import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey, Sour
 import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
-import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from './util.js';
+import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../utils/util.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 
 export class MongoSyncBucketStorage
