@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { SqlSyncRules, DateTimeValue, toSyncRulesValue } from '../../src/index.js';
 
-import { ASSETS, normalizeQuerierOptions, PARSE_OPTIONS } from './util.js';
+import { ASSETS, identityBucketTransformer, normalizeQuerierOptions, PARSE_OPTIONS } from './util.js';
 
 describe('compatibility options', () => {
   describe('timestamps', () => {
@@ -196,6 +196,58 @@ config:
     ).toStrictEqual([
       { bucket: '1#stream|0[]', data: { description: '2025-08-19T09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
     ]);
+  });
+
+  describe('json handling', () => {
+    const description = JSON.stringify({ foo: { bar: 'baz' } });
+
+    test('old behavior', () => {
+      const rules = SqlSyncRules.fromYaml(
+        `
+bucket_definitions:
+  a:
+    data:
+      - SELECT id, description ->> 'foo.bar' AS "desc" FROM assets
+    `,
+        PARSE_OPTIONS
+      );
+
+      expect(
+        rules.evaluateRow({
+          sourceTable: ASSETS,
+          record: {
+            id: 'id',
+            description: description
+          },
+          bucketIdTransformer: identityBucketTransformer
+        })
+      ).toStrictEqual([{ bucket: 'a[]', data: { desc: 'baz', id: 'id' }, id: 'id', table: 'assets' }]);
+    });
+
+    test('new behavior', () => {
+      const rules = SqlSyncRules.fromYaml(
+        `
+bucket_definitions:
+  a:
+    data:
+      - SELECT id, description ->> 'foo.bar' AS "desc" FROM assets
+config:
+  fixed_json_extract: true
+    `,
+        PARSE_OPTIONS
+      );
+
+      expect(
+        rules.evaluateRow({
+          sourceTable: ASSETS,
+          record: {
+            id: 'id',
+            description: description
+          },
+          bucketIdTransformer: identityBucketTransformer
+        })
+      ).toStrictEqual([{ bucket: 'a[]', data: { desc: null, id: 'id' }, id: 'id', table: 'assets' }]);
+    });
   });
 
   test('warning for unknown option', () => {
