@@ -399,7 +399,7 @@ export class SqlSyncRules implements SyncRules {
       : {
           ...options,
           // Disable bucket id transformer when the option is unused.
-          transformBucketIds: null
+          bucketIdTransformer: (id: string) => id
         };
 
     let rawResults: EvaluationResult[] = [];
@@ -439,13 +439,24 @@ export class SqlSyncRules implements SyncRules {
   }
 
   getBucketParameterQuerier(options: GetQuerierOptions): GetBucketParameterQuerierResult {
+    const resolvedOptions = this.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)
+      ? options
+      : {
+          ...options,
+          // Disable bucket id transformer when the option is unused.
+          bucketIdTransformer: (id: string) => id
+        };
+
     const queriers: BucketParameterQuerier[] = [];
     const errors: QuerierError[] = [];
     const pending = { queriers, errors };
 
     for (const source of this.bucketSources) {
-      if ((source.subscribedToByDefault && options.hasDefaultStreams) || source.name in options.streams) {
-        source.pushBucketParameterQueriers(pending, options);
+      if (
+        (source.subscribedToByDefault && resolvedOptions.hasDefaultStreams) ||
+        source.name in resolvedOptions.streams
+      ) {
+        source.pushBucketParameterQueriers(pending, resolvedOptions);
       }
     }
 

@@ -177,9 +177,9 @@ export class BaseSqlDataQuery {
     }
   }
 
-  evaluateRowWithOptions(options: EvaluateRowOptions): EvaluationResult[] {
+  evaluateRowWithOptions(options: Omit<EvaluateRowOptions, 'bucketIdTransformer'>): EvaluationResult[] {
     try {
-      const { table, row, bucketIds, bucketIdTransformer } = options;
+      const { table, row, bucketIds } = options;
 
       const tables = { [this.table]: this.addSpecialParameters(table, row) };
       const resolvedBucketIds = bucketIds(tables);
@@ -199,7 +199,7 @@ export class BaseSqlDataQuery {
 
       return resolvedBucketIds.map((bucketId) => {
         return {
-          bucket: bucketIdTransformer ? bucketIdTransformer(bucketId) : bucketId,
+          bucket: bucketId,
           table: outputTable,
           id: id,
           data

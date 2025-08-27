@@ -298,7 +298,7 @@ export interface InputParameter {
 export type BucketIdTransformer = (regularId: string) => string;
 
 export interface EvaluateRowOptions extends TableRow<SqliteInputRow> {
-  bucketIdTransformer: BucketIdTransformer | null;
+  bucketIdTransformer: BucketIdTransformer;
 }
 
 /**
