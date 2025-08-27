@@ -181,11 +181,10 @@ export class SyncStream implements BucketSource {
     return this.data.evaluateRowWithOptions({
       table: options.sourceTable,
       row: applyRowContext(options.record, this.compatibility),
-      bucketIdTransformer: options.bucketIdTransformer,
       bucketIds() {
         const bucketIds: string[] = [];
         for (const variant of stream.variants) {
-          bucketIds.push(...variant.bucketIdsForRow(stream.name, row));
+          bucketIds.push(...variant.bucketIdsForRow(stream.name, row, options.bucketIdTransformer));
         }
 
         return bucketIds;

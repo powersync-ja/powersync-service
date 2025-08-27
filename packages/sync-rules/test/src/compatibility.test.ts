@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { SqlSyncRules, DateTimeValue, toSyncRulesValue } from '../../src/index.js';
 
-import { ASSETS, PARSE_OPTIONS } from './util.js';
+import { ASSETS, normalizeQuerierOptions, PARSE_OPTIONS } from './util.js';
 
 describe('compatibility options', () => {
   describe('timestamps', () => {
@@ -66,6 +66,7 @@ config:
 streams:
   stream:
     query: SELECT id, description FROM assets
+    auto_subscribe: true
 
 config:
   edition: 2
@@ -83,7 +84,20 @@ config:
           }
         })
       ).toStrictEqual([
-        { bucket: 'stream|0[]', data: { description: '2025-08-19T09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
+        { bucket: '1#stream|0[]', data: { description: '2025-08-19T09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
+      ]);
+
+      expect(
+        rules.getBucketParameterQuerier(
+          normalizeQuerierOptions({}, {}, {}, SqlSyncRules.versionedBucketIdTransformer('1'))
+        ).querier.staticBuckets
+      ).toStrictEqual([
+        {
+          bucket: '1#stream|0[]',
+          definition: 'stream',
+          inclusion_reasons: ['default'],
+          priority: 3
+        }
       ]);
     });
 
@@ -93,10 +107,12 @@ config:
 streams:
   stream:
     query: SELECT id, description FROM assets
+    auto_subscribe: true
 
 config:
   edition: 2
   timestamps_iso8601: false
+  versioned_bucket_ids: false
     `,
         PARSE_OPTIONS
       );
@@ -113,6 +129,18 @@ config:
       ).toStrictEqual([
         { bucket: 'stream|0[]', data: { description: '2025-08-19 09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
       ]);
+      expect(
+        rules.getBucketParameterQuerier(
+          normalizeQuerierOptions({}, {}, {}, SqlSyncRules.versionedBucketIdTransformer('1'))
+        ).querier.staticBuckets
+      ).toStrictEqual([
+        {
+          bucket: 'stream|0[]',
+          definition: 'stream',
+          inclusion_reasons: ['default'],
+          priority: 3
+        }
+      ]);
     });
   });
 
@@ -124,8 +152,9 @@ bucket_definitions:
     data:
       - SELECT id, description FROM assets
 
-fixed_quirks:
-  - versioned_bucket_ids
+config:
+  edition: 1
+  versioned_bucket_ids: true
     `,
       PARSE_OPTIONS
     );
@@ -148,6 +177,9 @@ fixed_quirks:
 streams:
   stream:
     query: SELECT id, description FROM assets
+
+config:
+  edition: 2
     `,
       PARSE_OPTIONS
     );
@@ -205,7 +237,7 @@ config:
       expect(
         rules.evaluateRow({
           sourceTable: ASSETS,
-          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(''),
+          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1'),
           record: {
             id: 'id',
             description: data
@@ -213,7 +245,7 @@ config:
         })
       ).toStrictEqual([
         {
-          bucket: 'mybucket[]',
+          bucket: withFixedQuirk ? '1#mybucket[]' : 'mybucket[]',
           data: {
             description: withFixedQuirk
               ? '["static value","2025-08-19T09:21:00Z"]'
@@ -222,6 +254,19 @@ config:
           },
           id: 'id',
           table: 'assets'
+        }
+      ]);
+
+      expect(
+        rules.getBucketParameterQuerier(
+          normalizeQuerierOptions({}, {}, {}, SqlSyncRules.versionedBucketIdTransformer('1'))
+        ).querier.staticBuckets
+      ).toStrictEqual([
+        {
+          bucket: withFixedQuirk ? '1#mybucket[]' : 'mybucket[]',
+          definition: 'mybucket',
+          inclusion_reasons: ['default'],
+          priority: 3
         }
       ]);
     }

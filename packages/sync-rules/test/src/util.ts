@@ -77,6 +77,10 @@ export function normalizeQuerierOptions(
     globalParameters,
     hasDefaultStreams: true,
     streams: streams ?? {},
-    bucketIdTransformer: bucketIdTransformer ?? ((id) => id)
+    bucketIdTransformer: bucketIdTransformer ?? identityBucketTransformer
   };
+}
+
+export function identityBucketTransformer(id: string) {
+  return id;
 }

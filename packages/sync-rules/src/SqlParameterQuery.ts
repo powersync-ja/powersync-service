@@ -15,6 +15,7 @@ import { TablePattern } from './TablePattern.js';
 import { TableQuerySchema } from './TableQuerySchema.js';
 import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
 import {
+  BucketIdTransformer,
   EvaluatedParameters,
   EvaluatedParametersResult,
   InputParameter,
@@ -348,7 +349,11 @@ export class SqlParameterQuery {
    *
    * Internal function, but exposed for tests.
    */
-  resolveBucketDescriptions(bucketParameters: SqliteJsonRow[], parameters: RequestParameters): BucketDescription[] {
+  resolveBucketDescriptions(
+    bucketParameters: SqliteJsonRow[],
+    parameters: RequestParameters,
+    transformer: BucketIdTransformer
+  ): BucketDescription[] {
     // Filters have already been applied and gotten us the set of bucketParameters - don't attempt to filter again.
     // We _do_ need to evaluate the output columns here, using a combination of precomputed bucketParameters,
     // and values from token parameters.
@@ -372,7 +377,7 @@ export class SqlParameterQuery {
         }
 
         return {
-          bucket: getBucketId(this.descriptorName, this.bucketParameters, result),
+          bucket: getBucketId(this.descriptorName, this.bucketParameters, result, transformer),
           priority: this.priority
         };
       })
@@ -457,7 +462,8 @@ export class SqlParameterQuery {
 
   getBucketParameterQuerier(
     requestParameters: RequestParameters,
-    reasons: BucketInclusionReason[]
+    reasons: BucketInclusionReason[],
+    transformer: BucketIdTransformer
   ): BucketParameterQuerier {
     const lookups = this.getLookups(requestParameters);
     if (lookups.length == 0) {
@@ -477,7 +483,7 @@ export class SqlParameterQuery {
       parameterQueryLookups: lookups,
       queryDynamicBucketDescriptions: async (source: ParameterLookupSource) => {
         const bucketParameters = await source.getParameterSets(lookups);
-        return this.resolveBucketDescriptions(bucketParameters, requestParameters).map((bucket) => ({
+        return this.resolveBucketDescriptions(bucketParameters, requestParameters, transformer).map((bucket) => ({
           ...bucket,
           definition: this.descriptorName,
           inclusion_reasons: reasons

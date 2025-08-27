@@ -1,14 +1,31 @@
 import { describe, expect, test } from 'vitest';
 import { ExpressionType, SqlDataQuery, SqlSyncRules } from '../../src/index.js';
-import { ASSETS, BASIC_SCHEMA, PARSE_OPTIONS } from './util.js';
+import { ASSETS, BASIC_SCHEMA, identityBucketTransformer, PARSE_OPTIONS } from './util.js';
 
 describe('data queries', () => {
+  test('uses bucket id transformer', function () {
+    const sql = 'SELECT * FROM assets WHERE assets.org_id = bucket.org_id';
+    const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql, PARSE_OPTIONS);
+    expect(query.errors).toEqual([]);
+
+    expect(
+      query.evaluateRow(ASSETS, { id: 'asset1', org_id: 'org1' }, SqlSyncRules.versionedBucketIdTransformer('1'))
+    ).toEqual([
+      {
+        bucket: '1#mybucket["org1"]',
+        table: 'assets',
+        id: 'asset1',
+        data: { id: 'asset1', org_id: 'org1' }
+      }
+    ]);
+  });
+
   test('bucket parameters = query', function () {
     const sql = 'SELECT * FROM assets WHERE assets.org_id = bucket.org_id';
     const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql, PARSE_OPTIONS);
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: 'org1' }, null)).toEqual([
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: 'org1' }, identityBucketTransformer)).toEqual([
       {
         bucket: 'mybucket["org1"]',
         table: 'assets',
@@ -17,7 +34,7 @@ describe('data queries', () => {
       }
     ]);
 
-    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: null }, null)).toEqual([]);
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: null }, identityBucketTransformer)).toEqual([]);
   });
 
   test('bucket parameters IN query', function () {
@@ -26,7 +43,11 @@ describe('data queries', () => {
     expect(query.errors).toEqual([]);
 
     expect(
-      query.evaluateRow(ASSETS, { id: 'asset1', categories: JSON.stringify(['red', 'green']) }, null)
+      query.evaluateRow(
+        ASSETS,
+        { id: 'asset1', categories: JSON.stringify(['red', 'green']) },
+        identityBucketTransformer
+      )
     ).toMatchObject([
       {
         bucket: 'mybucket["red"]',
@@ -40,7 +61,7 @@ describe('data queries', () => {
       }
     ]);
 
-    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: null }, null)).toEqual([]);
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: null }, identityBucketTransformer)).toEqual([]);
   });
 
   test('static IN data query', function () {
@@ -49,7 +70,11 @@ describe('data queries', () => {
     expect(query.errors).toEqual([]);
 
     expect(
-      query.evaluateRow(ASSETS, { id: 'asset1', categories: JSON.stringify(['red', 'green']) }, null)
+      query.evaluateRow(
+        ASSETS,
+        { id: 'asset1', categories: JSON.stringify(['red', 'green']) },
+        identityBucketTransformer
+      )
     ).toMatchObject([
       {
         bucket: 'mybucket[]',
@@ -58,7 +83,13 @@ describe('data queries', () => {
       }
     ]);
 
-    expect(query.evaluateRow(ASSETS, { id: 'asset1', categories: JSON.stringify(['red', 'blue']) }, null)).toEqual([]);
+    expect(
+      query.evaluateRow(
+        ASSETS,
+        { id: 'asset1', categories: JSON.stringify(['red', 'blue']) },
+        identityBucketTransformer
+      )
+    ).toEqual([]);
   });
 
   test('data IN static query', function () {
@@ -66,7 +97,7 @@ describe('data queries', () => {
     const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS);
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateRow(ASSETS, { id: 'asset1', condition: 'good' }, null)).toMatchObject([
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', condition: 'good' }, identityBucketTransformer)).toMatchObject([
       {
         bucket: 'mybucket[]',
         table: 'assets',
@@ -74,7 +105,7 @@ describe('data queries', () => {
       }
     ]);
 
-    expect(query.evaluateRow(ASSETS, { id: 'asset1', condition: 'bad' }, null)).toEqual([]);
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', condition: 'bad' }, identityBucketTransformer)).toEqual([]);
   });
 
   test('table alias', function () {
@@ -82,7 +113,7 @@ describe('data queries', () => {
     const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql, PARSE_OPTIONS);
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: 'org1' }, null)).toEqual([
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: 'org1' }, identityBucketTransformer)).toEqual([
       {
         bucket: 'mybucket["org1"]',
         table: 'others',

@@ -68,8 +68,8 @@ export class StreamVariant {
   /**
    * Given a row in the table this stream selects from, returns all ids of buckets to which that row belongs to.
    */
-  bucketIdsForRow(streamName: string, options: TableRow): string[] {
-    return this.instantiationsForRow(options).map((values) => this.buildBucketId(streamName, values));
+  bucketIdsForRow(streamName: string, options: TableRow, transformer: BucketIdTransformer): string[] {
+    return this.instantiationsForRow(options).map((values) => this.buildBucketId(streamName, values, transformer));
   }
 
   /**
@@ -305,14 +305,15 @@ export class StreamVariant {
    *
    * @param streamName The name of the stream, included in the bucket id
    * @param instantiation An instantiation for all parameters in this variant.
+   * @param transformer A transformer adding version information to the inner id.
    * @returns The generated bucket id
    */
-  private buildBucketId(streamName: string, instantiation: SqliteJsonValue[]) {
+  private buildBucketId(streamName: string, instantiation: SqliteJsonValue[], transformer: BucketIdTransformer) {
     if (instantiation.length != this.parameters.length) {
       throw Error('Internal error, instantiation length mismatch');
     }
 
-    return `${streamName}|${this.id}${JSONBucketNameSerialize.stringify(instantiation)}`;
+    return transformer(`${streamName}|${this.id}${JSONBucketNameSerialize.stringify(instantiation)}`);
   }
 
   private resolveBucket(
@@ -324,7 +325,7 @@ export class StreamVariant {
     return {
       definition: stream.name,
       inclusion_reasons: [reason],
-      bucket: bucketIdTransformer(this.buildBucketId(stream.name, instantiation)),
+      bucket: this.buildBucketId(stream.name, instantiation, bucketIdTransformer),
       priority: stream.priority
     };
   }

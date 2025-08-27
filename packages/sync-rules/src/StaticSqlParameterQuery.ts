@@ -3,7 +3,13 @@ import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY } from './Bu
 import { SqlRuleError } from './errors.js';
 import { SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, isParameterValueClause, sqliteBool } from './sql_support.js';
-import { ParameterValueClause, QueryParseOptions, RequestParameters, SqliteJsonValue } from './types.js';
+import {
+  BucketIdTransformer,
+  ParameterValueClause,
+  QueryParseOptions,
+  RequestParameters,
+  SqliteJsonValue
+} from './types.js';
 import { getBucketId, isJsonValue } from './utils.js';
 
 export interface StaticSqlParameterQueryOptions {
@@ -153,7 +159,7 @@ export class StaticSqlParameterQuery {
     this.errors = options.errors ?? [];
   }
 
-  getStaticBucketDescriptions(parameters: RequestParameters): BucketDescription[] {
+  getStaticBucketDescriptions(parameters: RequestParameters, transformer: BucketIdTransformer): BucketDescription[] {
     if (this.filter == null) {
       // Error in filter clause
       return [];
@@ -177,7 +183,7 @@ export class StaticSqlParameterQuery {
 
     return [
       {
-        bucket: getBucketId(this.descriptorName, this.bucketParameters, result),
+        bucket: getBucketId(this.descriptorName, this.bucketParameters, result, transformer),
         priority: this.priority
       }
     ];
