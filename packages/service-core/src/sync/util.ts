@@ -125,7 +125,7 @@ export async function* transformToBytesTracked(
       encoded = data;
     }
 
-    tracker.addDataSynced(encoded.length);
+    tracker.addPlaintextDataSynced(encoded.length);
     yield encoded;
   }
 }

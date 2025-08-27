@@ -13,6 +13,12 @@ export function createCoreAPIMetrics(engine: MetricsEngine): void {
   });
 
   engine.createCounter({
+    name: APIMetric.DATA_SENT_BYTES,
+    description: 'Size of data sent to clients, after compression if applicable',
+    unit: 'bytes'
+  });
+
+  engine.createCounter({
     name: APIMetric.OPERATIONS_SYNCED,
     description: 'Number of operations synced'
   });

@@ -1,7 +1,6 @@
-import { ErrorCode, errors, logger, router, schema } from '@powersync/lib-services-framework';
-import { RequestParameters } from '@powersync/service-sync-rules';
-import { Readable } from 'stream';
+import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
 import Negotiator from 'negotiator';
+import { Readable } from 'stream';
 
 import * as sync from '../../sync/sync-index.js';
 import * as util from '../../util/util-index.js';
@@ -10,6 +9,7 @@ import { authUser } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
 import { APIMetric } from '@powersync/service-types';
+import { maybeCompressResponseStream } from '../compression.js';
 
 export enum SyncRoutes {
   STREAM = '/sync/stream'
@@ -31,9 +31,10 @@ export const syncStreamed = routeDefinition({
     const userAgent = headers['x-user-agent'] ?? headers['user-agent'];
     const clientId = payload.params.client_id;
     const streamStart = Date.now();
+    const negotiator = new Negotiator(payload.request);
     // This falls back to JSON unless there's preference for the bson-stream in the Accept header.
     const useBson = payload.request.headers.accept
-      ? new Negotiator(payload.request).mediaType(supportedContentTypes) == concatenatedBsonContentType
+      ? negotiator.mediaType(supportedContentTypes) == concatenatedBsonContentType
       : false;
 
     logger.defaultMeta = {
@@ -81,10 +82,11 @@ export const syncStreamed = routeDefinition({
       });
 
       const byteContents = useBson ? sync.bsonLines(syncLines) : sync.ndjson(syncLines);
-      const stream = Readable.from(sync.transformToBytesTracked(byteContents, tracker), {
+      const plainStream = Readable.from(sync.transformToBytesTracked(byteContents, tracker), {
         objectMode: false,
         highWaterMark: 16 * 1024
       });
+      const { stream, encodingHeaders } = maybeCompressResponseStream(negotiator, plainStream, tracker);
 
       // Best effort guess on why the stream was closed.
       // We use the `??=` operator everywhere, so that we catch the first relevant
@@ -119,7 +121,8 @@ export const syncStreamed = routeDefinition({
       return new router.RouterResponse({
         status: 200,
         headers: {
-          'Content-Type': useBson ? concatenatedBsonContentType : ndJsonContentType
+          'Content-Type': useBson ? concatenatedBsonContentType : ndJsonContentType,
+          ...encodingHeaders
         },
         data: stream,
         afterSend: async (details) => {
