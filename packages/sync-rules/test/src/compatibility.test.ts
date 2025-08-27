@@ -232,7 +232,7 @@ bucket_definitions:
     data:
       - SELECT id, description ->> 'foo.bar' AS "desc" FROM assets
 config:
-  edition: 2
+  fixed_json_extract: true
     `,
         PARSE_OPTIONS
       );
