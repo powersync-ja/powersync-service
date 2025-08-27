@@ -1,0 +1,38 @@
+services:
+  mssql:
+    platform: linux/amd64
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    container_name: mssql
+    ports:
+      - "1433:1433"
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${SA_PASSWORD}"
+      MSSQL_PID: "Developer"
+      MSSQL_AGENT_ENABLED: "true"   # required for CDC capture/cleanup jobs
+    volumes:
+      - mssql-data:/var/opt/mssql
+    healthcheck:
+      test: [ "CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD}\" -Q \"SELECT 1;\" || exit 1" ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  mssql-setup:
+    platform: linux/amd64
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    container_name: mssql-setup
+    depends_on:
+      mssql:
+        condition: service_healthy
+    environment:
+      SA_PASSWORD: "${SA_PASSWORD}"
+      APP_DB: "${APP_DB:-appdb}"
+      APP_LOGIN: "${APP_LOGIN:-appuser}"
+      APP_PASSWORD: "${APP_PASSWORD:-P@ssw0rd!App}"
+    volumes:
+      - ./scripts:/scripts:ro
+    entrypoint: ["/bin/bash", "-lc", "/opt/mssql-tools18/bin/sqlcmd -C -S mssql,1433 -U sa -P \"$SA_PASSWORD\" -i /scripts/init.sql && echo '✅ MSSQL init done'"]
+
+volumes:
+  mssql-data:
