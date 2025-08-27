@@ -1,31 +1,11 @@
 import { OrderedSet } from '@js-sdsl/ordered-set';
 import { LRUCache } from 'lru-cache/min';
 import { BucketChecksum } from '../util/protocol-types.js';
-import { addBucketChecksums, ChecksumMap, InternalOpId } from '../util/utils.js';
+import { addBucketChecksums, ChecksumMap, InternalOpId, PartialChecksum } from '../util/utils.js';
 
 interface ChecksumFetchContext {
   fetch(bucket: string): Promise<BucketChecksum>;
   checkpoint: InternalOpId;
-}
-
-export interface PartialChecksum {
-  bucket: string;
-  /**
-   * 32-bit unsigned hash.
-   */
-  partialChecksum: number;
-
-  /**
-   * Count of operations - informational only.
-   */
-  partialCount: number;
-
-  /**
-   * True if the queried operations contains (starts with) a CLEAR
-   * operation, indicating that the partial checksum is the full
-   * checksum, and must not be added to a previously-cached checksum.
-   */
-  isFullChecksum: boolean;
 }
 
 export interface FetchPartialBucketChecksum {
@@ -34,7 +14,8 @@ export interface FetchPartialBucketChecksum {
   end: InternalOpId;
 }
 
-export type PartialChecksumMap = Map<string, PartialChecksum>;
+export type PartialOrFullChecksum = PartialChecksum | BucketChecksum;
+export type PartialChecksumMap = Map<string, PartialOrFullChecksum>;
 
 export type FetchChecksums = (batch: FetchPartialBucketChecksum[]) => Promise<PartialChecksumMap>;
 

@@ -7,8 +7,9 @@ import {
   ServiceAssertionError
 } from '@powersync/lib-services-framework';
 import {
-  addChecksums,
+  addPartialChecksums,
   BroadcastIterable,
+  BucketChecksum,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
   deserializeParameterLookup,
@@ -33,9 +34,9 @@ import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey, SourceTableDocument } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
+import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from './util.js';
-import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 
 export class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
@@ -514,7 +515,7 @@ export class MongoSyncBucketStorage
       }
     }
 
-    const preStates = new Map<string, storage.PartialChecksum & { opId: InternalOpId }>();
+    const preStates = new Map<string, { opId: InternalOpId; checksum: BucketChecksum }>();
 
     if (preFilters.length > 0) {
       // For un-cached bucket checksums, attempt to use the compacted state first.
@@ -526,11 +527,12 @@ export class MongoSyncBucketStorage
       for (let state of states) {
         const compactedState = state.compacted_state!;
         preStates.set(state._id.b, {
-          bucket: state._id.b,
-          partialCount: compactedState.count,
-          partialChecksum: Number(compactedState.checksum),
-          isFullChecksum: true,
-          opId: compactedState.op_id
+          opId: compactedState.op_id,
+          checksum: {
+            bucket: state._id.b,
+            checksum: Number(compactedState.checksum),
+            count: compactedState.count
+          }
         });
       }
     }
@@ -592,65 +594,41 @@ export class MongoSyncBucketStorage
         throw lib_mongo.mapQueryError(e, 'while reading checksums');
       });
 
-    const partialChecksums = new Map<string, storage.PartialChecksum>(
+    const partialChecksums = new Map<string, storage.PartialOrFullChecksum>(
       aggregate.map((doc) => {
         const partialChecksum = Number(BigInt(doc.checksum_total) & 0xffffffffn) & 0xffffffff;
         const bucket = doc._id;
         return [
           bucket,
-          {
-            bucket,
-            partialCount: doc.count,
-            partialChecksum,
-            isFullChecksum: doc.has_clear_op == 1
-          } satisfies storage.PartialChecksum
+          doc.has_clear_op == 1
+            ? ({
+                // full checksum - replaces any previous one
+                bucket,
+                checksum: partialChecksum,
+                count: doc.count
+              } satisfies BucketChecksum)
+            : ({
+                // partial checksum - is added to a previous one
+                bucket,
+                partialCount: doc.count,
+                partialChecksum
+              } satisfies PartialChecksum)
         ];
       })
     );
 
-    return new Map<string, storage.PartialChecksum>(
+    return new Map<string, storage.PartialOrFullChecksum>(
       batch.map((request) => {
         const bucket = request.bucket;
+        // Could be null if this is either (1) a partial request, or (2) no compacted checksum was available
         const preState = preStates.get(bucket);
+        // Could be null if we got no data
         const partialChecksum = partialChecksums.get(bucket);
-        const merged = mergeChecksums(bucket, preState, partialChecksum);
+        const merged = addPartialChecksums(bucket, preState?.checksum ?? null, partialChecksum ?? null);
 
         return [bucket, merged];
       })
     );
-
-    function mergeChecksums(
-      bucket: string,
-      preState: PartialChecksum | undefined,
-      partial: PartialChecksum | undefined
-    ): PartialChecksum {
-      if (preState != null && partial != null) {
-        if (partial.isFullChecksum) {
-          // Replaces preState
-          return partial;
-        }
-        // merge
-        return {
-          bucket,
-          partialChecksum: addChecksums(preState.partialChecksum, partial.partialChecksum),
-          partialCount: preState.partialCount + partial.partialCount,
-          isFullChecksum: true
-        };
-      } else if (preState != null) {
-        return preState;
-      } else if (partial != null) {
-        return partial;
-      } else {
-        // No data found (may still have a previously-cached checksum)
-        return {
-          bucket,
-          // Potentially just no data since the last checksum - don't replace it
-          isFullChecksum: false,
-          partialChecksum: 0,
-          partialCount: 0
-        };
-      }
-    }
   }
 
   async terminate(options?: storage.TerminateOptions) {

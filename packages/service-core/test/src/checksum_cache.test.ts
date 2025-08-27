@@ -1,5 +1,5 @@
-import { ChecksumCache, FetchChecksums, FetchPartialBucketChecksum, PartialChecksum } from '@/storage/ChecksumCache.js';
-import { addChecksums, InternalOpId } from '@/util/util-index.js';
+import { ChecksumCache, FetchChecksums, FetchPartialBucketChecksum } from '@/storage/ChecksumCache.js';
+import { addChecksums, BucketChecksum, InternalOpId, PartialChecksum } from '@/util/util-index.js';
 import * as crypto from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 
@@ -12,22 +12,20 @@ function testHash(bucket: string, checkpoint: InternalOpId) {
   return hash;
 }
 
-function testPartialHash(request: FetchPartialBucketChecksum): PartialChecksum {
+function testPartialHash(request: FetchPartialBucketChecksum): PartialChecksum | BucketChecksum {
   if (request.start) {
     const a = testHash(request.bucket, request.start);
     const b = testHash(request.bucket, request.end);
     return {
       bucket: request.bucket,
       partialCount: Number(request.end) - Number(request.start),
-      partialChecksum: addChecksums(b, -a),
-      isFullChecksum: false
+      partialChecksum: addChecksums(b, -a)
     };
   } else {
     return {
       bucket: request.bucket,
-      partialChecksum: testHash(request.bucket, request.end),
-      partialCount: Number(request.end),
-      isFullChecksum: true
+      checksum: testHash(request.bucket, request.end),
+      count: Number(request.end)
     };
   }
 }

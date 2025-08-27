@@ -1,6 +1,7 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import {
   BroadcastIterable,
+  BucketChecksum,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
   GetCheckpointChangesOptions,
@@ -8,6 +9,7 @@ import {
   internalToExternalOpId,
   LastValueSink,
   maxLsn,
+  PartialChecksum,
   ReplicationCheckpoint,
   storage,
   utils,
@@ -696,16 +698,24 @@ export class PostgresSyncRulesStorage
         b.bucket_name;
     `.rows<{ bucket: string; checksum_total: bigint; total: bigint; has_clear_op: number }>();
 
-    return new Map<string, storage.PartialChecksum>(
+    return new Map<string, storage.PartialOrFullChecksum>(
       results.map((doc) => {
+        const checksum = Number(BigInt(doc.checksum_total) & 0xffffffffn) & 0xffffffff;
+
         return [
           doc.bucket,
-          {
-            bucket: doc.bucket,
-            partialCount: Number(doc.total),
-            partialChecksum: Number(BigInt(doc.checksum_total) & 0xffffffffn) & 0xffffffff,
-            isFullChecksum: doc.has_clear_op == 1
-          } satisfies storage.PartialChecksum
+          doc.has_clear_op == 1
+            ? ({
+                // full checksum
+                bucket: doc.bucket,
+                count: Number(doc.total),
+                checksum
+              } satisfies BucketChecksum)
+            : ({
+                bucket: doc.bucket,
+                partialCount: Number(doc.total),
+                partialChecksum: checksum
+              } satisfies PartialChecksum)
         ];
       })
     );
