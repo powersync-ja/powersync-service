@@ -9,6 +9,7 @@ import wkx from '@syncpoint/wkx';
 import { ExpressionType, SqliteType, SqliteValueType, TYPE_INTEGER } from './ExpressionType.js';
 import * as uuid from 'uuid';
 import { CustomSqliteValue } from './types/custom_sqlite_value.js';
+import { CompatibilityContext, CompatibilityOption } from './compatibility.js';
 
 export const BASIC_OPERATORS = new Set<string>([
   '=',
@@ -269,48 +270,6 @@ const iif: DocumentedSqlFunction = {
   detail: 'If x is true then returns y else returns z'
 };
 
-const json_extract: DocumentedSqlFunction = {
-  debugName: 'json_extract',
-  call(json: SqliteValue, path: SqliteValue) {
-    return jsonExtract(json, path, 'json_extract');
-  },
-  parameters: [
-    { name: 'json', type: ExpressionType.ANY, optional: false },
-    { name: 'path', type: ExpressionType.ANY, optional: false }
-  ],
-  getReturnType(args) {
-    return ExpressionType.ANY_JSON;
-  },
-  detail: 'Extract a JSON property'
-};
-
-const json_array_length: DocumentedSqlFunction = {
-  debugName: 'json_array_length',
-  call(json: SqliteValue, path?: SqliteValue) {
-    if (path != null) {
-      json = json_extract.call(json, path);
-    }
-    const jsonString = castAsText(json);
-    if (jsonString == null) {
-      return null;
-    }
-
-    const jsonParsed = JSONBig.parse(jsonString);
-    if (!Array.isArray(jsonParsed)) {
-      return 0n;
-    }
-    return BigInt(jsonParsed.length);
-  },
-  parameters: [
-    { name: 'json', type: ExpressionType.ANY, optional: false },
-    { name: 'path', type: ExpressionType.ANY, optional: true }
-  ],
-  getReturnType(args) {
-    return ExpressionType.INTEGER;
-  },
-  detail: 'Returns the length of a JSON array'
-};
-
 const json_valid: DocumentedSqlFunction = {
   debugName: 'json_valid',
   call(json: SqliteValue) {
@@ -522,36 +481,50 @@ const st_y: DocumentedSqlFunction = {
   detail: 'Get the Y value of a PostGIS point'
 };
 
-export const SQL_FUNCTIONS_NAMED = {
-  upper,
-  lower,
-  substring,
-  hex,
-  length,
-  base64,
-  uuid_blob,
-  typeof: fn_typeof,
-  ifnull,
-  iif,
-  json_extract,
-  json_array_length,
-  json_valid,
-  json_keys,
-  unixepoch,
-  datetime,
-  st_asgeojson,
-  st_astext,
-  st_x,
-  st_y
-};
+export function generateSqlFunctions(compatibility: CompatibilityContext) {
+  const json = jsonFunctions(compatibility.isEnabled(CompatibilityOption.fixedJsonExtract));
 
-type FunctionName = keyof typeof SQL_FUNCTIONS_NAMED;
+  const named = {
+    upper,
+    lower,
+    substring,
+    hex,
+    length,
+    base64,
+    uuid_blob,
+    typeof: fn_typeof,
+    ifnull,
+    iif,
+    json_extract: json.json_extract,
+    json_array_length: json.json_array_length,
+    json_valid,
+    json_keys,
+    unixepoch,
+    datetime,
+    st_asgeojson,
+    st_astext,
+    st_x,
+    st_y
+  };
 
-export const SQL_FUNCTIONS_CALL = Object.fromEntries(
-  Object.entries(SQL_FUNCTIONS_NAMED).map(([name, fn]) => [name, fn.call])
-) as Record<FunctionName, SqlFunction['call']>;
+  type FunctionName = keyof typeof named;
 
-export const SQL_FUNCTIONS: Record<string, DocumentedSqlFunction> = SQL_FUNCTIONS_NAMED;
+  const callable = Object.fromEntries(Object.entries(named).map(([name, fn]) => [name, fn.call])) as Record<
+    FunctionName,
+    SqlFunction['call']
+  >;
+
+  const namedRecord: Record<string, SqlFunction> = named;
+
+  return {
+    named: namedRecord,
+    callable,
+    jsonExtract: json.jsonExtract,
+    jsonExtractFromRecord: json.jsonExtractFromRecord,
+    operatorJsonExtractJson: json.OPERATOR_JSON_EXTRACT_JSON,
+    operatorJsonExtractSql: json.OPERATOR_JSON_EXTRACT_SQL
+  };
+}
 
 export const CAST_TYPES = new Set<String>(['text', 'numeric', 'integer', 'real', 'blob']);
 
@@ -871,66 +844,144 @@ function concat(a: SqliteValue, b: SqliteValue): string | null {
   return aText + bText;
 }
 
-export function jsonExtract(sourceValue: SqliteValue, path: SqliteValue, operator: string) {
-  const valueText = castAsText(sourceValue);
-  if (valueText == null || path == null) {
-    return null;
-  }
-
-  let value = JSONBig.parse(valueText) as any;
-  return jsonExtractFromRecord(value, path, operator);
-}
-
-export function jsonExtractFromRecord(value: any, path: SqliteValue, operator: string) {
-  const pathText = castAsText(path);
-  if (value == null || pathText == null) {
-    return null;
-  }
-
-  const components = pathText.split('.');
-  if (components[0] == '$') {
-    components.shift();
-  } else if (operator == 'json_extract') {
-    throw new Error(`JSON path must start with $.`);
-  }
-
-  for (let c of components) {
-    if (value == null) {
-      break;
-    }
-    value = value[c];
-  }
-  if (operator == '->') {
-    // -> must always stringify, except when it's null
-    if (value == null) {
+/**
+ * Generates implementations for JSON-extracting functions.
+ *
+ * @param fixedJsonExtractBehavior Controls whether we opt-in to the new behavior where a path like `foo.bar` extracts
+ * a key named `foo.bar` (instead of `foo` and then `bar`, which requires `$.foo.bar` in new versions).
+ */
+function jsonFunctions(fixedJsonExtractBehavior: boolean) {
+  function jsonExtract(sourceValue: SqliteValue, path: SqliteValue, operator: string) {
+    const valueText = castAsText(sourceValue);
+    if (valueText == null || path == null) {
       return null;
     }
-    return JSONBig.stringify(value);
-  } else {
-    // Plain scalar value - simple conversion.
-    return jsonValueToSqlite(value as string | number | bigint | boolean | null);
+
+    let value = JSONBig.parse(valueText) as any;
+    return jsonExtractFromRecord(value, path, operator);
   }
+
+  function jsonExtractFromRecord(value: any, path: SqliteValue, operator: string) {
+    const pathText = castAsText(path);
+    if (value == null || pathText == null) {
+      return null;
+    }
+
+    const isProperJsonPath = pathText.startsWith('$');
+    if (operator == 'json_extract' && !isProperJsonPath) {
+      throw new Error(`JSON path must start with $.`);
+    }
+
+    let components: string[] = [];
+    if (fixedJsonExtractBehavior) {
+      if (isProperJsonPath) {
+        components = pathText.split('.');
+        components.shift();
+      } else {
+        components = [pathText];
+      }
+    } else {
+      components = pathText.split('.');
+      if (isProperJsonPath) {
+        components.shift();
+      }
+    }
+
+    for (let c of components) {
+      if (value == null) {
+        break;
+      }
+      value = value[c];
+    }
+    if (operator == '->') {
+      if (fixedJsonExtractBehavior) {
+        // The ?? null is to turn undefined (i.e., key not found) into a null return value. In all other cases, we
+        // return JSON strings.
+        return JSONBig.stringify(value) ?? null;
+      }
+
+      // -> must always stringify, except when it's null
+      if (value == null) {
+        return null;
+      }
+      return JSONBig.stringify(value);
+    } else {
+      // Plain scalar value - simple conversion.
+      return jsonValueToSqlite(fixedJsonExtractBehavior, value as string | number | bigint | boolean | null);
+    }
+  }
+
+  const OPERATOR_JSON_EXTRACT_JSON: SqlFunction = {
+    debugName: 'operator->',
+    call(json: SqliteValue, path: SqliteValue) {
+      return jsonExtract(json, path, '->');
+    },
+    getReturnType(args) {
+      return ExpressionType.ANY_JSON;
+    }
+  };
+
+  const OPERATOR_JSON_EXTRACT_SQL: SqlFunction = {
+    debugName: 'operator->>',
+    call(json: SqliteValue, path: SqliteValue) {
+      return jsonExtract(json, path, '->>');
+    },
+    getReturnType(_args) {
+      return ExpressionType.ANY_JSON;
+    }
+  };
+
+  const json_extract: DocumentedSqlFunction = {
+    debugName: 'json_extract',
+    call(json: SqliteValue, path: SqliteValue) {
+      return jsonExtract(json, path, 'json_extract');
+    },
+    parameters: [
+      { name: 'json', type: ExpressionType.ANY, optional: false },
+      { name: 'path', type: ExpressionType.ANY, optional: false }
+    ],
+    getReturnType(args) {
+      return ExpressionType.ANY_JSON;
+    },
+    detail: 'Extract a JSON property'
+  };
+
+  const json_array_length: DocumentedSqlFunction = {
+    debugName: 'json_array_length',
+    call(json: SqliteValue, path?: SqliteValue) {
+      if (path != null) {
+        json = json_extract.call(json, path);
+      }
+      const jsonString = castAsText(json);
+      if (jsonString == null) {
+        return null;
+      }
+
+      const jsonParsed = JSONBig.parse(jsonString);
+      if (!Array.isArray(jsonParsed)) {
+        return 0n;
+      }
+      return BigInt(jsonParsed.length);
+    },
+    parameters: [
+      { name: 'json', type: ExpressionType.ANY, optional: false },
+      { name: 'path', type: ExpressionType.ANY, optional: true }
+    ],
+    getReturnType(args) {
+      return ExpressionType.INTEGER;
+    },
+    detail: 'Returns the length of a JSON array'
+  };
+
+  return {
+    OPERATOR_JSON_EXTRACT_JSON,
+    OPERATOR_JSON_EXTRACT_SQL,
+    jsonExtract,
+    jsonExtractFromRecord,
+    json_extract,
+    json_array_length
+  };
 }
-
-export const OPERATOR_JSON_EXTRACT_JSON: SqlFunction = {
-  debugName: 'operator->',
-  call(json: SqliteValue, path: SqliteValue) {
-    return jsonExtract(json, path, '->');
-  },
-  getReturnType(args) {
-    return ExpressionType.ANY_JSON;
-  }
-};
-
-export const OPERATOR_JSON_EXTRACT_SQL: SqlFunction = {
-  debugName: 'operator->>',
-  call(json: SqliteValue, path: SqliteValue) {
-    return jsonExtract(json, path, '->>');
-  },
-  getReturnType(_args) {
-    return ExpressionType.ANY_JSON;
-  }
-};
 
 export const OPERATOR_IS_NULL: SqlFunction = {
   debugName: 'operator_is_null',

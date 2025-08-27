@@ -41,7 +41,7 @@ import {
   Statement
 } from 'pgsql-ast-parser';
 import { STREAM_FUNCTIONS } from './functions.js';
-import { CompatibilityContext, CompatibilityEdition } from '../compatibility.js';
+import { CompatibilityEdition } from '../compatibility.js';
 
 export function syncStreamFromSql(
   descriptorName: string,
@@ -90,6 +90,7 @@ class SyncStreamCompiler {
       sql: this.sql,
       schema: querySchema,
       parameterFunctions: STREAM_FUNCTIONS,
+      compatibilityContext: this.options.compatibility,
       supportsParameterExpressions: true,
       supportsExpandingParameters: true // needed for table.column IN (subscription.parameters() -> ...)
     });
@@ -382,6 +383,7 @@ class SyncStreamCompiler {
       sql: this.sql,
       schema: querySchema,
       supportsParameterExpressions: true,
+      compatibilityContext: this.options.compatibility,
       parameterFunctions: STREAM_FUNCTIONS
     });
     tools.checkSpecificNameCase(tableRef);

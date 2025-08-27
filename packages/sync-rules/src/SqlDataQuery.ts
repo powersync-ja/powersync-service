@@ -5,20 +5,26 @@ import { SqlRuleError } from './errors.js';
 import { ExpressionType } from './ExpressionType.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SqlTools } from './sql_filters.js';
-import { castAsText } from './sql_functions.js';
 import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
 import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import { TableQuerySchema } from './TableQuerySchema.js';
 import { BucketIdTransformer, EvaluationResult, ParameterMatchClause, QuerySchema, SqliteRow } from './types.js';
 import { getBucketId, isSelectStatement } from './utils.js';
+import { CompatibilityContext } from './compatibility.js';
 
 export interface SqlDataQueryOptions extends BaseSqlDataQueryOptions {
   filter: ParameterMatchClause;
 }
 
 export class SqlDataQuery extends BaseSqlDataQuery {
-  static fromSql(descriptorName: string, bucketParameters: string[], sql: string, options: SyncRulesOptions) {
+  static fromSql(
+    descriptorName: string,
+    bucketParameters: string[],
+    sql: string,
+    options: SyncRulesOptions,
+    compatibility: CompatibilityContext
+  ) {
     const parsed = parse(sql, { locationTracking: true });
     const schema = options.schema;
 
@@ -67,6 +73,7 @@ export class SqlDataQuery extends BaseSqlDataQuery {
       table: alias,
       parameterTables: ['bucket'],
       valueTables: [alias],
+      compatibilityContext: compatibility,
       sql,
       schema: querySchema
     });
