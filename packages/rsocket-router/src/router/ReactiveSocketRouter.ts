@@ -8,13 +8,14 @@ import * as http from 'http';
 import { Payload, RSocketServer } from 'rsocket-core';
 import * as ws from 'ws';
 import { SocketRouterObserver } from './SocketRouterListener.js';
+import { WebsocketDuplexConnection } from './transport/WebsocketDuplexConnection.js';
 import { WebsocketServerTransport } from './transport/WebSocketServerTransport.js';
 import {
   CommonParams,
   IReactiveStream,
   IReactiveStreamInput,
-  RS_ENDPOINT_TYPE,
   ReactiveSocketRouterOptions,
+  RS_ENDPOINT_TYPE,
   SocketResponder
 } from './types.js';
 
@@ -24,6 +25,7 @@ export interface ReactiveStreamRequest {
   dataMimeType: string;
   initialN: number;
   responder: SocketResponder;
+  connection: WebsocketDuplexConnection;
 }
 
 export interface SocketBaseContext {
@@ -51,7 +53,30 @@ export class ReactiveSocketRouter<C extends SocketBaseContext> {
      * This follows a similar pattern to the Journey Micro
      * web sockets router.
      */
-    const wss = new ws.WebSocketServer({ noServer: true });
+    const wss = new ws.WebSocketServer({
+      noServer: true,
+      perMessageDeflate: {
+        zlibDeflateOptions: {
+          chunkSize: 128 * 1024, // default is 16kb - increased for better efficiency
+          memLevel: 7, // default is 8
+          level: 3
+        },
+        zlibInflateOptions: {
+          // for decompressing messages from the client
+          chunkSize: 32 * 1024
+        },
+        // don't keep client context between messages
+        clientNoContextTakeover: true,
+        // keep context between messages from the server
+        serverNoContextTakeover: false,
+        // bigger window uses more memory and potentially more cpu. 10-15 is a good range.
+        serverMaxWindowBits: 12,
+        // Limit concurrent compression threads
+        concurrencyLimit: 8,
+        // Size (in bytes) below which messages should not be compressed _if context takeover is disabled_.
+        threshold: 1024
+      }
+    });
     server.on('upgrade', (request, socket, head) => {
       wss.handleUpgrade(request, socket as any, head, (ws) => {
         wss.emit('connection', ws, request);
@@ -66,7 +91,9 @@ export class ReactiveSocketRouter<C extends SocketBaseContext> {
     const rSocketServer = new RSocketServer({
       transport,
       acceptor: {
-        accept: async (payload) => {
+        accept: async (payload, rsocket) => {
+          const connection = (rsocket as any).connection as WebsocketDuplexConnection;
+
           const { max_concurrent_connections } = this.options ?? {};
           logger.info(`Currently have ${wss.clients.size} active WebSocket connection(s)`);
           // wss.clients.size includes this connection, so we check for greater than
@@ -104,7 +131,7 @@ export class ReactiveSocketRouter<C extends SocketBaseContext> {
               // TODO: Consider limiting the number of active streams per connection to prevent abuse
               handleReactiveStream(
                 context,
-                { payload, initialN, responder, dataMimeType, metadataMimeType },
+                { payload, initialN, responder, dataMimeType, metadataMimeType, connection },
                 observer,
                 abortController,
                 params
@@ -191,6 +218,7 @@ export async function handleReactiveStream<Context extends SocketBaseContext>(
       context,
       observer,
       signal: abortController.signal,
+      connection: request.connection,
       responder
     });
     if (!isAuthorized.authorized) {
@@ -207,6 +235,7 @@ export async function handleReactiveStream<Context extends SocketBaseContext>(
       observer,
       signal: abortController.signal,
       responder,
+      connection: request.connection,
       initialN
     });
   } catch (ex) {
