@@ -23,6 +23,5 @@ export const dropTables = async (client: lib_postgres.DatabaseClient) => {
     await db.sql`DROP TABLE IF EXISTS custom_write_checkpoints`.execute();
     await db.sql`DROP SEQUENCE IF EXISTS op_id_sequence`.execute();
     await db.sql`DROP SEQUENCE IF EXISTS sync_rules_id_sequence`.execute();
-    await db.sql`DROP TABLE IF EXISTS connection_report_events`.execute();
   });
 };
