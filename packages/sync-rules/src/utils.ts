@@ -9,7 +9,8 @@ import {
   SqliteJsonRow,
   SqliteJsonValue,
   SqliteRow,
-  SqliteValue
+  SqliteValue,
+  BucketIdTransformer
 } from './types.js';
 import { SyncRuleProcessingError as SyncRulesProcessingError } from './errors.js';
 import { CustomArray, CustomObject, CustomSqliteValue } from './types/custom_sqlite_value.js';
@@ -22,11 +23,12 @@ export function isSelectStatement(q: Statement): q is SelectFromStatement {
 export function getBucketId(
   descriptor_id: string,
   bucket_parameters: string[],
-  params: Record<string, SqliteJsonValue>
+  params: Record<string, SqliteJsonValue>,
+  transformer: BucketIdTransformer
 ): string {
   // Important: REAL and INTEGER values matching the same number needs the same representation in the bucket name.
   const paramArray = bucket_parameters.map((name) => params[`bucket.${name}`]);
-  return `${descriptor_id}${JSONBucketNameSerialize.stringify(paramArray)}`;
+  return transformer(`${descriptor_id}${JSONBucketNameSerialize.stringify(paramArray)}`);
 }
 
 const DEPTH_LIMIT = 10;

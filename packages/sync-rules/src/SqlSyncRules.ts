@@ -8,6 +8,7 @@ import { SourceTableInterface } from './SourceTableInterface.js';
 import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js';
 import { TablePattern } from './TablePattern.js';
 import {
+  BucketIdTransformer,
   EvaluatedParameters,
   EvaluatedParametersResult,
   EvaluatedRow,
@@ -59,6 +60,13 @@ export interface RequestedStream {
 }
 
 export interface GetQuerierOptions {
+  /**
+   * A bucket id transformer, compatible to the one used when evaluating rows.
+   *
+   * Typically, this transformer only depends on the sync rule id (which is known to both the bucket storage
+   * implementation responsible for evaluating rows and the sync endpoint).
+   */
+  bucketIdTransformer: BucketIdTransformer;
   globalParameters: RequestParameters;
   /**
    * Whether the client is subscribing to default query streams.
@@ -85,6 +93,7 @@ export interface GetBucketParameterQuerierResult {
 export class SqlSyncRules implements SyncRules {
   bucketSources: BucketSource[] = [];
   eventDescriptors: SqlEventDescriptor[] = [];
+  compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
 
   content: string;
 
@@ -157,6 +166,7 @@ export class SqlSyncRules implements SyncRules {
       }
 
       compatibility = new CompatibilityContext(edition, options);
+      rules.compatibility = compatibility;
     }
 
     // Bucket definitions using explicit parameter and data queries.
@@ -384,9 +394,17 @@ export class SqlSyncRules implements SyncRules {
   }
 
   evaluateRowWithErrors(options: EvaluateRowOptions): { results: EvaluatedRow[]; errors: EvaluationError[] } {
+    const resolvedOptions = this.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)
+      ? options
+      : {
+          ...options,
+          // Disable bucket id transformer when the option is unused.
+          bucketIdTransformer: (id: string) => id
+        };
+
     let rawResults: EvaluationResult[] = [];
     for (let source of this.bucketSources) {
-      rawResults.push(...source.evaluateRow(options));
+      rawResults.push(...source.evaluateRow(resolvedOptions));
     }
 
     const results = rawResults.filter(isEvaluatedRow) as EvaluatedRow[];
@@ -421,13 +439,24 @@ export class SqlSyncRules implements SyncRules {
   }
 
   getBucketParameterQuerier(options: GetQuerierOptions): GetBucketParameterQuerierResult {
+    const resolvedOptions = this.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)
+      ? options
+      : {
+          ...options,
+          // Disable bucket id transformer when the option is unused.
+          bucketIdTransformer: (id: string) => id
+        };
+
     const queriers: BucketParameterQuerier[] = [];
     const errors: QuerierError[] = [];
     const pending = { queriers, errors };
 
     for (const source of this.bucketSources) {
-      if ((source.subscribedToByDefault && options.hasDefaultStreams) || source.name in options.streams) {
-        source.pushBucketParameterQueriers(pending, options);
+      if (
+        (source.subscribedToByDefault && resolvedOptions.hasDefaultStreams) ||
+        source.name in resolvedOptions.streams
+      ) {
+        source.pushBucketParameterQueriers(pending, resolvedOptions);
       }
     }
 
@@ -501,5 +530,9 @@ export class SqlSyncRules implements SyncRules {
         return priorityValue.value;
       }
     }
+  }
+
+  static versionedBucketIdTransformer(version: string) {
+    return (bucketId: string) => `${version}#${bucketId}`;
   }
 }

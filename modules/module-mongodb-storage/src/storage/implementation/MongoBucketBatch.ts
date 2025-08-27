@@ -461,7 +461,8 @@ export class MongoBucketBatch
       if (sourceTable.syncData) {
         const { results: evaluated, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
           record: after,
-          sourceTable
+          sourceTable,
+          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(`${this.group_id}`)
         });
 
         for (let error of syncErrors) {
