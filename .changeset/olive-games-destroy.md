@@ -3,4 +3,4 @@
 '@powersync/service-image': minor
 ---
 
-Add the `legacy_json_extract` quirk. When marked as fixed, JSON-extracting operators are updated to match SQLite more closely.
+Add the `fixed_json_extract` compatibility option. When enabled, JSON-extracting operators are updated to match SQLite more closely.
