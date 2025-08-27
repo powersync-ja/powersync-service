@@ -100,10 +100,10 @@ export class MongoReportStorage implements storage.ReportStorage {
   }
 
   private parseJsDate(date: Date) {
-    const year = date.getFullYear();
-    const month = date.getMonth();
-    const today = date.getDate();
-    const day = date.getDay();
+    const year = date.getUTCFullYear();
+    const month = date.getUTCMonth();
+    const today = date.getUTCDate();
+    const day = date.getUTCDay();
     return {
       year,
       month,
@@ -169,9 +169,8 @@ export class MongoReportStorage implements storage.ReportStorage {
       user_id: userId,
       client_id: clientId,
       connected_at: {
-        // Need to create a new date here to sett the time to 00:00:00
-        $gte: new Date(year, month, today),
-        $lt: new Date(year, month, nextDay)
+        $gte: new Date(Date.UTC(year, month, today)),
+        $lt: new Date(Date.UTC(year, month, nextDay))
       }
     };
   }
