@@ -7,6 +7,7 @@ import {
   ServiceAssertionError
 } from '@powersync/lib-services-framework';
 import {
+  addChecksums,
   BroadcastIterable,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
@@ -495,19 +496,61 @@ export class MongoSyncBucketStorage
       return new Map();
     }
 
+    const preFilters: any[] = [];
+    for (let request of batch) {
+      if (request.start == null) {
+        preFilters.push({
+          _id: {
+            g: this.group_id,
+            b: request.bucket
+          },
+          'compacted_state.op_id': { $exists: true, $lte: request.end }
+        });
+      }
+    }
+
+    const preStates = new Map<string, storage.PartialChecksum & { opId: InternalOpId }>();
+
+    if (preFilters.length > 0) {
+      // For un-cached bucket checksums, attempt to use the compacted state first.
+      const states = await this.db.bucket_state
+        .find({
+          $or: preFilters
+        })
+        .toArray();
+      for (let state of states) {
+        const compactedState = state.compacted_state!;
+        preStates.set(state._id.b, {
+          bucket: state._id.b,
+          partialCount: compactedState.count,
+          partialChecksum: Number(compactedState.checksum),
+          isFullChecksum: true,
+          opId: compactedState.op_id
+        });
+      }
+    }
+
     const filters: any[] = [];
     for (let request of batch) {
+      let start = request.start;
+      if (start == null) {
+        const preState = preStates.get(request.bucket);
+        if (preState != null) {
+          start = preState.opId;
+        }
+      }
+
       filters.push({
         _id: {
           $gt: {
             g: this.group_id,
             b: request.bucket,
-            o: request.start ? BigInt(request.start) : new bson.MinKey()
+            o: start ?? new bson.MinKey()
           },
           $lte: {
             g: this.group_id,
             b: request.bucket,
-            o: BigInt(request.end)
+            o: request.end
           }
         }
       });
@@ -546,12 +589,28 @@ export class MongoSyncBucketStorage
 
     return new Map<string, storage.PartialChecksum>(
       aggregate.map((doc) => {
+        const partialChecksum = Number(BigInt(doc.checksum_total) & 0xffffffffn) & 0xffffffff;
+        const bucket = doc._id;
+        const preState = preStates.get(bucket);
+        if (preState != null) {
+          // In this case, start must be null
+          return [
+            bucket,
+            {
+              bucket,
+              partialCount: preState.partialCount + doc.count,
+              partialChecksum: addChecksums(preState.partialChecksum, partialChecksum),
+              // start is null, so this is always a full checksum
+              isFullChecksum: true
+            }
+          ];
+        }
         return [
-          doc._id,
+          bucket,
           {
-            bucket: doc._id,
+            bucket,
             partialCount: doc.count,
-            partialChecksum: Number(BigInt(doc.checksum_total) & 0xffffffffn) & 0xffffffff,
+            partialChecksum,
             isFullChecksum: doc.has_clear_op == 1
           } satisfies storage.PartialChecksum
         ];
