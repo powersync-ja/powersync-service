@@ -4,6 +4,7 @@ import { router } from '@powersync/lib-services-framework';
 import { OnExtensionSubscriber, OnNextSubscriber, OnTerminalSubscriber } from 'rsocket-core';
 
 import { SocketRouterObserver } from './SocketRouterListener.js';
+import { WebsocketDuplexConnection } from './transport/WebsocketDuplexConnection.js';
 
 export enum RS_ENDPOINT_TYPE {
   // Other methods are supported by RSocket, but are not yet mapped here
@@ -26,6 +27,10 @@ export type CommonStreamPayload = {
   observer: SocketRouterObserver;
   responder: SocketResponder;
   signal: AbortSignal;
+  /**
+   * The underlying websocket connection. Should not be used directly apart from tracking metadata.
+   */
+  connection: WebsocketDuplexConnection;
 };
 
 export type ReactiveStreamPayload<O> = CommonStreamPayload & {

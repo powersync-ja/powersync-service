@@ -10,13 +10,11 @@ import {
   OPERATOR_IN,
   OPERATOR_IS_NOT_NULL,
   OPERATOR_IS_NULL,
-  OPERATOR_JSON_EXTRACT_JSON,
-  OPERATOR_JSON_EXTRACT_SQL,
   OPERATOR_NOT,
   OPERATOR_OVERLAP,
-  SQL_FUNCTIONS,
   SqlFunction,
   castOperator,
+  generateSqlFunctions,
   getOperatorFunction,
   sqliteTypeOf
 } from './sql_functions.js';
@@ -47,7 +45,7 @@ import {
   TrueIfParametersMatch
 } from './types.js';
 import { isJsonValue } from './utils.js';
-import { STREAM_FUNCTIONS } from './streams/functions.js';
+import { CompatibilityContext } from './compatibility.js';
 
 export const MATCH_CONST_FALSE: TrueIfParametersMatch = [];
 export const MATCH_CONST_TRUE: TrueIfParametersMatch = [{}];
@@ -105,6 +103,11 @@ export interface SqlToolsOptions {
    * Schema for validations.
    */
   schema?: QuerySchema;
+
+  /**
+   * Context controling how functions should behave if we've made backwards-incompatible change to them.
+   */
+  compatibilityContext: CompatibilityContext;
 }
 
 export class SqlTools {
@@ -121,6 +124,8 @@ export class SqlTools {
   readonly supportsExpandingParameters: boolean;
   readonly supportsParameterExpressions: boolean;
   readonly parameterFunctions: Record<string, Record<string, SqlParameterFunction>>;
+  readonly compatibilityContext: CompatibilityContext;
+  readonly functions: ReturnType<typeof generateSqlFunctions>;
 
   schema?: QuerySchema;
 
@@ -140,6 +145,9 @@ export class SqlTools {
     this.supportsExpandingParameters = options.supportsExpandingParameters ?? false;
     this.supportsParameterExpressions = options.supportsParameterExpressions ?? false;
     this.parameterFunctions = options.parameterFunctions ?? { request: REQUEST_FUNCTIONS };
+    this.compatibilityContext = options.compatibilityContext;
+
+    this.functions = generateSqlFunctions(this.compatibilityContext);
   }
 
   error(message: string, expr: NodeLocation | Expr | undefined): ClauseError {
@@ -315,7 +323,7 @@ export class SqlTools {
 
       if (schema == null) {
         // Just fn()
-        const fnImpl = SQL_FUNCTIONS[fn];
+        const fnImpl = this.functions.named[fn];
         if (fnImpl == null) {
           return this.error(`Function '${fn}' is not defined`, expr);
         }
@@ -377,9 +385,9 @@ export class SqlTools {
       const debugArgs: Expr[] = [expr.operand, expr];
       const args: CompiledClause[] = [operand, staticValueClause(expr.member)];
       if (expr.op == '->') {
-        return this.composeFunction(OPERATOR_JSON_EXTRACT_JSON, args, debugArgs);
+        return this.composeFunction(this.functions.operatorJsonExtractJson, args, debugArgs);
       } else {
-        return this.composeFunction(OPERATOR_JSON_EXTRACT_SQL, args, debugArgs);
+        return this.composeFunction(this.functions.operatorJsonExtractSql, args, debugArgs);
       }
     } else if (expr.type == 'cast') {
       const operand = this.compileClause(expr.operand);

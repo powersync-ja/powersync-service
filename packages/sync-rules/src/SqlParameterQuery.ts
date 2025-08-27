@@ -123,6 +123,7 @@ export class SqlParameterQuery {
       sql,
       supportsExpandingParameters: true,
       supportsParameterExpressions: true,
+      compatibilityContext: options.compatibility,
       schema: querySchema
     });
     tools.checkSpecificNameCase(tableRef);

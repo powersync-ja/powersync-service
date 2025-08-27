@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'vitest';
-import { ExpressionType, SqlDataQuery, SqlSyncRules } from '../../src/index.js';
+import { CompatibilityContext, ExpressionType, SqlDataQuery, SqlSyncRules } from '../../src/index.js';
 import { ASSETS, BASIC_SCHEMA, identityBucketTransformer, PARSE_OPTIONS } from './util.js';
 
 describe('data queries', () => {
   test('uses bucket id transformer', function () {
     const sql = 'SELECT * FROM assets WHERE assets.org_id = bucket.org_id';
-    const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql, PARSE_OPTIONS);
+    const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toEqual([]);
 
     expect(
@@ -22,7 +22,7 @@ describe('data queries', () => {
 
   test('bucket parameters = query', function () {
     const sql = 'SELECT * FROM assets WHERE assets.org_id = bucket.org_id';
-    const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql, PARSE_OPTIONS);
+    const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toEqual([]);
 
     expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: 'org1' }, identityBucketTransformer)).toEqual([
@@ -39,7 +39,7 @@ describe('data queries', () => {
 
   test('bucket parameters IN query', function () {
     const sql = 'SELECT * FROM assets WHERE bucket.category IN assets.categories';
-    const query = SqlDataQuery.fromSql('mybucket', ['category'], sql, PARSE_OPTIONS);
+    const query = SqlDataQuery.fromSql('mybucket', ['category'], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toEqual([]);
 
     expect(
@@ -66,7 +66,7 @@ describe('data queries', () => {
 
   test('static IN data query', function () {
     const sql = `SELECT * FROM assets WHERE 'green' IN assets.categories`;
-    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS);
+    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toEqual([]);
 
     expect(
@@ -94,7 +94,7 @@ describe('data queries', () => {
 
   test('data IN static query', function () {
     const sql = `SELECT * FROM assets WHERE assets.condition IN '["good","great"]'`;
-    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS);
+    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toEqual([]);
 
     expect(query.evaluateRow(ASSETS, { id: 'asset1', condition: 'good' }, identityBucketTransformer)).toMatchObject([
@@ -110,7 +110,7 @@ describe('data queries', () => {
 
   test('table alias', function () {
     const sql = 'SELECT * FROM assets as others WHERE others.org_id = bucket.org_id';
-    const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql, PARSE_OPTIONS);
+    const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toEqual([]);
 
     expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: 'org1' }, identityBucketTransformer)).toEqual([
@@ -130,7 +130,8 @@ describe('data queries', () => {
       'q1',
       ['user_id'],
       `SELECT * FROM assets WHERE owner_id = bucket.user_id`,
-      PARSE_OPTIONS
+      PARSE_OPTIONS,
+      compatibility
     );
     expect(q1.getColumnOutputs(schema)).toEqual([
       {
@@ -157,7 +158,8 @@ describe('data queries', () => {
    name ->> '$.attr' as json_value,
    ifnull(name, 2.0) as maybe_name
   FROM assets WHERE owner_id = bucket.user_id`,
-      PARSE_OPTIONS
+      PARSE_OPTIONS,
+      compatibility
     );
     expect(q2.getColumnOutputs(schema)).toEqual([
       {
@@ -182,7 +184,8 @@ describe('data queries', () => {
       'q1',
       ['user_id'],
       'SELECT id, name, count FROM assets WHERE owner_id = bucket.user_id',
-      { ...PARSE_OPTIONS, schema }
+      { ...PARSE_OPTIONS, schema },
+      compatibility
     );
     expect(q1.errors).toEqual([]);
 
@@ -190,7 +193,8 @@ describe('data queries', () => {
       'q2',
       ['user_id'],
       'SELECT id, upper(description) as d FROM assets WHERE other_id = bucket.user_id',
-      { ...PARSE_OPTIONS, schema }
+      { ...PARSE_OPTIONS, schema },
+      compatibility
     );
     expect(q2.errors).toMatchObject([
       {
@@ -207,7 +211,8 @@ describe('data queries', () => {
       'q3',
       ['user_id'],
       'SELECT id, description, * FROM nope WHERE other_id = bucket.user_id',
-      { ...PARSE_OPTIONS, schema }
+      { ...PARSE_OPTIONS, schema },
+      compatibility
     );
     expect(q3.errors).toMatchObject([
       {
@@ -216,7 +221,7 @@ describe('data queries', () => {
       }
     ]);
 
-    const q4 = SqlDataQuery.fromSql('q4', [], 'SELECT * FROM other', { ...PARSE_OPTIONS, schema });
+    const q4 = SqlDataQuery.fromSql('q4', [], 'SELECT * FROM other', { ...PARSE_OPTIONS, schema }, compatibility);
     expect(q4.errors).toMatchObject([
       {
         message: `Query must return an "id" column`,
@@ -224,13 +229,19 @@ describe('data queries', () => {
       }
     ]);
 
-    const q5 = SqlDataQuery.fromSql('q5', [], 'SELECT other_id as id, * FROM other', { ...PARSE_OPTIONS, schema });
+    const q5 = SqlDataQuery.fromSql(
+      'q5',
+      [],
+      'SELECT other_id as id, * FROM other',
+      { ...PARSE_OPTIONS, schema },
+      compatibility
+    );
     expect(q5.errors).toMatchObject([]);
   });
 
   test('invalid query - invalid IN', function () {
     const sql = 'SELECT * FROM assets WHERE assets.category IN bucket.categories';
-    const query = SqlDataQuery.fromSql('mybucket', ['categories'], sql, PARSE_OPTIONS);
+    const query = SqlDataQuery.fromSql('mybucket', ['categories'], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toMatchObject([
       { type: 'fatal', message: 'Cannot use bucket parameters on the right side of IN operators' }
     ]);
@@ -238,7 +249,7 @@ describe('data queries', () => {
 
   test('invalid query - not all parameters used', function () {
     const sql = 'SELECT * FROM assets WHERE 1';
-    const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql, PARSE_OPTIONS);
+    const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toMatchObject([
       { type: 'fatal', message: 'Query must cover all bucket parameters. Expected: ["bucket.org_id"] Got: []' }
     ]);
@@ -246,7 +257,7 @@ describe('data queries', () => {
 
   test('invalid query - parameter not defined', function () {
     const sql = 'SELECT * FROM assets WHERE assets.org_id = bucket.org_id';
-    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS);
+    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toMatchObject([
       { type: 'fatal', message: 'Query must cover all bucket parameters. Expected: [] Got: ["bucket.org_id"]' }
     ]);
@@ -254,25 +265,25 @@ describe('data queries', () => {
 
   test('invalid query - function on parameter (1)', function () {
     const sql = 'SELECT * FROM assets WHERE assets.org_id = upper(bucket.org_id)';
-    const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql, PARSE_OPTIONS);
+    const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toMatchObject([{ type: 'fatal', message: 'Cannot use bucket parameters in expressions' }]);
   });
 
   test('invalid query - function on parameter (2)', function () {
     const sql = 'SELECT * FROM assets WHERE assets.org_id = upper(bucket.org_id)';
-    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS);
+    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toMatchObject([{ type: 'fatal', message: 'Cannot use bucket parameters in expressions' }]);
   });
 
   test('invalid query - match clause in select', () => {
     const sql = 'SELECT id, (bucket.org_id = assets.org_id) as org_matches FROM assets where org_id = bucket.org_id';
-    const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql, PARSE_OPTIONS);
+    const query = SqlDataQuery.fromSql('mybucket', ['org_id'], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors[0].message).toMatch(/Parameter match expression is not allowed here/);
   });
 
   test('case-sensitive queries (1)', () => {
     const sql = 'SELECT * FROM Assets';
-    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS);
+    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toMatchObject([
       { message: `Unquoted identifiers are converted to lower-case. Use "Assets" instead.` }
     ]);
@@ -280,7 +291,7 @@ describe('data queries', () => {
 
   test('case-sensitive queries (2)', () => {
     const sql = 'SELECT *, Name FROM assets';
-    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS);
+    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toMatchObject([
       { message: `Unquoted identifiers are converted to lower-case. Use "Name" instead.` }
     ]);
@@ -288,7 +299,7 @@ describe('data queries', () => {
 
   test('case-sensitive queries (3)', () => {
     const sql = 'SELECT * FROM assets WHERE Archived = False';
-    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS);
+    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toMatchObject([
       { message: `Unquoted identifiers are converted to lower-case. Use "Archived" instead.` }
     ]);
@@ -297,7 +308,7 @@ describe('data queries', () => {
   test.skip('case-sensitive queries (4)', () => {
     // Cannot validate table alias yet
     const sql = 'SELECT * FROM assets as myAssets';
-    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS);
+    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toMatchObject([
       { message: `Unquoted identifiers are converted to lower-case. Use "myAssets" instead.` }
     ]);
@@ -306,7 +317,7 @@ describe('data queries', () => {
   test.skip('case-sensitive queries (5)', () => {
     // Cannot validate table alias yet
     const sql = 'SELECT * FROM assets myAssets';
-    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS);
+    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toMatchObject([
       { message: `Unquoted identifiers are converted to lower-case. Use "myAssets" instead.` }
     ]);
@@ -315,7 +326,7 @@ describe('data queries', () => {
   test.skip('case-sensitive queries (6)', () => {
     // Cannot validate anything with a schema yet
     const sql = 'SELECT * FROM public.ASSETS';
-    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS);
+    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toMatchObject([
       { message: `Unquoted identifiers are converted to lower-case. Use "ASSETS" instead.` }
     ]);
@@ -324,9 +335,11 @@ describe('data queries', () => {
   test.skip('case-sensitive queries (7)', () => {
     // Cannot validate schema yet
     const sql = 'SELECT * FROM PUBLIC.assets';
-    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS);
+    const query = SqlDataQuery.fromSql('mybucket', [], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toMatchObject([
       { message: `Unquoted identifiers are converted to lower-case. Use "PUBLIC" instead.` }
     ]);
   });
 });
+
+const compatibility = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
