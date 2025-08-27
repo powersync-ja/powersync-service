@@ -10,7 +10,7 @@ import {
 import { describe, expect, test } from 'vitest';
 import { clearTestDb, connectPgPool, connectPgWire, TEST_URI } from './util.js';
 import { WalStream } from '@module/replication/WalStream.js';
-import { PostgresTypeCache } from '@module/types/custom.js';
+import { PostgresTypeCache } from '@module/types/cache.js';
 
 describe('pg data types', () => {
   async function setupTable(db: pgwire.PgClient) {
@@ -483,7 +483,8 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
         id serial primary key,
         rating rating_value,
         composite composite,
-        nested_composite nested_composite
+        nested_composite nested_composite,
+        boxes box[]
       );`);
 
       const slotName = 'test_slot';
@@ -500,11 +501,12 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
 
       await db.query(`
         INSERT INTO test_custom
-          (rating, composite, nested_composite)
+          (rating, composite, nested_composite, boxes)
         VALUES (
           1,
           (ARRAY[2,3], 'bar'),
-          (TRUE, (ARRAY[2,3], 'bar'))
+          (TRUE, (ARRAY[2,3], 'bar')),
+          ARRAY[box(point '(1,2)', point '(3,4)'), box(point '(5, 6)', point '(7,8)')]
         );
       `);
 
@@ -524,14 +526,16 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
       expect(oldFormat).toMatchObject({
         rating: '1',
         composite: '("{2,3}",bar)',
-        nested_composite: '(t,"(""{2,3}"",bar)")'
+        nested_composite: '(t,"(""{2,3}"",bar)")',
+        boxes: '["(3","4)","(1","2);(7","8)","(5","6)"]'
       });
 
       const newFormat = applyRowContext(transformed, new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS));
       expect(newFormat).toMatchObject({
         rating: 1,
         composite: '{"foo":[2.0,3.0],"bar":"bar"}',
-        nested_composite: '{"a":1,"b":{"foo":[2.0,3.0],"bar":"bar"}}'
+        nested_composite: '{"a":1,"b":{"foo":[2.0,3.0],"bar":"bar"}}',
+        boxes: JSON.stringify(['(3,4),(1,2)', '(7,8),(5,6)'])
       });
     } finally {
       await db.end();

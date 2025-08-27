@@ -75,18 +75,21 @@ class CustomTypeValue extends CustomSqliteValue {
     return this.cache.lookupType(this.oid);
   }
 
-  toSqliteValue(context: CompatibilityContext): SqliteValue {
+  private decodeToDatabaseInputValue(context: CompatibilityContext): DatabaseInputValue {
     if (context.isEnabled(CompatibilityOption.customTypes)) {
       try {
-        const rawValue = this.cache.decodeWithCustomTypes(this.rawValue, this.oid);
-        const value = toSyncRulesValue(rawValue);
-        return applyValueContext(value, context);
+        return this.cache.decodeWithCustomTypes(this.rawValue, this.oid);
       } catch (_e) {
         return this.rawValue;
       }
+    } else {
+      return pgwire.PgType.decode(this.rawValue, this.oid);
     }
+  }
 
-    return this.rawValue;
+  toSqliteValue(context: CompatibilityContext): SqliteValue {
+    const value = toSyncRulesValue(this.decodeToDatabaseInputValue(context));
+    return applyValueContext(value, context);
   }
 
   get sqliteType(): SqliteValueType {
@@ -146,20 +149,25 @@ export class CustomTypeRegistry {
           oid: builtin,
           sqliteType: () => sqliteType
         });
+      }
+    }
 
-        const arrayVariant = pgwire.PgType.getArrayType(builtin);
-        if (arrayVariant != null) {
-          // NOTE: We could use builtin for this, since PgType.decode can decode arrays. Especially in the presence of
-          // nested arrays (or arrays in compounds) though, we prefer to keep a common decoder state across everything
-          // (since it's otherwise hard to decode inner separators properly). So, this ships its own array decoder.
-          this.byOid.set(arrayVariant, {
-            type: 'array',
-            innerId: builtin,
-            sqliteType: () => sqliteType,
-            // We assume builtin arrays use commas as a separator (the default)
-            separatorCharCode: pgwire.CHAR_CODE_COMMA
-          });
-        }
+    for (const [arrayId, innerId] of pgwire.ARRAY_TO_ELEM_OID.entries()) {
+      // We can just use the default decoder, except for box[] because those use a different delimiter. We don't fix
+      // this in PgType._decodeArray for backwards-compatibility.
+      if (innerId == 603) {
+        this.byOid.set(arrayId, {
+          type: 'array',
+          innerId,
+          sqliteType: () => 'text', // these get encoded as JSON arrays
+          separatorCharCode: 0x3b // ";"
+        });
+      } else {
+        this.byOid.set(arrayId, {
+          type: 'builtin',
+          oid: arrayId,
+          sqliteType: () => 'text' // these get encoded as JSON arrays
+        });
       }
     }
   }
@@ -245,7 +253,10 @@ export class CustomTypeRegistry {
       case 'unknown':
         return true;
       case 'array':
-        return this.isParsedWithoutCustomTypesSupport(this.lookupType(type.innerId));
+        return (
+          type.separatorCharCode == pgwire.CHAR_CODE_COMMA &&
+          this.isParsedWithoutCustomTypesSupport(this.lookupType(type.innerId))
+        );
       default:
         return false;
     }

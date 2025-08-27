@@ -37,7 +37,7 @@ export enum PgTypeOid {
 
 // Generate using:
 //   select '[' || typarray || ', ' || oid || '], // ' || typname from pg_catalog.pg_type WHERE typarray != 0;
-const ARRAY_TO_ELEM_OID = new Map<number, number>([
+export const ARRAY_TO_ELEM_OID = new Map<number, number>([
   [1000, 16], // bool
   [1001, 17], // bytea
   [1002, 18], // char
