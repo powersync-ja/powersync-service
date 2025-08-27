@@ -62,6 +62,8 @@ export function createOpenTelemetryMetricsFactory(context: ServiceContext): Metr
     ['instance_id']: instanceIdPromise
   });
 
+  // This triggers OpenTelemetry to resolve the async attributes (instanceIdPromise).
+  // This will never reject, and we don't specifically need to wait for it.
   resource.waitForAsyncAttributes?.();
 
   const meterProvider = new MeterProvider({
