@@ -1,13 +1,14 @@
 import { JSONBig } from '@powersync/service-jsonbig';
 import { SQLITE_FALSE, SQLITE_TRUE, sqliteBool, sqliteNot } from './sql_support.js';
-import { SqliteValue } from './types.js';
+import { SqliteInputValue, SqliteValue } from './types.js';
 import { jsonValueToSqlite } from './utils.js';
 // Declares @syncpoint/wkx module
 // This allows for consumers of this lib to resolve types correctly
 /// <reference types="./wkx.d.ts" />
 import wkx from '@syncpoint/wkx';
-import { ExpressionType, SqliteType, TYPE_INTEGER } from './ExpressionType.js';
+import { ExpressionType, SqliteType, SqliteValueType, TYPE_INTEGER } from './ExpressionType.js';
 import * as uuid from 'uuid';
+import { CustomSqliteValue } from './types/custom_sqlite_value.js';
 
 export const BASIC_OPERATORS = new Set<string>([
   '=',
@@ -635,7 +636,7 @@ export function cast(value: SqliteValue, to: string) {
   }
 }
 
-export function sqliteTypeOf(arg: SqliteValue) {
+export function sqliteTypeOf(arg: SqliteInputValue): SqliteValueType {
   if (arg == null) {
     return 'null';
   } else if (typeof arg == 'string') {
@@ -646,6 +647,8 @@ export function sqliteTypeOf(arg: SqliteValue) {
     return 'real';
   } else if (arg instanceof Uint8Array) {
     return 'blob';
+  } else if (arg instanceof CustomSqliteValue) {
+    return arg.sqliteType;
   } else {
     // Should not happen
     throw new Error(`Unknown type: ${arg}`);
@@ -743,21 +746,45 @@ export function evaluateOperator(op: string, a: SqliteValue, b: SqliteValue): Sq
       return sqliteBool(sqliteBool(a) && sqliteBool(b));
     case 'OR':
       return sqliteBool(sqliteBool(a) || sqliteBool(b));
-    case 'IN':
+    case 'IN': {
       if (a == null || b == null) {
         return null;
       }
-      if (typeof b != 'string') {
-        throw new Error('IN is only supported on JSON arrays');
-      }
-      const bParsed = JSON.parse(b);
-      if (!Array.isArray(bParsed)) {
-        throw new Error('IN is only supported on JSON arrays');
-      }
+      const bParsed = checkJsonArray(b, 'IN is only supported on JSON arrays');
       return sqliteBool(bParsed.includes(a));
+    }
+    case '&&': {
+      // a && b evaluates to true iff they're both arrays and have a non-empty intersection.
+      if (a == null || b == null) {
+        return null;
+      }
+
+      const aParsed = checkJsonArray(a, '&& is only supported on JSON arrays');
+      const bParsed = checkJsonArray(a, '&& is only supported on JSON arrays');
+
+      for (const elementInA in aParsed) {
+        if (bParsed.includes(elementInA)) {
+          return sqliteBool(true);
+        }
+      }
+      return sqliteBool(false);
+    }
     default:
       throw new Error(`Operator not supported: ${op}`);
   }
+}
+
+export function checkJsonArray(value: SqliteValue, errorMessage: string): any[] {
+  if (typeof value != 'string') {
+    throw new Error(errorMessage);
+  }
+
+  const parsed = JSON.parse(value);
+  if (!Array.isArray(parsed)) {
+    throw new Error(value);
+  }
+
+  return parsed;
 }
 
 export function getOperatorReturnType(op: string, left: ExpressionType, right: ExpressionType) {
@@ -799,6 +826,7 @@ export function getOperatorReturnType(op: string, left: ExpressionType, right: E
     case 'OR':
       return ExpressionType.INTEGER;
     case 'IN':
+    case '&&':
       return ExpressionType.INTEGER;
     default:
       return ExpressionType.NONE;
@@ -845,8 +873,17 @@ function concat(a: SqliteValue, b: SqliteValue): string | null {
 
 export function jsonExtract(sourceValue: SqliteValue, path: SqliteValue, operator: string) {
   const valueText = castAsText(sourceValue);
+  if (valueText == null || path == null) {
+    return null;
+  }
+
+  let value = JSONBig.parse(valueText) as any;
+  return jsonExtractFromRecord(value, path, operator);
+}
+
+export function jsonExtractFromRecord(value: any, path: SqliteValue, operator: string) {
   const pathText = castAsText(path);
-  if (valueText == null || pathText == null) {
+  if (value == null || pathText == null) {
     return null;
   }
 
@@ -857,7 +894,6 @@ export function jsonExtract(sourceValue: SqliteValue, path: SqliteValue, operato
     throw new Error(`JSON path must start with $.`);
   }
 
-  let value = JSONBig.parse(valueText) as any;
   for (let c of components) {
     if (value == null) {
       break;
@@ -927,6 +963,8 @@ export const OPERATOR_NOT: SqlFunction = {
 };
 
 export const OPERATOR_IN = getOperatorFunction('IN');
+
+export const OPERATOR_OVERLAP = getOperatorFunction('&&');
 
 export function castOperator(castTo: string | undefined): SqlFunction | null {
   if (castTo == null || !CAST_TYPES.has(castTo)) {

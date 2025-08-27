@@ -1,17 +1,25 @@
 import {
   BucketChecksum,
   BucketChecksumState,
+  BucketChecksumStateOptions,
   BucketChecksumStateStorage,
   CHECKPOINT_INVALIDATE_ALL,
   ChecksumMap,
   InternalOpId,
   ReplicationCheckpoint,
+  StreamingSyncRequest,
   SyncContext,
   WatchFilterEvent
 } from '@/index.js';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { ParameterLookup, RequestParameters, SqliteJsonRow, SqlSyncRules } from '@powersync/service-sync-rules';
-import { describe, expect, test } from 'vitest';
+import {
+  SqliteJsonRow,
+  ParameterLookup,
+  SqlSyncRules,
+  RequestJwtPayload,
+  BucketSource
+} from '@powersync/service-sync-rules';
+import { describe, expect, test, beforeEach } from 'vitest';
 
 describe('BucketChecksumState', () => {
   // Single global[] bucket.
@@ -55,6 +63,9 @@ bucket_definitions:
     maxDataFetchConcurrency: 10
   });
 
+  const syncRequest: StreamingSyncRequest = {};
+  const tokenPayload: RequestJwtPayload = { sub: '' };
+
   test('global bucket with update', async () => {
     const storage = new MockBucketChecksumStateStorage();
     // Set intial state
@@ -62,8 +73,12 @@ bucket_definitions:
 
     const state = new BucketChecksumState({
       syncContext,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      syncRules: SYNC_RULES_GLOBAL,
+      syncRequest,
+      tokenPayload,
+      syncRules: {
+        syncRules: SYNC_RULES_GLOBAL,
+        version: 1
+      },
       bucketStorage: storage
     });
 
@@ -75,9 +90,10 @@ bucket_definitions:
     line.advance();
     expect(line.checkpointLine).toEqual({
       checkpoint: {
-        buckets: [{ bucket: 'global[]', checksum: 1, count: 1, priority: 3 }],
+        buckets: [{ bucket: 'global[]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }],
         last_op_id: '1',
-        write_checkpoint: undefined
+        write_checkpoint: undefined,
+        streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
     expect(line.bucketsToFetch).toEqual([
@@ -111,7 +127,7 @@ bucket_definitions:
     expect(line2.checkpointLine).toEqual({
       checkpoint_diff: {
         removed_buckets: [],
-        updated_buckets: [{ bucket: 'global[]', checksum: 2, count: 2, priority: 3 }],
+        updated_buckets: [{ bucket: 'global[]', checksum: 2, count: 2, priority: 3, subscriptions: [{ default: 0 }] }],
         last_op_id: '2',
         write_checkpoint: undefined
       }
@@ -129,10 +145,13 @@ bucket_definitions:
 
     const state = new BucketChecksumState({
       syncContext,
+      tokenPayload,
       // Client sets the initial state here
-      initialBucketPositions: [{ name: 'global[]', after: 1n }],
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      syncRules: SYNC_RULES_GLOBAL,
+      syncRequest: { buckets: [{ name: 'global[]', after: '1' }] },
+      syncRules: {
+        syncRules: SYNC_RULES_GLOBAL,
+        version: 1
+      },
       bucketStorage: storage
     });
 
@@ -144,9 +163,10 @@ bucket_definitions:
     line.advance();
     expect(line.checkpointLine).toEqual({
       checkpoint: {
-        buckets: [{ bucket: 'global[]', checksum: 1, count: 1, priority: 3 }],
+        buckets: [{ bucket: 'global[]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }],
         last_op_id: '1',
-        write_checkpoint: undefined
+        write_checkpoint: undefined,
+        streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
     expect(line.bucketsToFetch).toEqual([
@@ -167,8 +187,12 @@ bucket_definitions:
 
     const state = new BucketChecksumState({
       syncContext,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      syncRules: SYNC_RULES_GLOBAL_TWO,
+      tokenPayload,
+      syncRequest,
+      syncRules: {
+        syncRules: SYNC_RULES_GLOBAL_TWO,
+        version: 2
+      },
       bucketStorage: storage
     });
 
@@ -180,11 +204,12 @@ bucket_definitions:
     expect(line.checkpointLine).toEqual({
       checkpoint: {
         buckets: [
-          { bucket: 'global[1]', checksum: 1, count: 1, priority: 3 },
-          { bucket: 'global[2]', checksum: 1, count: 1, priority: 3 }
+          { bucket: 'global[1]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] },
+          { bucket: 'global[2]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }
         ],
         last_op_id: '1',
-        write_checkpoint: undefined
+        write_checkpoint: undefined,
+        streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
     expect(line.bucketsToFetch).toEqual([
@@ -215,8 +240,8 @@ bucket_definitions:
       checkpoint_diff: {
         removed_buckets: [],
         updated_buckets: [
-          { bucket: 'global[1]', checksum: 2, count: 2, priority: 3 },
-          { bucket: 'global[2]', checksum: 2, count: 2, priority: 3 }
+          { bucket: 'global[1]', checksum: 2, count: 2, priority: 3, subscriptions: [{ default: 0 }] },
+          { bucket: 'global[2]', checksum: 2, count: 2, priority: 3, subscriptions: [{ default: 0 }] }
         ],
         last_op_id: '2',
         write_checkpoint: undefined
@@ -232,10 +257,13 @@ bucket_definitions:
 
     const state = new BucketChecksumState({
       syncContext,
+      tokenPayload,
       // Client sets the initial state here
-      initialBucketPositions: [{ name: 'something_here[]', after: 1n }],
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      syncRules: SYNC_RULES_GLOBAL,
+      syncRequest: { buckets: [{ name: 'something_here[]', after: '1' }] },
+      syncRules: {
+        syncRules: SYNC_RULES_GLOBAL,
+        version: 1
+      },
       bucketStorage: storage
     });
 
@@ -249,9 +277,10 @@ bucket_definitions:
     line.advance();
     expect(line.checkpointLine).toEqual({
       checkpoint: {
-        buckets: [{ bucket: 'global[]', checksum: 1, count: 1, priority: 3 }],
+        buckets: [{ bucket: 'global[]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }],
         last_op_id: '1',
-        write_checkpoint: undefined
+        write_checkpoint: undefined,
+        streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
     expect(line.bucketsToFetch).toEqual([
@@ -273,8 +302,12 @@ bucket_definitions:
 
     const state = new BucketChecksumState({
       syncContext,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      syncRules: SYNC_RULES_GLOBAL_TWO,
+      tokenPayload,
+      syncRequest,
+      syncRules: {
+        syncRules: SYNC_RULES_GLOBAL_TWO,
+        version: 1
+      },
       bucketStorage: storage
     });
 
@@ -310,7 +343,7 @@ bucket_definitions:
         removed_buckets: [],
         updated_buckets: [
           // This does not include global[2], since it was not invalidated.
-          { bucket: 'global[1]', checksum: 2, count: 2, priority: 3 }
+          { bucket: 'global[1]', checksum: 2, count: 2, priority: 3, subscriptions: [{ default: 0 }] }
         ],
         last_op_id: '2',
         write_checkpoint: undefined
@@ -325,8 +358,12 @@ bucket_definitions:
 
     const state = new BucketChecksumState({
       syncContext,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      syncRules: SYNC_RULES_GLOBAL_TWO,
+      tokenPayload,
+      syncRequest,
+      syncRules: {
+        syncRules: SYNC_RULES_GLOBAL_TWO,
+        version: 2
+      },
       bucketStorage: storage
     });
 
@@ -358,8 +395,8 @@ bucket_definitions:
       checkpoint_diff: {
         removed_buckets: [],
         updated_buckets: [
-          { bucket: 'global[1]', checksum: 2, count: 2, priority: 3 },
-          { bucket: 'global[2]', checksum: 2, count: 2, priority: 3 }
+          { bucket: 'global[1]', checksum: 2, count: 2, priority: 3, subscriptions: [{ default: 0 }] },
+          { bucket: 'global[2]', checksum: 2, count: 2, priority: 3, subscriptions: [{ default: 0 }] }
         ],
         last_op_id: '2',
         write_checkpoint: undefined
@@ -379,8 +416,12 @@ bucket_definitions:
 
     const state = new BucketChecksumState({
       syncContext,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      syncRules: SYNC_RULES_GLOBAL_TWO,
+      tokenPayload,
+      syncRequest,
+      syncRules: {
+        syncRules: SYNC_RULES_GLOBAL_TWO,
+        version: 2
+      },
       bucketStorage: storage
     });
 
@@ -393,11 +434,12 @@ bucket_definitions:
     expect(line.checkpointLine).toEqual({
       checkpoint: {
         buckets: [
-          { bucket: 'global[1]', checksum: 3, count: 3, priority: 3 },
-          { bucket: 'global[2]', checksum: 3, count: 3, priority: 3 }
+          { bucket: 'global[1]', checksum: 3, count: 3, priority: 3, subscriptions: [{ default: 0 }] },
+          { bucket: 'global[2]', checksum: 3, count: 3, priority: 3, subscriptions: [{ default: 0 }] }
         ],
         last_op_id: '3',
-        write_checkpoint: undefined
+        write_checkpoint: undefined,
+        streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
     expect(line.bucketsToFetch).toEqual([
@@ -444,7 +486,8 @@ bucket_definitions:
             bucket: 'global[1]',
             checksum: 4,
             count: 4,
-            priority: 3
+            priority: 3,
+            subscriptions: [{ default: 0 }]
           }
         ],
         last_op_id: '4',
@@ -480,8 +523,12 @@ bucket_definitions:
 
     const state = new BucketChecksumState({
       syncContext,
-      syncParams: new RequestParameters({ sub: 'u1' }, {}),
-      syncRules: SYNC_RULES_DYNAMIC,
+      tokenPayload: { sub: 'u1' },
+      syncRequest,
+      syncRules: {
+        syncRules: SYNC_RULES_DYNAMIC,
+        version: 1
+      },
       bucketStorage: storage
     });
 
@@ -496,10 +543,29 @@ bucket_definitions:
     expect(line.checkpointLine).toEqual({
       checkpoint: {
         buckets: [
-          { bucket: 'by_project[1]', checksum: 1, count: 1, priority: 3 },
-          { bucket: 'by_project[2]', checksum: 1, count: 1, priority: 3 }
+          {
+            bucket: 'by_project[1]',
+            checksum: 1,
+            count: 1,
+            priority: 3,
+            subscriptions: [{ default: 0 }]
+          },
+          {
+            bucket: 'by_project[2]',
+            checksum: 1,
+            count: 1,
+            priority: 3,
+            subscriptions: [{ default: 0 }]
+          }
         ],
         last_op_id: '1',
+        streams: [
+          {
+            is_default: true,
+            name: 'by_project',
+            errors: []
+          }
+        ],
         write_checkpoint: undefined
       }
     });
@@ -544,12 +610,244 @@ bucket_definitions:
     expect(line2.checkpointLine).toEqual({
       checkpoint_diff: {
         removed_buckets: [],
-        updated_buckets: [{ bucket: 'by_project[3]', checksum: 1, count: 1, priority: 3 }],
+        updated_buckets: [
+          {
+            bucket: 'by_project[3]',
+            checksum: 1,
+            count: 1,
+            priority: 3,
+            subscriptions: [{ default: 0 }]
+          }
+        ],
         last_op_id: '2',
         write_checkpoint: undefined
       }
     });
     expect(line2.getFilteredBucketPositions()).toEqual(new Map([['by_project[3]', 0n]]));
+  });
+
+  describe('streams', () => {
+    let source: { -readonly [P in keyof BucketSource]: BucketSource[P] };
+    let storage: MockBucketChecksumStateStorage;
+
+    function checksumState(source: string | boolean, options?: Partial<BucketChecksumStateOptions>) {
+      if (typeof source == 'boolean') {
+        source = `
+streams:
+  stream:
+    auto_subscribe: ${source}
+    query: SELECT * FROM assets WHERE id IN ifnull(subscription.parameter('ids'), '["default"]');
+
+config:
+  edition: 2
+`;
+      }
+
+      const rules = SqlSyncRules.fromYaml(source, {
+        defaultSchema: 'public'
+      });
+
+      return new BucketChecksumState({
+        syncContext,
+        syncRequest,
+        tokenPayload,
+        syncRules: { syncRules: rules, version: 1 },
+        bucketStorage: storage,
+        ...options
+      });
+    }
+
+    beforeEach(() => {
+      storage = new MockBucketChecksumStateStorage();
+      storage.updateTestChecksum({ bucket: '1#stream|0["default"]', checksum: 1, count: 1 });
+      storage.updateTestChecksum({ bucket: '1#stream|0["a"]', checksum: 1, count: 1 });
+      storage.updateTestChecksum({ bucket: '1#stream|0["b"]', checksum: 1, count: 1 });
+    });
+
+    test('includes defaults', async () => {
+      const state = checksumState(true);
+      const line = await state.buildNextCheckpointLine({
+        base: storage.makeCheckpoint(1n),
+        writeCheckpoint: null,
+        update: CHECKPOINT_INVALIDATE_ALL
+      })!;
+      line?.advance();
+      expect(line?.checkpointLine).toEqual({
+        checkpoint: {
+          buckets: [
+            { bucket: '1#stream|0["default"]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }
+          ],
+          last_op_id: '1',
+          write_checkpoint: undefined,
+          streams: [{ name: 'stream', is_default: true, errors: [] }]
+        }
+      });
+    });
+
+    test('can exclude defaults', async () => {
+      const state = checksumState(true, { syncRequest: { streams: { include_defaults: false, subscriptions: [] } } });
+
+      const line = await state.buildNextCheckpointLine({
+        base: storage.makeCheckpoint(1n),
+        writeCheckpoint: null,
+        update: CHECKPOINT_INVALIDATE_ALL
+      })!;
+      line?.advance();
+      expect(line?.checkpointLine).toEqual({
+        checkpoint: {
+          buckets: [],
+          last_op_id: '1',
+          write_checkpoint: undefined,
+          streams: []
+        }
+      });
+    });
+
+    test('custom subscriptions', async () => {
+      const state = checksumState(true, {
+        syncRequest: {
+          streams: {
+            subscriptions: [
+              { stream: 'stream', parameters: { ids: '["a"]' }, override_priority: null },
+              { stream: 'stream', parameters: { ids: '["b"]' }, override_priority: 1 }
+            ]
+          }
+        }
+      });
+
+      const line = await state.buildNextCheckpointLine({
+        base: storage.makeCheckpoint(1n),
+        writeCheckpoint: null,
+        update: CHECKPOINT_INVALIDATE_ALL
+      })!;
+      line?.advance();
+      expect(line?.checkpointLine).toEqual({
+        checkpoint: {
+          buckets: [
+            { bucket: '1#stream|0["a"]', checksum: 1, count: 1, priority: 3, subscriptions: [{ sub: 0 }] },
+            { bucket: '1#stream|0["b"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 1 }] },
+            { bucket: '1#stream|0["default"]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }
+          ],
+          last_op_id: '1',
+          write_checkpoint: undefined,
+          streams: [{ name: 'stream', is_default: true, errors: [] }]
+        }
+      });
+    });
+
+    test('overlap between custom subscriptions', async () => {
+      const state = checksumState(false, {
+        syncRequest: {
+          streams: {
+            subscriptions: [
+              { stream: 'stream', parameters: { ids: '["a", "b"]' }, override_priority: null },
+              { stream: 'stream', parameters: { ids: '["b"]' }, override_priority: 1 }
+            ]
+          }
+        }
+      });
+
+      const line = await state.buildNextCheckpointLine({
+        base: storage.makeCheckpoint(1n),
+        writeCheckpoint: null,
+        update: CHECKPOINT_INVALIDATE_ALL
+      })!;
+      line?.advance();
+      expect(line?.checkpointLine).toEqual({
+        checkpoint: {
+          buckets: [
+            { bucket: '1#stream|0["a"]', checksum: 1, count: 1, priority: 3, subscriptions: [{ sub: 0 }] },
+            { bucket: '1#stream|0["b"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }, { sub: 1 }] }
+          ],
+          last_op_id: '1',
+          write_checkpoint: undefined,
+          streams: [{ name: 'stream', is_default: false, errors: [] }]
+        }
+      });
+    });
+
+    test('overlap between default and custom subscription', async () => {
+      const state = checksumState(true, {
+        syncRequest: {
+          streams: {
+            subscriptions: [{ stream: 'stream', parameters: { ids: '["a", "default"]' }, override_priority: 1 }]
+          }
+        }
+      });
+
+      const line = await state.buildNextCheckpointLine({
+        base: storage.makeCheckpoint(1n),
+        writeCheckpoint: null,
+        update: CHECKPOINT_INVALIDATE_ALL
+      })!;
+      line?.advance();
+      expect(line?.checkpointLine).toEqual({
+        checkpoint: {
+          buckets: [
+            { bucket: '1#stream|0["a"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }] },
+            {
+              bucket: '1#stream|0["default"]',
+              checksum: 1,
+              count: 1,
+              priority: 1,
+              subscriptions: [{ sub: 0 }, { default: 0 }]
+            }
+          ],
+          last_op_id: '1',
+          write_checkpoint: undefined,
+          streams: [{ name: 'stream', is_default: true, errors: [] }]
+        }
+      });
+    });
+
+    test('reports errors', async () => {
+      const state = checksumState(true, {
+        syncRequest: {
+          streams: {
+            subscriptions: [
+              { stream: 'stream', parameters: { ids: '["a", "b"]' }, override_priority: 1 },
+              { stream: 'stream', parameters: { ids: 'invalid json' }, override_priority: null }
+            ]
+          }
+        }
+      });
+
+      const line = await state.buildNextCheckpointLine({
+        base: storage.makeCheckpoint(1n),
+        writeCheckpoint: null,
+        update: CHECKPOINT_INVALIDATE_ALL
+      })!;
+      line?.advance();
+      expect(line?.checkpointLine).toEqual({
+        checkpoint: {
+          buckets: [
+            { bucket: '1#stream|0["a"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }] },
+            { bucket: '1#stream|0["b"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }] },
+            {
+              bucket: '1#stream|0["default"]',
+              checksum: 1,
+              count: 1,
+              priority: 3,
+              subscriptions: [{ default: 0 }]
+            }
+          ],
+          last_op_id: '1',
+          write_checkpoint: undefined,
+          streams: [
+            {
+              name: 'stream',
+              is_default: true,
+              errors: [
+                {
+                  message: 'Error evaluating bucket ids: Unexpected token \'i\', "invalid json" is not valid JSON',
+                  subscription: 1
+                }
+              ]
+            }
+          ]
+        }
+      });
+    });
   });
 });
 

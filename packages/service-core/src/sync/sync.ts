@@ -1,5 +1,11 @@
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
-import { BucketDescription, BucketPriority, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
+import {
+  BucketDescription,
+  BucketPriority,
+  RequestJwtPayload,
+  RequestParameters,
+  SqlSyncRules
+} from '@powersync/service-sync-rules';
 
 import { AbortError } from 'ix/aborterror.js';
 
@@ -8,7 +14,7 @@ import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
 import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
-import { BucketChecksumState, CheckpointLine } from './BucketChecksumState.js';
+import { BucketChecksumState, CheckpointLine, VersionedSyncRules } from './BucketChecksumState.js';
 import { mergeAsyncIterables } from '../streams/streams-index.js';
 import { acquireSemaphoreAbortable, settledPromise, tokenStream, TokenStreamOptions } from './util.js';
 import { SyncContext } from './SyncContext.js';
@@ -17,11 +23,11 @@ import { OperationsSentStats, RequestTracker, statsForBatch } from './RequestTra
 export interface SyncStreamParameters {
   syncContext: SyncContext;
   bucketStorage: storage.SyncRulesBucketStorage;
-  syncRules: SqlSyncRules;
+  syncRules: VersionedSyncRules;
   params: util.StreamingSyncRequest;
-  syncParams: RequestParameters;
   token: auth.JwtPayload;
   logger?: Logger;
+  isEncodingAsBson: boolean;
   /**
    * If this signal is aborted, the stream response ends as soon as possible, without error.
    */
@@ -34,8 +40,17 @@ export interface SyncStreamParameters {
 export async function* streamResponse(
   options: SyncStreamParameters
 ): AsyncIterable<util.StreamingSyncLine | string | null> {
-  const { syncContext, bucketStorage, syncRules, params, syncParams, token, tokenStreamOptions, tracker, signal } =
-    options;
+  const {
+    syncContext,
+    bucketStorage,
+    syncRules,
+    params,
+    token,
+    tokenStreamOptions,
+    tracker,
+    signal,
+    isEncodingAsBson
+  } = options;
   const logger = options.logger ?? defaultLogger;
 
   // We also need to be able to abort, so we create our own controller.
@@ -58,10 +73,11 @@ export async function* streamResponse(
     bucketStorage,
     syncRules,
     params,
-    syncParams,
+    token,
     tracker,
     controller.signal,
-    logger
+    logger,
+    isEncodingAsBson
   );
   // Merge the two streams, and abort as soon as one of the streams end.
   const merged = mergeAsyncIterables([stream, ki], controller.signal);
@@ -84,26 +100,25 @@ export async function* streamResponse(
 async function* streamResponseInner(
   syncContext: SyncContext,
   bucketStorage: storage.SyncRulesBucketStorage,
-  syncRules: SqlSyncRules,
+  syncRules: VersionedSyncRules,
   params: util.StreamingSyncRequest,
-  syncParams: RequestParameters,
+  tokenPayload: RequestJwtPayload,
   tracker: RequestTracker,
   signal: AbortSignal,
-  logger: Logger
+  logger: Logger,
+  isEncodingAsBson: boolean
 ): AsyncGenerator<util.StreamingSyncLine | string | null> {
-  const { raw_data, binary_data } = params;
+  const { raw_data } = params;
 
-  const checkpointUserId = util.checkpointUserId(syncParams.tokenParameters.user_id as string, params.client_id);
+  const userId = tokenPayload.sub;
+  const checkpointUserId = util.checkpointUserId(userId as string, params.client_id);
 
   const checksumState = new BucketChecksumState({
     syncContext,
     bucketStorage,
     syncRules,
-    syncParams,
-    initialBucketPositions: params.buckets?.map((bucket) => ({
-      name: bucket.name,
-      after: BigInt(bucket.after)
-    })),
+    tokenPayload,
+    syncRequest: params,
     logger: logger
   });
   const stream = bucketStorage.watchCheckpointChanges({
@@ -223,12 +238,11 @@ async function* streamResponseInner(
           checkpoint: next.value.value.checkpoint,
           bucketsToFetch: buckets,
           checkpointLine: line,
-          raw_data,
-          binary_data,
+          legacyDataLines: !isEncodingAsBson && params.raw_data != true,
           onRowsSent: markOperationsSent,
           abort_connection: signal,
           abort_batch: abortCheckpointSignal,
-          user_id: syncParams.userId,
+          user_id: userId,
           // Passing null here will emit a full sync complete message at the end. If we pass a priority, we'll emit a partial
           // sync complete message instead.
           forPriority: !isLast ? priority : null,
@@ -253,8 +267,8 @@ interface BucketDataRequest {
   checkpointLine: CheckpointLine;
   /** Subset of checkpointLine.bucketsToFetch, filtered by priority. */
   bucketsToFetch: BucketDescription[];
-  raw_data: boolean | undefined;
-  binary_data: boolean | undefined;
+  /** Whether data lines should be encoded in a legacy format where {@link util.OplogEntry.data} is a nested object. */
+  legacyDataLines: boolean;
   /** Signals that the connection was aborted and that streaming should stop ASAP. */
   abort_connection: AbortSignal;
   /**
@@ -315,8 +329,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
     checkpoint,
     bucketsToFetch,
     checkpointLine,
-    raw_data,
-    binary_data,
+    legacyDataLines,
     abort_connection,
     abort_batch,
     onRowsSent,
@@ -366,32 +379,21 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
       }
       logger.debug(`Sending data for ${r.bucket}`);
 
-      let send_data: any;
-      if (binary_data) {
-        // Send the object as is, will most likely be encoded as a BSON document
-        send_data = { data: r };
-      } else if (raw_data) {
-        /**
-         * Data is a raw string - we can use the more efficient JSON.stringify.
-         */
-        const response: util.StreamingSyncData = {
-          data: r
-        };
-        send_data = JSON.stringify(response);
-      } else {
-        // We need to preserve the embedded data exactly, so this uses a JsonContainer
-        // and JSONBig to stringify.
-        const response: util.StreamingSyncData = {
-          data: transformLegacyResponse(r)
-        };
-        send_data = JSONBig.stringify(response);
-      }
-      yield { data: send_data, done: false };
-      if (send_data.length > 50_000) {
-        // IMPORTANT: This does not affect the output stream, but is used to flush
-        // iterator memory in case if large data sent.
-        yield { data: null, done: false };
-      }
+      const line = legacyDataLines
+        ? // We need to preserve the embedded data exactly, so this uses a JsonContainer
+          // and JSONBig to stringify.
+          JSONBig.stringify({
+            data: transformLegacyResponse(r)
+          } satisfies util.StreamingSyncData)
+        : // We can send the object as-is, which will be converted to JSON or BSON by a downstream transformer.
+          ({ data: r } satisfies util.StreamingSyncData);
+
+      yield { data: line, done: false };
+
+      // IMPORTANT: This does not affect the output stream, but is used to flush
+      // iterator memory in case if large data sent.
+      yield { data: null, done: false };
+
       onRowsSent(statsForBatch(r));
 
       checkpointLine.updateBucketPosition({ bucket: r.bucket, nextAfter: BigInt(r.next_after), hasMore: r.has_more });

@@ -4,6 +4,7 @@ import { SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, isParameterValueClause, sqliteBool } from './sql_support.js';
 import { TABLE_VALUED_FUNCTIONS, TableValuedFunction } from './TableValuedFunctions.js';
 import {
+  BucketIdTransformer,
   ParameterValueClause,
   ParameterValueSet,
   QueryParseOptions,
@@ -202,7 +203,7 @@ export class TableValuedFunctionSqlParameterQuery {
     this.errors = options.errors;
   }
 
-  getStaticBucketDescriptions(parameters: RequestParameters): BucketDescription[] {
+  getStaticBucketDescriptions(parameters: RequestParameters, transformer: BucketIdTransformer): BucketDescription[] {
     if (this.filter == null || this.callClause == null) {
       // Error in filter clause
       return [];
@@ -212,7 +213,7 @@ export class TableValuedFunctionSqlParameterQuery {
     const rows = this.function.call([valueString]);
     let total: BucketDescription[] = [];
     for (let row of rows) {
-      const description = this.getIndividualBucketDescription(row, parameters);
+      const description = this.getIndividualBucketDescription(row, parameters, transformer);
       if (description !== null) {
         total.push(description);
       }
@@ -220,11 +221,13 @@ export class TableValuedFunctionSqlParameterQuery {
     return total;
   }
 
-  private getIndividualBucketDescription(row: SqliteRow, parameters: RequestParameters): BucketDescription | null {
+  private getIndividualBucketDescription(
+    row: SqliteRow,
+    parameters: RequestParameters,
+    transformer: BucketIdTransformer
+  ): BucketDescription | null {
     const mergedParams: ParameterValueSet = {
-      rawTokenPayload: parameters.rawTokenPayload,
-      rawUserParameters: parameters.rawUserParameters,
-      userId: parameters.userId,
+      ...parameters,
       lookup: (table, column) => {
         if (table == this.callTableName) {
           return row[column]!;
@@ -249,7 +252,7 @@ export class TableValuedFunctionSqlParameterQuery {
     }
 
     return {
-      bucket: getBucketId(this.descriptorName, this.bucketParameters, result),
+      bucket: getBucketId(this.descriptorName, this.bucketParameters, result, transformer),
       priority: this.priority
     };
   }

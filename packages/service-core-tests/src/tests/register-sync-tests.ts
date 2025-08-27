@@ -7,7 +7,7 @@ import {
   utils
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { RequestParameters } from '@powersync/service-sync-rules';
+import { BucketSourceType, RequestParameters } from '@powersync/service-sync-rules';
 import path from 'path';
 import * as timers from 'timers/promises';
 import { fileURLToPath } from 'url';
@@ -82,15 +82,18 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage: bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: {
+        syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+        version: bucketStorage.group_id
+      },
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      token: { exp: Date.now() / 1000 + 10 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      isEncodingAsBson: false
     });
 
     const lines = await consumeCheckpointLines(stream);
@@ -143,15 +146,18 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: {
+        syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+        version: bucketStorage.group_id
+      },
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      token: { exp: Date.now() / 1000 + 10 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      isEncodingAsBson: false
     });
 
     const lines = await consumeCheckpointLines(stream);
@@ -206,15 +212,18 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: {
+        syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+        version: bucketStorage.group_id
+      },
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      token: { exp: Date.now() / 1000 + 10 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      isEncodingAsBson: false
     });
 
     let sentCheckpoints = 0;
@@ -316,15 +325,18 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: {
+        syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+        version: bucketStorage.group_id
+      },
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: 'user_one' }, {}),
-      token: { sub: 'user_one', exp: Date.now() / 1000 + 100000 } as any
+      token: { sub: 'user_one', exp: Date.now() / 1000 + 100000 } as any,
+      isEncodingAsBson: false
     });
 
     let sentCheckpoints = 0;
@@ -457,15 +469,18 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: {
+        syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+        version: bucketStorage.group_id
+      },
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      token: { exp: Date.now() / 1000 + 10 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      isEncodingAsBson: false
     });
 
     let sentRows = 0;
@@ -573,15 +588,18 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: {
+        syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+        version: bucketStorage.group_id
+      },
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      token: { exp: Date.now() / 1000 + 100000 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 100000 } as any,
+      isEncodingAsBson: false
     });
 
     const lines: any[] = [];
@@ -639,15 +657,18 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: {
+        syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+        version: bucketStorage.group_id
+      },
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: false
       },
       tracker,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      token: { exp: Date.now() / 1000 + 10 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      isEncodingAsBson: false
     });
 
     const lines = await consumeCheckpointLines(stream);
@@ -668,15 +689,18 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: {
+        syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+        version: bucketStorage.group_id
+      },
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      token: { exp: 0 } as any
+      token: { sub: '', exp: 0 } as any,
+      isEncodingAsBson: false
     });
 
     const lines = await consumeCheckpointLines(stream);
@@ -699,15 +723,18 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: {
+        syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+        version: bucketStorage.group_id
+      },
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      token: { exp: Date.now() / 1000 + 10 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
     context.onTestFinished(() => {
@@ -773,15 +800,18 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: {
+        syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+        version: bucketStorage.group_id
+      },
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: 'user1' }, {}),
-      token: { exp: Date.now() / 1000 + 100 } as any
+      token: { sub: 'user1', exp: Date.now() / 1000 + 100 } as any,
+      isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
     context.onTestFinished(() => {
@@ -849,15 +879,18 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: {
+        syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+        version: bucketStorage.group_id
+      },
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: 'user1' }, {}),
-      token: { exp: Date.now() / 1000 + 100 } as any
+      token: { sub: 'user1', exp: Date.now() / 1000 + 100 } as any,
+      isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
     context.onTestFinished(() => {
@@ -916,15 +949,18 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: {
+        syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+        version: bucketStorage.group_id
+      },
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: 'user1' }, {}),
-      token: { exp: Date.now() / 1000 + 100 } as any
+      token: { sub: 'user1', exp: Date.now() / 1000 + 100 } as any,
+      isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
     context.onTestFinished(() => {
@@ -984,15 +1020,18 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: {
+        syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+        version: bucketStorage.group_id
+      },
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      token: { exp: exp } as any
+      token: { sub: '', exp: exp } as any,
+      isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
     context.onTestFinished(() => {
@@ -1047,15 +1086,18 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: {
+        syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+        version: bucketStorage.group_id
+      },
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: '' }, {}),
-      token: { exp: Date.now() / 1000 + 10 } as any
+      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      isEncodingAsBson: false
     });
 
     const iter = stream[Symbol.asyncIterator]();
@@ -1173,15 +1215,18 @@ bucket_definitions:
     const params: sync.SyncStreamParameters = {
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: {
+        syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+        version: bucketStorage.group_id
+      },
       params: {
         buckets: [],
         include_checksum: true,
         raw_data: true
       },
       tracker,
-      syncParams: new RequestParameters({ sub: 'test' }, {}),
-      token: { sub: 'test', exp: Date.now() / 1000 + 10 } as any
+      token: { sub: 'test', exp: Date.now() / 1000 + 10 } as any,
+      isEncodingAsBson: false
     };
     const stream1 = sync.streamResponse(params);
     const lines1 = await consumeCheckpointLines(stream1);
@@ -1210,6 +1255,59 @@ bucket_definitions:
         write_checkpoint: `${checkpoint}`
       })
     });
+  });
+
+  test('encodes sync rules id in buckes for streams', async () => {
+    await using f = await factory();
+    const rules = `
+streams:
+  test:
+    auto_subscribe: true
+    query: SELECT * FROM test;
+
+config:
+  edition: 2
+`;
+
+    for (let i = 0; i < 2; i++) {
+      const syncRules = await f.updateSyncRules({
+        content: rules
+      });
+      const bucketStorage = f.getInstance(syncRules);
+
+      await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+        await batch.save({
+          sourceTable: TEST_TABLE,
+          tag: storage.SaveOperationTag.INSERT,
+          after: {
+            id: 't1',
+            description: 'Test 1'
+          },
+          afterReplicaId: 't1'
+        });
+        await batch.commit('0/1');
+      });
+
+      const stream = sync.streamResponse({
+        syncContext,
+        bucketStorage: bucketStorage,
+        syncRules: {
+          syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+          version: bucketStorage.group_id
+        },
+        params: {
+          buckets: [],
+          include_checksum: true,
+          raw_data: true
+        },
+        tracker,
+        token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+        isEncodingAsBson: false
+      });
+
+      const lines = await consumeCheckpointLines(stream);
+      expect(lines).toMatchSnapshot();
+    }
   });
 }
 

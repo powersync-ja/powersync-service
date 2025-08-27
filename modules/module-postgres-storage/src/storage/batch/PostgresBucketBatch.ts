@@ -378,7 +378,7 @@ export class PostgresBucketBatch
   }
 
   async keepalive(lsn: string): Promise<boolean> {
-    if (this.last_checkpoint_lsn != null && lsn <= this.last_checkpoint_lsn) {
+    if (this.last_checkpoint_lsn != null && lsn < this.last_checkpoint_lsn) {
       // No-op
       return false;
     }
@@ -825,7 +825,8 @@ export class PostgresBucketBatch
       if (sourceTable.syncData) {
         const { results: evaluated, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
           record: after,
-          sourceTable
+          sourceTable,
+          bucketIdTransformer: sync_rules.SqlSyncRules.versionedBucketIdTransformer(`${this.group_id}`)
         });
 
         for (const error of syncErrors) {

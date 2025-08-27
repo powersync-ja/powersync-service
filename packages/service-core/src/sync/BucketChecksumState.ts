@@ -1,4 +1,13 @@
-import { BucketDescription, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
+import {
+  BucketDescription,
+  BucketPriority,
+  BucketSource,
+  RequestedStream,
+  RequestJwtPayload,
+  RequestParameters,
+  ResolvedBucket,
+  SqlSyncRules
+} from '@powersync/service-sync-rules';
 
 import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
@@ -11,17 +20,22 @@ import {
   logger as defaultLogger
 } from '@powersync/lib-services-framework';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { BucketParameterQuerier } from '@powersync/service-sync-rules/src/BucketParameterQuerier.js';
+import { BucketParameterQuerier, QuerierError } from '@powersync/service-sync-rules/src/BucketParameterQuerier.js';
 import { SyncContext } from './SyncContext.js';
 import { getIntersection, hasIntersection } from './util.js';
+
+export interface VersionedSyncRules {
+  syncRules: SqlSyncRules;
+  version: number;
+}
 
 export interface BucketChecksumStateOptions {
   syncContext: SyncContext;
   bucketStorage: BucketChecksumStateStorage;
-  syncRules: SqlSyncRules;
-  syncParams: RequestParameters;
+  syncRules: VersionedSyncRules;
+  tokenPayload: RequestJwtPayload;
+  syncRequest: util.StreamingSyncRequest;
   logger?: Logger;
-  initialBucketPositions?: { name: string; after: util.InternalOpId }[];
 }
 
 type BucketSyncState = {
@@ -50,6 +64,17 @@ export class BucketChecksumState {
    */
   private lastChecksums: util.ChecksumMap | null = null;
   private lastWriteCheckpoint: bigint | null = null;
+  /**
+   * Once we've sent the first full checkpoint line including all {@link util.Checkpoint.streams} that the user is
+   * subscribed to, we keep an index of the stream names to their index in that array.
+   *
+   * This is used to compress the representation of buckets in `checkpoint` and `checkpoint_diff` lines: For buckets
+   * that are part of sync rules or default streams, we need to include the name of the defining sync rule or definition
+   * yielding that bucket (so that clients can track progress for default streams).
+   * But instead of sending the name for each bucket, we use the fact that it's part of the streams array and only send
+   * their index, reducing the size of those messages.
+   */
+  private streamNameToIndex: Map<string, number> | null = null;
 
   private readonly parameterState: BucketParameterState;
 
@@ -69,13 +94,14 @@ export class BucketChecksumState {
       options.syncContext,
       options.bucketStorage,
       options.syncRules,
-      options.syncParams,
+      options.tokenPayload,
+      options.syncRequest,
       this.logger
     );
     this.bucketDataPositions = new Map();
 
-    for (let { name, after: start } of options.initialBucketPositions ?? []) {
-      this.bucketDataPositions.set(name, { start_op_id: start });
+    for (let { name, after: start } of options.syncRequest.buckets ?? []) {
+      this.bucketDataPositions.set(name, { start_op_id: BigInt(start) });
     }
   }
 
@@ -158,6 +184,7 @@ export class BucketChecksumState {
       // TODO: If updatedBuckets is present, we can use that to more efficiently calculate a diff,
       // and avoid any unnecessary loops through the entire list of buckets.
       const diff = util.checksumsDiff(this.lastChecksums, checksumMap);
+      const streamNameToIndex = this.streamNameToIndex!;
 
       if (
         this.lastWriteCheckpoint == writeCheckpoint &&
@@ -182,12 +209,12 @@ export class BucketChecksumState {
 
       const updatedBucketDescriptions = diff.updatedBuckets.map((e) => ({
         ...e,
-        priority: bucketDescriptionMap.get(e.bucket)!.priority
+        ...this.parameterState.translateResolvedBucket(bucketDescriptionMap.get(e.bucket)!, streamNameToIndex)
       }));
       bucketsToFetch = [...generateBucketsToFetch].map((b) => {
         return {
-          bucket: b,
-          priority: bucketDescriptionMap.get(b)!.priority
+          priority: bucketDescriptionMap.get(b)!.priority,
+          bucket: b
         };
       });
 
@@ -220,15 +247,37 @@ export class BucketChecksumState {
         message += `buckets: ${allBuckets.length} ${limitedBuckets(allBuckets, 20)}`;
         this.logger.info(message, { checkpoint: base.checkpoint, user_id: user_id, buckets: allBuckets.length });
       };
-      bucketsToFetch = allBuckets;
+      bucketsToFetch = allBuckets.map((b) => ({ bucket: b.bucket, priority: b.priority }));
+
+      const subscriptions: util.StreamDescription[] = [];
+      const streamNameToIndex = new Map<string, number>();
+      this.streamNameToIndex = streamNameToIndex;
+
+      for (const source of this.parameterState.syncRules.syncRules.bucketSources) {
+        if (this.parameterState.isSubscribedToStream(source)) {
+          streamNameToIndex.set(source.name, subscriptions.length);
+
+          subscriptions.push({
+            name: source.name,
+            is_default: source.subscribedToByDefault,
+            errors:
+              this.parameterState.streamErrors[source.name]?.map((e) => ({
+                subscription: e.subscription?.opaque_id ?? 'default',
+                message: e.message
+              })) ?? []
+          });
+        }
+      }
+
       checkpointLine = {
         checkpoint: {
           last_op_id: util.internalToExternalOpId(base.checkpoint),
           write_checkpoint: writeCheckpoint ? String(writeCheckpoint) : undefined,
           buckets: [...checksumMap.values()].map((e) => ({
             ...e,
-            priority: bucketDescriptionMap.get(e.bucket)!.priority
-          }))
+            ...this.parameterState.translateResolvedBucket(bucketDescriptionMap.get(e.bucket)!, streamNameToIndex)
+          })),
+          streams: subscriptions
         }
       } satisfies util.StreamingSyncCheckpoint;
     }
@@ -319,7 +368,7 @@ export interface CheckpointUpdate {
   /**
    * All buckets forming part of the checkpoint.
    */
-  buckets: BucketDescription[];
+  buckets: ResolvedBucket[];
 
   /**
    * If present, a set of buckets that have been updated since the last checkpoint.
@@ -332,12 +381,22 @@ export interface CheckpointUpdate {
 export class BucketParameterState {
   private readonly context: SyncContext;
   public readonly bucketStorage: BucketChecksumStateStorage;
-  public readonly syncRules: SqlSyncRules;
+  public readonly syncRules: VersionedSyncRules;
   public readonly syncParams: RequestParameters;
   private readonly querier: BucketParameterQuerier;
-  private readonly staticBuckets: Map<string, BucketDescription>;
+  /**
+   * Static buckets. This map is guaranteed not to change during a request, since resolving static buckets can only
+   * take request parameters into account,
+   */
+  private readonly staticBuckets: Map<string, ResolvedBucket>;
+  private readonly includeDefaultStreams: boolean;
+  // Indexed by the client-side id
+  private readonly explicitStreamSubscriptions: util.RequestedStreamSubscription[];
+  // Indexed by descriptor name.
+  readonly streamErrors: Record<string, QuerierError[]>;
+  private readonly subscribedStreamNames: Set<string>;
   private readonly logger: Logger;
-  private cachedDynamicBuckets: BucketDescription[] | null = null;
+  private cachedDynamicBuckets: ResolvedBucket[] | null = null;
   private cachedDynamicBucketSet: Set<string> | null = null;
 
   private readonly lookups: Set<string>;
@@ -345,19 +404,94 @@ export class BucketParameterState {
   constructor(
     context: SyncContext,
     bucketStorage: BucketChecksumStateStorage,
-    syncRules: SqlSyncRules,
-    syncParams: RequestParameters,
+    syncRules: VersionedSyncRules,
+    tokenPayload: RequestJwtPayload,
+    request: util.StreamingSyncRequest,
     logger: Logger
   ) {
     this.context = context;
     this.bucketStorage = bucketStorage;
     this.syncRules = syncRules;
-    this.syncParams = syncParams;
+    this.syncParams = new RequestParameters(tokenPayload, request.parameters ?? {});
     this.logger = logger;
 
-    this.querier = syncRules.getBucketParameterQuerier(this.syncParams);
-    this.staticBuckets = new Map<string, BucketDescription>(this.querier.staticBuckets.map((b) => [b.bucket, b]));
+    const streamsByName: Record<string, RequestedStream[]> = {};
+    const subscriptions = request.streams;
+    const explicitStreamSubscriptions: util.RequestedStreamSubscription[] = subscriptions?.subscriptions ?? [];
+    if (subscriptions) {
+      for (let i = 0; i < explicitStreamSubscriptions.length; i++) {
+        const subscription = explicitStreamSubscriptions[i];
+
+        const syncRuleStream: RequestedStream = {
+          parameters: subscription.parameters ?? {},
+          opaque_id: i
+        };
+        if (Object.hasOwn(streamsByName, subscription.stream)) {
+          streamsByName[subscription.stream].push(syncRuleStream);
+        } else {
+          streamsByName[subscription.stream] = [syncRuleStream];
+        }
+      }
+    }
+    this.includeDefaultStreams = subscriptions?.include_defaults ?? true;
+    this.explicitStreamSubscriptions = explicitStreamSubscriptions;
+
+    const { querier, errors } = syncRules.syncRules.getBucketParameterQuerier({
+      globalParameters: this.syncParams,
+      hasDefaultStreams: this.includeDefaultStreams,
+      streams: streamsByName,
+      bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(`${syncRules.version}`)
+    });
+    this.querier = querier;
+    this.streamErrors = Object.groupBy(errors, (e) => e.descriptor) as Record<string, QuerierError[]>;
+
+    this.staticBuckets = new Map<string, ResolvedBucket>(
+      mergeBuckets(this.querier.staticBuckets).map((b) => [b.bucket, b])
+    );
     this.lookups = new Set<string>(this.querier.parameterQueryLookups.map((l) => JSONBig.stringify(l.values)));
+    this.subscribedStreamNames = new Set(Object.keys(streamsByName));
+  }
+
+  /**
+   * Translates an internal sync-rules {@link ResolvedBucket} instance to the public
+   * {@link util.ClientBucketDescription}.
+   *
+   * @param lookupIndex A map from stream names to their index in {@link util.Checkpoint.streams}. These are used to
+   * reference default buckets by their stream index instead of duplicating the name on wire.
+   */
+  translateResolvedBucket(description: ResolvedBucket, lookupIndex: Map<string, number>): util.ClientBucketDescription {
+    // If the client is overriding the priority of any stream that yields this bucket, sync the bucket with that
+    // priority.
+    let priorityOverride: BucketPriority | null = null;
+    for (const reason of description.inclusion_reasons) {
+      if (reason != 'default') {
+        const requestedPriority = this.explicitStreamSubscriptions[reason.subscription]?.override_priority;
+        if (requestedPriority != null) {
+          if (priorityOverride == null) {
+            priorityOverride = requestedPriority as BucketPriority;
+          } else {
+            priorityOverride = Math.min(requestedPriority, priorityOverride) as BucketPriority;
+          }
+        }
+      }
+    }
+
+    return {
+      bucket: description.bucket,
+      priority: priorityOverride ?? description.priority,
+      subscriptions: description.inclusion_reasons.map((reason) => {
+        if (reason == 'default') {
+          const stream = description.definition;
+          return { default: lookupIndex.get(stream)! };
+        } else {
+          return { sub: reason.subscription };
+        }
+      })
+    };
+  }
+
+  isSubscribedToStream(desc: BucketSource): boolean {
+    return (desc.subscribedToByDefault && this.includeDefaultStreams) || this.subscribedStreamNames.has(desc.name);
   }
 
   async getCheckpointUpdate(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate> {
@@ -391,19 +525,19 @@ export class BucketParameterState {
    * For static buckets, we can keep track of which buckets have been updated.
    */
   private async getCheckpointUpdateStatic(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate> {
-    const querier = this.querier;
+    const staticBuckets = [...this.staticBuckets.values()];
     const update = checkpoint.update;
 
     if (update.invalidateDataBuckets) {
       return {
-        buckets: querier.staticBuckets,
+        buckets: staticBuckets,
         updatedBuckets: INVALIDATE_ALL_BUCKETS
       };
     }
 
     const updatedBuckets = new Set<string>(getIntersection(this.staticBuckets, update.updatedDataBuckets));
     return {
-      buckets: querier.staticBuckets,
+      buckets: staticBuckets,
       updatedBuckets
     };
   }
@@ -414,7 +548,7 @@ export class BucketParameterState {
   private async getCheckpointUpdateDynamic(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate> {
     const querier = this.querier;
     const storage = this.bucketStorage;
-    const staticBuckets = querier.staticBuckets;
+    const staticBuckets = this.staticBuckets.values();
     const update = checkpoint.update;
 
     let hasParameterChange = false;
@@ -436,7 +570,7 @@ export class BucketParameterState {
       }
     }
 
-    let dynamicBuckets: BucketDescription[];
+    let dynamicBuckets: ResolvedBucket[];
     if (hasParameterChange || this.cachedDynamicBuckets == null || this.cachedDynamicBucketSet == null) {
       dynamicBuckets = await querier.queryDynamicBucketDescriptions({
         getParameterSets(lookups) {
@@ -458,7 +592,7 @@ export class BucketParameterState {
         }
       }
     }
-    const allBuckets = [...staticBuckets, ...dynamicBuckets];
+    const allBuckets = [...staticBuckets, ...mergeBuckets(dynamicBuckets)];
 
     if (invalidateDataBuckets) {
       return {
@@ -516,4 +650,33 @@ function limitedBuckets(buckets: string[] | { bucket: string }[], limit: number)
   }
   const limited = buckets.slice(0, limit);
   return `${JSON.stringify(limited)}...`;
+}
+
+/**
+ * Resolves duplicate buckets in the given array, merging the inclusion reasons for duplicate.
+ *
+ * It's possible for duplicates to occur when a stream has multiple subscriptions, consider e.g.
+ *
+ * ```
+ * sync_streams:
+ *  assets_by_category:
+ *    query: select * from assets where category in (request.parameters() -> 'categories')
+ * ```
+ *
+ * Here, a client might subscribe once with `{"categories": [1]}` and once with `{"categories": [1, 2]}`. Since each
+ * subscription is evaluated independently, this would lead to three buckets, with a duplicate `assets_by_category[1]`
+ * bucket.
+ */
+function mergeBuckets(buckets: ResolvedBucket[]): ResolvedBucket[] {
+  const byBucketId: Record<string, ResolvedBucket> = {};
+
+  for (const bucket of buckets) {
+    if (Object.hasOwn(byBucketId, bucket.bucket)) {
+      byBucketId[bucket.bucket].inclusion_reasons.push(...bucket.inclusion_reasons);
+    } else {
+      byBucketId[bucket.bucket] = structuredClone(bucket);
+    }
+  }
+
+  return Object.values(byBucketId);
 }

@@ -4,12 +4,29 @@ import { ColumnDefinition } from './ExpressionType.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SqlTools } from './sql_filters.js';
 import { TablePattern } from './TablePattern.js';
-import { QueryParameters, QuerySchema, SourceSchema, SourceSchemaTable, SqliteJsonRow, SqliteRow } from './types.js';
+import {
+  BucketIdTransformer,
+  EvaluationResult,
+  QueryParameters,
+  QuerySchema,
+  SourceSchema,
+  SourceSchemaTable,
+  SqliteJsonRow,
+  SqliteRow
+} from './types.js';
 import { filterJsonRow } from './utils.js';
+import { castAsText } from './sql_functions.js';
 
 export interface RowValueExtractor {
   extract(tables: QueryParameters, into: SqliteRow): void;
   getTypes(schema: QuerySchema, into: Record<string, ColumnDefinition>): void;
+}
+
+export interface EvaluateRowOptions {
+  table: SourceTableInterface;
+  row: SqliteRow;
+  bucketIds: (params: QueryParameters) => string[];
+  bucketIdTransformer: BucketIdTransformer | null;
 }
 
 export interface BaseSqlDataQueryOptions {
@@ -21,7 +38,6 @@ export interface BaseSqlDataQueryOptions {
   descriptorName: string;
   bucketParameters: string[];
   tools: SqlTools;
-
   errors?: SqlRuleError[];
 }
 
@@ -147,6 +163,51 @@ export class BaseSqlDataQuery {
     }
 
     return result;
+  }
+
+  resolveResultSets(schema: SourceSchema, tables: Record<string, Record<string, ColumnDefinition>>) {
+    const outTables = this.getColumnOutputs(schema);
+    for (let table of outTables) {
+      tables[table.name] ??= {};
+      for (let column of table.columns) {
+        if (column.name != 'id') {
+          tables[table.name][column.name] ??= column;
+        }
+      }
+    }
+  }
+
+  evaluateRowWithOptions(options: Omit<EvaluateRowOptions, 'bucketIdTransformer'>): EvaluationResult[] {
+    try {
+      const { table, row, bucketIds } = options;
+
+      const tables = { [this.table]: this.addSpecialParameters(table, row) };
+      const resolvedBucketIds = bucketIds(tables);
+
+      const data = this.transformRow(tables);
+      let id = data.id;
+      if (typeof id != 'string') {
+        // While an explicit cast would be better, this covers against very common
+        // issues when initially testing out sync, for example when the id column is an
+        // auto-incrementing integer.
+        // If there is no id column, we use a blank id. This will result in the user syncing
+        // a single arbitrary row for this table - better than just not being able to sync
+        // anything.
+        id = castAsText(id) ?? '';
+      }
+      const outputTable = this.getOutputName(table.name);
+
+      return resolvedBucketIds.map((bucketId) => {
+        return {
+          bucket: bucketId,
+          table: outputTable,
+          id: id,
+          data
+        } as EvaluationResult;
+      });
+    } catch (e) {
+      return [{ error: e.message ?? `Evaluating data query failed` }];
+    }
   }
 
   protected transformRow(tables: QueryParameters): SqliteJsonRow {

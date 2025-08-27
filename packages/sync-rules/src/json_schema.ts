@@ -1,4 +1,5 @@
 import ajvModule from 'ajv';
+import { CompatibilityEdition, CompatibilityOption } from './compatibility.js';
 // Hack to make this work both in NodeJS and a browser
 const Ajv = ajvModule.default ?? ajvModule;
 const ajv = new Ajv({ allErrors: true, verbose: true });
@@ -49,6 +50,36 @@ export const syncRulesSchema: ajvModule.Schema = {
         }
       }
     },
+    streams: {
+      type: 'object',
+      description: 'List of stream definitions',
+      examples: [{ user_details: { query: 'select * from users where id = auth.user_id()' } }],
+      patternProperties: {
+        '.*': {
+          type: 'object',
+          required: ['query'],
+          examples: [{ query: ['select * from mytable'] }],
+          properties: {
+            accept_potentially_dangerous_queries: {
+              description: 'If true, disables warnings on potentially dangerous queries',
+              type: 'boolean'
+            },
+            auto_subscribe: {
+              description: 'Whether clients will subscribe to this stream by default.',
+              type: 'boolean'
+            },
+            priority: {
+              description: 'Priority for the bucket (lower values indicate higher priority).',
+              type: 'integer'
+            },
+            query: {
+              description: 'The SQL query defining content to sync in this stream.',
+              type: 'string'
+            }
+          }
+        }
+      }
+    },
     event_definitions: {
       type: 'object',
       description: 'Record of sync replication event definitions',
@@ -77,9 +108,33 @@ export const syncRulesSchema: ajvModule.Schema = {
           }
         }
       }
+    },
+    config: {
+      type: 'object',
+      description: 'Config declaring the compatibility level used to parse these definitions.',
+      properties: {
+        edition: {
+          type: 'integer',
+          default: CompatibilityEdition.LEGACY,
+          minimum: CompatibilityEdition.LEGACY,
+          exclusiveMaximum: CompatibilityEdition.SYNC_STREAMS + 1
+        },
+        ...Object.fromEntries(
+          Object.entries(CompatibilityOption.byName).map((e) => {
+            return [
+              e[0],
+              {
+                type: 'boolean',
+                description: `Enabled by default starting from edition ${e[1].fixedIn}: ${e[1].description}`
+              }
+            ];
+          })
+        )
+      },
+      additionalProperties: false
     }
   },
-  required: ['bucket_definitions'],
+  anyOf: [{ required: ['bucket_definitions'] }, { required: ['streams'] }],
   additionalProperties: false
 } as const;
 

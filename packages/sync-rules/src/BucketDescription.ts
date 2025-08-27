@@ -30,3 +30,19 @@ export interface BucketDescription {
    */
   priority: BucketPriority;
 }
+
+/**
+ * A bucket that was resolved to a specific request including stream subscriptions.
+ *
+ * This includes information on why the bucket has been included in a checkpoint subset
+ * shown to clients.
+ */
+export interface ResolvedBucket extends BucketDescription {
+  /**
+   * The name of the sync rule or stream definition from which the bucket is derived.
+   */
+  definition: string;
+  inclusion_reasons: BucketInclusionReason[];
+}
+
+export type BucketInclusionReason = 'default' | { subscription: number };

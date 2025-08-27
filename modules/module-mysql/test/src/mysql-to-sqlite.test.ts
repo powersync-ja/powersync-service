@@ -1,4 +1,4 @@
-import { SqliteRow } from '@powersync/service-sync-rules';
+import { SqliteInputRow, SqliteRow } from '@powersync/service-sync-rules';
 import { afterAll, describe, expect, test } from 'vitest';
 import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
 import { eventIsWriteMutation, eventIsXid } from '@module/replication/zongji/zongji-utils.js';
@@ -298,7 +298,7 @@ INSERT INTO test_data (
   });
 });
 
-async function getDatabaseRows(connection: MySQLConnectionManager, tableName: string): Promise<SqliteRow[]> {
+async function getDatabaseRows(connection: MySQLConnectionManager, tableName: string): Promise<SqliteInputRow[]> {
   const [results, fields] = await connection.query(`SELECT * FROM ${tableName}`);
   const columns = toColumnDescriptors(fields);
   return results.map((row) => common.toSQLiteRow(row, columns));
@@ -307,15 +307,15 @@ async function getDatabaseRows(connection: MySQLConnectionManager, tableName: st
 /**
  * Return all the inserts from the first transaction in the binlog stream.
  */
-async function getReplicatedRows(expectedTransactionsCount?: number): Promise<SqliteRow[]> {
-  let transformed: SqliteRow[] = [];
+async function getReplicatedRows(expectedTransactionsCount?: number): Promise<SqliteInputRow[]> {
+  let transformed: SqliteInputRow[] = [];
   const zongji = new ZongJi({
     host: TEST_CONNECTION_OPTIONS.hostname,
     user: TEST_CONNECTION_OPTIONS.username,
     password: TEST_CONNECTION_OPTIONS.password
   });
 
-  const completionPromise = new Promise<SqliteRow[]>((resolve, reject) => {
+  const completionPromise = new Promise<SqliteInputRow[]>((resolve, reject) => {
     zongji.on('binlog', (evt: BinLogEvent) => {
       try {
         if (eventIsWriteMutation(evt)) {

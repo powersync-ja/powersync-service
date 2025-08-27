@@ -10,9 +10,21 @@ exports[`sync - mongodb > compacting data - invalidate checkpoint 1`] = `
           "checksum": -93886621,
           "count": 2,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "last_op_id": "2",
+      "streams": [
+        {
+          "errors": [],
+          "is_default": true,
+          "name": "mybucket",
+        },
+      ],
       "write_checkpoint": undefined,
     },
   },
@@ -27,7 +39,7 @@ exports[`sync - mongodb > compacting data - invalidate checkpoint 2`] = `
       "bucket": "mybucket[]",
       "data": [
         {
-          "checksum": -93886621n,
+          "checksum": -93886621,
           "op": "CLEAR",
           "op_id": "2",
         },
@@ -46,6 +58,11 @@ exports[`sync - mongodb > compacting data - invalidate checkpoint 2`] = `
           "checksum": 499012468,
           "count": 4,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "write_checkpoint": undefined,
@@ -57,7 +74,7 @@ exports[`sync - mongodb > compacting data - invalidate checkpoint 2`] = `
       "bucket": "mybucket[]",
       "data": [
         {
-          "checksum": 1859363232n,
+          "checksum": 1859363232,
           "data": "{"id":"t1","description":"Test 1b"}",
           "object_id": "t1",
           "object_type": "test",
@@ -66,7 +83,7 @@ exports[`sync - mongodb > compacting data - invalidate checkpoint 2`] = `
           "subkey": "e5aa2ddc-1328-58fa-a000-0b5ed31eaf1a",
         },
         {
-          "checksum": 3028503153n,
+          "checksum": 3028503153,
           "data": "{"id":"t2","description":"Test 2b"}",
           "object_id": "t2",
           "object_type": "test",
@@ -82,6 +99,116 @@ exports[`sync - mongodb > compacting data - invalidate checkpoint 2`] = `
   {
     "checkpoint_complete": {
       "last_op_id": "4",
+    },
+  },
+]
+`;
+
+exports[`sync - mongodb > encodes sync rules id in buckes for streams 1`] = `
+[
+  {
+    "checkpoint": {
+      "buckets": [
+        {
+          "bucket": "1#test|0[]",
+          "checksum": 920318466,
+          "count": 1,
+          "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
+        },
+      ],
+      "last_op_id": "1",
+      "streams": [
+        {
+          "errors": [],
+          "is_default": true,
+          "name": "test",
+        },
+      ],
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "data": {
+      "after": "0",
+      "bucket": "1#test|0[]",
+      "data": [
+        {
+          "checksum": 920318466,
+          "data": "{"id":"t1","description":"Test 1"}",
+          "object_id": "t1",
+          "object_type": "test",
+          "op": "PUT",
+          "op_id": "1",
+          "subkey": "e5aa2ddc-1328-58fa-a000-0b5ed31eaf1a",
+        },
+      ],
+      "has_more": false,
+      "next_after": "1",
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "1",
+    },
+  },
+]
+`;
+
+exports[`sync - mongodb > encodes sync rules id in buckes for streams 2`] = `
+[
+  {
+    "checkpoint": {
+      "buckets": [
+        {
+          "bucket": "2#test|0[]",
+          "checksum": 920318466,
+          "count": 1,
+          "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
+        },
+      ],
+      "last_op_id": "2",
+      "streams": [
+        {
+          "errors": [],
+          "is_default": true,
+          "name": "test",
+        },
+      ],
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "data": {
+      "after": "0",
+      "bucket": "2#test|0[]",
+      "data": [
+        {
+          "checksum": 920318466,
+          "data": "{"id":"t1","description":"Test 1"}",
+          "object_id": "t1",
+          "object_type": "test",
+          "op": "PUT",
+          "op_id": "2",
+          "subkey": "e5aa2ddc-1328-58fa-a000-0b5ed31eaf1a",
+        },
+      ],
+      "has_more": false,
+      "next_after": "2",
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "2",
     },
   },
 ]
@@ -105,9 +232,21 @@ exports[`sync - mongodb > expiring token 1`] = `
           "checksum": 0,
           "count": 0,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "last_op_id": "0",
+      "streams": [
+        {
+          "errors": [],
+          "is_default": true,
+          "name": "mybucket",
+        },
+      ],
       "write_checkpoint": undefined,
     },
   },
@@ -137,9 +276,21 @@ exports[`sync - mongodb > sends checkpoint complete line for empty checkpoint 1`
           "checksum": -1221282404,
           "count": 1,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "last_op_id": "1",
+      "streams": [
+        {
+          "errors": [],
+          "is_default": true,
+          "name": "mybucket",
+        },
+      ],
       "write_checkpoint": undefined,
     },
   },
@@ -162,6 +313,7 @@ exports[`sync - mongodb > sends checkpoint complete line for empty checkpoint 1`
       "next_after": "1",
     },
   },
+  null,
   {
     "checkpoint_complete": {
       "last_op_id": "1",
@@ -193,15 +345,37 @@ exports[`sync - mongodb > sync buckets in order 1`] = `
           "checksum": 920318466,
           "count": 1,
           "priority": 2,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
         {
           "bucket": "b1[]",
           "checksum": -1382098757,
           "count": 1,
           "priority": 1,
+          "subscriptions": [
+            {
+              "default": 1,
+            },
+          ],
         },
       ],
       "last_op_id": "2",
+      "streams": [
+        {
+          "errors": [],
+          "is_default": true,
+          "name": "b0",
+        },
+        {
+          "errors": [],
+          "is_default": true,
+          "name": "b1",
+        },
+      ],
       "write_checkpoint": undefined,
     },
   },
@@ -211,7 +385,7 @@ exports[`sync - mongodb > sync buckets in order 1`] = `
       "bucket": "b1[]",
       "data": [
         {
-          "checksum": 2912868539n,
+          "checksum": 2912868539,
           "data": "{"id":"earlier","description":"Test 2"}",
           "object_id": "earlier",
           "object_type": "test",
@@ -236,7 +410,7 @@ exports[`sync - mongodb > sync buckets in order 1`] = `
       "bucket": "b0[]",
       "data": [
         {
-          "checksum": 920318466n,
+          "checksum": 920318466,
           "data": "{"id":"t1","description":"Test 1"}",
           "object_id": "t1",
           "object_type": "test",
@@ -267,9 +441,21 @@ exports[`sync - mongodb > sync global data 1`] = `
           "checksum": -93886621,
           "count": 2,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "last_op_id": "2",
+      "streams": [
+        {
+          "errors": [],
+          "is_default": true,
+          "name": "mybucket",
+        },
+      ],
       "write_checkpoint": undefined,
     },
   },
@@ -279,7 +465,7 @@ exports[`sync - mongodb > sync global data 1`] = `
       "bucket": "mybucket[]",
       "data": [
         {
-          "checksum": 920318466n,
+          "checksum": 920318466,
           "data": "{"id":"t1","description":"Test 1"}",
           "object_id": "t1",
           "object_type": "test",
@@ -288,7 +474,7 @@ exports[`sync - mongodb > sync global data 1`] = `
           "subkey": "e5aa2ddc-1328-58fa-a000-0b5ed31eaf1a",
         },
         {
-          "checksum": 3280762209n,
+          "checksum": 3280762209,
           "data": "{"id":"t2","description":"Test 2"}",
           "object_id": "t2",
           "object_type": "test",
@@ -319,21 +505,53 @@ exports[`sync - mongodb > sync interrupts low-priority buckets on new checkpoint
           "checksum": -659831575,
           "count": 2000,
           "priority": 2,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
         {
           "bucket": "b0b[]",
           "checksum": -659831575,
           "count": 2000,
           "priority": 2,
+          "subscriptions": [
+            {
+              "default": 1,
+            },
+          ],
         },
         {
           "bucket": "b1[]",
           "checksum": -1096116670,
           "count": 1,
           "priority": 1,
+          "subscriptions": [
+            {
+              "default": 2,
+            },
+          ],
         },
       ],
       "last_op_id": "4001",
+      "streams": [
+        {
+          "errors": [],
+          "is_default": true,
+          "name": "b0a",
+        },
+        {
+          "errors": [],
+          "is_default": true,
+          "name": "b0b",
+        },
+        {
+          "errors": [],
+          "is_default": true,
+          "name": "b1",
+        },
+      ],
       "write_checkpoint": undefined,
     },
   },
@@ -380,18 +598,33 @@ exports[`sync - mongodb > sync interrupts low-priority buckets on new checkpoint
           "checksum": 883076828,
           "count": 2001,
           "priority": 2,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
         {
           "bucket": "b0b[]",
           "checksum": 883076828,
           "count": 2001,
           "priority": 2,
+          "subscriptions": [
+            {
+              "default": 1,
+            },
+          ],
         },
         {
           "bucket": "b1[]",
           "checksum": 1841937527,
           "count": 2,
           "priority": 1,
+          "subscriptions": [
+            {
+              "default": 2,
+            },
+          ],
         },
       ],
       "write_checkpoint": undefined,
@@ -466,9 +699,21 @@ exports[`sync - mongodb > sync legacy non-raw data 1`] = `
           "checksum": -852817836,
           "count": 1,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "last_op_id": "1",
+      "streams": [
+        {
+          "errors": [],
+          "is_default": true,
+          "name": "mybucket",
+        },
+      ],
       "write_checkpoint": undefined,
     },
   },
@@ -514,9 +759,21 @@ exports[`sync - mongodb > sync updates to data query only 1`] = `
           "checksum": 0,
           "count": 0,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "last_op_id": "1",
+      "streams": [
+        {
+          "errors": [],
+          "is_default": true,
+          "name": "by_user",
+        },
+      ],
       "write_checkpoint": undefined,
     },
   },
@@ -540,6 +797,11 @@ exports[`sync - mongodb > sync updates to data query only 2`] = `
           "checksum": 1418351250,
           "count": 1,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "write_checkpoint": undefined,
@@ -551,7 +813,7 @@ exports[`sync - mongodb > sync updates to data query only 2`] = `
       "bucket": "by_user["user1"]",
       "data": [
         {
-          "checksum": 1418351250n,
+          "checksum": 1418351250,
           "data": "{"id":"list1","user_id":"user1","name":"User 1"}",
           "object_id": "list1",
           "object_type": "lists",
@@ -582,9 +844,21 @@ exports[`sync - mongodb > sync updates to global data 1`] = `
           "checksum": 0,
           "count": 0,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "last_op_id": "0",
+      "streams": [
+        {
+          "errors": [],
+          "is_default": true,
+          "name": "mybucket",
+        },
+      ],
       "write_checkpoint": undefined,
     },
   },
@@ -608,6 +882,11 @@ exports[`sync - mongodb > sync updates to global data 2`] = `
           "checksum": 920318466,
           "count": 1,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "write_checkpoint": undefined,
@@ -619,7 +898,7 @@ exports[`sync - mongodb > sync updates to global data 2`] = `
       "bucket": "mybucket[]",
       "data": [
         {
-          "checksum": 920318466n,
+          "checksum": 920318466,
           "data": "{"id":"t1","description":"Test 1"}",
           "object_id": "t1",
           "object_type": "test",
@@ -652,6 +931,11 @@ exports[`sync - mongodb > sync updates to global data 3`] = `
           "checksum": -93886621,
           "count": 2,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "write_checkpoint": undefined,
@@ -663,7 +947,7 @@ exports[`sync - mongodb > sync updates to global data 3`] = `
       "bucket": "mybucket[]",
       "data": [
         {
-          "checksum": 3280762209n,
+          "checksum": 3280762209,
           "data": "{"id":"t2","description":"Test 2"}",
           "object_id": "t2",
           "object_type": "test",
@@ -690,6 +974,13 @@ exports[`sync - mongodb > sync updates to parameter query + data 1`] = `
     "checkpoint": {
       "buckets": [],
       "last_op_id": "0",
+      "streams": [
+        {
+          "errors": [],
+          "is_default": true,
+          "name": "by_user",
+        },
+      ],
       "write_checkpoint": undefined,
     },
   },
@@ -713,6 +1004,11 @@ exports[`sync - mongodb > sync updates to parameter query + data 2`] = `
           "checksum": 1418351250,
           "count": 1,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "write_checkpoint": undefined,
@@ -724,7 +1020,7 @@ exports[`sync - mongodb > sync updates to parameter query + data 2`] = `
       "bucket": "by_user["user1"]",
       "data": [
         {
-          "checksum": 1418351250n,
+          "checksum": 1418351250,
           "data": "{"id":"list1","user_id":"user1","name":"User 1"}",
           "object_id": "list1",
           "object_type": "lists",
@@ -751,6 +1047,13 @@ exports[`sync - mongodb > sync updates to parameter query only 1`] = `
     "checkpoint": {
       "buckets": [],
       "last_op_id": "0",
+      "streams": [
+        {
+          "errors": [],
+          "is_default": true,
+          "name": "by_user",
+        },
+      ],
       "write_checkpoint": undefined,
     },
   },
@@ -774,6 +1077,11 @@ exports[`sync - mongodb > sync updates to parameter query only 2`] = `
           "checksum": 0,
           "count": 0,
           "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
         },
       ],
       "write_checkpoint": undefined,

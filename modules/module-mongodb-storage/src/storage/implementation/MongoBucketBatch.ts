@@ -461,7 +461,8 @@ export class MongoBucketBatch
       if (sourceTable.syncData) {
         const { results: evaluated, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
           record: after,
-          sourceTable
+          sourceTable,
+          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(`${this.group_id}`)
         });
 
         for (let error of syncErrors) {
@@ -807,7 +808,7 @@ export class MongoBucketBatch
   }
 
   async keepalive(lsn: string): Promise<boolean> {
-    if (this.last_checkpoint_lsn != null && lsn <= this.last_checkpoint_lsn) {
+    if (this.last_checkpoint_lsn != null && lsn < this.last_checkpoint_lsn) {
       // No-op
       return false;
     }

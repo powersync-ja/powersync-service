@@ -58,8 +58,6 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         return;
       }
 
-      const syncParams = new RequestParameters(context.token_payload!, params.parameters ?? {});
-
       const {
         storageEngine: { activeBucketStorage }
       } = service_context;
@@ -90,12 +88,13 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         for await (const data of sync.streamResponse({
           syncContext: syncContext,
           bucketStorage: bucketStorage,
-          syncRules: syncRules,
-          params: {
-            ...params,
-            binary_data: true // always true for web sockets
+          syncRules: {
+            syncRules,
+            version: bucketStorage.group_id
           },
-          syncParams,
+          params: {
+            ...params
+          },
           token: context!.token_payload!,
           tokenStreamOptions: {
             // RSocket handles keepalive events by default
@@ -103,7 +102,8 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
           },
           tracker,
           signal,
-          logger
+          logger,
+          isEncodingAsBson: true
         })) {
           if (signal.aborted) {
             break;
@@ -116,7 +116,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
             const serialized = sync.syncLineToBson(data);
             responder.onNext({ data: serialized }, false);
             requestedN--;
-            tracker.addDataSynced(serialized.length);
+            tracker.addPlaintextDataSynced(serialized.length);
           }
 
           if (requestedN <= 0 && !signal.aborted) {
