@@ -43,7 +43,7 @@ export function generateSlotName(prefix: string, sync_rules_id: number) {
  *
  * For this to be effective, set batchSize = limit in the find command.
  */
-export async function readSingleBatch<T>(cursor: mongo.FindCursor<T>): Promise<{ data: T[]; hasMore: boolean }> {
+export async function readSingleBatch<T>(cursor: mongo.AbstractCursor<T>): Promise<{ data: T[]; hasMore: boolean }> {
   try {
     let data: T[];
     let hasMore = true;
