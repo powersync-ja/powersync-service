@@ -3,4 +3,4 @@
 '@powersync/service-image': minor
 ---
 
-Add the `versioned_bucket_ids` quirk which, when opting in to the fix, generates bucket ids in a way that is more efficient for clients to adopt around sync rule redeploys.
+Add the `versioned_bucket_ids` option in the `config:` block for sync rules. When enabled, generated bucket ids include the version of sync rules. This allows clients to sync more efficiently after updating sync rules.

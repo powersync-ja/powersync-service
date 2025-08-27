@@ -17,9 +17,7 @@ import {
   ParameterLookup,
   SqlSyncRules,
   RequestJwtPayload,
-  BucketSource,
-  BucketSourceType,
-  BucketParameterQuerier
+  BucketSource
 } from '@powersync/service-sync-rules';
 import { describe, expect, test, beforeEach } from 'vitest';
 
@@ -661,9 +659,9 @@ config:
 
     beforeEach(() => {
       storage = new MockBucketChecksumStateStorage();
-      storage.updateTestChecksum({ bucket: 'stream|0["default"]', checksum: 1, count: 1 });
-      storage.updateTestChecksum({ bucket: 'stream|0["a"]', checksum: 1, count: 1 });
-      storage.updateTestChecksum({ bucket: 'stream|0["b"]', checksum: 1, count: 1 });
+      storage.updateTestChecksum({ bucket: '1#stream|0["default"]', checksum: 1, count: 1 });
+      storage.updateTestChecksum({ bucket: '1#stream|0["a"]', checksum: 1, count: 1 });
+      storage.updateTestChecksum({ bucket: '1#stream|0["b"]', checksum: 1, count: 1 });
     });
 
     test('includes defaults', async () => {
@@ -677,7 +675,7 @@ config:
       expect(line?.checkpointLine).toEqual({
         checkpoint: {
           buckets: [
-            { bucket: 'stream|0["default"]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }
+            { bucket: '1#stream|0["default"]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }
           ],
           last_op_id: '1',
           write_checkpoint: undefined,
@@ -726,9 +724,9 @@ config:
       expect(line?.checkpointLine).toEqual({
         checkpoint: {
           buckets: [
-            { bucket: 'stream|0["a"]', checksum: 1, count: 1, priority: 3, subscriptions: [{ sub: 0 }] },
-            { bucket: 'stream|0["b"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 1 }] },
-            { bucket: 'stream|0["default"]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }
+            { bucket: '1#stream|0["a"]', checksum: 1, count: 1, priority: 3, subscriptions: [{ sub: 0 }] },
+            { bucket: '1#stream|0["b"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 1 }] },
+            { bucket: '1#stream|0["default"]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }
           ],
           last_op_id: '1',
           write_checkpoint: undefined,
@@ -758,8 +756,8 @@ config:
       expect(line?.checkpointLine).toEqual({
         checkpoint: {
           buckets: [
-            { bucket: 'stream|0["a"]', checksum: 1, count: 1, priority: 3, subscriptions: [{ sub: 0 }] },
-            { bucket: 'stream|0["b"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }, { sub: 1 }] }
+            { bucket: '1#stream|0["a"]', checksum: 1, count: 1, priority: 3, subscriptions: [{ sub: 0 }] },
+            { bucket: '1#stream|0["b"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }, { sub: 1 }] }
           ],
           last_op_id: '1',
           write_checkpoint: undefined,
@@ -786,9 +784,9 @@ config:
       expect(line?.checkpointLine).toEqual({
         checkpoint: {
           buckets: [
-            { bucket: 'stream|0["a"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }] },
+            { bucket: '1#stream|0["a"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }] },
             {
-              bucket: 'stream|0["default"]',
+              bucket: '1#stream|0["default"]',
               checksum: 1,
               count: 1,
               priority: 1,
@@ -823,10 +821,10 @@ config:
       expect(line?.checkpointLine).toEqual({
         checkpoint: {
           buckets: [
-            { bucket: 'stream|0["a"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }] },
-            { bucket: 'stream|0["b"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }] },
+            { bucket: '1#stream|0["a"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }] },
+            { bucket: '1#stream|0["b"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }] },
             {
-              bucket: 'stream|0["default"]',
+              bucket: '1#stream|0["default"]',
               checksum: 1,
               count: 1,
               priority: 3,
