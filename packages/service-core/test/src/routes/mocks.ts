@@ -11,6 +11,7 @@ import {
   SyncRulesBucketStorage
 } from '@/index.js';
 import { MeterProvider } from '@opentelemetry/sdk-metrics';
+import { EventsEngine } from '@/events/EventsEngine.js';
 
 export function mockServiceContext(storage: Partial<SyncRulesBucketStorage> | null) {
   // This is very incomplete - just enough to get the current tests passing.
@@ -34,6 +35,7 @@ export function mockServiceContext(storage: Partial<SyncRulesBucketStorage> | nu
   createCoreAPIMetrics(metricsEngine);
   const service_context: Partial<ServiceContext> = {
     syncContext: new SyncContext({ maxBuckets: 1, maxDataFetchConcurrency: 1, maxParameterQueryResults: 1 }),
+    eventsEngine: new EventsEngine(),
     routerEngine: {
       getAPI() {
         return {

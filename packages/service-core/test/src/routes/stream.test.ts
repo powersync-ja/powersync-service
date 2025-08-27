@@ -3,7 +3,7 @@ import { logger, RouterResponse, ServiceError } from '@powersync/lib-services-fr
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { Readable, Writable } from 'stream';
 import { pipeline } from 'stream/promises';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { syncStreamed } from '../../../src/routes/endpoints/sync-stream.js';
 import { mockServiceContext } from './mocks.js';
 
@@ -24,7 +24,6 @@ describe('Stream Route', () => {
       const error = (await (syncStreamed.handler({ context, params: {}, request }) as Promise<RouterResponse>).catch(
         (e) => e
       )) as ServiceError;
-
       expect(error.errorData.status).toEqual(500);
       expect(error.errorData.code).toEqual('PSYNC_S2302');
     });
