@@ -52,7 +52,7 @@ export async function checkSourceConfiguration(connectionManager: MongoManager):
       const fullName = `${db.databaseName}.${CHECKPOINTS_COLLECTION}`;
       throw new ServiceError(
         ErrorCode.PSYNC_S1307,
-        `MongoDB user does not have the required ${missingCheckpointActions.map((a) => `"${a}"`).join(', ')} priviledge(s) on "${fullName}".`
+        `MongoDB user does not have the required ${missingCheckpointActions.map((a) => `"${a}"`).join(', ')} privilege(s) on "${fullName}".`
       );
     }
 
@@ -62,14 +62,14 @@ export async function checkSourceConfiguration(connectionManager: MongoManager):
       if (!anyCollectionActions.has('collMod')) {
         throw new ServiceError(
           ErrorCode.PSYNC_S1307,
-          `MongoDB user does not have the required "collMod" priviledge on "${db.databaseName}", required for "post_images: auto_configure".`
+          `MongoDB user does not have the required "collMod" privilege on "${db.databaseName}", required for "post_images: auto_configure".`
         );
       }
     }
     if (!anyCollectionActions.has('listCollections')) {
       throw new ServiceError(
         ErrorCode.PSYNC_S1307,
-        `MongoDB user does not have the required "listCollections" priviledge on "${db.databaseName}".`
+        `MongoDB user does not have the required "listCollections" privilege on "${db.databaseName}".`
       );
     }
   } else {
