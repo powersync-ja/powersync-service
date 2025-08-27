@@ -62,13 +62,16 @@ WHERE t.oid = ANY($1)
             if (!this.registry.knows(oid)) {
               // This type is an array of another custom type.
               const inner = Number(element_type);
-              requireType(inner);
-              this.registry.set(oid, {
-                type: 'array',
-                innerId: inner,
-                separatorCharCode: (delim as string).charCodeAt(0),
-                sqliteType: () => 'text' // Since it's JSON
-              });
+              if (inner != 0) {
+                // Some array types like macaddr[] don't seem to have their inner type set properly - skip!
+                requireType(inner);
+                this.registry.set(oid, {
+                  type: 'array',
+                  innerId: inner,
+                  separatorCharCode: (delim as string).charCodeAt(0),
+                  sqliteType: () => 'text' // Since it's JSON
+                });
+              }
             }
             break;
           case 'c':
