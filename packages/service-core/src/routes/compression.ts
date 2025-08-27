@@ -1,5 +1,5 @@
-import { PassThrough, pipeline, Readable, Transform } from 'node:stream';
 import type Negotiator from 'negotiator';
+import { PassThrough, pipeline, Readable, Transform } from 'node:stream';
 import * as zlib from 'node:zlib';
 import { RequestTracker } from '../sync/RequestTracker.js';
 
@@ -19,54 +19,51 @@ export function maybeCompressResponseStream(
   tracker: RequestTracker
 ): { stream: Readable; encodingHeaders: { 'content-encoding'?: string } } {
   const encoding = (negotiator as any).encoding(['identity', 'gzip', 'zstd'], { preferred: 'zstd' });
-  if (encoding == 'zstd') {
-    tracker.setCompressed(encoding);
+  const transform = createCompressionTransform(encoding);
+  if (transform == null) {
+    // No matching compression supported - leave stream as-is
     return {
-      stream: transform(
-        stream,
-        // Available since Node v23.8.0, v22.15.0
-        // This does the actual compression in a background thread pool.
-        zlib.createZstdCompress({
-          // We need to flush the frame after every new input chunk, to avoid delaying data
-          // in the output stream.
-          flush: zlib.constants.ZSTD_e_flush,
-          params: {
-            // Default compression level is 3. We reduce this slightly to limit CPU overhead
-            [zlib.constants.ZSTD_c_compressionLevel]: 2
-          }
-        }),
-        tracker
-      ),
-      encodingHeaders: { 'content-encoding': 'zstd' }
-    };
-  } else if (encoding == 'gzip') {
-    tracker.setCompressed(encoding);
-    return {
-      stream: transform(
-        stream,
-        zlib.createGzip({
-          // We need to flush the frame after every new input chunk, to avoid delaying data
-          // in the output stream.
-          flush: zlib.constants.Z_SYNC_FLUSH
-        }),
-        tracker
-      ),
-      encodingHeaders: { 'content-encoding': 'gzip' }
+      stream,
+      encodingHeaders: {}
     };
   } else {
+    tracker.setCompressed(encoding);
     return {
-      stream: stream,
-      encodingHeaders: {}
+      stream: transformStream(stream, transform, tracker),
+      encodingHeaders: { 'content-encoding': encoding }
     };
   }
 }
 
-function transform(source: Readable, transform: Transform, tracker: RequestTracker) {
+function createCompressionTransform(encoding: string | undefined): Transform | null {
+  if (encoding == 'zstd') {
+    // Available since Node v23.8.0, v22.15.0
+    // This does the actual compression in a background thread pool.
+    return zlib.createZstdCompress({
+      // We need to flush the frame after every new input chunk, to avoid delaying data
+      // in the output stream.
+      flush: zlib.constants.ZSTD_e_flush,
+      params: {
+        // Default compression level is 3. We reduce this slightly to limit CPU overhead
+        [zlib.constants.ZSTD_c_compressionLevel]: 2
+      }
+    });
+  } else if (encoding == 'gzip') {
+    return zlib.createGzip({
+      // We need to flush the frame after every new input chunk, to avoid delaying data
+      // in the output stream.
+      flush: zlib.constants.Z_SYNC_FLUSH
+    });
+  }
+  return null;
+}
+
+function transformStream(source: Readable, transform: Transform, tracker: RequestTracker) {
   // pipe does not forward error events automatically, resulting in unhandled error
   // events. This forwards it.
   const out = new PassThrough();
   const trackingTransform = new Transform({
-    transform(chunk, encoding, callback) {
+    transform(chunk, _encoding, callback) {
       tracker.addCompressedDataSent(chunk.length);
       callback(null, chunk);
     }
