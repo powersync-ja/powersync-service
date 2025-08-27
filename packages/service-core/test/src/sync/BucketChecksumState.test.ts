@@ -17,9 +17,7 @@ import {
   ParameterLookup,
   SqlSyncRules,
   RequestJwtPayload,
-  BucketSource,
-  BucketSourceType,
-  BucketParameterQuerier
+  BucketSource
 } from '@powersync/service-sync-rules';
 import { describe, expect, test, beforeEach } from 'vitest';
 
@@ -77,7 +75,10 @@ bucket_definitions:
       syncContext,
       syncRequest,
       tokenPayload,
-      syncRules: SYNC_RULES_GLOBAL,
+      syncRules: {
+        syncRules: SYNC_RULES_GLOBAL,
+        version: 1
+      },
       bucketStorage: storage
     });
 
@@ -147,7 +148,10 @@ bucket_definitions:
       tokenPayload,
       // Client sets the initial state here
       syncRequest: { buckets: [{ name: 'global[]', after: '1' }] },
-      syncRules: SYNC_RULES_GLOBAL,
+      syncRules: {
+        syncRules: SYNC_RULES_GLOBAL,
+        version: 1
+      },
       bucketStorage: storage
     });
 
@@ -185,7 +189,10 @@ bucket_definitions:
       syncContext,
       tokenPayload,
       syncRequest,
-      syncRules: SYNC_RULES_GLOBAL_TWO,
+      syncRules: {
+        syncRules: SYNC_RULES_GLOBAL_TWO,
+        version: 2
+      },
       bucketStorage: storage
     });
 
@@ -253,7 +260,10 @@ bucket_definitions:
       tokenPayload,
       // Client sets the initial state here
       syncRequest: { buckets: [{ name: 'something_here[]', after: '1' }] },
-      syncRules: SYNC_RULES_GLOBAL,
+      syncRules: {
+        syncRules: SYNC_RULES_GLOBAL,
+        version: 1
+      },
       bucketStorage: storage
     });
 
@@ -294,7 +304,10 @@ bucket_definitions:
       syncContext,
       tokenPayload,
       syncRequest,
-      syncRules: SYNC_RULES_GLOBAL_TWO,
+      syncRules: {
+        syncRules: SYNC_RULES_GLOBAL_TWO,
+        version: 1
+      },
       bucketStorage: storage
     });
 
@@ -347,7 +360,10 @@ bucket_definitions:
       syncContext,
       tokenPayload,
       syncRequest,
-      syncRules: SYNC_RULES_GLOBAL_TWO,
+      syncRules: {
+        syncRules: SYNC_RULES_GLOBAL_TWO,
+        version: 2
+      },
       bucketStorage: storage
     });
 
@@ -402,7 +418,10 @@ bucket_definitions:
       syncContext,
       tokenPayload,
       syncRequest,
-      syncRules: SYNC_RULES_GLOBAL_TWO,
+      syncRules: {
+        syncRules: SYNC_RULES_GLOBAL_TWO,
+        version: 2
+      },
       bucketStorage: storage
     });
 
@@ -506,7 +525,10 @@ bucket_definitions:
       syncContext,
       tokenPayload: { sub: 'u1' },
       syncRequest,
-      syncRules: SYNC_RULES_DYNAMIC,
+      syncRules: {
+        syncRules: SYNC_RULES_DYNAMIC,
+        version: 1
+      },
       bucketStorage: storage
     });
 
@@ -629,7 +651,7 @@ config:
         syncContext,
         syncRequest,
         tokenPayload,
-        syncRules: rules,
+        syncRules: { syncRules: rules, version: 1 },
         bucketStorage: storage,
         ...options
       });
@@ -637,9 +659,9 @@ config:
 
     beforeEach(() => {
       storage = new MockBucketChecksumStateStorage();
-      storage.updateTestChecksum({ bucket: 'stream|0["default"]', checksum: 1, count: 1 });
-      storage.updateTestChecksum({ bucket: 'stream|0["a"]', checksum: 1, count: 1 });
-      storage.updateTestChecksum({ bucket: 'stream|0["b"]', checksum: 1, count: 1 });
+      storage.updateTestChecksum({ bucket: '1#stream|0["default"]', checksum: 1, count: 1 });
+      storage.updateTestChecksum({ bucket: '1#stream|0["a"]', checksum: 1, count: 1 });
+      storage.updateTestChecksum({ bucket: '1#stream|0["b"]', checksum: 1, count: 1 });
     });
 
     test('includes defaults', async () => {
@@ -653,7 +675,7 @@ config:
       expect(line?.checkpointLine).toEqual({
         checkpoint: {
           buckets: [
-            { bucket: 'stream|0["default"]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }
+            { bucket: '1#stream|0["default"]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }
           ],
           last_op_id: '1',
           write_checkpoint: undefined,
@@ -702,9 +724,9 @@ config:
       expect(line?.checkpointLine).toEqual({
         checkpoint: {
           buckets: [
-            { bucket: 'stream|0["a"]', checksum: 1, count: 1, priority: 3, subscriptions: [{ sub: 0 }] },
-            { bucket: 'stream|0["b"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 1 }] },
-            { bucket: 'stream|0["default"]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }
+            { bucket: '1#stream|0["a"]', checksum: 1, count: 1, priority: 3, subscriptions: [{ sub: 0 }] },
+            { bucket: '1#stream|0["b"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 1 }] },
+            { bucket: '1#stream|0["default"]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }
           ],
           last_op_id: '1',
           write_checkpoint: undefined,
@@ -734,8 +756,8 @@ config:
       expect(line?.checkpointLine).toEqual({
         checkpoint: {
           buckets: [
-            { bucket: 'stream|0["a"]', checksum: 1, count: 1, priority: 3, subscriptions: [{ sub: 0 }] },
-            { bucket: 'stream|0["b"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }, { sub: 1 }] }
+            { bucket: '1#stream|0["a"]', checksum: 1, count: 1, priority: 3, subscriptions: [{ sub: 0 }] },
+            { bucket: '1#stream|0["b"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }, { sub: 1 }] }
           ],
           last_op_id: '1',
           write_checkpoint: undefined,
@@ -762,9 +784,9 @@ config:
       expect(line?.checkpointLine).toEqual({
         checkpoint: {
           buckets: [
-            { bucket: 'stream|0["a"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }] },
+            { bucket: '1#stream|0["a"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }] },
             {
-              bucket: 'stream|0["default"]',
+              bucket: '1#stream|0["default"]',
               checksum: 1,
               count: 1,
               priority: 1,
@@ -799,10 +821,10 @@ config:
       expect(line?.checkpointLine).toEqual({
         checkpoint: {
           buckets: [
-            { bucket: 'stream|0["a"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }] },
-            { bucket: 'stream|0["b"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }] },
+            { bucket: '1#stream|0["a"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }] },
+            { bucket: '1#stream|0["b"]', checksum: 1, count: 1, priority: 1, subscriptions: [{ sub: 0 }] },
             {
-              bucket: 'stream|0["default"]',
+              bucket: '1#stream|0["default"]',
               checksum: 1,
               count: 1,
               priority: 3,

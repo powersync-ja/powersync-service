@@ -97,7 +97,10 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         for await (const data of sync.streamResponse({
           syncContext: syncContext,
           bucketStorage: bucketStorage,
-          syncRules: syncRules,
+          syncRules: {
+            syncRules,
+            version: bucketStorage.group_id
+          },
           params: {
             ...params
           },
@@ -122,7 +125,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
             const serialized = sync.syncLineToBson(data);
             responder.onNext({ data: serialized }, false);
             requestedN--;
-            tracker.addDataSynced(serialized.length);
+            tracker.addPlaintextDataSynced(serialized.length);
           }
 
           if (requestedN <= 0 && !signal.aborted) {

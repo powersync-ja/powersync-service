@@ -10,7 +10,7 @@ import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
 import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import { TableQuerySchema } from './TableQuerySchema.js';
-import { EvaluationResult, ParameterMatchClause, QuerySchema, SqliteRow } from './types.js';
+import { BucketIdTransformer, EvaluationResult, ParameterMatchClause, QuerySchema, SqliteRow } from './types.js';
 import { getBucketId, isSelectStatement } from './utils.js';
 
 export interface SqlDataQueryOptions extends BaseSqlDataQueryOptions {
@@ -185,13 +185,19 @@ export class SqlDataQuery extends BaseSqlDataQuery {
     this.filter = options.filter;
   }
 
-  evaluateRow(table: SourceTableInterface, row: SqliteRow): EvaluationResult[] {
+  evaluateRow(
+    table: SourceTableInterface,
+    row: SqliteRow,
+    bucketIdTransformer: BucketIdTransformer
+  ): EvaluationResult[] {
     return this.evaluateRowWithOptions({
       table,
       row,
       bucketIds: (tables) => {
         const bucketParameters = this.filter.filterRow(tables);
-        return bucketParameters.map((params) => getBucketId(this.descriptorName, this.bucketParameters, params));
+        return bucketParameters.map((params) =>
+          getBucketId(this.descriptorName, this.bucketParameters, params, bucketIdTransformer)
+        );
       }
     });
   }

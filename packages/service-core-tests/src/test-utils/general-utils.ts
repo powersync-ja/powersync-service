@@ -107,6 +107,7 @@ export function querierOptions(globalParameters: RequestParameters): GetQuerierO
   return {
     globalParameters,
     hasDefaultStreams: true,
-    streams: {}
+    streams: {},
+    bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1')
   };
 }

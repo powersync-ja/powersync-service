@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { ParameterLookup, SqlParameterQuery } from '../../src/index.js';
-import { BASIC_SCHEMA, normalizeTokenParameters, PARSE_OPTIONS } from './util.js';
+import { BASIC_SCHEMA, identityBucketTransformer, normalizeTokenParameters, PARSE_OPTIONS } from './util.js';
 import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
 
 describe('parameter queries', () => {
@@ -83,11 +83,19 @@ describe('parameter queries', () => {
 
     // We _do_ need to care about the bucket string representation.
     expect(
-      query.resolveBucketDescriptions([{ int1: 314, float1: 3.14, float2: 314 }], normalizeTokenParameters({}))
+      query.resolveBucketDescriptions(
+        [{ int1: 314, float1: 3.14, float2: 314 }],
+        normalizeTokenParameters({}),
+        identityBucketTransformer
+      )
     ).toEqual([{ bucket: 'mybucket[314,3.14,314]', priority: 3 }]);
 
     expect(
-      query.resolveBucketDescriptions([{ int1: 314n, float1: 3.14, float2: 314 }], normalizeTokenParameters({}))
+      query.resolveBucketDescriptions(
+        [{ int1: 314n, float1: 3.14, float2: 314 }],
+        normalizeTokenParameters({}),
+        identityBucketTransformer
+      )
     ).toEqual([{ bucket: 'mybucket[314,3.14,314]', priority: 3 }]);
   });
 
@@ -363,7 +371,8 @@ describe('parameter queries', () => {
     expect(
       query.resolveBucketDescriptions(
         [{ user_id: 'user1' }],
-        normalizeTokenParameters({ user_id: 'user1', is_admin: true })
+        normalizeTokenParameters({ user_id: 'user1', is_admin: true }),
+        identityBucketTransformer
       )
     ).toEqual([{ bucket: 'mybucket["user1",1]', priority: 3 }]);
   });
