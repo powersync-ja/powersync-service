@@ -1264,6 +1264,9 @@ streams:
   test:
     auto_subscribe: true
     query: SELECT * FROM test;
+
+config:
+  edition: 2
 `;
 
     for (let i = 0; i < 2; i++) {
