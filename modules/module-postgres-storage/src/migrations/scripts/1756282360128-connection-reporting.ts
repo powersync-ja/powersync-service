@@ -8,7 +8,7 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
   await using client = openMigrationDB(configuration.storage);
   await client.transaction(async (db) => {
     await db.sql`
-      CREATE TABLE connection_report_events (
+      CREATE TABLE IF NOT EXISTS connection_report_events (
         id TEXT PRIMARY KEY,
         user_agent TEXT NOT NULL,
         client_id TEXT NOT NULL,
@@ -21,14 +21,14 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
     `.execute();
 
     await db.sql`
-      CREATE INDEX sdk_list_index ON connection_report_events (connected_at, jwt_exp, disconnected_at)
+      CREATE INDEX IF NOT EXISTS sdk_list_index ON connection_report_events (connected_at, jwt_exp, disconnected_at)
     `.execute();
 
-    await db.sql`CREATE INDEX sdk_user_id_index ON connection_report_events (user_id)`.execute();
+    await db.sql`CREATE INDEX IF NOT EXISTS sdk_user_id_index ON connection_report_events (user_id)`.execute();
 
-    await db.sql`CREATE INDEX sdk_client_id_index ON connection_report_events (client_id)`.execute();
+    await db.sql`CREATE INDEX IF NOT EXISTS sdk_client_id_index ON connection_report_events (client_id)`.execute();
 
-    await db.sql`CREATE INDEX sdk_index ON connection_report_events (sdk)`.execute();
+    await db.sql`CREATE INDEX IF NOT EXISTS sdk_index ON connection_report_events (sdk)`.execute();
   });
 };
 
