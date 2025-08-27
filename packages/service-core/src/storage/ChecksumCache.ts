@@ -127,6 +127,11 @@ export class ChecksumCache {
     });
   }
 
+  clear() {
+    this.cache.clear();
+    this.bucketCheckpoints.clear();
+  }
+
   async getChecksums(checkpoint: InternalOpId, buckets: string[]): Promise<BucketChecksum[]> {
     const checksums = await this.getChecksumMap(checkpoint, buckets);
     // Return results in the same order as the request

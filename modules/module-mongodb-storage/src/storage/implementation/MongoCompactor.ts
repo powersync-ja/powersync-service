@@ -387,7 +387,7 @@ export class MongoCompactor {
     try {
       let done = false;
       while (!done) {
-        let opsCleared = 0;
+        let opCountDiff = 0;
         // Do the CLEAR operation in batches, with each batch a separate transaction.
         // The state after each batch is fully consistent.
         // We need a transaction per batch to make sure checksums stay consistent.
@@ -459,18 +459,15 @@ export class MongoCompactor {
               { session }
             );
 
-            opsCleared = numberOfOpsToClear;
+            opCountDiff = -numberOfOpsToClear + 1;
           },
           {
             writeConcern: { w: 'majority' },
             readConcern: { level: 'snapshot' }
           }
         );
-        // Removed this many ops.
         // Update _outside_ the transaction, since the transaction can be retried multiple times.
-        currentState.opCount -= opsCleared;
-        // New CLEAR op
-        currentState.opCount += 1;
+        currentState.opCount += opCountDiff;
       }
     } finally {
       await session.endSession();

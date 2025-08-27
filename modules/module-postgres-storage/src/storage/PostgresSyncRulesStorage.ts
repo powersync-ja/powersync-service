@@ -571,6 +571,10 @@ export class PostgresSyncRulesStorage
     return this.checksumCache.getChecksumMap(checkpoint, buckets);
   }
 
+  clearChecksumCache() {
+    this.checksumCache.clear();
+  }
+
   async terminate(options?: storage.TerminateOptions) {
     if (!options || options?.clearStorage) {
       await this.clear(options);

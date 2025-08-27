@@ -108,6 +108,11 @@ export interface SyncRulesBucketStorage
    * Returns zero checksums for any buckets not found.
    */
   getChecksums(checkpoint: util.InternalOpId, buckets: string[]): Promise<util.ChecksumMap>;
+
+  /**
+   * Clear checksum cache. Primarily intended for tests.
+   */
+  clearChecksumCache(): void;
 }
 
 export interface SyncRulesBucketStorageListener {

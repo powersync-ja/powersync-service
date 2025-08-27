@@ -16,6 +16,7 @@ import {
   InternalOpId,
   internalToExternalOpId,
   maxLsn,
+  PartialChecksum,
   ProtocolOpId,
   ReplicationCheckpoint,
   storage,
@@ -491,6 +492,10 @@ export class MongoSyncBucketStorage
     return this.checksumCache.getChecksumMap(checkpoint, buckets);
   }
 
+  clearChecksumCache() {
+    this.checksumCache.clear();
+  }
+
   private async getChecksumsInternal(batch: storage.FetchPartialBucketChecksum[]): Promise<storage.PartialChecksumMap> {
     if (batch.length == 0) {
       return new Map();
@@ -587,24 +592,10 @@ export class MongoSyncBucketStorage
         throw lib_mongo.mapQueryError(e, 'while reading checksums');
       });
 
-    return new Map<string, storage.PartialChecksum>(
+    const partialChecksums = new Map<string, storage.PartialChecksum>(
       aggregate.map((doc) => {
         const partialChecksum = Number(BigInt(doc.checksum_total) & 0xffffffffn) & 0xffffffff;
         const bucket = doc._id;
-        const preState = preStates.get(bucket);
-        if (preState != null) {
-          // In this case, start must be null
-          return [
-            bucket,
-            {
-              bucket,
-              partialCount: preState.partialCount + doc.count,
-              partialChecksum: addChecksums(preState.partialChecksum, partialChecksum),
-              // start is null, so this is always a full checksum
-              isFullChecksum: true
-            }
-          ];
-        }
         return [
           bucket,
           {
@@ -616,6 +607,50 @@ export class MongoSyncBucketStorage
         ];
       })
     );
+
+    return new Map<string, storage.PartialChecksum>(
+      batch.map((request) => {
+        const bucket = request.bucket;
+        const preState = preStates.get(bucket);
+        const partialChecksum = partialChecksums.get(bucket);
+        const merged = mergeChecksums(bucket, preState, partialChecksum);
+
+        return [bucket, merged];
+      })
+    );
+
+    function mergeChecksums(
+      bucket: string,
+      preState: PartialChecksum | undefined,
+      partial: PartialChecksum | undefined
+    ): PartialChecksum {
+      if (preState != null && partial != null) {
+        if (partial.isFullChecksum) {
+          // Replaces preState
+          return partial;
+        }
+        // merge
+        return {
+          bucket,
+          partialChecksum: addChecksums(preState.partialChecksum, partial.partialChecksum),
+          partialCount: preState.partialCount + partial.partialCount,
+          isFullChecksum: true
+        };
+      } else if (preState != null) {
+        return preState;
+      } else if (partial != null) {
+        return partial;
+      } else {
+        // No data found (may still have a previously-cached checksum)
+        return {
+          bucket,
+          // Potentially just no data since the last checksum - don't replace it
+          isFullChecksum: false,
+          partialChecksum: 0,
+          partialCount: 0
+        };
+      }
+    }
   }
 
   async terminate(options?: storage.TerminateOptions) {
@@ -761,6 +796,7 @@ export class MongoSyncBucketStorage
 
   async compact(options?: storage.CompactOptions) {
     const checkpoint = await this.getCheckpointInternal();
+    logger.info(`Compact checkpoint: ${checkpoint?.checkpoint} lsn: ${checkpoint?.lsn}`);
     await new MongoCompactor(this.db, this.group_id, { ...options, maxOpId: checkpoint?.checkpoint }).compact();
     if (checkpoint != null && options?.compactParameterData) {
       await new MongoParameterCompactor(this.db, this.group_id, checkpoint.checkpoint, options).compact();
