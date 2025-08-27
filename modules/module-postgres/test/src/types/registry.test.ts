@@ -121,4 +121,29 @@ describe('custom type registry', () => {
     // SELECT ROW(ARRAY[(FALSE,2)]::c2[])::c3;
     checkResult('("{""(f,2)""}")', 1339, '("{""(f,2)""}")', '{"c":[{"a":0,"b":2}]}');
   });
+
+  test('range', () => {
+    registry.set(1337, {
+      type: 'range',
+      sqliteType: () => 'text',
+      innerId: PgTypeOid.INT2
+    });
+
+    checkResult('[1,2]', 1337, '[1,2]', '{"lower":1,"upper":2,"lower_exclusive":0,"upper_exclusive":0}');
+  });
+
+  test('multirange', () => {
+    registry.set(1337, {
+      type: 'multirange',
+      sqliteType: () => 'text',
+      innerId: PgTypeOid.INT2
+    });
+
+    checkResult(
+      '{[1,2),[3,4)}',
+      1337,
+      '{[1,2),[3,4)}',
+      '[{"lower":1,"upper":2,"lower_exclusive":0,"upper_exclusive":1},{"lower":3,"upper":4,"lower_exclusive":0,"upper_exclusive":1}]'
+    );
+  });
 });

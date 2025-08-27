@@ -49,7 +49,17 @@ interface CompositeType extends BaseType {
   members: { name: string; typeId: number }[];
 }
 
-type KnownType = BuiltinType | ArrayType | DomainType | DomainType | CompositeType;
+/**
+ * A type created with `CREATE TYPE AS RANGE`.
+ *
+ * Ranges are represented as {@link pgwire.Range}. Multiranges are represented as arrays thereof.
+ */
+interface RangeType extends BaseType {
+  type: 'range' | 'multirange';
+  innerId: number;
+}
+
+type KnownType = BuiltinType | ArrayType | DomainType | DomainType | CompositeType | RangeType;
 
 interface UnknownType extends BaseType {
   type: 'unknown';
@@ -199,23 +209,13 @@ export class CustomTypeRegistry {
       case 'composite': {
         const parsed: [string, any][] = [];
 
-        pgwire.decodeSequence({
-          source: raw,
-          delimiters: pgwire.COMPOSITE_DELIMITERS,
-          listener: {
-            onValue: (raw) => {
-              const nextMember = resolved.members[parsed.length];
-              if (nextMember) {
-                const value = raw == null ? null : this.decodeWithCustomTypes(raw, nextMember.typeId);
-                parsed.push([nextMember.name, value]);
-              }
-            },
-            // These are only used for nested arrays
-            onStructureStart: () => {},
-            onStructureEnd: () => {}
+        new pgwire.StructureParser(raw).parseComposite((raw) => {
+          const nextMember = resolved.members[parsed.length];
+          if (nextMember) {
+            const value = raw == null ? null : this.decodeWithCustomTypes(raw, nextMember.typeId);
+            parsed.push([nextMember.name, value]);
           }
         });
-
         return Object.fromEntries(parsed);
       }
       case 'array': {
@@ -234,12 +234,15 @@ export class CustomTypeRegistry {
           }
         }
 
-        return pgwire.decodeArray({
-          source: raw,
-          decodeElement: (source) => this.decodeWithCustomTypes(source, innerId),
-          delimiterCharCode: resolved.separatorCharCode
-        });
+        return new pgwire.StructureParser(raw).parseArray(
+          (source) => this.decodeWithCustomTypes(source, innerId),
+          resolved.separatorCharCode
+        );
       }
+      case 'range':
+        return new pgwire.StructureParser(raw).parseRange((s) => this.decodeWithCustomTypes(s, resolved.innerId));
+      case 'multirange':
+        return new pgwire.StructureParser(raw).parseMultiRange((s) => this.decodeWithCustomTypes(s, resolved.innerId));
     }
   }
 
