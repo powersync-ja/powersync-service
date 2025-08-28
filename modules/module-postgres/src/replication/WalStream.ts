@@ -711,7 +711,7 @@ WHERE  oid = $1::regclass`,
     await batch.drop(result.dropTables);
 
     // Ensure we have a description for custom types referenced in the table.
-    //await this.connections.types.fetchTypes(referencedTypeIds);
+    await this.connections.types.fetchTypes(referencedTypeIds);
 
     // Snapshot if:
     // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
