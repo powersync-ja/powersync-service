@@ -1,11 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import {
-  applyRowContext,
-  SqlEventDescriptor,
-  SqliteRow,
-  SqliteValue,
-  SqlSyncRules
-} from '@powersync/service-sync-rules';
+import { SqlEventDescriptor, SqliteRow, SqliteValue, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import {
