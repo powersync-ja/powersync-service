@@ -1,5 +1,17 @@
 # @powersync/service-rsocket-router
 
+## 0.2.0
+
+### Minor Changes
+
+- f56acce: Enable permessage-deflate for websockets.
+
+### Patch Changes
+
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+- Updated dependencies [060b829]
+  - @powersync/lib-services-framework@0.7.3
+
 ## 0.1.3
 
 ### Patch Changes

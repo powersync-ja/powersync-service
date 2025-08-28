@@ -1,5 +1,43 @@
 # @powersync/service-image
 
+## 1.15.0
+
+### Minor Changes
+
+- b0b8ae9: Add support for streams, a new and simpler way to define what data gets synced to clients.
+- c27e1c8: Upgrade Node, Sentry, Fastify and OpenTelemetry dependencies.
+- 5284fb5: Introduce the `config` option on sync rules which can be used to opt-in to new features and backwards-incompatible fixes of historical issues with the PowerSync service.
+- 18435a4: Add the `fixed_json_extract` compatibility option. When enabled, JSON-extracting operators are updated to match SQLite more closely.
+- 5284fb5: Add the `timestamps_iso8601` option in the `config:` block for sync rules. When enabled, timestamps are consistently formatted using ISO 8601 format.
+- f56acce: Enable permessage-deflate for websockets.
+- 6fd0242: Add the `versioned_bucket_ids` option in the `config:` block for sync rules. When enabled, generated bucket ids include the version of sync rules. This allows clients to sync more efficiently after updating sync rules.
+- 86807d0: Support gzip and zstd compression in http streams.
+
+### Patch Changes
+
+- d2be184: Refactor interface between service and sync rule bindings in preparation for sync streams.
+- c44e5bb: Add attestations to Docker image.
+- 6315334: [MongoDB Storage] Increase checksum timeouts
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+- Updated dependencies [6d4a4d1]
+- Updated dependencies [d2be184]
+- Updated dependencies [29a368e]
+- Updated dependencies [c27e1c8]
+- Updated dependencies [f56acce]
+- Updated dependencies [6315334]
+- Updated dependencies [86807d0]
+- Updated dependencies [060b829]
+- Updated dependencies [d49bebe]
+  - @powersync/service-module-postgres-storage@0.10.0
+  - @powersync/service-module-mongodb-storage@0.12.0
+  - @powersync/service-module-postgres@0.16.0
+  - @powersync/service-module-mongodb@0.12.0
+  - @powersync/service-core@1.15.0
+  - @powersync/service-module-mysql@0.9.0
+  - @powersync/service-module-core@0.2.0
+  - @powersync/service-rsocket-router@0.2.0
+  - @powersync/lib-services-framework@0.7.3
+
 ## 1.14.0
 
 ### Minor Changes

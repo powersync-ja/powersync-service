@@ -1,5 +1,16 @@
 # @powersync/service-types
 
+## 0.13.0
+
+### Minor Changes
+
+- 86807d0: Support gzip and zstd compression in http streams.
+
+### Patch Changes
+
+- f56acce: Enable permessage-deflate for websockets.
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+
 ## 0.12.1
 
 ### Patch Changes
