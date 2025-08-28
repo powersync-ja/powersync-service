@@ -585,6 +585,7 @@ export class MongoSyncBucketStorage
       return await this.queryPartialChecksumsInternal(batch);
     } catch (e) {
       if (e.codeName == 'MaxTimeMSExpired') {
+        logger.warn(`Checksum query timed out; falling back to slower version`, e);
         // Timeout - try the slower but more robust version
         return await this.queryPartialChecksumsFallback(batch);
       }

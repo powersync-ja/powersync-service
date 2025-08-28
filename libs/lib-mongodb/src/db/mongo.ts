@@ -9,11 +9,8 @@ export const MONGO_CONNECT_TIMEOUT_MS = 10_000;
 
 /**
  * Time for individual requests to timeout the socket.
- *
- * Currently increased to cater for slow checksum calculations - may be reduced to 60s again
- * if we optimize those.
  */
-export const MONGO_SOCKET_TIMEOUT_MS = 90_000;
+export const MONGO_SOCKET_TIMEOUT_MS = 60_000;
 
 /**
  * Time for individual requests to timeout the operation.
@@ -30,11 +27,8 @@ export const MONGO_OPERATION_TIMEOUT_MS = 40_000;
  * This is time spent on the cursor, not total time.
  *
  * Must be less than MONGO_SOCKET_TIMEOUT_MS to ensure proper error handling.
- *
- * This is temporarily increased to cater for slow checksum calculations,
- * may be reduced to MONGO_OPERATION_TIMEOUT_MS again if we optimize those.
  */
-export const MONGO_CHECKSUM_TIMEOUT_MS = 80_000;
+export const MONGO_CHECKSUM_TIMEOUT_MS = 50_000;
 
 /**
  * Same as above, but specifically for clear operations.
