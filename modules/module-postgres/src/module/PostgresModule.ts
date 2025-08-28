@@ -69,7 +69,8 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
   private resolveConfig(config: types.PostgresConnectionConfig): types.ResolvedConnectionConfig {
     return {
       ...config,
-      ...types.normalizeConnectionConfig(config)
+      ...types.normalizeConnectionConfig(config),
+      typeRegistry: this.customTypes
     };
   }
 
