@@ -11,6 +11,7 @@ import { describe, expect, test } from 'vitest';
 import { clearTestDb, connectPgPool, connectPgWire, TEST_URI } from './util.js';
 import { WalStream } from '@module/replication/WalStream.js';
 import { PostgresTypeCache } from '@module/types/cache.js';
+import { getServerVersion } from '@module/utils/postgres_version.js';
 
 describe('pg data types', () => {
   async function setupTable(db: pgwire.PgClient) {
@@ -486,8 +487,7 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
         composite composite,
         nested_composite nested_composite,
         boxes box[],
-        mood mood,
-        ranges int4multirange[]
+        mood mood
       );`);
 
       const slotName = 'test_slot';
@@ -504,14 +504,13 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
 
       await db.query(`
         INSERT INTO test_custom
-          (rating, composite, nested_composite, boxes, mood, ranges)
+          (rating, composite, nested_composite, boxes, mood)
         VALUES (
           1,
           (ARRAY[2,3], 'bar'),
           (TRUE, (ARRAY[2,3], 'bar')),
           ARRAY[box(point '(1,2)', point '(3,4)'), box(point '(5, 6)', point '(7,8)')],
-          'happy',
-          ARRAY[int4multirange(int4range(2, 4), int4range(5, 7, '(]'))]::int4multirange[]
+          'happy'
         );
       `);
 
@@ -533,8 +532,7 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
         composite: '("{2,3}",bar)',
         nested_composite: '(t,"(""{2,3}"",bar)")',
         boxes: '["(3","4)","(1","2);(7","8)","(5","6)"]',
-        mood: 'happy',
-        ranges: '{"{[2,4),[6,8)}"}'
+        mood: 'happy'
       });
 
       const newFormat = applyRowContext(transformed, new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS));
@@ -543,7 +541,68 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
         composite: '{"foo":[2.0,3.0],"bar":"bar"}',
         nested_composite: '{"a":1,"b":{"foo":[2.0,3.0],"bar":"bar"}}',
         boxes: JSON.stringify(['(3,4),(1,2)', '(7,8),(5,6)']),
-        mood: 'happy',
+        mood: 'happy'
+      });
+    } finally {
+      await db.end();
+    }
+  });
+
+  test('test replication - multiranges', async () => {
+    const db = await connectPgPool();
+
+    if (!(await new PostgresTypeCache(db, () => getServerVersion(db)).supportsMultiRanges())) {
+      // This test requires Postgres 14 or later.
+      return;
+    }
+
+    try {
+      await clearTestDb(db);
+
+      await db.query(`CREATE TABLE test_custom(
+        id serial primary key,
+        ranges int4multirange[]
+      );`);
+
+      const slotName = 'test_slot';
+
+      await db.query({
+        statement: 'SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1',
+        params: [{ type: 'varchar', value: slotName }]
+      });
+
+      await db.query({
+        statement: `SELECT slot_name, lsn FROM pg_catalog.pg_create_logical_replication_slot($1, 'pgoutput')`,
+        params: [{ type: 'varchar', value: slotName }]
+      });
+
+      await db.query(`
+        INSERT INTO test_custom
+          (ranges)
+        VALUES (
+          ARRAY[int4multirange(int4range(2, 4), int4range(5, 7, '(]'))]::int4multirange[]
+        );
+      `);
+
+      const pg: pgwire.PgConnection = await pgwire.pgconnect({ replication: 'database' }, TEST_URI);
+      const replicationStream = await pg.logicalReplication({
+        slot: slotName,
+        options: {
+          proto_version: '1',
+          publication_names: 'powersync'
+        }
+      });
+
+      const [transformed] = await getReplicationTx(db, replicationStream);
+      await pg.end();
+
+      const oldFormat = applyRowContext(transformed, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+      expect(oldFormat).toMatchObject({
+        ranges: '{"{[2,4),[6,8)}"}'
+      });
+
+      const newFormat = applyRowContext(transformed, new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS));
+      expect(newFormat).toMatchObject({
         ranges: JSON.stringify([
           [
             { lower: 2, upper: 4, lower_exclusive: 0, upper_exclusive: 1 },
@@ -561,7 +620,7 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
  * Return all the inserts from the first transaction in the replication stream.
  */
 async function getReplicationTx(db: pgwire.PgClient, replicationStream: pgwire.ReplicationStream) {
-  const typeCache = new PostgresTypeCache(db);
+  const typeCache = new PostgresTypeCache(db, () => getServerVersion(db));
   await typeCache.fetchTypesForSchema();
 
   let transformed: SqliteInputRow[] = [];

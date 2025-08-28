@@ -1,15 +1,37 @@
 import { DatabaseInputRow, SqliteInputRow, toSyncRulesRow } from '@powersync/service-sync-rules';
 import * as pgwire from '@powersync/service-jpgwire';
 import { CustomTypeRegistry } from './registry.js';
+import semver from 'semver';
 
 /**
  * A cache of custom types for which information can be crawled from the source database.
  */
 export class PostgresTypeCache {
   readonly registry: CustomTypeRegistry;
+  private cachedVersion: semver.SemVer | null = null;
 
-  constructor(private readonly pool: pgwire.PgClient) {
+  constructor(
+    private readonly pool: pgwire.PgClient,
+    private readonly getVersion: () => Promise<semver.SemVer | null>
+  ) {
     this.registry = new CustomTypeRegistry();
+  }
+
+  private async fetchVersion(): Promise<semver.SemVer> {
+    if (this.cachedVersion == null) {
+      this.cachedVersion = (await this.getVersion()) ?? semver.parse('0.0.1');
+    }
+
+    return this.cachedVersion!;
+  }
+
+  /**
+   * @returns Whether the Postgres instance this type cache is connected to has support for the multirange type (which
+   * is the case for Postgres 14 and later).
+   */
+  async supportsMultiRanges() {
+    const version = await this.fetchVersion();
+    return version.compare(PostgresTypeCache.minVersionForMultirange) >= 0;
   }
 
   /**
@@ -19,8 +41,11 @@ export class PostgresTypeCache {
    * automatically crawled as well.
    */
   public async fetchTypes(oids: number[]) {
+    const multiRangeSupport = await this.supportsMultiRanges();
+
     let pending = oids.filter((id) => !this.registry.knows(id));
     // For details on columns, see https://www.postgresql.org/docs/current/catalog-pg-type.html
+    const multiRangeDesc = `WHEN 'm' THEN json_build_object('inner', (SELECT rngsubtype FROM pg_range WHERE rngmultitypid = t.oid))`;
     const statement = `
 SELECT oid, t.typtype,
     CASE t.typtype
@@ -33,7 +58,7 @@ SELECT oid, t.typtype,
                 WHERE a.attrelid = t.typrelid)
         )
         WHEN 'r' THEN json_build_object('inner', (SELECT rngsubtype FROM pg_range WHERE rngtypid = t.oid))
-        WHEN 'm' THEN json_build_object('inner', (SELECT rngsubtype FROM pg_range WHERE rngmultitypid = t.oid))
+        ${multiRangeSupport ? multiRangeDesc : ''}
         ELSE NULL
     END AS desc
 FROM pg_type t
@@ -178,4 +203,6 @@ WHERE a.attnum > 0
     }
     return result;
   }
+
+  private static minVersionForMultirange: semver.SemVer = semver.parse('14.0.0')!;
 }
