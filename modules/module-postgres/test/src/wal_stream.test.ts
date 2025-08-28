@@ -324,4 +324,28 @@ bucket_definitions:
       // creating a new replication slot.
     }
   });
+
+  test('custom types', async () => {
+    await using context = await WalStreamTestContext.open(factory);
+
+    await context.updateSyncRules(`
+streams:
+  stream:
+    query: SELECT id, * FROM "test_data"
+
+config:
+  edition: 2
+`);
+
+    const { pool } = context;
+    await pool.query(`DROP TABLE IF EXISTS test_data`);
+    await pool.query(`CREATE TYPE composite AS (foo bool, bar int4);`);
+    await pool.query(`CREATE TABLE test_data(id text primary key, description composite);`);
+
+    await context.initializeReplication();
+    await pool.query(`INSERT INTO test_data(id, description) VALUES ('t1', ROW(TRUE, 2)::composite)`);
+
+    const data = await context.getBucketData('1#stream|0[]');
+    expect(data).toMatchObject([putOp('test_data', { id: 't1', description: 'test1' })]);
+  });
 }
