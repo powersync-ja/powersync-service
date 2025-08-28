@@ -97,7 +97,7 @@ export class MongoBucketBatch
   private persisted_op: InternalOpId | null = null;
 
   /**
-   * For tests only - not for persistence logic.
+   * Last written op, if any. This may not reflect a consistent checkpoint.
    */
   public last_flushed_op: InternalOpId | null = null;
 

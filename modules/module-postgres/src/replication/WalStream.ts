@@ -458,7 +458,7 @@ WHERE  oid = $1::regclass`,
 
   async initialReplication(db: pgwire.PgConnection) {
     const sourceTables = this.sync_rules.getSourceTables();
-    await this.storage.startBatch(
+    const flushResults = await this.storage.startBatch(
       {
         logger: this.logger,
         zeroLSN: ZERO_LSN,
@@ -506,6 +506,16 @@ WHERE  oid = $1::regclass`,
      * to advance the active sync rules LSN.
      */
     await sendKeepAlive(db);
+
+    const lastOp = flushResults?.flushed_op;
+    if (lastOp != null) {
+      // Populate the cache _after_ initial replication, but _before_ we switch to this sync rules.
+      await this.storage.populatePersistentChecksumCache({
+        // No checkpoint yet, but we do have the opId.
+        maxOpId: lastOp,
+        signal: this.abort_signal
+      });
+    }
   }
 
   static *getQueryData(results: Iterable<DatabaseInputRow>): Generator<SqliteInputRow> {

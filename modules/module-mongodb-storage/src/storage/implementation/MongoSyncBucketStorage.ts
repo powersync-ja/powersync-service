@@ -12,6 +12,7 @@ import {
   BucketChecksum,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
+  CompactOptions,
   deserializeParameterLookup,
   GetCheckpointChangesOptions,
   InternalOpId,
@@ -773,12 +774,29 @@ export class MongoSyncBucketStorage
   }
 
   async compact(options?: storage.CompactOptions) {
-    const checkpoint = await this.getCheckpointInternal();
-    logger.info(`Compact checkpoint: ${checkpoint?.checkpoint} lsn: ${checkpoint?.lsn}`);
-    await new MongoCompactor(this.db, this.group_id, { ...options, maxOpId: checkpoint?.checkpoint }).compact();
-    if (checkpoint != null && options?.compactParameterData) {
-      await new MongoParameterCompactor(this.db, this.group_id, checkpoint.checkpoint, options).compact();
+    let maxOpId = options?.maxOpId;
+    if (maxOpId == null) {
+      const checkpoint = await this.getCheckpointInternal();
+      maxOpId = checkpoint?.checkpoint ?? undefined;
     }
+    await new MongoCompactor(this.db, this.group_id, { ...options, maxOpId }).compact();
+    if (maxOpId != null && options?.compactParameterData) {
+      await new MongoParameterCompactor(this.db, this.group_id, maxOpId, options).compact();
+    }
+  }
+
+  async populatePersistentChecksumCache(options: Pick<CompactOptions, 'signal' | 'maxOpId'>): Promise<void> {
+    const start = Date.now();
+    // We do a minimal compact, primarily to populate the checksum cache
+    await this.compact({
+      ...options,
+      // Skip parameter data
+      compactParameterData: false,
+      // Don't track updates for MOVE compacting
+      memoryLimitMB: 0
+    });
+    const duration = Date.now() - start;
+    logger.info(`Populated persistent checksum cache in ${(duration / 1000).toFixed(1)}s`);
   }
 
   /**

@@ -67,6 +67,7 @@ export class MongoCompactor {
   private clearBatchLimit: number;
   private maxOpId: bigint;
   private buckets: string[] | undefined;
+  private signal?: AbortSignal;
 
   constructor(
     private db: PowerSyncMongo,
@@ -79,6 +80,7 @@ export class MongoCompactor {
     this.clearBatchLimit = options?.clearBatchLimit ?? DEFAULT_CLEAR_BATCH_LIMIT;
     this.maxOpId = options?.maxOpId ?? 0n;
     this.buckets = options?.compactBuckets;
+    this.signal = options?.signal;
   }
 
   /**
@@ -134,7 +136,7 @@ export class MongoCompactor {
       o: new mongo.MaxKey() as any
     };
 
-    while (true) {
+    while (!this.signal?.aborted) {
       // Query one batch at a time, to avoid cursor timeouts
       const cursor = this.db.bucket_data.aggregate<BucketDataDocument & { size: number | bigint }>([
         {
@@ -386,7 +388,7 @@ export class MongoCompactor {
     const session = this.db.client.startSession();
     try {
       let done = false;
-      while (!done) {
+      while (!done && !this.signal?.aborted) {
         let opCountDiff = 0;
         // Do the CLEAR operation in batches, with each batch a separate transaction.
         // The state after each batch is fully consistent.

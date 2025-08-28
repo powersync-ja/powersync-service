@@ -4,6 +4,7 @@ import {
   BucketChecksum,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
+  CompactOptions,
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
@@ -109,6 +110,10 @@ export class PostgresSyncRulesStorage
 
   compact(options?: storage.CompactOptions): Promise<void> {
     return new PostgresCompactor(this.db, this.group_id, options).compact();
+  }
+
+  async populatePersistentChecksumCache(options: Pick<CompactOptions, 'signal' | 'maxOpId'>): Promise<void> {
+    // no-op - checksum cache is not implemented for Postgres yet
   }
 
   lastWriteCheckpoint(filters: storage.SyncStorageLastWriteCheckpointFilters): Promise<bigint | null> {

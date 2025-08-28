@@ -10,6 +10,7 @@ import {
   ColumnDescriptor,
   framework,
   getUuidReplicaIdentityBson,
+  InternalOpId,
   MetricsEngine,
   SourceTable,
   storage
@@ -252,6 +253,7 @@ export class BinLogStream {
     const promiseConnection = (connection as mysql.Connection).promise();
     const headGTID = await common.readExecutedGtid(promiseConnection);
     this.logger.info(`Using snapshot checkpoint GTID: '${headGTID}'`);
+    let lastOp: InternalOpId | null = null;
     try {
       this.logger.info(`Starting initial replication`);
       await promiseConnection.query<mysqlPromise.RowDataPacket[]>(
@@ -261,7 +263,7 @@ export class BinLogStream {
       await promiseConnection.query(`SET time_zone = '+00:00'`);
 
       const sourceTables = this.syncRules.getSourceTables();
-      await this.storage.startBatch(
+      const flushResults = await this.storage.startBatch(
         {
           logger: this.logger,
           zeroLSN: common.ReplicatedGTID.ZERO.comparable,
@@ -280,6 +282,7 @@ export class BinLogStream {
           await batch.commit(headGTID.comparable);
         }
       );
+      lastOp = flushResults?.flushed_op ?? null;
       this.logger.info(`Initial replication done`);
       await promiseConnection.query('COMMIT');
     } catch (e) {
@@ -287,6 +290,15 @@ export class BinLogStream {
       throw e;
     } finally {
       connection.release();
+    }
+
+    if (lastOp != null) {
+      // Populate the cache _after_ initial replication, but _before_ we switch to this sync rules.
+      await this.storage.populatePersistentChecksumCache({
+        // No checkpoint yet, but we do have the opId.
+        maxOpId: lastOp,
+        signal: this.abortSignal
+      });
     }
   }
 

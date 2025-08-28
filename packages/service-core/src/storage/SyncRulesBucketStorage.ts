@@ -62,6 +62,11 @@ export interface SyncRulesBucketStorage
 
   compact(options?: CompactOptions): Promise<void>;
 
+  /**
+   * Lightweight "compact" process to populate the checksum cache, if any.
+   */
+  populatePersistentChecksumCache(options?: Pick<CompactOptions, 'signal' | 'maxOpId'>): Promise<void>;
+
   // ## Read operations
 
   getCheckpoint(): Promise<ReplicationCheckpoint>;
@@ -213,6 +218,8 @@ export interface CompactOptions {
    * Internal/testing use: Cache size for compacting parameters.
    */
   compactParameterCacheLimit?: number;
+
+  signal?: AbortSignal;
 }
 
 export interface ClearStorageOptions {
