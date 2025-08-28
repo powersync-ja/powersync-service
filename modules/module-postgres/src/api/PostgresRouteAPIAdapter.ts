@@ -9,8 +9,11 @@ import { getDebugTableInfo } from '../replication/replication-utils.js';
 import { KEEPALIVE_STATEMENT, PUBLICATION_NAME } from '../replication/WalStream.js';
 import * as types from '../types/types.js';
 import { getApplicationName } from '../utils/application-name.js';
+import { PostgresTypeCache } from '../types/cache.js';
+import { CustomTypeRegistry, isKnownType } from '../types/registry.js';
 
 export class PostgresRouteAPIAdapter implements api.RouteAPI {
+  private typeCache: PostgresTypeCache;
   connectionTag: string;
   // TODO this should probably be configurable one day
   publicationName = PUBLICATION_NAME;
@@ -31,6 +34,7 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
     connectionTag?: string,
     private config?: types.ResolvedConnectionConfig
   ) {
+    this.typeCache = new PostgresTypeCache(config?.typeRegistry ?? new CustomTypeRegistry(), pool);
     this.connectionTag = connectionTag ?? sync_rules.DEFAULT_TAG;
   }
 
@@ -297,6 +301,7 @@ LEFT JOIN (
   SELECT
     attrelid,
     attname,
+    atttypid,
     format_type(atttypid, atttypmod) as data_type,
     (SELECT typname FROM pg_catalog.pg_type WHERE oid = atttypid) as pg_type,
     attnum,
@@ -311,6 +316,7 @@ LEFT JOIN (
 )
 GROUP BY schemaname, tablename, quoted_name`
     );
+    await this.typeCache.fetchTypesForSchema();
     const rows = pgwire.pgwireRows(results);
 
     let schemas: Record<string, service_types.DatabaseSchema> = {};
@@ -332,9 +338,11 @@ GROUP BY schemaname, tablename, quoted_name`
         if (pg_type.startsWith('_')) {
           pg_type = `${pg_type.substring(1)}[]`;
         }
+
+        const knownType = this.typeCache.registry.lookupType(Number(column.atttypid));
         table.columns.push({
           name: column.attname,
-          sqlite_type: sync_rules.expressionTypeFromPostgresType(pg_type).typeFlags,
+          sqlite_type: sync_rules.ExpressionType.fromTypeText(knownType.sqliteType()).typeFlags,
           type: column.data_type,
           internal_type: column.data_type,
           pg_type: pg_type

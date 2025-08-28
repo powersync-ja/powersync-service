@@ -2,6 +2,7 @@ import { DatabaseInputRow, SqliteInputRow, toSyncRulesRow } from '@powersync/ser
 import * as pgwire from '@powersync/service-jpgwire';
 import { CustomTypeRegistry } from './registry.js';
 import semver from 'semver';
+import { getServerVersion } from '../utils/postgres_version.js';
 
 /**
  * A cache of custom types for which information can be crawled from the source database.
@@ -11,15 +12,14 @@ export class PostgresTypeCache {
 
   constructor(
     readonly registry: CustomTypeRegistry,
-    private readonly pool: pgwire.PgClient,
-    private readonly getVersion: () => Promise<semver.SemVer | null>
+    private readonly pool: pgwire.PgClient
   ) {
     this.registry = new CustomTypeRegistry();
   }
 
   private async fetchVersion(): Promise<semver.SemVer> {
     if (this.cachedVersion == null) {
-      this.cachedVersion = (await this.getVersion()) ?? semver.parse('0.0.1');
+      this.cachedVersion = (await getServerVersion(this.pool)) ?? semver.parse('0.0.1');
     }
 
     return this.cachedVersion!;
@@ -138,9 +138,9 @@ WHERE t.oid = ANY($1)
   }
 
   /**
-   * Used for testing - fetches all custom types referenced by any column in the schema.
+   * Used for testing - fetches all custom types referenced by any column in the database.
    */
-  public async fetchTypesForSchema(schema: string = 'public') {
+  public async fetchTypesForSchema() {
     const sql = `
 SELECT DISTINCT a.atttypid AS type_oid
 FROM pg_attribute a
@@ -150,10 +150,10 @@ JOIN pg_type t ON t.oid = a.atttypid
 JOIN pg_namespace tn ON tn.oid = t.typnamespace
 WHERE a.attnum > 0
   AND NOT a.attisdropped
-  AND cn.nspname = $1
+  AND cn.nspname not in ('information_schema', 'pg_catalog', 'pg_toast')
     `;
 
-    const query = await this.pool.query({ statement: sql, params: [{ type: 'varchar', value: schema }] });
+    const query = await this.pool.query({ statement: sql });
     let ids: number[] = [];
     for (const row of pgwire.pgwireRows(query)) {
       ids.push(Number(row.type_oid));

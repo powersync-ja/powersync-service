@@ -12,6 +12,7 @@ import {
 import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import * as pgwire from '@powersync/service-jpgwire';
 import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
+import { CustomTypeRegistry } from '@module/types/registry.js';
 
 export class WalStreamTestContext implements AsyncDisposable {
   private _walStream?: WalStream;
@@ -32,7 +33,7 @@ export class WalStreamTestContext implements AsyncDisposable {
     options?: { doNotClear?: boolean; walStreamOptions?: Partial<WalStreamOptions> }
   ) {
     const f = await factory({ doNotClear: options?.doNotClear });
-    const connectionManager = new PgManager(TEST_CONNECTION_OPTIONS, {});
+    const connectionManager = new PgManager(TEST_CONNECTION_OPTIONS, { registry: new CustomTypeRegistry() });
 
     if (!options?.doNotClear) {
       await clearTestDb(connectionManager.pool);

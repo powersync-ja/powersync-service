@@ -31,7 +31,7 @@ export class PgManager {
   ) {
     // The pool is lazy - no connections are opened until a query is performed.
     this.pool = pgwire.connectPgWirePool(this.options, poolOptions);
-    this.types = new PostgresTypeCache(poolOptions.registry, this.pool, () => this.getServerVersion());
+    this.types = new PostgresTypeCache(poolOptions.registry, this.pool);
   }
 
   public get connectionTag() {
