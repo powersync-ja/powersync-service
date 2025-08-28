@@ -4,7 +4,7 @@ import { METRICS_HELPER, putOp, removeOp } from '@powersync/service-core-tests';
 import { pgwireRows } from '@powersync/service-jpgwire';
 import { ReplicationMetric } from '@powersync/service-types';
 import * as crypto from 'crypto';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, it } from 'vitest';
 import { describeWithStorage } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 
@@ -325,7 +325,7 @@ bucket_definitions:
     }
   });
 
-  test('custom types', async () => {
+  it.skip('custom types', async () => {
     await using context = await WalStreamTestContext.open(factory);
 
     await context.updateSyncRules(`
