@@ -156,7 +156,7 @@ export class PgType {
 
   static _decodeArray(text: string, elemTypeOid: number): DatabaseInputValue[] {
     text = text.replace(/^\[.+=/, ''); // skip dimensions
-    return new StructureParser(text).parseArray((raw) => (raw == null ? null : PgType.decode(raw, elemTypeOid)));
+    return new StructureParser(text).parseArray((raw) => PgType.decode(raw, elemTypeOid));
   }
 
   static _decodeBytea(text: string): Uint8Array {

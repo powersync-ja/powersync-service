@@ -276,7 +276,3 @@ export class CustomTypeRegistry {
     }
   }
 }
-
-export function isKnownType(type: MaybeKnownType): type is KnownType {
-  return type.type != 'unknown';
-}

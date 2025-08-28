@@ -5,9 +5,11 @@ import semver from 'semver';
 import { getServerVersion } from '../utils/postgres_version.js';
 
 /**
- * A cache of custom types for which information can be crawled from the source database.
+ * Resolves descriptions used to decode values for custom postgres types.
+ *
+ * Custom types are resolved from the source database, which also involves crawling inner types (e.g. for composites).
  */
-export class PostgresTypeCache {
+export class PostgresTypeResolver {
   private cachedVersion: semver.SemVer | null = null;
 
   constructor(
@@ -31,7 +33,7 @@ export class PostgresTypeCache {
    */
   async supportsMultiRanges() {
     const version = await this.fetchVersion();
-    return version.compare(PostgresTypeCache.minVersionForMultirange) >= 0;
+    return version.compare(PostgresTypeResolver.minVersionForMultirange) >= 0;
   }
 
   /**
@@ -138,7 +140,7 @@ WHERE t.oid = ANY($1)
   }
 
   /**
-   * Used for testing - fetches all custom types referenced by any column in the database.
+   * Crawls all custom types referenced by table columns in the current database.
    */
   public async fetchTypesForSchema() {
     const sql = `
