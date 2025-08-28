@@ -1,8 +1,9 @@
 // Adapted from https://github.com/kagis/pgwire/blob/0dc927f9f8990a903f238737326e53ba1c8d094f/mod.js#L2218
 
 import { JsonContainer } from '@powersync/service-jsonbig';
-import { TimeValue, type DatabaseInputValue } from '@powersync/service-sync-rules';
+import { CustomSqliteValue, TimeValue, type DatabaseInputValue } from '@powersync/service-sync-rules';
 import { dateToSqlite, lsnMakeComparable, timestampToSqlite, timestamptzToSqlite } from './util.js';
+import { StructureParser } from './structure_parser.js';
 
 export enum PgTypeOid {
   TEXT = 25,
@@ -27,7 +28,7 @@ export enum PgTypeOid {
 
 // Generate using:
 //   select '[' || typarray || ', ' || oid || '], // ' || typname from pg_catalog.pg_type WHERE typarray != 0;
-const ARRAY_TO_ELEM_OID = new Map<number, number>([
+export const ARRAY_TO_ELEM_OID = new Map<number, number>([
   [1000, 16], // bool
   [1001, 17], // bytea
   [1002, 18], // char
@@ -141,52 +142,21 @@ export class PgType {
       case PgTypeOid.PG_LSN:
         return lsnMakeComparable(text);
     }
-    const elemTypeid = this._elemTypeOid(typeOid);
+    const elemTypeid = this.elemTypeOid(typeOid);
     if (elemTypeid != null) {
       return this._decodeArray(text, elemTypeid);
     }
     return text; // unknown type
   }
 
-  static _elemTypeOid(arrayTypeOid: number): number | undefined {
+  static elemTypeOid(arrayTypeOid: number): number | undefined {
     // select 'case ' || typarray || ': return ' || oid || '; // ' || typname from pg_catalog.pg_type WHERE typarray != 0;
     return ARRAY_TO_ELEM_OID.get(arrayTypeOid);
   }
 
-  static _decodeArray(text: string, elemTypeOid: number): any {
+  static _decodeArray(text: string, elemTypeOid: number): DatabaseInputValue[] {
     text = text.replace(/^\[.+=/, ''); // skip dimensions
-    let result: any;
-    for (let i = 0, inQuotes = false, elStart = 0, stack: any[] = []; i < text.length; i++) {
-      const ch = text.charCodeAt(i);
-      if (ch == 0x5c /*\*/) {
-        i++; // escape
-      } else if (ch == 0x22 /*"*/) {
-        inQuotes = !inQuotes;
-      } else if (inQuotes) {
-      } else if (ch == 0x7b /*{*/) {
-        // continue
-        stack.unshift([]), (elStart = i + 1);
-      } else if (ch == 0x7d /*}*/ || ch == 0x2c /*,*/) {
-        // TODO configurable delimiter
-        // TODO ensure .slice is cheap enough to do it unconditionally
-        const escaped = text.slice(elStart, i); // TODO trim ' \t\n\r\v\f'
-        if (result) {
-          stack[0].push(result);
-        } else if (/^NULL$/i.test(escaped)) {
-          stack[0].push(null);
-        } else if (escaped.length) {
-          const unescaped = escaped.replace(/^"|"$|(?<!\\)\\/g, '');
-          // TODO accept decodeFn as argument,
-          // extract parseArray logic out of decoder,
-          // do benchmark of static vs dynamic dispatch
-          const decoded = this.decode(unescaped, elemTypeOid);
-          stack[0].push(decoded);
-        }
-        result = ch == 0x7d /*}*/ && stack.shift();
-        elStart = i + 1; // TODO dry
-      }
-    }
-    return result;
+    return new StructureParser(text).parseArray((raw) => PgType.decode(raw, elemTypeOid));
   }
 
   static _decodeBytea(text: string): Uint8Array {

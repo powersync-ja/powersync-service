@@ -2,6 +2,13 @@ import * as pgwire from '@powersync/service-jpgwire';
 import semver from 'semver';
 import { NormalizedPostgresConnectionConfig } from '../types/types.js';
 import { getApplicationName } from '../utils/application-name.js';
+import { PostgresTypeResolver } from '../types/resolver.js';
+import { getServerVersion } from '../utils/postgres_version.js';
+import { CustomTypeRegistry } from '../types/registry.js';
+
+export interface PgManagerOptions extends pgwire.PgPoolOptions {
+  registry: CustomTypeRegistry;
+}
 
 /**
  * Shorter timeout for snapshot connections than for replication connections.
@@ -14,14 +21,17 @@ export class PgManager {
    */
   public readonly pool: pgwire.PgClient;
 
+  public readonly types: PostgresTypeResolver;
+
   private connectionPromises: Promise<pgwire.PgConnection>[] = [];
 
   constructor(
     public options: NormalizedPostgresConnectionConfig,
-    public poolOptions: pgwire.PgPoolOptions
+    public poolOptions: PgManagerOptions
   ) {
     // The pool is lazy - no connections are opened until a query is performed.
     this.pool = pgwire.connectPgWirePool(this.options, poolOptions);
+    this.types = new PostgresTypeResolver(poolOptions.registry, this.pool);
   }
 
   public get connectionTag() {
@@ -41,9 +51,7 @@ export class PgManager {
    * @returns The Postgres server version in a parsed Semver instance
    */
   async getServerVersion(): Promise<semver.SemVer | null> {
-    const result = await this.pool.query(`SHOW server_version;`);
-    // The result is usually of the form "16.2 (Debian 16.2-1.pgdg120+2)"
-    return semver.coerce(result.rows[0][0].split(' ')[0]);
+    return await getServerVersion(this.pool);
   }
 
   /**

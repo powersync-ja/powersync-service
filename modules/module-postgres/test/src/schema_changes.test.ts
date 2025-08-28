@@ -590,4 +590,36 @@ function defineTests(factory: storage.TestStorageFactory) {
 
     expect(failures).toEqual([]);
   });
+
+  test('custom types', async () => {
+    await using context = await WalStreamTestContext.open(factory);
+
+    await context.updateSyncRules(`
+streams:
+  stream:
+    query: SELECT * FROM "test_data"
+
+config:
+  edition: 2
+`);
+
+    const { pool } = context;
+    await pool.query(`CREATE TABLE test_data(id text primary key);`);
+    await pool.query(`INSERT INTO test_data(id) VALUES ('t1')`);
+
+    await context.replicateSnapshot();
+    context.startStreaming();
+
+    await pool.query(
+      { statement: `CREATE TYPE composite AS (foo bool, bar int4);` },
+      { statement: `ALTER TABLE test_data ADD COLUMN other composite;` },
+      { statement: `UPDATE test_data SET other = ROW(TRUE, 2)::composite;` }
+    );
+
+    const data = await context.getBucketData('1#stream|0[]');
+    expect(data).toMatchObject([
+      putOp('test_data', { id: 't1' }),
+      putOp('test_data', { id: 't1', other: '{"foo":1,"bar":2}' })
+    ]);
+  });
 }

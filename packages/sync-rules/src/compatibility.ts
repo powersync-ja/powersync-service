@@ -34,10 +34,17 @@ export class CompatibilityOption {
     CompatibilityEdition.SYNC_STREAMS
   );
 
+  static customTypes = new CompatibilityOption(
+    'custom_postgres_types',
+    'Map custom Postgres types into appropriate structures instead of syncing the raw string.',
+    CompatibilityEdition.SYNC_STREAMS
+  );
+
   static byName: Record<string, CompatibilityOption> = Object.freeze({
     timestamps_iso8601: this.timestampsIso8601,
     versioned_bucket_ids: this.versionedBucketIds,
-    fixed_json_extract: this.fixedJsonExtract
+    fixed_json_extract: this.fixedJsonExtract,
+    custom_postgres_types: this.customTypes
   });
 }
 
