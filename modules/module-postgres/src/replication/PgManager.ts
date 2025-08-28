@@ -2,7 +2,7 @@ import * as pgwire from '@powersync/service-jpgwire';
 import semver from 'semver';
 import { NormalizedPostgresConnectionConfig } from '../types/types.js';
 import { getApplicationName } from '../utils/application-name.js';
-import { PostgresTypeCache } from '../types/cache.js';
+import { PostgresTypeResolver } from '../types/resolver.js';
 import { getServerVersion } from '../utils/postgres_version.js';
 import { CustomTypeRegistry } from '../types/registry.js';
 
@@ -21,7 +21,7 @@ export class PgManager {
    */
   public readonly pool: pgwire.PgClient;
 
-  public readonly types: PostgresTypeCache;
+  public readonly types: PostgresTypeResolver;
 
   private connectionPromises: Promise<pgwire.PgConnection>[] = [];
 
@@ -31,7 +31,7 @@ export class PgManager {
   ) {
     // The pool is lazy - no connections are opened until a query is performed.
     this.pool = pgwire.connectPgWirePool(this.options, poolOptions);
-    this.types = new PostgresTypeCache(poolOptions.registry, this.pool);
+    this.types = new PostgresTypeResolver(poolOptions.registry, this.pool);
   }
 
   public get connectionTag() {

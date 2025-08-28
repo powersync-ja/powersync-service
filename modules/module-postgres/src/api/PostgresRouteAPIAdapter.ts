@@ -9,11 +9,11 @@ import { getDebugTableInfo } from '../replication/replication-utils.js';
 import { KEEPALIVE_STATEMENT, PUBLICATION_NAME } from '../replication/WalStream.js';
 import * as types from '../types/types.js';
 import { getApplicationName } from '../utils/application-name.js';
-import { PostgresTypeCache } from '../types/cache.js';
-import { CustomTypeRegistry, isKnownType } from '../types/registry.js';
+import { CustomTypeRegistry } from '../types/registry.js';
+import { PostgresTypeResolver } from '../types/resolver.js';
 
 export class PostgresRouteAPIAdapter implements api.RouteAPI {
-  private typeCache: PostgresTypeCache;
+  private typeCache: PostgresTypeResolver;
   connectionTag: string;
   // TODO this should probably be configurable one day
   publicationName = PUBLICATION_NAME;
@@ -34,7 +34,7 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
     connectionTag?: string,
     private config?: types.ResolvedConnectionConfig
   ) {
-    this.typeCache = new PostgresTypeCache(config?.typeRegistry ?? new CustomTypeRegistry(), pool);
+    this.typeCache = new PostgresTypeResolver(config?.typeRegistry ?? new CustomTypeRegistry(), pool);
     this.connectionTag = connectionTag ?? sync_rules.DEFAULT_TAG;
   }
 
