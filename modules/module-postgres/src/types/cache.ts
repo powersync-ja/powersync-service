@@ -7,10 +7,10 @@ import semver from 'semver';
  * A cache of custom types for which information can be crawled from the source database.
  */
 export class PostgresTypeCache {
-  readonly registry: CustomTypeRegistry;
   private cachedVersion: semver.SemVer | null = null;
 
   constructor(
+    readonly registry: CustomTypeRegistry,
     private readonly pool: pgwire.PgClient,
     private readonly getVersion: () => Promise<semver.SemVer | null>
   ) {
