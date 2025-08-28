@@ -217,7 +217,7 @@ export class SqlSyncRules implements SyncRules {
       const parameters = value.get('parameters', true) as unknown;
       const dataQueries = value.get('data', true) as unknown;
 
-      const descriptor = new SqlBucketDescriptor(key, compatibility);
+      const descriptor = new SqlBucketDescriptor(key);
 
       if (parameters instanceof Scalar) {
         rules.withScalar(parameters, (q) => {
@@ -239,7 +239,7 @@ export class SqlSyncRules implements SyncRules {
       }
       for (let query of dataQueries.items) {
         rules.withScalar(query, (q) => {
-          return descriptor.addDataQuery(q, queryOptions);
+          return descriptor.addDataQuery(q, queryOptions, compatibility);
         });
       }
       rules.bucketSources.push(descriptor);

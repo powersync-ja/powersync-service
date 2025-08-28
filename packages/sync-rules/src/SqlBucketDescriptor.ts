@@ -37,10 +37,7 @@ export class SqlBucketDescriptor implements BucketSource {
   name: string;
   bucketParameters?: string[];
 
-  constructor(
-    name: string,
-    private readonly compatibility: CompatibilityContext
-  ) {
+  constructor(name: string) {
     this.name = name;
   }
 
@@ -61,11 +58,11 @@ export class SqlBucketDescriptor implements BucketSource {
 
   parameterIdSequence = new IdSequence();
 
-  addDataQuery(sql: string, options: SyncRulesOptions): QueryParseResult {
+  addDataQuery(sql: string, options: SyncRulesOptions, compatibility: CompatibilityContext): QueryParseResult {
     if (this.bucketParameters == null) {
       throw new Error('Bucket parameters must be defined');
     }
-    const dataRows = SqlDataQuery.fromSql(this.name, this.bucketParameters, sql, options, this.compatibility);
+    const dataRows = SqlDataQuery.fromSql(this.name, this.bucketParameters, sql, options, compatibility);
 
     this.dataQueries.push(dataRows);
 
@@ -105,13 +102,7 @@ export class SqlBucketDescriptor implements BucketSource {
         continue;
       }
 
-      results.push(
-        ...query.evaluateRow(
-          options.sourceTable,
-          applyRowContext(options.record, this.compatibility),
-          options.bucketIdTransformer
-        )
-      );
+      results.push(...query.evaluateRow(options.sourceTable, options.record, options.bucketIdTransformer));
     }
     return results;
   }

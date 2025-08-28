@@ -27,11 +27,7 @@ export class SyncStream implements BucketSource {
   variants: StreamVariant[];
   data: BaseSqlDataQuery;
 
-  constructor(
-    name: string,
-    data: BaseSqlDataQuery,
-    private readonly compatibility: CompatibilityContext
-  ) {
+  constructor(name: string, data: BaseSqlDataQuery) {
     this.name = name;
     this.subscribedToByDefault = false;
     this.priority = DEFAULT_BUCKET_PRIORITY;
@@ -172,15 +168,14 @@ export class SyncStream implements BucketSource {
     }
 
     const stream = this;
-    const mappedRow = applyRowContext(options.record, this.compatibility);
     const row: TableRow = {
       sourceTable: options.sourceTable,
-      record: mappedRow
+      record: options.record
     };
 
     return this.data.evaluateRowWithOptions({
       table: options.sourceTable,
-      row: applyRowContext(options.record, this.compatibility),
+      row: options.record,
       bucketIds() {
         const bucketIds: string[] = [];
         for (const variant of stream.variants) {

@@ -1,5 +1,11 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { SqlEventDescriptor, SqliteRow, SqlSyncRules } from '@powersync/service-sync-rules';
+import {
+  applyRowContext,
+  SqlEventDescriptor,
+  SqliteRow,
+  SqliteValue,
+  SqlSyncRules
+} from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import {
@@ -319,7 +325,8 @@ export class MongoBucketBatch
     const record = operation.record;
     const beforeId = operation.beforeId;
     const afterId = operation.afterId;
-    let after = record.after;
+    let sourceAfter = record.after;
+    let after = sourceAfter && applyRowContext(sourceAfter, this.sync_rules.compatibility);
     const sourceTable = record.sourceTable;
 
     let existing_buckets: CurrentBucket[] = [];
@@ -367,7 +374,7 @@ export class MongoBucketBatch
         existing_lookups = result.lookups;
         if (this.storeCurrentData) {
           const data = deserializeBson((result.data as mongo.Binary).buffer) as SqliteRow;
-          after = storage.mergeToast(after!, data);
+          after = storage.mergeToast<SqliteValue>(after!, data);
         }
       }
     } else if (record.tag == SaveOperationTag.DELETE) {
