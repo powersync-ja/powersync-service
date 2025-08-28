@@ -679,7 +679,7 @@ export class MongoSyncBucketStorage
   }
 
   private async slowChecksum(request: storage.FetchPartialBucketChecksum): Promise<PartialOrFullChecksum> {
-    const batchLimit = 100_000;
+    const batchLimit = 50_000;
 
     let lowerBound = 0n;
     const bucket = request.bucket;
