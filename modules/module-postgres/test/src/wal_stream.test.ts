@@ -4,7 +4,7 @@ import { METRICS_HELPER, putOp, removeOp } from '@powersync/service-core-tests';
 import { pgwireRows } from '@powersync/service-jpgwire';
 import { ReplicationMetric } from '@powersync/service-types';
 import * as crypto from 'crypto';
-import { describe, expect, test, it } from 'vitest';
+import { describe, expect, test } from 'vitest';
 import { describeWithStorage } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 
@@ -325,7 +325,7 @@ bucket_definitions:
     }
   });
 
-  it.skip('custom types', async () => {
+  test('custom types', async () => {
     await using context = await WalStreamTestContext.open(factory);
 
     await context.updateSyncRules(`
@@ -346,6 +346,6 @@ config:
     await pool.query(`INSERT INTO test_data(id, description) VALUES ('t1', ROW(TRUE, 2)::composite)`);
 
     const data = await context.getBucketData('1#stream|0[]');
-    expect(data).toMatchObject([putOp('test_data', { id: 't1', description: 'test1' })]);
+    expect(data).toMatchObject([putOp('test_data', { id: 't1', description: '{"foo":1,"bar":2}' })]);
   });
 }
