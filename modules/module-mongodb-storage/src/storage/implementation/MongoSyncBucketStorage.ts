@@ -7,14 +7,18 @@ import {
   ServiceAssertionError
 } from '@powersync/lib-services-framework';
 import {
+  addPartialChecksums,
   BroadcastIterable,
+  BucketChecksum,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
+  CompactOptions,
   deserializeParameterLookup,
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
   maxLsn,
+  PartialChecksum,
   ProtocolOpId,
   ReplicationCheckpoint,
   storage,
@@ -31,9 +35,9 @@ import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey, SourceTableDocument } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoCompactor } from './MongoCompactor.js';
+import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from './util.js';
-import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 
 export class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
@@ -490,24 +494,71 @@ export class MongoSyncBucketStorage
     return this.checksumCache.getChecksumMap(checkpoint, buckets);
   }
 
+  clearChecksumCache() {
+    this.checksumCache.clear();
+  }
+
   private async getChecksumsInternal(batch: storage.FetchPartialBucketChecksum[]): Promise<storage.PartialChecksumMap> {
     if (batch.length == 0) {
       return new Map();
     }
 
+    const preFilters: any[] = [];
+    for (let request of batch) {
+      if (request.start == null) {
+        preFilters.push({
+          _id: {
+            g: this.group_id,
+            b: request.bucket
+          },
+          'compacted_state.op_id': { $exists: true, $lte: request.end }
+        });
+      }
+    }
+
+    const preStates = new Map<string, { opId: InternalOpId; checksum: BucketChecksum }>();
+
+    if (preFilters.length > 0) {
+      // For un-cached bucket checksums, attempt to use the compacted state first.
+      const states = await this.db.bucket_state
+        .find({
+          $or: preFilters
+        })
+        .toArray();
+      for (let state of states) {
+        const compactedState = state.compacted_state!;
+        preStates.set(state._id.b, {
+          opId: compactedState.op_id,
+          checksum: {
+            bucket: state._id.b,
+            checksum: Number(compactedState.checksum),
+            count: compactedState.count
+          }
+        });
+      }
+    }
+
     const filters: any[] = [];
     for (let request of batch) {
+      let start = request.start;
+      if (start == null) {
+        const preState = preStates.get(request.bucket);
+        if (preState != null) {
+          start = preState.opId;
+        }
+      }
+
       filters.push({
         _id: {
           $gt: {
             g: this.group_id,
             b: request.bucket,
-            o: request.start ? BigInt(request.start) : new bson.MinKey()
+            o: start ?? new bson.MinKey()
           },
           $lte: {
             g: this.group_id,
             b: request.bucket,
-            o: BigInt(request.end)
+            o: request.end
           }
         }
       });
@@ -544,17 +595,39 @@ export class MongoSyncBucketStorage
         throw lib_mongo.mapQueryError(e, 'while reading checksums');
       });
 
-    return new Map<string, storage.PartialChecksum>(
+    const partialChecksums = new Map<string, storage.PartialOrFullChecksum>(
       aggregate.map((doc) => {
+        const partialChecksum = Number(BigInt(doc.checksum_total) & 0xffffffffn) & 0xffffffff;
+        const bucket = doc._id;
         return [
-          doc._id,
-          {
-            bucket: doc._id,
-            partialCount: doc.count,
-            partialChecksum: Number(BigInt(doc.checksum_total) & 0xffffffffn) & 0xffffffff,
-            isFullChecksum: doc.has_clear_op == 1
-          } satisfies storage.PartialChecksum
+          bucket,
+          doc.has_clear_op == 1
+            ? ({
+                // full checksum - replaces any previous one
+                bucket,
+                checksum: partialChecksum,
+                count: doc.count
+              } satisfies BucketChecksum)
+            : ({
+                // partial checksum - is added to a previous one
+                bucket,
+                partialCount: doc.count,
+                partialChecksum
+              } satisfies PartialChecksum)
         ];
+      })
+    );
+
+    return new Map<string, storage.PartialOrFullChecksum>(
+      batch.map((request) => {
+        const bucket = request.bucket;
+        // Could be null if this is either (1) a partial request, or (2) no compacted checksum was available
+        const preState = preStates.get(bucket);
+        // Could be null if we got no data
+        const partialChecksum = partialChecksums.get(bucket);
+        const merged = addPartialChecksums(bucket, preState?.checksum ?? null, partialChecksum ?? null);
+
+        return [bucket, merged];
       })
     );
   }
@@ -701,11 +774,29 @@ export class MongoSyncBucketStorage
   }
 
   async compact(options?: storage.CompactOptions) {
-    const checkpoint = await this.getCheckpointInternal();
-    await new MongoCompactor(this.db, this.group_id, options).compact();
-    if (checkpoint != null && options?.compactParameterData) {
-      await new MongoParameterCompactor(this.db, this.group_id, checkpoint.checkpoint, options).compact();
+    let maxOpId = options?.maxOpId;
+    if (maxOpId == null) {
+      const checkpoint = await this.getCheckpointInternal();
+      maxOpId = checkpoint?.checkpoint ?? undefined;
     }
+    await new MongoCompactor(this.db, this.group_id, { ...options, maxOpId }).compact();
+    if (maxOpId != null && options?.compactParameterData) {
+      await new MongoParameterCompactor(this.db, this.group_id, maxOpId, options).compact();
+    }
+  }
+
+  async populatePersistentChecksumCache(options: Pick<CompactOptions, 'signal' | 'maxOpId'>): Promise<void> {
+    const start = Date.now();
+    // We do a minimal compact, primarily to populate the checksum cache
+    await this.compact({
+      ...options,
+      // Skip parameter data
+      compactParameterData: false,
+      // Don't track updates for MOVE compacting
+      memoryLimitMB: 0
+    });
+    const duration = Date.now() - start;
+    logger.info(`Populated persistent checksum cache in ${(duration / 1000).toFixed(1)}s`);
   }
 
   /**

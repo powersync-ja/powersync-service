@@ -98,6 +98,21 @@ export interface BucketStateDocument {
     b: string;
   };
   last_op: bigint;
+  /**
+   * If set, this can be treated as "cache" of a checksum at a specific point.
+   * Can be updated periodically, for example by the compact job.
+   */
+  compacted_state?: {
+    op_id: InternalOpId;
+    count: number;
+    checksum: bigint;
+    bytes: number;
+  };
+
+  estimate_since_compact?: {
+    count: number;
+    bytes: number;
+  };
 }
 
 export interface IdSequenceDocument {
