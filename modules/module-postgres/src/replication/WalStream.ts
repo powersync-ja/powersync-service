@@ -710,6 +710,9 @@ WHERE  oid = $1::regclass`,
     // Drop conflicting tables. This includes for example renamed tables.
     await batch.drop(result.dropTables);
 
+    // Ensure we have a description for custom types referenced in the table.
+    await this.connections.types.fetchTypes(referencedTypeIds);
+
     // Snapshot if:
     // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
     // 2. Snapshot is not already done, AND:
@@ -719,9 +722,6 @@ WHERE  oid = $1::regclass`,
     if (shouldSnapshot) {
       // Truncate this table, in case a previous snapshot was interrupted.
       await batch.truncate([result.table]);
-
-      // Ensure we have a description for custom types referenced in the table.
-      await this.connections.types.fetchTypes(referencedTypeIds);
 
       // Start the snapshot inside a transaction.
       // We use a dedicated connection for this.
