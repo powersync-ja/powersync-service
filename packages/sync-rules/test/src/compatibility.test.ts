@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { SqlSyncRules, DateTimeValue, toSyncRulesValue } from '../../src/index.js';
+import { SqlSyncRules, DateTimeValue, toSyncRulesValue, SqliteInputRow } from '../../src/index.js';
 
 import { ASSETS, identityBucketTransformer, normalizeQuerierOptions, PARSE_OPTIONS } from './util.js';
 
@@ -22,10 +22,10 @@ bucket_definitions:
         rules.evaluateRow({
           sourceTable: ASSETS,
           bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(''),
-          record: {
+          record: rules.applyRowContext<never>({
             id: 'id',
             description: value
-          }
+          })
         })
       ).toStrictEqual([
         { bucket: 'mybucket[]', data: { description: '2025-08-19 09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
@@ -50,10 +50,10 @@ config:
         rules.evaluateRow({
           sourceTable: ASSETS,
           bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(''),
-          record: {
+          record: rules.applyRowContext<never>({
             id: 'id',
             description: value
-          }
+          })
         })
       ).toStrictEqual([
         { bucket: 'mybucket[]', data: { description: '2025-08-19T09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
@@ -78,10 +78,10 @@ config:
         rules.evaluateRow({
           bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1'),
           sourceTable: ASSETS,
-          record: {
+          record: rules.applyRowContext<never>({
             id: 'id',
             description: value
-          }
+          })
         })
       ).toStrictEqual([
         { bucket: '1#stream|0[]', data: { description: '2025-08-19T09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
@@ -121,10 +121,10 @@ config:
         rules.evaluateRow({
           bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1'),
           sourceTable: ASSETS,
-          record: {
+          record: rules.applyRowContext<never>({
             id: 'id',
             description: value
-          }
+          })
         })
       ).toStrictEqual([
         { bucket: 'stream|0[]', data: { description: '2025-08-19 09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
@@ -188,10 +188,10 @@ config:
       rules.evaluateRow({
         sourceTable: ASSETS,
         bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1'),
-        record: {
+        record: rules.applyRowContext<never>({
           id: 'id',
           description: new DateTimeValue('2025-08-19T09:21:00Z')
-        }
+        })
       })
     ).toStrictEqual([
       { bucket: '1#stream|0[]', data: { description: '2025-08-19T09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
@@ -290,10 +290,10 @@ config:
         rules.evaluateRow({
           sourceTable: ASSETS,
           bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1'),
-          record: {
+          record: rules.applyRowContext<never>({
             id: 'id',
             description: data
-          }
+          })
         })
       ).toStrictEqual([
         {
