@@ -4,6 +4,11 @@ import { NormalizedPostgresConnectionConfig } from '../types/types.js';
 import { getApplicationName } from '../utils/application-name.js';
 import { PostgresTypeCache } from '../types/cache.js';
 import { getServerVersion } from '../utils/postgres_version.js';
+import { CustomTypeRegistry } from '../types/registry.js';
+
+export interface PgManagerOptions extends pgwire.PgPoolOptions {
+  registry: CustomTypeRegistry;
+}
 
 /**
  * Shorter timeout for snapshot connections than for replication connections.
@@ -22,11 +27,11 @@ export class PgManager {
 
   constructor(
     public options: NormalizedPostgresConnectionConfig,
-    public poolOptions: pgwire.PgPoolOptions
+    public poolOptions: PgManagerOptions
   ) {
     // The pool is lazy - no connections are opened until a query is performed.
     this.pool = pgwire.connectPgWirePool(this.options, poolOptions);
-    this.types = new PostgresTypeCache(this.pool, () => this.getServerVersion());
+    this.types = new PostgresTypeCache(poolOptions.registry, this.pool, () => this.getServerVersion());
   }
 
   public get connectionTag() {
