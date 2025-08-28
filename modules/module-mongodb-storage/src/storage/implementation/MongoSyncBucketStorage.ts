@@ -614,20 +614,6 @@ export class MongoSyncBucketStorage
       });
     }
 
-    const group = {
-      _id: '$_id.b',
-      // Historically, checksum may be stored as 'int' or 'double'.
-      // More recently, this should be a 'long'.
-      // $toLong ensures that we always sum it as a long, avoiding inaccuracies in the calculations.
-      checksum_total: { $sum: { $toLong: '$checksum' } },
-      count: { $sum: 1 },
-      has_clear_op: {
-        $max: {
-          $cond: [{ $eq: ['$op', 'CLEAR'] }, 1, 0]
-        }
-      }
-    };
-
     const aggregate = await this.db.bucket_data
       .aggregate(
         [
@@ -636,16 +622,12 @@ export class MongoSyncBucketStorage
               $or: filters
             }
           },
-          {
-            $group: group
-          }
+          CHECKSUM_QUERY_GROUP_STAGE
         ],
-        { session: undefined, readConcern: 'snapshot', maxTimeMS: lib_mongo.db.MONGO_CHECKSUM_TIMEOUT_MS }
+        { session: undefined, readConcern: 'snapshot', maxTimeMS: lib_mongo.MONGO_CHECKSUM_TIMEOUT_MS }
       )
-      .toArray()
-      .catch((err) => {
-        throw lib_mongo.mapQueryError(err, 'while reading checksums');
-      });
+      // Don't map the error here - we want to keep timeout errors as-is
+      .toArray();
 
     const partialChecksums = new Map<string, storage.PartialOrFullChecksum>(
       aggregate.map((doc) => {
@@ -669,7 +651,7 @@ export class MongoSyncBucketStorage
         if (request.start == null && isPartialChecksum(partialChecksum)) {
           partialChecksum = {
             bucket,
-            count: partialChecksum.partialChecksum,
+            count: partialChecksum.partialCount,
             checksum: partialChecksum.partialChecksum
           };
         }
@@ -750,7 +732,7 @@ export class MongoSyncBucketStorage
       }
       const partial = checksumFromAggregate(doc);
       runningChecksum = addPartialChecksums(bucket, runningChecksum, partial);
-      const isFinal = doc.count == batchLimit;
+      const isFinal = doc.count != batchLimit;
       if (isFinal) {
         break;
       } else {
