@@ -218,7 +218,7 @@ export type SqliteInputRow = SqliteRow<SqliteInputValue>;
  *
  * Toasted values are `undefined`.
  */
-export type ToastableSqliteRow = SqliteRow<SqliteInputValue | undefined>;
+export type ToastableSqliteRow<V = SqliteInputValue> = SqliteRow<V | undefined>;
 
 /**
  * A value as received from the database.
@@ -297,7 +297,7 @@ export interface InputParameter {
  */
 export type BucketIdTransformer = (regularId: string) => string;
 
-export interface EvaluateRowOptions extends TableRow<SqliteInputRow> {
+export interface EvaluateRowOptions extends TableRow {
   bucketIdTransformer: BucketIdTransformer;
 }
 

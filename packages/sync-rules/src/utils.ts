@@ -10,7 +10,8 @@ import {
   SqliteJsonValue,
   SqliteRow,
   SqliteValue,
-  BucketIdTransformer
+  BucketIdTransformer,
+  ToastableSqliteRow
 } from './types.js';
 import { SyncRuleProcessingError as SyncRulesProcessingError } from './errors.js';
 import { CustomArray, CustomObject, CustomSqliteValue } from './types/custom_sqlite_value.js';
@@ -192,10 +193,17 @@ export function applyValueContext(value: SqliteInputValue, context: Compatibilit
   }
 }
 
-export function applyRowContext(value: SqliteInputRow, context: CompatibilityContext): SqliteRow {
-  let record: SqliteRow = {};
-  for (let key of Object.keys(value)) {
-    record[key] = applyValueContext(value[key], context);
+export function applyRowContext<MaybeToast extends undefined = never>(
+  value: SqliteRow<SqliteInputValue | MaybeToast>,
+  context: CompatibilityContext
+): SqliteRow<SqliteValue | MaybeToast> {
+  let record: SqliteRow<SqliteValue | MaybeToast> = {};
+  for (let [key, rawValue] of Object.entries(value)) {
+    if (rawValue === undefined) {
+      record[key] = undefined as MaybeToast;
+    } else {
+      record[key] = applyValueContext(rawValue, context);
+    }
   }
   return record;
 }

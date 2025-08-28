@@ -39,8 +39,8 @@ export enum SyncRuleState {
 export const DEFAULT_DOCUMENT_BATCH_LIMIT = 1000;
 export const DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES = 1 * 1024 * 1024;
 
-export function mergeToast(record: ToastableSqliteRow, persisted: ToastableSqliteRow): ToastableSqliteRow {
-  const newRecord: ToastableSqliteRow = {};
+export function mergeToast<V>(record: ToastableSqliteRow<V>, persisted: ToastableSqliteRow<V>): ToastableSqliteRow<V> {
+  const newRecord: ToastableSqliteRow<V> = {};
   for (let key in record) {
     if (typeof record[key] == 'undefined') {
       newRecord[key] = persisted[key];

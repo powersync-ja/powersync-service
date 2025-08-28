@@ -51,10 +51,7 @@ export class SqlEventDescriptor {
       };
     }
 
-    return matchingQuery.evaluateRowWithErrors(
-      options.sourceTable,
-      applyRowContext(options.record, this.compatibility)
-    );
+    return matchingQuery.evaluateRowWithErrors(options.sourceTable, options.record);
   }
 
   getSourceTables(): Set<TablePattern> {
