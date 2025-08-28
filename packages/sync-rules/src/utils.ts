@@ -193,21 +193,14 @@ export function applyValueContext(value: SqliteInputValue, context: Compatibilit
   }
 }
 
-export function applyRowContext(
-  value: ToastableSqliteRow,
+export function applyRowContext<MaybeToast extends undefined = never>(
+  value: SqliteRow<SqliteInputValue | MaybeToast>,
   context: CompatibilityContext
-): SqliteRow<SqliteValue | undefined>;
-
-export function applyRowContext(value: SqliteInputRow, context: CompatibilityContext): SqliteRow;
-
-export function applyRowContext(
-  value: ToastableSqliteRow,
-  context: CompatibilityContext
-): SqliteRow<SqliteValue | undefined> {
-  let record: SqliteRow<SqliteValue | undefined> = {};
+): SqliteRow<SqliteValue | MaybeToast> {
+  let record: SqliteRow<SqliteValue | MaybeToast> = {};
   for (let [key, rawValue] of Object.entries(value)) {
     if (rawValue === undefined) {
-      record[key] = undefined;
+      record[key] = undefined as MaybeToast;
     } else {
       record[key] = applyValueContext(rawValue, context);
     }

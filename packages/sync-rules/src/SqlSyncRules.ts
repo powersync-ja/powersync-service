@@ -22,13 +22,17 @@ import {
   RequestParameters,
   SourceSchema,
   SqliteInputRow,
+  SqliteInputValue,
   SqliteJsonRow,
+  SqliteRow,
+  SqliteValue,
   StreamParseOptions,
   SyncRules
 } from './types.js';
 import { BucketSource } from './BucketSource.js';
 import { syncStreamFromSql } from './streams/from_sql.js';
 import { CompatibilityContext, CompatibilityEdition, CompatibilityOption } from './compatibility.js';
+import { applyRowContext } from './utils.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -380,6 +384,12 @@ export class SqlSyncRules implements SyncRules {
 
   constructor(content: string) {
     this.content = content;
+  }
+
+  applyRowContext<MaybeToast extends undefined = never>(
+    source: SqliteRow<SqliteInputValue | MaybeToast>
+  ): SqliteRow<SqliteValue | MaybeToast> {
+    return applyRowContext(source, this.compatibility);
   }
 
   /**
