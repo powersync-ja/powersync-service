@@ -4,9 +4,9 @@ import { addChecksums, InternalOpId, isPartialChecksum, storage, utils } from '@
 
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, BucketStateDocument } from './models.js';
+import { MongoSyncBucketStorage } from './MongoSyncBucketStorage.js';
 import { cacheKey } from './OperationBatch.js';
 import { readSingleBatch } from './util.js';
-import { MongoSyncBucketStorage } from './MongoSyncBucketStorage.js';
 
 interface CurrentBucketState {
   /** Bucket name */
@@ -531,7 +531,7 @@ export class MongoCompactor {
     for (let bucketChecksum of checksums.values()) {
       if (isPartialChecksum(bucketChecksum)) {
         // Should never happen since we don't specify `start`
-        throw new ServiceAssertionError(`Full checksum expected for bucket ${bucketChecksum.bucket}`);
+        throw new ServiceAssertionError(`Full checksum expected, got ${JSON.stringify(bucketChecksum)}`);
       }
 
       this.bucketStateUpdates.push({

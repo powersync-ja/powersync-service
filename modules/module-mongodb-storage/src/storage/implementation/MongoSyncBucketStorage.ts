@@ -20,6 +20,7 @@ import {
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
+  isPartialChecksum,
   maxLsn,
   PartialChecksum,
   PartialOrFullChecksum,
@@ -652,7 +653,29 @@ export class MongoSyncBucketStorage
       })
     );
 
-    return partialChecksums;
+    return new Map<string, storage.PartialOrFullChecksum>(
+      batch.map((request) => {
+        const bucket = request.bucket;
+        // Could be null if we got no data
+        let partialChecksum = partialChecksums.get(bucket);
+        if (partialChecksum == null) {
+          partialChecksum = {
+            bucket,
+            partialCount: 0,
+            partialChecksum: 0
+          };
+        }
+        if (request.start == null && isPartialChecksum(partialChecksum)) {
+          partialChecksum = {
+            bucket,
+            count: partialChecksum.partialChecksum,
+            checksum: partialChecksum.partialChecksum
+          };
+        }
+
+        return [bucket, partialChecksum];
+      })
+    );
   }
 
   /**
