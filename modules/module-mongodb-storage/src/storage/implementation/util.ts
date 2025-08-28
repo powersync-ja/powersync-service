@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import * as uuid from 'uuid';
 
 import { mongo } from '@powersync/lib-service-mongodb';
-import { storage, utils } from '@powersync/service-core';
+import { BucketChecksum, PartialChecksum, PartialOrFullChecksum, storage, utils } from '@powersync/service-core';
 
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument } from './models.js';
@@ -128,5 +128,46 @@ export function setSessionSnapshotTime(session: mongo.ClientSession, time: bson.
     (session as any).snapshotTime = time;
   } else {
     throw new ServiceAssertionError(`Session snapshotTime is already set`);
+  }
+}
+
+export const CHECKSUM_QUERY_GROUP_STAGE = {
+  $group: {
+    _id: '$_id.b',
+    // Historically, checksum may be stored as 'int' or 'double'.
+    // More recently, this should be a 'long'.
+    // $toLong ensures that we always sum it as a long, avoiding inaccuracies in the calculations.
+    checksum_total: { $sum: { $toLong: '$checksum' } },
+    count: { $sum: 1 },
+    has_clear_op: {
+      $max: {
+        $cond: [{ $eq: ['$op', 'CLEAR'] }, 1, 0]
+      }
+    },
+    last_op: { $max: '$_id.o' }
+  }
+};
+
+/**
+ * Convert output of CHECKSUM_QUERY_GROUP_STAGE into a checksum.
+ */
+export function checksumFromAggregate(doc: bson.Document): PartialOrFullChecksum {
+  const partialChecksum = Number(BigInt(doc.checksum_total) & 0xffffffffn) & 0xffffffff;
+  const bucket = doc._id;
+
+  if (doc.has_clear_op == 1) {
+    return {
+      // full checksum - replaces any previous one
+      bucket,
+      checksum: partialChecksum,
+      count: doc.count
+    } satisfies BucketChecksum;
+  } else {
+    return {
+      // partial checksum - is added to a previous one
+      bucket,
+      partialCount: doc.count,
+      partialChecksum
+    } satisfies PartialChecksum;
   }
 }

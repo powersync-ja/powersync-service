@@ -1,11 +1,12 @@
-import { mongo } from '@powersync/lib-service-mongodb';
+import { mongo, MONGO_OPERATION_TIMEOUT_MS } from '@powersync/lib-service-mongodb';
 import { logger, ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
-import { addChecksums, InternalOpId, storage, utils } from '@powersync/service-core';
+import { addChecksums, InternalOpId, isPartialChecksum, storage, utils } from '@powersync/service-core';
 
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, BucketStateDocument } from './models.js';
 import { cacheKey } from './OperationBatch.js';
 import { readSingleBatch } from './util.js';
+import { MongoSyncBucketStorage } from './MongoSyncBucketStorage.js';
 
 interface CurrentBucketState {
   /** Bucket name */
@@ -68,12 +69,14 @@ export class MongoCompactor {
   private maxOpId: bigint;
   private buckets: string[] | undefined;
   private signal?: AbortSignal;
+  private group_id: number;
 
   constructor(
+    private storage: MongoSyncBucketStorage,
     private db: PowerSyncMongo,
-    private group_id: number,
     options?: MongoCompactOptions
   ) {
+    this.group_id = storage.group_id;
     this.idLimitBytes = (options?.memoryLimitMB ?? DEFAULT_MEMORY_LIMIT_MB) * 1024 * 1024;
     this.moveBatchLimit = options?.moveBatchLimit ?? DEFAULT_MOVE_BATCH_LIMIT;
     this.moveBatchQueryLimit = options?.moveBatchQueryLimit ?? DEFAULT_MOVE_BATCH_QUERY_LIMIT;
@@ -474,5 +477,92 @@ export class MongoCompactor {
     } finally {
       await session.endSession();
     }
+  }
+
+  /**
+   * Subset of compact, only populating checksums where relevant.
+   */
+  async populateChecksums() {
+    let lastId: BucketStateDocument['_id'] | null = null;
+    while (!this.signal?.aborted) {
+      // By filtering buckets, we effectively make this "resumeable".
+      let filter: mongo.Filter<BucketStateDocument> = {
+        compacted_state: { $exists: false }
+      };
+      if (lastId) {
+        filter._id = { $gt: lastId };
+      }
+
+      const bucketsWithoutChecksums = await this.db.bucket_state
+        .find(filter, {
+          projection: {
+            _id: 1
+          },
+          sort: {
+            _id: 1
+          },
+          limit: 5_000,
+          maxTimeMS: MONGO_OPERATION_TIMEOUT_MS
+        })
+        .toArray();
+      if (bucketsWithoutChecksums.length == 0) {
+        // All done
+        break;
+      }
+
+      logger.info(`Calculating checksums for batch of ${bucketsWithoutChecksums.length} buckets`);
+
+      await this.updateChecksumsBatch(bucketsWithoutChecksums.map((b) => b._id.b));
+
+      lastId = bucketsWithoutChecksums[bucketsWithoutChecksums.length - 1]._id;
+    }
+  }
+
+  private async updateChecksumsBatch(buckets: string[]) {
+    const checksums = await this.storage.queryPartialChecksums(
+      buckets.map((bucket) => {
+        return {
+          bucket,
+          end: this.maxOpId
+        };
+      })
+    );
+
+    for (let bucketChecksum of checksums.values()) {
+      if (isPartialChecksum(bucketChecksum)) {
+        // Should never happen since we don't specify `start`
+        throw new ServiceAssertionError(`Full checksum expected for bucket ${bucketChecksum.bucket}`);
+      }
+
+      this.bucketStateUpdates.push({
+        updateOne: {
+          filter: {
+            _id: {
+              g: this.group_id,
+              b: bucketChecksum.bucket
+            }
+          },
+          update: {
+            $set: {
+              compacted_state: {
+                op_id: this.maxOpId,
+                count: bucketChecksum.count,
+                checksum: BigInt(bucketChecksum.checksum),
+                bytes: 0 // We don't calculate that here
+              }
+            },
+            $setOnInsert: {
+              // Only set this if we're creating the document.
+              // In all other cases, the replication process will have a set a more accurate id.
+              last_op: this.maxOpId
+            }
+          },
+          // We generally expect this to have been created before, but do handle cases of old unchanged buckets
+          upsert: true
+        }
+      });
+    }
+
+    await this.flush();
   }
 }
