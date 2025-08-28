@@ -1,4 +1,4 @@
-FROM node:22.17.0 AS builder
+FROM node:22.17.1 AS builder
 WORKDIR /app
 
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
@@ -55,7 +55,7 @@ RUN pnpm build:production && \
 
 # === TESTER ===
 
-FROM node:22.17.0-slim AS tester
+FROM node:22.17.1-slim AS tester
 WORKDIR /app
 
 
@@ -68,7 +68,7 @@ CMD pnpm test
 
 # === PROD ===
 
-FROM node:22.17.0-slim
+FROM node:22.17.1-slim
 WORKDIR /app
 
 COPY --from=builder /app/ ./
