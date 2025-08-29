@@ -1,5 +1,11 @@
 # @powersync/lib-service-mongodb
 
+## 0.6.5
+
+### Patch Changes
+
+- 6352283: Fix pre-computing of checksums after intial replication causing replication timeouts
+
 ## 0.6.4
 
 ### Patch Changes

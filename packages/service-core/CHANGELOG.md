@@ -1,5 +1,12 @@
 # @powersync/service-core
 
+## 1.15.1
+
+### Patch Changes
+
+- 6352283: Fix pre-computing of checksums after intial replication causing replication timeouts
+- 6352283: Improve performance of the compact job
+
 ## 1.15.0
 
 ### Minor Changes
