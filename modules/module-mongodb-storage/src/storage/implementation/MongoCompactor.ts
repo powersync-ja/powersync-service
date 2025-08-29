@@ -140,10 +140,10 @@ export class MongoCompactor {
     };
 
     const doneWithBucket = async () => {
-      // Free memory before clearing bucket
       if (currentState == null) {
         return;
       }
+      // Free memory before clearing bucket
       currentState.seen.clear();
       if (currentState.lastNotPut != null && currentState.opsSincePut >= 1) {
         logger.info(
@@ -201,7 +201,7 @@ export class MongoCompactor {
 
       for (let doc of batch) {
         if (currentState == null || doc._id.b != currentState.bucket) {
-          doneWithBucket();
+          await doneWithBucket();
 
           currentState = {
             bucket: doc._id.b,
@@ -291,7 +291,7 @@ export class MongoCompactor {
       }
     }
 
-    doneWithBucket();
+    await doneWithBucket();
 
     // Need another flush after updateBucketChecksums()
     await this.flush();
