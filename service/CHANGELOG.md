@@ -1,5 +1,21 @@
 # @powersync/service-image
 
+## 1.15.1
+
+### Patch Changes
+
+- 6352283: Fix pre-computing of checksums after intial replication causing replication timeouts
+- 6352283: Improve performance of the compact job
+- Updated dependencies [6352283]
+- Updated dependencies [6352283]
+  - @powersync/service-module-mongodb-storage@0.12.1
+  - @powersync/service-module-postgres@0.16.1
+  - @powersync/service-core@1.15.1
+  - @powersync/service-module-mongodb@0.12.1
+  - @powersync/service-module-mysql@0.9.1
+  - @powersync/service-module-core@0.2.1
+  - @powersync/service-module-postgres-storage@0.10.1
+
 ## 1.15.0
 
 ### Minor Changes

@@ -1,5 +1,16 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.12.1
+
+### Patch Changes
+
+- 6352283: Fix pre-computing of checksums after intial replication causing replication timeouts
+- 6352283: Improve performance of the compact job
+- Updated dependencies [6352283]
+- Updated dependencies [6352283]
+  - @powersync/service-core@1.15.1
+  - @powersync/lib-service-mongodb@0.6.5
+
 ## 0.12.0
 
 ### Minor Changes
