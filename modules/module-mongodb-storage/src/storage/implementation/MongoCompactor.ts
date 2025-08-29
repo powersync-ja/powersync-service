@@ -139,33 +139,57 @@ export class MongoCompactor {
       o: new mongo.MaxKey() as any
     };
 
+    const doneWithBucket = async () => {
+      // Free memory before clearing bucket
+      if (currentState == null) {
+        return;
+      }
+      currentState.seen.clear();
+      if (currentState.lastNotPut != null && currentState.opsSincePut >= 1) {
+        logger.info(
+          `Inserting CLEAR at ${this.group_id}:${currentState.bucket}:${currentState.lastNotPut} to remove ${currentState.opsSincePut} operations`
+        );
+        // Need flush() before clear()
+        await this.flush();
+        await this.clearBucket(currentState);
+      }
+
+      // Do this _after_ clearBucket so that we have accurate counts.
+      this.updateBucketChecksums(currentState);
+    };
+
     while (!this.signal?.aborted) {
       // Query one batch at a time, to avoid cursor timeouts
-      const cursor = this.db.bucket_data.aggregate<BucketDataDocument & { size: number | bigint }>([
-        {
-          $match: {
-            _id: {
-              $gte: lowerBound,
-              $lt: upperBound
+      const cursor = this.db.bucket_data.aggregate<BucketDataDocument & { size: number | bigint }>(
+        [
+          {
+            $match: {
+              _id: {
+                $gte: lowerBound,
+                $lt: upperBound
+              }
+            }
+          },
+          { $sort: { _id: -1 } },
+          { $limit: this.moveBatchQueryLimit },
+          {
+            $project: {
+              _id: 1,
+              op: 1,
+              table: 1,
+              row_id: 1,
+              source_table: 1,
+              source_key: 1,
+              checksum: 1,
+              size: { $bsonSize: '$$ROOT' }
             }
           }
-        },
-        { $sort: { _id: -1 } },
-        { $limit: this.moveBatchQueryLimit },
-        {
-          $project: {
-            _id: 1,
-            op: 1,
-            table: 1,
-            row_id: 1,
-            source_table: 1,
-            source_key: 1,
-            checksum: 1,
-            size: { $bsonSize: '$$ROOT' }
-          }
-        }
-      ]);
-      const { data: batch } = await readSingleBatch(cursor);
+        ],
+        { batchSize: this.moveBatchQueryLimit }
+      );
+      // We don't limit to a single batch here, since that often causes MongoDB to scan through more than it returns.
+      // Instead, we load up to the limit.
+      const batch = await cursor.toArray();
 
       if (batch.length == 0) {
         // We've reached the end
@@ -177,24 +201,8 @@ export class MongoCompactor {
 
       for (let doc of batch) {
         if (currentState == null || doc._id.b != currentState.bucket) {
-          if (currentState != null) {
-            if (currentState.lastNotPut != null && currentState.opsSincePut >= 1) {
-              // Important to flush before clearBucket()
-              // Does not have to happen before flushBucketChecksums()
-              await this.flush();
-              logger.info(
-                `Inserting CLEAR at ${this.group_id}:${currentState.bucket}:${currentState.lastNotPut} to remove ${currentState.opsSincePut} operations`
-              );
+          doneWithBucket();
 
-              // Free memory before clearing bucket
-              currentState!.seen.clear();
-
-              await this.clearBucket(currentState);
-            }
-
-            // Should happen after clearBucket() for accurate stats
-            this.updateBucketChecksums(currentState);
-          }
           currentState = {
             bucket: doc._id.b,
             seen: new Map(),
@@ -277,21 +285,14 @@ export class MongoCompactor {
           await this.flush();
         }
       }
+
+      if (currentState != null) {
+        logger.info(`Processed batch of length ${batch.length} current bucket: ${currentState.bucket}`);
+      }
     }
 
-    currentState?.seen.clear();
-    if (currentState?.lastNotPut != null && currentState?.opsSincePut > 1) {
-      logger.info(
-        `Inserting CLEAR at ${this.group_id}:${currentState.bucket}:${currentState.lastNotPut} to remove ${currentState.opsSincePut} operations`
-      );
-      // Need flush() before clear()
-      await this.flush();
-      await this.clearBucket(currentState);
-    }
-    if (currentState != null) {
-      // Do this _after_ clearBucket so that we have accurate counts.
-      this.updateBucketChecksums(currentState);
-    }
+    doneWithBucket();
+
     // Need another flush after updateBucketChecksums()
     await this.flush();
   }
@@ -548,7 +549,7 @@ export class MongoCompactor {
                 op_id: this.maxOpId,
                 count: bucketChecksum.count,
                 checksum: BigInt(bucketChecksum.checksum),
-                bytes: 0 // We don't calculate that here
+                bytes: null
               }
             },
             $setOnInsert: {
