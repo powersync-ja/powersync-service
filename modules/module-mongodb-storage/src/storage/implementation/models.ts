@@ -106,7 +106,7 @@ export interface BucketStateDocument {
     op_id: InternalOpId;
     count: number;
     checksum: bigint;
-    bytes: number;
+    bytes: number | null;
   };
 
   estimate_since_compact?: {

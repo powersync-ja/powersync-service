@@ -840,9 +840,14 @@ WHERE  oid = $1::regclass`,
     try {
       // If anything errors here, the entire replication process is halted, and
       // all connections automatically closed, including this one.
-      const replicationConnection = await this.connections.replicationConnection();
-      await this.initReplication(replicationConnection);
-      await this.streamChanges(replicationConnection);
+      const initReplicationConnection = await this.connections.replicationConnection();
+      await this.initReplication(initReplicationConnection);
+      await initReplicationConnection.end();
+
+      // At this point, the above connection has often timed out, so we start a new one
+      const streamReplicationConnection = await this.connections.replicationConnection();
+      await this.streamChanges(streamReplicationConnection);
+      await streamReplicationConnection.end();
     } catch (e) {
       await this.storage.reportError(e);
       throw e;

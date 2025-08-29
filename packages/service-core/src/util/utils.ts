@@ -113,26 +113,30 @@ export function addBucketChecksums(a: BucketChecksum, b: PartialChecksum | Bucke
 
 export function addPartialChecksums(
   bucket: string,
-  a: BucketChecksum | null,
+  a: PartialChecksum | BucketChecksum | null,
   b: PartialChecksum | BucketChecksum | null
 ): PartialChecksum | BucketChecksum {
   if (a != null && b != null) {
     if (!isPartialChecksum(b)) {
-      // Replaces preState
+      // Replaces a
       return b;
     }
     // merge
-    return {
-      bucket,
-      checksum: addChecksums(a.checksum, b.partialChecksum),
-      count: a.count + b.partialCount
-    };
+    if (!isPartialChecksum(a)) {
+      return {
+        bucket,
+        checksum: addChecksums(a.checksum, b.partialChecksum),
+        count: a.count + b.partialCount
+      };
+    } else {
+      return {
+        bucket,
+        partialChecksum: addChecksums(a.partialChecksum, b.partialChecksum),
+        partialCount: a.partialCount + b.partialCount
+      };
+    }
   } else if (a != null) {
-    return {
-      bucket,
-      checksum: a.checksum,
-      count: a.count
-    };
+    return a;
   } else if (b != null) {
     return b;
   } else {

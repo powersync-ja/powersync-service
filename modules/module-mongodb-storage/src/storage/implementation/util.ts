@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import * as uuid from 'uuid';
 
 import { mongo } from '@powersync/lib-service-mongodb';
-import { storage, utils } from '@powersync/service-core';
+import { BucketChecksum, PartialChecksum, PartialOrFullChecksum, storage, utils } from '@powersync/service-core';
 
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument } from './models.js';

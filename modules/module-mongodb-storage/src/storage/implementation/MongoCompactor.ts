@@ -1,9 +1,10 @@
-import { mongo } from '@powersync/lib-service-mongodb';
+import { mongo, MONGO_OPERATION_TIMEOUT_MS } from '@powersync/lib-service-mongodb';
 import { logger, ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
-import { addChecksums, InternalOpId, storage, utils } from '@powersync/service-core';
+import { addChecksums, InternalOpId, isPartialChecksum, storage, utils } from '@powersync/service-core';
 
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, BucketStateDocument } from './models.js';
+import { MongoSyncBucketStorage } from './MongoSyncBucketStorage.js';
 import { cacheKey } from './OperationBatch.js';
 import { readSingleBatch } from './util.js';
 
@@ -68,12 +69,14 @@ export class MongoCompactor {
   private maxOpId: bigint;
   private buckets: string[] | undefined;
   private signal?: AbortSignal;
+  private group_id: number;
 
   constructor(
+    private storage: MongoSyncBucketStorage,
     private db: PowerSyncMongo,
-    private group_id: number,
     options?: MongoCompactOptions
   ) {
+    this.group_id = storage.group_id;
     this.idLimitBytes = (options?.memoryLimitMB ?? DEFAULT_MEMORY_LIMIT_MB) * 1024 * 1024;
     this.moveBatchLimit = options?.moveBatchLimit ?? DEFAULT_MOVE_BATCH_LIMIT;
     this.moveBatchQueryLimit = options?.moveBatchQueryLimit ?? DEFAULT_MOVE_BATCH_QUERY_LIMIT;
@@ -136,33 +139,57 @@ export class MongoCompactor {
       o: new mongo.MaxKey() as any
     };
 
+    const doneWithBucket = async () => {
+      if (currentState == null) {
+        return;
+      }
+      // Free memory before clearing bucket
+      currentState.seen.clear();
+      if (currentState.lastNotPut != null && currentState.opsSincePut >= 1) {
+        logger.info(
+          `Inserting CLEAR at ${this.group_id}:${currentState.bucket}:${currentState.lastNotPut} to remove ${currentState.opsSincePut} operations`
+        );
+        // Need flush() before clear()
+        await this.flush();
+        await this.clearBucket(currentState);
+      }
+
+      // Do this _after_ clearBucket so that we have accurate counts.
+      this.updateBucketChecksums(currentState);
+    };
+
     while (!this.signal?.aborted) {
       // Query one batch at a time, to avoid cursor timeouts
-      const cursor = this.db.bucket_data.aggregate<BucketDataDocument & { size: number | bigint }>([
-        {
-          $match: {
-            _id: {
-              $gte: lowerBound,
-              $lt: upperBound
+      const cursor = this.db.bucket_data.aggregate<BucketDataDocument & { size: number | bigint }>(
+        [
+          {
+            $match: {
+              _id: {
+                $gte: lowerBound,
+                $lt: upperBound
+              }
+            }
+          },
+          { $sort: { _id: -1 } },
+          { $limit: this.moveBatchQueryLimit },
+          {
+            $project: {
+              _id: 1,
+              op: 1,
+              table: 1,
+              row_id: 1,
+              source_table: 1,
+              source_key: 1,
+              checksum: 1,
+              size: { $bsonSize: '$$ROOT' }
             }
           }
-        },
-        { $sort: { _id: -1 } },
-        { $limit: this.moveBatchQueryLimit },
-        {
-          $project: {
-            _id: 1,
-            op: 1,
-            table: 1,
-            row_id: 1,
-            source_table: 1,
-            source_key: 1,
-            checksum: 1,
-            size: { $bsonSize: '$$ROOT' }
-          }
-        }
-      ]);
-      const { data: batch } = await readSingleBatch(cursor);
+        ],
+        { batchSize: this.moveBatchQueryLimit }
+      );
+      // We don't limit to a single batch here, since that often causes MongoDB to scan through more than it returns.
+      // Instead, we load up to the limit.
+      const batch = await cursor.toArray();
 
       if (batch.length == 0) {
         // We've reached the end
@@ -174,24 +201,8 @@ export class MongoCompactor {
 
       for (let doc of batch) {
         if (currentState == null || doc._id.b != currentState.bucket) {
-          if (currentState != null) {
-            if (currentState.lastNotPut != null && currentState.opsSincePut >= 1) {
-              // Important to flush before clearBucket()
-              // Does not have to happen before flushBucketChecksums()
-              await this.flush();
-              logger.info(
-                `Inserting CLEAR at ${this.group_id}:${currentState.bucket}:${currentState.lastNotPut} to remove ${currentState.opsSincePut} operations`
-              );
+          await doneWithBucket();
 
-              // Free memory before clearing bucket
-              currentState!.seen.clear();
-
-              await this.clearBucket(currentState);
-            }
-
-            // Should happen after clearBucket() for accurate stats
-            this.updateBucketChecksums(currentState);
-          }
           currentState = {
             bucket: doc._id.b,
             seen: new Map(),
@@ -274,21 +285,14 @@ export class MongoCompactor {
           await this.flush();
         }
       }
+
+      if (currentState != null) {
+        logger.info(`Processed batch of length ${batch.length} current bucket: ${currentState.bucket}`);
+      }
     }
 
-    currentState?.seen.clear();
-    if (currentState?.lastNotPut != null && currentState?.opsSincePut > 1) {
-      logger.info(
-        `Inserting CLEAR at ${this.group_id}:${currentState.bucket}:${currentState.lastNotPut} to remove ${currentState.opsSincePut} operations`
-      );
-      // Need flush() before clear()
-      await this.flush();
-      await this.clearBucket(currentState);
-    }
-    if (currentState != null) {
-      // Do this _after_ clearBucket so that we have accurate counts.
-      this.updateBucketChecksums(currentState);
-    }
+    await doneWithBucket();
+
     // Need another flush after updateBucketChecksums()
     await this.flush();
   }
@@ -474,5 +478,92 @@ export class MongoCompactor {
     } finally {
       await session.endSession();
     }
+  }
+
+  /**
+   * Subset of compact, only populating checksums where relevant.
+   */
+  async populateChecksums() {
+    let lastId: BucketStateDocument['_id'] | null = null;
+    while (!this.signal?.aborted) {
+      // By filtering buckets, we effectively make this "resumeable".
+      let filter: mongo.Filter<BucketStateDocument> = {
+        compacted_state: { $exists: false }
+      };
+      if (lastId) {
+        filter._id = { $gt: lastId };
+      }
+
+      const bucketsWithoutChecksums = await this.db.bucket_state
+        .find(filter, {
+          projection: {
+            _id: 1
+          },
+          sort: {
+            _id: 1
+          },
+          limit: 5_000,
+          maxTimeMS: MONGO_OPERATION_TIMEOUT_MS
+        })
+        .toArray();
+      if (bucketsWithoutChecksums.length == 0) {
+        // All done
+        break;
+      }
+
+      logger.info(`Calculating checksums for batch of ${bucketsWithoutChecksums.length} buckets`);
+
+      await this.updateChecksumsBatch(bucketsWithoutChecksums.map((b) => b._id.b));
+
+      lastId = bucketsWithoutChecksums[bucketsWithoutChecksums.length - 1]._id;
+    }
+  }
+
+  private async updateChecksumsBatch(buckets: string[]) {
+    const checksums = await this.storage.checksums.queryPartialChecksums(
+      buckets.map((bucket) => {
+        return {
+          bucket,
+          end: this.maxOpId
+        };
+      })
+    );
+
+    for (let bucketChecksum of checksums.values()) {
+      if (isPartialChecksum(bucketChecksum)) {
+        // Should never happen since we don't specify `start`
+        throw new ServiceAssertionError(`Full checksum expected, got ${JSON.stringify(bucketChecksum)}`);
+      }
+
+      this.bucketStateUpdates.push({
+        updateOne: {
+          filter: {
+            _id: {
+              g: this.group_id,
+              b: bucketChecksum.bucket
+            }
+          },
+          update: {
+            $set: {
+              compacted_state: {
+                op_id: this.maxOpId,
+                count: bucketChecksum.count,
+                checksum: BigInt(bucketChecksum.checksum),
+                bytes: null
+              }
+            },
+            $setOnInsert: {
+              // Only set this if we're creating the document.
+              // In all other cases, the replication process will have a set a more accurate id.
+              last_op: this.maxOpId
+            }
+          },
+          // We generally expect this to have been created before, but do handle cases of old unchanged buckets
+          upsert: true
+        }
+      });
+    }
+
+    await this.flush();
   }
 }
