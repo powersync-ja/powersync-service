@@ -520,7 +520,7 @@ export class MongoCompactor {
   }
 
   private async updateChecksumsBatch(buckets: string[]) {
-    const checksums = await this.storage.queryPartialChecksums(
+    const checksums = await this.storage.checksums.queryPartialChecksums(
       buckets.map((bucket) => {
         return {
           bucket,

@@ -2,17 +2,12 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import {
   BaseObserver,
-  DatabaseQueryError,
-  ErrorCode,
   logger,
   ReplicationAbortedError,
   ServiceAssertionError
 } from '@powersync/lib-services-framework';
 import {
-  addBucketChecksums,
-  addPartialChecksums,
   BroadcastIterable,
-  BucketChecksum,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
   CompactOptions,
@@ -20,10 +15,7 @@ import {
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
-  isPartialChecksum,
   maxLsn,
-  PartialChecksum,
-  PartialOrFullChecksum,
   ProtocolOpId,
   ReplicationCheckpoint,
   storage,
@@ -39,28 +31,18 @@ import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey, SourceTableDocument } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
+import { MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
-import {
-  CHECKSUM_QUERY_GROUP_STAGE,
-  checksumFromAggregate,
-  idPrefixFilter,
-  mapOpEntry,
-  readSingleBatch,
-  setSessionSnapshotTime
-} from './util.js';
+import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from './util.js';
 
 export class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
   implements storage.SyncRulesBucketStorage
 {
   private readonly db: PowerSyncMongo;
-  private checksumCache = new storage.ChecksumCache({
-    fetchChecksums: (batch) => {
-      return this.getChecksumsInternal(batch);
-    }
-  });
+  readonly checksums: MongoChecksums;
 
   private parsedSyncRulesCache: { parsed: SqlSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
@@ -74,6 +56,7 @@ export class MongoSyncBucketStorage
   ) {
     super();
     this.db = factory.db;
+    this.checksums = new MongoChecksums(this.db, this.group_id);
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
       db: this.db,
       mode: writeCheckpointMode,
@@ -503,243 +486,11 @@ export class MongoSyncBucketStorage
   }
 
   async getChecksums(checkpoint: utils.InternalOpId, buckets: string[]): Promise<utils.ChecksumMap> {
-    return this.checksumCache.getChecksumMap(checkpoint, buckets);
+    return this.checksums.getChecksums(checkpoint, buckets);
   }
 
   clearChecksumCache() {
-    this.checksumCache.clear();
-  }
-
-  private async getChecksumsInternal(batch: storage.FetchPartialBucketChecksum[]): Promise<storage.PartialChecksumMap> {
-    if (batch.length == 0) {
-      return new Map();
-    }
-
-    const preFilters: any[] = [];
-    for (let request of batch) {
-      if (request.start == null) {
-        preFilters.push({
-          _id: {
-            g: this.group_id,
-            b: request.bucket
-          },
-          'compacted_state.op_id': { $exists: true, $lte: request.end }
-        });
-      }
-    }
-
-    const preStates = new Map<string, { opId: InternalOpId; checksum: BucketChecksum }>();
-
-    if (preFilters.length > 0) {
-      // For un-cached bucket checksums, attempt to use the compacted state first.
-      const states = await this.db.bucket_state
-        .find({
-          $or: preFilters
-        })
-        .toArray();
-      for (let state of states) {
-        const compactedState = state.compacted_state!;
-        preStates.set(state._id.b, {
-          opId: compactedState.op_id,
-          checksum: {
-            bucket: state._id.b,
-            checksum: Number(compactedState.checksum),
-            count: compactedState.count
-          }
-        });
-      }
-    }
-
-    const mappedRequests = batch.map((request) => {
-      let start = request.start;
-      if (start == null) {
-        const preState = preStates.get(request.bucket);
-        if (preState != null) {
-          start = preState.opId;
-        }
-      }
-      return {
-        ...request,
-        start
-      };
-    });
-
-    const queriedChecksums = await this.queryPartialChecksums(mappedRequests);
-
-    return new Map<string, storage.PartialOrFullChecksum>(
-      batch.map((request) => {
-        const bucket = request.bucket;
-        // Could be null if this is either (1) a partial request, or (2) no compacted checksum was available
-        const preState = preStates.get(bucket);
-        // Could be null if we got no data
-        const partialChecksum = queriedChecksums.get(bucket);
-        const merged = addPartialChecksums(bucket, preState?.checksum ?? null, partialChecksum ?? null);
-
-        return [bucket, merged];
-      })
-    );
-  }
-
-  async queryPartialChecksums(batch: storage.FetchPartialBucketChecksum[]): Promise<storage.PartialChecksumMap> {
-    try {
-      return await this.queryPartialChecksumsInternal(batch);
-    } catch (e) {
-      if (e.codeName == 'MaxTimeMSExpired') {
-        logger.warn(`Checksum query timed out; falling back to slower version`, e);
-        // Timeout - try the slower but more robust version
-        return await this.queryPartialChecksumsFallback(batch);
-      }
-      throw lib_mongo.mapQueryError(e, 'while reading checksums');
-    }
-  }
-
-  private async queryPartialChecksumsInternal(
-    batch: storage.FetchPartialBucketChecksum[]
-  ): Promise<storage.PartialChecksumMap> {
-    const filters: any[] = [];
-    for (let request of batch) {
-      filters.push({
-        _id: {
-          $gt: {
-            g: this.group_id,
-            b: request.bucket,
-            o: request.start ?? new bson.MinKey()
-          },
-          $lte: {
-            g: this.group_id,
-            b: request.bucket,
-            o: request.end
-          }
-        }
-      });
-    }
-
-    const aggregate = await this.db.bucket_data
-      .aggregate(
-        [
-          {
-            $match: {
-              $or: filters
-            }
-          },
-          CHECKSUM_QUERY_GROUP_STAGE
-        ],
-        { session: undefined, readConcern: 'snapshot', maxTimeMS: lib_mongo.MONGO_CHECKSUM_TIMEOUT_MS }
-      )
-      // Don't map the error here - we want to keep timeout errors as-is
-      .toArray();
-
-    const partialChecksums = new Map<string, storage.PartialOrFullChecksum>(
-      aggregate.map((doc) => {
-        const bucket = doc._id;
-        return [bucket, checksumFromAggregate(doc)];
-      })
-    );
-
-    return new Map<string, storage.PartialOrFullChecksum>(
-      batch.map((request) => {
-        const bucket = request.bucket;
-        // Could be null if we got no data
-        let partialChecksum = partialChecksums.get(bucket);
-        if (partialChecksum == null) {
-          partialChecksum = {
-            bucket,
-            partialCount: 0,
-            partialChecksum: 0
-          };
-        }
-        if (request.start == null && isPartialChecksum(partialChecksum)) {
-          partialChecksum = {
-            bucket,
-            count: partialChecksum.partialCount,
-            checksum: partialChecksum.partialChecksum
-          };
-        }
-
-        return [bucket, partialChecksum];
-      })
-    );
-  }
-
-  /**
-   * Checksums for large buckets can run over the query timeout.
-   * To avoid this, we query in batches.
-   * This version can handle larger amounts of data, but is slower, especially for many buckets.
-   */
-  async queryPartialChecksumsFallback(
-    batch: storage.FetchPartialBucketChecksum[]
-  ): Promise<storage.PartialChecksumMap> {
-    const partialChecksums = new Map<string, storage.PartialOrFullChecksum>();
-    for (let request of batch) {
-      const checksum = await this.slowChecksum(request);
-      partialChecksums.set(request.bucket, checksum);
-    }
-
-    return partialChecksums;
-  }
-
-  private async slowChecksum(request: storage.FetchPartialBucketChecksum): Promise<PartialOrFullChecksum> {
-    const batchLimit = 50_000;
-
-    let lowerBound = 0n;
-    const bucket = request.bucket;
-
-    let runningChecksum: PartialOrFullChecksum = {
-      bucket,
-      partialCount: 0,
-      partialChecksum: 0
-    };
-    if (request.start == null) {
-      runningChecksum = {
-        bucket,
-        count: 0,
-        checksum: 0
-      };
-    }
-
-    while (true) {
-      const filter = {
-        _id: {
-          $gt: {
-            g: this.group_id,
-            b: bucket,
-            o: lowerBound
-          },
-          $lte: {
-            g: this.group_id,
-            b: bucket,
-            o: request.end
-          }
-        }
-      };
-      const docs = await this.db.bucket_data
-        .aggregate(
-          [
-            {
-              $match: filter
-            },
-            // sort and limit _before_ grouping
-            { $sort: { _id: 1 } },
-            { $limit: batchLimit },
-            CHECKSUM_QUERY_GROUP_STAGE
-          ],
-          { session: undefined, readConcern: 'snapshot', maxTimeMS: lib_mongo.MONGO_CHECKSUM_TIMEOUT_MS }
-        )
-        .toArray();
-      const doc = docs[0];
-      if (doc == null) {
-        return runningChecksum;
-      }
-      const partial = checksumFromAggregate(doc);
-      runningChecksum = addPartialChecksums(bucket, runningChecksum, partial);
-      const isFinal = doc.count != batchLimit;
-      if (isFinal) {
-        break;
-      } else {
-        lowerBound = doc.last_op;
-      }
-    }
-    return runningChecksum;
+    this.checksums.clearCache();
   }
 
   async terminate(options?: storage.TerminateOptions) {
