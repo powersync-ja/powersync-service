@@ -11,13 +11,7 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
   const db = storage.createPowerSyncMongo(configuration.storage as MongoStorageConfig);
 
   try {
-    await db.bucket_state.createIndex(
-      {
-        '_id.g': 1,
-        last_op: 1
-      },
-      { name: INDEX_NAME, unique: true }
-    );
+    await db.createBucketStateIndex();
   } finally {
     await db.client.close();
   }
