@@ -36,15 +36,15 @@ const DEFAULT_OPERATION_BATCH_LIMIT = 50_000;
  * Checksum query implementation.
  *
  * General implementation flow is:
- * 1. getChecksums() -> check cache for (partial) matches. If not found or partial match, query the remainder using getChecksumsInternal().
- * 2. getChecksumsInternal() -> query bucket_state for partial matches. Query the remainder using queryPartialChecksums().
- * 3. queryPartialChecksums() -> split into batches of 200 buckets at a time -> queryPartialChecksumsInternal()
- * 4. queryPartialChecksumsInternal() -> aggregate over 50_000 operations in bucket_data at a time
+ * 1. getChecksums() -> check cache for (partial) matches. If not found or partial match, query the remainder using computePartialChecksums().
+ * 2. computePartialChecksums() -> query bucket_state for partial matches. Query the remainder using computePartialChecksumsDirect().
+ * 3. computePartialChecksumsDirect() -> split into batches of 200 buckets at a time -> computePartialChecksumsInternal()
+ * 4. computePartialChecksumsInternal() -> aggregate over 50_000 operations in bucket_data at a time
  */
 export class MongoChecksums {
   private cache = new ChecksumCache({
     fetchChecksums: (batch) => {
-      return this.getChecksumsInternal(batch);
+      return this.computePartialChecksums(batch);
     }
   });
 
@@ -55,7 +55,8 @@ export class MongoChecksums {
   ) {}
 
   /**
-   * Calculate checksums, utilizing the cache.
+   * Calculate checksums, utilizing the cache for partial checkums, and querying the remainder from
+   * the database (bucket_state + bucket_data).
    */
   async getChecksums(checkpoint: InternalOpId, buckets: string[]): Promise<ChecksumMap> {
     return this.cache.getChecksumMap(checkpoint, buckets);
@@ -66,11 +67,15 @@ export class MongoChecksums {
   }
 
   /**
-   * Calculate (partial) checksums from bucket_state and the data collection.
+   * Calculate (partial) checksums from bucket_state (pre-aggregated) and bucket_data (individual operations).
    *
-   * Results are not cached here.
+   * Results are not cached here. This method is only called by {@link ChecksumCache.getChecksumMap},
+   * which is responsible for caching its result.
+   *
+   * As long as data is compacted regularly, this should be fast. Large buckets without pre-compacted bucket_state
+   * can be slow.
    */
-  private async getChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
+  private async computePartialChecksums(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
     if (batch.length == 0) {
       return new Map();
     }
@@ -124,7 +129,7 @@ export class MongoChecksums {
       };
     });
 
-    const queriedChecksums = await this.queryPartialChecksums(mappedRequests);
+    const queriedChecksums = await this.computePartialChecksumsDirect(mappedRequests);
 
     return new Map<string, PartialOrFullChecksum>(
       batch.map((request) => {
@@ -143,21 +148,26 @@ export class MongoChecksums {
   /**
    * Calculate (partial) checksums from the data collection directly, bypassing the cache and bucket_state.
    *
-   * Internally, we do calculations in smaller batches as appropriate.
+   * Can be used directly in cases where the cache should be bypassed, such as from a compact job.
+   *
+   * Internally, we do calculations in smaller batches of buckets as appropriate.
+   *
+   * For large buckets, this can be slow, but should not time out as the underlying queries are performed in
+   * smaller batches.
    */
-  public async queryPartialChecksums(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
+  public async computePartialChecksumsDirect(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
     // Limit the number of buckets we query for at a time.
     const bucketBatchLimit = this.options?.bucketBatchLimit ?? DEFAULT_BUCKET_BATCH_LIMIT;
 
     if (batch.length < bucketBatchLimit) {
       // Single batch - no need for splitting the batch and merging results
-      return await this.queryPartialChecksumsInternal(batch);
+      return await this.computePartialChecksumsInternal(batch);
     }
     // Split the batch and merge results
     let results = new Map<string, PartialOrFullChecksum>();
     for (let i = 0; i < batch.length; i += bucketBatchLimit) {
       const bucketBatch = batch.slice(i, i + bucketBatchLimit);
-      const batchResults = await this.queryPartialChecksumsInternal(bucketBatch);
+      const batchResults = await this.computePartialChecksumsInternal(bucketBatch);
       for (let r of batchResults.values()) {
         results.set(r.bucket, r);
       }
@@ -168,9 +178,11 @@ export class MongoChecksums {
   /**
    * Query a batch of checksums.
    *
-   * We limit the number of operations that the query aggregates in each batch, to avoid potential query timeouts.
+   * We limit the number of operations that the query aggregates in each sub-batch, to avoid potential query timeouts.
+   *
+   * `batch` must be limited to DEFAULT_BUCKET_BATCH_LIMIT buckets before calling this.
    */
-  private async queryPartialChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
+  private async computePartialChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
     const batchLimit = this.options?.operationBatchLimit ?? DEFAULT_OPERATION_BATCH_LIMIT;
 
     // Map requests by bucket. We adjust this as we get partial results.
