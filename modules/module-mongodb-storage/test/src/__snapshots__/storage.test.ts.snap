@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`Mongo Sync Bucket Storage > empty storage metrics 1`] = `
+exports[`Mongo Sync Bucket Storage - Batched checksums > empty storage metrics 1`] = `
 {
   "operations_size_bytes": 0,
   "parameters_size_bytes": 0,
@@ -8,7 +8,7 @@ exports[`Mongo Sync Bucket Storage > empty storage metrics 1`] = `
 }
 `;
 
-exports[`Mongo Sync Bucket Storage - Batched checksums > empty storage metrics 1`] = `
+exports[`Mongo Sync Bucket Storage - Data > empty storage metrics 1`] = `
 {
   "operations_size_bytes": 0,
   "parameters_size_bytes": 0,
