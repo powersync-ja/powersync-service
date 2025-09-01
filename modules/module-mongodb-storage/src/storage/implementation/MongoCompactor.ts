@@ -6,7 +6,6 @@ import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, BucketStateDocument } from './models.js';
 import { MongoSyncBucketStorage } from './MongoSyncBucketStorage.js';
 import { cacheKey } from './OperationBatch.js';
-import { readSingleBatch } from './util.js';
 
 interface CurrentBucketState {
   /** Bucket name */
@@ -480,15 +479,25 @@ export class MongoCompactor {
    * Subset of compact, only populating checksums where relevant.
    */
   async populateChecksums() {
-    let lastId: BucketStateDocument['_id'] | null = null;
+    // This is updated after each batch
+    let lowerBound: BucketStateDocument['_id'] = {
+      g: this.group_id,
+      b: new mongo.MinKey() as any
+    };
+    // This is static
+    const upperBound: BucketStateDocument['_id'] = {
+      g: this.group_id,
+      b: new mongo.MaxKey() as any
+    };
     while (!this.signal?.aborted) {
       // By filtering buckets, we effectively make this "resumeable".
-      let filter: mongo.Filter<BucketStateDocument> = {
+      const filter: mongo.Filter<BucketStateDocument> = {
+        _id: {
+          $gt: lowerBound,
+          $lt: upperBound
+        },
         compacted_state: { $exists: false }
       };
-      if (lastId) {
-        filter._id = { $gt: lastId };
-      }
 
       const bucketsWithoutChecksums = await this.db.bucket_state
         .find(filter, {
@@ -511,7 +520,7 @@ export class MongoCompactor {
 
       await this.updateChecksumsBatch(bucketsWithoutChecksums.map((b) => b._id.b));
 
-      lastId = bucketsWithoutChecksums[bucketsWithoutChecksums.length - 1]._id;
+      lowerBound = bucketsWithoutChecksums[bucketsWithoutChecksums.length - 1]._id;
     }
   }
 
