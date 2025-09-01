@@ -6,7 +6,6 @@ import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, BucketStateDocument } from './models.js';
 import { MongoSyncBucketStorage } from './MongoSyncBucketStorage.js';
 import { cacheKey } from './OperationBatch.js';
-import { readSingleBatch } from './util.js';
 
 interface CurrentBucketState {
   /** Bucket name */
