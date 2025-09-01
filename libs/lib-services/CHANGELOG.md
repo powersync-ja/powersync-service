@@ -1,5 +1,20 @@
 # @powersync/lib-services-framework
 
+## 0.7.3
+
+### Patch Changes
+
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+- Updated dependencies [b0b8ae9]
+- Updated dependencies [d2be184]
+- Updated dependencies [5284fb5]
+- Updated dependencies [18435a4]
+- Updated dependencies [5284fb5]
+- Updated dependencies [6fd0242]
+- Updated dependencies [060b829]
+  - @powersync/service-sync-rules@0.29.0
+  - @powersync/service-errors@0.3.4
+
 ## 0.7.2
 
 ### Patch Changes

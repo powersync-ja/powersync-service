@@ -1,5 +1,44 @@
 # @powersync/service-core
 
+## 1.15.1
+
+### Patch Changes
+
+- 6352283: Fix pre-computing of checksums after intial replication causing replication timeouts
+- 6352283: Improve performance of the compact job
+
+## 1.15.0
+
+### Minor Changes
+
+- 6d4a4d1: Create a persisted checksum cache when compacting buckets.
+- c27e1c8: Upgrade Node, Sentry, Fastify and OpenTelemetry dependencies.
+- f56acce: Enable permessage-deflate for websockets.
+- 86807d0: Support gzip and zstd compression in http streams.
+
+### Patch Changes
+
+- d2be184: Refactor interface between service and sync rule bindings in preparation for sync streams.
+- 29a368e: Fix inconsistencies between binary data being requested and actually being sent.
+- 6315334: [MongoDB Storage] Increase checksum timeouts
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+- d49bebe: - Hooked up the MySQL binlog heartbeat events with the bucket batch keepalive mechanism.
+  Heartbeat events will now update the latest keepalive timestamp in the sync rules.
+- Updated dependencies [b0b8ae9]
+- Updated dependencies [d2be184]
+- Updated dependencies [5284fb5]
+- Updated dependencies [18435a4]
+- Updated dependencies [5284fb5]
+- Updated dependencies [f56acce]
+- Updated dependencies [6fd0242]
+- Updated dependencies [86807d0]
+- Updated dependencies [060b829]
+  - @powersync/service-sync-rules@0.29.0
+  - @powersync/service-rsocket-router@0.2.0
+  - @powersync/service-types@0.13.0
+  - @powersync/lib-services-framework@0.7.3
+  - @powersync/service-jsonbig@0.17.11
+
 ## 1.14.0
 
 ### Minor Changes

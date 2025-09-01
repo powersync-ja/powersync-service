@@ -1,9 +1,12 @@
 import * as bson from 'bson';
 import * as crypto from 'crypto';
 import * as uuid from 'uuid';
+
 import { mongo } from '@powersync/lib-service-mongodb';
-import { storage, utils } from '@powersync/service-core';
-import { BucketDataDocument } from '../storage/implementation/models.js';
+import { BucketChecksum, PartialChecksum, PartialOrFullChecksum, storage, utils } from '@powersync/service-core';
+
+import { PowerSyncMongo } from './db.js';
+import { BucketDataDocument } from './models.js';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 
 export function idPrefixFilter<T>(prefix: Partial<T>, rest: (keyof T)[]): mongo.Condition<T> {
@@ -40,7 +43,7 @@ export function generateSlotName(prefix: string, sync_rules_id: number) {
  *
  * For this to be effective, set batchSize = limit in the find command.
  */
-export async function readSingleBatch<T>(cursor: mongo.FindCursor<T>): Promise<{ data: T[]; hasMore: boolean }> {
+export async function readSingleBatch<T>(cursor: mongo.AbstractCursor<T>): Promise<{ data: T[]; hasMore: boolean }> {
   try {
     let data: T[];
     let hasMore = true;

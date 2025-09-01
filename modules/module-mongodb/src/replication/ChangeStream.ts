@@ -10,6 +10,7 @@ import {
   ServiceError
 } from '@powersync/lib-services-framework';
 import {
+  InternalOpId,
   MetricsEngine,
   RelationCache,
   SaveOperationTag,
@@ -317,7 +318,7 @@ export class ChangeStream {
     const sourceTables = this.sync_rules.getSourceTables();
     await this.client.connect();
 
-    await this.storage.startBatch(
+    const flushResult = await this.storage.startBatch(
       {
         logger: this.logger,
         zeroLSN: MongoLSN.ZERO.comparable,
@@ -383,6 +384,7 @@ export class ChangeStream {
         this.logger.info(`Snapshot done. Need to replicate from ${snapshotLsn} to ${checkpoint} to be consistent`);
       }
     );
+    return { lastOpId: flushResult?.flushed_op };
   }
 
   private async setupCheckpointsCollection() {
@@ -689,7 +691,15 @@ export class ChangeStream {
         // Snapshot LSN is not present, so we need to start replication from scratch.
         await this.storage.clear({ signal: this.abort_signal });
       }
-      await this.initialReplication(result.snapshotLsn);
+      const { lastOpId } = await this.initialReplication(result.snapshotLsn);
+      if (lastOpId != null) {
+        // Populate the cache _after_ initial replication, but _before_ we switch to this sync rules.
+        await this.storage.populatePersistentChecksumCache({
+          signal: this.abort_signal,
+          // No checkpoint yet, but we do have the opId.
+          maxOpId: lastOpId
+        });
+      }
     }
   }
 

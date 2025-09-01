@@ -1,5 +1,13 @@
 # @powersync/service-schema
 
+## 1.15.1
+
+## 1.15.0
+
+### Patch Changes
+
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+
 ## 1.14.0
 
 ## 1.13.4

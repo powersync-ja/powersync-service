@@ -10,6 +10,7 @@ import {
   BroadcastIterable,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
+  CompactOptions,
   deserializeParameterLookup,
   GetCheckpointChangesOptions,
   InternalOpId,
@@ -30,21 +31,18 @@ import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey, SourceTableDocument } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
+import { MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactor } from './MongoCompactor.js';
-import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
-import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../utils/util.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
+import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
+import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from './util.js';
 
 export class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
   implements storage.SyncRulesBucketStorage
 {
   private readonly db: PowerSyncMongo;
-  private checksumCache = new storage.ChecksumCache({
-    fetchChecksums: (batch) => {
-      return this.getChecksumsInternal(batch);
-    }
-  });
+  readonly checksums: MongoChecksums;
 
   private parsedSyncRulesCache: { parsed: SqlSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
@@ -58,6 +56,7 @@ export class MongoSyncBucketStorage
   ) {
     super();
     this.db = factory.db;
+    this.checksums = new MongoChecksums(this.db, this.group_id);
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
       db: this.db,
       mode: writeCheckpointMode,
@@ -487,76 +486,11 @@ export class MongoSyncBucketStorage
   }
 
   async getChecksums(checkpoint: utils.InternalOpId, buckets: string[]): Promise<utils.ChecksumMap> {
-    return this.checksumCache.getChecksumMap(checkpoint, buckets);
+    return this.checksums.getChecksums(checkpoint, buckets);
   }
 
-  private async getChecksumsInternal(batch: storage.FetchPartialBucketChecksum[]): Promise<storage.PartialChecksumMap> {
-    if (batch.length == 0) {
-      return new Map();
-    }
-
-    const filters: any[] = [];
-    for (let request of batch) {
-      filters.push({
-        _id: {
-          $gt: {
-            g: this.group_id,
-            b: request.bucket,
-            o: request.start ? BigInt(request.start) : new bson.MinKey()
-          },
-          $lte: {
-            g: this.group_id,
-            b: request.bucket,
-            o: BigInt(request.end)
-          }
-        }
-      });
-    }
-
-    const aggregate = await this.db.bucket_data
-      .aggregate(
-        [
-          {
-            $match: {
-              $or: filters
-            }
-          },
-          {
-            $group: {
-              _id: '$_id.b',
-              // Historically, checksum may be stored as 'int' or 'double'.
-              // More recently, this should be a 'long'.
-              // $toLong ensures that we always sum it as a long, avoiding inaccuracies in the calculations.
-              checksum_total: { $sum: { $toLong: '$checksum' } },
-              count: { $sum: 1 },
-              has_clear_op: {
-                $max: {
-                  $cond: [{ $eq: ['$op', 'CLEAR'] }, 1, 0]
-                }
-              }
-            }
-          }
-        ],
-        { session: undefined, readConcern: 'snapshot', maxTimeMS: lib_mongo.db.MONGO_CHECKSUM_TIMEOUT_MS }
-      )
-      .toArray()
-      .catch((e) => {
-        throw lib_mongo.mapQueryError(e, 'while reading checksums');
-      });
-
-    return new Map<string, storage.PartialChecksum>(
-      aggregate.map((doc) => {
-        return [
-          doc._id,
-          {
-            bucket: doc._id,
-            partialCount: doc.count,
-            partialChecksum: Number(BigInt(doc.checksum_total) & 0xffffffffn) & 0xffffffff,
-            isFullChecksum: doc.has_clear_op == 1
-          } satisfies storage.PartialChecksum
-        ];
-      })
-    );
+  clearChecksumCache() {
+    this.checksums.clearCache();
   }
 
   async terminate(options?: storage.TerminateOptions) {
@@ -701,11 +635,32 @@ export class MongoSyncBucketStorage
   }
 
   async compact(options?: storage.CompactOptions) {
-    const checkpoint = await this.getCheckpointInternal();
-    await new MongoCompactor(this.db, this.group_id, options).compact();
-    if (checkpoint != null && options?.compactParameterData) {
-      await new MongoParameterCompactor(this.db, this.group_id, checkpoint.checkpoint, options).compact();
+    let maxOpId = options?.maxOpId;
+    if (maxOpId == null) {
+      const checkpoint = await this.getCheckpointInternal();
+      maxOpId = checkpoint?.checkpoint ?? undefined;
     }
+    await new MongoCompactor(this, this.db, { ...options, maxOpId }).compact();
+
+    if (maxOpId != null && options?.compactParameterData) {
+      await new MongoParameterCompactor(this.db, this.group_id, maxOpId, options).compact();
+    }
+  }
+
+  async populatePersistentChecksumCache(options: Required<Pick<CompactOptions, 'signal' | 'maxOpId'>>): Promise<void> {
+    logger.info(`Populating persistent checksum cache...`);
+    const start = Date.now();
+    // We do a minimal compact here.
+    // We can optimize this in the future.
+    const compactor = new MongoCompactor(this, this.db, {
+      ...options,
+      // Don't track updates for MOVE compacting
+      memoryLimitMB: 0
+    });
+
+    await compactor.populateChecksums();
+    const duration = Date.now() - start;
+    logger.info(`Populated persistent checksum cache in ${(duration / 1000).toFixed(1)}s`);
   }
 
   /**

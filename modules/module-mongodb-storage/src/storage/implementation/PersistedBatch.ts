@@ -71,15 +71,17 @@ export class PersistedBatch {
     this.logger = options?.logger ?? defaultLogger;
   }
 
-  private incrementBucket(bucket: string, op_id: InternalOpId) {
+  private incrementBucket(bucket: string, op_id: InternalOpId, bytes: number) {
     let existingState = this.bucketStates.get(bucket);
     if (existingState) {
       existingState.lastOp = op_id;
       existingState.incrementCount += 1;
+      existingState.incrementBytes += bytes;
     } else {
       this.bucketStates.set(bucket, {
         lastOp: op_id,
-        incrementCount: 1
+        incrementCount: 1,
+        incrementBytes: bytes
       });
     }
   }
@@ -115,7 +117,8 @@ export class PersistedBatch {
       }
 
       remaining_buckets.delete(key);
-      this.currentSize += recordData.length + 200;
+      const byteEstimate = recordData.length + 200;
+      this.currentSize += byteEstimate;
 
       const op_id = options.op_seq.next();
       this.debugLastOpId = op_id;
@@ -138,7 +141,7 @@ export class PersistedBatch {
           }
         }
       });
-      this.incrementBucket(k.bucket, op_id);
+      this.incrementBucket(k.bucket, op_id, byteEstimate);
     }
 
     for (let bd of remaining_buckets.values()) {
@@ -166,7 +169,7 @@ export class PersistedBatch {
         }
       });
       this.currentSize += 200;
-      this.incrementBucket(bd.bucket, op_id);
+      this.incrementBucket(bd.bucket, op_id, 200);
     }
   }
 
@@ -369,6 +372,10 @@ export class PersistedBatch {
           update: {
             $set: {
               last_op: state.lastOp
+            },
+            $inc: {
+              'estimate_since_compact.count': state.incrementCount,
+              'estimate_since_compact.bytes': state.incrementBytes
             }
           },
           upsert: true
@@ -381,4 +388,5 @@ export class PersistedBatch {
 interface BucketStateUpdate {
   lastOp: InternalOpId;
   incrementCount: number;
+  incrementBytes: number;
 }

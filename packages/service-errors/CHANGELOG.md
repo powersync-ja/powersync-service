@@ -1,5 +1,11 @@
 # @powersync/service-errors
 
+## 0.3.4
+
+### Patch Changes
+
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+
 ## 0.3.3
 
 ### Patch Changes

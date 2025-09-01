@@ -1,5 +1,22 @@
 # @powersync/service-sync-rules
 
+## 0.29.0
+
+### Minor Changes
+
+- b0b8ae9: Add support for streams, a new and simpler way to define what data gets synced to clients.
+- d2be184: Refactor interface between service and sync rule bindings in preparation for sync streams.
+- 5284fb5: Introduce the `config` option on sync rules which can be used to opt-in to new features and backwards-incompatible fixes of historical issues with the PowerSync service.
+- 18435a4: Add the `fixed_json_extract` compatibility option. When enabled, JSON-extracting operators are updated to match SQLite more closely.
+- 5284fb5: Add the `timestamps_iso8601` option in the `config:` block for sync rules. When enabled, timestamps are consistently formatted using ISO 8601 format.
+- 6fd0242: Add the `versioned_bucket_ids` option in the `config:` block for sync rules. When enabled, generated bucket ids include the version of sync rules. This allows clients to sync more efficiently after updating sync rules.
+
+### Patch Changes
+
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+- Updated dependencies [060b829]
+  - @powersync/service-jsonbig@0.17.11
+
 ## 0.28.0
 
 ### Minor Changes

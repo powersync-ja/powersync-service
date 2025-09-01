@@ -6,14 +6,15 @@ const TEST_TABLE = test_utils.makeTestTable('test', ['id']);
 
 export function registerCompactTests(generateStorageFactory: storage.TestStorageFactory) {
   test('compacting (1)', async () => {
-    const sync_rules = test_utils.testRules(`
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
 bucket_definitions:
   global:
     data: [select * from test]
-    `);
-
-    await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules);
+    `
+    });
+    const bucketStorage = factory.getInstance(syncRules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
@@ -42,6 +43,8 @@ bucket_definitions:
         },
         afterReplicaId: test_utils.rid('t2')
       });
+
+      await batch.commit('1/1');
     });
 
     const checkpoint = result!.flushed_op;
@@ -72,6 +75,7 @@ bucket_definitions:
         op_id: '3'
       }
     ]);
+    expect(batchBefore.targetOp).toEqual(null);
 
     await bucketStorage.compact({
       clearBatchLimit: 2,
@@ -84,6 +88,8 @@ bucket_definitions:
     );
     const dataAfter = batchAfter.chunkData.data;
     const checksumAfter = await bucketStorage.getChecksums(checkpoint, ['global[]']);
+    bucketStorage.clearChecksumCache();
+    const checksumAfter2 = await bucketStorage.getChecksums(checkpoint, ['global[]']);
 
     expect(batchAfter.targetOp).toEqual(3n);
     expect(dataAfter).toMatchObject([
@@ -106,20 +112,22 @@ bucket_definitions:
       }
     ]);
 
-    expect(checksumBefore.get('global[]')).toEqual(checksumAfter.get('global[]'));
+    expect(checksumAfter.get('global[]')).toEqual(checksumBefore.get('global[]'));
+    expect(checksumAfter2.get('global[]')).toEqual(checksumBefore.get('global[]'));
 
     test_utils.validateCompactedBucket(dataBefore, dataAfter);
   });
 
   test('compacting (2)', async () => {
-    const sync_rules = test_utils.testRules(`
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
 bucket_definitions:
   global:
     data: [select * from test]
-    `);
-
-    await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules);
+    `
+    });
+    const bucketStorage = factory.getInstance(syncRules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
@@ -157,6 +165,8 @@ bucket_definitions:
         },
         afterReplicaId: test_utils.rid('t2')
       });
+
+      await batch.commit('1/1');
     });
 
     const checkpoint = result!.flushed_op;
@@ -204,6 +214,7 @@ bucket_definitions:
       bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]))
     );
     const dataAfter = batchAfter.chunkData.data;
+    bucketStorage.clearChecksumCache();
     const checksumAfter = await bucketStorage.getChecksums(checkpoint, ['global[]']);
 
     expect(batchAfter.targetOp).toEqual(4n);
@@ -220,20 +231,24 @@ bucket_definitions:
         op_id: '4'
       }
     ]);
-    expect(checksumBefore.get('global[]')).toEqual(checksumAfter.get('global[]'));
+    expect(checksumAfter.get('global[]')).toEqual({
+      ...checksumBefore.get('global[]'),
+      count: 2
+    });
 
     test_utils.validateCompactedBucket(dataBefore, dataAfter);
   });
 
   test('compacting (3)', async () => {
-    const sync_rules = test_utils.testRules(`
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
 bucket_definitions:
   global:
     data: [select * from test]
-    `);
-
-    await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules);
+    `
+    });
+    const bucketStorage = factory.getInstance(syncRules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
@@ -262,6 +277,8 @@ bucket_definitions:
         },
         beforeReplicaId: 't1'
       });
+
+      await batch.commit('1/1');
     });
 
     const checkpoint1 = result!.flushed_op;
@@ -276,6 +293,7 @@ bucket_definitions:
         },
         beforeReplicaId: 't2'
       });
+      await batch.commit('2/1');
     });
     const checkpoint2 = result2!.flushed_op;
 
@@ -289,6 +307,7 @@ bucket_definitions:
       bucketStorage.getBucketDataBatch(checkpoint2, new Map([['global[]', 0n]]))
     );
     const dataAfter = batchAfter.chunkData.data;
+    await bucketStorage.clearChecksumCache();
     const checksumAfter = await bucketStorage.getChecksums(checkpoint2, ['global[]']);
 
     expect(batchAfter.targetOp).toEqual(4n);
@@ -307,18 +326,18 @@ bucket_definitions:
   });
 
   test('compacting (4)', async () => {
-    const sync_rules = test_utils.testRules(/* yaml */
-    ` bucket_definitions:
-        grouped:
-          # The parameter query here is not important
-          # We specifically don't want to create bucket_parameter records here
-          # since the op_ids for bucket_data could vary between storage implementations.
-          parameters: select 'b' as b
-          data:
-            - select * from test where b = bucket.b`);
-
     await using factory = await generateStorageFactory();
-    const bucketStorage = factory.getInstance(sync_rules);
+    const syncRules = await factory.updateSyncRules({
+      /* yaml */ content: ` bucket_definitions:
+          grouped:
+            # The parameter query here is not important
+            # We specifically don't want to create bucket_parameter records here
+            # since the op_ids for bucket_data could vary between storage implementations.
+            parameters: select 'b' as b
+            data:
+              - select * from test where b = bucket.b`
+    });
+    const bucketStorage = factory.getInstance(syncRules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       /**
@@ -383,6 +402,8 @@ bucket_definitions:
           },
           afterReplicaId: test_utils.rid('t2')
         });
+
+        await batch.commit('1/1');
       }
     });
 
@@ -430,5 +451,74 @@ bucket_definitions:
         }
       ])
     );
+  });
+
+  test('partial checksums after compacting', async () => {
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
+bucket_definitions:
+  global:
+    data: [select * from test]
+    `
+    });
+    const bucketStorage = factory.getInstance(syncRules);
+
+    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 't1'
+        },
+        afterReplicaId: 't1'
+      });
+
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 't2'
+        },
+        afterReplicaId: 't2'
+      });
+
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.DELETE,
+        before: {
+          id: 't1'
+        },
+        beforeReplicaId: 't1'
+      });
+
+      await batch.commit('1/1');
+    });
+
+    await bucketStorage.compact({
+      clearBatchLimit: 2,
+      moveBatchLimit: 1,
+      moveBatchQueryLimit: 1
+    });
+
+    const result2 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.DELETE,
+        before: {
+          id: 't2'
+        },
+        beforeReplicaId: 't2'
+      });
+      await batch.commit('2/1');
+    });
+    const checkpoint2 = result2!.flushed_op;
+    await bucketStorage.clearChecksumCache();
+    const checksumAfter = await bucketStorage.getChecksums(checkpoint2, ['global[]']);
+    expect(checksumAfter.get('global[]')).toEqual({
+      bucket: 'global[]',
+      count: 4,
+      checksum: 1874612650
+    });
   });
 }

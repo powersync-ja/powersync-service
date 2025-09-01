@@ -1,5 +1,20 @@
 # @powersync/lib-service-mongodb
 
+## 0.6.5
+
+### Patch Changes
+
+- 6352283: Fix pre-computing of checksums after intial replication causing replication timeouts
+
+## 0.6.4
+
+### Patch Changes
+
+- 6315334: [MongoDB Storage] Increase checksum timeouts
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+- Updated dependencies [060b829]
+  - @powersync/lib-services-framework@0.7.3
+
 ## 0.6.3
 
 ### Patch Changes

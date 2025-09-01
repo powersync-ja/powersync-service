@@ -6,10 +6,25 @@ import { BucketChecksum, ProtocolOpId, OplogEntry } from './protocol-types.js';
 
 import * as storage from '../storage/storage-index.js';
 
-import { PartialChecksum } from '../storage/ChecksumCache.js';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 
 export type ChecksumMap = Map<string, BucketChecksum>;
+
+/**
+ * A partial checksum can never be used on its own - must always be combined with a full BucketChecksum.
+ */
+export interface PartialChecksum {
+  bucket: string;
+  /**
+   * 32-bit unsigned hash.
+   */
+  partialChecksum: number;
+
+  /**
+   * Count of operations - informational only.
+   */
+  partialCount: number;
+}
 
 /**
  * op_id as used internally, for individual operations and checkpoints.
@@ -83,20 +98,53 @@ export function addChecksums(a: number, b: number) {
   return (a + b) & 0xffffffff;
 }
 
-export function addBucketChecksums(a: BucketChecksum, b: PartialChecksum | null): BucketChecksum {
-  if (b == null) {
+export function isPartialChecksum(c: PartialChecksum | BucketChecksum): c is PartialChecksum {
+  return 'partialChecksum' in c;
+}
+
+export function addBucketChecksums(a: BucketChecksum, b: PartialChecksum | BucketChecksum | null): BucketChecksum {
+  const checksum = addPartialChecksums(a.bucket, a, b);
+  if (isPartialChecksum(checksum)) {
+    // Should not happen since a != null
+    throw new ServiceAssertionError('Expected full checksum');
+  }
+  return checksum;
+}
+
+export function addPartialChecksums(
+  bucket: string,
+  a: PartialChecksum | BucketChecksum | null,
+  b: PartialChecksum | BucketChecksum | null
+): PartialChecksum | BucketChecksum {
+  if (a != null && b != null) {
+    if (!isPartialChecksum(b)) {
+      // Replaces a
+      return b;
+    }
+    // merge
+    if (!isPartialChecksum(a)) {
+      return {
+        bucket,
+        checksum: addChecksums(a.checksum, b.partialChecksum),
+        count: a.count + b.partialCount
+      };
+    } else {
+      return {
+        bucket,
+        partialChecksum: addChecksums(a.partialChecksum, b.partialChecksum),
+        partialCount: a.partialCount + b.partialCount
+      };
+    }
+  } else if (a != null) {
     return a;
-  } else if (b.isFullChecksum) {
-    return {
-      bucket: b.bucket,
-      count: b.partialCount,
-      checksum: b.partialChecksum
-    };
+  } else if (b != null) {
+    return b;
   } else {
+    // No data found (may still have a previously-cached checksum).
     return {
-      bucket: a.bucket,
-      count: a.count + b.partialCount,
-      checksum: addChecksums(a.checksum, b.partialChecksum)
+      bucket,
+      partialChecksum: 0,
+      partialCount: 0
     };
   }
 }

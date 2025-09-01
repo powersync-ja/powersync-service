@@ -458,7 +458,7 @@ WHERE  oid = $1::regclass`,
 
   async initialReplication(db: pgwire.PgConnection) {
     const sourceTables = this.sync_rules.getSourceTables();
-    await this.storage.startBatch(
+    const flushResults = await this.storage.startBatch(
       {
         logger: this.logger,
         zeroLSN: ZERO_LSN,
@@ -506,6 +506,16 @@ WHERE  oid = $1::regclass`,
      * to advance the active sync rules LSN.
      */
     await sendKeepAlive(db);
+
+    const lastOp = flushResults?.flushed_op;
+    if (lastOp != null) {
+      // Populate the cache _after_ initial replication, but _before_ we switch to this sync rules.
+      await this.storage.populatePersistentChecksumCache({
+        // No checkpoint yet, but we do have the opId.
+        maxOpId: lastOp,
+        signal: this.abort_signal
+      });
+    }
   }
 
   static *getQueryData(results: Iterable<DatabaseInputRow>): Generator<SqliteInputRow> {
@@ -830,9 +840,14 @@ WHERE  oid = $1::regclass`,
     try {
       // If anything errors here, the entire replication process is halted, and
       // all connections automatically closed, including this one.
-      const replicationConnection = await this.connections.replicationConnection();
-      await this.initReplication(replicationConnection);
-      await this.streamChanges(replicationConnection);
+      const initReplicationConnection = await this.connections.replicationConnection();
+      await this.initReplication(initReplicationConnection);
+      await initReplicationConnection.end();
+
+      // At this point, the above connection has often timed out, so we start a new one
+      const streamReplicationConnection = await this.connections.replicationConnection();
+      await this.streamChanges(streamReplicationConnection);
+      await streamReplicationConnection.end();
     } catch (e) {
       await this.storage.reportError(e);
       throw e;
