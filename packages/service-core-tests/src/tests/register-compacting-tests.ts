@@ -521,4 +521,67 @@ bucket_definitions:
       checksum: 1874612650
     });
   });
+
+  test('partial checksums after compacting (2)', async () => {
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
+bucket_definitions:
+  global:
+    data: [select * from test]
+    `
+    });
+    const bucketStorage = factory.getInstance(syncRules);
+
+    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 't1'
+        },
+        afterReplicaId: 't1'
+      });
+
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.UPDATE,
+        after: {
+          id: 't1'
+        },
+        afterReplicaId: 't1'
+      });
+
+      await batch.commit('1/1');
+    });
+
+    // Get checksums here just to populate the cache
+    await bucketStorage.getChecksums(result!.flushed_op, ['global[]']);
+    const result2 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.DELETE,
+        before: {
+          id: 't1'
+        },
+        beforeReplicaId: 't1'
+      });
+      await batch.commit('2/1');
+    });
+
+    await bucketStorage.compact({
+      clearBatchLimit: 20,
+      moveBatchLimit: 10,
+      moveBatchQueryLimit: 10
+    });
+
+    const checkpoint2 = result2!.flushed_op;
+    // Check that the checksum was correctly updated with the clear operation after having a cached checksum
+    const checksumAfter = await bucketStorage.getChecksums(checkpoint2, ['global[]']);
+    expect(checksumAfter.get('global[]')).toMatchObject({
+      bucket: 'global[]',
+      count: 1,
+      checksum: -1481659821
+    });
+  });
 }

@@ -2062,4 +2062,37 @@ bucket_definitions:
       }
     ]);
   });
+
+  test('unchanged checksums', async () => {
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
+bucket_definitions:
+  global:
+    data:
+      - SELECT client_id as id, description FROM "%"
+`
+    });
+    const bucketStorage = factory.getInstance(syncRules);
+
+    const sourceTable = TEST_TABLE;
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'test1',
+          description: 'test1a'
+        },
+        afterReplicaId: test_utils.rid('test1')
+      });
+      await batch.commit('1/1');
+    });
+    const { checkpoint } = await bucketStorage.getCheckpoint();
+
+    const checksums = [...(await bucketStorage.getChecksums(checkpoint, ['global[]'])).values()];
+    expect(checksums).toEqual([{ bucket: 'global[]', checksum: 1917136889, count: 1 }]);
+    const checksums2 = [...(await bucketStorage.getChecksums(checkpoint + 1n, ['global[]'])).values()];
+    expect(checksums2).toEqual([{ bucket: 'global[]', checksum: 1917136889, count: 1 }]);
+  });
 }
