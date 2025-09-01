@@ -3,11 +3,9 @@ import * as crypto from 'crypto';
 import * as uuid from 'uuid';
 
 import { mongo } from '@powersync/lib-service-mongodb';
-import { BucketChecksum, PartialChecksum, PartialOrFullChecksum, storage, utils } from '@powersync/service-core';
-
-import { PowerSyncMongo } from './db.js';
-import { BucketDataDocument } from './models.js';
+import { storage, utils } from '@powersync/service-core';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
+import { BucketDataDocument } from '../storage/implementation/models.js';
 
 export function idPrefixFilter<T>(prefix: Partial<T>, rest: (keyof T)[]): mongo.Condition<T> {
   let filter = {
