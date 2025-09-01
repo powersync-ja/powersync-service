@@ -18,12 +18,13 @@ export const MongoTestStorageFactoryGenerator = (factoryOptions: MongoTestStorag
       await db.db.createCollection('bucket_parameters');
     }
 
-    // Full migrations are not currently run for tests, so we manually create this
-    await db.createCheckpointEventsCollection();
-
     if (!options?.doNotClear) {
       await db.clear();
     }
+
+    // Full migrations are not currently run for tests, so we manually create the important ones
+    await db.createCheckpointEventsCollection();
+    await db.createBucketStateIndex();
 
     return new MongoBucketStorage(db, { slot_name_prefix: 'test_' }, factoryOptions.internalOptions);
   };
