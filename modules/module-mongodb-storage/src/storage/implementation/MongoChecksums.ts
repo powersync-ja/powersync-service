@@ -16,6 +16,25 @@ import { logger } from '@powersync/lib-services-framework';
 import { PowerSyncMongo } from './db.js';
 
 /**
+ * Checksum calculation options, primarily for tests.
+ */
+export interface MongoChecksumOptions {
+  /**
+   * Force calculating checksums for one bucket at a time, in batches.
+   *
+   * This is slower when many buckets are involved, but is less likely to time out.
+   */
+  forceBatchedImplementation?: boolean;
+  /**
+   * When using the batched implementation, this specifies the limit on the number of documents to calculate
+   * a checksum on at a time.
+   */
+  batchLimit?: number;
+}
+
+const DEFAULT_BATCH_LIMIT = 50_000;
+
+/**
  * Checksum query implementation.
  */
 export class MongoChecksums {
@@ -27,7 +46,8 @@ export class MongoChecksums {
 
   constructor(
     private db: PowerSyncMongo,
-    private group_id: number
+    private group_id: number,
+    private options?: MongoChecksumOptions
   ) {}
 
   /**
@@ -120,6 +140,10 @@ export class MongoChecksums {
    * Calculate (partial) checksums from the data collection directly.
    */
   async queryPartialChecksums(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
+    if (this.options?.forceBatchedImplementation) {
+      // Primarily for testing
+      return await this.queryPartialChecksumsFallback(batch);
+    }
     try {
       return await this.queryPartialChecksumsInternal(batch);
     } catch (e) {
@@ -214,9 +238,9 @@ export class MongoChecksums {
   }
 
   private async slowChecksum(request: FetchPartialBucketChecksum): Promise<PartialOrFullChecksum> {
-    const batchLimit = 50_000;
+    const batchLimit = this.options?.batchLimit ?? DEFAULT_BATCH_LIMIT;
 
-    let lowerBound = 0n;
+    let lowerBound = request.start ?? 0n;
     const bucket = request.bucket;
 
     let runningChecksum: PartialOrFullChecksum = {
