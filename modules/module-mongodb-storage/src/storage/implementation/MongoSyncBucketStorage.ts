@@ -31,11 +31,15 @@ import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey, SourceTableDocument } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
-import { MongoChecksums } from './MongoChecksums.js';
+import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from './util.js';
+
+export interface MongoSyncBucketStorageOptions {
+  checksumOptions?: MongoChecksumOptions;
+}
 
 export class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
@@ -52,14 +56,15 @@ export class MongoSyncBucketStorage
     public readonly group_id: number,
     private readonly sync_rules: storage.PersistedSyncRulesContent,
     public readonly slot_name: string,
-    writeCheckpointMode: storage.WriteCheckpointMode = storage.WriteCheckpointMode.MANAGED
+    writeCheckpointMode?: storage.WriteCheckpointMode,
+    options?: MongoSyncBucketStorageOptions
   ) {
     super();
     this.db = factory.db;
-    this.checksums = new MongoChecksums(this.db, this.group_id);
+    this.checksums = new MongoChecksums(this.db, this.group_id, options?.checksumOptions);
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
       db: this.db,
-      mode: writeCheckpointMode,
+      mode: writeCheckpointMode ?? storage.WriteCheckpointMode.MANAGED,
       sync_rules_id: group_id
     });
   }

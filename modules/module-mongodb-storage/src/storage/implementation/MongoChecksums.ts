@@ -1,3 +1,4 @@
+import * as lib_mongo from '@powersync/lib-service-mongodb';
 import {
   addPartialChecksums,
   bson,
@@ -11,27 +12,51 @@ import {
   PartialChecksumMap,
   PartialOrFullChecksum
 } from '@powersync/service-core';
-import * as lib_mongo from '@powersync/lib-service-mongodb';
-import { logger } from '@powersync/lib-services-framework';
 import { PowerSyncMongo } from './db.js';
 
 /**
+ * Checksum calculation options, primarily for tests.
+ */
+export interface MongoChecksumOptions {
+  /**
+   * How many buckets to process in a batch when calculating checksums.
+   */
+  bucketBatchLimit?: number;
+
+  /**
+   * Limit on the number of documents to calculate a checksum on at a time.
+   */
+  operationBatchLimit?: number;
+}
+
+const DEFAULT_BUCKET_BATCH_LIMIT = 200;
+const DEFAULT_OPERATION_BATCH_LIMIT = 50_000;
+
+/**
  * Checksum query implementation.
+ *
+ * General implementation flow is:
+ * 1. getChecksums() -> check cache for (partial) matches. If not found or partial match, query the remainder using computePartialChecksums().
+ * 2. computePartialChecksums() -> query bucket_state for partial matches. Query the remainder using computePartialChecksumsDirect().
+ * 3. computePartialChecksumsDirect() -> split into batches of 200 buckets at a time -> computePartialChecksumsInternal()
+ * 4. computePartialChecksumsInternal() -> aggregate over 50_000 operations in bucket_data at a time
  */
 export class MongoChecksums {
   private cache = new ChecksumCache({
     fetchChecksums: (batch) => {
-      return this.getChecksumsInternal(batch);
+      return this.computePartialChecksums(batch);
     }
   });
 
   constructor(
     private db: PowerSyncMongo,
-    private group_id: number
+    private group_id: number,
+    private options?: MongoChecksumOptions
   ) {}
 
   /**
-   * Calculate checksums, utilizing the cache.
+   * Calculate checksums, utilizing the cache for partial checkums, and querying the remainder from
+   * the database (bucket_state + bucket_data).
    */
   async getChecksums(checkpoint: InternalOpId, buckets: string[]): Promise<ChecksumMap> {
     return this.cache.getChecksumMap(checkpoint, buckets);
@@ -42,11 +67,15 @@ export class MongoChecksums {
   }
 
   /**
-   * Calculate (partial) checksums from bucket_state and the data collection.
+   * Calculate (partial) checksums from bucket_state (pre-aggregated) and bucket_data (individual operations).
    *
-   * Results are not cached.
+   * Results are not cached here. This method is only called by {@link ChecksumCache.getChecksumMap},
+   * which is responsible for caching its result.
+   *
+   * As long as data is compacted regularly, this should be fast. Large buckets without pre-compacted bucket_state
+   * can be slow.
    */
-  private async getChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
+  private async computePartialChecksums(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
     if (batch.length == 0) {
       return new Map();
     }
@@ -100,7 +129,7 @@ export class MongoChecksums {
       };
     });
 
-    const queriedChecksums = await this.queryPartialChecksums(mappedRequests);
+    const queriedChecksums = await this.computePartialChecksumsDirect(mappedRequests);
 
     return new Map<string, PartialOrFullChecksum>(
       batch.map((request) => {
@@ -117,61 +146,150 @@ export class MongoChecksums {
   }
 
   /**
-   * Calculate (partial) checksums from the data collection directly.
+   * Calculate (partial) checksums from the data collection directly, bypassing the cache and bucket_state.
+   *
+   * Can be used directly in cases where the cache should be bypassed, such as from a compact job.
+   *
+   * Internally, we do calculations in smaller batches of buckets as appropriate.
+   *
+   * For large buckets, this can be slow, but should not time out as the underlying queries are performed in
+   * smaller batches.
    */
-  async queryPartialChecksums(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
-    try {
-      return await this.queryPartialChecksumsInternal(batch);
-    } catch (e) {
-      if (e.codeName == 'MaxTimeMSExpired') {
-        logger.warn(`Checksum query timed out; falling back to slower version`, e);
-        // Timeout - try the slower but more robust version
-        return await this.queryPartialChecksumsFallback(batch);
-      }
-      throw lib_mongo.mapQueryError(e, 'while reading checksums');
+  public async computePartialChecksumsDirect(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
+    // Limit the number of buckets we query for at a time.
+    const bucketBatchLimit = this.options?.bucketBatchLimit ?? DEFAULT_BUCKET_BATCH_LIMIT;
+
+    if (batch.length < bucketBatchLimit) {
+      // Single batch - no need for splitting the batch and merging results
+      return await this.computePartialChecksumsInternal(batch);
     }
+    // Split the batch and merge results
+    let results = new Map<string, PartialOrFullChecksum>();
+    for (let i = 0; i < batch.length; i += bucketBatchLimit) {
+      const bucketBatch = batch.slice(i, i + bucketBatchLimit);
+      const batchResults = await this.computePartialChecksumsInternal(bucketBatch);
+      for (let r of batchResults.values()) {
+        results.set(r.bucket, r);
+      }
+    }
+    return results;
   }
 
-  private async queryPartialChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
-    const filters: any[] = [];
+  /**
+   * Query a batch of checksums.
+   *
+   * We limit the number of operations that the query aggregates in each sub-batch, to avoid potential query timeouts.
+   *
+   * `batch` must be limited to DEFAULT_BUCKET_BATCH_LIMIT buckets before calling this.
+   */
+  private async computePartialChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
+    const batchLimit = this.options?.operationBatchLimit ?? DEFAULT_OPERATION_BATCH_LIMIT;
+
+    // Map requests by bucket. We adjust this as we get partial results.
+    let requests = new Map<string, FetchPartialBucketChecksum>();
     for (let request of batch) {
-      filters.push({
-        _id: {
-          $gt: {
-            g: this.group_id,
-            b: request.bucket,
-            o: request.start ?? new bson.MinKey()
-          },
-          $lte: {
-            g: this.group_id,
-            b: request.bucket,
-            o: request.end
-          }
-        }
-      });
+      requests.set(request.bucket, request);
     }
 
-    const aggregate = await this.db.bucket_data
-      .aggregate(
-        [
-          {
-            $match: {
-              $or: filters
-            }
-          },
-          CHECKSUM_QUERY_GROUP_STAGE
-        ],
-        { session: undefined, readConcern: 'snapshot', maxTimeMS: lib_mongo.MONGO_CHECKSUM_TIMEOUT_MS }
-      )
-      // Don't map the error here - we want to keep timeout errors as-is
-      .toArray();
+    const partialChecksums = new Map<string, PartialOrFullChecksum>();
 
-    const partialChecksums = new Map<string, PartialOrFullChecksum>(
-      aggregate.map((doc) => {
+    while (requests.size > 0) {
+      const filters: any[] = [];
+      for (let request of requests.values()) {
+        filters.push({
+          _id: {
+            $gt: {
+              g: this.group_id,
+              b: request.bucket,
+              o: request.start ?? new bson.MinKey()
+            },
+            $lte: {
+              g: this.group_id,
+              b: request.bucket,
+              o: request.end
+            }
+          }
+        });
+      }
+
+      // Aggregate over a max of `batchLimit` operations at a time.
+      // Let's say we have 3 buckets (A, B, C), each with 10 operations, and our batch limit is 12.
+      // Then we'll do three batches:
+      // 1. Query: A[1-end], B[1-end], C[1-end]
+      //    Returns: A[1-10], B[1-2]
+      // 2. Query: B[3-end], C[1-end]
+      //    Returns: B[3-10], C[1-4]
+      // 3. Query: C[5-end]
+      //    Returns: C[5-10]
+      const aggregate = await this.db.bucket_data
+        .aggregate(
+          [
+            {
+              $match: {
+                $or: filters
+              }
+            },
+            // sort and limit _before_ grouping
+            { $sort: { _id: 1 } },
+            { $limit: batchLimit },
+            {
+              $group: {
+                _id: '$_id.b',
+                // Historically, checksum may be stored as 'int' or 'double'.
+                // More recently, this should be a 'long'.
+                // $toLong ensures that we always sum it as a long, avoiding inaccuracies in the calculations.
+                checksum_total: { $sum: { $toLong: '$checksum' } },
+                count: { $sum: 1 },
+                has_clear_op: {
+                  $max: {
+                    $cond: [{ $eq: ['$op', 'CLEAR'] }, 1, 0]
+                  }
+                },
+                last_op: { $max: '$_id.o' }
+              }
+            }
+          ],
+          { session: undefined, readConcern: 'snapshot', maxTimeMS: lib_mongo.MONGO_CHECKSUM_TIMEOUT_MS }
+        )
+        .toArray()
+        .catch((e) => {
+          throw lib_mongo.mapQueryError(e, 'while reading checksums');
+        });
+
+      let batchCount = 0;
+      let limitReached = false;
+      for (let doc of aggregate) {
         const bucket = doc._id;
-        return [bucket, checksumFromAggregate(doc)];
-      })
-    );
+        const checksum = checksumFromAggregate(doc);
+
+        const existing = partialChecksums.get(bucket);
+        if (existing != null) {
+          partialChecksums.set(bucket, addPartialChecksums(bucket, existing, checksum));
+        } else {
+          partialChecksums.set(bucket, checksum);
+        }
+
+        batchCount += doc.count;
+        if (batchCount == batchLimit) {
+          // Limit reached. Request more in the next batch.
+          // Note that this only affects the _last_ bucket in a batch.
+          limitReached = true;
+          const req = requests.get(bucket);
+          requests.set(bucket, {
+            bucket,
+            start: doc.last_op,
+            end: req!.end
+          });
+        } else {
+          // All done for this bucket
+          requests.delete(bucket);
+        }
+        batchCount++;
+      }
+      if (!limitReached) {
+        break;
+      }
+    }
 
     return new Map<string, PartialOrFullChecksum>(
       batch.map((request) => {
@@ -197,106 +315,10 @@ export class MongoChecksums {
       })
     );
   }
-
-  /**
-   * Checksums for large buckets can run over the query timeout.
-   * To avoid this, we query in batches.
-   * This version can handle larger amounts of data, but is slower, especially for many buckets.
-   */
-  async queryPartialChecksumsFallback(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
-    const partialChecksums = new Map<string, PartialOrFullChecksum>();
-    for (let request of batch) {
-      const checksum = await this.slowChecksum(request);
-      partialChecksums.set(request.bucket, checksum);
-    }
-
-    return partialChecksums;
-  }
-
-  private async slowChecksum(request: FetchPartialBucketChecksum): Promise<PartialOrFullChecksum> {
-    const batchLimit = 50_000;
-
-    let lowerBound = 0n;
-    const bucket = request.bucket;
-
-    let runningChecksum: PartialOrFullChecksum = {
-      bucket,
-      partialCount: 0,
-      partialChecksum: 0
-    };
-    if (request.start == null) {
-      runningChecksum = {
-        bucket,
-        count: 0,
-        checksum: 0
-      };
-    }
-
-    while (true) {
-      const filter = {
-        _id: {
-          $gt: {
-            g: this.group_id,
-            b: bucket,
-            o: lowerBound
-          },
-          $lte: {
-            g: this.group_id,
-            b: bucket,
-            o: request.end
-          }
-        }
-      };
-      const docs = await this.db.bucket_data
-        .aggregate(
-          [
-            {
-              $match: filter
-            },
-            // sort and limit _before_ grouping
-            { $sort: { _id: 1 } },
-            { $limit: batchLimit },
-            CHECKSUM_QUERY_GROUP_STAGE
-          ],
-          { session: undefined, readConcern: 'snapshot', maxTimeMS: lib_mongo.MONGO_CHECKSUM_TIMEOUT_MS }
-        )
-        .toArray();
-      const doc = docs[0];
-      if (doc == null) {
-        return runningChecksum;
-      }
-      const partial = checksumFromAggregate(doc);
-      runningChecksum = addPartialChecksums(bucket, runningChecksum, partial);
-      const isFinal = doc.count != batchLimit;
-      if (isFinal) {
-        break;
-      } else {
-        lowerBound = doc.last_op;
-      }
-    }
-    return runningChecksum;
-  }
 }
 
-const CHECKSUM_QUERY_GROUP_STAGE = {
-  $group: {
-    _id: '$_id.b',
-    // Historically, checksum may be stored as 'int' or 'double'.
-    // More recently, this should be a 'long'.
-    // $toLong ensures that we always sum it as a long, avoiding inaccuracies in the calculations.
-    checksum_total: { $sum: { $toLong: '$checksum' } },
-    count: { $sum: 1 },
-    has_clear_op: {
-      $max: {
-        $cond: [{ $eq: ['$op', 'CLEAR'] }, 1, 0]
-      }
-    },
-    last_op: { $max: '$_id.o' }
-  }
-};
-
 /**
- * Convert output of CHECKSUM_QUERY_GROUP_STAGE into a checksum.
+ * Convert output of the $group stage into a checksum.
  */
 function checksumFromAggregate(doc: bson.Document): PartialOrFullChecksum {
   const partialChecksum = Number(BigInt(doc.checksum_total) & 0xffffffffn) & 0xffffffff;

@@ -11,7 +11,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { PowerSyncMongo } from './implementation/db.js';
 import { SyncRuleDocument } from './implementation/models.js';
 import { MongoPersistedSyncRulesContent } from './implementation/MongoPersistedSyncRulesContent.js';
-import { MongoSyncBucketStorage } from './implementation/MongoSyncBucketStorage.js';
+import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from './implementation/MongoSyncBucketStorage.js';
 import { generateSlotName } from './implementation/util.js';
 
 export class MongoBucketStorage
@@ -31,7 +31,8 @@ export class MongoBucketStorage
     db: PowerSyncMongo,
     options: {
       slot_name_prefix: string;
-    }
+    },
+    private internalOptions?: MongoSyncBucketStorageOptions
   ) {
     super();
     this.client = db.client;
@@ -49,7 +50,7 @@ export class MongoBucketStorage
     if ((typeof id as any) == 'bigint') {
       id = Number(id);
     }
-    const storage = new MongoSyncBucketStorage(this, id, syncRules, slot_name);
+    const storage = new MongoSyncBucketStorage(this, id, syncRules, slot_name, undefined, this.internalOptions);
     if (!options?.skipLifecycleHooks) {
       this.iterateListeners((cb) => cb.syncStorageCreated?.(storage));
     }

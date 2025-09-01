@@ -1,10 +1,12 @@
 import { TestStorageOptions } from '@powersync/service-core';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { connectMongoForTests } from './util.js';
+import { MongoSyncBucketStorageOptions } from './MongoSyncBucketStorage.js';
 
 export type MongoTestStorageOptions = {
   url: string;
   isCI: boolean;
+  internalOptions?: MongoSyncBucketStorageOptions;
 };
 
 export const MongoTestStorageFactoryGenerator = (factoryOptions: MongoTestStorageOptions) => {
@@ -23,6 +25,6 @@ export const MongoTestStorageFactoryGenerator = (factoryOptions: MongoTestStorag
       await db.clear();
     }
 
-    return new MongoBucketStorage(db, { slot_name_prefix: 'test_' });
+    return new MongoBucketStorage(db, { slot_name_prefix: 'test_' }, factoryOptions.internalOptions);
   };
 };
