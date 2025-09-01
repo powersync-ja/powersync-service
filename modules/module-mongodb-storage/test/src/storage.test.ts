@@ -15,15 +15,29 @@ describe('Mongo Sync Bucket Storage - Checkpoints', () =>
 
 describe('Sync Bucket Validation', register.registerBucketValidationTests);
 
-describe('Mongo Sync Bucket Storage - Batched checksums', () =>
+describe('Mongo Sync Bucket Storage - split operations', () =>
   register.registerDataStorageDataTests(
     MongoTestStorageFactoryGenerator({
       url: env.MONGO_TEST_URL,
       isCI: env.CI,
       internalOptions: {
         checksumOptions: {
-          forceBatchedImplementation: true,
-          batchLimit: 1
+          bucketBatchLimit: 100,
+          operationBatchLimit: 1
+        }
+      }
+    })
+  ));
+
+describe('Mongo Sync Bucket Storage - split buckets', () =>
+  register.registerDataStorageDataTests(
+    MongoTestStorageFactoryGenerator({
+      url: env.MONGO_TEST_URL,
+      isCI: env.CI,
+      internalOptions: {
+        checksumOptions: {
+          bucketBatchLimit: 1,
+          operationBatchLimit: 100
         }
       }
     })
