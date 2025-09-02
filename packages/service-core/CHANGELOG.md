@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 1.15.2
+
+### Patch Changes
+
+- bec7496: Fix "E11000 duplicate key error collection: powersync_demo.bucket_state" in some cases on sync rules deploy
+
 ## 1.15.1
 
 ### Patch Changes

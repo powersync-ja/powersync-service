@@ -1,5 +1,13 @@
 # @powersync/service-module-postgres-storage
 
+## 0.10.2
+
+### Patch Changes
+
+- 725daa1: Fix rare issue of incorrect checksums on fallback after checksum query timed out.
+- Updated dependencies [bec7496]
+  - @powersync/service-core@1.15.2
+
 ## 0.10.1
 
 ### Patch Changes
