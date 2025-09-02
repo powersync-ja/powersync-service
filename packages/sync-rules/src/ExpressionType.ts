@@ -77,7 +77,7 @@ export class ExpressionType {
 }
 
 /**
- * Here only for backwards-compatibility only.
+ * @deprecated Here only for backwards-compatibility only.
  */
 export function expressionTypeFromPostgresType(type: string | undefined): ExpressionType {
   if (type?.endsWith('[]')) {
