@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { POSTGRES_REPORT_STORAGE_FACTORY } from './util.js';
 import { event_types } from '@powersync/service-types';
 import { register, ReportUserData } from '@powersync/service-core-tests';
-import { PostgresReportStorageFactory } from '../../src/storage/PostgresReportStorageFactory.js';
+import { PostgresReportStorage } from '../../src/storage/PostgresReportStorage.js';
 import { DateTimeValue } from '@powersync/service-sync-rules';
 
 const factory = await POSTGRES_REPORT_STORAGE_FACTORY();
@@ -18,7 +18,7 @@ function removeVolatileFields(sdks: event_types.ClientConnection[]): Partial<eve
   });
 }
 
-async function loadData(userData: ReportUserData, factory: PostgresReportStorageFactory) {
+async function loadData(userData: ReportUserData, factory: PostgresReportStorage) {
   await factory.db.sql`
       INSERT INTO
         connection_report_events (
@@ -115,7 +115,7 @@ async function loadData(userData: ReportUserData, factory: PostgresReportStorage
     `.execute();
 }
 
-async function deleteData(factory: PostgresReportStorageFactory) {
+async function deleteData(factory: PostgresReportStorage) {
   await factory.db.sql`TRUNCATE TABLE connection_report_events`.execute();
 }
 

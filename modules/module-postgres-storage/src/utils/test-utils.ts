@@ -1,7 +1,7 @@
 import { framework, PowerSyncMigrationManager, ServiceContext, TestStorageOptions } from '@powersync/service-core';
 import { PostgresMigrationAgent } from '../migrations/PostgresMigrationAgent.js';
 import { normalizePostgresStorageConfig, PostgresStorageConfigDecoded } from '../types/types.js';
-import { PostgresReportStorageFactory } from '../storage/PostgresReportStorageFactory.js';
+import { PostgresReportStorage } from '../storage/PostgresReportStorage.js';
 import { PostgresBucketStorageFactory } from '../storage/PostgresBucketStorageFactory.js';
 
 export type PostgresTestStorageOptions = {
@@ -55,7 +55,7 @@ export function postgresTestSetup(factoryOptions: PostgresTestStorageOptions) {
           await migrate(framework.migrations.Direction.Up);
         }
 
-        return new PostgresReportStorageFactory({
+        return new PostgresReportStorage({
           config: TEST_CONNECTION_OPTIONS
         });
       } catch (ex) {

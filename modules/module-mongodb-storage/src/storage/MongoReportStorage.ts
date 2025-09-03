@@ -1,15 +1,12 @@
-import { mongo } from '@powersync/lib-service-mongodb';
 import { storage } from '@powersync/service-core';
 import { event_types } from '@powersync/service-types';
 import { PowerSyncMongo } from './implementation/db.js';
 import { logger } from '@powersync/lib-services-framework';
 
 export class MongoReportStorage implements storage.ReportStorage {
-  private readonly client: mongo.MongoClient;
   public readonly db: PowerSyncMongo;
 
   constructor(db: PowerSyncMongo) {
-    this.client = db.client;
     this.db = db;
   }
   async deleteOldConnectionData(data: event_types.DeleteOldConnectionData): Promise<void> {

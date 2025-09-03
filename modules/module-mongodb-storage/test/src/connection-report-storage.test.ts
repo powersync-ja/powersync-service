@@ -9,9 +9,9 @@ const dates = register.REPORT_TEST_DATES;
 const factory = await INITIALIZED_MONGO_REPORT_STORAGE_FACTORY();
 
 function removeVolatileFields(
-  sdks: event_types.ClientConnection[]
+  connections: event_types.ClientConnection[]
 ): Partial<event_types.ClientConnection & { _id: string }>[] {
-  return sdks.map((sdk: Partial<event_types.ClientConnection & { _id: string }>) => {
+  return connections.map((sdk: Partial<event_types.ClientConnection & { _id: string }>) => {
     const { _id, disconnected_at, connected_at, jwt_exp, ...rest } = sdk;
     return {
       ...rest
@@ -57,9 +57,9 @@ describe('Connection reporting storage', async () => {
       user_agent: userData.user_week.user_agent
     });
 
-    const sdk = await factory.db.connection_report_events.find({ user_id: userData.user_week.user_id }).toArray();
-    expect(sdk).toHaveLength(2);
-    const cleaned = removeVolatileFields(sdk);
+    const connection = await factory.db.connection_report_events.find({ user_id: userData.user_week.user_id }).toArray();
+    expect(connection).toHaveLength(2);
+    const cleaned = removeVolatileFields(connection);
     expect(cleaned).toMatchSnapshot();
   });
 
@@ -81,14 +81,14 @@ describe('Connection reporting storage', async () => {
       user_agent: userData.user_one.user_agent
     });
 
-    const sdk = await factory.db.connection_report_events
+    const connection = await factory.db.connection_report_events
       .find({ user_id: userData.user_one.user_id, client_id: userData.user_one.client_id })
       .toArray();
-    expect(sdk).toHaveLength(1);
-    expect(new Date(sdk[0].connected_at)).toEqual(newConnectAt);
-    expect(new Date(sdk[0].jwt_exp!)).toEqual(jwtExp);
-    expect(sdk[0].disconnected_at).toBeUndefined();
-    const cleaned = removeVolatileFields(sdk);
+    expect(connection).toHaveLength(1);
+    expect(new Date(connection[0].connected_at)).toEqual(newConnectAt);
+    expect(new Date(connection[0].jwt_exp!)).toEqual(jwtExp);
+    expect(connection[0].disconnected_at).toBeUndefined();
+    const cleaned = removeVolatileFields(connection);
     expect(cleaned).toMatchSnapshot();
   });
 
@@ -111,10 +111,10 @@ describe('Connection reporting storage', async () => {
       connected_at: userData.user_three.connected_at
     });
 
-    const sdk = await factory.db.connection_report_events.find({ user_id: userData.user_three.user_id }).toArray();
-    expect(sdk).toHaveLength(1);
-    expect(new Date(sdk[0].disconnected_at!)).toEqual(disconnectAt);
-    const cleaned = removeVolatileFields(sdk);
+    const connection = await factory.db.connection_report_events.find({ user_id: userData.user_three.user_id }).toArray();
+    expect(connection).toHaveLength(1);
+    expect(new Date(connection[0].disconnected_at!)).toEqual(disconnectAt);
+    const cleaned = removeVolatileFields(connection);
     expect(cleaned).toMatchSnapshot();
   });
 
@@ -124,10 +124,10 @@ describe('Connection reporting storage', async () => {
     await factory.deleteOldConnectionData({
       date: dates.weekAgo
     });
-    const sdk = await factory.getClientConnectionReports({
+    const connection = await factory.getClientConnectionReports({
       start: dates.monthAgo,
       end: dates.now
     });
-    expect(sdk).toMatchSnapshot();
+    expect(connection).toMatchSnapshot();
   });
 });

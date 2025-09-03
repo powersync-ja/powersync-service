@@ -5,7 +5,7 @@ import { storage } from '@powersync/service-core';
 import { isPostgresStorageConfig, normalizePostgresStorageConfig, PostgresStorageConfig } from '../types/types.js';
 import { dropTables } from '../utils/db.js';
 import { PostgresBucketStorageFactory } from './PostgresBucketStorageFactory.js';
-import { PostgresReportStorageFactory } from './PostgresReportStorageFactory.js';
+import { PostgresReportStorage } from './PostgresReportStorage.js';
 
 export class PostgresStorageProvider implements storage.StorageProvider {
   get type() {
@@ -30,7 +30,7 @@ export class PostgresStorageProvider implements storage.StorageProvider {
       slot_name_prefix: options.resolvedConfig.slot_name_prefix
     });
 
-    const reportStorageFactory = new PostgresReportStorageFactory({
+    const reportStorageFactory = new PostgresReportStorage({
       config: normalizedConfig
     });
 
