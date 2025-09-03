@@ -284,7 +284,6 @@ export class MongoChecksums {
           // All done for this bucket
           requests.delete(bucket);
         }
-        batchCount++;
       }
       if (!limitReached) {
         break;
