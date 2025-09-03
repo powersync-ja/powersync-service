@@ -81,7 +81,6 @@ export class PowerSyncMongo {
     await this.locks.deleteMany({});
     await this.bucket_state.deleteMany({});
     await this.custom_write_checkpoints.deleteMany({});
-    await this.connection_report_events.deleteMany({});
   }
 
   /**
@@ -144,6 +143,20 @@ export class PowerSyncMongo {
       return;
     }
     await this.db.createCollection('connection_report_events');
+  }
+
+  /**
+   * Only use in migrations and tests.
+   */
+  async createBucketStateIndex() {
+    // TODO: Implement a better mechanism to use migrations in tests
+    await this.bucket_state.createIndex(
+      {
+        '_id.g': 1,
+        last_op: 1
+      },
+      { name: 'bucket_updates', unique: true }
+    );
   }
 }
 

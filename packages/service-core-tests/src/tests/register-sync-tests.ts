@@ -1347,7 +1347,8 @@ async function consumeIterator<T>(
     return lines;
   } catch (e) {
     if (options?.consume) {
-      iter.throw?.(e);
+      // iter.throw here would result in an uncaught error
+      iter.return?.(e);
     }
     throw e;
   }

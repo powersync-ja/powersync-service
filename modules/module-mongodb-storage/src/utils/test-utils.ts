@@ -3,10 +3,12 @@ import { PowerSyncMongo } from '../storage/implementation/db.js';
 import { TestStorageOptions } from '@powersync/service-core';
 import { MongoReportStorage } from '../storage/MongoReportStorage.js';
 import { MongoBucketStorage } from '../storage/MongoBucketStorage.js';
+import { MongoSyncBucketStorageOptions } from '../storage/implementation/MongoSyncBucketStorage.js';
 
 export type MongoTestStorageOptions = {
   url: string;
   isCI: boolean;
+  internalOptions?: MongoSyncBucketStorageOptions;
 };
 
 export function mongoTestStorageFactoryGenerator(factoryOptions: MongoTestStorageOptions) {
@@ -25,7 +27,7 @@ export function mongoTestStorageFactoryGenerator(factoryOptions: MongoTestStorag
       await db.clear();
     }
 
-    return new MongoBucketStorage(db, { slot_name_prefix: 'test_' });
+    return new MongoBucketStorage(db, { slot_name_prefix: 'test_' }, factoryOptions.internalOptions);
   };
 }
 

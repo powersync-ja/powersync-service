@@ -3,11 +3,17 @@ import { register, TEST_TABLE, test_utils } from '@powersync/service-core-tests'
 import { describe, expect, test } from 'vitest';
 import { POSTGRES_STORAGE_FACTORY } from './util.js';
 
+describe('Postgres Sync Bucket Storage - Parameters', () =>
+  register.registerDataStorageParameterTests(POSTGRES_STORAGE_FACTORY));
+
+describe('Postgres Sync Bucket Storage - Data', () => register.registerDataStorageDataTests(POSTGRES_STORAGE_FACTORY));
+
+describe('Postgres Sync Bucket Storage - Checkpoints', () =>
+  register.registerDataStorageCheckpointTests(POSTGRES_STORAGE_FACTORY));
+
 describe('Sync Bucket Validation', register.registerBucketValidationTests);
 
-describe('Postgres Sync Bucket Storage', () => {
-  register.registerDataStorageTests(POSTGRES_STORAGE_FACTORY);
-
+describe('Postgres Sync Bucket Storage - pg-specific', () => {
   /**
    * The split of returned results can vary depending on storage drivers.
    * The large rows here are 2MB large while the default chunk limit is 1mb.

@@ -1,5 +1,14 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.12.2
+
+### Patch Changes
+
+- bec7496: Fix "E11000 duplicate key error collection: powersync_demo.bucket_state" in some cases on sync rules deploy
+- 725daa1: Fix rare issue of incorrect checksums on fallback after checksum query timed out.
+- Updated dependencies [bec7496]
+  - @powersync/service-core@1.15.2
+
 ## 0.12.1
 
 ### Patch Changes

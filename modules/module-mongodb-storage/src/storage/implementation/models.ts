@@ -98,6 +98,10 @@ export interface BucketStateDocument {
     g: number;
     b: string;
   };
+  /**
+   * Important: There is an unique index on {'_id.g': 1, last_op: 1}.
+   * That means the last_op must match an actual op in the bucket, and not the commit checkpoint.
+   */
   last_op: bigint;
   /**
    * If set, this can be treated as "cache" of a checksum at a specific point.

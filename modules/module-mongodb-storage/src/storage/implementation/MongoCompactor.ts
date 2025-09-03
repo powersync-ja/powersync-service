@@ -328,15 +328,11 @@ export class MongoCompactor {
               count: 0,
               bytes: 0
             }
-          },
-          $setOnInsert: {
-            // Only set this if we're creating the document.
-            // In all other cases, the replication process will have a set a more accurate id.
-            last_op: this.maxOpId
           }
         },
-        // We generally expect this to have been created before, but do handle cases of old unchanged buckets
-        upsert: true
+        // We generally expect this to have been created before.
+        // We don't create new ones here, to avoid issues with the unique index on bucket_updates.
+        upsert: false
       }
     });
   }
@@ -483,15 +479,25 @@ export class MongoCompactor {
    * Subset of compact, only populating checksums where relevant.
    */
   async populateChecksums() {
-    let lastId: BucketStateDocument['_id'] | null = null;
+    // This is updated after each batch
+    let lowerBound: BucketStateDocument['_id'] = {
+      g: this.group_id,
+      b: new mongo.MinKey() as any
+    };
+    // This is static
+    const upperBound: BucketStateDocument['_id'] = {
+      g: this.group_id,
+      b: new mongo.MaxKey() as any
+    };
     while (!this.signal?.aborted) {
       // By filtering buckets, we effectively make this "resumeable".
-      let filter: mongo.Filter<BucketStateDocument> = {
+      const filter: mongo.Filter<BucketStateDocument> = {
+        _id: {
+          $gt: lowerBound,
+          $lt: upperBound
+        },
         compacted_state: { $exists: false }
       };
-      if (lastId) {
-        filter._id = { $gt: lastId };
-      }
 
       const bucketsWithoutChecksums = await this.db.bucket_state
         .find(filter, {
@@ -514,12 +520,12 @@ export class MongoCompactor {
 
       await this.updateChecksumsBatch(bucketsWithoutChecksums.map((b) => b._id.b));
 
-      lastId = bucketsWithoutChecksums[bucketsWithoutChecksums.length - 1]._id;
+      lowerBound = bucketsWithoutChecksums[bucketsWithoutChecksums.length - 1]._id;
     }
   }
 
   private async updateChecksumsBatch(buckets: string[]) {
-    const checksums = await this.storage.checksums.queryPartialChecksums(
+    const checksums = await this.storage.checksums.computePartialChecksumsDirect(
       buckets.map((bucket) => {
         return {
           bucket,
@@ -550,15 +556,11 @@ export class MongoCompactor {
                 checksum: BigInt(bucketChecksum.checksum),
                 bytes: null
               }
-            },
-            $setOnInsert: {
-              // Only set this if we're creating the document.
-              // In all other cases, the replication process will have a set a more accurate id.
-              last_op: this.maxOpId
             }
           },
-          // We generally expect this to have been created before, but do handle cases of old unchanged buckets
-          upsert: true
+          // We don't create new ones here - it gets tricky to get the last_op right with the unique index on:
+          // bucket_updates: {'id.g': 1, 'last_op': 1}
+          upsert: false
         }
       });
     }

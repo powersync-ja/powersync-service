@@ -59,6 +59,22 @@ export async function clearTestDb(db: pgwire.PgClient) {
       await db.query(`DROP TABLE public.${lib_postgres.escapeIdentifier(name)}`);
     }
   }
+
+  const domainRows = pgwire.pgwireRows(
+    await db.query(`
+      SELECT typname,typtype
+      FROM pg_type t
+        LEFT JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+      WHERE n.nspname = 'public' AND typarray != 0
+    `)
+  );
+  for (let row of domainRows) {
+    if (row.typtype == 'd') {
+      await db.query(`DROP DOMAIN public.${lib_postgres.escapeIdentifier(row.typname)} CASCADE`);
+    } else {
+      await db.query(`DROP TYPE public.${lib_postgres.escapeIdentifier(row.typname)} CASCADE`);
+    }
+  }
 }
 
 export async function connectPgWire(type?: 'replication' | 'standard') {
