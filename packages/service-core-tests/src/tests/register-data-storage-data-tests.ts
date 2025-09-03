@@ -1235,4 +1235,59 @@ bucket_definitions:
     const checksums2 = [...(await bucketStorage.getChecksums(checkpoint + 1n, ['global[]'])).values()];
     expect(checksums2).toEqual([{ bucket: 'global[]', checksum: 1917136889, count: 1 }]);
   });
+
+  testChecksumBatching(generateStorageFactory);
+}
+
+/**
+ * This specifically tests an issue we ran into with MongoDB storage.
+ *
+ * Exposed as a separate test so we can test with more storage parameters.
+ */
+export function testChecksumBatching(generateStorageFactory: storage.TestStorageFactory) {
+  test('checksums for multiple buckets', async () => {
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
+bucket_definitions:
+  user:
+    parameters: select request.user_id() as user_id
+    data:
+      - select id, description from test where user_id = bucket.user_id
+`
+    });
+    const bucketStorage = factory.getInstance(syncRules);
+
+    const sourceTable = TEST_TABLE;
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      for (let u of ['u1', 'u2', 'u3', 'u4']) {
+        for (let t of ['t1', 't2', 't3', 't4']) {
+          const id = `${t}_${u}`;
+          await batch.save({
+            sourceTable,
+            tag: storage.SaveOperationTag.INSERT,
+            after: {
+              id,
+              description: `${t} description`,
+              user_id: u
+            },
+            afterReplicaId: test_utils.rid(id)
+          });
+        }
+      }
+      await batch.commit('1/1');
+    });
+    const { checkpoint } = await bucketStorage.getCheckpoint();
+
+    bucketStorage.clearChecksumCache();
+    const buckets = ['user["u1"]', 'user["u2"]', 'user["u3"]', 'user["u4"]'];
+    const checksums = [...(await bucketStorage.getChecksums(checkpoint, buckets)).values()];
+    checksums.sort((a, b) => a.bucket.localeCompare(b.bucket));
+    expect(checksums).toEqual([
+      { bucket: 'user["u1"]', count: 4, checksum: 346204588 },
+      { bucket: 'user["u2"]', count: 4, checksum: 5261081 },
+      { bucket: 'user["u3"]', count: 4, checksum: 134760718 },
+      { bucket: 'user["u4"]', count: 4, checksum: -302639724 }
+    ]);
+  });
 }
