@@ -1,5 +1,15 @@
 # @powersync/service-core
 
+## 1.15.3
+
+### Patch Changes
+
+- f1b4cef: Fix checksum calculation issues with large buckets.
+- Updated dependencies [9681b4c]
+  - @powersync/service-sync-rules@0.29.1
+  - @powersync/lib-services-framework@0.7.4
+  - @powersync/service-rsocket-router@0.2.1
+
 ## 1.15.2
 
 ### Patch Changes

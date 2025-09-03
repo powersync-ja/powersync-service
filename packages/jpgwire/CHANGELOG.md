@@ -1,5 +1,16 @@
 # @powersync/service-jpgwire
 
+## 0.21.0
+
+### Minor Changes
+
+- 9681b4c: Add utilities for parsing serialized structures like compound types and arrays.
+
+### Patch Changes
+
+- Updated dependencies [9681b4c]
+  - @powersync/service-sync-rules@0.29.1
+
 ## 0.20.2
 
 ### Patch Changes
