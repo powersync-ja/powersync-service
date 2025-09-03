@@ -247,7 +247,10 @@ export class MongoChecksums {
                 },
                 last_op: { $max: '$_id.o' }
               }
-            }
+            },
+            // Sort the aggregated results (100 max, so should be fast).
+            // This is important to identify which buckets we have partial data for.
+            { $sort: { _id: 1 } }
           ],
           { session: undefined, readConcern: 'snapshot', maxTimeMS: lib_mongo.MONGO_CHECKSUM_TIMEOUT_MS }
         )
