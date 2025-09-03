@@ -25,8 +25,6 @@ export enum PgTypeOid {
   JSONB = 3802,
   PG_LSN = 3220
 }
-// TODO: REMOVE THIS ITS JUST FOR TESTING PURPOSES ERROR BECAUSE OF VERSION BUMP
-export const TEST = 'TEST';
 
 // Generate using:
 //   select '[' || typarray || ', ' || oid || '], // ' || typname from pg_catalog.pg_type WHERE typarray != 0;
