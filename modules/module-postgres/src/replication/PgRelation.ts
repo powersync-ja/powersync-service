@@ -30,3 +30,12 @@ export function getPgOutputRelation(source: PgoutputRelation): storage.SourceEnt
     replicaIdColumns: getReplicaIdColumns(source)
   } satisfies storage.SourceEntityDescriptor;
 }
+
+export function referencedColumnTypeIds(source: PgoutputRelation): number[] {
+  const oids = new Set<number>();
+  for (const column of source.columns) {
+    oids.add(column.typeOid);
+  }
+
+  return [...oids];
+}
