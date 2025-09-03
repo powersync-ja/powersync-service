@@ -1,7 +1,7 @@
 // Adapted from https://github.com/kagis/pgwire/blob/0dc927f9f8990a903f238737326e53ba1c8d094f/mod.js#L2218
 
 import { JsonContainer } from '@powersync/service-jsonbig';
-import { CustomSqliteValue, TimeValue, type DatabaseInputValue } from '@powersync/service-sync-rules';
+import { type DatabaseInputValue, TimeValue } from '@powersync/service-sync-rules';
 import { dateToSqlite, lsnMakeComparable, timestampToSqlite, timestamptzToSqlite } from './util.js';
 import { StructureParser } from './structure_parser.js';
 
@@ -25,6 +25,7 @@ export enum PgTypeOid {
   JSONB = 3802,
   PG_LSN = 3220
 }
+// TODO: REMOVE THIS ITS JUST FOR TESTING PURPOSES ERROR BECAUSE OF VERSION BUMP
 
 // Generate using:
 //   select '[' || typarray || ', ' || oid || '], // ' || typname from pg_catalog.pg_type WHERE typarray != 0;
