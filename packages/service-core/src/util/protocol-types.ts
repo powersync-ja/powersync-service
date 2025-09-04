@@ -1,5 +1,5 @@
 import * as t from 'ts-codec';
-import { BucketDescription, BucketPriority, SqliteJsonRow } from '@powersync/service-sync-rules';
+import { BucketPriority, SqliteJsonRow } from '@powersync/service-sync-rules';
 import { JsonContainer } from '@powersync/service-jsonbig';
 
 export const BucketRequest = t.object({
@@ -24,7 +24,7 @@ export const RequestedStreamSubscription = t.object({
   /**
    * An optional dictionary of parameters to pass to this specific stream.
    */
-  parameters: t.record(t.any).optional(),
+  parameters: t.union(t.record(t.any), t.Null),
   /**
    * Set when the client wishes to re-assign a different priority to this stream.
    *
