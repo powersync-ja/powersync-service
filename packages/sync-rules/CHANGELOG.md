@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.29.1
+
+### Patch Changes
+
+- 9681b4c: Add the `custom_postgres_types` compatibility option. When enabled, domain, composite, enum, range, multirange and custom array types will get synced in a JSON representation instead of the raw postgres wire format.
+
 ## 0.29.0
 
 ### Minor Changes
