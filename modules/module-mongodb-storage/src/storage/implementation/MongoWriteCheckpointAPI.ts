@@ -12,12 +12,10 @@ export type MongoCheckpointAPIOptions = {
 export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
   readonly db: PowerSyncMongo;
   private _mode: storage.WriteCheckpointMode;
-  private sync_rules_id: number;
 
   constructor(options: MongoCheckpointAPIOptions) {
     this.db = options.db;
     this._mode = options.mode;
-    this.sync_rules_id = options.sync_rules_id;
   }
 
   get writeCheckpointMode() {
