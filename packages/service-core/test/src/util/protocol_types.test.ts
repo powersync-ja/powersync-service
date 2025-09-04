@@ -22,5 +22,22 @@ describe('protocol types', () => {
         } as any)
       ).toMatchObject({ valid: true });
     });
+
+    test('does not allow missing parameters', () => {
+      expect(
+        validator.validate({
+          buckets: [],
+          include_checksum: true,
+          raw_data: true,
+          binary_data: true,
+          client_id: '0da33a94-c140-4b42-b3b3-a1df3b1352a3',
+          parameters: {},
+          streams: {
+            include_defaults: true,
+            subscriptions: [{ stream: 'a', override_priority: null }]
+          }
+        } as any)
+      ).toMatchObject({ valid: false });
+    });
   });
 });
