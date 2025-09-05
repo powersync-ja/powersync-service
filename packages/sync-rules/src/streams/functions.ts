@@ -1,7 +1,7 @@
 import {
+  generateUserIdFunction,
   globalRequestParameterFunctions,
   parameterFunctions,
-  request_user_id,
   SqlParameterFunction
 } from '../request_functions.js';
 import { ParameterValueSet } from '../types.js';
@@ -27,7 +27,7 @@ export const STREAM_FUNCTIONS: Record<string, Record<string, SqlParameterFunctio
     ...globalRequestParameterFunctions('connection')
   },
   auth: {
-    user_id: request_user_id,
+    user_id: generateUserIdFunction('auth.user_id'),
     ...parameterFunctions({
       schema: 'auth',
       extractJsonString: function (v: ParameterValueSet): string {

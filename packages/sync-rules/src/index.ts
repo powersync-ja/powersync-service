@@ -19,6 +19,7 @@ export * from './SqlParameterQuery.js';
 export * from './SqlSyncRules.js';
 export * from './StaticSchema.js';
 export { SyncStream } from './streams/stream.js';
+export { STREAM_FUNCTIONS } from './streams/functions.js';
 export { syncStreamFromSql } from './streams/from_sql.js';
 export * from './TablePattern.js';
 export * from './types.js';
