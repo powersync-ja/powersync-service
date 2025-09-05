@@ -1,5 +1,18 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.12.4
+
+### Patch Changes
+
+- a2b8bb0: Avoid frequent write checkpoint lookups when the user does not have one.
+- Updated dependencies [17aae6d]
+- Updated dependencies [a2b8bb0]
+- Updated dependencies [f400b0f]
+  - @powersync/service-sync-rules@0.29.2
+  - @powersync/service-core@1.15.4
+  - @powersync/lib-services-framework@0.7.5
+  - @powersync/lib-service-mongodb@0.6.7
+
 ## 0.12.3
 
 ### Patch Changes
