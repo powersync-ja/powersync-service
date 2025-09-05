@@ -1,4 +1,4 @@
-import { router, ServiceError, Logger } from '@powersync/lib-services-framework';
+import { Logger, router } from '@powersync/lib-services-framework';
 import type { JwtPayload } from '../auth/auth-index.js';
 import { ServiceContext } from '../system/ServiceContext.js';
 import { RouterEngine } from './RouterEngine.js';
@@ -31,11 +31,11 @@ export type BasicRouterRequest = {
   hostname: string;
 };
 
-export type ConextProviderOptions = {
+export type ContextProviderOptions = {
   logger: Logger;
 };
 
-export type ContextProvider = (request: BasicRouterRequest, options: ConextProviderOptions) => Promise<Context>;
+export type ContextProvider = (request: BasicRouterRequest, options: ContextProviderOptions) => Promise<Context>;
 
 export type RequestEndpoint<
   I,

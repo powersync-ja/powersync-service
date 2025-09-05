@@ -3,6 +3,7 @@ import { ParseSyncRulesOptions, PersistedSyncRules, PersistedSyncRulesContent } 
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { ReplicationLock } from './ReplicationLock.js';
 import { SyncRulesBucketStorage } from './SyncRulesBucketStorage.js';
+import { ReportStorage } from './ReportStorage.js';
 
 /**
  * Represents a configured storage provider.
@@ -164,3 +165,4 @@ export interface TestStorageOptions {
   doNotClear?: boolean;
 }
 export type TestStorageFactory = (options?: TestStorageOptions) => Promise<BucketStorageFactory>;
+export type TestReportStorageFactory = (options?: TestStorageOptions) => Promise<ReportStorage>;

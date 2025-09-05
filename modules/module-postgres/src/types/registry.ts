@@ -59,7 +59,7 @@ interface RangeType extends BaseType {
   innerId: number;
 }
 
-type KnownType = BuiltinType | ArrayType | DomainType | DomainType | CompositeType | RangeType;
+type KnownType = BuiltinType | ArrayType | DomainType | CompositeType | RangeType;
 
 interface UnknownType extends BaseType {
   type: 'unknown';
