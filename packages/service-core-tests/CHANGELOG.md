@@ -1,5 +1,15 @@
 # @powersync/service-core-tests
 
+## 0.12.3
+
+### Patch Changes
+
+- f1b4cef: Fix checksum calculation issues with large buckets.
+- Updated dependencies [9681b4c]
+- Updated dependencies [f1b4cef]
+  - @powersync/service-sync-rules@0.29.1
+  - @powersync/service-core@1.15.3
+
 ## 0.12.2
 
 ### Patch Changes

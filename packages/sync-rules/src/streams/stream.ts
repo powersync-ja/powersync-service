@@ -3,7 +3,6 @@ import { BucketInclusionReason, BucketPriority, DEFAULT_BUCKET_PRIORITY } from '
 import { BucketParameterQuerier, PendingQueriers } from '../BucketParameterQuerier.js';
 import { BucketSource, BucketSourceType, ResultSetDescription } from '../BucketSource.js';
 import { ColumnDefinition } from '../ExpressionType.js';
-import { CompatibilityContext } from '../compatibility.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { GetQuerierOptions, RequestedStream } from '../SqlSyncRules.js';
 import { TablePattern } from '../TablePattern.js';
@@ -17,7 +16,6 @@ import {
   SqliteRow,
   TableRow
 } from '../types.js';
-import { applyRowContext } from '../utils.js';
 import { StreamVariant } from './variant.js';
 
 export class SyncStream implements BucketSource {

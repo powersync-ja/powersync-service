@@ -1,5 +1,23 @@
 # @powersync/service-image
 
+## 1.15.3
+
+### Patch Changes
+
+- 9681b4c: Add the `custom_postgres_types` compatibility option. When enabled, domain, composite, enum, range, multirange and custom array types will get synced in a JSON representation instead of the raw postgres wire format.
+- f1b4cef: Fix checksum calculation issues with large buckets.
+- Updated dependencies [9681b4c]
+- Updated dependencies [f1b4cef]
+  - @powersync/service-module-postgres@0.16.3
+  - @powersync/service-module-mongodb-storage@0.12.3
+  - @powersync/service-core@1.15.3
+  - @powersync/lib-services-framework@0.7.4
+  - @powersync/service-module-mongodb@0.12.3
+  - @powersync/service-module-mysql@0.9.3
+  - @powersync/service-module-postgres-storage@0.10.3
+  - @powersync/service-module-core@0.2.3
+  - @powersync/service-rsocket-router@0.2.1
+
 ## 1.15.2
 
 ### Patch Changes
