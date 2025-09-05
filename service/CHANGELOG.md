@@ -1,5 +1,23 @@
 # @powersync/service-image
 
+## 1.15.4
+
+### Patch Changes
+
+- a2b8bb0: Avoid frequent write checkpoint lookups when the user does not have one.
+- f400b0f: Protocol: Allow `null` as stream parameter.
+- Updated dependencies [a2b8bb0]
+- Updated dependencies [f400b0f]
+  - @powersync/service-module-mongodb-storage@0.12.4
+  - @powersync/service-core@1.15.4
+  - @powersync/lib-services-framework@0.7.5
+  - @powersync/service-module-mongodb@0.12.4
+  - @powersync/service-module-mysql@0.9.4
+  - @powersync/service-module-postgres@0.16.4
+  - @powersync/service-module-postgres-storage@0.10.4
+  - @powersync/service-module-core@0.2.4
+  - @powersync/service-rsocket-router@0.2.2
+
 ## 1.15.3
 
 ### Patch Changes
