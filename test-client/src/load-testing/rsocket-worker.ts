@@ -9,12 +9,12 @@ if (parentPort == null) {
   throw new Error(`Can only run this script in a worker_thread`);
 }
 
-const { i, url, token } = workerData;
+const { i, url, token, print } = workerData;
 
 const client = new RSocketConnector({
   transport: new WebsocketClientTransport({
     url,
-    wsCreator: (url) => {
+    wsCreator: (url: string) => {
       return new WebSocket(url) as any;
     }
   }),
@@ -40,6 +40,9 @@ const SYNC_QUEUE_REQUEST_N = 2;
 
 let pendingEventsCount = SYNC_QUEUE_REQUEST_N;
 let size = 0;
+let numOperations = 0;
+let lastCheckpointStart = 0;
+let printData: string[] = [];
 
 const stream = rsocket.requestStream(
   {
@@ -57,6 +60,7 @@ const stream = rsocket.requestStream(
     },
     onNext: (payload) => {
       const { data } = payload;
+
       // Less events are now pending
       pendingEventsCount--;
       if (!data) {
@@ -66,10 +70,32 @@ const stream = rsocket.requestStream(
       size += data.byteLength;
 
       const chunk = deserialize(data);
+
       if (chunk?.checkpoint_complete) {
-        console.log(new Date().toISOString(), i, 'checkpoint', chunk.checkpoint_complete.last_op_id, size);
+        const duration = performance.now() - lastCheckpointStart;
+        console.log(
+          new Date().toISOString(),
+          i,
+          `checkpoint_complete op_id: ${chunk.checkpoint_complete.last_op_id}, ops: ${numOperations}, bytes: ${size}, duration: ${duration.toFixed(0)}ms, data: [${printData}]`
+        );
+      } else if (chunk?.data) {
+        parseChunk(chunk.data);
+        numOperations += chunk.data.data.length;
+      } else if (chunk?.checkpoint) {
+        lastCheckpointStart = performance.now();
+        console.log(new Date().toISOString(), i, `checkpoint buckets: ${chunk.checkpoint.buckets.length}`);
+      } else if (chunk?.checkpoint_diff) {
+        lastCheckpointStart = performance.now();
+        console.log(
+          new Date().toISOString(),
+          i,
+          `checkpoint_diff removed_buckets: ${chunk.checkpoint_diff.removed_buckets.length} updated_buckets: ${chunk.checkpoint_diff.updated_buckets.length}`
+        );
       } else {
-        console.log(new Date().toISOString(), i, Object.keys(chunk)[0]);
+        const key = Object.keys(chunk)[0];
+        if (key != 'token_expires_in' && key != 'data') {
+          console.log(new Date().toISOString(), i, key);
+        }
       }
 
       const required = SYNC_QUEUE_REQUEST_N - pendingEventsCount;
@@ -84,3 +110,13 @@ const stream = rsocket.requestStream(
     onExtension: () => {}
   }
 );
+
+const parseChunk = (chunk: any) => {
+  chunk.data.forEach((data: any) => {
+    if(data.op == "MOVE") {
+      return;
+    }
+    const payload = JSON.parse(data.data);
+    printData.push(payload[print]);
+  })
+}
