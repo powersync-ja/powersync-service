@@ -25,7 +25,7 @@ The `fetch-operations` command downloads data for a single checkpoint, and outpu
 To avoid normalizing the data, use the `--raw` option. This may include additional CLEAR, MOVE, REMOVE and duplicate PUT operations.
 
 ```sh
-# If the endpoint is not availible in the token aud field, add the --endpoint argument
+# If the endpoint is not available in the token aud field, add the --endpoint argument
 node dist/bin.js fetch-operations --token <token> --endpoint http://localhost:8080
 
 # If the endpoint is present in token aud field, it can be omitted from args:
@@ -43,7 +43,7 @@ node dist/bin.js fetch-operations --config path/to/powersync.yaml --sub test-use
 
 ### generate-token
 
-Used to generate a JWT token based on your current powersync YAML config.
+Used to generate a JWT token based on your current PowerSync YAML config.
 
 ```sh
 node dist/bin.js generate-token --config path/to/powersync.yaml --sub test-user
@@ -52,7 +52,7 @@ node dist/bin.js generate-token --config path/to/powersync.yaml --sub test-user
 ### concurrent-connections
 
 Use this command to simulate concurrent connections to a PowerSync instance. This can be used for performance benchmarking
-and other load-testing use cases. There are two modes availible, `websocket` or `http`. By default, the command uses the
+and other load-testing use cases. There are two modes available, `websocket` or `http`. By default, the command uses the
 `http` mode.
 
 ```shell
