@@ -6,7 +6,22 @@ if (parentPort == null) {
   throw new Error(`Can only run this script in a worker_thread`);
 }
 
-const { i, url, token } = workerData;
+const { i, url, token, print } = workerData;
+
+let size = 0;
+let numOperations = 0;
+let lastCheckpointStart = 0;
+let printData: string[] = [];
+
+const parseChunk = (chunk: any) => {
+  chunk.data.forEach((data: any) => {
+    if(data.op == "MOVE") {
+      return;
+    }
+    const payload = JSON.parse(data.data);
+    printData.push(payload[print]);
+  })
+}
 
 const response = await fetch(url + '/sync/stream', {
   method: 'POST',
@@ -19,13 +34,10 @@ const response = await fetch(url + '/sync/stream', {
     include_checksums: true
   })
 });
+
 if (!response.ok || response.body == null) {
   throw new Error(response.statusText + '\n' + (await response.text()));
 }
-
-let size = 0;
-let numOperations = 0;
-let lastCheckpointStart = 0;
 
 for await (let chunk of ndjsonStream<any>(response.body)) {
   size += JSON.stringify(chunk).length;
@@ -34,9 +46,10 @@ for await (let chunk of ndjsonStream<any>(response.body)) {
     console.log(
       new Date().toISOString(),
       i,
-      `checkpoint_complete op_id: ${chunk.checkpoint_complete.last_op_id}, ops: ${numOperations}, bytes: ${size}, duration: ${duration.toFixed(0)}ms`
+      `checkpoint_complete op_id: ${chunk.checkpoint_complete.last_op_id}, ops: ${numOperations}, bytes: ${size}, duration: ${duration.toFixed(0)}ms, data: [${printData}]`
     );
   } else if (chunk?.data) {
+    parseChunk(chunk.data);
     numOperations += chunk.data.data.length;
   } else if (chunk?.checkpoint) {
     lastCheckpointStart = performance.now();
