@@ -27,7 +27,7 @@ export const STREAM_FUNCTIONS: Record<string, Record<string, SqlParameterFunctio
     ...globalRequestParameterFunctions('connection')
   },
   auth: {
-    user_id: generateUserIdFunction('auth.user_id'),
+    user_id: generateUserIdFunction('auth.user_id', 'auth.parameters('),
     ...parameterFunctions({
       schema: 'auth',
       extractJsonString: function (v: ParameterValueSet): string {
