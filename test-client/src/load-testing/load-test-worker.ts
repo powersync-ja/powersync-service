@@ -1,12 +1,12 @@
-import { ndjsonStream } from '../ndjson.js';
-
 import { parentPort, workerData } from 'worker_threads';
+import { openStream, SyncOptions } from '../stream.js';
 
 if (parentPort == null) {
   throw new Error(`Can only run this script in a worker_thread`);
 }
 
-const { i, url, token, print } = workerData;
+const { i, print } = workerData;
+const request: SyncOptions = workerData.request;
 
 let size = 0;
 let numOperations = 0;
@@ -25,25 +25,11 @@ const parseChunk = (chunk: any) => {
   });
 };
 
-const response = await fetch(url + '/sync/stream', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    Authorization: `Token ${token}`
-  },
-  body: JSON.stringify({
-    raw_data: true,
-    include_checksums: true
-  })
-});
-
-if (!response.ok || response.body == null) {
-  throw new Error(response.statusText + '\n' + (await response.text()));
-}
-
-for await (let chunk of ndjsonStream<any>(response.body)) {
-  size += JSON.stringify(chunk).length;
-  if (chunk?.checkpoint_complete) {
+for await (let chunk of openStream(request)) {
+  if ('error' in chunk) {
+    // Retried automatically
+    console.error(new Date().toISOString(), i, `Error in stream: ${chunk.error}`);
+  } else if ('checkpoint_complete' in chunk) {
     const duration = performance.now() - lastCheckpointStart;
     let message = `checkpoint_complete op_id: ${chunk.checkpoint_complete.last_op_id}, ops: ${numOperations}, bytes: ${size}, duration: ${duration.toFixed(0)}ms`;
     if (print) {
@@ -51,19 +37,25 @@ for await (let chunk of ndjsonStream<any>(response.body)) {
     }
     printData = [];
     console.log(new Date().toISOString(), i, message);
-  } else if (chunk?.data) {
+
+    if (request.once) {
+      break;
+    }
+  } else if ('data' in chunk) {
     parseChunk(chunk.data);
     numOperations += chunk.data.data.length;
-  } else if (chunk?.checkpoint) {
+  } else if ('checkpoint' in chunk) {
     lastCheckpointStart = performance.now();
     console.log(new Date().toISOString(), i, `checkpoint buckets: ${chunk.checkpoint.buckets.length}`);
-  } else if (chunk?.checkpoint_diff) {
+  } else if ('checkpoint_diff' in chunk) {
     lastCheckpointStart = performance.now();
     console.log(
       new Date().toISOString(),
       i,
       `checkpoint_diff removed_buckets: ${chunk.checkpoint_diff.removed_buckets.length} updated_buckets: ${chunk.checkpoint_diff.updated_buckets.length}`
     );
+  } else if ('stats' in chunk) {
+    size += chunk.stats.decodedBytes;
   } else {
     const key = Object.keys(chunk)[0];
     if (key != 'token_expires_in' && key != 'data') {
@@ -71,5 +63,3 @@ for await (let chunk of ndjsonStream<any>(response.body)) {
     }
   }
 }
-
-parentPort.postMessage({ done: true });
