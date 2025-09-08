@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.29.2
+
+### Patch Changes
+
+- 17aae6d: Export SQL functions for sync streams.
+
 ## 0.29.1
 
 ### Patch Changes
