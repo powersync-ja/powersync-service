@@ -1,5 +1,14 @@
 # @powersync/service-core-tests
 
+## 0.12.5
+
+### Patch Changes
+
+- f34da91: Node 22.19.0 other minor dependency updates
+- Updated dependencies [f34da91]
+  - @powersync/service-sync-rules@0.29.3
+  - @powersync/service-core@1.15.5
+
 ## 0.12.4
 
 ### Patch Changes
