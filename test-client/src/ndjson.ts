@@ -1,7 +1,9 @@
-export function ndjsonStream<T>(response: ReadableStream<Uint8Array>): ReadableStream<T> & AsyncIterable<T> {
+export function ndjsonStream<T>(
+  response: ReadableStream<Uint8Array>
+): ReadableStream<{ chunk: T; size: number }> & AsyncIterable<{ chunk: T; size: number }> {
   var is_reader: any,
     cancellationRequest = false;
-  return new ReadableStream<T>({
+  return new ReadableStream<{ chunk: T; size: number }>({
     start: function (controller) {
       var reader = response.getReader();
       is_reader = reader;
@@ -19,7 +21,7 @@ export function ndjsonStream<T>(response: ReadableStream<Uint8Array>): ReadableS
           if (data_buf.length !== 0) {
             try {
               var data_l = JSON.parse(data_buf);
-              controller.enqueue(data_l);
+              controller.enqueue({ chunk: data_l, size: data_l.length });
             } catch (e) {
               controller.error(e);
               return;
@@ -37,7 +39,7 @@ export function ndjsonStream<T>(response: ReadableStream<Uint8Array>): ReadableS
           if (l.length > 0) {
             try {
               var data_line = JSON.parse(l);
-              controller.enqueue(data_line);
+              controller.enqueue({ chunk: data_line, size: l.length });
             } catch (e) {
               controller.error(e);
               cancellationRequest = true;
