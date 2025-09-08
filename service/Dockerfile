@@ -51,7 +51,7 @@ COPY modules/module-mysql/src modules/module-mysql/src/
 
 RUN pnpm build:production && \
     rm -rf node_modules **/node_modules && \
-    pnpm install --frozen-lockfile --prod --ignore-scripts
+    pnpm install --frozen-lockfile --prod --ignore-scripts --filter "\!@powersync/service-core-tests"
 
 # === TESTER ===
 

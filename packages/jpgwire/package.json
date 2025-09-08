@@ -23,7 +23,9 @@
     "@powersync/service-jsonbig": "workspace:^",
     "@powersync/service-sync-rules": "workspace:^",
     "date-fns": "^4.1.0",
-    "pgwire": "github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87",
+    "pgwire": "github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87"
+  },
+  "devDependencies": {
     "vitest": "^3.2.4"
   }
 }

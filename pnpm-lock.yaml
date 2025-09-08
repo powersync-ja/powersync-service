@@ -428,6 +428,7 @@ importers:
       pgwire:
         specifier: github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
         version: https://codeload.github.com/kagis/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
+    devDependencies:
       vitest:
         specifier: ^3.2.4
         version: 3.2.4(@types/node@22.16.2)(yaml@2.5.0)
