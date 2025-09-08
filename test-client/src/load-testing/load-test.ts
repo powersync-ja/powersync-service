@@ -3,15 +3,15 @@ import { Credentials } from '../auth.js';
 
 export type Mode = 'http' | 'websocket';
 
-export async function stream(i: number, credentials: Credentials, mode: Mode, print: string) {
+export async function stream(i: number, credentials: Credentials, mode: Mode, print: string | undefined) {
   const worker =
     mode == 'websocket'
       ? new Worker(new URL('./rsocket-worker.js', import.meta.url), {
-        workerData: { i, token: credentials.token, url: credentials.endpoint.replace(/^http/, 'ws'), print }
-      })
+          workerData: { i, token: credentials.token, url: credentials.endpoint.replace(/^http/, 'ws'), print }
+        })
       : new Worker(new URL('./http-worker.js', import.meta.url), {
-        workerData: { i, token: credentials.token, url: credentials.endpoint, print }
-      });
+          workerData: { i, token: credentials.token, url: credentials.endpoint, print }
+        });
   await new Promise((resolve, reject) => {
     worker.on('message', (event) => resolve(event));
     worker.on('error', (err) => reject(err));
@@ -19,7 +19,7 @@ export async function stream(i: number, credentials: Credentials, mode: Mode, pr
   worker.terminate();
 }
 
-export async function streamForever(i: number, credentials: Credentials, mode: Mode, print: string) {
+export async function streamForever(i: number, credentials: Credentials, mode: Mode, print: string | undefined) {
   while (true) {
     try {
       await stream(i, credentials, mode, print);
@@ -31,7 +31,12 @@ export async function streamForever(i: number, credentials: Credentials, mode: M
   }
 }
 
-export async function concurrentConnections(credentials: Credentials, numClients: number, mode: Mode, print: string) {
+export async function concurrentConnections(
+  credentials: Credentials,
+  numClients: number,
+  mode: Mode,
+  print: string | undefined
+) {
   for (let i = 0; i < numClients; i++) {
     streamForever(i, credentials, mode, print);
   }

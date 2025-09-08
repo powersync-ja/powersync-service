@@ -44,7 +44,7 @@ program
   .action(async (options) => {
     const credentials = await getCredentials(options);
 
-    await concurrentConnections(credentials, options['numClients'] ?? 10, options.mode ?? 'http', options.print ?? "id");
+    await concurrentConnections(credentials, options['numClients'] ?? 10, options.mode ?? 'http', options.print);
   });
 
 await program.parseAsync();

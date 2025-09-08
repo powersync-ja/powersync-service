@@ -73,11 +73,12 @@ const stream = rsocket.requestStream(
 
       if (chunk?.checkpoint_complete) {
         const duration = performance.now() - lastCheckpointStart;
-        console.log(
-          new Date().toISOString(),
-          i,
-          `checkpoint_complete op_id: ${chunk.checkpoint_complete.last_op_id}, ops: ${numOperations}, bytes: ${size}, duration: ${duration.toFixed(0)}ms, data: [${printData}]`
-        );
+        let message = `checkpoint_complete op_id: ${chunk.checkpoint_complete.last_op_id}, ops: ${numOperations}, bytes: ${size}, duration: ${duration.toFixed(0)}ms`;
+        if (print) {
+          message += `, data: [${printData}]`;
+        }
+        console.log(new Date().toISOString(), i, message);
+        printData = [];
       } else if (chunk?.data) {
         parseChunk(chunk.data);
         numOperations += chunk.data.data.length;
@@ -112,11 +113,13 @@ const stream = rsocket.requestStream(
 );
 
 const parseChunk = (chunk: any) => {
+  if (print == null) {
+    return;
+  }
   chunk.data.forEach((data: any) => {
-    if(data.op == "MOVE") {
-      return;
+    if (data.op == 'PUT') {
+      const payload = JSON.parse(data.data);
+      printData.push(payload[print]);
     }
-    const payload = JSON.parse(data.data);
-    printData.push(payload[print]);
-  })
-}
+  });
+};
