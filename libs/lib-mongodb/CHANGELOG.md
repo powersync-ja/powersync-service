@@ -1,5 +1,12 @@
 # @powersync/lib-service-mongodb
 
+## 0.6.8
+
+### Patch Changes
+
+- Updated dependencies [f34da91]
+  - @powersync/lib-services-framework@0.7.6
+
 ## 0.6.7
 
 ### Patch Changes
