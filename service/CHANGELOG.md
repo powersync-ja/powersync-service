@@ -1,5 +1,21 @@
 # @powersync/service-image
 
+## 1.15.5
+
+### Patch Changes
+
+- f34da91: Node 22.19.0 other minor dependency updates
+- Updated dependencies [f34da91]
+  - @powersync/lib-services-framework@0.7.6
+  - @powersync/service-module-mongodb@0.12.5
+  - @powersync/service-module-mongodb-storage@0.12.5
+  - @powersync/service-module-mysql@0.9.5
+  - @powersync/service-module-postgres@0.16.5
+  - @powersync/service-module-postgres-storage@0.10.5
+  - @powersync/service-core@1.15.5
+  - @powersync/service-module-core@0.2.5
+  - @powersync/service-rsocket-router@0.2.3
+
 ## 1.15.4
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.29.3
+
+### Patch Changes
+
+- f34da91: Node 22.19.0 other minor dependency updates
+
 ## 0.29.2
 
 ### Patch Changes
