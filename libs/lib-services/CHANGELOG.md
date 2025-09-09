@@ -1,5 +1,20 @@
 # @powersync/lib-services-framework
 
+## 0.7.6
+
+### Patch Changes
+
+- f34da91: Node 22.19.0 other minor dependency updates
+- Updated dependencies [f34da91]
+  - @powersync/service-sync-rules@0.29.3
+
+## 0.7.5
+
+### Patch Changes
+
+- Updated dependencies [17aae6d]
+  - @powersync/service-sync-rules@0.29.2
+
 ## 0.7.4
 
 ### Patch Changes

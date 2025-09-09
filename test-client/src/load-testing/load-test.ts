@@ -1,38 +1,24 @@
 import { Worker } from 'worker_threads';
-import { Credentials } from '../auth.js';
+import { SyncOptions } from '../stream.js';
 
 export type Mode = 'http' | 'websocket';
 
-export async function stream(i: number, credentials: Credentials, mode: Mode) {
-  const worker =
-    mode == 'websocket'
-      ? new Worker(new URL('./rsocket-worker.js', import.meta.url), {
-          workerData: { i, token: credentials.token, url: credentials.endpoint.replace(/^http/, 'ws') }
-        })
-      : new Worker(new URL('./http-worker.js', import.meta.url), {
-          workerData: { i, token: credentials.token, url: credentials.endpoint }
-        });
+export async function stream(i: number, request: SyncOptions, print: string | undefined) {
+  const worker = new Worker(new URL('./load-test-worker.js', import.meta.url), {
+    workerData: { i, request, print }
+  });
   await new Promise((resolve, reject) => {
     worker.on('message', (event) => resolve(event));
     worker.on('error', (err) => reject(err));
+    worker.on('exit', (__code) => {
+      resolve(null);
+    });
   });
   worker.terminate();
 }
 
-export async function streamForever(i: number, credentials: Credentials, mode: Mode) {
-  while (true) {
-    try {
-      await stream(i, credentials, mode);
-      console.log(new Date().toISOString(), i, 'Stream ended');
-    } catch (e) {
-      console.error(new Date().toISOString(), i, e.message);
-      await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random()));
-    }
-  }
-}
-
-export async function concurrentConnections(credentials: Credentials, numClients: number, mode: Mode) {
+export async function concurrentConnections(options: SyncOptions, numClients: number, print: string | undefined) {
   for (let i = 0; i < numClients; i++) {
-    streamForever(i, credentials, mode);
+    stream(i, { ...options, clientId: options.clientId ?? `load-test-${i}` }, print);
   }
 }

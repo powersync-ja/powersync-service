@@ -1,7 +1,7 @@
 {
   "name": "@powersync/lib-services-framework",
   "repository": "https://github.com/powersync-ja/powersync-service",
-  "version": "0.7.4",
+  "version": "0.7.6",
   "main": "dist/index.js",
   "type": "module",
   "types": "dist/index.d.ts",
@@ -35,6 +35,6 @@
   },
   "devDependencies": {
     "@types/lodash": "^4.17.5",
-    "vitest": "^3.0.5"
+    "vitest": "^3.2.4"
   }
 }

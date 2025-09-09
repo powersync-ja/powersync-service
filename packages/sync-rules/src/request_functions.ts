@@ -107,25 +107,27 @@ export const request_jwt: SqlParameterFunction = {
   usesUnauthenticatedRequestParameters: false
 };
 
-export const request_user_id: SqlParameterFunction = {
-  debugName: 'request.user_id',
-  parameterCount: 0,
-  call(parameters: ParameterValueSet) {
-    return parameters.userId;
-  },
-  getReturnType() {
-    return ExpressionType.TEXT;
-  },
-  detail: 'Authenticated user id',
-  documentation: "The id of the authenticated user.\nSame as `request.jwt() ->> 'sub'`.",
-  usesAuthenticatedRequestParameters: true,
-  usesUnauthenticatedRequestParameters: false
-};
+export function generateUserIdFunction(debugName: string, sameAsDesc: string): SqlParameterFunction {
+  return {
+    debugName,
+    parameterCount: 0,
+    call(parameters: ParameterValueSet) {
+      return parameters.userId;
+    },
+    getReturnType() {
+      return ExpressionType.TEXT;
+    },
+    detail: 'Authenticated user id',
+    documentation: `The id of the authenticated user.\nSame as \`${sameAsDesc} ->> 'sub'\`.`,
+    usesAuthenticatedRequestParameters: true,
+    usesUnauthenticatedRequestParameters: false
+  };
+}
 
 const REQUEST_FUNCTIONS_NAMED = {
   ...globalRequestParameterFunctions('request'),
   jwt: request_jwt,
-  user_id: request_user_id
+  user_id: generateUserIdFunction('request.user_id', 'request.jwt()')
 };
 
 export const REQUEST_FUNCTIONS: Record<string, SqlParameterFunction> = REQUEST_FUNCTIONS_NAMED;

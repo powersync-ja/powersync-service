@@ -29,7 +29,7 @@ export async function getCheckpointData(options: GetCheckpointOptions) {
   let data: types.StreamingSyncData[] = [];
   let checkpoint: types.StreamingSyncCheckpoint;
 
-  for await (let chunk of ndjsonStream<types.StreamingSyncLine>(response.body!)) {
+  for await (let { chunk } of ndjsonStream<types.StreamingSyncLine>(response.body!)) {
     if (isStreamingSyncData(chunk)) {
       // Collect data
       data.push(chunk);

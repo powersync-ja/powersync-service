@@ -514,7 +514,7 @@ export function generateSqlFunctions(compatibility: CompatibilityContext) {
     SqlFunction['call']
   >;
 
-  const namedRecord: Record<string, SqlFunction> = named;
+  const namedRecord: Record<string, DocumentedSqlFunction> = named;
 
   return {
     named: namedRecord,
