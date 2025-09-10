@@ -329,7 +329,7 @@ export class BinLogStream {
         throw new ReplicationAssertionError(`No 'fields' event emitted`);
       }
 
-      const record = common.toSQLiteRow(row, columns!);
+      const record = this.toSQLiteRow(row, columns!);
       await batch.save({
         tag: storage.SaveOperationTag.INSERT,
         sourceTable: table,
@@ -596,6 +596,11 @@ export class BinLogStream {
     return null;
   }
 
+  private toSQLiteRow(row: Record<string, any>, columns: Map<string, ColumnDescriptor>): sync_rules.SqliteRow {
+    const inputRecord = common.toSQLiteRow(row, columns);
+    return this.syncRules.applyRowContext<never>(inputRecord);
+  }
+
   private async writeChange(
     batch: storage.BucketStorageBatch,
     payload: WriteChangePayload
@@ -603,7 +608,7 @@ export class BinLogStream {
     switch (payload.type) {
       case storage.SaveOperationTag.INSERT:
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
-        const record = common.toSQLiteRow(payload.row, payload.columns);
+        const record = this.toSQLiteRow(payload.row, payload.columns);
         return await batch.save({
           tag: storage.SaveOperationTag.INSERT,
           sourceTable: payload.sourceTable,
@@ -617,9 +622,9 @@ export class BinLogStream {
         // The previous row may be null if the replica id columns are unchanged.
         // It's fine to treat that the same as an insert.
         const beforeUpdated = payload.previous_row
-          ? common.toSQLiteRow(payload.previous_row, payload.columns)
+          ? this.toSQLiteRow(payload.previous_row, payload.columns)
           : undefined;
-        const after = common.toSQLiteRow(payload.row, payload.columns);
+        const after = this.toSQLiteRow(payload.row, payload.columns);
 
         return await batch.save({
           tag: storage.SaveOperationTag.UPDATE,
@@ -634,7 +639,7 @@ export class BinLogStream {
 
       case storage.SaveOperationTag.DELETE:
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
-        const beforeDeleted = common.toSQLiteRow(payload.row, payload.columns);
+        const beforeDeleted = this.toSQLiteRow(payload.row, payload.columns);
 
         return await batch.save({
           tag: storage.SaveOperationTag.DELETE,

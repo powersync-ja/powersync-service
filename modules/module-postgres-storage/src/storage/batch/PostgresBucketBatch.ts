@@ -687,8 +687,7 @@ export class PostgresBucketBatch
     // We store bytea colums for source keys
     const beforeId = operation.beforeId;
     const afterId = operation.afterId;
-    let sourceAfter = record.after;
-    let after = sourceAfter && this.sync_rules.applyRowContext(sourceAfter);
+    let after = record.after;
     const sourceTable = record.sourceTable;
 
     let existingBuckets: CurrentBucket[] = [];

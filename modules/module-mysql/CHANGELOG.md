@@ -1,5 +1,15 @@
 # @powersync/service-module-mysql
 
+## 0.9.6
+
+### Patch Changes
+
+- 221289d: Correctly handle custom types in primary keys.
+- Updated dependencies [221289d]
+  - @powersync/service-core@1.15.6
+  - @powersync/service-sync-rules@0.29.4
+  - @powersync/lib-services-framework@0.7.7
+
 ## 0.9.5
 
 ### Patch Changes

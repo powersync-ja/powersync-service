@@ -22,7 +22,6 @@ import {
   SourceSchema,
   SqliteRow
 } from './types.js';
-import { applyRowContext } from './utils.js';
 
 export interface QueryParseResult {
   /**

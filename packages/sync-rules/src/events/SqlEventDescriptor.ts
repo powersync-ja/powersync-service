@@ -5,7 +5,6 @@ import { QueryParseResult } from '../SqlBucketDescriptor.js';
 import { SyncRulesOptions } from '../SqlSyncRules.js';
 import { TablePattern } from '../TablePattern.js';
 import { EvaluateRowOptions } from '../types.js';
-import { applyRowContext } from '../utils.js';
 import { EvaluatedEventRowWithErrors, SqlEventSourceQuery } from './SqlEventSourceQuery.js';
 
 /**

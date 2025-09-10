@@ -1,5 +1,17 @@
 # @powersync/service-module-postgres
 
+## 0.16.6
+
+### Patch Changes
+
+- 221289d: Correctly handle custom types in primary keys.
+- Updated dependencies [221289d]
+  - @powersync/service-core@1.15.6
+  - @powersync/service-sync-rules@0.29.4
+  - @powersync/lib-services-framework@0.7.7
+  - @powersync/service-jpgwire@0.21.3
+  - @powersync/lib-service-postgres@0.4.11
+
 ## 0.16.5
 
 ### Patch Changes
