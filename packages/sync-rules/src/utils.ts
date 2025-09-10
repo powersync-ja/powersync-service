@@ -197,7 +197,7 @@ export function applyRowContext<MaybeToast extends undefined = never>(
   value: SqliteRow<SqliteInputValue | MaybeToast>,
   context: CompatibilityContext
 ): SqliteRow<SqliteValue | MaybeToast> {
-  let replacedCustomValues: SqliteRow<SqliteValue | MaybeToast> = {};
+  let replacedCustomValues: SqliteRow<SqliteValue> = {};
   let didReplaceValue = false;
 
   for (let [key, rawValue] of Object.entries(value)) {
