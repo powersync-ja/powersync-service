@@ -25,8 +25,11 @@ import {
   CompatibilityContext,
   DatabaseInputRow,
   SqliteInputRow,
+  SqliteInputValue,
+  SqliteRow,
   SqlSyncRules,
   TablePattern,
+  ToastableSqliteRow,
   toSyncRulesRow
 } from '@powersync/service-sync-rules';
 
@@ -635,7 +638,8 @@ WHERE  oid = $1::regclass`,
           hasRemainingData = true;
         }
 
-        for (const record of WalStream.getQueryData(rows)) {
+        for (const inputRecord of WalStream.getQueryData(rows)) {
+          const record = this.syncRulesRecord(inputRecord);
           // This auto-flushes when the batch reaches its size limit
           await batch.save({
             tag: storage.SaveOperationTag.INSERT,
@@ -787,6 +791,20 @@ WHERE  oid = $1::regclass`,
     return table;
   }
 
+  private syncRulesRecord(row: SqliteInputRow): SqliteRow;
+  private syncRulesRecord(row: SqliteInputRow | undefined): SqliteRow | undefined;
+
+  private syncRulesRecord(row: SqliteInputRow | undefined): SqliteRow | undefined {
+    if (row == null) {
+      return undefined;
+    }
+    return this.sync_rules.applyRowContext<never>(row);
+  }
+
+  private toastableSyncRulesRecord(row: ToastableSqliteRow<SqliteInputValue>): ToastableSqliteRow {
+    return this.sync_rules.applyRowContext(row);
+  }
+
   async writeChange(
     batch: storage.BucketStorageBatch,
     msg: pgwire.PgoutputMessage
@@ -803,7 +821,7 @@ WHERE  oid = $1::regclass`,
 
       if (msg.tag == 'insert') {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
-        const baseRecord = this.connections.types.constructAfterRecord(msg);
+        const baseRecord = this.syncRulesRecord(this.connections.types.constructAfterRecord(msg));
         return await batch.save({
           tag: storage.SaveOperationTag.INSERT,
           sourceTable: table,
@@ -816,8 +834,8 @@ WHERE  oid = $1::regclass`,
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
         // "before" may be null if the replica id columns are unchanged
         // It's fine to treat that the same as an insert.
-        const before = this.connections.types.constructBeforeRecord(msg);
-        const after = this.connections.types.constructAfterRecord(msg);
+        const before = this.syncRulesRecord(this.connections.types.constructBeforeRecord(msg));
+        const after = this.toastableSyncRulesRecord(this.connections.types.constructAfterRecord(msg));
         return await batch.save({
           tag: storage.SaveOperationTag.UPDATE,
           sourceTable: table,
@@ -828,7 +846,7 @@ WHERE  oid = $1::regclass`,
         });
       } else if (msg.tag == 'delete') {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
-        const before = this.connections.types.constructBeforeRecord(msg)!;
+        const before = this.syncRulesRecord(this.connections.types.constructBeforeRecord(msg)!);
 
         return await batch.save({
           tag: storage.SaveOperationTag.DELETE,

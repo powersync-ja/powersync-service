@@ -218,7 +218,7 @@ export type SqliteInputRow = SqliteRow<SqliteInputValue>;
  *
  * Toasted values are `undefined`.
  */
-export type ToastableSqliteRow<V = SqliteInputValue> = SqliteRow<V | undefined>;
+export type ToastableSqliteRow<V = SqliteValue> = SqliteRow<V | undefined>;
 
 /**
  * A value as received from the database.

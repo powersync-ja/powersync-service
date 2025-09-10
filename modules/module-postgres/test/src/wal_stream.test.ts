@@ -348,4 +348,28 @@ config:
     const data = await context.getBucketData('1#stream|0[]');
     expect(data).toMatchObject([putOp('test_data', { id: 't1', description: '{"foo":1,"bar":2}' })]);
   });
+
+  test('custom types in primary key', async () => {
+    await using context = await WalStreamTestContext.open(factory);
+
+    await context.updateSyncRules(`
+streams:
+  stream:
+    query: SELECT id, * FROM "test_data"
+
+config:
+  edition: 2
+`);
+
+    const { pool } = context;
+    await pool.query(`DROP TABLE IF EXISTS test_data`);
+    await pool.query(`CREATE DOMAIN test_id AS TEXT;`);
+    await pool.query(`CREATE TABLE test_data(id test_id primary key);`);
+
+    await context.initializeReplication();
+    await pool.query(`INSERT INTO test_data(id) VALUES ('t1')`);
+
+    const data = await context.getBucketData('1#stream|0[]');
+    expect(data).toMatchObject([putOp('test_data', { id: 't1' })]);
+  });
 }

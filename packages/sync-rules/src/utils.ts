@@ -197,15 +197,22 @@ export function applyRowContext<MaybeToast extends undefined = never>(
   value: SqliteRow<SqliteInputValue | MaybeToast>,
   context: CompatibilityContext
 ): SqliteRow<SqliteValue | MaybeToast> {
-  let record: SqliteRow<SqliteValue | MaybeToast> = {};
+  let replacedCustomValues: SqliteRow<SqliteValue | MaybeToast> = {};
+  let didReplaceValue = false;
+
   for (let [key, rawValue] of Object.entries(value)) {
-    if (rawValue === undefined) {
-      record[key] = undefined as MaybeToast;
-    } else {
-      record[key] = applyValueContext(rawValue, context);
+    if (rawValue instanceof CustomSqliteValue) {
+      replacedCustomValues[key] = rawValue.toSqliteValue(context);
+      didReplaceValue = true;
     }
   }
-  return record;
+
+  if (didReplaceValue) {
+    return Object.assign({ ...value }, replacedCustomValues);
+  } else {
+    // The cast is safe - no values in the original row are CustomSqliteValues.
+    return value as SqliteRow<SqliteValue | MaybeToast>;
+  }
 }
 
 /**
