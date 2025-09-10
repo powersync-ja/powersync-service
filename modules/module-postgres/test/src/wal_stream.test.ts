@@ -325,6 +325,42 @@ bucket_definitions:
     }
   });
 
+  test('old date format', async () => {
+    await using context = await WalStreamTestContext.open(factory);
+    await context.updateSyncRules(BASIC_SYNC_RULES);
+
+    const { pool } = context;
+    await pool.query(`DROP TABLE IF EXISTS test_data`);
+    await pool.query(`CREATE TABLE test_data(id text primary key, description timestamptz);`);
+
+    await context.initializeReplication();
+    await pool.query(`INSERT INTO test_data(id, description) VALUES ('t1', '2025-09-10 15:17:14+02')`);
+
+    let data = await context.getBucketData('global[]');
+    expect(data).toMatchObject([putOp('test_data', { id: 't1', description: '2025-09-10 13:17:14Z' })]);
+  });
+
+  test('new date format', async () => {
+    await using context = await WalStreamTestContext.open(factory);
+    await context.updateSyncRules(`
+streams:
+  stream:
+    query: SELECT id, * FROM "test_data"
+
+config:
+  edition: 2
+`);
+    const { pool } = context;
+    await pool.query(`DROP TABLE IF EXISTS test_data`);
+    await pool.query(`CREATE TABLE test_data(id text primary key, description timestamptz);`);
+
+    await context.initializeReplication();
+    await pool.query(`INSERT INTO test_data(id, description) VALUES ('t1', '2025-09-10 15:17:14+02')`);
+
+    const data = await context.getBucketData('1#stream|0[]');
+    expect(data).toMatchObject([putOp('test_data', { id: 't1', description: '2025-09-10T13:17:14.000000Z' })]);
+  });
+
   test('custom types', async () => {
     await using context = await WalStreamTestContext.open(factory);
 
