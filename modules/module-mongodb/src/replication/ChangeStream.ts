@@ -481,7 +481,7 @@ export class ChangeStream {
       // Pre-fetch next batch, so that we can read and write concurrently
       nextChunkPromise = query.nextChunk();
       for (let document of docBatch) {
-        const record = constructAfterRecord(document);
+        const record = this.constructAfterRecord(document);
 
         // This auto-flushes when the batch reaches its size limit
         await batch.save({
@@ -619,6 +619,11 @@ export class ChangeStream {
     return result.table;
   }
 
+  private constructAfterRecord(document: mongo.Document): SqliteRow {
+    const inputRow = constructAfterRecord(document);
+    return this.sync_rules.applyRowContext<never>(inputRow);
+  }
+
   async writeChange(
     batch: storage.BucketStorageBatch,
     table: storage.SourceTable,
@@ -631,7 +636,7 @@ export class ChangeStream {
 
     this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
     if (change.operationType == 'insert') {
-      const baseRecord = constructAfterRecord(change.fullDocument);
+      const baseRecord = this.constructAfterRecord(change.fullDocument);
       return await batch.save({
         tag: SaveOperationTag.INSERT,
         sourceTable: table,
@@ -650,7 +655,7 @@ export class ChangeStream {
           beforeReplicaId: change.documentKey._id
         });
       }
-      const after = constructAfterRecord(change.fullDocument!);
+      const after = this.constructAfterRecord(change.fullDocument!);
       return await batch.save({
         tag: SaveOperationTag.UPDATE,
         sourceTable: table,

@@ -1,11 +1,4 @@
-import {
-  BucketDataBatchOptions,
-  getUuidReplicaIdentityBson,
-  OplogEntry,
-  SaveOptions,
-  storage
-} from '@powersync/service-core';
-import { DateTimeValue } from '@powersync/service-sync-rules';
+import { BucketDataBatchOptions, getUuidReplicaIdentityBson, OplogEntry, storage } from '@powersync/service-core';
 import { describe, expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { TEST_TABLE } from './util.js';
@@ -1135,72 +1128,6 @@ bucket_definitions:
     const checkpoint2 = result2!.flushed_op;
     // we expect 0n and 1n, or 1n and 2n.
     expect(checkpoint2).toBeGreaterThan(checkpoint1);
-  });
-
-  test('data with custom types', async () => {
-    await using factory = await generateStorageFactory();
-    const testValue = {
-      sourceTable: TEST_TABLE,
-      tag: storage.SaveOperationTag.INSERT,
-      after: {
-        id: 't1',
-        description: new DateTimeValue('2025-08-28T11:30:00')
-      },
-      afterReplicaId: test_utils.rid('t1')
-    } satisfies SaveOptions;
-
-    {
-      // First, deploy old sync rules and row with date time value
-      const syncRules = await factory.updateSyncRules({
-        content: `
-  bucket_definitions:
-    global:
-      data:
-        - SELECT id, description FROM test
-  `
-      });
-      const bucketStorage = factory.getInstance(syncRules);
-      await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-        await batch.save(testValue);
-        await batch.commit('1/1');
-      });
-
-      const { checkpoint } = await bucketStorage.getCheckpoint();
-      const batch = await test_utils.fromAsync(
-        bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]))
-      );
-      expect(batch[0].chunkData.data).toMatchObject([
-        {
-          data: '{"id":"t1","description":"2025-08-28 11:30:00"}'
-        }
-      ]);
-    }
-
-    const syncRules = await factory.updateSyncRules({
-      content: `
-  bucket_definitions:
-    global:
-      data:
-        - SELECT id, description FROM test
-  
-  config:
-    edition: 2
-  `
-    });
-    const bucketStorage = factory.getInstance(syncRules);
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.save(testValue);
-      await batch.commit('1/2');
-    });
-    const { checkpoint } = await bucketStorage.getCheckpoint();
-    const batch = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['2#global[]', 0n]]))
-    );
-    expect(batch[0].chunkData.data).toMatchObject([
-      {
-        data: '{"id":"t1","description":"2025-08-28T11:30:00"}'
-      }
-    ]);
   });
 
   test('unchanged checksums', async () => {

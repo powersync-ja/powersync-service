@@ -182,7 +182,7 @@ export function uuidForRowBson(row: sync_rules.SqliteRow): bson.UUID {
   return new bson.UUID(uuid.v5(repr, ID_NAMESPACE, buffer));
 }
 
-export function hasToastedValues(row: sync_rules.ToastableSqliteRow) {
+export function hasToastedValues<V>(row: sync_rules.ToastableSqliteRow<V>) {
   for (let key in row) {
     if (typeof row[key] == 'undefined') {
       return true;
@@ -196,10 +196,10 @@ export function hasToastedValues(row: sync_rules.ToastableSqliteRow) {
  *
  * If we don't store data, we assume we always have a complete row.
  */
-export function isCompleteRow(
+export function isCompleteRow<V>(
   storeData: boolean,
-  row: sync_rules.ToastableSqliteRow
-): row is sync_rules.SqliteInputRow {
+  row: sync_rules.ToastableSqliteRow<V>
+): row is sync_rules.SqliteRow<V> {
   if (!storeData) {
     // Assume the row is complete - no need to check
     return true;

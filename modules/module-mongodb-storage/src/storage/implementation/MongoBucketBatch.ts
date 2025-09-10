@@ -319,8 +319,7 @@ export class MongoBucketBatch
     const record = operation.record;
     const beforeId = operation.beforeId;
     const afterId = operation.afterId;
-    let sourceAfter = record.after;
-    let after = sourceAfter && this.sync_rules.applyRowContext(sourceAfter);
+    let after = record.after;
     const sourceTable = record.sourceTable;
 
     let existing_buckets: CurrentBucket[] = [];

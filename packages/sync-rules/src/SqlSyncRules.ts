@@ -21,7 +21,6 @@ import {
   QueryParseOptions,
   RequestParameters,
   SourceSchema,
-  SqliteInputRow,
   SqliteInputValue,
   SqliteJsonRow,
   SqliteRow,
@@ -426,7 +425,7 @@ export class SqlSyncRules implements SyncRules {
   /**
    * Throws errors.
    */
-  evaluateParameterRow(table: SourceTableInterface, row: SqliteInputRow): EvaluatedParameters[] {
+  evaluateParameterRow(table: SourceTableInterface, row: SqliteRow): EvaluatedParameters[] {
     const { results, errors } = this.evaluateParameterRowWithErrors(table, row);
     if (errors.length > 0) {
       throw new Error(errors[0].error);
@@ -436,7 +435,7 @@ export class SqlSyncRules implements SyncRules {
 
   evaluateParameterRowWithErrors(
     table: SourceTableInterface,
-    row: SqliteInputRow
+    row: SqliteRow
   ): { results: EvaluatedParameters[]; errors: EvaluationError[] } {
     let rawResults: EvaluatedParametersResult[] = [];
     for (let source of this.bucketSources) {
