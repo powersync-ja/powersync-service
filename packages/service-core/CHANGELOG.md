@@ -1,5 +1,15 @@
 # @powersync/service-core
 
+## 1.15.6
+
+### Patch Changes
+
+- 221289d: Correctly handle custom types in primary keys.
+- Updated dependencies [221289d]
+  - @powersync/service-sync-rules@0.29.4
+  - @powersync/lib-services-framework@0.7.7
+  - @powersync/service-rsocket-router@0.2.4
+
 ## 1.15.5
 
 ### Patch Changes

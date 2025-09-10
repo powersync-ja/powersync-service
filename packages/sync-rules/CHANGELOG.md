@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.29.4
+
+### Patch Changes
+
+- 221289d: Correctly handle custom types in primary keys.
+
 ## 0.29.3
 
 ### Patch Changes

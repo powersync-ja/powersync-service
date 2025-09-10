@@ -2,7 +2,7 @@
   "name": "@powersync/service-module-mongodb",
   "repository": "https://github.com/powersync-ja/powersync-service",
   "types": "dist/index.d.ts",
-  "version": "0.12.5",
+  "version": "0.12.6",
   "main": "dist/index.js",
   "license": "FSL-1.1-ALv2",
   "type": "module",
