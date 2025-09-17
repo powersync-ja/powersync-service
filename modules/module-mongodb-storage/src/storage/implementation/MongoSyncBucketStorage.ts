@@ -695,9 +695,14 @@ export class MongoSyncBucketStorage
       while (true) {
         // If the stream is idle, we wait a max of a minute (CHECKPOINT_TIMEOUT_MS)
         // before we get another checkpoint, to avoid stale checkpoint snapshots.
-        const timeout = timers.setTimeout(CHECKPOINT_TIMEOUT_MS, null, { signal });
+        const timeout = timers
+          .setTimeout(CHECKPOINT_TIMEOUT_MS, { done: false }, { signal })
+          .catch(() => ({ done: true }));
         try {
-          await Promise.race([stream.next(), timeout]);
+          const result = await Promise.race([stream.next(), timeout]);
+          if (result.done) {
+            break;
+          }
         } catch (e) {
           if (e.name == 'AbortError') {
             break;
@@ -706,6 +711,7 @@ export class MongoSyncBucketStorage
         }
 
         if (signal.aborted) {
+          // Would likely have been caught by the signal on the timeout or the upstream stream, but we check here anyway
           break;
         }
 
