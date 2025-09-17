@@ -691,8 +691,6 @@ export class MongoSyncBucketStorage
 
     // We only watch changes to the active sync rules.
     // If it changes to inactive, we abort and restart with the new sync rules.
-    let lastOp: storage.ReplicationCheckpoint | null = null;
-
     try {
       while (true) {
         // If the stream is idle, we wait a max of a minute (CHECKPOINT_TIMEOUT_MS)
@@ -718,11 +716,11 @@ export class MongoSyncBucketStorage
           break;
         }
 
-        // Check for LSN / checkpoint changes - ignore other metadata changes
-        if (lastOp == null || op.lsn != lastOp.lsn || op.checkpoint != lastOp.checkpoint) {
-          lastOp = op;
-          yield op;
-        }
+        // Previously, we only yielded when the checkpoint or lsn changed.
+        // However, we always want to use the latest snapshotTime, so we skip that filtering here.
+        // That filtering could be added in the per-user streams if needed, but in general the capped collection
+        // should already only contain useful changes in most cases.
+        yield op;
       }
     } finally {
       await stream.return(null);
