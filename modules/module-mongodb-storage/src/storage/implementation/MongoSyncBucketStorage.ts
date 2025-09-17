@@ -41,6 +41,17 @@ export interface MongoSyncBucketStorageOptions {
   checksumOptions?: MongoChecksumOptions;
 }
 
+/**
+ * Only keep checkpoints around for a minute, before fetching a fresh one.
+ *
+ * The reason is that we keep a MongoDB snapshot reference (clusterTime) with the checkpoint,
+ * and they expire after 5 minutes by default. This is an issue if the checkpoint stream is idle,
+ * but new clients connect and use an outdated checkpoint snapshot for parameter queries.
+ *
+ * These will be filtered out for existing clients, so should not create significant overhead.
+ */
+const CHECKPOINT_TIMEOUT_MS = 60_000;
+
 export class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
   implements storage.SyncRulesBucketStorage
@@ -682,23 +693,39 @@ export class MongoSyncBucketStorage
     // If it changes to inactive, we abort and restart with the new sync rules.
     let lastOp: storage.ReplicationCheckpoint | null = null;
 
-    for await (const _ of stream) {
-      if (signal.aborted) {
-        break;
-      }
+    try {
+      while (true) {
+        // If the stream is idle, we wait a max of a minute (CHECKPOINT_TIMEOUT_MS)
+        // before we get another checkpoint, to avoid stale checkpoint snapshots.
+        const timeout = timers.setTimeout(CHECKPOINT_TIMEOUT_MS, null, { signal });
+        try {
+          await Promise.race([stream.next(), timeout]);
+        } catch (e) {
+          if (e.name == 'AbortError') {
+            break;
+          }
+          throw e;
+        }
 
-      const op = await this.getCheckpointInternal();
-      if (op == null) {
-        // Sync rules have changed - abort and restart.
-        // We do a soft close of the stream here - no error
-        break;
-      }
+        if (signal.aborted) {
+          break;
+        }
 
-      // Check for LSN / checkpoint changes - ignore other metadata changes
-      if (lastOp == null || op.lsn != lastOp.lsn || op.checkpoint != lastOp.checkpoint) {
-        lastOp = op;
-        yield op;
+        const op = await this.getCheckpointInternal();
+        if (op == null) {
+          // Sync rules have changed - abort and restart.
+          // We do a soft close of the stream here - no error
+          break;
+        }
+
+        // Check for LSN / checkpoint changes - ignore other metadata changes
+        if (lastOp == null || op.lsn != lastOp.lsn || op.checkpoint != lastOp.checkpoint) {
+          lastOp = op;
+          yield op;
+        }
       }
+    } finally {
+      await stream.return(null);
     }
   }
 
