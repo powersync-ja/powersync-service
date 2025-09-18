@@ -2,10 +2,6 @@
 
 This module provides a `BucketStorageProvider` which uses a Postgres database for persistence.
 
-## Beta
-
-This feature is currently in a beta release. See [here](https://docs.powersync.com/resources/feature-status#feature-status) for more details.
-
 ## Configuration
 
 Postgres storage can be enabled by selecting the appropriate storage `type` and providing connection details for a Postgres server.
