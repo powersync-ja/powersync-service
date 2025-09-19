@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 1.15.7
+
+### Patch Changes
+
+- d976830: Fix SnapshotTooOld on parameter queries in some cases.
+
 ## 1.15.6
 
 ### Patch Changes
