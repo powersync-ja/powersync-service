@@ -1,5 +1,19 @@
 # @powersync/service-image
 
+## 1.15.7
+
+### Patch Changes
+
+- d976830: Fix SnapshotTooOld on parameter queries in some cases.
+- Updated dependencies [d976830]
+  - @powersync/service-module-mongodb-storage@0.12.7
+  - @powersync/service-core@1.15.7
+  - @powersync/service-module-mongodb@0.12.7
+  - @powersync/service-module-mysql@0.9.7
+  - @powersync/service-module-postgres@0.16.7
+  - @powersync/service-module-core@0.2.7
+  - @powersync/service-module-postgres-storage@0.10.7
+
 ## 1.15.6
 
 ### Patch Changes
