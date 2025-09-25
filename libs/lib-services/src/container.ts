@@ -4,10 +4,10 @@ import { ErrorReporter } from './alerts/definitions.js';
 import { NoOpReporter } from './alerts/no-op-reporter.js';
 import { MigrationManager } from './migrations/MigrationManager.js';
 import {
-  ProbeModule,
-  TerminationHandler,
   createInMemoryProbe,
-  createTerminationHandler
+  createTerminationHandler,
+  ProbeModule,
+  TerminationHandler
 } from './signals/signals-index.js';
 
 export enum ContainerImplementation {
@@ -47,7 +47,6 @@ export type Newable<T> = new (...args: never[]) => T;
  * Identifier used to get and register implementations
  */
 export type ServiceIdentifier<T = unknown> = string | symbol | Newable<T> | Abstract<T> | ContainerImplementation;
-
 const DEFAULT_GENERATORS: ContainerImplementationDefaultGenerators = {
   [ContainerImplementation.REPORTER]: () => NoOpReporter,
   [ContainerImplementation.PROBES]: () => createInMemoryProbe(),
