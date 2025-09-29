@@ -1,5 +1,13 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.12.7
+
+### Patch Changes
+
+- d976830: Fix SnapshotTooOld on parameter queries in some cases.
+- Updated dependencies [d976830]
+  - @powersync/service-core@1.15.7
+
 ## 0.12.6
 
 ### Patch Changes

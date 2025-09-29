@@ -1,5 +1,12 @@
 # @powersync/service-module-postgres
 
+## 0.16.7
+
+### Patch Changes
+
+- Updated dependencies [d976830]
+  - @powersync/service-core@1.15.7
+
 ## 0.16.6
 
 ### Patch Changes
