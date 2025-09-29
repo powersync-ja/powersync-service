@@ -34,7 +34,7 @@ export const STREAM_FUNCTIONS: Record<string, Record<string, SqlParameterFunctio
         return v.rawTokenPayload;
       },
       extractJsonParsed: function (v: ParameterValueSet) {
-        return v.tokenParameters;
+        return v.parsedTokenPayload;
       },
       sourceDescription: 'JWT payload as JSON',
       sourceDocumentation: 'JWT payload as a JSON string. This is always validated against trusted keys',
