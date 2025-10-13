@@ -1,12 +1,8 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { normalizePostgresStorageConfig } from '../../src//types/types.js';
-import { PostgresMigrationAgent } from '../../src/migrations/PostgresMigrationAgent.js';
-import {
-  postgresTestSetup,
-  PostgresTestStorageFactoryGenerator
-} from '../../src/storage/PostgresTestStorageFactoryGenerator.js';
+import { normalizePostgresStorageConfig, PostgresMigrationAgent } from '../../src/index.js';
 import { env } from './env.js';
+import { postgresTestSetup } from '../../src/utils/test-utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,3 +33,4 @@ export const POSTGRES_STORAGE_SETUP = postgresTestSetup({
 });
 
 export const POSTGRES_STORAGE_FACTORY = POSTGRES_STORAGE_SETUP.factory;
+export const POSTGRES_REPORT_STORAGE_FACTORY = POSTGRES_STORAGE_SETUP.reportFactory;
