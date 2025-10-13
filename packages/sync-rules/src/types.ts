@@ -99,13 +99,15 @@ export interface ParameterValueSet {
    * JSON string of raw request parameters.
    */
   rawTokenPayload: string;
-  tokenParameters: SqliteJsonRow;
+  parsedTokenPayload: SqliteJsonRow;
+  legacyTokenParameters: SqliteJsonRow;
 
   userId: string;
 }
 
 export class RequestParameters implements ParameterValueSet {
-  tokenParameters: SqliteJsonRow;
+  parsedTokenPayload: SqliteJsonRow;
+  legacyTokenParameters: SqliteJsonRow;
   userParameters: SqliteJsonRow;
 
   /**
@@ -128,7 +130,8 @@ export class RequestParameters implements ParameterValueSet {
 
   constructor(tokenPayload: RequestJwtPayload | RequestParameters, clientParameters?: Record<string, any>) {
     if (tokenPayload instanceof RequestParameters) {
-      this.tokenParameters = tokenPayload.tokenParameters;
+      this.parsedTokenPayload = tokenPayload.parsedTokenPayload;
+      this.legacyTokenParameters = tokenPayload.legacyTokenParameters;
       this.userParameters = tokenPayload.userParameters;
       this.rawUserParameters = tokenPayload.rawUserParameters;
       this.rawTokenPayload = tokenPayload.rawTokenPayload;
@@ -149,7 +152,11 @@ export class RequestParameters implements ParameterValueSet {
 
     // Client and token parameters don't contain DateTime values or other custom types, so we don't need to consider
     // compatibility.
-    this.tokenParameters = toSyncRulesParameters(tokenParameters, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+    this.parsedTokenPayload = tokenPayload;
+    this.legacyTokenParameters = toSyncRulesParameters(
+      tokenParameters,
+      CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY
+    );
     this.userId = tokenPayload.sub;
     this.rawTokenPayload = JSONBig.stringify(tokenPayload);
 
@@ -161,7 +168,7 @@ export class RequestParameters implements ParameterValueSet {
 
   lookup(table: string, column: string): SqliteJsonValue {
     if (table == 'token_parameters') {
-      return this.tokenParameters[column];
+      return this.legacyTokenParameters[column];
     } else if (table == 'user_parameters') {
       return this.userParameters[column];
     } else if (table == 'subscription_parameters' && this.streamParameters != null) {
