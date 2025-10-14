@@ -31,6 +31,7 @@ export class MongoManager {
 
       // Identify the client
       appName: `powersync ${POWERSYNC_VERSION}`,
+      // Deprecated in the driver - in a future release we may have to rely on appName only.
       driverInfo: {
         // This is merged with the node driver info.
         name: 'powersync',

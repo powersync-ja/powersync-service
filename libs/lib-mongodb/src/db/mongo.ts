@@ -61,6 +61,7 @@ export function createMongoClient(config: BaseMongoConfigDecoded, options?: Mong
 
     // Identify the client
     appName: options?.powersyncVersion ? `powersync-storage ${options.powersyncVersion}` : 'powersync-storage',
+    // Deprecated in the driver - in a future release we may have to rely on appName only.
     driverInfo: {
       // This is merged with the node driver info.
       name: 'powersync-storage',
