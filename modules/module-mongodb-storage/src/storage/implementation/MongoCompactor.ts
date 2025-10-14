@@ -184,7 +184,11 @@ export class MongoCompactor {
             }
           }
         ],
-        { batchSize: this.moveBatchQueryLimit }
+        {
+          // batchSize is 1 more than limit to auto-close the cursor.
+          // See https://github.com/mongodb/node-mongodb-native/pull/4580
+          batchSize: this.moveBatchQueryLimit + 1
+        }
       );
       // We don't limit to a single batch here, since that often causes MongoDB to scan through more than it returns.
       // Instead, we load up to the limit.
