@@ -500,7 +500,8 @@ export class MongoCompactor {
           $gt: lowerBound,
           $lt: upperBound
         },
-        compacted_state: { $exists: false }
+        // Partial index exists on this
+        'estimate_since_compact.count': { $gt: 0 }
       };
 
       const bucketsWithoutChecksums = await this.db.bucket_state
@@ -512,7 +513,9 @@ export class MongoCompactor {
             _id: 1
           },
           limit: 5_000,
-          maxTimeMS: MONGO_OPERATION_TIMEOUT_MS
+          maxTimeMS: MONGO_OPERATION_TIMEOUT_MS,
+          // Make sure we use the partial index
+          hint: 'dirty_buckets'
         })
         .toArray();
       if (bucketsWithoutChecksums.length == 0) {
@@ -559,6 +562,10 @@ export class MongoCompactor {
                 count: bucketChecksum.count,
                 checksum: BigInt(bucketChecksum.checksum),
                 bytes: null
+              },
+              estimate_since_compact: {
+                count: 0,
+                bytes: 0
               }
             }
           },
