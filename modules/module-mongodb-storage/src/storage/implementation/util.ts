@@ -41,7 +41,7 @@ export function generateSlotName(prefix: string, sync_rules_id: number) {
  * However, that makes `has_more` detection very difficult, since the cursor is always closed
  * after the first batch. Instead, we do a workaround to only fetch a single batch below.
  *
- * For this to be effective, set batchSize = limit in the find command.
+ * For this to be effective, set batchSize = limit + 1 in the find command.
  */
 export async function readSingleBatch<T>(cursor: mongo.AbstractCursor<T>): Promise<{ data: T[]; hasMore: boolean }> {
   try {
