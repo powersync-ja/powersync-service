@@ -99,11 +99,19 @@ export class MongoCompactor {
         await this.compactInternal(bucket);
       }
     } else {
-      await this.compactInternal(undefined);
+      await this.compactDirtyBuckets();
     }
   }
 
-  async compactInternal(bucket: string | undefined) {
+  private async compactDirtyBuckets() {
+    for await (let buckets of this.iterateDirtyBuckets()) {
+      for (let bucket of buckets) {
+        await this.compactInternal(bucket);
+      }
+    }
+  }
+
+  private async compactInternal(bucket: string | undefined) {
     const idLimitBytes = this.idLimitBytes;
 
     let currentState: CurrentBucketState | null = null;
@@ -483,6 +491,16 @@ export class MongoCompactor {
    * Subset of compact, only populating checksums where relevant.
    */
   async populateChecksums() {
+    for await (let buckets of this.iterateDirtyBuckets()) {
+      const start = Date.now();
+      logger.info(`Calculating checksums for batch of ${buckets.length} buckets, starting at ${buckets[0]}`);
+
+      await this.updateChecksumsBatch(buckets);
+      logger.info(`Updated checksums for batch of ${buckets.length} buckets in ${Date.now() - start}ms`);
+    }
+  }
+
+  private async *iterateDirtyBuckets(): AsyncGenerator<string[]> {
     // This is updated after each batch
     let lowerBound: BucketStateDocument['_id'] = {
       g: this.group_id,
@@ -500,10 +518,11 @@ export class MongoCompactor {
           $gt: lowerBound,
           $lt: upperBound
         },
-        compacted_state: { $exists: false }
+        // Partial index exists on this
+        'estimate_since_compact.count': { $gt: 0 }
       };
 
-      const bucketsWithoutChecksums = await this.db.bucket_state
+      const dirtyBuckets = await this.db.bucket_state
         .find(filter, {
           projection: {
             _id: 1
@@ -512,19 +531,19 @@ export class MongoCompactor {
             _id: 1
           },
           limit: 5_000,
-          maxTimeMS: MONGO_OPERATION_TIMEOUT_MS
+          maxTimeMS: MONGO_OPERATION_TIMEOUT_MS,
+          // Make sure we use the partial index
+          hint: 'dirty_buckets'
         })
         .toArray();
-      if (bucketsWithoutChecksums.length == 0) {
-        // All done
+
+      if (dirtyBuckets.length == 0) {
         break;
       }
 
-      logger.info(`Calculating checksums for batch of ${bucketsWithoutChecksums.length} buckets`);
+      yield dirtyBuckets.map((bucket) => bucket._id.b);
 
-      await this.updateChecksumsBatch(bucketsWithoutChecksums.map((b) => b._id.b));
-
-      lowerBound = bucketsWithoutChecksums[bucketsWithoutChecksums.length - 1]._id;
+      lowerBound = dirtyBuckets[dirtyBuckets.length - 1]._id;
     }
   }
 
@@ -559,6 +578,10 @@ export class MongoCompactor {
                 count: bucketChecksum.count,
                 checksum: BigInt(bucketChecksum.checksum),
                 bytes: null
+              },
+              estimate_since_compact: {
+                count: 0,
+                bytes: 0
               }
             }
           },
