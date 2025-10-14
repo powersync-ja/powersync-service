@@ -29,8 +29,8 @@
   },
   "dependencies": {
     "@powersync/lib-services-framework": "workspace:*",
-    "bson": "^6.10.3",
-    "mongodb": "^6.14.1",
+    "bson": "^6.10.4",
+    "mongodb": "^6.20.0",
     "mongodb-connection-string-url": "^3.0.2",
     "ts-codec": "^1.3.0"
   },
