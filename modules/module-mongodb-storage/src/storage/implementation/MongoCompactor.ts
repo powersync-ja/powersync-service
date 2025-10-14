@@ -492,9 +492,11 @@ export class MongoCompactor {
    */
   async populateChecksums() {
     for await (let buckets of this.iterateDirtyBuckets()) {
+      const start = Date.now();
       logger.info(`Calculating checksums for batch of ${buckets.length} buckets`);
 
       await this.updateChecksumsBatch(buckets);
+      logger.info(`Updated checksums for batch of ${buckets.length} buckets in ${Date.now() - start}ms`);
     }
   }
 
