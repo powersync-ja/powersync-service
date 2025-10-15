@@ -181,7 +181,7 @@ export class BaseSqlDataQuery {
     try {
       const { table, row, bucketIds } = options;
 
-      const tables = { [this.table.schemaName]: this.addSpecialParameters(table, row) };
+      const tables = { [this.table.nameInSchema]: this.addSpecialParameters(table, row) };
       const resolvedBucketIds = bucketIds(tables);
 
       const data = this.transformRow(tables);
@@ -221,7 +221,7 @@ export class BaseSqlDataQuery {
   protected getColumnOutputsFor(schemaTable: SourceSchemaTable, output: Record<string, ColumnDefinition>) {
     const querySchema: QuerySchema = {
       getColumn: (table, column) => {
-        if (table == this.table.schemaName) {
+        if (table == this.table.nameInSchema) {
           return schemaTable.getColumn(column);
         } else {
           // TODO: bucket parameters?
@@ -229,7 +229,7 @@ export class BaseSqlDataQuery {
         }
       },
       getColumns: (table) => {
-        if (table == this.table.schemaName) {
+        if (table == this.table.nameInSchema) {
           return schemaTable.getColumns();
         } else {
           return [];

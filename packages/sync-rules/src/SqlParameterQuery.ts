@@ -212,7 +212,8 @@ export class SqlParameterQuery {
    * The table name or alias, as referred to in the SQL query.
    * Not used directly outside the query.
    *
-   * Currently, this always matches sourceTable.name.
+   * Since aliases aren't allowed in parameter queries, this always matches sourceTable.name (checked by
+   * {@link fromSql}).
    */
   readonly table: AvailableTable;
 
@@ -308,7 +309,7 @@ export class SqlParameterQuery {
    */
   evaluateParameterRow(row: SqliteRow): EvaluatedParametersResult[] {
     const tables = {
-      [this.table.schemaName]: row
+      [this.table.nameInSchema]: row
     };
     try {
       const filterParameters = this.filter.filterRow(tables);

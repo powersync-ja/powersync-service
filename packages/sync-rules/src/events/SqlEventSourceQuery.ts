@@ -99,7 +99,7 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
       } else {
         extractors.push({
           extract: (tables, output) => {
-            const row = tables[alias.schemaName];
+            const row = tables[alias.nameInSchema];
             for (let key in row) {
               if (key.startsWith('_')) {
                 continue;
@@ -108,7 +108,7 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
             }
           },
           getTypes(schema, into) {
-            for (let column of schema.getColumns(alias.schemaName)) {
+            for (let column of schema.getColumns(alias.nameInSchema)) {
               into[column.name] ??= column;
             }
           }
@@ -136,7 +136,7 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
 
   evaluateRowWithErrors(table: SourceTableInterface, row: SqliteRow): EvaluatedEventRowWithErrors {
     try {
-      const tables = { [this.table!.schemaName]: this.addSpecialParameters(table, row) };
+      const tables = { [this.table!.nameInSchema]: this.addSpecialParameters(table, row) };
 
       const data = this.transformRow(tables);
       return {

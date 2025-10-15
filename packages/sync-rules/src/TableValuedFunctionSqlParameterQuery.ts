@@ -232,7 +232,7 @@ export class TableValuedFunctionSqlParameterQuery {
     const mergedParams: ParameterValueSet = {
       ...parameters,
       lookup: (table, column) => {
-        if (table == this.callTable.schemaName) {
+        if (table == this.callTable.nameInSchema) {
           return row[column]!;
         } else {
           return parameters.lookup(table, column);

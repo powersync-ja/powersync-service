@@ -13,7 +13,7 @@ export class TableQuerySchema implements QuerySchema {
   ) {}
 
   getColumn(table: string, column: string): ColumnDefinition | undefined {
-    if (table != this.alias.schemaName) {
+    if (table != this.alias.nameInSchema) {
       return undefined;
     }
     for (let table of this.tables) {
@@ -26,7 +26,7 @@ export class TableQuerySchema implements QuerySchema {
   }
 
   getColumns(table: string): ColumnDefinition[] {
-    if (table != this.alias.schemaName) {
+    if (table != this.alias.nameInSchema) {
       return [];
     }
     let columns: Record<string, ColumnDefinition> = {};

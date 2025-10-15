@@ -46,6 +46,7 @@ import {
 } from './types.js';
 import { isJsonValue } from './utils.js';
 import { CompatibilityContext } from './compatibility.js';
+import { TablePattern } from './TablePattern.js';
 
 export const MATCH_CONST_FALSE: TrueIfParametersMatch = [];
 export const MATCH_CONST_TRUE: TrueIfParametersMatch = [{}];
@@ -55,15 +56,18 @@ Object.freeze(MATCH_CONST_FALSE);
 
 /**
  * A table that has been made available to a result set by being included in a `FROM`.
+ *
+ * This is used to lookup references inside queries only, which is why this doesn't reference the schema name (that's
+ * covered by {@link TablePattern}).
  */
 export class AvailableTable {
   /**
    * The name of the table in the schema.
    */
-  schemaName: string;
+  nameInSchema: string;
 
   /**
-   * The alias under which the {@link schemaName} is made available to the current query.
+   * The alias under which the {@link nameInSchema} is made available to the current query.
    */
   alias?: string;
 
@@ -71,15 +75,15 @@ export class AvailableTable {
    * The name a table has in an SQL expression context.
    */
   public get sqlName(): string {
-    return this.alias ?? this.schemaName;
+    return this.alias ?? this.nameInSchema;
   }
 
   get isAliased(): boolean {
-    return this.sqlName != this.schemaName;
+    return this.sqlName != this.nameInSchema;
   }
 
   constructor(schemaName: string, alias?: string) {
-    this.schemaName = schemaName;
+    this.nameInSchema = schemaName;
     this.alias = alias;
   }
 
@@ -92,7 +96,7 @@ export class AvailableTable {
   }
 
   /**
-   * Finds the first table matching the given SQL name.
+   * Finds the first table matching the given name in SQL.
    */
   static search(
     identifier: string | AvailableTable | undefined,
@@ -268,10 +272,10 @@ export class SqlTools {
         this.checkRef(table, expr);
         return {
           evaluate(tables: QueryParameters): SqliteValue {
-            return tables[table.schemaName]?.[column];
+            return tables[table.nameInSchema]?.[column];
           },
           getColumnDefinition(schema) {
-            return schema.getColumn(table.schemaName, column);
+            return schema.getColumn(table.nameInSchema, column);
           }
         } satisfies RowValueClause;
       } else {
@@ -765,7 +769,7 @@ export class SqlTools {
 
   private checkRef(table: AvailableTable, ref: ExprRef) {
     if (this.schema) {
-      const type = this.schema.getColumn(table.schemaName, ref.name);
+      const type = this.schema.getColumn(table.nameInSchema, ref.name);
       if (type == null) {
         this.warn(`Column not found: ${ref.name}`, ref);
       }
@@ -773,7 +777,7 @@ export class SqlTools {
   }
 
   private getParameterRefClause(expr: ExprRef): ParameterValueClause {
-    const table = AvailableTable.search(expr.table?.name ?? this.defaultTable!, this.parameterTables)!.schemaName;
+    const table = AvailableTable.search(expr.table?.name ?? this.defaultTable!, this.parameterTables)!.nameInSchema;
     const column = expr.name;
     return {
       key: `${table}.${column}`,

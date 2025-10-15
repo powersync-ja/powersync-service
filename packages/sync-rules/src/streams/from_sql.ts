@@ -143,7 +143,7 @@ class SyncStreamCompiler {
       } else {
         extractors.push({
           extract: (tables, output) => {
-            const row = tables[alias.schemaName];
+            const row = tables[alias.nameInSchema];
             for (let key in row) {
               if (key.startsWith('_')) {
                 continue;
@@ -152,7 +152,7 @@ class SyncStreamCompiler {
             }
           },
           getTypes(schema, into) {
-            for (let column of schema.getColumns(alias.schemaName)) {
+            for (let column of schema.getColumns(alias.nameInSchema)) {
               into[column.name] ??= column;
             }
           }
@@ -166,7 +166,7 @@ class SyncStreamCompiler {
           // Not performing schema-based validation - assume there is an id
           hasId = true;
         } else {
-          const idType = querySchema.getColumn(alias.schemaName, 'id')?.type ?? ExpressionType.NONE;
+          const idType = querySchema.getColumn(alias.nameInSchema, 'id')?.type ?? ExpressionType.NONE;
           if (!idType.isNone()) {
             hasId = true;
           }
