@@ -136,7 +136,7 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
 
   evaluateRowWithErrors(table: SourceTableInterface, row: SqliteRow): EvaluatedEventRowWithErrors {
     try {
-      const tables = { [this.table!.sqlName]: this.addSpecialParameters(table, row) };
+      const tables = { [this.table!.schemaName]: this.addSpecialParameters(table, row) };
 
       const data = this.transformRow(tables);
       return {

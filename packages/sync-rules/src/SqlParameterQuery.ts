@@ -308,7 +308,7 @@ export class SqlParameterQuery {
    */
   evaluateParameterRow(row: SqliteRow): EvaluatedParametersResult[] {
     const tables = {
-      [this.table.sqlName]: row
+      [this.table.schemaName]: row
     };
     try {
       const filterParameters = this.filter.filterRow(tables);
