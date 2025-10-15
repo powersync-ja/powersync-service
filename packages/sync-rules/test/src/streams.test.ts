@@ -612,6 +612,70 @@ describe('streams', () => {
       ).toStrictEqual(['1#stream|1[]', '1#stream|0["issue_id"]']);
     });
   });
+
+  describe('regression tests', () => {
+    test('table alias', async () => {
+      // Regression test for https://discord.com/channels/1138230179878154300/1422138173907144724/1427962895425208382
+      const accountMember = new TestSourceTable('account_member');
+      const schema = new StaticSchema([
+        {
+          tag: DEFAULT_TAG,
+          schemas: [
+            {
+              name: 'test_schema',
+              tables: [
+                {
+                  name: 'account_member',
+                  columns: [
+                    { name: 'id', pg_type: 'uuid' },
+                    { name: 'account_id', pg_type: 'uuid' }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]);
+
+      const stream = parseStream(
+        'select * from account_member as "outer" where account_id in (select "inner".account_id from account_member as "inner" where "inner".id = auth.user_id())',
+        'account_member',
+        { ...options, schema }
+      );
+      const row = { id: 'id', account_id: 'account_id' };
+
+      expect(stream.tableSyncsData(accountMember)).toBeTruthy();
+      expect(stream.tableSyncsParameters(accountMember)).toBeTruthy();
+
+      // Ensure lookup steps work.
+      expect(stream.evaluateParameterRow(accountMember, row)).toStrictEqual([
+        {
+          lookup: ParameterLookup.normalized('account_member', '0', ['id']),
+          bucketParameters: [
+            {
+              result: 'account_id'
+            }
+          ]
+        }
+      ]);
+      expect(evaluateBucketIds(stream, accountMember, row)).toStrictEqual(['1#account_member|0["account_id"]']);
+      expect(
+        await queryBucketIds(stream, {
+          token: { sub: 'id' },
+          parameters: {},
+          getParameterSets(lookups) {
+            expect(lookups).toStrictEqual([ParameterLookup.normalized('account_member', '0', ['id'])]);
+            return [{ result: 'account_id' }];
+          }
+        })
+      ).toStrictEqual(['1#account_member|0["account_id"]']);
+
+      // And that the data alias is respected for generated schemas.
+      const outputSchema = {};
+      stream.resolveResultSets(schema, outputSchema);
+      expect(Object.keys(outputSchema)).toStrictEqual(['outer']);
+    });
+  });
 });
 
 const USERS = new TestSourceTable('users');
@@ -705,7 +769,7 @@ async function createQueriers(
       },
       {}
     ),
-    streams: { stream: [{ opaque_id: 0, parameters: options?.parameters ?? null }] },
+    streams: { [stream.name]: [{ opaque_id: 0, parameters: options?.parameters ?? null }] },
     bucketIdTransformer
   };
 
@@ -750,8 +814,8 @@ async function queryBucketIds(
   return buckets;
 }
 
-function parseStream(sql: string, name = 'stream') {
-  const [stream, errors] = syncStreamFromSql(name, sql, options);
+function parseStream(sql: string, name = 'stream', parseOptions: StreamParseOptions = options) {
+  const [stream, errors] = syncStreamFromSql(name, sql, parseOptions);
   if (errors.length) {
     throw new Error(`Unexpected errors when parsing stream ${sql}: ${errors}`);
   }

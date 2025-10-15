@@ -1,7 +1,7 @@
 import { SelectedColumn, SelectFromStatement } from 'pgsql-ast-parser';
 import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY } from './BucketDescription.js';
 import { SqlRuleError } from './errors.js';
-import { SqlTools } from './sql_filters.js';
+import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, isParameterValueClause, sqliteBool } from './sql_support.js';
 import {
   BucketIdTransformer,
@@ -43,7 +43,7 @@ export class StaticSqlParameterQuery {
 
     const tools = new SqlTools({
       table: undefined,
-      parameterTables: ['token_parameters', 'user_parameters'],
+      parameterTables: [new AvailableTable('token_parameters'), new AvailableTable('user_parameters')],
       supportsParameterExpressions: true,
       compatibilityContext: options.compatibility,
       sql

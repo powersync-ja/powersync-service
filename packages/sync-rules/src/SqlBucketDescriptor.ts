@@ -217,12 +217,12 @@ export class SqlBucketDescriptor implements BucketSource {
 
   debugWriteOutputTables(result: Record<string, { query: string }[]>): void {
     for (let q of this.dataQueries) {
-      result[q.table!] ??= [];
+      result[q.table!.sqlName] ??= [];
       const r = {
         query: q.sql
       };
 
-      result[q.table!].push(r);
+      result[q.table!.sqlName].push(r);
     }
   }
 
