@@ -496,7 +496,7 @@ export class MongoCompactor {
       .find(
         {
           '_id.g': this.group_id,
-          'estimate_since_compact.count': { $gte: 1 }
+          'estimate_since_compact.count': { $gte: options.minBucketChanges }
         },
         {
           projection: {
