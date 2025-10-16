@@ -391,7 +391,15 @@ export interface ParameterValueClause {
 }
 
 export interface QuerySchema {
+  /**
+   * @param table The unaliased table, as it appears in the source schema.
+   * @param column Name of the column to look up.
+   */
   getColumn(table: string, column: string): ColumnDefinition | undefined;
+  /**
+   *
+   * @param table The unaliased table, as it appears in the source schema.
+   */
   getColumns(table: string): ColumnDefinition[];
 }
 

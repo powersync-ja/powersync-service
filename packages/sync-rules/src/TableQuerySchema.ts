@@ -1,14 +1,19 @@
 import { ColumnDefinition } from './ExpressionType.js';
+import { AvailableTable } from './sql_filters.js';
 import { QuerySchema, SourceSchemaTable } from './types.js';
 
+/**
+ * Exposes a list of {@link SourceSchemaTable}s as a {@link QuerySchema} by only exposing the subset of the schema
+ * referenced in a `FROM` clause.
+ */
 export class TableQuerySchema implements QuerySchema {
   constructor(
     private tables: SourceSchemaTable[],
-    private alias: string
+    private alias: AvailableTable
   ) {}
 
   getColumn(table: string, column: string): ColumnDefinition | undefined {
-    if (table != this.alias) {
+    if (table != this.alias.nameInSchema) {
       return undefined;
     }
     for (let table of this.tables) {
@@ -21,7 +26,7 @@ export class TableQuerySchema implements QuerySchema {
   }
 
   getColumns(table: string): ColumnDefinition[] {
-    if (table != this.alias) {
+    if (table != this.alias.nameInSchema) {
       return [];
     }
     let columns: Record<string, ColumnDefinition> = {};

@@ -1,6 +1,6 @@
 import { FromCall, SelectFromStatement } from 'pgsql-ast-parser';
 import { SqlRuleError } from './errors.js';
-import { SqlTools } from './sql_filters.js';
+import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, isParameterValueClause, sqliteBool } from './sql_support.js';
 import { generateTableValuedFunctions, TableValuedFunction } from './TableValuedFunctions.js';
 import {
@@ -26,7 +26,7 @@ export interface TableValuedFunctionSqlParameterQueryOptions {
   filter: ParameterValueClause | undefined;
   callClause: ParameterValueClause | undefined;
   function: TableValuedFunction;
-  callTableName: string;
+  callTable: AvailableTable;
 
   errors: SqlRuleError[];
 }
@@ -59,12 +59,12 @@ export class TableValuedFunctionSqlParameterQuery {
       throw new SqlRuleError(`Table-valued function ${call.function.name} is not defined.`, sql, call);
     }
 
-    const callTable = call.alias?.name ?? call.function.name;
+    const callTable = AvailableTable.fromCall(call);
     const callExpression = call.args[0];
 
     const tools = new SqlTools({
       table: callTable,
-      parameterTables: ['token_parameters', 'user_parameters', callTable],
+      parameterTables: [new AvailableTable('token_parameters'), new AvailableTable('user_parameters'), callTable],
       supportsParameterExpressions: true,
       compatibilityContext: compatibility,
       sql
@@ -108,7 +108,7 @@ export class TableValuedFunctionSqlParameterQuery {
       filter: isClauseError(filter) ? undefined : filter,
       callClause: isClauseError(callClause) ? undefined : callClause,
       function: functionImpl,
-      callTableName: callTable,
+      callTable,
       priority: priority ?? DEFAULT_BUCKET_PRIORITY,
       queryId,
       errors
@@ -186,7 +186,7 @@ export class TableValuedFunctionSqlParameterQuery {
    *
    * Only used internally.
    */
-  readonly callTableName: string;
+  readonly callTable: AvailableTable;
 
   readonly errors: SqlRuleError[];
 
@@ -201,7 +201,7 @@ export class TableValuedFunctionSqlParameterQuery {
     this.filter = options.filter;
     this.callClause = options.callClause;
     this.function = options.function;
-    this.callTableName = options.callTableName;
+    this.callTable = options.callTable;
 
     this.errors = options.errors;
   }
@@ -232,7 +232,7 @@ export class TableValuedFunctionSqlParameterQuery {
     const mergedParams: ParameterValueSet = {
       ...parameters,
       lookup: (table, column) => {
-        if (table == this.callTableName) {
+        if (table == this.callTable.nameInSchema) {
           return row[column]!;
         } else {
           return parameters.lookup(table, column);

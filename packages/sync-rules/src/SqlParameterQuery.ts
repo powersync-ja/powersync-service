@@ -8,7 +8,7 @@ import {
 import { BucketParameterQuerier, ParameterLookup, ParameterLookupSource } from './BucketParameterQuerier.js';
 import { SqlRuleError } from './errors.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
-import { SqlTools } from './sql_filters.js';
+import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, isParameterValueClause } from './sql_support.js';
 import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
 import { TablePattern } from './TablePattern.js';
@@ -33,7 +33,7 @@ import { filterJsonRow, getBucketId, isJsonValue, isSelectStatement, normalizePa
 
 export interface SqlParameterQueryOptions {
   sourceTable: TablePattern;
-  table: string;
+  table: AvailableTable;
   sql: string;
   lookupExtractors: Record<string, RowValueClause>;
   parameterExtractors: Record<string, ParameterValueClause>;
@@ -95,8 +95,8 @@ export class SqlParameterQuery {
     if (tableRef?.name == null) {
       throw new SqlRuleError('Must SELECT from a single table', sql, q.from?.[0]._location);
     }
-    const alias: string = q.from?.[0].name.alias ?? tableRef.name;
-    if (tableRef.name != alias) {
+    const alias = new AvailableTable(tableRef.name, q.from?.[0].name.alias);
+    if (alias.isAliased) {
       errors.push(new SqlRuleError('Table aliases not supported in parameter queries', sql, q.from?.[0]._location));
     }
     const sourceTable = new TablePattern(tableRef.schema ?? options.defaultSchema, tableRef.name);
@@ -119,7 +119,7 @@ export class SqlParameterQuery {
 
     const tools = new SqlTools({
       table: alias,
-      parameterTables: ['token_parameters', 'user_parameters'],
+      parameterTables: [new AvailableTable('token_parameters'), new AvailableTable('user_parameters')],
       sql,
       supportsExpandingParameters: true,
       supportsParameterExpressions: true,
@@ -212,9 +212,10 @@ export class SqlParameterQuery {
    * The table name or alias, as referred to in the SQL query.
    * Not used directly outside the query.
    *
-   * Currently, this always matches sourceTable.name.
+   * Since aliases aren't allowed in parameter queries, this always matches sourceTable.name (checked by
+   * {@link fromSql}).
    */
-  readonly table: string;
+  readonly table: AvailableTable;
 
   /**
    * The source SQL query, for debugging purposes.
@@ -308,7 +309,7 @@ export class SqlParameterQuery {
    */
   evaluateParameterRow(row: SqliteRow): EvaluatedParametersResult[] {
     const tables = {
-      [this.table]: row
+      [this.table.nameInSchema]: row
     };
     try {
       const filterParameters = this.filter.filterRow(tables);
@@ -336,7 +337,7 @@ export class SqlParameterQuery {
   }
 
   private transformRows(row: SqliteRow): SqliteRow[] {
-    const tables = { [this.table]: row };
+    const tables = { [this.table.sqlName]: row };
     let result: SqliteRow = {};
     for (let key in this.lookupExtractors) {
       const extractor = this.lookupExtractors[key];

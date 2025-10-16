@@ -4,7 +4,7 @@ import { BaseSqlDataQuery, BaseSqlDataQueryOptions, RowValueExtractor } from './
 import { SqlRuleError } from './errors.js';
 import { ExpressionType } from './ExpressionType.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
-import { SqlTools } from './sql_filters.js';
+import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
 import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
@@ -48,7 +48,7 @@ export class SqlDataQuery extends BaseSqlDataQuery {
     if (tableRef?.name == null) {
       throw new SqlRuleError('Must SELECT from a single table', sql, q.from?.[0]._location);
     }
-    const alias: string = tableRef.alias ?? tableRef.name;
+    const alias = AvailableTable.fromAst(tableRef);
 
     const sourceTable = new TablePattern(tableRef.schema ?? options.defaultSchema, tableRef.name);
     let querySchema: QuerySchema | undefined = undefined;
@@ -71,7 +71,7 @@ export class SqlDataQuery extends BaseSqlDataQuery {
     const where = q.where;
     const tools = new SqlTools({
       table: alias,
-      parameterTables: ['bucket'],
+      parameterTables: [new AvailableTable('bucket')],
       valueTables: [alias],
       compatibilityContext: compatibility,
       sql,
@@ -123,7 +123,7 @@ export class SqlDataQuery extends BaseSqlDataQuery {
       } else {
         extractors.push({
           extract: (tables, output) => {
-            const row = tables[alias];
+            const row = tables[alias.nameInSchema];
             for (let key in row) {
               if (key.startsWith('_')) {
                 continue;
@@ -132,7 +132,7 @@ export class SqlDataQuery extends BaseSqlDataQuery {
             }
           },
           getTypes(schema, into) {
-            for (let column of schema.getColumns(alias)) {
+            for (let column of schema.getColumns(alias.nameInSchema)) {
               into[column.name] ??= column;
             }
           }
@@ -146,7 +146,7 @@ export class SqlDataQuery extends BaseSqlDataQuery {
           // Not performing schema-based validation - assume there is an id
           hasId = true;
         } else {
-          const idType = querySchema.getColumn(alias, 'id')?.type ?? ExpressionType.NONE;
+          const idType = querySchema.getColumn(alias.nameInSchema, 'id')?.type ?? ExpressionType.NONE;
           if (!idType.isNone()) {
             hasId = true;
           }

@@ -142,12 +142,12 @@ export class SyncStream implements BucketSource {
   }
 
   debugWriteOutputTables(result: Record<string, { query: string }[]>): void {
-    result[this.data.table!] ??= [];
+    result[this.data.table!.sqlName] ??= [];
     const r = {
       query: this.data.sql
     };
 
-    result[this.data.table!].push(r);
+    result[this.data.table!.sqlName].push(r);
   }
 
   evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[] {
