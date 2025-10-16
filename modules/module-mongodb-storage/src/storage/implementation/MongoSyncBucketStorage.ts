@@ -676,7 +676,11 @@ export class MongoSyncBucketStorage
       memoryLimitMB: 0
     });
 
-    await compactor.populateChecksums();
+    await compactor.populateChecksums({
+      // There are cases with millions of small buckets, in which case it can take very long to
+      // populate the checksums, with minimal benefit. We skip the small buckets here.
+      minBucketChanges: 10
+    });
     const duration = Date.now() - start;
     logger.info(`Populated persistent checksum cache in ${(duration / 1000).toFixed(1)}s`);
   }

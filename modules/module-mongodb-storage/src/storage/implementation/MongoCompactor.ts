@@ -10,6 +10,7 @@ import { cacheKey } from './OperationBatch.js';
 interface CurrentBucketState {
   /** Bucket name */
   bucket: string;
+
   /**
    * Rows seen in the bucket, with the last op_id of each.
    */
@@ -96,7 +97,7 @@ export class MongoCompactor {
         // We can make this more efficient later on by iterating
         // through the buckets in a single query.
         // That makes batching more tricky, so we leave for later.
-        await this.compactInternal(bucket);
+        await this.compactSingleBucket(bucket);
       }
     } else {
       await this.compactDirtyBuckets();
@@ -104,65 +105,46 @@ export class MongoCompactor {
   }
 
   private async compactDirtyBuckets() {
-    for await (let buckets of this.iterateDirtyBuckets()) {
+    while (!this.signal?.aborted) {
+      // Process all buckets with 1 or more changes since last time
+      const buckets = await this.dirtyBucketBatch({ minBucketChanges: 1 });
+      if (buckets.length == 0) {
+        // All done
+        break;
+      }
       for (let bucket of buckets) {
-        await this.compactInternal(bucket);
+        await this.compactSingleBucket(bucket);
       }
     }
   }
 
-  private async compactInternal(bucket: string | undefined) {
+  private async compactSingleBucket(bucket: string) {
     const idLimitBytes = this.idLimitBytes;
 
-    let currentState: CurrentBucketState | null = null;
+    let currentState: CurrentBucketState = {
+      bucket,
+      seen: new Map(),
+      trackingSize: 0,
+      lastNotPut: null,
+      opsSincePut: 0,
 
-    let bucketLower: string | mongo.MinKey;
-    let bucketUpper: string | mongo.MaxKey;
-
-    if (bucket == null) {
-      bucketLower = new mongo.MinKey();
-      bucketUpper = new mongo.MaxKey();
-    } else if (bucket.includes('[')) {
-      // Exact bucket name
-      bucketLower = bucket;
-      bucketUpper = bucket;
-    } else {
-      // Bucket definition name
-      bucketLower = `${bucket}[`;
-      bucketUpper = `${bucket}[\uFFFF`;
-    }
+      checksum: 0,
+      opCount: 0,
+      opBytes: 0
+    };
 
     // Constant lower bound
     const lowerBound: BucketDataKey = {
       g: this.group_id,
-      b: bucketLower as string,
+      b: bucket,
       o: new mongo.MinKey() as any
     };
 
     // Upper bound is adjusted for each batch
     let upperBound: BucketDataKey = {
       g: this.group_id,
-      b: bucketUpper as string,
+      b: bucket,
       o: new mongo.MaxKey() as any
-    };
-
-    const doneWithBucket = async () => {
-      if (currentState == null) {
-        return;
-      }
-      // Free memory before clearing bucket
-      currentState.seen.clear();
-      if (currentState.lastNotPut != null && currentState.opsSincePut >= 1) {
-        logger.info(
-          `Inserting CLEAR at ${this.group_id}:${currentState.bucket}:${currentState.lastNotPut} to remove ${currentState.opsSincePut} operations`
-        );
-        // Need flush() before clear()
-        await this.flush();
-        await this.clearBucket(currentState);
-      }
-
-      // Do this _after_ clearBucket so that we have accurate counts.
-      this.updateBucketChecksums(currentState);
     };
 
     while (!this.signal?.aborted) {
@@ -211,22 +193,6 @@ export class MongoCompactor {
       upperBound = batch[batch.length - 1]._id;
 
       for (let doc of batch) {
-        if (currentState == null || doc._id.b != currentState.bucket) {
-          await doneWithBucket();
-
-          currentState = {
-            bucket: doc._id.b,
-            seen: new Map(),
-            trackingSize: 0,
-            lastNotPut: null,
-            opsSincePut: 0,
-
-            checksum: 0,
-            opCount: 0,
-            opBytes: 0
-          };
-        }
-
         if (doc._id.o > this.maxOpId) {
           continue;
         }
@@ -297,12 +263,22 @@ export class MongoCompactor {
         }
       }
 
-      if (currentState != null) {
-        logger.info(`Processed batch of length ${batch.length} current bucket: ${currentState.bucket}`);
-      }
+      logger.info(`Processed batch of length ${batch.length} current bucket: ${bucket}`);
     }
 
-    await doneWithBucket();
+    // Free memory before clearing bucket
+    currentState.seen.clear();
+    if (currentState.lastNotPut != null && currentState.opsSincePut >= 1) {
+      logger.info(
+        `Inserting CLEAR at ${this.group_id}:${bucket}:${currentState.lastNotPut} to remove ${currentState.opsSincePut} operations`
+      );
+      // Need flush() before clear()
+      await this.flush();
+      await this.clearBucket(currentState);
+    }
+
+    // Do this _after_ clearBucket so that we have accurate counts.
+    this.updateBucketChecksums(currentState);
 
     // Need another flush after updateBucketChecksums()
     await this.flush();
@@ -490,8 +466,13 @@ export class MongoCompactor {
   /**
    * Subset of compact, only populating checksums where relevant.
    */
-  async populateChecksums() {
-    for await (let buckets of this.iterateDirtyBuckets()) {
+  async populateChecksums(options: { minBucketChanges: number }) {
+    while (!this.signal?.aborted) {
+      const buckets = await this.dirtyBucketBatch(options);
+      if (buckets.length == 0) {
+        // All done
+        break;
+      }
       const start = Date.now();
       logger.info(`Calculating checksums for batch of ${buckets.length} buckets, starting at ${buckets[0]}`);
 
@@ -500,51 +481,37 @@ export class MongoCompactor {
     }
   }
 
-  private async *iterateDirtyBuckets(): AsyncGenerator<string[]> {
-    // This is updated after each batch
-    let lowerBound: BucketStateDocument['_id'] = {
-      g: this.group_id,
-      b: new mongo.MinKey() as any
-    };
-    // This is static
-    const upperBound: BucketStateDocument['_id'] = {
-      g: this.group_id,
-      b: new mongo.MaxKey() as any
-    };
-    while (!this.signal?.aborted) {
-      // By filtering buckets, we effectively make this "resumeable".
-      const filter: mongo.Filter<BucketStateDocument> = {
-        _id: {
-          $gt: lowerBound,
-          $lt: upperBound
+  /**
+   * Returns a batch of dirty buckets - buckets with most changes first.
+   *
+   * This cannot be used to iterate on its own - the client is expected to process these buckets and
+   * set estimate_since_compact.count: 0 when done, before fetching the next batch.
+   */
+  private async dirtyBucketBatch(options: { minBucketChanges: number }): Promise<string[]> {
+    if (options.minBucketChanges <= 0) {
+      throw new ReplicationAssertionError('minBucketChanges must be >= 1');
+    }
+    // We make use of an index on {_id.g: 1, 'estimate_since_compact.count': -1}
+    const dirtyBuckets = await this.db.bucket_state
+      .find(
+        {
+          '_id.g': this.group_id,
+          'estimate_since_compact.count': { $gte: 1 }
         },
-        // Partial index exists on this
-        'estimate_since_compact.count': { $gt: 0 }
-      };
-
-      const dirtyBuckets = await this.db.bucket_state
-        .find(filter, {
+        {
           projection: {
             _id: 1
           },
           sort: {
-            _id: 1
+            'estimate_since_compact.count': -1
           },
           limit: 5_000,
-          maxTimeMS: MONGO_OPERATION_TIMEOUT_MS,
-          // Make sure we use the partial index
-          hint: 'dirty_buckets'
-        })
-        .toArray();
+          maxTimeMS: MONGO_OPERATION_TIMEOUT_MS
+        }
+      )
+      .toArray();
 
-      if (dirtyBuckets.length == 0) {
-        break;
-      }
-
-      yield dirtyBuckets.map((bucket) => bucket._id.b);
-
-      lowerBound = dirtyBuckets[dirtyBuckets.length - 1]._id;
-    }
+    return dirtyBuckets.map((bucket) => bucket._id.b);
   }
 
   private async updateChecksumsBatch(buckets: string[]) {
