@@ -1,6 +1,13 @@
 import { mongo, MONGO_OPERATION_TIMEOUT_MS } from '@powersync/lib-service-mongodb';
 import { logger, ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
-import { addChecksums, InternalOpId, isPartialChecksum, storage, utils } from '@powersync/service-core';
+import {
+  addChecksums,
+  InternalOpId,
+  isPartialChecksum,
+  PopulateChecksumCacheResults,
+  storage,
+  utils
+} from '@powersync/service-core';
 
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, BucketStateDocument } from './models.js';
@@ -466,7 +473,8 @@ export class MongoCompactor {
   /**
    * Subset of compact, only populating checksums where relevant.
    */
-  async populateChecksums(options: { minBucketChanges: number }) {
+  async populateChecksums(options: { minBucketChanges: number }): Promise<PopulateChecksumCacheResults> {
+    let count = 0;
     while (!this.signal?.aborted) {
       const buckets = await this.dirtyBucketBatch(options);
       if (buckets.length == 0) {
@@ -478,7 +486,9 @@ export class MongoCompactor {
 
       await this.updateChecksumsBatch(buckets);
       logger.info(`Updated checksums for batch of ${buckets.length} buckets in ${Date.now() - start}ms`);
+      count += buckets.length;
     }
+    return { buckets: count };
   }
 
   /**

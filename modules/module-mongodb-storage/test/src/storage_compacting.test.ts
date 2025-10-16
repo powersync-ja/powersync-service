@@ -97,10 +97,25 @@ bucket_definitions:
       await populate(bucketStorage);
       const { checkpoint } = await bucketStorage.getCheckpoint();
 
-      await bucketStorage.populatePersistentChecksumCache({
-        maxOpId: checkpoint,
-        signal: new AbortController().signal
+      // Default is to small small numbers - should be a no-op
+      const result0 = await bucketStorage.populatePersistentChecksumCache({
+        maxOpId: checkpoint
       });
+      expect(result0.buckets).toEqual(0);
+
+      // This should cache the checksums for the two buckets
+      const result1 = await bucketStorage.populatePersistentChecksumCache({
+        maxOpId: checkpoint,
+        minBucketChanges: 1
+      });
+      expect(result1.buckets).toEqual(2);
+
+      // This should be a no-op, as the checksums are already cached
+      const result2 = await bucketStorage.populatePersistentChecksumCache({
+        maxOpId: checkpoint,
+        minBucketChanges: 1
+      });
+      expect(result2.buckets).toEqual(0);
 
       const checksumAfter = await bucketStorage.getChecksums(checkpoint, ['by_user2["u1"]', 'by_user2["u2"]']);
       expect(checksumAfter.get('by_user2["u1"]')).toEqual({
