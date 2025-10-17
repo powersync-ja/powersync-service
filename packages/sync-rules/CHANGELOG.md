@@ -1,5 +1,12 @@
 # @powersync/service-sync-rules
 
+## 0.29.5
+
+### Patch Changes
+
+- a98cecb: Sync streams: Support table aliases in subqueries.
+- 704553e: Sync streams: Fix `auth.parameter()` to use top-level parameters instead of the nested `parameters` object that the legacy `token_parameters` table uses.
+
 ## 0.29.4
 
 ### Patch Changes
