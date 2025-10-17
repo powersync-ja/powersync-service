@@ -1,5 +1,20 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.12.8
+
+### Patch Changes
+
+- da7ecc6: Upgrade mongodb driver to improve stability.
+- 5328802: [MongoDB Storage] Only compact modified buckets. Add index on bucket_state to handle large numbers of buckets when pre-calculating checksums or compacting, and skip small buckets.
+- Updated dependencies [a98cecb]
+- Updated dependencies [da7ecc6]
+- Updated dependencies [5328802]
+- Updated dependencies [704553e]
+  - @powersync/service-sync-rules@0.29.5
+  - @powersync/service-core@1.15.8
+  - @powersync/lib-services-framework@0.7.8
+  - @powersync/lib-service-mongodb@0.6.10
+
 ## 0.12.7
 
 ### Patch Changes

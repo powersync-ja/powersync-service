@@ -1,5 +1,14 @@
 # @powersync/lib-services-framework
 
+## 0.7.8
+
+### Patch Changes
+
+- da7ecc6: Upgrade mongodb driver to improve stability.
+- Updated dependencies [a98cecb]
+- Updated dependencies [704553e]
+  - @powersync/service-sync-rules@0.29.5
+
 ## 0.7.7
 
 ### Patch Changes
