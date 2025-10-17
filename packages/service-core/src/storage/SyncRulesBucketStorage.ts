@@ -65,7 +65,7 @@ export interface SyncRulesBucketStorage
   /**
    * Lightweight "compact" process to populate the checksum cache, if any.
    */
-  populatePersistentChecksumCache(options?: Pick<CompactOptions, 'signal' | 'maxOpId'>): Promise<void>;
+  populatePersistentChecksumCache(options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults>;
 
   // ## Read operations
 
@@ -223,6 +223,19 @@ export interface CompactOptions {
   compactParameterCacheLimit?: number;
 
   signal?: AbortSignal;
+}
+
+export interface PopulateChecksumCacheOptions {
+  maxOpId: util.InternalOpId;
+  minBucketChanges?: number;
+  signal?: AbortSignal;
+}
+
+export interface PopulateChecksumCacheResults {
+  /**
+   * Number of buckets we have calculated checksums for.
+   */
+  buckets: number;
 }
 
 export interface ClearStorageOptions {

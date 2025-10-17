@@ -11,6 +11,8 @@ import {
   LastValueSink,
   maxLsn,
   PartialChecksum,
+  PopulateChecksumCacheOptions,
+  PopulateChecksumCacheResults,
   ReplicationCheckpoint,
   storage,
   utils,
@@ -112,8 +114,9 @@ export class PostgresSyncRulesStorage
     return new PostgresCompactor(this.db, this.group_id, options).compact();
   }
 
-  async populatePersistentChecksumCache(options: Pick<CompactOptions, 'signal' | 'maxOpId'>): Promise<void> {
+  async populatePersistentChecksumCache(options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults> {
     // no-op - checksum cache is not implemented for Postgres yet
+    return { buckets: 0 };
   }
 
   lastWriteCheckpoint(filters: storage.SyncStorageLastWriteCheckpointFilters): Promise<bigint | null> {

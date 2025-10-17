@@ -25,7 +25,7 @@ const COMPACT_MEMORY_LIMIT_MB = Math.min(HEAP_LIMIT / 1024 / 1024 - 128, 1024);
 export function registerCompactAction(program: Command) {
   const compactCommand = program
     .command(COMMAND_NAME)
-    .option(`-b, --buckets [buckets]`, 'Bucket or bucket definition name (optional, comma-separate multiple names)');
+    .option(`-b, --buckets [buckets]`, 'Bucket name (optional, comma-separate multiple names)');
 
   wrapConfigCommand(compactCommand);
 
