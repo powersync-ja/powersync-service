@@ -8,10 +8,16 @@ export interface SqlParameterFunction {
   call: (parameters: ParameterValueSet, ...args: SqliteValue[]) => SqliteValue;
   getReturnType(): ExpressionType;
   parameterCount: number;
-  /** request.user_id(), request.jwt(), token_parameters.* */
-  usesAuthenticatedRequestParameters: boolean;
-  /** request.parameters(), user_parameters.* */
-  usesUnauthenticatedRequestParameters: boolean;
+  /**
+   * Whether this function returns data derived from usage parameters.
+   *
+   * This can be:
+   *
+   *   1. `subscription`, for unauthenticated subscription parameters like `subscription.parameters()`.
+   *   2. `authenticated`, for parameters authenticated by a trusted backend (like `request.user_id()`).
+   *   3. `unauthenticated`, for global unauthenticated request parameters like (like `request.parameters()`).
+   */
+  parameterUsage: 'subscription' | 'authenticated' | 'unauthenticated' | null;
   detail: string;
   documentation: string;
 }
@@ -31,8 +37,7 @@ export function parameterFunctions(options: {
   extractJsonParsed: (v: ParameterValueSet) => any;
   sourceDescription: string;
   sourceDocumentation: string;
-  usesAuthenticatedRequestParameters: boolean;
-  usesUnauthenticatedRequestParameters: boolean;
+  parameterUsage: SqlParameterFunction['parameterUsage'];
 }) {
   const allParameters: SqlParameterFunction = {
     debugName: `${options.schema}.parameters`,
@@ -45,8 +50,7 @@ export function parameterFunctions(options: {
     },
     detail: options.sourceDescription,
     documentation: `Returns ${options.sourceDocumentation}`,
-    usesAuthenticatedRequestParameters: options.usesAuthenticatedRequestParameters,
-    usesUnauthenticatedRequestParameters: options.usesUnauthenticatedRequestParameters
+    parameterUsage: options.parameterUsage
   };
 
   const extractParameter: SqlParameterFunction = {
@@ -68,8 +72,7 @@ export function parameterFunctions(options: {
     },
     detail: `Extract value from ${options.sourceDescription}`,
     documentation: `Returns an extracted value (via the key as the second argument) from ${options.sourceDocumentation}`,
-    usesAuthenticatedRequestParameters: options.usesAuthenticatedRequestParameters,
-    usesUnauthenticatedRequestParameters: options.usesUnauthenticatedRequestParameters
+    parameterUsage: options.parameterUsage
   };
 
   return { parameters: allParameters, parameter: extractParameter };
@@ -87,8 +90,7 @@ export function globalRequestParameterFunctions(schema: string) {
     sourceDescription: 'Unauthenticated request parameters as JSON',
     sourceDocumentation:
       'parameters passed by the client as a JSON string. These parameters are not authenticated - any value can be passed in by the client.',
-    usesAuthenticatedRequestParameters: false,
-    usesUnauthenticatedRequestParameters: true
+    parameterUsage: 'unauthenticated'
   });
 }
 
@@ -103,8 +105,7 @@ export const request_jwt: SqlParameterFunction = {
   },
   detail: 'JWT payload as JSON',
   documentation: 'The JWT payload as a JSON string. This is always validated against trusted keys.',
-  usesAuthenticatedRequestParameters: true,
-  usesUnauthenticatedRequestParameters: false
+  parameterUsage: 'authenticated'
 };
 
 export function generateUserIdFunction(debugName: string, sameAsDesc: string): SqlParameterFunction {
@@ -119,8 +120,7 @@ export function generateUserIdFunction(debugName: string, sameAsDesc: string): S
     },
     detail: 'Authenticated user id',
     documentation: `The id of the authenticated user.\nSame as \`${sameAsDesc} ->> 'sub'\`.`,
-    usesAuthenticatedRequestParameters: true,
-    usesUnauthenticatedRequestParameters: false
+    parameterUsage: 'authenticated'
   };
 }
 

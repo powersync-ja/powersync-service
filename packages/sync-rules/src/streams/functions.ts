@@ -19,8 +19,7 @@ export const STREAM_FUNCTIONS: Record<string, Record<string, SqlParameterFunctio
       sourceDescription: 'Unauthenticated subscription parameters as JSON',
       sourceDocumentation:
         'parameters passed by the client for this stream as a JSON string. These parameters are not authenticated - any value can be passed in by the client.',
-      usesAuthenticatedRequestParameters: false,
-      usesUnauthenticatedRequestParameters: true
+      parameterUsage: 'subscription'
     })
   },
   connection: {
@@ -38,8 +37,7 @@ export const STREAM_FUNCTIONS: Record<string, Record<string, SqlParameterFunctio
       },
       sourceDescription: 'JWT payload as JSON',
       sourceDocumentation: 'JWT payload as a JSON string. This is always validated against trusted keys',
-      usesAuthenticatedRequestParameters: true,
-      usesUnauthenticatedRequestParameters: false
+      parameterUsage: 'authenticated'
     })
   }
 };
