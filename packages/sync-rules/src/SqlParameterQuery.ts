@@ -30,6 +30,7 @@ import {
   SqliteRow
 } from './types.js';
 import { filterJsonRow, getBucketId, isJsonValue, isSelectStatement, normalizeParameterValue } from './utils.js';
+import { DetectRequestParameters } from './validators.js';
 
 export interface SqlParameterQueryOptions {
   sourceTable: TablePattern;
@@ -496,30 +497,29 @@ export class SqlParameterQuery {
 
   get hasAuthenticatedBucketParameters(): boolean {
     // select request.user_id() as user_id where ...
-    const authenticatedExtractor =
-      Object.values(this.parameterExtractors).find(
-        (clause) => isParameterValueClause(clause) && clause.usesAuthenticatedRequestParameters
-      ) != null;
-    return authenticatedExtractor;
+    const visitor = new DetectRequestParameters();
+    visitor.acceptAll(Object.values(this.parameterExtractors));
+
+    return visitor.usesAuthenticatedRequestParameters;
   }
 
   get hasAuthenticatedMatchClause(): boolean {
     // select ... where user_id = request.user_id()
-    const authenticatedInputParameter = this.filter.usesAuthenticatedRequestParameters;
-    return authenticatedInputParameter;
+    const visitor = new DetectRequestParameters();
+    visitor.accept(this.filter);
+    return visitor.usesAuthenticatedRequestParameters;
   }
 
   get usesUnauthenticatedRequestParameters(): boolean {
+    const visitor = new DetectRequestParameters();
+
     // select ... where request.parameters() ->> 'include_comments'
-    const unauthenticatedInputParameter = this.filter.usesUnauthenticatedRequestParameters;
+    visitor.accept(this.filter);
 
     // select request.parameters() ->> 'project_id'
-    const unauthenticatedExtractor =
-      Object.values(this.parameterExtractors).find(
-        (clause) => isParameterValueClause(clause) && clause.usesUnauthenticatedRequestParameters
-      ) != null;
+    visitor.acceptAll(Object.values(this.parameterExtractors));
 
-    return unauthenticatedInputParameter || unauthenticatedExtractor;
+    return visitor.usesUnauthenticatedRequestParameters;
   }
 
   /**

@@ -8,6 +8,7 @@ import { BucketPriority } from './BucketDescription.js';
 import { ParameterLookup } from './BucketParameterQuerier.js';
 import { CustomSqliteValue } from './types/custom_sqlite_value.js';
 import { CompatibilityContext } from './compatibility.js';
+import { RequestFunctionCall } from './request_functions.js';
 
 export interface SyncRules {
   evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
@@ -316,6 +317,13 @@ export interface TableRow<R = SqliteRow> {
   record: R;
 }
 
+export interface BaseClause {
+  /**
+   * If this clause is composed from semantic child-clauses, calls the given callback function for each child.
+   */
+  visitChildren?: (visitor: (clause: CompiledClause) => void) => void;
+}
+
 /**
  * This is a clause that matches row and parameter values for equality.
  *
@@ -324,8 +332,10 @@ export interface TableRow<R = SqliteRow> {
  *
  * For a given a row, this produces a set of parameters that would make the clause evaluate to true.
  */
-export interface ParameterMatchClause {
+export interface ParameterMatchClause extends BaseClause {
   error: boolean;
+
+  specialType?: 'or';
 
   /**
    * The parameter fields that are used for this filter, for example:
@@ -358,22 +368,12 @@ export interface ParameterMatchClause {
    * @return The filter parameters
    */
   filterRow(tables: QueryParameters): TrueIfParametersMatch;
-
-  /** request.user_id(), request.jwt(), token_parameters.* */
-  usesAuthenticatedRequestParameters: boolean;
-  /** request.parameters(), user_parameters.* */
-  usesUnauthenticatedRequestParameters: boolean;
 }
 
 /**
  * This is a clause that operates on request or bucket parameters.
  */
-export interface ParameterValueClause {
-  /** request.user_id(), request.jwt(), token_parameters.* */
-  usesAuthenticatedRequestParameters: boolean;
-  /** request.parameters(), user_parameters.* */
-  usesUnauthenticatedRequestParameters: boolean;
-
+export interface ParameterValueClause extends BaseClause {
   /**
    * An unique key for the clause.
    *
@@ -388,6 +388,17 @@ export interface ParameterValueClause {
    * Only relevant for parameter queries.
    */
   lookupParameterValue(parameters: ParameterValueSet): SqliteValue;
+}
+
+/**
+ * A {@link ParameterValueClause} created by selecting from the legacy `token_parameters` or `user_parameters` tables.
+ */
+export interface LegacyParameterFromTableClause extends ParameterValueClause {
+  table: string;
+}
+
+export function isLegacyParameterFromTableClause(clause: CompiledClause): clause is LegacyParameterFromTableClause {
+  return (clause as LegacyParameterFromTableClause).table != null;
 }
 
 export interface QuerySchema {
@@ -409,7 +420,7 @@ export interface QuerySchema {
  * For parameter queries, that is the parameter table being queried.
  * For data queries, that is the data table being queried.
  */
-export interface RowValueClause {
+export interface RowValueClause extends BaseClause {
   evaluate(tables: QueryParameters): SqliteValue;
   getColumnDefinition(schema: QuerySchema): ColumnDefinition | undefined;
 }
@@ -423,11 +434,17 @@ export interface StaticValueClause extends RowValueClause, ParameterValueClause 
   readonly value: SqliteValue;
 }
 
-export interface ClauseError {
+export interface ClauseError extends BaseClause {
   error: true;
 }
 
-export type CompiledClause = RowValueClause | ParameterMatchClause | ParameterValueClause | ClauseError;
+export type CompiledClause =
+  | RowValueClause
+  | ParameterMatchClause
+  | ParameterValueClause
+  | RequestFunctionCall // extends ParameterValueClause
+  | LegacyParameterFromTableClause // extends ParameterValueClause
+  | ClauseError;
 
 /**
  * true if any of the filter parameter sets match
