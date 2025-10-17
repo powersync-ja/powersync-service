@@ -4,7 +4,7 @@ import { nil } from 'pgsql-ast-parser/src/utils.js';
 import { BucketPriority, isValidPriority } from './BucketDescription.js';
 import { ExpressionType } from './ExpressionType.js';
 import { SqlRuleError } from './errors.js';
-import { REQUEST_FUNCTIONS, SqlParameterFunction } from './request_functions.js';
+import { REQUEST_FUNCTIONS, RequestFunctionCall, SqlParameterFunction } from './request_functions.js';
 import {
   BASIC_OPERATORS,
   OPERATOR_IN,
@@ -35,6 +35,7 @@ import {
   ClauseError,
   CompiledClause,
   InputParameter,
+  LegacyParameterFromTableClause,
   ParameterMatchClause,
   ParameterValueClause,
   QueryParameters,
@@ -419,14 +420,14 @@ export class SqlTools {
 
           const parameterArguments = compiledArguments as ParameterValueClause[];
           return {
+            function: impl,
             key: `${schema}.${fn}(${parameterArguments.map((p) => p.key).join(',')})`,
             lookupParameterValue(parameters) {
               const evaluatedArgs = parameterArguments.map((p) => p.lookupParameterValue(parameters));
               return impl.call(parameters, ...evaluatedArgs);
             },
-            usesAuthenticatedRequestParameters: impl.usesAuthenticatedRequestParameters,
-            usesUnauthenticatedRequestParameters: impl.usesUnauthenticatedRequestParameters
-          } satisfies ParameterValueClause;
+            visitChildren: (v) => parameterArguments.forEach(v)
+          } satisfies RequestFunctionCall;
         }
       }
 
@@ -494,8 +495,7 @@ export class SqlTools {
             return { [inputParam.key]: value };
           });
         },
-        usesAuthenticatedRequestParameters: leftFilter.usesAuthenticatedRequestParameters,
-        usesUnauthenticatedRequestParameters: leftFilter.usesUnauthenticatedRequestParameters
+        visitChildren: (v) => v(leftFilter)
       } satisfies ParameterMatchClause;
     } else if (
       this.supportsExpandingParameters &&
@@ -530,8 +530,7 @@ export class SqlTools {
           }
           return [{ [inputParam.key]: value }];
         },
-        usesAuthenticatedRequestParameters: rightFilter.usesAuthenticatedRequestParameters,
-        usesUnauthenticatedRequestParameters: rightFilter.usesUnauthenticatedRequestParameters
+        visitChildren: (v) => v(rightFilter)
       } satisfies ParameterMatchClause;
     } else {
       // Not supported, return the error previously computed
@@ -579,8 +578,7 @@ export class SqlTools {
             return { [inputParam.key]: value };
           });
         },
-        usesAuthenticatedRequestParameters: leftFilter.usesAuthenticatedRequestParameters,
-        usesUnauthenticatedRequestParameters: leftFilter.usesUnauthenticatedRequestParameters
+        visitChildren: (v) => v(leftFilter)
       } satisfies ParameterMatchClause;
     } else if (
       this.supportsExpandingParameters &&
@@ -622,8 +620,7 @@ export class SqlTools {
             return { [inputParam.key]: value };
           });
         },
-        usesAuthenticatedRequestParameters: rightFilter.usesAuthenticatedRequestParameters,
-        usesUnauthenticatedRequestParameters: rightFilter.usesUnauthenticatedRequestParameters
+        visitChildren: (v) => v(rightFilter)
       } satisfies ParameterMatchClause;
     } else {
       // Not supported, return the error previously computed
@@ -652,8 +649,7 @@ export class SqlTools {
 
         return [{ [inputParam.key]: value }];
       },
-      usesAuthenticatedRequestParameters: otherFilter.usesAuthenticatedRequestParameters,
-      usesUnauthenticatedRequestParameters: otherFilter.usesUnauthenticatedRequestParameters
+      visitChildren: (v) => v(otherFilter)
     } satisfies ParameterMatchClause;
   }
 
@@ -776,17 +772,16 @@ export class SqlTools {
     }
   }
 
-  private getParameterRefClause(expr: ExprRef): ParameterValueClause {
+  private getParameterRefClause(expr: ExprRef): LegacyParameterFromTableClause {
     const table = AvailableTable.search(expr.table?.name ?? this.defaultTable!, this.parameterTables)!.nameInSchema;
     const column = expr.name;
     return {
+      table,
       key: `${table}.${column}`,
       lookupParameterValue: (parameters) => {
         return parameters.lookup(table, column);
-      },
-      usesAuthenticatedRequestParameters: table == 'token_parameters',
-      usesUnauthenticatedRequestParameters: table == 'user_parameters'
-    } satisfies ParameterValueClause;
+      }
+    } satisfies LegacyParameterFromTableClause;
   }
 
   refHasSchema(ref: ExprRef) {
@@ -861,12 +856,7 @@ export class SqlTools {
     } else if (argsType == 'param') {
       const argStrings = argClauses.map((e) => (e as ParameterValueClause).key);
       const name = `${fnImpl.debugName}(${argStrings.join(',')})`;
-      const usesAuthenticatedRequestParameters =
-        argClauses.find((clause) => isParameterValueClause(clause) && clause.usesAuthenticatedRequestParameters) !=
-        null;
-      const usesUnauthenticatedRequestParameters =
-        argClauses.find((clause) => isParameterValueClause(clause) && clause.usesUnauthenticatedRequestParameters) !=
-        null;
+
       return {
         key: name,
         lookupParameterValue: (parameters) => {
@@ -881,8 +871,7 @@ export class SqlTools {
           });
           return fnImpl.call(...args);
         },
-        usesAuthenticatedRequestParameters,
-        usesUnauthenticatedRequestParameters
+        visitChildren: (v) => argClauses.forEach(v)
       } satisfies ParameterValueClause;
     } else {
       throw new Error('unreachable condition');
@@ -983,9 +972,7 @@ function staticValueClause(value: SqliteValue): StaticValueClause {
     key: JSONBig.stringify(value),
     lookupParameterValue(_parameters) {
       return value;
-    },
-    usesAuthenticatedRequestParameters: false,
-    usesUnauthenticatedRequestParameters: false
+    }
   };
 }
 
