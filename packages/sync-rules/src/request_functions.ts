@@ -1,5 +1,6 @@
 import { ExpressionType } from './ExpressionType.js';
-import { jsonExtractFromRecord } from './sql_functions.js';
+import { CompatibilityContext, CompatibilityEdition, CompatibilityOption } from './compatibility.js';
+import { generateSqlFunctions } from './sql_functions.js';
 import { ParameterValueSet, SqliteValue } from './types.js';
 
 export interface SqlParameterFunction {
@@ -15,6 +16,9 @@ export interface SqlParameterFunction {
   documentation: string;
 }
 
+const jsonExtractFromRecord = generateSqlFunctions(
+  new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS)
+).jsonExtractFromRecord;
 /**
  * Defines a `parameters` function and a `parameter` function.
  *
@@ -50,12 +54,11 @@ export function parameterFunctions(options: {
     parameterCount: 1,
     call(parameters: ParameterValueSet, path) {
       const parsed = options.extractJsonParsed(parameters);
+      // jsonExtractFromRecord uses the correct behavior of only splitting the path if it starts with $.
+      // This particular JSON extract function always had that behavior, so we don't need to take backwards
+      // compatibility into account.
       if (typeof path == 'string') {
-        if (path.startsWith('$.')) {
-          return jsonExtractFromRecord(parsed, path, '->>');
-        } else {
-          return parsed[path];
-        }
+        return jsonExtractFromRecord(parsed, path, '->>');
       }
 
       return null;
@@ -104,25 +107,27 @@ export const request_jwt: SqlParameterFunction = {
   usesUnauthenticatedRequestParameters: false
 };
 
-export const request_user_id: SqlParameterFunction = {
-  debugName: 'request.user_id',
-  parameterCount: 0,
-  call(parameters: ParameterValueSet) {
-    return parameters.userId;
-  },
-  getReturnType() {
-    return ExpressionType.TEXT;
-  },
-  detail: 'Authenticated user id',
-  documentation: "The id of the authenticated user.\nSame as `request.jwt() ->> 'sub'`.",
-  usesAuthenticatedRequestParameters: true,
-  usesUnauthenticatedRequestParameters: false
-};
+export function generateUserIdFunction(debugName: string, sameAsDesc: string): SqlParameterFunction {
+  return {
+    debugName,
+    parameterCount: 0,
+    call(parameters: ParameterValueSet) {
+      return parameters.userId;
+    },
+    getReturnType() {
+      return ExpressionType.TEXT;
+    },
+    detail: 'Authenticated user id',
+    documentation: `The id of the authenticated user.\nSame as \`${sameAsDesc} ->> 'sub'\`.`,
+    usesAuthenticatedRequestParameters: true,
+    usesUnauthenticatedRequestParameters: false
+  };
+}
 
 const REQUEST_FUNCTIONS_NAMED = {
   ...globalRequestParameterFunctions('request'),
   jwt: request_jwt,
-  user_id: request_user_id
+  user_id: generateUserIdFunction('request.user_id', 'request.jwt()')
 };
 
 export const REQUEST_FUNCTIONS: Record<string, SqlParameterFunction> = REQUEST_FUNCTIONS_NAMED;

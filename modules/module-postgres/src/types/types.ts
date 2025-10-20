@@ -1,6 +1,7 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import * as service_types from '@powersync/service-types';
 import * as t from 'ts-codec';
+import { CustomTypeRegistry } from './registry.js';
 
 // Maintain backwards compatibility by exporting these
 export const validatePort = lib_postgres.validatePort;
@@ -24,7 +25,10 @@ export type PostgresConnectionConfig = t.Decoded<typeof PostgresConnectionConfig
 /**
  * Resolved version of {@link PostgresConnectionConfig}
  */
-export type ResolvedConnectionConfig = PostgresConnectionConfig & NormalizedPostgresConnectionConfig;
+export type ResolvedConnectionConfig = PostgresConnectionConfig &
+  NormalizedPostgresConnectionConfig & {
+    typeRegistry: CustomTypeRegistry;
+  };
 
 export function isPostgresConfig(
   config: service_types.configFile.DataSourceConfig

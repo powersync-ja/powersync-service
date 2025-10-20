@@ -9,7 +9,9 @@ import {
   SqliteJsonRow,
   SqliteJsonValue,
   SqliteRow,
-  SqliteValue
+  SqliteValue,
+  BucketIdTransformer,
+  ToastableSqliteRow
 } from './types.js';
 import { SyncRuleProcessingError as SyncRulesProcessingError } from './errors.js';
 import { CustomArray, CustomObject, CustomSqliteValue } from './types/custom_sqlite_value.js';
@@ -22,11 +24,12 @@ export function isSelectStatement(q: Statement): q is SelectFromStatement {
 export function getBucketId(
   descriptor_id: string,
   bucket_parameters: string[],
-  params: Record<string, SqliteJsonValue>
+  params: Record<string, SqliteJsonValue>,
+  transformer: BucketIdTransformer
 ): string {
   // Important: REAL and INTEGER values matching the same number needs the same representation in the bucket name.
   const paramArray = bucket_parameters.map((name) => params[`bucket.${name}`]);
-  return `${descriptor_id}${JSONBucketNameSerialize.stringify(paramArray)}`;
+  return transformer(`${descriptor_id}${JSONBucketNameSerialize.stringify(paramArray)}`);
 }
 
 const DEPTH_LIMIT = 10;
@@ -54,10 +57,20 @@ export function filterJsonRow(data: SqliteRow): SqliteJsonRow {
  *
  * Types specifically not supported in output are `boolean` and `undefined`.
  */
-export function jsonValueToSqlite(value: null | undefined | string | number | bigint | boolean | any): SqliteValue {
+export function jsonValueToSqlite(
+  fixedJsonBehavior: boolean,
+  value: null | undefined | string | number | bigint | boolean | any
+): SqliteValue {
+  let isObject = typeof value == 'object';
+  if (fixedJsonBehavior) {
+    // With the fixed json behavior, make json_extract() not represent a null value as 'null' but instead use a SQL NULL
+    // value.
+    isObject = isObject && value != null;
+  }
+
   if (typeof value == 'boolean') {
     return value ? SQLITE_TRUE : SQLITE_FALSE;
-  } else if (typeof value == 'object' || Array.isArray(value)) {
+  } else if (isObject || Array.isArray(value)) {
     // Objects and arrays must be stringified
     return JSONBig.stringify(value);
   } else {
@@ -180,12 +193,26 @@ export function applyValueContext(value: SqliteInputValue, context: Compatibilit
   }
 }
 
-export function applyRowContext(value: SqliteInputRow, context: CompatibilityContext): SqliteRow {
-  let record: SqliteRow = {};
-  for (let key of Object.keys(value)) {
-    record[key] = applyValueContext(value[key], context);
+export function applyRowContext<MaybeToast extends undefined = never>(
+  value: SqliteRow<SqliteInputValue | MaybeToast>,
+  context: CompatibilityContext
+): SqliteRow<SqliteValue | MaybeToast> {
+  let replacedCustomValues: SqliteRow<SqliteValue> = {};
+  let didReplaceValue = false;
+
+  for (let [key, rawValue] of Object.entries(value)) {
+    if (rawValue instanceof CustomSqliteValue) {
+      replacedCustomValues[key] = rawValue.toSqliteValue(context);
+      didReplaceValue = true;
+    }
   }
-  return record;
+
+  if (didReplaceValue) {
+    return Object.assign({ ...value }, replacedCustomValues);
+  } else {
+    // The cast is safe - no values in the original row are CustomSqliteValues.
+    return value as SqliteRow<SqliteValue | MaybeToast>;
+  }
 }
 
 /**

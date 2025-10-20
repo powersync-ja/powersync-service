@@ -1,5 +1,53 @@
 # @powersync/service-sync-rules
 
+## 0.29.5
+
+### Patch Changes
+
+- a98cecb: Sync streams: Support table aliases in subqueries.
+- 704553e: Sync streams: Fix `auth.parameter()` to use top-level parameters instead of the nested `parameters` object that the legacy `token_parameters` table uses.
+
+## 0.29.4
+
+### Patch Changes
+
+- 221289d: Correctly handle custom types in primary keys.
+
+## 0.29.3
+
+### Patch Changes
+
+- f34da91: Node 22.19.0 other minor dependency updates
+
+## 0.29.2
+
+### Patch Changes
+
+- 17aae6d: Export SQL functions for sync streams.
+
+## 0.29.1
+
+### Patch Changes
+
+- 9681b4c: Add the `custom_postgres_types` compatibility option. When enabled, domain, composite, enum, range, multirange and custom array types will get synced in a JSON representation instead of the raw postgres wire format.
+
+## 0.29.0
+
+### Minor Changes
+
+- b0b8ae9: Add support for streams, a new and simpler way to define what data gets synced to clients.
+- d2be184: Refactor interface between service and sync rule bindings in preparation for sync streams.
+- 5284fb5: Introduce the `config` option on sync rules which can be used to opt-in to new features and backwards-incompatible fixes of historical issues with the PowerSync service.
+- 18435a4: Add the `fixed_json_extract` compatibility option. When enabled, JSON-extracting operators are updated to match SQLite more closely.
+- 5284fb5: Add the `timestamps_iso8601` option in the `config:` block for sync rules. When enabled, timestamps are consistently formatted using ISO 8601 format.
+- 6fd0242: Add the `versioned_bucket_ids` option in the `config:` block for sync rules. When enabled, generated bucket ids include the version of sync rules. This allows clients to sync more efficiently after updating sync rules.
+
+### Patch Changes
+
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+- Updated dependencies [060b829]
+  - @powersync/service-jsonbig@0.17.11
+
 ## 0.28.0
 
 ### Minor Changes

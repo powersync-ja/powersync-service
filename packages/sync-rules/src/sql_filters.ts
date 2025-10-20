@@ -1,5 +1,5 @@
 import { JSONBig } from '@powersync/service-jsonbig';
-import { Expr, ExprRef, Name, NodeLocation, QName, QNameAliased, SelectedColumn } from 'pgsql-ast-parser';
+import { Expr, ExprRef, FromCall, Name, NodeLocation, QName, QNameAliased, SelectedColumn } from 'pgsql-ast-parser';
 import { nil } from 'pgsql-ast-parser/src/utils.js';
 import { BucketPriority, isValidPriority } from './BucketDescription.js';
 import { ExpressionType } from './ExpressionType.js';
@@ -10,13 +10,11 @@ import {
   OPERATOR_IN,
   OPERATOR_IS_NOT_NULL,
   OPERATOR_IS_NULL,
-  OPERATOR_JSON_EXTRACT_JSON,
-  OPERATOR_JSON_EXTRACT_SQL,
   OPERATOR_NOT,
   OPERATOR_OVERLAP,
-  SQL_FUNCTIONS,
   SqlFunction,
   castOperator,
+  generateSqlFunctions,
   getOperatorFunction,
   sqliteTypeOf
 } from './sql_functions.js';
@@ -47,7 +45,8 @@ import {
   TrueIfParametersMatch
 } from './types.js';
 import { isJsonValue } from './utils.js';
-import { STREAM_FUNCTIONS } from './streams/functions.js';
+import { CompatibilityContext } from './compatibility.js';
+import { TablePattern } from './TablePattern.js';
 
 export const MATCH_CONST_FALSE: TrueIfParametersMatch = [];
 export const MATCH_CONST_TRUE: TrueIfParametersMatch = [{}];
@@ -55,13 +54,67 @@ export const MATCH_CONST_TRUE: TrueIfParametersMatch = [{}];
 Object.freeze(MATCH_CONST_TRUE);
 Object.freeze(MATCH_CONST_FALSE);
 
+/**
+ * A table that has been made available to a result set by being included in a `FROM`.
+ *
+ * This is used to lookup references inside queries only, which is why this doesn't reference the schema name (that's
+ * covered by {@link TablePattern}).
+ */
+export class AvailableTable {
+  /**
+   * The name of the table in the schema.
+   */
+  nameInSchema: string;
+
+  /**
+   * The alias under which the {@link nameInSchema} is made available to the current query.
+   */
+  alias?: string;
+
+  /**
+   * The name a table has in an SQL expression context.
+   */
+  public get sqlName(): string {
+    return this.alias ?? this.nameInSchema;
+  }
+
+  get isAliased(): boolean {
+    return this.sqlName != this.nameInSchema;
+  }
+
+  constructor(schemaName: string, alias?: string) {
+    this.nameInSchema = schemaName;
+    this.alias = alias;
+  }
+
+  static fromAst(name: QNameAliased): AvailableTable {
+    return new AvailableTable(name.name, name.alias);
+  }
+
+  static fromCall(name: FromCall): AvailableTable {
+    return new AvailableTable(name.function.name, name.alias?.name);
+  }
+
+  /**
+   * Finds the first table matching the given name in SQL.
+   */
+  static search(
+    identifier: string | AvailableTable | undefined,
+    available: AvailableTable[]
+  ): AvailableTable | undefined {
+    const target = identifier instanceof AvailableTable ? identifier.sqlName : identifier;
+
+    return available.find((tbl) => tbl.sqlName == target);
+  }
+}
+
 export interface SqlToolsOptions {
   /**
    * Default table name, if any. I.e. SELECT FROM <table>.
    *
    * Used for to determine the table when using bare column names.
    */
-  table?: string;
+  table?: AvailableTable;
 
   /**
    * Set of tables used for FilterParameters.
@@ -70,14 +123,14 @@ export interface SqlToolsOptions {
    *   "bucket" (bucket parameters for data query)
    *   "token_parameters" (token parameters for parameter query)
    */
-  parameterTables?: string[];
+  parameterTables?: AvailableTable[];
 
   /**
    * Set of tables used in QueryParameters.
    *
-   * If not specified, defaults to [table].
+   * If not specified, defaults to {@link table}.
    */
-  valueTables?: string[];
+  valueTables?: AvailableTable[];
 
   /**
    * For debugging / error messages.
@@ -105,22 +158,31 @@ export interface SqlToolsOptions {
    * Schema for validations.
    */
   schema?: QuerySchema;
+
+  /**
+   * Context controling how functions should behave if we've made backwards-incompatible change to them.
+   */
+  compatibilityContext: CompatibilityContext;
 }
 
 export class SqlTools {
-  readonly defaultTable?: string;
-  readonly valueTables: string[];
+  readonly defaultTable?: AvailableTable;
+  readonly valueTables: AvailableTable[];
   /**
    * ['bucket'] for data queries
    * ['token_parameters', 'user_parameters'] for parameter queries
+   *
+   * These are never aliased.
    */
-  readonly parameterTables: string[];
+  readonly parameterTables: AvailableTable[];
   readonly sql: string;
   readonly errors: SqlRuleError[] = [];
 
   readonly supportsExpandingParameters: boolean;
   readonly supportsParameterExpressions: boolean;
   readonly parameterFunctions: Record<string, Record<string, SqlParameterFunction>>;
+  readonly compatibilityContext: CompatibilityContext;
+  readonly functions: ReturnType<typeof generateSqlFunctions>;
 
   schema?: QuerySchema;
 
@@ -140,6 +202,9 @@ export class SqlTools {
     this.supportsExpandingParameters = options.supportsExpandingParameters ?? false;
     this.supportsParameterExpressions = options.supportsParameterExpressions ?? false;
     this.parameterFunctions = options.parameterFunctions ?? { request: REQUEST_FUNCTIONS };
+    this.compatibilityContext = options.compatibilityContext;
+
+    this.functions = generateSqlFunctions(this.compatibilityContext);
   }
 
   error(message: string, expr: NodeLocation | Expr | undefined): ClauseError {
@@ -207,10 +272,10 @@ export class SqlTools {
         this.checkRef(table, expr);
         return {
           evaluate(tables: QueryParameters): SqliteValue {
-            return tables[table]?.[column];
+            return tables[table.nameInSchema]?.[column];
           },
           getColumnDefinition(schema) {
-            return schema.getColumn(table, column);
+            return schema.getColumn(table.nameInSchema, column);
           }
         } satisfies RowValueClause;
       } else {
@@ -315,7 +380,7 @@ export class SqlTools {
 
       if (schema == null) {
         // Just fn()
-        const fnImpl = SQL_FUNCTIONS[fn];
+        const fnImpl = this.functions.named[fn];
         if (fnImpl == null) {
           return this.error(`Function '${fn}' is not defined`, expr);
         }
@@ -377,9 +442,9 @@ export class SqlTools {
       const debugArgs: Expr[] = [expr.operand, expr];
       const args: CompiledClause[] = [operand, staticValueClause(expr.member)];
       if (expr.op == '->') {
-        return this.composeFunction(OPERATOR_JSON_EXTRACT_JSON, args, debugArgs);
+        return this.composeFunction(this.functions.operatorJsonExtractJson, args, debugArgs);
       } else {
-        return this.composeFunction(OPERATOR_JSON_EXTRACT_SQL, args, debugArgs);
+        return this.composeFunction(this.functions.operatorJsonExtractSql, args, debugArgs);
       }
     } else if (expr.type == 'cast') {
       const operand = this.compileClause(expr.operand);
@@ -622,12 +687,12 @@ export class SqlTools {
   /**
    * Check if an expression is a parameter_table reference.
    */
-  isParameterRef(expr: Expr): expr is ExprRef {
+  private isParameterRef(expr: Expr): expr is ExprRef {
     if (expr.type != 'ref') {
       return false;
     }
-    const tableName = expr.table?.name ?? this.defaultTable;
-    return this.parameterTables.includes(tableName ?? '');
+    const tableName = expr.table?.name ?? this.defaultTable ?? '';
+    return AvailableTable.search(tableName, this.parameterTables) != null;
   }
 
   /**
@@ -702,17 +767,17 @@ export class SqlTools {
     }
   }
 
-  private checkRef(table: string, ref: ExprRef) {
+  private checkRef(table: AvailableTable, ref: ExprRef) {
     if (this.schema) {
-      const type = this.schema.getColumn(table, ref.name);
+      const type = this.schema.getColumn(table.nameInSchema, ref.name);
       if (type == null) {
         this.warn(`Column not found: ${ref.name}`, ref);
       }
     }
   }
 
-  getParameterRefClause(expr: ExprRef): ParameterValueClause {
-    const table = (expr.table?.name ?? this.defaultTable)!;
+  private getParameterRefClause(expr: ExprRef): ParameterValueClause {
+    const table = AvailableTable.search(expr.table?.name ?? this.defaultTable!, this.parameterTables)!.nameInSchema;
     const column = expr.name;
     return {
       key: `${table}.${column}`,
@@ -733,13 +798,15 @@ export class SqlTools {
    *
    * Only "value" tables are supported here, not parameter values.
    */
-  getTableName(ref: ExprRef): string {
+  getTableName(ref: ExprRef): AvailableTable {
     if (this.refHasSchema(ref)) {
       throw new SqlRuleError(`Specifying schema in column references is not supported`, this.sql, ref);
     }
     const tableName = ref.table?.name ?? this.defaultTable;
-    if (this.valueTables.includes(tableName ?? '')) {
-      return tableName!;
+    const found = AvailableTable.search(tableName, this.valueTables);
+
+    if (found != null) {
+      return found;
     } else if (ref.table?.name == null) {
       throw new SqlRuleError(`Table name required`, this.sql, ref);
     } else {

@@ -1,5 +1,116 @@
 # @powersync/service-module-mongodb
 
+## 0.12.8
+
+### Patch Changes
+
+- da7ecc6: Upgrade mongodb driver to improve stability.
+- Updated dependencies [a98cecb]
+- Updated dependencies [da7ecc6]
+- Updated dependencies [5328802]
+- Updated dependencies [704553e]
+  - @powersync/service-sync-rules@0.29.5
+  - @powersync/service-core@1.15.8
+  - @powersync/lib-services-framework@0.7.8
+  - @powersync/lib-service-mongodb@0.6.10
+
+## 0.12.7
+
+### Patch Changes
+
+- Updated dependencies [d976830]
+  - @powersync/service-core@1.15.7
+
+## 0.12.6
+
+### Patch Changes
+
+- 221289d: Correctly handle custom types in primary keys.
+- Updated dependencies [221289d]
+  - @powersync/service-core@1.15.6
+  - @powersync/service-sync-rules@0.29.4
+  - @powersync/lib-services-framework@0.7.7
+  - @powersync/lib-service-mongodb@0.6.9
+
+## 0.12.5
+
+### Patch Changes
+
+- Updated dependencies [f34da91]
+  - @powersync/service-sync-rules@0.29.3
+  - @powersync/lib-services-framework@0.7.6
+  - @powersync/service-core@1.15.5
+  - @powersync/lib-service-mongodb@0.6.8
+
+## 0.12.4
+
+### Patch Changes
+
+- Updated dependencies [17aae6d]
+- Updated dependencies [a2b8bb0]
+- Updated dependencies [f400b0f]
+  - @powersync/service-sync-rules@0.29.2
+  - @powersync/service-core@1.15.4
+  - @powersync/lib-services-framework@0.7.5
+  - @powersync/lib-service-mongodb@0.6.7
+
+## 0.12.3
+
+### Patch Changes
+
+- Updated dependencies [9681b4c]
+- Updated dependencies [f1b4cef]
+  - @powersync/service-sync-rules@0.29.1
+  - @powersync/service-core@1.15.3
+  - @powersync/lib-services-framework@0.7.4
+  - @powersync/lib-service-mongodb@0.6.6
+
+## 0.12.2
+
+### Patch Changes
+
+- Updated dependencies [bec7496]
+  - @powersync/service-core@1.15.2
+
+## 0.12.1
+
+### Patch Changes
+
+- Updated dependencies [6352283]
+- Updated dependencies [6352283]
+  - @powersync/service-core@1.15.1
+  - @powersync/lib-service-mongodb@0.6.5
+
+## 0.12.0
+
+### Minor Changes
+
+- 6d4a4d1: Create a persisted checksum cache when compacting buckets.
+
+### Patch Changes
+
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+- Updated dependencies [6d4a4d1]
+- Updated dependencies [b0b8ae9]
+- Updated dependencies [d2be184]
+- Updated dependencies [29a368e]
+- Updated dependencies [c27e1c8]
+- Updated dependencies [5284fb5]
+- Updated dependencies [18435a4]
+- Updated dependencies [5284fb5]
+- Updated dependencies [f56acce]
+- Updated dependencies [6fd0242]
+- Updated dependencies [6315334]
+- Updated dependencies [86807d0]
+- Updated dependencies [060b829]
+- Updated dependencies [d49bebe]
+  - @powersync/service-core@1.15.0
+  - @powersync/service-sync-rules@0.29.0
+  - @powersync/service-types@0.13.0
+  - @powersync/lib-service-mongodb@0.6.4
+  - @powersync/lib-services-framework@0.7.3
+  - @powersync/service-jsonbig@0.17.11
+
 ## 0.11.0
 
 ### Minor Changes

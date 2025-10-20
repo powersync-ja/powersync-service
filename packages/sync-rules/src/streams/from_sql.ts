@@ -13,7 +13,7 @@ import {
 } from '../sql_support.js';
 import { TablePattern } from '../TablePattern.js';
 import { TableQuerySchema } from '../TableQuerySchema.js';
-import { SqlTools } from '../sql_filters.js';
+import { AvailableTable, SqlTools } from '../sql_filters.js';
 import { BaseSqlDataQuery, BaseSqlDataQueryOptions, RowValueExtractor } from '../BaseSqlDataQuery.js';
 import { ExpressionType } from '../ExpressionType.js';
 import { SyncStream } from './stream.js';
@@ -41,7 +41,7 @@ import {
   Statement
 } from 'pgsql-ast-parser';
 import { STREAM_FUNCTIONS } from './functions.js';
-import { CompatibilityContext, CompatibilityEdition } from '../compatibility.js';
+import { CompatibilityEdition } from '../compatibility.js';
 
 export function syncStreamFromSql(
   descriptorName: string,
@@ -90,6 +90,7 @@ class SyncStreamCompiler {
       sql: this.sql,
       schema: querySchema,
       parameterFunctions: STREAM_FUNCTIONS,
+      compatibilityContext: this.options.compatibility,
       supportsParameterExpressions: true,
       supportsExpandingParameters: true // needed for table.column IN (subscription.parameters() -> ...)
     });
@@ -99,8 +100,7 @@ class SyncStreamCompiler {
 
     const stream = new SyncStream(
       this.descriptorName,
-      new BaseSqlDataQuery(this.compileDataQuery(tools, query, alias, sourceTable)),
-      this.options.compatibility
+      new BaseSqlDataQuery(this.compileDataQuery(tools, query, alias, sourceTable))
     );
     stream.subscribedToByDefault = this.options.auto_subscribe ?? false;
     if (filter.isValid(tools)) {
@@ -114,7 +114,7 @@ class SyncStreamCompiler {
   private compileDataQuery(
     tools: SqlTools,
     query: SelectFromStatement,
-    alias: string,
+    alias: AvailableTable,
     sourceTable: TablePattern
   ): BaseSqlDataQueryOptions {
     let hasId = false;
@@ -143,7 +143,7 @@ class SyncStreamCompiler {
       } else {
         extractors.push({
           extract: (tables, output) => {
-            const row = tables[alias];
+            const row = tables[alias.nameInSchema];
             for (let key in row) {
               if (key.startsWith('_')) {
                 continue;
@@ -152,7 +152,7 @@ class SyncStreamCompiler {
             }
           },
           getTypes(schema, into) {
-            for (let column of schema.getColumns(alias)) {
+            for (let column of schema.getColumns(alias.nameInSchema)) {
               into[column.name] ??= column;
             }
           }
@@ -166,7 +166,7 @@ class SyncStreamCompiler {
           // Not performing schema-based validation - assume there is an id
           hasId = true;
         } else {
-          const idType = querySchema.getColumn(alias, 'id')?.type ?? ExpressionType.NONE;
+          const idType = querySchema.getColumn(alias.nameInSchema, 'id')?.type ?? ExpressionType.NONE;
           if (!idType.isNone()) {
             hasId = true;
           }
@@ -382,6 +382,7 @@ class SyncStreamCompiler {
       sql: this.sql,
       schema: querySchema,
       supportsParameterExpressions: true,
+      compatibilityContext: this.options.compatibility,
       parameterFunctions: STREAM_FUNCTIONS
     });
     tools.checkSpecificNameCase(tableRef);
@@ -416,7 +417,7 @@ class SyncStreamCompiler {
     if (tableRef?.name == null) {
       throw new SqlRuleError('Must SELECT from a single table', this.sql, stmt.from?.[0]._location);
     }
-    const alias: string = tableRef.alias ?? tableRef.name;
+    const alias = AvailableTable.fromAst(tableRef);
 
     const sourceTable = new TablePattern(tableRef.schema ?? this.options.defaultSchema, tableRef.name);
     let querySchema: QuerySchema | undefined = undefined;

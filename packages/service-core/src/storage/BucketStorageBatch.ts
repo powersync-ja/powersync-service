@@ -1,11 +1,5 @@
 import { ObserverClient } from '@powersync/lib-services-framework';
-import {
-  EvaluatedParameters,
-  EvaluatedRow,
-  SqliteInputRow,
-  SqliteRow,
-  ToastableSqliteRow
-} from '@powersync/service-sync-rules';
+import { EvaluatedParameters, EvaluatedRow, SqliteRow, ToastableSqliteRow } from '@powersync/service-sync-rules';
 import { BSON } from 'bson';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { SourceTable, TableSnapshotStatus } from './SourceTable.js';
@@ -138,7 +132,7 @@ export interface SaveInsert {
   sourceTable: SourceTable;
   before?: undefined;
   beforeReplicaId?: undefined;
-  after: SqliteInputRow;
+  after: SqliteRow;
   afterReplicaId: ReplicaId;
 }
 
@@ -149,7 +143,7 @@ export interface SaveUpdate {
   /**
    * This is only present when the id has changed, and will only contain replica identity columns.
    */
-  before?: SqliteInputRow;
+  before?: SqliteRow;
   beforeReplicaId?: ReplicaId;
 
   /**
@@ -164,7 +158,7 @@ export interface SaveUpdate {
 export interface SaveDelete {
   tag: SaveOperationTag.DELETE;
   sourceTable: SourceTable;
-  before?: SqliteInputRow;
+  before?: SqliteRow;
   beforeReplicaId: ReplicaId;
   after?: undefined;
   afterReplicaId?: undefined;

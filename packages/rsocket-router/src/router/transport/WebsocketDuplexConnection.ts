@@ -16,6 +16,7 @@
  */
 
 import { logger } from '@powersync/lib-services-framework';
+import { Socket } from 'net';
 import {
   Closeable,
   Deferred,
@@ -33,6 +34,7 @@ import WebSocket from 'ws';
 
 export class WebsocketDuplexConnection extends Deferred implements DuplexConnection, Outbound {
   readonly multiplexerDemultiplexer: Multiplexer & Demultiplexer & FrameHandler;
+  readonly tracker: WebSocketTracker;
 
   constructor(
     private websocketDuplex: Duplex,
@@ -50,6 +52,7 @@ export class WebsocketDuplexConnection extends Deferred implements DuplexConnect
     websocketDuplex.on('data', this.handleMessage);
 
     this.multiplexerDemultiplexer = multiplexerDemultiplexerFactory(frame, this);
+    this.tracker = new WebSocketTracker(this.rawSocket);
   }
 
   get availability(): number {
@@ -97,7 +100,9 @@ export class WebsocketDuplexConnection extends Deferred implements DuplexConnect
   };
 
   private handleError = (e: WebSocket.ErrorEvent): void => {
-    logger.error(`Error in WebSocket duplex connection: ${e}`);
+    // Example:
+    //   Error: The socket was closed while data was being compressed
+    logger.warn(`Error in WebSocket duplex connection: ${e}`);
     if (!this.done) {
       this.close(e.error);
     }
@@ -147,5 +152,35 @@ export class WebsocketDuplexConnection extends Deferred implements DuplexConnect
         connection.close(error);
       }
     });
+  }
+}
+
+/**
+ * Tracks encoding and bytes written on a websocket connection, catering for compressed data.
+ */
+export class WebSocketTracker {
+  private lastBytesWritten: number;
+  private socket: Socket;
+  readonly encoding: 'permessage-deflate' | undefined;
+
+  constructor(ws: WebSocket) {
+    this.socket = (ws as any)._socket;
+    this.lastBytesWritten = this.socket.bytesWritten;
+
+    // Crude check, but this is the only extension that would actually be used
+    if (ws.extensions.includes('permessage-deflate')) {
+      this.encoding = 'permessage-deflate';
+    } else {
+      this.encoding = undefined;
+    }
+  }
+
+  /**
+   * Consumes and returns the number of bytes sent.
+   */
+  getBytesWritten(): number {
+    const written = this.socket.bytesWritten - this.lastBytesWritten;
+    this.lastBytesWritten = this.socket.bytesWritten;
+    return written;
   }
 }

@@ -1,5 +1,110 @@
 # @powersync/service-module-mysql
 
+## 0.9.8
+
+### Patch Changes
+
+- Updated dependencies [a98cecb]
+- Updated dependencies [da7ecc6]
+- Updated dependencies [5328802]
+- Updated dependencies [704553e]
+  - @powersync/service-sync-rules@0.29.5
+  - @powersync/service-core@1.15.8
+  - @powersync/lib-services-framework@0.7.8
+
+## 0.9.7
+
+### Patch Changes
+
+- Updated dependencies [d976830]
+  - @powersync/service-core@1.15.7
+
+## 0.9.6
+
+### Patch Changes
+
+- 221289d: Correctly handle custom types in primary keys.
+- Updated dependencies [221289d]
+  - @powersync/service-core@1.15.6
+  - @powersync/service-sync-rules@0.29.4
+  - @powersync/lib-services-framework@0.7.7
+
+## 0.9.5
+
+### Patch Changes
+
+- Updated dependencies [f34da91]
+  - @powersync/service-sync-rules@0.29.3
+  - @powersync/lib-services-framework@0.7.6
+  - @powersync/service-core@1.15.5
+
+## 0.9.4
+
+### Patch Changes
+
+- Updated dependencies [17aae6d]
+- Updated dependencies [a2b8bb0]
+- Updated dependencies [f400b0f]
+  - @powersync/service-sync-rules@0.29.2
+  - @powersync/service-core@1.15.4
+  - @powersync/lib-services-framework@0.7.5
+
+## 0.9.3
+
+### Patch Changes
+
+- Updated dependencies [9681b4c]
+- Updated dependencies [f1b4cef]
+  - @powersync/service-sync-rules@0.29.1
+  - @powersync/service-core@1.15.3
+  - @powersync/lib-services-framework@0.7.4
+
+## 0.9.2
+
+### Patch Changes
+
+- Updated dependencies [bec7496]
+  - @powersync/service-core@1.15.2
+
+## 0.9.1
+
+### Patch Changes
+
+- Updated dependencies [6352283]
+- Updated dependencies [6352283]
+  - @powersync/service-core@1.15.1
+
+## 0.9.0
+
+### Minor Changes
+
+- 6d4a4d1: Create a persisted checksum cache when compacting buckets.
+- d49bebe: - Hooked up the MySQL binlog heartbeat events with the bucket batch keepalive mechanism.
+  Heartbeat events will now update the latest keepalive timestamp in the sync rules.
+
+### Patch Changes
+
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+- Updated dependencies [6d4a4d1]
+- Updated dependencies [b0b8ae9]
+- Updated dependencies [d2be184]
+- Updated dependencies [29a368e]
+- Updated dependencies [c27e1c8]
+- Updated dependencies [5284fb5]
+- Updated dependencies [18435a4]
+- Updated dependencies [5284fb5]
+- Updated dependencies [f56acce]
+- Updated dependencies [6fd0242]
+- Updated dependencies [6315334]
+- Updated dependencies [86807d0]
+- Updated dependencies [060b829]
+- Updated dependencies [d49bebe]
+  - @powersync/service-core@1.15.0
+  - @powersync/service-sync-rules@0.29.0
+  - @powersync/service-types@0.13.0
+  - @powersync/lib-services-framework@0.7.3
+  - @powersync/service-jsonbig@0.17.11
+
 ## 0.8.0
 
 ### Minor Changes

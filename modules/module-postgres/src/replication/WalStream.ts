@@ -25,14 +25,16 @@ import {
   CompatibilityContext,
   DatabaseInputRow,
   SqliteInputRow,
+  SqliteInputValue,
+  SqliteRow,
   SqlSyncRules,
   TablePattern,
+  ToastableSqliteRow,
   toSyncRulesRow
 } from '@powersync/service-sync-rules';
-import * as pg_utils from '../utils/pgwire_utils.js';
 
 import { PgManager } from './PgManager.js';
-import { getPgOutputRelation, getRelId } from './PgRelation.js';
+import { getPgOutputRelation, getRelId, referencedColumnTypeIds } from './PgRelation.js';
 import { checkSourceConfiguration, checkTableRls, getReplicationIdentityColumns } from './replication-utils.js';
 import { ReplicationMetric } from '@powersync/service-types';
 import {
@@ -189,28 +191,30 @@ export class WalStream {
 
     let tableRows: any[];
     const prefix = tablePattern.isWildcard ? tablePattern.tablePrefix : undefined;
-    if (tablePattern.isWildcard) {
-      const result = await db.query({
-        statement: `SELECT c.oid AS relid, c.relname AS table_name
+
+    {
+      let query = `
+      SELECT
+        c.oid AS relid,
+        c.relname AS table_name,
+        (SELECT 
+          json_agg(DISTINCT a.atttypid)
+          FROM pg_attribute a
+          WHERE a.attnum > 0 AND NOT a.attisdropped AND a.attrelid = c.oid) 
+        AS column_types
       FROM pg_class c
       JOIN pg_namespace n ON n.oid = c.relnamespace
       WHERE n.nspname = $1
-      AND c.relkind = 'r'
-      AND c.relname LIKE $2`,
-        params: [
-          { type: 'varchar', value: schema },
-          { type: 'varchar', value: tablePattern.tablePattern }
-        ]
-      });
-      tableRows = pgwire.pgwireRows(result);
-    } else {
+      AND c.relkind = 'r'`;
+
+      if (tablePattern.isWildcard) {
+        query += ' AND c.relname LIKE $2';
+      } else {
+        query += ' AND c.relname = $2';
+      }
+
       const result = await db.query({
-        statement: `SELECT c.oid AS relid, c.relname AS table_name
-      FROM pg_class c
-      JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE n.nspname = $1
-      AND c.relkind = 'r'
-      AND c.relname = $2`,
+        statement: query,
         params: [
           { type: 'varchar', value: schema },
           { type: 'varchar', value: tablePattern.tablePattern }
@@ -219,6 +223,7 @@ export class WalStream {
 
       tableRows = pgwire.pgwireRows(result);
     }
+
     let result: storage.SourceTable[] = [];
 
     for (let row of tableRows) {
@@ -258,16 +263,18 @@ export class WalStream {
 
       const cresult = await getReplicationIdentityColumns(db, relid);
 
-      const table = await this.handleRelation(
+      const columnTypes = (JSON.parse(row.column_types) as string[]).map((e) => Number(e));
+      const table = await this.handleRelation({
         batch,
-        {
+        descriptor: {
           name,
           schema,
           objectId: relid,
           replicaIdColumns: cresult.replicationColumns
         } as SourceEntityDescriptor,
-        false
-      );
+        snapshot: false,
+        referencedTypeIds: columnTypes
+      });
 
       result.push(table);
     }
@@ -458,7 +465,7 @@ WHERE  oid = $1::regclass`,
 
   async initialReplication(db: pgwire.PgConnection) {
     const sourceTables = this.sync_rules.getSourceTables();
-    await this.storage.startBatch(
+    const flushResults = await this.storage.startBatch(
       {
         logger: this.logger,
         zeroLSN: ZERO_LSN,
@@ -506,6 +513,16 @@ WHERE  oid = $1::regclass`,
      * to advance the active sync rules LSN.
      */
     await sendKeepAlive(db);
+
+    const lastOp = flushResults?.flushed_op;
+    if (lastOp != null) {
+      // Populate the cache _after_ initial replication, but _before_ we switch to this sync rules.
+      await this.storage.populatePersistentChecksumCache({
+        // No checkpoint yet, but we do have the opId.
+        maxOpId: lastOp,
+        signal: this.abort_signal
+      });
+    }
   }
 
   static *getQueryData(results: Iterable<DatabaseInputRow>): Generator<SqliteInputRow> {
@@ -621,7 +638,8 @@ WHERE  oid = $1::regclass`,
           hasRemainingData = true;
         }
 
-        for (const record of WalStream.getQueryData(rows)) {
+        for (const inputRecord of WalStream.getQueryData(rows)) {
+          const record = this.syncRulesRecord(inputRecord);
           // This auto-flushes when the batch reaches its size limit
           await batch.save({
             tag: storage.SaveOperationTag.INSERT,
@@ -673,7 +691,14 @@ WHERE  oid = $1::regclass`,
     }
   }
 
-  async handleRelation(batch: storage.BucketStorageBatch, descriptor: SourceEntityDescriptor, snapshot: boolean) {
+  async handleRelation(options: {
+    batch: storage.BucketStorageBatch;
+    descriptor: SourceEntityDescriptor;
+    snapshot: boolean;
+    referencedTypeIds: number[];
+  }) {
+    const { batch, descriptor, snapshot, referencedTypeIds } = options;
+
     if (!descriptor.objectId && typeof descriptor.objectId != 'number') {
       throw new ReplicationAssertionError(`objectId expected, got ${typeof descriptor.objectId}`);
     }
@@ -688,6 +713,9 @@ WHERE  oid = $1::regclass`,
 
     // Drop conflicting tables. This includes for example renamed tables.
     await batch.drop(result.dropTables);
+
+    // Ensure we have a description for custom types referenced in the table.
+    await this.connections.types.fetchTypes(referencedTypeIds);
 
     // Snapshot if:
     // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
@@ -763,6 +791,20 @@ WHERE  oid = $1::regclass`,
     return table;
   }
 
+  private syncRulesRecord(row: SqliteInputRow): SqliteRow;
+  private syncRulesRecord(row: SqliteInputRow | undefined): SqliteRow | undefined;
+
+  private syncRulesRecord(row: SqliteInputRow | undefined): SqliteRow | undefined {
+    if (row == null) {
+      return undefined;
+    }
+    return this.sync_rules.applyRowContext<never>(row);
+  }
+
+  private toastableSyncRulesRecord(row: ToastableSqliteRow<SqliteInputValue>): ToastableSqliteRow {
+    return this.sync_rules.applyRowContext(row);
+  }
+
   async writeChange(
     batch: storage.BucketStorageBatch,
     msg: pgwire.PgoutputMessage
@@ -779,7 +821,7 @@ WHERE  oid = $1::regclass`,
 
       if (msg.tag == 'insert') {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
-        const baseRecord = pg_utils.constructAfterRecord(msg);
+        const baseRecord = this.syncRulesRecord(this.connections.types.constructAfterRecord(msg));
         return await batch.save({
           tag: storage.SaveOperationTag.INSERT,
           sourceTable: table,
@@ -792,8 +834,8 @@ WHERE  oid = $1::regclass`,
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
         // "before" may be null if the replica id columns are unchanged
         // It's fine to treat that the same as an insert.
-        const before = pg_utils.constructBeforeRecord(msg);
-        const after = pg_utils.constructAfterRecord(msg);
+        const before = this.syncRulesRecord(this.connections.types.constructBeforeRecord(msg));
+        const after = this.toastableSyncRulesRecord(this.connections.types.constructAfterRecord(msg));
         return await batch.save({
           tag: storage.SaveOperationTag.UPDATE,
           sourceTable: table,
@@ -804,7 +846,7 @@ WHERE  oid = $1::regclass`,
         });
       } else if (msg.tag == 'delete') {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
-        const before = pg_utils.constructBeforeRecord(msg)!;
+        const before = this.syncRulesRecord(this.connections.types.constructBeforeRecord(msg)!);
 
         return await batch.save({
           tag: storage.SaveOperationTag.DELETE,
@@ -830,9 +872,14 @@ WHERE  oid = $1::regclass`,
     try {
       // If anything errors here, the entire replication process is halted, and
       // all connections automatically closed, including this one.
-      const replicationConnection = await this.connections.replicationConnection();
-      await this.initReplication(replicationConnection);
-      await this.streamChanges(replicationConnection);
+      const initReplicationConnection = await this.connections.replicationConnection();
+      await this.initReplication(initReplicationConnection);
+      await initReplicationConnection.end();
+
+      // At this point, the above connection has often timed out, so we start a new one
+      const streamReplicationConnection = await this.connections.replicationConnection();
+      await this.streamChanges(streamReplicationConnection);
+      await streamReplicationConnection.end();
     } catch (e) {
       await this.storage.reportError(e);
       throw e;
@@ -940,7 +987,12 @@ WHERE  oid = $1::regclass`,
 
           for (const msg of messages) {
             if (msg.tag == 'relation') {
-              await this.handleRelation(batch, getPgOutputRelation(msg), true);
+              await this.handleRelation({
+                batch,
+                descriptor: getPgOutputRelation(msg),
+                snapshot: true,
+                referencedTypeIds: referencedColumnTypeIds(msg)
+              });
             } else if (msg.tag == 'begin') {
               // This may span multiple transactions in the same chunk, or even across chunks.
               skipKeepalive = true;

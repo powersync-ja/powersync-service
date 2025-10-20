@@ -1,5 +1,173 @@
 # @powersync/service-image
 
+## 1.15.8
+
+### Patch Changes
+
+- 5328802: [MongoDB Storage] Only compact modified buckets. Add index on bucket_state to handle large numbers of buckets when pre-calculating checksums or compacting, and skip small buckets.
+- Updated dependencies [da7ecc6]
+- Updated dependencies [5328802]
+  - @powersync/service-module-mongodb-storage@0.12.8
+  - @powersync/service-rsocket-router@0.2.5
+  - @powersync/service-module-mongodb@0.12.8
+  - @powersync/service-core@1.15.8
+  - @powersync/lib-services-framework@0.7.8
+  - @powersync/service-module-mysql@0.9.8
+  - @powersync/service-module-postgres@0.16.8
+  - @powersync/service-module-postgres-storage@0.10.8
+  - @powersync/service-module-core@0.2.8
+
+## 1.15.7
+
+### Patch Changes
+
+- d976830: Fix SnapshotTooOld on parameter queries in some cases.
+- Updated dependencies [d976830]
+  - @powersync/service-module-mongodb-storage@0.12.7
+  - @powersync/service-core@1.15.7
+  - @powersync/service-module-mongodb@0.12.7
+  - @powersync/service-module-mysql@0.9.7
+  - @powersync/service-module-postgres@0.16.7
+  - @powersync/service-module-core@0.2.7
+  - @powersync/service-module-postgres-storage@0.10.7
+
+## 1.15.6
+
+### Patch Changes
+
+- Updated dependencies [221289d]
+  - @powersync/service-module-postgres@0.16.6
+  - @powersync/service-module-mongodb@0.12.6
+  - @powersync/service-core@1.15.6
+  - @powersync/service-module-mysql@0.9.6
+  - @powersync/service-module-core@0.2.6
+  - @powersync/service-module-mongodb-storage@0.12.6
+  - @powersync/service-module-postgres-storage@0.10.6
+  - @powersync/lib-services-framework@0.7.7
+  - @powersync/service-rsocket-router@0.2.4
+
+## 1.15.5
+
+### Patch Changes
+
+- f34da91: Node 22.19.0 other minor dependency updates
+- Updated dependencies [f34da91]
+  - @powersync/lib-services-framework@0.7.6
+  - @powersync/service-module-mongodb@0.12.5
+  - @powersync/service-module-mongodb-storage@0.12.5
+  - @powersync/service-module-mysql@0.9.5
+  - @powersync/service-module-postgres@0.16.5
+  - @powersync/service-module-postgres-storage@0.10.5
+  - @powersync/service-core@1.15.5
+  - @powersync/service-module-core@0.2.5
+  - @powersync/service-rsocket-router@0.2.3
+
+## 1.15.4
+
+### Patch Changes
+
+- a2b8bb0: Avoid frequent write checkpoint lookups when the user does not have one.
+- f400b0f: Protocol: Allow `null` as stream parameter.
+- Updated dependencies [a2b8bb0]
+- Updated dependencies [f400b0f]
+  - @powersync/service-module-mongodb-storage@0.12.4
+  - @powersync/service-core@1.15.4
+  - @powersync/lib-services-framework@0.7.5
+  - @powersync/service-module-mongodb@0.12.4
+  - @powersync/service-module-mysql@0.9.4
+  - @powersync/service-module-postgres@0.16.4
+  - @powersync/service-module-postgres-storage@0.10.4
+  - @powersync/service-module-core@0.2.4
+  - @powersync/service-rsocket-router@0.2.2
+
+## 1.15.3
+
+### Patch Changes
+
+- 9681b4c: Add the `custom_postgres_types` compatibility option. When enabled, domain, composite, enum, range, multirange and custom array types will get synced in a JSON representation instead of the raw postgres wire format.
+- f1b4cef: Fix checksum calculation issues with large buckets.
+- Updated dependencies [9681b4c]
+- Updated dependencies [f1b4cef]
+  - @powersync/service-module-postgres@0.16.3
+  - @powersync/service-module-mongodb-storage@0.12.3
+  - @powersync/service-core@1.15.3
+  - @powersync/lib-services-framework@0.7.4
+  - @powersync/service-module-mongodb@0.12.3
+  - @powersync/service-module-mysql@0.9.3
+  - @powersync/service-module-postgres-storage@0.10.3
+  - @powersync/service-module-core@0.2.3
+  - @powersync/service-rsocket-router@0.2.1
+
+## 1.15.2
+
+### Patch Changes
+
+- bec7496: Fix "E11000 duplicate key error collection: powersync_demo.bucket_state" in some cases on sync rules deploy
+- 725daa1: Fix rare issue of incorrect checksums on fallback after checksum query timed out.
+- Updated dependencies [bec7496]
+- Updated dependencies [725daa1]
+  - @powersync/service-module-mongodb-storage@0.12.2
+  - @powersync/service-core@1.15.2
+  - @powersync/service-module-postgres-storage@0.10.2
+  - @powersync/service-module-mongodb@0.12.2
+  - @powersync/service-module-mysql@0.9.2
+  - @powersync/service-module-postgres@0.16.2
+  - @powersync/service-module-core@0.2.2
+
+## 1.15.1
+
+### Patch Changes
+
+- 6352283: Fix pre-computing of checksums after intial replication causing replication timeouts
+- 6352283: Improve performance of the compact job
+- Updated dependencies [6352283]
+- Updated dependencies [6352283]
+  - @powersync/service-module-mongodb-storage@0.12.1
+  - @powersync/service-module-postgres@0.16.1
+  - @powersync/service-core@1.15.1
+  - @powersync/service-module-mongodb@0.12.1
+  - @powersync/service-module-mysql@0.9.1
+  - @powersync/service-module-core@0.2.1
+  - @powersync/service-module-postgres-storage@0.10.1
+
+## 1.15.0
+
+### Minor Changes
+
+- b0b8ae9: Add support for streams, a new and simpler way to define what data gets synced to clients.
+- c27e1c8: Upgrade Node, Sentry, Fastify and OpenTelemetry dependencies.
+- 5284fb5: Introduce the `config` option on sync rules which can be used to opt-in to new features and backwards-incompatible fixes of historical issues with the PowerSync service.
+- 18435a4: Add the `fixed_json_extract` compatibility option. When enabled, JSON-extracting operators are updated to match SQLite more closely.
+- 5284fb5: Add the `timestamps_iso8601` option in the `config:` block for sync rules. When enabled, timestamps are consistently formatted using ISO 8601 format.
+- f56acce: Enable permessage-deflate for websockets.
+- 6fd0242: Add the `versioned_bucket_ids` option in the `config:` block for sync rules. When enabled, generated bucket ids include the version of sync rules. This allows clients to sync more efficiently after updating sync rules.
+- 86807d0: Support gzip and zstd compression in http streams.
+
+### Patch Changes
+
+- d2be184: Refactor interface between service and sync rule bindings in preparation for sync streams.
+- c44e5bb: Add attestations to Docker image.
+- 6315334: [MongoDB Storage] Increase checksum timeouts
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+- Updated dependencies [6d4a4d1]
+- Updated dependencies [d2be184]
+- Updated dependencies [29a368e]
+- Updated dependencies [c27e1c8]
+- Updated dependencies [f56acce]
+- Updated dependencies [6315334]
+- Updated dependencies [86807d0]
+- Updated dependencies [060b829]
+- Updated dependencies [d49bebe]
+  - @powersync/service-module-postgres-storage@0.10.0
+  - @powersync/service-module-mongodb-storage@0.12.0
+  - @powersync/service-module-postgres@0.16.0
+  - @powersync/service-module-mongodb@0.12.0
+  - @powersync/service-core@1.15.0
+  - @powersync/service-module-mysql@0.9.0
+  - @powersync/service-module-core@0.2.0
+  - @powersync/service-rsocket-router@0.2.0
+  - @powersync/lib-services-framework@0.7.3
+
 ## 1.14.0
 
 ### Minor Changes

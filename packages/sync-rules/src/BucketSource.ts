@@ -3,13 +3,7 @@ import { ColumnDefinition } from './ExpressionType.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { GetQuerierOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
-import {
-  EvaluatedParametersResult,
-  EvaluateRowOptions,
-  EvaluationResult,
-  SourceSchema,
-  SqliteInputRow
-} from './types.js';
+import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, SourceSchema, SqliteRow } from './types.js';
 
 /**
  * An interface declaring
@@ -34,7 +28,7 @@ export interface BucketSource {
    * The returned {@link ParameterLookup} can be referenced by {@link pushBucketParameterQueriers} to allow the storage
    * system to find buckets.
    */
-  evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteInputRow): EvaluatedParametersResult[];
+  evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[];
 
   /**
    * Given a row as it appears in a table that affects sync data, return buckets, logical table names and transformed

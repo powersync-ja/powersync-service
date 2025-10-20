@@ -13,6 +13,7 @@ import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlPa
 import { SqlRuleError } from './errors.js';
 import { CompatibilityContext } from './compatibility.js';
 import {
+  BucketIdTransformer,
   EvaluatedParametersResult,
   EvaluateRowOptions,
   EvaluationResult,
@@ -21,7 +22,6 @@ import {
   SourceSchema,
   SqliteRow
 } from './types.js';
-import { applyRowContext } from './utils.js';
 
 export interface QueryParseResult {
   /**
@@ -36,10 +36,7 @@ export class SqlBucketDescriptor implements BucketSource {
   name: string;
   bucketParameters?: string[];
 
-  constructor(
-    name: string,
-    private readonly compatibility: CompatibilityContext
-  ) {
+  constructor(name: string) {
     this.name = name;
   }
 
@@ -60,11 +57,11 @@ export class SqlBucketDescriptor implements BucketSource {
 
   parameterIdSequence = new IdSequence();
 
-  addDataQuery(sql: string, options: SyncRulesOptions): QueryParseResult {
+  addDataQuery(sql: string, options: SyncRulesOptions, compatibility: CompatibilityContext): QueryParseResult {
     if (this.bucketParameters == null) {
       throw new Error('Bucket parameters must be defined');
     }
-    const dataRows = SqlDataQuery.fromSql(this.name, this.bucketParameters, sql, options);
+    const dataRows = SqlDataQuery.fromSql(this.name, this.bucketParameters, sql, options, compatibility);
 
     this.dataQueries.push(dataRows);
 
@@ -104,7 +101,7 @@ export class SqlBucketDescriptor implements BucketSource {
         continue;
       }
 
-      results.push(...query.evaluateRow(options.sourceTable, applyRowContext(options.record, this.compatibility)));
+      results.push(...query.evaluateRow(options.sourceTable, options.record, options.bucketIdTransformer));
     }
     return results;
   }
@@ -131,7 +128,11 @@ export class SqlBucketDescriptor implements BucketSource {
 
   pushBucketParameterQueriers(result: PendingQueriers, options: GetQuerierOptions) {
     const reasons = [this.bucketInclusionReason()];
-    const staticBuckets = this.getStaticBucketDescriptions(options.globalParameters, reasons);
+    const staticBuckets = this.getStaticBucketDescriptions(
+      options.globalParameters,
+      reasons,
+      options.bucketIdTransformer
+    );
     const staticQuerier = {
       staticBuckets,
       hasDynamicBuckets: false,
@@ -145,15 +146,19 @@ export class SqlBucketDescriptor implements BucketSource {
     }
 
     const dynamicQueriers = this.parameterQueries.map((query) =>
-      query.getBucketParameterQuerier(options.globalParameters, reasons)
+      query.getBucketParameterQuerier(options.globalParameters, reasons, options.bucketIdTransformer)
     );
     result.queriers.push(...dynamicQueriers);
   }
 
-  getStaticBucketDescriptions(parameters: RequestParameters, reasons: BucketInclusionReason[]): ResolvedBucket[] {
+  getStaticBucketDescriptions(
+    parameters: RequestParameters,
+    reasons: BucketInclusionReason[],
+    transformer: BucketIdTransformer
+  ): ResolvedBucket[] {
     let results: ResolvedBucket[] = [];
     for (let query of this.globalParameterQueries) {
-      for (const desc of query.getStaticBucketDescriptions(parameters)) {
+      for (const desc of query.getStaticBucketDescriptions(parameters, transformer)) {
         results.push({
           ...desc,
           definition: this.name,
@@ -212,12 +217,12 @@ export class SqlBucketDescriptor implements BucketSource {
 
   debugWriteOutputTables(result: Record<string, { query: string }[]>): void {
     for (let q of this.dataQueries) {
-      result[q.table!] ??= [];
+      result[q.table!.sqlName] ??= [];
       const r = {
         query: q.sql
       };
 
-      result[q.table!].push(r);
+      result[q.table!.sqlName].push(r);
     }
   }
 

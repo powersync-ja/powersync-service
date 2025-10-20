@@ -19,6 +19,7 @@ import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
 import * as timers from 'node:timers/promises';
+import { CustomTypeRegistry } from '@module/types/registry.js';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('slow tests', function () {
   describeWithStorage({ timeout: 120_000 }, function (factory) {
@@ -68,7 +69,7 @@ function defineSlowTests(factory: storage.TestStorageFactory) {
   });
 
   async function testRepeatedReplication(testOptions: { compact: boolean; maxBatchSize: number; numBatches: number }) {
-    const connections = new PgManager(TEST_CONNECTION_OPTIONS, {});
+    const connections = new PgManager(TEST_CONNECTION_OPTIONS, { registry: new CustomTypeRegistry() });
     const replicationConnection = await connections.replicationConnection();
     const pool = connections.pool;
     await clearTestDb(pool);
@@ -329,7 +330,7 @@ bucket_definitions:
       await pool.query(`SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE active = FALSE`);
       i += 1;
 
-      const connections = new PgManager(TEST_CONNECTION_OPTIONS, {});
+      const connections = new PgManager(TEST_CONNECTION_OPTIONS, { registry: new CustomTypeRegistry() });
       const replicationConnection = await connections.replicationConnection();
 
       abortController = new AbortController();

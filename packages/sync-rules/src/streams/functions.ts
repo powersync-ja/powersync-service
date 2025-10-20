@@ -1,7 +1,7 @@
 import {
+  generateUserIdFunction,
   globalRequestParameterFunctions,
   parameterFunctions,
-  request_user_id,
   SqlParameterFunction
 } from '../request_functions.js';
 import { ParameterValueSet } from '../types.js';
@@ -27,14 +27,14 @@ export const STREAM_FUNCTIONS: Record<string, Record<string, SqlParameterFunctio
     ...globalRequestParameterFunctions('connection')
   },
   auth: {
-    user_id: request_user_id,
+    user_id: generateUserIdFunction('auth.user_id', 'auth.parameters('),
     ...parameterFunctions({
       schema: 'auth',
       extractJsonString: function (v: ParameterValueSet): string {
         return v.rawTokenPayload;
       },
       extractJsonParsed: function (v: ParameterValueSet) {
-        return v.tokenParameters;
+        return v.parsedTokenPayload;
       },
       sourceDescription: 'JWT payload as JSON',
       sourceDocumentation: 'JWT payload as a JSON string. This is always validated against trusted keys',

@@ -8,6 +8,7 @@ import { SourceTableInterface } from './SourceTableInterface.js';
 import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js';
 import { TablePattern } from './TablePattern.js';
 import {
+  BucketIdTransformer,
   EvaluatedParameters,
   EvaluatedParametersResult,
   EvaluatedRow,
@@ -20,14 +21,17 @@ import {
   QueryParseOptions,
   RequestParameters,
   SourceSchema,
-  SqliteInputRow,
+  SqliteInputValue,
   SqliteJsonRow,
+  SqliteRow,
+  SqliteValue,
   StreamParseOptions,
   SyncRules
 } from './types.js';
 import { BucketSource } from './BucketSource.js';
 import { syncStreamFromSql } from './streams/from_sql.js';
 import { CompatibilityContext, CompatibilityEdition, CompatibilityOption } from './compatibility.js';
+import { applyRowContext } from './utils.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -59,6 +63,13 @@ export interface RequestedStream {
 }
 
 export interface GetQuerierOptions {
+  /**
+   * A bucket id transformer, compatible to the one used when evaluating rows.
+   *
+   * Typically, this transformer only depends on the sync rule id (which is known to both the bucket storage
+   * implementation responsible for evaluating rows and the sync endpoint).
+   */
+  bucketIdTransformer: BucketIdTransformer;
   globalParameters: RequestParameters;
   /**
    * Whether the client is subscribing to default query streams.
@@ -85,6 +96,7 @@ export interface GetBucketParameterQuerierResult {
 export class SqlSyncRules implements SyncRules {
   bucketSources: BucketSource[] = [];
   eventDescriptors: SqlEventDescriptor[] = [];
+  compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
 
   content: string;
 
@@ -157,6 +169,7 @@ export class SqlSyncRules implements SyncRules {
       }
 
       compatibility = new CompatibilityContext(edition, options);
+      rules.compatibility = compatibility;
     }
 
     // Bucket definitions using explicit parameter and data queries.
@@ -207,7 +220,7 @@ export class SqlSyncRules implements SyncRules {
       const parameters = value.get('parameters', true) as unknown;
       const dataQueries = value.get('data', true) as unknown;
 
-      const descriptor = new SqlBucketDescriptor(key, compatibility);
+      const descriptor = new SqlBucketDescriptor(key);
 
       if (parameters instanceof Scalar) {
         rules.withScalar(parameters, (q) => {
@@ -229,7 +242,7 @@ export class SqlSyncRules implements SyncRules {
       }
       for (let query of dataQueries.items) {
         rules.withScalar(query, (q) => {
-          return descriptor.addDataQuery(q, queryOptions);
+          return descriptor.addDataQuery(q, queryOptions, compatibility);
         });
       }
       rules.bucketSources.push(descriptor);
@@ -372,6 +385,12 @@ export class SqlSyncRules implements SyncRules {
     this.content = content;
   }
 
+  applyRowContext<MaybeToast extends undefined = never>(
+    source: SqliteRow<SqliteInputValue | MaybeToast>
+  ): SqliteRow<SqliteValue | MaybeToast> {
+    return applyRowContext(source, this.compatibility);
+  }
+
   /**
    * Throws errors.
    */
@@ -384,9 +403,17 @@ export class SqlSyncRules implements SyncRules {
   }
 
   evaluateRowWithErrors(options: EvaluateRowOptions): { results: EvaluatedRow[]; errors: EvaluationError[] } {
+    const resolvedOptions = this.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)
+      ? options
+      : {
+          ...options,
+          // Disable bucket id transformer when the option is unused.
+          bucketIdTransformer: (id: string) => id
+        };
+
     let rawResults: EvaluationResult[] = [];
     for (let source of this.bucketSources) {
-      rawResults.push(...source.evaluateRow(options));
+      rawResults.push(...source.evaluateRow(resolvedOptions));
     }
 
     const results = rawResults.filter(isEvaluatedRow) as EvaluatedRow[];
@@ -398,7 +425,7 @@ export class SqlSyncRules implements SyncRules {
   /**
    * Throws errors.
    */
-  evaluateParameterRow(table: SourceTableInterface, row: SqliteInputRow): EvaluatedParameters[] {
+  evaluateParameterRow(table: SourceTableInterface, row: SqliteRow): EvaluatedParameters[] {
     const { results, errors } = this.evaluateParameterRowWithErrors(table, row);
     if (errors.length > 0) {
       throw new Error(errors[0].error);
@@ -408,7 +435,7 @@ export class SqlSyncRules implements SyncRules {
 
   evaluateParameterRowWithErrors(
     table: SourceTableInterface,
-    row: SqliteInputRow
+    row: SqliteRow
   ): { results: EvaluatedParameters[]; errors: EvaluationError[] } {
     let rawResults: EvaluatedParametersResult[] = [];
     for (let source of this.bucketSources) {
@@ -421,13 +448,24 @@ export class SqlSyncRules implements SyncRules {
   }
 
   getBucketParameterQuerier(options: GetQuerierOptions): GetBucketParameterQuerierResult {
+    const resolvedOptions = this.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)
+      ? options
+      : {
+          ...options,
+          // Disable bucket id transformer when the option is unused.
+          bucketIdTransformer: (id: string) => id
+        };
+
     const queriers: BucketParameterQuerier[] = [];
     const errors: QuerierError[] = [];
     const pending = { queriers, errors };
 
     for (const source of this.bucketSources) {
-      if ((source.subscribedToByDefault && options.hasDefaultStreams) || source.name in options.streams) {
-        source.pushBucketParameterQueriers(pending, options);
+      if (
+        (source.subscribedToByDefault && resolvedOptions.hasDefaultStreams) ||
+        source.name in resolvedOptions.streams
+      ) {
+        source.pushBucketParameterQueriers(pending, resolvedOptions);
       }
     }
 
@@ -501,5 +539,9 @@ export class SqlSyncRules implements SyncRules {
         return priorityValue.value;
       }
     }
+  }
+
+  static versionedBucketIdTransformer(version: string) {
+    return (bucketId: string) => `${version}#${bucketId}`;
   }
 }

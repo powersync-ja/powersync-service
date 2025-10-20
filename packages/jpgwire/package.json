@@ -5,7 +5,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "0.20.1",
+  "version": "0.21.4",
   "main": "dist/index.js",
   "license": "FSL-1.1-ALv2",
   "files": [
@@ -15,12 +15,17 @@
   "type": "module",
   "scripts": {
     "clean": "rm -r ./dist && tsc -b --clean",
-    "build": "tsc -b"
+    "build": "tsc -b",
+    "build:tests": "tsc -b test/tsconfig.json",
+    "test": "vitest"
   },
   "dependencies": {
     "@powersync/service-jsonbig": "workspace:^",
     "@powersync/service-sync-rules": "workspace:^",
     "date-fns": "^4.1.0",
     "pgwire": "github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.4"
   }
 }

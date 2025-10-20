@@ -11,7 +11,7 @@ import { APIMetric } from '@powersync/service-types';
 export const syncStreamReactive: SocketRouteGenerator = (router) =>
   router.reactiveStream<util.StreamingSyncRequest, any>(SyncRoutes.STREAM, {
     validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
-    handler: async ({ context, params, responder, observer, initialN, signal: upstreamSignal }) => {
+    handler: async ({ context, params, responder, observer, initialN, signal: upstreamSignal, connection }) => {
       const { service_context, logger } = context;
       const { routerEngine, metricsEngine, syncContext } = service_context;
 
@@ -84,11 +84,18 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
 
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(1);
       const tracker = new sync.RequestTracker(metricsEngine);
+      if (connection.tracker.encoding) {
+        // Must be set before we start the stream
+        tracker.setCompressed(connection.tracker.encoding);
+      }
       try {
         for await (const data of sync.streamResponse({
           syncContext: syncContext,
           bucketStorage: bucketStorage,
-          syncRules: syncRules,
+          syncRules: {
+            syncRules,
+            version: bucketStorage.group_id
+          },
           params: {
             ...params
           },
@@ -113,7 +120,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
             const serialized = sync.syncLineToBson(data);
             responder.onNext({ data: serialized }, false);
             requestedN--;
-            tracker.addDataSynced(serialized.length);
+            tracker.addPlaintextDataSynced(serialized.length);
           }
 
           if (requestedN <= 0 && !signal.aborted) {
@@ -150,6 +157,17 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         responder.onComplete();
         removeStopHandler();
         disposer();
+        if (connection.tracker.encoding) {
+          // Technically, this may not be unique to this specific stream, since there could be multiple
+          // rsocket streams on the same websocket connection. We don't have a way to track compressed bytes
+          // on individual streams, and we generally expect 1 stream per connection, so this is a reasonable
+          // approximation.
+          // If there are multiple streams, bytes written would be split arbitrarily across them, but the
+          // total should be correct.
+          // For non-compressed cases, this is tracked by the stream itself.
+          const socketBytes = connection.tracker.getBytesWritten();
+          tracker.addCompressedDataSent(socketBytes);
+        }
         logger.info(`Sync stream complete`, {
           ...tracker.getLogMeta(),
           stream_ms: Date.now() - streamStart,

@@ -1,9 +1,10 @@
-import { FromCall, SelectedColumn, SelectFromStatement } from 'pgsql-ast-parser';
+import { FromCall, SelectFromStatement } from 'pgsql-ast-parser';
 import { SqlRuleError } from './errors.js';
-import { SqlTools } from './sql_filters.js';
+import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, isParameterValueClause, sqliteBool } from './sql_support.js';
-import { TABLE_VALUED_FUNCTIONS, TableValuedFunction } from './TableValuedFunctions.js';
+import { generateTableValuedFunctions, TableValuedFunction } from './TableValuedFunctions.js';
 import {
+  BucketIdTransformer,
   ParameterValueClause,
   ParameterValueSet,
   QueryParseOptions,
@@ -25,7 +26,7 @@ export interface TableValuedFunctionSqlParameterQueryOptions {
   filter: ParameterValueClause | undefined;
   callClause: ParameterValueClause | undefined;
   function: TableValuedFunction;
-  callTableName: string;
+  callTable: AvailableTable;
 
   errors: SqlRuleError[];
 }
@@ -48,21 +49,24 @@ export class TableValuedFunctionSqlParameterQuery {
     options: QueryParseOptions,
     queryId: string
   ): TableValuedFunctionSqlParameterQuery {
+    const compatibility = options.compatibility;
     let errors: SqlRuleError[] = [];
 
     errors.push(...checkUnsupportedFeatures(sql, q));
 
-    if (!(call.function.name in TABLE_VALUED_FUNCTIONS)) {
+    const tableValuedFunctions = generateTableValuedFunctions(compatibility);
+    if (!(call.function.name in tableValuedFunctions)) {
       throw new SqlRuleError(`Table-valued function ${call.function.name} is not defined.`, sql, call);
     }
 
-    const callTable = call.alias?.name ?? call.function.name;
+    const callTable = AvailableTable.fromCall(call);
     const callExpression = call.args[0];
 
     const tools = new SqlTools({
       table: callTable,
-      parameterTables: ['token_parameters', 'user_parameters', callTable],
+      parameterTables: [new AvailableTable('token_parameters'), new AvailableTable('user_parameters'), callTable],
       supportsParameterExpressions: true,
+      compatibilityContext: compatibility,
       sql
     });
     const where = q.where;
@@ -72,7 +76,7 @@ export class TableValuedFunctionSqlParameterQuery {
     const columns = q.columns ?? [];
     const bucketParameters = columns.map((column) => tools.getOutputName(column));
 
-    const functionImpl = TABLE_VALUED_FUNCTIONS[call.function.name]!;
+    const functionImpl = tableValuedFunctions[call.function.name]!;
     let priority = options.priority;
     let parameterExtractors: Record<string, ParameterValueClause> = {};
 
@@ -104,7 +108,7 @@ export class TableValuedFunctionSqlParameterQuery {
       filter: isClauseError(filter) ? undefined : filter,
       callClause: isClauseError(callClause) ? undefined : callClause,
       function: functionImpl,
-      callTableName: callTable,
+      callTable,
       priority: priority ?? DEFAULT_BUCKET_PRIORITY,
       queryId,
       errors
@@ -182,7 +186,7 @@ export class TableValuedFunctionSqlParameterQuery {
    *
    * Only used internally.
    */
-  readonly callTableName: string;
+  readonly callTable: AvailableTable;
 
   readonly errors: SqlRuleError[];
 
@@ -197,12 +201,12 @@ export class TableValuedFunctionSqlParameterQuery {
     this.filter = options.filter;
     this.callClause = options.callClause;
     this.function = options.function;
-    this.callTableName = options.callTableName;
+    this.callTable = options.callTable;
 
     this.errors = options.errors;
   }
 
-  getStaticBucketDescriptions(parameters: RequestParameters): BucketDescription[] {
+  getStaticBucketDescriptions(parameters: RequestParameters, transformer: BucketIdTransformer): BucketDescription[] {
     if (this.filter == null || this.callClause == null) {
       // Error in filter clause
       return [];
@@ -212,7 +216,7 @@ export class TableValuedFunctionSqlParameterQuery {
     const rows = this.function.call([valueString]);
     let total: BucketDescription[] = [];
     for (let row of rows) {
-      const description = this.getIndividualBucketDescription(row, parameters);
+      const description = this.getIndividualBucketDescription(row, parameters, transformer);
       if (description !== null) {
         total.push(description);
       }
@@ -220,11 +224,15 @@ export class TableValuedFunctionSqlParameterQuery {
     return total;
   }
 
-  private getIndividualBucketDescription(row: SqliteRow, parameters: RequestParameters): BucketDescription | null {
+  private getIndividualBucketDescription(
+    row: SqliteRow,
+    parameters: RequestParameters,
+    transformer: BucketIdTransformer
+  ): BucketDescription | null {
     const mergedParams: ParameterValueSet = {
       ...parameters,
       lookup: (table, column) => {
-        if (table == this.callTableName) {
+        if (table == this.callTable.nameInSchema) {
           return row[column]!;
         } else {
           return parameters.lookup(table, column);
@@ -247,7 +255,7 @@ export class TableValuedFunctionSqlParameterQuery {
     }
 
     return {
-      bucket: getBucketId(this.descriptorName, this.bucketParameters, result),
+      bucket: getBucketId(this.descriptorName, this.bucketParameters, result, transformer),
       priority: this.priority
     };
   }

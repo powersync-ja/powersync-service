@@ -1,5 +1,53 @@
 # @powersync/lib-service-mongodb
 
+## 0.6.10
+
+### Patch Changes
+
+- da7ecc6: Upgrade mongodb driver to improve stability.
+- Updated dependencies [da7ecc6]
+  - @powersync/lib-services-framework@0.7.8
+
+## 0.6.9
+
+### Patch Changes
+
+- @powersync/lib-services-framework@0.7.7
+
+## 0.6.8
+
+### Patch Changes
+
+- Updated dependencies [f34da91]
+  - @powersync/lib-services-framework@0.7.6
+
+## 0.6.7
+
+### Patch Changes
+
+- @powersync/lib-services-framework@0.7.5
+
+## 0.6.6
+
+### Patch Changes
+
+- @powersync/lib-services-framework@0.7.4
+
+## 0.6.5
+
+### Patch Changes
+
+- 6352283: Fix pre-computing of checksums after intial replication causing replication timeouts
+
+## 0.6.4
+
+### Patch Changes
+
+- 6315334: [MongoDB Storage] Increase checksum timeouts
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+- Updated dependencies [060b829]
+  - @powersync/lib-services-framework@0.7.3
+
 ## 0.6.3
 
 ### Patch Changes

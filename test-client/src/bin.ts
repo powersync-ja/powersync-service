@@ -40,10 +40,20 @@ program
   .option('-u, --sub [sub]', 'sub field for auto-generated token')
   .option('-n, --num-clients [num-clients]', 'number of clients to connect')
   .option('-m, --mode [mode]', 'http or websocket')
+  .option('-p, --print [print]', 'print a field from the data being downloaded')
+  .option('--once', 'stop after the first checkpoint')
   .action(async (options) => {
     const credentials = await getCredentials(options);
 
-    await concurrentConnections(credentials, options['numClients'] ?? 10, options.mode ?? 'http');
+    await concurrentConnections(
+      {
+        ...credentials,
+        once: options.once ?? false,
+        mode: options.mode
+      },
+      options['numClients'] ?? 10,
+      options.print
+    );
   });
 
 await program.parseAsync();

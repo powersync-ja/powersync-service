@@ -1,17 +1,13 @@
-import { MeterProvider, MetricReader, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
-import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
-import { Resource } from '@opentelemetry/resources';
-import { ServiceContext } from '../../system/ServiceContext.js';
-import { OpenTelemetryMetricsFactory } from './OpenTelemetryMetricsFactory.js';
-import { MetricsFactory } from '../metrics-interfaces.js';
+import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
+import { MeterProvider, MetricReader, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { logger } from '@powersync/lib-services-framework';
+import { ServiceContext } from '../../system/ServiceContext.js';
+import { MetricsFactory } from '../metrics-interfaces.js';
+import { OpenTelemetryMetricsFactory } from './OpenTelemetryMetricsFactory.js';
 
 import pkg from '../../../package.json' with { type: 'json' };
-
-export interface RuntimeMetadata {
-  [key: string]: string | number | undefined;
-}
+import { resourceFromAttributes } from '@opentelemetry/resources';
 
 export function createOpenTelemetryMetricsFactory(context: ServiceContext): MetricsFactory {
   const { configuration, lifeCycleEngine, storageEngine } = context;
@@ -43,9 +39,9 @@ export function createOpenTelemetryMetricsFactory(context: ServiceContext): Metr
     configuredExporters.push(periodicExporter);
   }
 
-  let resolvedMetadata: (metadata: RuntimeMetadata) => void;
-  const runtimeMetadata: Promise<RuntimeMetadata> = new Promise((resolve) => {
-    resolvedMetadata = resolve;
+  let resolvedInstanceId: (id: string) => void;
+  const instanceIdPromise = new Promise<string>((resolve) => {
+    resolvedInstanceId = resolve;
   });
 
   lifeCycleEngine.withLifecycle(null, {
@@ -53,21 +49,26 @@ export function createOpenTelemetryMetricsFactory(context: ServiceContext): Metr
       const bucketStorage = storageEngine.activeBucketStorage;
       try {
         const instanceId = await bucketStorage.getPowerSyncInstanceId();
-        resolvedMetadata({ ['instance_id']: instanceId });
+        resolvedInstanceId(instanceId);
       } catch (err) {
-        resolvedMetadata({ ['instance_id']: 'Unknown' });
+        resolvedInstanceId('Unknown');
       }
     }
   });
 
+  const resource = resourceFromAttributes({
+    ['service']: 'PowerSync',
+    ['service.version']: pkg.version,
+    ['instance_id']: instanceIdPromise
+  });
+
+  // This triggers OpenTelemetry to resolve the async attributes (instanceIdPromise).
+  // This will never reject, and we don't specifically need to wait for it.
+  resource.waitForAsyncAttributes?.();
+
   const meterProvider = new MeterProvider({
-    resource: new Resource(
-      {
-        ['service']: 'PowerSync',
-        ['service.version']: pkg.version
-      },
-      runtimeMetadata
-    ),
+    resource,
+
     readers: configuredExporters
   });
 

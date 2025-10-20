@@ -1,5 +1,97 @@
 # @powersync/service-module-core
 
+## 0.2.8
+
+### Patch Changes
+
+- Updated dependencies [da7ecc6]
+- Updated dependencies [5328802]
+  - @powersync/service-rsocket-router@0.2.5
+  - @powersync/service-core@1.15.8
+  - @powersync/lib-services-framework@0.7.8
+
+## 0.2.7
+
+### Patch Changes
+
+- Updated dependencies [d976830]
+  - @powersync/service-core@1.15.7
+
+## 0.2.6
+
+### Patch Changes
+
+- Updated dependencies [221289d]
+  - @powersync/service-core@1.15.6
+  - @powersync/lib-services-framework@0.7.7
+  - @powersync/service-rsocket-router@0.2.4
+
+## 0.2.5
+
+### Patch Changes
+
+- Updated dependencies [f34da91]
+  - @powersync/lib-services-framework@0.7.6
+  - @powersync/service-core@1.15.5
+  - @powersync/service-rsocket-router@0.2.3
+
+## 0.2.4
+
+### Patch Changes
+
+- Updated dependencies [a2b8bb0]
+- Updated dependencies [f400b0f]
+  - @powersync/service-core@1.15.4
+  - @powersync/lib-services-framework@0.7.5
+  - @powersync/service-rsocket-router@0.2.2
+
+## 0.2.3
+
+### Patch Changes
+
+- Updated dependencies [f1b4cef]
+  - @powersync/service-core@1.15.3
+  - @powersync/lib-services-framework@0.7.4
+  - @powersync/service-rsocket-router@0.2.1
+
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies [bec7496]
+  - @powersync/service-core@1.15.2
+
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [6352283]
+- Updated dependencies [6352283]
+  - @powersync/service-core@1.15.1
+
+## 0.2.0
+
+### Minor Changes
+
+- c27e1c8: Upgrade Node, Sentry, Fastify and OpenTelemetry dependencies.
+
+### Patch Changes
+
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+- Updated dependencies [6d4a4d1]
+- Updated dependencies [d2be184]
+- Updated dependencies [29a368e]
+- Updated dependencies [c27e1c8]
+- Updated dependencies [f56acce]
+- Updated dependencies [6315334]
+- Updated dependencies [86807d0]
+- Updated dependencies [060b829]
+- Updated dependencies [d49bebe]
+  - @powersync/service-core@1.15.0
+  - @powersync/service-rsocket-router@0.2.0
+  - @powersync/service-types@0.13.0
+  - @powersync/lib-services-framework@0.7.3
+
 ## 0.1.7
 
 ### Patch Changes

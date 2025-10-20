@@ -5,7 +5,6 @@ import { QueryParseResult } from '../SqlBucketDescriptor.js';
 import { SyncRulesOptions } from '../SqlSyncRules.js';
 import { TablePattern } from '../TablePattern.js';
 import { EvaluateRowOptions } from '../types.js';
-import { applyRowContext } from '../utils.js';
 import { EvaluatedEventRowWithErrors, SqlEventSourceQuery } from './SqlEventSourceQuery.js';
 
 /**
@@ -23,7 +22,7 @@ export class SqlEventDescriptor {
   }
 
   addSourceQuery(sql: string, options: SyncRulesOptions): QueryParseResult {
-    const source = SqlEventSourceQuery.fromSql(this.name, sql, options);
+    const source = SqlEventSourceQuery.fromSql(this.name, sql, options, this.compatibility);
 
     // Each source query should be for a unique table
     const existingSourceQuery = this.sourceQueries.find((q) => q.table == source.table);
@@ -51,10 +50,7 @@ export class SqlEventDescriptor {
       };
     }
 
-    return matchingQuery.evaluateRowWithErrors(
-      options.sourceTable,
-      applyRowContext(options.record, this.compatibility)
-    );
+    return matchingQuery.evaluateRowWithErrors(options.sourceTable, options.record);
   }
 
   getSourceTables(): Set<TablePattern> {

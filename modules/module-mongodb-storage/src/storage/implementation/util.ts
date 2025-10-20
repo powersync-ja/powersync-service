@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import * as uuid from 'uuid';
 
 import { mongo } from '@powersync/lib-service-mongodb';
-import { storage, utils } from '@powersync/service-core';
+import { BucketChecksum, PartialChecksum, PartialOrFullChecksum, storage, utils } from '@powersync/service-core';
 
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument } from './models.js';
@@ -41,9 +41,9 @@ export function generateSlotName(prefix: string, sync_rules_id: number) {
  * However, that makes `has_more` detection very difficult, since the cursor is always closed
  * after the first batch. Instead, we do a workaround to only fetch a single batch below.
  *
- * For this to be effective, set batchSize = limit in the find command.
+ * For this to be effective, set batchSize = limit + 1 in the find command.
  */
-export async function readSingleBatch<T>(cursor: mongo.FindCursor<T>): Promise<{ data: T[]; hasMore: boolean }> {
+export async function readSingleBatch<T>(cursor: mongo.AbstractCursor<T>): Promise<{ data: T[]; hasMore: boolean }> {
   try {
     let data: T[];
     let hasMore = true;

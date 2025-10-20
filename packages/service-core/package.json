@@ -5,7 +5,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "1.14.0",
+  "version": "1.15.8",
   "main": "dist/index.js",
   "license": "FSL-1.1-ALv2",
   "type": "module",
@@ -17,11 +17,11 @@
   },
   "dependencies": {
     "@js-sdsl/ordered-set": "^4.4.2",
-    "@opentelemetry/api": "~1.9.0",
-    "@opentelemetry/exporter-metrics-otlp-http": "^0.57.2",
-    "@opentelemetry/exporter-prometheus": "^0.57.2",
-    "@opentelemetry/resources": "^1.30.1",
-    "@opentelemetry/sdk-metrics": "1.30.1",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.203.0",
+    "@opentelemetry/exporter-prometheus": "^0.203.0",
+    "@opentelemetry/resources": "^2.0.1",
+    "@opentelemetry/sdk-metrics": "^2.0.1",
     "@powersync/lib-services-framework": "workspace:*",
     "@powersync/service-jsonbig": "workspace:*",
     "@powersync/service-rsocket-router": "workspace:*",
@@ -29,7 +29,7 @@
     "@powersync/service-types": "workspace:*",
     "async": "^3.2.4",
     "async-mutex": "^0.5.0",
-    "bson": "^6.10.3",
+    "bson": "^6.10.4",
     "commander": "^12.0.0",
     "cors": "^2.8.5",
     "ipaddr.js": "^2.1.0",
@@ -49,7 +49,7 @@
     "@types/async": "^3.2.24",
     "@types/negotiator": "^0.6.4",
     "@types/lodash": "^4.17.5",
-    "fastify": "4.23.2",
-    "fastify-plugin": "^4.5.1"
+    "fastify": "^5.4.0",
+    "fastify-plugin": "^5.0.1"
   }
 }

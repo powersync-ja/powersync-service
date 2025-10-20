@@ -62,6 +62,11 @@ export interface SyncRulesBucketStorage
 
   compact(options?: CompactOptions): Promise<void>;
 
+  /**
+   * Lightweight "compact" process to populate the checksum cache, if any.
+   */
+  populatePersistentChecksumCache(options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults>;
+
   // ## Read operations
 
   getCheckpoint(): Promise<ReplicationCheckpoint>;
@@ -106,8 +111,16 @@ export interface SyncRulesBucketStorage
    * Compute checksums for a given list of buckets.
    *
    * Returns zero checksums for any buckets not found.
+   *
+   * This may be slow, depending on the size of the buckets.
+   * The checksums are cached internally to compensate for this, but does not cover all cases.
    */
   getChecksums(checkpoint: util.InternalOpId, buckets: string[]): Promise<util.ChecksumMap>;
+
+  /**
+   * Clear checksum cache. Primarily intended for tests.
+   */
+  clearChecksumCache(): void;
 }
 
 export interface SyncRulesBucketStorageListener {
@@ -208,6 +221,21 @@ export interface CompactOptions {
    * Internal/testing use: Cache size for compacting parameters.
    */
   compactParameterCacheLimit?: number;
+
+  signal?: AbortSignal;
+}
+
+export interface PopulateChecksumCacheOptions {
+  maxOpId: util.InternalOpId;
+  minBucketChanges?: number;
+  signal?: AbortSignal;
+}
+
+export interface PopulateChecksumCacheResults {
+  /**
+   * Number of buckets we have calculated checksums for.
+   */
+  buckets: number;
 }
 
 export interface ClearStorageOptions {

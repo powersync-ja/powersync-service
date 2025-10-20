@@ -10,6 +10,7 @@ import {
   ServiceError
 } from '@powersync/lib-services-framework';
 import {
+  InternalOpId,
   MetricsEngine,
   RelationCache,
   SaveOperationTag,
@@ -317,7 +318,7 @@ export class ChangeStream {
     const sourceTables = this.sync_rules.getSourceTables();
     await this.client.connect();
 
-    await this.storage.startBatch(
+    const flushResult = await this.storage.startBatch(
       {
         logger: this.logger,
         zeroLSN: MongoLSN.ZERO.comparable,
@@ -383,6 +384,7 @@ export class ChangeStream {
         this.logger.info(`Snapshot done. Need to replicate from ${snapshotLsn} to ${checkpoint} to be consistent`);
       }
     );
+    return { lastOpId: flushResult?.flushed_op };
   }
 
   private async setupCheckpointsCollection() {
@@ -479,7 +481,7 @@ export class ChangeStream {
       // Pre-fetch next batch, so that we can read and write concurrently
       nextChunkPromise = query.nextChunk();
       for (let document of docBatch) {
-        const record = constructAfterRecord(document);
+        const record = this.constructAfterRecord(document);
 
         // This auto-flushes when the batch reaches its size limit
         await batch.save({
@@ -617,6 +619,11 @@ export class ChangeStream {
     return result.table;
   }
 
+  private constructAfterRecord(document: mongo.Document): SqliteRow {
+    const inputRow = constructAfterRecord(document);
+    return this.sync_rules.applyRowContext<never>(inputRow);
+  }
+
   async writeChange(
     batch: storage.BucketStorageBatch,
     table: storage.SourceTable,
@@ -629,7 +636,7 @@ export class ChangeStream {
 
     this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
     if (change.operationType == 'insert') {
-      const baseRecord = constructAfterRecord(change.fullDocument);
+      const baseRecord = this.constructAfterRecord(change.fullDocument);
       return await batch.save({
         tag: SaveOperationTag.INSERT,
         sourceTable: table,
@@ -648,7 +655,7 @@ export class ChangeStream {
           beforeReplicaId: change.documentKey._id
         });
       }
-      const after = constructAfterRecord(change.fullDocument!);
+      const after = this.constructAfterRecord(change.fullDocument!);
       return await batch.save({
         tag: SaveOperationTag.UPDATE,
         sourceTable: table,
@@ -689,7 +696,15 @@ export class ChangeStream {
         // Snapshot LSN is not present, so we need to start replication from scratch.
         await this.storage.clear({ signal: this.abort_signal });
       }
-      await this.initialReplication(result.snapshotLsn);
+      const { lastOpId } = await this.initialReplication(result.snapshotLsn);
+      if (lastOpId != null) {
+        // Populate the cache _after_ initial replication, but _before_ we switch to this sync rules.
+        await this.storage.populatePersistentChecksumCache({
+          signal: this.abort_signal,
+          // No checkpoint yet, but we do have the opId.
+          maxOpId: lastOpId
+        });
+      }
     }
   }
 
@@ -969,8 +984,8 @@ export class ChangeStream {
               // Checkpoint out of order - should never happen with MongoDB.
               // If it does happen, we throw an error to stop the replication - restarting should recover.
               // Since we use batch.lastCheckpointLsn for the next resumeAfter, this should not result in an infinite loop.
-              // This is a workaround for the issue below, but we can keep this as a safety-check even if the issue is fixed.
-              // Driver issue report: https://jira.mongodb.org/browse/NODE-7042
+              // Originally a workaround for https://jira.mongodb.org/browse/NODE-7042.
+              // This has been fixed in the driver in the meantime, but we still keep this as a safety-check.
               throw new ReplicationAssertionError(
                 `Change resumeToken ${(changeDocument._id as any)._data} (${timestampToDate(changeDocument.clusterTime!).toISOString()}) is less than last checkpoint LSN ${batch.lastCheckpointLsn}. Restarting replication.`
               );

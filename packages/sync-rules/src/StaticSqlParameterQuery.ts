@@ -1,9 +1,15 @@
 import { SelectedColumn, SelectFromStatement } from 'pgsql-ast-parser';
 import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY } from './BucketDescription.js';
 import { SqlRuleError } from './errors.js';
-import { SqlTools } from './sql_filters.js';
+import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, isParameterValueClause, sqliteBool } from './sql_support.js';
-import { ParameterValueClause, QueryParseOptions, RequestParameters, SqliteJsonValue } from './types.js';
+import {
+  BucketIdTransformer,
+  ParameterValueClause,
+  QueryParseOptions,
+  RequestParameters,
+  SqliteJsonValue
+} from './types.js';
 import { getBucketId, isJsonValue } from './utils.js';
 
 export interface StaticSqlParameterQueryOptions {
@@ -37,8 +43,9 @@ export class StaticSqlParameterQuery {
 
     const tools = new SqlTools({
       table: undefined,
-      parameterTables: ['token_parameters', 'user_parameters'],
+      parameterTables: [new AvailableTable('token_parameters'), new AvailableTable('user_parameters')],
       supportsParameterExpressions: true,
+      compatibilityContext: options.compatibility,
       sql
     });
     const where = q.where;
@@ -153,7 +160,7 @@ export class StaticSqlParameterQuery {
     this.errors = options.errors ?? [];
   }
 
-  getStaticBucketDescriptions(parameters: RequestParameters): BucketDescription[] {
+  getStaticBucketDescriptions(parameters: RequestParameters, transformer: BucketIdTransformer): BucketDescription[] {
     if (this.filter == null) {
       // Error in filter clause
       return [];
@@ -177,7 +184,7 @@ export class StaticSqlParameterQuery {
 
     return [
       {
-        bucket: getBucketId(this.descriptorName, this.bucketParameters, result),
+        bucket: getBucketId(this.descriptorName, this.bucketParameters, result, transformer),
         priority: this.priority
       }
     ];

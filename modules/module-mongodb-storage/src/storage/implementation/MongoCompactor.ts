@@ -1,14 +1,23 @@
-import { mongo } from '@powersync/lib-service-mongodb';
-import { logger, ReplicationAssertionError } from '@powersync/lib-services-framework';
-import { InternalOpId, storage, utils } from '@powersync/service-core';
+import { mongo, MONGO_OPERATION_TIMEOUT_MS } from '@powersync/lib-service-mongodb';
+import { logger, ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
+import {
+  addChecksums,
+  InternalOpId,
+  isPartialChecksum,
+  PopulateChecksumCacheResults,
+  storage,
+  utils
+} from '@powersync/service-core';
 
 import { PowerSyncMongo } from './db.js';
-import { BucketDataDocument, BucketDataKey } from './models.js';
+import { BucketDataDocument, BucketDataKey, BucketStateDocument } from './models.js';
+import { MongoSyncBucketStorage } from './MongoSyncBucketStorage.js';
 import { cacheKey } from './OperationBatch.js';
 
 interface CurrentBucketState {
   /** Bucket name */
   bucket: string;
+
   /**
    * Rows seen in the bucket, with the last op_id of each.
    */
@@ -27,6 +36,21 @@ interface CurrentBucketState {
    * Number of REMOVE/MOVE operations seen since lastNotPut.
    */
   opsSincePut: number;
+
+  /**
+   * Incrementally-updated checksum, up to maxOpId
+   */
+  checksum: number;
+
+  /**
+   * op count for the checksum
+   */
+  opCount: number;
+
+  /**
+   * Byte size of ops covered by the checksum.
+   */
+  opBytes: number;
 }
 
 /**
@@ -43,25 +67,30 @@ const DEFAULT_MEMORY_LIMIT_MB = 64;
 
 export class MongoCompactor {
   private updates: mongo.AnyBulkWriteOperation<BucketDataDocument>[] = [];
+  private bucketStateUpdates: mongo.AnyBulkWriteOperation<BucketStateDocument>[] = [];
 
   private idLimitBytes: number;
   private moveBatchLimit: number;
   private moveBatchQueryLimit: number;
   private clearBatchLimit: number;
-  private maxOpId: bigint | undefined;
+  private maxOpId: bigint;
   private buckets: string[] | undefined;
+  private signal?: AbortSignal;
+  private group_id: number;
 
   constructor(
+    private storage: MongoSyncBucketStorage,
     private db: PowerSyncMongo,
-    private group_id: number,
     options?: MongoCompactOptions
   ) {
+    this.group_id = storage.group_id;
     this.idLimitBytes = (options?.memoryLimitMB ?? DEFAULT_MEMORY_LIMIT_MB) * 1024 * 1024;
     this.moveBatchLimit = options?.moveBatchLimit ?? DEFAULT_MOVE_BATCH_LIMIT;
     this.moveBatchQueryLimit = options?.moveBatchQueryLimit ?? DEFAULT_MOVE_BATCH_QUERY_LIMIT;
     this.clearBatchLimit = options?.clearBatchLimit ?? DEFAULT_CLEAR_BATCH_LIMIT;
-    this.maxOpId = options?.maxOpId;
+    this.maxOpId = options?.maxOpId ?? 0n;
     this.buckets = options?.compactBuckets;
+    this.signal = options?.signal;
   }
 
   /**
@@ -75,73 +104,92 @@ export class MongoCompactor {
         // We can make this more efficient later on by iterating
         // through the buckets in a single query.
         // That makes batching more tricky, so we leave for later.
-        await this.compactInternal(bucket);
+        await this.compactSingleBucket(bucket);
       }
     } else {
-      await this.compactInternal(undefined);
+      await this.compactDirtyBuckets();
     }
   }
 
-  async compactInternal(bucket: string | undefined) {
+  private async compactDirtyBuckets() {
+    while (!this.signal?.aborted) {
+      // Process all buckets with 1 or more changes since last time
+      const buckets = await this.dirtyBucketBatch({ minBucketChanges: 1 });
+      if (buckets.length == 0) {
+        // All done
+        break;
+      }
+      for (let bucket of buckets) {
+        await this.compactSingleBucket(bucket);
+      }
+    }
+  }
+
+  private async compactSingleBucket(bucket: string) {
     const idLimitBytes = this.idLimitBytes;
 
-    let currentState: CurrentBucketState | null = null;
+    let currentState: CurrentBucketState = {
+      bucket,
+      seen: new Map(),
+      trackingSize: 0,
+      lastNotPut: null,
+      opsSincePut: 0,
 
-    let bucketLower: string | mongo.MinKey;
-    let bucketUpper: string | mongo.MaxKey;
-
-    if (bucket == null) {
-      bucketLower = new mongo.MinKey();
-      bucketUpper = new mongo.MaxKey();
-    } else if (bucket.includes('[')) {
-      // Exact bucket name
-      bucketLower = bucket;
-      bucketUpper = bucket;
-    } else {
-      // Bucket definition name
-      bucketLower = `${bucket}[`;
-      bucketUpper = `${bucket}[\uFFFF`;
-    }
+      checksum: 0,
+      opCount: 0,
+      opBytes: 0
+    };
 
     // Constant lower bound
     const lowerBound: BucketDataKey = {
       g: this.group_id,
-      b: bucketLower as string,
+      b: bucket,
       o: new mongo.MinKey() as any
     };
 
     // Upper bound is adjusted for each batch
     let upperBound: BucketDataKey = {
       g: this.group_id,
-      b: bucketUpper as string,
+      b: bucket,
       o: new mongo.MaxKey() as any
     };
 
-    while (true) {
+    while (!this.signal?.aborted) {
       // Query one batch at a time, to avoid cursor timeouts
-      const batch = await this.db.bucket_data
-        .find(
+      const cursor = this.db.bucket_data.aggregate<BucketDataDocument & { size: number | bigint }>(
+        [
           {
-            _id: {
-              $gte: lowerBound,
-              $lt: upperBound
+            $match: {
+              _id: {
+                $gte: lowerBound,
+                $lt: upperBound
+              }
             }
           },
+          { $sort: { _id: -1 } },
+          { $limit: this.moveBatchQueryLimit },
           {
-            projection: {
+            $project: {
               _id: 1,
               op: 1,
               table: 1,
               row_id: 1,
               source_table: 1,
-              source_key: 1
-            },
-            limit: this.moveBatchQueryLimit,
-            sort: { _id: -1 },
-            singleBatch: true
+              source_key: 1,
+              checksum: 1,
+              size: { $bsonSize: '$$ROOT' }
+            }
           }
-        )
-        .toArray();
+        ],
+        {
+          // batchSize is 1 more than limit to auto-close the cursor.
+          // See https://github.com/mongodb/node-mongodb-native/pull/4580
+          batchSize: this.moveBatchQueryLimit + 1
+        }
+      );
+      // We don't limit to a single batch here, since that often causes MongoDB to scan through more than it returns.
+      // Instead, we load up to the limit.
+      const batch = await cursor.toArray();
 
       if (batch.length == 0) {
         // We've reached the end
@@ -152,35 +200,16 @@ export class MongoCompactor {
       upperBound = batch[batch.length - 1]._id;
 
       for (let doc of batch) {
-        if (currentState == null || doc._id.b != currentState.bucket) {
-          if (currentState != null && currentState.lastNotPut != null && currentState.opsSincePut >= 1) {
-            // Important to flush before clearBucket()
-            await this.flush();
-            logger.info(
-              `Inserting CLEAR at ${this.group_id}:${currentState.bucket}:${currentState.lastNotPut} to remove ${currentState.opsSincePut} operations`
-            );
-
-            const bucket = currentState.bucket;
-            const clearOp = currentState.lastNotPut;
-            // Free memory before clearing bucket
-            currentState = null;
-            await this.clearBucket(bucket, clearOp);
-          }
-          currentState = {
-            bucket: doc._id.b,
-            seen: new Map(),
-            trackingSize: 0,
-            lastNotPut: null,
-            opsSincePut: 0
-          };
-        }
-
-        if (this.maxOpId != null && doc._id.o > this.maxOpId) {
+        if (doc._id.o > this.maxOpId) {
           continue;
         }
 
+        currentState.checksum = addChecksums(currentState.checksum, Number(doc.checksum));
+        currentState.opCount += 1;
+
         let isPersistentPut = doc.op == 'PUT';
 
+        currentState.opBytes += Number(doc.size);
         if (doc.op == 'REMOVE' || doc.op == 'PUT') {
           const key = `${doc.table}/${doc.row_id}/${cacheKey(doc.source_table!, doc.source_key!)}`;
           const targetOp = currentState.seen.get(key);
@@ -208,6 +237,8 @@ export class MongoCompactor {
                 }
               }
             });
+
+            currentState.opBytes += 200 - Number(doc.size); // TODO: better estimate for this
           } else {
             if (currentState.trackingSize >= idLimitBytes) {
               // Reached memory limit.
@@ -234,24 +265,71 @@ export class MongoCompactor {
           currentState.opsSincePut += 1;
         }
 
-        if (this.updates.length >= this.moveBatchLimit) {
+        if (this.updates.length + this.bucketStateUpdates.length >= this.moveBatchLimit) {
           await this.flush();
         }
       }
+
+      logger.info(`Processed batch of length ${batch.length} current bucket: ${bucket}`);
     }
 
-    await this.flush();
-    currentState?.seen.clear();
-    if (currentState?.lastNotPut != null && currentState?.opsSincePut > 1) {
+    // Free memory before clearing bucket
+    currentState.seen.clear();
+    if (currentState.lastNotPut != null && currentState.opsSincePut >= 1) {
       logger.info(
-        `Inserting CLEAR at ${this.group_id}:${currentState.bucket}:${currentState.lastNotPut} to remove ${currentState.opsSincePut} operations`
+        `Inserting CLEAR at ${this.group_id}:${bucket}:${currentState.lastNotPut} to remove ${currentState.opsSincePut} operations`
       );
-      const bucket = currentState.bucket;
-      const clearOp = currentState.lastNotPut;
-      // Free memory before clearing bucket
-      currentState = null;
-      await this.clearBucket(bucket, clearOp);
+      // Need flush() before clear()
+      await this.flush();
+      await this.clearBucket(currentState);
     }
+
+    // Do this _after_ clearBucket so that we have accurate counts.
+    this.updateBucketChecksums(currentState);
+
+    // Need another flush after updateBucketChecksums()
+    await this.flush();
+  }
+
+  /**
+   * Call when done with a bucket.
+   */
+  private updateBucketChecksums(state: CurrentBucketState) {
+    if (state.opCount < 0) {
+      throw new ServiceAssertionError(
+        `Invalid opCount: ${state.opCount} checksum ${state.checksum} opsSincePut: ${state.opsSincePut} maxOpId: ${this.maxOpId}`
+      );
+    }
+    this.bucketStateUpdates.push({
+      updateOne: {
+        filter: {
+          _id: {
+            g: this.group_id,
+            b: state.bucket
+          }
+        },
+        update: {
+          $set: {
+            compacted_state: {
+              op_id: this.maxOpId,
+              count: state.opCount,
+              checksum: BigInt(state.checksum),
+              bytes: state.opBytes
+            },
+            estimate_since_compact: {
+              // Note: There could have been a whole bunch of new operations added to the bucket _while_ compacting,
+              // which we don't currently cater for.
+              // We could potentially query for that, but that could add overhead.
+              count: 0,
+              bytes: 0
+            }
+          }
+        },
+        // We generally expect this to have been created before.
+        // We don't create new ones here, to avoid issues with the unique index on bucket_updates.
+        upsert: false
+      }
+    });
   }
 
   private async flush() {
@@ -266,15 +344,26 @@ export class MongoCompactor {
       });
       this.updates = [];
     }
+    if (this.bucketStateUpdates.length > 0) {
+      logger.info(`Updating ${this.bucketStateUpdates.length} bucket states`);
+      await this.db.bucket_state.bulkWrite(this.bucketStateUpdates, {
+        ordered: false
+      });
+      this.bucketStateUpdates = [];
+    }
   }
 
   /**
    * Perform a CLEAR compact for a bucket.
    *
+   *
    * @param bucket bucket name
    * @param op op_id of the last non-PUT operation, which will be converted to CLEAR.
    */
-  private async clearBucket(bucket: string, op: InternalOpId) {
+  private async clearBucket(currentState: CurrentBucketState) {
+    const bucket = currentState.bucket;
+    const clearOp = currentState.lastNotPut!;
+
     const opFilter = {
       _id: {
         $gte: {
@@ -285,7 +374,7 @@ export class MongoCompactor {
         $lte: {
           g: this.group_id,
           b: bucket,
-          o: op
+          o: clearOp
         }
       }
     };
@@ -293,7 +382,8 @@ export class MongoCompactor {
     const session = this.db.client.startSession();
     try {
       let done = false;
-      while (!done) {
+      while (!done && !this.signal?.aborted) {
+        let opCountDiff = 0;
         // Do the CLEAR operation in batches, with each batch a separate transaction.
         // The state after each batch is fully consistent.
         // We need a transaction per batch to make sure checksums stay consistent.
@@ -364,15 +454,121 @@ export class MongoCompactor {
               },
               { session }
             );
+
+            opCountDiff = -numberOfOpsToClear + 1;
           },
           {
             writeConcern: { w: 'majority' },
             readConcern: { level: 'snapshot' }
           }
         );
+        // Update _outside_ the transaction, since the transaction can be retried multiple times.
+        currentState.opCount += opCountDiff;
       }
     } finally {
       await session.endSession();
     }
+  }
+
+  /**
+   * Subset of compact, only populating checksums where relevant.
+   */
+  async populateChecksums(options: { minBucketChanges: number }): Promise<PopulateChecksumCacheResults> {
+    let count = 0;
+    while (!this.signal?.aborted) {
+      const buckets = await this.dirtyBucketBatch(options);
+      if (buckets.length == 0) {
+        // All done
+        break;
+      }
+      const start = Date.now();
+      logger.info(`Calculating checksums for batch of ${buckets.length} buckets, starting at ${buckets[0]}`);
+
+      await this.updateChecksumsBatch(buckets);
+      logger.info(`Updated checksums for batch of ${buckets.length} buckets in ${Date.now() - start}ms`);
+      count += buckets.length;
+    }
+    return { buckets: count };
+  }
+
+  /**
+   * Returns a batch of dirty buckets - buckets with most changes first.
+   *
+   * This cannot be used to iterate on its own - the client is expected to process these buckets and
+   * set estimate_since_compact.count: 0 when done, before fetching the next batch.
+   */
+  private async dirtyBucketBatch(options: { minBucketChanges: number }): Promise<string[]> {
+    if (options.minBucketChanges <= 0) {
+      throw new ReplicationAssertionError('minBucketChanges must be >= 1');
+    }
+    // We make use of an index on {_id.g: 1, 'estimate_since_compact.count': -1}
+    const dirtyBuckets = await this.db.bucket_state
+      .find(
+        {
+          '_id.g': this.group_id,
+          'estimate_since_compact.count': { $gte: options.minBucketChanges }
+        },
+        {
+          projection: {
+            _id: 1
+          },
+          sort: {
+            'estimate_since_compact.count': -1
+          },
+          limit: 5_000,
+          maxTimeMS: MONGO_OPERATION_TIMEOUT_MS
+        }
+      )
+      .toArray();
+
+    return dirtyBuckets.map((bucket) => bucket._id.b);
+  }
+
+  private async updateChecksumsBatch(buckets: string[]) {
+    const checksums = await this.storage.checksums.computePartialChecksumsDirect(
+      buckets.map((bucket) => {
+        return {
+          bucket,
+          end: this.maxOpId
+        };
+      })
+    );
+
+    for (let bucketChecksum of checksums.values()) {
+      if (isPartialChecksum(bucketChecksum)) {
+        // Should never happen since we don't specify `start`
+        throw new ServiceAssertionError(`Full checksum expected, got ${JSON.stringify(bucketChecksum)}`);
+      }
+
+      this.bucketStateUpdates.push({
+        updateOne: {
+          filter: {
+            _id: {
+              g: this.group_id,
+              b: bucketChecksum.bucket
+            }
+          },
+          update: {
+            $set: {
+              compacted_state: {
+                op_id: this.maxOpId,
+                count: bucketChecksum.count,
+                checksum: BigInt(bucketChecksum.checksum),
+                bytes: null
+              },
+              estimate_since_compact: {
+                count: 0,
+                bytes: 0
+              }
+            }
+          },
+          // We don't create new ones here - it gets tricky to get the last_op right with the unique index on:
+          // bucket_updates: {'id.g': 1, 'last_op': 1}
+          upsert: false
+        }
+      });
+    }
+
+    await this.flush();
   }
 }

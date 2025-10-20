@@ -1,5 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { SqlEventDescriptor, SqliteRow, SqlSyncRules } from '@powersync/service-sync-rules';
+import { SqlEventDescriptor, SqliteRow, SqliteValue, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import {
@@ -97,7 +97,7 @@ export class MongoBucketBatch
   private persisted_op: InternalOpId | null = null;
 
   /**
-   * For tests only - not for persistence logic.
+   * Last written op, if any. This may not reflect a consistent checkpoint.
    */
   public last_flushed_op: InternalOpId | null = null;
 
@@ -367,7 +367,7 @@ export class MongoBucketBatch
         existing_lookups = result.lookups;
         if (this.storeCurrentData) {
           const data = deserializeBson((result.data as mongo.Binary).buffer) as SqliteRow;
-          after = storage.mergeToast(after!, data);
+          after = storage.mergeToast<SqliteValue>(after!, data);
         }
       }
     } else if (record.tag == SaveOperationTag.DELETE) {
@@ -461,7 +461,8 @@ export class MongoBucketBatch
       if (sourceTable.syncData) {
         const { results: evaluated, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
           record: after,
-          sourceTable
+          sourceTable,
+          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(`${this.group_id}`)
         });
 
         for (let error of syncErrors) {

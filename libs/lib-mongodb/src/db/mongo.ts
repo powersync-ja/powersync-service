@@ -22,6 +22,15 @@ export const MONGO_SOCKET_TIMEOUT_MS = 60_000;
 export const MONGO_OPERATION_TIMEOUT_MS = 40_000;
 
 /**
+ * Time for individual checksums requests to timeout the operation.
+ *
+ * This is time spent on the cursor, not total time.
+ *
+ * Must be less than MONGO_SOCKET_TIMEOUT_MS to ensure proper error handling.
+ */
+export const MONGO_CHECKSUM_TIMEOUT_MS = 50_000;
+
+/**
  * Same as above, but specifically for clear operations.
  *
  * These are retried when reaching the timeout.
@@ -52,6 +61,7 @@ export function createMongoClient(config: BaseMongoConfigDecoded, options?: Mong
 
     // Identify the client
     appName: options?.powersyncVersion ? `powersync-storage ${options.powersyncVersion}` : 'powersync-storage',
+    // Deprecated in the driver - in a future release we may have to rely on appName only.
     driverInfo: {
       // This is merged with the node driver info.
       name: 'powersync-storage',

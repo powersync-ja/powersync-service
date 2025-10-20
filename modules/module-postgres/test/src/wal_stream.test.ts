@@ -324,4 +324,129 @@ bucket_definitions:
       // creating a new replication slot.
     }
   });
+
+  test('old date format', async () => {
+    await using context = await WalStreamTestContext.open(factory);
+    await context.updateSyncRules(BASIC_SYNC_RULES);
+
+    const { pool } = context;
+    await pool.query(`DROP TABLE IF EXISTS test_data`);
+    await pool.query(`CREATE TABLE test_data(id text primary key, description timestamptz);`);
+
+    await context.initializeReplication();
+    await pool.query(`INSERT INTO test_data(id, description) VALUES ('t1', '2025-09-10 15:17:14+02')`);
+
+    let data = await context.getBucketData('global[]');
+    expect(data).toMatchObject([putOp('test_data', { id: 't1', description: '2025-09-10 13:17:14Z' })]);
+  });
+
+  test('new date format', async () => {
+    await using context = await WalStreamTestContext.open(factory);
+    await context.updateSyncRules(`
+streams:
+  stream:
+    query: SELECT id, * FROM "test_data"
+
+config:
+  edition: 2
+`);
+    const { pool } = context;
+    await pool.query(`DROP TABLE IF EXISTS test_data`);
+    await pool.query(`CREATE TABLE test_data(id text primary key, description timestamptz);`);
+
+    await context.initializeReplication();
+    await pool.query(`INSERT INTO test_data(id, description) VALUES ('t1', '2025-09-10 15:17:14+02')`);
+
+    const data = await context.getBucketData('1#stream|0[]');
+    expect(data).toMatchObject([putOp('test_data', { id: 't1', description: '2025-09-10T13:17:14.000000Z' })]);
+  });
+
+  test('custom types', async () => {
+    await using context = await WalStreamTestContext.open(factory);
+
+    await context.updateSyncRules(`
+streams:
+  stream:
+    query: SELECT id, * FROM "test_data"
+
+config:
+  edition: 2
+`);
+
+    const { pool } = context;
+    await pool.query(`DROP TABLE IF EXISTS test_data`);
+    await pool.query(`CREATE TYPE composite AS (foo bool, bar int4);`);
+    await pool.query(`CREATE TABLE test_data(id text primary key, description composite);`);
+
+    await context.initializeReplication();
+    await pool.query(`INSERT INTO test_data(id, description) VALUES ('t1', ROW(TRUE, 2)::composite)`);
+
+    const data = await context.getBucketData('1#stream|0[]');
+    expect(data).toMatchObject([putOp('test_data', { id: 't1', description: '{"foo":1,"bar":2}' })]);
+  });
+
+  test('custom types in primary key', async () => {
+    await using context = await WalStreamTestContext.open(factory);
+
+    await context.updateSyncRules(`
+streams:
+  stream:
+    query: SELECT id, * FROM "test_data"
+
+config:
+  edition: 2
+`);
+
+    const { pool } = context;
+    await pool.query(`DROP TABLE IF EXISTS test_data`);
+    await pool.query(`CREATE DOMAIN test_id AS TEXT;`);
+    await pool.query(`CREATE TABLE test_data(id test_id primary key);`);
+
+    await context.initializeReplication();
+    await pool.query(`INSERT INTO test_data(id) VALUES ('t1')`);
+
+    const data = await context.getBucketData('1#stream|0[]');
+    expect(data).toMatchObject([putOp('test_data', { id: 't1' })]);
+  });
+
+  test('replica identity handling', async () => {
+    // This specifically test a case of timestamps being used as part of the replica identity.
+    // There was a regression in versions 1.15.0-1.15.5, which this tests for.
+    await using context = await WalStreamTestContext.open(factory);
+    const { pool } = context;
+    await context.updateSyncRules(BASIC_SYNC_RULES);
+
+    await pool.query(`DROP TABLE IF EXISTS test_data`);
+    await pool.query(`CREATE TABLE test_data(id uuid primary key, description text, ts timestamptz)`);
+    await pool.query(`ALTER TABLE test_data REPLICA IDENTITY FULL`);
+
+    const test_id = `a9798b07-84de-4297-9a8e-aafb4dd0282f`;
+
+    await pool.query(
+      `INSERT INTO test_data(id, description, ts) VALUES('${test_id}', 'test1', '2025-01-01T00:00:00Z') returning id as test_id`
+    );
+
+    await context.replicateSnapshot();
+    await context.startStreaming();
+
+    await pool.query(`UPDATE test_data SET description = 'test2' WHERE id = '${test_id}'`);
+
+    const data = await context.getBucketData('global[]');
+    // For replica identity full, each change changes the id, making it a REMOVE+PUT
+    expect(data).toMatchObject([
+      // Initial insert
+      putOp('test_data', { id: test_id, description: 'test1' }),
+      // Update
+      removeOp('test_data', test_id),
+      putOp('test_data', { id: test_id, description: 'test2' })
+    ]);
+
+    // subkey contains `${table id}/${replica identity}`.
+    // table id changes from run to run, but replica identity should always stay constant.
+    // This should not change if we make changes to the implementation
+    // (unless specifically opting in to new behavior)
+    expect(data[0].subkey).toContain('/c7b3f1a3-ec4d-5d44-b295-c7f2a32bb056');
+    expect(data[1].subkey).toContain('/c7b3f1a3-ec4d-5d44-b295-c7f2a32bb056');
+    expect(data[2].subkey).toContain('/984d457a-69f0-559a-a2f9-a511c28b968d');
+  });
 }

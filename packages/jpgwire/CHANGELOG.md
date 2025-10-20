@@ -1,5 +1,61 @@
 # @powersync/service-jpgwire
 
+## 0.21.4
+
+### Patch Changes
+
+- Updated dependencies [a98cecb]
+- Updated dependencies [704553e]
+  - @powersync/service-sync-rules@0.29.5
+
+## 0.21.3
+
+### Patch Changes
+
+- Updated dependencies [221289d]
+  - @powersync/service-sync-rules@0.29.4
+
+## 0.21.2
+
+### Patch Changes
+
+- f34da91: Node 22.19.0 other minor dependency updates
+- Updated dependencies [f34da91]
+  - @powersync/service-sync-rules@0.29.3
+
+## 0.21.1
+
+### Patch Changes
+
+- Updated dependencies [17aae6d]
+  - @powersync/service-sync-rules@0.29.2
+
+## 0.21.0
+
+### Minor Changes
+
+- 9681b4c: Add utilities for parsing serialized structures like compound types and arrays.
+
+### Patch Changes
+
+- Updated dependencies [9681b4c]
+  - @powersync/service-sync-rules@0.29.1
+
+## 0.20.2
+
+### Patch Changes
+
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+- Updated dependencies [b0b8ae9]
+- Updated dependencies [d2be184]
+- Updated dependencies [5284fb5]
+- Updated dependencies [18435a4]
+- Updated dependencies [5284fb5]
+- Updated dependencies [6fd0242]
+- Updated dependencies [060b829]
+  - @powersync/service-sync-rules@0.29.0
+  - @powersync/service-jsonbig@0.17.11
+
 ## 0.20.1
 
 ### Patch Changes

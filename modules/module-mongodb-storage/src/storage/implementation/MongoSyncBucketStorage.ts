@@ -10,11 +10,14 @@ import {
   BroadcastIterable,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
+  CompactOptions,
   deserializeParameterLookup,
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
   maxLsn,
+  PopulateChecksumCacheOptions,
+  PopulateChecksumCacheResults,
   ProtocolOpId,
   ReplicationCheckpoint,
   storage,
@@ -30,21 +33,33 @@ import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey, SourceTableDocument } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
+import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactor } from './MongoCompactor.js';
+import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from './util.js';
-import { MongoParameterCompactor } from './MongoParameterCompactor.js';
+
+export interface MongoSyncBucketStorageOptions {
+  checksumOptions?: MongoChecksumOptions;
+}
+
+/**
+ * Only keep checkpoints around for a minute, before fetching a fresh one.
+ *
+ * The reason is that we keep a MongoDB snapshot reference (clusterTime) with the checkpoint,
+ * and they expire after 5 minutes by default. This is an issue if the checkpoint stream is idle,
+ * but new clients connect and use an outdated checkpoint snapshot for parameter queries.
+ *
+ * These will be filtered out for existing clients, so should not create significant overhead.
+ */
+const CHECKPOINT_TIMEOUT_MS = 60_000;
 
 export class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
   implements storage.SyncRulesBucketStorage
 {
   private readonly db: PowerSyncMongo;
-  private checksumCache = new storage.ChecksumCache({
-    fetchChecksums: (batch) => {
-      return this.getChecksumsInternal(batch);
-    }
-  });
+  readonly checksums: MongoChecksums;
 
   private parsedSyncRulesCache: { parsed: SqlSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
@@ -54,13 +69,15 @@ export class MongoSyncBucketStorage
     public readonly group_id: number,
     private readonly sync_rules: storage.PersistedSyncRulesContent,
     public readonly slot_name: string,
-    writeCheckpointMode: storage.WriteCheckpointMode = storage.WriteCheckpointMode.MANAGED
+    writeCheckpointMode?: storage.WriteCheckpointMode,
+    options?: MongoSyncBucketStorageOptions
   ) {
     super();
     this.db = factory.db;
+    this.checksums = new MongoChecksums(this.db, this.group_id, options?.checksumOptions);
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
       db: this.db,
-      mode: writeCheckpointMode,
+      mode: writeCheckpointMode ?? storage.WriteCheckpointMode.MANAGED,
       sync_rules_id: group_id
     });
   }
@@ -388,7 +405,9 @@ export class MongoSyncBucketStorage
         limit: batchLimit,
         // Increase batch size above the default 101, so that we can fill an entire batch in
         // one go.
-        batchSize: batchLimit,
+        // batchSize is 1 more than limit to auto-close the cursor.
+        // See https://github.com/mongodb/node-mongodb-native/pull/4580
+        batchSize: batchLimit + 1,
         // Raw mode is returns an array of Buffer instead of parsed documents.
         // We use it so that:
         // 1. We can calculate the document size accurately without serializing again.
@@ -487,76 +506,11 @@ export class MongoSyncBucketStorage
   }
 
   async getChecksums(checkpoint: utils.InternalOpId, buckets: string[]): Promise<utils.ChecksumMap> {
-    return this.checksumCache.getChecksumMap(checkpoint, buckets);
+    return this.checksums.getChecksums(checkpoint, buckets);
   }
 
-  private async getChecksumsInternal(batch: storage.FetchPartialBucketChecksum[]): Promise<storage.PartialChecksumMap> {
-    if (batch.length == 0) {
-      return new Map();
-    }
-
-    const filters: any[] = [];
-    for (let request of batch) {
-      filters.push({
-        _id: {
-          $gt: {
-            g: this.group_id,
-            b: request.bucket,
-            o: request.start ? BigInt(request.start) : new bson.MinKey()
-          },
-          $lte: {
-            g: this.group_id,
-            b: request.bucket,
-            o: BigInt(request.end)
-          }
-        }
-      });
-    }
-
-    const aggregate = await this.db.bucket_data
-      .aggregate(
-        [
-          {
-            $match: {
-              $or: filters
-            }
-          },
-          {
-            $group: {
-              _id: '$_id.b',
-              // Historically, checksum may be stored as 'int' or 'double'.
-              // More recently, this should be a 'long'.
-              // $toLong ensures that we always sum it as a long, avoiding inaccuracies in the calculations.
-              checksum_total: { $sum: { $toLong: '$checksum' } },
-              count: { $sum: 1 },
-              has_clear_op: {
-                $max: {
-                  $cond: [{ $eq: ['$op', 'CLEAR'] }, 1, 0]
-                }
-              }
-            }
-          }
-        ],
-        { session: undefined, readConcern: 'snapshot', maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS }
-      )
-      .toArray()
-      .catch((e) => {
-        throw lib_mongo.mapQueryError(e, 'while reading checksums');
-      });
-
-    return new Map<string, storage.PartialChecksum>(
-      aggregate.map((doc) => {
-        return [
-          doc._id,
-          {
-            bucket: doc._id,
-            partialCount: doc.count,
-            partialChecksum: Number(BigInt(doc.checksum_total) & 0xffffffffn) & 0xffffffff,
-            isFullChecksum: doc.has_clear_op == 1
-          } satisfies storage.PartialChecksum
-        ];
-      })
-    );
+  clearChecksumCache() {
+    this.checksums.clearCache();
   }
 
   async terminate(options?: storage.TerminateOptions) {
@@ -701,11 +655,37 @@ export class MongoSyncBucketStorage
   }
 
   async compact(options?: storage.CompactOptions) {
-    const checkpoint = await this.getCheckpointInternal();
-    await new MongoCompactor(this.db, this.group_id, options).compact();
-    if (checkpoint != null && options?.compactParameterData) {
-      await new MongoParameterCompactor(this.db, this.group_id, checkpoint.checkpoint, options).compact();
+    let maxOpId = options?.maxOpId;
+    if (maxOpId == null) {
+      const checkpoint = await this.getCheckpointInternal();
+      maxOpId = checkpoint?.checkpoint ?? undefined;
     }
+    await new MongoCompactor(this, this.db, { ...options, maxOpId }).compact();
+
+    if (maxOpId != null && options?.compactParameterData) {
+      await new MongoParameterCompactor(this.db, this.group_id, maxOpId, options).compact();
+    }
+  }
+
+  async populatePersistentChecksumCache(options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults> {
+    logger.info(`Populating persistent checksum cache...`);
+    const start = Date.now();
+    // We do a minimal compact here.
+    // We can optimize this in the future.
+    const compactor = new MongoCompactor(this, this.db, {
+      ...options,
+      // Don't track updates for MOVE compacting
+      memoryLimitMB: 0
+    });
+
+    const result = await compactor.populateChecksums({
+      // There are cases with millions of small buckets, in which case it can take very long to
+      // populate the checksums, with minimal benefit. We skip the small buckets here.
+      minBucketChanges: options.minBucketChanges ?? 10
+    });
+    const duration = Date.now() - start;
+    logger.info(`Populated persistent checksum cache in ${(duration / 1000).toFixed(1)}s`);
+    return result;
   }
 
   /**
@@ -720,25 +700,45 @@ export class MongoSyncBucketStorage
 
     // We only watch changes to the active sync rules.
     // If it changes to inactive, we abort and restart with the new sync rules.
-    let lastOp: storage.ReplicationCheckpoint | null = null;
+    try {
+      while (true) {
+        // If the stream is idle, we wait a max of a minute (CHECKPOINT_TIMEOUT_MS)
+        // before we get another checkpoint, to avoid stale checkpoint snapshots.
+        const timeout = timers
+          .setTimeout(CHECKPOINT_TIMEOUT_MS, { done: false }, { signal })
+          .catch(() => ({ done: true }));
+        try {
+          const result = await Promise.race([stream.next(), timeout]);
+          if (result.done) {
+            break;
+          }
+        } catch (e) {
+          if (e.name == 'AbortError') {
+            break;
+          }
+          throw e;
+        }
 
-    for await (const _ of stream) {
-      if (signal.aborted) {
-        break;
-      }
+        if (signal.aborted) {
+          // Would likely have been caught by the signal on the timeout or the upstream stream, but we check here anyway
+          break;
+        }
 
-      const op = await this.getCheckpointInternal();
-      if (op == null) {
-        // Sync rules have changed - abort and restart.
-        // We do a soft close of the stream here - no error
-        break;
-      }
+        const op = await this.getCheckpointInternal();
+        if (op == null) {
+          // Sync rules have changed - abort and restart.
+          // We do a soft close of the stream here - no error
+          break;
+        }
 
-      // Check for LSN / checkpoint changes - ignore other metadata changes
-      if (lastOp == null || op.lsn != lastOp.lsn || op.checkpoint != lastOp.checkpoint) {
-        lastOp = op;
+        // Previously, we only yielded when the checkpoint or lsn changed.
+        // However, we always want to use the latest snapshotTime, so we skip that filtering here.
+        // That filtering could be added in the per-user streams if needed, but in general the capped collection
+        // should already only contain useful changes in most cases.
         yield op;
       }
+    } finally {
+      await stream.return(null);
     }
   }
 
@@ -754,7 +754,10 @@ export class MongoSyncBucketStorage
     let lastCheckpoint: ReplicationCheckpoint | null = null;
 
     const iter = this.sharedIter[Symbol.asyncIterator](options.signal);
+
     let writeCheckpoint: bigint | null = null;
+    // true if we queried the initial write checkpoint, even if it doesn't exist
+    let queriedInitialWriteCheckpoint = false;
 
     for await (const nextCheckpoint of iter) {
       // lsn changes are not important by itself.
@@ -762,14 +765,17 @@ export class MongoSyncBucketStorage
       // 1. checkpoint (op_id) changes.
       // 2. write checkpoint changes for the specific user
 
-      if (nextCheckpoint.lsn != null) {
-        writeCheckpoint ??= await this.writeCheckpointAPI.lastWriteCheckpoint({
+      if (nextCheckpoint.lsn != null && !queriedInitialWriteCheckpoint) {
+        // Lookup the first write checkpoint for the user when we can.
+        // There will not actually be one in all cases.
+        writeCheckpoint = await this.writeCheckpointAPI.lastWriteCheckpoint({
           sync_rules_id: this.group_id,
           user_id: options.user_id,
           heads: {
             '1': nextCheckpoint.lsn
           }
         });
+        queriedInitialWriteCheckpoint = true;
       }
 
       if (
@@ -779,12 +785,13 @@ export class MongoSyncBucketStorage
       ) {
         // No change - wait for next one
         // In some cases, many LSNs may be produced in a short time.
-        // Add a delay to throttle the write checkpoint lookup a bit.
+        // Add a delay to throttle the loop a bit.
         await timers.setTimeout(20 + 10 * Math.random());
         continue;
       }
 
       if (lastCheckpoint == null) {
+        // First message for this stream - "INVALIDATE_ALL" means it will lookup all data
         yield {
           base: nextCheckpoint,
           writeCheckpoint,
@@ -798,7 +805,9 @@ export class MongoSyncBucketStorage
 
         let updatedWriteCheckpoint = updates.updatedWriteCheckpoints.get(options.user_id) ?? null;
         if (updates.invalidateWriteCheckpoints) {
-          updatedWriteCheckpoint ??= await this.writeCheckpointAPI.lastWriteCheckpoint({
+          // Invalidated means there were too many updates to track the individual ones,
+          // so we switch to "polling" (querying directly in each stream).
+          updatedWriteCheckpoint = await this.writeCheckpointAPI.lastWriteCheckpoint({
             sync_rules_id: this.group_id,
             user_id: options.user_id,
             heads: {
@@ -808,6 +817,9 @@ export class MongoSyncBucketStorage
         }
         if (updatedWriteCheckpoint != null && (writeCheckpoint == null || updatedWriteCheckpoint > writeCheckpoint)) {
           writeCheckpoint = updatedWriteCheckpoint;
+          // If it happened that we haven't queried a write checkpoint at this point,
+          // then we don't need to anymore, since we got an updated one.
+          queriedInitialWriteCheckpoint = true;
         }
 
         yield {
@@ -902,7 +914,9 @@ export class MongoSyncBucketStorage
             '_id.b': 1
           },
           limit: limit + 1,
-          batchSize: limit + 1,
+          // batchSize is 1 more than limit to auto-close the cursor.
+          // See https://github.com/mongodb/node-mongodb-native/pull/4580
+          batchSize: limit + 2,
           singleBatch: true
         }
       )
@@ -932,7 +946,9 @@ export class MongoSyncBucketStorage
             lookup: 1
           },
           limit: limit + 1,
-          batchSize: limit + 1,
+          // batchSize is 1 more than limit to auto-close the cursor.
+          // See https://github.com/mongodb/node-mongodb-native/pull/4580
+          batchSize: limit + 2,
           singleBatch: true
         }
       )

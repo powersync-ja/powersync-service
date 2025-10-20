@@ -1,5 +1,109 @@
 # @powersync/service-core
 
+## 1.15.8
+
+### Patch Changes
+
+- da7ecc6: Upgrade mongodb driver to improve stability.
+- 5328802: [MongoDB Storage] Only compact modified buckets. Add index on bucket_state to handle large numbers of buckets when pre-calculating checksums or compacting, and skip small buckets.
+- Updated dependencies [a98cecb]
+- Updated dependencies [da7ecc6]
+- Updated dependencies [704553e]
+  - @powersync/service-sync-rules@0.29.5
+  - @powersync/service-rsocket-router@0.2.5
+  - @powersync/lib-services-framework@0.7.8
+
+## 1.15.7
+
+### Patch Changes
+
+- d976830: Fix SnapshotTooOld on parameter queries in some cases.
+
+## 1.15.6
+
+### Patch Changes
+
+- 221289d: Correctly handle custom types in primary keys.
+- Updated dependencies [221289d]
+  - @powersync/service-sync-rules@0.29.4
+  - @powersync/lib-services-framework@0.7.7
+  - @powersync/service-rsocket-router@0.2.4
+
+## 1.15.5
+
+### Patch Changes
+
+- Updated dependencies [f34da91]
+  - @powersync/service-sync-rules@0.29.3
+  - @powersync/lib-services-framework@0.7.6
+  - @powersync/service-rsocket-router@0.2.3
+
+## 1.15.4
+
+### Patch Changes
+
+- a2b8bb0: Avoid frequent write checkpoint lookups when the user does not have one.
+- f400b0f: Protocol: Allow `null` as stream parameter.
+- Updated dependencies [17aae6d]
+  - @powersync/service-sync-rules@0.29.2
+  - @powersync/lib-services-framework@0.7.5
+  - @powersync/service-rsocket-router@0.2.2
+
+## 1.15.3
+
+### Patch Changes
+
+- f1b4cef: Fix checksum calculation issues with large buckets.
+- Updated dependencies [9681b4c]
+  - @powersync/service-sync-rules@0.29.1
+  - @powersync/lib-services-framework@0.7.4
+  - @powersync/service-rsocket-router@0.2.1
+
+## 1.15.2
+
+### Patch Changes
+
+- bec7496: Fix "E11000 duplicate key error collection: powersync_demo.bucket_state" in some cases on sync rules deploy
+
+## 1.15.1
+
+### Patch Changes
+
+- 6352283: Fix pre-computing of checksums after intial replication causing replication timeouts
+- 6352283: Improve performance of the compact job
+
+## 1.15.0
+
+### Minor Changes
+
+- 6d4a4d1: Create a persisted checksum cache when compacting buckets.
+- c27e1c8: Upgrade Node, Sentry, Fastify and OpenTelemetry dependencies.
+- f56acce: Enable permessage-deflate for websockets.
+- 86807d0: Support gzip and zstd compression in http streams.
+
+### Patch Changes
+
+- d2be184: Refactor interface between service and sync rule bindings in preparation for sync streams.
+- 29a368e: Fix inconsistencies between binary data being requested and actually being sent.
+- 6315334: [MongoDB Storage] Increase checksum timeouts
+- 060b829: Update license abbreviation to FSL-1.1-ALv2.
+- d49bebe: - Hooked up the MySQL binlog heartbeat events with the bucket batch keepalive mechanism.
+  Heartbeat events will now update the latest keepalive timestamp in the sync rules.
+- Updated dependencies [b0b8ae9]
+- Updated dependencies [d2be184]
+- Updated dependencies [5284fb5]
+- Updated dependencies [18435a4]
+- Updated dependencies [5284fb5]
+- Updated dependencies [f56acce]
+- Updated dependencies [6fd0242]
+- Updated dependencies [86807d0]
+- Updated dependencies [060b829]
+  - @powersync/service-sync-rules@0.29.0
+  - @powersync/service-rsocket-router@0.2.0
+  - @powersync/service-types@0.13.0
+  - @powersync/lib-services-framework@0.7.3
+  - @powersync/service-jsonbig@0.17.11
+
 ## 1.14.0
 
 ### Minor Changes

@@ -2,6 +2,7 @@ import { BucketInclusionReason, ResolvedBucket } from '../BucketDescription.js';
 import { BucketParameterQuerier, ParameterLookup } from '../BucketParameterQuerier.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import {
+  BucketIdTransformer,
   EvaluatedParametersResult,
   EvaluateRowOptions,
   RequestParameters,
@@ -67,8 +68,8 @@ export class StreamVariant {
   /**
    * Given a row in the table this stream selects from, returns all ids of buckets to which that row belongs to.
    */
-  bucketIdsForRow(streamName: string, options: TableRow): string[] {
-    return this.instantiationsForRow(options).map((values) => this.buildBucketId(streamName, values));
+  bucketIdsForRow(streamName: string, options: TableRow, transformer: BucketIdTransformer): string[] {
+    return this.instantiationsForRow(options).map((values) => this.buildBucketId(streamName, values, transformer));
   }
 
   /**
@@ -117,7 +118,12 @@ export class StreamVariant {
     return this.requestFilters.some((f) => f.type == 'dynamic');
   }
 
-  querier(stream: SyncStream, reason: BucketInclusionReason, params: RequestParameters): BucketParameterQuerier | null {
+  querier(
+    stream: SyncStream,
+    reason: BucketInclusionReason,
+    params: RequestParameters,
+    bucketIdTransformer: BucketIdTransformer
+  ): BucketParameterQuerier | null {
     const instantiation = this.partiallyEvaluateParameters(params);
     if (instantiation == null) {
       return null;
@@ -153,7 +159,7 @@ export class StreamVariant {
       // When we have no dynamic parameters, the partial evaluation is a full instantiation.
       const instantiations = this.cartesianProductOfParameterInstantiations(instantiation as SqliteJsonValue[][]);
       for (const instantiation of instantiations) {
-        staticBuckets.push(this.resolveBucket(stream, instantiation, reason));
+        staticBuckets.push(this.resolveBucket(stream, instantiation, reason, bucketIdTransformer));
       }
     }
 
@@ -198,7 +204,7 @@ export class StreamVariant {
           perParameterInstantiation as SqliteJsonValue[][]
         );
 
-        return Promise.resolve(product.map((e) => variant.resolveBucket(stream, e, reason)));
+        return Promise.resolve(product.map((e) => variant.resolveBucket(stream, e, reason, bucketIdTransformer)));
       }
     };
   }
@@ -299,25 +305,27 @@ export class StreamVariant {
    *
    * @param streamName The name of the stream, included in the bucket id
    * @param instantiation An instantiation for all parameters in this variant.
+   * @param transformer A transformer adding version information to the inner id.
    * @returns The generated bucket id
    */
-  private buildBucketId(streamName: string, instantiation: SqliteJsonValue[]) {
+  private buildBucketId(streamName: string, instantiation: SqliteJsonValue[], transformer: BucketIdTransformer) {
     if (instantiation.length != this.parameters.length) {
       throw Error('Internal error, instantiation length mismatch');
     }
 
-    return `${streamName}|${this.id}${JSONBucketNameSerialize.stringify(instantiation)}`;
+    return transformer(`${streamName}|${this.id}${JSONBucketNameSerialize.stringify(instantiation)}`);
   }
 
   private resolveBucket(
     stream: SyncStream,
     instantiation: SqliteJsonValue[],
-    reason: BucketInclusionReason
+    reason: BucketInclusionReason,
+    bucketIdTransformer: BucketIdTransformer
   ): ResolvedBucket {
     return {
       definition: stream.name,
       inclusion_reasons: [reason],
-      bucket: this.buildBucketId(stream.name, instantiation),
+      bucket: this.buildBucketId(stream.name, instantiation, bucketIdTransformer),
       priority: stream.priority
     };
   }

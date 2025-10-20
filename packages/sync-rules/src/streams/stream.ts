@@ -3,11 +3,11 @@ import { BucketInclusionReason, BucketPriority, DEFAULT_BUCKET_PRIORITY } from '
 import { BucketParameterQuerier, PendingQueriers } from '../BucketParameterQuerier.js';
 import { BucketSource, BucketSourceType, ResultSetDescription } from '../BucketSource.js';
 import { ColumnDefinition } from '../ExpressionType.js';
-import { CompatibilityContext } from '../compatibility.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { GetQuerierOptions, RequestedStream } from '../SqlSyncRules.js';
 import { TablePattern } from '../TablePattern.js';
 import {
+  BucketIdTransformer,
   EvaluatedParametersResult,
   EvaluateRowOptions,
   EvaluationResult,
@@ -16,7 +16,6 @@ import {
   SqliteRow,
   TableRow
 } from '../types.js';
-import { applyRowContext } from '../utils.js';
 import { StreamVariant } from './variant.js';
 
 export class SyncStream implements BucketSource {
@@ -26,11 +25,7 @@ export class SyncStream implements BucketSource {
   variants: StreamVariant[];
   data: BaseSqlDataQuery;
 
-  constructor(
-    name: string,
-    data: BaseSqlDataQuery,
-    private readonly compatibility: CompatibilityContext
-  ) {
+  constructor(name: string, data: BaseSqlDataQuery) {
     this.name = name;
     this.subscribedToByDefault = false;
     this.priority = DEFAULT_BUCKET_PRIORITY;
@@ -59,27 +54,28 @@ export class SyncStream implements BucketSource {
         hasExplicitDefaultSubscription = true;
       }
 
-      this.queriersForSubscription(result, subscription, subscriptionParams);
+      this.queriersForSubscription(result, subscription, subscriptionParams, options.bucketIdTransformer);
     }
 
     // If the stream is subscribed to by default and there is no explicit subscription that would match the default
     // subscription, also include the default querier.
     if (this.subscribedToByDefault && !hasExplicitDefaultSubscription) {
-      this.queriersForSubscription(result, null, options.globalParameters);
+      this.queriersForSubscription(result, null, options.globalParameters, options.bucketIdTransformer);
     }
   }
 
   private queriersForSubscription(
     result: PendingQueriers,
     subscription: RequestedStream | null,
-    params: RequestParameters
+    params: RequestParameters,
+    bucketIdTransformer: BucketIdTransformer
   ) {
     const reason: BucketInclusionReason = subscription != null ? { subscription: subscription.opaque_id } : 'default';
     const queriers: BucketParameterQuerier[] = [];
 
     try {
       for (const variant of this.variants) {
-        const querier = variant.querier(this, reason, params);
+        const querier = variant.querier(this, reason, params, bucketIdTransformer);
         if (querier) {
           queriers.push(querier);
         }
@@ -143,17 +139,15 @@ export class SyncStream implements BucketSource {
         columns: this.data.columnOutputNames()
       }
     };
-
-    throw new Error('Method not implemented.');
   }
 
   debugWriteOutputTables(result: Record<string, { query: string }[]>): void {
-    result[this.data.table!] ??= [];
+    result[this.data.table!.sqlName] ??= [];
     const r = {
       query: this.data.sql
     };
 
-    result[this.data.table!].push(r);
+    result[this.data.table!.sqlName].push(r);
   }
 
   evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[] {
@@ -172,19 +166,18 @@ export class SyncStream implements BucketSource {
     }
 
     const stream = this;
-    const mappedRow = applyRowContext(options.record, this.compatibility);
     const row: TableRow = {
       sourceTable: options.sourceTable,
-      record: mappedRow
+      record: options.record
     };
 
     return this.data.evaluateRowWithOptions({
       table: options.sourceTable,
-      row: applyRowContext(options.record, this.compatibility),
+      row: options.record,
       bucketIds() {
         const bucketIds: string[] = [];
         for (const variant of stream.variants) {
-          bucketIds.push(...variant.bucketIdsForRow(stream.name, row));
+          bucketIds.push(...variant.bucketIdsForRow(stream.name, row, options.bucketIdTransformer));
         }
 
         return bucketIds;
