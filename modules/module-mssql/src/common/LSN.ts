@@ -70,4 +70,8 @@ export class LSN {
   valueOf(): string {
     return this.value;
   }
+
+  toString(): string {
+    return this.value;
+  }
 }
