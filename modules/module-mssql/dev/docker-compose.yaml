@@ -1,7 +1,7 @@
 services:
   mssql:
     platform: linux/amd64
-    image: mcr.microsoft.com/mssql/server:2025-latest
+    image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: mssql
     ports:
       - "1433:1433"
