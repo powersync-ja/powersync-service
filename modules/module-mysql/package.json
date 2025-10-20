@@ -47,6 +47,6 @@
     "@powersync/service-module-mongodb-storage": "workspace:*",
     "@powersync/service-module-postgres-storage": "workspace:*",
     "@types/async": "^3.2.24",
-    "@types/semver": "^7.5.4"
+    "@types/semver": "^7.7.1"
   }
 }
