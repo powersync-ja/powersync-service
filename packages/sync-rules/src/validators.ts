@@ -10,6 +10,8 @@ export class DetectRequestParameters {
   usesAuthenticatedRequestParameters: boolean = false;
   /** request.parameters(), user_parameters.* */
   usesUnauthenticatedRequestParameters: boolean = false;
+  /** subscription.parameters(), subscription.parameters('a')  */
+  usesStreamParameters: boolean = false;
 
   accept(clause?: CompiledClause) {
     if (clause == null) {
@@ -19,8 +21,10 @@ export class DetectRequestParameters {
     if (isRequestFunctionCall(clause)) {
       const f = clause.function;
 
-      this.usesAuthenticatedRequestParameters ||= f.usesAuthenticatedRequestParameters;
-      this.usesUnauthenticatedRequestParameters ||= f.usesUnauthenticatedRequestParameters;
+      this.usesAuthenticatedRequestParameters ||= f.parameterUsage == 'authenticated';
+      this.usesUnauthenticatedRequestParameters ||=
+        f.parameterUsage == 'unauthenticated' || f.parameterUsage == 'subscription';
+      this.usesStreamParameters ||= f.parameterUsage == 'subscription';
     } else if (isLegacyParameterFromTableClause(clause)) {
       const table = clause.table;
       if (table == 'token_parameters') {
