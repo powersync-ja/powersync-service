@@ -1,7 +1,7 @@
 import { ExpressionType } from './ExpressionType.js';
 import { CompatibilityContext, CompatibilityEdition, CompatibilityOption } from './compatibility.js';
 import { generateSqlFunctions } from './sql_functions.js';
-import { ParameterValueSet, SqliteValue } from './types.js';
+import { CompiledClause, ParameterValueClause, ParameterValueSet, SqliteValue } from './types.js';
 
 export interface SqlParameterFunction {
   readonly debugName: string;
@@ -131,3 +131,14 @@ const REQUEST_FUNCTIONS_NAMED = {
 };
 
 export const REQUEST_FUNCTIONS: Record<string, SqlParameterFunction> = REQUEST_FUNCTIONS_NAMED;
+
+/**
+ * A {@link ParameterValueClause} derived from a call to a {@link SqlParameterFunction}.
+ */
+export interface RequestFunctionCall extends ParameterValueClause {
+  function: SqlParameterFunction;
+}
+
+export function isRequestFunctionCall(clause: CompiledClause): clause is RequestFunctionCall {
+  return (clause as RequestFunctionCall).function != null;
+}
