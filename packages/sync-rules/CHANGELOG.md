@@ -1,5 +1,13 @@
 # @powersync/service-sync-rules
 
+## 0.29.6
+
+### Patch Changes
+
+- b4fa979: Remove `usesAuthenticatedRequestParameters` and `usesUnauthenticatedRequestParameters` in favor of `DetectRequestParameters` computing them on-demand.
+- c2bd0b0: Add schema generator for Drift, SQLDelight and Room.
+- 0268858: Warn when a sync stream with auto-subscribe uses stream parameters.
+
 ## 0.29.5
 
 ### Patch Changes
