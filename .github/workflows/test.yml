@@ -103,7 +103,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        postgres-version: [11, 12, 13, 14, 15, 16, 17]
+        postgres-version: [11, 12, 13, 14, 15, 16, 17, 18]
 
     steps:
       - uses: actions/checkout@v4
