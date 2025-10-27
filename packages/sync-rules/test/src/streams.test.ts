@@ -408,6 +408,26 @@ describe('streams', () => {
         '1#stream|0["i2","l2"]'
       ]);
     });
+
+    test('parameter and auth match on same column', async () => {
+      const desc = parseStream(
+        "SELECT * FROM comments WHERE issue_id = subscription.parameter('issue') AND issue_id IN auth.parameter('issues')"
+      );
+      expect(evaluateBucketIds(desc, COMMENTS, { id: 'a', issue_id: 'i' })).toStrictEqual(['1#stream|0["i","i"]']);
+
+      expect(
+        await queryBucketIds(desc, {
+          token: { sub: 'a' },
+          parameters: { issue: 'i' }
+        })
+      ).toStrictEqual([]);
+      expect(
+        await queryBucketIds(desc, {
+          token: { sub: 'a', issues: ['i', 'i2'] },
+          parameters: { issue: 'i' }
+        })
+      ).toStrictEqual(['1#stream|0["i","i"]', '1#stream|0["i","i2"]']);
+    });
   });
 
   describe('overlap', () => {
