@@ -17,7 +17,6 @@
 '@powersync/service-errors': patch
 '@powersync/service-sync-rules': patch
 '@powersync/service-types': patch
-'@powersync/service-image': patch
 ---
 
 Migrate to trusted publishing
