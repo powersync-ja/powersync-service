@@ -79,7 +79,7 @@ jobs:
         run: pnpm build
 
       - name: Test
-        run: pnpm test --filter '!./modules/*'
+        run: pnpm --filter '!./modules/*' test
 
   run-postgres-tests:
     name: Postgres Test
@@ -152,10 +152,10 @@ jobs:
         run: pnpm build
 
       - name: Test Replication
-        run: pnpm test --filter='./modules/module-postgres'
+        run: pnpm --filter='./modules/module-postgres' test
 
       - name: Test Storage
-        run: pnpm test --filter='./modules/module-postgres-storage'
+        run: pnpm --filter='./modules/module-postgres-storage' test
 
   run-mysql-tests:
     name: MySQL Test
@@ -228,7 +228,7 @@ jobs:
         run: pnpm build
 
       - name: Test Replication
-        run: pnpm test --filter='./modules/module-mysql'
+        run: pnpm --filter='./modules/module-mysql' test
 
   run-mongodb-tests:
     name: MongoDB Test
@@ -288,7 +288,7 @@ jobs:
         run: pnpm build
 
       - name: Test Replication
-        run: pnpm test --filter='./modules/module-mongodb'
+        run: pnpm --filter='./modules/module-mongodb' test
 
       - name: Test Storage
-        run: pnpm test --filter='./modules/module-mongodb-storage'
+        run: pnpm --filter='./modules/module-mongodb-storage' test
