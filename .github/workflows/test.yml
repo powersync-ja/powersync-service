@@ -237,7 +237,7 @@ jobs:
             -e POSTGRES_PASSWORD=postgres \
             -e POSTGRES_DB=powersync_storage_test \
             -p 5431:5432 \
-            -d postgres:16
+            -d postgres:18
 
       - name: Setup NodeJS
         uses: actions/setup-node@v4
@@ -310,7 +310,7 @@ jobs:
             -e POSTGRES_PASSWORD=postgres \
             -e POSTGRES_DB=powersync_storage_test \
             -p 5431:5432 \
-            -d postgres:16
+            -d postgres:18
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
