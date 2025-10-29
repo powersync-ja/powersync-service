@@ -255,7 +255,12 @@ export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientLis
   }
 
   async [Symbol.asyncDispose]() {
-    await this.initialized;
+    try {
+      await this.initialized;
+    } catch (e) {
+      // Error was already reported when initializing - ignore here.
+      // If if throw this, we typically get a SuppressedError, which is difficult to debug.
+    }
     this.closed = true;
 
     for (const c of this.connections) {
