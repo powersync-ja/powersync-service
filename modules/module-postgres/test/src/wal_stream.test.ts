@@ -315,13 +315,22 @@ bucket_definitions:
       await pool.query(`UPDATE test_data SET description = 'updated'`);
       await pool.query('CREATE PUBLICATION powersync FOR ALL TABLES');
 
-      await context.loadActiveSyncRules();
-      await expect(async () => {
-        await context.replicateSnapshot();
-      }).rejects.toThrowError(MissingReplicationSlotError);
+      const serverVersion = await context.connectionManager.getServerVersion();
 
-      // The error is handled on a higher level, which triggers
-      // creating a new replication slot.
+      await context.loadActiveSyncRules();
+
+      if (serverVersion!.compareMain('18.0.0') >= 0) {
+        await context.replicateSnapshot();
+        // No error expected in Postres 18
+        // TODO: introduce new test scenario for Postgres 18 that _does_ invalidate the replication slot.
+      } else {
+        // Postgres < 18 invalidates the replication slot when the publication is re-created.
+        // The error is handled on a higher level, which triggers
+        // creating a new replication slot.
+        await expect(async () => {
+          await context.replicateSnapshot();
+        }).rejects.toThrowError(MissingReplicationSlotError);
+      }
     }
   });
 
