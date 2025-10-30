@@ -297,7 +297,9 @@ export class WalStream {
     // Check if replication slot exists
     const slot = pgwire.pgwireRows(
       await this.connections.pool.query({
-        statement: await this.getSlotQuery(),
+        // We specifically want wal_status and invalidation_reason, but it's not available on older versions,
+        // so we just query *.
+        statement: 'SELECT * FROM pg_replication_slots WHERE slot_name = $1',
         params: [{ type: 'varchar', value: slotName }]
       })
     )[0];
@@ -332,8 +334,10 @@ export class WalStream {
    * If a replication slot exists, check that it is healthy.
    */
   private async checkReplicationSlot(slot: {
-    wal_status: string;
-    invalidation_reason: string | null;
+    // postgres 13+
+    wal_status?: string;
+    // postgres 17+
+    invalidation_reason?: string | null;
   }): Promise<{ needsNewSlot: boolean }> {
     // Start with a placeholder error, should be replaced if there is an actual issue.
     let last_error = new ReplicationAssertionError(`Slot health check failed to execute`);
@@ -342,7 +346,9 @@ export class WalStream {
 
     const lost = slot.wal_status == 'lost';
     if (lost) {
-      this.logger.warn(`Replication slot ${slotName} is invalidated. invalidation_reason: ${slot.invalidation_reason}`);
+      this.logger.warn(
+        `Replication slot ${slotName} is invalidated. invalidation_reason: ${slot.invalidation_reason ?? 'unknown'}`
+      );
       return {
         needsNewSlot: true
       };
@@ -1152,21 +1158,6 @@ WHERE  oid = $1::regclass`,
   protected async checkLogicalMessageSupport() {
     const version = await this.connections.getServerVersion();
     return version ? version.compareMain('14.0.0') >= 0 : false;
-  }
-
-  /**
-   * The pg_replication_slots definition added new debugging features in postgres 13 and in 17, so we selectively use that.
-   */
-  protected async getSlotQuery() {
-    const version = await this.connections.getServerVersion();
-
-    if (version!.compareMain('17.0.0') >= 0) {
-      return `SELECT wal_status, invalidation_reason FROM pg_replication_slots WHERE slot_name = $1`;
-    } else if (version!.compareMain('13.0.0') >= 0) {
-      return `SELECT wal_status, 'unknown' as invalidation_reason FROM pg_replication_slots WHERE slot_name = $1`;
-    } else {
-      return `SELECT 'unknown' as wal_status, 'unknown' as invalidation_reason FROM pg_replication_slots WHERE slot_name = $1`;
-    }
   }
 
   async getReplicationLagMillis(): Promise<number | undefined> {
