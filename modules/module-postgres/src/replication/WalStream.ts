@@ -295,15 +295,16 @@ export class WalStream {
     }
 
     // Check if replication slot exists
-    const rs = await this.connections.pool.query({
-      statement: 'SELECT 1 FROM pg_replication_slots WHERE slot_name = $1',
-      params: [{ type: 'varchar', value: slotName }]
-    });
-    const slotExists = rs.rows.length > 0;
+    const slot = pgwire.pgwireRows(
+      await this.connections.pool.query({
+        statement: 'SELECT wal_status, invalidation_reason FROM pg_replication_slots WHERE slot_name = $1',
+        params: [{ type: 'varchar', value: slotName }]
+      })
+    )[0];
 
-    if (slotExists) {
+    if (slot != null) {
       // This checks that the slot is still valid
-      const r = await this.checkReplicationSlot();
+      const r = await this.checkReplicationSlot(slot as any);
       if (snapshotDone && r.needsNewSlot) {
         // We keep the current snapshot, and create a new replication slot
         throw new MissingReplicationSlotError(`Replication slot ${slotName} is not valid anymore`);
@@ -330,9 +331,20 @@ export class WalStream {
   /**
    * If a replication slot exists, check that it is healthy.
    */
-  private async checkReplicationSlot(): Promise<{ needsNewSlot: boolean }> {
+  private async checkReplicationSlot(slot: {
+    wal_status: string;
+    invalidation_reason: string | null;
+  }): Promise<{ needsNewSlot: boolean }> {
     let last_error = null;
     const slotName = this.slot_name;
+
+    const lost = slot.wal_status == 'lost';
+    if (lost) {
+      this.logger.warn(`Replication slot ${slotName} is invalidated. invalidation_reason: ${slot.invalidation_reason}`);
+      return {
+        needsNewSlot: true
+      };
+    }
 
     // Check that replication slot exists
     for (let i = 120; i >= 0; i--) {
