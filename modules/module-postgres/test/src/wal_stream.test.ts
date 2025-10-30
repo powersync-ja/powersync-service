@@ -389,6 +389,13 @@ bucket_definitions:
 
   test('replication slot lost', async () => {
     await using baseContext = await WalStreamTestContext.open(factory, { doNotClear: true });
+
+    const serverVersion = await baseContext.connectionManager.getServerVersion();
+    if (serverVersion!.compareMain('13.0.0') < 0) {
+      console.warn(`max_slot_wal_keep_size not supported on postgres ${serverVersion} - skipping test.`);
+      return;
+    }
+
     // Configure max_slot_wal_keep_size for the test, reverting afterwards.
     await using s = await withMaxWalSize(baseContext.pool, '100MB');
 
