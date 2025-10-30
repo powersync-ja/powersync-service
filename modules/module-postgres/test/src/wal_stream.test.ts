@@ -6,7 +6,7 @@ import { ReplicationMetric } from '@powersync/service-types';
 import * as crypto from 'crypto';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { describeWithStorage } from './util.js';
-import { WalStreamTestContext } from './wal_stream_utils.js';
+import { WalStreamTestContext, withMaxWalSize } from './wal_stream_utils.js';
 import { JSONBig } from '@powersync/service-jsonbig';
 
 const BASIC_SYNC_RULES = `
@@ -21,36 +21,6 @@ describe('wal stream', () => {
 });
 
 function defineWalStreamTests(factory: storage.TestStorageFactory) {
-  let oldMaxSlotWalKeepSize: string;
-
-  beforeAll(async () => {
-    await using context = await WalStreamTestContext.open(factory);
-    const { pool } = context;
-
-    try {
-      const r1 = await pool.query(`SHOW max_slot_wal_keep_size`);
-
-      await pool.query(`ALTER SYSTEM SET max_slot_wal_keep_size = '100MB'`);
-      await pool.query(`SELECT pg_reload_conf()`);
-
-      oldMaxSlotWalKeepSize = r1.results[0].rows[0][0];
-    } catch (e) {
-      // Don't block all tests because of this
-      console.warn('Could not set max_slot_wal_keep_size', e);
-    }
-  });
-
-  afterAll(async () => {
-    if (oldMaxSlotWalKeepSize == null) {
-      return;
-    }
-    await using context = await WalStreamTestContext.open(factory);
-    const { pool } = context;
-
-    await pool.query(`ALTER SYSTEM SET max_slot_wal_keep_size = '${oldMaxSlotWalKeepSize}'`);
-    await pool.query(`SELECT pg_reload_conf()`);
-  });
-
   test('replicating basic values', async () => {
     await using context = await WalStreamTestContext.open(factory);
     const { pool } = context;
@@ -418,9 +388,10 @@ bucket_definitions:
   });
 
   test('replication slot lost', async () => {
-    if (oldMaxSlotWalKeepSize == null) {
-      throw new Error('Could not configure max_slot_wal_keep_size, required for this test');
-    }
+    await using baseContext = await WalStreamTestContext.open(factory, { doNotClear: true });
+    // Configure max_slot_wal_keep_size for the test, reverting afterwards.
+    await using s = await withMaxWalSize(baseContext.pool, '100MB');
+
     {
       await using context = await WalStreamTestContext.open(factory);
       const { pool } = context;
@@ -469,7 +440,7 @@ bucket_definitions:
         // Now check if the slot is still active.
         const slot = pgwireRows(
           await context.pool.query({
-            statement: `select slot_name, wal_status, invalidation_reason, safe_wal_size, pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) as lag from pg_replication_slots where slot_name = $1`,
+            statement: `select slot_name, wal_status, safe_wal_size, pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) as lag from pg_replication_slots where slot_name = $1`,
             params: [{ type: 'varchar', value: slotName }]
           })
         )[0];

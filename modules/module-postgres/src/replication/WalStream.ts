@@ -294,10 +294,11 @@ export class WalStream {
       this.logger.info(`Initial replication already done`);
     }
 
+    let invalidationReason = (await this.checkInvalidationReasonSupport()) ? 'invalidation_reason' : `'unknown'`;
     // Check if replication slot exists
     const slot = pgwire.pgwireRows(
       await this.connections.pool.query({
-        statement: 'SELECT wal_status, invalidation_reason FROM pg_replication_slots WHERE slot_name = $1',
+        statement: `SELECT wal_status, ${invalidationReason} as invalidation_reason FROM pg_replication_slots WHERE slot_name = $1`,
         params: [{ type: 'varchar', value: slotName }]
       })
     )[0];
@@ -388,7 +389,10 @@ export class WalStream {
           /incorrect prev-link/.test(e.message) ||
           /replication slot.*does not exist/.test(e.message) ||
           /publication.*does not exist/.test(e.message) ||
-          /can no longer access replication slot/.test(e.message)
+          // Postgres 18 - exceeded max_slot_wal_keep_size
+          /can no longer access replication slot/.test(e.message) ||
+          // Postgres 17 - exceeded max_slot_wal_keep_size
+          /can no longer get changes from replication slot/.test(e.message)
         ) {
           // Fatal error. In most cases, the `wal_status == 'lost'` check should pick this up, but this
           // works as a fallback.
@@ -1149,6 +1153,11 @@ WHERE  oid = $1::regclass`,
   protected async checkLogicalMessageSupport() {
     const version = await this.connections.getServerVersion();
     return version ? version.compareMain('14.0.0') >= 0 : false;
+  }
+
+  protected async checkInvalidationReasonSupport() {
+    const version = await this.connections.getServerVersion();
+    return version ? version.compareMain('16.0.0') >= 0 : false;
   }
 
   async getReplicationLagMillis(): Promise<number | undefined> {
