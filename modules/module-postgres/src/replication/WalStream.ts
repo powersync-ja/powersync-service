@@ -294,11 +294,10 @@ export class WalStream {
       this.logger.info(`Initial replication already done`);
     }
 
-    let invalidationReason = (await this.checkInvalidationReasonSupport()) ? 'invalidation_reason' : `'unknown'`;
     // Check if replication slot exists
     const slot = pgwire.pgwireRows(
       await this.connections.pool.query({
-        statement: `SELECT wal_status, ${invalidationReason} as invalidation_reason FROM pg_replication_slots WHERE slot_name = $1`,
+        statement: await this.getSlotQuery(),
         params: [{ type: 'varchar', value: slotName }]
       })
     )[0];
@@ -394,7 +393,7 @@ export class WalStream {
           // Postgres 17 - exceeded max_slot_wal_keep_size
           /can no longer get changes from replication slot/.test(e.message)
         ) {
-          // Fatal error. In most cases, the `wal_status == 'lost'` check should pick this up, but this
+          // Fatal error. In most cases since Postgres 13+, the `wal_status == 'lost'` check should pick this up, but this
           // works as a fallback.
 
           container.reporter.captureException(e, {
@@ -1155,9 +1154,19 @@ WHERE  oid = $1::regclass`,
     return version ? version.compareMain('14.0.0') >= 0 : false;
   }
 
-  protected async checkInvalidationReasonSupport() {
+  /**
+   * The pg_replication_slots definition added new debugging features in postgres 13 and in 17, so we selectively use that.
+   */
+  protected async getSlotQuery() {
     const version = await this.connections.getServerVersion();
-    return version ? version.compareMain('16.0.0') >= 0 : false;
+
+    if (version!.compareMain('17.0.0') >= 0) {
+      return `SELECT wal_status, invalidation_reason FROM pg_replication_slots WHERE slot_name = $1`;
+    } else if (version!.compareMain('13.0.0') >= 0) {
+      return `SELECT wal_status, 'unknown' as invalidation_reason FROM pg_replication_slots WHERE slot_name = $1`;
+    } else {
+      return `SELECT 'unknown' as wal_status, 'unknown' as invalidation_reason FROM pg_replication_slots WHERE slot_name = $1`;
+    }
   }
 
   async getReplicationLagMillis(): Promise<number | undefined> {
