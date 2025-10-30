@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -45,7 +45,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -64,27 +64,13 @@ jobs:
           mongodb-version: '8.0'
           mongodb-replica-set: test-rs
 
+      - name: Enable Corepack
+        run: corepack enable
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: '.nvmrc'
-
-      - uses: pnpm/action-setup@v4
-        name: Install pnpm
-
-      - name: Get pnpm store directory
-        shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-      - uses: actions/cache@v3
-        name: Setup pnpm cache
-        with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-
+          cache: pnpm
       - name: Install dependencies
         run: pnpm install
 
@@ -93,7 +79,7 @@ jobs:
         run: pnpm build
 
       - name: Test
-        run: pnpm test --filter '!./modules/*'
+        run: pnpm --filter '!./modules/*' test
 
   run-postgres-tests:
     name: Postgres Test
@@ -106,7 +92,7 @@ jobs:
         postgres-version: [11, 12, 13, 14, 15, 16, 17]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -150,26 +136,13 @@ jobs:
           mongodb-version: '8.0'
           mongodb-replica-set: test-rs
 
+      - name: Enable Corepack
+        run: corepack enable
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: '.nvmrc'
-
-      - uses: pnpm/action-setup@v4
-        name: Install pnpm
-
-      - name: Get pnpm store directory
-        shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-      - uses: actions/cache@v3
-        name: Setup pnpm cache
-        with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
+          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install
@@ -179,10 +152,10 @@ jobs:
         run: pnpm build
 
       - name: Test Replication
-        run: pnpm test --filter='./modules/module-postgres'
+        run: pnpm --filter='./modules/module-postgres' test
 
       - name: Test Storage
-        run: pnpm test --filter='./modules/module-postgres-storage'
+        run: pnpm --filter='./modules/module-postgres-storage' test
 
   run-mysql-tests:
     name: MySQL Test
@@ -195,7 +168,7 @@ jobs:
         mysql-version: [5.7, 8.0, 8.4]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -239,26 +212,13 @@ jobs:
             -p 5431:5432 \
             -d postgres:16
 
-      - name: Setup NodeJS
-        uses: actions/setup-node@v4
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
         with:
           node-version-file: '.nvmrc'
-
-      - uses: pnpm/action-setup@v4
-        name: Install pnpm
-
-      - name: Get pnpm store directory
-        shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-      - uses: actions/cache@v3
-        name: Setup pnpm cache
-        with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
+          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install
@@ -268,7 +228,7 @@ jobs:
         run: pnpm build
 
       - name: Test Replication
-        run: pnpm test --filter='./modules/module-mysql'
+        run: pnpm --filter='./modules/module-mysql' test
 
   run-mongodb-tests:
     name: MongoDB Test
@@ -312,26 +272,13 @@ jobs:
             -p 5431:5432 \
             -d postgres:16
 
+      - name: Enable Corepack
+        run: corepack enable
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: '.nvmrc'
-
-      - uses: pnpm/action-setup@v4
-        name: Install pnpm
-
-      - name: Get pnpm store directory
-        shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-      - uses: actions/cache@v3
-        name: Setup pnpm cache
-        with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
+          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install
@@ -341,7 +288,7 @@ jobs:
         run: pnpm build
 
       - name: Test Replication
-        run: pnpm test --filter='./modules/module-mongodb'
+        run: pnpm --filter='./modules/module-mongodb' test
 
       - name: Test Storage
-        run: pnpm test --filter='./modules/module-mongodb-storage'
+        run: pnpm --filter='./modules/module-mongodb-storage' test
