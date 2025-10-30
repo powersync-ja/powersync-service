@@ -4,9 +4,10 @@ import { METRICS_HELPER, putOp, removeOp } from '@powersync/service-core-tests';
 import { pgwireRows } from '@powersync/service-jpgwire';
 import { ReplicationMetric } from '@powersync/service-types';
 import * as crypto from 'crypto';
-import { describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { describeWithStorage } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
+import { JSONBig } from '@powersync/service-jsonbig';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -20,6 +21,36 @@ describe('wal stream', () => {
 });
 
 function defineWalStreamTests(factory: storage.TestStorageFactory) {
+  let oldMaxSlotWalKeepSize: string;
+
+  beforeAll(async () => {
+    await using context = await WalStreamTestContext.open(factory);
+    const { pool } = context;
+
+    try {
+      const r1 = await pool.query(`SHOW max_slot_wal_keep_size`);
+
+      await pool.query(`ALTER SYSTEM SET max_slot_wal_keep_size = '100MB'`);
+      await pool.query(`SELECT pg_reload_conf()`);
+
+      oldMaxSlotWalKeepSize = r1.results[0].rows[0][0];
+    } catch (e) {
+      // Don't block all tests because of this
+      console.warn('Could not set max_slot_wal_keep_size', e);
+    }
+  });
+
+  afterAll(async () => {
+    if (oldMaxSlotWalKeepSize == null) {
+      return;
+    }
+    await using context = await WalStreamTestContext.open(factory);
+    const { pool } = context;
+
+    await pool.query(`ALTER SYSTEM SET max_slot_wal_keep_size = '${oldMaxSlotWalKeepSize}'`);
+    await pool.query(`SELECT pg_reload_conf()`);
+  });
+
   test('replicating basic values', async () => {
     await using context = await WalStreamTestContext.open(factory);
     const { pool } = context;
@@ -375,6 +406,81 @@ bucket_definitions:
         statement: `SELECT pg_drop_replication_slot($1)`,
         params: [{ type: 'varchar', value: storage?.slot_name! }]
       });
+
+      await context.loadActiveSyncRules();
+
+      // The error is handled on a higher level, which triggers
+      // creating a new replication slot.
+      await expect(async () => {
+        await context.replicateSnapshot();
+      }).rejects.toThrowError(MissingReplicationSlotError);
+    }
+  });
+
+  test('replication slot lost', async () => {
+    if (oldMaxSlotWalKeepSize == null) {
+      throw new Error('Could not configure max_slot_wal_keep_size, required for this test');
+    }
+    {
+      await using context = await WalStreamTestContext.open(factory);
+      const { pool } = context;
+      await context.updateSyncRules(`
+bucket_definitions:
+  global:
+    data:
+      - SELECT id, description FROM "test_data"`);
+
+      await pool.query(
+        `CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text, num int8)`
+      );
+      await pool.query(
+        `INSERT INTO test_data(id, description) VALUES('8133cd37-903b-4937-a022-7c8294015a3a', 'test1') returning id as test_id`
+      );
+      await context.replicateSnapshot();
+      await context.startStreaming();
+
+      const data = await context.getBucketData('global[]');
+
+      expect(data).toMatchObject([
+        putOp('test_data', {
+          id: '8133cd37-903b-4937-a022-7c8294015a3a',
+          description: 'test1'
+        })
+      ]);
+
+      expect(await context.storage!.getStatus()).toMatchObject({ active: true, snapshot_done: true });
+    }
+
+    {
+      await using context = await WalStreamTestContext.open(factory, { doNotClear: true });
+      const { pool } = context;
+      const storage = await context.factory.getActiveStorage();
+      const slotName = storage?.slot_name!;
+
+      // Here, we write data to the WAL until the replication slot is lost.
+      const TRIES = 100;
+      for (let i = 0; i < TRIES; i++) {
+        // Write something to the WAL.
+        await pool.query(`select pg_logical_emit_message(true, 'test', 'x')`);
+        // Switch WAL file. With default settings, each WAL file is around 16MB.
+        await pool.query(`select pg_switch_wal()`);
+        // Checkpoint command forces the old WAL files to be archived/removed.
+        await pool.query(`checkpoint`);
+        // Now check if the slot is still active.
+        const slot = pgwireRows(
+          await context.pool.query({
+            statement: `select slot_name, wal_status, invalidation_reason, safe_wal_size, pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) as lag from pg_replication_slots where slot_name = $1`,
+            params: [{ type: 'varchar', value: slotName }]
+          })
+        )[0];
+        if (slot.wal_status == 'lost') {
+          break;
+        } else if (i == TRIES - 1) {
+          throw new Error(
+            `Could not generate test conditions to expire replication slot. Current status: ${JSONBig.stringify(slot)}`
+          );
+        }
+      }
 
       await context.loadActiveSyncRules();
 
