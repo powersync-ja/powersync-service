@@ -385,7 +385,8 @@ export class WalStream {
         if (
           /incorrect prev-link/.test(e.message) ||
           /replication slot.*does not exist/.test(e.message) ||
-          /publication.*does not exist/.test(e.message)
+          /publication.*does not exist/.test(e.message) ||
+          /can no longer access replication slot/.test(e.message)
         ) {
           container.reporter.captureException(e, {
             level: errors.ErrorSeverity.WARNING,
