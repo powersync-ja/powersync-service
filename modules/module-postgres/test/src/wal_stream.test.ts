@@ -315,13 +315,74 @@ bucket_definitions:
       await pool.query(`UPDATE test_data SET description = 'updated'`);
       await pool.query('CREATE PUBLICATION powersync FOR ALL TABLES');
 
+      const serverVersion = await context.connectionManager.getServerVersion();
+
       await context.loadActiveSyncRules();
-      await expect(async () => {
+
+      if (serverVersion!.compareMain('18.0.0') >= 0) {
         await context.replicateSnapshot();
-      }).rejects.toThrowError(MissingReplicationSlotError);
+        // No error expected in Postres 18
+        // TODO: introduce new test scenario for Postgres 18 that _does_ invalidate the replication slot.
+      } else {
+        // Postgres < 18 invalidates the replication slot when the publication is re-created.
+        // The error is handled on a higher level, which triggers
+        // creating a new replication slot.
+        await expect(async () => {
+          await context.replicateSnapshot();
+        }).rejects.toThrowError(MissingReplicationSlotError);
+      }
+    }
+  });
+
+  test('dropped replication slot', async () => {
+    {
+      await using context = await WalStreamTestContext.open(factory);
+      const { pool } = context;
+      await context.updateSyncRules(`
+bucket_definitions:
+  global:
+    data:
+      - SELECT id, description FROM "test_data"`);
+
+      await pool.query(
+        `CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text, num int8)`
+      );
+      await pool.query(
+        `INSERT INTO test_data(id, description) VALUES('8133cd37-903b-4937-a022-7c8294015a3a', 'test1') returning id as test_id`
+      );
+      await context.replicateSnapshot();
+      await context.startStreaming();
+
+      const data = await context.getBucketData('global[]');
+
+      expect(data).toMatchObject([
+        putOp('test_data', {
+          id: '8133cd37-903b-4937-a022-7c8294015a3a',
+          description: 'test1'
+        })
+      ]);
+
+      expect(await context.storage!.getStatus()).toMatchObject({ active: true, snapshot_done: true });
+    }
+
+    {
+      await using context = await WalStreamTestContext.open(factory, { doNotClear: true });
+      const { pool } = context;
+      const storage = await context.factory.getActiveStorage();
+
+      // Here we explicitly drop the replication slot, which should always be handled.
+      await pool.query({
+        statement: `SELECT pg_drop_replication_slot($1)`,
+        params: [{ type: 'varchar', value: storage?.slot_name! }]
+      });
+
+      await context.loadActiveSyncRules();
 
       // The error is handled on a higher level, which triggers
       // creating a new replication slot.
+      await expect(async () => {
+        await context.replicateSnapshot();
+      }).rejects.toThrowError(MissingReplicationSlotError);
     }
   });
 

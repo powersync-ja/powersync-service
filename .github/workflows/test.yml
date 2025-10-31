@@ -89,7 +89,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        postgres-version: [11, 12, 13, 14, 15, 16, 17]
+        postgres-version: [11, 12, 13, 14, 15, 16, 17, 18]
 
     steps:
       - uses: actions/checkout@v5
@@ -210,7 +210,7 @@ jobs:
             -e POSTGRES_PASSWORD=postgres \
             -e POSTGRES_DB=powersync_storage_test \
             -p 5431:5432 \
-            -d postgres:16
+            -d postgres:18
 
       - name: Enable Corepack
         run: corepack enable
@@ -270,7 +270,7 @@ jobs:
             -e POSTGRES_PASSWORD=postgres \
             -e POSTGRES_DB=powersync_storage_test \
             -p 5431:5432 \
-            -d postgres:16
+            -d postgres:18
 
       - name: Enable Corepack
         run: corepack enable
