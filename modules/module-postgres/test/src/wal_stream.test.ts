@@ -322,8 +322,8 @@ bucket_definitions:
 
       if (serverVersion!.compareMain('18.0.0') >= 0) {
         await context.replicateSnapshot();
-        // No error expected in Postres 18
-        // TODO: introduce new test scenario for Postgres 18 that _does_ invalidate the replication slot.
+        // No error expected in Postres 18. Replication keeps on working depite the
+        // publication being re-created.
       } else {
         // Postgres < 18 invalidates the replication slot when the publication is re-created.
         // The error is handled on a higher level, which triggers
