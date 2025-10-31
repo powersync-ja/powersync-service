@@ -1,5 +1,17 @@
 # @powersync/service-jpgwire
 
+## 0.21.5
+
+### Patch Changes
+
+- 88982d9: Migrate to trusted publishing
+- Updated dependencies [b4fa979]
+- Updated dependencies [c2bd0b0]
+- Updated dependencies [0268858]
+- Updated dependencies [88982d9]
+  - @powersync/service-sync-rules@0.29.6
+  - @powersync/service-jsonbig@0.17.12
+
 ## 0.21.4
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # @powersync/lib-service-mongodb
 
+## 0.6.11
+
+### Patch Changes
+
+- 88982d9: Migrate to trusted publishing
+- Updated dependencies [88982d9]
+  - @powersync/lib-services-framework@0.7.9
+
 ## 0.6.10
 
 ### Patch Changes
