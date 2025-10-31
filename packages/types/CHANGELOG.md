@@ -1,5 +1,11 @@
 # @powersync/service-types
 
+## 0.13.1
+
+### Patch Changes
+
+- 88982d9: Migrate to trusted publishing
+
 ## 0.13.0
 
 ### Minor Changes

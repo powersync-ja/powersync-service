@@ -1,5 +1,18 @@
 # @powersync/service-core-tests
 
+## 0.12.9
+
+### Patch Changes
+
+- 88982d9: Migrate to trusted publishing
+- Updated dependencies [b4fa979]
+- Updated dependencies [c2bd0b0]
+- Updated dependencies [0268858]
+- Updated dependencies [88982d9]
+  - @powersync/service-sync-rules@0.29.6
+  - @powersync/service-jsonbig@0.17.12
+  - @powersync/service-core@1.15.9
+
 ## 0.12.8
 
 ### Patch Changes

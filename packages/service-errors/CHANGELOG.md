@@ -1,5 +1,11 @@
 # @powersync/service-errors
 
+## 0.3.5
+
+### Patch Changes
+
+- 88982d9: Migrate to trusted publishing
+
 ## 0.3.4
 
 ### Patch Changes

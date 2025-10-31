@@ -1,5 +1,24 @@
 # @powersync/service-module-postgres
 
+## 0.16.9
+
+### Patch Changes
+
+- 0e9aa94: Improve replication slot health detection, automatically re-creating "lost" slots.
+- 88982d9: Migrate to trusted publishing
+- Updated dependencies [b4fa979]
+- Updated dependencies [0e9aa94]
+- Updated dependencies [c2bd0b0]
+- Updated dependencies [0268858]
+- Updated dependencies [88982d9]
+  - @powersync/service-sync-rules@0.29.6
+  - @powersync/lib-service-postgres@0.4.13
+  - @powersync/lib-services-framework@0.7.9
+  - @powersync/service-jpgwire@0.21.5
+  - @powersync/service-jsonbig@0.17.12
+  - @powersync/service-core@1.15.9
+  - @powersync/service-types@0.13.1
+
 ## 0.16.8
 
 ### Patch Changes
