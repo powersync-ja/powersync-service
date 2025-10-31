@@ -203,3 +203,25 @@ export class WalStreamTestContext implements AsyncDisposable {
     return batches[0]?.chunkData.data ?? [];
   }
 }
+
+export async function withMaxWalSize(db: pgwire.PgClient, size: string) {
+  try {
+    const r1 = await db.query(`SHOW max_slot_wal_keep_size`);
+
+    await db.query(`ALTER SYSTEM SET max_slot_wal_keep_size = '100MB'`);
+    await db.query(`SELECT pg_reload_conf()`);
+
+    const oldSize = r1.results[0].rows[0][0];
+
+    return {
+      [Symbol.asyncDispose]: async () => {
+        await db.query(`ALTER SYSTEM SET max_slot_wal_keep_size = '${oldSize}'`);
+        await db.query(`SELECT pg_reload_conf()`);
+      }
+    };
+  } catch (e) {
+    const err = new Error(`Failed to configure max_slot_wal_keep_size for test`);
+    err.cause = e;
+    throw err;
+  }
+}

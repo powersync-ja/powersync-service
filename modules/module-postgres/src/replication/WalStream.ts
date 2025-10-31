@@ -2,12 +2,12 @@ import * as lib_postgres from '@powersync/lib-service-postgres';
 import {
   container,
   DatabaseConnectionError,
+  logger as defaultLogger,
   ErrorCode,
   errors,
   Logger,
-  logger as defaultLogger,
-  ReplicationAssertionError,
-  ReplicationAbortedError
+  ReplicationAbortedError,
+  ReplicationAssertionError
 } from '@powersync/lib-services-framework';
 import {
   BucketStorageBatch,
@@ -33,10 +33,10 @@ import {
   toSyncRulesRow
 } from '@powersync/service-sync-rules';
 
+import { ReplicationMetric } from '@powersync/service-types';
 import { PgManager } from './PgManager.js';
 import { getPgOutputRelation, getRelId, referencedColumnTypeIds } from './PgRelation.js';
 import { checkSourceConfiguration, checkTableRls, getReplicationIdentityColumns } from './replication-utils.js';
-import { ReplicationMetric } from '@powersync/service-types';
 import {
   ChunkedSnapshotQuery,
   IdSnapshotQuery,
@@ -295,15 +295,18 @@ export class WalStream {
     }
 
     // Check if replication slot exists
-    const rs = await this.connections.pool.query({
-      statement: 'SELECT 1 FROM pg_replication_slots WHERE slot_name = $1',
-      params: [{ type: 'varchar', value: slotName }]
-    });
-    const slotExists = rs.rows.length > 0;
+    const slot = pgwire.pgwireRows(
+      await this.connections.pool.query({
+        // We specifically want wal_status and invalidation_reason, but it's not available on older versions,
+        // so we just query *.
+        statement: 'SELECT * FROM pg_replication_slots WHERE slot_name = $1',
+        params: [{ type: 'varchar', value: slotName }]
+      })
+    )[0];
 
-    if (slotExists) {
+    if (slot != null) {
       // This checks that the slot is still valid
-      const r = await this.checkReplicationSlot();
+      const r = await this.checkReplicationSlot(slot as any);
       if (snapshotDone && r.needsNewSlot) {
         // We keep the current snapshot, and create a new replication slot
         throw new MissingReplicationSlotError(`Replication slot ${slotName} is not valid anymore`);
@@ -330,24 +333,32 @@ export class WalStream {
   /**
    * If a replication slot exists, check that it is healthy.
    */
-  private async checkReplicationSlot(): Promise<{ needsNewSlot: boolean }> {
-    let last_error = null;
+  private async checkReplicationSlot(slot: {
+    // postgres 13+
+    wal_status?: string;
+    // postgres 17+
+    invalidation_reason?: string | null;
+  }): Promise<{ needsNewSlot: boolean }> {
+    // Start with a placeholder error, should be replaced if there is an actual issue.
+    let last_error = new ReplicationAssertionError(`Slot health check failed to execute`);
+
     const slotName = this.slot_name;
 
-    // Check that replication slot exists
-    for (let i = 120; i >= 0; i--) {
+    const lost = slot.wal_status == 'lost';
+    if (lost) {
+      this.logger.warn(
+        `Replication slot ${slotName} is invalidated. invalidation_reason: ${slot.invalidation_reason ?? 'unknown'}`
+      );
+      return {
+        needsNewSlot: true
+      };
+    }
+
+    // Check that replication slot exists, trying for up to 2 minutes.
+    const startAt = performance.now();
+    while (performance.now() - startAt < 120_000) {
       this.touch();
 
-      if (i == 0) {
-        container.reporter.captureException(last_error, {
-          level: errors.ErrorSeverity.ERROR,
-          metadata: {
-            replication_slot: slotName
-          }
-        });
-
-        throw last_error;
-      }
       try {
         // We peek a large number of changes here, to make it more likely to pick up replication slot errors.
         // For example, "publication does not exist" only occurs here if the peek actually includes changes related
@@ -379,18 +390,21 @@ export class WalStream {
           throw e;
         }
 
-        // Could also be `publication "powersync" does not exist`, although this error may show up much later
-        // in some cases.
-
         if (
           /incorrect prev-link/.test(e.message) ||
           /replication slot.*does not exist/.test(e.message) ||
-          /publication.*does not exist/.test(e.message)
+          /publication.*does not exist/.test(e.message) ||
+          // Postgres 18 - exceeded max_slot_wal_keep_size
+          /can no longer access replication slot/.test(e.message) ||
+          // Postgres 17 - exceeded max_slot_wal_keep_size
+          /can no longer get changes from replication slot/.test(e.message)
         ) {
+          // Fatal error. In most cases since Postgres 13+, the `wal_status == 'lost'` check should pick this up, but this
+          // works as a fallback.
+
           container.reporter.captureException(e, {
             level: errors.ErrorSeverity.WARNING,
             metadata: {
-              try_index: i,
               replication_slot: slotName
             }
           });
@@ -409,7 +423,14 @@ export class WalStream {
       }
     }
 
-    throw new ReplicationAssertionError('Unreachable');
+    container.reporter.captureException(last_error, {
+      level: errors.ErrorSeverity.ERROR,
+      metadata: {
+        replication_slot: slotName
+      }
+    });
+
+    throw last_error;
   }
 
   async estimatedCountNumber(db: pgwire.PgConnection, table: storage.SourceTable): Promise<number> {
