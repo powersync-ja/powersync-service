@@ -3,7 +3,7 @@ import { BaseSqlDataQuery, BaseSqlDataQueryOptions, RowValueExtractor } from '..
 import { SqlRuleError } from '../errors.js';
 import { ExpressionType } from '../ExpressionType.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
-import { SqlTools } from '../sql_filters.js';
+import { AvailableTable, SqlTools } from '../sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError } from '../sql_support.js';
 import { SyncRulesOptions } from '../SqlSyncRules.js';
 import { TablePattern } from '../TablePattern.js';
@@ -49,7 +49,7 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
     if (tableRef?.name == null) {
       throw new SqlRuleError('Must SELECT from a single table', sql, q.from?.[0]._location);
     }
-    const alias: string = tableRef.alias ?? tableRef.name;
+    const alias = AvailableTable.fromAst(tableRef);
 
     const sourceTable = new TablePattern(tableRef.schema ?? options.defaultSchema, tableRef.name);
     let querySchema: QuerySchema | undefined = undefined;
@@ -99,7 +99,7 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
       } else {
         extractors.push({
           extract: (tables, output) => {
-            const row = tables[alias];
+            const row = tables[alias.nameInSchema];
             for (let key in row) {
               if (key.startsWith('_')) {
                 continue;
@@ -108,7 +108,7 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
             }
           },
           getTypes(schema, into) {
-            for (let column of schema.getColumns(alias)) {
+            for (let column of schema.getColumns(alias.nameInSchema)) {
               into[column.name] ??= column;
             }
           }
@@ -136,7 +136,7 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
 
   evaluateRowWithErrors(table: SourceTableInterface, row: SqliteRow): EvaluatedEventRowWithErrors {
     try {
-      const tables = { [this.table!]: this.addSpecialParameters(table, row) };
+      const tables = { [this.table!.nameInSchema]: this.addSpecialParameters(table, row) };
 
       const data = this.transformRow(tables);
       return {

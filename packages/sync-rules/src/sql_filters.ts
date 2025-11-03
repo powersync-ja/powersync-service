@@ -1,10 +1,10 @@
 import { JSONBig } from '@powersync/service-jsonbig';
-import { Expr, ExprRef, Name, NodeLocation, QName, QNameAliased, SelectedColumn } from 'pgsql-ast-parser';
+import { Expr, ExprRef, FromCall, Name, NodeLocation, QName, QNameAliased, SelectedColumn } from 'pgsql-ast-parser';
 import { nil } from 'pgsql-ast-parser/src/utils.js';
 import { BucketPriority, isValidPriority } from './BucketDescription.js';
 import { ExpressionType } from './ExpressionType.js';
 import { SqlRuleError } from './errors.js';
-import { REQUEST_FUNCTIONS, SqlParameterFunction } from './request_functions.js';
+import { REQUEST_FUNCTIONS, RequestFunctionCall, SqlParameterFunction } from './request_functions.js';
 import {
   BASIC_OPERATORS,
   OPERATOR_IN,
@@ -35,6 +35,7 @@ import {
   ClauseError,
   CompiledClause,
   InputParameter,
+  LegacyParameterFromTableClause,
   ParameterMatchClause,
   ParameterValueClause,
   QueryParameters,
@@ -46,6 +47,7 @@ import {
 } from './types.js';
 import { isJsonValue } from './utils.js';
 import { CompatibilityContext } from './compatibility.js';
+import { TablePattern } from './TablePattern.js';
 
 export const MATCH_CONST_FALSE: TrueIfParametersMatch = [];
 export const MATCH_CONST_TRUE: TrueIfParametersMatch = [{}];
@@ -53,13 +55,67 @@ export const MATCH_CONST_TRUE: TrueIfParametersMatch = [{}];
 Object.freeze(MATCH_CONST_TRUE);
 Object.freeze(MATCH_CONST_FALSE);
 
+/**
+ * A table that has been made available to a result set by being included in a `FROM`.
+ *
+ * This is used to lookup references inside queries only, which is why this doesn't reference the schema name (that's
+ * covered by {@link TablePattern}).
+ */
+export class AvailableTable {
+  /**
+   * The name of the table in the schema.
+   */
+  nameInSchema: string;
+
+  /**
+   * The alias under which the {@link nameInSchema} is made available to the current query.
+   */
+  alias?: string;
+
+  /**
+   * The name a table has in an SQL expression context.
+   */
+  public get sqlName(): string {
+    return this.alias ?? this.nameInSchema;
+  }
+
+  get isAliased(): boolean {
+    return this.sqlName != this.nameInSchema;
+  }
+
+  constructor(schemaName: string, alias?: string) {
+    this.nameInSchema = schemaName;
+    this.alias = alias;
+  }
+
+  static fromAst(name: QNameAliased): AvailableTable {
+    return new AvailableTable(name.name, name.alias);
+  }
+
+  static fromCall(name: FromCall): AvailableTable {
+    return new AvailableTable(name.function.name, name.alias?.name);
+  }
+
+  /**
+   * Finds the first table matching the given name in SQL.
+   */
+  static search(
+    identifier: string | AvailableTable | undefined,
+    available: AvailableTable[]
+  ): AvailableTable | undefined {
+    const target = identifier instanceof AvailableTable ? identifier.sqlName : identifier;
+
+    return available.find((tbl) => tbl.sqlName == target);
+  }
+}
+
 export interface SqlToolsOptions {
   /**
    * Default table name, if any. I.e. SELECT FROM <table>.
    *
    * Used for to determine the table when using bare column names.
    */
-  table?: string;
+  table?: AvailableTable;
 
   /**
    * Set of tables used for FilterParameters.
@@ -68,14 +124,14 @@ export interface SqlToolsOptions {
    *   "bucket" (bucket parameters for data query)
    *   "token_parameters" (token parameters for parameter query)
    */
-  parameterTables?: string[];
+  parameterTables?: AvailableTable[];
 
   /**
    * Set of tables used in QueryParameters.
    *
-   * If not specified, defaults to [table].
+   * If not specified, defaults to {@link table}.
    */
-  valueTables?: string[];
+  valueTables?: AvailableTable[];
 
   /**
    * For debugging / error messages.
@@ -111,13 +167,15 @@ export interface SqlToolsOptions {
 }
 
 export class SqlTools {
-  readonly defaultTable?: string;
-  readonly valueTables: string[];
+  readonly defaultTable?: AvailableTable;
+  readonly valueTables: AvailableTable[];
   /**
    * ['bucket'] for data queries
    * ['token_parameters', 'user_parameters'] for parameter queries
+   *
+   * These are never aliased.
    */
-  readonly parameterTables: string[];
+  readonly parameterTables: AvailableTable[];
   readonly sql: string;
   readonly errors: SqlRuleError[] = [];
 
@@ -215,10 +273,10 @@ export class SqlTools {
         this.checkRef(table, expr);
         return {
           evaluate(tables: QueryParameters): SqliteValue {
-            return tables[table]?.[column];
+            return tables[table.nameInSchema]?.[column];
           },
           getColumnDefinition(schema) {
-            return schema.getColumn(table, column);
+            return schema.getColumn(table.nameInSchema, column);
           }
         } satisfies RowValueClause;
       } else {
@@ -362,14 +420,14 @@ export class SqlTools {
 
           const parameterArguments = compiledArguments as ParameterValueClause[];
           return {
+            function: impl,
             key: `${schema}.${fn}(${parameterArguments.map((p) => p.key).join(',')})`,
             lookupParameterValue(parameters) {
               const evaluatedArgs = parameterArguments.map((p) => p.lookupParameterValue(parameters));
               return impl.call(parameters, ...evaluatedArgs);
             },
-            usesAuthenticatedRequestParameters: impl.usesAuthenticatedRequestParameters,
-            usesUnauthenticatedRequestParameters: impl.usesUnauthenticatedRequestParameters
-          } satisfies ParameterValueClause;
+            visitChildren: (v) => parameterArguments.forEach(v)
+          } satisfies RequestFunctionCall;
         }
       }
 
@@ -437,8 +495,7 @@ export class SqlTools {
             return { [inputParam.key]: value };
           });
         },
-        usesAuthenticatedRequestParameters: leftFilter.usesAuthenticatedRequestParameters,
-        usesUnauthenticatedRequestParameters: leftFilter.usesUnauthenticatedRequestParameters
+        visitChildren: (v) => v(leftFilter)
       } satisfies ParameterMatchClause;
     } else if (
       this.supportsExpandingParameters &&
@@ -473,8 +530,7 @@ export class SqlTools {
           }
           return [{ [inputParam.key]: value }];
         },
-        usesAuthenticatedRequestParameters: rightFilter.usesAuthenticatedRequestParameters,
-        usesUnauthenticatedRequestParameters: rightFilter.usesUnauthenticatedRequestParameters
+        visitChildren: (v) => v(rightFilter)
       } satisfies ParameterMatchClause;
     } else {
       // Not supported, return the error previously computed
@@ -522,8 +578,7 @@ export class SqlTools {
             return { [inputParam.key]: value };
           });
         },
-        usesAuthenticatedRequestParameters: leftFilter.usesAuthenticatedRequestParameters,
-        usesUnauthenticatedRequestParameters: leftFilter.usesUnauthenticatedRequestParameters
+        visitChildren: (v) => v(leftFilter)
       } satisfies ParameterMatchClause;
     } else if (
       this.supportsExpandingParameters &&
@@ -565,8 +620,7 @@ export class SqlTools {
             return { [inputParam.key]: value };
           });
         },
-        usesAuthenticatedRequestParameters: rightFilter.usesAuthenticatedRequestParameters,
-        usesUnauthenticatedRequestParameters: rightFilter.usesUnauthenticatedRequestParameters
+        visitChildren: (v) => v(rightFilter)
       } satisfies ParameterMatchClause;
     } else {
       // Not supported, return the error previously computed
@@ -595,8 +649,7 @@ export class SqlTools {
 
         return [{ [inputParam.key]: value }];
       },
-      usesAuthenticatedRequestParameters: otherFilter.usesAuthenticatedRequestParameters,
-      usesUnauthenticatedRequestParameters: otherFilter.usesUnauthenticatedRequestParameters
+      visitChildren: (v) => v(otherFilter)
     } satisfies ParameterMatchClause;
   }
 
@@ -630,12 +683,12 @@ export class SqlTools {
   /**
    * Check if an expression is a parameter_table reference.
    */
-  isParameterRef(expr: Expr): expr is ExprRef {
+  private isParameterRef(expr: Expr): expr is ExprRef {
     if (expr.type != 'ref') {
       return false;
     }
-    const tableName = expr.table?.name ?? this.defaultTable;
-    return this.parameterTables.includes(tableName ?? '');
+    const tableName = expr.table?.name ?? this.defaultTable ?? '';
+    return AvailableTable.search(tableName, this.parameterTables) != null;
   }
 
   /**
@@ -710,26 +763,25 @@ export class SqlTools {
     }
   }
 
-  private checkRef(table: string, ref: ExprRef) {
+  private checkRef(table: AvailableTable, ref: ExprRef) {
     if (this.schema) {
-      const type = this.schema.getColumn(table, ref.name);
+      const type = this.schema.getColumn(table.nameInSchema, ref.name);
       if (type == null) {
         this.warn(`Column not found: ${ref.name}`, ref);
       }
     }
   }
 
-  getParameterRefClause(expr: ExprRef): ParameterValueClause {
-    const table = (expr.table?.name ?? this.defaultTable)!;
+  private getParameterRefClause(expr: ExprRef): LegacyParameterFromTableClause {
+    const table = AvailableTable.search(expr.table?.name ?? this.defaultTable!, this.parameterTables)!.nameInSchema;
     const column = expr.name;
     return {
+      table,
       key: `${table}.${column}`,
       lookupParameterValue: (parameters) => {
         return parameters.lookup(table, column);
-      },
-      usesAuthenticatedRequestParameters: table == 'token_parameters',
-      usesUnauthenticatedRequestParameters: table == 'user_parameters'
-    } satisfies ParameterValueClause;
+      }
+    } satisfies LegacyParameterFromTableClause;
   }
 
   refHasSchema(ref: ExprRef) {
@@ -741,13 +793,15 @@ export class SqlTools {
    *
    * Only "value" tables are supported here, not parameter values.
    */
-  getTableName(ref: ExprRef): string {
+  getTableName(ref: ExprRef): AvailableTable {
     if (this.refHasSchema(ref)) {
       throw new SqlRuleError(`Specifying schema in column references is not supported`, this.sql, ref);
     }
     const tableName = ref.table?.name ?? this.defaultTable;
-    if (this.valueTables.includes(tableName ?? '')) {
-      return tableName!;
+    const found = AvailableTable.search(tableName, this.valueTables);
+
+    if (found != null) {
+      return found;
     } else if (ref.table?.name == null) {
       throw new SqlRuleError(`Table name required`, this.sql, ref);
     } else {
@@ -802,12 +856,7 @@ export class SqlTools {
     } else if (argsType == 'param') {
       const argStrings = argClauses.map((e) => (e as ParameterValueClause).key);
       const name = `${fnImpl.debugName}(${argStrings.join(',')})`;
-      const usesAuthenticatedRequestParameters =
-        argClauses.find((clause) => isParameterValueClause(clause) && clause.usesAuthenticatedRequestParameters) !=
-        null;
-      const usesUnauthenticatedRequestParameters =
-        argClauses.find((clause) => isParameterValueClause(clause) && clause.usesUnauthenticatedRequestParameters) !=
-        null;
+
       return {
         key: name,
         lookupParameterValue: (parameters) => {
@@ -822,8 +871,7 @@ export class SqlTools {
           });
           return fnImpl.call(...args);
         },
-        usesAuthenticatedRequestParameters,
-        usesUnauthenticatedRequestParameters
+        visitChildren: (v) => argClauses.forEach(v)
       } satisfies ParameterValueClause;
     } else {
       throw new Error('unreachable condition');
@@ -924,9 +972,7 @@ function staticValueClause(value: SqliteValue): StaticValueClause {
     key: JSONBig.stringify(value),
     lookupParameterValue(_parameters) {
       return value;
-    },
-    usesAuthenticatedRequestParameters: false,
-    usesUnauthenticatedRequestParameters: false
+    }
   };
 }
 

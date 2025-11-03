@@ -26,7 +26,7 @@
     "@changesets/cli": "^2.27.8",
     "@types/node": "^22.16.2",
     "async": "^3.2.4",
-    "bson": "^6.10.3",
+    "bson": "^6.10.4",
     "concurrently": "^8.2.2",
     "inquirer": "^9.2.7",
     "npm-check-updates": "^17.1.2",
@@ -43,5 +43,5 @@
     "vitest": "^3.2.4",
     "ws": "^8.2.3"
   },
-  "packageManager": "pnpm@9.15.5+sha512.845196026aab1cc3f098a0474b64dfbab2afe7a1b4e91dd86895d8e4aa32a7a6d03049e2d0ad770bbe4de023a7122fb68c1a1d6e0d033c7076085f9d5d4800d4"
+  "packageManager": "pnpm@10.19.0+sha512.c9fc7236e92adf5c8af42fd5bf1612df99c2ceb62f27047032f4720b33f8eacdde311865e91c411f2774f618d82f320808ecb51718bfa82c060c4ba7c76a32b8"
 }

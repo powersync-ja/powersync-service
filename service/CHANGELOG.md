@@ -1,5 +1,22 @@
 # @powersync/service-image
 
+## 1.15.8
+
+### Patch Changes
+
+- 5328802: [MongoDB Storage] Only compact modified buckets. Add index on bucket_state to handle large numbers of buckets when pre-calculating checksums or compacting, and skip small buckets.
+- Updated dependencies [da7ecc6]
+- Updated dependencies [5328802]
+  - @powersync/service-module-mongodb-storage@0.12.8
+  - @powersync/service-rsocket-router@0.2.5
+  - @powersync/service-module-mongodb@0.12.8
+  - @powersync/service-core@1.15.8
+  - @powersync/lib-services-framework@0.7.8
+  - @powersync/service-module-mysql@0.9.8
+  - @powersync/service-module-postgres@0.16.8
+  - @powersync/service-module-postgres-storage@0.10.8
+  - @powersync/service-module-core@0.2.8
+
 ## 1.15.7
 
 ### Patch Changes

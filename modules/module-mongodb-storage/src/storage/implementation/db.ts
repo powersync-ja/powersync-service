@@ -158,6 +158,19 @@ export class PowerSyncMongo {
       { name: 'bucket_updates', unique: true }
     );
   }
+  /**
+   * Only use in migrations and tests.
+   */
+  async createBucketStateIndex2() {
+    // TODO: Implement a better mechanism to use migrations in tests
+    await this.bucket_state.createIndex(
+      {
+        '_id.g': 1,
+        'estimate_since_compact.count': -1
+      },
+      { name: 'dirty_count' }
+    );
+  }
 }
 
 export function createPowerSyncMongo(config: MongoStorageConfig, options?: lib_mongo.MongoConnectionOptions) {

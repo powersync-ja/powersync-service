@@ -38,9 +38,11 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
       const filter: mongo.Filter<mongo.Document> =
         this.lastKey == null ? {} : { $expr: { $gt: ['$_id', { $literal: this.lastKey }] } };
       cursor = this.collection.find(filter, {
-        batchSize: this.batchSize,
         readConcern: 'majority',
         limit: this.batchSize,
+        // batchSize is 1 more than limit to auto-close the cursor.
+        // See https://github.com/mongodb/node-mongodb-native/pull/4580
+        batchSize: this.batchSize + 1,
         sort: { _id: 1 }
       });
       newCursor = true;

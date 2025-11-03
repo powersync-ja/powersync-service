@@ -1,7 +1,7 @@
 import { SelectedColumn, SelectFromStatement } from 'pgsql-ast-parser';
 import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY } from './BucketDescription.js';
 import { SqlRuleError } from './errors.js';
-import { SqlTools } from './sql_filters.js';
+import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, isParameterValueClause, sqliteBool } from './sql_support.js';
 import {
   BucketIdTransformer,
@@ -11,6 +11,7 @@ import {
   SqliteJsonValue
 } from './types.js';
 import { getBucketId, isJsonValue } from './utils.js';
+import { DetectRequestParameters } from './validators.js';
 
 export interface StaticSqlParameterQueryOptions {
   sql: string;
@@ -43,7 +44,7 @@ export class StaticSqlParameterQuery {
 
     const tools = new SqlTools({
       table: undefined,
-      parameterTables: ['token_parameters', 'user_parameters'],
+      parameterTables: [new AvailableTable('token_parameters'), new AvailableTable('user_parameters')],
       supportsParameterExpressions: true,
       compatibilityContext: options.compatibility,
       sql
@@ -194,26 +195,21 @@ export class StaticSqlParameterQuery {
     // select where request.jwt() ->> 'role' == 'authorized'
     // we do not count this as a sufficient check
     // const authenticatedFilter = this.filter.usesAuthenticatedRequestParameters;
+    const visitor = new DetectRequestParameters();
+    visitor.acceptAll(Object.values(this.parameterExtractors));
 
-    // select request.user_id() as user_id
-    const authenticatedExtractor =
-      Object.values(this.parameterExtractors).find(
-        (clause) => isParameterValueClause(clause) && clause.usesAuthenticatedRequestParameters
-      ) != null;
-    return authenticatedExtractor;
+    return visitor.usesAuthenticatedRequestParameters;
   }
 
   get usesUnauthenticatedRequestParameters(): boolean {
+    const visitor = new DetectRequestParameters();
+
     // select where request.parameters() ->> 'include_comments'
-    const unauthenticatedFilter = this.filter?.usesUnauthenticatedRequestParameters;
+    visitor.accept(this.filter);
 
     // select request.parameters() ->> 'project_id'
-    const unauthenticatedExtractor =
-      Object.values(this.parameterExtractors).find(
-        (clause) => isParameterValueClause(clause) && clause.usesUnauthenticatedRequestParameters
-      ) != null;
-
-    return unauthenticatedFilter || unauthenticatedExtractor;
+    visitor.acceptAll(Object.values(this.parameterExtractors));
+    return visitor.usesUnauthenticatedRequestParameters;
   }
 
   get usesDangerousRequestParameters() {

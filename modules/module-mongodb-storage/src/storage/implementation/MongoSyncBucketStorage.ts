@@ -16,6 +16,8 @@ import {
   InternalOpId,
   internalToExternalOpId,
   maxLsn,
+  PopulateChecksumCacheOptions,
+  PopulateChecksumCacheResults,
   ProtocolOpId,
   ReplicationCheckpoint,
   storage,
@@ -404,7 +406,9 @@ export class MongoSyncBucketStorage
         limit: batchLimit,
         // Increase batch size above the default 101, so that we can fill an entire batch in
         // one go.
-        batchSize: batchLimit,
+        // batchSize is 1 more than limit to auto-close the cursor.
+        // See https://github.com/mongodb/node-mongodb-native/pull/4580
+        batchSize: batchLimit + 1,
         // Raw mode is returns an array of Buffer instead of parsed documents.
         // We use it so that:
         // 1. We can calculate the document size accurately without serializing again.
@@ -664,7 +668,7 @@ export class MongoSyncBucketStorage
     }
   }
 
-  async populatePersistentChecksumCache(options: Required<Pick<CompactOptions, 'signal' | 'maxOpId'>>): Promise<void> {
+  async populatePersistentChecksumCache(options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults> {
     logger.info(`Populating persistent checksum cache...`);
     const start = Date.now();
     // We do a minimal compact here.
@@ -675,9 +679,14 @@ export class MongoSyncBucketStorage
       memoryLimitMB: 0
     });
 
-    await compactor.populateChecksums();
+    const result = await compactor.populateChecksums({
+      // There are cases with millions of small buckets, in which case it can take very long to
+      // populate the checksums, with minimal benefit. We skip the small buckets here.
+      minBucketChanges: options.minBucketChanges ?? 10
+    });
     const duration = Date.now() - start;
     logger.info(`Populated persistent checksum cache in ${(duration / 1000).toFixed(1)}s`);
+    return result;
   }
 
   /**
@@ -906,7 +915,9 @@ export class MongoSyncBucketStorage
             '_id.b': 1
           },
           limit: limit + 1,
-          batchSize: limit + 1,
+          // batchSize is 1 more than limit to auto-close the cursor.
+          // See https://github.com/mongodb/node-mongodb-native/pull/4580
+          batchSize: limit + 2,
           singleBatch: true
         }
       )
@@ -936,7 +947,9 @@ export class MongoSyncBucketStorage
             lookup: 1
           },
           limit: limit + 1,
-          batchSize: limit + 1,
+          // batchSize is 1 more than limit to auto-close the cursor.
+          // See https://github.com/mongodb/node-mongodb-native/pull/4580
+          batchSize: limit + 2,
           singleBatch: true
         }
       )

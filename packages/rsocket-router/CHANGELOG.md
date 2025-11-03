@@ -1,5 +1,13 @@
 # @powersync/service-rsocket-router
 
+## 0.2.5
+
+### Patch Changes
+
+- da7ecc6: Upgrade mongodb driver to improve stability.
+- Updated dependencies [da7ecc6]
+  - @powersync/lib-services-framework@0.7.8
+
 ## 0.2.4
 
 ### Patch Changes

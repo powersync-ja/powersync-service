@@ -2,7 +2,7 @@ import { SelectedColumn } from 'pgsql-ast-parser';
 import { SqlRuleError } from './errors.js';
 import { ColumnDefinition } from './ExpressionType.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
-import { SqlTools } from './sql_filters.js';
+import { AvailableTable, SqlTools } from './sql_filters.js';
 import { TablePattern } from './TablePattern.js';
 import {
   BucketIdTransformer,
@@ -31,7 +31,7 @@ export interface EvaluateRowOptions {
 
 export interface BaseSqlDataQueryOptions {
   sourceTable: TablePattern;
-  table: string;
+  table: AvailableTable;
   sql: string;
   columns: SelectedColumn[];
   extractors: RowValueExtractor[];
@@ -52,7 +52,7 @@ export class BaseSqlDataQuery {
    *
    * This is used for the output table name.
    */
-  readonly table: string;
+  readonly table: AvailableTable;
 
   /**
    * The source SQL query, for debugging purposes.
@@ -121,12 +121,12 @@ export class BaseSqlDataQuery {
       // Wildcard without alias - use source
       return sourceTable;
     } else {
-      return this.table;
+      return this.table.sqlName;
     }
   }
 
   isUnaliasedWildcard() {
-    return this.sourceTable.isWildcard && this.table == this.sourceTable.tablePattern;
+    return this.sourceTable.isWildcard && !this.table.isAliased;
   }
 
   columnOutputNames(): string[] {
@@ -157,7 +157,7 @@ export class BaseSqlDataQuery {
         this.getColumnOutputsFor(schemaTable, output);
       }
       result.push({
-        name: this.table,
+        name: this.table.sqlName,
         columns: Object.values(output)
       });
     }
@@ -181,7 +181,7 @@ export class BaseSqlDataQuery {
     try {
       const { table, row, bucketIds } = options;
 
-      const tables = { [this.table]: this.addSpecialParameters(table, row) };
+      const tables = { [this.table.nameInSchema]: this.addSpecialParameters(table, row) };
       const resolvedBucketIds = bucketIds(tables);
 
       const data = this.transformRow(tables);
@@ -221,7 +221,7 @@ export class BaseSqlDataQuery {
   protected getColumnOutputsFor(schemaTable: SourceSchemaTable, output: Record<string, ColumnDefinition>) {
     const querySchema: QuerySchema = {
       getColumn: (table, column) => {
-        if (table == this.table) {
+        if (table == this.table.nameInSchema) {
           return schemaTable.getColumn(column);
         } else {
           // TODO: bucket parameters?
@@ -229,7 +229,7 @@ export class BaseSqlDataQuery {
         }
       },
       getColumns: (table) => {
-        if (table == this.table) {
+        if (table == this.table.nameInSchema) {
           return schemaTable.getColumns();
         } else {
           return [];

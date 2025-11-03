@@ -111,7 +111,9 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
         },
         {
           limit: limit + 1,
-          batchSize: limit + 1,
+          // batchSize is 1 more than limit to auto-close the cursor.
+          // See https://github.com/mongodb/node-mongodb-native/pull/4580
+          batchSize: limit + 2,
           singleBatch: true
         }
       )
@@ -140,7 +142,9 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
         },
         {
           limit: limit + 1,
-          batchSize: limit + 1,
+          // batchSize is 1 more than limit to auto-close the cursor.
+          // See https://github.com/mongodb/node-mongodb-native/pull/4580
+          batchSize: limit + 2,
           singleBatch: true
         }
       )

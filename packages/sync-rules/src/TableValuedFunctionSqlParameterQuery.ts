@@ -1,6 +1,6 @@
 import { FromCall, SelectFromStatement } from 'pgsql-ast-parser';
 import { SqlRuleError } from './errors.js';
-import { SqlTools } from './sql_filters.js';
+import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, isParameterValueClause, sqliteBool } from './sql_support.js';
 import { generateTableValuedFunctions, TableValuedFunction } from './TableValuedFunctions.js';
 import {
@@ -14,6 +14,7 @@ import {
 } from './types.js';
 import { getBucketId, isJsonValue } from './utils.js';
 import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY } from './BucketDescription.js';
+import { DetectRequestParameters } from './validators.js';
 
 export interface TableValuedFunctionSqlParameterQueryOptions {
   sql: string;
@@ -26,7 +27,7 @@ export interface TableValuedFunctionSqlParameterQueryOptions {
   filter: ParameterValueClause | undefined;
   callClause: ParameterValueClause | undefined;
   function: TableValuedFunction;
-  callTableName: string;
+  callTable: AvailableTable;
 
   errors: SqlRuleError[];
 }
@@ -59,12 +60,12 @@ export class TableValuedFunctionSqlParameterQuery {
       throw new SqlRuleError(`Table-valued function ${call.function.name} is not defined.`, sql, call);
     }
 
-    const callTable = call.alias?.name ?? call.function.name;
+    const callTable = AvailableTable.fromCall(call);
     const callExpression = call.args[0];
 
     const tools = new SqlTools({
       table: callTable,
-      parameterTables: ['token_parameters', 'user_parameters', callTable],
+      parameterTables: [new AvailableTable('token_parameters'), new AvailableTable('user_parameters'), callTable],
       supportsParameterExpressions: true,
       compatibilityContext: compatibility,
       sql
@@ -108,7 +109,7 @@ export class TableValuedFunctionSqlParameterQuery {
       filter: isClauseError(filter) ? undefined : filter,
       callClause: isClauseError(callClause) ? undefined : callClause,
       function: functionImpl,
-      callTableName: callTable,
+      callTable,
       priority: priority ?? DEFAULT_BUCKET_PRIORITY,
       queryId,
       errors
@@ -186,7 +187,7 @@ export class TableValuedFunctionSqlParameterQuery {
    *
    * Only used internally.
    */
-  readonly callTableName: string;
+  readonly callTable: AvailableTable;
 
   readonly errors: SqlRuleError[];
 
@@ -201,7 +202,7 @@ export class TableValuedFunctionSqlParameterQuery {
     this.filter = options.filter;
     this.callClause = options.callClause;
     this.function = options.function;
-    this.callTableName = options.callTableName;
+    this.callTable = options.callTable;
 
     this.errors = options.errors;
   }
@@ -232,7 +233,7 @@ export class TableValuedFunctionSqlParameterQuery {
     const mergedParams: ParameterValueSet = {
       ...parameters,
       lookup: (table, column) => {
-        if (table == this.callTableName) {
+        if (table == this.callTable.nameInSchema) {
           return row[column]!;
         } else {
           return parameters.lookup(table, column);
@@ -260,37 +261,46 @@ export class TableValuedFunctionSqlParameterQuery {
     };
   }
 
+  private visitParameterExtractorsAndCallClause(): DetectRequestParameters {
+    const visitor = new DetectRequestParameters();
+
+    // e.g. select request.user_id() as user_id
+    visitor.acceptAll(Object.values(this.parameterExtractors));
+
+    // e.g. select value from json_each(request.jwt() ->> 'project_ids')
+    visitor.accept(this.callClause);
+
+    return visitor;
+  }
+
   get hasAuthenticatedBucketParameters(): boolean {
     // select where request.jwt() ->> 'role' == 'authorized'
     // we do not count this as a sufficient check
     // const authenticatedFilter = this.filter.usesAuthenticatedRequestParameters;
+    const visitor = new DetectRequestParameters();
 
     // select request.user_id() as user_id
-    const authenticatedExtractor =
-      Object.values(this.parameterExtractors).find(
-        (clause) => isParameterValueClause(clause) && clause.usesAuthenticatedRequestParameters
-      ) != null;
+    visitor.acceptAll(Object.values(this.parameterExtractors));
 
     // select value from json_each(request.jwt() ->> 'project_ids')
-    const authenticatedArgument = this.callClause?.usesAuthenticatedRequestParameters ?? false;
+    visitor.accept(this.callClause);
 
-    return authenticatedExtractor || authenticatedArgument;
+    return visitor.usesAuthenticatedRequestParameters;
   }
 
   get usesUnauthenticatedRequestParameters(): boolean {
+    const visitor = new DetectRequestParameters();
+
     // select where request.parameters() ->> 'include_comments'
-    const unauthenticatedFilter = this.filter?.usesUnauthenticatedRequestParameters;
+    visitor.accept(this.filter);
 
     // select request.parameters() ->> 'project_id'
-    const unauthenticatedExtractor =
-      Object.values(this.parameterExtractors).find(
-        (clause) => isParameterValueClause(clause) && clause.usesUnauthenticatedRequestParameters
-      ) != null;
+    visitor.acceptAll(Object.values(this.parameterExtractors));
 
     // select value from json_each(request.parameters() ->> 'project_ids')
-    const unauthenticatedArgument = this.callClause?.usesUnauthenticatedRequestParameters ?? false;
+    visitor.accept(this.callClause);
 
-    return unauthenticatedFilter || unauthenticatedExtractor || unauthenticatedArgument;
+    return visitor.usesUnauthenticatedRequestParameters;
   }
 
   get usesDangerousRequestParameters() {
