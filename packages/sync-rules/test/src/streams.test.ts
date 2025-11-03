@@ -408,6 +408,26 @@ describe('streams', () => {
         '1#stream|0["i2","l2"]'
       ]);
     });
+
+    test('parameter and auth match on same column', async () => {
+      const desc = parseStream(
+        "SELECT * FROM comments WHERE issue_id = subscription.parameter('issue') AND issue_id IN auth.parameter('issues')"
+      );
+      expect(evaluateBucketIds(desc, COMMENTS, { id: 'a', issue_id: 'i' })).toStrictEqual(['1#stream|0["i","i"]']);
+
+      expect(
+        await queryBucketIds(desc, {
+          token: { sub: 'a' },
+          parameters: { issue: 'i' }
+        })
+      ).toStrictEqual([]);
+      expect(
+        await queryBucketIds(desc, {
+          token: { sub: 'a', issues: ['i', 'i2'] },
+          parameters: { issue: 'i' }
+        })
+      ).toStrictEqual(['1#stream|0["i","i"]', '1#stream|0["i","i2"]']);
+    });
   });
 
   describe('overlap', () => {
@@ -512,6 +532,30 @@ describe('streams', () => {
       expect(errors).toMatchObject([
         expect.toBeSqlRuleError("Function 'request.user_id' is not defined", 'request.user_id()')
       ]);
+    });
+
+    describe('auto-subscribe with parameters', () => {
+      const optionsWithAutoSubscribe = { ...options, auto_subscribe: true };
+
+      function expectWarning(sql: string) {
+        const [_, errors] = syncStreamFromSql('s', sql, optionsWithAutoSubscribe);
+        expect(errors).toHaveLength(1);
+
+        const error = errors[0];
+        expect(error.message).toContain(
+          'Clients subscribe to this stream by default, but it uses subscription parameters'
+        );
+      }
+
+      test('in simple filter', () => {
+        expectWarning(`SELECT * FROM issues WHERE id = subscription.parameter('s')`);
+      });
+
+      test('in subquery', () => {
+        expectWarning(
+          `SELECT * FROM issues WHERE owner_id IN (SELECT id FROM "users" WHERE id = subscription.parameter('s'))`
+        );
+      });
     });
   });
 

@@ -14,6 +14,7 @@ import {
 } from './types.js';
 import { getBucketId, isJsonValue } from './utils.js';
 import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY } from './BucketDescription.js';
+import { DetectRequestParameters } from './validators.js';
 
 export interface TableValuedFunctionSqlParameterQueryOptions {
   sql: string;
@@ -260,37 +261,46 @@ export class TableValuedFunctionSqlParameterQuery {
     };
   }
 
+  private visitParameterExtractorsAndCallClause(): DetectRequestParameters {
+    const visitor = new DetectRequestParameters();
+
+    // e.g. select request.user_id() as user_id
+    visitor.acceptAll(Object.values(this.parameterExtractors));
+
+    // e.g. select value from json_each(request.jwt() ->> 'project_ids')
+    visitor.accept(this.callClause);
+
+    return visitor;
+  }
+
   get hasAuthenticatedBucketParameters(): boolean {
     // select where request.jwt() ->> 'role' == 'authorized'
     // we do not count this as a sufficient check
     // const authenticatedFilter = this.filter.usesAuthenticatedRequestParameters;
+    const visitor = new DetectRequestParameters();
 
     // select request.user_id() as user_id
-    const authenticatedExtractor =
-      Object.values(this.parameterExtractors).find(
-        (clause) => isParameterValueClause(clause) && clause.usesAuthenticatedRequestParameters
-      ) != null;
+    visitor.acceptAll(Object.values(this.parameterExtractors));
 
     // select value from json_each(request.jwt() ->> 'project_ids')
-    const authenticatedArgument = this.callClause?.usesAuthenticatedRequestParameters ?? false;
+    visitor.accept(this.callClause);
 
-    return authenticatedExtractor || authenticatedArgument;
+    return visitor.usesAuthenticatedRequestParameters;
   }
 
   get usesUnauthenticatedRequestParameters(): boolean {
+    const visitor = new DetectRequestParameters();
+
     // select where request.parameters() ->> 'include_comments'
-    const unauthenticatedFilter = this.filter?.usesUnauthenticatedRequestParameters;
+    visitor.accept(this.filter);
 
     // select request.parameters() ->> 'project_id'
-    const unauthenticatedExtractor =
-      Object.values(this.parameterExtractors).find(
-        (clause) => isParameterValueClause(clause) && clause.usesUnauthenticatedRequestParameters
-      ) != null;
+    visitor.acceptAll(Object.values(this.parameterExtractors));
 
     // select value from json_each(request.parameters() ->> 'project_ids')
-    const unauthenticatedArgument = this.callClause?.usesUnauthenticatedRequestParameters ?? false;
+    visitor.accept(this.callClause);
 
-    return unauthenticatedFilter || unauthenticatedExtractor || unauthenticatedArgument;
+    return visitor.usesUnauthenticatedRequestParameters;
   }
 
   get usesDangerousRequestParameters() {

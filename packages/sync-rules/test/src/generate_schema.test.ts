@@ -6,10 +6,13 @@ import {
   DotNetSchemaGenerator,
   JsLegacySchemaGenerator,
   KotlinSchemaGenerator,
+  RoomSchemaGenerator,
   SqlSyncRules,
   StaticSchema,
   SwiftSchemaGenerator,
-  TsSchemaGenerator
+  TsSchemaGenerator,
+  driftSchemaGenerator,
+  sqlDelightSchemaGenerator
 } from '../../src/index.js';
 
 import { PARSE_OPTIONS } from './util.js';
@@ -231,6 +234,30 @@ val schema = Schema(
 )`);
   });
 
+  test('room', () => {
+    expect(new RoomSchemaGenerator().generate(rules, schema)).toEqual(`import androidx.room.ColumnInfo
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+
+@Entity(tableName = "assets1")
+data class Assets1(
+  @PrimaryKey val id: String,
+  @ColumnInfo("name") val name: String,
+  @ColumnInfo("count") val count: Long,
+  @ColumnInfo("owner_id") val ownerId: String,
+)
+
+@Entity(tableName = "assets2")
+data class Assets2(
+  @PrimaryKey val id: String,
+  @ColumnInfo("name") val name: String,
+  @ColumnInfo("count") val count: Long,
+  @ColumnInfo("other_id") val otherId: String,
+  @ColumnInfo("foo") val foo: String,
+)
+`);
+  });
+
   test('swift', () => {
     expect(new SwiftSchemaGenerator().generate(rules, schema)).toEqual(`import PowerSync
 
@@ -330,5 +357,31 @@ class AppSchema
     {"assets2", Assets2}
   });
 }`);
+  });
+
+  describe('sql', () => {
+    const expected = `-- Note: These definitions are only used to generate typed code. PowerSync manages the database schema.
+CREATE TABLE assets1(
+  id TEXT NOT NULL PRIMARY KEY,
+  name TEXT,
+  count INTEGER,
+  owner_id TEXT
+);
+CREATE TABLE assets2(
+  id TEXT NOT NULL PRIMARY KEY,
+  name TEXT,
+  count INTEGER,
+  other_id TEXT,
+  foo TEXT
+);
+`;
+
+    test('drift', () => {
+      expect(driftSchemaGenerator.generate(rules, schema)).toEqual(expected);
+    });
+
+    test('sqldelight', () => {
+      expect(sqlDelightSchemaGenerator.generate(rules, schema)).toEqual(expected);
+    });
   });
 });

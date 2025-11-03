@@ -4,9 +4,10 @@ import { METRICS_HELPER, putOp, removeOp } from '@powersync/service-core-tests';
 import { pgwireRows } from '@powersync/service-jpgwire';
 import { ReplicationMetric } from '@powersync/service-types';
 import * as crypto from 'crypto';
-import { describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { describeWithStorage } from './util.js';
-import { WalStreamTestContext } from './wal_stream_utils.js';
+import { WalStreamTestContext, withMaxWalSize } from './wal_stream_utils.js';
+import { JSONBig } from '@powersync/service-jsonbig';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -315,13 +316,157 @@ bucket_definitions:
       await pool.query(`UPDATE test_data SET description = 'updated'`);
       await pool.query('CREATE PUBLICATION powersync FOR ALL TABLES');
 
+      const serverVersion = await context.connectionManager.getServerVersion();
+
       await context.loadActiveSyncRules();
-      await expect(async () => {
+
+      if (serverVersion!.compareMain('18.0.0') >= 0) {
         await context.replicateSnapshot();
-      }).rejects.toThrowError(MissingReplicationSlotError);
+        // No error expected in Postres 18. Replication keeps on working depite the
+        // publication being re-created.
+      } else {
+        // Postgres < 18 invalidates the replication slot when the publication is re-created.
+        // The error is handled on a higher level, which triggers
+        // creating a new replication slot.
+        await expect(async () => {
+          await context.replicateSnapshot();
+        }).rejects.toThrowError(MissingReplicationSlotError);
+      }
+    }
+  });
+
+  test('dropped replication slot', async () => {
+    {
+      await using context = await WalStreamTestContext.open(factory);
+      const { pool } = context;
+      await context.updateSyncRules(`
+bucket_definitions:
+  global:
+    data:
+      - SELECT id, description FROM "test_data"`);
+
+      await pool.query(
+        `CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text, num int8)`
+      );
+      await pool.query(
+        `INSERT INTO test_data(id, description) VALUES('8133cd37-903b-4937-a022-7c8294015a3a', 'test1') returning id as test_id`
+      );
+      await context.replicateSnapshot();
+      await context.startStreaming();
+
+      const data = await context.getBucketData('global[]');
+
+      expect(data).toMatchObject([
+        putOp('test_data', {
+          id: '8133cd37-903b-4937-a022-7c8294015a3a',
+          description: 'test1'
+        })
+      ]);
+
+      expect(await context.storage!.getStatus()).toMatchObject({ active: true, snapshot_done: true });
+    }
+
+    {
+      await using context = await WalStreamTestContext.open(factory, { doNotClear: true });
+      const { pool } = context;
+      const storage = await context.factory.getActiveStorage();
+
+      // Here we explicitly drop the replication slot, which should always be handled.
+      await pool.query({
+        statement: `SELECT pg_drop_replication_slot($1)`,
+        params: [{ type: 'varchar', value: storage?.slot_name! }]
+      });
+
+      await context.loadActiveSyncRules();
 
       // The error is handled on a higher level, which triggers
       // creating a new replication slot.
+      await expect(async () => {
+        await context.replicateSnapshot();
+      }).rejects.toThrowError(MissingReplicationSlotError);
+    }
+  });
+
+  test('replication slot lost', async () => {
+    await using baseContext = await WalStreamTestContext.open(factory, { doNotClear: true });
+
+    const serverVersion = await baseContext.connectionManager.getServerVersion();
+    if (serverVersion!.compareMain('13.0.0') < 0) {
+      console.warn(`max_slot_wal_keep_size not supported on postgres ${serverVersion} - skipping test.`);
+      return;
+    }
+
+    // Configure max_slot_wal_keep_size for the test, reverting afterwards.
+    await using s = await withMaxWalSize(baseContext.pool, '100MB');
+
+    {
+      await using context = await WalStreamTestContext.open(factory);
+      const { pool } = context;
+      await context.updateSyncRules(`
+bucket_definitions:
+  global:
+    data:
+      - SELECT id, description FROM "test_data"`);
+
+      await pool.query(
+        `CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text, num int8)`
+      );
+      await pool.query(
+        `INSERT INTO test_data(id, description) VALUES('8133cd37-903b-4937-a022-7c8294015a3a', 'test1') returning id as test_id`
+      );
+      await context.replicateSnapshot();
+      await context.startStreaming();
+
+      const data = await context.getBucketData('global[]');
+
+      expect(data).toMatchObject([
+        putOp('test_data', {
+          id: '8133cd37-903b-4937-a022-7c8294015a3a',
+          description: 'test1'
+        })
+      ]);
+
+      expect(await context.storage!.getStatus()).toMatchObject({ active: true, snapshot_done: true });
+    }
+
+    {
+      await using context = await WalStreamTestContext.open(factory, { doNotClear: true });
+      const { pool } = context;
+      const storage = await context.factory.getActiveStorage();
+      const slotName = storage?.slot_name!;
+
+      // Here, we write data to the WAL until the replication slot is lost.
+      const TRIES = 100;
+      for (let i = 0; i < TRIES; i++) {
+        // Write something to the WAL.
+        await pool.query(`select pg_logical_emit_message(true, 'test', 'x')`);
+        // Switch WAL file. With default settings, each WAL file is around 16MB.
+        await pool.query(`select pg_switch_wal()`);
+        // Checkpoint command forces the old WAL files to be archived/removed.
+        await pool.query(`checkpoint`);
+        // Now check if the slot is still active.
+        const slot = pgwireRows(
+          await context.pool.query({
+            statement: `select slot_name, wal_status, safe_wal_size, pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) as lag from pg_replication_slots where slot_name = $1`,
+            params: [{ type: 'varchar', value: slotName }]
+          })
+        )[0];
+        if (slot.wal_status == 'lost') {
+          break;
+        } else if (i == TRIES - 1) {
+          throw new Error(
+            `Could not generate test conditions to expire replication slot. Current status: ${JSONBig.stringify(slot)}`
+          );
+        }
+      }
+
+      await context.loadActiveSyncRules();
+
+      // The error is handled on a higher level, which triggers
+      // creating a new replication slot.
+      await expect(async () => {
+        await context.replicateSnapshot();
+      }).rejects.toThrowError(MissingReplicationSlotError);
     }
   });
 
