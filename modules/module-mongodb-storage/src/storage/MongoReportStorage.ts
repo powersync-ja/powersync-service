@@ -2,6 +2,7 @@ import { storage } from '@powersync/service-core';
 import { event_types } from '@powersync/service-types';
 import { PowerSyncMongo } from './implementation/db.js';
 import { logger } from '@powersync/lib-services-framework';
+import { createPaginatedMongoQuery } from '../utils/util.js';
 
 export class MongoReportStorage implements storage.ReportStorage {
   public readonly db: PowerSyncMongo;
@@ -41,6 +42,22 @@ export class MongoReportStorage implements storage.ReportStorage {
       ])
       .toArray();
     return result[0];
+  }
+
+  async getClientConnections(
+    data: event_types.ClientConnectionsRequest
+  ): Promise<event_types.PaginatedResponse<event_types.ClientConnection>>{
+    const {  cursor, date_range } = data;
+    const limit = data?.limit || 100;
+
+    const connected_at = date_range ? { connected_at: { $lte: date_range.end, $gte: date_range.start } } : undefined;
+    const user_id = data.user_id ? { user_id: data.user_id } : undefined;
+    const client_id = data.client_id ? { client_id: data.client_id } : undefined;
+    return await createPaginatedMongoQuery({
+      ...client_id,
+      ...user_id,
+      ...connected_at,
+    },this.db.connection_report_events, limit, cursor) as event_types.PaginatedResponse<event_types.ClientConnection>
   }
 
   async reportClientConnection(data: event_types.ClientConnectionBucketData): Promise<void> {

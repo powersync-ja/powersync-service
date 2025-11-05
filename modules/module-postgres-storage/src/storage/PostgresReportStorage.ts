@@ -225,6 +225,65 @@ export class PostgresReportStorage implements storage.ReportStorage {
       .first();
     return this.mapListCurrentConnectionsResponse(result);
   }
+
+  async getClientConnections(
+    data: event_types.ClientConnectionsRequest
+  ): Promise<event_types.PaginatedResponse<event_types.ClientConnection>> {
+    const {  cursor, date_range } = data;
+    const limit = data?.limit || 100;
+    // const result = await this.db.sql`
+    //   WITH
+    //     filtered AS (
+    //       SELECT
+    //         *
+    //       FROM
+    //         connection_report_events
+    //       WHERE
+    //         connected_at >= ${{ type: 1184, value: start.toISOString() }}
+    //         AND connected_at <= ${{ type: 1184, value: end.toISOString() }}
+    //     ),
+    //     unique_users AS (
+    //       SELECT
+    //         COUNT(DISTINCT user_id) AS count
+    //       FROM
+    //         filtered
+    //     ),
+    //     sdk_versions_array AS (
+    //       SELECT
+    //         sdk,
+    //         COUNT(DISTINCT client_id) AS clients,
+    //         COUNT(DISTINCT user_id) AS users
+    //       FROM
+    //         filtered
+    //       GROUP BY
+    //         sdk
+    //     )
+    //   SELECT
+    //     (
+    //       SELECT
+    //         COALESCE(count, 0)
+    //       FROM
+    //         unique_users
+    //     ) AS users,
+    //     (
+    //       SELECT
+    //         JSON_AGG(ROW_TO_JSON(s))
+    //       FROM
+    //         sdk_versions_array s
+    //     ) AS sdks;
+    // `
+    //   .decoded(SdkReporting)
+    //   .first();
+    // return this.mapListCurrentConnectionsResponse(result);
+    return {
+      cursor: undefined,
+      count: 0,
+      items:[],
+      more: false,
+      total: 0
+    }
+  }
+
   async deleteOldConnectionData(data: event_types.DeleteOldConnectionData): Promise<void> {
     const { date } = data;
     const result = await this.db.sql`

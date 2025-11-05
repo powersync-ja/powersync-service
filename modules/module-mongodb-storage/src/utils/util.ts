@@ -114,3 +114,39 @@ export function setSessionSnapshotTime(session: mongo.ClientSession, time: bson.
     throw new ServiceAssertionError(`Session snapshotTime is already set`);
   }
 }
+
+export const createPaginatedMongoQuery = async <T extends mongo.Document>( query: mongo.Filter<T>, collection: mongo.Collection<T>,limit: number, cursor?: string) =>{
+
+  const createQuery = (cursor?: string)=>{
+    if (!cursor) {
+      return query;
+    }
+    return {
+      $and: [
+        query,
+        {
+          _id: {
+            $lt: new bson.ObjectId(cursor)
+          }
+        }
+      ]
+    } as mongo.Filter<T>
+  }
+  
+  /** cursor.count() deprecated */
+  const total = await collection.countDocuments(query);
+
+  const findCursor = collection.find(createQuery(cursor), { sort: {
+      _id: -1
+    }})
+
+  const items = await findCursor.limit(limit).toArray();
+  const count = items.length;
+  return {
+    items,
+    total,
+    count,
+    cursor: count === limit ? items[items.length - 1]._id.toHexString() : undefined,
+    more: count < total,
+  }
+}

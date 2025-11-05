@@ -83,3 +83,12 @@ export type ClientConnectionReportRequest = {
   start: Date;
   end: Date;
 };
+
+export type ClientConnectionsRequest = { client_id?: string, user_id?: string, cursor?: string, limit?: number, date_range?: ClientConnectionReportRequest };
+export type PaginatedResponse<T> = {
+  items: T[];
+  total: number;
+  count: number;
+  cursor?: string;
+  more: boolean;
+}
