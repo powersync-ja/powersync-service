@@ -28,7 +28,7 @@ import { MongoIdSequence } from './MongoIdSequence.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
 import { cacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
-import { idPrefixFilter } from './util.js';
+import { idPrefixFilter } from '../../utils/util.js';
 
 /**
  * 15MB
