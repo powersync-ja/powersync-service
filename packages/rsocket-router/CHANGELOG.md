@@ -1,5 +1,14 @@
 # @powersync/service-rsocket-router
 
+## 0.2.6
+
+### Patch Changes
+
+- 88982d9: Migrate to trusted publishing
+- Updated dependencies [80fd68b]
+- Updated dependencies [88982d9]
+  - @powersync/lib-services-framework@0.7.9
+
 ## 0.2.5
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # @powersync/service-types
 
+## 0.13.1
+
+### Patch Changes
+
+- 80fd68b: Add SDK usage reporting support.
+- 88982d9: Migrate to trusted publishing
+
 ## 0.13.0
 
 ### Minor Changes

@@ -1,5 +1,11 @@
 # @powersync/service-jsonbig
 
+## 0.17.12
+
+### Patch Changes
+
+- 88982d9: Migrate to trusted publishing
+
 ## 0.17.11
 
 ### Patch Changes

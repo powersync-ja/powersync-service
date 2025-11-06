@@ -1,5 +1,27 @@
 # @powersync/service-image
 
+## 1.16.0
+
+### Minor Changes
+
+- 80fd68b: Add SDK usage reporting support.
+
+### Patch Changes
+
+- e465ba7: Node 22.21.1, with support for --max-old-space-size-percentage.
+- Updated dependencies [0e9aa94]
+- Updated dependencies [80fd68b]
+- Updated dependencies [88982d9]
+  - @powersync/service-module-postgres@0.16.9
+  - @powersync/service-module-postgres-storage@0.10.9
+  - @powersync/service-module-mongodb-storage@0.12.9
+  - @powersync/service-module-mongodb@0.12.9
+  - @powersync/service-core@1.16.0
+  - @powersync/service-module-mysql@0.9.9
+  - @powersync/service-module-core@0.2.9
+  - @powersync/lib-services-framework@0.7.9
+  - @powersync/service-rsocket-router@0.2.6
+
 ## 1.15.8
 
 ### Patch Changes
