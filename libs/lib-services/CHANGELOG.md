@@ -1,5 +1,18 @@
 # @powersync/lib-services-framework
 
+## 0.7.9
+
+### Patch Changes
+
+- 80fd68b: Add SDK usage reporting support.
+- 88982d9: Migrate to trusted publishing
+- Updated dependencies [b4fa979]
+- Updated dependencies [c2bd0b0]
+- Updated dependencies [0268858]
+- Updated dependencies [88982d9]
+  - @powersync/service-sync-rules@0.29.6
+  - @powersync/service-errors@0.3.5
+
 ## 0.7.8
 
 ### Patch Changes

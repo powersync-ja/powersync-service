@@ -1,5 +1,11 @@
 # @powersync/service-schema
 
+## 1.16.0
+
+### Patch Changes
+
+- 88982d9: Migrate to trusted publishing
+
 ## 1.15.8
 
 ## 1.15.7
