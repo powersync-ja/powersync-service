@@ -262,14 +262,9 @@ export function timestamptzToSqlite(source?: string): DateTimeValue | null {
 
   const baseValue = parsed.toISOString().replace('.000', '').replace('Z', '');
 
-  // In the new format, we always use ISO 8601. Since Postgres drops zeroes from the fractional seconds, we also pad
-  // that back to the highest theoretical precision (microseconds). This ensures that sorting returned values as text
-  // returns them in order of the time value they represent.
-  //
   // In the old format, we keep the sub-second precision only if it's not `.000`.
-  const missingPrecision = precision?.padEnd(7, '0') ?? '.000000';
   return new DateTimeValue(
-    `${baseValue}${missingPrecision}Z`,
+    `${baseValue}${precision ?? ''}Z`,
     `${baseValue.replace('T', ' ')}${precision ?? ''}Z`,
     postgresTimeOptions
   );
