@@ -59,8 +59,8 @@ export class DateTimeValue extends CustomSqliteValue {
           } else {
             return [
               this.iso8601Representation.slice(0, -matchSubSeconds[0].length),
-              matchSubSeconds[1],
-              matchSubSeconds[2]
+              matchSubSeconds[1] ?? '',
+              matchSubSeconds[2] ?? ''
             ];
           }
         },
