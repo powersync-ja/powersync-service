@@ -1,4 +1,4 @@
-import { SqliteInputRow, SqliteRow } from '@powersync/service-sync-rules';
+import { applyRowContext, CompatibilityContext, SqliteInputRow, SqliteRow } from '@powersync/service-sync-rules';
 import { afterAll, describe, expect, test } from 'vitest';
 import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
 import { eventIsWriteMutation, eventIsXid } from '@module/replication/zongji/zongji-utils.js';
@@ -228,8 +228,14 @@ INSERT INTO test_data (
       year_col: 2023
     };
 
-    expect(databaseRows[0]).toMatchObject(expectedResult);
-    expect(replicatedRows[0]).toMatchObject(expectedResult);
+    expect(applyRowContext(databaseRows[0], CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY)).toMatchObject(
+      expectedResult
+    );
+    expect(applyRowContext(replicatedRows[0], CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY)).toMatchObject(
+      expectedResult
+    );
+    expect(applyRowContext(databaseRows[0], new CompatibilityContext({ edition: 2 }))).toMatchObject(expectedResult);
+    expect(applyRowContext(replicatedRows[0], new CompatibilityContext({ edition: 2 }))).toMatchObject(expectedResult);
   });
 
   test('Date types edge cases mappings', async () => {
@@ -264,8 +270,12 @@ INSERT INTO test_data (
       const replicatedRows = await getReplicatedRows(expectedResults.length);
 
       for (let i = 0; i < expectedResults.length; i++) {
-        expect(databaseRows[i]).toMatchObject(expectedResults[i]);
-        expect(replicatedRows[i]).toMatchObject(expectedResults[i]);
+        expect(applyRowContext(databaseRows[i], CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY)).toMatchObject(
+          expectedResults[i]
+        );
+        expect(applyRowContext(replicatedRows[i], CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY)).toMatchObject(
+          expectedResults[i]
+        );
       }
     } finally {
       connection.release;
