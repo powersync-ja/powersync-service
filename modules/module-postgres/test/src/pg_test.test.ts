@@ -5,7 +5,8 @@ import {
   SqliteInputRow,
   DateTimeValue,
   TimeValue,
-  CompatibilityEdition
+  CompatibilityEdition,
+  TimeValuePrecision
 } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { clearTestDb, connectPgPool, connectPgWire, TEST_URI } from './util.js';
@@ -466,6 +467,19 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
         time: '17:42:01.120000',
         timestamp: '2023-03-06T15:47:12.400000',
         timestamptz: '2023-03-06T13:47:00.000000Z'
+      });
+
+      const reducedPrecisionFormat = applyRowContext(
+        row,
+        new CompatibilityContext({
+          edition: CompatibilityEdition.SYNC_STREAMS,
+          maxTimeValuePrecision: TimeValuePrecision.milliseconds
+        })
+      );
+      expect(reducedPrecisionFormat).toMatchObject({
+        time: '17:42:01.120',
+        timestamp: '2023-03-06T15:47:12.400',
+        timestamptz: '2023-03-06T13:47:00.000Z'
       });
     } finally {
       await db.end();
