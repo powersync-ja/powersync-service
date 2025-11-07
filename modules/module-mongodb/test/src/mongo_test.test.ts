@@ -4,7 +4,8 @@ import {
   CompatibilityContext,
   CompatibilityEdition,
   SqliteInputRow,
-  SqlSyncRules
+  SqlSyncRules,
+  TimeValuePrecision
 } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 
@@ -555,10 +556,22 @@ bucket_definitions:
         noFraction: '2023-03-06 13:47:01.000Z'
       });
 
-      const newFormat = applyRowContext(row, new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS));
+      const newFormat = applyRowContext(row, new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS }));
       expect(newFormat).toMatchObject({
         fraction: '2023-03-06T13:47:01.123Z',
         noFraction: '2023-03-06T13:47:01.000Z'
+      });
+
+      const reducedPrecisionFormat = applyRowContext(
+        row,
+        new CompatibilityContext({
+          edition: CompatibilityEdition.SYNC_STREAMS,
+          maxTimeValuePrecision: TimeValuePrecision.seconds
+        })
+      );
+      expect(reducedPrecisionFormat).toMatchObject({
+        fraction: '2023-03-06T13:47:01Z',
+        noFraction: '2023-03-06T13:47:01Z'
       });
     } finally {
       await client.close();
