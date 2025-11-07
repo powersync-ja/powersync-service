@@ -893,7 +893,7 @@ const schema = new StaticSchema([
 const options: StreamParseOptions = {
   schema: schema,
   ...PARSE_OPTIONS,
-  compatibility: new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS)
+  compatibility: new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS })
 };
 
 const bucketIdTransformer = SqlSyncRules.versionedBucketIdTransformer('1');

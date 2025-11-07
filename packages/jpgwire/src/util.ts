@@ -3,7 +3,7 @@ import * as net from 'node:net';
 import * as tls from 'node:tls';
 import { DEFAULT_CERTS } from './certs.js';
 import * as pgwire from './pgwire.js';
-import { PgType } from './pgwire_types.js';
+import { PgType, postgresTimeOptions } from './pgwire_types.js';
 import { ConnectOptions } from './socket_adapter.js';
 import { DatabaseInputValue, DateTimeValue } from '@powersync/service-sync-rules';
 
@@ -243,9 +243,9 @@ export function timestamptzToSqlite(source?: string): DateTimeValue | null {
   const match = timeRegex.exec(source);
   if (match == null) {
     if (source == 'infinity') {
-      return new DateTimeValue('9999-12-31T23:59:59Z');
+      return new DateTimeValue('9999-12-31T23:59:59Z', undefined, postgresTimeOptions);
     } else if (source == '-infinity') {
-      return new DateTimeValue('0000-01-01T00:00:00Z');
+      return new DateTimeValue('0000-01-01T00:00:00Z', undefined, postgresTimeOptions);
     } else {
       return null;
     }
@@ -268,7 +268,11 @@ export function timestamptzToSqlite(source?: string): DateTimeValue | null {
   //
   // In the old format, we keep the sub-second precision only if it's not `.000`.
   const missingPrecision = precision?.padEnd(7, '0') ?? '.000000';
-  return new DateTimeValue(`${baseValue}${missingPrecision}Z`, `${baseValue.replace('T', ' ')}${precision ?? ''}Z`);
+  return new DateTimeValue(
+    `${baseValue}${missingPrecision}Z`,
+    `${baseValue.replace('T', ' ')}${precision ?? ''}Z`,
+    postgresTimeOptions
+  );
 }
 
 /**
@@ -286,9 +290,9 @@ export function timestampToSqlite(source?: string): DateTimeValue | null {
   const match = timeRegex.exec(source);
   if (match == null) {
     if (source == 'infinity') {
-      return new DateTimeValue('9999-12-31T23:59:59');
+      return new DateTimeValue('9999-12-31T23:59:59', undefined, postgresTimeOptions);
     } else if (source == '-infinity') {
-      return new DateTimeValue('0000-01-01T00:00:00');
+      return new DateTimeValue('0000-01-01T00:00:00', undefined, postgresTimeOptions);
     } else {
       return null;
     }
@@ -297,7 +301,7 @@ export function timestampToSqlite(source?: string): DateTimeValue | null {
   const [_, date, time, precision, __] = match as any;
   const missingPrecision = precision?.padEnd(7, '0') ?? '.000000';
 
-  return new DateTimeValue(`${date}T${time}${missingPrecision}`, source);
+  return new DateTimeValue(`${date}T${time}${missingPrecision}`, source, postgresTimeOptions);
 }
 /**
  * For date, we keep it mostly as-is.

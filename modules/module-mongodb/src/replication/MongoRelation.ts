@@ -8,7 +8,9 @@ import {
   CustomSqliteValue,
   SqliteInputRow,
   SqliteInputValue,
-  DateTimeValue
+  DateTimeValue,
+  DateTimeSourceOptions,
+  TimeValuePrecision
 } from '@powersync/service-sync-rules';
 
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
@@ -69,7 +71,7 @@ export function toMongoSyncRulesValue(data: any): SqliteInputValue {
     return data.toHexString();
   } else if (data instanceof Date) {
     const isoString = data.toISOString();
-    return new DateTimeValue(isoString);
+    return new DateTimeValue(isoString, undefined, mongoTimeOptions);
   } else if (data instanceof mongo.Binary) {
     return new Uint8Array(data.buffer);
   } else if (data instanceof mongo.Long) {
@@ -122,7 +124,7 @@ function filterJsonData(data: any, context: CompatibilityContext, depth = 0): an
     return data;
   } else if (data instanceof Date) {
     const isoString = data.toISOString();
-    return new DateTimeValue(isoString).toSqliteValue(context);
+    return new DateTimeValue(isoString, undefined, mongoTimeOptions).toSqliteValue(context);
   } else if (data instanceof mongo.ObjectId) {
     return data.toHexString();
   } else if (data instanceof mongo.UUID) {
@@ -195,3 +197,8 @@ export async function createCheckpoint(
     await session.endSession();
   }
 }
+
+const mongoTimeOptions: DateTimeSourceOptions = {
+  subSecondPrecision: TimeValuePrecision.milliseconds,
+  defaultSubSecondPrecision: TimeValuePrecision.milliseconds
+};

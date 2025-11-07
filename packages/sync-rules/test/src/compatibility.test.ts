@@ -1,11 +1,14 @@
 import { describe, expect, test } from 'vitest';
-import { SqlSyncRules, DateTimeValue, toSyncRulesValue, SqliteInputRow } from '../../src/index.js';
+import { SqlSyncRules, DateTimeValue, toSyncRulesValue, TimeValuePrecision } from '../../src/index.js';
 
 import { ASSETS, identityBucketTransformer, normalizeQuerierOptions, PARSE_OPTIONS } from './util.js';
 
 describe('compatibility options', () => {
   describe('timestamps', () => {
-    const value = new DateTimeValue('2025-08-19T09:21:00Z');
+    const value = new DateTimeValue('2025-08-19T09:21:00Z', undefined, {
+      subSecondPrecision: TimeValuePrecision.seconds,
+      defaultSubSecondPrecision: TimeValuePrecision.seconds
+    });
 
     test('uses old format by default', () => {
       const rules = SqlSyncRules.fromYaml(
@@ -190,7 +193,10 @@ config:
         bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1'),
         record: rules.applyRowContext<never>({
           id: 'id',
-          description: new DateTimeValue('2025-08-19T09:21:00Z')
+          description: new DateTimeValue('2025-08-19T09:21:00Z', undefined, {
+            subSecondPrecision: TimeValuePrecision.seconds,
+            defaultSubSecondPrecision: TimeValuePrecision.seconds
+          })
         })
       })
     ).toStrictEqual([
@@ -268,7 +274,13 @@ config:
   });
 
   test('arrays', () => {
-    const data = toSyncRulesValue(['static value', new DateTimeValue('2025-08-19T09:21:00Z')]);
+    const data = toSyncRulesValue([
+      'static value',
+      new DateTimeValue('2025-08-19T09:21:00Z', undefined, {
+        subSecondPrecision: TimeValuePrecision.seconds,
+        defaultSubSecondPrecision: TimeValuePrecision.seconds
+      })
+    ]);
 
     for (const withFixedQuirk of [false, true]) {
       let syncRules = `
@@ -322,5 +334,49 @@ config:
         }
       ]);
     }
+  });
+
+  describe('max datetime precision', () => {
+    test('is not supported in edition 1', () => {
+      expect(() => {
+        SqlSyncRules.fromYaml(
+          `
+bucket_definitions:
+  mybucket:
+    data:
+      - SELECT id, description FROM assets
+
+config:
+  timestamp_max_precision: seconds
+    `,
+          PARSE_OPTIONS
+        );
+      }).toThrow(`'timestamp_max_precision' requires 'timestamps_iso8601' to be enabled`);
+    });
+
+    test('can set max precision', () => {
+      const rules = SqlSyncRules.fromYaml(
+        `
+bucket_definitions:
+  mybucket:
+    data:
+      - SELECT id, description FROM assets
+
+config:
+  edition: 2
+  timestamp_max_precision: seconds
+    `,
+        PARSE_OPTIONS
+      );
+
+      expect(
+        rules.applyRowContext({
+          a: new DateTimeValue('2025-11-07T10:45:03.123Z', undefined, {
+            subSecondPrecision: TimeValuePrecision.microseconds,
+            defaultSubSecondPrecision: TimeValuePrecision.microseconds
+          })
+        })
+      ).toStrictEqual({ a: '2025-11-07T10:45:03Z' });
+    });
   });
 });

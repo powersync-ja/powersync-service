@@ -1,7 +1,12 @@
 // Adapted from https://github.com/kagis/pgwire/blob/0dc927f9f8990a903f238737326e53ba1c8d094f/mod.js#L2218
 
 import { JsonContainer } from '@powersync/service-jsonbig';
-import { type DatabaseInputValue, TimeValue } from '@powersync/service-sync-rules';
+import {
+  type DatabaseInputValue,
+  DateTimeSourceOptions,
+  TimeValue,
+  TimeValuePrecision
+} from '@powersync/service-sync-rules';
 import { dateToSqlite, lsnMakeComparable, timestampToSqlite, timestamptzToSqlite } from './util.js';
 import { StructureParser } from './structure_parser.js';
 
@@ -134,7 +139,7 @@ export class PgType {
       case PgTypeOid.TIMESTAMPTZ:
         return timestamptzToSqlite(text);
       case PgTypeOid.TIME:
-        return TimeValue.parse(text);
+        return TimeValue.parse(text, postgresTimeOptions);
       case PgTypeOid.JSON:
       case PgTypeOid.JSONB:
         // Don't parse the contents
@@ -173,3 +178,8 @@ export class PgType {
     return '\\x' + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
   }
 }
+
+export const postgresTimeOptions: DateTimeSourceOptions = Object.freeze({
+  subSecondPrecision: TimeValuePrecision.milliseconds,
+  defaultSubSecondPrecision: TimeValuePrecision.milliseconds
+});
