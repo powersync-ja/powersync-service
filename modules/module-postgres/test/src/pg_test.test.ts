@@ -166,9 +166,9 @@ VALUES(10, ARRAY['null']::TEXT[]);
     expect(transformed[2]).toMatchObject({
       id: 3n,
       date: '2023-03-06',
-      time: new TimeValue('15:47:00'),
-      timestamp: new DateTimeValue('2023-03-06T15:47:00.000000', '2023-03-06 15:47:00'),
-      timestamptz: new DateTimeValue('2023-03-06T13:47:00.000000Z', '2023-03-06 13:47:00Z')
+      time: TimeValue.parse('15:47:00', pgwire.postgresTimeOptions),
+      timestamp: new DateTimeValue('2023-03-06T15:47:00.000000', '2023-03-06 15:47:00', pgwire.postgresTimeOptions),
+      timestamptz: new DateTimeValue('2023-03-06T13:47:00.000000Z', '2023-03-06 13:47:00Z', pgwire.postgresTimeOptions)
     });
 
     expect(transformed[3]).toMatchObject({
@@ -183,26 +183,26 @@ VALUES(10, ARRAY['null']::TEXT[]);
     expect(transformed[4]).toMatchObject({
       id: 5n,
       date: '0000-01-01',
-      time: new TimeValue('00:00:00'),
-      timestamp: new DateTimeValue('0000-01-01T00:00:00'),
-      timestamptz: new DateTimeValue('0000-01-01T00:00:00Z')
+      time: TimeValue.parse('00:00:00', pgwire.postgresTimeOptions),
+      timestamp: new DateTimeValue('0000-01-01T00:00:00', undefined, pgwire.postgresTimeOptions),
+      timestamptz: new DateTimeValue('0000-01-01T00:00:00Z', undefined, pgwire.postgresTimeOptions)
     });
 
     expect(transformed[5]).toMatchObject({
       id: 6n,
-      timestamp: new DateTimeValue('1970-01-01T00:00:00.000000', '1970-01-01 00:00:00'),
-      timestamptz: new DateTimeValue('1970-01-01T00:00:00.000000Z', '1970-01-01 00:00:00Z')
+      timestamp: new DateTimeValue('1970-01-01T00:00:00.000000', '1970-01-01 00:00:00', pgwire.postgresTimeOptions),
+      timestamptz: new DateTimeValue('1970-01-01T00:00:00.000000Z', '1970-01-01 00:00:00Z', pgwire.postgresTimeOptions)
     });
 
     expect(transformed[6]).toMatchObject({
       id: 7n,
-      timestamp: new DateTimeValue('9999-12-31T23:59:59'),
-      timestamptz: new DateTimeValue('9999-12-31T23:59:59Z')
+      timestamp: new DateTimeValue('9999-12-31T23:59:59', undefined, pgwire.postgresTimeOptions),
+      timestamptz: new DateTimeValue('9999-12-31T23:59:59Z', undefined, pgwire.postgresTimeOptions)
     });
 
     expect(transformed[7]).toMatchObject({
       id: 8n,
-      timestamptz: new DateTimeValue('0022-02-03T09:13:14.000000Z', '0022-02-03 09:13:14Z')
+      timestamptz: new DateTimeValue('0022-02-03T09:13:14.000000Z', '0022-02-03 09:13:14Z', pgwire.postgresTimeOptions)
     });
 
     expect(transformed[8]).toMatchObject({
@@ -461,7 +461,7 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
         timestamptz: '2023-03-06 13:47:00Z'
       });
 
-      const newFormat = applyRowContext(row, new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS));
+      const newFormat = applyRowContext(row, new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS }));
       expect(newFormat).toMatchObject({
         time: '17:42:01.120000',
         timestamp: '2023-03-06T15:47:12.400000',
@@ -535,7 +535,10 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
         mood: 'happy'
       });
 
-      const newFormat = applyRowContext(transformed, new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS));
+      const newFormat = applyRowContext(
+        transformed,
+        new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS })
+      );
       expect(newFormat).toMatchObject({
         rating: 1,
         composite: '{"foo":[2.0,3.0],"bar":"bar"}',
@@ -601,7 +604,10 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
         ranges: '{"{[2,4),[6,8)}"}'
       });
 
-      const newFormat = applyRowContext(transformed, new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS));
+      const newFormat = applyRowContext(
+        transformed,
+        new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS })
+      );
       expect(newFormat).toMatchObject({
         ranges: JSON.stringify([
           [

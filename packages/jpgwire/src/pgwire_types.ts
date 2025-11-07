@@ -180,6 +180,6 @@ export class PgType {
 }
 
 export const postgresTimeOptions: DateTimeSourceOptions = Object.freeze({
-  subSecondPrecision: TimeValuePrecision.milliseconds,
-  defaultSubSecondPrecision: TimeValuePrecision.milliseconds
+  subSecondPrecision: TimeValuePrecision.microseconds,
+  defaultSubSecondPrecision: TimeValuePrecision.microseconds
 });
