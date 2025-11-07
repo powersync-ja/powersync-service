@@ -1,5 +1,5 @@
 import ajvModule from 'ajv';
-import { CompatibilityEdition, CompatibilityOption } from './compatibility.js';
+import { CompatibilityEdition, CompatibilityOption, TimeValuePrecision } from './compatibility.js';
 // Hack to make this work both in NodeJS and a browser
 const Ajv = ajvModule.default ?? ajvModule;
 const ajv = new Ajv({ allErrors: true, verbose: true });
@@ -118,6 +118,10 @@ export const syncRulesSchema: ajvModule.Schema = {
           default: CompatibilityEdition.LEGACY,
           minimum: CompatibilityEdition.LEGACY,
           exclusiveMaximum: CompatibilityEdition.SYNC_STREAMS + 1
+        },
+        timestamp_max_precision: {
+          type: 'string',
+          enum: Object.values(TimeValuePrecision.byName).map((e) => e.name)
         },
         ...Object.fromEntries(
           Object.entries(CompatibilityOption.byName).map((e) => {

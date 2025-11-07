@@ -132,13 +132,15 @@ export function toSQLiteRow(
         case mysql.Types.TIMESTAMP:
         case ADDITIONAL_MYSQL_TYPES.TIMESTAMP2:
           {
-            const date = row[key] as Date;
-            if (isNaN(date.getTime())) {
+            const formattedDate = row[key] as string;
+            const parsed = new Date(formattedDate);
+
+            if (isNaN(parsed.getTime())) {
               // Invalid dates, such as 2024-00-00.
               // we can't do anything meaningful with this, so just use null.
               result[key] = null;
             } else {
-              result[key] = date.toISOString();
+              result[key] = new sync_rules.DateTimeValue(formattedDate, parsed.toISOString(), mySqlDateTimeOptions);
             }
           }
           break;
@@ -241,3 +243,9 @@ export function toExpressionTypeFromMySQLType(mysqlType: string | undefined): Ex
       return ExpressionType.TEXT;
   }
 }
+
+// We can provide microsecond accuracy, but for backwards compatibility we only offer millisecond accuracy by default.
+const mySqlDateTimeOptions: sync_rules.DateTimeSourceOptions = {
+  subSecondPrecision: sync_rules.TimeValuePrecision.microseconds,
+  defaultSubSecondPrecision: sync_rules.TimeValuePrecision.milliseconds
+};
