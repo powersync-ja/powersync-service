@@ -548,6 +548,66 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
     }
   });
 
+  test('test replication - domain type of composite', async () => {
+    const db = await connectPgPool();
+    try {
+      await clearTestDb(db);
+      await db.query(`CREATE TYPE _monetary AS (amount BIGINT, currency TEXT);`);
+      await db.query(`CREATE DOMAIN monetary AS _monetary CHECK (
+      value IS NULL
+   OR (
+          (value).amount IS NOT NULL
+      AND (value).currency IS NOT NULL
+   )
+);
+`);
+
+      await db.query(`CREATE TABLE test_custom(
+        id serial primary key,
+        price monetary
+      );`);
+
+      const slotName = 'test_slot';
+
+      await db.query({
+        statement: 'SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1',
+        params: [{ type: 'varchar', value: slotName }]
+      });
+
+      await db.query({
+        statement: `SELECT slot_name, lsn FROM pg_catalog.pg_create_logical_replication_slot($1, 'pgoutput')`,
+        params: [{ type: 'varchar', value: slotName }]
+      });
+
+      await db.query(`
+        INSERT INTO test_custom
+          (price)
+        VALUES (
+          (10, 'EUR')
+        );
+      `);
+
+      const pg: pgwire.PgConnection = await pgwire.pgconnect({ replication: 'database' }, TEST_URI);
+      const replicationStream = await pg.logicalReplication({
+        slot: slotName,
+        options: {
+          proto_version: '1',
+          publication_names: 'powersync'
+        }
+      });
+
+      const [transformed] = await getReplicationTx(db, replicationStream);
+      await pg.end();
+
+      const newFormat = applyRowContext(transformed, new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS));
+      expect(newFormat).toMatchObject({
+        price: '{"amount":10,"currency":"EUR"}'
+      });
+    } finally {
+      await db.end();
+    }
+  });
+
   test('test replication - multiranges', async () => {
     const db = await connectPgPool();
 
