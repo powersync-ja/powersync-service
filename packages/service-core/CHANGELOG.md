@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 1.16.1
+
+### Patch Changes
+
+- c6bdb4f: [MongoDB storage] Fix migration for indexes on connection_report_events.
+
 ## 1.16.0
 
 ### Minor Changes
