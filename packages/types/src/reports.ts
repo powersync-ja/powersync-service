@@ -70,6 +70,17 @@ export type ClientConnection = {
   disconnected_at?: Date;
 };
 
+export type ClientConnectionResponse = {
+  id?: string;
+  sdk: string;
+  user_agent: string;
+  client_id: string;
+  user_id: string;
+  jwt_exp?: string;
+  connected_at: string;
+  disconnected_at?: string;
+};
+
 export type ClientConnectionReportResponse = {
   users: number;
   sdks: {
@@ -84,11 +95,17 @@ export type ClientConnectionReportRequest = {
   end: Date;
 };
 
-export type ClientConnectionsRequest = { client_id?: string, user_id?: string, cursor?: string, limit?: number, date_range?: ClientConnectionReportRequest };
+export type ClientConnectionsRequest = {
+  client_id?: string;
+  user_id?: string;
+  cursor?: string;
+  limit?: number;
+  date_range?: ClientConnectionReportRequest;
+};
 export type PaginatedResponse<T> = {
   items: T[];
   total: number;
   count: number;
   cursor?: string;
   more: boolean;
-}
+};

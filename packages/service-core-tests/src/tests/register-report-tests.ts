@@ -62,7 +62,7 @@ const user_four = {
 const user_old = {
   user_id: 'user_one',
   client_id: '',
-  connected_at: now,
+  connected_at: nowLess5minutes,
   sdk: 'unknown',
   user_agent: 'Dart (flutter-web) Chrome/128 android',
   jwt_exp: nowAdd5minutes
@@ -106,19 +106,15 @@ export const REPORT_TEST_USERS = {
 };
 export type ReportUserData = typeof REPORT_TEST_USERS;
 
-
 type LocalConnection = Partial<typeof user_expired>;
-const  removeVolatileFields = <T>(
-  connections: LocalConnection[]
-)=> {
-  return connections.map((sdk: Partial<LocalConnection & { _id: string, disconnected_at?: Date }>) => {
+const removeVolatileFields = <T>(connections: LocalConnection[]) => {
+  return connections.map((sdk: Partial<LocalConnection & { _id: string; disconnected_at?: Date }>) => {
     const { _id, disconnected_at, connected_at, jwt_exp, ...rest } = sdk;
     return {
       ...rest
     };
   });
-}
-
+};
 
 export async function registerReportTests(factory: storage.ReportStorage) {
   it('Should show currently connected users', async () => {
@@ -148,46 +144,47 @@ export async function registerReportTests(factory: storage.ReportStorage) {
     expect(sdk).toMatchSnapshot();
   });
 
-
   it('Should show paginated response of all connections of specified client_id', async () => {
     const connections = await factory.getClientConnections({
-      client_id: user_two.client_id,
+      client_id: user_two.client_id
     });
     const cleaned = {
       ...connections,
-      items: removeVolatileFields(connections.items),
-    }
+      items: removeVolatileFields(connections.items)
+    };
     expect(cleaned).toMatchSnapshot();
   });
 
   it('Should show paginated response of connections of specified user_id', async () => {
     const connections = await factory.getClientConnections({
-      user_id: user_one.user_id,
+      user_id: user_one.user_id
     });
 
     const cleaned = {
       ...connections,
-      items: removeVolatileFields(connections.items),
-    }
+      items: removeVolatileFields(connections.items)
+    };
     expect(cleaned).toMatchSnapshot();
   });
 
   it('Should show paginated response of connections over a date range', async () => {
-    const connections = await factory.getClientConnections({ date_range: {
-      start: weekAgo,
-      end: now
-      }});
+    const connections = await factory.getClientConnections({
+      date_range: {
+        start: weekAgo,
+        end: now
+      }
+    });
 
     const cleaned = {
       ...connections,
-      items: removeVolatileFields(connections.items),
-    }
+      items: removeVolatileFields(connections.items)
+    };
     expect(cleaned).toMatchSnapshot();
   });
 
   it('Should show paginated response of all connections with a limit', async () => {
     const initial = await factory.getClientConnections({
-      limit: 3,
+      limit: 4
     });
 
     const cursor = initial.cursor;
@@ -196,8 +193,8 @@ export async function registerReportTests(factory: storage.ReportStorage) {
     const cleanedInitial = {
       ...initial,
       cursor: '<removed-for-snapshot>',
-      items: removeVolatileFields(initial.items),
-    }
+      items: removeVolatileFields(initial.items)
+    };
     expect(cleanedInitial).toMatchSnapshot();
     const connections = await factory.getClientConnections({
       cursor
@@ -205,8 +202,8 @@ export async function registerReportTests(factory: storage.ReportStorage) {
 
     const cleaned = {
       ...connections,
-      items: removeVolatileFields(initial.items),
-    }
+      items: removeVolatileFields(initial.items)
+    };
     expect(cleaned).toMatchSnapshot();
   });
 }

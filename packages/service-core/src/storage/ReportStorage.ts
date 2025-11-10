@@ -37,7 +37,7 @@ export interface ReportStorage extends AsyncDisposable {
    */
   getClientConnections(
     data: event_types.ClientConnectionsRequest
-  ): Promise<event_types.PaginatedResponse<event_types.ClientConnection>>
+  ): Promise<event_types.PaginatedResponse<event_types.ClientConnection>>;
   /**
    * Delete old connection data based on a specific date.
    * This is used to clean up old connection data that is no longer needed.

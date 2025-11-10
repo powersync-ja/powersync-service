@@ -115,9 +115,13 @@ export function setSessionSnapshotTime(session: mongo.ClientSession, time: bson.
   }
 }
 
-export const createPaginatedMongoQuery = async <T extends mongo.Document>( query: mongo.Filter<T>, collection: mongo.Collection<T>,limit: number, cursor?: string) =>{
-
-  const createQuery = (cursor?: string)=>{
+export const createPaginatedConnectionQuery = async <T extends mongo.Document>(
+  query: mongo.Filter<T>,
+  collection: mongo.Collection<T>,
+  limit: number,
+  cursor?: string
+) => {
+  const createQuery = (cursor?: string) => {
     if (!cursor) {
       return query;
     }
@@ -125,20 +129,26 @@ export const createPaginatedMongoQuery = async <T extends mongo.Document>( query
       $and: [
         query,
         {
-          _id: {
-            $lt: new bson.ObjectId(cursor)
+          /** We are using the connected at date as the cursor so that the functionality works the same on Postgres implementation
+           * The id field in postgres is an uuid, this will work similarly to the ObjectId in Mongodb
+           * */
+          connected_at: {
+            $lt: new Date(cursor)
           }
         }
       ]
-    } as mongo.Filter<T>
-  }
-  
+    } as mongo.Filter<T>;
+  };
+
   /** cursor.count() deprecated */
   const total = await collection.countDocuments(query);
 
-  const findCursor = collection.find(createQuery(cursor), { sort: {
-      _id: -1
-    }})
+  const findCursor = collection.find(createQuery(cursor), {
+    sort: {
+      /** We are sorting by connected at date descending to match cursor Postgres implementation */
+      connected_at: -1
+    }
+  });
 
   const items = await findCursor.limit(limit).toArray();
   const count = items.length;
@@ -146,7 +156,8 @@ export const createPaginatedMongoQuery = async <T extends mongo.Document>( query
     items,
     total,
     count,
-    cursor: count === limit ? items[items.length - 1]._id.toHexString() : undefined,
-    more: count < total,
-  }
-}
+    /** Setting the cursor to the connected at date of the last item in the list */
+    cursor: count === limit ? items[items.length - 1].connected_at.toISOString() : undefined,
+    more: count < total
+  };
+};

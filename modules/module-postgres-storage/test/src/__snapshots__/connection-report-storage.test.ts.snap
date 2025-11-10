@@ -3,13 +3,13 @@
 exports[`Connection report storage > Should create a connection event if its after a day 1`] = `
 [
   {
-    "client_id": "client_week",
+    "client_id": "client_one",
     "sdk": "powersync-js/1.24.5",
     "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
     "user_id": "user_week",
   },
   {
-    "client_id": "client_week",
+    "client_id": "client_one",
     "sdk": "powersync-js/1.24.5",
     "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
     "user_id": "user_week",
@@ -211,5 +211,179 @@ exports[`Report storage tests > Should show currently connected users 1`] = `
     },
   ],
   "users": 2,
+}
+`;
+
+exports[`Report storage tests > Should show paginated response of all connections of specified client_id 1`] = `
+{
+  "count": 1,
+  "cursor": undefined,
+  "items": [
+    {
+      "client_id": "client_two",
+      "id": "2",
+      "sdk": "powersync-js/1.21.1",
+      "user_agent": "powersync-js/1.21.0 powersync-web Chromium/138 linux",
+      "user_id": "user_two",
+    },
+  ],
+  "more": false,
+  "total": 1,
+}
+`;
+
+exports[`Report storage tests > Should show paginated response of all connections with a limit 1`] = `
+{
+  "count": 4,
+  "cursor": "<removed-for-snapshot>",
+  "items": [
+    {
+      "client_id": "client_one",
+      "id": "1",
+      "sdk": "powersync-dart/1.6.4",
+      "user_agent": "powersync-dart/1.6.4 Dart (flutter-web) Chrome/128 android",
+      "user_id": "user_one",
+    },
+    {
+      "client_id": "client_four",
+      "id": "4",
+      "sdk": "powersync-js/1.21.4",
+      "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
+      "user_id": "user_four",
+    },
+    {
+      "client_id": "client_two",
+      "id": "2",
+      "sdk": "powersync-js/1.21.1",
+      "user_agent": "powersync-js/1.21.0 powersync-web Chromium/138 linux",
+      "user_id": "user_two",
+    },
+    {
+      "client_id": "",
+      "id": "5",
+      "sdk": "unknown",
+      "user_agent": "Dart (flutter-web) Chrome/128 android",
+      "user_id": "user_one",
+    },
+  ],
+  "more": true,
+  "total": 8,
+}
+`;
+
+exports[`Report storage tests > Should show paginated response of all connections with a limit 2`] = `
+{
+  "count": 4,
+  "cursor": undefined,
+  "items": [
+    {
+      "client_id": "client_one",
+      "id": "1",
+      "sdk": "powersync-dart/1.6.4",
+      "user_agent": "powersync-dart/1.6.4 Dart (flutter-web) Chrome/128 android",
+      "user_id": "user_one",
+    },
+    {
+      "client_id": "client_four",
+      "id": "4",
+      "sdk": "powersync-js/1.21.4",
+      "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
+      "user_id": "user_four",
+    },
+    {
+      "client_id": "client_two",
+      "id": "2",
+      "sdk": "powersync-js/1.21.1",
+      "user_agent": "powersync-js/1.21.0 powersync-web Chromium/138 linux",
+      "user_id": "user_two",
+    },
+    {
+      "client_id": "",
+      "id": "5",
+      "sdk": "unknown",
+      "user_agent": "Dart (flutter-web) Chrome/128 android",
+      "user_id": "user_one",
+    },
+  ],
+  "more": true,
+  "total": 8,
+}
+`;
+
+exports[`Report storage tests > Should show paginated response of connections of specified user_id 1`] = `
+{
+  "count": 2,
+  "cursor": undefined,
+  "items": [
+    {
+      "client_id": "client_one",
+      "id": "1",
+      "sdk": "powersync-dart/1.6.4",
+      "user_agent": "powersync-dart/1.6.4 Dart (flutter-web) Chrome/128 android",
+      "user_id": "user_one",
+    },
+    {
+      "client_id": "",
+      "id": "5",
+      "sdk": "unknown",
+      "user_agent": "Dart (flutter-web) Chrome/128 android",
+      "user_id": "user_one",
+    },
+  ],
+  "more": false,
+  "total": 2,
+}
+`;
+
+exports[`Report storage tests > Should show paginated response of connections over a date range 1`] = `
+{
+  "count": 6,
+  "cursor": undefined,
+  "items": [
+    {
+      "client_id": "client_one",
+      "id": "1",
+      "sdk": "powersync-dart/1.6.4",
+      "user_agent": "powersync-dart/1.6.4 Dart (flutter-web) Chrome/128 android",
+      "user_id": "user_one",
+    },
+    {
+      "client_id": "client_four",
+      "id": "4",
+      "sdk": "powersync-js/1.21.4",
+      "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
+      "user_id": "user_four",
+    },
+    {
+      "client_id": "client_two",
+      "id": "2",
+      "sdk": "powersync-js/1.21.1",
+      "user_agent": "powersync-js/1.21.0 powersync-web Chromium/138 linux",
+      "user_id": "user_two",
+    },
+    {
+      "client_id": "",
+      "id": "5",
+      "sdk": "unknown",
+      "user_agent": "Dart (flutter-web) Chrome/128 android",
+      "user_id": "user_one",
+    },
+    {
+      "client_id": "client_three",
+      "id": "3",
+      "sdk": "powersync-js/1.21.2",
+      "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
+      "user_id": "user_three",
+    },
+    {
+      "client_id": "client_one",
+      "id": "week",
+      "sdk": "powersync-js/1.24.5",
+      "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
+      "user_id": "user_week",
+    },
+  ],
+  "more": false,
+  "total": 6,
 }
 `;

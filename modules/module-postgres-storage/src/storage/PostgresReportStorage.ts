@@ -9,6 +9,7 @@ import { toInteger } from 'ix/util/tointeger.js';
 import { logger } from '@powersync/lib-services-framework';
 import { getStorageApplicationName } from '../utils/application-name.js';
 import { STORAGE_SCHEMA_NAME } from '../utils/db.js';
+import { ClientConnectionResponse } from '@powersync/service-types/dist/reports.js';
 
 export type PostgresReportStorageOptions = {
   config: NormalizedPostgresStorageConfig;
@@ -108,6 +109,67 @@ export class PostgresReportStorage implements storage.ReportStorage {
     return {
       gte: new Date(year, month, today).toISOString(),
       lt: new Date(year, month, nextDay).toISOString()
+    };
+  }
+
+  private clientsConnectionPagination(params: event_types.ClientConnectionsRequest): {
+    mainQuery: pg_wire.Statement;
+    countQuery: pg_wire.Statement;
+  } {
+    const { cursor, limit, client_id, user_id, date_range } = params;
+    const queryLimit = limit || 100;
+    const queryParams: pg_wire.StatementParam[] = [];
+    let countQuery = `SELECT COUNT(*) AS total FROM connection_report_events`;
+    let query = `SELECT id, user_id, client_id, user_agent, sdk, jwt_exp::text AS jwt_exp, disconnected_at, connected_at::text AS connected_at, disconnected_at::text AS disconnected_at  FROM connection_report_events`;
+    let intermediateQuery = '';
+    /** Create a user_id/ client_id filter is they exist  */
+    if (client_id || user_id) {
+      if (client_id && !user_id) {
+        intermediateQuery += ` WHERE client_id = $1`;
+        queryParams.push({ type: 'varchar', value: client_id });
+      } else if (!client_id && user_id) {
+        intermediateQuery += ` WHERE user_id = $1`;
+        queryParams.push({ type: 'varchar', value: user_id });
+      } else {
+        intermediateQuery += ' WHERE client_id = $1 AND user_id = $2';
+        queryParams.push({ type: 'varchar', value: client_id! });
+        queryParams.push({ type: 'varchar', value: user_id! });
+      }
+    }
+
+    /** Create a date range filter if it exists */
+    if (date_range) {
+      const { start, end } = date_range;
+      intermediateQuery +=
+        queryParams.length === 0
+          ? ` WHERE connected_at >= $1 AND connected_at <= $2`
+          : ` AND connected_at >= $${queryParams.length + 1} AND connected_at <= $${queryParams.length + 2}`;
+      queryParams.push({ type: 1184, value: start.toISOString() });
+      queryParams.push({ type: 1184, value: end.toISOString() });
+    }
+
+    countQuery += intermediateQuery;
+
+    /** Create a cursor filter if it exists. The cursor in postgres is the last item connection date, the id is an uuid so we cant use the same logic as in MongoReportStorage.ts */
+    if (cursor) {
+      intermediateQuery +=
+        queryParams.length === 0 ? ` WHERE connected_at < $1` : ` AND connected_at < $${queryParams.length + 1}`;
+      queryParams.push({ type: 1184, value: new Date(cursor).toISOString() });
+    }
+
+    /** Order in descending connected at range to match Mongo sort=-1*/
+    intermediateQuery += ` ORDER BY connected_at DESC`;
+    query += intermediateQuery;
+    return {
+      mainQuery: {
+        statement: query,
+        params: queryParams,
+        limit: queryLimit
+      },
+      countQuery: {
+        statement: countQuery,
+        params: queryParams
+      }
     };
   }
 
@@ -229,59 +291,28 @@ export class PostgresReportStorage implements storage.ReportStorage {
   async getClientConnections(
     data: event_types.ClientConnectionsRequest
   ): Promise<event_types.PaginatedResponse<event_types.ClientConnection>> {
-    const {  cursor, date_range } = data;
-    const limit = data?.limit || 100;
-    // const result = await this.db.sql`
-    //   WITH
-    //     filtered AS (
-    //       SELECT
-    //         *
-    //       FROM
-    //         connection_report_events
-    //       WHERE
-    //         connected_at >= ${{ type: 1184, value: start.toISOString() }}
-    //         AND connected_at <= ${{ type: 1184, value: end.toISOString() }}
-    //     ),
-    //     unique_users AS (
-    //       SELECT
-    //         COUNT(DISTINCT user_id) AS count
-    //       FROM
-    //         filtered
-    //     ),
-    //     sdk_versions_array AS (
-    //       SELECT
-    //         sdk,
-    //         COUNT(DISTINCT client_id) AS clients,
-    //         COUNT(DISTINCT user_id) AS users
-    //       FROM
-    //         filtered
-    //       GROUP BY
-    //         sdk
-    //     )
-    //   SELECT
-    //     (
-    //       SELECT
-    //         COALESCE(count, 0)
-    //       FROM
-    //         unique_users
-    //     ) AS users,
-    //     (
-    //       SELECT
-    //         JSON_AGG(ROW_TO_JSON(s))
-    //       FROM
-    //         sdk_versions_array s
-    //     ) AS sdks;
-    // `
-    //   .decoded(SdkReporting)
-    //   .first();
-    // return this.mapListCurrentConnectionsResponse(result);
+    const limit = data.limit || 100;
+    const statement = this.clientsConnectionPagination(data);
+
+    const countResult = await this.db.queryRows<{ total: number }>(statement.countQuery);
+    const total = Number(countResult[0].total);
+
+    const result = await this.db.queryRows<ClientConnectionResponse>(statement.mainQuery);
+    const items = result.map((item) => ({
+      ...item,
+      connected_at: new Date(item.connected_at),
+      disconnected_at: item.disconnected_at ? new Date(item.disconnected_at) : undefined,
+      jwt_exp: item.jwt_exp ? new Date(item.jwt_exp) : undefined
+    }));
+    const count = items.length;
     return {
-      cursor: undefined,
-      count: 0,
-      items:[],
-      more: false,
-      total: 0
-    }
+      /** Setting the cursor to the connected at date of the last item in the list */
+      cursor: count === limit ? items[items.length - 1].connected_at.toISOString() : undefined,
+      count,
+      items,
+      more: count < total,
+      total
+    };
   }
 
   async deleteOldConnectionData(data: event_types.DeleteOldConnectionData): Promise<void> {
