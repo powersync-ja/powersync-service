@@ -99,7 +99,7 @@ export const sendKeepAlive = async (db: pgwire.PgClient) => {
 };
 
 export class MissingReplicationSlotError extends Error {
-  constructor(message: string, cause: any) {
+  constructor(message: string, cause?: any) {
     super(message);
 
     this.cause = cause;
@@ -333,8 +333,7 @@ export class WalStream {
       if (lost) {
         // Case 1 / 4
         throw new MissingReplicationSlotError(
-          `Replication slot ${slotName} is not valid anymore. invalidation_reason: ${slot.invalidation_reason ?? 'unknown'}`,
-          undefined
+          `Replication slot ${slotName} is not valid anymore. invalidation_reason: ${slot.invalidation_reason ?? 'unknown'}`
         );
       }
       // Case 3 / 6
@@ -346,7 +345,7 @@ export class WalStream {
       if (snapshotDone) {
         // Case 5
         // This will create a new slot, while keeping the current sync rules active
-        throw new MissingReplicationSlotError(`Replication slot ${slotName} is missing`, undefined);
+        throw new MissingReplicationSlotError(`Replication slot ${slotName} is missing`);
       }
       // Case 2
       // This will clear data (if any) and re-create the same slot
