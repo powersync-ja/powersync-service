@@ -4,7 +4,6 @@ import {
   DatabaseConnectionError,
   logger as defaultLogger,
   ErrorCode,
-  errors,
   Logger,
   ReplicationAbortedError,
   ReplicationAssertionError
@@ -100,8 +99,10 @@ export const sendKeepAlive = async (db: pgwire.PgClient) => {
 };
 
 export class MissingReplicationSlotError extends Error {
-  constructor(message: string) {
+  constructor(message: string, cause: any) {
     super(message);
+
+    this.cause = cause;
   }
 }
 
@@ -304,133 +305,48 @@ export class WalStream {
       })
     )[0];
 
+    // Previously we also used pg_catalog.pg_logical_slot_peek_binary_changes to confirm that we can query the slot.
+    // However, there were some edge cases where the query times out, repeating the query, ultimately
+    // causing high load on the source database and never recovering automatically.
+    // We now instead jump straight to replication if the wal_status is not "lost", rather detecting those
+    // errors during streaming replication, which is a little more robust.
+
+    // We can have:
+    //   1. needsInitialSync: true, lost slot -> MissingReplicationSlotError (starts new sync rules version).
+    //      Theoretically we could handle this the same as (2).
+    //   2. needsInitialSync: true, no slot -> create new slot
+    //   3. needsInitialSync: true, valid slot -> resume initial sync
+    //   4. needsInitialSync: false, lost slot -> MissingReplicationSlotError (starts new sync rules version)
+    //   5. needsInitialSync: false, no slot -> MissingReplicationSlotError (starts new sync rules version)
+    //   6. needsInitialSync: false, valid slot -> resume streaming replication
     if (slot != null) {
       // This checks that the slot is still valid
-      const r = await this.checkReplicationSlot(slot as any);
-      if (snapshotDone && r.needsNewSlot) {
-        // We keep the current snapshot, and create a new replication slot
-        throw new MissingReplicationSlotError(`Replication slot ${slotName} is not valid anymore`);
+
+      // wal_status is present in postgres 13+
+      // invalidation_reason is present in postgres 17+
+      const lost = slot.wal_status == 'lost';
+      if (lost) {
+        // Case 1 / 4
+        throw new MissingReplicationSlotError(
+          `Replication slot ${slotName} is not valid anymore. invalidation_reason: ${slot.invalidation_reason ?? 'unknown'}`,
+          undefined
+        );
       }
-      // We can have:
-      //   needsInitialSync: true, needsNewSlot: true -> initial sync from scratch
-      //   needsInitialSync: true, needsNewSlot: false -> resume initial sync
-      //   needsInitialSync: false, needsNewSlot: true -> handled above
-      //   needsInitialSync: false, needsNewSlot: false -> resume streaming replication
+      // Case 3 / 6
       return {
         needsInitialSync: !snapshotDone,
-        needsNewSlot: r.needsNewSlot
+        needsNewSlot: false
       };
     } else {
       if (snapshotDone) {
+        // Case 5
         // This will create a new slot, while keeping the current sync rules active
-        throw new MissingReplicationSlotError(`Replication slot ${slotName} is missing`);
+        throw new MissingReplicationSlotError(`Replication slot ${slotName} is missing`, undefined);
       }
-      // This will clear data and re-create the same slot
+      // Case 2
+      // This will clear data (if any) and re-create the same slot
       return { needsInitialSync: true, needsNewSlot: true };
     }
-  }
-
-  /**
-   * If a replication slot exists, check that it is healthy.
-   */
-  private async checkReplicationSlot(slot: {
-    // postgres 13+
-    wal_status?: string;
-    // postgres 17+
-    invalidation_reason?: string | null;
-  }): Promise<{ needsNewSlot: boolean }> {
-    // Start with a placeholder error, should be replaced if there is an actual issue.
-    let last_error = new ReplicationAssertionError(`Slot health check failed to execute`);
-
-    const slotName = this.slot_name;
-
-    const lost = slot.wal_status == 'lost';
-    if (lost) {
-      this.logger.warn(
-        `Replication slot ${slotName} is invalidated. invalidation_reason: ${slot.invalidation_reason ?? 'unknown'}`
-      );
-      return {
-        needsNewSlot: true
-      };
-    }
-
-    // Check that replication slot exists, trying for up to 2 minutes.
-    const startAt = performance.now();
-    while (performance.now() - startAt < 120_000) {
-      this.touch();
-
-      try {
-        // We peek a large number of changes here, to make it more likely to pick up replication slot errors.
-        // For example, "publication does not exist" only occurs here if the peek actually includes changes related
-        // to the slot.
-        this.logger.info(`Checking ${slotName}`);
-
-        // The actual results can be quite large, so we don't actually return everything
-        // due to memory and processing overhead that would create.
-        const cursor = await this.connections.pool.stream({
-          statement: `SELECT 1 FROM pg_catalog.pg_logical_slot_peek_binary_changes($1, NULL, 1000, 'proto_version', '1', 'publication_names', $2)`,
-          params: [
-            { type: 'varchar', value: slotName },
-            { type: 'varchar', value: PUBLICATION_NAME }
-          ]
-        });
-
-        for await (let _chunk of cursor) {
-          // No-op, just exhaust the cursor
-        }
-
-        // Success
-        this.logger.info(`Slot ${slotName} appears healthy`);
-        return { needsNewSlot: false };
-      } catch (e) {
-        last_error = e;
-        this.logger.warn(`Replication slot error`, e);
-
-        if (this.stopped) {
-          throw e;
-        }
-
-        if (
-          /incorrect prev-link/.test(e.message) ||
-          /replication slot.*does not exist/.test(e.message) ||
-          /publication.*does not exist/.test(e.message) ||
-          // Postgres 18 - exceeded max_slot_wal_keep_size
-          /can no longer access replication slot/.test(e.message) ||
-          // Postgres 17 - exceeded max_slot_wal_keep_size
-          /can no longer get changes from replication slot/.test(e.message)
-        ) {
-          // Fatal error. In most cases since Postgres 13+, the `wal_status == 'lost'` check should pick this up, but this
-          // works as a fallback.
-
-          container.reporter.captureException(e, {
-            level: errors.ErrorSeverity.WARNING,
-            metadata: {
-              replication_slot: slotName
-            }
-          });
-          // Sample: record with incorrect prev-link 10000/10000 at 0/18AB778
-          //   Seen during development. Some internal error, fixed by re-creating slot.
-          //
-          // Sample: publication "powersync" does not exist
-          //   Happens when publication deleted or never created.
-          //   Slot must be re-created in this case.
-          this.logger.info(`${slotName} is not valid anymore`);
-
-          return { needsNewSlot: true };
-        }
-        // Try again after a pause
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
-    }
-
-    container.reporter.captureException(last_error, {
-      level: errors.ErrorSeverity.ERROR,
-      metadata: {
-        replication_slot: slotName
-      }
-    });
-
-    throw last_error;
   }
 
   async estimatedCountNumber(db: pgwire.PgConnection, table: storage.SourceTable): Promise<number> {
@@ -915,6 +831,17 @@ WHERE  oid = $1::regclass`,
   }
 
   async streamChanges(replicationConnection: pgwire.PgConnection) {
+    try {
+      await this.streamChangesInternal(replicationConnection);
+    } catch (e) {
+      if (isReplicationSlotInvalidError(e)) {
+        throw new MissingReplicationSlotError(e.message, e);
+      }
+      throw e;
+    }
+  }
+
+  private async streamChangesInternal(replicationConnection: pgwire.PgConnection) {
     // When changing any logic here, check /docs/wal-lsns.md.
     const { createEmptyCheckpoints } = await this.ensureStorageCompatibility();
 
@@ -1178,4 +1105,28 @@ WHERE  oid = $1::regclass`,
       this.logger.error(`Error touching probe`, e);
     });
   }
+}
+
+function isReplicationSlotInvalidError(e: any) {
+  // We could access the error code from pgwire using this:
+  //   e[Symbol.for('pg.ErrorCode')]
+  // However, we typically get a generic code such as 42704 (undefined_object), which does not
+  // help much. So we check the actual error message.
+  const message = e.message ?? '';
+
+  // Sample: record with incorrect prev-link 10000/10000 at 0/18AB778
+  //   Seen during development. Some internal error, fixed by re-creating slot.
+  //
+  // Sample: publication "powersync" does not exist
+  //   Happens when publication deleted or never created.
+  //   Slot must be re-created in this case.
+  return (
+    /incorrect prev-link/.test(message) ||
+    /replication slot.*does not exist/.test(message) ||
+    /publication.*does not exist/.test(message) ||
+    // Postgres 18 - exceeded max_slot_wal_keep_size
+    /can no longer access replication slot/.test(message) ||
+    // Postgres 17 - exceeded max_slot_wal_keep_size
+    /can no longer get changes from replication slot/.test(message)
+  );
 }

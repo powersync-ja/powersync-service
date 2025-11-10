@@ -295,7 +295,7 @@ bucket_definitions:
         `INSERT INTO test_data(id, description) VALUES('8133cd37-903b-4937-a022-7c8294015a3a', 'test1') returning id as test_id`
       );
       await context.replicateSnapshot();
-      await context.startStreaming();
+      context.startStreaming();
 
       const data = await context.getBucketData('global[]');
 
@@ -320,17 +320,25 @@ bucket_definitions:
 
       await context.loadActiveSyncRules();
 
+      // Previously, the `replicateSnapshot` call picked up on this error.
+      // Now, we have removed that check, this only comes up when we start actually streaming.
+      // We don't get the streaming response directly here, but getCheckpoint() checks for that.
+      await context.replicateSnapshot();
+      context.startStreaming();
+
       if (serverVersion!.compareMain('18.0.0') >= 0) {
-        await context.replicateSnapshot();
         // No error expected in Postres 18. Replication keeps on working depite the
         // publication being re-created.
+        await context.getCheckpoint();
       } else {
+        // await context.getCheckpoint();
         // Postgres < 18 invalidates the replication slot when the publication is re-created.
-        // The error is handled on a higher level, which triggers
+        // In the service, this error is handled in WalStreamReplicationJob,
         // creating a new replication slot.
         await expect(async () => {
-          await context.replicateSnapshot();
+          await context.getCheckpoint();
         }).rejects.toThrowError(MissingReplicationSlotError);
+        context.clearStreamError();
       }
     }
   });
@@ -352,7 +360,7 @@ bucket_definitions:
         `INSERT INTO test_data(id, description) VALUES('8133cd37-903b-4937-a022-7c8294015a3a', 'test1') returning id as test_id`
       );
       await context.replicateSnapshot();
-      await context.startStreaming();
+      context.startStreaming();
 
       const data = await context.getBucketData('global[]');
 
@@ -415,7 +423,7 @@ bucket_definitions:
         `INSERT INTO test_data(id, description) VALUES('8133cd37-903b-4937-a022-7c8294015a3a', 'test1') returning id as test_id`
       );
       await context.replicateSnapshot();
-      await context.startStreaming();
+      context.startStreaming();
 
       const data = await context.getBucketData('global[]');
 
@@ -572,7 +580,7 @@ config:
     );
 
     await context.replicateSnapshot();
-    await context.startStreaming();
+    context.startStreaming();
 
     await pool.query(`UPDATE test_data SET description = 'test2' WHERE id = '${test_id}'`);
 
