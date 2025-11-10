@@ -319,6 +319,11 @@ export class WalStream {
     //   4. needsInitialSync: false, lost slot -> MissingReplicationSlotError (starts new sync rules version)
     //   5. needsInitialSync: false, no slot -> MissingReplicationSlotError (starts new sync rules version)
     //   6. needsInitialSync: false, valid slot -> resume streaming replication
+    // The main advantage of MissingReplicationSlotError are:
+    // 1. If there was a complete snapshot already (cases 4/5), users can still sync from that snapshot while
+    //    we do the reprocessing under a new slot name.
+    // 2. If there was a partial snapshot (case 1), we can start with the new slot faster by not waiting for
+    //    the partial data to be cleared.
     if (slot != null) {
       // This checks that the slot is still valid
 
