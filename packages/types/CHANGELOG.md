@@ -1,13 +1,5 @@
 # @powersync/service-types
 
-## 0.13.2
-
-### Patch Changes
-
-- f1d187b: sdk reporting
-- 0fad466: Added sdk reporting to storage
-- a700ec9: Reporting mongo storage added to storage engine.
-
 ## 0.13.1
 
 ### Patch Changes

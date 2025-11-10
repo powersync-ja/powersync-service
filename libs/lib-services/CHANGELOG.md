@@ -1,11 +1,5 @@
 # @powersync/lib-services-framework
 
-## 0.7.10
-
-### Patch Changes
-
-- a700ec9: Reporting mongo storage added to storage engine.
-
 ## 0.7.9
 
 ### Patch Changes

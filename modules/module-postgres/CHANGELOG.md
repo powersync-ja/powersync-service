@@ -1,18 +1,5 @@
 # @powersync/service-module-postgres
 
-## 0.16.10
-
-### Patch Changes
-
-- a700ec9: Reporting mongo storage added to storage engine.
-- Updated dependencies [f1d187b]
-- Updated dependencies [0fad466]
-- Updated dependencies [a700ec9]
-  - @powersync/service-core@1.16.1
-  - @powersync/service-types@0.13.2
-  - @powersync/lib-services-framework@0.7.10
-  - @powersync/lib-service-postgres@0.4.14
-
 ## 0.16.9
 
 ### Patch Changes
