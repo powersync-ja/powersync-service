@@ -112,7 +112,7 @@ export class PostgresReportStorage implements storage.ReportStorage {
     };
   }
 
-  private clientsConnectionPagination(params: event_types.ClientConnectionsRequest): {
+  private clientsConnectionPagination(params: event_types.ClientConnectionAnalyticsRequest): {
     mainQuery: pg_wire.Statement;
     countQuery: pg_wire.Statement;
   } {
@@ -288,8 +288,8 @@ export class PostgresReportStorage implements storage.ReportStorage {
     return this.mapListCurrentConnectionsResponse(result);
   }
 
-  async getClientConnections(
-    data: event_types.ClientConnectionsRequest
+  async getGeneralClientConnectionAnalytics(
+    data: event_types.ClientConnectionAnalyticsRequest
   ): Promise<event_types.PaginatedResponse<event_types.ClientConnection>> {
     const limit = data.limit || 100;
     const statement = this.clientsConnectionPagination(data);

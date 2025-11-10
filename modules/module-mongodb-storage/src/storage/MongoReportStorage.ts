@@ -44,8 +44,8 @@ export class MongoReportStorage implements storage.ReportStorage {
     return result[0];
   }
 
-  async getClientConnections(
-    data: event_types.ClientConnectionsRequest
+  async getGeneralClientConnectionAnalytics(
+    data: event_types.ClientConnectionAnalyticsRequest
   ): Promise<event_types.PaginatedResponse<event_types.ClientConnection>> {
     const { cursor, date_range } = data;
     const limit = data?.limit || 100;

@@ -95,7 +95,7 @@ export type ClientConnectionReportRequest = {
   end: Date;
 };
 
-export type ClientConnectionsRequest = {
+export type ClientConnectionAnalyticsRequest = {
   client_id?: string;
   user_id?: string;
   cursor?: string;

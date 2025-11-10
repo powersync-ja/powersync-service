@@ -23,7 +23,7 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v5
         with:
-          # check out full history
+          # check out full history. development packages need this for changesets
           fetch-depth: 0
       - name: Enable Corepack
         run: corepack enable
