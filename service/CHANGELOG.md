@@ -1,5 +1,22 @@
 # @powersync/service-image
 
+## 1.16.1
+
+### Patch Changes
+
+- Updated dependencies [f1d187b]
+- Updated dependencies [0fad466]
+- Updated dependencies [a700ec9]
+  - @powersync/service-module-mongodb-storage@0.12.10
+  - @powersync/service-core@1.16.1
+  - @powersync/service-module-postgres-storage@0.10.10
+  - @powersync/service-module-postgres@0.16.10
+  - @powersync/service-module-mongodb@0.12.10
+  - @powersync/service-module-mysql@0.9.10
+  - @powersync/service-module-core@0.2.10
+  - @powersync/lib-services-framework@0.7.10
+  - @powersync/service-rsocket-router@0.2.7
+
 ## 1.16.0
 
 ### Minor Changes
