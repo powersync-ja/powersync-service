@@ -6,7 +6,7 @@ export class MongoErrorRateLimiter implements ErrorRateLimiter {
 
   async waitUntilAllowed(options?: { signal?: AbortSignal | undefined } | undefined): Promise<void> {
     const delay = Math.max(0, this.nextAllowed - Date.now());
-    // Minimum delay between connections, even without errors
+    // Minimum delay between connections, even without errors (for the next attempt)
     this.setDelay(500);
     await setTimeout(delay, undefined, { signal: options?.signal });
   }
@@ -18,7 +18,7 @@ export class MongoErrorRateLimiter implements ErrorRateLimiter {
   reportError(e: any): void {
     // FIXME: Check mongodb-specific requirements
     const message = (e.message as string) ?? '';
-    if (message.includes('password authentication failed')) {
+    if (message.includes('Authentication failed')) {
       // Wait 15 minutes, to avoid triggering Supabase's fail2ban
       this.setDelay(900_000);
     } else if (message.includes('ENOTFOUND')) {

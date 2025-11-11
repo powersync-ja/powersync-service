@@ -41,6 +41,8 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
           // Without this additional log, the cause may not be visible in the logs.
           this.logger.error(`cause`, e.cause);
         }
+
+        this.rateLimiter.reportError(e);
       }
 
       if (e instanceof ChangeStreamInvalidatedError) {
