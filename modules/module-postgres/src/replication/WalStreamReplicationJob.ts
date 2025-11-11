@@ -12,19 +12,13 @@ export interface WalStreamReplicationJobOptions extends replication.AbstractRepl
 
 export class WalStreamReplicationJob extends replication.AbstractReplicationJob {
   private connectionFactory: ConnectionManagerFactory;
-  private readonly connectionManager: PgManager;
+  private connectionManager: PgManager | null = null;
   private lastStream: WalStream | null = null;
 
   constructor(options: WalStreamReplicationJobOptions) {
     super(options);
     this.logger = logger.child({ prefix: `[${this.slotName}] ` });
     this.connectionFactory = options.connectionFactory;
-    this.connectionManager = this.connectionFactory.create({
-      // Pool connections are only used intermittently.
-      idleTimeout: 30_000,
-      maxSize: 2,
-      applicationName: getApplicationName()
-    });
   }
 
   /**
@@ -40,10 +34,12 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
    * **This may be a bug in pgwire or how we're using it.
    */
   async keepAlive() {
-    try {
-      await sendKeepAlive(this.connectionManager.pool);
-    } catch (e) {
-      this.logger.warn(`KeepAlive failed, unable to post to WAL`, e);
+    if (this.connectionManager) {
+      try {
+        await sendKeepAlive(this.connectionManager.pool);
+      } catch (e) {
+        this.logger.warn(`KeepAlive failed, unable to post to WAL`, e);
+      }
     }
   }
 
@@ -92,6 +88,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
       maxSize: 2,
       applicationName: getApplicationName()
     });
+    this.connectionManager = connectionManager;
     try {
       await this.rateLimiter?.waitUntilAllowed({ signal: this.abortController.signal });
       if (this.isStopped) {
@@ -148,6 +145,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
         this.rateLimiter?.reportError(e);
       }
     } finally {
+      this.connectionManager = null;
       await connectionManager.end();
     }
   }
