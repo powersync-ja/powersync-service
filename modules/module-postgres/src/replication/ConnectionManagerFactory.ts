@@ -17,12 +17,10 @@ export class ConnectionManagerFactory {
 
   create(poolOptions: PgPoolOptions) {
     const manager = new PgManager(this.dbConnectionConfig, { ...poolOptions, registry: this.registry });
-    console.log('create ConnectionManagerFactory', this.connectionManagers.size);
     this.connectionManagers.add(manager);
 
     manager.registerListener({
       onEnded: () => {
-        console.log('manager ended');
         this.connectionManagers.delete(manager);
       }
     });
