@@ -30,10 +30,10 @@ export class PostgresReportStorage implements storage.ReportStorage {
   }
 
   private parseJsDate(date: Date) {
-    const year = date.getFullYear();
-    const month = date.getMonth();
-    const today = date.getDate();
-    const day = date.getDay();
+    const year = date.getUTCFullYear();
+    const month = date.getUTCMonth();
+    const today = date.getUTCDate();
+    const day = date.getUTCDay();
     return {
       year,
       month,
@@ -107,8 +107,8 @@ export class PostgresReportStorage implements storage.ReportStorage {
     const { year, month, today } = this.parseJsDate(new Date());
     const nextDay = today + 1;
     return {
-      gte: new Date(year, month, today).toISOString(),
-      lt: new Date(year, month, nextDay).toISOString()
+      gte: new Date(Date.UTC(year, month, today)).toISOString(),
+      lt: new Date(Date.UTC(year, month, nextDay)).toISOString()
     };
   }
 
