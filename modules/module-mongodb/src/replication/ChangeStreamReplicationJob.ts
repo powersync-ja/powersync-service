@@ -27,19 +27,21 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
     // Nothing needed here
   }
 
-  private get slotName() {
-    return this.options.storage.slot_name;
-  }
-
   async replicate() {
     try {
-      await this.replicateLoop();
+      await this.replicateOnce();
     } catch (e) {
-      // Fatal exception
-      container.reporter.captureException(e, {
-        metadata: {}
-      });
-      this.logger.error(`Replication failed`, e);
+      if (!this.abortController.signal.aborted) {
+        container.reporter.captureException(e, {
+          metadata: {}
+        });
+
+        this.logger.error(`Replication error`, e);
+        if (e.cause != null) {
+          // Without this additional log, the cause may not be visible in the logs.
+          this.logger.error(`cause`, e.cause);
+        }
+      }
 
       if (e instanceof ChangeStreamInvalidatedError) {
         // This stops replication and restarts with a new instance
@@ -47,16 +49,6 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
       }
     } finally {
       this.abortController.abort();
-    }
-  }
-
-  async replicateLoop() {
-    while (!this.isStopped) {
-      await this.replicateOnce();
-
-      if (!this.isStopped) {
-        await new Promise((resolve) => setTimeout(resolve, 5000));
-      }
     }
   }
 
@@ -79,25 +71,6 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
       });
       this.lastStream = stream;
       await stream.replicate();
-    } catch (e) {
-      if (this.abortController.signal.aborted) {
-        return;
-      }
-      this.logger.error(`Replication error`, e);
-      if (e.cause != null) {
-        // Without this additional log, the cause may not be visible in the logs.
-        this.logger.error(`cause`, e.cause);
-      }
-      if (e instanceof ChangeStreamInvalidatedError) {
-        throw e;
-      } else {
-        // Report the error if relevant, before retrying
-        container.reporter.captureException(e, {
-          metadata: {}
-        });
-        // This sets the retry delay
-        this.rateLimiter?.reportError(e);
-      }
     } finally {
       await connectionManager.end();
     }
