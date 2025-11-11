@@ -41,7 +41,7 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
           }
         });
         // This sets the retry delay
-        this.rateLimiter?.reportError(e);
+        this.rateLimiter.reportError(e);
       }
 
       // No need to rethrow - the error is already logged, and retry behavior is the same on error

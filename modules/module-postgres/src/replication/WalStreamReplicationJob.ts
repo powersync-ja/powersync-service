@@ -87,7 +87,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
           }
         });
         // This sets the retry delay
-        this.rateLimiter?.reportError(e);
+        this.rateLimiter.reportError(e);
       }
 
       if (e instanceof MissingReplicationSlotError) {
