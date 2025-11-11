@@ -25,7 +25,7 @@ export class ChangeStreamReplicator extends replication.AbstractReplicator<Chang
       metrics: this.metrics,
       connectionFactory: this.connectionFactory,
       lock: options.lock,
-      rateLimiter: new MongoErrorRateLimiter()
+      rateLimiter: this.rateLimiter
     });
   }
 

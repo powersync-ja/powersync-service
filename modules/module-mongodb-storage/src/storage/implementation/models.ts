@@ -197,6 +197,11 @@ export interface SyncRuleDocument {
   last_fatal_error: string | null;
 
   content: string;
+
+  lock?: {
+    id: string;
+    expires_at: Date;
+  } | null;
 }
 
 export interface CheckpointEventDocument {

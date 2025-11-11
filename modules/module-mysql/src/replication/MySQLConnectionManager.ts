@@ -2,10 +2,14 @@ import { NormalizedMySQLConnectionConfig } from '../types/types.js';
 import mysqlPromise from 'mysql2/promise';
 import mysql, { FieldPacket, RowDataPacket } from 'mysql2';
 import * as mysql_utils from '../utils/mysql-utils.js';
-import { logger } from '@powersync/lib-services-framework';
+import { BaseObserver, logger } from '@powersync/lib-services-framework';
 import { ZongJi } from '@powersync/mysql-zongji';
 
-export class MySQLConnectionManager {
+export interface MySQLConnectionManagerListener {
+  onEnded(): void;
+}
+
+export class MySQLConnectionManager extends BaseObserver<MySQLConnectionManagerListener> {
   /**
    *  Pool that can create streamable connections
    */
@@ -23,6 +27,7 @@ export class MySQLConnectionManager {
     public options: NormalizedMySQLConnectionConfig,
     public poolOptions: mysqlPromise.PoolOptions
   ) {
+    super();
     // The pool is lazy - no connections are opened until a query is performed.
     this.pool = mysql_utils.createPool(options, poolOptions);
     this.promisePool = this.pool.promise();
@@ -98,18 +103,24 @@ export class MySQLConnectionManager {
   }
 
   async end(): Promise<void> {
-    if (!this.isClosed) {
-      for (const listener of this.binlogListeners) {
-        listener.stop();
-      }
+    if (this.isClosed) {
+      return;
+    }
 
-      try {
-        await this.promisePool.end();
-        this.isClosed = true;
-      } catch (error) {
-        // We don't particularly care if any errors are thrown when shutting down the pool
-        logger.warn('Error shutting down MySQL connection pool', error);
-      }
+    for (const listener of this.binlogListeners) {
+      listener.stop();
+    }
+
+    try {
+      await this.promisePool.end();
+    } catch (error) {
+      // We don't particularly care if any errors are thrown when shutting down the pool
+      logger.warn('Error shutting down MySQL connection pool', error);
+    } finally {
+      this.isClosed = true;
+      this.iterateListeners((listener) => {
+        listener.onEnded?.();
+      });
     }
   }
 }

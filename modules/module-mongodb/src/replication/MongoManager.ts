@@ -2,11 +2,16 @@ import { mongo } from '@powersync/lib-service-mongodb';
 
 import { NormalizedMongoConnectionConfig } from '../types/types.js';
 import { BSON_DESERIALIZE_DATA_OPTIONS, POWERSYNC_VERSION } from '@powersync/service-core';
+import { BaseObserver } from '@powersync/lib-services-framework';
+
+export interface MongoManagerListener {
+  onEnded(): void;
+}
 
 /**
  * Manage a MongoDB source database connection.
  */
-export class MongoManager {
+export class MongoManager extends BaseObserver<MongoManagerListener> {
   public readonly client: mongo.MongoClient;
   public readonly db: mongo.Db;
 
@@ -14,6 +19,7 @@ export class MongoManager {
     public options: NormalizedMongoConnectionConfig,
     overrides?: mongo.MongoClientOptions
   ) {
+    super();
     // The pool is lazy - no connections are opened until a query is performed.
     this.client = new mongo.MongoClient(options.uri, {
       auth: {
@@ -59,9 +65,8 @@ export class MongoManager {
 
   async end(): Promise<void> {
     await this.client.close();
-  }
-
-  async destroy() {
-    // TODO: Implement?
+    this.iterateListeners((listener) => {
+      listener.onEnded?.();
+    });
   }
 }

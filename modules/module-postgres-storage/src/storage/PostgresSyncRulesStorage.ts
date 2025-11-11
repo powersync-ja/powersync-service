@@ -61,11 +61,7 @@ export class PostgresSyncRulesStorage
 
   //   TODO we might be able to share this in an abstract class
   private parsedSyncRulesCache: { parsed: sync_rules.SqlSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
-  private checksumCache = new storage.ChecksumCache({
-    fetchChecksums: (batch) => {
-      return this.getChecksumsInternal(batch);
-    }
-  });
+  private _checksumCache: storage.ChecksumCache | undefined;
 
   constructor(protected options: PostgresSyncRulesStorageOptions) {
     super();
@@ -79,6 +75,20 @@ export class PostgresSyncRulesStorage
       db: this.db,
       mode: options.write_checkpoint_mode ?? storage.WriteCheckpointMode.MANAGED
     });
+  }
+
+  /**
+   * Lazy-instantiated cache.
+   *
+   * This means the cache only allocates memory once it is used for the first time.
+   */
+  private get checksumCache(): storage.ChecksumCache {
+    this._checksumCache ??= new storage.ChecksumCache({
+      fetchChecksums: (batch) => {
+        return this.getChecksumsInternal(batch);
+      }
+    });
+    return this._checksumCache;
   }
 
   get writeCheckpointMode(): storage.WriteCheckpointMode {
