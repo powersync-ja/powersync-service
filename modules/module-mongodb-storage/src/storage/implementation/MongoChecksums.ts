@@ -42,17 +42,27 @@ const DEFAULT_OPERATION_BATCH_LIMIT = 50_000;
  * 4. computePartialChecksumsInternal() -> aggregate over 50_000 operations in bucket_data at a time
  */
 export class MongoChecksums {
-  private cache = new ChecksumCache({
-    fetchChecksums: (batch) => {
-      return this.computePartialChecksums(batch);
-    }
-  });
+  private _cache: ChecksumCache | undefined;
 
   constructor(
     private db: PowerSyncMongo,
     private group_id: number,
     private options?: MongoChecksumOptions
   ) {}
+
+  /**
+   * Lazy-instantiated cache.
+   *
+   * This means the cache only allocates memory once it is used for the first time.
+   */
+  private get cache(): ChecksumCache {
+    this._cache ??= new ChecksumCache({
+      fetchChecksums: (batch) => {
+        return this.computePartialChecksums(batch);
+      }
+    });
+    return this._cache;
+  }
 
   /**
    * Calculate checksums, utilizing the cache for partial checkums, and querying the remainder from
