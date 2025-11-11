@@ -27,27 +27,26 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
 
   async replicate() {
     try {
-      await this.replicateLoop();
+      await this.replicateOnce();
     } catch (e) {
-      // Fatal exception
-      container.reporter.captureException(e, {
-        metadata: {
-          replication_slot: this.slot_name
+      if (!this.abortController.signal.aborted) {
+        this.logger.error(`Replication error`, e);
+        if (e.cause != null) {
+          this.logger.error(`cause`, e.cause);
         }
-      });
-      this.logger.error(`Replication failed`, e);
+        // Report the error if relevant, before retrying
+        container.reporter.captureException(e, {
+          metadata: {
+            replication_slot: this.slot_name
+          }
+        });
+        // This sets the retry delay
+        this.rateLimiter?.reportError(e);
+      }
+
+      throw e;
     } finally {
       this.abortController.abort();
-    }
-  }
-
-  async replicateLoop() {
-    while (!this.isStopped) {
-      await this.replicateOnce();
-
-      if (!this.isStopped) {
-        await new Promise((resolve) => setTimeout(resolve, 5000));
-      }
     }
   }
 
@@ -84,27 +83,6 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
       });
       this.lastStream = stream;
       await stream.replicate();
-    } catch (e) {
-      if (this.abortController.signal.aborted) {
-        return;
-      }
-      this.logger.error(`Replication error`, e);
-      if (e.cause != null) {
-        this.logger.error(`cause`, e.cause);
-      }
-
-      if (e instanceof BinlogConfigurationError) {
-        throw e;
-      } else {
-        // Report the error if relevant, before retrying
-        container.reporter.captureException(e, {
-          metadata: {
-            replication_slot: this.slot_name
-          }
-        });
-        // This sets the retry delay
-        this.rateLimiter?.reportError(e);
-      }
     } finally {
       await connectionManager.end();
     }
