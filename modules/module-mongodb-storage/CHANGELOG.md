@@ -1,5 +1,13 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.12.10
+
+### Patch Changes
+
+- c6bdb4f: [MongoDB storage] Fix migration for indexes on connection_report_events.
+- Updated dependencies [c6bdb4f]
+  - @powersync/service-core@1.16.1
+
 ## 0.12.9
 
 ### Patch Changes
