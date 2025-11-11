@@ -300,9 +300,11 @@ export class PostgresReportStorage implements storage.ReportStorage {
     const result = await this.db.queryRows<ClientConnectionResponse>(statement.mainQuery);
     const items = result.map((item) => ({
       ...item,
+      /** JS Date conversion to match document schema used for Mongo storage */
       connected_at: new Date(item.connected_at),
       disconnected_at: item.disconnected_at ? new Date(item.disconnected_at) : undefined,
       jwt_exp: item.jwt_exp ? new Date(item.jwt_exp) : undefined
+      /** */
     }));
     const count = items.length;
     return {
