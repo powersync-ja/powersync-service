@@ -49,7 +49,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
 
   async replicate() {
     try {
-      await this.replicateLoop();
+      await this.replicateOnce();
     } catch (e) {
       // Fatal exception
       container.reporter.captureException(e, {
@@ -65,16 +65,6 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
       }
     } finally {
       this.abortController.abort();
-    }
-  }
-
-  async replicateLoop() {
-    while (!this.isStopped) {
-      await this.replicateOnce();
-
-      if (!this.isStopped) {
-        await new Promise((resolve) => setTimeout(resolve, 5000));
-      }
     }
   }
 
@@ -132,18 +122,15 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
         // Without this additional log, the cause would not be visible in the logs.
         this.logger.error(`cause`, e.cause);
       }
-      if (e instanceof MissingReplicationSlotError) {
-        throw e;
-      } else {
-        // Report the error if relevant, before retrying
-        container.reporter.captureException(e, {
-          metadata: {
-            replication_slot: this.slotName
-          }
-        });
-        // This sets the retry delay
-        this.rateLimiter?.reportError(e);
-      }
+      // Report the error if relevant, before retrying
+      container.reporter.captureException(e, {
+        metadata: {
+          replication_slot: this.slotName
+        }
+      });
+      // This sets the retry delay
+      this.rateLimiter?.reportError(e);
+      throw e;
     } finally {
       this.connectionManager = null;
       await connectionManager.end();
