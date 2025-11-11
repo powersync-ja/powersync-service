@@ -47,6 +47,8 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
         // This stops replication and restarts with a new instance
         await this.options.storage.factory.restartReplication(this.storage.group_id);
       }
+
+      // No need to rethrow - the error is already logged, and retry behavior is the same on error
     } finally {
       this.abortController.abort();
     }

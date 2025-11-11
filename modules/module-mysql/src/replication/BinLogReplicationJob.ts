@@ -44,7 +44,7 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
         this.rateLimiter?.reportError(e);
       }
 
-      throw e;
+      // No need to rethrow - the error is already logged, and retry behavior is the same on error
     } finally {
       this.abortController.abort();
     }
