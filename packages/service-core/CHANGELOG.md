@@ -1,5 +1,15 @@
 # @powersync/service-core
 
+## 1.16.2
+
+### Patch Changes
+
+- b364581: Avoid re-compacting recently compacted buckets.
+- d889219: Fix memory leaks when retrying replication after errors.
+- 0ace0d3: Fix liveness probe when no connections are defined.
+- 7eb7957: [Postgres] Remove usage of pg_logical_slot_peek_binary_changes due to performance issues in some cases
+- b364581: Reduce batch size for checksum pre-calculations to reduce timeouts.
+
 ## 1.16.1
 
 ### Patch Changes
