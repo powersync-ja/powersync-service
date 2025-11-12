@@ -119,7 +119,7 @@ export class MongoCompactor {
         // All done
         break;
       }
-      for (let bucket of buckets) {
+      for (let { bucket } of buckets) {
         await this.compactSingleBucket(bucket);
       }
     }
@@ -482,10 +482,20 @@ export class MongoCompactor {
         break;
       }
       const start = Date.now();
-      logger.info(`Calculating checksums for batch of ${buckets.length} buckets, starting at ${buckets[0]}`);
+      logger.info(`Calculating checksums for batch of ${buckets.length} buckets`);
 
-      await this.updateChecksumsBatch(buckets);
-      logger.info(`Updated checksums for batch of ${buckets.length} buckets in ${Date.now() - start}ms`);
+      // Filter batch by estimated bucket size, to reduce possibility of timeouts
+      let checkBuckets: typeof buckets = [];
+      let totalCountEstimate = 0;
+      for (let bucket of buckets) {
+        checkBuckets.push(bucket);
+        totalCountEstimate += bucket.estimatedCount;
+        if (totalCountEstimate > 50_000) {
+          break;
+        }
+      }
+      await this.updateChecksumsBatch(checkBuckets.map((b) => b.bucket));
+      logger.info(`Updated checksums for batch of ${checkBuckets.length} buckets in ${Date.now() - start}ms`);
       count += buckets.length;
     }
     return { buckets: count };
@@ -497,7 +507,9 @@ export class MongoCompactor {
    * This cannot be used to iterate on its own - the client is expected to process these buckets and
    * set estimate_since_compact.count: 0 when done, before fetching the next batch.
    */
-  private async dirtyBucketBatch(options: { minBucketChanges: number }): Promise<string[]> {
+  private async dirtyBucketBatch(options: {
+    minBucketChanges: number;
+  }): Promise<{ bucket: string; estimatedCount: number }[]> {
     if (options.minBucketChanges <= 0) {
       throw new ReplicationAssertionError('minBucketChanges must be >= 1');
     }
@@ -515,13 +527,16 @@ export class MongoCompactor {
           sort: {
             'estimate_since_compact.count': -1
           },
-          limit: 5_000,
+          limit: 200,
           maxTimeMS: MONGO_OPERATION_TIMEOUT_MS
         }
       )
       .toArray();
 
-    return dirtyBuckets.map((bucket) => bucket._id.b);
+    return dirtyBuckets.map((bucket) => ({
+      bucket: bucket._id.b,
+      estimatedCount: bucket.estimate_since_compact!.count + (bucket.compacted_state?.count ?? 0)
+    }));
   }
 
   private async updateChecksumsBatch(buckets: string[]) {
