@@ -113,14 +113,23 @@ export class MongoCompactor {
 
   private async compactDirtyBuckets() {
     while (!this.signal?.aborted) {
-      // Process all buckets with 1 or more changes since last time
-      const buckets = await this.dirtyBucketBatch({ minBucketChanges: 1 });
+      // Process all buckets with 10 or more changes since last time.
+      // We exclude the last 100 compacted buckets, to avoid repeatedly re-compacting the same buckets over and over
+      // if they are modified while compacting.
+      const TRACK_RECENTLY_COMPACTED_NUMBER = 100;
+
+      let recentlyCompacted: string[] = [];
+      const buckets = await this.dirtyBucketBatch({ minBucketChanges: 10, exclude: recentlyCompacted });
       if (buckets.length == 0) {
         // All done
         break;
       }
       for (let { bucket } of buckets) {
         await this.compactSingleBucket(bucket);
+        recentlyCompacted.push(bucket);
+      }
+      if (recentlyCompacted.length > TRACK_RECENTLY_COMPACTED_NUMBER) {
+        recentlyCompacted = recentlyCompacted.slice(-TRACK_RECENTLY_COMPACTED_NUMBER);
       }
     }
   }
@@ -509,6 +518,7 @@ export class MongoCompactor {
    */
   private async dirtyBucketBatch(options: {
     minBucketChanges: number;
+    exclude?: string[];
   }): Promise<{ bucket: string; estimatedCount: number }[]> {
     if (options.minBucketChanges <= 0) {
       throw new ReplicationAssertionError('minBucketChanges must be >= 1');
@@ -518,7 +528,8 @@ export class MongoCompactor {
       .find(
         {
           '_id.g': this.group_id,
-          'estimate_since_compact.count': { $gte: options.minBucketChanges }
+          'estimate_since_compact.count': { $gte: options.minBucketChanges },
+          '_id.b': { $nin: options.exclude ?? [] }
         },
         {
           projection: {
