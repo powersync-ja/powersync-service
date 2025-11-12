@@ -218,7 +218,7 @@ export interface CompactOptions {
   moveBatchQueryLimit?: number;
 
   /**
-   * Minimof of 1, default of 10.
+   * Minimum of 1, default of 10.
    */
   minBucketChanges?: number;
 
