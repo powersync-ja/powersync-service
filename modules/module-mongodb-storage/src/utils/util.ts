@@ -129,9 +129,6 @@ export const createPaginatedConnectionQuery = async <T extends mongo.Document>(
       $and: [
         query,
         {
-          /** We are using the connected at date as the cursor so that the functionality works the same on Postgres implementation
-           * The id field in postgres is an uuid, this will work similarly to the ObjectId in Mongodb
-           * */
           connected_at: {
             $lt: new Date(cursor)
           }
