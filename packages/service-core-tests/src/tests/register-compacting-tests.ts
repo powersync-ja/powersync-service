@@ -80,7 +80,8 @@ bucket_definitions:
     await bucketStorage.compact({
       clearBatchLimit: 2,
       moveBatchLimit: 1,
-      moveBatchQueryLimit: 1
+      moveBatchQueryLimit: 1,
+      minBucketChanges: 1
     });
 
     const batchAfter = await test_utils.oneFromAsync(
@@ -207,7 +208,8 @@ bucket_definitions:
     await bucketStorage.compact({
       clearBatchLimit: 2,
       moveBatchLimit: 1,
-      moveBatchQueryLimit: 1
+      moveBatchQueryLimit: 1,
+      minBucketChanges: 1
     });
 
     const batchAfter = await test_utils.oneFromAsync(
@@ -300,7 +302,8 @@ bucket_definitions:
     await bucketStorage.compact({
       clearBatchLimit: 2,
       moveBatchLimit: 1,
-      moveBatchQueryLimit: 1
+      moveBatchQueryLimit: 1,
+      minBucketChanges: 1
     });
 
     const batchAfter = await test_utils.oneFromAsync(
@@ -412,7 +415,8 @@ bucket_definitions:
     await bucketStorage.compact({
       clearBatchLimit: 100,
       moveBatchLimit: 100,
-      moveBatchQueryLimit: 100 // Larger limit for a larger window of operations
+      moveBatchQueryLimit: 100, // Larger limit for a larger window of operations
+      minBucketChanges: 1
     });
 
     const batchAfter = await test_utils.fromAsync(
@@ -498,7 +502,8 @@ bucket_definitions:
     await bucketStorage.compact({
       clearBatchLimit: 2,
       moveBatchLimit: 1,
-      moveBatchQueryLimit: 1
+      moveBatchQueryLimit: 1,
+      minBucketChanges: 1
     });
 
     const result2 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -572,7 +577,8 @@ bucket_definitions:
     await bucketStorage.compact({
       clearBatchLimit: 20,
       moveBatchLimit: 10,
-      moveBatchQueryLimit: 10
+      moveBatchQueryLimit: 10,
+      minBucketChanges: 1
     });
 
     const checkpoint2 = result2!.flushed_op;

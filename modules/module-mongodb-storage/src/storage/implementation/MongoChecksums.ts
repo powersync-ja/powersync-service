@@ -169,7 +169,7 @@ export class MongoChecksums {
     // Limit the number of buckets we query for at a time.
     const bucketBatchLimit = this.options?.bucketBatchLimit ?? DEFAULT_BUCKET_BATCH_LIMIT;
 
-    if (batch.length < bucketBatchLimit) {
+    if (batch.length <= bucketBatchLimit) {
       // Single batch - no need for splitting the batch and merging results
       return await this.computePartialChecksumsInternal(batch);
     }
