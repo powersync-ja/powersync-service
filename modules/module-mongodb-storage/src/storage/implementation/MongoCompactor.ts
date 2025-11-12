@@ -533,7 +533,9 @@ export class MongoCompactor {
         },
         {
           projection: {
-            _id: 1
+            _id: 1,
+            estimate_since_compact: 1,
+            compacted_state: 1
           },
           sort: {
             'estimate_since_compact.count': -1
