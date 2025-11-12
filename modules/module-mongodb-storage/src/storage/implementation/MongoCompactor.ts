@@ -61,6 +61,7 @@ export interface MongoCompactOptions extends storage.CompactOptions {}
 const DEFAULT_CLEAR_BATCH_LIMIT = 5000;
 const DEFAULT_MOVE_BATCH_LIMIT = 2000;
 const DEFAULT_MOVE_BATCH_QUERY_LIMIT = 10_000;
+const DEFAULT_MIN_BUCKET_CHANGES = 10;
 
 /** This default is primarily for tests. */
 const DEFAULT_MEMORY_LIMIT_MB = 64;
@@ -73,6 +74,7 @@ export class MongoCompactor {
   private moveBatchLimit: number;
   private moveBatchQueryLimit: number;
   private clearBatchLimit: number;
+  private minBucketChanges: number;
   private maxOpId: bigint;
   private buckets: string[] | undefined;
   private signal?: AbortSignal;
@@ -88,6 +90,7 @@ export class MongoCompactor {
     this.moveBatchLimit = options?.moveBatchLimit ?? DEFAULT_MOVE_BATCH_LIMIT;
     this.moveBatchQueryLimit = options?.moveBatchQueryLimit ?? DEFAULT_MOVE_BATCH_QUERY_LIMIT;
     this.clearBatchLimit = options?.clearBatchLimit ?? DEFAULT_CLEAR_BATCH_LIMIT;
+    this.minBucketChanges = options?.minBucketChanges ?? DEFAULT_MIN_BUCKET_CHANGES;
     this.maxOpId = options?.maxOpId ?? 0n;
     this.buckets = options?.compactBuckets;
     this.signal = options?.signal;
@@ -119,7 +122,10 @@ export class MongoCompactor {
       const TRACK_RECENTLY_COMPACTED_NUMBER = 100;
 
       let recentlyCompacted: string[] = [];
-      const buckets = await this.dirtyBucketBatch({ minBucketChanges: 10, exclude: recentlyCompacted });
+      const buckets = await this.dirtyBucketBatch({
+        minBucketChanges: this.minBucketChanges,
+        exclude: recentlyCompacted
+      });
       if (buckets.length == 0) {
         // All done
         break;
