@@ -49,8 +49,6 @@ export class SimpleSnapshotQuery implements MSSQLSnapshotQuery {
 
     request.query(`SELECT * FROM ${this.table.toQualifiedName()}`);
 
-
-
     // MSSQL only streams one row at a time
     for await (const row of stream) {
       yield row;
@@ -214,7 +212,6 @@ export class IdSnapshotQuery implements MSSQLSnapshotQuery {
     metadataRequest.query(`SELECT TOP(0) * FROM ${this.table.toQualifiedName()}`);
     const columnMetadata: sql.IColumnMetadata = await metadataPromise;
     yield columnMetadata;
-
 
     const keyDefinition = this.table.sourceTable.replicaIdColumns[0];
     const ids = this.keys.map((record) => record[keyDefinition.name]);

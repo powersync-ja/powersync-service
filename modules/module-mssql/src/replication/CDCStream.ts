@@ -8,23 +8,9 @@ import {
   ReplicationAssertionError,
   ServiceAssertionError
 } from '@powersync/lib-services-framework';
-import {
-  getUuidReplicaIdentityBson,
-  MetricsEngine,
-  SaveUpdate,
-  SourceEntityDescriptor,
-  storage
-} from '@powersync/service-core';
+import { getUuidReplicaIdentityBson, MetricsEngine, SourceEntityDescriptor, storage } from '@powersync/service-core';
 
-import {
-  applyValueContext,
-  CompatibilityContext,
-  DatabaseInputRow,
-  SqliteInputRow,
-  SqliteRow,
-  SqlSyncRules,
-  TablePattern
-} from '@powersync/service-sync-rules';
+import { DatabaseInputRow, SqliteInputRow, SqliteRow, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 
 import { ReplicationMetric } from '@powersync/service-types';
 import {
@@ -35,8 +21,7 @@ import {
   SimpleSnapshotQuery
 } from './MSSQLSnapshotQuery.js';
 import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
-import * as schema_utils from '../utils/schema.js';
-import { ResolvedTable } from '../utils/schema.js';
+import { getReplicationIdentityColumns, getTablesFromPattern, ResolvedTable } from '../utils/schema.js';
 import {
   checkSourceConfiguration,
   createCheckpoint,
@@ -204,7 +189,7 @@ export class CDCStream {
       return [];
     }
 
-    const matchedTables: ResolvedTable[] = await schema_utils.getTablesFromPattern(this.connections, tablePattern);
+    const matchedTables: ResolvedTable[] = await getTablesFromPattern(this.connections, tablePattern);
 
     const tables: MSSQLSourceTable[] = [];
     for (const matchedTable of matchedTables) {
@@ -221,7 +206,7 @@ export class CDCStream {
 
       // TODO: Check RLS settings for table
 
-      const replicaIdColumns = await schema_utils.getReplicationIdentityColumns({
+      const replicaIdColumns = await getReplicationIdentityColumns({
         connectionManager: this.connections,
         tableName: matchedTable.name,
         schema: matchedTable.schema
