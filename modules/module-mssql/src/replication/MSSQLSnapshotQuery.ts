@@ -1,4 +1,4 @@
-import { bson, ColumnDescriptor } from '@powersync/service-core';
+import { bson, ColumnDescriptor, SourceTable } from '@powersync/service-core';
 import { SqliteValue } from '@powersync/service-sync-rules';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { MSSQLBaseType } from '../types/mssql-data-types.js';
@@ -87,11 +87,12 @@ export class BatchedSnapshotQuery implements MSSQLSnapshotQuery {
     MSSQLBaseType.BIGINT
   ];
 
-  static supports(table: MSSQLSourceTable) {
-    if (table.sourceTable.replicaIdColumns.length != 1) {
+  static supports(table: SourceTable | MSSQLSourceTable): boolean {
+    const sourceTable = table instanceof MSSQLSourceTable ? table.sourceTable : table;
+    if (sourceTable.replicaIdColumns.length != 1) {
       return false;
     }
-    const primaryKey = table.sourceTable.replicaIdColumns[0];
+    const primaryKey = sourceTable.replicaIdColumns[0];
 
     return primaryKey.typeId != null && BatchedSnapshotQuery.SUPPORTED_TYPES.includes(Number(primaryKey.typeId));
   }
@@ -184,7 +185,7 @@ export class BatchedSnapshotQuery implements MSSQLSnapshotQuery {
  * during streaming replication.
  */
 export class IdSnapshotQuery implements MSSQLSnapshotQuery {
-  static supports(table: MSSQLSourceTable) {
+  static supports(table: SourceTable | MSSQLSourceTable) {
     // We have the same requirements as BatchedSnapshotQuery.
     // This is typically only used as a fallback when ChunkedSnapshotQuery
     // skipped some rows.
