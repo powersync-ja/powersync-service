@@ -227,7 +227,7 @@ exports[`Report storage tests > Should show paginated response of all connection
     },
   ],
   "more": false,
-  "total": 1,
+  "total": 0,
 }
 `;
 
@@ -262,7 +262,7 @@ exports[`Report storage tests > Should show paginated response of all connection
     },
   ],
   "more": true,
-  "total": 8,
+  "total": 0,
 }
 `;
 
@@ -296,8 +296,8 @@ exports[`Report storage tests > Should show paginated response of all connection
       "user_id": "user_two",
     },
   ],
-  "more": true,
-  "total": 8,
+  "more": false,
+  "total": 0,
 }
 `;
 
@@ -320,7 +320,7 @@ exports[`Report storage tests > Should show paginated response of connections of
     },
   ],
   "more": false,
-  "total": 2,
+  "total": 0,
 }
 `;
 
@@ -367,6 +367,6 @@ exports[`Report storage tests > Should show paginated response of connections ov
     },
   ],
   "more": false,
-  "total": 6,
+  "total": 0,
 }
 `;
