@@ -1,4 +1,4 @@
-import { logger } from '@powersync/lib-services-framework';
+import { BaseObserver, logger } from '@powersync/lib-services-framework';
 import sql from 'mssql';
 import { NormalizedMSSQLConnectionConfig } from '../types/types.js';
 import { POWERSYNC_VERSION } from '@powersync/service-core';
@@ -7,13 +7,18 @@ import { addParameters } from '../utils/mssql.js';
 
 export const DEFAULT_SCHEMA = 'dbo';
 
-export class MSSQLConnectionManager {
+export interface MSSQLConnectionManagerListener {
+  onEnded(): void;
+}
+
+export class MSSQLConnectionManager extends BaseObserver<MSSQLConnectionManagerListener> {
   private readonly pool: sql.ConnectionPool;
 
   constructor(
     public options: NormalizedMSSQLConnectionConfig,
     poolOptions: sql.PoolOpts<sql.Connection>
   ) {
+    super();
     // The pool is lazy - no connections are opened until a query is performed.
     this.pool = new sql.ConnectionPool({
       authentication: options.authentication,
@@ -26,7 +31,7 @@ export class MSSQLConnectionManager {
       options: {
         appName: `powersync/${POWERSYNC_VERSION}`,
         encrypt: true, // for azure
-        trustServerCertificate: true // change to true for local dev / self-signed certs
+        trustServerCertificate: true // TODO: Check if this needs to be configurable change to true for local dev / self-signed certs
       }
     });
   }
@@ -98,6 +103,10 @@ export class MSSQLConnectionManager {
       } catch (error) {
         // We don't particularly care if any errors are thrown when shutting down the pool
         logger.warn('Error shutting down MSSQL connection pool', error);
+      } finally {
+        this.iterateListeners((listener) => {
+          listener.onEnded?.();
+        });
       }
     }
   }

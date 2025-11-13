@@ -18,19 +18,28 @@ export class CDCReplicationJob extends replication.AbstractReplicationJob {
   }
 
   async keepAlive() {
-    // Keepalives are handled by the binlog heartbeat mechanism
+    // TODO Might need to leverage checkpoints table as a keepAlive
   }
 
   async replicate() {
     try {
-      await this.replicateLoop();
+      await this.replicateOnce();
     } catch (e) {
       // Fatal exception
-      container.reporter.captureException(e, {
-        metadata: {}
-      });
-      this.logger.error(`Replication failed`, e);
+      if (!this.isStopped) {
+        // Ignore aborted errors
+        this.logger.error(`Replication error`, e);
+        if (e.cause != null) {
+          this.logger.error(`cause`, e.cause);
+        }
 
+        container.reporter.captureException(e, {
+          metadata: {}
+        });
+
+        // This sets the retry delay
+        this.rateLimiter.reportError(e);
+      }
       if (e instanceof CDCDataExpiredError) {
         // This stops replication and restarts with a new instance
         await this.options.storage.factory.restartReplication(this.storage.group_id);
@@ -40,21 +49,14 @@ export class CDCReplicationJob extends replication.AbstractReplicationJob {
     }
   }
 
-  async replicateLoop() {
-    while (!this.isStopped) {
-      await this.replicateOnce();
-
-      if (!this.isStopped) {
-        await new Promise((resolve) => setTimeout(resolve, 5000));
-      }
-    }
-  }
-
   async replicateOnce() {
     // New connections on every iteration (every error with retry),
     // otherwise we risk repeating errors related to the connection,
     // such as caused by cached PG schemas.
-    const connectionManager = this.connectionFactory.create({});
+    const connectionManager = this.connectionFactory.create({
+      idleTimeoutMillis: 30_000,
+      max: 2
+    });
     try {
       await this.rateLimiter?.waitUntilAllowed({ signal: this.abortController.signal });
       if (this.isStopped) {
@@ -69,25 +71,6 @@ export class CDCReplicationJob extends replication.AbstractReplicationJob {
       });
       this.lastStream = stream;
       await stream.replicate();
-    } catch (e) {
-      if (this.abortController.signal.aborted) {
-        return;
-      }
-      this.logger.error(`Replication error`, e);
-      if (e.cause != null) {
-        this.logger.error(`cause`, e.cause);
-      }
-
-      if (e instanceof CDCDataExpiredError) {
-        throw e;
-      } else {
-        // Report the error if relevant, before retrying
-        container.reporter.captureException(e, {
-          metadata: {}
-        });
-        // This sets the retry delay
-        this.rateLimiter?.reportError(e);
-      }
     } finally {
       await connectionManager.end();
     }

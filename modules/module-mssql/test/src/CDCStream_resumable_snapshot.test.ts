@@ -44,9 +44,9 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
   const { connectionManager } = context;
 
   await connectionManager.query(`CREATE TABLE test_data1 (id INT IDENTITY(1,1) PRIMARY KEY, description VARCHAR(MAX))`);
-  await enableCDCForTable({ connectionManager, schema: 'dbo', table: 'test_data1' });
+  await enableCDCForTable({ connectionManager, table: 'test_data1' });
   await connectionManager.query(`CREATE TABLE test_data2 (id INT IDENTITY(1,1) PRIMARY KEY, description VARCHAR(MAX))`);
-  await enableCDCForTable({ connectionManager, schema: 'dbo', table: 'test_data2' });
+  await enableCDCForTable({ connectionManager, table: 'test_data2' });
 
   await connectionManager.query(
     `INSERT INTO test_data1(description) SELECT 'value' FROM GENERATE_SERIES(1, 1000, 1);
