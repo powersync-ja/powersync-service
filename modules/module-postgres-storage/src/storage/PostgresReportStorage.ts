@@ -294,9 +294,6 @@ export class PostgresReportStorage implements storage.ReportStorage {
     const limit = data.limit || 100;
     const statement = this.clientsConnectionPagination(data);
 
-    const countResult = await this.db.queryRows<{ total: number }>(statement.countQuery);
-    const total = Number(countResult[0].total);
-
     const result = await this.db.queryRows<ClientConnectionResponse>(statement.mainQuery);
     const items = result.map((item) => ({
       ...item,
@@ -307,13 +304,16 @@ export class PostgresReportStorage implements storage.ReportStorage {
       /** */
     }));
     const count = items.length;
+    /** The returned total has been defaulted to 0 due to the overhead using documentCount from the mogo driver this is just to keep consistency with Mongo implementation.
+     * cursor.count has been deprecated.
+     * */
     return {
+      items,
+      total: 0,
       /** Setting the cursor to the connected at date of the last item in the list */
       cursor: count === limit ? items[items.length - 1].connected_at.toISOString() : undefined,
       count,
-      items,
-      more: count < total,
-      total
+      more: !(count !== limit)
     };
   }
 

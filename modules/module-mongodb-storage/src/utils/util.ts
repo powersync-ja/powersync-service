@@ -137,9 +137,6 @@ export const createPaginatedConnectionQuery = async <T extends mongo.Document>(
     } as mongo.Filter<T>;
   };
 
-  /** cursor.count() deprecated */
-  const total = await collection.countDocuments(query);
-
   const findCursor = collection.find(createQuery(cursor), {
     sort: {
       /** We are sorting by connected at date descending to match cursor Postgres implementation */
@@ -149,12 +146,15 @@ export const createPaginatedConnectionQuery = async <T extends mongo.Document>(
 
   const items = await findCursor.limit(limit).toArray();
   const count = items.length;
+  /** The returned total has been defaulted to 0 due to the overhead using documentCount from the mogo driver.
+   * cursor.count has been deprecated.
+   * */
   return {
     items,
-    total,
+    total: 0,
     count,
     /** Setting the cursor to the connected at date of the last item in the list */
     cursor: count === limit ? items[items.length - 1].connected_at.toISOString() : undefined,
-    more: count < total
+    more: !(count !== limit)
   };
 };
