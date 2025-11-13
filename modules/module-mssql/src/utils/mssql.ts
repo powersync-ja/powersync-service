@@ -1,7 +1,7 @@
 import sql from 'mssql';
 import { SourceTable } from '@powersync/service-core';
 import { coerce, gte } from 'semver';
-import { errors, logger } from '@powersync/lib-services-framework';
+import { logger } from '@powersync/lib-services-framework';
 import { MSSQLConnectionManager } from '../replication/MSSQLConnectionManager.js';
 import { LSN } from '../common/LSN.js';
 import { CaptureInstance, MSSQLSourceTable } from '../common/MSSQLSourceTable.js';

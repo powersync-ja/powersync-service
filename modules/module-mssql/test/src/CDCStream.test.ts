@@ -1,16 +1,10 @@
 import { describe, expect, test } from 'vitest';
 import { METRICS_HELPER, putOp } from '@powersync/service-core-tests';
 import { ReplicationMetric } from '@powersync/service-types';
-import {
-  createTestTable,
-  describeWithStorage,
-  INITIALIZED_MONGO_STORAGE_FACTORY,
-  insertTestData,
-  waitForPendingCDCChanges
-} from './util.js';
+import { createTestTable, describeWithStorage, insertTestData, waitForPendingCDCChanges } from './util.js';
 import { storage } from '@powersync/service-core';
 import { CDCStreamTestContext } from './CDCStreamTestContext.js';
-import { enableCDCForTable, getLatestReplicatedLSN } from '@module/utils/mssql.js';
+import { getLatestReplicatedLSN } from '@module/utils/mssql.js';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -19,11 +13,11 @@ bucket_definitions:
       - SELECT id, description FROM "test_data"
 `;
 
-// describe('CDCStream tests', () => {
-//   describeWithStorage({ timeout: 20_000 }, defineCDCStreamTests);
-// });
+describe('CDCStream tests', () => {
+  describeWithStorage({ timeout: 20_000 }, defineCDCStreamTests);
+});
 
-defineCDCStreamTests(INITIALIZED_MONGO_STORAGE_FACTORY);
+// defineCDCStreamTests(INITIALIZED_MONGO_STORAGE_FACTORY);
 
 function defineCDCStreamTests(factory: storage.TestStorageFactory) {
   test('Initial snapshot sync', async () => {

@@ -173,8 +173,8 @@ export class BatchedSnapshotQuery implements MSSQLSnapshotQuery {
     if (keys[0] != this.key.name) {
       throw new ServiceAssertionError(`Key name mismatch: expected ${this.key.name}, got ${keys[0]}`);
     }
-    const value = decoded[this.key.name];
-    return value;
+
+    return decoded[this.key.name];
   }
 }
 

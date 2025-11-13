@@ -8,7 +8,7 @@ import * as postgres_storage from '@powersync/service-module-postgres-storage';
 import { describe, TestOptions } from 'vitest';
 import { env } from './env.js';
 import { MSSQLConnectionManager } from '@module/replication/MSSQLConnectionManager.js';
-import { createCheckpoint, enableCDCForTable, getLatestLSN, getLatestReplicatedLSN } from '@module/utils/mssql.js';
+import { createCheckpoint, enableCDCForTable, getLatestLSN } from '@module/utils/mssql.js';
 import sql from 'mssql';
 import { v4 as uuid } from 'uuid';
 import { LSN } from '@module/common/LSN.js';

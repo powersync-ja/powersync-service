@@ -222,7 +222,7 @@ export class CDCPoller {
           this.logger.info(`Processed UPDATE, before row: ${transactionLSN}`);
           break;
         case Operation.UPDATE_AFTER:
-          if (!updateBefore) {
+          if (updateBefore === null) {
             throw new ReplicationAssertionError('Missing before image for update event.');
           }
           await this.eventHandler.onUpdate(row, updateBefore, table, results.columns);

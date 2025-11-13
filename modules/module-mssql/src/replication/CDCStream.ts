@@ -9,7 +9,6 @@ import {
   ServiceAssertionError
 } from '@powersync/lib-services-framework';
 import {
-  ColumnDescriptor,
   getUuidReplicaIdentityBson,
   MetricsEngine,
   SaveUpdate,
@@ -107,8 +106,6 @@ export class CDCStream {
   private readonly logger: Logger;
 
   private tableCache = new MSSQLSourceTableCache();
-
-  private startedPolling = false;
 
   /**
    * Time of the oldest uncommitted change, according to the source db.
@@ -533,16 +530,6 @@ export class CDCStream {
         );
       }
     );
-  }
-
-  private getTable(tableId: number): MSSQLSourceTable {
-    const table = this.tableCache.get(tableId);
-    if (table == null) {
-      // We should always receive a replication message before the relation is used.
-      // If we can't find it, it's a bug.
-      throw new ReplicationAssertionError(`Table with ${tableId} not found in cache`);
-    }
-    return table;
   }
 
   async initReplication() {
