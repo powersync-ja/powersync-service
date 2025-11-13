@@ -23,7 +23,7 @@ export interface SqlParameterFunction {
 }
 
 const jsonExtractFromRecord = generateSqlFunctions(
-  new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS)
+  new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS })
 ).jsonExtractFromRecord;
 /**
  * Defines a `parameters` function and a `parameter` function.

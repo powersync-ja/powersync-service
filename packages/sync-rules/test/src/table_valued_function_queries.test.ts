@@ -45,10 +45,10 @@ describe('table-valued function queries', () => {
       {
         ...PARSE_OPTIONS,
         accept_potentially_dangerous_queries: true,
-        compatibility: new CompatibilityContext(
-          CompatibilityEdition.LEGACY,
-          new Map([[CompatibilityOption.fixedJsonExtract, true]])
-        )
+        compatibility: new CompatibilityContext({
+          edition: CompatibilityEdition.LEGACY,
+          overrides: new Map([[CompatibilityOption.fixedJsonExtract, true]])
+        })
       },
       '1'
     ) as StaticSqlParameterQuery;

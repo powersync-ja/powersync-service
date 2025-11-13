@@ -21,7 +21,7 @@ describe('custom type registry', () => {
 
     expect(applyValueContext(syncRulesValue, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY)).toStrictEqual(old);
     expect(
-      applyValueContext(syncRulesValue, new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS))
+      applyValueContext(syncRulesValue, new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS }))
     ).toStrictEqual(fixed);
   }
 
