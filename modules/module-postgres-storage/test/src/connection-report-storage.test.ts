@@ -185,7 +185,6 @@ describe('Connection report storage', async () => {
     const sdk = await factory.db
       .sql`SELECT * FROM connection_report_events WHERE user_id = ${{ type: 'varchar', value: userData.user_three.user_id }}`.rows<event_types.ClientConnection>();
     expect(sdk).toHaveLength(1);
-    console.log(sdk[0]);
     expect(new Date((sdk[0].disconnected_at! as unknown as DateTimeValue).iso8601Representation).toISOString()).toEqual(
       disconnectAt.toISOString()
     );
