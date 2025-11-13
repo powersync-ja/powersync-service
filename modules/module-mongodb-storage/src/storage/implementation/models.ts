@@ -1,6 +1,7 @@
 import { InternalOpId, storage } from '@powersync/service-core';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
+import { event_types } from '@powersync/service-types';
 
 /**
  * Replica id uniquely identifying a row on the source database.
@@ -196,6 +197,11 @@ export interface SyncRuleDocument {
   last_fatal_error: string | null;
 
   content: string;
+
+  lock?: {
+    id: string;
+    expires_at: Date;
+  } | null;
 }
 
 export interface CheckpointEventDocument {
@@ -238,3 +244,5 @@ export interface InstanceDocument {
   // The instance UUID
   _id: string;
 }
+
+export interface ClientConnectionDocument extends event_types.ClientConnection {}

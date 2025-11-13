@@ -1141,7 +1141,9 @@ bucket_definitions:
       await batch.commit('0/2');
     });
 
-    await bucketStorage.compact();
+    await bucketStorage.compact({
+      minBucketChanges: 1
+    });
 
     const lines2 = await getCheckpointLines(iter, { consume: true });
 

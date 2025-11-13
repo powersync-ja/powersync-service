@@ -1,0 +1,215 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Connection reporting storage > Should create a connection report if its after a day 1`] = `
+[
+  {
+    "client_id": "client_week",
+    "sdk": "powersync-js/1.24.5",
+    "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
+    "user_id": "user_week",
+  },
+  {
+    "client_id": "client_week",
+    "sdk": "powersync-js/1.24.5",
+    "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
+    "user_id": "user_week",
+  },
+]
+`;
+
+exports[`Connection reporting storage > Should delete rows older than specified range 1`] = `
+{
+  "sdks": [
+    {
+      "clients": 1,
+      "sdk": "powersync-dart/1.6.4",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.21.1",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.21.2",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.21.4",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.24.5",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "unknown",
+      "users": 1,
+    },
+  ],
+  "users": 5,
+}
+`;
+
+exports[`Connection reporting storage > Should update a connected connection report and make it disconnected 1`] = `
+[
+  {
+    "client_id": "client_three",
+    "sdk": "powersync-js/1.21.2",
+    "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
+    "user_id": "user_three",
+  },
+]
+`;
+
+exports[`Connection reporting storage > Should update a connection report if its within a day 1`] = `
+[
+  {
+    "client_id": "client_one",
+    "sdk": "powersync-dart/1.6.4",
+    "user_agent": "powersync-dart/1.6.4 Dart (flutter-web) Chrome/128 android",
+    "user_id": "user_one",
+  },
+]
+`;
+
+exports[`Report storage tests > Should show connection report data for user over the past day 1`] = `
+{
+  "sdks": [
+    {
+      "clients": 1,
+      "sdk": "powersync-dart/1.6.4",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.21.1",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.21.4",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "unknown",
+      "users": 1,
+    },
+  ],
+  "users": 3,
+}
+`;
+
+exports[`Report storage tests > Should show connection report data for user over the past month 1`] = `
+{
+  "sdks": [
+    {
+      "clients": 1,
+      "sdk": "powersync-dart/1.6.4",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.21.1",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.21.2",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.21.4",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.23.6",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.23.7",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.24.5",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "unknown",
+      "users": 1,
+    },
+  ],
+  "users": 7,
+}
+`;
+
+exports[`Report storage tests > Should show connection report data for user over the past week 1`] = `
+{
+  "sdks": [
+    {
+      "clients": 1,
+      "sdk": "powersync-dart/1.6.4",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.21.1",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.21.2",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.21.4",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.24.5",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "unknown",
+      "users": 1,
+    },
+  ],
+  "users": 5,
+}
+`;
+
+exports[`Report storage tests > Should show currently connected users 1`] = `
+{
+  "sdks": [
+    {
+      "clients": 1,
+      "sdk": "powersync-dart/1.6.4",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.21.1",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "unknown",
+      "users": 1,
+    },
+  ],
+  "users": 2,
+}
+`;

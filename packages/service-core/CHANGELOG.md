@@ -1,5 +1,41 @@
 # @powersync/service-core
 
+## 1.16.2
+
+### Patch Changes
+
+- b364581: Avoid re-compacting recently compacted buckets.
+- d889219: Fix memory leaks when retrying replication after errors.
+- 0ace0d3: Fix liveness probe when no connections are defined.
+- 7eb7957: [Postgres] Remove usage of pg_logical_slot_peek_binary_changes due to performance issues in some cases
+- b364581: Reduce batch size for checksum pre-calculations to reduce timeouts.
+
+## 1.16.1
+
+### Patch Changes
+
+- c6bdb4f: [MongoDB storage] Fix migration for indexes on connection_report_events.
+
+## 1.16.0
+
+### Minor Changes
+
+- 80fd68b: Add SDK usage reporting support.
+
+### Patch Changes
+
+- 88982d9: Migrate to trusted publishing
+- Updated dependencies [b4fa979]
+- Updated dependencies [80fd68b]
+- Updated dependencies [c2bd0b0]
+- Updated dependencies [0268858]
+- Updated dependencies [88982d9]
+  - @powersync/service-sync-rules@0.29.6
+  - @powersync/lib-services-framework@0.7.9
+  - @powersync/service-types@0.13.1
+  - @powersync/service-jsonbig@0.17.12
+  - @powersync/service-rsocket-router@0.2.6
+
 ## 1.15.8
 
 ### Patch Changes

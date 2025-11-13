@@ -55,12 +55,31 @@ export class WalStreamTestContext implements AsyncDisposable {
     await this.dispose();
   }
 
+  /**
+   * Clear any errors from startStream, to allow for a graceful dispose when streaming errors
+   * were expected.
+   */
+  async clearStreamError() {
+    if (this.streamPromise != null) {
+      this.streamPromise = this.streamPromise.catch((e) => {});
+    }
+  }
+
   async dispose() {
     this.abortController.abort();
-    await this.snapshotPromise;
-    await this.streamPromise;
-    await this.connectionManager.destroy();
-    await this.factory?.[Symbol.asyncDispose]();
+    try {
+      await this.snapshotPromise;
+      await this.streamPromise;
+      await this.connectionManager.destroy();
+      await this.factory?.[Symbol.asyncDispose]();
+    } catch (e) {
+      // Throwing here may result in SuppressedError. The underlying errors often don't show up
+      // in the test output, so we log it here.
+      // If we could get vitest to log SuppressedError.error and SuppressedError.suppressed, we
+      // could remove this.
+      console.error('Error during WalStreamTestContext dispose', e);
+      throw e;
+    }
   }
 
   get pool() {

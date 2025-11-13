@@ -1,5 +1,39 @@
 # @powersync/service-core-tests
 
+## 0.12.11
+
+### Patch Changes
+
+- b364581: Avoid re-compacting recently compacted buckets.
+- b364581: Reduce batch size for checksum pre-calculations to reduce timeouts.
+- Updated dependencies [b364581]
+- Updated dependencies [d889219]
+- Updated dependencies [0ace0d3]
+- Updated dependencies [7eb7957]
+- Updated dependencies [b364581]
+  - @powersync/service-core@1.16.2
+
+## 0.12.10
+
+### Patch Changes
+
+- Updated dependencies [c6bdb4f]
+  - @powersync/service-core@1.16.1
+
+## 0.12.9
+
+### Patch Changes
+
+- 88982d9: Migrate to trusted publishing
+- Updated dependencies [b4fa979]
+- Updated dependencies [80fd68b]
+- Updated dependencies [c2bd0b0]
+- Updated dependencies [0268858]
+- Updated dependencies [88982d9]
+  - @powersync/service-sync-rules@0.29.6
+  - @powersync/service-core@1.16.0
+  - @powersync/service-jsonbig@0.17.12
+
 ## 0.12.8
 
 ### Patch Changes

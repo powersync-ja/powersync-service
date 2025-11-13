@@ -61,6 +61,7 @@ export interface MongoCompactOptions extends storage.CompactOptions {}
 const DEFAULT_CLEAR_BATCH_LIMIT = 5000;
 const DEFAULT_MOVE_BATCH_LIMIT = 2000;
 const DEFAULT_MOVE_BATCH_QUERY_LIMIT = 10_000;
+const DEFAULT_MIN_BUCKET_CHANGES = 10;
 
 /** This default is primarily for tests. */
 const DEFAULT_MEMORY_LIMIT_MB = 64;
@@ -73,6 +74,7 @@ export class MongoCompactor {
   private moveBatchLimit: number;
   private moveBatchQueryLimit: number;
   private clearBatchLimit: number;
+  private minBucketChanges: number;
   private maxOpId: bigint;
   private buckets: string[] | undefined;
   private signal?: AbortSignal;
@@ -88,6 +90,7 @@ export class MongoCompactor {
     this.moveBatchLimit = options?.moveBatchLimit ?? DEFAULT_MOVE_BATCH_LIMIT;
     this.moveBatchQueryLimit = options?.moveBatchQueryLimit ?? DEFAULT_MOVE_BATCH_QUERY_LIMIT;
     this.clearBatchLimit = options?.clearBatchLimit ?? DEFAULT_CLEAR_BATCH_LIMIT;
+    this.minBucketChanges = options?.minBucketChanges ?? DEFAULT_MIN_BUCKET_CHANGES;
     this.maxOpId = options?.maxOpId ?? 0n;
     this.buckets = options?.compactBuckets;
     this.signal = options?.signal;
@@ -113,14 +116,26 @@ export class MongoCompactor {
 
   private async compactDirtyBuckets() {
     while (!this.signal?.aborted) {
-      // Process all buckets with 1 or more changes since last time
-      const buckets = await this.dirtyBucketBatch({ minBucketChanges: 1 });
+      // Process all buckets with 10 or more changes since last time.
+      // We exclude the last 100 compacted buckets, to avoid repeatedly re-compacting the same buckets over and over
+      // if they are modified while compacting.
+      const TRACK_RECENTLY_COMPACTED_NUMBER = 100;
+
+      let recentlyCompacted: string[] = [];
+      const buckets = await this.dirtyBucketBatch({
+        minBucketChanges: this.minBucketChanges,
+        exclude: recentlyCompacted
+      });
       if (buckets.length == 0) {
         // All done
         break;
       }
-      for (let bucket of buckets) {
+      for (let { bucket } of buckets) {
         await this.compactSingleBucket(bucket);
+        recentlyCompacted.push(bucket);
+      }
+      if (recentlyCompacted.length > TRACK_RECENTLY_COMPACTED_NUMBER) {
+        recentlyCompacted = recentlyCompacted.slice(-TRACK_RECENTLY_COMPACTED_NUMBER);
       }
     }
   }
@@ -482,10 +497,20 @@ export class MongoCompactor {
         break;
       }
       const start = Date.now();
-      logger.info(`Calculating checksums for batch of ${buckets.length} buckets, starting at ${buckets[0]}`);
+      logger.info(`Calculating checksums for batch of ${buckets.length} buckets`);
 
-      await this.updateChecksumsBatch(buckets);
-      logger.info(`Updated checksums for batch of ${buckets.length} buckets in ${Date.now() - start}ms`);
+      // Filter batch by estimated bucket size, to reduce possibility of timeouts
+      let checkBuckets: typeof buckets = [];
+      let totalCountEstimate = 0;
+      for (let bucket of buckets) {
+        checkBuckets.push(bucket);
+        totalCountEstimate += bucket.estimatedCount;
+        if (totalCountEstimate > 50_000) {
+          break;
+        }
+      }
+      await this.updateChecksumsBatch(checkBuckets.map((b) => b.bucket));
+      logger.info(`Updated checksums for batch of ${checkBuckets.length} buckets in ${Date.now() - start}ms`);
       count += buckets.length;
     }
     return { buckets: count };
@@ -497,7 +522,10 @@ export class MongoCompactor {
    * This cannot be used to iterate on its own - the client is expected to process these buckets and
    * set estimate_since_compact.count: 0 when done, before fetching the next batch.
    */
-  private async dirtyBucketBatch(options: { minBucketChanges: number }): Promise<string[]> {
+  private async dirtyBucketBatch(options: {
+    minBucketChanges: number;
+    exclude?: string[];
+  }): Promise<{ bucket: string; estimatedCount: number }[]> {
     if (options.minBucketChanges <= 0) {
       throw new ReplicationAssertionError('minBucketChanges must be >= 1');
     }
@@ -506,22 +534,28 @@ export class MongoCompactor {
       .find(
         {
           '_id.g': this.group_id,
-          'estimate_since_compact.count': { $gte: options.minBucketChanges }
+          'estimate_since_compact.count': { $gte: options.minBucketChanges },
+          '_id.b': { $nin: options.exclude ?? [] }
         },
         {
           projection: {
-            _id: 1
+            _id: 1,
+            estimate_since_compact: 1,
+            compacted_state: 1
           },
           sort: {
             'estimate_since_compact.count': -1
           },
-          limit: 5_000,
+          limit: 200,
           maxTimeMS: MONGO_OPERATION_TIMEOUT_MS
         }
       )
       .toArray();
 
-    return dirtyBuckets.map((bucket) => bucket._id.b);
+    return dirtyBuckets.map((bucket) => ({
+      bucket: bucket._id.b,
+      estimatedCount: bucket.estimate_since_compact!.count + (bucket.compacted_state?.count ?? 0)
+    }));
   }
 
   private async updateChecksumsBatch(buckets: string[]) {

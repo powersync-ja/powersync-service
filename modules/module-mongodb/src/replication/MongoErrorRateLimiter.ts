@@ -1,12 +1,13 @@
 import { ErrorRateLimiter } from '@powersync/service-core';
 import { setTimeout } from 'timers/promises';
+import { ChangeStreamInvalidatedError } from './ChangeStream.js';
 
 export class MongoErrorRateLimiter implements ErrorRateLimiter {
   nextAllowed: number = Date.now();
 
   async waitUntilAllowed(options?: { signal?: AbortSignal | undefined } | undefined): Promise<void> {
     const delay = Math.max(0, this.nextAllowed - Date.now());
-    // Minimum delay between connections, even without errors
+    // Minimum delay between connections, even without errors (for the next attempt)
     this.setDelay(500);
     await setTimeout(delay, undefined, { signal: options?.signal });
   }
@@ -18,9 +19,12 @@ export class MongoErrorRateLimiter implements ErrorRateLimiter {
   reportError(e: any): void {
     // FIXME: Check mongodb-specific requirements
     const message = (e.message as string) ?? '';
-    if (message.includes('password authentication failed')) {
-      // Wait 15 minutes, to avoid triggering Supabase's fail2ban
-      this.setDelay(900_000);
+    if (e instanceof ChangeStreamInvalidatedError) {
+      // Short delay
+      this.setDelay(2_000);
+    } else if (message.includes('Authentication failed')) {
+      // Wait 2 minutes, to avoid triggering too many authentication attempts
+      this.setDelay(120_000);
     } else if (message.includes('ENOTFOUND')) {
       // DNS lookup issue - incorrect URI or deleted instance
       this.setDelay(120_000);

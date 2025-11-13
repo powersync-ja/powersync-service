@@ -1,5 +1,46 @@
 # @powersync/service-module-postgres
 
+## 0.16.11
+
+### Patch Changes
+
+- d889219: Fix memory leaks when retrying replication after errors.
+- 7eb7957: [Postgres] Remove usage of pg_logical_slot_peek_binary_changes due to performance issues in some cases
+- Updated dependencies [b364581]
+- Updated dependencies [d889219]
+- Updated dependencies [0ace0d3]
+- Updated dependencies [7eb7957]
+- Updated dependencies [b364581]
+  - @powersync/service-core@1.16.2
+
+## 0.16.10
+
+### Patch Changes
+
+- Updated dependencies [c6bdb4f]
+  - @powersync/service-core@1.16.1
+
+## 0.16.9
+
+### Patch Changes
+
+- 0e9aa94: Improve replication slot health detection, automatically re-creating "lost" slots.
+- 80fd68b: Add SDK usage reporting support.
+- 88982d9: Migrate to trusted publishing
+- Updated dependencies [b4fa979]
+- Updated dependencies [0e9aa94]
+- Updated dependencies [80fd68b]
+- Updated dependencies [c2bd0b0]
+- Updated dependencies [0268858]
+- Updated dependencies [88982d9]
+  - @powersync/service-sync-rules@0.29.6
+  - @powersync/lib-service-postgres@0.4.13
+  - @powersync/service-core@1.16.0
+  - @powersync/lib-services-framework@0.7.9
+  - @powersync/service-types@0.13.1
+  - @powersync/service-jpgwire@0.21.5
+  - @powersync/service-jsonbig@0.17.12
+
 ## 0.16.8
 
 ### Patch Changes

@@ -57,11 +57,18 @@ export class ChangeStreamTestContext {
     initializeCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
   }
 
-  async dispose() {
+  /**
+   * Abort snapshot and/or replication, without actively closing connections.
+   */
+  abort() {
     this.abortController.abort();
+  }
+
+  async dispose() {
+    this.abort();
     await this.streamPromise?.catch((e) => e);
-    await this.connectionManager.destroy();
     await this.factory[Symbol.asyncDispose]();
+    await this.connectionManager.end();
   }
 
   async [Symbol.asyncDispose]() {
