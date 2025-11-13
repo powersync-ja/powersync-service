@@ -218,6 +218,11 @@ export interface CompactOptions {
   moveBatchQueryLimit?: number;
 
   /**
+   * Minimum of 1, default of 10.
+   */
+  minBucketChanges?: number;
+
+  /**
    * Internal/testing use: Cache size for compacting parameters.
    */
   compactParameterCacheLimit?: number;

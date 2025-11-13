@@ -5,6 +5,7 @@ import { getApplicationName } from '../utils/application-name.js';
 import { PostgresTypeResolver } from '../types/resolver.js';
 import { getServerVersion } from '../utils/postgres_version.js';
 import { CustomTypeRegistry } from '../types/registry.js';
+import { BaseObserver } from '@powersync/lib-services-framework';
 
 export interface PgManagerOptions extends pgwire.PgPoolOptions {
   registry: CustomTypeRegistry;
@@ -15,7 +16,11 @@ export interface PgManagerOptions extends pgwire.PgPoolOptions {
  */
 const SNAPSHOT_SOCKET_TIMEOUT = 30_000;
 
-export class PgManager {
+export interface PgManagerListener {
+  onEnded(): void;
+}
+
+export class PgManager extends BaseObserver<PgManagerListener> {
   /**
    * Do not use this for any transactions.
    */
@@ -29,6 +34,7 @@ export class PgManager {
     public options: NormalizedPostgresConnectionConfig,
     public poolOptions: PgManagerOptions
   ) {
+    super();
     // The pool is lazy - no connections are opened until a query is performed.
     this.pool = pgwire.connectPgWirePool(this.options, poolOptions);
     this.types = new PostgresTypeResolver(poolOptions.registry, this.pool);
@@ -83,8 +89,9 @@ export class PgManager {
     for (let result of await Promise.allSettled([
       this.pool.end(),
       ...this.connectionPromises.map(async (promise) => {
-        const connection = await promise;
-        return await connection.end();
+        // Wait for connection attempts to finish, but do not throw connection errors here
+        const connection = await promise.catch((_) => {});
+        return await connection?.end();
       })
     ])) {
       // Throw the first error, if any
@@ -92,14 +99,18 @@ export class PgManager {
         throw result.reason;
       }
     }
+    this.iterateListeners((listener) => {
+      listener.onEnded?.();
+    });
   }
 
   async destroy() {
     this.pool.destroy();
     for (let result of await Promise.allSettled([
       ...this.connectionPromises.map(async (promise) => {
-        const connection = await promise;
-        return connection.destroy();
+        // Wait for connection attempts to finish, but do not throw connection errors here
+        const connection = await promise.catch((_) => {});
+        return connection?.destroy();
       })
     ])) {
       // Throw the first error, if any
@@ -107,5 +118,8 @@ export class PgManager {
         throw result.reason;
       }
     }
+    this.iterateListeners((listener) => {
+      listener.onEnded?.();
+    });
   }
 }

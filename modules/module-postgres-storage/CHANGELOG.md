@@ -1,5 +1,17 @@
 # @powersync/service-module-postgres-storage
 
+## 0.10.11
+
+### Patch Changes
+
+- d889219: Fix memory leaks when retrying replication after errors.
+- Updated dependencies [b364581]
+- Updated dependencies [d889219]
+- Updated dependencies [0ace0d3]
+- Updated dependencies [7eb7957]
+- Updated dependencies [b364581]
+  - @powersync/service-core@1.16.2
+
 ## 0.10.10
 
 ### Patch Changes

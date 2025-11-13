@@ -62,6 +62,7 @@ bucket_definitions:
         clearBatchLimit: 200,
         moveBatchLimit: 10,
         moveBatchQueryLimit: 10,
+        minBucketChanges: 1,
         maxOpId: checkpoint,
         signal: null as any
       });

@@ -1,5 +1,6 @@
 import { setTimeout } from 'timers/promises';
 import { ErrorRateLimiter } from '@powersync/service-core';
+import { MissingReplicationSlotError } from './WalStream.js';
 
 export class PostgresErrorRateLimiter implements ErrorRateLimiter {
   nextAllowed: number = Date.now();
@@ -17,7 +18,10 @@ export class PostgresErrorRateLimiter implements ErrorRateLimiter {
 
   reportError(e: any): void {
     const message = (e.message as string) ?? '';
-    if (message.includes('password authentication failed')) {
+    if (e instanceof MissingReplicationSlotError) {
+      // Short delay for a retrying (re-creating the slot)
+      this.setDelay(2_000);
+    } else if (message.includes('password authentication failed')) {
       // Wait 15 minutes, to avoid triggering Supabase's fail2ban
       this.setDelay(900_000);
     } else if (message.includes('ENOTFOUND')) {
