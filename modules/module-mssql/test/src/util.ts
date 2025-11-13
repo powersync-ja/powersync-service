@@ -8,8 +8,10 @@ import * as postgres_storage from '@powersync/service-module-postgres-storage';
 import { describe, TestOptions } from 'vitest';
 import { env } from './env.js';
 import { MSSQLConnectionManager } from '@module/replication/MSSQLConnectionManager.js';
-import { getLatestLSN } from '@module/utils/mssql.js';
+import { createCheckpoint, enableCDCForTable, getLatestLSN, getLatestReplicatedLSN } from '@module/utils/mssql.js';
 import sql from 'mssql';
+import { v4 as uuid } from 'uuid';
+import { LSN } from '@module/common/LSN.js';
 
 export const TEST_URI = env.MSSQL_TEST_URI;
 
@@ -75,21 +77,59 @@ export async function createTestDb(connectionManager: MSSQLConnectionManager, db
     GO`);
 }
 
-export interface EnableCDCForTableOptions {
-  connectionManager: MSSQLConnectionManager;
-  schema: string;
-  table: string;
+export async function createTestTable(connectionManager: MSSQLConnectionManager, tableName: string): Promise<void> {
+  await connectionManager.query(`
+    CREATE TABLE ${connectionManager.schema}.${tableName} (
+      id UNIQUEIDENTIFIER PRIMARY KEY,
+      description VARCHAR(MAX)
+    )
+  `);
+  await enableCDCForTable({ connectionManager, table: tableName });
 }
 
-export async function enableCDCForTable(options: EnableCDCForTableOptions): Promise<void> {
-  const { connectionManager, schema, table } = options;
+export interface TestData {
+  id: string;
+  description: string;
+}
+export async function insertTestData(connectionManager: MSSQLConnectionManager, tableName: string): Promise<TestData> {
+  const id = createUUID();
+  const description = `description_${id}`;
+  await connectionManager.query(
+    `
+    INSERT INTO ${connectionManager.schema}.${tableName} (id, description) VALUES (@id, @description)
+  `,
+    [
+      { name: 'id', type: sql.UniqueIdentifier, value: id },
+      { name: 'description', type: sql.NVarChar(sql.MAX), value: description }
+    ]
+  );
 
-  await connectionManager.execute('sys.sp_cdc_enable_table', [
-    { name: 'source_schema', value: schema },
-    { name: 'source_name', value: table },
-    { name: 'role_name', value: 'NULL' },
-    { name: 'supports_net_changes', value: 1 }
-  ]);
+  return { id, description };
+}
+
+export async function waitForPendingCDCChanges(
+  beforeLSN: LSN,
+  connectionManager: MSSQLConnectionManager
+): Promise<void> {
+  while (true) {
+    const { recordset: result } = await connectionManager.query(
+      `
+    SELECT TOP 1 start_lsn
+    FROM cdc.lsn_time_mapping
+    WHERE start_lsn > @before_lsn
+    ORDER BY start_lsn DESC
+    `,
+      [{ name: 'before_lsn', type: sql.VarBinary, value: beforeLSN.toBinary() }]
+    );
+
+    if (result.length === 0) {
+      logger.info(`CDC changes pending. Waiting for 500ms...`);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    } else {
+      logger.info(`Found LSN: ${LSN.fromBinary(result[0].start_lsn).toString()}`);
+      return;
+    }
+  }
 }
 
 export async function getClientCheckpoint(
@@ -100,6 +140,7 @@ export async function getClientCheckpoint(
   const start = Date.now();
 
   const lsn = await getLatestLSN(connectionManager);
+  await createCheckpoint(connectionManager);
 
   // This old API needs a persisted checkpoint id.
   // Since we don't use LSNs anymore, the only way to get that is to wait.
@@ -124,4 +165,11 @@ export async function getClientCheckpoint(
   }
 
   throw new Error(`Timeout while waiting for checkpoint ${lsn}. Last checkpoint: ${lastCp?.lsn}`);
+}
+
+/**
+ *  Generates a new UUID string in uppercase for testing purposes to match the SQL Server UNIQUEIDENTIFIER format.
+ */
+export function createUUID(): string {
+  return uuid().toUpperCase();
 }

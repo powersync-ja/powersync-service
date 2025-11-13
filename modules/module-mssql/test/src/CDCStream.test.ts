@@ -1,10 +1,16 @@
 import { describe, expect, test } from 'vitest';
 import { METRICS_HELPER, putOp } from '@powersync/service-core-tests';
 import { ReplicationMetric } from '@powersync/service-types';
-import { v4 as uuid } from 'uuid';
-import { describeWithStorage, enableCDCForTable, INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
+import {
+  createTestTable,
+  describeWithStorage,
+  INITIALIZED_MONGO_STORAGE_FACTORY,
+  insertTestData,
+  waitForPendingCDCChanges
+} from './util.js';
 import { storage } from '@powersync/service-core';
 import { CDCStreamTestContext } from './CDCStreamTestContext.js';
+import { enableCDCForTable, getLatestReplicatedLSN } from '@module/utils/mssql.js';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -25,50 +31,130 @@ function defineCDCStreamTests(factory: storage.TestStorageFactory) {
     const { connectionManager } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
-    await connectionManager.query(`CREATE TABLE test_data (id UNIQUEIDENTIFIER PRIMARY KEY, description VARCHAR(MAX))`);
-    await enableCDCForTable({ connectionManager, schema: 'dbo', table: 'test_data' });
-    const testId = uuid();
-    await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('${testId}','test1')`);
-
+    await createTestTable(connectionManager, 'test_data');
+    const beforeLSN = await getLatestReplicatedLSN(connectionManager);
+    const testData = await insertTestData(connectionManager, 'test_data');
+    await waitForPendingCDCChanges(beforeLSN, connectionManager);
     const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
 
     await context.replicateSnapshot();
+    await context.startStreaming();
 
     const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
     const data = await context.getBucketData('global[]');
-    expect(data).toMatchObject([putOp('test_data', { id: testId, description: 'test1' })]);
+    expect(data).toMatchObject([putOp('test_data', testData)]);
     expect(endRowCount - startRowCount).toEqual(1);
   });
 
-  // test('Replicate basic values', async () => {
-  //   await using context = await CDCStreamTestContext.open(factory);
-  //   const { connectionManager } = context;
-  //   await context.updateSyncRules(`
-  // bucket_definitions:
-  //   global:
-  //     data:
-  //       - SELECT id, description, num FROM "test_data"`);
-  //
-  //   await connectionManager.query(
-  //     `CREATE TABLE test_data (id UNIQUEIDENTIFIER PRIMARY KEY, description VARCHAR(MAX), num BIGINT)`
-  //   );
-  //
-  //   await context.replicateSnapshot();
-  //
-  //   const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
-  //   const startTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
-  //
-  //   await context.startStreaming();
-  //   const testId = uuid();
-  //   await connectionManager.query(
-  //     `INSERT INTO test_data(id, description, num) VALUES('${testId}', 'test1', 1152921504606846976)`
-  //   );
-  //   const data = await context.getBucketData('global[]');
-  //
-  //   expect(data).toMatchObject([putOp('test_data', { id: testId, description: 'test1', num: 1152921504606846976n })]);
-  //   const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
-  //   const endTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
-  //   expect(endRowCount - startRowCount).toEqual(1);
-  //   expect(endTxCount - startTxCount).toEqual(1);
-  // });
+  test('Replicate basic values', async () => {
+    await using context = await CDCStreamTestContext.open(factory);
+    const { connectionManager } = context;
+    await context.updateSyncRules(BASIC_SYNC_RULES);
+
+    await createTestTable(connectionManager, 'test_data');
+    await context.replicateSnapshot();
+
+    const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
+    const startTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
+
+    await context.startStreaming();
+
+    const testData = await insertTestData(connectionManager, 'test_data');
+
+    const data = await context.getBucketData('global[]');
+
+    expect(data).toMatchObject([putOp('test_data', testData)]);
+    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
+    const endTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
+    expect(endRowCount - startRowCount).toEqual(1);
+    expect(endTxCount - startTxCount).toEqual(1);
+  });
+
+  test('Replicate matched wild card tables in sync rules', async () => {
+    await using context = await CDCStreamTestContext.open(factory);
+    const { connectionManager } = context;
+    await context.updateSyncRules(`
+  bucket_definitions:
+    global:
+      data:
+        - SELECT id, description FROM "test_data_%"`);
+
+    await createTestTable(connectionManager, 'test_data_1');
+    await createTestTable(connectionManager, 'test_data_2');
+
+    const beforeLSN = await getLatestReplicatedLSN(connectionManager);
+    const testData11 = await insertTestData(connectionManager, 'test_data_1');
+    const testData21 = await insertTestData(connectionManager, 'test_data_2');
+    await waitForPendingCDCChanges(beforeLSN, connectionManager);
+
+    await context.replicateSnapshot();
+    await context.startStreaming();
+
+    const testData12 = await insertTestData(connectionManager, 'test_data_1');
+    const testData22 = await insertTestData(connectionManager, 'test_data_2');
+
+    const data = await context.getBucketData('global[]');
+
+    expect(data).toMatchObject([
+      putOp('test_data_1', testData11),
+      putOp('test_data_2', testData21),
+      putOp('test_data_1', testData12),
+      putOp('test_data_2', testData22)
+    ]);
+  });
+
+  test('Replication for tables not in the sync rules are ignored', async () => {
+    await using context = await CDCStreamTestContext.open(factory);
+    const { connectionManager } = context;
+    await context.updateSyncRules(BASIC_SYNC_RULES);
+
+    await createTestTable(connectionManager, 'test_donotsync');
+
+    await context.replicateSnapshot();
+
+    const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
+    const startTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
+
+    await context.startStreaming();
+
+    await insertTestData(connectionManager, 'test_donotsync');
+    const data = await context.getBucketData('global[]');
+
+    expect(data).toMatchObject([]);
+    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
+    const endTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
+
+    // There was a transaction, but it is not counted since it is not for a table in the sync rules
+    expect(endRowCount - startRowCount).toEqual(0);
+    expect(endTxCount - startTxCount).toEqual(0);
+  });
+
+  test('Replicate case sensitive table', async () => {
+    await using context = await CDCStreamTestContext.open(factory);
+    const { connectionManager } = context;
+    await context.updateSyncRules(`
+      bucket_definitions:
+        global:
+          data:
+            - SELECT id, description FROM "test_DATA"
+      `);
+
+    await createTestTable(connectionManager, 'test_DATA');
+
+    await context.replicateSnapshot();
+
+    const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
+    const startTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
+
+    await context.startStreaming();
+
+    const testData = await insertTestData(connectionManager, 'test_DATA');
+    const data = await context.getBucketData('global[]');
+
+    expect(data).toMatchObject([putOp('test_DATA', testData)]);
+    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
+    const endTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
+    expect(endRowCount - startRowCount).toEqual(1);
+    expect(endTxCount - startTxCount).toBeGreaterThanOrEqual(1);
+  });
 }

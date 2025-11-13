@@ -11,6 +11,7 @@ import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
 import { CDCStream, CDCStreamOptions } from '@module/replication/CDCStream.js';
 import { MSSQLConnectionManager } from '@module/replication/MSSQLConnectionManager.js';
+import timers from 'timers/promises';
 
 /**
  * Tests operating on the change data capture need to configure the stream and manage asynchronous
@@ -51,7 +52,11 @@ export class CDCStreamTestContext implements AsyncDisposable {
   }
 
   async [Symbol.asyncDispose]() {
-    await this.dispose();
+    try {
+      await this.dispose();
+    } catch (err) {
+      console.error('Error disposing CDCStreamTestContext', err);
+    }
   }
 
   async dispose() {
@@ -126,26 +131,26 @@ export class CDCStreamTestContext implements AsyncDisposable {
   }
 
   // TODO: Enable once streaming is implemented
-  // startStreaming() {
-  //   if (!this.replicationDone) {
-  //     throw new Error('Call replicateSnapshot() before startStreaming()');
-  //   }
-  //   this.streamPromise = this.cdcStream.streamChanges();
-  // Wait for the replication to start before returning.
-  // This avoids a bunch of unpredictable race conditions that appear in testing
-  //return new Promise<void>(async (resolve) => {
-  //while (this.binlogStream.isStartingReplication) {
-  //await timers.setTimeout(50);
-  //}
+  startStreaming() {
+    if (!this.replicationDone) {
+      throw new Error('Call replicateSnapshot() before startStreaming()');
+    }
+    this.streamPromise = this.cdcStream.streamChanges();
+    // Wait for the replication to start before returning.
+    // This avoids a bunch of unpredictable race conditions that appear in testing
+    return new Promise<void>(async (resolve) => {
+      while (this.cdcStream.isStartingReplication) {
+        await timers.setTimeout(50);
+      }
 
-  //resolve();
-  //});
-  // }
+      resolve();
+    });
+  }
 
   async getCheckpoint(options?: { timeout?: number }) {
     let checkpoint = await Promise.race([
-      getClientCheckpoint(this.connectionManager, this.factory, { timeout: options?.timeout ?? 15_000 })
-      //this.streamPromise
+      getClientCheckpoint(this.connectionManager, this.factory, { timeout: options?.timeout ?? 15_000 }),
+      this.streamPromise
     ]);
     if (checkpoint == null) {
       // This indicates an issue with the test setup - streamingPromise completed instead
