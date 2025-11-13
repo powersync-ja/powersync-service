@@ -160,6 +160,7 @@ export class PostgresReportStorage implements storage.ReportStorage {
     /** Order in descending connected at range to match Mongo sort=-1*/
     intermediateQuery += ` ORDER BY connected_at DESC`;
     query += intermediateQuery;
+
     return {
       mainQuery: {
         statement: query,

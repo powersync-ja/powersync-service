@@ -182,9 +182,54 @@ export async function registerReportTests(factory: storage.ReportStorage) {
     expect(cleaned).toMatchSnapshot();
   });
 
+  it('Should show paginated response of connections over a date range of specified client_id and user_id', async () => {
+    const connections = await factory.getGeneralClientConnectionAnalytics({
+      client_id: user_one.client_id,
+      user_id: user_one.user_id,
+      date_range: {
+        start: weekAgo,
+        end: now
+      }
+    });
+
+    const cleaned = {
+      ...connections,
+      items: removeVolatileFields(connections.items)
+    };
+    expect(cleaned).toMatchSnapshot();
+  });
+
   it('Should show paginated response of all connections with a limit', async () => {
     const initial = await factory.getGeneralClientConnectionAnalytics({
       limit: 4
+    });
+
+    const cursor = initial.cursor;
+    expect(cursor).toBeDefined();
+    const cleanedInitial = {
+      ...initial,
+      cursor: '<removed-for-snapshot>',
+      items: removeVolatileFields(initial.items)
+    };
+    expect(cleanedInitial).toMatchSnapshot();
+    const connections = await factory.getGeneralClientConnectionAnalytics({
+      cursor
+    });
+    const cleaned = {
+      ...connections,
+      items: removeVolatileFields(initial.items)
+    };
+    expect(cleaned).toMatchSnapshot();
+  });
+
+  it('Should show paginated response of all connections with a limit with date range', async () => {
+    const date_range = {
+      start: monthAgo,
+      end: nowLess5minutes
+    };
+    const initial = await factory.getGeneralClientConnectionAnalytics({
+      limit: 4,
+      date_range
     });
 
     const cursor = initial.cursor;
@@ -197,7 +242,8 @@ export async function registerReportTests(factory: storage.ReportStorage) {
     };
     expect(cleanedInitial).toMatchSnapshot();
     const connections = await factory.getGeneralClientConnectionAnalytics({
-      cursor
+      cursor,
+      date_range
     });
 
     const cleaned = {

@@ -125,15 +125,12 @@ export const createPaginatedConnectionQuery = async <T extends mongo.Document>(
     if (!cursor) {
       return query;
     }
+    const connected_at = query.connected_at
+      ? { $lt: new Date(cursor), $gte: query.connected_at.$gte }
+      : { $lt: new Date(cursor) };
     return {
-      $and: [
-        query,
-        {
-          connected_at: {
-            $lt: new Date(cursor)
-          }
-        }
-      ]
+      ...query,
+      connected_at
     } as mongo.Filter<T>;
   };
 
