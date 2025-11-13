@@ -575,40 +575,13 @@ export class CDCStream {
   }
 
   async streamChanges() {
-    const reSnapshot: { table: storage.SourceTable; key: PrimaryKeyValue }[] = [];
-    // TODO Handle re-snapshot
-
-    const markRecordUnavailable = (record: SaveUpdate) => {
-      if (!IdSnapshotQuery.supports(record.sourceTable)) {
-        // If it's not supported, it's also safe to ignore
-        return;
-      }
-      let key: PrimaryKeyValue = {};
-      for (const column of record.sourceTable.replicaIdColumns) {
-        const name = column.name;
-        const value = record.after[name];
-        if (value == null) {
-          // We don't expect this to actually happen.
-          // The key should always be present in the "after" record.
-          return;
-        }
-        // We just need a consistent representation of the primary key, and don't care about fixed quirks.
-        key[name] = applyValueContext(value, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
-      }
-      reSnapshot.push({
-        table: record.sourceTable,
-        key: key
-      });
-    };
-
     await this.storage.startBatch(
       {
         logger: this.logger,
         zeroLSN: LSN.ZERO,
         defaultSchema: this.defaultSchema,
         storeCurrentData: false,
-        skipExistingRows: false,
-        markRecordUnavailable
+        skipExistingRows: false
       },
       async (batch) => {
         if (batch.resumeFromLsn == null) {

@@ -23,7 +23,7 @@ export interface MissingRow {
 
 /**
  * Snapshot query using a plain SELECT * FROM table; chunked using
- * DELCLARE CURSOR / FETCH.
+ * DECLARE CURSOR / FETCH.
  *
  * This supports all tables, but does not efficiently resume the snapshot
  * if the process is restarted.

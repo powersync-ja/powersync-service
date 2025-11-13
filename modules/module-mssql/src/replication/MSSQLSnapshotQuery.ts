@@ -17,11 +17,6 @@ export interface MSSQLSnapshotQuery {
 
 export type PrimaryKeyValue = Record<string, SqliteValue>;
 
-export interface MissingRow {
-  table: MSSQLSourceTable;
-  key: PrimaryKeyValue;
-}
-
 /**
  * Snapshot query using a plain SELECT * FROM table
  *
@@ -37,17 +32,24 @@ export class SimpleSnapshotQuery implements MSSQLSnapshotQuery {
   public async initialize(): Promise<void> {}
 
   public async *next(): AsyncIterableIterator<sql.IColumnMetadata | sql.IRecordSet<any>> {
-    const request = this.transaction.request();
-    request.stream = true;
-    const metadataPromise = new Promise<sql.IColumnMetadata>((resolve) => {
-      request.on('recordset', resolve);
+    const metadataRequest = this.transaction.request();
+    metadataRequest.stream = true;
+    const metadataPromise = new Promise<sql.IColumnMetadata>((resolve, reject) => {
+      metadataRequest.on('recordset', resolve);
+      metadataRequest.on('error', reject);
     });
+
+    metadataRequest.query(`SELECT TOP(0) * FROM ${this.table.toQualifiedName()}`);
+
+    const columnMetadata: sql.IColumnMetadata = await metadataPromise;
+    yield columnMetadata;
+
+    const request = this.transaction.request();
     const stream = request.toReadableStream();
 
     request.query(`SELECT * FROM ${this.table.toQualifiedName()}`);
 
-    const columnMetadata: sql.IColumnMetadata = await metadataPromise;
-    yield columnMetadata;
+
 
     // MSSQL only streams one row at a time
     for await (const row of stream) {
@@ -203,22 +205,27 @@ export class IdSnapshotQuery implements MSSQLSnapshotQuery {
   }
 
   public async *next(): AsyncIterableIterator<sql.IColumnMetadata | sql.IRecordSet<any>> {
-    const request = this.transaction.request();
-    request.stream = true;
-    const metadataPromise = new Promise<sql.IColumnMetadata>((resolve) => {
-      request.on('recordset', resolve);
+    const metadataRequest = this.transaction.request();
+    metadataRequest.stream = true;
+    const metadataPromise = new Promise<sql.IColumnMetadata>((resolve, reject) => {
+      metadataRequest.on('recordset', resolve);
+      metadataRequest.on('error', reject);
     });
-    const stream = request.toReadableStream();
+    metadataRequest.query(`SELECT TOP(0) * FROM ${this.table.toQualifiedName()}`);
+    const columnMetadata: sql.IColumnMetadata = await metadataPromise;
+    yield columnMetadata;
+
 
     const keyDefinition = this.table.sourceTable.replicaIdColumns[0];
     const ids = this.keys.map((record) => record[keyDefinition.name]);
 
+    const request = this.transaction.request();
+    const stream = request.toReadableStream();
     request
       .input('ids', ids)
       .query(`SELECT * FROM ${this.table.toQualifiedName()} WHERE ${escapeIdentifier(keyDefinition.name)} = @ids`);
-    const columnMetadata: sql.IColumnMetadata = await metadataPromise;
-    yield columnMetadata;
 
+    // MSSQL only streams one row at a time
     for await (const row of stream) {
       yield row;
     }
