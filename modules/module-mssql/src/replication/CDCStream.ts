@@ -2,11 +2,10 @@ import {
   container,
   DatabaseConnectionError,
   ErrorCode,
-  errors,
   Logger,
   logger as defaultLogger,
-  ReplicationAssertionError,
   ReplicationAbortedError,
+  ReplicationAssertionError,
   ServiceAssertionError
 } from '@powersync/lib-services-framework';
 import {
@@ -21,7 +20,9 @@ import {
 import {
   applyValueContext,
   CompatibilityContext,
+  DatabaseInputRow,
   SqliteInputRow,
+  SqliteRow,
   SqlSyncRules,
   TablePattern
 } from '@powersync/service-sync-rules';
@@ -30,26 +31,29 @@ import { ReplicationMetric } from '@powersync/service-types';
 import {
   BatchedSnapshotQuery,
   IdSnapshotQuery,
+  MSSQLSnapshotQuery,
   PrimaryKeyValue,
-  SimpleSnapshotQuery,
-  MSSQLSnapshotQuery
+  SimpleSnapshotQuery
 } from './MSSQLSnapshotQuery.js';
 import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
 import * as schema_utils from '../utils/schema.js';
+import { ResolvedTable } from '../utils/schema.js';
 import {
   checkSourceConfiguration,
+  createCheckpoint,
   getCaptureInstance,
   getLatestLSN,
+  getLatestReplicatedLSN,
   isIColumnMetadata,
   isTableEnabledForCDC,
   isWithinRetentionThreshold
 } from '../utils/mssql.js';
-import { ResolvedTable } from '../utils/schema.js';
 import sql from 'mssql';
 import { toSqliteInputRow } from '../common/mssqls-to-sqlite.js';
 import { LSN } from '../common/LSN.js';
 import { MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
 import { MSSQLSourceTableCache } from '../common/MSSQLSourceTableCache.js';
+import { CDCEventHandler, CDCPoller } from './CDCPoller.js';
 
 export interface CDCStreamOptions {
   connections: MSSQLConnectionManager;
@@ -71,14 +75,9 @@ export enum SnapshotStatus {
   RESTART_REQUIRED = 'restart-required'
 }
 
-interface WriteChangePayload {
-  type: storage.SaveOperationTag;
-  row: sql.IRecordSet<any>;
-  previous_row?: sql.IRecordSet<any>;
-  schema: string;
-  table: string;
-  sourceTable: storage.SourceTable;
-  columns: Map<string, ColumnDescriptor>;
+export interface SnapshotStatusResult {
+  status: SnapshotStatus;
+  snapshotLSN: string | null;
 }
 
 export class CDCConfigurationError extends Error {
@@ -120,7 +119,7 @@ export class CDCStream {
    * Keep track of whether we have done a commit or keepalive yet.
    * We can only compute replication lag if isStartingReplication == false, or oldestUncommittedChange is present.
    */
-  private isStartingReplication = true;
+  public isStartingReplication = true;
 
   constructor(private options: CDCStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
@@ -168,6 +167,36 @@ export class CDCStream {
 
   get snapshotBatchSize() {
     return this.options.snapshotBatchSize ?? 10_000;
+  }
+
+  async replicate() {
+    try {
+      await this.initReplication();
+      await this.streamChanges();
+    } catch (e) {
+      await this.storage.reportError(e);
+      throw e;
+    }
+  }
+
+  async populateTableCache() {
+    const sourceTables = this.syncRules.getSourceTables();
+    await this.storage.startBatch(
+      {
+        logger: this.logger,
+        zeroLSN: LSN.ZERO,
+        defaultSchema: this.defaultSchema,
+        storeCurrentData: true
+      },
+      async (batch) => {
+        for (let tablePattern of sourceTables) {
+          const tables = await this.getQualifiedTableNames(batch, tablePattern);
+          for (const table of tables) {
+            this.tableCache.set(table);
+          }
+        }
+      }
+    );
   }
 
   async getQualifiedTableNames(
@@ -240,7 +269,6 @@ export class CDCStream {
       sourceTable: resolved.table,
       captureInstance: captureInstance
     });
-    this.tableCache.set(resolvedTable);
 
     // Drop conflicting tables. This includes for example renamed tables.
     await batch.drop(resolved.dropTables);
@@ -284,18 +312,18 @@ export class CDCStream {
       // We have to get this LSN _after_ we have finished the table snapshot.
       //
       // There are basically two relevant LSNs here:
-      // A: The LSN before the snapshot starts. We don't explicitly record this on the PowerSync side,
-      //    but it is implicitly recorded in the replication slot.
-      // B: The LSN after the table snapshot is complete, which is what we get here.
+      // A: PreSnapshot: The LSN before the snapshot starts.
+      // B: PostSnapshot: The LSN after the table snapshot is complete, which is what we get here.
       // When we do the snapshot queries, the data that we get back for each batch could match the state
       // anywhere between A and B. To actually have a consistent state on our side, we need to:
       // 1. Complete the snapshot.
       // 2. Wait until logical replication has caught up with all the changes between A and B.
       // Calling `markSnapshotDone(LSN B)` covers that.
-      const tableLsnNotBefore = await getLatestLSN(this.connections);
+      const postSnapshotLSN = await getLatestLSN(this.connections);
+      this.logger.info(`Post snapshot LSN: ${postSnapshotLSN.toString()}`);
       // Side note: A ROLLBACK would probably also be fine here, since we only read in this transaction.
       await transaction.commit();
-      const [updatedSourceTable] = await batch.markSnapshotDone([table.sourceTable], tableLsnNotBefore.toString());
+      const [updatedSourceTable] = await batch.markSnapshotDone([table.sourceTable], postSnapshotLSN.toString());
       this.tableCache.updateSourceTable(updatedSourceTable);
     } catch (e) {
       await transaction.rollback();
@@ -353,19 +381,18 @@ export class CDCStream {
       // The balance here is between latency overhead per FETCH call,
       // and not spending too much time on each FETCH call.
       // We aim for a couple of seconds on each FETCH call.
+      let batchReplicatedCount = 0;
       const cursor = query.next();
-      hasRemainingData = false;
-      // MSSQL streams rows one by one
       for await (const result of cursor) {
-        if (isIColumnMetadata(result)) {
+        if (columns == null && isIColumnMetadata(result)) {
           columns = result;
           continue;
         } else {
           if (!columns) {
             throw new ReplicationAssertionError(`Missing column metadata`);
           }
-          const row: SqliteInputRow = toSqliteInputRow(result, columns!);
-
+          const inputRow: SqliteInputRow = toSqliteInputRow(result, columns);
+          const row = this.syncRules.applyRowContext<never>(inputRow);
           // This auto-flushes when the batch reaches its size limit
           await batch.save({
             tag: storage.SaveOperationTag.INSERT,
@@ -377,6 +404,7 @@ export class CDCStream {
           });
 
           replicatedCount++;
+          batchReplicatedCount++;
           this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
         }
 
@@ -414,6 +442,11 @@ export class CDCStream {
         // We only abort after flushing
         throw new ReplicationAbortedError(`Initial replication interrupted`);
       }
+
+      // When the batch of rows is smaller than the requested batch size we know it is the final batch
+      if (batchReplicatedCount < this.snapshotBatchSize) {
+        hasRemainingData = false;
+      }
     }
   }
 
@@ -441,51 +474,63 @@ export class CDCStream {
    * If (partial) replication was done before on this slot, this clears the state
    * and starts again from scratch.
    */
-  async startInitialReplication(status: SnapshotStatus) {
+  async startInitialReplication(snapshotStatus: SnapshotStatusResult) {
+    let { status, snapshotLSN } = snapshotStatus;
+
     if (status === SnapshotStatus.RESTART_REQUIRED) {
+      this.logger.info(`Snapshot restart required, clearing state.`);
       // This happens if the last replicated checkpoint LSN is no longer available in the CDC tables.
       await this.storage.clear({ signal: this.abortSignal });
     }
 
-    const sourceTables = this.syncRules.getSourceTables();
     await this.storage.startBatch(
       {
         logger: this.logger,
         zeroLSN: LSN.ZERO,
         defaultSchema: this.defaultSchema,
-        storeCurrentData: true,
+        storeCurrentData: false,
         skipExistingRows: true
       },
       async (batch) => {
-        const tablesWithStatus: MSSQLSourceTable[] = [];
-        for (const tablePattern of sourceTables) {
-          const tables = await this.getQualifiedTableNames(batch, tablePattern);
-          // Pre-get counts
-          for (const table of tables) {
-            if (table.sourceTable.snapshotComplete) {
-              this.logger.info(`Skipping ${table.toQualifiedName()} - snapshot already done.`);
-              continue;
-            }
-            const count = await this.estimatedCountNumber(table);
-            const updatedSourceTable = await batch.updateTableProgress(table.sourceTable, {
-              totalEstimatedCount: count
-            });
-            this.tableCache.updateSourceTable(updatedSourceTable);
-            tablesWithStatus.push(table);
-
-            this.logger.info(`To replicate: ${table.toQualifiedName()} ${table.sourceTable.formatSnapshotProgress()}`);
-          }
+        if (snapshotLSN == null) {
+          // First replication attempt - set the snapshot LSN to the current LSN before starting
+          snapshotLSN = (await getLatestReplicatedLSN(this.connections)).toString();
+          await batch.setResumeLsn(snapshotLSN);
+          const latestLSN = (await getLatestLSN(this.connections)).toString();
+          this.logger.info(`Marking snapshot at ${snapshotLSN}, Latest DB LSN ${latestLSN}.`);
+        } else {
+          this.logger.info(`Resuming snapshot at ${snapshotLSN}.`);
         }
 
-        for (const table of tablesWithStatus) {
+        const tablesToSnapshot: MSSQLSourceTable[] = [];
+        for (const table of this.tableCache.getAll()) {
+          if (table.sourceTable.snapshotComplete) {
+            this.logger.info(`Skipping table [${table.toQualifiedName()}] - snapshot already done.`);
+            continue;
+          }
+
+          const count = await this.estimatedCountNumber(table);
+          const updatedSourceTable = await batch.updateTableProgress(table.sourceTable, {
+            totalEstimatedCount: count
+          });
+          this.tableCache.updateSourceTable(updatedSourceTable);
+          tablesToSnapshot.push(table);
+
+          this.logger.info(`To replicate: ${table.toQualifiedName()} ${table.sourceTable.formatSnapshotProgress()}`);
+        }
+
+        for (const table of tablesToSnapshot) {
           await this.snapshotTableInTx(batch, table);
           this.touch();
         }
 
-        // Always commit the initial snapshot at zero.
-        // This makes sure we don't skip any changes applied before starting this snapshot,
-        // in the case of snapshot retries.
-        await batch.commit(LSN.ZERO);
+        // This will not create a consistent checkpoint yet, but will persist the op.
+        // Actual checkpoint will be created when streaming replication caught up.
+        await batch.commit(snapshotLSN);
+
+        this.logger.info(
+          `Snapshot done. Need to replicate from ${snapshotLSN} to ${batch.noCheckpointBeforeLsn} to be consistent`
+        );
       }
     );
   }
@@ -500,77 +545,15 @@ export class CDCStream {
     return table;
   }
 
-  // async writeChange(
-  //   batch: storage.BucketStorageBatch,
-  //   payload: WriteChangePayload
-  // ): Promise<storage.FlushedResult | null> {
-  //   switch (payload.type) {
-  //     case storage.SaveOperationTag.INSERT:
-  //       this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
-  //       const record = toSqliteInputRow(payload.row, payload.columns);
-  //       return await batch.save({
-  //         tag: storage.SaveOperationTag.INSERT,
-  //         sourceTable: payload.sourceTable,
-  //         before: undefined,
-  //         beforeReplicaId: undefined,
-  //         after: record,
-  //         afterReplicaId: getUuidReplicaIdentityBson(record, payload.sourceTable.replicaIdColumns)
-  //       });
-  //     case storage.SaveOperationTag.UPDATE:
-  //       this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
-  //       // The previous row may be null if the replica id columns are unchanged.
-  //       // It's fine to treat that the same as an insert.
-  //       const beforeUpdated = payload.previous_row
-  //         ? toSqliteInputRow(payload.previous_row, payload.columns)
-  //         : undefined;
-  //       const after = toSqliteInputRow(payload.row, payload.columns);
-  //
-  //       return await batch.save({
-  //         tag: storage.SaveOperationTag.UPDATE,
-  //         sourceTable: payload.sourceTable,
-  //         before: beforeUpdated,
-  //         beforeReplicaId: beforeUpdated
-  //           ? getUuidReplicaIdentityBson(beforeUpdated, payload.sourceTable.replicaIdColumns)
-  //           : undefined,
-  //         after: after,
-  //         afterReplicaId: getUuidReplicaIdentityBson(after, payload.sourceTable.replicaIdColumns)
-  //       });
-  //
-  //     case storage.SaveOperationTag.DELETE:
-  //       this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
-  //       const beforeDeleted = toSqliteInputRow(payload.row, payload.columns);
-  //
-  //       return await batch.save({
-  //         tag: storage.SaveOperationTag.DELETE,
-  //         sourceTable: payload.sourceTable,
-  //         before: beforeDeleted,
-  //         beforeReplicaId: getUuidReplicaIdentityBson(beforeDeleted, payload.sourceTable.replicaIdColumns),
-  //         after: undefined,
-  //         afterReplicaId: undefined
-  //       });
-  //     default:
-  //       return null;
-  //   }
-  // }
-
-  async replicate() {
-    try {
-      await this.initReplication();
-      //await this.streamChanges();
-    } catch (e) {
-      await this.storage.reportError(e);
-      throw e;
-    }
-  }
-
   async initReplication() {
     const errors = await checkSourceConfiguration(this.connections);
     if (errors.length > 0) {
       throw new CDCConfigurationError(`CDC Configuration Errors: ${errors.join(', ')}`);
     }
 
+    await this.populateTableCache();
     const snapshotStatus = await this.checkSnapshotStatus();
-    if (snapshotStatus !== SnapshotStatus.DONE) {
+    if (snapshotStatus.status !== SnapshotStatus.DONE) {
       await this.startInitialReplication(snapshotStatus);
     }
   }
@@ -579,15 +562,14 @@ export class CDCStream {
    * Checks if the initial sync has already been completed and if updates from the last checkpoint are still available
    * in the CDC instances.
    */
-  private async checkSnapshotStatus(): Promise<SnapshotStatus> {
+  private async checkSnapshotStatus(): Promise<SnapshotStatusResult> {
     const status = await this.storage.getStatus();
-    const snapshotDone = status.snapshot_done && status.checkpoint_lsn != null;
-    if (snapshotDone) {
+    if (status.snapshot_done && status.checkpoint_lsn) {
       // Snapshot is done, but we still need to check that the last known checkpoint LSN is still
       // within the threshold of the CDC tables
       this.logger.info(`Initial replication already done`);
 
-      const lastCheckpointLSN = LSN.fromString(status.checkpoint_lsn!);
+      const lastCheckpointLSN = LSN.fromString(status.checkpoint_lsn);
       // Check that the CDC tables still have valid data
       const isAvailable = await isWithinRetentionThreshold({
         checkpointLSN: lastCheckpointLSN,
@@ -599,195 +581,150 @@ export class CDCStream {
           `Updates from the last checkpoint are no longer available in the CDC instance, starting initial replication again.`
         );
       }
-      return isAvailable ? SnapshotStatus.DONE : SnapshotStatus.RESTART_REQUIRED;
+      return { status: isAvailable ? SnapshotStatus.DONE : SnapshotStatus.RESTART_REQUIRED, snapshotLSN: null };
+    } else {
+      return { status: SnapshotStatus.IN_PROGRESS, snapshotLSN: status.snapshot_lsn };
     }
-
-    return SnapshotStatus.IN_PROGRESS;
   }
 
-  // async streamChanges() {
-  //   // When changing any logic here, check /docs/wal-lsns.md.
-  //   const { createEmptyCheckpoints } = await this.ensureStorageCompatibility();
-  //
-  //   const replicationOptions: Record<string, string> = {
-  //     proto_version: '1',
-  //     publication_names: PUBLICATION_NAME
-  //   };
-  //
-  //   /**
-  //    * Viewing the contents of logical messages emitted with `pg_logical_emit_message`
-  //    * is only supported on Postgres >= 14.0.
-  //    * https://www.postgresql.org/docs/14/protocol-logical-replication.html
-  //    */
-  //   const exposesLogicalMessages = await this.checkLogicalMessageSupport();
-  //   if (exposesLogicalMessages) {
-  //     /**
-  //      * Only add this option if the Postgres server supports it.
-  //      * Adding the option to a server that doesn't support it will throw an exception when starting logical replication.
-  //      * Error: `unrecognized pgoutput option: messages`
-  //      */
-  //     replicationOptions['messages'] = 'true';
-  //   }
-  //
-  //   const replicationStream = replicationConnection.logicalReplication({
-  //     slot: this.slot_name,
-  //     options: replicationOptions
-  //   });
-  //
-  //   this.startedStreaming = true;
-  //
-  //   let resnapshot: { table: storage.SourceTable; key: PrimaryKeyValue }[] = [];
-  //
-  //   const markRecordUnavailable = (record: SaveUpdate) => {
-  //     if (!IdSnapshotQuery.supports(record.sourceTable)) {
-  //       // If it's not supported, it's also safe to ignore
-  //       return;
-  //     }
-  //     let key: PrimaryKeyValue = {};
-  //     for (let column of record.sourceTable.replicaIdColumns) {
-  //       const name = column.name;
-  //       const value = record.after[name];
-  //       if (value == null) {
-  //         // We don't expect this to actually happen.
-  //         // The key should always be present in the "after" record.
-  //         return;
-  //       }
-  //       // We just need a consistent representation of the primary key, and don't care about fixed quirks.
-  //       key[name] = applyValueContext(value, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
-  //     }
-  //     resnapshot.push({
-  //       table: record.sourceTable,
-  //       key: key
-  //     });
-  //   };
-  //
-  //   await this.storage.startBatch(
-  //     {
-  //       logger: this.logger,
-  //       zeroLSN: ZERO_LSN,
-  //       defaultSchema: POSTGRES_DEFAULT_SCHEMA,
-  //       storeCurrentData: true,
-  //       skipExistingRows: false,
-  //       markRecordUnavailable
-  //     },
-  //     async (batch) => {
-  //       // We don't handle any plain keepalive messages while we have transactions.
-  //       // While we have transactions, we use that to advance the position.
-  //       // Replication never starts in the middle of a transaction, so this starts as false.
-  //       let skipKeepalive = false;
-  //       let count = 0;
-  //
-  //       for await (const chunk of replicationStream.pgoutputDecode()) {
-  //         this.touch();
-  //
-  //         if (this.abortSignal.aborted) {
-  //           break;
-  //         }
-  //
-  //         // chunkLastLsn may come from normal messages in the chunk,
-  //         // or from a PrimaryKeepalive message.
-  //         const { messages, lastLsn: chunkLastLsn } = chunk;
-  //
-  //         /**
-  //          * We can check if an explicit keepalive was sent if `exposesLogicalMessages == true`.
-  //          * If we can't check the logical messages, we should assume a keepalive if we
-  //          * receive an empty array of messages in a replication event.
-  //          */
-  //         const assumeKeepAlive = !exposesLogicalMessages;
-  //         let keepAliveDetected = false;
-  //         const lastCommit = messages.findLast((msg) => msg.tag == 'commit');
-  //
-  //         for (const msg of messages) {
-  //           if (msg.tag == 'relation') {
-  //             await this.handleRelation(batch, getPgOutputRelation(msg), true);
-  //           } else if (msg.tag == 'begin') {
-  //             // This may span multiple transactions in the same chunk, or even across chunks.
-  //             skipKeepalive = true;
-  //             if (this.oldestUncommittedChange == null) {
-  //               this.oldestUncommittedChange = new Date(Number(msg.commitTime / 1000n));
-  //             }
-  //           } else if (msg.tag == 'commit') {
-  //             this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
-  //             if (msg == lastCommit) {
-  //               // Only commit if this is the last commit in the chunk.
-  //               // This effectively lets us batch multiple transactions within the same chunk
-  //               // into a single flush, increasing throughput for many small transactions.
-  //               skipKeepalive = false;
-  //               // flush() must be before the resnapshot check - that is
-  //               // typically what reports the resnapshot records.
-  //               await batch.flush({ oldestUncommittedChange: this.oldestUncommittedChange });
-  //               // This _must_ be checked after the flush(), and before
-  //               // commit() or ack(). We never persist the resnapshot list,
-  //               // so we have to process it before marking our progress.
-  //               if (resnapshot.length > 0) {
-  //                 await this.resnapshot(batch, resnapshot);
-  //                 resnapshot = [];
-  //               }
-  //               const didCommit = await batch.commit(msg.lsn!, {
-  //                 createEmptyCheckpoints,
-  //                 oldestUncommittedChange: this.oldestUncommittedChange
-  //               });
-  //               await this.ack(msg.lsn!, replicationStream);
-  //               if (didCommit) {
-  //                 this.oldestUncommittedChange = null;
-  //                 this.isStartingReplication = false;
-  //               }
-  //             }
-  //           } else {
-  //             if (count % 100 == 0) {
-  //               this.logger.info(`Replicating op ${count} ${msg.lsn}`);
-  //             }
-  //
-  //             /**
-  //              * If we can see the contents of logical messages, then we can check if a keepalive
-  //              * message is present. We only perform a keepalive (below) if we explicitly detect a keepalive message.
-  //              * If we can't see the contents of logical messages, then we should assume a keepalive is required
-  //              * due to the default value of `assumeKeepalive`.
-  //              */
-  //             if (exposesLogicalMessages && isKeepAliveMessage(msg)) {
-  //               keepAliveDetected = true;
-  //             }
-  //
-  //             count += 1;
-  //             const flushResult = await this.writeChange(batch, msg);
-  //             if (flushResult != null && resnapshot.length > 0) {
-  //               // If we have large transactions, we also need to flush the resnapshot list
-  //               // periodically.
-  //               // TODO: make sure this bit is actually triggered
-  //               await this.resnapshot(batch, resnapshot);
-  //               resnapshot = [];
-  //             }
-  //           }
-  //         }
-  //
-  //         if (!skipKeepalive) {
-  //           if (assumeKeepAlive || keepAliveDetected) {
-  //             // Reset the detection flag.
-  //             keepAliveDetected = false;
-  //
-  //             // In a transaction, we ack and commit according to the transaction progress.
-  //             // Outside transactions, we use the PrimaryKeepalive messages to advance progress.
-  //             // Big caveat: This _must not_ be used to skip individual messages, since this LSN
-  //             // may be in the middle of the next transaction.
-  //             // It must only be used to associate checkpoints with LSNs.
-  //             const didCommit = await batch.keepalive(chunkLastLsn);
-  //             if (didCommit) {
-  //               this.oldestUncommittedChange = null;
-  //             }
-  //
-  //             this.isStartingReplication = false;
-  //           }
-  //
-  //           // We receive chunks with empty messages often (about each second).
-  //           // Acknowledging here progresses the slot past these and frees up resources.
-  //           await this.ack(chunkLastLsn, replicationStream);
-  //         }
-  //
-  //         this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED).add(1);
-  //       }
-  //     }
-  //   );
-  // }
+  async streamChanges() {
+    const reSnapshot: { table: storage.SourceTable; key: PrimaryKeyValue }[] = [];
+    // TODO Handle re-snapshot
+
+    const markRecordUnavailable = (record: SaveUpdate) => {
+      if (!IdSnapshotQuery.supports(record.sourceTable)) {
+        // If it's not supported, it's also safe to ignore
+        return;
+      }
+      let key: PrimaryKeyValue = {};
+      for (const column of record.sourceTable.replicaIdColumns) {
+        const name = column.name;
+        const value = record.after[name];
+        if (value == null) {
+          // We don't expect this to actually happen.
+          // The key should always be present in the "after" record.
+          return;
+        }
+        // We just need a consistent representation of the primary key, and don't care about fixed quirks.
+        key[name] = applyValueContext(value, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+      }
+      reSnapshot.push({
+        table: record.sourceTable,
+        key: key
+      });
+    };
+
+    await this.storage.startBatch(
+      {
+        logger: this.logger,
+        zeroLSN: LSN.ZERO,
+        defaultSchema: this.defaultSchema,
+        storeCurrentData: false,
+        skipExistingRows: false,
+        markRecordUnavailable
+      },
+      async (batch) => {
+        if (batch.resumeFromLsn == null) {
+          throw new ReplicationAssertionError(`No LSN found to resume replication from.`);
+        }
+        const startLSN = LSN.fromString(batch.resumeFromLsn);
+        const sourceTables: MSSQLSourceTable[] = this.tableCache.getAll();
+        const eventHandler = this.createEventHandler(batch);
+
+        const poller = new CDCPoller({
+          connectionManager: this.connections,
+          eventHandler,
+          sourceTables,
+          startLSN,
+          logger: this.logger
+        });
+
+        this.abortSignal.addEventListener(
+          'abort',
+          async () => {
+            await poller.stop();
+          },
+          { once: true }
+        );
+
+        await createCheckpoint(this.connections);
+
+        this.logger.info(`Streaming changes from: ${startLSN}`);
+        await poller.replicateUntilStopped();
+      }
+    );
+  }
+
+  private createEventHandler(batch: storage.BucketStorageBatch): CDCEventHandler {
+    return {
+      onInsert: async (row: any, table: MSSQLSourceTable, columns: sql.IColumnMetadata) => {
+        const afterRow = this.toSqliteRow(row, columns);
+        await batch.save({
+          tag: storage.SaveOperationTag.INSERT,
+          sourceTable: table.sourceTable,
+          before: undefined,
+          beforeReplicaId: undefined,
+          after: afterRow,
+          afterReplicaId: getUuidReplicaIdentityBson(afterRow, table.sourceTable.replicaIdColumns)
+        });
+        this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
+      },
+      onUpdate: async (rowAfter: any, rowBefore: any, table: MSSQLSourceTable, columns: sql.IColumnMetadata) => {
+        const beforeRow = this.toSqliteRow(rowBefore, columns);
+        const afterRow = this.toSqliteRow(rowAfter, columns);
+        await batch.save({
+          tag: storage.SaveOperationTag.UPDATE,
+          sourceTable: table.sourceTable,
+          before: beforeRow,
+          beforeReplicaId: getUuidReplicaIdentityBson(beforeRow, table.sourceTable.replicaIdColumns),
+          after: afterRow,
+          afterReplicaId: getUuidReplicaIdentityBson(afterRow, table.sourceTable.replicaIdColumns)
+        });
+        this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
+      },
+      onDelete: async (row: any, table: MSSQLSourceTable, columns: sql.IColumnMetadata) => {
+        const beforeRow = this.toSqliteRow(row, columns);
+        await batch.save({
+          tag: storage.SaveOperationTag.DELETE,
+          sourceTable: table.sourceTable,
+          before: beforeRow,
+          beforeReplicaId: getUuidReplicaIdentityBson(beforeRow, table.sourceTable.replicaIdColumns),
+          after: undefined,
+          afterReplicaId: undefined
+        });
+        this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
+      },
+      onCommit: async (lsn: string, transactionCount: number) => {
+        await batch.commit(lsn);
+        this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(transactionCount);
+        this.isStartingReplication = false;
+      },
+      onSchemaChange: async () => {
+        // Schema changes are handled separately
+      }
+    };
+  }
+
+  /**
+   * Convert CDC row data to SqliteRow format.
+   * CDC rows include table columns plus CDC metadata columns (__$operation, __$start_lsn, etc.).
+   * We filter out the CDC metadata columns.
+   */
+  private toSqliteRow(row: any, columns: sql.IColumnMetadata): SqliteRow {
+    // CDC metadata columns in the row that should be excluded
+    const cdcMetadataColumns = ['__$operation', '__$start_lsn', '__$end_lsn', '__$seqval', '__$update_mask'];
+
+    const filteredRow: DatabaseInputRow = {};
+    for (const key in row) {
+      // Skip CDC metadata columns
+      if (!cdcMetadataColumns.includes(key)) {
+        filteredRow[key] = row[key];
+      }
+    }
+
+    const inputRow: SqliteInputRow = toSqliteInputRow(filteredRow, columns);
+    return this.syncRules.applyRowContext<never>(inputRow);
+  }
 
   // async ack(lsn: string, replicationStream: pgwire.ReplicationStream) {
   //   if (lsn == ZERO_LSN) {

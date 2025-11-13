@@ -1,123 +1,13 @@
 import sql from 'mssql';
 import { SourceTable } from '@powersync/service-core';
 import { coerce, gte } from 'semver';
-import { logger } from '@powersync/lib-services-framework';
+import { errors, logger } from '@powersync/lib-services-framework';
 import { MSSQLConnectionManager } from '../replication/MSSQLConnectionManager.js';
 import { LSN } from '../common/LSN.js';
 import { CaptureInstance, MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
 import { MSSQLParameter } from '../types/mssql-data-types.js';
 
-export interface CreateStreamingQueryOptions {
-  query: string;
-  // Request to create the streaming query from
-  request: sql.Request;
-  // Cancel the iteration if this signal is aborted
-  signal?: AbortSignal;
-  // Maximum number of rows to buffer before pausing the request
-  maxQueueSize?: number;
-}
-
-export interface StreamingQuery {
-  columns: { [name: string]: sql.IColumn };
-  [Symbol.asyncIterator](): AsyncIterator<Record<string, unknown>>;
-}
-
-export async function createStreamingQuery(options: CreateStreamingQueryOptions): Promise<StreamingQuery> {
-  const { query, request, signal } = options;
-  const maxQueueSize = options.maxQueueSize ?? 1000;
-
-  // Wait for the recordSet event before returning
-  let columns: { [name: string]: sql.IColumn } = await new Promise((resolve) => {
-    // Record Column metadata
-    request.on('recordSet', (recordSet: { [name: string]: sql.IColumn }) => {
-      columns = recordSet;
-      resolve(recordSet);
-    });
-  });
-
-  async function* rowGenerator(): AsyncGenerator<Record<string, unknown>> {
-    const rowQueue: Array<Record<string, unknown>> = [];
-    let resolveNext: (() => void) | null = null;
-    let streamingError: Error | null = null;
-    let isPaused = false;
-    let isDone = false;
-
-    try {
-      request.on('row', (row: Record<string, unknown>) => {
-        rowQueue.push(row);
-        if (rowQueue.length >= maxQueueSize) {
-          request.pause();
-          isPaused = true;
-        }
-        if (resolveNext) {
-          resolveNext();
-          resolveNext = null;
-        }
-      });
-
-      request.on('done', () => {
-        isDone = true;
-        if (resolveNext) {
-          resolveNext();
-          resolveNext = null;
-        }
-      });
-
-      request.on('error', (err) => {
-        streamingError = err;
-        isDone = true;
-      });
-
-      // Don't start the query if we are already aborted
-      if (signal && signal.aborted) {
-        isDone = true;
-      } else {
-        // Start streaming
-        request.query(query);
-
-        // Handle aborts by cancelling the request
-        signal?.addEventListener(
-          'abort',
-          () => {
-            isDone = true;
-            request.cancel();
-            if (resolveNext) {
-              resolveNext();
-              resolveNext = null;
-            }
-          },
-          { once: true }
-        );
-      }
-
-      // Loop until the stream is done and the queue is empty
-      while (!isDone || rowQueue.length > 0) {
-        if (rowQueue.length > 0) {
-          yield rowQueue.shift() as Record<string, unknown>;
-          // Resume streaming if we are below half the max queue size
-          if (isPaused && rowQueue.length <= maxQueueSize / 2) {
-            request.resume();
-          }
-        } else if (!isDone) {
-          await new Promise<void>((resolve) => {
-            resolveNext = resolve;
-          });
-        }
-      }
-
-      if (streamingError) {
-        throw streamingError;
-      }
-    } finally {
-      request.cancel();
-    }
-  }
-
-  return {
-    columns: columns,
-    [Symbol.asyncIterator]: rowGenerator
-  };
-}
+export const POWERSYNC_CHECKPOINTS_TABLE = '_powersync_checkpoints';
 
 export const SUPPORTED_ENGINE_EDITIONS = new Map([
   [2, 'Standard'],
@@ -184,7 +74,74 @@ export async function checkSourceConfiguration(connectionManager: MSSQLConnectio
     errors.push(`The current user does not have the 'cdc_reader' role. Please assign this role to the user.`);
   }
 
+  // 4) Check if the _powersync_checkpoints table is correctly configured
+  const checkpointTableErrors = await ensurePowerSyncCheckpointsTable(connectionManager);
+  errors.push(...checkpointTableErrors);
+
   return errors;
+}
+
+export async function ensurePowerSyncCheckpointsTable(connectionManager: MSSQLConnectionManager): Promise<string[]> {
+  const errors: string[] = [];
+  try {
+    // check if the dbo_powersync_checkpoints table exists
+    const { recordset: checkpointsResult } = await connectionManager.query(`
+    SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '${connectionManager.schema}' AND TABLE_NAME = '${POWERSYNC_CHECKPOINTS_TABLE}';
+  `);
+    if (checkpointsResult.length > 0) {
+      // Table already exists, check if CDC is enabled
+      const isEnabled = await isTableEnabledForCDC({
+        connectionManager,
+        table: POWERSYNC_CHECKPOINTS_TABLE,
+        schema: connectionManager.schema
+      });
+      if (!isEnabled) {
+        // Enable CDC on the table
+        await enableCDCForTable({
+          connectionManager,
+          table: POWERSYNC_CHECKPOINTS_TABLE
+        });
+      }
+      return errors;
+    }
+  } catch (error) {
+    errors.push(`Failed ensure ${POWERSYNC_CHECKPOINTS_TABLE} table is correctly configured: ${error}`);
+  }
+
+  // Try to create the table
+  try {
+    await connectionManager.query(`
+  CREATE TABLE ${connectionManager.schema}.${POWERSYNC_CHECKPOINTS_TABLE} (
+    id INT IDENTITY PRIMARY KEY,
+    last_updated DATETIME NOT NULL DEFAULT (GETDATE())
+  )`);
+  } catch (error) {
+    errors.push(`Failed to create ${POWERSYNC_CHECKPOINTS_TABLE} table: ${error}`);
+  }
+
+  try {
+    // Enable CDC on the table if not already enabled
+    await enableCDCForTable({
+      connectionManager,
+      table: POWERSYNC_CHECKPOINTS_TABLE
+    });
+  } catch (error) {
+    errors.push(`Failed to enable CDC on ${POWERSYNC_CHECKPOINTS_TABLE} table: ${error}`);
+  }
+
+  return errors;
+}
+
+export async function createCheckpoint(connectionManager: MSSQLConnectionManager): Promise<void> {
+  await connectionManager.query(`
+    MERGE ${connectionManager.schema}.${POWERSYNC_CHECKPOINTS_TABLE} AS target
+    USING (SELECT 1 AS id) AS source
+    ON target.id = source.id
+    WHEN MATCHED THEN 
+      UPDATE SET last_updated = GETDATE()
+    WHEN NOT MATCHED THEN
+      INSERT (last_updated) VALUES (GETDATE());
+  `);
 }
 
 export interface IsTableEnabledForCDCOptions {
@@ -209,6 +166,22 @@ export async function isTableEnabledForCDC(options: IsTableEnabledForCDCOptions)
       `
   );
   return checkResult.length > 0;
+}
+
+export interface EnableCDCForTableOptions {
+  connectionManager: MSSQLConnectionManager;
+  table: string;
+}
+
+export async function enableCDCForTable(options: EnableCDCForTableOptions): Promise<void> {
+  const { connectionManager, table } = options;
+
+  await connectionManager.execute('sys.sp_cdc_enable_table', [
+    { name: 'source_schema', value: connectionManager.schema },
+    { name: 'source_name', value: table },
+    { name: 'role_name', value: 'NULL' },
+    { name: 'supports_net_changes', value: 1 }
+  ]);
 }
 
 /**
@@ -238,16 +211,7 @@ export interface IsWithinRetentionThresholdOptions {
 export async function isWithinRetentionThreshold(options: IsWithinRetentionThresholdOptions): Promise<boolean> {
   const { checkpointLSN, tables, connectionManager } = options;
   for (const table of tables) {
-    const { recordset: result } = await connectionManager.query('SELECT sys.fn_cdc_get_min_lsn(dbo_lists) AS min_lsn', [
-      {
-        name: 'capture_instance',
-        type: sql.NVarChar,
-        value: table.captureInstance
-      }
-    ]);
-
-    const rawMinLSN: Buffer = result[0].min_lsn;
-    const minLSN = LSN.fromBinary(rawMinLSN);
+    const minLSN = await getMinLSN(connectionManager, table);
     if (minLSN > checkpointLSN) {
       logger.warn(
         `The checkpoint LSN:[${checkpointLSN}] is older than the minimum LSN:[${minLSN}] for table ${table.sourceTable.qualifiedName}. This indicates that the checkpoint LSN is outside of the retention window.`
@@ -256,6 +220,22 @@ export async function isWithinRetentionThreshold(options: IsWithinRetentionThres
     }
   }
   return true;
+}
+
+export async function getMinLSN(connectionManager: MSSQLConnectionManager, table: MSSQLSourceTable): Promise<LSN> {
+  const { recordset: result } = await connectionManager.query(
+    `SELECT sys.fn_cdc_get_min_lsn('${table.captureInstance}') AS min_lsn`
+  );
+  const rawMinLSN: Buffer = result[0].min_lsn;
+  return LSN.fromBinary(rawMinLSN);
+}
+
+export async function incrementLSN(lsn: LSN, connectionManager: MSSQLConnectionManager): Promise<LSN> {
+  const { recordset: result } = await connectionManager.query(
+    `SELECT sys.fn_cdc_increment_lsn(@lsn) AS incremented_lsn`,
+    [{ name: 'lsn', type: sql.VarBinary, value: lsn.toBinary() }]
+  );
+  return LSN.fromBinary(result[0].incremented_lsn);
 }
 
 export async function getCaptureInstance(
@@ -288,10 +268,21 @@ export async function getCaptureInstance(
 }
 
 /**
- *  Return the maximum LSN in the CDC tables. This is the LSN that corresponds to the latest update available.
+ *  Return the LSN of the latest transaction recorded in the transaction log
  *  @param connectionManager
  */
 export async function getLatestLSN(connectionManager: MSSQLConnectionManager): Promise<LSN> {
+  const { recordset: result } = await connectionManager.query(
+    'SELECT log_end_lsn FROM sys.dm_db_log_stats(DB_ID()) AS log_end_lsn'
+  );
+  return LSN.fromString(result[0].log_end_lsn);
+}
+
+/**
+ *  Return the LSN of the lastest transaction replicated to the CDC tables.
+ *  @param connectionManager
+ */
+export async function getLatestReplicatedLSN(connectionManager: MSSQLConnectionManager): Promise<LSN> {
   const { recordset: result } = await connectionManager.query('SELECT sys.fn_cdc_get_max_lsn() AS max_lsn;');
   // LSN is a binary(10) returned as a Buffer
   const rawLSN: Buffer = result[0].max_lsn;
