@@ -1,7 +1,7 @@
 import sql from 'mssql';
 import { DatabaseInputRow, SqliteInputRow, toSyncRulesRow } from '@powersync/service-sync-rules';
 
-export function toSqliteInputRow(row: sql.IRecordSet<any>, columns: sql.IColumnMetadata): SqliteInputRow {
+export function toSqliteInputRow(row: any, columns: sql.IColumnMetadata): SqliteInputRow {
   let result: DatabaseInputRow = {};
   for (const key in row) {
     // We are very much expecting the column to be there
