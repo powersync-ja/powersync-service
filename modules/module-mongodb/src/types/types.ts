@@ -52,6 +52,12 @@ export interface NormalizedMongoConnectionConfig {
   lookup?: LookupFunction;
 
   postImages: PostImagesOption;
+
+  connectTimeoutMS?: number;
+  socketTimeoutMS?: number;
+  serverSelectionTimeoutMS?: number;
+  maxPoolSize?: number;
+  maxIdleTimeMS?: number;
 }
 
 export const MongoConnectionConfig = lib_mongo.BaseMongoConfig.and(service_types.configFile.DataSourceConfig).and(

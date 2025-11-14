@@ -53,11 +53,11 @@ export function createMongoClient(config: BaseMongoConfigDecoded, options?: Mong
       password: normalized.password
     },
     // Time for connection to timeout
-    connectTimeoutMS: MONGO_CONNECT_TIMEOUT_MS,
+    connectTimeoutMS: normalized.connectTimeoutMS ?? MONGO_CONNECT_TIMEOUT_MS,
     // Time for individual requests to timeout
-    socketTimeoutMS: MONGO_SOCKET_TIMEOUT_MS,
+    socketTimeoutMS: normalized.socketTimeoutMS ?? MONGO_SOCKET_TIMEOUT_MS,
     // How long to wait for new primary selection
-    serverSelectionTimeoutMS: 30_000,
+    serverSelectionTimeoutMS: normalized.serverSelectionTimeoutMS ?? 30_000,
 
     // Identify the client
     appName: options?.powersyncVersion ? `powersync-storage ${options.powersyncVersion}` : 'powersync-storage',
@@ -73,10 +73,10 @@ export function createMongoClient(config: BaseMongoConfigDecoded, options?: Mong
     // Avoid too many connections:
     // 1. It can overwhelm the source database.
     // 2. Processing too many queries in parallel can cause the process to run out of memory.
-    maxPoolSize: options?.maxPoolSize ?? 8,
+    maxPoolSize: normalized.maxPoolSize ?? options?.maxPoolSize ?? 8,
 
     maxConnecting: 3,
-    maxIdleTimeMS: 60_000
+    maxIdleTimeMS: normalized.maxIdleTimeMS ?? 60_000
   });
 }
 

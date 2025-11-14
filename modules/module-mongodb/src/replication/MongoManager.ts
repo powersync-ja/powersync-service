@@ -29,11 +29,11 @@ export class MongoManager extends BaseObserver<MongoManagerListener> {
 
       lookup: options.lookup,
       // Time for connection to timeout
-      connectTimeoutMS: 5_000,
+      connectTimeoutMS: options.connectTimeoutMS ?? 5_000,
       // Time for individual requests to timeout
-      socketTimeoutMS: 60_000,
+      socketTimeoutMS: options.socketTimeoutMS ?? 60_000,
       // How long to wait for new primary selection
-      serverSelectionTimeoutMS: 30_000,
+      serverSelectionTimeoutMS: options.serverSelectionTimeoutMS ?? 30_000,
 
       // Identify the client
       appName: `powersync ${POWERSYNC_VERSION}`,
@@ -47,10 +47,10 @@ export class MongoManager extends BaseObserver<MongoManagerListener> {
       // Avoid too many connections:
       // 1. It can overwhelm the source database.
       // 2. Processing too many queries in parallel can cause the process to run out of memory.
-      maxPoolSize: 8,
+      maxPoolSize: options.maxPoolSize ?? 8,
 
       maxConnecting: 3,
-      maxIdleTimeMS: 60_000,
+      maxIdleTimeMS: options.maxIdleTimeMS ?? 60_000,
 
       ...BSON_DESERIALIZE_DATA_OPTIONS,
 

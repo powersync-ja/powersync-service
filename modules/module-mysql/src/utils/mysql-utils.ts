@@ -49,6 +49,11 @@ export function createPool(config: types.NormalizedMySQLConnectionConfig, option
     decimalNumbers: true,
     timezone: 'Z', // Ensure no auto timezone manipulation of the dates occur
     jsonStrings: true, // Return JSON columns as strings
+    connectTimeout: config.connectTimeout,
+    connectionLimit: config.connectionLimit,
+    queueLimit: config.queueLimit,
+    // Note: timeout is not a valid PoolOptions property in mysql2
+    // Query timeouts are handled at the query level, not pool level
     ...(options || {})
   });
 }

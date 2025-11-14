@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
-import { normalizeMongoConfig } from '../../src/types/types.js';
-import { LookupAddress } from 'node:dns';
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
+
+import { normalizeMongoConfig } from '../../src/types/types.js';
 
 describe('config', () => {
   test('Should normalize a simple URI', () => {
@@ -32,6 +32,48 @@ describe('config', () => {
     });
     expect(normalized.uri).equals(uri);
     expect(normalized.database).equals('powersync_test');
+  });
+
+  test('Should parse connection parameters from URI query string', () => {
+    const normalized = normalizeMongoConfig({
+      type: 'mongodb',
+      uri: 'mongodb://user:pass@host/powersync_test?connectTimeoutMS=10000&socketTimeoutMS=60000&serverSelectionTimeoutMS=30000&maxPoolSize=10&maxIdleTimeMS=120000'
+    });
+    expect(normalized.connectTimeoutMS).equals(10000);
+    expect(normalized.socketTimeoutMS).equals(60000);
+    expect(normalized.serverSelectionTimeoutMS).equals(30000);
+    expect(normalized.maxPoolSize).equals(10);
+    expect(normalized.maxIdleTimeMS).equals(120000);
+  });
+
+  test('Should prioritize explicit config over URI query params', () => {
+    const normalized = normalizeMongoConfig({
+      type: 'mongodb',
+      uri: 'mongodb://user:pass@host/powersync_test?connectTimeoutMS=10000&maxPoolSize=10',
+      connectTimeoutMS: 20000,
+      maxPoolSize: 20
+    });
+    expect(normalized.connectTimeoutMS).equals(20000);
+    expect(normalized.maxPoolSize).equals(20);
+  });
+
+  test('Should handle partial query parameters', () => {
+    const normalized = normalizeMongoConfig({
+      type: 'mongodb',
+      uri: 'mongodb://user:pass@host/powersync_test?connectTimeoutMS=10000'
+    });
+    expect(normalized.connectTimeoutMS).equals(10000);
+    expect(normalized.socketTimeoutMS).toBeUndefined();
+    expect(normalized.maxPoolSize).toBeUndefined();
+  });
+
+  test('Should ignore invalid query parameter values', () => {
+    const normalized = normalizeMongoConfig({
+      type: 'mongodb',
+      uri: 'mongodb://user:pass@host/powersync_test?connectTimeoutMS=invalid&maxPoolSize=-5'
+    });
+    expect(normalized.connectTimeoutMS).toBeUndefined();
+    expect(normalized.maxPoolSize).toBeUndefined();
   });
 
   test('Should normalize a replica set URI', () => {

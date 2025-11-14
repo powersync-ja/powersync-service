@@ -36,6 +36,12 @@ export interface NormalizedConnectionConfig {
 
   client_certificate: string | undefined;
   client_private_key: string | undefined;
+
+  connect_timeout?: number;
+  keepalives?: number;
+  keepalives_idle?: number;
+  keepalives_interval?: number;
+  keepalives_count?: number;
 }
 
 type Mutable<T> = {
@@ -125,6 +131,11 @@ export async function connectPgWire(
   const connectOptions = (connection as any)._connectOptions as ConnectOptions;
   connectOptions.tlsOptions = tlsOptions;
   connectOptions.lookup = config.lookup;
+  connectOptions.connect_timeout = config.connect_timeout;
+  connectOptions.keepalives = config.keepalives;
+  connectOptions.keepalives_idle = config.keepalives_idle;
+  connectOptions.keepalives_interval = config.keepalives_interval;
+  connectOptions.keepalives_count = config.keepalives_count;
 
   // HACK: Replace row decoding with our own implementation
   (connection as any)._recvDataRow = _recvDataRow;
@@ -209,6 +220,11 @@ export function connectPgWirePool(config: PgWireConnectionOptions, options?: PgP
     const connectOptions = (con as any)._connectOptions as ConnectOptions;
     connectOptions.tlsOptions = tlsOptions;
     connectOptions.lookup = config.lookup;
+    connectOptions.connect_timeout = config.connect_timeout;
+    connectOptions.keepalives = config.keepalives;
+    connectOptions.keepalives_idle = config.keepalives_idle;
+    connectOptions.keepalives_interval = config.keepalives_interval;
+    connectOptions.keepalives_count = config.keepalives_count;
 
     // HACK: Replace row decoding with our own implementation
     (con as any)._recvDataRow = _recvDataRow;

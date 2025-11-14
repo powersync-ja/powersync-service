@@ -22,11 +22,21 @@ export interface ConnectOptions {
   port: number;
   tlsOptions?: tls.ConnectionOptions | false;
   lookup?: net.LookupFunction;
+  connect_timeout?: number;
+  keepalives?: number;
+  keepalives_idle?: number;
+  keepalives_interval?: number;
+  keepalives_count?: number;
 }
 
 export class SocketAdapter {
   static async connect(options: ConnectOptions) {
-    // Custom timeout handling
+    const connectTimeout =
+      options.connect_timeout != null ? options.connect_timeout * 1000 : POWERSYNC_SOCKET_CONNECT_TIMEOUT;
+    const keepalivesEnabled = options.keepalives != null ? options.keepalives !== 0 : true;
+    const keepaliveInitialDelay =
+      options.keepalives_idle != null ? options.keepalives_idle * 1000 : POWERSYNC_SOCKET_KEEPALIVE_INITIAL_DELAY;
+
     const socket = net.connect({
       host: options.hostname,
       port: options.port,
@@ -37,15 +47,15 @@ export class SocketAdapter {
       timeout: POWERSYNC_SOCKET_DEFAULT_TIMEOUT,
 
       // This configures TCP keepalive.
-      keepAlive: true,
-      keepAliveInitialDelay: POWERSYNC_SOCKET_KEEPALIVE_INITIAL_DELAY
-      // Unfortunately it is not possible to set tcp_keepalive_intvl or
-      // tcp_keepalive_probes here.
+      keepAlive: keepalivesEnabled,
+      keepAliveInitialDelay: keepaliveInitialDelay
+      // Note: keepalives_interval and keepalives_count are not directly supported by Node.js socket API
+      // These parameters are accepted but cannot be applied at the socket level
     });
     try {
       const timeout = setTimeout(() => {
         socket.destroy(new Error(`Timeout while connecting to ${options.hostname}:${options.port}`));
-      }, POWERSYNC_SOCKET_CONNECT_TIMEOUT);
+      }, connectTimeout);
       await once(socket, 'connect');
       clearTimeout(timeout);
       return new SocketAdapter(socket, options);
