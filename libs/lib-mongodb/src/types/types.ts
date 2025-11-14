@@ -17,7 +17,13 @@ export const BaseMongoConfig = t.object({
   username: t.string.optional(),
   password: t.string.optional(),
 
-  reject_ip_ranges: t.array(t.string).optional()
+  reject_ip_ranges: t.array(t.string).optional(),
+
+  connectTimeoutMS: t.number.optional(),
+  socketTimeoutMS: t.number.optional(),
+  serverSelectionTimeoutMS: t.number.optional(),
+  maxPoolSize: t.number.optional(),
+  maxIdleTimeMS: t.number.optional()
 });
 
 export type BaseMongoConfig = t.Encoded<typeof BaseMongoConfig>;
@@ -29,6 +35,11 @@ export type NormalizedMongoConfig = {
   username: string;
   password: string;
   lookup: LookupFunction | undefined;
+  connectTimeoutMS?: number;
+  socketTimeoutMS?: number;
+  serverSelectionTimeoutMS?: number;
+  maxPoolSize?: number;
+  maxIdleTimeMS?: number;
 };
 
 /**
@@ -70,6 +81,19 @@ export function normalizeMongoConfig(options: BaseMongoConfigDecoded): Normalize
     throw new ServiceError(ErrorCode.PSYNC_S1105, `MongoDB connection: database required`);
   }
 
+  const parseQueryParam = (key: string): number | undefined => {
+    const value = uri.searchParams.get(key);
+    if (value == null) return undefined;
+    const num = Number(value);
+    if (isNaN(num) || num < 0) return undefined;
+    return num;
+  };
+  const connectTimeoutMS = options.connectTimeoutMS ?? parseQueryParam('connectTimeoutMS');
+  const socketTimeoutMS = options.socketTimeoutMS ?? parseQueryParam('socketTimeoutMS');
+  const serverSelectionTimeoutMS = options.serverSelectionTimeoutMS ?? parseQueryParam('serverSelectionTimeoutMS');
+  const maxPoolSize = options.maxPoolSize ?? parseQueryParam('maxPoolSize');
+  const maxIdleTimeMS = options.maxIdleTimeMS ?? parseQueryParam('maxIdleTimeMS');
+
   const lookupOptions: LookupOptions = {
     reject_ip_ranges: options.reject_ip_ranges ?? []
   };
@@ -82,6 +106,12 @@ export function normalizeMongoConfig(options: BaseMongoConfigDecoded): Normalize
     username,
     password,
 
-    lookup
+    lookup,
+
+    connectTimeoutMS,
+    socketTimeoutMS,
+    serverSelectionTimeoutMS,
+    maxPoolSize,
+    maxIdleTimeMS
   };
 }
