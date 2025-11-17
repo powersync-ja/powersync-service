@@ -69,7 +69,7 @@ function defineSlowTests(factory: storage.TestStorageFactory) {
   });
 
   async function testRepeatedReplication(testOptions: { compact: boolean; maxBatchSize: number; numBatches: number }) {
-    const connections = new PgManager(TEST_CONNECTION_OPTIONS, { registry: new CustomTypeRegistry() });
+    const connections = new PgManager(TEST_CONNECTION_OPTIONS, {});
     const replicationConnection = await connections.replicationConnection();
     const pool = connections.pool;
     await clearTestDb(pool);
@@ -330,7 +330,7 @@ bucket_definitions:
       await pool.query(`SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE active = FALSE`);
       i += 1;
 
-      const connections = new PgManager(TEST_CONNECTION_OPTIONS, { registry: new CustomTypeRegistry() });
+      const connections = new PgManager(TEST_CONNECTION_OPTIONS, {});
       const replicationConnection = await connections.replicationConnection();
 
       abortController = new AbortController();

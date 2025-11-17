@@ -1,15 +1,12 @@
+import { BaseObserver } from '@powersync/lib-services-framework';
 import * as pgwire from '@powersync/service-jpgwire';
 import semver from 'semver';
+import { PostgresTypeResolver } from '../types/resolver.js';
 import { NormalizedPostgresConnectionConfig } from '../types/types.js';
 import { getApplicationName } from '../utils/application-name.js';
-import { PostgresTypeResolver } from '../types/resolver.js';
 import { getServerVersion } from '../utils/postgres_version.js';
-import { CustomTypeRegistry } from '../types/registry.js';
-import { BaseObserver } from '@powersync/lib-services-framework';
 
-export interface PgManagerOptions extends pgwire.PgPoolOptions {
-  registry: CustomTypeRegistry;
-}
+export interface PgManagerOptions extends pgwire.PgPoolOptions {}
 
 /**
  * Shorter timeout for snapshot connections than for replication connections.
@@ -37,7 +34,7 @@ export class PgManager extends BaseObserver<PgManagerListener> {
     super();
     // The pool is lazy - no connections are opened until a query is performed.
     this.pool = pgwire.connectPgWirePool(this.options, poolOptions);
-    this.types = new PostgresTypeResolver(poolOptions.registry, this.pool);
+    this.types = new PostgresTypeResolver(this.pool);
   }
 
   public get connectionTag() {
