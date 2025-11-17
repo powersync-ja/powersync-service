@@ -817,6 +817,16 @@ export class MongoBucketBatch
       return false;
     }
 
+    if (this.persisted_op == null) {
+      // FIXME: Double-check the logic here, and avoid the lookup
+      const doc = await this.db.sync_rules.findOne({
+        _id: this.group_id
+      });
+      if (doc?.keepalive_op != null) {
+        this.persisted_op = BigInt(doc!.keepalive_op);
+      }
+    }
+
     if (this.persisted_op != null) {
       // The commit may have been skipped due to "no_checkpoint_before_lsn".
       // Apply it now if relevant
