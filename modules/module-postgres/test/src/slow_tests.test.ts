@@ -70,7 +70,6 @@ function defineSlowTests(factory: storage.TestStorageFactory) {
 
   async function testRepeatedReplication(testOptions: { compact: boolean; maxBatchSize: number; numBatches: number }) {
     const connections = new PgManager(TEST_CONNECTION_OPTIONS, {});
-    const replicationConnection = await connections.replicationConnection();
     const pool = connections.pool;
     await clearTestDb(pool);
     await using f = await factory();
@@ -97,9 +96,9 @@ bucket_definitions:
     );
     await pool.query(`ALTER TABLE test_data REPLICA IDENTITY FULL`);
 
-    await walStream.initReplication(replicationConnection);
+    await walStream.initReplication();
     let abort = false;
-    streamPromise = walStream.streamChanges(replicationConnection).finally(() => {
+    streamPromise = walStream.streamChanges().finally(() => {
       abort = true;
     });
     const start = Date.now();
@@ -331,7 +330,6 @@ bucket_definitions:
       i += 1;
 
       const connections = new PgManager(TEST_CONNECTION_OPTIONS, {});
-      const replicationConnection = await connections.replicationConnection();
 
       abortController = new AbortController();
       const options: WalStreamOptions = {
@@ -347,9 +345,9 @@ bucket_definitions:
       // 3. Start initial replication, then streaming, but don't wait for any of this
       let initialReplicationDone = false;
       streamPromise = (async () => {
-        await walStream.initReplication(replicationConnection);
+        await walStream.initReplication();
         initialReplicationDone = true;
-        await walStream.streamChanges(replicationConnection);
+        await walStream.streamChanges();
       })()
         .catch((e) => {
           initialReplicationDone = true;

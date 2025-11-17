@@ -19,7 +19,6 @@ export class WalStreamTestContext implements AsyncDisposable {
   private abortController = new AbortController();
   private streamPromise?: Promise<void>;
   public storage?: SyncRulesBucketStorage;
-  private replicationConnection?: pgwire.PgConnection;
   private snapshotPromise?: Promise<void>;
 
   /**
@@ -150,18 +149,14 @@ export class WalStreamTestContext implements AsyncDisposable {
 
   async replicateSnapshot() {
     const promise = (async () => {
-      this.replicationConnection = await this.connectionManager.replicationConnection();
-      await this.walStream.initReplication(this.replicationConnection);
+      await this.walStream.initReplication();
     })();
     this.snapshotPromise = promise.catch((e) => e);
     await promise;
   }
 
   startStreaming() {
-    if (this.replicationConnection == null) {
-      throw new Error('Call replicateSnapshot() before startStreaming()');
-    }
-    this.streamPromise = this.walStream.streamChanges(this.replicationConnection!);
+    this.streamPromise = this.walStream.streamChanges();
   }
 
   async getCheckpoint(options?: { timeout?: number }) {
