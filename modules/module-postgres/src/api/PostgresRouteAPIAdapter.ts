@@ -34,7 +34,7 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
     connectionTag?: string,
     private config?: types.ResolvedConnectionConfig
   ) {
-    this.typeCache = new PostgresTypeResolver(config?.typeRegistry ?? new CustomTypeRegistry(), pool);
+    this.typeCache = new PostgresTypeResolver(pool);
     this.connectionTag = connectionTag ?? sync_rules.DEFAULT_TAG;
   }
 
