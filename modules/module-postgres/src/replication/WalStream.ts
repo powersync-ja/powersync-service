@@ -282,7 +282,7 @@ export class WalStream {
     return result;
   }
 
-  async initSlot(): Promise<InitResult> {
+  async checkSlot(): Promise<InitResult> {
     await checkSourceConfiguration(this.connections.pool, PUBLICATION_NAME);
     await this.ensureStorageCompatibility();
 
@@ -368,17 +368,9 @@ WHERE  oid = $1::regclass`,
     }
   }
 
-  /**
-   * Start initial replication.
-   *
-   * If (partial) replication was done before on this slot, this clears the state
-   * and starts again from scratch.
-   */
-  async startInitialReplication(status: InitResult) {
+  private async setupSlot(db: pgwire.PgConnection, status: InitResult) {
     // If anything here errors, the entire replication process is aborted,
     // and all connections are closed, including this one.
-    const db = await this.connections.snapshotConnection();
-
     const slotName = this.slot_name;
 
     if (status.needsNewSlot) {
@@ -405,10 +397,14 @@ WHERE  oid = $1::regclass`,
 
       this.logger.info(`Created replication slot ${slotName}`);
     }
-
-    await this.initialReplication(db);
   }
 
+  /**
+   * Start initial replication.
+   *
+   * If (partial) replication was done before on this slot, this clears the state
+   * and starts again from scratch.
+   */
   async initialReplication(db: pgwire.PgConnection) {
     const sourceTables = this.sync_rules.getSourceTables();
     const flushResults = await this.storage.startBatch(
@@ -818,6 +814,9 @@ WHERE  oid = $1::regclass`,
     return null;
   }
 
+  private snapshotPromise: Promise<void> | null = null;
+  private streamPromise: Promise<void> | null = null;
+
   async replicate() {
     try {
       await this.initReplication();
@@ -831,24 +830,36 @@ WHERE  oid = $1::regclass`,
   }
 
   async initReplication() {
-    const result = await this.initSlot();
-    if (result.needsInitialSync) {
-      await this.startInitialReplication(result);
+    const result = await this.checkSlot();
+    const db = await this.connections.snapshotConnection();
+    try {
+      await this.setupSlot(db, result);
+      // Trigger here, but we await elsewhere
+      // TODO: fail on the first error
+      this.streamChanges().catch((_) => {});
+      if (result.needsInitialSync) {
+        await this.initialReplication(db);
+      }
+    } finally {
+      await db.end();
     }
   }
 
   async streamChanges() {
-    const streamReplicationConnection = await this.connections.replicationConnection();
-    try {
-      await this.streamChangesInternal(streamReplicationConnection);
-    } catch (e) {
-      if (isReplicationSlotInvalidError(e)) {
-        throw new MissingReplicationSlotError(e.message, e);
+    this.streamPromise ??= (async () => {
+      const streamReplicationConnection = await this.connections.replicationConnection();
+      try {
+        await this.streamChangesInternal(streamReplicationConnection);
+      } catch (e) {
+        if (isReplicationSlotInvalidError(e)) {
+          throw new MissingReplicationSlotError(e.message, e);
+        }
+        throw e;
+      } finally {
+        await streamReplicationConnection.end();
       }
-      throw e;
-    } finally {
-      await streamReplicationConnection.end();
-    }
+    })();
+    await this.streamPromise;
   }
 
   private async streamChangesInternal(replicationConnection: pgwire.PgConnection) {
