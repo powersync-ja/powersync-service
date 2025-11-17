@@ -33,7 +33,7 @@ export class WalStreamTestContext implements AsyncDisposable {
     options?: { doNotClear?: boolean; walStreamOptions?: Partial<WalStreamOptions> }
   ) {
     const f = await factory({ doNotClear: options?.doNotClear });
-    const connectionManager = new PgManager(TEST_CONNECTION_OPTIONS, { registry: new CustomTypeRegistry() });
+    const connectionManager = new PgManager(TEST_CONNECTION_OPTIONS, {});
 
     if (!options?.doNotClear) {
       await clearTestDb(connectionManager.pool);
