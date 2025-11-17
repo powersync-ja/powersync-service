@@ -1,5 +1,15 @@
 # @powersync/service-core
 
+## 1.16.3
+
+### Patch Changes
+
+- fff0024: [Postgres] Fix custom type parsing on initial replication
+- Updated dependencies [fff0024]
+  - @powersync/service-sync-rules@0.29.7
+  - @powersync/lib-services-framework@0.7.10
+  - @powersync/service-rsocket-router@0.2.7
+
 ## 1.16.2
 
 ### Patch Changes
