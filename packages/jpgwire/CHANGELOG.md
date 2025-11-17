@@ -1,5 +1,12 @@
 # @powersync/service-jpgwire
 
+## 0.21.6
+
+### Patch Changes
+
+- Updated dependencies [fff0024]
+  - @powersync/service-sync-rules@0.29.7
+
 ## 0.21.5
 
 ### Patch Changes
