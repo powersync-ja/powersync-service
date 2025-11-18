@@ -555,6 +555,7 @@ export class MongoBucketBatch
 
     if (afterId == null || !storage.replicaIdEquals(beforeId, afterId)) {
       // Either a delete (afterId == null), or replaced the old replication id
+      // TODO: soft delete
       batch.deleteCurrentData(before_key);
     }
     return result;

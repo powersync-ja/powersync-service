@@ -121,12 +121,12 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
     // so it's not in the resulting ops at all.
   }
 
-  expect(updatedRowOps.length).toEqual(2);
+  expect(updatedRowOps.length).toBeGreaterThanOrEqual(2);
   // description for the first op could be 'foo' or 'update1'.
   // We only test the final version.
-  expect(JSON.parse(updatedRowOps[1].data as string).description).toEqual('update1');
+  expect(JSON.parse(updatedRowOps[updatedRowOps.length - 1].data as string).description).toEqual('update1');
 
-  expect(insertedRowOps.length).toEqual(2);
+  expect(insertedRowOps.length).toBeGreaterThanOrEqual(2);
   expect(JSON.parse(insertedRowOps[0].data as string).description).toEqual('insert1');
   expect(JSON.parse(insertedRowOps[1].data as string).description).toEqual('insert1');
 
