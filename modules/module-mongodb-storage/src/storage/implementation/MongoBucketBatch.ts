@@ -19,6 +19,7 @@ import {
   isCompleteRow,
   SaveOperationTag,
   storage,
+  SyncRuleState,
   utils
 } from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
@@ -713,7 +714,6 @@ export class MongoBucketBatch
       last_checkpoint_lsn: lsn,
       last_checkpoint_ts: now,
       last_keepalive_ts: now,
-      snapshot_done: true,
       last_fatal_error: null,
       keepalive_op: null
     };
@@ -744,8 +744,7 @@ export class MongoBucketBatch
         _id: this.group_id
       },
       {
-        $set: update,
-        $unset: { snapshot_lsn: 1 }
+        $set: update
       },
       { session: this.session }
     );
@@ -773,7 +772,7 @@ export class MongoBucketBatch
     let activated = false;
     await session.withTransaction(async () => {
       const doc = await this.db.sync_rules.findOne({ _id: this.group_id }, { session });
-      if (doc && doc.state == 'PROCESSING') {
+      if (doc && doc.state == SyncRuleState.PROCESSING && doc.snapshot_done && doc.last_checkpoint != null) {
         await this.db.sync_rules.updateOne(
           {
             _id: this.group_id
@@ -799,13 +798,15 @@ export class MongoBucketBatch
           { session }
         );
         activated = true;
+      } else if (doc?.state != SyncRuleState.PROCESSING) {
+        this.needsActivation = false;
       }
     });
     if (activated) {
       this.logger.info(`Activated new sync rules at ${lsn}`);
       await this.db.notifyCheckpoint();
+      this.needsActivation = false;
     }
-    this.needsActivation = false;
   }
 
   async keepalive(lsn: string): Promise<boolean> {
@@ -857,11 +858,9 @@ export class MongoBucketBatch
       {
         $set: {
           last_checkpoint_lsn: lsn,
-          snapshot_done: true,
           last_fatal_error: null,
           last_keepalive_ts: new Date()
-        },
-        $unset: { snapshot_lsn: 1 }
+        }
       },
       { session: this.session }
     );
@@ -1044,7 +1043,31 @@ export class MongoBucketBatch
     return copy;
   }
 
-  async markSnapshotDone(tables: storage.SourceTable[], no_checkpoint_before_lsn: string) {
+  async markAllSnapshotDone(no_checkpoint_before_lsn: string) {
+    if (this.no_checkpoint_before_lsn == null || no_checkpoint_before_lsn > this.no_checkpoint_before_lsn) {
+      this.no_checkpoint_before_lsn = no_checkpoint_before_lsn;
+    }
+    await this.db.sync_rules.updateOne(
+      {
+        _id: this.group_id
+      },
+      {
+        $set: {
+          snapshot_done: true,
+          last_keepalive_ts: new Date()
+        },
+        $max: {
+          no_checkpoint_before: no_checkpoint_before_lsn
+        },
+        $unset: {
+          snapshot_lsn: 1
+        }
+      },
+      { session: this.session }
+    );
+  }
+
+  async markTableSnapshotDone(tables: storage.SourceTable[], no_checkpoint_before_lsn?: string) {
     const session = this.session;
     const ids = tables.map((table) => table.id);
 
@@ -1062,17 +1085,20 @@ export class MongoBucketBatch
         { session }
       );
 
-      if (no_checkpoint_before_lsn > this.no_checkpoint_before_lsn) {
-        this.no_checkpoint_before_lsn = no_checkpoint_before_lsn;
-
+      if (no_checkpoint_before_lsn != null) {
+        if (this.no_checkpoint_before_lsn == null || no_checkpoint_before_lsn > this.no_checkpoint_before_lsn) {
+          this.no_checkpoint_before_lsn = no_checkpoint_before_lsn;
+        }
         await this.db.sync_rules.updateOne(
           {
             _id: this.group_id
           },
           {
             $set: {
-              no_checkpoint_before: no_checkpoint_before_lsn,
               last_keepalive_ts: new Date()
+            },
+            $max: {
+              no_checkpoint_before: no_checkpoint_before_lsn
             }
           },
           { session: this.session }

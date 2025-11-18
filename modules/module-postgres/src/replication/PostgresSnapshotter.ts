@@ -355,6 +355,9 @@ export class PostgresSnapshotter {
         // This makes sure we don't skip any changes applied before starting this snapshot,
         // in the case of snapshot retries.
         // We could alternatively commit at the replication slot LSN.
+        const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
+        const globalLsnNotBefore = rs.rows[0][0];
+        await batch.markAllSnapshotDone(globalLsnNotBefore);
         await batch.commit(ZERO_LSN);
       }
     );
@@ -416,7 +419,7 @@ export class PostgresSnapshotter {
       tableLsnNotBefore = rs.rows[0][0];
       // Side note: A ROLLBACK would probably also be fine here, since we only read in this transaction.
       await db.query('COMMIT');
-      const [resultTable] = await batch.markSnapshotDone([table], tableLsnNotBefore);
+      const [resultTable] = await batch.markTableSnapshotDone([table], tableLsnNotBefore);
       this.relationCache.update(resultTable);
       return resultTable;
     } catch (e) {

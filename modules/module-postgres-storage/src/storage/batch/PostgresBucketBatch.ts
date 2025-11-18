@@ -430,7 +430,7 @@ export class PostgresBucketBatch
     `.execute();
   }
 
-  async markSnapshotDone(
+  async markTableSnapshotDone(
     tables: storage.SourceTable[],
     no_checkpoint_before_lsn: string
   ): Promise<storage.SourceTable[]> {

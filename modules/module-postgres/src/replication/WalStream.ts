@@ -481,7 +481,7 @@ export class WalStream {
               await this.handleRelation({
                 batch,
                 descriptor: getPgOutputRelation(msg),
-                snapshot: true,
+                snapshot: false,
                 referencedTypeIds: referencedColumnTypeIds(msg)
               });
             } else if (msg.tag == 'begin') {
