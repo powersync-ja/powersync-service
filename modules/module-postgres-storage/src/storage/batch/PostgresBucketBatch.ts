@@ -335,7 +335,6 @@ export class PostgresBucketBatch
       last_checkpoint_lsn: lsn,
       last_checkpoint_ts: now,
       last_keepalive_ts: now,
-      snapshot_done: true,
       last_fatal_error: null,
       keepalive_op: null
     };
@@ -349,8 +348,6 @@ export class PostgresBucketBatch
       SET
         keepalive_op = ${{ type: 'int8', value: update.keepalive_op }},
         last_fatal_error = ${{ type: 'varchar', value: update.last_fatal_error }},
-        snapshot_done = ${{ type: 'bool', value: update.snapshot_done }},
-        snapshot_lsn = NULL,
         last_keepalive_ts = ${{ type: 1184, value: update.last_keepalive_ts }},
         last_checkpoint = COALESCE(
           ${{ type: 'int8', value: update.last_checkpoint }},
@@ -397,8 +394,6 @@ export class PostgresBucketBatch
     const updated = await this.db.sql`
       UPDATE sync_rules
       SET
-        snapshot_done = ${{ type: 'bool', value: true }},
-        snapshot_lsn = NULL,
         last_checkpoint_lsn = ${{ type: 'varchar', value: lsn }},
         last_fatal_error = ${{ type: 'varchar', value: null }},
         last_keepalive_ts = ${{ type: 1184, value: new Date().toISOString() }}
@@ -430,9 +425,27 @@ export class PostgresBucketBatch
     `.execute();
   }
 
+  async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
+    if (no_checkpoint_before_lsn != null && no_checkpoint_before_lsn > this.no_checkpoint_before_lsn) {
+      this.no_checkpoint_before_lsn = no_checkpoint_before_lsn;
+
+      await this.db.transaction(async (db) => {
+        await db.sql`
+          UPDATE sync_rules
+          SET
+            no_checkpoint_before = ${{ type: 'varchar', value: no_checkpoint_before_lsn }},
+            last_keepalive_ts = ${{ type: 1184, value: new Date().toISOString() }},
+            snapshot_done = TRUE
+          WHERE
+            id = ${{ type: 'int4', value: this.group_id }}
+        `.execute();
+      });
+    }
+  }
+
   async markTableSnapshotDone(
     tables: storage.SourceTable[],
-    no_checkpoint_before_lsn: string
+    no_checkpoint_before_lsn?: string
   ): Promise<storage.SourceTable[]> {
     const ids = tables.map((table) => table.id.toString());
 
@@ -440,7 +453,7 @@ export class PostgresBucketBatch
       await db.sql`
         UPDATE source_tables
         SET
-          snapshot_done = ${{ type: 'bool', value: true }},
+          snapshot_done = TRUE,
           snapshot_total_estimated_count = NULL,
           snapshot_replicated_count = NULL,
           snapshot_last_key = NULL
@@ -453,7 +466,7 @@ export class PostgresBucketBatch
           );
       `.execute();
 
-      if (no_checkpoint_before_lsn > this.no_checkpoint_before_lsn) {
+      if (no_checkpoint_before_lsn != null && no_checkpoint_before_lsn > this.no_checkpoint_before_lsn) {
         this.no_checkpoint_before_lsn = no_checkpoint_before_lsn;
 
         await db.sql`
@@ -940,16 +953,17 @@ export class PostgresBucketBatch
     await this.db.transaction(async (db) => {
       const syncRulesRow = await db.sql`
         SELECT
-          state
+          state,
+          snapshot_done
         FROM
           sync_rules
         WHERE
           id = ${{ type: 'int4', value: this.group_id }}
       `
-        .decoded(pick(models.SyncRules, ['state']))
+        .decoded(pick(models.SyncRules, ['state', 'snapshot_done']))
         .first();
 
-      if (syncRulesRow && syncRulesRow.state == storage.SyncRuleState.PROCESSING) {
+      if (syncRulesRow && syncRulesRow.state == storage.SyncRuleState.PROCESSING && syncRulesRow.snapshot_done) {
         await db.sql`
           UPDATE sync_rules
           SET
@@ -957,25 +971,27 @@ export class PostgresBucketBatch
           WHERE
             id = ${{ type: 'int4', value: this.group_id }}
         `.execute();
-        didActivate = true;
-      }
 
-      await db.sql`
-        UPDATE sync_rules
-        SET
-          state = ${{ type: 'varchar', value: storage.SyncRuleState.STOP }}
-        WHERE
-          (
-            state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
-            OR state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
-          )
-          AND id != ${{ type: 'int4', value: this.group_id }}
-      `.execute();
+        await db.sql`
+          UPDATE sync_rules
+          SET
+            state = ${{ type: 'varchar', value: storage.SyncRuleState.STOP }}
+          WHERE
+            (
+              state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
+              OR state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
+            )
+            AND id != ${{ type: 'int4', value: this.group_id }}
+        `.execute();
+        didActivate = true;
+        this.needsActivation = false;
+      } else if (syncRulesRow?.state != storage.SyncRuleState.PROCESSING) {
+        this.needsActivation = false;
+      }
     });
     if (didActivate) {
       this.logger.info(`Activated new sync rules at ${lsn}`);
     }
-    this.needsActivation = false;
   }
 
   /**
