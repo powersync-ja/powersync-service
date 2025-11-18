@@ -103,6 +103,9 @@ export class WalStream {
 
   private abort_signal: AbortSignal;
 
+  private streamPromise: Promise<void> | null = null;
+  private snapshotter: PostgresSnapshotter;
+
   private relationCache = new RelationCache((relation: number | SourceTable) => {
     if (typeof relation == 'number') {
       return relation;
@@ -133,6 +136,7 @@ export class WalStream {
     this.connections = options.connections;
 
     this.abort_signal = options.abort_signal;
+    this.snapshotter = new PostgresSnapshotter(options);
     this.abort_signal.addEventListener(
       'abort',
       () => {
@@ -191,22 +195,7 @@ export class WalStream {
     const shouldSnapshot = snapshot && !result.table.snapshotComplete && result.table.syncAny;
 
     if (shouldSnapshot) {
-      // Truncate this table, in case a previous snapshot was interrupted.
-      await batch.truncate([result.table]);
-
-      // Start the snapshot inside a transaction.
-      // We use a dedicated connection for this.
-      const db = await this.connections.snapshotConnection();
-      try {
-        const table = await new PostgresSnapshotter(this.options).snapshotTableInTx(batch, db, result.table);
-        // After the table snapshot, we wait for replication to catch up.
-        // To make sure there is actually something to replicate, we send a keepalive
-        // message.
-        await sendKeepAlive(db);
-        return table;
-      } finally {
-        await db.end();
-      }
+      await this.snapshotter.queueSnapshot(result.table);
     }
 
     return result.table;
@@ -233,7 +222,7 @@ export class WalStream {
     try {
       for (let rows of byTable.values()) {
         const table = rows[0].table;
-        await new PostgresSnapshotter(this.options).snapshotTableInTx(
+        await this.snapshotter.snapshotTableInTx(
           batch,
           db,
           table,
@@ -335,14 +324,10 @@ export class WalStream {
     return null;
   }
 
-  private snapshotPromise: Promise<void> | null = null;
-  private streamPromise: Promise<void> | null = null;
-
   async replicate() {
     try {
       await this.initReplication();
 
-      // At this point, the above connection has often timed out, so we start a new one in streamChanges().
       await this.streamChanges();
     } catch (e) {
       await this.storage.reportError(e);
@@ -351,17 +336,20 @@ export class WalStream {
   }
 
   async initReplication() {
-    const snapshotter = new PostgresSnapshotter(this.options);
-    const result = await snapshotter.checkSlot();
+    const result = await this.snapshotter.checkSlot();
     const db = await this.connections.snapshotConnection();
     try {
-      await snapshotter.setupSlot(db, result);
+      await this.snapshotter.setupSlot(db, result);
       // Trigger here, but we await elsewhere
       // TODO: fail on the first error
       this.streamChanges().catch((_) => {});
       if (result.needsInitialSync) {
-        await snapshotter.initialReplication(db);
+        await this.snapshotter.startReplication(db);
       }
+
+      // FIXME: handle the background promise
+      this.snapshotter.replicationLoop();
+      await this.snapshotter.waitForInitialSnapshot();
     } finally {
       await db.end();
     }
@@ -481,7 +469,7 @@ export class WalStream {
               await this.handleRelation({
                 batch,
                 descriptor: getPgOutputRelation(msg),
-                snapshot: false,
+                snapshot: true,
                 referencedTypeIds: referencedColumnTypeIds(msg)
               });
             } else if (msg.tag == 'begin') {

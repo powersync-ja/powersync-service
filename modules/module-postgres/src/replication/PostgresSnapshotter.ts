@@ -46,6 +46,8 @@ import {
   WalStreamOptions,
   ZERO_LSN
 } from './WalStream.js';
+import * as timers from 'node:timers/promises';
+import pDefer, { DeferredPromise } from 'p-defer';
 
 interface InitResult {
   /** True if initial snapshot is not yet done. */
@@ -78,6 +80,9 @@ export class PostgresSnapshotter {
     }
     return relation.objectId!;
   });
+
+  private queue = new Set<SourceTable>();
+  private initialSnapshotDone = pDefer<void>();
 
   constructor(options: WalStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
@@ -311,14 +316,51 @@ export class PostgresSnapshotter {
     }
   }
 
-  /**
-   * Start initial replication.
-   *
-   * If (partial) replication was done before on this slot, this clears the state
-   * and starts again from scratch.
-   */
-  async initialReplication(db: pgwire.PgConnection) {
-    const sourceTables = this.sync_rules.getSourceTables();
+  async replicateTable(table: SourceTable) {
+    const db = await this.connections.snapshotConnection();
+    try {
+      const flushResults = await this.storage.startBatch(
+        {
+          logger: this.logger,
+          zeroLSN: ZERO_LSN,
+          defaultSchema: POSTGRES_DEFAULT_SCHEMA,
+          storeCurrentData: true,
+          skipExistingRows: true
+        },
+        async (batch) => {
+          await this.snapshotTableInTx(batch, db, table);
+        }
+      );
+    } finally {
+      await db.end();
+    }
+  }
+
+  async waitForInitialSnapshot() {
+    await this.initialSnapshotDone.promise;
+  }
+
+  async replicationLoop() {
+    while (!this.abort_signal.aborted) {
+      const table = this.queue.values().next().value;
+      if (table == null) {
+        this.initialSnapshotDone.resolve();
+        await timers.setTimeout(500, { signal: this.abort_signal });
+        continue;
+      }
+
+      await this.replicateTable(table);
+      this.queue.delete(table);
+      if (this.queue.size == 0) {
+        await this.markSnapshotDone();
+      }
+    }
+  }
+
+  private async markSnapshotDone() {
+    const db = await this.connections.snapshotConnection();
+    await using _ = { [Symbol.asyncDispose]: () => db.end() };
+
     const flushResults = await this.storage.startBatch(
       {
         logger: this.logger,
@@ -328,37 +370,9 @@ export class PostgresSnapshotter {
         skipExistingRows: true
       },
       async (batch) => {
-        let tablesWithStatus: SourceTable[] = [];
-        for (let tablePattern of sourceTables) {
-          const tables = await this.getQualifiedTableNames(batch, db, tablePattern);
-          // Pre-get counts
-          for (let table of tables) {
-            if (table.snapshotComplete) {
-              this.logger.info(`Skipping ${table.qualifiedName} - snapshot already done`);
-              continue;
-            }
-            const count = await this.estimatedCountNumber(db, table);
-            table = await batch.updateTableProgress(table, { totalEstimatedCount: count });
-            this.relationCache.update(table);
-            tablesWithStatus.push(table);
-
-            this.logger.info(`To replicate: ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
-          }
-        }
-
-        for (let table of tablesWithStatus) {
-          await this.snapshotTableInTx(batch, db, table);
-          this.touch();
-        }
-
-        // Always commit the initial snapshot at zero.
-        // This makes sure we don't skip any changes applied before starting this snapshot,
-        // in the case of snapshot retries.
-        // We could alternatively commit at the replication slot LSN.
         const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
         const globalLsnNotBefore = rs.rows[0][0];
         await batch.markAllSnapshotDone(globalLsnNotBefore);
-        await batch.commit(ZERO_LSN);
       }
     );
     /**
@@ -374,6 +388,7 @@ export class PostgresSnapshotter {
     const lastOp = flushResults?.flushed_op;
     if (lastOp != null) {
       // Populate the cache _after_ initial replication, but _before_ we switch to this sync rules.
+      // TODO: only run this after initial replication, not after each table.
       await this.storage.populatePersistentChecksumCache({
         // No checkpoint yet, but we do have the opId.
         maxOpId: lastOp,
@@ -382,10 +397,53 @@ export class PostgresSnapshotter {
     }
   }
 
+  /**
+   * Start initial replication.
+   *
+   * If (partial) replication was done before on this slot, this clears the state
+   * and starts again from scratch.
+   */
+  async startReplication(db: pgwire.PgConnection) {
+    const sourceTables = this.sync_rules.getSourceTables();
+
+    await this.storage.startBatch(
+      {
+        logger: this.logger,
+        zeroLSN: ZERO_LSN,
+        defaultSchema: POSTGRES_DEFAULT_SCHEMA,
+        storeCurrentData: true,
+        skipExistingRows: true
+      },
+      async (batch) => {
+        for (let tablePattern of sourceTables) {
+          const tables = await this.getQualifiedTableNames(batch, db, tablePattern);
+          // Pre-get counts
+          for (let table of tables) {
+            if (table.snapshotComplete) {
+              this.logger.info(`Skipping ${table.qualifiedName} - snapshot already done`);
+              continue;
+            }
+            const count = await this.estimatedCountNumber(db, table);
+            table = await batch.updateTableProgress(table, { totalEstimatedCount: count });
+            this.relationCache.update(table);
+
+            this.logger.info(`To replicate: ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
+
+            this.queue.add(table);
+          }
+        }
+      }
+    );
+  }
+
   static *getQueryData(results: Iterable<DatabaseInputRow>): Generator<SqliteInputRow> {
     for (let row of results) {
       yield toSyncRulesRow(row);
     }
+  }
+
+  public async queueSnapshot(table: storage.SourceTable) {
+    this.queue.add(table);
   }
 
   public async snapshotTableInTx(

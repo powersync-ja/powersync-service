@@ -56,10 +56,7 @@ function defineTests(factory: storage.TestStorageFactory) {
     expect(data.slice(2, 4).sort(compareIds)).toMatchObject([REMOVE_T1, REMOVE_T2]);
 
     expect(data.slice(4)).toMatchObject([
-      // Snapshot insert
-      PUT_T3,
-      // Replicated insert
-      // We may eventually be able to de-duplicate this
+      // Snapshot and/or replication insert
       PUT_T3
     ]);
   });

@@ -339,6 +339,9 @@ importers:
       jose:
         specifier: ^4.15.1
         version: 4.15.9
+      p-defer:
+        specifier: ^4.0.1
+        version: 4.0.1
       pgwire:
         specifier: github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
         version: https://codeload.github.com/kagis/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87

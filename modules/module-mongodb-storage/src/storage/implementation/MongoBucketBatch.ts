@@ -50,7 +50,6 @@ export interface MongoBucketBatchOptions {
   slotName: string;
   lastCheckpointLsn: string | null;
   keepaliveOp: InternalOpId | null;
-  noCheckpointBeforeLsn: string;
   resumeFromLsn: string | null;
   storeCurrentData: boolean;
   /**
@@ -93,8 +92,6 @@ export class MongoBucketBatch
    */
   private last_checkpoint_lsn: string | null = null;
 
-  private no_checkpoint_before_lsn: string;
-
   private persisted_op: InternalOpId | null = null;
 
   /**
@@ -123,7 +120,6 @@ export class MongoBucketBatch
     this.db = options.db;
     this.group_id = options.groupId;
     this.last_checkpoint_lsn = options.lastCheckpointLsn;
-    this.no_checkpoint_before_lsn = options.noCheckpointBeforeLsn;
     this.resumeFromLsn = options.resumeFromLsn;
     this.session = this.client.startSession();
     this.slot_name = options.slotName;
@@ -672,36 +668,6 @@ export class MongoBucketBatch
       // Cannot create a checkpoint yet - return false
       return false;
     }
-    if (lsn < this.no_checkpoint_before_lsn) {
-      if (Date.now() - this.lastWaitingLogThottled > 5_000) {
-        this.logger.info(
-          `Waiting until ${this.no_checkpoint_before_lsn} before creating checkpoint, currently at ${lsn}. Persisted op: ${this.persisted_op}`
-        );
-        this.lastWaitingLogThottled = Date.now();
-      }
-
-      // Edge case: During initial replication, we have a no_checkpoint_before_lsn set,
-      // and don't actually commit the snapshot.
-      // The first commit can happen from an implicit keepalive message.
-      // That needs the persisted_op to get an accurate checkpoint, so
-      // we persist that in keepalive_op.
-
-      await this.db.sync_rules.updateOne(
-        {
-          _id: this.group_id
-        },
-        {
-          $set: {
-            keepalive_op: this.persisted_op == null ? null : String(this.persisted_op)
-          }
-        },
-        { session: this.session }
-      );
-      await this.db.notifyCheckpoint();
-
-      // Cannot create a checkpoint yet - return false
-      return false;
-    }
 
     if (!createEmptyCheckpoints && this.persisted_op == null) {
       // Nothing to commit - also return true
@@ -739,19 +705,63 @@ export class MongoBucketBatch
       }
     );
 
-    await this.db.sync_rules.updateOne(
+    const updateResult = await this.db.sync_rules.updateOne(
       {
-        _id: this.group_id
+        _id: this.group_id,
+        snapshot_done: true,
+        $or: [{ no_checkpoint_before: null }, { no_checkpoint_before: { $lte: lsn } }]
       },
-      {
-        $set: update
-      },
+      [
+        {
+          $set: {
+            last_checkpoint_lsn: { $literal: lsn },
+            last_checkpoint_ts: { $literal: now },
+            last_keepalive_ts: { $literal: now },
+            last_fatal_error: { $literal: null },
+            keepalive_op: { $literal: null },
+            last_checkpoint: {
+              $max: ['$last_checkpoint', { $literal: this.persisted_op }, { $toLong: '$keepalive_op' }]
+            }
+          }
+        }
+      ],
       { session: this.session }
     );
-    await this.autoActivate(lsn);
-    await this.db.notifyCheckpoint();
-    this.persisted_op = null;
-    this.last_checkpoint_lsn = lsn;
+    if (updateResult.matchedCount == 0) {
+      // Failed on snapshot_done or no_checkpoint_before.
+      if (Date.now() - this.lastWaitingLogThottled > 5_000) {
+        this.logger.info(
+          `Waiting until before creating checkpoint, currently at ${lsn}. Persisted op: ${this.persisted_op}`
+        );
+        this.lastWaitingLogThottled = Date.now();
+      }
+
+      if (this.persisted_op != null) {
+        await this.db.sync_rules.updateOne(
+          {
+            _id: this.group_id
+          },
+          [
+            // KLUDGE: the string format is a pain here, not sure why we ever had it as a string
+            {
+              $set: {
+                keepalive_op: {
+                  $toString: {
+                    $max: [{ $toLong: '$keepalive_op' }, { $literal: this.persisted_op }]
+                  }
+                }
+              }
+            }
+          ],
+          { session: this.session }
+        );
+      }
+    } else {
+      await this.autoActivate(lsn);
+      await this.db.notifyCheckpoint();
+      this.persisted_op = null;
+      this.last_checkpoint_lsn = lsn;
+    }
     return true;
   }
 
@@ -810,65 +820,7 @@ export class MongoBucketBatch
   }
 
   async keepalive(lsn: string): Promise<boolean> {
-    if (this.last_checkpoint_lsn != null && lsn < this.last_checkpoint_lsn) {
-      // No-op
-      return false;
-    }
-
-    if (lsn < this.no_checkpoint_before_lsn) {
-      return false;
-    }
-
-    if (this.persisted_op == null) {
-      // FIXME: Double-check the logic here, and avoid the lookup
-      const doc = await this.db.sync_rules.findOne({
-        _id: this.group_id
-      });
-      if (doc?.keepalive_op != null) {
-        this.persisted_op = BigInt(doc!.keepalive_op);
-      }
-    }
-
-    if (this.persisted_op != null) {
-      // The commit may have been skipped due to "no_checkpoint_before_lsn".
-      // Apply it now if relevant
-      this.logger.info(`Commit due to keepalive at ${lsn} / ${this.persisted_op}`);
-      return await this.commit(lsn);
-    }
-
-    await this.db.write_checkpoints.updateMany(
-      {
-        processed_at_lsn: null,
-        'lsns.1': { $lte: lsn }
-      },
-      {
-        $set: {
-          processed_at_lsn: lsn
-        }
-      },
-      {
-        session: this.session
-      }
-    );
-
-    await this.db.sync_rules.updateOne(
-      {
-        _id: this.group_id
-      },
-      {
-        $set: {
-          last_checkpoint_lsn: lsn,
-          last_fatal_error: null,
-          last_keepalive_ts: new Date()
-        }
-      },
-      { session: this.session }
-    );
-    await this.autoActivate(lsn);
-    await this.db.notifyCheckpoint();
-    this.last_checkpoint_lsn = lsn;
-
-    return true;
+    return await this.commit(lsn);
   }
 
   async setResumeLsn(lsn: string): Promise<void> {
@@ -1044,9 +996,6 @@ export class MongoBucketBatch
   }
 
   async markAllSnapshotDone(no_checkpoint_before_lsn: string) {
-    if (this.no_checkpoint_before_lsn == null || no_checkpoint_before_lsn > this.no_checkpoint_before_lsn) {
-      this.no_checkpoint_before_lsn = no_checkpoint_before_lsn;
-    }
     await this.db.sync_rules.updateOne(
       {
         _id: this.group_id
@@ -1061,6 +1010,20 @@ export class MongoBucketBatch
         },
         $unset: {
           snapshot_lsn: 1
+        }
+      },
+      { session: this.session }
+    );
+  }
+
+  async markTableSnapshotRequired(table: storage.SourceTable): Promise<void> {
+    await this.db.sync_rules.updateOne(
+      {
+        _id: this.group_id
+      },
+      {
+        $set: {
+          snapshot_done: false
         }
       },
       { session: this.session }
@@ -1086,9 +1049,6 @@ export class MongoBucketBatch
       );
 
       if (no_checkpoint_before_lsn != null) {
-        if (this.no_checkpoint_before_lsn == null || no_checkpoint_before_lsn > this.no_checkpoint_before_lsn) {
-          this.no_checkpoint_before_lsn = no_checkpoint_before_lsn;
-        }
         await this.db.sync_rules.updateOne(
           {
             _id: this.group_id
