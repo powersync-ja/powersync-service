@@ -151,7 +151,7 @@ export class WalStreamTestContext implements AsyncDisposable {
     const promise = (async () => {
       await this.walStream.initReplication();
     })();
-    this.snapshotPromise = promise.catch((e) => e);
+    this.snapshotPromise = promise.catch((_) => {});
     await promise;
   }
 
