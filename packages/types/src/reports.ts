@@ -104,7 +104,6 @@ export type ClientConnectionAnalyticsRequest = {
 };
 export type PaginatedResponse<T> = {
   items: T[];
-  total: number;
   count: number;
   cursor?: string;
   more: boolean;

@@ -148,7 +148,6 @@ export const createPaginatedConnectionQuery = async <T extends mongo.Document>(
    * */
   return {
     items,
-    total: 0,
     count,
     /** Setting the cursor to the connected at date of the last item in the list */
     cursor: count === limit ? items[items.length - 1].connected_at.toISOString() : undefined,

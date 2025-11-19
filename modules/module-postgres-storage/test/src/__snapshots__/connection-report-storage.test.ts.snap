@@ -228,7 +228,6 @@ exports[`Report storage tests > Should show paginated response of all connection
     },
   ],
   "more": false,
-  "total": 0,
 }
 `;
 
@@ -267,7 +266,6 @@ exports[`Report storage tests > Should show paginated response of all connection
     },
   ],
   "more": true,
-  "total": 0,
 }
 `;
 
@@ -306,7 +304,6 @@ exports[`Report storage tests > Should show paginated response of all connection
     },
   ],
   "more": false,
-  "total": 0,
 }
 `;
 
@@ -345,7 +342,6 @@ exports[`Report storage tests > Should show paginated response of all connection
     },
   ],
   "more": true,
-  "total": 0,
 }
 `;
 
@@ -384,7 +380,6 @@ exports[`Report storage tests > Should show paginated response of all connection
     },
   ],
   "more": false,
-  "total": 0,
 }
 `;
 
@@ -409,7 +404,6 @@ exports[`Report storage tests > Should show paginated response of connections of
     },
   ],
   "more": false,
-  "total": 0,
 }
 `;
 
@@ -462,7 +456,6 @@ exports[`Report storage tests > Should show paginated response of connections ov
     },
   ],
   "more": false,
-  "total": 0,
 }
 `;
 
@@ -480,6 +473,5 @@ exports[`Report storage tests > Should show paginated response of connections ov
     },
   ],
   "more": false,
-  "total": 0,
 }
 `;

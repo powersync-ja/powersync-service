@@ -309,7 +309,6 @@ export class PostgresReportStorage implements storage.ReportStorage {
      * */
     return {
       items,
-      total: 0,
       /** Setting the cursor to the connected at date of the last item in the list */
       cursor: count === limit ? items[items.length - 1].connected_at.toISOString() : undefined,
       count,
