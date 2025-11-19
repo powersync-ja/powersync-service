@@ -51,8 +51,8 @@ export class MongoReportStorage implements storage.ReportStorage {
     const limit = data?.limit || 100;
 
     const connected_at = date_range ? { connected_at: { $lte: date_range.end, $gte: date_range.start } } : undefined;
-    const user_id = data.user_id ? { user_id: data.user_id } : undefined;
-    const client_id = data.client_id ? { client_id: data.client_id } : undefined;
+    const user_id = data.user_id != null ? { user_id: data.user_id } : undefined;
+    const client_id = data.client_id != null ? { client_id: data.client_id } : undefined;
     return (await createPaginatedConnectionQuery(
       {
         ...client_id,

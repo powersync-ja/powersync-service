@@ -123,11 +123,11 @@ export class PostgresReportStorage implements storage.ReportStorage {
     let query = `SELECT id, user_id, client_id, user_agent, sdk, jwt_exp::text AS jwt_exp, disconnected_at, connected_at::text AS connected_at, disconnected_at::text AS disconnected_at  FROM connection_report_events`;
     let intermediateQuery = '';
     /** Create a user_id/ client_id filter is they exist  */
-    if (client_id || user_id) {
+    if (client_id != null || user_id) {
       if (client_id && !user_id) {
         intermediateQuery += ` WHERE client_id = $1`;
         queryParams.push({ type: 'varchar', value: client_id });
-      } else if (!client_id && user_id) {
+      } else if (!client_id && user_id != null) {
         intermediateQuery += ` WHERE user_id = $1`;
         queryParams.push({ type: 'varchar', value: user_id });
       } else {
@@ -302,7 +302,6 @@ export class PostgresReportStorage implements storage.ReportStorage {
       connected_at: new Date(item.connected_at),
       disconnected_at: item.disconnected_at ? new Date(item.disconnected_at) : undefined,
       jwt_exp: item.jwt_exp ? new Date(item.jwt_exp) : undefined
-      /** */
     }));
     const count = items.length;
     /** The returned total has been defaulted to 0 due to the overhead using documentCount from the mogo driver this is just to keep consistency with Mongo implementation.

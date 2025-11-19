@@ -217,7 +217,7 @@ export async function registerReportTests(factory: storage.ReportStorage) {
     });
     const cleaned = {
       ...connections,
-      items: removeVolatileFields(initial.items)
+      items: removeVolatileFields(connections.items)
     };
     expect(cleaned).toMatchSnapshot();
   });
