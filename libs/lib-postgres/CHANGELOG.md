@@ -1,5 +1,12 @@
 # @powersync/lib-service-postgres
 
+## 0.4.14
+
+### Patch Changes
+
+- @powersync/lib-services-framework@0.7.10
+- @powersync/service-jpgwire@0.21.6
+
 ## 0.4.13
 
 ### Patch Changes

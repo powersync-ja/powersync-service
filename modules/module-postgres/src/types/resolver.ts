@@ -1,8 +1,8 @@
-import { DatabaseInputRow, SqliteInputRow, toSyncRulesRow } from '@powersync/service-sync-rules';
 import * as pgwire from '@powersync/service-jpgwire';
-import { CustomTypeRegistry } from './registry.js';
+import { DatabaseInputRow, SqliteInputRow, toSyncRulesRow } from '@powersync/service-sync-rules';
 import semver from 'semver';
 import { getServerVersion } from '../utils/postgres_version.js';
+import { CustomTypeRegistry } from './registry.js';
 
 /**
  * Resolves descriptions used to decode values for custom postgres types.
@@ -11,11 +11,9 @@ import { getServerVersion } from '../utils/postgres_version.js';
  */
 export class PostgresTypeResolver {
   private cachedVersion: semver.SemVer | null = null;
+  readonly registry: CustomTypeRegistry;
 
-  constructor(
-    readonly registry: CustomTypeRegistry,
-    private readonly pool: pgwire.PgClient
-  ) {
+  constructor(private readonly pool: pgwire.PgClient) {
     this.registry = new CustomTypeRegistry();
   }
 
@@ -188,6 +186,11 @@ WHERE a.attnum > 0
     return toSyncRulesRow(record);
   }
 
+  constructRowRecord(columnMap: Record<string, number>, tupleRaw: Record<string, any>): SqliteInputRow {
+    const record = this.decodeTupleForTable(columnMap, tupleRaw);
+    return toSyncRulesRow(record);
+  }
+
   /**
    * We need a high level of control over how values are decoded, to make sure there is no loss
    * of precision in the process.
@@ -197,6 +200,24 @@ WHERE a.attnum > 0
     for (let columnName in tupleRaw) {
       const rawval = tupleRaw[columnName];
       const typeOid = (relation as any)._tupleDecoder._typeOids.get(columnName);
+      if (typeof rawval == 'string' && typeOid) {
+        result[columnName] = this.registry.decodeDatabaseValue(rawval, typeOid);
+      } else {
+        result[columnName] = rawval;
+      }
+    }
+    return result;
+  }
+
+  /**
+   * We need a high level of control over how values are decoded, to make sure there is no loss
+   * of precision in the process.
+   */
+  private decodeTupleForTable(columnMap: Record<string, number>, tupleRaw: Record<string, any>): DatabaseInputRow {
+    let result: Record<string, any> = {};
+    for (let columnName in tupleRaw) {
+      const rawval = tupleRaw[columnName];
+      const typeOid = columnMap[columnName];
       if (typeof rawval == 'string' && typeOid) {
         result[columnName] = this.registry.decodeDatabaseValue(rawval, typeOid);
       } else {

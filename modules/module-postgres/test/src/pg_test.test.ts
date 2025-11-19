@@ -551,7 +551,7 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
   test('test replication - multiranges', async () => {
     const db = await connectPgPool();
 
-    if (!(await new PostgresTypeResolver(new CustomTypeRegistry(), db).supportsMultiRanges())) {
+    if (!(await new PostgresTypeResolver(db).supportsMultiRanges())) {
       // This test requires Postgres 14 or later.
       return;
     }
@@ -620,7 +620,7 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
  * Return all the inserts from the first transaction in the replication stream.
  */
 async function getReplicationTx(db: pgwire.PgClient, replicationStream: pgwire.ReplicationStream) {
-  const typeCache = new PostgresTypeResolver(new CustomTypeRegistry(), db);
+  const typeCache = new PostgresTypeResolver(db);
   await typeCache.fetchTypesForSchema();
 
   let transformed: SqliteInputRow[] = [];
