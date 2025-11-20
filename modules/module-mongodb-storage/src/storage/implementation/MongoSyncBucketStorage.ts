@@ -39,7 +39,6 @@ import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../utils/util.js';
 
-
 export interface MongoSyncBucketStorageOptions {
   checksumOptions?: MongoChecksumOptions;
 }
@@ -176,7 +175,6 @@ export class MongoSyncBucketStorage
       slotName: this.slot_name,
       lastCheckpointLsn: checkpoint_lsn,
       resumeFromLsn: maxLsn(checkpoint_lsn, doc?.snapshot_lsn),
-      noCheckpointBeforeLsn: doc?.no_checkpoint_before ?? options.zeroLSN,
       keepaliveOp: doc?.keepalive_op ? BigInt(doc.keepalive_op) : null,
       storeCurrentData: options.storeCurrentData,
       skipExistingRows: options.skipExistingRows ?? false,
