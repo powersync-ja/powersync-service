@@ -355,6 +355,10 @@ export class PostgresBucketBatch
                 COALESCE(sr.keepalive_op, 0)
               )
               ELSE sr.last_checkpoint
+            END,
+            snapshot_lsn = CASE
+              WHEN selected.can_checkpoint THEN NULL
+              ELSE sr.snapshot_lsn
             END
           FROM
             selected
@@ -438,7 +442,6 @@ export class PostgresBucketBatch
         SET
           snapshot_done = TRUE,
           last_keepalive_ts = ${{ type: 1184, value: new Date().toISOString() }},
-          snapshot_lsn = NULL,
           no_checkpoint_before = CASE
             WHEN no_checkpoint_before IS NULL
             OR no_checkpoint_before < ${{ type: 'varchar', value: no_checkpoint_before_lsn }} THEN ${{
