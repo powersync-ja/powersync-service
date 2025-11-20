@@ -661,32 +661,7 @@ export class MongoBucketBatch
 
     await this.flush(options);
 
-    if (this.last_checkpoint_lsn != null && lsn < this.last_checkpoint_lsn) {
-      // When re-applying transactions, don't create a new checkpoint until
-      // we are past the last transaction.
-      this.logger.info(`Re-applied transaction ${lsn} - skipping checkpoint`);
-      // Cannot create a checkpoint yet - return false
-      return false;
-    }
-
-    if (!createEmptyCheckpoints && this.persisted_op == null) {
-      // Nothing to commit - also return true
-      await this.autoActivate(lsn);
-      return true;
-    }
-
     const now = new Date();
-    const update: Partial<SyncRuleDocument> = {
-      last_checkpoint_lsn: lsn,
-      last_checkpoint_ts: now,
-      last_keepalive_ts: now,
-      last_fatal_error: null,
-      keepalive_op: null
-    };
-
-    if (this.persisted_op != null) {
-      update.last_checkpoint = this.persisted_op;
-    }
 
     // Mark relevant write checkpoints as "processed".
     // This makes it easier to identify write checkpoints that are "valid" in order.
@@ -705,58 +680,101 @@ export class MongoBucketBatch
       }
     );
 
-    const updateResult = await this.db.sync_rules.updateOne(
+    const updateResult = await this.db.sync_rules.findOneAndUpdate(
       {
-        _id: this.group_id,
-        snapshot_done: true,
-        $or: [{ no_checkpoint_before: null }, { no_checkpoint_before: { $lte: lsn } }]
+        _id: this.group_id
       },
       [
         {
           $set: {
-            last_checkpoint_lsn: { $literal: lsn },
-            last_checkpoint_ts: { $literal: now },
-            last_keepalive_ts: { $literal: now },
-            last_fatal_error: { $literal: null },
-            keepalive_op: { $literal: null },
-            last_checkpoint: {
-              $max: ['$last_checkpoint', { $literal: this.persisted_op }, { $toLong: '$keepalive_op' }]
+            _can_checkpoint: {
+              $and: [
+                { $eq: ['$snapshot_done', true] },
+                {
+                  $or: [{ $eq: ['$last_checkpoint_lsn', null] }, { $lte: ['$last_checkpoint_lsn', { $literal: lsn }] }]
+                },
+                {
+                  $or: [
+                    { $eq: ['$no_checkpoint_before', null] },
+                    { $lte: ['$no_checkpoint_before', { $literal: lsn }] }
+                  ]
+                }
+              ]
             }
           }
-        }
-      ],
-      { session: this.session }
-    );
-    if (updateResult.matchedCount == 0) {
-      // Failed on snapshot_done or no_checkpoint_before.
-      if (Date.now() - this.lastWaitingLogThottled > 5_000) {
-        this.logger.info(
-          `Waiting until before creating checkpoint, currently at ${lsn}. Persisted op: ${this.persisted_op}`
-        );
-        this.lastWaitingLogThottled = Date.now();
-      }
-
-      if (this.persisted_op != null) {
-        await this.db.sync_rules.updateOne(
-          {
-            _id: this.group_id
-          },
-          [
-            // KLUDGE: the string format is a pain here, not sure why we ever had it as a string
-            {
-              $set: {
-                keepalive_op: {
+        },
+        {
+          $set: {
+            last_checkpoint_lsn: {
+              $cond: ['$_can_checkpoint', { $literal: lsn }, '$last_checkpoint_lsn']
+            },
+            last_checkpoint_ts: {
+              $cond: ['$_can_checkpoint', { $literal: now }, '$last_checkpoint_ts']
+            },
+            last_keepalive_ts: { $literal: now },
+            last_fatal_error: {
+              $cond: ['$_can_checkpoint', { $literal: null }, '$last_fatal_error']
+            },
+            keepalive_op: {
+              $cond: [
+                '$_can_checkpoint',
+                // Checkpoint: set to null
+                { $literal: null },
+                // Not checkpoint: update to max of existing keepalive_op and persisted_op
+                {
                   $toString: {
                     $max: [{ $toLong: '$keepalive_op' }, { $literal: this.persisted_op }]
                   }
                 }
-              }
+              ]
+            },
+            last_checkpoint: {
+              $cond: [
+                '$_can_checkpoint',
+                {
+                  $max: ['$last_checkpoint', { $literal: this.persisted_op }, { $toLong: '$keepalive_op' }]
+                },
+                '$last_checkpoint'
+              ]
             }
-          ],
-          { session: this.session }
+          }
+        },
+        {
+          $unset: '_can_checkpoint'
+        }
+      ],
+      {
+        session: this.session,
+        returnDocument: 'after',
+        projection: {
+          snapshot_done: 1,
+          last_checkpoint_lsn: 1,
+          no_checkpoint_before: 1,
+          keepalive_op: 1
+        }
+      }
+    );
+    if (updateResult == null) {
+      throw new ReplicationAssertionError('Failed to load sync_rules document during checkpoint update');
+    }
+    const checkpointCreated = updateResult.snapshot_done === true && updateResult.last_checkpoint_lsn === lsn;
+
+    if (!checkpointCreated) {
+      // Failed on snapshot_done or no_checkpoint_before.
+      if (Date.now() - this.lastWaitingLogThottled > 5_000 || true) {
+        this.logger.info(
+          `Waiting before creating checkpoint, currently at ${lsn}. Persisted op: ${this.persisted_op}. Current state: ${JSON.stringify(
+            {
+              snapshot_done: updateResult.snapshot_done,
+              last_checkpoint_lsn: updateResult.last_checkpoint_lsn,
+              no_checkpoint_before: updateResult.no_checkpoint_before
+            }
+          )}`
         );
+        this.lastWaitingLogThottled = Date.now();
       }
     } else {
+      this.logger.info(`Created checkpoint at ${lsn}. Persisted op: ${this.persisted_op}`);
       await this.autoActivate(lsn);
       await this.db.notifyCheckpoint();
       this.persisted_op = null;

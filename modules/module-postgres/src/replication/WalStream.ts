@@ -183,7 +183,10 @@ export class WalStream {
     this.relationCache.update(result.table);
 
     // Drop conflicting tables. This includes for example renamed tables.
-    await batch.drop(result.dropTables);
+    if (result.dropTables.length > 0) {
+      this.logger.info(`Dropping conflicting tables: ${result.dropTables.map((t) => t.qualifiedName).join(', ')}`);
+      await batch.drop(result.dropTables);
+    }
 
     // Ensure we have a description for custom types referenced in the table.
     await this.connections.types.fetchTypes(referencedTypeIds);
@@ -195,7 +198,8 @@ export class WalStream {
     const shouldSnapshot = snapshot && !result.table.snapshotComplete && result.table.syncAny;
 
     if (shouldSnapshot) {
-      await this.snapshotter.queueSnapshot(result.table);
+      this.logger.info(`Queuing snapshot for new table ${result.table.qualifiedName}`);
+      await this.snapshotter.queueSnapshot(batch, result.table);
     }
 
     return result.table;

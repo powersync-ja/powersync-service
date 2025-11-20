@@ -190,7 +190,6 @@ export class PostgresSnapshotter {
           objectId: relid,
           replicaIdColumns: cresult.replicationColumns
         } as SourceEntityDescriptor,
-        snapshot: false,
         referencedTypeIds: columnTypes
       });
 
@@ -329,8 +328,12 @@ export class PostgresSnapshotter {
         },
         async (batch) => {
           await this.snapshotTableInTx(batch, db, table);
+          // This commit ensures we set keepalive_op.
+          // It may be better if that is automatically set when flushing.
+          await batch.commit(ZERO_LSN);
         }
       );
+      this.logger.info(`Flushed snapshot at ${flushResults?.flushed_op}`);
     } finally {
       await db.end();
     }
@@ -442,7 +445,8 @@ export class PostgresSnapshotter {
     }
   }
 
-  public async queueSnapshot(table: storage.SourceTable) {
+  public async queueSnapshot(batch: storage.BucketStorageBatch, table: storage.SourceTable) {
+    await batch.markTableSnapshotRequired(table);
     this.queue.add(table);
   }
 
@@ -477,6 +481,7 @@ export class PostgresSnapshotter {
       tableLsnNotBefore = rs.rows[0][0];
       // Side note: A ROLLBACK would probably also be fine here, since we only read in this transaction.
       await db.query('COMMIT');
+      this.logger.info(`Snapshot complete for table ${table.qualifiedName}, resume at ${tableLsnNotBefore}`);
       const [resultTable] = await batch.markTableSnapshotDone([table], tableLsnNotBefore);
       this.relationCache.update(resultTable);
       return resultTable;
@@ -614,10 +619,9 @@ export class PostgresSnapshotter {
   async handleRelation(options: {
     batch: storage.BucketStorageBatch;
     descriptor: SourceEntityDescriptor;
-    snapshot: boolean;
     referencedTypeIds: number[];
   }) {
-    const { batch, descriptor, snapshot, referencedTypeIds } = options;
+    const { batch, descriptor, referencedTypeIds } = options;
 
     if (!descriptor.objectId && typeof descriptor.objectId != 'number') {
       throw new ReplicationAssertionError(`objectId expected, got ${typeof descriptor.objectId}`);
@@ -636,31 +640,6 @@ export class PostgresSnapshotter {
 
     // Ensure we have a description for custom types referenced in the table.
     await this.connections.types.fetchTypes(referencedTypeIds);
-
-    // Snapshot if:
-    // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
-    // 2. Snapshot is not already done, AND:
-    // 3. The table is used in sync rules.
-    const shouldSnapshot = snapshot && !result.table.snapshotComplete && result.table.syncAny;
-
-    if (shouldSnapshot) {
-      // Truncate this table, in case a previous snapshot was interrupted.
-      await batch.truncate([result.table]);
-
-      // Start the snapshot inside a transaction.
-      // We use a dedicated connection for this.
-      const db = await this.connections.snapshotConnection();
-      try {
-        const table = await this.snapshotTableInTx(batch, db, result.table);
-        // After the table snapshot, we wait for replication to catch up.
-        // To make sure there is actually something to replicate, we send a keepalive
-        // message.
-        await sendKeepAlive(db);
-        return table;
-      } finally {
-        await db.end();
-      }
-    }
 
     return result.table;
   }
