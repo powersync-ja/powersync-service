@@ -132,7 +132,7 @@ describe('Stream Route', () => {
       const response = await (syncStreamed.handler({
         context,
         params: {
-          applicationMetadata: inputMeta,
+          app_metadata: inputMeta,
           parameters: {
             user_name: 'bob'
           }

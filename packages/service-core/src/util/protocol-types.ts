@@ -84,7 +84,7 @@ export const StreamingSyncRequest = t.object({
   /**
    * Application metadata to be used in logging.
    */
-  applicationMetadata: t.record(t.string).optional(),
+  app_metadata: t.record(t.string).optional(),
 
   /**
    * Unique client id.

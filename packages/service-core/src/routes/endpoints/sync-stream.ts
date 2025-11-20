@@ -44,9 +44,7 @@ export const syncStreamed = routeDefinition({
       client_id: clientId,
       user_id: payload.context.user_id,
       bson: useBson,
-      app_metadata: payload.params.applicationMetadata
-        ? formatParamsForLogging(payload.params.applicationMetadata)
-        : undefined
+      app_metadata: payload.params.app_metadata ? formatParamsForLogging(payload.params.app_metadata) : undefined
     };
     const sdkData: event_types.ConnectedUserData & event_types.ClientConnectionEventData = {
       client_id: clientId ?? '',
