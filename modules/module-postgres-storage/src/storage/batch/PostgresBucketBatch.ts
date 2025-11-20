@@ -28,7 +28,6 @@ export interface PostgresBucketBatchOptions {
   group_id: number;
   slot_name: string;
   last_checkpoint_lsn: string | null;
-  no_checkpoint_before_lsn: string;
   store_current_data: boolean;
   keep_alive_op?: InternalOpId | null;
   resumeFromLsn: string | null;
@@ -47,6 +46,15 @@ export interface PostgresBucketBatchOptions {
  */
 const StatefulCheckpoint = models.ActiveCheckpoint.and(t.object({ state: t.Enum(storage.SyncRuleState) }));
 type StatefulCheckpointDecoded = t.Decoded<typeof StatefulCheckpoint>;
+
+const CheckpointWithStatus = StatefulCheckpoint.and(
+  t.object({
+    snapshot_done: t.boolean,
+    no_checkpoint_before: t.string.or(t.Null),
+    can_checkpoint: t.boolean
+  })
+);
+type CheckpointWithStatusDecoded = t.Decoded<typeof CheckpointWithStatus>;
 
 /**
  * 15MB. Currently matches MongoDB.
@@ -67,7 +75,6 @@ export class PostgresBucketBatch
   protected db: lib_postgres.DatabaseClient;
   protected group_id: number;
   protected last_checkpoint_lsn: string | null;
-  protected no_checkpoint_before_lsn: string;
 
   protected persisted_op: InternalOpId | null;
 
@@ -84,7 +91,6 @@ export class PostgresBucketBatch
     this.db = options.db;
     this.group_id = options.group_id;
     this.last_checkpoint_lsn = options.last_checkpoint_lsn;
-    this.no_checkpoint_before_lsn = options.no_checkpoint_before_lsn;
     this.resumeFromLsn = options.resumeFromLsn;
     this.write_checkpoint_batch = [];
     this.sync_rules = options.sync_rules;
@@ -285,89 +291,126 @@ export class PostgresBucketBatch
   }
 
   async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<boolean> {
-    const { createEmptyCheckpoints } = { ...storage.DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS, ...options };
-
     await this.flush();
 
-    if (this.last_checkpoint_lsn != null && lsn < this.last_checkpoint_lsn) {
-      // When re-applying transactions, don't create a new checkpoint until
-      // we are past the last transaction.
-      this.logger.info(`Re-applied transaction ${lsn} - skipping checkpoint`);
-      // Cannot create a checkpoint yet - return false
-      return false;
-    }
-
-    if (lsn < this.no_checkpoint_before_lsn) {
-      if (Date.now() - this.lastWaitingLogThrottled > 5_000) {
-        this.logger.info(
-          `Waiting until ${this.no_checkpoint_before_lsn} before creating checkpoint, currently at ${lsn}. Persisted op: ${this.persisted_op}`
-        );
-        this.lastWaitingLogThrottled = Date.now();
-      }
-
-      // Edge case: During initial replication, we have a no_checkpoint_before_lsn set,
-      // and don't actually commit the snapshot.
-      // The first commit can happen from an implicit keepalive message.
-      // That needs the persisted_op to get an accurate checkpoint, so
-      // we persist that in keepalive_op.
-
-      await this.db.sql`
-        UPDATE sync_rules
-        SET
-          keepalive_op = ${{ type: 'int8', value: this.persisted_op }}
-        WHERE
-          id = ${{ type: 'int4', value: this.group_id }}
-      `.execute();
-
-      // Cannot create a checkpoint yet - return false
-      return false;
-    }
-
-    // Don't create a checkpoint if there were no changes
-    if (!createEmptyCheckpoints && this.persisted_op == null) {
-      // Nothing to commit - return true
-      await this.autoActivate(lsn);
-      return true;
-    }
-
     const now = new Date().toISOString();
-    const update: Partial<models.SyncRules> = {
-      last_checkpoint_lsn: lsn,
-      last_checkpoint_ts: now,
-      last_keepalive_ts: now,
-      last_fatal_error: null,
-      keepalive_op: null
-    };
 
-    if (this.persisted_op != null) {
-      update.last_checkpoint = this.persisted_op.toString();
-    }
+    const persisted_op = this.persisted_op ?? null;
 
-    const doc = await this.db.sql`
-      UPDATE sync_rules
-      SET
-        keepalive_op = ${{ type: 'int8', value: update.keepalive_op }},
-        last_fatal_error = ${{ type: 'varchar', value: update.last_fatal_error }},
-        last_keepalive_ts = ${{ type: 1184, value: update.last_keepalive_ts }},
-        last_checkpoint = COALESCE(
-          ${{ type: 'int8', value: update.last_checkpoint }},
-          last_checkpoint
+    const result = await this.db.sql`
+      WITH
+        selected AS (
+          SELECT
+            id,
+            state,
+            last_checkpoint,
+            last_checkpoint_lsn,
+            snapshot_done,
+            no_checkpoint_before,
+            keepalive_op,
+            (
+              snapshot_done = TRUE
+              AND (
+                last_checkpoint_lsn IS NULL
+                OR last_checkpoint_lsn <= ${{ type: 'varchar', value: lsn }}
+              )
+              AND (
+                no_checkpoint_before IS NULL
+                OR no_checkpoint_before <= ${{ type: 'varchar', value: lsn }}
+              )
+            ) AS can_checkpoint
+          FROM
+            sync_rules
+          WHERE
+            id = ${{ type: 'int4', value: this.group_id }}
+          FOR UPDATE
         ),
-        last_checkpoint_ts = ${{ type: 1184, value: update.last_checkpoint_ts }},
-        last_checkpoint_lsn = ${{ type: 'varchar', value: update.last_checkpoint_lsn }}
-      WHERE
-        id = ${{ type: 'int4', value: this.group_id }}
-      RETURNING
+        updated AS (
+          UPDATE sync_rules AS sr
+          SET
+            last_checkpoint_lsn = CASE
+              WHEN selected.can_checkpoint THEN ${{ type: 'varchar', value: lsn }}
+              ELSE sr.last_checkpoint_lsn
+            END,
+            last_checkpoint_ts = CASE
+              WHEN selected.can_checkpoint THEN ${{ type: 1184, value: now }}
+              ELSE sr.last_checkpoint_ts
+            END,
+            last_keepalive_ts = ${{ type: 1184, value: now }},
+            last_fatal_error = CASE
+              WHEN selected.can_checkpoint THEN NULL
+              ELSE sr.last_fatal_error
+            END,
+            keepalive_op = CASE
+              WHEN selected.can_checkpoint THEN NULL
+              ELSE GREATEST(
+                COALESCE(sr.keepalive_op, 0),
+                COALESCE(${{ type: 'int8', value: persisted_op }}, 0)
+              )
+            END,
+            last_checkpoint = CASE
+              WHEN selected.can_checkpoint THEN GREATEST(
+                COALESCE(sr.last_checkpoint, 0),
+                COALESCE(${{ type: 'int8', value: persisted_op }}, 0),
+                COALESCE(sr.keepalive_op, 0)
+              )
+              ELSE sr.last_checkpoint
+            END
+          FROM
+            selected
+          WHERE
+            sr.id = selected.id
+          RETURNING
+            sr.id,
+            sr.state,
+            sr.last_checkpoint,
+            sr.last_checkpoint_lsn,
+            sr.snapshot_done,
+            sr.no_checkpoint_before,
+            selected.can_checkpoint
+        )
+      SELECT
         id,
         state,
         last_checkpoint,
-        last_checkpoint_lsn
+        last_checkpoint_lsn,
+        snapshot_done,
+        no_checkpoint_before,
+        can_checkpoint
+      FROM
+        updated
     `
-      .decoded(StatefulCheckpoint)
+      .decoded(CheckpointWithStatus)
       .first();
 
+    if (result == null) {
+      throw new ReplicationAssertionError('Failed to update sync_rules during checkpoint');
+    }
+
+    if (!result.can_checkpoint) {
+      if (Date.now() - this.lastWaitingLogThrottled > 5_000 || true) {
+        this.logger.info(
+          `Waiting before creating checkpoint, currently at ${lsn}. Persisted op: ${this.persisted_op}. Current state: ${JSON.stringify(
+            {
+              snapshot_done: result.snapshot_done,
+              last_checkpoint_lsn: result.last_checkpoint_lsn,
+              no_checkpoint_before: result.no_checkpoint_before
+            }
+          )}`
+        );
+        this.lastWaitingLogThrottled = Date.now();
+      }
+      return true;
+    }
+
+    this.logger.info(`Created checkpoint at ${lsn}. Persisted op: ${this.persisted_op}`);
     await this.autoActivate(lsn);
-    await notifySyncRulesUpdate(this.db, doc!);
+    await notifySyncRulesUpdate(this.db, {
+      id: result.id,
+      state: result.state,
+      last_checkpoint: result.last_checkpoint,
+      last_checkpoint_lsn: result.last_checkpoint_lsn
+    });
 
     this.persisted_op = null;
     this.last_checkpoint_lsn = lsn;
@@ -375,44 +418,7 @@ export class PostgresBucketBatch
   }
 
   async keepalive(lsn: string): Promise<boolean> {
-    if (this.last_checkpoint_lsn != null && lsn < this.last_checkpoint_lsn) {
-      // No-op
-      return false;
-    }
-
-    if (lsn < this.no_checkpoint_before_lsn) {
-      return false;
-    }
-
-    if (this.persisted_op != null) {
-      // The commit may have been skipped due to "no_checkpoint_before_lsn".
-      // Apply it now if relevant
-      this.logger.info(`Commit due to keepalive at ${lsn} / ${this.persisted_op}`);
-      return await this.commit(lsn);
-    }
-
-    const updated = await this.db.sql`
-      UPDATE sync_rules
-      SET
-        last_checkpoint_lsn = ${{ type: 'varchar', value: lsn }},
-        last_fatal_error = ${{ type: 'varchar', value: null }},
-        last_keepalive_ts = ${{ type: 1184, value: new Date().toISOString() }}
-      WHERE
-        id = ${{ type: 'int4', value: this.group_id }}
-      RETURNING
-        id,
-        state,
-        last_checkpoint,
-        last_checkpoint_lsn
-    `
-      .decoded(StatefulCheckpoint)
-      .first();
-
-    await this.autoActivate(lsn);
-    await notifySyncRulesUpdate(this.db, updated!);
-
-    this.last_checkpoint_lsn = lsn;
-    return true;
+    return await this.commit(lsn);
   }
 
   async setResumeLsn(lsn: string): Promise<void> {
@@ -426,21 +432,25 @@ export class PostgresBucketBatch
   }
 
   async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
-    if (no_checkpoint_before_lsn != null && no_checkpoint_before_lsn > this.no_checkpoint_before_lsn) {
-      this.no_checkpoint_before_lsn = no_checkpoint_before_lsn;
-
-      await this.db.transaction(async (db) => {
-        await db.sql`
-          UPDATE sync_rules
-          SET
-            no_checkpoint_before = ${{ type: 'varchar', value: no_checkpoint_before_lsn }},
-            last_keepalive_ts = ${{ type: 1184, value: new Date().toISOString() }},
-            snapshot_done = TRUE
-          WHERE
-            id = ${{ type: 'int4', value: this.group_id }}
-        `.execute();
-      });
-    }
+    await this.db.transaction(async (db) => {
+      await db.sql`
+        UPDATE sync_rules
+        SET
+          snapshot_done = TRUE,
+          last_keepalive_ts = ${{ type: 1184, value: new Date().toISOString() }},
+          snapshot_lsn = NULL,
+          no_checkpoint_before = CASE
+            WHEN no_checkpoint_before IS NULL
+            OR no_checkpoint_before < ${{ type: 'varchar', value: no_checkpoint_before_lsn }} THEN ${{
+          type: 'varchar',
+          value: no_checkpoint_before_lsn
+        }}
+            ELSE no_checkpoint_before
+          END
+        WHERE
+          id = ${{ type: 'int4', value: this.group_id }}
+      `.execute();
+    });
   }
 
   async markTableSnapshotRequired(table: storage.SourceTable): Promise<void> {
@@ -476,14 +486,19 @@ export class PostgresBucketBatch
           );
       `.execute();
 
-      if (no_checkpoint_before_lsn != null && no_checkpoint_before_lsn > this.no_checkpoint_before_lsn) {
-        this.no_checkpoint_before_lsn = no_checkpoint_before_lsn;
-
+      if (no_checkpoint_before_lsn != null) {
         await db.sql`
           UPDATE sync_rules
           SET
-            no_checkpoint_before = ${{ type: 'varchar', value: no_checkpoint_before_lsn }},
-            last_keepalive_ts = ${{ type: 1184, value: new Date().toISOString() }}
+            last_keepalive_ts = ${{ type: 1184, value: new Date().toISOString() }},
+            no_checkpoint_before = CASE
+              WHEN no_checkpoint_before IS NULL
+              OR no_checkpoint_before < ${{ type: 'varchar', value: no_checkpoint_before_lsn }} THEN ${{
+            type: 'varchar',
+            value: no_checkpoint_before_lsn
+          }}
+              ELSE no_checkpoint_before
+            END
           WHERE
             id = ${{ type: 'int4', value: this.group_id }}
         `.execute();

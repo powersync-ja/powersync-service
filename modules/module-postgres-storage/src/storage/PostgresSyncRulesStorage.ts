@@ -354,7 +354,6 @@ export class PostgresSyncRulesStorage
       slot_name: this.slot_name,
       last_checkpoint_lsn: checkpoint_lsn,
       keep_alive_op: syncRules?.keepalive_op,
-      no_checkpoint_before_lsn: syncRules?.no_checkpoint_before ?? options.zeroLSN,
       resumeFromLsn: maxLsn(syncRules?.snapshot_lsn, checkpoint_lsn),
       store_current_data: options.storeCurrentData,
       skip_existing_rows: options.skipExistingRows ?? false,
