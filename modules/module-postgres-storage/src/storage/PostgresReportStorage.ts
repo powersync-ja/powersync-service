@@ -9,6 +9,7 @@ import { toInteger } from 'ix/util/tointeger.js';
 import { logger } from '@powersync/lib-services-framework';
 import { getStorageApplicationName } from '../utils/application-name.js';
 import { STORAGE_SCHEMA_NAME } from '../utils/db.js';
+import { ClientConnectionResponse } from '@powersync/service-types/dist/reports.js';
 
 export type PostgresReportStorageOptions = {
   config: NormalizedPostgresStorageConfig;
@@ -29,10 +30,10 @@ export class PostgresReportStorage implements storage.ReportStorage {
   }
 
   private parseJsDate(date: Date) {
-    const year = date.getFullYear();
-    const month = date.getMonth();
-    const today = date.getDate();
-    const day = date.getDay();
+    const year = date.getUTCFullYear();
+    const month = date.getUTCMonth();
+    const today = date.getUTCDate();
+    const day = date.getUTCDay();
     return {
       year,
       month,
@@ -106,8 +107,70 @@ export class PostgresReportStorage implements storage.ReportStorage {
     const { year, month, today } = this.parseJsDate(new Date());
     const nextDay = today + 1;
     return {
-      gte: new Date(year, month, today).toISOString(),
-      lt: new Date(year, month, nextDay).toISOString()
+      gte: new Date(Date.UTC(year, month, today)).toISOString(),
+      lt: new Date(Date.UTC(year, month, nextDay)).toISOString()
+    };
+  }
+
+  private clientsConnectionPagination(params: event_types.ClientConnectionAnalyticsRequest): {
+    mainQuery: pg_wire.Statement;
+    countQuery: pg_wire.Statement;
+  } {
+    const { cursor, limit, client_id, user_id, date_range } = params;
+    const queryLimit = limit || 100;
+    const queryParams: pg_wire.StatementParam[] = [];
+    let countQuery = `SELECT COUNT(*) AS total FROM connection_report_events`;
+    let query = `SELECT id, user_id, client_id, user_agent, sdk, jwt_exp::text AS jwt_exp, disconnected_at, connected_at::text AS connected_at, disconnected_at::text AS disconnected_at  FROM connection_report_events`;
+    let intermediateQuery = '';
+    /** Create a user_id/ client_id filter is they exist  */
+    if (client_id != null || user_id) {
+      if (client_id && !user_id) {
+        intermediateQuery += ` WHERE client_id = $1`;
+        queryParams.push({ type: 'varchar', value: client_id });
+      } else if (!client_id && user_id != null) {
+        intermediateQuery += ` WHERE user_id = $1`;
+        queryParams.push({ type: 'varchar', value: user_id });
+      } else {
+        intermediateQuery += ' WHERE client_id = $1 AND user_id = $2';
+        queryParams.push({ type: 'varchar', value: client_id! });
+        queryParams.push({ type: 'varchar', value: user_id! });
+      }
+    }
+
+    /** Create a date range filter if it exists */
+    if (date_range) {
+      const { start, end } = date_range;
+      intermediateQuery +=
+        queryParams.length === 0
+          ? ` WHERE connected_at >= $1 AND connected_at <= $2`
+          : ` AND connected_at >= $${queryParams.length + 1} AND connected_at <= $${queryParams.length + 2}`;
+      queryParams.push({ type: 1184, value: start.toISOString() });
+      queryParams.push({ type: 1184, value: end.toISOString() });
+    }
+
+    countQuery += intermediateQuery;
+
+    /** Create a cursor filter if it exists. The cursor in postgres is the last item connection date, the id is an uuid so we cant use the same logic as in MongoReportStorage.ts */
+    if (cursor) {
+      intermediateQuery +=
+        queryParams.length === 0 ? ` WHERE connected_at < $1` : ` AND connected_at < $${queryParams.length + 1}`;
+      queryParams.push({ type: 1184, value: new Date(cursor).toISOString() });
+    }
+
+    /** Order in descending connected at range to match Mongo sort=-1*/
+    intermediateQuery += ` ORDER BY connected_at DESC`;
+    query += intermediateQuery;
+
+    return {
+      mainQuery: {
+        statement: query,
+        params: queryParams,
+        limit: queryLimit
+      },
+      countQuery: {
+        statement: countQuery,
+        params: queryParams
+      }
     };
   }
 
@@ -225,6 +288,34 @@ export class PostgresReportStorage implements storage.ReportStorage {
       .first();
     return this.mapListCurrentConnectionsResponse(result);
   }
+
+  async getGeneralClientConnectionAnalytics(
+    data: event_types.ClientConnectionAnalyticsRequest
+  ): Promise<event_types.PaginatedResponse<event_types.ClientConnection>> {
+    const limit = data.limit || 100;
+    const statement = this.clientsConnectionPagination(data);
+
+    const result = await this.db.queryRows<ClientConnectionResponse>(statement.mainQuery);
+    const items = result.map((item) => ({
+      ...item,
+      /** JS Date conversion to match document schema used for Mongo storage */
+      connected_at: new Date(item.connected_at),
+      disconnected_at: item.disconnected_at ? new Date(item.disconnected_at) : undefined,
+      jwt_exp: item.jwt_exp ? new Date(item.jwt_exp) : undefined
+    }));
+    const count = items.length;
+    /** The returned total has been defaulted to 0 due to the overhead using documentCount from the mogo driver this is just to keep consistency with Mongo implementation.
+     * cursor.count has been deprecated.
+     * */
+    return {
+      items,
+      /** Setting the cursor to the connected at date of the last item in the list */
+      cursor: count === limit ? items[items.length - 1].connected_at.toISOString() : undefined,
+      count,
+      more: !(count !== limit)
+    };
+  }
+
   async deleteOldConnectionData(data: event_types.DeleteOldConnectionData): Promise<void> {
     const { date } = data;
     const result = await this.db.sql`

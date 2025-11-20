@@ -62,7 +62,7 @@ const user_four = {
 const user_old = {
   user_id: 'user_one',
   client_id: '',
-  connected_at: now,
+  connected_at: nowLess5minutes,
   sdk: 'unknown',
   user_agent: 'Dart (flutter-web) Chrome/128 android',
   jwt_exp: nowAdd5minutes
@@ -70,7 +70,7 @@ const user_old = {
 
 const user_week = {
   user_id: 'user_week',
-  client_id: 'client_week',
+  client_id: 'client_one',
   connected_at: weekAgo,
   sdk: 'powersync-js/1.24.5',
   user_agent: 'powersync-js/1.21.0 powersync-web Firefox/141 linux',
@@ -106,6 +106,16 @@ export const REPORT_TEST_USERS = {
 };
 export type ReportUserData = typeof REPORT_TEST_USERS;
 
+type LocalConnection = Partial<typeof user_expired>;
+const removeVolatileFields = <T>(connections: LocalConnection[]) => {
+  return connections.map((sdk: Partial<LocalConnection & { _id: string; disconnected_at?: Date }>) => {
+    const { _id, disconnected_at, connected_at, jwt_exp, ...rest } = sdk;
+    return {
+      ...rest
+    };
+  });
+};
+
 export async function registerReportTests(factory: storage.ReportStorage) {
   it('Should show currently connected users', async () => {
     const current = await factory.getConnectedClients();
@@ -132,5 +142,114 @@ export async function registerReportTests(factory: storage.ReportStorage) {
       end: now
     });
     expect(sdk).toMatchSnapshot();
+  });
+
+  it('Should show paginated response of all connections of specified client_id', async () => {
+    const connections = await factory.getGeneralClientConnectionAnalytics({
+      client_id: user_two.client_id
+    });
+    const cleaned = {
+      ...connections,
+      items: removeVolatileFields(connections.items)
+    };
+    expect(cleaned).toMatchSnapshot();
+  });
+
+  it('Should show paginated response of connections of specified user_id', async () => {
+    const connections = await factory.getGeneralClientConnectionAnalytics({
+      user_id: user_one.user_id
+    });
+
+    const cleaned = {
+      ...connections,
+      items: removeVolatileFields(connections.items)
+    };
+    expect(cleaned).toMatchSnapshot();
+  });
+
+  it('Should show paginated response of connections over a date range', async () => {
+    const connections = await factory.getGeneralClientConnectionAnalytics({
+      date_range: {
+        start: weekAgo,
+        end: now
+      }
+    });
+
+    const cleaned = {
+      ...connections,
+      items: removeVolatileFields(connections.items)
+    };
+    expect(cleaned).toMatchSnapshot();
+  });
+
+  it('Should show paginated response of connections over a date range of specified client_id and user_id', async () => {
+    const connections = await factory.getGeneralClientConnectionAnalytics({
+      client_id: user_one.client_id,
+      user_id: user_one.user_id,
+      date_range: {
+        start: weekAgo,
+        end: now
+      }
+    });
+
+    const cleaned = {
+      ...connections,
+      items: removeVolatileFields(connections.items)
+    };
+    expect(cleaned).toMatchSnapshot();
+  });
+
+  it('Should show paginated response of all connections with a limit', async () => {
+    const initial = await factory.getGeneralClientConnectionAnalytics({
+      limit: 4
+    });
+
+    const cursor = initial.cursor;
+    expect(cursor).toBeDefined();
+    const cleanedInitial = {
+      ...initial,
+      cursor: '<removed-for-snapshot>',
+      items: removeVolatileFields(initial.items)
+    };
+    expect(cleanedInitial).toMatchSnapshot();
+    const connections = await factory.getGeneralClientConnectionAnalytics({
+      cursor
+    });
+    const cleaned = {
+      ...connections,
+      items: removeVolatileFields(connections.items)
+    };
+    expect(cleaned).toMatchSnapshot();
+  });
+
+  it('Should show paginated response of all connections with a limit with date range', async () => {
+    const date_range = {
+      start: monthAgo,
+      end: nowLess5minutes
+    };
+    const initial = await factory.getGeneralClientConnectionAnalytics({
+      limit: 4,
+      date_range
+    });
+
+    const cursor = initial.cursor;
+    expect(cursor).toBeDefined();
+
+    const cleanedInitial = {
+      ...initial,
+      cursor: '<removed-for-snapshot>',
+      items: removeVolatileFields(initial.items)
+    };
+    expect(cleanedInitial).toMatchSnapshot();
+    const connections = await factory.getGeneralClientConnectionAnalytics({
+      cursor,
+      date_range
+    });
+
+    const cleaned = {
+      ...connections,
+      items: removeVolatileFields(initial.items)
+    };
+    expect(cleaned).toMatchSnapshot();
   });
 }
