@@ -344,6 +344,10 @@ export class PostgresSnapshotter {
   }
 
   async replicationLoop() {
+    if (this.queue.size == 0) {
+      // Special case where we start with no tables to snapshot
+      await this.markSnapshotDone();
+    }
     while (!this.abort_signal.aborted) {
       const table = this.queue.values().next().value;
       if (table == null) {
