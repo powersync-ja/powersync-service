@@ -5,10 +5,11 @@ import { Readable } from 'stream';
 import * as sync from '../../sync/sync-index.js';
 import * as util from '../../util/util-index.js';
 
+import { APIMetric, event_types } from '@powersync/service-types';
 import { authUser } from '../auth.js';
 import { routeDefinition } from '../router.js';
-import { APIMetric, event_types } from '@powersync/service-types';
 
+import { formatParamsForLogging } from '../../util/param-logging.js';
 import { maybeCompressResponseStream } from '../compression.js';
 
 export enum SyncRoutes {
@@ -42,7 +43,10 @@ export const syncStreamed = routeDefinition({
       user_agent: userAgent,
       client_id: clientId,
       user_id: payload.context.user_id,
-      bson: useBson
+      bson: useBson,
+      app_metadata: payload.params.applicationMetadata
+        ? formatParamsForLogging(payload.params.applicationMetadata)
+        : undefined
     };
     const sdkData: event_types.ConnectedUserData & event_types.ClientConnectionEventData = {
       client_id: clientId ?? '',
@@ -75,6 +79,7 @@ export const syncStreamed = routeDefinition({
 
     const controller = new AbortController();
     const tracker = new sync.RequestTracker(metricsEngine);
+
     try {
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(1);
       service_context.eventsEngine.emit(event_types.EventsEngineEventType.SDK_CONNECT_EVENT, sdkData);
@@ -133,7 +138,7 @@ export const syncStreamed = routeDefinition({
       return new router.RouterResponse({
         status: 200,
         headers: {
-          'Content-Type': useBson ? concatenatedBsonContentType : ndJsonContentType,
+          'Content-Type': 'text/event-stream', // useBson ? concatenatedBsonContentType : ndJsonContentType,
           ...encodingHeaders
         },
         data: stream,

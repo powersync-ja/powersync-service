@@ -1,10 +1,12 @@
 import { BasicRouterRequest, Context, SyncRulesBucketStorage } from '@/index.js';
-import { logger, RouterResponse, ServiceError } from '@powersync/lib-services-framework';
+import { RouterResponse, ServiceError, logger } from '@powersync/lib-services-framework';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { Readable, Writable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { describe, expect, it } from 'vitest';
+import winston from 'winston';
 import { syncStreamed } from '../../../src/routes/endpoints/sync-stream.js';
+import { DEFAULT_PARAM_LOGGING_FORMAT_OPTIONS, formatParamsForLogging } from '../../../src/util/param-logging.js';
 import { mockServiceContext } from './mocks.js';
 
 describe('Stream Route', () => {
@@ -76,6 +78,88 @@ describe('Stream Route', () => {
       const stream = response.data as Readable;
       const r = await drainWithTimeout(stream).catch((error) => error);
       expect(r.message).toContain('Simulated storage error');
+    });
+
+    it('logs the application metadata', async () => {
+      const storage = {
+        getParsedSyncRules() {
+          return new SqlSyncRules('bucket_definitions: {}');
+        },
+        watchCheckpointChanges: async function* (options) {
+          throw new Error('Simulated storage error');
+        }
+      } as Partial<SyncRulesBucketStorage>;
+      const serviceContext = mockServiceContext(storage);
+
+      // Create a custom format to capture log info objects (which include defaultMeta)
+      // Winston merges defaultMeta into the info object during formatting
+      const capturedLogs: any[] = [];
+      const captureFormat = winston.format((info) => {
+        // Capture the info object which includes defaultMeta merged in
+        capturedLogs.push({ ...info });
+        return info;
+      });
+
+      // Create a test logger with the capture format
+      const testLogger = winston.createLogger({
+        format: winston.format.combine(captureFormat(), winston.format.json()),
+        transports: [new winston.transports.Console()]
+      });
+
+      const context: Context = {
+        logger: testLogger,
+        service_context: serviceContext,
+        token_payload: {
+          exp: new Date().getTime() / 1000 + 10000,
+          iat: new Date().getTime() / 1000 - 10000,
+          sub: 'test-user'
+        }
+      };
+
+      const request: BasicRouterRequest = {
+        headers: {
+          'accept-encoding': 'gzip'
+        },
+        hostname: '',
+        protocol: 'http'
+      };
+
+      const inputMeta = {
+        test: 'test',
+        long_meta: 'a'.repeat(1000)
+      };
+
+      const response = await (syncStreamed.handler({
+        context,
+        params: {
+          applicationMetadata: inputMeta,
+          parameters: {
+            user_name: 'bob'
+          }
+        },
+        request
+      }) as Promise<RouterResponse>);
+      expect(response.status).toEqual(200);
+      const stream = response.data as Readable;
+      const r = await drainWithTimeout(stream).catch((error) => error);
+      expect(r.message).toContain('Simulated storage error');
+
+      // Find the "Sync stream started" log entry
+      const syncStartedLog = capturedLogs.find((log) => log.message === 'Sync stream started');
+      expect(syncStartedLog).toBeDefined();
+
+      // Verify that app_metadata from defaultMeta is present in the log
+      expect(syncStartedLog?.app_metadata).toBeDefined();
+      expect(syncStartedLog?.app_metadata).toEqual(formatParamsForLogging(inputMeta));
+      // Should trim long metadata
+      expect(syncStartedLog?.app_metadata.long_meta.length).toEqual(
+        DEFAULT_PARAM_LOGGING_FORMAT_OPTIONS.maxStringLength
+      );
+
+      // Verify the explicit log parameters
+      expect(syncStartedLog?.client_params).toEqual({
+        user_name: 'bob'
+      });
     });
   });
 });

@@ -1,11 +1,5 @@
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
-import {
-  BucketDescription,
-  BucketPriority,
-  RequestJwtPayload,
-  RequestParameters,
-  SqlSyncRules
-} from '@powersync/service-sync-rules';
+import { BucketDescription, BucketPriority, RequestJwtPayload } from '@powersync/service-sync-rules';
 
 import { AbortError } from 'ix/aborterror.js';
 
@@ -14,11 +8,12 @@ import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
 import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
-import { BucketChecksumState, CheckpointLine, VersionedSyncRules } from './BucketChecksumState.js';
 import { mergeAsyncIterables } from '../streams/streams-index.js';
-import { acquireSemaphoreAbortable, settledPromise, tokenStream, TokenStreamOptions } from './util.js';
-import { SyncContext } from './SyncContext.js';
+import { formatParamsForLogging } from '../util/param-logging.js';
+import { BucketChecksumState, CheckpointLine, VersionedSyncRules } from './BucketChecksumState.js';
 import { OperationsSentStats, RequestTracker, statsForBatch } from './RequestTracker.js';
+import { SyncContext } from './SyncContext.js';
+import { TokenStreamOptions, acquireSemaphoreAbortable, settledPromise, tokenStream } from './util.js';
 
 export interface SyncStreamParameters {
   syncContext: SyncContext;
@@ -52,6 +47,11 @@ export async function* streamResponse(
     isEncodingAsBson
   } = options;
   const logger = options.logger ?? defaultLogger;
+
+  logger.info('Sync stream started', {
+    client_params: params.parameters ? formatParamsForLogging(params.parameters) : undefined,
+    streams: params.streams?.subscriptions.map((subscription) => subscription.stream)
+  });
 
   // We also need to be able to abort, so we create our own controller.
   const controller = new AbortController();

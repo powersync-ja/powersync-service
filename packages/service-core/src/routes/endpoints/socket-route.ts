@@ -6,6 +6,7 @@ import { SocketRouteGenerator } from '../router-socket.js';
 import { SyncRoutes } from './sync-stream.js';
 
 import { APIMetric, event_types } from '@powersync/service-types';
+import { formatParamsForLogging } from '../../util/param-logging.js';
 
 export const syncStreamReactive: SocketRouteGenerator = (router) =>
   router.reactiveStream<util.StreamingSyncRequest, any>(SyncRoutes.STREAM, {
@@ -19,7 +20,8 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         ...logger.defaultMeta,
         user_id: context.token_payload?.sub,
         client_id: params.client_id,
-        user_agent: context.user_agent
+        user_agent: context.user_agent,
+        app_metadata: params.applicationMetadata ? formatParamsForLogging(params.applicationMetadata ?? {}) : undefined
       };
 
       const sdkData: event_types.ConnectedUserData & event_types.ClientConnectionEventData = {
@@ -97,6 +99,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         // Must be set before we start the stream
         tracker.setCompressed(connection.tracker.encoding);
       }
+
       try {
         for await (const data of sync.streamResponse({
           syncContext: syncContext,
