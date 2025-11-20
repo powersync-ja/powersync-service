@@ -22,7 +22,7 @@ import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
 export class ChangeStreamTestContext {
   private _walStream?: ChangeStream;
   private abortController = new AbortController();
-  private streamPromise?: Promise<any>;
+  private streamPromise?: Promise<PromiseSettledResult<void>>;
   public storage?: SyncRulesBucketStorage;
 
   /**
@@ -143,15 +143,19 @@ export class ChangeStreamTestContext {
   }
 
   startStreaming() {
-    this.streamPromise = this.streamer.streamChanges().catch((e) => e);
+    this.streamPromise = this.streamer
+      .streamChanges()
+      .then(() => ({ status: 'fulfilled', value: undefined }) satisfies PromiseFulfilledResult<void>)
+      .catch((reason) => ({ status: 'rejected', reason }) satisfies PromiseRejectedResult);
+    return this.streamPromise;
   }
 
   async getCheckpoint(options?: { timeout?: number }) {
     let checkpoint = await Promise.race([
       getClientCheckpoint(this.client, this.db, this.factory, { timeout: options?.timeout ?? 15_000 }),
       this.streamPromise?.then((e) => {
-        if (e != null) {
-          throw e;
+        if (e.status == 'rejected') {
+          throw e.reason;
         }
       })
     ]);

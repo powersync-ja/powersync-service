@@ -58,8 +58,9 @@ function defineResumeTest(factoryGenerator: (options?: TestStorageOptions) => Pr
     context2.storage = factory.getInstance(activeContent!);
 
     // If this test times out, it likely didn't throw the expected error here.
-    const error = await context2.startStreaming().catch((ex) => ex);
+    const result = await context2.startStreaming();
     // The ChangeStreamReplicationJob will detect this and throw a ChangeStreamInvalidatedError
-    expect(error).toBeInstanceOf(ChangeStreamInvalidatedError);
+    expect(result.status).toEqual('rejected');
+    expect((result as PromiseRejectedResult).reason).toBeInstanceOf(ChangeStreamInvalidatedError);
   });
 }
