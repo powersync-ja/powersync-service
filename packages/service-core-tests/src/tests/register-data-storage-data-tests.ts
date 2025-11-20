@@ -39,6 +39,7 @@ bucket_definitions:
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       const sourceTable = TEST_TABLE;
+      await batch.markAllSnapshotDone('1/1');
 
       await batch.save({
         sourceTable,
@@ -100,6 +101,7 @@ bucket_definitions:
 
     const sourceTable = TEST_TABLE;
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       await batch.save({
         sourceTable,
         tag: storage.SaveOperationTag.INSERT,
@@ -165,6 +167,7 @@ bucket_definitions:
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       const sourceTable = TEST_TABLE;
+      await batch.markAllSnapshotDone('1/1');
 
       await batch.save({
         sourceTable,
@@ -241,6 +244,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       const sourceTable = TEST_TABLE;
 
       await batch.save({
@@ -255,6 +259,7 @@ bucket_definitions:
     });
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       const sourceTable = TEST_TABLE;
 
       await batch.save({
@@ -287,6 +292,7 @@ bucket_definitions:
     });
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       const sourceTable = TEST_TABLE;
 
       await batch.save({
@@ -372,6 +378,7 @@ bucket_definitions:
 
     // Pre-setup
     const result1 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       const sourceTable = TEST_TABLE;
 
       await batch.save({
@@ -532,6 +539,7 @@ bucket_definitions:
 
     // Pre-setup
     const result1 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       await batch.save({
         sourceTable,
         tag: storage.SaveOperationTag.INSERT,
@@ -640,6 +648,7 @@ bucket_definitions:
 
     // Pre-setup
     const result1 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       await batch.save({
         sourceTable,
         tag: storage.SaveOperationTag.INSERT,
@@ -735,6 +744,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       const sourceTable = TEST_TABLE;
 
       const largeDescription = '0123456789'.repeat(12_000_00);
@@ -844,6 +854,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       const sourceTable = TEST_TABLE;
 
       for (let i = 1; i <= 6; i++) {
@@ -923,6 +934,7 @@ bucket_definitions:
       const bucketStorage = factory.getInstance(syncRules);
 
       await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+        await batch.markAllSnapshotDone('1/1');
         const sourceTable = TEST_TABLE;
 
         for (let i = 1; i <= 10; i++) {
@@ -1100,6 +1112,7 @@ bucket_definitions:
     const sourceTableIgnore = test_utils.makeTestTable('test_ignore', ['id']);
 
     const result1 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       // This saves a record to current_data, but not bucket_data.
       // This causes a checkpoint to be created without increasing the op_id sequence.
       await batch.save({
@@ -1144,6 +1157,7 @@ bucket_definitions:
 
     const sourceTable = TEST_TABLE;
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       await batch.save({
         sourceTable,
         tag: storage.SaveOperationTag.INSERT,
@@ -1187,6 +1201,7 @@ bucket_definitions:
 
     const sourceTable = TEST_TABLE;
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       for (let u of ['u1', 'u2', 'u3', 'u4']) {
         for (let t of ['t1', 't2', 't3', 't4']) {
           const id = `${t}_${u}`;
