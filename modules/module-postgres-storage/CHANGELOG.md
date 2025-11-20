@@ -1,5 +1,15 @@
 # @powersync/service-module-postgres-storage
 
+## 0.10.13
+
+### Patch Changes
+
+- 57f7660: General client connections analytics added
+- Updated dependencies [57f7660]
+  - @powersync/service-core@1.16.4
+  - @powersync/service-types@0.13.2
+  - @powersync/lib-service-postgres@0.4.15
+
 ## 0.10.12
 
 ### Patch Changes
