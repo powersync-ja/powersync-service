@@ -443,6 +443,16 @@ export class PostgresBucketBatch
     }
   }
 
+  async markTableSnapshotRequired(table: storage.SourceTable): Promise<void> {
+    await this.db.sql`
+      UPDATE sync_rules
+      SET
+        snapshot_done = FALSE
+      WHERE
+        id = ${{ type: 'int4', value: this.group_id }}
+    `.execute();
+  }
+
   async markTableSnapshotDone(
     tables: storage.SourceTable[],
     no_checkpoint_before_lsn?: string
