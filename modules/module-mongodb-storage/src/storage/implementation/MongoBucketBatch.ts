@@ -736,6 +736,10 @@ export class MongoBucketBatch
                 },
                 '$last_checkpoint'
               ]
+            },
+            // Unset snapshot_lsn on checkpoint
+            snapshot_lsn: {
+              $cond: ['$_can_checkpoint', { $literal: null }, '$snapshot_lsn']
             }
           }
         },
@@ -1025,9 +1029,6 @@ export class MongoBucketBatch
         },
         $max: {
           no_checkpoint_before: no_checkpoint_before_lsn
-        },
-        $unset: {
-          snapshot_lsn: 1
         }
       },
       { session: this.session }
