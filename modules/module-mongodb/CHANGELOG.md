@@ -1,5 +1,13 @@
 # @powersync/service-module-mongodb
 
+## 0.12.13
+
+### Patch Changes
+
+- Updated dependencies [57f7660]
+  - @powersync/service-core@1.16.4
+  - @powersync/service-types@0.13.2
+
 ## 0.12.12
 
 ### Patch Changes

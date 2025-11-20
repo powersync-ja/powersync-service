@@ -1,5 +1,13 @@
 # @powersync/service-core
 
+## 1.16.4
+
+### Patch Changes
+
+- 57f7660: General client connections analytics added
+- Updated dependencies [57f7660]
+  - @powersync/service-types@0.13.2
+
 ## 1.16.3
 
 ### Patch Changes
