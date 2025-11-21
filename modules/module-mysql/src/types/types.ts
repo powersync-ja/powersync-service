@@ -25,6 +25,11 @@ export interface NormalizedMySQLConnectionConfig {
   lookup?: LookupFunction;
 
   binlog_queue_memory_limit: number;
+
+  connectTimeout?: number;
+  connectionLimit?: number;
+  queueLimit?: number;
+  timeout?: number;
 }
 
 export const MySQLConnectionConfig = service_types.configFile.DataSourceConfig.and(
@@ -44,7 +49,12 @@ export const MySQLConnectionConfig = service_types.configFile.DataSourceConfig.a
 
     reject_ip_ranges: t.array(t.string).optional(),
     // The combined size of binlog events that can be queued in memory before throttling is applied.
-    binlog_queue_memory_limit: t.number.optional()
+    binlog_queue_memory_limit: t.number.optional(),
+
+    connectTimeout: t.number.optional(),
+    connectionLimit: t.number.optional(),
+    queueLimit: t.number.optional(),
+    timeout: t.number.optional()
   })
 );
 
@@ -87,6 +97,22 @@ export function normalizeConnectionConfig(options: MySQLConnectionConfig): Norma
   const username = options.username ?? uri_username ?? '';
   const password = options.password ?? uri_password ?? '';
 
+  const queryString =
+    uri.query ?? (options.uri && options.uri.includes('?') ? options.uri.split('?')[1].split('#')[0] : '');
+  const queryParams = new URLSearchParams(queryString);
+  const parseQueryParam = (key: string): number | undefined => {
+    const value = queryParams.get(key);
+    if (value == null) return undefined;
+    const num = Number(value);
+    if (isNaN(num) || num < 0) return undefined;
+    return num;
+  };
+
+  const connectTimeout = options.connectTimeout ?? parseQueryParam('connectTimeout');
+  const connectionLimit = options.connectionLimit ?? parseQueryParam('connectionLimit');
+  const queueLimit = options.queueLimit ?? parseQueryParam('queueLimit');
+  const timeout = options.timeout ?? parseQueryParam('timeout');
+
   if (hostname == '') {
     throw new ServiceError(ErrorCode.PSYNC_S1106, `MySQL connection: hostname required`);
   }
@@ -121,6 +147,11 @@ export function normalizeConnectionConfig(options: MySQLConnectionConfig): Norma
     // Binlog processing queue memory limit before throttling is applied.
     binlog_queue_memory_limit: options.binlog_queue_memory_limit ?? 50,
 
-    lookup
+    lookup,
+
+    connectTimeout,
+    connectionLimit,
+    queueLimit,
+    timeout
   };
 }
