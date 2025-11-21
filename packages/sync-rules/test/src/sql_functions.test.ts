@@ -62,7 +62,9 @@ describe('SQL functions', () => {
   });
 
   test('fixed json extract', () => {
-    const { jsonExtract, callable } = generateSqlFunctions(new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS));
+    const { jsonExtract, callable } = generateSqlFunctions(
+      new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS })
+    );
 
     expect(callable.json_extract(`{"foo": null}`, '$.foo')).toBeNull();
     expect(jsonExtract(`{"foo": null}`, '$.foo', '->>')).toBeNull();

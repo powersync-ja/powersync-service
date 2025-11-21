@@ -53,7 +53,9 @@ export class MySQLConnectionManager extends BaseObserver<MySQLConnectionManagerL
       host: this.options.hostname,
       port: this.options.port,
       user: this.options.username,
-      password: this.options.password
+      password: this.options.password,
+      // We want to avoid parsing date/time values to Date, because that drops sub-millisecond precision.
+      dateStrings: true
     });
 
     this.binlogListeners.push(listener);
