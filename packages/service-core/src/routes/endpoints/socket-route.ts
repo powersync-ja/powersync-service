@@ -20,8 +20,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         ...logger.defaultMeta,
         user_id: context.token_payload?.sub,
         client_id: params.client_id,
-        user_agent: context.user_agent,
-        app_metadata: params.app_metadata ? formatParamsForLogging(params.app_metadata ?? {}) : undefined
+        user_agent: context.user_agent
       };
 
       const sdkData: event_types.ConnectedUserData & event_types.ClientConnectionEventData = {
