@@ -102,8 +102,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       const formattedAppMetadata = params.app_metadata ? formatParamsForLogging(params.app_metadata) : undefined;
       logger.info('Sync stream started', {
         app_metadata: formattedAppMetadata,
-        client_params: params.parameters ? formatParamsForLogging(params.parameters) : undefined,
-        streams: params.streams?.subscriptions.map((subscription) => subscription.stream)
+        client_params: params.parameters ? formatParamsForLogging(params.parameters) : undefined
       });
 
       try {

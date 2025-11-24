@@ -83,8 +83,7 @@ export const syncStreamed = routeDefinition({
 
     logger.info('Sync stream started', {
       app_metadata: formattedAppMetadata,
-      client_params: payload.params.parameters ? formatParamsForLogging(payload.params.parameters) : undefined,
-      streams: payload.params.streams?.subscriptions.map((subscription) => subscription.stream)
+      client_params: payload.params.parameters ? formatParamsForLogging(payload.params.parameters) : undefined
     });
 
     try {
