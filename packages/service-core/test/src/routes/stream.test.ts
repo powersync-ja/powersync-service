@@ -92,7 +92,6 @@ describe('Stream Route', () => {
       const serviceContext = mockServiceContext(storage);
 
       // Create a custom format to capture log info objects (which include defaultMeta)
-      // Winston merges defaultMeta into the info object during formatting
       const capturedLogs: any[] = [];
       const captureFormat = winston.format((info) => {
         // Capture the info object which includes defaultMeta merged in

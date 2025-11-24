@@ -145,7 +145,7 @@ export const syncStreamed = routeDefinition({
       return new router.RouterResponse({
         status: 200,
         headers: {
-          'Content-Type': 'text/event-stream', // useBson ? concatenatedBsonContentType : ndJsonContentType,
+          'Content-Type': useBson ? concatenatedBsonContentType : ndJsonContentType,
           ...encodingHeaders
         },
         data: stream,
