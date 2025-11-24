@@ -2,4 +2,4 @@
 '@powersync/service-core': minor
 ---
 
-Added ability to specify app_metada for sync/stream requests
+Added ability to specify app_metadata for sync/stream requests
