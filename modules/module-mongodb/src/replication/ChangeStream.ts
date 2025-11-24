@@ -10,7 +10,6 @@ import {
   ServiceError
 } from '@powersync/lib-services-framework';
 import {
-  InternalOpId,
   MetricsEngine,
   RelationCache,
   SaveOperationTag,
