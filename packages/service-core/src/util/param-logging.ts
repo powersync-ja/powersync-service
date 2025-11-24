@@ -5,7 +5,7 @@ export type ParamLoggingFormatOptions = {
 
 export const DEFAULT_PARAM_LOGGING_FORMAT_OPTIONS: ParamLoggingFormatOptions = {
   maxKeyCount: 10,
-  maxStringLength: 20
+  maxStringLength: 50
 };
 
 export function formatParamsForLogging(params: Record<string, any>, options: Partial<ParamLoggingFormatOptions> = {}) {
@@ -24,7 +24,7 @@ export function formatParamsForLogging(params: Record<string, any>, options: Par
   return Object.fromEntries(
     Object.entries(params).map(([key, value], index) => {
       if (index == maxKeyCount) {
-        return ['[...]', '[...]'];
+        return ['⚠️', 'Additional parameters omitted'];
       }
 
       if (index > maxKeyCount) {

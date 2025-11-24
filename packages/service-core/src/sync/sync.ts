@@ -9,7 +9,6 @@ import * as util from '../util/util-index.js';
 
 import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
 import { mergeAsyncIterables } from '../streams/streams-index.js';
-import { formatParamsForLogging } from '../util/param-logging.js';
 import { BucketChecksumState, CheckpointLine, VersionedSyncRules } from './BucketChecksumState.js';
 import { OperationsSentStats, RequestTracker, statsForBatch } from './RequestTracker.js';
 import { SyncContext } from './SyncContext.js';
@@ -47,11 +46,6 @@ export async function* streamResponse(
     isEncodingAsBson
   } = options;
   const logger = options.logger ?? defaultLogger;
-
-  logger.info('Sync stream started', {
-    client_params: params.parameters ? formatParamsForLogging(params.parameters) : undefined,
-    streams: params.streams?.subscriptions.map((subscription) => subscription.stream)
-  });
 
   // We also need to be able to abort, so we create our own controller.
   const controller = new AbortController();

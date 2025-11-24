@@ -100,6 +100,13 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         tracker.setCompressed(connection.tracker.encoding);
       }
 
+      const formattedAppMetadata = params.app_metadata ? formatParamsForLogging(params.app_metadata) : undefined;
+      logger.info('Sync stream started', {
+        app_metadata: formattedAppMetadata,
+        client_params: params.parameters ? formatParamsForLogging(params.parameters) : undefined,
+        streams: params.streams?.subscriptions.map((subscription) => subscription.stream)
+      });
+
       try {
         for await (const data of sync.streamResponse({
           syncContext: syncContext,
@@ -182,6 +189,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         }
         logger.info(`Sync stream complete`, {
           ...tracker.getLogMeta(),
+          app_metadata: formattedAppMetadata,
           stream_ms: Date.now() - streamStart,
           close_reason: closeReason ?? 'unknown'
         });

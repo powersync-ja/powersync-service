@@ -43,8 +43,7 @@ export const syncStreamed = routeDefinition({
       user_agent: userAgent,
       client_id: clientId,
       user_id: payload.context.user_id,
-      bson: useBson,
-      app_metadata: payload.params.app_metadata ? formatParamsForLogging(payload.params.app_metadata) : undefined
+      bson: useBson
     };
     const sdkData: event_types.ConnectedUserData & event_types.ClientConnectionEventData = {
       client_id: clientId ?? '',
@@ -77,6 +76,16 @@ export const syncStreamed = routeDefinition({
 
     const controller = new AbortController();
     const tracker = new sync.RequestTracker(metricsEngine);
+
+    const formattedAppMetadata = payload.params.app_metadata
+      ? formatParamsForLogging(payload.params.app_metadata)
+      : undefined;
+
+    logger.info('Sync stream started', {
+      app_metadata: formattedAppMetadata,
+      client_params: payload.params.parameters ? formatParamsForLogging(payload.params.parameters) : undefined,
+      streams: payload.params.streams?.subscriptions.map((subscription) => subscription.stream)
+    });
 
     try {
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(1);
@@ -152,6 +161,7 @@ export const syncStreamed = routeDefinition({
           });
           logger.info(`Sync stream complete`, {
             ...tracker.getLogMeta(),
+            app_metadata: formattedAppMetadata,
             stream_ms: Date.now() - streamStart,
             close_reason: closeReason ?? 'unknown'
           });
