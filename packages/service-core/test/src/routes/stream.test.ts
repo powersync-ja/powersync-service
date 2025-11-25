@@ -133,7 +133,10 @@ describe('Stream Route', () => {
         params: {
           app_metadata: inputMeta,
           parameters: {
-            user_name: 'bob'
+            user_name: 'bob',
+            nested_object: {
+              nested_key: 'b'.repeat(1000)
+            }
           }
         },
         request
@@ -156,9 +159,16 @@ describe('Stream Route', () => {
       );
 
       // Verify the explicit log parameters
-      expect(syncStartedLog?.client_params).toEqual({
-        user_name: 'bob'
-      });
+      expect(syncStartedLog?.client_params).toEqual(
+        expect.objectContaining({
+          user_name: 'bob'
+        })
+      );
+
+      expect(typeof syncStartedLog?.client_params.nested_object).toEqual('string');
+      expect(syncStartedLog?.client_params.nested_object.length).toEqual(
+        DEFAULT_PARAM_LOGGING_FORMAT_OPTIONS.maxStringLength
+      );
     });
   });
 });
