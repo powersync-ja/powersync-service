@@ -6,7 +6,7 @@ import { pipeline } from 'stream/promises';
 import { describe, expect, it } from 'vitest';
 import winston from 'winston';
 import { syncStreamed } from '../../../src/routes/endpoints/sync-stream.js';
-import { DEFAULT_PARAM_LOGGING_FORMAT_OPTIONS, formatParamsForLogging } from '../../../src/util/param-logging.js';
+import { DEFAULT_PARAM_LOGGING_FORMAT_OPTIONS, limitParamsForLogging } from '../../../src/util/param-logging.js';
 import { mockServiceContext } from './mocks.js';
 
 describe('Stream Route', () => {
@@ -149,7 +149,7 @@ describe('Stream Route', () => {
 
       // Verify that app_metadata from defaultMeta is present in the log
       expect(syncStartedLog?.app_metadata).toBeDefined();
-      expect(syncStartedLog?.app_metadata).toEqual(formatParamsForLogging(inputMeta));
+      expect(syncStartedLog?.app_metadata).toEqual(limitParamsForLogging(inputMeta));
       // Should trim long metadata
       expect(syncStartedLog?.app_metadata.long_meta.length).toEqual(
         DEFAULT_PARAM_LOGGING_FORMAT_OPTIONS.maxStringLength

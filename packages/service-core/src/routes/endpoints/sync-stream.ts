@@ -9,7 +9,7 @@ import { APIMetric, event_types } from '@powersync/service-types';
 import { authUser } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
-import { formatParamsForLogging } from '../../util/param-logging.js';
+import { limitParamsForLogging } from '../../util/param-logging.js';
 import { maybeCompressResponseStream } from '../compression.js';
 
 export enum SyncRoutes {
@@ -78,12 +78,12 @@ export const syncStreamed = routeDefinition({
     const tracker = new sync.RequestTracker(metricsEngine);
 
     const formattedAppMetadata = payload.params.app_metadata
-      ? formatParamsForLogging(payload.params.app_metadata)
+      ? limitParamsForLogging(payload.params.app_metadata)
       : undefined;
 
     logger.info('Sync stream started', {
       app_metadata: formattedAppMetadata,
-      client_params: payload.params.parameters ? formatParamsForLogging(payload.params.parameters) : undefined
+      client_params: payload.params.parameters ? limitParamsForLogging(payload.params.parameters) : undefined
     });
 
     try {
