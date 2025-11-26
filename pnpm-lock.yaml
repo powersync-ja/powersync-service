@@ -276,8 +276,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/types
       mssql:
-        specifier: ^11.0.1
-        version: 11.0.1
+        specifier: ^12.1.1
+        version: 12.1.1
       semver:
         specifier: ^7.7.2
         version: 7.7.3
@@ -301,7 +301,7 @@ importers:
         specifier: workspace:*
         version: link:../module-postgres-storage
       '@types/mssql':
-        specifier: ^9.1.7
+        specifier: ^9.1.8
         version: 9.1.8
       '@types/semver':
         specifier: ^7.7.1
@@ -1694,8 +1694,8 @@ packages:
     resolution: {integrity: sha512-+PmQX0PiAYPMeVYe237LJAYvOMYW1j2rH5YROyS3b4CTVJum34HfRvKvAzozHAQG0TnHNdUfY9nCeUyRAs//cw==}
     engines: {node: '>=14.16'}
 
-  '@tediousjs/connection-string@0.5.0':
-    resolution: {integrity: sha512-7qSgZbincDDDFyRweCIEvZULFAw5iz/DeunhvuxpL31nfntX3P4Yd4HkHBRg9H8CdqY1e5WFN1PZIz/REL9MVQ==}
+  '@tediousjs/connection-string@0.6.0':
+    resolution: {integrity: sha512-GxlsW354Vi6QqbUgdPyQVcQjI7cZBdGV5vOYVYuCVDTylx2wl3WHR2HlhcxxHTrMigbelpXsdcZso+66uxPfow==}
 
   '@tootallnate/once@2.0.0':
     resolution: {integrity: sha512-XCuKFP5PS55gnMVu3dty8KPatLqUoy/ZYzDzAGCQ8JNFCkLXzmI7vNHCR+XpbZaMWQK/vQubr7PkYq8g470J/A==}
@@ -2692,6 +2692,10 @@ packages:
     resolution: {integrity: sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw==}
     engines: {node: '>=0.10.0'}
 
+  iconv-lite@0.7.0:
+    resolution: {integrity: sha512-cf6L2Ds3h57VVmkZe+Pn+5APsT7FpqJtEhhieDCvrE2MK5Qk9MyffgQyuxQTm6BChfeZNtcOLHp9IcWRVcIcBQ==}
+    engines: {node: '>=0.10.0'}
+
   ieee754@1.2.1:
     resolution: {integrity: sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA==}
 
@@ -3180,8 +3184,8 @@ packages:
   ms@2.1.3:
     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
 
-  mssql@11.0.1:
-    resolution: {integrity: sha512-KlGNsugoT90enKlR8/G36H0kTxPthDhmtNUCwEHvgRza5Cjpjoj+P2X6eMpFUDN7pFrJZsKadL4x990G8RBE1w==}
+  mssql@12.1.1:
+    resolution: {integrity: sha512-nUTXi0unU6p72YKe6KDR9vW2mSQWsmy1KZqV0JkaT2v3RSkxlwx4Y4srjYmH+DZNbyA53Ijp6o2OaLnLc4F2Qg==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -4019,6 +4023,10 @@ packages:
     resolution: {integrity: sha512-9AvErXXQTd6l7TDd5EmM+nxbOGyhnmdbp/8c3pw+tjaiSXW9usME90ET/CRG1LN1Y9tPMtz/p83z4Q97B4DDpw==}
     engines: {node: '>=18'}
 
+  tedious@19.1.3:
+    resolution: {integrity: sha512-6O6efTeYtcnar3Cqf/ptqJs+U10fYYjp/SHRNm3VGuCTUDys+AUgIbxWbT2kzl4baXAzuy9byV3qCgOimrRfTA==}
+    engines: {node: '>=18.17'}
+
   term-size@2.2.1:
     resolution: {integrity: sha512-wK0Ri4fOGjv/XPy8SBHZChl8CM7uMc5VML7SqiQ0zG7+J5Vr+RMQDoHa2CNT6KHUnTGIXH34UDMkPzAUyapBZg==}
     engines: {node: '>=8'}
@@ -4478,13 +4486,13 @@ snapshots:
 
   '@azure/abort-controller@2.1.2':
     dependencies:
-      tslib: 2.6.3
+      tslib: 2.8.1
 
   '@azure/core-auth@1.10.1':
     dependencies:
       '@azure/abort-controller': 2.1.2
       '@azure/core-util': 1.13.1
-      tslib: 2.6.3
+      tslib: 2.8.1
     transitivePeerDependencies:
       - supports-color
 
@@ -4496,7 +4504,7 @@ snapshots:
       '@azure/core-tracing': 1.3.1
       '@azure/core-util': 1.13.1
       '@azure/logger': 1.3.0
-      tslib: 2.6.3
+      tslib: 2.8.1
     transitivePeerDependencies:
       - supports-color
 
@@ -4529,19 +4537,19 @@ snapshots:
       '@azure/core-util': 1.13.1
       '@azure/logger': 1.3.0
       '@typespec/ts-http-runtime': 0.3.1
-      tslib: 2.6.3
+      tslib: 2.8.1
     transitivePeerDependencies:
       - supports-color
 
   '@azure/core-tracing@1.3.1':
     dependencies:
-      tslib: 2.6.3
+      tslib: 2.8.1
 
   '@azure/core-util@1.13.1':
     dependencies:
       '@azure/abort-controller': 2.1.2
       '@typespec/ts-http-runtime': 0.3.1
-      tslib: 2.6.3
+      tslib: 2.8.1
     transitivePeerDependencies:
       - supports-color
 
@@ -4557,7 +4565,7 @@ snapshots:
       '@azure/msal-browser': 4.25.1
       '@azure/msal-node': 3.8.0
       open: 10.2.0
-      tslib: 2.6.3
+      tslib: 2.8.1
     transitivePeerDependencies:
       - supports-color
 
@@ -4594,7 +4602,7 @@ snapshots:
   '@azure/logger@1.3.0':
     dependencies:
       '@typespec/ts-http-runtime': 0.3.1
-      tslib: 2.6.3
+      tslib: 2.8.1
     transitivePeerDependencies:
       - supports-color
 
@@ -5534,7 +5542,7 @@ snapshots:
     dependencies:
       defer-to-connect: 2.0.1
 
-  '@tediousjs/connection-string@0.5.0': {}
+  '@tediousjs/connection-string@0.6.0': {}
 
   '@tootallnate/once@2.0.0': {}
 
@@ -5647,7 +5655,7 @@ snapshots:
     dependencies:
       http-proxy-agent: 7.0.2
       https-proxy-agent: 7.0.6
-      tslib: 2.6.3
+      tslib: 2.8.1
     transitivePeerDependencies:
       - supports-color
 
@@ -6585,6 +6593,10 @@ snapshots:
     dependencies:
       safer-buffer: 2.1.2
 
+  iconv-lite@0.7.0:
+    dependencies:
+      safer-buffer: 2.1.2
+
   ieee754@1.2.1: {}
 
   ignore-by-default@1.0.1: {}
@@ -7035,14 +7047,13 @@ snapshots:
 
   ms@2.1.3: {}
 
-  mssql@11.0.1:
+  mssql@12.1.1:
     dependencies:
-      '@tediousjs/connection-string': 0.5.0
+      '@tediousjs/connection-string': 0.6.0
       commander: 11.1.0
       debug: 4.4.1
-      rfdc: 1.4.1
       tarn: 3.0.2
-      tedious: 18.6.1
+      tedious: 19.1.3
     transitivePeerDependencies:
       - supports-color
 
@@ -7964,6 +7975,21 @@ snapshots:
       '@types/node': 22.16.2
       bl: 6.1.4
       iconv-lite: 0.6.3
+      js-md4: 0.3.2
+      native-duplexpair: 1.0.0
+      sprintf-js: 1.1.3
+    transitivePeerDependencies:
+      - supports-color
+
+  tedious@19.1.3:
+    dependencies:
+      '@azure/core-auth': 1.10.1
+      '@azure/identity': 4.13.0
+      '@azure/keyvault-keys': 4.10.0
+      '@js-joda/core': 5.6.5
+      '@types/node': 22.16.2
+      bl: 6.1.4
+      iconv-lite: 0.7.0
       js-md4: 0.3.2
       native-duplexpair: 1.0.0
       sprintf-js: 1.1.3
