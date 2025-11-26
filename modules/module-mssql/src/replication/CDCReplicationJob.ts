@@ -2,19 +2,23 @@ import { replication } from '@powersync/service-core';
 import { MSSQLConnectionManagerFactory } from './MSSQLConnectionManagerFactory.js';
 import { container, logger as defaultLogger } from '@powersync/lib-services-framework';
 import { CDCDataExpiredError, CDCStream } from './CDCStream.js';
+import { CDCPollingOptions } from '../types/types.js';
 
 export interface CDCReplicationJobOptions extends replication.AbstractReplicationJobOptions {
   connectionFactory: MSSQLConnectionManagerFactory;
+  pollingOptions: CDCPollingOptions;
 }
 
 export class CDCReplicationJob extends replication.AbstractReplicationJob {
   private connectionFactory: MSSQLConnectionManagerFactory;
   private lastStream: CDCStream | null = null;
+  private cdcReplicationJobOptions: CDCReplicationJobOptions;
 
   constructor(options: CDCReplicationJobOptions) {
     super(options);
     this.logger = defaultLogger.child({ prefix: `[powersync_${this.options.storage.group_id}] ` });
     this.connectionFactory = options.connectionFactory;
+    this.cdcReplicationJobOptions = options;
   }
 
   async keepAlive() {
@@ -67,7 +71,8 @@ export class CDCReplicationJob extends replication.AbstractReplicationJob {
         abortSignal: this.abortController.signal,
         storage: this.options.storage,
         metrics: this.options.metrics,
-        connections: connectionManager
+        connections: connectionManager,
+        pollingOptions: this.cdcReplicationJobOptions.pollingOptions
       });
       this.lastStream = stream;
       await stream.replicate();

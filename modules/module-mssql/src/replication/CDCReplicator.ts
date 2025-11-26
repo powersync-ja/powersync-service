@@ -2,17 +2,21 @@ import { replication, storage } from '@powersync/service-core';
 import { MSSQLConnectionManagerFactory } from './MSSQLConnectionManagerFactory.js';
 import { CDCReplicationJob } from './CDCReplicationJob.js';
 import { MSSQLModule } from '../module/MSSQLModule.js';
+import { CDCPollingOptions } from '../types/types.js';
 
 export interface CDCReplicatorOptions extends replication.AbstractReplicatorOptions {
   connectionFactory: MSSQLConnectionManagerFactory;
+  pollingOptions: CDCPollingOptions;
 }
 
 export class CDCReplicator extends replication.AbstractReplicator<CDCReplicationJob> {
   private readonly connectionFactory: MSSQLConnectionManagerFactory;
+  private readonly cdcReplicatorOptions: CDCReplicatorOptions;
 
   constructor(options: CDCReplicatorOptions) {
     super(options);
     this.connectionFactory = options.connectionFactory;
+    this.cdcReplicatorOptions = options;
   }
 
   createJob(options: replication.CreateJobOptions): CDCReplicationJob {
@@ -22,7 +26,8 @@ export class CDCReplicator extends replication.AbstractReplicator<CDCReplication
       metrics: this.metrics,
       lock: options.lock,
       connectionFactory: this.connectionFactory,
-      rateLimiter: this.rateLimiter
+      rateLimiter: this.rateLimiter,
+      pollingOptions: this.cdcReplicatorOptions.pollingOptions
     });
   }
 

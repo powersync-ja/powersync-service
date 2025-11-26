@@ -5,6 +5,7 @@ import { MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
 import { LSN } from '../common/LSN.js';
 import sql from 'mssql';
 import { getMinLSN, incrementLSN } from '../utils/mssql.js';
+import { CDCPollingOptions } from '../types/types.js';
 
 enum Operation {
   DELETE = 1,
@@ -51,8 +52,7 @@ export interface CDCPollerOptions {
   eventHandler: CDCEventHandler;
   sourceTables: MSSQLSourceTable[];
   startLSN: LSN;
-  pollingBatchSize?: number;
-  pollingIntervalMs?: number;
+  pollingOptions: CDCPollingOptions;
   logger?: Logger;
 }
 
@@ -79,11 +79,11 @@ export class CDCPoller {
   }
 
   private get pollingBatchSize(): number {
-    return this.options.pollingBatchSize ?? 10;
+    return this.options.pollingOptions.batchSize;
   }
 
   private get pollingIntervalMs(): number {
-    return this.options.pollingIntervalMs ?? 1000;
+    return this.options.pollingOptions.intervalMs;
   }
 
   private get sourceTables(): MSSQLSourceTable[] {
@@ -98,9 +98,10 @@ export class CDCPoller {
   }
 
   public async replicateUntilStopped(): Promise<void> {
-    this.logger.info(`CDC polling started...`);
+    this.logger.info(`CDC polling started with interval of ${this.pollingIntervalMs}ms...`);
+    this.logger.info(`Polling a maximum of [${this.pollingBatchSize}] transactions per polling cycle.`);
     while (!this.isStopped) {
-      // Skip cycle if already polling (concurrency guard)
+      // Don't poll if already polling (concurrency guard)
       if (this.isPolling) {
         await timers.setTimeout(this.pollingIntervalMs);
         continue;
@@ -136,7 +137,8 @@ export class CDCPoller {
     this.isPolling = true;
 
     try {
-      // Calculate the polling LSN bounds for this batch
+      // Calculate the LSN bounds for this batch
+      // CDC bounds are inclusive, so the new startLSN is the currentLSN incremented by 1
       const startLSN = await incrementLSN(this.currentLSN, this.connectionManager);
 
       const { recordset: results } = await this.connectionManager.query(
@@ -148,37 +150,33 @@ export class CDCPoller {
         [{ name: 'startLSN', type: sql.VarBinary, value: startLSN.toBinary() }]
       );
 
-      // Handle case where no results returned (no new changes available)
+      // No new LSNs found, no changes to process
       if (results.length === 0) {
         return false;
       }
 
+      // The new endLSN is the largest LSN in the result
       const endLSN = LSN.fromBinary(results[results.length - 1].start_lsn);
 
-      // If startLSN is greater than or equal to endLSN, no new changes are available
-      if (startLSN.compare(endLSN) >= 0) {
-        return false;
-      }
+      this.logger.info(`Polling bounds are ${startLSN} -> ${endLSN} spanning ${results.length} transaction(s).`);
 
-      this.logger.info(`Polling bounds are ${startLSN} -> ${endLSN}. Total potential transactions: ${results.length}`);
-
-      // Poll each source table using existing pollTable() method
       let transactionCount = 0;
       for (const table of this.sourceTables) {
         const tableTransactionCount = await this.pollTable(table, { startLSN, endLSN });
         // We poll for batch size transactions, but these include transactions not applicable to our Source Tables.
-        // Each Source Table may or may not have transactions that are applicable to it, so just keep track of the highest number of transactions processedfor any Source Table.
+        // Each Source Table may or may not have transactions that are applicable to it, so just keep track of the highest number of transactions processed for any Source Table.
         if (tableTransactionCount > transactionCount) {
           transactionCount = tableTransactionCount;
         }
       }
 
+      this.logger.info(
+        `Processed ${results.length} transaction(s), including ${transactionCount} Source Table transaction(s).`
+      );
       // Call eventHandler.onCommit() with toLSN after processing all tables
       await this.eventHandler.onCommit(endLSN.toString(), transactionCount);
 
-      // Update currentLSN to toLSN
       this.currentLSN = endLSN;
-      this.logger.info(`Source Table transactions processed: ${transactionCount}.`);
 
       return true;
     } finally {
@@ -188,8 +186,8 @@ export class CDCPoller {
   }
 
   private async pollTable(table: MSSQLSourceTable, bounds: { startLSN: LSN; endLSN: LSN }): Promise<number> {
-    // Check that the minimum LSN is within the bounds
-    const minLSN = await getMinLSN(this.connectionManager, table);
+    // Ensure that the startLSN is not before the minimum LSN for the table
+    const minLSN = await getMinLSN(this.connectionManager, table.captureInstance);
     if (minLSN > bounds.endLSN) {
       return 0;
     } else if (minLSN >= bounds.startLSN) {
@@ -205,34 +203,39 @@ export class CDCPoller {
       ]
     );
 
+    let transactionCount = 0;
+    let updateBefore: any = null;
     for (const row of results) {
       const transactionLSN = LSN.fromBinary(row.__$start_lsn);
-      let updateBefore: any = null;
       switch (row.__$operation) {
         case Operation.DELETE:
           await this.eventHandler.onDelete(row, table, results.columns);
-          this.logger.info(`Processed DELETE row: ${transactionLSN}`);
+          transactionCount++;
+          this.logger.info(`Processed DELETE row LSN: ${transactionLSN}`);
           break;
         case Operation.INSERT:
           await this.eventHandler.onInsert(row, table, results.columns);
-          this.logger.info(`Processed INSERT row: ${transactionLSN}`);
+          transactionCount++;
+          this.logger.info(`Processed INSERT row LSN: ${transactionLSN}`);
           break;
         case Operation.UPDATE_BEFORE:
           updateBefore = row;
-          this.logger.info(`Processed UPDATE, before row: ${transactionLSN}`);
+          this.logger.debug(`Processed UPDATE, before row LSN: ${transactionLSN}`);
           break;
         case Operation.UPDATE_AFTER:
           if (updateBefore === null) {
             throw new ReplicationAssertionError('Missing before image for update event.');
           }
           await this.eventHandler.onUpdate(row, updateBefore, table, results.columns);
-          this.logger.info(`Processed UPDATE, after row: ${transactionLSN}`);
+          updateBefore = null;
+          transactionCount++;
+          this.logger.info(`Processed UPDATE row LSN: ${transactionLSN}`);
           break;
         default:
           this.logger.warn(`Unknown operation type [${row.__$operation}] encountered in CDC changes.`);
       }
     }
 
-    return results.length;
+    return transactionCount;
   }
 }

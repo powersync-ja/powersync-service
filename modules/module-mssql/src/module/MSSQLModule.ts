@@ -40,7 +40,8 @@ export class MSSQLModule extends replication.ReplicationModule<types.MSSQLConnec
       storageEngine: context.storageEngine,
       metricsEngine: context.metricsEngine,
       connectionFactory: connectionFactory,
-      rateLimiter: new MSSQLErrorRateLimiter()
+      rateLimiter: new MSSQLErrorRateLimiter(),
+      pollingOptions: normalisedConfig.cdcPollingOptions
     });
   }
 

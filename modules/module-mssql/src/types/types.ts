@@ -68,6 +68,18 @@ export type AuthenticationType =
   | AzureActiveDirectoryPasswordAuthentication
   | AzureActiveDirectoryServicePrincipalSecret;
 
+  
+export interface CDCPollingOptions {
+  /**
+   * Maximum number of transactions to poll per polling cycle. Defaults to 10.
+   */
+  batchSize: number;
+  /**
+   * Interval in milliseconds to wait between polling cycles. Defaults to 1 second.
+   */
+  intervalMs: number;
+}
+
 export interface NormalizedMSSQLConnectionConfig {
   id: string;
   tag: string;
@@ -81,6 +93,13 @@ export interface NormalizedMSSQLConnectionConfig {
 
   authentication?: AuthenticationType;
 
+  cdcPollingOptions: CDCPollingOptions;
+
+  /**  
+   *  Whether to trust the server certificate. Set to true for local development and self-signed certificates.
+   *  Default is false.
+  */
+  trustServerCertificate: boolean;
   lookup?: LookupFunction;
 }
 
@@ -99,6 +118,17 @@ export const MSSQLConnectionConfig = service_types.configFile.DataSourceConfig.a
       .or(AzureActiveDirectoryServicePrincipalSecret)
       .optional(),
 
+    cdcPollingOptions: t.object({
+      batchSize: t.number.optional(),
+      intervalMs: t.number.optional()
+    }).optional(),
+
+    /**  
+     *  Whether to trust the server certificate. Set to true for local development and self-signed certificates.
+     *  Default is false.
+     */
+    trustServerCertificate: t.boolean.optional(),
+
     reject_ip_ranges: t.array(t.string).optional()
   })
 );
@@ -111,7 +141,7 @@ export type MSSQLConnectionConfig = t.Decoded<typeof MSSQLConnectionConfig>;
 /**
  * Resolved version of {@link MSSQLConnectionConfig}
  */
-export type ResolvedConnectionConfig = MSSQLConnectionConfig & NormalizedMSSQLConnectionConfig;
+export type ResolvedMSSQLConnectionConfig = MSSQLConnectionConfig & NormalizedMSSQLConnectionConfig;
 
 /**
  * Validate and normalize connection options.
@@ -171,6 +201,24 @@ export function normalizeConnectionConfig(options: MSSQLConnectionConfig): Norma
     database,
 
     lookup,
-    authentication: options.authentication
+    authentication: options.authentication,
+
+    cdcPollingOptions: {
+      /**
+       * Maximum number of transactions to poll per polling cycle. Defaults to 10.
+       */
+      batchSize: options.cdcPollingOptions?.batchSize ?? 10,
+
+      /**
+       * Interval in milliseconds to wait between polling cycles. Defaults to 1 second.
+       */ 
+      intervalMs: options.cdcPollingOptions?.intervalMs ?? 1000,
+    },
+
+    trustServerCertificate: options.trustServerCertificate ?? false,
   } satisfies NormalizedMSSQLConnectionConfig;
+}
+
+export function baseUri(config: ResolvedMSSQLConnectionConfig) {
+  return `mssql://${config.hostname}:${config.port}/${config.database}`;
 }

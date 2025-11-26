@@ -10,7 +10,7 @@ import {
 } from '@powersync/lib-services-framework';
 import { getUuidReplicaIdentityBson, MetricsEngine, SourceEntityDescriptor, storage } from '@powersync/service-core';
 
-import { DatabaseInputRow, SqliteInputRow, SqliteRow, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
+import { SqliteInputRow, SqliteRow, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 
 import { ReplicationMetric } from '@powersync/service-types';
 import {
@@ -30,14 +30,16 @@ import {
   getLatestReplicatedLSN,
   isIColumnMetadata,
   isTableEnabledForCDC,
-  isWithinRetentionThreshold
+  isWithinRetentionThreshold,
+  toQualifiedTableName
 } from '../utils/mssql.js';
 import sql from 'mssql';
-import { toSqliteInputRow } from '../common/mssqls-to-sqlite.js';
+import { CDCToSqliteRow, toSqliteInputRow } from '../common/mssqls-to-sqlite.js';
 import { LSN } from '../common/LSN.js';
 import { MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
 import { MSSQLSourceTableCache } from '../common/MSSQLSourceTableCache.js';
 import { CDCEventHandler, CDCPoller } from './CDCPoller.js';
+import { CDCPollingOptions } from '../types/types.js';
 
 export interface CDCStreamOptions {
   connections: MSSQLConnectionManager;
@@ -51,6 +53,8 @@ export interface CDCStreamOptions {
    * Note that queries are streamed, so we don't keep that much data in memory.
    */
   snapshotBatchSize?: number;
+
+  pollingOptions: CDCPollingOptions;
 }
 
 export enum SnapshotStatus {
@@ -243,9 +247,11 @@ export class CDCStream {
       entity_descriptor: table,
       sync_rules: this.syncRules
     });
-    const captureInstance = await getCaptureInstance(this.connections, resolved.table);
+    const captureInstance = await getCaptureInstance({ connectionManager: this.connections, tableName: resolved.table.name, schema: resolved.table.schema });
     if (!captureInstance) {
-      throw new ServiceAssertionError(`Missing capture instance for table ${resolved.table}`);
+      throw new ServiceAssertionError(
+        `Missing capture instance for table ${toQualifiedTableName(resolved.table.schema, resolved.table.name)}`
+      );
     }
     const resolvedTable = new MSSQLSourceTable({
       sourceTable: resolved.table,
@@ -302,7 +308,6 @@ export class CDCStream {
       // 2. Wait until logical replication has caught up with all the changes between A and B.
       // Calling `markSnapshotDone(LSN B)` covers that.
       const postSnapshotLSN = await getLatestLSN(this.connections);
-      this.logger.info(`Post snapshot LSN: ${postSnapshotLSN.toString()}`);
       // Side note: A ROLLBACK would probably also be fine here, since we only read in this transaction.
       await transaction.commit();
       const [updatedSourceTable] = await batch.markSnapshotDone([table.sourceTable], postSnapshotLSN.toString());
@@ -581,6 +586,7 @@ export class CDCStream {
           eventHandler,
           sourceTables,
           startLSN,
+          pollingOptions: this.options.pollingOptions,
           logger: this.logger
         });
 
@@ -645,7 +651,7 @@ export class CDCStream {
         this.isStartingReplication = false;
       },
       onSchemaChange: async () => {
-        // Schema changes are handled separately
+        // TODO: Handle schema changes
       }
     };
   }
@@ -656,28 +662,10 @@ export class CDCStream {
    * We filter out the CDC metadata columns.
    */
   private toSqliteRow(row: any, columns: sql.IColumnMetadata): SqliteRow {
-    // CDC metadata columns in the row that should be excluded
-    const cdcMetadataColumns = ['__$operation', '__$start_lsn', '__$end_lsn', '__$seqval', '__$update_mask'];
+    const inputRow: SqliteInputRow = CDCToSqliteRow({ row, columns });
 
-    const filteredRow: DatabaseInputRow = {};
-    for (const key in row) {
-      // Skip CDC metadata columns
-      if (!cdcMetadataColumns.includes(key)) {
-        filteredRow[key] = row[key];
-      }
-    }
-
-    const inputRow: SqliteInputRow = toSqliteInputRow(filteredRow, columns);
     return this.syncRules.applyRowContext<never>(inputRow);
   }
-
-  // async ack(lsn: string, replicationStream: pgwire.ReplicationStream) {
-  //   if (lsn == ZERO_LSN) {
-  //     return;
-  //   }
-  //
-  //   replicationStream.ack(lsn);
-  // }
 
   async getReplicationLagMillis(): Promise<number | undefined> {
     if (this.oldestUncommittedChange == null) {
