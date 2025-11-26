@@ -733,6 +733,9 @@ importers:
       '@powersync/service-module-mongodb-storage':
         specifier: workspace:*
         version: link:../modules/module-mongodb-storage
+      '@powersync/service-module-mssql':
+        specifier: workspace:*
+        version: link:../modules/module-mssql
       '@powersync/service-module-mysql':
         specifier: workspace:*
         version: link:../modules/module-mysql

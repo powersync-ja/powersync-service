@@ -22,7 +22,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
   }
 
   async shutdown(): Promise<void> {
-    return this.pool.end();
+    await this.pool.end();
   }
 
   async getSourceConfig(): Promise<service_types.configFile.ResolvedDataSourceConfig> {
