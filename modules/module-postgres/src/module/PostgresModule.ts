@@ -22,8 +22,6 @@ import { getApplicationName } from '../utils/application-name.js';
 import { CustomTypeRegistry } from '../types/registry.js';
 
 export class PostgresModule extends replication.ReplicationModule<types.PostgresConnectionConfig> {
-  private customTypes: CustomTypeRegistry = new CustomTypeRegistry();
-
   constructor() {
     super({
       name: 'Postgres',
@@ -51,7 +49,7 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
   protected createReplicator(context: system.ServiceContext): replication.AbstractReplicator {
     const normalisedConfig = this.resolveConfig(this.decodedConfig!);
     const syncRuleProvider = new ConfigurationFileSyncRulesProvider(context.configuration.sync_rules);
-    const connectionFactory = new ConnectionManagerFactory(normalisedConfig, this.customTypes);
+    const connectionFactory = new ConnectionManagerFactory(normalisedConfig);
 
     return new WalStreamReplicator({
       id: this.getDefaultId(normalisedConfig.database),
@@ -69,8 +67,7 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
   private resolveConfig(config: types.PostgresConnectionConfig): types.ResolvedConnectionConfig {
     return {
       ...config,
-      ...types.normalizeConnectionConfig(config),
-      typeRegistry: this.customTypes
+      ...types.normalizeConnectionConfig(config)
     };
   }
 
@@ -79,8 +76,7 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
     const connectionManager = new PgManager(normalisedConfig, {
       idleTimeout: 30_000,
       maxSize: 1,
-      applicationName: getApplicationName(),
-      registry: this.customTypes
+      applicationName: getApplicationName()
     });
 
     try {
@@ -111,8 +107,7 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
     const connectionManager = new PgManager(normalizedConfig, {
       idleTimeout: 30_000,
       maxSize: 1,
-      applicationName: getApplicationName(),
-      registry: new CustomTypeRegistry()
+      applicationName: getApplicationName()
     });
     const connection = await connectionManager.snapshotConnection();
     try {

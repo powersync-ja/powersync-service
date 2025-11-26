@@ -114,3 +114,43 @@ export function setSessionSnapshotTime(session: mongo.ClientSession, time: bson.
     throw new ServiceAssertionError(`Session snapshotTime is already set`);
   }
 }
+
+export const createPaginatedConnectionQuery = async <T extends mongo.Document>(
+  query: mongo.Filter<T>,
+  collection: mongo.Collection<T>,
+  limit: number,
+  cursor?: string
+) => {
+  const createQuery = (cursor?: string) => {
+    if (!cursor) {
+      return query;
+    }
+    const connected_at = query.connected_at
+      ? { $lt: new Date(cursor), $gte: query.connected_at.$gte }
+      : { $lt: new Date(cursor) };
+    return {
+      ...query,
+      connected_at
+    } as mongo.Filter<T>;
+  };
+
+  const findCursor = collection.find(createQuery(cursor), {
+    sort: {
+      /** We are sorting by connected at date descending to match cursor Postgres implementation */
+      connected_at: -1
+    }
+  });
+
+  const items = await findCursor.limit(limit).toArray();
+  const count = items.length;
+  /** The returned total has been defaulted to 0 due to the overhead using documentCount from the mogo driver.
+   * cursor.count has been deprecated.
+   * */
+  return {
+    items,
+    count,
+    /** Setting the cursor to the connected at date of the last item in the list */
+    cursor: count === limit ? items[items.length - 1].connected_at.toISOString() : undefined,
+    more: !(count !== limit)
+  };
+};

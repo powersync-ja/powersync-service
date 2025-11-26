@@ -546,6 +546,7 @@ WHERE  oid = $1::regclass`,
     await q.initialize();
 
     let columns: { i: number; name: string }[] = [];
+    let columnMap: Record<string, number> = {};
     let hasRemainingData = true;
     while (hasRemainingData) {
       // Fetch 10k at a time.
@@ -565,6 +566,9 @@ WHERE  oid = $1::regclass`,
           columns = chunk.payload.map((c) => {
             return { i: i++, name: c.name };
           });
+          for (let column of chunk.payload) {
+            columnMap[column.name] = column.typeOid;
+          }
           continue;
         }
 
@@ -580,7 +584,7 @@ WHERE  oid = $1::regclass`,
         }
 
         for (const inputRecord of WalStream.getQueryData(rows)) {
-          const record = this.syncRulesRecord(inputRecord);
+          const record = this.syncRulesRecord(this.connections.types.constructRowRecord(columnMap, inputRecord));
           // This auto-flushes when the batch reaches its size limit
           await batch.save({
             tag: storage.SaveOperationTag.INSERT,

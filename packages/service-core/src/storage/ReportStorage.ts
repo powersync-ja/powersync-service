@@ -32,6 +32,13 @@ export interface ReportStorage extends AsyncDisposable {
     data: event_types.ClientConnectionReportRequest
   ): Promise<event_types.ClientConnectionReportResponse>;
   /**
+   * Get a paginated list of client connection events
+   * This will return a paginated list of connections for a client/ user ID or all if neither is provided, within a date range if provided
+   */
+  getGeneralClientConnectionAnalytics(
+    data: event_types.ClientConnectionAnalyticsRequest
+  ): Promise<event_types.PaginatedResponse<event_types.ClientConnection>>;
+  /**
    * Delete old connection data based on a specific date.
    * This is used to clean up old connection data that is no longer needed.
    */

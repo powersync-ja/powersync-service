@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.29.7
+
+### Patch Changes
+
+- fff0024: [Postgres] Fix custom type parsing on initial replication
+
 ## 0.29.6
 
 ### Patch Changes

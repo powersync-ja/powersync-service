@@ -529,13 +529,24 @@ config:
     const { pool } = context;
     await pool.query(`DROP TABLE IF EXISTS test_data`);
     await pool.query(`CREATE TYPE composite AS (foo bool, bar int4);`);
-    await pool.query(`CREATE TABLE test_data(id text primary key, description composite);`);
+    await pool.query(`CREATE TABLE test_data(id text primary key, description composite, ts timestamptz);`);
+
+    // Covered by initial replication
+    await pool.query(
+      `INSERT INTO test_data(id, description, ts) VALUES ('t1', ROW(TRUE, 1)::composite, '2025-11-17T09:11:00Z')`
+    );
 
     await context.initializeReplication();
-    await pool.query(`INSERT INTO test_data(id, description) VALUES ('t1', ROW(TRUE, 2)::composite)`);
+    // Covered by streaming replication
+    await pool.query(
+      `INSERT INTO test_data(id, description, ts) VALUES ('t2', ROW(TRUE, 2)::composite, '2025-11-17T09:12:00Z')`
+    );
 
     const data = await context.getBucketData('1#stream|0[]');
-    expect(data).toMatchObject([putOp('test_data', { id: 't1', description: '{"foo":1,"bar":2}' })]);
+    expect(data).toMatchObject([
+      putOp('test_data', { id: 't1', description: '{"foo":1,"bar":1}', ts: '2025-11-17T09:11:00.000000Z' }),
+      putOp('test_data', { id: 't2', description: '{"foo":1,"bar":2}', ts: '2025-11-17T09:12:00.000000Z' })
+    ]);
   });
 
   test('custom types in primary key', async () => {

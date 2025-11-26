@@ -1,22 +1,18 @@
-import { PgManager } from './PgManager.js';
-import { NormalizedPostgresConnectionConfig } from '../types/types.js';
-import { PgPoolOptions } from '@powersync/service-jpgwire';
 import { logger } from '@powersync/lib-services-framework';
-import { CustomTypeRegistry } from '../types/registry.js';
+import { PgPoolOptions } from '@powersync/service-jpgwire';
+import { NormalizedPostgresConnectionConfig } from '../types/types.js';
+import { PgManager } from './PgManager.js';
 
 export class ConnectionManagerFactory {
   private readonly connectionManagers = new Set<PgManager>();
   public readonly dbConnectionConfig: NormalizedPostgresConnectionConfig;
 
-  constructor(
-    dbConnectionConfig: NormalizedPostgresConnectionConfig,
-    private readonly registry: CustomTypeRegistry
-  ) {
+  constructor(dbConnectionConfig: NormalizedPostgresConnectionConfig) {
     this.dbConnectionConfig = dbConnectionConfig;
   }
 
   create(poolOptions: PgPoolOptions) {
-    const manager = new PgManager(this.dbConnectionConfig, { ...poolOptions, registry: this.registry });
+    const manager = new PgManager(this.dbConnectionConfig, { ...poolOptions });
     this.connectionManagers.add(manager);
 
     manager.registerListener({
