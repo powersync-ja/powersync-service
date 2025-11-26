@@ -30,8 +30,8 @@ export class MSSQLConnectionManager extends BaseObserver<MSSQLConnectionManagerL
       pool: poolOptions,
       options: {
         appName: `powersync/${POWERSYNC_VERSION}`,
-        encrypt: true, // for azure
-        trustServerCertificate: true // TODO: Check if this needs to be configurable change to true for local dev / self-signed certs
+        encrypt: true, // Required for Azure
+        trustServerCertificate: options.trustServerCertificate
       }
     });
   }

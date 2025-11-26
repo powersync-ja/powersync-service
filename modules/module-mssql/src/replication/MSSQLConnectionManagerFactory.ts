@@ -1,13 +1,13 @@
 import { logger } from '@powersync/lib-services-framework';
-import { ResolvedConnectionConfig } from '../types/types.js';
+import { ResolvedMSSQLConnectionConfig } from '../types/types.js';
 import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
 import sql from 'mssql';
 
 export class MSSQLConnectionManagerFactory {
   private readonly connectionManagers: Set<MSSQLConnectionManager>;
-  public readonly connectionConfig: ResolvedConnectionConfig;
+  public readonly connectionConfig: ResolvedMSSQLConnectionConfig;
 
-  constructor(connectionConfig: ResolvedConnectionConfig) {
+  constructor(connectionConfig: ResolvedMSSQLConnectionConfig) {
     this.connectionConfig = connectionConfig;
     this.connectionManagers = new Set<MSSQLConnectionManager>();
   }
