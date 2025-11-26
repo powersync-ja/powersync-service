@@ -1,11 +1,14 @@
 import sql from 'mssql';
-import { SourceTable } from '@powersync/service-core';
 import { coerce, gte } from 'semver';
 import { logger } from '@powersync/lib-services-framework';
 import { MSSQLConnectionManager } from '../replication/MSSQLConnectionManager.js';
 import { LSN } from '../common/LSN.js';
 import { CaptureInstance, MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
 import { MSSQLParameter } from '../types/mssql-data-types.js';
+import { SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
+import { getReplicationIdentityColumns, ReplicationIdentityColumnsResult, ResolvedTable } from './schema.js';
+import * as service_types from '@powersync/service-types';
+import * as sync_rules from '@powersync/service-sync-rules';
 
 export const POWERSYNC_CHECKPOINTS_TABLE = '_powersync_checkpoints';
 
@@ -211,7 +214,7 @@ export interface IsWithinRetentionThresholdOptions {
 export async function isWithinRetentionThreshold(options: IsWithinRetentionThresholdOptions): Promise<boolean> {
   const { checkpointLSN, tables, connectionManager } = options;
   for (const table of tables) {
-    const minLSN = await getMinLSN(connectionManager, table);
+    const minLSN = await getMinLSN(connectionManager, table.captureInstance);
     if (minLSN > checkpointLSN) {
       logger.warn(
         `The checkpoint LSN:[${checkpointLSN}] is older than the minimum LSN:[${minLSN}] for table ${table.sourceTable.qualifiedName}. This indicates that the checkpoint LSN is outside of the retention window.`
@@ -222,9 +225,9 @@ export async function isWithinRetentionThreshold(options: IsWithinRetentionThres
   return true;
 }
 
-export async function getMinLSN(connectionManager: MSSQLConnectionManager, table: MSSQLSourceTable): Promise<LSN> {
+export async function getMinLSN(connectionManager: MSSQLConnectionManager, captureInstance: string): Promise<LSN> {
   const { recordset: result } = await connectionManager.query(
-    `SELECT sys.fn_cdc_get_min_lsn('${table.captureInstance}') AS min_lsn`
+    `SELECT sys.fn_cdc_get_min_lsn('${captureInstance}') AS min_lsn`
   );
   const rawMinLSN: Buffer = result[0].min_lsn;
   return LSN.fromBinary(rawMinLSN);
@@ -238,10 +241,14 @@ export async function incrementLSN(lsn: LSN, connectionManager: MSSQLConnectionM
   return LSN.fromBinary(result[0].incremented_lsn);
 }
 
-export async function getCaptureInstance(
-  connectionManager: MSSQLConnectionManager,
-  table: SourceTable
-): Promise<CaptureInstance | null> {
+export interface GetCaptureInstanceOptions {
+  connectionManager: MSSQLConnectionManager;
+  tableName: string;
+  schema: string;
+}
+
+export async function getCaptureInstance(options: GetCaptureInstanceOptions): Promise<CaptureInstance | null> {
+  const { connectionManager, tableName, schema } = options;
   const { recordset: result } = await connectionManager.query(
     `
       SELECT
@@ -251,8 +258,8 @@ export async function getCaptureInstance(
         sys.tables tbl
           INNER JOIN sys.schemas sch ON tbl.schema_id = sch.schema_id
           INNER JOIN cdc.change_tables ct ON ct.source_object_id = tbl.object_id
-      WHERE sch.name = '${table.schema}'
-        AND tbl.name = '${table.name}'
+      WHERE sch.name = '${schema}'
+        AND tbl.name = '${tableName}'
         AND ct.end_lsn IS NULL;
       `
   );
@@ -297,6 +304,10 @@ export function escapeIdentifier(identifier: string): string {
   return `[${identifier}]`;
 }
 
+export function toQualifiedTableName(schema: string, tableName: string): string {
+  return `${escapeIdentifier(schema)}.${escapeIdentifier(tableName)}`;
+}
+
 export function isIColumnMetadata(obj: any): obj is sql.IColumnMetadata {
   if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
     return false;
@@ -328,4 +339,82 @@ export function addParameters(request: sql.Request, parameters: MSSQLParameter[]
     }
   }
   return request;
+}
+
+export interface GetDebugTableInfoOptions {
+  connectionManager: MSSQLConnectionManager;
+  tablePattern: TablePattern;
+  table: ResolvedTable;
+  syncRules: SqlSyncRules;
+}
+
+export async function getDebugTableInfo(options: GetDebugTableInfoOptions): Promise<service_types.TableInfo> {
+  const { connectionManager, tablePattern, table, syncRules } = options;
+  const { schema } = tablePattern;
+
+  let idColumnsResult: ReplicationIdentityColumnsResult | null = null;
+  let idColumnsError: service_types.ReplicationError | null = null;
+  try {
+    idColumnsResult = await getReplicationIdentityColumns({
+      connectionManager: connectionManager,
+      schema,
+      tableName: table.name
+    });
+  } catch (ex) {
+    idColumnsError = { level: 'fatal', message: ex.message };
+  }
+
+  const idColumns = idColumnsResult?.columns ?? [];
+  const sourceTable: sync_rules.SourceTableInterface = {
+    connectionTag: connectionManager.connectionTag,
+    schema: schema,
+    name: table.name
+  };
+  const syncData = syncRules.tableSyncsData(sourceTable);
+  const syncParameters = syncRules.tableSyncsParameters(sourceTable);
+
+  if (idColumns.length === 0 && idColumnsError == null) {
+    let message = `No replication id found for ${toQualifiedTableName(schema, table.name)}. Replica identity: ${idColumnsResult?.identity}.`;
+    if (idColumnsResult?.identity === 'default') {
+      message += ' Configure a primary key on the table.';
+    }
+    idColumnsError = { level: 'fatal', message };
+  }
+
+  let selectError: service_types.ReplicationError | null = null;
+  try {
+    await connectionManager.query(`SELECT TOP 1 * FROM [${toQualifiedTableName(schema, table.name)}]`);
+  } catch (e) {
+    selectError = { level: 'fatal', message: e.message };
+  }
+
+  // Check if CDC is enabled for the table
+  let cdcError: service_types.ReplicationError | null = null;
+  try {
+    const isEnabled = await isTableEnabledForCDC({
+      connectionManager: connectionManager,
+      table: table.name,
+      schema: schema
+    });
+    if (!isEnabled) {
+      cdcError = {
+        level: 'fatal',
+        message: `CDC is not enabled for table ${toQualifiedTableName(schema, table.name)}. Enable CDC with: sys.sp_cdc_enable_table @source_schema = '${schema}', @source_name = '${table.name}', @role_name = NULL, @supports_net_changes = 1`
+      };
+    }
+  } catch (e) {
+    cdcError = { level: 'warning', message: `Could not check CDC status: ${e.message}` };
+  }
+
+  // TODO check RLS settings for table
+
+  return {
+    schema: schema,
+    name: table.name,
+    pattern: tablePattern.isWildcard ? tablePattern.tablePattern : undefined,
+    replication_id: idColumns.map((c) => c.name),
+    data_queries: syncData,
+    parameter_queries: syncParameters,
+    errors: [idColumnsError, selectError, cdcError].filter((error) => error != null) as service_types.ReplicationError[]
+  };
 }

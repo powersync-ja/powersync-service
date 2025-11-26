@@ -66,6 +66,12 @@ export enum MSSQLExtendedUserType {
   GEOGRAPHY = 130
 }
 
+export enum MSSQLUserDefinedType {
+  VECTOR = 'vector',
+  SYSNAME = 'sysname',
+  HIERARCHYID = 'hierarchyid'
+}
+
 export interface MSSQLParameter {
   name: string;
   value: any;

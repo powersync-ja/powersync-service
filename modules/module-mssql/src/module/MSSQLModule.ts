@@ -47,7 +47,7 @@ export class MSSQLModule extends replication.ReplicationModule<types.MSSQLConnec
   /**
    * Combines base config with normalized connection settings
    */
-  private resolveConfig(config: types.MSSQLConnectionConfig): types.ResolvedConnectionConfig {
+  private resolveConfig(config: types.MSSQLConnectionConfig): types.ResolvedMSSQLConnectionConfig {
     return {
       ...config,
       ...types.normalizeConnectionConfig(config)
@@ -64,7 +64,7 @@ export class MSSQLModule extends replication.ReplicationModule<types.MSSQLConnec
     return await MSSQLModule.testConnection(normalizedConfig);
   }
 
-  static async testConnection(normalizedConfig: types.ResolvedConnectionConfig): Promise<ConnectionTestResult> {
+  static async testConnection(normalizedConfig: types.ResolvedMSSQLConnectionConfig): Promise<ConnectionTestResult> {
     const connectionManager = new MSSQLConnectionManager(normalizedConfig, { max: 1 });
     try {
       const errors = await checkSourceConfiguration(connectionManager);

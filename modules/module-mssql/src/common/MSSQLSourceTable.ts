@@ -1,5 +1,5 @@
 import { SourceTable } from '@powersync/service-core';
-import { escapeIdentifier } from '../utils/mssql.js';
+import { toQualifiedTableName } from '../utils/mssql.js';
 
 export interface CaptureInstance {
   name: string;
@@ -49,6 +49,6 @@ export class MSSQLSourceTable {
    *  Escapes this source table's name and schema for use in MSSQL queries.
    */
   toQualifiedName(): string {
-    return `${escapeIdentifier(this.sourceTable.schema)}.${escapeIdentifier(this.sourceTable.name)}`;
+    return toQualifiedTableName(this.sourceTable.schema, this.sourceTable.name);
   }
 }
