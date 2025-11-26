@@ -31,9 +31,7 @@ export class CDCReplicator extends replication.AbstractReplicator<CDCReplication
     });
   }
 
-  async cleanUp(syncRulesStorage: storage.SyncRulesBucketStorage): Promise<void> {
-    // The MySQL module does not create anything which requires cleanup on the MySQL server.
-  }
+  async cleanUp(syncRulesStorage: storage.SyncRulesBucketStorage): Promise<void> {}
 
   async stop(): Promise<void> {
     await super.stop();
@@ -59,7 +57,7 @@ export class CDCReplicator extends replication.AbstractReplicator<CDCReplication
     }
     // Measure the lag from the last commit or keepalive timestamp.
     // This is not 100% accurate since it is the commit time in the storage db rather than
-    // the source db, but it's the best we currently have for mysql.
+    // the source db, but it's the best we currently have for mssql.
     const checkpointTs = content.last_checkpoint_ts?.getTime() ?? 0;
     const keepaliveTs = content.last_keepalive_ts?.getTime() ?? 0;
     const latestTs = Math.max(checkpointTs, keepaliveTs);
