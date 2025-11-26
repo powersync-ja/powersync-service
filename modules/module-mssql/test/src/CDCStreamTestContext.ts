@@ -12,6 +12,7 @@ import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './uti
 import { CDCStream, CDCStreamOptions } from '@module/replication/CDCStream.js';
 import { MSSQLConnectionManager } from '@module/replication/MSSQLConnectionManager.js';
 import timers from 'timers/promises';
+import { CDCPollingOptions } from '@module/types/types.js';
 
 /**
  * Tests operating on the change data capture need to configure the stream and manage asynchronous
@@ -109,6 +110,10 @@ export class CDCStreamTestContext implements AsyncDisposable {
       metrics: METRICS_HELPER.metricsEngine,
       connections: this.connectionManager,
       abortSignal: this.abortController.signal,
+      pollingOptions: {
+        batchSize: 10,
+        intervalMs: 1000
+      } satisfies CDCPollingOptions,
       ...this.cdcStreamOptions
     };
     this._cdcStream = new CDCStream(options);

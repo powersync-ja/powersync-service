@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'vitest';
 import { env } from './env.js';
-import { describeWithStorage } from './util.js';
+import { createTestTable, createTestTableWithBasicId, describeWithStorage, waitForPendingCDCChanges } from './util.js';
 import { TestStorageFactory } from '@powersync/service-core';
 import { METRICS_HELPER } from '@powersync/service-core-tests';
 import { ReplicationMetric } from '@powersync/service-types';
 import * as timers from 'node:timers/promises';
 import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 import { CDCStreamTestContext } from './CDCStreamTestContext.js';
-import { enableCDCForTable } from '@module/utils/mssql.js';
+import { getLatestReplicatedLSN } from '@module/utils/mssql.js';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('batch replication', function () {
   describeWithStorage({ timeout: 240_000 }, function (factory) {
@@ -43,15 +43,14 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
       - SELECT * FROM test_data2`);
   const { connectionManager } = context;
 
-  await connectionManager.query(`CREATE TABLE test_data1 (id INT IDENTITY(1,1) PRIMARY KEY, description VARCHAR(MAX))`);
-  await enableCDCForTable({ connectionManager, table: 'test_data1' });
-  await connectionManager.query(`CREATE TABLE test_data2 (id INT IDENTITY(1,1) PRIMARY KEY, description VARCHAR(MAX))`);
-  await enableCDCForTable({ connectionManager, table: 'test_data2' });
+  await createTestTableWithBasicId(connectionManager, 'test_data1');
+  await createTestTableWithBasicId(connectionManager, 'test_data2');
 
-  await connectionManager.query(
-    `INSERT INTO test_data1(description) SELECT 'value' FROM GENERATE_SERIES(1, 1000, 1);
-    INSERT INTO test_data2(description) SELECT 'value' FROM GENERATE_SERIES(1, 10000, 1);`
-  );
+  let beforeLSN = await getLatestReplicatedLSN(connectionManager);
+  await connectionManager.query(`INSERT INTO test_data1(description) SELECT 'value' FROM GENERATE_SERIES(1, 1000, 1)`);
+  await connectionManager.query(`INSERT INTO test_data2(description) SELECT 'value' FROM GENERATE_SERIES(1, 10000, 1)`);
+
+  await waitForPendingCDCChanges(beforeLSN, connectionManager);
 
   const p = context.replicateSnapshot();
 
@@ -86,6 +85,7 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
     cdcStreamOptions: { snapshotBatchSize: 1000 }
   });
 
+  beforeLSN = await getLatestReplicatedLSN(context2.connectionManager);
   // This delete should be using one of the ids already replicated
   const {
     recordset: [id1]
@@ -101,6 +101,7 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
   } = await context2.connectionManager.query(
     `INSERT INTO test_data2(description) OUTPUT INSERTED.id VALUES ('insert1')`
   );
+  await waitForPendingCDCChanges(beforeLSN, context2.connectionManager);
 
   await context2.loadNextSyncRules();
   await context2.replicateSnapshot();

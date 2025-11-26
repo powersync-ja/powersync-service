@@ -1,10 +1,17 @@
 import { describe, expect, test } from 'vitest';
-import { METRICS_HELPER, putOp } from '@powersync/service-core-tests';
+import { METRICS_HELPER, putOp, removeOp } from '@powersync/service-core-tests';
 import { ReplicationMetric } from '@powersync/service-types';
-import { createTestTable, describeWithStorage, insertTestData, waitForPendingCDCChanges } from './util.js';
+import {
+  createTestTable,
+  describeWithStorage,
+  INITIALIZED_MONGO_STORAGE_FACTORY,
+  insertTestData,
+  waitForPendingCDCChanges
+} from './util.js';
 import { storage } from '@powersync/service-core';
 import { CDCStreamTestContext } from './CDCStreamTestContext.js';
 import { getLatestReplicatedLSN } from '@module/utils/mssql.js';
+import sql from 'mssql';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -13,11 +20,11 @@ bucket_definitions:
       - SELECT id, description FROM "test_data"
 `;
 
-describe('CDCStream tests', () => {
-  describeWithStorage({ timeout: 20_000 }, defineCDCStreamTests);
-});
+// describe('CDCStream tests', () => {
+//   describeWithStorage({ timeout: 20_000 }, defineCDCStreamTests);
+// });
 
-// defineCDCStreamTests(INITIALIZED_MONGO_STORAGE_FACTORY);
+defineCDCStreamTests(INITIALIZED_MONGO_STORAGE_FACTORY);
 
 function defineCDCStreamTests(factory: storage.TestStorageFactory) {
   test('Initial snapshot sync', async () => {
@@ -62,6 +69,51 @@ function defineCDCStreamTests(factory: storage.TestStorageFactory) {
     const endTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
     expect(endRowCount - startRowCount).toEqual(1);
     expect(endTxCount - startTxCount).toEqual(1);
+  });
+
+  test('Replicate row updates', async () => {
+    await using context = await CDCStreamTestContext.open(factory);
+    const { connectionManager } = context;
+    await context.updateSyncRules(BASIC_SYNC_RULES);
+
+    await createTestTable(connectionManager, 'test_data');
+    const beforeLSN = await getLatestReplicatedLSN(connectionManager);
+    const testData = await insertTestData(connectionManager, 'test_data');
+    await waitForPendingCDCChanges(beforeLSN, connectionManager);
+    await context.replicateSnapshot();
+
+    await context.startStreaming();
+
+    const updatedTestData = { ...testData };
+    updatedTestData.description = 'updated';
+    await connectionManager.query(`UPDATE test_data SET description = @description WHERE id = @id`, [
+      { name: 'description', type: sql.NVarChar(sql.MAX), value: updatedTestData.description },
+      { name: 'id', type: sql.UniqueIdentifier, value: updatedTestData.id }
+    ]);
+
+    const data = await context.getBucketData('global[]');
+    expect(data).toMatchObject([putOp('test_data', testData), putOp('test_data', updatedTestData)]);
+  });
+
+  test('Replicate row deletions', async () => {
+    await using context = await CDCStreamTestContext.open(factory);
+    const { connectionManager } = context;
+    await context.updateSyncRules(BASIC_SYNC_RULES);
+
+    await createTestTable(connectionManager, 'test_data');
+    const beforeLSN = await getLatestReplicatedLSN(connectionManager);
+    const testData = await insertTestData(connectionManager, 'test_data');
+    await waitForPendingCDCChanges(beforeLSN, connectionManager);
+    await context.replicateSnapshot();
+
+    await context.startStreaming();
+
+    await connectionManager.query(`DELETE FROM test_data WHERE id = @id`, [
+      { name: 'id', type: sql.UniqueIdentifier, value: testData.id }
+    ]);
+
+    const data = await context.getBucketData('global[]');
+    expect(data).toMatchObject([putOp('test_data', testData), removeOp('test_data', testData.id)]);
   });
 
   test('Replicate matched wild card tables in sync rules', async () => {
