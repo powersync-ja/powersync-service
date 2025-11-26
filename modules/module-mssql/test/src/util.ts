@@ -87,12 +87,25 @@ export async function createTestTable(connectionManager: MSSQLConnectionManager,
   await enableCDCForTable({ connectionManager, table: tableName });
 }
 
+export async function createTestTableWithBasicId(
+  connectionManager: MSSQLConnectionManager,
+  tableName: string
+): Promise<void> {
+  await connectionManager.query(`
+    CREATE TABLE ${connectionManager.schema}.${tableName} (
+      id INT IDENTITY(1,1) PRIMARY KEY,
+      description VARCHAR(MAX)
+    )
+  `);
+  await enableCDCForTable({ connectionManager, table: tableName });
+}
+
 export interface TestData {
   id: string;
   description: string;
 }
 export async function insertTestData(connectionManager: MSSQLConnectionManager, tableName: string): Promise<TestData> {
-  const id = createUUID();
+  const id = createUpperCaseUUID();
   const description = `description_${id}`;
   await connectionManager.query(
     `
@@ -170,6 +183,6 @@ export async function getClientCheckpoint(
 /**
  *  Generates a new UUID string in uppercase for testing purposes to match the SQL Server UNIQUEIDENTIFIER format.
  */
-export function createUUID(): string {
+export function createUpperCaseUUID(): string {
   return uuid().toUpperCase();
 }
