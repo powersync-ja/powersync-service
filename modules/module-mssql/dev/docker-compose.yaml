@@ -1,38 +1,39 @@
+name: mssql-dev
 services:
-  mssql:
+  mssql-dev:
     platform: linux/amd64
-    image: mcr.microsoft.com/mssql/server:2022-latest
-    container_name: mssql
+    image: mcr.microsoft.com/mssql/server:2022-latest  # 2025 Can also be used, but not on Mac 26 Tahoe due to this issue: https://github.com/microsoft/mssql-docker/issues/942
+    container_name: mssql-dev
     ports:
       - "1433:1433"
     environment:
       ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: "${SA_PASSWORD}"
+      MSSQL_SA_PASSWORD: "${ROOT_PASSWORD}"
       MSSQL_PID: "Developer"
       MSSQL_AGENT_ENABLED: "true"   # required for CDC capture/cleanup jobs
     volumes:
-      - mssql-data:/var/opt/mssql
+      - data:/var/opt/mssql
     healthcheck:
       test: [ "CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD}\" -Q \"SELECT 1;\" || exit 1" ]
       interval: 5s
       timeout: 3s
       retries: 30
 
-  mssql-setup:
+  mssql-dev-setup:
     platform: linux/amd64
-    image: mcr.microsoft.com/mssql/server:2025-latest
-    container_name: mssql-setup
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: mssql-dev-setup
     depends_on:
-      mssql:
+      mssql-dev:
         condition: service_healthy
     environment:
-      SA_PASSWORD: "${SA_PASSWORD}"
-      APP_DB: "${APP_DB:-appdb}"
-      APP_LOGIN: "${APP_LOGIN:-appuser}"
-      APP_PASSWORD: "${APP_PASSWORD:-P@ssw0rd!App}"
+      MSSQL_SA_PASSWORD: "${ROOT_PASSWORD}"
+      DATABASE: "${DATABASE}"
+      DB_USER: "${DB_USER}"
+      DB_USER_PASSWORD: "${DB_USER_PASSWORD}"
     volumes:
-      - ./scripts:/scripts:ro
-    entrypoint: ["/bin/bash", "-lc", "/opt/mssql-tools18/bin/sqlcmd -C -S mssql,1433 -U sa -P \"$SA_PASSWORD\" -i /scripts/init.sql && echo '✅ MSSQL init done'"]
+      - ./init.sql:/scripts/init.sql:ro
+    entrypoint: ["/bin/bash", "-lc", "/opt/mssql-tools18/bin/sqlcmd -C -S mssql-dev,1433 -U sa -P \"$${MSSQL_SA_PASSWORD}\" -i /scripts/init.sql && echo '✅ MSSQL init done'"]
 
 volumes:
-  mssql-data:
+  data:
