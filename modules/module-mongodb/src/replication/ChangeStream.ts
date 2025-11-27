@@ -411,8 +411,10 @@ export class ChangeStream {
   private getSourceNamespaceFilters(): { $match: any; multipleDatabases: boolean } {
     const sourceTables = this.sync_rules.getSourceTables();
 
-    let $inFilters: any[] = [{ db: this.defaultDb.databaseName, coll: CHECKPOINTS_COLLECTION }];
-    let $refilters: any[] = [];
+    let $inFilters: { db: string; coll: string }[] = [
+      { db: this.defaultDb.databaseName, coll: CHECKPOINTS_COLLECTION }
+    ];
+    let $refilters: { 'ns.db': string; 'ns.coll': RegExp }[] = [];
     let multipleDatabases = false;
     for (let tablePattern of sourceTables) {
       if (tablePattern.connectionTag != this.connections.connectionTag) {
@@ -435,10 +437,15 @@ export class ChangeStream {
         });
       }
     }
+    const nsFilter = multipleDatabases
+      ? // cluster-level: filter on the entire namespace
+        { ns: { $in: $inFilters } }
+      : // collection-level: filter on coll only
+        { 'ns.coll': { $in: $inFilters.map((ns) => ns.coll) } };
     if ($refilters.length > 0) {
-      return { $match: { $or: [{ ns: { $in: $inFilters } }, ...$refilters] }, multipleDatabases };
+      return { $match: { $or: [nsFilter, ...$refilters] }, multipleDatabases };
     }
-    return { $match: { ns: { $in: $inFilters } }, multipleDatabases };
+    return { $match: nsFilter, multipleDatabases };
   }
 
   static *getQueryData(results: Iterable<DatabaseInputRow>): Generator<SqliteInputRow> {
