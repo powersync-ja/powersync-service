@@ -511,6 +511,33 @@ describe('streams', () => {
       ]);
     });
 
+    test('OR in subquery', () => {
+      const [_, errors] = syncStreamFromSql(
+        's',
+        `select * from comments where issue_id in (select id from issues where owner_id = auth.user_id() or name = 'test')`,
+        options
+      );
+
+      expect(errors).toMatchObject([
+        expect.toBeSqlRuleError(`Stream subqueries can't use OR filters`, `owner_id = auth.user_id() or name = 'test'`)
+      ]);
+    });
+
+    test('nested subqueries', () => {
+      const [_, errors] = syncStreamFromSql(
+        's',
+        `select * from comments where issue_id in (select id from issues where owner_id in (select id from users where is_admin))`,
+        options
+      );
+
+      expect(errors).toMatchObject([
+        expect.toBeSqlRuleError(
+          `Unsupported condition for stream subqueries`,
+          `owner_id in (select id from users where is_admin`
+        )
+      ]);
+    });
+
     test('subquery with two columns', () => {
       const [_, errors] = syncStreamFromSql(
         's',
@@ -718,6 +745,95 @@ describe('streams', () => {
       const outputSchema = {};
       stream.resolveResultSets(schema, outputSchema);
       expect(Object.keys(outputSchema)).toStrictEqual(['outer']);
+    });
+
+    test('multiple matchers in subquery', async () => {
+      // https://discord.com/channels/1138230179878154300/1422138173907144724/1443338137660031117
+      const scene = new TestSourceTable('Scene');
+      const projectInvitation = new TestSourceTable('ProjectInvitation');
+      const schema = new StaticSchema([
+        {
+          tag: DEFAULT_TAG,
+          schemas: [
+            {
+              name: 'test_schema',
+              tables: [
+                {
+                  name: 'Scene',
+                  columns: [
+                    { name: '_id', pg_type: 'uuid' },
+                    { name: 'project', pg_type: 'uuid' }
+                  ]
+                },
+                {
+                  name: 'ProjectInvitation',
+                  columns: [
+                    { name: 'project', pg_type: 'uuid' },
+                    { name: 'appliedTo', pg_type: 'text' },
+                    { name: 'appliedTo', pg_type: 'text' },
+                    { name: 'status', pg_type: 'text' }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]);
+
+      const desc = parseStream(
+        `SELECT _id as id, *
+FROM "Scene"
+WHERE
+  project IN (
+    SELECT project
+    FROM "ProjectInvitation"
+    WHERE "appliedTo" != ''
+    AND (auth.parameters() ->> 'haystack_id') IN "appliedTo"
+    AND project = subscription.parameter('project')
+    AND "status" = 'CLAIMED'
+  )
+        `,
+        'stream',
+        { ...options, schema }
+      );
+
+      expect(evaluateBucketIds(desc, scene, { _id: 'scene', project: 'foo' })).toStrictEqual(['1#stream|0["foo"]']);
+
+      expect(
+        desc.evaluateParameterRow(projectInvitation, {
+          project: 'foo',
+          appliedTo: '[1,2]',
+          status: 'CLAIMED'
+        })
+      ).toStrictEqual([
+        {
+          lookup: ParameterLookup.normalized('stream', '0', [1n, 'foo']),
+          bucketParameters: [
+            {
+              result: 'foo'
+            }
+          ]
+        },
+        {
+          lookup: ParameterLookup.normalized('stream', '0', [2n, 'foo']),
+          bucketParameters: [
+            {
+              result: 'foo'
+            }
+          ]
+        }
+      ]);
+
+      expect(
+        await queryBucketIds(desc, {
+          token: { sub: 'user1', haystack_id: 1 },
+          parameters: { project: 'foo' },
+          getParameterSets(lookups) {
+            expect(lookups).toStrictEqual([ParameterLookup.normalized('stream', '0', [1n, 'foo'])]);
+            return [{ result: 'foo' }];
+          }
+        })
+      ).toStrictEqual(['1#stream|0["foo"]']);
     });
   });
 });
