@@ -17,14 +17,7 @@ container.registerDefaults();
 container.register(ContainerImplementation.REPORTER, createSentryReporter());
 
 const moduleManager = new core.modules.ModuleManager();
-moduleManager.register([
-  new CoreModule(),
-  new MongoModule(),
-  new MongoStorageModule(),
-  new MySQLModule(),
-  new PostgresModule(),
-  new PostgresStorageModule()
-]);
+moduleManager.register([new CoreModule(), new MongoModule(), new MongoStorageModule()]);
 // This is a bit of a hack. Commands such as the teardown command or even migrations might
 // want access to the ModuleManager in order to use modules
 container.register(core.ModuleManager, moduleManager);
