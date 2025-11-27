@@ -110,6 +110,8 @@ export class ChangeStream {
 
   private snapshotChunkLength: number;
 
+  private changeStreamTimeout: number;
+
   constructor(options: ChangeStreamOptions) {
     this.storage = options.storage;
     this.metrics = options.metrics;
@@ -122,6 +124,9 @@ export class ChangeStream {
     this.sync_rules = options.storage.getParsedSyncRules({
       defaultSchema: this.defaultDb.databaseName
     });
+    // The change stream aggregation command should timeout before the socket times out,
+    // so we use 90% of the socket timeout value.
+    this.changeStreamTimeout = Math.ceil(this.client.options.socketTimeoutMS * 0.9);
 
     this.abort_signal = options.abort_signal;
     this.abort_signal.addEventListener(
@@ -754,11 +759,11 @@ export class ChangeStream {
     } else {
       fullDocument = 'updateLookup';
     }
-
     const streamOptions: mongo.ChangeStreamOptions = {
       showExpandedEvents: true,
       maxAwaitTimeMS: options.maxAwaitTimeMs ?? this.maxAwaitTimeMS,
-      fullDocument: fullDocument
+      fullDocument: fullDocument,
+      maxTimeMS: this.changeStreamTimeout
     };
 
     /**
@@ -1109,6 +1114,10 @@ function mapChangeStreamError(e: any) {
   if (isMongoNetworkTimeoutError(e)) {
     // This typically has an unhelpful message like "connection 2 to 159.41.94.47:27017 timed out".
     // We wrap the error to make it more useful.
+    throw new DatabaseConnectionError(ErrorCode.PSYNC_S1345, `Timeout while reading MongoDB ChangeStream`, e);
+  } else if (isMongoServerError(e) && e.codeName == 'MaxTimeMSExpired') {
+    // maxTimeMS was reached. Example message:
+    // MongoServerError: Executor error during aggregate command on namespace: powersync_test_data.$cmd.aggregate :: caused by :: operation exceeded time limit
     throw new DatabaseConnectionError(ErrorCode.PSYNC_S1345, `Timeout while reading MongoDB ChangeStream`, e);
   } else if (
     isMongoServerError(e) &&
