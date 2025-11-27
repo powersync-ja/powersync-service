@@ -147,8 +147,9 @@ END
 GO
 
 -- Add demo data
+IF NOT EXISTS (SELECT 1 FROM dbo.lists)
 BEGIN
-    INSERT INTO dbo.lists (id, name, owner_id)
-    VALUES (NEWID(), 'Do a demo', NEWID());
+INSERT INTO dbo.lists (id, name, owner_id)
+VALUES (NEWID(), 'Do a demo', NEWID());
 END
 GO

@@ -292,3 +292,95 @@ jobs:
 
       - name: Test Storage
         run: pnpm --filter='./modules/module-mongodb-storage' test
+
+  run-mssql-tests:
+    name: MSSQL Test
+    runs-on: ubuntu-latest
+    needs: run-core-tests
+
+    env:
+      MSSQL_SA_PASSWORD: 321strong_ROOT_password
+
+    strategy:
+      fail-fast: false
+      matrix:
+        mssql-version: [2022, 2025]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Start MSSQL
+        run: |
+          docker run \
+            --name MSSQLTestDatabase \
+            --health-cmd="/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"${{ env.MSSQL_SA_PASSWORD }}\" -Q \"SELECT 1;\" || exit 1" \
+            --health-interval 5s \
+            --health-timeout 3s \
+            --health-retries 30 \
+            -e ACCEPT_EULA=Y \
+            -e MSSQL_SA_PASSWORD=${{ env.MSSQL_SA_PASSWORD }} \
+            -e MSSQL_PID=Developer \
+            -e MSSQL_AGENT_ENABLED=true \
+            -p 1433:1433 \
+            -d mcr.microsoft.com/mssql/server:${{ matrix.mssql-version }}-latest
+
+      - name: Wait for MSSQL to be healthy
+        run: |
+          timeout 120 bash -c 'until docker inspect --format="{{.State.Health.Status}}" MSSQLTestDatabase | grep -q "healthy"; do sleep 2; done'
+
+      - name: Initialize MSSQL database
+        run: |
+          docker run \
+            --rm \
+            --network host \
+            -e MSSQL_SA_PASSWORD=${{ env.MSSQL_SA_PASSWORD }} \
+            -v ${{ github.workspace }}/modules/module-mssql/ci/init-mssql.sql:/scripts/init-mssql.sql:ro \
+            mcr.microsoft.com/mssql/server:${{ matrix.mssql-version }}-latest \
+            /bin/bash -c "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"${{ env.MSSQL_SA_PASSWORD }}\" -v DATABASE=powersync -v DB_USER=sa -i /scripts/init-mssql.sql"
+
+      # The mongodb-github-action below doesn't use the Docker credentials for the pull.
+      # We pre-pull, so that the image is cached.
+      - name: Pre-pull Mongo image
+        run: docker pull mongo:8.0
+
+      - name: Start MongoDB
+        uses: supercharge/mongodb-github-action@1.12.0
+        with:
+          mongodb-version: '8.0'
+          mongodb-replica-set: test-rs
+
+      - name: Start PostgreSQL (Storage)
+        run: |
+          docker run \
+            --health-cmd pg_isready \
+            --health-interval 10s \
+            --health-timeout 5s \
+            --health-retries 5 \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=powersync_storage_test \
+            -p 5431:5432 \
+            -d postgres:18
+
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build
+        shell: bash
+        run: pnpm build
+
+      - name: Test Replication
+        run: pnpm --filter='./modules/module-mssql' test
