@@ -46,7 +46,13 @@ export const BasePostgresConnectionConfig = t.object({
    */
   slot_name_prefix: t.string.optional(),
 
-  max_pool_size: t.number.optional()
+  max_pool_size: t.number.optional(),
+
+  connect_timeout: t.number.optional(),
+  keepalives: t.number.optional(),
+  keepalives_idle: t.number.optional(),
+  keepalives_interval: t.number.optional(),
+  keepalives_count: t.number.optional()
 });
 
 export type BasePostgresConnectionConfig = t.Encoded<typeof BasePostgresConnectionConfig>;
@@ -82,6 +88,22 @@ export function normalizeConnectionConfig(options: BasePostgresConnectionConfigD
 
   const username = options.username ?? uri_username ?? '';
   const password = options.password ?? uri_password ?? '';
+
+  const queryString = uri.query ?? (options.uri && options.uri.includes('?') ? options.uri.split('?')[1].split('#')[0] : '');
+  const queryParams = new URLSearchParams(queryString);
+  const parseQueryParam = (key: string): number | undefined => {
+    const value = queryParams.get(key);
+    if (value == null) return undefined;
+    const num = Number(value);
+    if (isNaN(num) || num < 0) return undefined;
+    return num;
+  };
+
+  const connect_timeout = options.connect_timeout ?? parseQueryParam('connect_timeout');
+  const keepalives = options.keepalives ?? parseQueryParam('keepalives');
+  const keepalives_idle = options.keepalives_idle ?? parseQueryParam('keepalives_idle');
+  const keepalives_interval = options.keepalives_interval ?? parseQueryParam('keepalives_interval');
+  const keepalives_count = options.keepalives_count ?? parseQueryParam('keepalives_count');
 
   const sslmode = options.sslmode ?? 'verify-full'; // Configuration not supported via URI
   const cacert = options.cacert;
@@ -131,7 +153,13 @@ export function normalizeConnectionConfig(options: BasePostgresConnectionConfigD
     client_certificate: options.client_certificate ?? undefined,
     client_private_key: options.client_private_key ?? undefined,
 
-    max_pool_size: options.max_pool_size ?? 8
+    max_pool_size: options.max_pool_size ?? 8,
+
+    connect_timeout,
+    keepalives,
+    keepalives_idle,
+    keepalives_interval,
+    keepalives_count
   } satisfies NormalizedBasePostgresConnectionConfig;
 }
 
