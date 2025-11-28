@@ -63,6 +63,11 @@ export const DefaultAuthentication = t.object({
 });
 export type DefaultAuthentication = t.Decoded<typeof DefaultAuthentication>;
 
+export const Authentication = DefaultAuthentication.or(AzureActiveDirectoryPasswordAuthentication).or(
+  AzureActiveDirectoryServicePrincipalSecret
+);
+export type Authentication = t.Decoded<typeof Authentication>;
+
 export const AdditionalConfig = t.object({
   /**
    * Interval in milliseconds to wait between polling cycles. Defaults to 1000 milliseconds.
@@ -81,7 +86,7 @@ export const AdditionalConfig = t.object({
 });
 
 export interface AdditionalConfig {
-    /**
+  /**
    * Interval in milliseconds to wait between polling cycles. Defaults to 1000 milliseconds.
    */
   pollingIntervalMs: number;
@@ -96,11 +101,6 @@ export interface AdditionalConfig {
   trustServerCertificate: boolean;
 }
 
-export type AuthenticationType =
-  | DefaultAuthentication
-  | AzureActiveDirectoryPasswordAuthentication
-  | AzureActiveDirectoryServicePrincipalSecret;
-
 export interface NormalizedMSSQLConnectionConfig {
   id: string;
   tag: string;
@@ -112,7 +112,7 @@ export interface NormalizedMSSQLConnectionConfig {
   database: string;
   schema?: string;
 
-  authentication?: AuthenticationType;
+  authentication?: Authentication;
 
   lookup?: LookupFunction;
 
@@ -130,9 +130,7 @@ export const MSSQLConnectionConfig = service_types.configFile.DataSourceConfig.a
     hostname: t.string.optional(),
     port: service_types.configFile.portCodec.optional(),
 
-    authentication: DefaultAuthentication.or(AzureActiveDirectoryPasswordAuthentication)
-      .or(AzureActiveDirectoryServicePrincipalSecret)
-      .optional(),
+    authentication: Authentication.optional(),
 
     reject_ip_ranges: t.array(t.string).optional(),
     additionalConfig: AdditionalConfig.optional()
