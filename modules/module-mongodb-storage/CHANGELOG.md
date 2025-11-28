@@ -1,5 +1,20 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.12.13
+
+### Patch Changes
+
+- 57f7660: General client connections analytics added
+- Updated dependencies [57f7660]
+- Updated dependencies [c050acd]
+- Updated dependencies [0156d10]
+- Updated dependencies [6eee0b3]
+  - @powersync/service-core@1.17.0
+  - @powersync/service-types@0.13.2
+  - @powersync/service-sync-rules@0.29.8
+  - @powersync/lib-services-framework@0.7.11
+  - @powersync/lib-service-mongodb@0.6.13
+
 ## 0.12.12
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.29.8
+
+### Patch Changes
+
+- 0156d10: Fix compiling streams with multiple parameter matchers in a subquery.
+
 ## 0.29.7
 
 ### Patch Changes

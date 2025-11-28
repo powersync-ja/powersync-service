@@ -1,7 +1,7 @@
 {
   "name": "@powersync/lib-services-framework",
   "repository": "https://github.com/powersync-ja/powersync-service",
-  "version": "0.7.10",
+  "version": "0.7.11",
   "main": "dist/index.js",
   "type": "module",
   "types": "dist/index.d.ts",
