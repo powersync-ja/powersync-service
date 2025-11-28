@@ -442,6 +442,17 @@ export class ChangeStream {
         });
       }
     }
+
+    // When we have a large number of collections, the performance of the pipeline
+    // depends a lot on how the filters here are specified.
+    // Currently, only the multipleDatabases == false case is optimized, and the
+    // wildcard matching version is not tested (but we assume that will be more
+    // limited in the number of them).
+    // Specifically, the `ns: {$in: [...]}` version can lead to PSYNC_S1345 timeouts in
+    // some cases when we have a large number of collections.
+    // For details, see:
+    // https://github.com/powersync-ja/powersync-service/pull/417
+    // https://jira.mongodb.org/browse/SERVER-114532
     const nsFilter = multipleDatabases
       ? // cluster-level: filter on the entire namespace
         { ns: { $in: $inFilters } }
