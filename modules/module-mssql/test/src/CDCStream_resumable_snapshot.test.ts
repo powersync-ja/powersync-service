@@ -46,10 +46,9 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
   await createTestTableWithBasicId(connectionManager, 'test_data1');
   await createTestTableWithBasicId(connectionManager, 'test_data2');
 
-  let beforeLSN = await getLatestReplicatedLSN(connectionManager);
   await connectionManager.query(`INSERT INTO test_data1(description) SELECT 'value' FROM GENERATE_SERIES(1, 1000, 1)`);
+  let beforeLSN = await getLatestReplicatedLSN(connectionManager);
   await connectionManager.query(`INSERT INTO test_data2(description) SELECT 'value' FROM GENERATE_SERIES(1, 10000, 1)`);
-
   await waitForPendingCDCChanges(beforeLSN, connectionManager);
 
   const p = context.replicateSnapshot();
