@@ -1,13 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { METRICS_HELPER, putOp, removeOp } from '@powersync/service-core-tests';
 import { ReplicationMetric } from '@powersync/service-types';
-import {
-  createTestTable,
-  describeWithStorage,
-  INITIALIZED_MONGO_STORAGE_FACTORY,
-  insertTestData,
-  waitForPendingCDCChanges
-} from './util.js';
+import { createTestTable, describeWithStorage, insertTestData, waitForPendingCDCChanges } from './util.js';
 import { storage } from '@powersync/service-core';
 import { CDCStreamTestContext } from './CDCStreamTestContext.js';
 import { getLatestReplicatedLSN } from '@module/utils/mssql.js';
