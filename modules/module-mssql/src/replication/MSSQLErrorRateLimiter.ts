@@ -1,8 +1,7 @@
 import { ErrorRateLimiter } from '@powersync/service-core';
 import { setTimeout } from 'timers/promises';
-import { BinlogConfigurationError } from './BinLogStream.js';
 
-export class MySQLErrorRateLimiter implements ErrorRateLimiter {
+export class MSSQLErrorRateLimiter implements ErrorRateLimiter {
   nextAllowed: number = Date.now();
 
   async waitUntilAllowed(options?: { signal?: AbortSignal | undefined } | undefined): Promise<void> {
@@ -18,10 +17,7 @@ export class MySQLErrorRateLimiter implements ErrorRateLimiter {
 
   reportError(e: any): void {
     const message = (e.message as string) ?? '';
-    if (e instanceof BinlogConfigurationError) {
-      // Short delay
-      this.setDelay(2_000);
-    } else if (message.includes('password authentication failed')) {
+    if (message.includes('password authentication failed')) {
       this.setDelay(900_000);
     } else if (message.includes('ENOTFOUND')) {
       // DNS lookup issue - incorrect URI or deleted instance

@@ -5,6 +5,7 @@ import { CoreModule } from '@powersync/service-module-core';
 import { MongoModule } from '@powersync/service-module-mongodb';
 import { MongoStorageModule } from '@powersync/service-module-mongodb-storage';
 import { MySQLModule } from '@powersync/service-module-mysql';
+import { MSSQLModule } from '@powersync/service-module-mssql';
 import { PostgresModule } from '@powersync/service-module-postgres';
 import { PostgresStorageModule } from '@powersync/service-module-postgres-storage';
 import { startServer } from './runners/server.js';
@@ -21,6 +22,7 @@ moduleManager.register([
   new CoreModule(),
   new MongoModule(),
   new MongoStorageModule(),
+  new MSSQLModule(),
   new MySQLModule(),
   new PostgresModule(),
   new PostgresStorageModule()
