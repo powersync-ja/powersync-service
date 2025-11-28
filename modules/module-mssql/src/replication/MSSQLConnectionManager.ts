@@ -31,7 +31,7 @@ export class MSSQLConnectionManager extends BaseObserver<MSSQLConnectionManagerL
       options: {
         appName: `powersync/${POWERSYNC_VERSION}`,
         encrypt: true, // Required for Azure
-        trustServerCertificate: options.trustServerCertificate
+        trustServerCertificate: options.additionalConfig.trustServerCertificate
       }
     });
   }

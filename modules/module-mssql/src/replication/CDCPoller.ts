@@ -5,7 +5,7 @@ import { MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
 import { LSN } from '../common/LSN.js';
 import sql from 'mssql';
 import { getMinLSN, incrementLSN } from '../utils/mssql.js';
-import { CDCPollingOptions } from '../types/types.js';
+import { AdditionalConfig } from '../types/types.js';
 
 enum Operation {
   DELETE = 1,
@@ -52,8 +52,8 @@ export interface CDCPollerOptions {
   eventHandler: CDCEventHandler;
   sourceTables: MSSQLSourceTable[];
   startLSN: LSN;
-  pollingOptions: CDCPollingOptions;
   logger?: Logger;
+  additionalConfig: AdditionalConfig;
 }
 
 /**
@@ -79,11 +79,11 @@ export class CDCPoller {
   }
 
   private get pollingBatchSize(): number {
-    return this.options.pollingOptions.batchSize;
+    return this.options.additionalConfig.pollingBatchSize;
   }
 
   private get pollingIntervalMs(): number {
-    return this.options.pollingOptions.intervalMs;
+    return this.options.additionalConfig.pollingIntervalMs;
   }
 
   private get sourceTables(): MSSQLSourceTable[] {

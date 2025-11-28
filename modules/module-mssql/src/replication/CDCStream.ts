@@ -39,7 +39,7 @@ import { LSN } from '../common/LSN.js';
 import { MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
 import { MSSQLSourceTableCache } from '../common/MSSQLSourceTableCache.js';
 import { CDCEventHandler, CDCPoller } from './CDCPoller.js';
-import { CDCPollingOptions } from '../types/types.js';
+import { AdditionalConfig } from '../types/types.js';
 
 export interface CDCStreamOptions {
   connections: MSSQLConnectionManager;
@@ -54,7 +54,7 @@ export interface CDCStreamOptions {
    */
   snapshotBatchSize?: number;
 
-  pollingOptions: CDCPollingOptions;
+  additionalConfig: AdditionalConfig;
 }
 
 export enum SnapshotStatus {
@@ -589,8 +589,8 @@ export class CDCStream {
           eventHandler,
           sourceTables,
           startLSN,
-          pollingOptions: this.options.pollingOptions,
-          logger: this.logger
+          logger: this.logger,
+          additionalConfig: this.options.additionalConfig
         });
 
         this.abortSignal.addEventListener(

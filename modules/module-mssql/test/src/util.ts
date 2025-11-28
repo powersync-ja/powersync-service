@@ -37,7 +37,11 @@ export function describeWithStorage(options: TestOptions, fn: (factory: TestStor
 export const TEST_CONNECTION_OPTIONS = types.normalizeConnectionConfig({
   type: 'mssql',
   uri: TEST_URI,
-  trustServerCertificate: true
+  additionalConfig: {
+    pollingBatchSize: 10,
+    pollingIntervalMs: 1000,
+    trustServerCertificate: true
+  }
 });
 
 /**

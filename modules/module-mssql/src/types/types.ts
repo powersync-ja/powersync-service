@@ -63,22 +63,43 @@ export const DefaultAuthentication = t.object({
 });
 export type DefaultAuthentication = t.Decoded<typeof DefaultAuthentication>;
 
+export const AdditionalConfig = t.object({
+  /**
+   * Interval in milliseconds to wait between polling cycles. Defaults to 1000 milliseconds.
+   */
+  pollingIntervalMs: t.number.optional(),
+  /**
+   * Maximum number of transactions to poll per polling cycle. Defaults to 10.
+   */
+  pollingBatchSize: t.number.optional(),
+
+  /**
+   *  Whether to trust the server certificate. Set to true for local development and self-signed certificates.
+   *  Default is false.
+   */
+  trustServerCertificate: t.boolean.optional()
+});
+
+export interface AdditionalConfig {
+    /**
+   * Interval in milliseconds to wait between polling cycles. Defaults to 1000 milliseconds.
+   */
+  pollingIntervalMs: number;
+  /**
+   * Maximum number of transactions to poll per polling cycle. Defaults to 10.
+   */
+  pollingBatchSize: number;
+  /**
+   *  Whether to trust the server certificate. Set to true for local development and self-signed certificates.
+   *  Default is false.
+   */
+  trustServerCertificate: boolean;
+}
+
 export type AuthenticationType =
   | DefaultAuthentication
   | AzureActiveDirectoryPasswordAuthentication
   | AzureActiveDirectoryServicePrincipalSecret;
-
-  
-export interface CDCPollingOptions {
-  /**
-   * Maximum number of transactions to poll per polling cycle. Defaults to 10.
-   */
-  batchSize: number;
-  /**
-   * Interval in milliseconds to wait between polling cycles. Defaults to 1 second.
-   */
-  intervalMs: number;
-}
 
 export interface NormalizedMSSQLConnectionConfig {
   id: string;
@@ -93,14 +114,9 @@ export interface NormalizedMSSQLConnectionConfig {
 
   authentication?: AuthenticationType;
 
-  cdcPollingOptions: CDCPollingOptions;
-
-  /**  
-   *  Whether to trust the server certificate. Set to true for local development and self-signed certificates.
-   *  Default is false.
-  */
-  trustServerCertificate: boolean;
   lookup?: LookupFunction;
+
+  additionalConfig: AdditionalConfig;
 }
 
 export const MSSQLConnectionConfig = service_types.configFile.DataSourceConfig.and(
@@ -118,18 +134,8 @@ export const MSSQLConnectionConfig = service_types.configFile.DataSourceConfig.a
       .or(AzureActiveDirectoryServicePrincipalSecret)
       .optional(),
 
-    cdcPollingOptions: t.object({
-      batchSize: t.number.optional(),
-      intervalMs: t.number.optional()
-    }).optional(),
-
-    /**  
-     *  Whether to trust the server certificate. Set to true for local development and self-signed certificates.
-     *  Default is false.
-     */
-    trustServerCertificate: t.boolean.optional(),
-
-    reject_ip_ranges: t.array(t.string).optional()
+    reject_ip_ranges: t.array(t.string).optional(),
+    additionalConfig: AdditionalConfig.optional()
   })
 );
 
@@ -203,19 +209,11 @@ export function normalizeConnectionConfig(options: MSSQLConnectionConfig): Norma
     lookup,
     authentication: options.authentication,
 
-    cdcPollingOptions: {
-      /**
-       * Maximum number of transactions to poll per polling cycle. Defaults to 10.
-       */
-      batchSize: options.cdcPollingOptions?.batchSize ?? 10,
-
-      /**
-       * Interval in milliseconds to wait between polling cycles. Defaults to 1 second.
-       */ 
-      intervalMs: options.cdcPollingOptions?.intervalMs ?? 1000,
-    },
-
-    trustServerCertificate: options.trustServerCertificate ?? false,
+    additionalConfig: {
+      pollingIntervalMs: options.additionalConfig?.pollingIntervalMs ?? 1000,
+      pollingBatchSize: options.additionalConfig?.pollingBatchSize ?? 10,
+      trustServerCertificate: options.additionalConfig?.trustServerCertificate ?? false
+    }
   } satisfies NormalizedMSSQLConnectionConfig;
 }
 
