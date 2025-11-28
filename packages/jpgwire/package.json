@@ -5,7 +5,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "0.21.6",
+  "version": "0.21.7",
   "main": "dist/index.js",
   "license": "FSL-1.1-ALv2",
   "files": [

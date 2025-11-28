@@ -1,5 +1,17 @@
 # @powersync/service-core-tests
 
+## 0.12.13
+
+### Patch Changes
+
+- 57f7660: General client connections analytics added
+- Updated dependencies [57f7660]
+- Updated dependencies [c050acd]
+- Updated dependencies [0156d10]
+- Updated dependencies [6eee0b3]
+  - @powersync/service-core@1.17.0
+  - @powersync/service-sync-rules@0.29.8
+
 ## 0.12.12
 
 ### Patch Changes

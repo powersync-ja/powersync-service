@@ -1,5 +1,11 @@
 # @powersync/service-rsocket-router
 
+## 0.2.8
+
+### Patch Changes
+
+- @powersync/lib-services-framework@0.7.11
+
 ## 0.2.7
 
 ### Patch Changes

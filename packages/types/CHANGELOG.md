@@ -1,5 +1,11 @@
 # @powersync/service-types
 
+## 0.13.2
+
+### Patch Changes
+
+- 57f7660: General client connections analytics added
+
 ## 0.13.1
 
 ### Patch Changes
