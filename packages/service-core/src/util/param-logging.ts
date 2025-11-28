@@ -10,8 +10,8 @@ export type ParamLoggingFormatOptions = {
  * Default options for {@link limitParamsForLogging}.
  */
 export const DEFAULT_PARAM_LOGGING_FORMAT_OPTIONS: ParamLoggingFormatOptions = {
-  maxKeyCount: 10,
-  maxStringLength: 50
+  maxKeyCount: 20,
+  maxStringLength: 100
 };
 
 /**
