@@ -20,11 +20,9 @@ bucket_definitions:
       - SELECT id, description FROM "test_data"
 `;
 
-// describe('CDCStream tests', () => {
-//   describeWithStorage({ timeout: 20_000 }, defineCDCStreamTests);
-// });
-
-defineCDCStreamTests(INITIALIZED_MONGO_STORAGE_FACTORY);
+describe('CDCStream tests', () => {
+  describeWithStorage({ timeout: 20_000 }, defineCDCStreamTests);
+});
 
 function defineCDCStreamTests(factory: storage.TestStorageFactory) {
   test('Initial snapshot sync', async () => {

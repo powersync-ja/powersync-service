@@ -166,13 +166,12 @@ export async function getClientCheckpoint(
   while (Date.now() - start < timeout) {
     const storage = await storageFactory.getActiveStorage();
     const cp = await storage?.getCheckpoint();
-    if (cp == null) {
-      throw new Error('No sync rules available');
-    }
-    lastCp = cp;
-    if (cp.lsn != null && cp.lsn >= lsn.toString()) {
-      logger.info(`Got write checkpoint: ${lsn} : ${cp.checkpoint}`);
-      return cp.checkpoint;
+    if (cp != null) {
+      lastCp = cp;
+      if (cp.lsn != null && cp.lsn >= lsn.toString()) {
+        logger.info(`Got write checkpoint: ${lsn} : ${cp.checkpoint}`);
+        return cp.checkpoint;
+      }
     }
 
     await new Promise((resolve) => setTimeout(resolve, 30));

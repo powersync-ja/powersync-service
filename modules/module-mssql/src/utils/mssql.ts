@@ -319,7 +319,7 @@ export function isIColumnMetadata(obj: any): obj is sql.IColumnMetadata {
     propertiesMatched =
       typeof property.index === 'number' &&
       typeof property.name === 'string' &&
-      typeof property.length === 'number' &&
+      (typeof property.length === 'number' || typeof property.length === 'undefined') &&
       (typeof property.type === 'function' || typeof property.type === 'object') &&
       typeof property.nullable === 'boolean' &&
       typeof property.caseSensitive === 'boolean' &&

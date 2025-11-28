@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'vitest';
 import { env } from './env.js';
-import { createTestTable, createTestTableWithBasicId, describeWithStorage, waitForPendingCDCChanges } from './util.js';
+import { createTestTableWithBasicId, describeWithStorage, waitForPendingCDCChanges } from './util.js';
 import { TestStorageFactory } from '@powersync/service-core';
 import { METRICS_HELPER } from '@powersync/service-core-tests';
 import { ReplicationMetric } from '@powersync/service-types';
 import * as timers from 'node:timers/promises';
-import { ReplicationAbortedError } from '@powersync/lib-services-framework';
+import { logger, ReplicationAbortedError } from '@powersync/lib-services-framework';
 import { CDCStreamTestContext } from './CDCStreamTestContext.js';
 import { getLatestReplicatedLSN } from '@module/utils/mssql.js';
 
@@ -64,6 +64,7 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
           ((await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0) - startRowCount;
 
         if (count >= stopAfter) {
+          logger.info(`Stopped initial replication after replicating ${count} rows.`);
           break;
         }
         await timers.setTimeout(1);
@@ -85,22 +86,28 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
     cdcStreamOptions: { snapshotBatchSize: 1000 }
   });
 
-  beforeLSN = await getLatestReplicatedLSN(context2.connectionManager);
   // This delete should be using one of the ids already replicated
   const {
-    recordset: [id1]
+    recordset: [deleteResult]
   } = await context2.connectionManager.query(`DELETE TOP (1) FROM test_data2 OUTPUT DELETED.id`);
   // This update should also be using one of the ids already replicated
+  const id1 = deleteResult.id;
+  logger.info(`Deleted row with id: ${id1}`);
   const {
-    recordset: [id2]
+    recordset: [updateResult]
   } = await context2.connectionManager.query(
     `UPDATE test_data2 SET description = 'update1' OUTPUT INSERTED.id WHERE id = (SELECT TOP 1 id FROM test_data2)`
   );
+  const id2 = updateResult.id;
+  logger.info(`Updated row with id: ${id2}`);
+  beforeLSN = await getLatestReplicatedLSN(context2.connectionManager);
   const {
-    recordset: [id3]
+    recordset: [insertResult]
   } = await context2.connectionManager.query(
     `INSERT INTO test_data2(description) OUTPUT INSERTED.id VALUES ('insert1')`
   );
+  const id3 = insertResult.id;
+  logger.info(`Inserted row with id: ${id3}`);
   await waitForPendingCDCChanges(beforeLSN, context2.connectionManager);
 
   await context2.loadNextSyncRules();

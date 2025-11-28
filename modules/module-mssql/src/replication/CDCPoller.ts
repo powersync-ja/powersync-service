@@ -99,7 +99,7 @@ export class CDCPoller {
 
   public async replicateUntilStopped(): Promise<void> {
     this.logger.info(`CDC polling started with interval of ${this.pollingIntervalMs}ms...`);
-    this.logger.info(`Polling a maximum of [${this.pollingBatchSize}] transactions per polling cycle.`);
+    this.logger.info(`Polling a maximum of ${this.pollingBatchSize} transactions per polling cycle.`);
     while (!this.isStopped) {
       // Don't poll if already polling (concurrency guard)
       if (this.isPolling) {
@@ -205,17 +205,16 @@ export class CDCPoller {
 
     let transactionCount = 0;
     let updateBefore: any = null;
+    let lastTransactionLSN: LSN | null = null;
     for (const row of results) {
       const transactionLSN = LSN.fromBinary(row.__$start_lsn);
       switch (row.__$operation) {
         case Operation.DELETE:
           await this.eventHandler.onDelete(row, table, results.columns);
-          transactionCount++;
           this.logger.info(`Processed DELETE row LSN: ${transactionLSN}`);
           break;
         case Operation.INSERT:
           await this.eventHandler.onInsert(row, table, results.columns);
-          transactionCount++;
           this.logger.info(`Processed INSERT row LSN: ${transactionLSN}`);
           break;
         case Operation.UPDATE_BEFORE:
@@ -228,11 +227,18 @@ export class CDCPoller {
           }
           await this.eventHandler.onUpdate(row, updateBefore, table, results.columns);
           updateBefore = null;
-          transactionCount++;
           this.logger.info(`Processed UPDATE row LSN: ${transactionLSN}`);
           break;
         default:
           this.logger.warn(`Unknown operation type [${row.__$operation}] encountered in CDC changes.`);
+      }
+
+      // Increment transaction count when we encounter a new transaction LSN (except for UPDATE_BEFORE rows)
+      if (transactionLSN != lastTransactionLSN) {
+        lastTransactionLSN = transactionLSN;
+        if (row.__$operation !== Operation.UPDATE_BEFORE) {
+          transactionCount++;
+        }
       }
     }
 

@@ -247,7 +247,11 @@ export class CDCStream {
       entity_descriptor: table,
       sync_rules: this.syncRules
     });
-    const captureInstance = await getCaptureInstance({ connectionManager: this.connections, tableName: resolved.table.name, schema: resolved.table.schema });
+    const captureInstance = await getCaptureInstance({
+      connectionManager: this.connections,
+      tableName: resolved.table.name,
+      schema: resolved.table.schema
+    });
     if (!captureInstance) {
       throw new ServiceAssertionError(
         `Missing capture instance for table ${toQualifiedTableName(resolved.table.schema, resolved.table.name)}`
@@ -361,7 +365,6 @@ export class CDCStream {
     }
     await query.initialize();
 
-    let columns: sql.IColumnMetadata | null = null;
     let hasRemainingData = true;
     while (hasRemainingData) {
       // Fetch 10k at a time.
@@ -369,6 +372,7 @@ export class CDCStream {
       // and not spending too much time on each FETCH call.
       // We aim for a couple of seconds on each FETCH call.
       let batchReplicatedCount = 0;
+      let columns: sql.IColumnMetadata | null = null;
       const cursor = query.next();
       for await (const result of cursor) {
         if (columns == null && isIColumnMetadata(result)) {
@@ -451,7 +455,6 @@ export class CDCStream {
        WHERE object_id = OBJECT_ID('${table.toQualifiedName()}')
        AND index_id < 2;`
     );
-    // TODO Fallback query in case user does not have permission?
     return result[0].total_rows ?? -1;
   }
 
