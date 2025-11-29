@@ -1,6 +1,7 @@
 import { container, logger } from '@powersync/lib-services-framework';
 import * as core from '@powersync/service-core';
 
+import { loadModules } from '../util/module-loader.js';
 import { logBooting } from '../util/version.js';
 import { registerReplicationServices } from './stream-worker.js';
 
@@ -11,14 +12,19 @@ export const startUnifiedRunner = async (runnerConfig: core.utils.RunnerConfig) 
   logBooting('Unified Container');
 
   const config = await core.utils.loadConfig(runnerConfig);
+
+  const moduleManager = container.getImplementation(core.modules.ModuleManager);
+  const modules = await loadModules(config);
+  if (modules.length > 0) {
+    moduleManager.register(modules);
+  }
+
   const serviceContext = new core.system.ServiceContextContainer({
     serviceMode: core.system.ServiceContextMode.UNIFIED,
     configuration: config
   });
-
   registerReplicationServices(serviceContext);
 
-  const moduleManager = container.getImplementation(core.modules.ModuleManager);
   await moduleManager.initialize(serviceContext);
 
   await core.migrations.ensureAutomaticMigrations({
