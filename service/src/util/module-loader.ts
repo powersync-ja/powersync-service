@@ -14,8 +14,6 @@ const ModuleMap: DynamicModuleMap = {
 
 /**
  * Utility function to dynamically load and instantiate modules.
- * This function can optionally be moved to its own file (e.g., module-loader.ts)
- * for better separation of concerns if the file gets much larger.
  */
 export async function loadModules(config: core.ResolvedPowerSyncConfig) {
   // 1. Determine required connections: Unique types from connections + storage type
@@ -46,7 +44,7 @@ export async function loadModules(config: core.ResolvedPowerSyncConfig) {
     } catch (error) {
       // Log an error if the dynamic import fails (e.g., module not installed)
       logger.error(`Failed to load module for ${connectionType}:`, error);
-      return null;
+      throw error;
     }
   });
 
