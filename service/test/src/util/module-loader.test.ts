@@ -1,4 +1,4 @@
-import { describe, test, expect, it } from 'vitest';
+import { vi, describe, test, expect, it } from 'vitest';
 
 import { logger } from '@powersync/lib-services-framework';
 
@@ -18,7 +18,6 @@ describe('module loader', () => {
       connections: [{ type: 'mysql' }, { type: 'postgresql' }],
       storage: { type: 'postgresql' } // This should result in 'postgresql-storage'
     };
-
     const modules = await loadModules(config);
 
     expect(modules.length).toBe(3);
@@ -57,29 +56,34 @@ describe('module loader', () => {
     expect(modules.filter((m) => m instanceof PostgresModule).length).toBe(0);
   });
 
-  it('should filter out modules not found in ModuleMap', async () => {
+  it('should throw an error if any modules are not found in ModuleMap', async () => {
     const config: MockConfig = {
       connections: [{ type: 'mysql' }, { type: 'redis' }], // unknown-db is missing
       storage: { type: 'postgresql' }
     };
 
-    const modules = await loadModules(config);
-
-    // Expect 2 modules: mysql and postgresql-storage
-    expect(modules.length).toBe(2);
-    expect(modules.every((m) => m instanceof MySQLModule || m instanceof PostgresStorageModule)).toBe(true);
+    await expect(loadModules(config)).rejects.toThrowError();
   });
 
-  it('should filter out modules that fail to import and log an error', async () => {
+  it('should throw an error if one dynamic connection module import fails', async () => {
+    vi.doMock('../../../src/util/module-loader.js', async (importOriginal) => {
+      const mod = await importOriginal();
+      mod.ConnectionModuleMap.mysql = () =>
+        import('@powersync/service-module-mysql').then(() => {
+          throw new Error('Failed to load MySQL module');
+        });
+      return mod;
+    });
+
+    const { loadModules } = await import('../../../src/util/module-loader.js');
+
     const config: MockConfig = {
-      connections: [{ type: 'mysql' }, { type: 'failing-module' }], // failing-module rejects promise
-      storage: { type: 'postgresql' }
+      connections: [{ type: 'mysql' }],
+      storage: { type: 'mongodb' }
     };
 
-    const modules = await loadModules(config);
+    await expect(loadModules(config)).rejects.toThrowError('Failed to load MySQL module');
 
-    // Expect 2 modules: mysql and postgresql-storage
-    expect(modules.length).toBe(2);
-    expect(modules.filter((m) => m instanceof MySQLModule).length).toBe(1);
+    vi.doUnmock('@powersync/service-module-mysql');
   });
 });

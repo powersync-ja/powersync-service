@@ -5,50 +5,57 @@ interface DynamicModuleMap {
   [key: string]: () => Promise<any>;
 }
 
-const ModuleMap: DynamicModuleMap = {
+export const ConnectionModuleMap: DynamicModuleMap = {
   mysql: () => import('@powersync/service-module-mysql').then((module) => module.MySQLModule),
-  postgresql: () => import('@powersync/service-module-postgres').then((module) => module.PostgresModule),
-  'postgresql-storage': () =>
-    import('@powersync/service-module-postgres-storage').then((module) => module.PostgresStorageModule)
+  postgresql: () => import('@powersync/service-module-postgres').then((module) => module.PostgresModule)
+};
+
+const StorageModuleMap: DynamicModuleMap = {
+  postgresql: () => import('@powersync/service-module-postgres-storage').then((module) => module.PostgresStorageModule)
 };
 
 /**
  * Utility function to dynamically load and instantiate modules.
  */
 export async function loadModules(config: core.ResolvedPowerSyncConfig) {
-  // 1. Determine required connections: Unique types from connections + storage type
   const requiredConnections = [
-    ...new Set(config.connections?.map((connection) => connection.type) || []),
-    `${config.storage.type}-storage` // Using template literal is clear
+    ...new Set(
+      config.connections
+        ?.map((connection) => connection.type)
+        .filter((connection) => !connection.startsWith('mongo')) || []
+    )
   ];
+  const missingConnectionModules: string[] = [];
+  const modulePromises: Promise<any>[] = [];
 
-  // 2. Map connection types to their module loading promises
-  const modulePromises = requiredConnections.map(async (connectionType) => {
-    // Exclude 'mongo' connections explicitly early
-    if (connectionType.startsWith('mongo')) {
-      return null; // Return null for filtering later
-    }
-
-    const modulePromise = ModuleMap[connectionType];
-
-    // Check if a module is defined for the connection type
-    if (!modulePromise) {
-      logger.warn(`No module defined in ModuleMap for connection type: ${connectionType}`);
-      return null;
-    }
-
-    try {
-      // Dynamically import and instantiate the class
-      const ModuleClass = await modulePromise();
-      return new ModuleClass();
-    } catch (error) {
-      // Log an error if the dynamic import fails (e.g., module not installed)
-      logger.error(`Failed to load module for ${connectionType}:`, error);
-      throw error;
+  // 1. Map connection types to their module loading promises making note of any
+  // missing connection types.
+  requiredConnections.forEach((connectionType) => {
+    const modulePromise = ConnectionModuleMap[connectionType];
+    if (modulePromise !== undefined) {
+      modulePromises.push(modulePromise());
+    } else {
+      missingConnectionModules.push(connectionType);
     }
   });
 
-  // 3. Resolve all promises and filter out nulls/undefineds
-  const moduleInstances = await Promise.all(modulePromises);
-  return moduleInstances.filter((instance) => instance !== null); // Filter out nulls from excluded or failed imports
+  // Fail if any connection types are not found.
+  if (missingConnectionModules.length > 0) {
+    throw new Error(`Invalid connection types: "${[...missingConnectionModules].join(', ')}"`);
+  }
+
+  if (config.storage.type !== 'mongo' && StorageModuleMap[config.storage.type] !== undefined) {
+    modulePromises.push(StorageModuleMap[config.storage.type]());
+  }
+
+  // 2. Dynamically import and instantiate module classes and resolve all promises
+  // raising errors if any modules could not be imported.
+  const moduleInstances = await Promise.all(
+    modulePromises.map(async (modulePromise) => {
+      const ModuleClass = await modulePromise;
+      return new ModuleClass();
+    })
+  );
+
+  return moduleInstances;
 }
