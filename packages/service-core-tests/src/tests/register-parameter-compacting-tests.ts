@@ -19,6 +19,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -102,6 +103,7 @@ bucket_definitions:
       const bucketStorage = factory.getInstance(syncRules);
 
       await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+        await batch.markAllSnapshotDone('1/1');
         await batch.save({
           sourceTable: TEST_TABLE,
           tag: storage.SaveOperationTag.INSERT,

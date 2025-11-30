@@ -56,10 +56,7 @@ function defineTests(factory: storage.TestStorageFactory) {
     expect(data.slice(2, 4).sort(compareIds)).toMatchObject([REMOVE_T1, REMOVE_T2]);
 
     expect(data.slice(4)).toMatchObject([
-      // Snapshot insert
-      PUT_T3,
-      // Replicated insert
-      // We may eventually be able to de-duplicate this
+      // Snapshot and/or replication insert
       PUT_T3
     ]);
   });
@@ -78,13 +75,21 @@ function defineTests(factory: storage.TestStorageFactory) {
 
     const data = await context.getBucketData('global[]');
 
-    expect(data).toMatchObject([
-      // Snapshot insert
-      PUT_T1,
-      // Replicated insert
-      // We may eventually be able to de-duplicate this
-      PUT_T1
-    ]);
+    // Both of these are valid
+    if (data.length == 2) {
+      expect(data).toMatchObject([
+        // Snapshot insert
+        PUT_T1,
+        // Replicated insert
+        // May be de-duplicated
+        PUT_T1
+      ]);
+    } else {
+      expect(data).toMatchObject([
+        // Replicated insert
+        PUT_T1
+      ]);
+    }
   });
 
   test('rename table (1)', async () => {
@@ -113,11 +118,13 @@ function defineTests(factory: storage.TestStorageFactory) {
       PUT_T1,
       PUT_T2
     ]);
-    expect(data.slice(2)).toMatchObject([
-      // Replicated insert
-      // We may eventually be able to de-duplicate this
-      PUT_T2
-    ]);
+    if (data.length > 2) {
+      expect(data.slice(2)).toMatchObject([
+        // Replicated insert
+        // May be de-duplicated
+        PUT_T2
+      ]);
+    }
   });
 
   test('rename table (2)', async () => {
@@ -158,11 +165,13 @@ function defineTests(factory: storage.TestStorageFactory) {
       putOp('test_data2', { id: 't1', description: 'test1' }),
       putOp('test_data2', { id: 't2', description: 'test2' })
     ]);
-    expect(data.slice(4)).toMatchObject([
-      // Replicated insert
-      // We may eventually be able to de-duplicate this
-      putOp('test_data2', { id: 't2', description: 'test2' })
-    ]);
+    if (data.length > 4) {
+      expect(data.slice(4)).toMatchObject([
+        // Replicated insert
+        // This may be de-duplicated
+        putOp('test_data2', { id: 't2', description: 'test2' })
+      ]);
+    }
   });
 
   test('rename table (3)', async () => {
@@ -227,11 +236,13 @@ function defineTests(factory: storage.TestStorageFactory) {
     // Snapshot - order doesn't matter
     expect(data.slice(2, 4).sort(compareIds)).toMatchObject([PUT_T1, PUT_T2]);
 
-    expect(data.slice(4).sort(compareIds)).toMatchObject([
-      // Replicated insert
-      // We may eventually be able to de-duplicate this
-      PUT_T2
-    ]);
+    if (data.length > 4) {
+      expect(data.slice(4).sort(compareIds)).toMatchObject([
+        // Replicated insert
+        // This may be de-duplicated
+        PUT_T2
+      ]);
+    }
   });
 
   test('change full replica id by adding column', async () => {
@@ -270,11 +281,13 @@ function defineTests(factory: storage.TestStorageFactory) {
       putOp('test_data', { id: 't2', description: 'test2', other: null })
     ]);
 
-    expect(data.slice(4).sort(compareIds)).toMatchObject([
-      // Replicated insert
-      // We may eventually be able to de-duplicate this
-      putOp('test_data', { id: 't2', description: 'test2', other: null })
-    ]);
+    if (data.length > 4) {
+      expect(data.slice(4).sort(compareIds)).toMatchObject([
+        // Replicated insert
+        // This may be de-duplicated
+        putOp('test_data', { id: 't2', description: 'test2', other: null })
+      ]);
+    }
   });
 
   test('change default replica id by changing column type', async () => {
@@ -307,11 +320,13 @@ function defineTests(factory: storage.TestStorageFactory) {
     // Snapshot - order doesn't matter
     expect(data.slice(2, 4).sort(compareIds)).toMatchObject([PUT_T1, PUT_T2]);
 
-    expect(data.slice(4).sort(compareIds)).toMatchObject([
-      // Replicated insert
-      // We may eventually be able to de-duplicate this
-      PUT_T2
-    ]);
+    if (data.length > 4) {
+      expect(data.slice(4).sort(compareIds)).toMatchObject([
+        // Replicated insert
+        // May be de-duplicated
+        PUT_T2
+      ]);
+    }
   });
 
   test('change index id by changing column type', async () => {
@@ -357,11 +372,13 @@ function defineTests(factory: storage.TestStorageFactory) {
     // Snapshot - order doesn't matter
     expect(data.slice(4, 7).sort(compareIds)).toMatchObject([PUT_T1, PUT_T2, PUT_T3]);
 
-    expect(data.slice(7).sort(compareIds)).toMatchObject([
-      // Replicated insert
-      // We may eventually be able to de-duplicate this
-      PUT_T3
-    ]);
+    if (data.length > 7) {
+      expect(data.slice(7).sort(compareIds)).toMatchObject([
+        // Replicated insert
+        // May be de-duplicated
+        PUT_T3
+      ]);
+    }
   });
 
   test('add to publication', async () => {
@@ -395,11 +412,13 @@ function defineTests(factory: storage.TestStorageFactory) {
       PUT_T3
     ]);
 
-    expect(data.slice(3)).toMatchObject([
-      // Replicated insert
-      // We may eventually be able to de-duplicate this
-      PUT_T3
-    ]);
+    if (data.length > 3) {
+      expect(data.slice(3)).toMatchObject([
+        // Replicated insert
+        // May be de-duplicated
+        PUT_T3
+      ]);
+    }
 
     const metrics = await storage.factory.getStorageMetrics();
     expect(metrics.replication_size_bytes).toBeGreaterThan(0);

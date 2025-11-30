@@ -170,7 +170,7 @@ export class BinLogStream {
       } finally {
         connection.release();
       }
-      const [table] = await batch.markSnapshotDone([result.table], gtid.comparable);
+      const [table] = await batch.markTableSnapshotDone([result.table], gtid.comparable);
       return table;
     }
 
@@ -275,10 +275,12 @@ export class BinLogStream {
             const tables = await this.getQualifiedTableNames(batch, tablePattern);
             for (let table of tables) {
               await this.snapshotTable(connection as mysql.Connection, batch, table);
-              await batch.markSnapshotDone([table], headGTID.comparable);
+              await batch.markTableSnapshotDone([table], headGTID.comparable);
               await framework.container.probes.touch();
             }
           }
+          const snapshotDoneGtid = await common.readExecutedGtid(promiseConnection);
+          await batch.markAllSnapshotDone(snapshotDoneGtid.comparable);
           await batch.commit(headGTID.comparable);
         }
       );

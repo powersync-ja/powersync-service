@@ -10,6 +10,8 @@ describe('Mongo Sync Bucket Storage Compact', () => {
     // This can happen when migrating from older service versions, that did not populate bucket_state yet.
     const populate = async (bucketStorage: SyncRulesBucketStorage) => {
       await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+        await batch.markAllSnapshotDone('1/1');
+
         await batch.save({
           sourceTable: TEST_TABLE,
           tag: storage.SaveOperationTag.INSERT,

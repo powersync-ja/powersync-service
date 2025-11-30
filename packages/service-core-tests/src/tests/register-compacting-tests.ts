@@ -17,6 +17,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -131,6 +132,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -253,6 +255,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -343,6 +346,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       /**
        * Repeatedly create operations which fall into different buckets.
        * The bucket operations are purposely interleaved as the op_id increases.
@@ -468,7 +472,8 @@ bucket_definitions:
     });
     const bucketStorage = factory.getInstance(syncRules);
 
-    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -539,6 +544,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
