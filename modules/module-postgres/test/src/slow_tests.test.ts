@@ -19,7 +19,7 @@ import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
 import * as timers from 'node:timers/promises';
-import { CustomTypeRegistry } from '@module/types/registry.js';
+import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('slow tests', function () {
   describeWithStorage({ timeout: 120_000 }, function (factory) {
@@ -42,7 +42,7 @@ function defineSlowTests(factory: storage.TestStorageFactory) {
     // This cleans up, similar to WalStreamTestContext.dispose().
     // These tests are a little more complex than what is supported by WalStreamTestContext.
     abortController?.abort();
-    await streamPromise;
+    await streamPromise?.catch((_) => {});
     streamPromise = undefined;
     connections?.destroy();
 
@@ -287,7 +287,13 @@ bucket_definitions:
     }
 
     abortController.abort();
-    await streamPromise;
+    await streamPromise.catch((e) => {
+      if (e instanceof ReplicationAbortedError) {
+        // Ignore
+      } else {
+        throw e;
+      }
+    });
   }
 
   // Test repeatedly performing initial replication.
@@ -392,7 +398,13 @@ bucket_definitions:
       }
 
       abortController.abort();
-      await streamPromise;
+      await streamPromise.catch((e) => {
+        if (e instanceof ReplicationAbortedError) {
+          // Ignore
+        } else {
+          throw e;
+        }
+      });
       await connections.end();
     }
   });
