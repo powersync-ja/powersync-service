@@ -1180,7 +1180,7 @@ bucket_definitions:
 
   testChecksumBatching(generateStorageFactory);
 
-  test.only('empty checkpoints (1)', async () => {
+  test('empty checkpoints (1)', async () => {
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules({
       content: `
@@ -1215,7 +1215,7 @@ bucket_definitions:
     });
   });
 
-  test.only('empty checkpoints (2)', async () => {
+  test('empty checkpoints (2)', async () => {
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules({
       content: `

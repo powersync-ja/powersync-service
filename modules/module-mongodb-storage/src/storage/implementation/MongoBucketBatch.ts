@@ -680,27 +680,57 @@ export class MongoBucketBatch
       }
     );
 
-    const updateResult = await this.db.sync_rules.findOneAndUpdate(
-      {
-        _id: this.group_id
-      },
+    const can_checkpoint = {
+      $and: [
+        { $eq: ['$snapshot_done', true] },
+        {
+          $or: [{ $eq: ['$last_checkpoint_lsn', null] }, { $lte: ['$last_checkpoint_lsn', { $literal: lsn }] }]
+        },
+        {
+          $or: [{ $eq: ['$no_checkpoint_before', null] }, { $lte: ['$no_checkpoint_before', { $literal: lsn }] }]
+        }
+      ]
+    };
+
+    const new_keepalive_op = {
+      $cond: [
+        can_checkpoint,
+        { $literal: null },
+        {
+          $toString: {
+            $max: [{ $toLong: '$keepalive_op' }, { $literal: this.persisted_op }]
+          }
+        }
+      ]
+    };
+
+    const new_last_checkpoint = {
+      $cond: [
+        can_checkpoint,
+        {
+          $max: ['$last_checkpoint', { $literal: this.persisted_op }, { $toLong: '$keepalive_op' }]
+        },
+        '$last_checkpoint'
+      ]
+    };
+
+    let filter: mongo.Filter<SyncRuleDocument> = { _id: this.group_id };
+    if (!createEmptyCheckpoints) {
+      // Only create checkpoint if we have new data
+      filter = {
+        _id: this.group_id,
+        $expr: {
+          $or: [{ $ne: ['$keepalive_op', new_keepalive_op] }, { $ne: ['$last_checkpoint', new_last_checkpoint] }]
+        }
+      };
+    }
+
+    let updateResult = await this.db.sync_rules.findOneAndUpdate(
+      filter,
       [
         {
           $set: {
-            _can_checkpoint: {
-              $and: [
-                { $eq: ['$snapshot_done', true] },
-                {
-                  $or: [{ $eq: ['$last_checkpoint_lsn', null] }, { $lte: ['$last_checkpoint_lsn', { $literal: lsn }] }]
-                },
-                {
-                  $or: [
-                    { $eq: ['$no_checkpoint_before', null] },
-                    { $lte: ['$no_checkpoint_before', { $literal: lsn }] }
-                  ]
-                }
-              ]
-            }
+            _can_checkpoint: can_checkpoint
           }
         },
         {
@@ -715,28 +745,8 @@ export class MongoBucketBatch
             last_fatal_error: {
               $cond: ['$_can_checkpoint', { $literal: null }, '$last_fatal_error']
             },
-            keepalive_op: {
-              $cond: [
-                '$_can_checkpoint',
-                // Checkpoint: set to null
-                { $literal: null },
-                // Not checkpoint: update to max of existing keepalive_op and persisted_op
-                {
-                  $toString: {
-                    $max: [{ $toLong: '$keepalive_op' }, { $literal: this.persisted_op }]
-                  }
-                }
-              ]
-            },
-            last_checkpoint: {
-              $cond: [
-                '$_can_checkpoint',
-                {
-                  $max: ['$last_checkpoint', { $literal: this.persisted_op }, { $toLong: '$keepalive_op' }]
-                },
-                '$last_checkpoint'
-              ]
-            },
+            keepalive_op: new_keepalive_op,
+            last_checkpoint: new_last_checkpoint,
             // Unset snapshot_lsn on checkpoint
             snapshot_lsn: {
               $cond: ['$_can_checkpoint', { $literal: null }, '$snapshot_lsn']
@@ -759,7 +769,24 @@ export class MongoBucketBatch
       }
     );
     if (updateResult == null) {
-      throw new ReplicationAssertionError('Failed to load sync_rules document during checkpoint update');
+      const existing = await this.db.sync_rules.findOne(
+        { _id: this.group_id },
+        {
+          session: this.session,
+          projection: {
+            snapshot_done: 1,
+            last_checkpoint_lsn: 1,
+            no_checkpoint_before: 1,
+            keepalive_op: 1
+          }
+        }
+      );
+      if (existing == null) {
+        throw new ReplicationAssertionError('Failed to load sync_rules document during checkpoint update');
+      }
+      // No-op update - reuse existing document for downstream logic.
+      // This can happen when last_checkpoint and keepalive_op would remain unchanged.
+      updateResult = existing;
     }
     const checkpointCreated = updateResult.snapshot_done === true && updateResult.last_checkpoint_lsn === lsn;
 
