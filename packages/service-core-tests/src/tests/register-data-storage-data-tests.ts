@@ -1179,6 +1179,88 @@ bucket_definitions:
   });
 
   testChecksumBatching(generateStorageFactory);
+
+  test.only('empty checkpoints (1)', async () => {
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
+bucket_definitions:
+  global:
+    data:
+      - SELECT id, description FROM "%"
+`
+    });
+    const bucketStorage = factory.getInstance(syncRules);
+
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
+      await batch.commit('1/1');
+
+      const cp1 = await bucketStorage.getCheckpoint();
+      expect(cp1.lsn).toEqual('1/1');
+
+      await batch.commit('2/1', { createEmptyCheckpoints: true });
+      const cp2 = await bucketStorage.getCheckpoint();
+      expect(cp2.lsn).toEqual('2/1');
+
+      await batch.keepalive('3/1');
+      const cp3 = await bucketStorage.getCheckpoint();
+      expect(cp3.lsn).toEqual('3/1');
+
+      // For the last one, we skip creating empty checkpoints
+      // This means the LSN stays at 3/1.
+      await batch.commit('4/1', { createEmptyCheckpoints: false });
+      const cp4 = await bucketStorage.getCheckpoint();
+      expect(cp4.lsn).toEqual('3/1');
+    });
+  });
+
+  test.only('empty checkpoints (2)', async () => {
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
+bucket_definitions:
+  global:
+    data:
+      - SELECT id, description FROM "%"
+`
+    });
+    const bucketStorage = factory.getInstance(syncRules);
+
+    const sourceTable = TEST_TABLE;
+    // We simulate two concurrent batches, but nesting is the easiest way to do this.
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch1) => {
+      await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch2) => {
+        await batch1.markAllSnapshotDone('1/1');
+        await batch1.commit('1/1');
+
+        await batch1.commit('2/1', { createEmptyCheckpoints: false });
+        const cp2 = await bucketStorage.getCheckpoint();
+        expect(cp2.lsn).toEqual('1/1'); // checkpoint 2/1 skipped
+
+        await batch2.save({
+          sourceTable,
+          tag: storage.SaveOperationTag.INSERT,
+          after: {
+            id: 'test1',
+            description: 'test1a'
+          },
+          afterReplicaId: test_utils.rid('test1')
+        });
+        // This simulates what happens on a snapshot processor.
+        // This may later change to a flush() rather than commit().
+        await batch2.commit(test_utils.BATCH_OPTIONS.zeroLSN);
+
+        const cp3 = await bucketStorage.getCheckpoint();
+        expect(cp3.lsn).toEqual('1/1'); // Still unchanged
+
+        // This now needs to advance the LSN, despite {createEmptyCheckpoints: false}
+        await batch1.commit('4/1', { createEmptyCheckpoints: false });
+        const cp4 = await bucketStorage.getCheckpoint();
+        expect(cp4.lsn).toEqual('4/1');
+      });
+    });
+  });
 }
 
 /**
