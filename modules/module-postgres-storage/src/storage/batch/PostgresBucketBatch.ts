@@ -20,6 +20,7 @@ import { pick } from '../../utils/ts-codec.js';
 import { batchCreateCustomWriteCheckpoints } from '../checkpoints/PostgresWriteCheckpointAPI.js';
 import { cacheKey, encodedCacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PostgresPersistedBatch } from './PostgresPersistedBatch.js';
+import { bigint } from '../../types/codecs.js';
 
 export interface PostgresBucketBatchOptions {
   logger: Logger;
@@ -51,7 +52,10 @@ const CheckpointWithStatus = StatefulCheckpoint.and(
   t.object({
     snapshot_done: t.boolean,
     no_checkpoint_before: t.string.or(t.Null),
-    can_checkpoint: t.boolean
+    can_checkpoint: t.boolean,
+    keepalive_op: bigint.or(t.Null),
+    new_last_checkpoint: bigint.or(t.Null),
+    created_checkpoint: t.boolean
   })
 );
 type CheckpointWithStatusDecoded = t.Decoded<typeof CheckpointWithStatus>;
@@ -291,6 +295,8 @@ export class PostgresBucketBatch
   }
 
   async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<boolean> {
+    const createEmptyCheckpoints = options?.createEmptyCheckpoints ?? true;
+
     await this.flush();
 
     const now = new Date().toISOString();
@@ -325,45 +331,58 @@ export class PostgresBucketBatch
             id = ${{ type: 'int4', value: this.group_id }}
           FOR UPDATE
         ),
+        computed AS (
+          SELECT
+            selected.*,
+            CASE
+              WHEN selected.can_checkpoint THEN GREATEST(
+                COALESCE(selected.last_checkpoint, 0),
+                COALESCE(${{ type: 'int8', value: persisted_op }}, 0),
+                COALESCE(selected.keepalive_op, 0)
+              )
+              ELSE selected.last_checkpoint
+            END AS new_last_checkpoint,
+            CASE
+              WHEN selected.can_checkpoint THEN NULL
+              ELSE GREATEST(
+                COALESCE(selected.keepalive_op, 0),
+                COALESCE(${{ type: 'int8', value: persisted_op }}, 0)
+              )
+            END AS new_keepalive_op
+          FROM
+            selected
+        ),
         updated AS (
           UPDATE sync_rules AS sr
           SET
             last_checkpoint_lsn = CASE
-              WHEN selected.can_checkpoint THEN ${{ type: 'varchar', value: lsn }}
+              WHEN computed.can_checkpoint THEN ${{ type: 'varchar', value: lsn }}
               ELSE sr.last_checkpoint_lsn
             END,
             last_checkpoint_ts = CASE
-              WHEN selected.can_checkpoint THEN ${{ type: 1184, value: now }}
+              WHEN computed.can_checkpoint THEN ${{ type: 1184, value: now }}
               ELSE sr.last_checkpoint_ts
             END,
             last_keepalive_ts = ${{ type: 1184, value: now }},
             last_fatal_error = CASE
-              WHEN selected.can_checkpoint THEN NULL
+              WHEN computed.can_checkpoint THEN NULL
               ELSE sr.last_fatal_error
             END,
-            keepalive_op = CASE
-              WHEN selected.can_checkpoint THEN NULL
-              ELSE GREATEST(
-                COALESCE(sr.keepalive_op, 0),
-                COALESCE(${{ type: 'int8', value: persisted_op }}, 0)
-              )
-            END,
-            last_checkpoint = CASE
-              WHEN selected.can_checkpoint THEN GREATEST(
-                COALESCE(sr.last_checkpoint, 0),
-                COALESCE(${{ type: 'int8', value: persisted_op }}, 0),
-                COALESCE(sr.keepalive_op, 0)
-              )
-              ELSE sr.last_checkpoint
-            END,
+            keepalive_op = computed.new_keepalive_op,
+            last_checkpoint = computed.new_last_checkpoint,
             snapshot_lsn = CASE
-              WHEN selected.can_checkpoint THEN NULL
+              WHEN computed.can_checkpoint THEN NULL
               ELSE sr.snapshot_lsn
             END
           FROM
-            selected
+            computed
           WHERE
-            sr.id = selected.id
+            sr.id = computed.id
+            AND (
+              sr.keepalive_op IS DISTINCT FROM computed.new_keepalive_op
+              OR sr.last_checkpoint IS DISTINCT FROM computed.new_last_checkpoint
+              OR ${{ type: 'bool', value: createEmptyCheckpoints }}
+            )
           RETURNING
             sr.id,
             sr.state,
@@ -371,7 +390,9 @@ export class PostgresBucketBatch
             sr.last_checkpoint_lsn,
             sr.snapshot_done,
             sr.no_checkpoint_before,
-            selected.can_checkpoint
+            computed.can_checkpoint,
+            computed.keepalive_op,
+            computed.new_last_checkpoint
         )
       SELECT
         id,
@@ -380,9 +401,33 @@ export class PostgresBucketBatch
         last_checkpoint_lsn,
         snapshot_done,
         no_checkpoint_before,
-        can_checkpoint
+        can_checkpoint,
+        keepalive_op,
+        new_last_checkpoint,
+        TRUE AS created_checkpoint
       FROM
         updated
+      UNION ALL
+      SELECT
+        id,
+        state,
+        new_last_checkpoint AS last_checkpoint,
+        last_checkpoint_lsn,
+        snapshot_done,
+        no_checkpoint_before,
+        can_checkpoint,
+        keepalive_op,
+        new_last_checkpoint,
+        FALSE AS created_checkpoint
+      FROM
+        computed
+      WHERE
+        NOT EXISTS (
+          SELECT
+            1
+          FROM
+            updated
+        )
     `
       .decoded(CheckpointWithStatus)
       .first();
@@ -407,7 +452,15 @@ export class PostgresBucketBatch
       return true;
     }
 
-    this.logger.info(`Created checkpoint at ${lsn}. Persisted op: ${this.persisted_op}`);
+    if (result.created_checkpoint) {
+      this.logger.info(
+        `Created checkpoint at ${lsn}. Persisted op: ${result.last_checkpoint} (${this.persisted_op}). keepalive: ${result.keepalive_op}`
+      );
+    } else {
+      this.logger.info(
+        `Skipped empty checkpoint at ${lsn}. Persisted op: ${result.last_checkpoint}. keepalive: ${result.keepalive_op}`
+      );
+    }
     await this.autoActivate(lsn);
     await notifySyncRulesUpdate(this.db, {
       id: result.id,
@@ -422,7 +475,7 @@ export class PostgresBucketBatch
   }
 
   async keepalive(lsn: string): Promise<boolean> {
-    return await this.commit(lsn);
+    return await this.commit(lsn, { createEmptyCheckpoints: true });
   }
 
   async setResumeLsn(lsn: string): Promise<void> {
