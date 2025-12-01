@@ -407,18 +407,63 @@ class SyncStreamCompiler {
       tools.error('This subquery must return exactly one column', query);
     }
 
-    const column = tools.compileRowValueExtractor(query.columns?.[0]?.expr);
-    if (isClauseError(column)) {
+    const columnOrError = tools.compileRowValueExtractor(query.columns?.[0]?.expr);
+    if (isClauseError(columnOrError)) {
       return;
     }
+    const column = columnOrError;
 
-    const where = tools.compileClause(query.where);
+    const where = this.whereClauseToFilters(tools, query.where);
+    const filter = where.toDisjunctiveNormalForm(tools);
 
+    function checkValidSubqueryFilter(
+      operator: FilterOperator
+    ): CompareRowValueWithStreamParameter | EvaluateSimpleCondition | null {
+      if (operator instanceof CompareRowValueWithStreamParameter || operator instanceof EvaluateSimpleCondition) {
+        return operator;
+      }
+
+      tools.error('Unsupported condition for stream subqueries', operator.location ?? undefined);
+      return null;
+    }
+
+    function constructSubquery(filter: FilterOperator) {
+      if (filter instanceof Or) {
+        // Subqueries can't have variants, so the DNF must be a single conjunction.
+        if (filter.inner.length != 1) {
+          tools.error("Stream subqueries can't use OR filters", filter.location ?? undefined);
+        }
+
+        return constructSubquery(filter.inner[0]);
+      } else if (filter instanceof And) {
+        const first = checkValidSubqueryFilter(filter.inner[0]);
+        if (!first) {
+          return;
+        }
+        const subquery = new Subquery(sourceTable, column, first);
+        for (const rest of filter.inner.slice(1)) {
+          const checked = checkValidSubqueryFilter(rest);
+          if (checked) {
+            subquery.addFilter(checked);
+          }
+        }
+
+        return subquery;
+      } else {
+        const validated = checkValidSubqueryFilter(filter);
+        if (validated) {
+          return new Subquery(sourceTable, column, validated);
+        }
+      }
+    }
+
+    const compiledSubquery = constructSubquery(filter);
     this.errors.push(...tools.errors);
-    return [
-      new Subquery(sourceTable, column, this.compiledClauseToFilter(tools, query.where?._location, where)),
-      tools
-    ];
+
+    if (!compiledSubquery) {
+      return;
+    }
+    return [compiledSubquery, tools];
   }
 
   private checkValidSelectStatement(stmt: Statement) {

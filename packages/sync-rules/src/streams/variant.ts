@@ -214,8 +214,10 @@ export class StreamVariant {
       return [];
     }
 
-    // This will be an array of values (i.e. a total evaluation) because there are no dynamic parameters.
-    return this.partiallyEvaluateParameters(params) as SqliteJsonValue[][];
+    return this.cartesianProductOfParameterInstantiations(
+      // This will be an array of values (i.e. a total evaluation) because there are no dynamic parameters.
+      this.partiallyEvaluateParameters(params) as SqliteJsonValue[][]
+    );
   }
 
   /**

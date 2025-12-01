@@ -3,13 +3,13 @@
 exports[`Connection reporting storage > Should create a connection report if its after a day 1`] = `
 [
   {
-    "client_id": "client_week",
+    "client_id": "client_one",
     "sdk": "powersync-js/1.24.5",
     "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
     "user_id": "user_week",
   },
   {
-    "client_id": "client_week",
+    "client_id": "client_one",
     "sdk": "powersync-js/1.24.5",
     "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
     "user_id": "user_week",
@@ -211,5 +211,241 @@ exports[`Report storage tests > Should show currently connected users 1`] = `
     },
   ],
   "users": 2,
+}
+`;
+
+exports[`Report storage tests > Should show paginated response of all connections of specified client_id 1`] = `
+{
+  "count": 1,
+  "cursor": undefined,
+  "items": [
+    {
+      "client_id": "client_two",
+      "sdk": "powersync-js/1.21.1",
+      "user_agent": "powersync-js/1.21.0 powersync-web Chromium/138 linux",
+      "user_id": "user_two",
+    },
+  ],
+  "more": false,
+}
+`;
+
+exports[`Report storage tests > Should show paginated response of all connections with a limit 1`] = `
+{
+  "count": 4,
+  "cursor": "<removed-for-snapshot>",
+  "items": [
+    {
+      "client_id": "client_one",
+      "sdk": "powersync-dart/1.6.4",
+      "user_agent": "powersync-dart/1.6.4 Dart (flutter-web) Chrome/128 android",
+      "user_id": "user_one",
+    },
+    {
+      "client_id": "client_four",
+      "sdk": "powersync-js/1.21.4",
+      "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
+      "user_id": "user_four",
+    },
+    {
+      "client_id": "",
+      "sdk": "unknown",
+      "user_agent": "Dart (flutter-web) Chrome/128 android",
+      "user_id": "user_one",
+    },
+    {
+      "client_id": "client_two",
+      "sdk": "powersync-js/1.21.1",
+      "user_agent": "powersync-js/1.21.0 powersync-web Chromium/138 linux",
+      "user_id": "user_two",
+    },
+  ],
+  "more": true,
+}
+`;
+
+exports[`Report storage tests > Should show paginated response of all connections with a limit 2`] = `
+{
+  "count": 4,
+  "cursor": undefined,
+  "items": [
+    {
+      "client_id": "client_three",
+      "sdk": "powersync-js/1.21.2",
+      "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
+      "user_id": "user_three",
+    },
+    {
+      "client_id": "client_one",
+      "sdk": "powersync-js/1.24.5",
+      "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
+      "user_id": "user_week",
+    },
+    {
+      "client_id": "client_month",
+      "sdk": "powersync-js/1.23.6",
+      "user_agent": "powersync-js/1.23.0 powersync-web Firefox/141 linux",
+      "user_id": "user_month",
+    },
+    {
+      "client_id": "client_expired",
+      "sdk": "powersync-js/1.23.7",
+      "user_agent": "powersync-js/1.23.0 powersync-web Firefox/141 linux",
+      "user_id": "user_expired",
+    },
+  ],
+  "more": false,
+}
+`;
+
+exports[`Report storage tests > Should show paginated response of all connections with a limit with date range 1`] = `
+{
+  "count": 4,
+  "cursor": "<removed-for-snapshot>",
+  "items": [
+    {
+      "client_id": "",
+      "sdk": "unknown",
+      "user_agent": "Dart (flutter-web) Chrome/128 android",
+      "user_id": "user_one",
+    },
+    {
+      "client_id": "client_two",
+      "sdk": "powersync-js/1.21.1",
+      "user_agent": "powersync-js/1.21.0 powersync-web Chromium/138 linux",
+      "user_id": "user_two",
+    },
+    {
+      "client_id": "client_three",
+      "sdk": "powersync-js/1.21.2",
+      "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
+      "user_id": "user_three",
+    },
+    {
+      "client_id": "client_one",
+      "sdk": "powersync-js/1.24.5",
+      "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
+      "user_id": "user_week",
+    },
+  ],
+  "more": true,
+}
+`;
+
+exports[`Report storage tests > Should show paginated response of all connections with a limit with date range 2`] = `
+{
+  "count": 2,
+  "cursor": undefined,
+  "items": [
+    {
+      "client_id": "",
+      "sdk": "unknown",
+      "user_agent": "Dart (flutter-web) Chrome/128 android",
+      "user_id": "user_one",
+    },
+    {
+      "client_id": "client_two",
+      "sdk": "powersync-js/1.21.1",
+      "user_agent": "powersync-js/1.21.0 powersync-web Chromium/138 linux",
+      "user_id": "user_two",
+    },
+    {
+      "client_id": "client_three",
+      "sdk": "powersync-js/1.21.2",
+      "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
+      "user_id": "user_three",
+    },
+    {
+      "client_id": "client_one",
+      "sdk": "powersync-js/1.24.5",
+      "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
+      "user_id": "user_week",
+    },
+  ],
+  "more": false,
+}
+`;
+
+exports[`Report storage tests > Should show paginated response of connections of specified user_id 1`] = `
+{
+  "count": 2,
+  "cursor": undefined,
+  "items": [
+    {
+      "client_id": "client_one",
+      "sdk": "powersync-dart/1.6.4",
+      "user_agent": "powersync-dart/1.6.4 Dart (flutter-web) Chrome/128 android",
+      "user_id": "user_one",
+    },
+    {
+      "client_id": "",
+      "sdk": "unknown",
+      "user_agent": "Dart (flutter-web) Chrome/128 android",
+      "user_id": "user_one",
+    },
+  ],
+  "more": false,
+}
+`;
+
+exports[`Report storage tests > Should show paginated response of connections over a date range 1`] = `
+{
+  "count": 6,
+  "cursor": undefined,
+  "items": [
+    {
+      "client_id": "client_one",
+      "sdk": "powersync-dart/1.6.4",
+      "user_agent": "powersync-dart/1.6.4 Dart (flutter-web) Chrome/128 android",
+      "user_id": "user_one",
+    },
+    {
+      "client_id": "client_four",
+      "sdk": "powersync-js/1.21.4",
+      "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
+      "user_id": "user_four",
+    },
+    {
+      "client_id": "client_two",
+      "sdk": "powersync-js/1.21.1",
+      "user_agent": "powersync-js/1.21.0 powersync-web Chromium/138 linux",
+      "user_id": "user_two",
+    },
+    {
+      "client_id": "",
+      "sdk": "unknown",
+      "user_agent": "Dart (flutter-web) Chrome/128 android",
+      "user_id": "user_one",
+    },
+    {
+      "client_id": "client_three",
+      "sdk": "powersync-js/1.21.2",
+      "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
+      "user_id": "user_three",
+    },
+    {
+      "client_id": "client_one",
+      "sdk": "powersync-js/1.24.5",
+      "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
+      "user_id": "user_week",
+    },
+  ],
+  "more": false,
+}
+`;
+
+exports[`Report storage tests > Should show paginated response of connections over a date range of specified client_id and user_id 1`] = `
+{
+  "count": 1,
+  "cursor": undefined,
+  "items": [
+    {
+      "client_id": "client_one",
+      "sdk": "powersync-dart/1.6.4",
+      "user_agent": "powersync-dart/1.6.4 Dart (flutter-web) Chrome/128 android",
+      "user_id": "user_one",
+    },
+  ],
+  "more": false,
 }
 `;

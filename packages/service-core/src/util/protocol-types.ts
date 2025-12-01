@@ -1,6 +1,6 @@
-import * as t from 'ts-codec';
-import { BucketPriority, SqliteJsonRow } from '@powersync/service-sync-rules';
 import { JsonContainer } from '@powersync/service-jsonbig';
+import { BucketPriority, SqliteJsonRow } from '@powersync/service-sync-rules';
+import * as t from 'ts-codec';
 
 export const BucketRequest = t.object({
   name: t.string,
@@ -80,6 +80,11 @@ export const StreamingSyncRequest = t.object({
    * Client parameters to be passed to the sync rules.
    */
   parameters: t.record(t.any).optional(),
+
+  /**
+   * Application metadata to be used in logging.
+   */
+  app_metadata: t.record(t.string).optional(),
 
   /**
    * Unique client id.
