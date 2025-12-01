@@ -16,7 +16,7 @@ describe('module loader', () => {
   it('should load all modules defined in connections and storage', async () => {
     const config: MockConfig = {
       connections: [{ type: 'mysql' }, { type: 'postgresql' }],
-      storage: { type: 'postgresql' } // This should result in 'postgresql-storage'
+      storage: { type: 'postgresql' }
     };
     const modules = await loadModules(config);
 
@@ -41,24 +41,9 @@ describe('module loader', () => {
     expect(modules.filter((m) => m instanceof PostgresStorageModule).length).toBe(1);
   });
 
-  it('should exclude connections starting with "mongo"', async () => {
-    const config: MockConfig = {
-      connections: [{ type: 'mysql' }, { type: 'mongodb' }], // mongodb should be ignored
-      storage: { type: 'postgresql' }
-    };
-
-    const modules = await loadModules(config);
-
-    // Expect 2 modules: mysql and postgresql-storage
-    expect(modules.length).toBe(2);
-    expect(modules[0]).toBeInstanceOf(MySQLModule);
-    expect(modules[1]).toBeInstanceOf(PostgresStorageModule);
-    expect(modules.filter((m) => m instanceof PostgresModule).length).toBe(0);
-  });
-
   it('should throw an error if any modules are not found in ModuleMap', async () => {
     const config: MockConfig = {
-      connections: [{ type: 'mysql' }, { type: 'redis' }], // unknown-db is missing
+      connections: [{ type: 'mysql' }, { type: 'redis' }],
       storage: { type: 'postgresql' }
     };
 

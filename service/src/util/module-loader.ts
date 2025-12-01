@@ -6,11 +6,13 @@ interface DynamicModuleMap {
 }
 
 export const ConnectionModuleMap: DynamicModuleMap = {
+  mongodb: () => import('@powersync/service-module-mongodb').then((module) => module.MongoModule),
   mysql: () => import('@powersync/service-module-mysql').then((module) => module.MySQLModule),
   postgresql: () => import('@powersync/service-module-postgres').then((module) => module.PostgresModule)
 };
 
 const StorageModuleMap: DynamicModuleMap = {
+  mongodb: () => import('@powersync/service-module-mongodb-storage').then((module) => module.MongoStorageModule),
   postgresql: () => import('@powersync/service-module-postgres-storage').then((module) => module.PostgresStorageModule)
 };
 
@@ -21,8 +23,7 @@ export async function loadModules(config: core.ResolvedPowerSyncConfig) {
   const requiredConnections = [
     ...new Set(
       config.connections
-        ?.map((connection) => connection.type)
-        .filter((connection) => !connection.startsWith('mongo')) || []
+        ?.map((connection) => connection.type) || []
     )
   ];
   const missingConnectionModules: string[] = [];
@@ -44,7 +45,7 @@ export async function loadModules(config: core.ResolvedPowerSyncConfig) {
     throw new Error(`Invalid connection types: "${[...missingConnectionModules].join(', ')}"`);
   }
 
-  if (config.storage.type !== 'mongo' && StorageModuleMap[config.storage.type] !== undefined) {
+  if (StorageModuleMap[config.storage.type] !== undefined) {
     modulePromises.push(StorageModuleMap[config.storage.type]());
   }
 
