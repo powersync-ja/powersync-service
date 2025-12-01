@@ -70,7 +70,7 @@ export class PostgresSnapshotter {
 
   private connections: PgManager;
 
-  private abort_signal: AbortSignal;
+  private abortSignal: AbortSignal;
 
   private snapshotChunkLength: number;
 
@@ -94,7 +94,7 @@ export class PostgresSnapshotter {
     this.connections = options.connections;
     this.snapshotChunkLength = options.snapshotChunkLength ?? 10_000;
 
-    this.abort_signal = options.abort_signal;
+    this.abortSignal = options.abort_signal;
   }
 
   async getQualifiedTableNames(
@@ -295,7 +295,7 @@ export class PostgresSnapshotter {
       // In those cases, we have to start replication from scratch.
       // If there is an existing healthy slot, we can skip this and continue
       // initial replication where we left off.
-      await this.storage.clear({ signal: this.abort_signal });
+      await this.storage.clear({ signal: this.abortSignal });
 
       await db.query({
         statement: 'SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1',
@@ -349,11 +349,11 @@ export class PostgresSnapshotter {
         // Special case where we start with no tables to snapshot
         await this.markSnapshotDone();
       }
-      while (!this.abort_signal.aborted) {
+      while (!this.abortSignal.aborted) {
         const table = this.queue.values().next().value;
         if (table == null) {
           this.initialSnapshotDone.resolve();
-          await timers.setTimeout(500, { signal: this.abort_signal });
+          await timers.setTimeout(500, { signal: this.abortSignal });
           continue;
         }
 
@@ -363,7 +363,9 @@ export class PostgresSnapshotter {
           await this.markSnapshotDone();
         }
       }
+      throw new ReplicationAbortedError();
     } catch (e) {
+      // If initial snapshot already completed, this has no effect
       this.initialSnapshotDone.reject(e);
       throw e;
     }
@@ -404,7 +406,7 @@ export class PostgresSnapshotter {
       await this.storage.populatePersistentChecksumCache({
         // No checkpoint yet, but we do have the opId.
         maxOpId: lastOp,
-        signal: this.abort_signal
+        signal: this.abortSignal
       });
     }
   }
@@ -618,9 +620,9 @@ export class PostgresSnapshotter {
         this.logger.info(`Replicating ${table.qualifiedName} ${at}/${limited.length} for resnapshot`);
       }
 
-      if (this.abort_signal.aborted) {
+      if (this.abortSignal.aborted) {
         // We only abort after flushing
-        throw new ReplicationAbortedError(`Initial replication interrupted`);
+        throw new ReplicationAbortedError(`Table snapshot interrupted`);
       }
     }
   }

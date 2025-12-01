@@ -340,17 +340,21 @@ export class WalStream {
    * Start replication loop, and continue until aborted or error.
    */
   async replicate() {
+    let streamPromise: Promise<void> | null = null;
+    let loopPromise: Promise<void> | null = null;
     try {
       this.initPromise = this.initReplication();
       await this.initPromise;
-      const streamPromise = this.streamChanges();
-      const loopPromise = this.snapshotter.replicationLoop();
+      streamPromise = this.streamChanges();
+      loopPromise = this.snapshotter.replicationLoop();
       await Promise.race([loopPromise, streamPromise]);
     } catch (e) {
       await this.storage.reportError(e);
       throw e;
     } finally {
       this.abortController.abort();
+      // Wait for both to finish, to ensure proper cleanup.
+      await Promise.all([loopPromise?.catch((_) => {}), streamPromise?.catch((_) => {})]);
     }
   }
 
