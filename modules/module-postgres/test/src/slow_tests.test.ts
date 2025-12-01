@@ -96,11 +96,11 @@ bucket_definitions:
     );
     await pool.query(`ALTER TABLE test_data REPLICA IDENTITY FULL`);
 
-    await walStream.initReplication();
     let abort = false;
-    streamPromise = walStream.streamChanges().finally(() => {
+    streamPromise = walStream.replicate().finally(() => {
       abort = true;
     });
+    await walStream.waitForInitialSnapshot();
     const start = Date.now();
 
     while (!abort && Date.now() - start < TEST_DURATION_MS) {
@@ -344,17 +344,12 @@ bucket_definitions:
 
       // 3. Start initial replication, then streaming, but don't wait for any of this
       let initialReplicationDone = false;
-      streamPromise = (async () => {
-        await walStream.initReplication();
-        initialReplicationDone = true;
-        await walStream.streamChanges();
-      })()
-        .catch((e) => {
+      streamPromise = walStream.replicate();
+      walStream
+        .waitForInitialSnapshot()
+        .catch((_) => {})
+        .finally(() => {
           initialReplicationDone = true;
-          throw e;
-        })
-        .then((v) => {
-          return v;
         });
 
       // 4. While initial replication is still running, write more changes
