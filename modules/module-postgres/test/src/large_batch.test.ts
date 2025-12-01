@@ -39,8 +39,6 @@ function defineBatchTests(factory: storage.TestStorageFactory) {
 
     const start = Date.now();
 
-    context.startStreaming();
-
     const checkpoint = await context.getCheckpoint({ timeout: 100_000 });
     const duration = Date.now() - start;
     const used = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
@@ -87,7 +85,6 @@ function defineBatchTests(factory: storage.TestStorageFactory) {
       const start = Date.now();
 
       await context.replicateSnapshot();
-      context.startStreaming();
 
       const checkpoint = await context.getCheckpoint({ timeout: 100_000 });
       const duration = Date.now() - start;
@@ -138,8 +135,6 @@ function defineBatchTests(factory: storage.TestStorageFactory) {
     }
 
     const start = Date.now();
-
-    context.startStreaming();
 
     const checkpoint = await context.getCheckpoint({ timeout: 50_000 });
     const duration = Date.now() - start;
@@ -225,8 +220,6 @@ function defineBatchTests(factory: storage.TestStorageFactory) {
       params: [{ type: 'varchar', value: 'testingthis' }]
     });
     await context.replicateSnapshot();
-
-    context.startStreaming();
 
     const checkpoint = await context.getCheckpoint({ timeout: 50_000 });
     const checksum = await context.storage!.getChecksums(checkpoint, ['global[]']);

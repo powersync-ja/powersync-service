@@ -344,23 +344,28 @@ export class PostgresSnapshotter {
   }
 
   async replicationLoop() {
-    if (this.queue.size == 0) {
-      // Special case where we start with no tables to snapshot
-      await this.markSnapshotDone();
-    }
-    while (!this.abort_signal.aborted) {
-      const table = this.queue.values().next().value;
-      if (table == null) {
-        this.initialSnapshotDone.resolve();
-        await timers.setTimeout(500, { signal: this.abort_signal });
-        continue;
-      }
-
-      await this.replicateTable(table);
-      this.queue.delete(table);
+    try {
       if (this.queue.size == 0) {
+        // Special case where we start with no tables to snapshot
         await this.markSnapshotDone();
       }
+      while (!this.abort_signal.aborted) {
+        const table = this.queue.values().next().value;
+        if (table == null) {
+          this.initialSnapshotDone.resolve();
+          await timers.setTimeout(500, { signal: this.abort_signal });
+          continue;
+        }
+
+        await this.replicateTable(table);
+        this.queue.delete(table);
+        if (this.queue.size == 0) {
+          await this.markSnapshotDone();
+        }
+      }
+    } catch (e) {
+      this.initialSnapshotDone.reject(e);
+      throw e;
     }
   }
 
@@ -410,7 +415,7 @@ export class PostgresSnapshotter {
    * If (partial) replication was done before on this slot, this clears the state
    * and starts again from scratch.
    */
-  async startReplication(db: pgwire.PgConnection) {
+  async queueSnapshotTables(db: pgwire.PgConnection) {
     const sourceTables = this.sync_rules.getSourceTables();
 
     await this.storage.startBatch(

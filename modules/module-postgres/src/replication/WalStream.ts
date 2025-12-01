@@ -101,9 +101,10 @@ export class WalStream {
 
   private connections: PgManager;
 
-  private abort_signal: AbortSignal;
+  private abortController = new AbortController();
+  private abortSignal: AbortSignal = this.abortController.signal;
 
-  private streamPromise: Promise<void> | null = null;
+  private initPromise: Promise<void> | null = null;
   private snapshotter: PostgresSnapshotter;
 
   private relationCache = new RelationCache((relation: number | SourceTable) => {
@@ -135,9 +136,16 @@ export class WalStream {
     this.slot_name = options.storage.slot_name;
     this.connections = options.connections;
 
-    this.abort_signal = options.abort_signal;
-    this.snapshotter = new PostgresSnapshotter(options);
-    this.abort_signal.addEventListener(
+    // We wrap in our own abort controller so we can trigger abort internally.
+    options.abort_signal.addEventListener('abort', () => {
+      this.abortController.abort();
+    });
+    if (options.abort_signal.aborted) {
+      this.abortController.abort();
+    }
+
+    this.snapshotter = new PostgresSnapshotter({ ...options, abort_signal: this.abortSignal });
+    this.abortSignal.addEventListener(
       'abort',
       () => {
         if (this.startedStreaming) {
@@ -159,7 +167,7 @@ export class WalStream {
   }
 
   get stopped() {
-    return this.abort_signal.aborted;
+    return this.abortSignal.aborted;
   }
 
   async handleRelation(options: {
@@ -328,52 +336,62 @@ export class WalStream {
     return null;
   }
 
+  /**
+   * Start replication loop, and continue until aborted or error.
+   */
   async replicate() {
     try {
-      await this.initReplication();
-
-      await this.streamChanges();
+      this.initPromise = this.initReplication();
+      await this.initPromise;
+      const streamPromise = this.streamChanges();
+      const loopPromise = this.snapshotter.replicationLoop();
+      await Promise.race([loopPromise, streamPromise]);
     } catch (e) {
       await this.storage.reportError(e);
       throw e;
+    } finally {
+      this.abortController.abort();
     }
   }
 
-  async initReplication() {
+  public async waitForInitialSnapshot() {
+    if (this.initPromise == null) {
+      throw new ReplicationAssertionError('replicate() must be called before waitForInitialSnapshot()');
+    }
+    await this.initPromise;
+
+    await this.snapshotter.waitForInitialSnapshot();
+  }
+
+  /**
+   * Initialize replication.
+   * Start replication loop, and continue until aborted, error or initial snapshot completed.
+   */
+  private async initReplication() {
     const result = await this.snapshotter.checkSlot();
     const db = await this.connections.snapshotConnection();
     try {
       await this.snapshotter.setupSlot(db, result);
-      // Trigger here, but we await elsewhere
-      // TODO: fail on the first error
-      this.streamChanges().catch((_) => {});
       if (result.needsInitialSync) {
-        await this.snapshotter.startReplication(db);
+        await this.snapshotter.queueSnapshotTables(db);
       }
-
-      // FIXME: handle the background promise
-      this.snapshotter.replicationLoop();
-      await this.snapshotter.waitForInitialSnapshot();
     } finally {
       await db.end();
     }
   }
 
-  async streamChanges() {
-    this.streamPromise ??= (async () => {
-      const streamReplicationConnection = await this.connections.replicationConnection();
-      try {
-        await this.streamChangesInternal(streamReplicationConnection);
-      } catch (e) {
-        if (isReplicationSlotInvalidError(e)) {
-          throw new MissingReplicationSlotError(e.message, e);
-        }
-        throw e;
-      } finally {
-        await streamReplicationConnection.end();
+  private async streamChanges() {
+    const streamReplicationConnection = await this.connections.replicationConnection();
+    try {
+      await this.streamChangesInternal(streamReplicationConnection);
+    } catch (e) {
+      if (isReplicationSlotInvalidError(e)) {
+        throw new MissingReplicationSlotError(e.message, e);
       }
-    })();
-    await this.streamPromise;
+      throw e;
+    } finally {
+      await streamReplicationConnection.end();
+    }
   }
 
   private async streamChangesInternal(replicationConnection: pgwire.PgConnection) {
@@ -451,7 +469,7 @@ export class WalStream {
         for await (const chunk of replicationStream.pgoutputDecode()) {
           this.touch();
 
-          if (this.abort_signal.aborted) {
+          if (this.abortSignal.aborted) {
             break;
           }
 

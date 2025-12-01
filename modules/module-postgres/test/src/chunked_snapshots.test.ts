@@ -142,7 +142,8 @@ function defineBatchTests(factory: TestStorageFactory) {
     await p;
 
     // 5. Logical replication picks up the UPDATE above, but it is missing the TOAST column.
-    context.startStreaming();
+    // Note: logical replication now runs concurrently with the snapshot.
+    // TODO: re-check the test logic here.
 
     // 6. If all went well, the "resnapshot" process would take care of this.
     const data = await context.getBucketData('global[]', undefined, {});

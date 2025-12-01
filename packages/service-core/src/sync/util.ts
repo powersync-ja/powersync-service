@@ -183,6 +183,16 @@ export function settledPromise<T>(promise: Promise<T>): Promise<PromiseSettledRe
   );
 }
 
+export function unsettledPromise<T>(settled: Promise<PromiseSettledResult<T>>): Promise<T> {
+  return settled.then((result) => {
+    if (result.status === 'fulfilled') {
+      return Promise.resolve(result.value);
+    } else {
+      return Promise.reject(result.reason);
+    }
+  });
+}
+
 export type MapOrSet<T> = Map<T, any> | Set<T>;
 
 /**

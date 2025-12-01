@@ -104,7 +104,6 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
   await context2.loadNextSyncRules();
   await context2.replicateSnapshot();
 
-  context2.startStreaming();
   const data = await context2.getBucketData('global[]', undefined, {});
 
   const deletedRowOps = data.filter((row) => row.object_type == 'test_data2' && row.object_id === String(id1));

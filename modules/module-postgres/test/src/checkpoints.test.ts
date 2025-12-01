@@ -35,11 +35,9 @@ const checkpointTests = (factory: TestStorageFactory) => {
 
     await pool.query(`CREATE TABLE test_data(id text primary key, description text, other text)`);
 
-    await context.replicateSnapshot();
-
-    context.startStreaming();
     // Wait for a consistent checkpoint before we start.
-    await context.getCheckpoint();
+    await context.initializeReplication();
+
     const storage = context.storage!;
 
     const controller = new AbortController();

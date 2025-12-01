@@ -37,7 +37,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t2', 'test2')`);
 
@@ -68,7 +67,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     const { pool } = context;
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(`CREATE TABLE test_data(id text primary key, description text)`);
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t1', 'test1')`);
@@ -103,7 +101,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data_old(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(
       { statement: `ALTER TABLE test_data_old RENAME TO test_data` },
@@ -143,7 +140,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data1(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(
       { statement: `ALTER TABLE test_data1 RENAME TO test_data2` },
@@ -186,7 +182,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(
       { statement: `ALTER TABLE test_data RENAME TO test_data_na` },
@@ -216,7 +211,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(
       { statement: `ALTER TABLE test_data REPLICA IDENTITY FULL` },
@@ -259,7 +253,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(
       { statement: `ALTER TABLE test_data ADD COLUMN other TEXT` },
@@ -301,7 +294,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(
       { statement: `ALTER TABLE test_data ALTER COLUMN id TYPE varchar` },
@@ -345,7 +337,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t2', 'test2')`);
 
@@ -396,7 +387,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t2', 'test2')`);
 
@@ -440,7 +430,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_other(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(`INSERT INTO test_other(id, description) VALUES('t2', 'test2')`);
 
@@ -468,7 +457,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t2', 'test2')`);
 
@@ -506,7 +494,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t2', 'test2')`);
 
@@ -555,7 +542,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data_old(id, num) VALUES('t2', 0)`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(
       { statement: `ALTER TABLE test_data_old RENAME TO test_data` },
@@ -627,7 +613,6 @@ config:
     await pool.query(`INSERT INTO test_data(id) VALUES ('t1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(
       { statement: `CREATE TYPE composite AS (foo bool, bar int4);` },

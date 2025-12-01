@@ -6,8 +6,10 @@ import {
   initializeCoreReplicationMetrics,
   InternalOpId,
   OplogEntry,
+  settledPromise,
   storage,
-  SyncRulesBucketStorage
+  SyncRulesBucketStorage,
+  unsettledPromise
 } from '@powersync/service-core';
 import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import * as pgwire from '@powersync/service-jpgwire';
@@ -17,9 +19,8 @@ import { CustomTypeRegistry } from '@module/types/registry.js';
 export class WalStreamTestContext implements AsyncDisposable {
   private _walStream?: WalStream;
   private abortController = new AbortController();
-  private streamPromise?: Promise<void>;
   public storage?: SyncRulesBucketStorage;
-  private snapshotPromise?: Promise<void>;
+  private settledReplicationPromise?: Promise<PromiseSettledResult<void>>;
 
   /**
    * Tests operating on the wal stream need to configure the stream and manage asynchronous
@@ -54,21 +55,10 @@ export class WalStreamTestContext implements AsyncDisposable {
     await this.dispose();
   }
 
-  /**
-   * Clear any errors from startStream, to allow for a graceful dispose when streaming errors
-   * were expected.
-   */
-  async clearStreamError() {
-    if (this.streamPromise != null) {
-      this.streamPromise = this.streamPromise.catch((e) => {});
-    }
-  }
-
   async dispose() {
     this.abortController.abort();
     try {
-      await this.snapshotPromise;
-      await this.streamPromise;
+      await this.settledReplicationPromise;
       await this.connectionManager.destroy();
       await this.factory?.[Symbol.asyncDispose]();
     } catch (e) {
@@ -142,32 +132,28 @@ export class WalStreamTestContext implements AsyncDisposable {
    */
   async initializeReplication() {
     await this.replicateSnapshot();
-    this.startStreaming();
     // Make sure we're up to date
     await this.getCheckpoint();
   }
 
+  /**
+   * Replicate the initial snapshot, and start streaming.
+   */
   async replicateSnapshot() {
-    const promise = (async () => {
-      await this.walStream.initReplication();
-    })();
-    this.snapshotPromise = promise.catch((_) => {});
-    await promise;
-  }
-
-  startStreaming() {
-    this.streamPromise = this.walStream.streamChanges();
+    // Use a settledPromise to avoid unhandled rejections
+    this.settledReplicationPromise = settledPromise(this.walStream.replicate());
+    await Promise.race([unsettledPromise(this.settledReplicationPromise), this.walStream.waitForInitialSnapshot()]);
   }
 
   async getCheckpoint(options?: { timeout?: number }) {
     let checkpoint = await Promise.race([
       getClientCheckpoint(this.pool, this.factory, { timeout: options?.timeout ?? 15_000 }),
-      this.streamPromise
+      unsettledPromise(this.settledReplicationPromise!)
     ]);
     if (checkpoint == null) {
-      // This indicates an issue with the test setup - streamingPromise completed instead
+      // This indicates an issue with the test setup - replicationPromise completed instead
       // of getClientCheckpoint()
-      throw new Error('Test failure - streamingPromise completed');
+      throw new Error('Test failure - replicationPromise completed');
     }
     return checkpoint;
   }
