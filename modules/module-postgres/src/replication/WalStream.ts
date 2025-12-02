@@ -3,6 +3,7 @@ import {
   container,
   logger as defaultLogger,
   Logger,
+  ReplicationAbortedError,
   ReplicationAssertionError
 } from '@powersync/lib-services-framework';
 import {
@@ -345,16 +346,33 @@ export class WalStream {
     try {
       this.initPromise = this.initReplication();
       await this.initPromise;
-      streamPromise = this.streamChanges();
-      loopPromise = this.snapshotter.replicationLoop();
-      await Promise.race([loopPromise, streamPromise]);
+      // These Promises are both expected to run until aborted or error.
+      streamPromise = this.streamChanges().finally(() => {
+        this.abortController.abort();
+      });
+      loopPromise = this.snapshotter.replicationLoop().finally(() => {
+        this.abortController.abort();
+      });
+      const results = await Promise.allSettled([loopPromise, streamPromise]);
+      // First, prioritize non-aborted errors
+      for (let result of results) {
+        if (result.status == 'rejected' && !(result.reason instanceof ReplicationAbortedError)) {
+          throw result.reason;
+        }
+      }
+      // Then include aborted errors
+      for (let result of results) {
+        if (result.status == 'rejected') {
+          throw result.reason;
+        }
+      }
+      // If we get here, both Promises completed successfully, which is unexpected.
+      throw new ReplicationAssertionError(`Replication loop exited unexpectedly`);
     } catch (e) {
       await this.storage.reportError(e);
       throw e;
     } finally {
       this.abortController.abort();
-      // Wait for both to finish, to ensure proper cleanup.
-      await Promise.all([loopPromise?.catch((_) => {}), streamPromise?.catch((_) => {})]);
     }
   }
 
