@@ -198,6 +198,7 @@ export class PostgresBucketBatch
             AND source_table = ${{ type: 'varchar', value: sourceTable.id }}
           LIMIT
             ${{ type: 'int4', value: BATCH_LIMIT }}
+          FOR NO KEY UPDATE
         `)) {
           lastBatchCount += rows.length;
           processedCount += rows.length;
@@ -662,6 +663,7 @@ export class PostgresBucketBatch
           AND c.source_key = f.source_key
         WHERE
           c.group_id = ${{ type: 'int4', value: this.group_id }}
+        FOR NO KEY UPDATE
       `)) {
         for (const row of rows) {
           const key = cacheKey(row.source_table, row.source_key);
@@ -707,7 +709,8 @@ export class PostgresBucketBatch
             ) f ON c.source_table = f.source_table_id
             AND c.source_key = f.source_key
           WHERE
-            c.group_id = $2;
+            c.group_id = $2
+          FOR NO KEY UPDATE;
         `,
         params: [
           {
@@ -1049,6 +1052,7 @@ export class PostgresBucketBatch
           sync_rules
         WHERE
           id = ${{ type: 'int4', value: this.group_id }}
+        FOR NO KEY UPDATE;
       `
         .decoded(pick(models.SyncRules, ['state', 'snapshot_done']))
         .first();
@@ -1098,9 +1102,27 @@ export class PostgresBucketBatch
     callback: (tx: lib_postgres.WrappedConnection) => Promise<T>
   ): Promise<T> {
     try {
-      return await this.db.transaction(async (db) => {
-        return await callback(db);
-      });
+      // Try for up to a minute
+      const lastTry = Date.now() + 60_000;
+      while (true) {
+        try {
+          return await this.db.transaction(async (db) => {
+            // The isolation level is required to protect against concurrent updates to the same data.
+            // In theory the "select ... for update" locks may be able to protect against this, but we
+            // still have failing tests if we use that as the only isolation mechanism.
+            await db.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;');
+            return await callback(db);
+          });
+        } catch (err) {
+          // Serialization failure, retry
+          if (err[Symbol.for('pg.ErrorCode')] === '40001' && Date.now() < lastTry) {
+            this.logger.warn(`Serialization failure during replication transaction, retrying: ${err.message}`);
+            await timers.setTimeout(100 + Math.random() * 200);
+            continue;
+          }
+          throw err;
+        }
+      }
     } finally {
       await this.db.sql`
         UPDATE sync_rules
