@@ -228,11 +228,12 @@ bucket_definitions:
       await compactPromise;
 
       // Wait for replication to finish
-      let checkpoint = await getClientCheckpoint(pool, storage.factory, { timeout: TIMEOUT_MARGIN_MS });
+      await getClientCheckpoint(pool, storage.factory, { timeout: TIMEOUT_MARGIN_MS });
 
       if (f instanceof mongo_storage.storage.MongoBucketStorage) {
         // Check that all inserts have been deleted again
-        const docs = await f.db.current_data.find().toArray();
+        // Note: at this point, the pending_delete cleanup may not have run yet.
+        const docs = await f.db.current_data.find({ pending_delete: { $exists: false } }).toArray();
         const transformed = docs.map((doc) => {
           return bson.deserialize(doc.data.buffer) as SqliteRow;
         });
@@ -259,6 +260,8 @@ bucket_definitions:
             *
           FROM
             current_data
+          WHERE
+            pending_delete IS NULL
         `
           .decoded(postgres_storage.models.CurrentData)
           .rows();
