@@ -826,7 +826,8 @@ export class MongoBucketBatch
 
   private async cleanupCurrentData(lastCheckpoint: bigint) {
     const result = await this.db.current_data.deleteMany({
-      pending_delete: { $exists: true, $lte: lastCheckpoint ?? 1_000_000 }
+      '_id.g': this.group_id,
+      pending_delete: { $exists: true, $lte: lastCheckpoint }
     });
     if (result.deletedCount > 0) {
       this.logger.info(

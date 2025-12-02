@@ -456,6 +456,14 @@ export class PostgresBucketBatch
       this.logger.info(
         `Created checkpoint at ${lsn}. Persisted op: ${result.last_checkpoint} (${this.persisted_op}). keepalive: ${result.keepalive_op}`
       );
+
+      await this.db.sql`
+        DELETE FROM current_data
+        WHERE
+          group_id = ${{ type: 'int4', value: this.group_id }}
+          AND pending_delete IS NOT NULL
+          AND pending_delete <= ${{ type: 'int8', value: result.last_checkpoint }}
+      `.execute();
     } else {
       this.logger.info(
         `Skipped empty checkpoint at ${lsn}. Persisted op: ${result.last_checkpoint}. keepalive: ${result.keepalive_op}`
@@ -1003,7 +1011,8 @@ export class PostgresBucketBatch
         data: afterData!,
         source_table: sourceTable.id,
         buckets: newBuckets,
-        lookups: newLookups
+        lookups: newLookups,
+        pending_delete: null
       };
       persistedBatch.upsertCurrentData(result);
     }
@@ -1011,7 +1020,7 @@ export class PostgresBucketBatch
     if (afterId == null || !storage.replicaIdEquals(beforeId, afterId)) {
       // Either a delete (afterId == null), or replaced the old replication id
       persistedBatch.deleteCurrentData({
-        source_table_id: record.sourceTable.id,
+        source_table_id: sourceTable.id,
         source_key: beforeId!
       });
     }

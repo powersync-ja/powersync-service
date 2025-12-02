@@ -1,5 +1,5 @@
 import * as t from 'ts-codec';
-import { hexBuffer, jsonb, pgwire_number } from '../codecs.js';
+import { bigint, hexBuffer, jsonb, pgwire_number } from '../codecs.js';
 
 export const CurrentBucket = t.object({
   bucket: t.string,
@@ -16,7 +16,8 @@ export const CurrentData = t.object({
   group_id: pgwire_number,
   lookups: t.array(hexBuffer),
   source_key: hexBuffer,
-  source_table: t.string
+  source_table: t.string,
+  pending_delete: t.Null.or(bigint)
 });
 
 export type CurrentData = t.Encoded<typeof CurrentData>;
