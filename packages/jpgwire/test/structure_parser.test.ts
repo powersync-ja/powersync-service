@@ -29,6 +29,14 @@ describe('StructureParser', () => {
       expect(parseArray('{"foo"}')).toStrictEqual(['foo']);
       expect(parseArray('{"fo\\"o"}')).toStrictEqual(['fo"o']);
       expect(parseArray('{"fo\\\\o"}')).toStrictEqual(['fo\\o']);
+
+      // Regression test for https://github.com/powersync-ja/powersync-service/issues/419
+      let largeStringValue = '';
+      for (let i = 0; i < 65000; i++) {
+        largeStringValue += 'hello world';
+      }
+
+      expect(parseArray(`{"${largeStringValue}"}`)).toStrictEqual([largeStringValue]);
     });
 
     test('nested', () => {

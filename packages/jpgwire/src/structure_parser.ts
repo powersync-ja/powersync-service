@@ -14,6 +14,10 @@ export class StructureParser {
     return this.source.charCodeAt(this.offset);
   }
 
+  private currentChar(): string {
+    return this.source.charAt(this.offset);
+  }
+
   private get isAtEnd(): boolean {
     return this.offset == this.source.length;
   }
@@ -69,7 +73,7 @@ export class StructureParser {
     this.consume(CHAR_CODE_DOUBLE_QUOTE);
 
     const start = this.offset;
-    const charCodes: number[] = [];
+    let buffer = '';
     let previousWasBackslash = false;
 
     while (true) {
@@ -79,14 +83,14 @@ export class StructureParser {
         if (char != CHAR_CODE_DOUBLE_QUOTE && char != CHAR_CODE_BACKSLASH) {
           this.error('Expected escaped double quote or escaped backslash');
         }
-        charCodes.push(char);
+        buffer += this.currentChar();
         previousWasBackslash = false;
       } else if (char == CHAR_CODE_DOUBLE_QUOTE) {
         if (this.offset != start && allowEscapingWithDoubleDoubleQuote) {
           // If the next character is also a double quote, that escapes a single double quote
           if (this.offset < this.source.length - 1 && this.peek() == CHAR_CODE_DOUBLE_QUOTE) {
             this.offset += 2;
-            charCodes.push(CHAR_CODE_DOUBLE_QUOTE);
+            buffer += STRING_DOUBLE_QUOTE;
             continue;
           }
         }
@@ -95,14 +99,14 @@ export class StructureParser {
       } else if (char == CHAR_CODE_BACKSLASH) {
         previousWasBackslash = true;
       } else {
-        charCodes.push(char);
+        buffer += this.currentChar();
       }
 
       this.advance();
     }
 
     this.consume(CHAR_CODE_DOUBLE_QUOTE);
-    return String.fromCharCode(...charCodes);
+    return buffer;
   }
 
   unquotedString(endedBy: number[], illegal: number[]): string {
@@ -289,6 +293,7 @@ export type Range<T> =
 export type ElementOrArray<T> = null | T | ElementOrArray<T>[];
 
 const CHAR_CODE_DOUBLE_QUOTE = 0x22;
+const STRING_DOUBLE_QUOTE = '"';
 const CHAR_CODE_BACKSLASH = 0x5c;
 export const CHAR_CODE_COMMA = 0x2c;
 export const CHAR_CODE_SEMICOLON = 0x3b;
