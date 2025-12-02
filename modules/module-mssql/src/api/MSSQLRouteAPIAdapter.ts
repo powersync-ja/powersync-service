@@ -233,7 +233,7 @@ export class MSSQLRouteAPIAdapter implements api.RouteAPI {
         }
       } else {
         if (tables.length == 0) {
-          // This should tenchnically never happen, but we'll handle it anyway.
+          // This should technically never happen, but we'll handle it anyway.
           const resolvedTable: ResolvedTable = {
             objectId: 0,
             schema: schema,
