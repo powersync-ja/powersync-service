@@ -255,8 +255,6 @@ describe('MSSQL Data Types Tests', () => {
   });
 
   test('Date types edge cases mappings', async () => {
-    const beforeLSN = await getLatestReplicatedLSN(connectionManager);
-
     await connectionManager.query(`
       INSERT INTO [${connectionManager.schema}].test_data(datetime2_col) 
       VALUES ('0001-01-01 00:00:00.000')
@@ -269,6 +267,7 @@ describe('MSSQL Data Types Tests', () => {
       INSERT INTO [${connectionManager.schema}].test_data(datetime_col) 
       VALUES ('1753-01-01 00:00:00')
     `);
+    const beforeLSN = await getLatestReplicatedLSN(connectionManager);
     await connectionManager.query(`
       INSERT INTO [${connectionManager.schema}].test_data(datetime_col) 
       VALUES ('9999-12-31 23:59:59.997')

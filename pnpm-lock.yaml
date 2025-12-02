@@ -395,8 +395,8 @@ importers:
         specifier: ^4.15.1
         version: 4.15.9
       pgwire:
-        specifier: github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
-        version: https://codeload.github.com/kagis/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
+        specifier: github:exe-dealer/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
+        version: https://codeload.github.com/exe-dealer/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
       semver:
         specifier: ^7.5.4
         version: 7.6.2
@@ -481,8 +481,8 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0
       pgwire:
-        specifier: github:kagis/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
-        version: https://codeload.github.com/kagis/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
+        specifier: github:exe-dealer/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
+        version: https://codeload.github.com/exe-dealer/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
     devDependencies:
       vitest:
         specifier: ^3.2.4
@@ -3458,8 +3458,8 @@ packages:
   pgsql-ast-parser@11.2.0:
     resolution: {integrity: sha512-/8KCcQjePoQDOtfZQuoV/4Y3WpmQVp7E+RFayAdjJpdBdu2dBnKnuQe9XU4g5Td5qC0G+i/fFK/DlNjvWwg+FA==}
 
-  pgwire@https://codeload.github.com/kagis/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87:
-    resolution: {tarball: https://codeload.github.com/kagis/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87}
+  pgwire@https://codeload.github.com/exe-dealer/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87:
+    resolution: {tarball: https://codeload.github.com/exe-dealer/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87}
     version: 0.7.0
     engines: {node: '>=14.18.0'}
 
@@ -7399,7 +7399,7 @@ snapshots:
       moo: 0.5.2
       nearley: 2.20.1
 
-  pgwire@https://codeload.github.com/kagis/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87: {}
+  pgwire@https://codeload.github.com/exe-dealer/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87: {}
 
   picocolors@1.0.1: {}
 
