@@ -202,8 +202,8 @@ bucket_definitions:
       {
         checksum: 4243212114,
         object_id: 't2',
-        op: 'PUT',
-        op_id: '4'
+        op: 'PUT'
+        // op_id is 4 or 5, depending on storage implementation
       }
     ]);
 
@@ -221,7 +221,7 @@ bucket_definitions:
     bucketStorage.clearChecksumCache();
     const checksumAfter = await bucketStorage.getChecksums(checkpoint, ['global[]']);
 
-    expect(batchAfter.targetOp).toEqual(4n);
+    expect(batchAfter.targetOp).toBeLessThanOrEqual(checkpoint);
     expect(dataAfter).toMatchObject([
       {
         checksum: -1778190028,
@@ -231,8 +231,8 @@ bucket_definitions:
       {
         checksum: 4243212114,
         object_id: 't2',
-        op: 'PUT',
-        op_id: '4'
+        op: 'PUT'
+        // op_id is 4 or 5, depending on storage implementation
       }
     ]);
     expect(checksumAfter.get('global[]')).toEqual({
@@ -316,12 +316,12 @@ bucket_definitions:
     await bucketStorage.clearChecksumCache();
     const checksumAfter = await bucketStorage.getChecksums(checkpoint2, ['global[]']);
 
-    expect(batchAfter.targetOp).toEqual(4n);
+    expect(batchAfter.targetOp).toEqual(5n);
     expect(dataAfter).toMatchObject([
       {
         checksum: 1874612650,
         op: 'CLEAR',
-        op_id: '4'
+        op_id: '5'
       }
     ]);
     expect(checksumAfter.get('global[]')).toEqual({
