@@ -14,6 +14,10 @@ export class StructureParser {
     return this.source.charCodeAt(this.offset);
   }
 
+  private currentChar(): string {
+    return this.source.charAt(this.offset);
+  }
+
   private get isAtEnd(): boolean {
     return this.offset == this.source.length;
   }
@@ -69,40 +73,47 @@ export class StructureParser {
     this.consume(CHAR_CODE_DOUBLE_QUOTE);
 
     const start = this.offset;
-    const charCodes: number[] = [];
-    let previousWasBackslash = false;
+    let buffer = '';
 
     while (true) {
-      const char = this.currentCharCode();
+      const startPosition = this.offset;
 
-      if (previousWasBackslash) {
-        if (char != CHAR_CODE_DOUBLE_QUOTE && char != CHAR_CODE_BACKSLASH) {
-          this.error('Expected escaped double quote or escaped backslash');
-        }
-        charCodes.push(char);
-        previousWasBackslash = false;
-      } else if (char == CHAR_CODE_DOUBLE_QUOTE) {
+      // Skip past "boring" chars that we just need to add to the buffer.
+      let char = this.currentCharCode();
+      while (char != CHAR_CODE_BACKSLASH && char != CHAR_CODE_DOUBLE_QUOTE) {
+        this.advance();
+        char = this.currentCharCode();
+      }
+
+      if (this.offset > startPosition) {
+        buffer += this.source.substring(startPosition, this.offset);
+      }
+
+      if (char == CHAR_CODE_DOUBLE_QUOTE) {
         if (this.offset != start && allowEscapingWithDoubleDoubleQuote) {
           // If the next character is also a double quote, that escapes a single double quote
           if (this.offset < this.source.length - 1 && this.peek() == CHAR_CODE_DOUBLE_QUOTE) {
             this.offset += 2;
-            charCodes.push(CHAR_CODE_DOUBLE_QUOTE);
+            buffer += STRING_DOUBLE_QUOTE;
             continue;
           }
         }
 
         break; // End of string.
       } else if (char == CHAR_CODE_BACKSLASH) {
-        previousWasBackslash = true;
-      } else {
-        charCodes.push(char);
-      }
+        this.advance(); // Consume the backslash
+        const nextChar = this.currentCharCode();
+        if (nextChar != CHAR_CODE_DOUBLE_QUOTE && nextChar != CHAR_CODE_BACKSLASH) {
+          this.error('Expected escaped double quote or escaped backslash');
+        }
 
-      this.advance();
+        buffer += this.currentChar();
+        this.advance();
+      }
     }
 
     this.consume(CHAR_CODE_DOUBLE_QUOTE);
-    return String.fromCharCode(...charCodes);
+    return buffer;
   }
 
   unquotedString(endedBy: number[], illegal: number[]): string {
@@ -289,6 +300,7 @@ export type Range<T> =
 export type ElementOrArray<T> = null | T | ElementOrArray<T>[];
 
 const CHAR_CODE_DOUBLE_QUOTE = 0x22;
+const STRING_DOUBLE_QUOTE = '"';
 const CHAR_CODE_BACKSLASH = 0x5c;
 export const CHAR_CODE_COMMA = 0x2c;
 export const CHAR_CODE_SEMICOLON = 0x3b;
