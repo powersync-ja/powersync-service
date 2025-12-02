@@ -14,12 +14,18 @@ import * as pgwire from '@powersync/service-jpgwire';
 import { SqliteRow } from '@powersync/service-sync-rules';
 
 import { PgManager } from '@module/replication/PgManager.js';
-import { createCoreReplicationMetrics, initializeCoreReplicationMetrics, storage } from '@powersync/service-core';
+import { ReplicationAbortedError } from '@powersync/lib-services-framework';
+import {
+  createCoreReplicationMetrics,
+  initializeCoreReplicationMetrics,
+  reduceBucket,
+  storage
+} from '@powersync/service-core';
 import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
 import * as timers from 'node:timers/promises';
-import { ReplicationAbortedError } from '@powersync/lib-services-framework';
+import { WalStreamTestContext } from './wal_stream_utils.js';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('slow tests', function () {
   describeWithStorage({ timeout: 120_000 }, function (factory) {
@@ -300,7 +306,7 @@ bucket_definitions:
   //
   // If the first LSN does not correctly match with the first replication transaction,
   // we may miss some updates.
-  test('repeated initial replication', { timeout: TEST_DURATION_MS + TIMEOUT_MARGIN_MS }, async () => {
+  test('repeated initial replication (1)', { timeout: TEST_DURATION_MS + TIMEOUT_MARGIN_MS }, async () => {
     const pool = await connectPgPool();
     await clearTestDb(pool);
     await using f = await factory();
@@ -348,7 +354,7 @@ bucket_definitions:
 
       await storage.clear();
 
-      // 3. Start initial replication, then streaming, but don't wait for any of this
+      // 3. Start replication, but don't wait for it
       let initialReplicationDone = false;
       streamPromise = walStream.replicate();
       walStream
@@ -406,6 +412,96 @@ bucket_definitions:
         }
       });
       await connections.end();
+    }
+  });
+
+  // Test repeatedly performing initial replication while deleting data.
+  //
+  // This specifically checks for data in the initial snapshot being deleted while snapshotting.
+  test('repeated initial replication with deletes', { timeout: TEST_DURATION_MS + TIMEOUT_MARGIN_MS }, async () => {
+    const syncRuleContent = `
+bucket_definitions:
+  global:
+    data:
+      - SELECT id, description FROM "test_data"
+`;
+
+    const start = Date.now();
+    let i = 0;
+
+    while (Date.now() - start < TEST_DURATION_MS) {
+      i += 1;
+
+      // 1. Each iteration starts with a clean slate
+      await using context = await WalStreamTestContext.open(factory, {
+        walStreamOptions: { snapshotChunkLength: 100 }
+      });
+      const pool = context.pool;
+
+      // Introduce an artificial delay in snapshot queries, to make it more likely to reproduce an
+      // issue.
+      const originalSnapshotConnectionFn = context.connectionManager.snapshotConnection;
+      context.connectionManager.snapshotConnection = async () => {
+        const conn = await originalSnapshotConnectionFn.call(context.connectionManager);
+        // Wrap streaming query to add delays to snapshots
+        const originalStream = conn.stream;
+        conn.stream = async function* (...args: any[]) {
+          const delay = Math.random() * 20;
+          yield* originalStream.call(this, ...args);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        };
+        return conn;
+      };
+
+      await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);
+      await context.updateSyncRules(syncRuleContent);
+
+      let statements: pgwire.Statement[] = [];
+
+      const n = Math.floor(Math.random() * 200);
+      for (let i = 0; i < n; i++) {
+        statements.push({
+          statement: `INSERT INTO test_data(description) VALUES('test_init') RETURNING id`
+        });
+      }
+      const results = await pool.query(...statements);
+      const ids = new Set(
+        results.results.map((sub) => {
+          return sub.rows[0][0] as string;
+        })
+      );
+
+      // 3. Start replication, but don't wait for it
+      let initialReplicationDone = false;
+
+      streamPromise = context.replicateSnapshot().finally(() => {
+        initialReplicationDone = true;
+      });
+
+      // 4. While initial replication is still running, delete random rows
+      while (!initialReplicationDone && ids.size > 0) {
+        let statements: pgwire.Statement[] = [];
+
+        const m = Math.floor(Math.random() * 10) + 1;
+        const idArray = Array.from(ids);
+        for (let i = 0; i < m; i++) {
+          const id = idArray[Math.floor(Math.random() * idArray.length)];
+          statements.push({
+            statement: `DELETE FROM test_data WHERE id = $1`,
+            params: [{ type: 'uuid', value: id }]
+          });
+          ids.delete(id);
+        }
+        await pool.query(...statements);
+        await new Promise((resolve) => setTimeout(resolve, Math.random() * 10));
+      }
+
+      await streamPromise;
+
+      // 5. Once initial replication is done, wait for the streaming changes to complete syncing.
+      const data = await context.getBucketData('global[]', 0n);
+      const normalized = reduceBucket(data).filter((op) => op.op !== 'CLEAR');
+      expect(normalized.length).toEqual(ids.size);
     }
   });
 }

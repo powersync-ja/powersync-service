@@ -5,7 +5,7 @@ import * as bson from 'bson';
 
 import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
 import { InternalOpId, storage, utils } from '@powersync/service-core';
-import { currentBucketKey, MAX_ROW_SIZE } from './MongoBucketBatch.js';
+import { currentBucketKey, EMPTY_DATA, MAX_ROW_SIZE } from './MongoBucketBatch.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { PowerSyncMongo } from './db.js';
 import {
@@ -243,10 +243,19 @@ export class PersistedBatch {
     }
   }
 
-  deleteCurrentData(id: SourceKey) {
+  deleteCurrentData(id: SourceKey, checkpointGreaterThan: bigint) {
     const op: mongo.AnyBulkWriteOperation<CurrentDataDocument> = {
-      deleteOne: {
-        filter: { _id: id }
+      updateOne: {
+        filter: { _id: id },
+        update: {
+          $set: {
+            data: EMPTY_DATA,
+            buckets: [],
+            lookups: [],
+            pending_delete: checkpointGreaterThan
+          }
+        },
+        upsert: true
       }
     };
     this.currentData.push(op);

@@ -43,6 +43,8 @@ export const MAX_ROW_SIZE = 15 * 1024 * 1024;
 // In the future, we can investigate allowing multiple replication streams operating independently.
 const replicationMutex = new utils.Mutex();
 
+export const EMPTY_DATA = new bson.Binary(bson.serialize({}));
+
 export interface MongoBucketBatchOptions {
   db: PowerSyncMongo;
   syncRules: SqlSyncRules;
@@ -387,7 +389,7 @@ export class MongoBucketBatch
 
     let afterData: bson.Binary | undefined;
     if (afterId != null && !this.storeCurrentData) {
-      afterData = new bson.Binary(bson.serialize({}));
+      afterData = EMPTY_DATA;
     } else if (afterId != null) {
       try {
         // This will fail immediately if the record is > 16MB.
@@ -552,8 +554,10 @@ export class MongoBucketBatch
 
     if (afterId == null || !storage.replicaIdEquals(beforeId, afterId)) {
       // Either a delete (afterId == null), or replaced the old replication id
-      // TODO: soft delete
-      batch.deleteCurrentData(before_key);
+      // Note that this is a soft delete.
+      // We don't specifically need a new or unique op_id here, but it must be greater than the
+      // last checkpoint, so we use next().
+      batch.deleteCurrentData(before_key, opSeq.next());
     }
     return result;
   }
@@ -764,7 +768,8 @@ export class MongoBucketBatch
           snapshot_done: 1,
           last_checkpoint_lsn: 1,
           no_checkpoint_before: 1,
-          keepalive_op: 1
+          keepalive_op: 1,
+          last_checkpoint: 1
         }
       }
     );
@@ -777,7 +782,8 @@ export class MongoBucketBatch
             snapshot_done: 1,
             last_checkpoint_lsn: 1,
             no_checkpoint_before: 1,
-            keepalive_op: 1
+            keepalive_op: 1,
+            last_checkpoint: 1
           }
         }
       );
@@ -788,11 +794,14 @@ export class MongoBucketBatch
       // This can happen when last_checkpoint and keepalive_op would remain unchanged.
       updateResult = existing;
     }
-    const checkpointCreated = updateResult.snapshot_done === true && updateResult.last_checkpoint_lsn === lsn;
+    const checkpointCreated =
+      updateResult.snapshot_done === true &&
+      updateResult.last_checkpoint_lsn === lsn &&
+      updateResult.last_checkpoint != null;
 
     if (!checkpointCreated) {
       // Failed on snapshot_done or no_checkpoint_before.
-      if (Date.now() - this.lastWaitingLogThottled > 5_000 || true) {
+      if (Date.now() - this.lastWaitingLogThottled > 5_000) {
         this.logger.info(
           `Waiting before creating checkpoint, currently at ${lsn}. Persisted op: ${this.persisted_op}. Current state: ${JSON.stringify(
             {
@@ -805,13 +814,23 @@ export class MongoBucketBatch
         this.lastWaitingLogThottled = Date.now();
       }
     } else {
-      this.logger.info(`Created checkpoint at ${lsn}. Persisted op: ${this.persisted_op}`);
+      this.logger.info(`Created checkpoint at ${lsn}/${updateResult.last_checkpoint}`);
       await this.autoActivate(lsn);
       await this.db.notifyCheckpoint();
       this.persisted_op = null;
       this.last_checkpoint_lsn = lsn;
+      await this.cleanupCurrentData(updateResult.last_checkpoint!);
     }
     return true;
+  }
+
+  private async cleanupCurrentData(lastCheckpoint: bigint) {
+    const result = await this.db.current_data.deleteMany({
+      pending_delete: { $exists: true, $lte: lastCheckpoint ?? 1_000_000 }
+    });
+    this.logger.info(
+      `Cleaned up ${result.deletedCount} pending delete current_data records for checkpoint ${lastCheckpoint}`
+    );
   }
 
   /**
@@ -1001,7 +1020,7 @@ export class MongoBucketBatch
             sourceKey: value._id.k
           });
 
-          persistedBatch.deleteCurrentData(value._id);
+          persistedBatch.deleteCurrentData(value._id, opSeq.next());
         }
         await persistedBatch.flush(this.db, session);
         lastBatchCount = batch.length;
