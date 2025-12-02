@@ -363,7 +363,7 @@ export class PostgresSnapshotter {
           await this.markSnapshotDone();
         }
       }
-      throw new ReplicationAbortedError();
+      throw new ReplicationAbortedError(`Replication loop aborted`, this.abortSignal.reason);
     } catch (e) {
       // If initial snapshot already completed, this has no effect
       this.initialSnapshotDone.reject(e);
@@ -622,7 +622,7 @@ export class PostgresSnapshotter {
 
       if (this.abortSignal.aborted) {
         // We only abort after flushing
-        throw new ReplicationAbortedError(`Table snapshot interrupted`);
+        throw new ReplicationAbortedError(`Table snapshot interrupted`, this.abortSignal.reason);
       }
     }
   }

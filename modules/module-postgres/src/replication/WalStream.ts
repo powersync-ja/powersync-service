@@ -347,12 +347,23 @@ export class WalStream {
       this.initPromise = this.initReplication();
       await this.initPromise;
       // These Promises are both expected to run until aborted or error.
-      streamPromise = this.streamChanges().finally(() => {
-        this.abortController.abort();
-      });
-      loopPromise = this.snapshotter.replicationLoop().finally(() => {
-        this.abortController.abort();
-      });
+      streamPromise = this.streamChanges()
+        .then(() => {
+          throw new ReplicationAssertionError(`Replication stream exited unexpectedly`);
+        })
+        .catch((e) => {
+          this.abortController.abort(e);
+          throw e;
+        });
+      loopPromise = this.snapshotter
+        .replicationLoop()
+        .then(() => {
+          throw new ReplicationAssertionError(`Replication snapshotter exited unexpectedly`);
+        })
+        .catch((e) => {
+          this.abortController.abort(e);
+          throw e;
+        });
       const results = await Promise.allSettled([loopPromise, streamPromise]);
       // First, prioritize non-aborted errors
       for (let result of results) {
@@ -366,16 +377,21 @@ export class WalStream {
           throw result.reason;
         }
       }
+
       // If we get here, both Promises completed successfully, which is unexpected.
       throw new ReplicationAssertionError(`Replication loop exited unexpectedly`);
     } catch (e) {
       await this.storage.reportError(e);
       throw e;
     } finally {
+      // Just to make sure
       this.abortController.abort();
     }
   }
 
+  /**
+   * For tests: Wait until the initial snapshot is complete.
+   */
   public async waitForInitialSnapshot() {
     if (this.initPromise == null) {
       throw new ReplicationAssertionError('replicate() must be called before waitForInitialSnapshot()');
