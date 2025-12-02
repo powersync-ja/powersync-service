@@ -74,18 +74,22 @@ export class StructureParser {
 
     const start = this.offset;
     let buffer = '';
-    let previousWasBackslash = false;
 
     while (true) {
-      const char = this.currentCharCode();
+      const startPosition = this.offset;
 
-      if (previousWasBackslash) {
-        if (char != CHAR_CODE_DOUBLE_QUOTE && char != CHAR_CODE_BACKSLASH) {
-          this.error('Expected escaped double quote or escaped backslash');
-        }
-        buffer += this.currentChar();
-        previousWasBackslash = false;
-      } else if (char == CHAR_CODE_DOUBLE_QUOTE) {
+      // Skip past "boring" chars that we just need to add to the buffer.
+      let char = this.currentCharCode();
+      while (char != CHAR_CODE_BACKSLASH && char != CHAR_CODE_DOUBLE_QUOTE) {
+        this.advance();
+        char = this.currentCharCode();
+      }
+
+      if (this.offset > startPosition) {
+        buffer += this.source.substring(startPosition, this.offset);
+      }
+
+      if (char == CHAR_CODE_DOUBLE_QUOTE) {
         if (this.offset != start && allowEscapingWithDoubleDoubleQuote) {
           // If the next character is also a double quote, that escapes a single double quote
           if (this.offset < this.source.length - 1 && this.peek() == CHAR_CODE_DOUBLE_QUOTE) {
@@ -97,12 +101,15 @@ export class StructureParser {
 
         break; // End of string.
       } else if (char == CHAR_CODE_BACKSLASH) {
-        previousWasBackslash = true;
-      } else {
-        buffer += this.currentChar();
-      }
+        this.advance(); // Consume the backslash
+        const nextChar = this.currentCharCode();
+        if (nextChar != CHAR_CODE_DOUBLE_QUOTE && nextChar != CHAR_CODE_BACKSLASH) {
+          this.error('Expected escaped double quote or escaped backslash');
+        }
 
-      this.advance();
+        buffer += this.currentChar();
+        this.advance();
+      }
     }
 
     this.consume(CHAR_CODE_DOUBLE_QUOTE);
