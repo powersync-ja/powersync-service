@@ -324,7 +324,10 @@ export class BinLogStream {
 
     for await (let row of stream) {
       if (this.stopped) {
-        throw new ReplicationAbortedError('Abort signal received - initial replication interrupted.');
+        throw new ReplicationAbortedError(
+          'Abort signal received - initial replication interrupted.',
+          this.abortSignal.reason
+        );
       }
 
       if (columns == null) {

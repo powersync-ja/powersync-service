@@ -139,10 +139,10 @@ export class WalStream {
 
     // We wrap in our own abort controller so we can trigger abort internally.
     options.abort_signal.addEventListener('abort', () => {
-      this.abortController.abort();
+      this.abortController.abort(options.abort_signal.reason);
     });
     if (options.abort_signal.aborted) {
-      this.abortController.abort();
+      this.abortController.abort(options.abort_signal.reason);
     }
 
     this.snapshotter = new PostgresSnapshotter({ ...options, abort_signal: this.abortSignal });
@@ -620,6 +620,8 @@ export class WalStream {
         }
       }
     );
+
+    throw new ReplicationAbortedError(`Replication stream aborted`, this.abortSignal.reason);
   }
 
   async ack(lsn: string, replicationStream: pgwire.ReplicationStream) {

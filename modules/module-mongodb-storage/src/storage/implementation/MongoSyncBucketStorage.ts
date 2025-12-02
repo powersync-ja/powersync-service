@@ -561,7 +561,7 @@ export class MongoSyncBucketStorage
   async clear(options?: storage.ClearStorageOptions): Promise<void> {
     while (true) {
       if (options?.signal?.aborted) {
-        throw new ReplicationAbortedError('Aborted clearing data');
+        throw new ReplicationAbortedError('Aborted clearing data', options.signal.reason);
       }
       try {
         await this.clearIteration();

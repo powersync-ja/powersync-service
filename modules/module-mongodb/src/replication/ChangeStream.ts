@@ -497,7 +497,7 @@ export class ChangeStream {
       }
 
       if (this.abort_signal.aborted) {
-        throw new ReplicationAbortedError(`Aborted initial replication`);
+        throw new ReplicationAbortedError(`Aborted initial replication`, this.abort_signal.reason);
       }
 
       // Pre-fetch next batch, so that we can read and write concurrently
