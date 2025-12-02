@@ -1,5 +1,23 @@
 # @powersync/service-image
 
+## 1.17.0
+
+### Patch Changes
+
+- c050acd: [MongoDB] Optimize change stream filters to avoid PSYNC_S1345 timeouts
+- Updated dependencies [57f7660]
+- Updated dependencies [c050acd]
+- Updated dependencies [6eee0b3]
+  - @powersync/service-module-postgres-storage@0.10.13
+  - @powersync/service-module-mongodb-storage@0.12.13
+  - @powersync/service-core@1.17.0
+  - @powersync/service-module-mongodb@0.12.13
+  - @powersync/service-module-mysql@0.9.13
+  - @powersync/service-module-postgres@0.16.13
+  - @powersync/service-module-core@0.2.13
+  - @powersync/lib-services-framework@0.7.11
+  - @powersync/service-rsocket-router@0.2.8
+
 ## 1.16.3
 
 ### Patch Changes
