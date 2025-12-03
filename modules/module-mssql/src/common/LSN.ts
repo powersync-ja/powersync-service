@@ -51,9 +51,9 @@ export class LSN {
    *  @param stringLSN
    */
   static fromString(stringLSN: string): LSN {
-    if (!/^[0-9A-Fa-f]{8}:[0-9A-Fa-f]{8}:[0-9A-Fa-f]{4}$/.test(stringLSN)) {
+    if (!/^[0-9A-F]{8}:[0-9A-F]{8}:[0-9A-F]{4}$/.test(stringLSN)) {
       throw new ReplicationAssertionError(
-        `Invalid LSN string. Expected format is [00000000:00000000:0000]. Got: ${stringLSN}`
+        `Invalid LSN string. Expected format is uppercase hexadecimal:[00000000:00000000:0000]. Got: ${stringLSN}`
       );
     }
 

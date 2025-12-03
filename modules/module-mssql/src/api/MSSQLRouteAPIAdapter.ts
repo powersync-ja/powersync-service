@@ -6,7 +6,6 @@ import {
   ReplicationLagOptions
 } from '@powersync/service-core';
 import * as service_types from '@powersync/service-types';
-import * as sync_rules from '@powersync/service-sync-rules';
 import { SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import * as types from '../types/types.js';
 import { ExecuteSqlResponse } from '@powersync/service-types/dist/routes.js';
@@ -39,14 +38,14 @@ export class MSSQLRouteAPIAdapter implements api.RouteAPI {
   }
 
   async executeQuery(query: string, params: any[]): Promise<ExecuteSqlResponse> {
-      return service_types.internal_routes.ExecuteSqlResponse.encode({
-        results: {
-          columns: [],
-          rows: []
-        },
-        success: false,
-        error: 'SQL querying is not supported for SQL Server'
-      });
+    return service_types.internal_routes.ExecuteSqlResponse.encode({
+      results: {
+        columns: [],
+        rows: []
+      },
+      success: false,
+      error: 'SQL querying is not supported for SQL Server'
+    });
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {
