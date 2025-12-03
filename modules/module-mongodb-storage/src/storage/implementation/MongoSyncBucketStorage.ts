@@ -652,7 +652,6 @@ export class MongoSyncBucketStorage
         }
       }
     );
-    await this.db.notifyCheckpoint();
   }
 
   async compact(options?: storage.CompactOptions) {
