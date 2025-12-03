@@ -39,52 +39,14 @@ export class MSSQLRouteAPIAdapter implements api.RouteAPI {
   }
 
   async executeQuery(query: string, params: any[]): Promise<ExecuteSqlResponse> {
-    if (!this.config.debug_api) {
       return service_types.internal_routes.ExecuteSqlResponse.encode({
         results: {
           columns: [],
           rows: []
         },
         success: false,
-        error: 'SQL querying is not enabled'
+        error: 'SQL querying is not supported for SQL Server'
       });
-    }
-    try {
-      const { recordset: result } = await this.connectionManager.query(query, params);
-      return service_types.internal_routes.ExecuteSqlResponse.encode({
-        success: true,
-        results: {
-          columns: Object.values(result.columns).map((column) => column.name),
-          rows: result.map((row) => {
-            return Object.values(row).map((value: any) => {
-              const sqlValue = sync_rules.applyValueContext(
-                sync_rules.toSyncRulesValue(row),
-                sync_rules.CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY
-              );
-
-              if (typeof sqlValue == 'bigint') {
-                return Number(row);
-              } else if (value instanceof Date) {
-                return value.toISOString();
-              } else if (sync_rules.isJsonValue(sqlValue)) {
-                return sqlValue;
-              } else {
-                return null;
-              }
-            });
-          })
-        }
-      });
-    } catch (e) {
-      return service_types.internal_routes.ExecuteSqlResponse.encode({
-        results: {
-          columns: [],
-          rows: []
-        },
-        success: false,
-        error: e.message
-      });
-    }
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {
