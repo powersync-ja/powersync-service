@@ -5,6 +5,7 @@ import { CDCToSqliteRow, toSqliteInputRow } from '@module/common/mssqls-to-sqlit
 import { MSSQLConnectionManager } from '@module/replication/MSSQLConnectionManager.js';
 import {
   enableCDCForTable,
+  escapeIdentifier,
   getCaptureInstance,
   getLatestReplicatedLSN,
   getMinLSN,
@@ -25,7 +26,7 @@ describe('MSSQL Data Types Tests', () => {
 
   async function setupTestTable() {
     await connectionManager.query(`
-      CREATE TABLE ${connectionManager.schema}.test_data (
+      CREATE TABLE ${escapeIdentifier(connectionManager.schema)}.test_data (
         id INT IDENTITY(1,1) PRIMARY KEY,
         tinyint_col TINYINT,
         smallint_col SMALLINT,
@@ -76,7 +77,7 @@ describe('MSSQL Data Types Tests', () => {
   test('Number types mappings', async () => {
     const beforeLSN = await getLatestReplicatedLSN(connectionManager);
     await connectionManager.query(`
-      INSERT INTO ${connectionManager.schema}.test_data(
+      INSERT INTO ${escapeIdentifier(connectionManager.schema)}.test_data(
         tinyint_col,
         smallint_col,
         int_col,
@@ -118,7 +119,7 @@ describe('MSSQL Data Types Tests', () => {
       numeric_col: 12345.67,
       money_col: 12345.67,
       smallmoney_col: 123.45,
-      bit_col: 1
+      bit_col: 1n
     };
     expect(databaseRows[0]).toMatchObject(expectedResult);
     expect(replicatedRows[0]).toMatchObject(expectedResult);
@@ -127,7 +128,7 @@ describe('MSSQL Data Types Tests', () => {
   test('Character types mappings', async () => {
     const beforeLSN = await getLatestReplicatedLSN(connectionManager);
     await connectionManager.query(`
-      INSERT INTO [${connectionManager.schema}].test_data (
+      INSERT INTO ${escapeIdentifier(connectionManager.schema)}.test_data (
         char_col,
         varchar_col,
         varchar_max_col,
@@ -171,7 +172,7 @@ describe('MSSQL Data Types Tests', () => {
     const binaryData = Buffer.from('BinaryData');
     await connectionManager.query(
       `
-      INSERT INTO [${connectionManager.schema}].test_data (
+      INSERT INTO ${escapeIdentifier(connectionManager.schema)}.test_data (
         binary_col,
         varbinary_col,
         varbinary_max_col,
@@ -215,7 +216,7 @@ describe('MSSQL Data Types Tests', () => {
     const testDate = new Date('2023-03-06T15:47:00.000Z');
     await connectionManager.query(
       `
-      INSERT INTO [${connectionManager.schema}].test_data(
+      INSERT INTO ${escapeIdentifier(connectionManager.schema)}.test_data(
         date_col, 
         datetime_col, 
         datetime2_col, 
@@ -256,20 +257,20 @@ describe('MSSQL Data Types Tests', () => {
 
   test('Date types edge cases mappings', async () => {
     await connectionManager.query(`
-      INSERT INTO [${connectionManager.schema}].test_data(datetime2_col) 
+      INSERT INTO ${escapeIdentifier(connectionManager.schema)}.test_data(datetime2_col) 
       VALUES ('0001-01-01 00:00:00.000')
     `);
     await connectionManager.query(`
-      INSERT INTO [${connectionManager.schema}].test_data(datetime2_col) 
+      INSERT INTO ${escapeIdentifier(connectionManager.schema)}.test_data(datetime2_col) 
       VALUES ('9999-12-31 23:59:59.999')
     `);
     await connectionManager.query(`
-      INSERT INTO [${connectionManager.schema}].test_data(datetime_col) 
+      INSERT INTO ${escapeIdentifier(connectionManager.schema)}.test_data(datetime_col) 
       VALUES ('1753-01-01 00:00:00')
     `);
     const beforeLSN = await getLatestReplicatedLSN(connectionManager);
     await connectionManager.query(`
-      INSERT INTO [${connectionManager.schema}].test_data(datetime_col) 
+      INSERT INTO ${escapeIdentifier(connectionManager.schema)}.test_data(datetime_col) 
       VALUES ('9999-12-31 23:59:59.997')
     `);
     await waitForPendingCDCChanges(beforeLSN, connectionManager);
@@ -294,7 +295,7 @@ describe('MSSQL Data Types Tests', () => {
     const beforeLSN = await getLatestReplicatedLSN(connectionManager);
     // DateTimeOffset preserves timezone information
     await connectionManager.query(`
-      INSERT INTO [${connectionManager.schema}].test_data(datetimeoffset_col) 
+      INSERT INTO ${escapeIdentifier(connectionManager.schema)}.test_data(datetimeoffset_col) 
       VALUES ('2023-03-06 15:47:00.000 +05:00')
     `);
     await waitForPendingCDCChanges(beforeLSN, connectionManager);
@@ -317,7 +318,7 @@ describe('MSSQL Data Types Tests', () => {
     const testGuid = createUpperCaseUUID();
     await connectionManager.query(
       `
-      INSERT INTO [${connectionManager.schema}].test_data(uniqueidentifier_col) 
+      INSERT INTO ${escapeIdentifier(connectionManager.schema)}.test_data(uniqueidentifier_col) 
       VALUES (@guid)
     `,
       [{ name: 'guid', type: sql.UniqueIdentifier, value: testGuid }]
@@ -337,7 +338,7 @@ describe('MSSQL Data Types Tests', () => {
     const expectedJSON = { name: 'John Doe', age: 30, married: true };
     await connectionManager.query(
       `
-      INSERT INTO [${connectionManager.schema}].test_data(json_col) 
+      INSERT INTO ${escapeIdentifier(connectionManager.schema)}.test_data(json_col) 
       VALUES (@json)
     `,
       [{ name: 'json', type: sql.NVarChar(sql.MAX), value: JSON.stringify(expectedJSON) }]
@@ -358,7 +359,7 @@ describe('MSSQL Data Types Tests', () => {
     const xmlData = '<root><item>value</item></root>';
     await connectionManager.query(
       `
-      INSERT INTO [${connectionManager.schema}].test_data(xml_col) 
+      INSERT INTO ${escapeIdentifier(connectionManager.schema)}.test_data(xml_col) 
       VALUES (@xml)
     `,
       [{ name: 'xml', type: sql.Xml, value: xmlData }]

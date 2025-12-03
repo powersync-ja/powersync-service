@@ -449,10 +449,10 @@ export class CDCStream {
    */
   async estimatedCountNumber(table: MSSQLSourceTable, transaction?: sql.Transaction): Promise<number> {
     const request = transaction ? transaction.request() : await this.connections.createRequest();
-    const { recordset: result } = await request.query(
+    const { recordset: result } = await request.input('tableName', table.toQualifiedName()).query(
       `SELECT SUM(row_count) AS total_rows
        FROM sys.dm_db_partition_stats
-       WHERE object_id = OBJECT_ID('${table.toQualifiedName()}')
+       WHERE object_id = OBJECT_ID(@tableName)
        AND index_id < 2;`
     );
     return result[0].total_rows ?? -1;

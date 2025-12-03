@@ -8,7 +8,7 @@ import * as postgres_storage from '@powersync/service-module-postgres-storage';
 import { describe, TestOptions } from 'vitest';
 import { env } from './env.js';
 import { MSSQLConnectionManager } from '@module/replication/MSSQLConnectionManager.js';
-import { createCheckpoint, enableCDCForTable, getLatestLSN } from '@module/utils/mssql.js';
+import { createCheckpoint, enableCDCForTable, escapeIdentifier, getLatestLSN } from '@module/utils/mssql.js';
 import sql from 'mssql';
 import { v4 as uuid } from 'uuid';
 import { LSN } from '@module/common/LSN.js';
@@ -66,6 +66,16 @@ export async function clearTestDb(connectionManager: MSSQLConnectionManager) {
   }
 }
 
+export async function resetTestTable(connectionManager: MSSQLConnectionManager, tableName: string) {
+  await connectionManager.execute('sys.sp_cdc_disable_table', [
+    { name: 'source_schema', value: connectionManager.schema },
+    { name: 'source_name', value: tableName },
+    { name: 'capture_instance', value: 'all' }
+  ]);
+
+  await connectionManager.query(`DROP TABLE [${tableName}]`);
+}
+
 /**
  *  Create a new database for testing and enables CDC on it.
  *  @param connectionManager
@@ -84,7 +94,7 @@ export async function createTestDb(connectionManager: MSSQLConnectionManager, db
 
 export async function createTestTable(connectionManager: MSSQLConnectionManager, tableName: string): Promise<void> {
   await connectionManager.query(`
-    CREATE TABLE ${connectionManager.schema}.${tableName} (
+    CREATE TABLE ${escapeIdentifier(connectionManager.schema)}.${escapeIdentifier(tableName)} (
       id UNIQUEIDENTIFIER PRIMARY KEY,
       description VARCHAR(MAX)
     )
@@ -97,7 +107,7 @@ export async function createTestTableWithBasicId(
   tableName: string
 ): Promise<void> {
   await connectionManager.query(`
-    CREATE TABLE ${connectionManager.schema}.${tableName} (
+    CREATE TABLE ${escapeIdentifier(connectionManager.schema)}.${escapeIdentifier(tableName)} (
       id INT IDENTITY(1,1) PRIMARY KEY,
       description VARCHAR(MAX)
     )
@@ -114,7 +124,7 @@ export async function insertTestData(connectionManager: MSSQLConnectionManager, 
   const description = `description_${id}`;
   await connectionManager.query(
     `
-    INSERT INTO ${connectionManager.schema}.${tableName} (id, description) VALUES (@id, @description)
+    INSERT INTO ${escapeIdentifier(connectionManager.schema)}.${escapeIdentifier(tableName)} (id, description) VALUES (@id, @description)
   `,
     [
       { name: 'id', type: sql.UniqueIdentifier, value: id },

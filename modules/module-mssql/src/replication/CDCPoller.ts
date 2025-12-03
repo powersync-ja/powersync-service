@@ -103,8 +103,7 @@ export class CDCPoller {
     while (!this.isStopped) {
       // Don't poll if already polling (concurrency guard)
       if (this.isPolling) {
-        await timers.setTimeout(this.pollingIntervalMs);
-        continue;
+        throw new ReplicationAssertionError('A polling cycle is already in progress.');
       }
 
       try {
