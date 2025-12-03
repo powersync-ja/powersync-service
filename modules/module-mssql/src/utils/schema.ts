@@ -2,7 +2,7 @@ import { SourceEntityDescriptor } from '@powersync/service-core';
 import { TablePattern } from '@powersync/service-sync-rules';
 import { MSSQLConnectionManager } from '../replication/MSSQLConnectionManager.js';
 import { MSSQLColumnDescriptor } from '../types/mssql-data-types.js';
-import { escapeIdentifier } from './mssql.js';
+import sql from 'mssql';
 
 export interface GetColumnsOptions {
   connectionManager: MSSQLConnectionManager;
@@ -23,10 +23,13 @@ async function getColumns(options: GetColumnsOptions): Promise<MSSQLColumnDescri
         JOIN sys.tables AS tbl ON tbl.object_id = col.object_id
         JOIN sys.schemas AS sch ON sch.schema_id = tbl.schema_id
         JOIN sys.types AS typ ON typ.user_type_id = col.user_type_id
-      WHERE sch.name = '${schema}'
-        AND tbl.name = '${tableName}'
+      WHERE sch.name = @schema
+        AND tbl.name = @tableName
       ORDER BY col.column_id;
-      `);
+      `, [
+        { name: 'schema', type: sql.VarChar(sql.MAX), value: schema },
+        { name: 'tableName', type: sql.VarChar(sql.MAX), value: tableName },
+      ]);
 
   return columnResults.map((row) => {
     return {
@@ -65,10 +68,13 @@ export async function getReplicationIdentityColumns(
         JOIN sys.index_columns  AS idx_col ON idx_col.object_id = idx.object_id AND idx_col.index_id = idx.index_id
         JOIN sys.columns        AS col ON col.object_id  = idx_col.object_id AND col.column_id  = idx_col.column_id
         JOIN sys.types          AS typ ON typ.user_type_id = col.user_type_id
-      WHERE sch.name = '${schema}'
-        AND tbl.name = '${tableName}'
+      WHERE sch.name = @schema
+        AND tbl.name = @tableName
       ORDER BY idx_col.key_ordinal;
-      `);
+      `, [
+        { name: 'schema', type: sql.VarChar(sql.MAX), value: schema },
+        { name: 'tableName', type: sql.VarChar(sql.MAX), value: tableName },
+      ]);
 
   if (primaryKeyColumns.length > 0) {
     return {
@@ -95,10 +101,13 @@ export async function getReplicationIdentityColumns(
         JOIN sys.index_columns   AS idx_col ON idx_col.object_id = idx.object_id AND idx_col.index_id = idx.index_id
         JOIN sys.columns         AS col ON col.object_id  = idx_col.object_id AND col.column_id  = idx_col.column_id
         JOIN sys.types           AS typ ON typ.user_type_id = col.user_type_id
-      WHERE sch.name = '${schema}'
-        AND tbl.name = '${tableName}'
+      WHERE sch.name = @schema
+        AND tbl.name = @tableName
       ORDER BY idx_col.key_ordinal;
-      `);
+      `, [
+        { name: 'schema', type: sql.VarChar(sql.MAX), value: schema },
+        { name: 'tableName', type: sql.VarChar(sql.MAX), value: tableName },
+      ]);
 
   if (uniqueKeyColumns.length > 0) {
     return {
@@ -134,9 +143,12 @@ export async function getTablesFromPattern(
           tbl.object_id AS object_id
         FROM sys.tables tbl
           JOIN sys.schemas sch ON tbl.schema_id = sch.schema_id
-        WHERE sch.name = '${tablePattern.schema}'
-          AND tbl.name LIKE '${tablePattern.tablePattern}'
-      `);
+        WHERE sch.name = @schema
+          AND tbl.name LIKE @tablePattern
+      `, [
+        { name: 'schema', type: sql.VarChar(sql.MAX), value: tablePattern.schema },
+        { name: 'tablePattern', type: sql.VarChar(sql.MAX), value: tablePattern.tablePattern },
+      ]);
 
     return tableResults
       .map((row) => {
@@ -156,10 +168,12 @@ export async function getTablesFromPattern(
           tbl.object_id AS object_id
         FROM sys.tables tbl
           JOIN sys.schemas sch ON tbl.schema_id = sch.schema_id
-        WHERE sch.name = '${tablePattern.schema}'
-          AND tbl.name = '${tablePattern.name}'
-      `
-    );
+          WHERE sch.name = @schema
+          AND tbl.name = @tablePattern
+      `, [
+        { name: 'schema', type: sql.VarChar(sql.MAX), value: tablePattern.schema },
+        { name: 'tablePattern', type: sql.VarChar(sql.MAX), value: tablePattern.tablePattern },
+      ]);
 
     return tableResults.map((row) => {
       return {
