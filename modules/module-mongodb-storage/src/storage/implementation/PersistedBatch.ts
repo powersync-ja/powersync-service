@@ -243,7 +243,17 @@ export class PersistedBatch {
     }
   }
 
-  deleteCurrentData(id: SourceKey, checkpointGreaterThan: bigint) {
+  hardDeleteCurrentData(id: SourceKey) {
+    const op: mongo.AnyBulkWriteOperation<CurrentDataDocument> = {
+      deleteOne: {
+        filter: { _id: id }
+      }
+    };
+    this.currentData.push(op);
+    this.currentSize += 50;
+  }
+
+  softDeleteCurrentData(id: SourceKey, checkpointGreaterThan: bigint) {
     const op: mongo.AnyBulkWriteOperation<CurrentDataDocument> = {
       updateOne: {
         filter: { _id: id },

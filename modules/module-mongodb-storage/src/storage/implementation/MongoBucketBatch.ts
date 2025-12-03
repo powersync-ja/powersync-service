@@ -557,7 +557,7 @@ export class MongoBucketBatch
       // Note that this is a soft delete.
       // We don't specifically need a new or unique op_id here, but it must be greater than the
       // last checkpoint, so we use next().
-      batch.deleteCurrentData(before_key, opSeq.next());
+      batch.softDeleteCurrentData(before_key, opSeq.next());
     }
     return result;
   }
@@ -992,7 +992,9 @@ export class MongoBucketBatch
     while (lastBatchCount == BATCH_LIMIT) {
       await this.withReplicationTransaction(`Truncate ${sourceTable.qualifiedName}`, async (session, opSeq) => {
         const current_data_filter: mongo.Filter<CurrentDataDocument> = {
-          _id: idPrefixFilter<SourceKey>({ g: this.group_id, t: sourceTable.id }, ['k'])
+          _id: idPrefixFilter<SourceKey>({ g: this.group_id, t: sourceTable.id }, ['k']),
+          // Skip soft-deleted data
+          pending_delete: { $exists: false }
         };
 
         const cursor = this.db.current_data.find(current_data_filter, {
@@ -1023,7 +1025,8 @@ export class MongoBucketBatch
             sourceKey: value._id.k
           });
 
-          persistedBatch.deleteCurrentData(value._id, opSeq.next());
+          // Since this is not from streaming replication, we can do a hard delete
+          persistedBatch.hardDeleteCurrentData(value._id);
         }
         await persistedBatch.flush(this.db, session);
         lastBatchCount = batch.length;
