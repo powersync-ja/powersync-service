@@ -328,8 +328,18 @@ bucket_definitions:
         // In the service, this error is handled in WalStreamReplicationJob,
         // creating a new replication slot.
         await expect(async () => {
-          await context.replicateSnapshot();
-          await context.getCheckpoint();
+          try {
+            await context.replicateSnapshot();
+            await context.getCheckpoint();
+          } catch (e) {
+            // replicateSnapshot can have a ReplicationAbortedError(cause: MissingReplicationSlotError).
+            // This is specific to tests - real replication will get the MissingReplicationSlotError directly.
+            if (e?.cause) {
+              throw e.cause;
+            } else {
+              throw e;
+            }
+          }
         }).rejects.toThrowError(MissingReplicationSlotError);
       }
     }
