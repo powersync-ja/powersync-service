@@ -196,6 +196,8 @@ export interface SyncRuleDocument {
    */
   last_fatal_error: string | null;
 
+  last_fatal_error_ts: Date | null;
+
   content: string;
 
   lock?: {

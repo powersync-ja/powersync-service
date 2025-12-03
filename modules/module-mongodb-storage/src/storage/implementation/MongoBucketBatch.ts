@@ -723,6 +723,7 @@ export class MongoBucketBatch
       last_keepalive_ts: now,
       snapshot_done: true,
       last_fatal_error: null,
+      last_fatal_error_ts: null,
       keepalive_op: null
     };
 
@@ -857,6 +858,7 @@ export class MongoBucketBatch
           last_checkpoint_lsn: lsn,
           snapshot_done: true,
           last_fatal_error: null,
+          last_fatal_error_ts: null,
           last_keepalive_ts: new Date()
         },
         $unset: { snapshot_lsn: 1 }
@@ -1096,7 +1098,8 @@ export class MongoBucketBatch
       },
       {
         $set: {
-          last_fatal_error: null
+          last_fatal_error: null,
+          last_fatal_error_ts: null
         }
       }
     );
