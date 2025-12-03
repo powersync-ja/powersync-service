@@ -323,7 +323,7 @@ export async function getDebugTableInfo(options: GetDebugTableInfoOptions): Prom
   const id_columns = id_columns_result?.replicationColumns ?? [];
 
   const sourceTable = new storage.SourceTable({
-    id: 0,
+    id: '', // not used
     connectionTag: connectionTag,
     objectId: relationId ?? 0,
     schema: schema,
