@@ -1,5 +1,5 @@
 import { SourceTable } from '@powersync/service-core';
-import { toQualifiedTableName } from '../utils/mssql.js';
+import { escapeIdentifier, toQualifiedTableName } from '../utils/mssql.js';
 
 export interface CaptureInstance {
   name: string;
@@ -34,15 +34,15 @@ export class MSSQLSourceTable {
   }
 
   get CTTable() {
-    return `${this.cdcSchema}.${this.captureInstance}_CT`;
+    return `${escapeIdentifier(this.cdcSchema)}.${this.captureInstance}_CT`;
   }
 
   get allChangesFunction() {
-    return `${this.cdcSchema}.fn_cdc_get_all_changes_${this.captureInstance}`;
+    return `${escapeIdentifier(this.cdcSchema)}.fn_cdc_get_all_changes_${this.captureInstance}`;
   }
 
   get netChangesFunction() {
-    return `${this.cdcSchema}.fn_cdc_get_net_changes_${this.captureInstance}`;
+    return `${escapeIdentifier(this.cdcSchema)}.fn_cdc_get_net_changes_${this.captureInstance}`;
   }
 
   /**
