@@ -77,6 +77,7 @@ export class PostgresBucketBatch
   private lastWaitingLogThrottled = 0;
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
   private needsActivation = true;
+  private clearedError = false;
 
   constructor(protected options: PostgresBucketBatchOptions) {
     super();
@@ -213,7 +214,10 @@ export class PostgresBucketBatch
             });
           }
         }
-        await persistedBatch.flush(db);
+        const { flushedAny } = await persistedBatch.flush(db);
+        if (flushedAny) {
+          await this.clearError(db);
+        }
       });
     }
     if (processedCount == 0) {
@@ -570,6 +574,7 @@ export class PostgresBucketBatch
 
     // If set, we need to start a new transaction with this batch.
     let resumeBatch: OperationBatch | null = null;
+    let didFlush = false;
 
     // Now batch according to the sizes
     // This is a single batch if storeCurrentData == false
@@ -654,7 +659,8 @@ export class PostgresBucketBatch
         }
 
         if (persistedBatch!.shouldFlushTransaction()) {
-          await persistedBatch!.flush(db);
+          const { flushedAny } = await persistedBatch!.flush(db);
+          didFlush ||= flushedAny;
           // The operations stored in this batch will be processed in the `resumeBatch`
           persistedBatch = null;
           // Return the remaining entries for the next resume transaction
@@ -667,8 +673,13 @@ export class PostgresBucketBatch
          * The operations were less than the max size if here. Flush now.
          * `persistedBatch` will be `null` if the operations should be flushed in a new transaction.
          */
-        await persistedBatch.flush(db);
+        const { flushedAny } = await persistedBatch.flush(db);
+        didFlush ||= flushedAny;
       }
+    }
+
+    if (didFlush) {
+      await this.clearError(db);
     }
 
     // Don't return empty batches
@@ -1004,6 +1015,24 @@ export class PostgresBucketBatch
           id = ${{ type: 'int4', value: this.group_id }}
       `.execute();
     }
+  }
+
+  protected async clearError(
+    db: lib_postgres.AbstractPostgresConnection | lib_postgres.DatabaseClient = this.db
+  ): Promise<void> {
+    // No need to clear an error more than once per batch, since an error would always result in restarting the batch.
+    if (this.clearedError) {
+      return;
+    }
+
+    await db.sql`
+      UPDATE sync_rules
+      SET
+        last_fatal_error = ${{ type: 'varchar', value: null }}
+      WHERE
+        id = ${{ type: 'int4', value: this.group_id }}
+    `.execute();
+    this.clearedError = true;
   }
 
   private async getLastOpIdSequence(db: lib_postgres.AbstractPostgresConnection) {
