@@ -19,7 +19,7 @@ import { NOTIFICATION_CHANNEL, sql } from '../../utils/db.js';
 import { pick } from '../../utils/ts-codec.js';
 import { batchCreateCustomWriteCheckpoints } from '../checkpoints/PostgresWriteCheckpointAPI.js';
 import { cacheKey, encodedCacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
-import { PostgresPersistedBatch } from './PostgresPersistedBatch.js';
+import { PostgresPersistedBatch, postgresTableId } from './PostgresPersistedBatch.js';
 import { bigint } from '../../types/codecs.js';
 
 export interface PostgresBucketBatchOptions {
@@ -196,6 +196,7 @@ export class PostgresBucketBatch
           WHERE
             group_id = ${{ type: 'int4', value: this.group_id }}
             AND source_table = ${{ type: 'varchar', value: sourceTable.id }}
+            AND pending_delete IS NULL
           LIMIT
             ${{ type: 'int4', value: BATCH_LIMIT }}
           FOR NO KEY UPDATE
@@ -220,7 +221,9 @@ export class PostgresBucketBatch
             persistedBatch.deleteCurrentData({
               // This is serialized since we got it from a DB query
               serialized_source_key: value.source_key,
-              source_table_id: sourceTable.id
+              source_table_id: postgresTableId(sourceTable.id),
+              // No need for soft delete, since this is not streaming replication
+              soft: false
             });
           }
         }
@@ -630,7 +633,7 @@ export class PostgresBucketBatch
       // exceeding memory limits.
       const sizeLookups = batch.batch.map((r) => {
         return {
-          source_table: r.record.sourceTable.id.toString(),
+          source_table: postgresTableId(r.record.sourceTable.id),
           /**
            * Encode to hex in order to pass a jsonb
            */
@@ -1012,7 +1015,7 @@ export class PostgresBucketBatch
         source_key: afterId,
         group_id: this.group_id,
         data: afterData!,
-        source_table: sourceTable.id,
+        source_table: postgresTableId(sourceTable.id),
         buckets: newBuckets,
         lookups: newLookups,
         pending_delete: null
@@ -1023,8 +1026,9 @@ export class PostgresBucketBatch
     if (afterId == null || !storage.replicaIdEquals(beforeId, afterId)) {
       // Either a delete (afterId == null), or replaced the old replication id
       persistedBatch.deleteCurrentData({
-        source_table_id: sourceTable.id,
-        source_key: beforeId!
+        source_table_id: postgresTableId(sourceTable.id),
+        source_key: beforeId!,
+        soft: true
       });
     }
 

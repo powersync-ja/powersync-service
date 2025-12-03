@@ -16,7 +16,7 @@ import {
   CurrentDataDocument,
   SourceKey
 } from './models.js';
-import { replicaIdToSubkey } from '../../utils/util.js';
+import { mongoTableId, replicaIdToSubkey } from '../../utils/util.js';
 
 /**
  * Maximum size of operations we write in a single transaction.
@@ -132,7 +132,7 @@ export class PersistedBatch {
               o: op_id
             },
             op: 'PUT',
-            source_table: options.table.id,
+            source_table: mongoTableId(options.table.id),
             source_key: options.sourceKey,
             table: k.table,
             row_id: k.id,
@@ -159,7 +159,7 @@ export class PersistedBatch {
               o: op_id
             },
             op: 'REMOVE',
-            source_table: options.table.id,
+            source_table: mongoTableId(options.table.id),
             source_key: options.sourceKey,
             table: bd.table,
             row_id: bd.id,
@@ -208,7 +208,7 @@ export class PersistedBatch {
             _id: op_id,
             key: {
               g: this.group_id,
-              t: sourceTable.id,
+              t: mongoTableId(sourceTable.id),
               k: sourceKey
             },
             lookup: binLookup,
@@ -230,7 +230,7 @@ export class PersistedBatch {
             _id: op_id,
             key: {
               g: this.group_id,
-              t: sourceTable.id,
+              t: mongoTableId(sourceTable.id),
               k: sourceKey
             },
             lookup: lookup,

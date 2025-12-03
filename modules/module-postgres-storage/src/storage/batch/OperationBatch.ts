@@ -5,6 +5,7 @@
 
 import { storage, utils } from '@powersync/service-core';
 import { RequiredOperationBatchLimits } from '../../types/types.js';
+import { postgresTableId } from './PostgresPersistedBatch.js';
 
 /**
  * Batch of input operations.
@@ -89,13 +90,13 @@ export class RecordOperation {
 /**
  * In-memory cache key - must not be persisted.
  */
-export function cacheKey(sourceTableId: string, id: storage.ReplicaId) {
+export function cacheKey(sourceTableId: storage.SourceTableId, id: storage.ReplicaId) {
   return encodedCacheKey(sourceTableId, storage.serializeReplicaId(id));
 }
 
 /**
  * Calculates a cache key for a stored ReplicaId. This is usually stored as a bytea/Buffer.
  */
-export function encodedCacheKey(sourceTableId: string, storedKey: Buffer) {
-  return `${sourceTableId}.${storedKey.toString('base64')}`;
+export function encodedCacheKey(sourceTableId: storage.SourceTableId, storedKey: Buffer) {
+  return `${postgresTableId(sourceTableId)}.${storedKey.toString('base64')}`;
 }
