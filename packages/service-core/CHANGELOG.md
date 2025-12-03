@@ -1,5 +1,22 @@
 # @powersync/service-core
 
+## 1.17.0
+
+### Minor Changes
+
+- 6eee0b3: Added ability to specify app_metadata for sync/stream requests
+
+### Patch Changes
+
+- 57f7660: General client connections analytics added
+- c050acd: [MongoDB] Optimize change stream filters to avoid PSYNC_S1345 timeouts
+- Updated dependencies [57f7660]
+- Updated dependencies [0156d10]
+  - @powersync/service-types@0.13.2
+  - @powersync/service-sync-rules@0.29.8
+  - @powersync/lib-services-framework@0.7.11
+  - @powersync/service-rsocket-router@0.2.8
+
 ## 1.16.3
 
 ### Patch Changes
