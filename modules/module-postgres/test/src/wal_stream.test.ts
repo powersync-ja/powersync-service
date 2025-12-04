@@ -2,12 +2,12 @@ import { MissingReplicationSlotError } from '@module/replication/WalStream.js';
 import { storage } from '@powersync/service-core';
 import { METRICS_HELPER, putOp, removeOp } from '@powersync/service-core-tests';
 import { pgwireRows } from '@powersync/service-jpgwire';
+import { JSONBig } from '@powersync/service-jsonbig';
 import { ReplicationMetric } from '@powersync/service-types';
 import * as crypto from 'crypto';
-import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { describe, expect, test } from 'vitest';
 import { describeWithStorage } from './util.js';
 import { WalStreamTestContext, withMaxWalSize } from './wal_stream_utils.js';
-import { JSONBig } from '@powersync/service-jsonbig';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -328,18 +328,8 @@ bucket_definitions:
         // In the service, this error is handled in WalStreamReplicationJob,
         // creating a new replication slot.
         await expect(async () => {
-          try {
-            await context.replicateSnapshot();
-            await context.getCheckpoint();
-          } catch (e) {
-            // replicateSnapshot can have a ReplicationAbortedError(cause: MissingReplicationSlotError).
-            // This is specific to tests - real replication will get the MissingReplicationSlotError directly.
-            if (e?.cause) {
-              throw e.cause;
-            } else {
-              throw e;
-            }
-          }
+          await context.replicateSnapshot();
+          await context.getCheckpoint();
         }).rejects.toThrowError(MissingReplicationSlotError);
       }
     }
@@ -391,17 +381,7 @@ bucket_definitions:
       // The error is handled on a higher level, which triggers
       // creating a new replication slot.
       await expect(async () => {
-        try {
-          await context.replicateSnapshot();
-        } catch (e) {
-          // replicateSnapshot can have a ReplicationAbortedError(cause: MissingReplicationSlotError).
-          // This is specific to tests - real replication will get the MissingReplicationSlotError directly.
-          if (e?.cause) {
-            throw e.cause;
-          } else {
-            throw e;
-          }
-        }
+        await context.replicateSnapshot();
       }).rejects.toThrowError(MissingReplicationSlotError);
     }
   });

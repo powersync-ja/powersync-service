@@ -15,6 +15,7 @@ import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import * as pgwire from '@powersync/service-jpgwire';
 import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
 import { CustomTypeRegistry } from '@module/types/registry.js';
+import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 
 export class WalStreamTestContext implements AsyncDisposable {
   private _walStream?: WalStream;
@@ -142,7 +143,17 @@ export class WalStreamTestContext implements AsyncDisposable {
   async replicateSnapshot() {
     // Use a settledPromise to avoid unhandled rejections
     this.settledReplicationPromise = settledPromise(this.walStream.replicate());
-    await Promise.race([unsettledPromise(this.settledReplicationPromise), this.walStream.waitForInitialSnapshot()]);
+    try {
+      await Promise.race([unsettledPromise(this.settledReplicationPromise), this.walStream.waitForInitialSnapshot()]);
+    } catch (e) {
+      if (e instanceof ReplicationAbortedError && e.cause != null) {
+        // Edge case for tests: replicate() can throw an error, but we'd receive the ReplicationAbortedError from
+        // waitForInitialSnapshot() first. In that case, prioritize the cause, e.g. MissingReplicationSlotError.
+        // This is not a concern for production use, since we only use waitForInitialSnapshot() in tests.
+        throw e.cause;
+      }
+      throw e;
+    }
   }
 
   async getCheckpoint(options?: { timeout?: number }) {
