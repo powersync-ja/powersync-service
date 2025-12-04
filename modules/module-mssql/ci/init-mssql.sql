@@ -45,6 +45,7 @@ BEGIN
     SET @tries -= 1;
 END;
 
--- Set the CDC capture job polling interval to 1 second (default is 5 seconds)
-EXEC sys.sp_cdc_change_job @job_type = N'capture', @pollinginterval = 1;
+-- Set the CDC capture job polling interval to 0 seconds (default is 5 seconds).
+-- At the cost of higher CPU usage, this minimizes latency for change capture.
+EXEC sys.sp_cdc_change_job @job_type = N'capture', @pollinginterval = 0;
 GO
