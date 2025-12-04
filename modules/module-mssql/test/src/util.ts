@@ -151,8 +151,8 @@ export async function waitForPendingCDCChanges(
     );
 
     if (result.length === 0) {
-      logger.info(`CDC changes pending. Waiting for 500ms...`);
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      logger.info(`CDC changes pending. Waiting for 200ms...`);
+      await new Promise((resolve) => setTimeout(resolve, 200));
     } else {
       logger.info(`Found LSN: ${LSN.fromBinary(result[0].start_lsn).toString()}`);
       return;

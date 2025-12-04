@@ -1,5 +1,12 @@
 import sql from 'mssql';
-import { DatabaseInputRow, ExpressionType, SqliteInputRow, toSyncRulesRow } from '@powersync/service-sync-rules';
+import {
+  DatabaseInputRow,
+  ExpressionType,
+  SQLITE_FALSE,
+  SQLITE_TRUE,
+  SqliteInputRow,
+  toSyncRulesRow
+} from '@powersync/service-sync-rules';
 import { MSSQLUserDefinedType } from '../types/mssql-data-types.js';
 
 export function toSqliteInputRow(row: any, columns: sql.IColumnMetadata): SqliteInputRow {
@@ -18,7 +25,7 @@ export function toSqliteInputRow(row: any, columns: sql.IColumnMetadata): Sqlite
           break;
         case sql.TYPES.Bit:
           // MSSQL returns BIT as boolean
-          result[key] = row[key] ? 1 : 0;
+          result[key] = row[key] ? SQLITE_TRUE : SQLITE_FALSE;
           break;
         // Convert Dates to string
         case sql.TYPES.Date:
@@ -37,7 +44,7 @@ export function toSqliteInputRow(row: any, columns: sql.IColumnMetadata): Sqlite
         case sql.TYPES.Binary:
         case sql.TYPES.VarBinary:
         case sql.TYPES.Image:
-          result[key] = new Uint8Array(Object.values(row[key]));
+          result[key] = new Uint8Array(row[key]);
           break;
         // TODO: Spatial types need to be converted to binary WKB, they are returned as a non standard object currently
         case sql.TYPES.Geometry:
@@ -46,7 +53,7 @@ export function toSqliteInputRow(row: any, columns: sql.IColumnMetadata): Sqlite
           break;
         case sql.TYPES.UDT:
           if (columnMetadata.udt.name === MSSQLUserDefinedType.HIERARCHYID) {
-            result[key] = new Uint8Array(Object.values(row[key]));
+            result[key] = new Uint8Array(row[key]);
             break;
           } else {
             result[key] = row[key];

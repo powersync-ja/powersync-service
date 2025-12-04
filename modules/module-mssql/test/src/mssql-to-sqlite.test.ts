@@ -1,4 +1,4 @@
-import { SqliteInputRow } from '@powersync/service-sync-rules';
+import { SQLITE_TRUE, SqliteInputRow } from '@powersync/service-sync-rules';
 import { afterAll, beforeEach, describe, expect, test } from 'vitest';
 import { clearTestDb, createUpperCaseUUID, TEST_CONNECTION_OPTIONS, waitForPendingCDCChanges } from './util.js';
 import { CDCToSqliteRow, toSqliteInputRow } from '@module/common/mssqls-to-sqlite.js';
@@ -7,6 +7,7 @@ import {
   enableCDCForTable,
   escapeIdentifier,
   getCaptureInstance,
+  getLatestLSN,
   getLatestReplicatedLSN,
   getMinLSN,
   toQualifiedTableName
@@ -75,7 +76,7 @@ describe('MSSQL Data Types Tests', () => {
   }
 
   test('Number types mappings', async () => {
-    const beforeLSN = await getLatestReplicatedLSN(connectionManager);
+    const beforeLSN = await getLatestLSN(connectionManager);
     await connectionManager.query(`
       INSERT INTO ${escapeIdentifier(connectionManager.schema)}.test_data(
         tinyint_col,
@@ -119,14 +120,14 @@ describe('MSSQL Data Types Tests', () => {
       numeric_col: 12345.67,
       money_col: 12345.67,
       smallmoney_col: 123.45,
-      bit_col: 1n
+      bit_col: SQLITE_TRUE
     };
     expect(databaseRows[0]).toMatchObject(expectedResult);
     expect(replicatedRows[0]).toMatchObject(expectedResult);
   });
 
   test('Character types mappings', async () => {
-    const beforeLSN = await getLatestReplicatedLSN(connectionManager);
+    const beforeLSN = await getLatestLSN(connectionManager);
     await connectionManager.query(`
       INSERT INTO ${escapeIdentifier(connectionManager.schema)}.test_data (
         char_col,
@@ -168,7 +169,7 @@ describe('MSSQL Data Types Tests', () => {
   });
 
   test('Binary types mappings', async () => {
-    const beforeLSN = await getLatestReplicatedLSN(connectionManager);
+    const beforeLSN = await getLatestLSN(connectionManager);
     const binaryData = Buffer.from('BinaryData');
     await connectionManager.query(
       `
@@ -212,7 +213,7 @@ describe('MSSQL Data Types Tests', () => {
   });
 
   test('Date types mappings', async () => {
-    const beforeLSN = await getLatestReplicatedLSN(connectionManager);
+    const beforeLSN = await getLatestLSN(connectionManager);
     const testDate = new Date('2023-03-06T15:47:00.000Z');
     await connectionManager.query(
       `
@@ -268,7 +269,7 @@ describe('MSSQL Data Types Tests', () => {
       INSERT INTO ${escapeIdentifier(connectionManager.schema)}.test_data(datetime_col) 
       VALUES ('1753-01-01 00:00:00')
     `);
-    const beforeLSN = await getLatestReplicatedLSN(connectionManager);
+    const beforeLSN = await getLatestLSN(connectionManager);
     await connectionManager.query(`
       INSERT INTO ${escapeIdentifier(connectionManager.schema)}.test_data(datetime_col) 
       VALUES ('9999-12-31 23:59:59.997')
@@ -292,7 +293,7 @@ describe('MSSQL Data Types Tests', () => {
   });
 
   test('DateTimeOffset type mapping', async () => {
-    const beforeLSN = await getLatestReplicatedLSN(connectionManager);
+    const beforeLSN = await getLatestLSN(connectionManager);
     // DateTimeOffset preserves timezone information
     await connectionManager.query(`
       INSERT INTO ${escapeIdentifier(connectionManager.schema)}.test_data(datetimeoffset_col) 
@@ -313,7 +314,7 @@ describe('MSSQL Data Types Tests', () => {
   });
 
   test('UniqueIdentifier type mapping', async () => {
-    const beforeLSN = await getLatestReplicatedLSN(connectionManager);
+    const beforeLSN = await getLatestLSN(connectionManager);
 
     const testGuid = createUpperCaseUUID();
     await connectionManager.query(
@@ -334,7 +335,7 @@ describe('MSSQL Data Types Tests', () => {
   });
 
   test('JSON type mapping', async () => {
-    const beforeLSN = await getLatestReplicatedLSN(connectionManager);
+    const beforeLSN = await getLatestLSN(connectionManager);
     const expectedJSON = { name: 'John Doe', age: 30, married: true };
     await connectionManager.query(
       `
@@ -355,7 +356,7 @@ describe('MSSQL Data Types Tests', () => {
   });
 
   test('XML type mapping', async () => {
-    const beforeLSN = await getLatestReplicatedLSN(connectionManager);
+    const beforeLSN = await getLatestLSN(connectionManager);
     const xmlData = '<root><item>value</item></root>';
     await connectionManager.query(
       `
@@ -375,7 +376,7 @@ describe('MSSQL Data Types Tests', () => {
 
   // TODO: Update test when properly converting spatial types
   // test('Spatial types mappings', async () => {
-  //   const beforeLSN = await getLatestReplicatedLSN(connectionManager);
+  //   const beforeLSN = await getLatestLSN(connectionManager);
   //   // Geometry and Geography types are stored as binary/WKT strings
   //   await connectionManager.query(`
   //     INSERT INTO [${connectionManager.schema}].test_data(geometry_col, geography_col)
@@ -399,7 +400,7 @@ describe('MSSQL Data Types Tests', () => {
   // TODO: Enable when HierarchyID type is properly supported
   // test('HierarchyID type mapping', async () => {
   //   const hierarchyid = '/1/';
-  //   const beforeLSN = await getLatestReplicatedLSN(connectionManager);
+  //   const beforeLSN = await getLatestLSN(connectionManager);
   //   await connectionManager.query(`
   //     INSERT INTO [${connectionManager.schema}].test_data(hierarchyid_col)
   //     VALUES (@hierarchyid)

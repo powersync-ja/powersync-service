@@ -7,7 +7,7 @@ import { ReplicationMetric } from '@powersync/service-types';
 import * as timers from 'node:timers/promises';
 import { logger, ReplicationAbortedError } from '@powersync/lib-services-framework';
 import { CDCStreamTestContext } from './CDCStreamTestContext.js';
-import { getLatestReplicatedLSN } from '@module/utils/mssql.js';
+import { getLatestLSN } from '@module/utils/mssql.js';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('batch replication', function () {
   describeWithStorage({ timeout: 240_000 }, function (factory) {
@@ -47,7 +47,7 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
   await createTestTableWithBasicId(connectionManager, 'test_data2');
 
   await connectionManager.query(`INSERT INTO test_data1(description) SELECT 'value' FROM GENERATE_SERIES(1, 1000, 1)`);
-  let beforeLSN = await getLatestReplicatedLSN(connectionManager);
+  let beforeLSN = await getLatestLSN(connectionManager);
   await connectionManager.query(`INSERT INTO test_data2(description) SELECT 'value' FROM GENERATE_SERIES(1, 10000, 1)`);
   await waitForPendingCDCChanges(beforeLSN, connectionManager);
 
@@ -99,7 +99,7 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
   );
   const id2 = updateResult.id;
   logger.info(`Updated row with id: ${id2}`);
-  beforeLSN = await getLatestReplicatedLSN(context2.connectionManager);
+  beforeLSN = await getLatestLSN(context2.connectionManager);
   const {
     recordset: [insertResult]
   } = await context2.connectionManager.query(

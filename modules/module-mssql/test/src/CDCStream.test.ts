@@ -4,7 +4,7 @@ import { ReplicationMetric } from '@powersync/service-types';
 import { createTestTable, describeWithStorage, insertTestData, waitForPendingCDCChanges } from './util.js';
 import { storage } from '@powersync/service-core';
 import { CDCStreamTestContext } from './CDCStreamTestContext.js';
-import { getLatestReplicatedLSN } from '@module/utils/mssql.js';
+import { getLatestLSN } from '@module/utils/mssql.js';
 import sql from 'mssql';
 
 const BASIC_SYNC_RULES = `
@@ -25,7 +25,7 @@ function defineCDCStreamTests(factory: storage.TestStorageFactory) {
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
     await createTestTable(connectionManager, 'test_data');
-    const beforeLSN = await getLatestReplicatedLSN(connectionManager);
+    const beforeLSN = await getLatestLSN(connectionManager);
     const testData = await insertTestData(connectionManager, 'test_data');
     await waitForPendingCDCChanges(beforeLSN, connectionManager);
     const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
@@ -69,7 +69,7 @@ function defineCDCStreamTests(factory: storage.TestStorageFactory) {
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
     await createTestTable(connectionManager, 'test_data');
-    const beforeLSN = await getLatestReplicatedLSN(connectionManager);
+    const beforeLSN = await getLatestLSN(connectionManager);
     const testData = await insertTestData(connectionManager, 'test_data');
     await waitForPendingCDCChanges(beforeLSN, connectionManager);
     await context.replicateSnapshot();
@@ -93,7 +93,7 @@ function defineCDCStreamTests(factory: storage.TestStorageFactory) {
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
     await createTestTable(connectionManager, 'test_data');
-    const beforeLSN = await getLatestReplicatedLSN(connectionManager);
+    const beforeLSN = await getLatestLSN(connectionManager);
     const testData = await insertTestData(connectionManager, 'test_data');
     await waitForPendingCDCChanges(beforeLSN, connectionManager);
     await context.replicateSnapshot();
@@ -120,8 +120,8 @@ function defineCDCStreamTests(factory: storage.TestStorageFactory) {
     await createTestTable(connectionManager, 'test_data_1');
     await createTestTable(connectionManager, 'test_data_2');
 
-    const beforeLSN = await getLatestReplicatedLSN(connectionManager);
     const testData11 = await insertTestData(connectionManager, 'test_data_1');
+    const beforeLSN = await getLatestLSN(connectionManager);
     const testData21 = await insertTestData(connectionManager, 'test_data_2');
     await waitForPendingCDCChanges(beforeLSN, connectionManager);
 
