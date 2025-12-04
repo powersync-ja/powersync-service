@@ -1,5 +1,11 @@
 # @powersync/service-types
 
+## 0.13.3
+
+### Patch Changes
+
+- dc696b1: Clear replication errors when any replication progress has been made.
+
 ## 0.13.2
 
 ### Patch Changes

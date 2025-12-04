@@ -1,5 +1,20 @@
 # @powersync/service-module-postgres-storage
 
+## 0.10.14
+
+### Patch Changes
+
+- dc696b1: Clear replication errors when any replication progress has been made.
+- b77bb2c: - First iteration of MSSQL replication using Change Data Capture (CDC).
+  - Supports resumable snapshot replication
+  - Uses CDC polling for replication
+- Updated dependencies [dc696b1]
+- Updated dependencies [b77bb2c]
+  - @powersync/service-core@1.18.0
+  - @powersync/service-types@0.13.3
+  - @powersync/lib-service-postgres@0.4.16
+  - @powersync/lib-services-framework@0.7.12
+
 ## 0.10.13
 
 ### Patch Changes
