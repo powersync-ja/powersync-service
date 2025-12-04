@@ -269,10 +269,12 @@ export class PostgresPersistedBatch {
       } updates, ${Math.round(this.currentSize / 1024)}kb.`
     );
 
-    await this.flushBucketData(db);
-    await this.flushParameterData(db);
+    // Flush current_data first, since this is where lock errors are most likely to occur, and we
+    // want to detect those as soon as possible.
     await this.flushCurrentData(db);
 
+    await this.flushBucketData(db);
+    await this.flushParameterData(db);
     this.bucketDataInserts = [];
     this.parameterDataInserts = [];
     this.currentDataInserts = new Map();
@@ -357,6 +359,18 @@ export class PostgresPersistedBatch {
 
   protected async flushCurrentData(db: lib_postgres.WrappedConnection) {
     if (this.currentDataInserts.size > 0) {
+      const updates = Array.from(this.currentDataInserts.values());
+      // Sort by source_table, source_key to ensure consistent order.
+      // While order of updates don't directly matter, using a consistent order helps to reduce 40P01 deadlock errors.
+      // We may still have deadlocks between deletes and inserts, but those should be less frequent.
+      updates.sort((a, b) => {
+        if (a.source_table < b.source_table) return -1;
+        if (a.source_table > b.source_table) return 1;
+        if (a.source_key < b.source_key) return -1;
+        if (a.source_key > b.source_key) return 1;
+        return 0;
+      });
+
       await db.sql`
         INSERT INTO
           current_data (
@@ -385,7 +399,7 @@ export class PostgresPersistedBatch {
             ELSE NULL
           END AS pending_delete
         FROM
-          json_to_recordset(${{ type: 'json', value: Array.from(this.currentDataInserts.values()) }}::json) AS t (
+          json_to_recordset(${{ type: 'json', value: updates }}::json) AS t (
             group_id integer,
             source_table text,
             source_key text, -- Input as hex string
@@ -404,6 +418,16 @@ export class PostgresPersistedBatch {
     }
 
     if (this.currentDataDeletes.size > 0) {
+      const deletes = Array.from(this.currentDataDeletes.values());
+      // Same sorting as for inserts
+      deletes.sort((a, b) => {
+        if (a.source_table < b.source_table) return -1;
+        if (a.source_table > b.source_table) return 1;
+        if (a.source_key_hex < b.source_key_hex) return -1;
+        if (a.source_key_hex > b.source_key_hex) return 1;
+        return 0;
+      });
+
       await db.sql`
         WITH
           conditions AS (
@@ -413,7 +437,7 @@ export class PostgresPersistedBatch {
             FROM
               jsonb_to_recordset(${{
           type: 'jsonb',
-          value: Array.from(this.currentDataDeletes.values())
+          value: deletes
         }}::jsonb) AS t (source_table text, source_key_hex text)
           )
         DELETE FROM current_data USING conditions
