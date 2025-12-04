@@ -49,6 +49,7 @@ export function createPool(config: types.NormalizedMySQLConnectionConfig, option
     decimalNumbers: true,
     timezone: 'Z', // Ensure no auto timezone manipulation of the dates occur
     jsonStrings: true, // Return JSON columns as strings
+    dateStrings: true, // We parse and format them ourselves
     ...(options || {})
   });
 }

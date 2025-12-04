@@ -3,6 +3,25 @@ export enum CompatibilityEdition {
   SYNC_STREAMS = 2
 }
 
+export class TimeValuePrecision {
+  private constructor(
+    readonly name: string,
+    readonly subSecondDigits: number
+  ) {}
+
+  static seconds = new TimeValuePrecision('seconds', 0);
+  static milliseconds = new TimeValuePrecision('milliseconds', 3);
+  static microseconds = new TimeValuePrecision('microseconds', 6);
+  static nanoseconds = new TimeValuePrecision('nanoseconds', 9);
+
+  static byName: Record<string, TimeValuePrecision> = Object.freeze({
+    seconds: this.seconds,
+    milliseconds: this.milliseconds,
+    microseconds: this.microseconds,
+    nanoseconds: this.nanoseconds
+  });
+}
+
 /**
  * A historical issue of the PowerSync service that can only be changed in a backwards-incompatible manner.
  *
@@ -48,6 +67,12 @@ export class CompatibilityOption {
   });
 }
 
+export interface CompatibilityContextOptions {
+  edition: CompatibilityEdition;
+  overrides?: Map<CompatibilityOption, boolean>;
+  maxTimeValuePrecision?: TimeValuePrecision;
+}
+
 export class CompatibilityContext {
   /**
    * The general compatibility level we're operating under.
@@ -62,9 +87,18 @@ export class CompatibilityContext {
    */
   readonly overrides: Map<CompatibilityOption, boolean>;
 
-  constructor(edition: CompatibilityEdition, overrides?: Map<CompatibilityOption, boolean>) {
-    this.edition = edition;
-    this.overrides = overrides ?? new Map();
+  /**
+   * A limit for the precision the sync service uses to encode time values.
+   *
+   * This can be set to e.g. `milliseconds` to only emit three digits of sub-second precision even if the source
+   * database uses microseconds natively.
+   */
+  readonly maxTimeValuePrecision: TimeValuePrecision | null;
+
+  constructor(options: CompatibilityContextOptions) {
+    this.edition = options.edition;
+    this.overrides = options.overrides ?? new Map();
+    this.maxTimeValuePrecision = options.maxTimeValuePrecision ?? null;
   }
 
   isEnabled(option: CompatibilityOption) {
@@ -74,5 +108,7 @@ export class CompatibilityContext {
   /**
    * A {@link CompatibilityContext} in which no fixes are applied.
    */
-  static FULL_BACKWARDS_COMPATIBILITY: CompatibilityContext = new CompatibilityContext(CompatibilityEdition.LEGACY);
+  static FULL_BACKWARDS_COMPATIBILITY: CompatibilityContext = new CompatibilityContext({
+    edition: CompatibilityEdition.LEGACY
+  });
 }
