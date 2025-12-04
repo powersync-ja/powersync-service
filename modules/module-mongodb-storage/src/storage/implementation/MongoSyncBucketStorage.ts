@@ -39,7 +39,6 @@ import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../utils/util.js';
 
-
 export interface MongoSyncBucketStorageOptions {
   checksumOptions?: MongoChecksumOptions;
 }
@@ -648,11 +647,11 @@ export class MongoSyncBucketStorage
       },
       {
         $set: {
-          last_fatal_error: message
+          last_fatal_error: message,
+          last_fatal_error_ts: new Date()
         }
       }
     );
-    await this.db.notifyCheckpoint();
   }
 
   async compact(options?: storage.CompactOptions) {
