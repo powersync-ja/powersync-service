@@ -304,7 +304,7 @@ export class CDCStream {
       const postSnapshotLSN = await getLatestLSN(this.connections);
       // Side note: A ROLLBACK would probably also be fine here, since we only read in this transaction.
       await transaction.commit();
-      const [updatedSourceTable] = await batch.markSnapshotDone([table.sourceTable], postSnapshotLSN.toString());
+      const [updatedSourceTable] = await batch.markTableSnapshotDone([table.sourceTable], postSnapshotLSN.toString());
       this.tableCache.updateSourceTable(updatedSourceTable);
     } catch (e) {
       await transaction.rollback();
@@ -500,11 +500,11 @@ export class CDCStream {
 
         // This will not create a consistent checkpoint yet, but will persist the op.
         // Actual checkpoint will be created when streaming replication caught up.
+        const postSnapshotLSN = await getLatestLSN(this.connections);
+        await batch.markAllSnapshotDone(postSnapshotLSN.toString());
         await batch.commit(snapshotLSN);
 
-        this.logger.info(
-          `Snapshot done. Need to replicate from ${snapshotLSN} to ${batch.noCheckpointBeforeLsn} to be consistent`
-        );
+        this.logger.info(`Snapshot done. Need to replicate from ${snapshotLSN} to ${postSnapshotLSN} to be consistent`);
       }
     );
   }

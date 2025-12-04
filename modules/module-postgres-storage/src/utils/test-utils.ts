@@ -94,7 +94,3 @@ export function postgresTestSetup(factoryOptions: PostgresTestStorageOptions) {
     tableIdStrings: true
   };
 }
-
-export function postgresTestStorageFactoryGenerator(factoryOptions: PostgresTestStorageOptions) {
-  return postgresTestSetup(factoryOptions).factory;
-}

@@ -7,9 +7,9 @@ describe.skipIf(!env.TEST_POSTGRES_STORAGE)('replication storage combination - p
   test('should allow the same Postgres cluster to be used for data and storage', async () => {
     // Use the same cluster for the storage as the data source
     await using context = await WalStreamTestContext.open(
-      postgres_storage.test_utils.postgresTestStorageFactoryGenerator({
+      postgres_storage.test_utils.postgresTestSetup({
         url: env.PG_TEST_URL
-      }),
+      }).factory,
       { doNotClear: false }
     );
 

@@ -111,10 +111,6 @@ export class PostgresBucketBatch
     return this.last_checkpoint_lsn;
   }
 
-  get noCheckpointBeforeLsn() {
-    return this.no_checkpoint_before_lsn;
-  }
-
   async [Symbol.asyncDispose]() {
     super.clearListeners();
   }
