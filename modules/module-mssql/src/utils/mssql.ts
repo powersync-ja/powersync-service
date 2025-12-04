@@ -394,7 +394,9 @@ export async function getDebugTableInfo(options: GetDebugTableInfoOptions): Prom
 
   let selectError: service_types.ReplicationError | null = null;
   try {
-    await connectionManager.query(`SELECT TOP 1 * FROM ${toQualifiedTableName(schema, table.name)}`);
+    await connectionManager.query(`SELECT TOP 1 * FROM @tableName`, [
+      { name: 'tableName', type: sql.VarChar(sql.MAX), value: toQualifiedTableName(schema, table.name) },
+    ]);
   } catch (e) {
     selectError = { level: 'fatal', message: e.message };
   }
