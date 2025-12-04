@@ -147,7 +147,7 @@ export class BinLogStream {
     const shouldSnapshot = snapshot && !result.table.snapshotComplete && result.table.syncAny;
 
     if (shouldSnapshot) {
-      // Truncate this table, in case a previous snapshot was interrupted.
+      // Truncate this table in case a previous snapshot was interrupted.
       await batch.truncate([result.table]);
 
       let gtid: common.ReplicatedGTID;
@@ -189,7 +189,7 @@ export class BinLogStream {
     const matchedTables: string[] = await common.getTablesFromPattern(connection, tablePattern);
     connection.release();
 
-    let tables: storage.SourceTable[] = [];
+    const tables: storage.SourceTable[] = [];
     for (const matchedTable of matchedTables) {
       const replicaIdColumns = await this.getReplicaIdColumns(matchedTable, tablePattern.schema);
 

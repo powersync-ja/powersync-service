@@ -147,6 +147,10 @@ export class MongoBucketBatch
     return this.last_checkpoint_lsn;
   }
 
+  get noCheckpointBeforeLsn() {
+    return this.no_checkpoint_before_lsn;
+  }
+
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
     let result: storage.FlushedResult | null = null;
     // One flush may be split over multiple transactions.

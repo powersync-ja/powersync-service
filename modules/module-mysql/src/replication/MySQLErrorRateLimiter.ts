@@ -1,5 +1,6 @@
 import { ErrorRateLimiter } from '@powersync/service-core';
 import { setTimeout } from 'timers/promises';
+import { BinlogConfigurationError } from './BinLogStream.js';
 
 export class MySQLErrorRateLimiter implements ErrorRateLimiter {
   nextAllowed: number = Date.now();
@@ -17,8 +18,10 @@ export class MySQLErrorRateLimiter implements ErrorRateLimiter {
 
   reportError(e: any): void {
     const message = (e.message as string) ?? '';
-    if (message.includes('password authentication failed')) {
-      // Wait 15 minutes, to avoid triggering Supabase's fail2ban
+    if (e instanceof BinlogConfigurationError) {
+      // Short delay
+      this.setDelay(2_000);
+    } else if (message.includes('password authentication failed')) {
       this.setDelay(900_000);
     } else if (message.includes('ENOTFOUND')) {
       // DNS lookup issue - incorrect URI or deleted instance

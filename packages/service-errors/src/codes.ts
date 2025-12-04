@@ -295,6 +295,14 @@ export enum ErrorCode {
    */
   PSYNC_S1402 = 'PSYNC_S1402',
 
+    /**
+   *  Required updates in the Change Data Capture (CDC) are no longer available.
+   *
+   *  Possible causes:
+   *  * Older data has been cleaned up due to exceeding the retention period.
+   */
+    PSYNC_S1500 = 'PSYNC_S1500',
+
   // ## PSYNC_S2xxx: Service API
 
   /**

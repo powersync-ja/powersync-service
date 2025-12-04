@@ -4,9 +4,9 @@ import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import mysql from 'mysql2/promise';
 import * as common from '../common/common-index.js';
+import { toExpressionTypeFromMySQLType } from '../common/common-index.js';
 import * as mysql_utils from '../utils/mysql-utils.js';
 import * as types from '../types/types.js';
-import { toExpressionTypeFromMySQLType } from '../common/common-index.js';
 
 type SchemaResult = {
   schema_name: string;
@@ -22,7 +22,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
   }
 
   async shutdown(): Promise<void> {
-    return this.pool.end();
+    await this.pool.end();
   }
 
   async getSourceConfig(): Promise<service_types.configFile.ResolvedDataSourceConfig> {
@@ -288,11 +288,8 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
 
   async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
     const head = await this.getReplicationHead();
-    const r = await callback(head);
-
     // TODO: make sure another message is replicated
-
-    return r;
+    return await callback(head);
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {

@@ -22,6 +22,7 @@ COPY modules/module-postgres-storage/package.json modules/module-postgres-storag
 COPY modules/module-mongodb/package.json modules/module-mongodb/tsconfig.json modules/module-mongodb/
 COPY modules/module-mongodb-storage/package.json modules/module-mongodb-storage/tsconfig.json modules/module-mongodb-storage/
 COPY modules/module-mysql/package.json modules/module-mysql/tsconfig.json modules/module-mysql/
+COPY modules/module-mssql/package.json modules/module-mssql/tsconfig.json modules/module-mssql/
 
 RUN corepack enable pnpm && corepack install
 RUN pnpm install --frozen-lockfile
@@ -48,6 +49,7 @@ COPY modules/module-postgres-storage/src modules/module-postgres-storage/src/
 COPY modules/module-mongodb/src modules/module-mongodb/src/
 COPY modules/module-mongodb-storage/src modules/module-mongodb-storage/src/
 COPY modules/module-mysql/src modules/module-mysql/src/
+COPY modules/module-mssql/src modules/module-mssql/src/
 
 RUN pnpm build:production && \
     rm -rf node_modules **/node_modules && \

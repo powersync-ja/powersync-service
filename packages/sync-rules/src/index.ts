@@ -13,6 +13,7 @@ export * from './schema-generators/schema-generators.js';
 export * from './SourceTableInterface.js';
 export * from './sql_filters.js';
 export * from './sql_functions.js';
+export * from './sql_support.js';
 export { SqlBucketDescriptor } from './SqlBucketDescriptor.js';
 export * from './SqlDataQuery.js';
 export * from './SqlParameterQuery.js';
