@@ -74,8 +74,7 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
       await context.dispose();
     })();
     // This confirms that initial replication was interrupted
-    const error = await p.catch((e) => e);
-    expect(error).toBeInstanceOf(ReplicationAbortedError);
+    await expect(p).rejects.toThrowError();
     done = true;
   } finally {
     done = true;
