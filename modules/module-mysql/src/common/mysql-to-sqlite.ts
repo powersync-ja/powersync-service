@@ -154,7 +154,7 @@ export function toSQLiteRow(
         case mysql.Types.LONG_BLOB:
         case ADDITIONAL_MYSQL_TYPES.BINARY:
         case ADDITIONAL_MYSQL_TYPES.VARBINARY:
-          result[key] = new Uint8Array(Object.values(row[key]));
+          result[key] = new Uint8Array(row[key]);
           break;
         case mysql.Types.LONGLONG:
           if (typeof row[key] === 'string') {

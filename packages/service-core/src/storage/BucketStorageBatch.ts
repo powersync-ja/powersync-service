@@ -87,6 +87,8 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
   markTableSnapshotRequired(table: SourceTable): Promise<void>;
   markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void>;
 
+  noCheckpointBeforeLsn: string;
+
   updateTableProgress(table: SourceTable, progress: Partial<TableSnapshotStatus>): Promise<SourceTable>;
 
   /**

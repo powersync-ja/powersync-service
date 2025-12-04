@@ -26,6 +26,9 @@
       "path": "./modules/module-postgres-storage"
     },
     {
+      "path": "./modules/module-mssql"
+    },
+    {
       "path": "./modules/module-mysql"
     },
     {
