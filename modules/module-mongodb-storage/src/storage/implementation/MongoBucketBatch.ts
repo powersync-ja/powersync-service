@@ -738,6 +738,11 @@ export class MongoBucketBatch
       };
     }
 
+    // For this query, we need to handle multiple cases, depending on the state:
+    // 1. Normal commit - advance last_checkpoint to this.persisted_op.
+    // 2. Commit delayed by no_checkpoint_before due to snapshot. In this case we only advance keepalive_op.
+    // 3. Commit with no new data - here may may set last_checkpoint = keepalive_op, if a delayed commit is relevant.
+    // We want to do as much as possible in a single atomic database operation, which makes this somewhat complex.
     let updateResult = await this.db.sync_rules.findOneAndUpdate(
       filter,
       [
@@ -781,37 +786,40 @@ export class MongoBucketBatch
         }
       }
     );
-    if (updateResult == null) {
-      const existing = await this.db.sync_rules.findOne(
-        { _id: this.group_id },
-        {
-          session: this.session,
-          projection: {
-            snapshot_done: 1,
-            last_checkpoint_lsn: 1,
-            no_checkpoint_before: 1,
-            keepalive_op: 1,
-            last_checkpoint: 1
-          }
-        }
-      );
-      if (existing == null) {
-        throw new ReplicationAssertionError('Failed to load sync_rules document during checkpoint update');
-      }
-      // No-op update - reuse existing document for downstream logic.
-      // This can happen when last_checkpoint and keepalive_op would remain unchanged.
-      updateResult = existing;
-    }
     const checkpointCreated =
+      updateResult != null &&
       updateResult.snapshot_done === true &&
       updateResult.last_checkpoint_lsn === lsn &&
       updateResult.last_checkpoint != null;
 
-    if (!checkpointCreated) {
+    if (updateResult == null || !checkpointCreated) {
       // Failed on snapshot_done or no_checkpoint_before.
       if (Date.now() - this.lastWaitingLogThottled > 5_000) {
+        // This is for debug info only.
+        if (updateResult == null) {
+          const existing = await this.db.sync_rules.findOne(
+            { _id: this.group_id },
+            {
+              session: this.session,
+              projection: {
+                snapshot_done: 1,
+                last_checkpoint_lsn: 1,
+                no_checkpoint_before: 1,
+                keepalive_op: 1,
+                last_checkpoint: 1
+              }
+            }
+          );
+          if (existing == null) {
+            throw new ReplicationAssertionError('Failed to load sync_rules document during checkpoint update');
+          }
+          // No-op update - reuse existing document for downstream logic.
+          // This can happen when last_checkpoint and keepalive_op would remain unchanged.
+          updateResult = existing;
+        }
+
         this.logger.info(
-          `Waiting before creating checkpoint, currently at ${lsn}. Persisted op: ${this.persisted_op}. Current state: ${JSON.stringify(
+          `Waiting before creating checkpoint, currently at ${lsn} / ${updateResult.keepalive_op}. Current state: ${JSON.stringify(
             {
               snapshot_done: updateResult.snapshot_done,
               last_checkpoint_lsn: updateResult.last_checkpoint_lsn,
@@ -822,7 +830,7 @@ export class MongoBucketBatch
         this.lastWaitingLogThottled = Date.now();
       }
     } else {
-      this.logger.info(`Created checkpoint at ${lsn}/${updateResult.last_checkpoint}`);
+      this.logger.info(`Created checkpoint at ${lsn} / ${updateResult.last_checkpoint}`);
       await this.autoActivate(lsn);
       await this.db.notifyCheckpoint();
       this.persisted_op = null;
@@ -899,7 +907,7 @@ export class MongoBucketBatch
   }
 
   async keepalive(lsn: string): Promise<boolean> {
-    return await this.commit(lsn);
+    return await this.commit(lsn, { createEmptyCheckpoints: true });
   }
 
   async setResumeLsn(lsn: string): Promise<void> {

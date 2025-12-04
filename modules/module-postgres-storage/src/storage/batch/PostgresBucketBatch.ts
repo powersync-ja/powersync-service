@@ -445,9 +445,9 @@ export class PostgresBucketBatch
     }
 
     if (!result.can_checkpoint) {
-      if (Date.now() - this.lastWaitingLogThrottled > 5_000 || true) {
+      if (Date.now() - this.lastWaitingLogThrottled > 5_000) {
         this.logger.info(
-          `Waiting before creating checkpoint, currently at ${lsn}. Persisted op: ${this.persisted_op}. Current state: ${JSON.stringify(
+          `Waiting before creating checkpoint, currently at ${lsn}. Last op: ${result.keepalive_op}. Current state: ${JSON.stringify(
             {
               snapshot_done: result.snapshot_done,
               last_checkpoint_lsn: result.last_checkpoint_lsn,
@@ -461,9 +461,7 @@ export class PostgresBucketBatch
     }
 
     if (result.created_checkpoint) {
-      this.logger.info(
-        `Created checkpoint at ${lsn}. Persisted op: ${result.last_checkpoint} (${this.persisted_op}). keepalive: ${result.keepalive_op}`
-      );
+      this.logger.info(`Created checkpoint at ${lsn}. Last op: ${result.last_checkpoint}`);
 
       await this.db.sql`
         DELETE FROM current_data
@@ -472,10 +470,6 @@ export class PostgresBucketBatch
           AND pending_delete IS NOT NULL
           AND pending_delete <= ${{ type: 'int8', value: result.last_checkpoint }}
       `.execute();
-    } else {
-      this.logger.info(
-        `Skipped empty checkpoint at ${lsn}. Persisted op: ${result.last_checkpoint}. keepalive: ${result.keepalive_op}`
-      );
     }
     await this.autoActivate(lsn);
     await notifySyncRulesUpdate(this.db, {
