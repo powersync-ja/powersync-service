@@ -56,7 +56,7 @@ export interface SyncRulesBucketStorage
    * This could be a recoverable error (e.g. temporary network failure),
    * or a permanent error (e.g. missing toast data).
    *
-   * Errors are cleared on commit.
+   * Errors are cleared on flush.
    */
   reportError(e: any): Promise<void>;
 

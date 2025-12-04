@@ -1,6 +1,6 @@
 import { logger } from '@powersync/lib-services-framework';
 import { DEFAULT_TAG, SourceTableInterface, SqlSyncRules } from '@powersync/service-sync-rules';
-import { SyncRulesStatus, TableInfo } from '@powersync/service-types';
+import { ReplicationError, SyncRulesStatus, TableInfo } from '@powersync/service-types';
 
 import * as storage from '../storage/storage-index.js';
 import { RouteAPI } from './RouteAPI.js';
@@ -39,6 +39,7 @@ export async function getSyncRulesStatus(
   const include_content = options.include_content ?? false;
   const live_status = options.live_status ?? false;
   const check_connection = options.check_connection ?? false;
+  const now = new Date().toISOString();
 
   let rules: SqlSyncRules;
   let persisted: storage.PersistedSyncRules;
@@ -49,7 +50,7 @@ export async function getSyncRulesStatus(
     return {
       content: include_content ? sync_rules.sync_rules_content : undefined,
       connections: [],
-      errors: [{ level: 'fatal', message: e.message }]
+      errors: [{ level: 'fatal', message: e.message, ts: now }]
     };
   }
 
@@ -99,7 +100,7 @@ export async function getSyncRulesStatus(
           data_queries: false,
           parameter_queries: false,
           replication_id: [],
-          errors: [{ level: 'fatal', message: 'connection failed' }]
+          errors: [{ level: 'fatal', message: 'connection failed', ts: now }]
         };
       } else {
         const source: SourceTableInterface = {
@@ -115,7 +116,7 @@ export async function getSyncRulesStatus(
           data_queries: syncData,
           parameter_queries: syncParameters,
           replication_id: [],
-          errors: [{ level: 'fatal', message: 'connection failed' }]
+          errors: [{ level: 'fatal', message: 'connection failed', ts: now }]
         };
       }
     });
@@ -123,13 +124,18 @@ export async function getSyncRulesStatus(
 
   const errors = tables_flat.flatMap((info) => info.errors);
   if (sync_rules.last_fatal_error) {
-    errors.push({ level: 'fatal', message: sync_rules.last_fatal_error });
+    errors.push({
+      level: 'fatal',
+      message: sync_rules.last_fatal_error,
+      ts: sync_rules.last_fatal_error_ts?.toISOString()
+    });
   }
   errors.push(
     ...rules.errors.map((e) => {
       return {
         level: e.type,
-        message: e.message
+        message: e.message,
+        ts: now
       };
     })
   );
@@ -140,7 +146,8 @@ export async function getSyncRulesStatus(
     if (sync_rules.last_checkpoint_ts == null && sync_rules.last_keepalive_ts == null) {
       errors.push({
         level: 'warning',
-        message: 'No checkpoint found, cannot calculate replication lag'
+        message: 'No checkpoint found, cannot calculate replication lag',
+        ts: now
       });
     } else {
       const lastTime = Math.max(
@@ -155,12 +162,14 @@ export async function getSyncRulesStatus(
       if (lagSeconds > 15 * 60) {
         errors.push({
           level: 'fatal',
-          message: `No replicated commit in more than ${lagSeconds}s`
+          message: `No replicated commit in more than ${lagSeconds}s`,
+          ts: now
         });
       } else if (lagSeconds > 5 * 60) {
         errors.push({
           level: 'warning',
-          message: `No replicated commit in more than ${lagSeconds}s`
+          message: `No replicated commit in more than ${lagSeconds}s`,
+          ts: now
         });
       }
     }
@@ -186,9 +195,9 @@ export async function getSyncRulesStatus(
   };
 }
 
-function deduplicate(errors: { level: 'warning' | 'fatal'; message: string }[]) {
+function deduplicate(errors: ReplicationError[]): ReplicationError[] {
   let seen = new Set<string>();
-  let result: { level: 'warning' | 'fatal'; message: string }[] = [];
+  let result: ReplicationError[] = [];
   for (let error of errors) {
     const key = JSON.stringify(error);
     if (seen.has(key)) {

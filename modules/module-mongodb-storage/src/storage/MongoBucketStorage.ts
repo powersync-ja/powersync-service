@@ -218,6 +218,7 @@ export class MongoBucketStorage
         slot_name: slot_name,
         last_checkpoint_ts: null,
         last_fatal_error: null,
+        last_fatal_error_ts: null,
         last_keepalive_ts: null
       };
       await this.db.sync_rules.insertOne(doc);
