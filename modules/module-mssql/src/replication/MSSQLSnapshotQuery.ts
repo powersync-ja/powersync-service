@@ -1,5 +1,4 @@
 import { bson, ColumnDescriptor, SourceTable } from '@powersync/service-core';
-import { SqliteValue } from '@powersync/service-sync-rules';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { MSSQLBaseType } from '../types/mssql-data-types.js';
 import sql from 'mssql';
@@ -14,8 +13,6 @@ export interface MSSQLSnapshotQuery {
    */
   next(): AsyncIterableIterator<sql.IColumnMetadata | sql.IRecordSet<any>>;
 }
-
-export type PrimaryKeyValue = Record<string, SqliteValue>;
 
 /**
  * Snapshot query using a plain SELECT * FROM table
@@ -175,56 +172,5 @@ export class BatchedSnapshotQuery implements MSSQLSnapshotQuery {
     }
 
     return decoded[this.key.name];
-  }
-}
-
-/**
- * This performs a snapshot query using a list of primary keys.
- *
- * This is not used for general snapshots, but is used when we need to re-fetch specific rows
- * during streaming replication.
- */
-export class IdSnapshotQuery implements MSSQLSnapshotQuery {
-  static supports(table: SourceTable | MSSQLSourceTable) {
-    // We have the same requirements as BatchedSnapshotQuery.
-    // This is typically only used as a fallback when ChunkedSnapshotQuery
-    // skipped some rows.
-    return BatchedSnapshotQuery.supports(table);
-  }
-
-  public constructor(
-    private readonly transaction: sql.Transaction,
-    private readonly table: MSSQLSourceTable,
-    private readonly keys: PrimaryKeyValue[]
-  ) {}
-
-  public async initialize(): Promise<void> {
-    // No-op
-  }
-
-  public async *next(): AsyncIterableIterator<sql.IColumnMetadata | sql.IRecordSet<any>> {
-    const metadataRequest = this.transaction.request();
-    metadataRequest.stream = true;
-    const metadataPromise = new Promise<sql.IColumnMetadata>((resolve, reject) => {
-      metadataRequest.on('recordset', resolve);
-      metadataRequest.on('error', reject);
-    });
-    metadataRequest.query(`SELECT TOP(0) * FROM ${this.table.toQualifiedName()}`);
-    const columnMetadata: sql.IColumnMetadata = await metadataPromise;
-    yield columnMetadata;
-
-    const keyDefinition = this.table.sourceTable.replicaIdColumns[0];
-    const ids = this.keys.map((record) => record[keyDefinition.name]);
-
-    const request = this.transaction.request();
-    const stream = request.toReadableStream();
-    request
-      .input('ids', ids)
-      .query(`SELECT * FROM ${this.table.toQualifiedName()} WHERE ${escapeIdentifier(keyDefinition.name)} = @ids`);
-
-    // MSSQL only streams one row at a time
-    for await (const row of stream) {
-      yield row;
-    }
   }
 }

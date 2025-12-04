@@ -13,13 +13,7 @@ import { getUuidReplicaIdentityBson, MetricsEngine, SourceEntityDescriptor, stor
 import { SqliteInputRow, SqliteRow, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 
 import { ReplicationMetric } from '@powersync/service-types';
-import {
-  BatchedSnapshotQuery,
-  IdSnapshotQuery,
-  MSSQLSnapshotQuery,
-  PrimaryKeyValue,
-  SimpleSnapshotQuery
-} from './MSSQLSnapshotQuery.js';
+import { BatchedSnapshotQuery, MSSQLSnapshotQuery, SimpleSnapshotQuery } from './MSSQLSnapshotQuery.js';
 import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
 import { getReplicationIdentityColumns, getTablesFromPattern, ResolvedTable } from '../utils/schema.js';
 import {
@@ -286,18 +280,14 @@ export class CDCStream {
     return resolvedTable;
   }
 
-  private async snapshotTableInTx(
-    batch: storage.BucketStorageBatch,
-    table: MSSQLSourceTable,
-    limited?: PrimaryKeyValue[]
-  ): Promise<void> {
+  private async snapshotTableInTx(batch: storage.BucketStorageBatch, table: MSSQLSourceTable): Promise<void> {
     // Note: We use the "Read Committed" isolation level here, not snapshot isolation.
     // The data may change during the transaction, but that is compensated for in the streaming
     // replication afterward.
     const transaction = await this.connections.createTransaction();
     await transaction.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
     try {
-      await this.snapshotTable(batch, transaction, table, limited);
+      await this.snapshotTable(batch, transaction, table);
 
       // Get the current LSN.
       // The data will only be consistent once incremental replication has passed that point.
@@ -325,8 +315,7 @@ export class CDCStream {
   private async snapshotTable(
     batch: storage.BucketStorageBatch,
     transaction: sql.Transaction,
-    table: MSSQLSourceTable,
-    limited?: PrimaryKeyValue[]
+    table: MSSQLSourceTable
   ) {
     let totalEstimatedCount = table.sourceTable.snapshotStatus?.totalEstimatedCount;
     let replicatedCount = table.sourceTable.snapshotStatus?.replicatedCount ?? 0;
@@ -335,9 +324,7 @@ export class CDCStream {
     // We do streaming on two levels:
     // 1. Coarse select from the entire table, stream rows 1 by one
     // 2. Fine level: Stream batches of rows with each fetch call
-    if (limited) {
-      query = new IdSnapshotQuery(transaction, table, limited);
-    } else if (BatchedSnapshotQuery.supports(table)) {
+    if (BatchedSnapshotQuery.supports(table)) {
       // Single primary key - we can use the primary key for chunking
       const orderByKey = table.sourceTable.replicaIdColumns[0];
       query = new BatchedSnapshotQuery(
@@ -404,30 +391,27 @@ export class CDCStream {
 
       // Important: flush before marking progress
       await batch.flush();
-      if (limited == null) {
-        let lastKey: Uint8Array | undefined;
-        if (query instanceof BatchedSnapshotQuery) {
-          lastKey = query.getLastKeySerialized();
-        }
-        if (lastCountTime < performance.now() - 10 * 60 * 1000) {
-          // Even though we're doing the snapshot inside a transaction, the transaction uses
-          // the default "Read Committed" isolation level. This means we can get new data
-          // within the transaction, so we re-estimate the count every 10 minutes when replicating
-          // large tables.
-          totalEstimatedCount = await this.estimatedCountNumber(table, transaction);
-          lastCountTime = performance.now();
-        }
-        const updatedSourceTable = await batch.updateTableProgress(table.sourceTable, {
-          lastKey: lastKey,
-          replicatedCount: replicatedCount,
-          totalEstimatedCount: totalEstimatedCount
-        });
-        this.tableCache.updateSourceTable(updatedSourceTable);
 
-        this.logger.info(`Replicating ${table.toQualifiedName()} ${table.sourceTable.formatSnapshotProgress()}`);
-      } else {
-        this.logger.info(`Replicating ${table.toQualifiedName()} ${replicatedCount}/${limited.length} for resnapshot`);
+      let lastKey: Uint8Array | undefined;
+      if (query instanceof BatchedSnapshotQuery) {
+        lastKey = query.getLastKeySerialized();
       }
+      if (lastCountTime < performance.now() - 10 * 60 * 1000) {
+        // Even though we're doing the snapshot inside a transaction, the transaction uses
+        // the default "Read Committed" isolation level. This means we can get new data
+        // within the transaction, so we re-estimate the count every 10 minutes when replicating
+        // large tables.
+        totalEstimatedCount = await this.estimatedCountNumber(table, transaction);
+        lastCountTime = performance.now();
+      }
+      const updatedSourceTable = await batch.updateTableProgress(table.sourceTable, {
+        lastKey: lastKey,
+        replicatedCount: replicatedCount,
+        totalEstimatedCount: totalEstimatedCount
+      });
+      this.tableCache.updateSourceTable(updatedSourceTable);
+
+      this.logger.info(`Replicating ${table.toQualifiedName()} ${table.sourceTable.formatSnapshotProgress()}`);
 
       if (this.abortSignal.aborted) {
         // We only abort after flushing
