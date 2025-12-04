@@ -144,6 +144,8 @@ export class WalStream {
    */
   private isStartingReplication = true;
 
+  private initialSnapshotPromise: Promise<void> | null = null;
+
   constructor(options: WalStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
     this.storage = options.storage;
@@ -442,6 +444,24 @@ WHERE  oid = $1::regclass`,
         // This makes sure we don't skip any changes applied before starting this snapshot,
         // in the case of snapshot retries.
         // We could alternatively commit at the replication slot LSN.
+
+        // Get the current LSN.
+        // The data will only be consistent once incremental replication has passed that point.
+        // We have to get this LSN _after_ we have finished the table snapshots.
+        //
+        // There are basically two relevant LSNs here:
+        // A: The LSN before the snapshot starts. We don't explicitly record this on the PowerSync side,
+        //    but it is implicitly recorded in the replication slot.
+        // B: The LSN after the table snapshot is complete, which is what we get here.
+        // When we do the snapshot queries, the data that we get back for each chunk could match the state
+        // anywhere between A and B. To actually have a consistent state on our side, we need to:
+        // 1. Complete the snapshot.
+        // 2. Wait until logical replication has caught up with all the change between A and B.
+        // Calling `markSnapshotDone(LSN B)` covers that.
+        const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
+        const noCommitBefore = rs.rows[0][0];
+
+        await batch.markAllSnapshotDone(noCommitBefore);
         await batch.commit(ZERO_LSN);
       }
     );
@@ -482,27 +502,11 @@ WHERE  oid = $1::regclass`,
     // replication afterwards.
     await db.query('BEGIN');
     try {
-      let tableLsnNotBefore: string;
       await this.snapshotTable(batch, db, table, limited);
 
-      // Get the current LSN.
-      // The data will only be consistent once incremental replication has passed that point.
-      // We have to get this LSN _after_ we have finished the table snapshot.
-      //
-      // There are basically two relevant LSNs here:
-      // A: The LSN before the snapshot starts. We don't explicitly record this on the PowerSync side,
-      //    but it is implicitly recorded in the replication slot.
-      // B: The LSN after the table snapshot is complete, which is what we get here.
-      // When we do the snapshot queries, the data that we get back for each chunk could match the state
-      // anywhere between A and B. To actually have a consistent state on our side, we need to:
-      // 1. Complete the snapshot.
-      // 2. Wait until logical replication has caught up with all the change between A and B.
-      // Calling `markSnapshotDone(LSN B)` covers that.
-      const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
-      tableLsnNotBefore = rs.rows[0][0];
       // Side note: A ROLLBACK would probably also be fine here, since we only read in this transaction.
       await db.query('COMMIT');
-      const [resultTable] = await batch.markSnapshotDone([table], tableLsnNotBefore);
+      const [resultTable] = await batch.markTableSnapshotDone([table]);
       this.relationCache.update(resultTable);
       return resultTable;
     } catch (e) {
@@ -818,7 +822,8 @@ WHERE  oid = $1::regclass`,
       // If anything errors here, the entire replication process is halted, and
       // all connections automatically closed, including this one.
       const initReplicationConnection = await this.connections.replicationConnection();
-      await this.initReplication(initReplicationConnection);
+      this.initialSnapshotPromise = this.initReplication(initReplicationConnection);
+      await this.initialSnapshotPromise;
       await initReplicationConnection.end();
 
       // At this point, the above connection has often timed out, so we start a new one
@@ -829,6 +834,18 @@ WHERE  oid = $1::regclass`,
       await this.storage.reportError(e);
       throw e;
     }
+  }
+
+  /**
+   * After calling replicate(), call this to wait for the initial snapshot to complete.
+   *
+   * For tests only.
+   */
+  async waitForInitialSnapshot() {
+    if (this.initialSnapshotPromise == null) {
+      throw new ReplicationAssertionError(`Initial snapshot not started yet`);
+    }
+    return this.initialSnapshotPromise;
   }
 
   async initReplication(replicationConnection: pgwire.PgConnection) {
