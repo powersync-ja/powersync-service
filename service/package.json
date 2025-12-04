@@ -7,8 +7,7 @@
   "scripts": {
     "build": "tsc -b",
     "watch": "nodemon -w ../ -e ts -e js --delay 1 -x node --loader ts-node/esm src/entry.ts start",
-    "clean": "rm -rf ./lib && tsc -b --clean",
-    "test": "vitest"
+    "clean": "rm -rf ./lib && tsc -b --clean"
   },
   "dependencies": {
     "@powersync/service-core": "workspace:*",

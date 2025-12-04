@@ -1,8 +1,8 @@
 import { container, logger } from '@powersync/lib-services-framework';
 import * as core from '@powersync/service-core';
 
-import { loadModules } from '../util/module-loader.js';
 import { logBooting } from '../util/version.js';
+import { DYNAMIC_MODULES } from '../util/modules.js';
 
 /**
  * Starts an API server
@@ -13,7 +13,7 @@ export async function startServer(runnerConfig: core.utils.RunnerConfig) {
   const config = await core.utils.loadConfig(runnerConfig);
 
   const moduleManager = container.getImplementation(core.modules.ModuleManager);
-  const modules = await loadModules(config);
+  const modules = await core.loadModules(config, DYNAMIC_MODULES);
   if (modules.length > 0) {
     moduleManager.register(modules);
   }
