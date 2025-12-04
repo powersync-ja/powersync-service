@@ -6,8 +6,8 @@ import { describeWithStorage, TEST_CONNECTION_OPTIONS } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('batch replication', function () {
-  describeWithStorage({ timeout: 240_000 }, function (factory) {
-    defineBatchTests(factory);
+  describeWithStorage({ timeout: 240_000 }, function (config) {
+    defineBatchTests(config);
   });
 });
 
@@ -16,7 +16,9 @@ const BASIC_SYNC_RULES = `bucket_definitions:
     data:
       - SELECT id, description, other FROM "test_data"`;
 
-function defineBatchTests(factory: storage.TestStorageFactory) {
+function defineBatchTests(config: storage.TestStorageConfig) {
+  const { factory } = config;
+
   test('update large record', async () => {
     await using context = await WalStreamTestContext.open(factory);
     // This test generates a large transaction in MongoDB, despite the replicated data

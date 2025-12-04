@@ -1,5 +1,5 @@
 import { PostgresRouteAPIAdapter } from '@module/api/PostgresRouteAPIAdapter.js';
-import { checkpointUserId, createWriteCheckpoint, TestStorageFactory } from '@powersync/service-core';
+import { checkpointUserId, createWriteCheckpoint, TestStorageConfig } from '@powersync/service-core';
 import { describe, test } from 'vitest';
 import { describeWithStorage } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
@@ -15,7 +15,9 @@ describe('checkpoint tests', () => {
   describeWithStorage({}, checkpointTests);
 });
 
-const checkpointTests = (factory: TestStorageFactory) => {
+const checkpointTests = (config: TestStorageConfig) => {
+  const { factory } = config;
+
   test('write checkpoints', { timeout: 50_000 }, async () => {
     await using context = await WalStreamTestContext.open(factory);
 

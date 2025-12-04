@@ -1,5 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { reduceBucket, TestStorageFactory } from '@powersync/service-core';
+import { reduceBucket, TestStorageConfig, TestStorageFactory } from '@powersync/service-core';
 import { METRICS_HELPER } from '@powersync/service-core-tests';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
@@ -12,7 +12,9 @@ describe('chunked snapshots', () => {
   describeWithStorage({ timeout: 120_000 }, defineBatchTests);
 });
 
-function defineBatchTests(factory: TestStorageFactory) {
+function defineBatchTests(config: TestStorageConfig) {
+  const { factory } = config;
+
   // This is not as sensitive to the id type as postgres, but we still test a couple of cases
   test('chunked snapshot (int32)', async () => {
     await testChunkedSnapshot({

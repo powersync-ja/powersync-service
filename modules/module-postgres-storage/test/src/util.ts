@@ -32,5 +32,5 @@ export const POSTGRES_STORAGE_SETUP = postgresTestSetup({
   migrationAgent: (config) => new TestPostgresMigrationAgent(config)
 });
 
-export const POSTGRES_STORAGE_FACTORY = POSTGRES_STORAGE_SETUP.factory;
+export const POSTGRES_STORAGE_FACTORY = POSTGRES_STORAGE_SETUP;
 export const POSTGRES_REPORT_STORAGE_FACTORY = POSTGRES_STORAGE_SETUP.reportFactory;

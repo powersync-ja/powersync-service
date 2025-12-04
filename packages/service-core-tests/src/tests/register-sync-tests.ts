@@ -7,7 +7,6 @@ import {
   utils
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { BucketSourceType, RequestParameters } from '@powersync/service-sync-rules';
 import path from 'path';
 import * as timers from 'timers/promises';
 import { fileURLToPath } from 'url';
@@ -17,8 +16,6 @@ import { METRICS_HELPER } from '../test-utils/test-utils-index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-const TEST_TABLE = test_utils.makeTestTable('test', ['id']);
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -37,7 +34,9 @@ export const SYNC_SNAPSHOT_PATH = path.resolve(__dirname, '../__snapshots/sync.t
  * });
  * ```
  */
-export function registerSyncTests(factory: storage.TestStorageFactory) {
+export function registerSyncTests(config: storage.TestStorageConfig) {
+  const factory = config.factory;
+
   createCoreAPIMetrics(METRICS_HELPER.metricsEngine);
   const tracker = new sync.RequestTracker(METRICS_HELPER.metricsEngine);
   const syncContext = new sync.SyncContext({
@@ -45,6 +44,8 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
     maxParameterQueryResults: 10,
     maxDataFetchConcurrency: 2
   });
+
+  const TEST_TABLE = test_utils.makeTestTable('test', ['id'], config);
 
   test('sync global data', async () => {
     await using f = await factory();
@@ -797,8 +798,8 @@ bucket_definitions:
 `
     });
 
-    const usersTable = test_utils.makeTestTable('users', ['id']);
-    const listsTable = test_utils.makeTestTable('lists', ['id']);
+    const usersTable = test_utils.makeTestTable('users', ['id'], config);
+    const listsTable = test_utils.makeTestTable('lists', ['id'], config);
 
     const bucketStorage = await f.getInstance(syncRules);
     // Activate
@@ -867,8 +868,8 @@ bucket_definitions:
 `
     });
 
-    const usersTable = test_utils.makeTestTable('users', ['id']);
-    const listsTable = test_utils.makeTestTable('lists', ['id']);
+    const usersTable = test_utils.makeTestTable('users', ['id'], config);
+    const listsTable = test_utils.makeTestTable('lists', ['id'], config);
 
     const bucketStorage = await f.getInstance(syncRules);
 
@@ -948,8 +949,8 @@ bucket_definitions:
 `
     });
 
-    const usersTable = test_utils.makeTestTable('users', ['id']);
-    const listsTable = test_utils.makeTestTable('lists', ['id']);
+    const usersTable = test_utils.makeTestTable('users', ['id'], config);
+    const listsTable = test_utils.makeTestTable('lists', ['id'], config);
 
     const bucketStorage = await f.getInstance(syncRules);
     // Activate

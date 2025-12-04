@@ -1,7 +1,6 @@
 import { BucketDataBatchOptions, getUuidReplicaIdentityBson, OplogEntry, storage } from '@powersync/service-core';
 import { describe, expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
-import { TEST_TABLE } from './util.js';
 
 /**
  * Normalize data from OplogEntries for comparison in tests.
@@ -24,7 +23,9 @@ const normalizeOplogData = (data: OplogEntry['data']) => {
  *
  * ```
  */
-export function registerDataStorageDataTests(generateStorageFactory: storage.TestStorageFactory) {
+export function registerDataStorageDataTests(config: storage.TestStorageConfig) {
+  const generateStorageFactory = config.factory;
+  const TEST_TABLE = test_utils.makeTestTable('test', ['id'], config);
   test('removing row', async () => {
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules({
@@ -728,7 +729,7 @@ bucket_definitions:
     });
     const bucketStorage = factory.getInstance(syncRules);
 
-    const sourceTable = test_utils.makeTestTable('test', ['id', 'description']);
+    const sourceTable = test_utils.makeTestTable('test', ['id', 'description'], config);
 
     // Pre-setup
     const result1 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -837,7 +838,7 @@ bucket_definitions:
     });
     const bucketStorage = factory.getInstance(syncRules);
 
-    const sourceTable = test_utils.makeTestTable('test', ['id', 'description']);
+    const sourceTable = test_utils.makeTestTable('test', ['id', 'description'], config);
 
     // Pre-setup
     const result1 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -1283,7 +1284,9 @@ bucket_definitions:
     });
 
     const metrics2 = await f.getStorageMetrics();
-    expect(metrics2).toMatchSnapshot();
+    expect(metrics2.operations_size_bytes).toBeLessThanOrEqual(20_000);
+    expect(metrics2.parameters_size_bytes).toBeLessThanOrEqual(40_000);
+    expect(metrics2.replication_size_bytes).toBeLessThanOrEqual(30_000);
   });
 
   test('op_id initialization edge case', async () => {
@@ -1302,8 +1305,8 @@ bucket_definitions:
     });
     const bucketStorage = factory.getInstance(syncRules);
 
-    const sourceTable = test_utils.makeTestTable('test', ['id']);
-    const sourceTableIgnore = test_utils.makeTestTable('test_ignore', ['id']);
+    const sourceTable = test_utils.makeTestTable('test', ['id'], config);
+    const sourceTableIgnore = test_utils.makeTestTable('test_ignore', ['id'], config);
 
     const result1 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.markAllSnapshotDone('1/1');
@@ -1371,7 +1374,7 @@ bucket_definitions:
     expect(checksums2).toEqual([{ bucket: 'global[]', checksum: 1917136889, count: 1 }]);
   });
 
-  testChecksumBatching(generateStorageFactory);
+  testChecksumBatching(config);
 
   test('empty checkpoints (1)', async () => {
     await using factory = await generateStorageFactory();
@@ -1515,9 +1518,9 @@ bucket_definitions:
  *
  * Exposed as a separate test so we can test with more storage parameters.
  */
-export function testChecksumBatching(generateStorageFactory: storage.TestStorageFactory) {
+export function testChecksumBatching(config: storage.TestStorageConfig) {
   test('checksums for multiple buckets', async () => {
-    await using factory = await generateStorageFactory();
+    await using factory = await config.factory();
     const syncRules = await factory.updateSyncRules({
       content: `
 bucket_definitions:
@@ -1529,7 +1532,7 @@ bucket_definitions:
     });
     const bucketStorage = factory.getInstance(syncRules);
 
-    const sourceTable = TEST_TABLE;
+    const sourceTable = test_utils.makeTestTable('test', ['id'], config);
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.markAllSnapshotDone('1/1');
       for (let u of ['u1', 'u2', 'u3', 'u4']) {

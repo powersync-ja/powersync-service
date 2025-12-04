@@ -26,7 +26,8 @@ const PUT_T3 = test_utils.putOp('test_data', { id: 't3', description: 'test3' })
 const REMOVE_T1 = test_utils.removeOp('test_data', 't1');
 const REMOVE_T2 = test_utils.removeOp('test_data', 't2');
 
-function defineTests(factory: storage.TestStorageFactory) {
+function defineTests(config: storage.TestStorageConfig) {
+  const factory = config.factory;
   let isMySQL57: boolean = false;
 
   beforeAll(async () => {

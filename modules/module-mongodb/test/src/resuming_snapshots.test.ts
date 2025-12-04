@@ -8,14 +8,14 @@ import { env } from './env.js';
 import { describeWithStorage } from './util.js';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('batch replication', function () {
-  describeWithStorage({ timeout: 240_000 }, function (factory) {
+  describeWithStorage({ timeout: 240_000 }, function (config) {
     test('resuming initial replication (1)', async () => {
       // Stop early - likely to not include deleted row in first replication attempt.
-      await testResumingReplication(factory, 2000);
+      await testResumingReplication(config.factory, 2000);
     });
     test('resuming initial replication (2)', async () => {
       // Stop late - likely to include deleted row in first replication attempt.
-      await testResumingReplication(factory, 8000);
+      await testResumingReplication(config.factory, 8000);
     });
   });
 });

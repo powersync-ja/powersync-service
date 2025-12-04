@@ -3,6 +3,7 @@ import { PostgresMigrationAgent } from '../migrations/PostgresMigrationAgent.js'
 import { normalizePostgresStorageConfig, PostgresStorageConfigDecoded } from '../types/types.js';
 import { PostgresReportStorage } from '../storage/PostgresReportStorage.js';
 import { PostgresBucketStorageFactory } from '../storage/PostgresBucketStorageFactory.js';
+import { logger as defaultLogger, createLogger, transports } from '@powersync/lib-services-framework';
 
 export type PostgresTestStorageOptions = {
   url: string;
@@ -31,11 +32,19 @@ export function postgresTestSetup(factoryOptions: PostgresTestStorageOptions) {
 
     const mockServiceContext = { configuration: { storage: BASE_CONFIG } } as unknown as ServiceContext;
 
+    // Migration logs can get really verbose in tests, so only log warnings and up.
+    const logger = createLogger({
+      level: 'warn',
+      format: defaultLogger.format,
+      transports: [new transports.Console()]
+    });
+
     await migrationManager.migrate({
       direction: framework.migrations.Direction.Down,
       migrationContext: {
         service_context: mockServiceContext
-      }
+      },
+      logger
     });
 
     if (direction == framework.migrations.Direction.Up) {
@@ -43,7 +52,8 @@ export function postgresTestSetup(factoryOptions: PostgresTestStorageOptions) {
         direction: framework.migrations.Direction.Up,
         migrationContext: {
           service_context: mockServiceContext
-        }
+        },
+        logger
       });
     }
   };
@@ -80,7 +90,8 @@ export function postgresTestSetup(factoryOptions: PostgresTestStorageOptions) {
         throw ex;
       }
     },
-    migrate
+    migrate,
+    tableIdStrings: true
   };
 }
 

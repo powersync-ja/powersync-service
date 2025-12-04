@@ -2,9 +2,10 @@ import { storage } from '@powersync/service-core';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 
-const TEST_TABLE = test_utils.makeTestTable('test', ['id']);
+export function registerCompactTests(config: storage.TestStorageConfig) {
+  const generateStorageFactory = config.factory;
+  const TEST_TABLE = test_utils.makeTestTable('test', ['id'], config);
 
-export function registerCompactTests(generateStorageFactory: storage.TestStorageFactory) {
   test('compacting (1)', async () => {
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules({

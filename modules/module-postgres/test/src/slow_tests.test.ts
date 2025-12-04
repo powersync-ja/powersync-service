@@ -28,12 +28,14 @@ import * as timers from 'node:timers/promises';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('slow tests', function () {
-  describeWithStorage({ timeout: 120_000 }, function (factory) {
-    defineSlowTests(factory);
+  describeWithStorage({ timeout: 120_000 }, function (config) {
+    defineSlowTests(config);
   });
 });
 
-function defineSlowTests(factory: storage.TestStorageFactory) {
+function defineSlowTests(config: storage.TestStorageConfig) {
+  const factory = config.factory;
+
   let walStream: WalStream | undefined;
   let connections: PgManager | undefined;
   let abortController: AbortController | undefined;

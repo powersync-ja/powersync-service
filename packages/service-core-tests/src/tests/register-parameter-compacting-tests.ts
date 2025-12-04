@@ -3,9 +3,11 @@ import { ParameterLookup } from '@powersync/service-sync-rules';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 
-const TEST_TABLE = test_utils.makeTestTable('test', ['id']);
+export function registerParameterCompactTests(config: storage.TestStorageConfig) {
+  const generateStorageFactory = config.factory;
 
-export function registerParameterCompactTests(generateStorageFactory: storage.TestStorageFactory) {
+  const TEST_TABLE = test_utils.makeTestTable('test', ['id'], config);
+
   test('compacting parameters', async () => {
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules({

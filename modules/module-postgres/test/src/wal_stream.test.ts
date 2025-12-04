@@ -20,7 +20,9 @@ describe('wal stream', () => {
   describeWithStorage({ timeout: 20_000 }, defineWalStreamTests);
 });
 
-function defineWalStreamTests(factory: storage.TestStorageFactory) {
+function defineWalStreamTests(config: storage.TestStorageConfig) {
+  const { factory } = config;
+
   test('replicating basic values', async () => {
     await using context = await WalStreamTestContext.open(factory);
     const { pool } = context;

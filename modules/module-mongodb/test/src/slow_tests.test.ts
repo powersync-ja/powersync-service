@@ -12,7 +12,9 @@ describe.runIf(env.CI || env.SLOW_TESTS)('change stream slow tests', { timeout: 
   describeWithStorage({}, defineSlowTests);
 });
 
-function defineSlowTests(factory: storage.TestStorageFactory) {
+function defineSlowTests(config: storage.TestStorageConfig) {
+  const { factory } = config;
+
   test('replicating snapshot with lots of data', async () => {
     await using context = await ChangeStreamTestContext.open(factory);
     // Test with low minSnapshotHistoryWindowInSeconds, to trigger:

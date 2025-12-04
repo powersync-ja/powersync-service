@@ -12,7 +12,9 @@ import * as test_utils from '../test-utils/test-utils-index.js';
  *
  * ```
  */
-export function registerDataStorageCheckpointTests(generateStorageFactory: storage.TestStorageFactory) {
+export function registerDataStorageCheckpointTests(config: storage.TestStorageConfig) {
+  const generateStorageFactory = config.factory;
+
   test('managed write checkpoints - checkpoint after write', async (context) => {
     await using factory = await generateStorageFactory();
     const r = await factory.configureSyncRules({

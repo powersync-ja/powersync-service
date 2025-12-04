@@ -1,7 +1,7 @@
 import { ChangeStreamInvalidatedError } from '@module/replication/ChangeStream.js';
 import { MongoManager } from '@module/replication/MongoManager.js';
 import { normalizeConnectionConfig } from '@module/types/types.js';
-import { BucketStorageFactory, TestStorageOptions } from '@powersync/service-core';
+import { TestStorageConfig } from '@powersync/service-core';
 import { describe, expect, test } from 'vitest';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
 import { env } from './env.js';
@@ -11,7 +11,9 @@ describe('mongodb resuming replication', () => {
   describeWithStorage({}, defineResumeTest);
 });
 
-function defineResumeTest(factoryGenerator: (options?: TestStorageOptions) => Promise<BucketStorageFactory>) {
+function defineResumeTest(config: TestStorageConfig) {
+  const factoryGenerator = config.factory;
+
   test('resuming with a different source database', async () => {
     await using context = await ChangeStreamTestContext.open(factoryGenerator);
     const { db } = context;

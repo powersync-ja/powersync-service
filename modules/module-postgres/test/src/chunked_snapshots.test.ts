@@ -1,4 +1,4 @@
-import { reduceBucket, TestStorageFactory } from '@powersync/service-core';
+import { reduceBucket, TestStorageConfig, TestStorageFactory } from '@powersync/service-core';
 import { METRICS_HELPER } from '@powersync/service-core-tests';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as crypto from 'node:crypto';
@@ -11,7 +11,9 @@ describe('chunked snapshots', () => {
   describeWithStorage({ timeout: 120_000 }, defineBatchTests);
 });
 
-function defineBatchTests(factory: TestStorageFactory) {
+function defineBatchTests(config: TestStorageConfig) {
+  const { factory } = config;
+
   // We need to test every supported type, since chunking could be quite sensitive to
   // how each specific type is handled.
   test('chunked snapshot edge case (int2)', async () => {
