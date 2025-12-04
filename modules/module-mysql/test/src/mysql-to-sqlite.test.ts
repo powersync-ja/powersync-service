@@ -1,4 +1,10 @@
-import { applyRowContext, CompatibilityContext, SqliteInputRow, SqliteRow } from '@powersync/service-sync-rules';
+import {
+  applyRowContext,
+  CompatibilityContext,
+  SqliteInputRow,
+  SqliteRow,
+  TimeValuePrecision
+} from '@powersync/service-sync-rules';
 import { afterAll, describe, expect, test } from 'vitest';
 import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
 import { eventIsWriteMutation, eventIsXid } from '@module/replication/zongji/zongji-utils.js';
@@ -33,8 +39,8 @@ describe('MySQL Data Types', () => {
     serial_col SERIAL,
     
     date_col DATE,
-    datetime_col DATETIME(3),
-    timestamp_col TIMESTAMP(3),
+    datetime_col DATETIME(6),
+    timestamp_col TIMESTAMP(6),
     time_col TIME,
     year_col YEAR,
 
@@ -238,6 +244,44 @@ INSERT INTO test_data (
     expect(applyRowContext(replicatedRows[0], new CompatibilityContext({ edition: 2 }))).toMatchObject(expectedResult);
   });
 
+  test('Date sub-millisecond precision', async () => {
+    await setupTable();
+    // Timezone offset is set on the pool to +00:00
+    await connectionManager.query(`
+        INSERT INTO test_data(datetime_col, timestamp_col)
+        VALUES('2023-03-06 15:47:12.123456', '2023-03-06 15:47:12.123456');
+      `);
+
+    const databaseRows = await getDatabaseRows(connectionManager, 'test_data');
+    const replicatedRows = await getReplicatedRows();
+    const expectedResult = {
+      datetime_col: '2023-03-06T15:47:12.123Z',
+      timestamp_col: '2023-03-06T15:47:12.123Z'
+    };
+
+    expect(applyRowContext(databaseRows[0], CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY)).toMatchObject(
+      expectedResult
+    );
+    expect(applyRowContext(replicatedRows[0], CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY)).toMatchObject(
+      expectedResult
+    );
+
+    const defaultMigratedContext = new CompatibilityContext({ edition: 2 });
+    expect(applyRowContext(databaseRows[0], defaultMigratedContext)).toMatchObject(expectedResult);
+    expect(applyRowContext(replicatedRows[0], defaultMigratedContext)).toMatchObject(expectedResult);
+
+    const increasedPrecisionContext = new CompatibilityContext({
+      edition: 2,
+      maxTimeValuePrecision: TimeValuePrecision.microseconds
+    });
+    const precisionResult = {
+      datetime_col: '2023-03-06T15:47:12.123456Z',
+      timestamp_col: '2023-03-06T15:47:12.123456Z'
+    };
+    expect(applyRowContext(databaseRows[0], increasedPrecisionContext)).toMatchObject(precisionResult);
+    expect(applyRowContext(replicatedRows[0], increasedPrecisionContext)).toMatchObject(precisionResult);
+  });
+
   test('Date types edge cases mappings', async () => {
     await setupTable();
 
@@ -322,7 +366,9 @@ async function getReplicatedRows(expectedTransactionsCount?: number): Promise<Sq
   const zongji = new ZongJi({
     host: TEST_CONNECTION_OPTIONS.hostname,
     user: TEST_CONNECTION_OPTIONS.username,
-    password: TEST_CONNECTION_OPTIONS.password
+    password: TEST_CONNECTION_OPTIONS.password,
+    dateStrings: true,
+    timeZone: 'Z'
   });
 
   const completionPromise = new Promise<SqliteInputRow[]>((resolve, reject) => {
