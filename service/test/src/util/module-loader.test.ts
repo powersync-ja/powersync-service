@@ -8,7 +8,7 @@ import { PostgresStorageModule } from '@powersync/service-module-postgres-storag
 import { loadModules } from '../../../src/util/module-loader.js';
 
 interface MockConfig {
-  connections?: MockConnection[];
+  connections?: { type: string }[];
   storage: { type: string };
 }
 
@@ -18,7 +18,7 @@ describe('module loader', () => {
       connections: [{ type: 'mysql' }, { type: 'postgresql' }],
       storage: { type: 'postgresql' }
     };
-    const modules = await loadModules(config);
+    const modules = await loadModules(config as any);
 
     expect(modules.length).toBe(3);
     expect(modules[0]).toBeInstanceOf(MySQLModule);
@@ -32,7 +32,7 @@ describe('module loader', () => {
       storage: { type: 'postgresql' }
     };
 
-    const modules = await loadModules(config);
+    const modules = await loadModules(config as any);
 
     // Expect 3 modules: mysql, postgresql, postgresql-storage
     expect(modules.length).toBe(3);
@@ -47,27 +47,28 @@ describe('module loader', () => {
       storage: { type: 'postgresql' }
     };
 
-    await expect(loadModules(config)).rejects.toThrowError();
+    await expect(loadModules(config as any)).rejects.toThrowError();
   });
 
   it('should throw an error if one dynamic connection module import fails', async () => {
-    vi.doMock('../../../src/util/module-loader.js', async (importOriginal) => {
-      const mod = await importOriginal();
-      mod.ConnectionModuleMap.mysql = () =>
-        import('@powersync/service-module-mysql').then(() => {
-          throw new Error('Failed to load MySQL module');
-        });
-      return mod;
+    vi.doMock('@powersync/service-module-mysql', async (importOriginal) => {
+      return {
+        MySQLModule: class {
+          constructor() {
+            throw new Error('Failed to load MySQL module!');
+          }
+        }
+      };
     });
 
-    const { loadModules } = await import('../../../src/util/module-loader.js');
+    const { loadModules } = await import('../../../lib/util/module-loader.js');
 
     const config: MockConfig = {
       connections: [{ type: 'mysql' }],
       storage: { type: 'mongodb' }
     };
 
-    await expect(loadModules(config)).rejects.toThrowError('Failed to load MySQL module');
+    await expect(loadModules(config as any)).rejects.toThrowError('Failed to load MySQL module');
 
     vi.doUnmock('@powersync/service-module-mysql');
   });
