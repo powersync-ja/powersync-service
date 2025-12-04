@@ -12,11 +12,13 @@ export class TimeValuePrecision {
   static seconds = new TimeValuePrecision('seconds', 0);
   static milliseconds = new TimeValuePrecision('milliseconds', 3);
   static microseconds = new TimeValuePrecision('microseconds', 6);
+  static nanoseconds = new TimeValuePrecision('nanoseconds', 9);
 
   static byName: Record<string, TimeValuePrecision> = Object.freeze({
     seconds: this.seconds,
     milliseconds: this.milliseconds,
-    microseconds: this.microseconds
+    microseconds: this.microseconds,
+    nanoseconds: this.nanoseconds
   });
 }
 

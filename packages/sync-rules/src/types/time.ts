@@ -80,7 +80,7 @@ export class DateTimeValue extends CustomSqliteValue {
  * is undesirable because it means that sorting values alphabetically doesn't preserve their value.
  */
 export class TimeValue extends CustomSqliteValue {
-  private constructor(
+  constructor(
     readonly timeSeconds: string,
     readonly fraction: string,
     private readonly options: DateTimeSourceOptions

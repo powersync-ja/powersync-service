@@ -3,6 +3,7 @@
 '@powersync/service-module-postgres': patch
 '@powersync/service-module-mongodb': patch
 '@powersync/service-module-mysql': patch
+'@powersync/service-module-mssql': patch
 '@powersync/service-sync-rules': patch
 '@powersync/service-jpgwire': patch
 ---
