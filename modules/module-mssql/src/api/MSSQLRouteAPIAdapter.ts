@@ -19,6 +19,7 @@ import {
 } from '../utils/mssql.js';
 import { getTablesFromPattern, ResolvedTable } from '../utils/schema.js';
 import { toExpressionTypeFromMSSQLType } from '../common/mssqls-to-sqlite.js';
+import sql from 'mssql';
 
 export class MSSQLRouteAPIAdapter implements api.RouteAPI {
   protected connectionManager: MSSQLConnectionManager;
@@ -79,13 +80,16 @@ export class MSSQLRouteAPIAdapter implements api.RouteAPI {
         JOIN sys.schemas AS sch ON sch.schema_id = tbl.schema_id
         JOIN sys.columns AS col ON col.object_id = tbl.object_id
         JOIN sys.types AS typ ON typ.user_type_id = col.user_type_id
-      WHERE sch.name = '${this.connectionManager.schema}'
+      WHERE sch.name = @schema
         AND sch.name NOT IN ('sys', 'INFORMATION_SCHEMA', 'cdc')
-        AND tbl.name NOT IN ('systranschemas', '${POWERSYNC_CHECKPOINTS_TABLE}')
+        AND tbl.name NOT IN ('systranschemas', @checkpointsTable)
         AND tbl.type = 'U'
         AND col.is_computed = 0
       ORDER BY sch.name, tbl.name, col.column_id
-    `);
+    `, [
+      { name: 'schema', type: sql.VarChar(sql.MAX), value: this.connectionManager.schema },
+      { name: 'checkpointsTable', type: sql.VarChar(sql.MAX), value: POWERSYNC_CHECKPOINTS_TABLE },
+    ]);
 
     /**
      * Reduces the SQL results into a Record of {@link DatabaseSchema}
