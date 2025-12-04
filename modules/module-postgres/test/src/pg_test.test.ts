@@ -1,16 +1,18 @@
-import { WalStream } from '@module/replication/WalStream.js';
-import { PostgresTypeResolver } from '@module/types/resolver.js';
 import * as pgwire from '@powersync/service-jpgwire';
 import {
   applyRowContext,
   CompatibilityContext,
-  CompatibilityEdition,
-  DateTimeValue,
   SqliteInputRow,
-  TimeValue
+  DateTimeValue,
+  TimeValue,
+  CompatibilityEdition
 } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { clearTestDb, connectPgPool, connectPgWire, TEST_URI } from './util.js';
+import { WalStream } from '@module/replication/WalStream.js';
+import { PostgresTypeResolver } from '@module/types/resolver.js';
+import { CustomTypeRegistry } from '@module/types/registry.js';
+import { PostgresSnapshotter } from '@module/replication/PostgresSnapshotter.js';
 
 describe('pg data types', () => {
   async function setupTable(db: pgwire.PgClient) {
@@ -302,7 +304,7 @@ VALUES(10, ARRAY['null']::TEXT[]);
       await insert(db);
 
       const transformed = [
-        ...WalStream.getQueryData(pgwire.pgwireRows(await db.query(`SELECT * FROM test_data ORDER BY id`)))
+        ...PostgresSnapshotter.getQueryData(pgwire.pgwireRows(await db.query(`SELECT * FROM test_data ORDER BY id`)))
       ];
 
       checkResults(transformed);
@@ -321,7 +323,7 @@ VALUES(10, ARRAY['null']::TEXT[]);
       await insert(db);
 
       const transformed = [
-        ...WalStream.getQueryData(
+        ...PostgresSnapshotter.getQueryData(
           pgwire.pgwireRows(
             await db.query({
               statement: `SELECT * FROM test_data WHERE $1 ORDER BY id`,
@@ -345,7 +347,9 @@ VALUES(10, ARRAY['null']::TEXT[]);
       await insertArrays(db);
 
       const transformed = [
-        ...WalStream.getQueryData(pgwire.pgwireRows(await db.query(`SELECT * FROM test_data_arrays ORDER BY id`)))
+        ...PostgresSnapshotter.getQueryData(
+          pgwire.pgwireRows(await db.query(`SELECT * FROM test_data_arrays ORDER BY id`))
+        )
       ].map((e) => applyRowContext(e, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY));
 
       checkResultArrays(transformed);
@@ -448,7 +452,7 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
 `);
 
       const [row] = [
-        ...WalStream.getQueryData(
+        ...PostgresSnapshotter.getQueryData(
           pgwire.pgwireRows(await db.query(`SELECT time, timestamp, timestamptz FROM test_data`))
         )
       ];
