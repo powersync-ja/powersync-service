@@ -263,6 +263,13 @@ export class PostgresPersistedBatch {
   }
 
   async flush(db: lib_postgres.WrappedConnection) {
+    const stats = {
+      bucketDataCount: this.bucketDataInserts.length,
+      parameterDataCount: this.parameterDataInserts.length,
+      currentDataCount: this.currentDataInserts.size + this.currentDataDeletes.length
+    };
+    const flushedAny = stats.bucketDataCount > 0 || stats.parameterDataCount > 0 || stats.currentDataCount > 0;
+
     logger.info(
       `powersync_${this.group_id} Flushed ${this.bucketDataInserts.length} + ${this.parameterDataInserts.length} + ${
         this.currentDataInserts.size
@@ -280,6 +287,11 @@ export class PostgresPersistedBatch {
     this.currentDataInserts = new Map();
     this.currentDataDeletes = new Map();
     this.currentSize = 0;
+
+    return {
+      ...stats,
+      flushedAny
+    };
   }
 
   protected async flushBucketData(db: lib_postgres.WrappedConnection) {

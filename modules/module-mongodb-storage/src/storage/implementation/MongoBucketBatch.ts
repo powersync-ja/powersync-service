@@ -84,6 +84,7 @@ export class MongoBucketBatch
   private batch: OperationBatch | null = null;
   private write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
+  private clearedError = false;
 
   /**
    * Last LSN received associated with a checkpoint.
@@ -242,6 +243,8 @@ export class MongoBucketBatch
     let resumeBatch: OperationBatch | null = null;
     let transactionSize = 0;
 
+    let didFlush = false;
+
     // Now batch according to the sizes
     // This is a single batch if storeCurrentData == false
     for await (let b of batch.batched(sizes)) {
@@ -291,7 +294,8 @@ export class MongoBucketBatch
         if (persistedBatch!.shouldFlushTransaction()) {
           // Transaction is getting big.
           // Flush, and resume in a new transaction.
-          await persistedBatch!.flush(this.db, this.session, options);
+          const { flushedAny } = await persistedBatch!.flush(this.db, this.session, options);
+          didFlush ||= flushedAny;
           persistedBatch = null;
           // Computing our current progress is a little tricky here, since
           // we're stopping in the middle of a batch.
@@ -302,8 +306,13 @@ export class MongoBucketBatch
 
       if (persistedBatch) {
         transactionSize = persistedBatch.currentSize;
-        await persistedBatch.flush(this.db, this.session, options);
+        const { flushedAny } = await persistedBatch.flush(this.db, this.session, options);
+        didFlush ||= flushedAny;
       }
+    }
+
+    if (didFlush) {
+      await this.clearError();
     }
 
     return resumeBatch?.hasData() ? resumeBatch : null;
@@ -746,9 +755,8 @@ export class MongoBucketBatch
               $cond: ['$_can_checkpoint', { $literal: now }, '$last_checkpoint_ts']
             },
             last_keepalive_ts: { $literal: now },
-            last_fatal_error: {
-              $cond: ['$_can_checkpoint', { $literal: null }, '$last_fatal_error']
-            },
+            last_fatal_error: { $literal: null },
+            last_fatal_error_ts: { $literal: null },
             keepalive_op: new_keepalive_op,
             last_checkpoint: new_last_checkpoint,
             // Unset snapshot_lsn on checkpoint
@@ -1141,6 +1149,26 @@ export class MongoBucketBatch
       copy.snapshotComplete = true;
       return copy;
     });
+  }
+
+  protected async clearError(): Promise<void> {
+    // No need to clear an error more than once per batch, since an error would always result in restarting the batch.
+    if (this.clearedError) {
+      return;
+    }
+
+    await this.db.sync_rules.updateOne(
+      {
+        _id: this.group_id
+      },
+      {
+        $set: {
+          last_fatal_error: null,
+          last_fatal_error_ts: null
+        }
+      }
+    );
+    this.clearedError = true;
   }
 
   /**

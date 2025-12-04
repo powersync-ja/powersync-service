@@ -13,6 +13,7 @@ export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRule
   public readonly sync_rules_content: string;
   public readonly last_checkpoint_lsn: string | null;
   public readonly last_fatal_error: string | null;
+  public readonly last_fatal_error_ts: Date | null;
   public readonly last_keepalive_ts: Date | null;
   public readonly last_checkpoint_ts: Date | null;
   public readonly active: boolean;
@@ -29,6 +30,7 @@ export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRule
     // Handle legacy values
     this.slot_name = doc.slot_name ?? `powersync_${this.id}`;
     this.last_fatal_error = doc.last_fatal_error;
+    this.last_fatal_error_ts = doc.last_fatal_error_ts;
     this.last_checkpoint_ts = doc.last_checkpoint_ts;
     this.last_keepalive_ts = doc.last_keepalive_ts;
     this.active = doc.state == 'ACTIVE';

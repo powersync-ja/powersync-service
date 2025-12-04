@@ -646,11 +646,11 @@ export class MongoSyncBucketStorage
       },
       {
         $set: {
-          last_fatal_error: message
+          last_fatal_error: message,
+          last_fatal_error_ts: new Date()
         }
       }
     );
-    await this.db.notifyCheckpoint();
   }
 
   async compact(options?: storage.CompactOptions) {

@@ -189,7 +189,7 @@ export const validate = routeDefinition({
     const connectionStatus = await apiHandler.getConnectionStatus();
     if (!connectionStatus) {
       return internal_routes.ValidateResponse.encode({
-        errors: [{ level: 'fatal', message: 'No connection configured' }],
+        errors: [{ level: 'fatal', message: 'No connection configured', ts: new Date().toISOString() }],
         connections: []
       });
     }
@@ -206,7 +206,7 @@ export const validate = routeDefinition({
     ))!;
 
     if (connectionStatus == null) {
-      status.errors.push({ level: 'fatal', message: 'No connection configured' });
+      status.errors.push({ level: 'fatal', message: 'No connection configured', ts: new Date().toISOString() });
     }
 
     return internal_routes.ValidateResponse.encode(status);

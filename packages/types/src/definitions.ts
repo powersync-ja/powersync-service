@@ -3,7 +3,8 @@ import * as t from 'ts-codec';
 export const ReplicationError = t.object({
   /** Warning: Could indicate an issue. Fatal: Prevents replicating. */
   level: t.literal('warning').or(t.literal('fatal')),
-  message: t.string
+  message: t.string,
+  ts: t.string.optional()
 });
 export type ReplicationError = t.Encoded<typeof ReplicationError>;
 

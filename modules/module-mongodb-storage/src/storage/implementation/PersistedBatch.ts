@@ -370,12 +370,21 @@ export class PersistedBatch {
       }
     }
 
+    const stats = {
+      bucketDataCount: this.bucketData.length,
+      parameterDataCount: this.bucketParameters.length,
+      currentDataCount: this.currentData.length,
+      flushedAny: flushedSomething
+    };
+
     this.bucketData = [];
     this.bucketParameters = [];
     this.currentData = [];
     this.bucketStates.clear();
     this.currentSize = 0;
     this.debugLastOpId = null;
+
+    return stats;
   }
 
   private getBucketStateUpdates(): mongo.AnyBulkWriteOperation<BucketStateDocument>[] {
