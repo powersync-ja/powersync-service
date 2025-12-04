@@ -266,7 +266,7 @@ export class PostgresPersistedBatch {
     const stats = {
       bucketDataCount: this.bucketDataInserts.length,
       parameterDataCount: this.parameterDataInserts.length,
-      currentDataCount: this.currentDataInserts.size + this.currentDataDeletes.length
+      currentDataCount: this.currentDataInserts.size + this.currentDataDeletes.size
     };
     const flushedAny = stats.bucketDataCount > 0 || stats.parameterDataCount > 0 || stats.currentDataCount > 0;
 
