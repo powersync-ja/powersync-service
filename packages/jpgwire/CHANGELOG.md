@@ -1,5 +1,13 @@
 # @powersync/service-jpgwire
 
+## 0.21.7
+
+### Patch Changes
+
+- 82c490e: Fix stack overflow when parsing large escaped strings in structured values from Postgres.
+- Updated dependencies [0156d10]
+  - @powersync/service-sync-rules@0.29.8
+
 ## 0.21.6
 
 ### Patch Changes
