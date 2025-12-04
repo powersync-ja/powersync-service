@@ -144,6 +144,8 @@ export class WalStream {
    */
   private isStartingReplication = true;
 
+  private initialSnapshotPromise: Promise<void> | null = null;
+
   constructor(options: WalStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
     this.storage = options.storage;
@@ -442,6 +444,13 @@ WHERE  oid = $1::regclass`,
         // This makes sure we don't skip any changes applied before starting this snapshot,
         // in the case of snapshot retries.
         // We could alternatively commit at the replication slot LSN.
+
+        // Get the current LSN for hte snapshot.
+        // We could also use the LSN from the last table snapshto.
+        const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
+        const noCommitBefore = rs.rows[0][0];
+
+        await batch.markAllSnapshotDone(noCommitBefore);
         await batch.commit(ZERO_LSN);
       }
     );
@@ -482,7 +491,6 @@ WHERE  oid = $1::regclass`,
     // replication afterwards.
     await db.query('BEGIN');
     try {
-      let tableLsnNotBefore: string;
       await this.snapshotTable(batch, db, table, limited);
 
       // Get the current LSN.
@@ -499,10 +507,11 @@ WHERE  oid = $1::regclass`,
       // 2. Wait until logical replication has caught up with all the change between A and B.
       // Calling `markSnapshotDone(LSN B)` covers that.
       const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
-      tableLsnNotBefore = rs.rows[0][0];
+      const tableLsnNotBefore = rs.rows[0][0];
+
       // Side note: A ROLLBACK would probably also be fine here, since we only read in this transaction.
       await db.query('COMMIT');
-      const [resultTable] = await batch.markSnapshotDone([table], tableLsnNotBefore);
+      const [resultTable] = await batch.markTableSnapshotDone([table], tableLsnNotBefore);
       this.relationCache.update(resultTable);
       return resultTable;
     } catch (e) {
@@ -817,9 +826,13 @@ WHERE  oid = $1::regclass`,
     try {
       // If anything errors here, the entire replication process is halted, and
       // all connections automatically closed, including this one.
-      const initReplicationConnection = await this.connections.replicationConnection();
-      await this.initReplication(initReplicationConnection);
-      await initReplicationConnection.end();
+      this.initialSnapshotPromise = (async () => {
+        const initReplicationConnection = await this.connections.replicationConnection();
+        await this.initReplication(initReplicationConnection);
+        await initReplicationConnection.end();
+      })();
+
+      await this.initialSnapshotPromise;
 
       // At this point, the above connection has often timed out, so we start a new one
       const streamReplicationConnection = await this.connections.replicationConnection();
@@ -829,6 +842,18 @@ WHERE  oid = $1::regclass`,
       await this.storage.reportError(e);
       throw e;
     }
+  }
+
+  /**
+   * After calling replicate(), call this to wait for the initial snapshot to complete.
+   *
+   * For tests only.
+   */
+  async waitForInitialSnapshot() {
+    if (this.initialSnapshotPromise == null) {
+      throw new ReplicationAssertionError(`Initial snapshot not started yet`);
+    }
+    return this.initialSnapshotPromise;
   }
 
   async initReplication(replicationConnection: pgwire.PgConnection) {
