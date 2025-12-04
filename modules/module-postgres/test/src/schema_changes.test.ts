@@ -56,10 +56,17 @@ function defineTests(config: storage.TestStorageConfig) {
     // Truncate - order doesn't matter
     expect(data.slice(2, 4).sort(compareIds)).toMatchObject([REMOVE_T1, REMOVE_T2]);
 
-    expect(data.slice(4)).toMatchObject([
+    expect(data.slice(4, 5)).toMatchObject([
       // Snapshot and/or replication insert
       PUT_T3
     ]);
+
+    if (data.length > 5) {
+      expect(data.slice(5)).toMatchObject([
+        // Replicated insert (optional duplication)
+        PUT_T3
+      ]);
+    }
   });
 
   test('add table', async () => {
