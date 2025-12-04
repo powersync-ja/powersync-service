@@ -314,8 +314,7 @@ LEFT JOIN (
   AND NOT a.attisdropped
   AND has_column_privilege(tbl.quoted_name, a.attname, 'SELECT, INSERT, UPDATE, REFERENCES')
 )
-GROUP BY schemaname, tablename, quoted_name
-ORDER BY schemaname, tablename;`
+GROUP BY schemaname, tablename, quoted_name`
     );
     await this.typeCache.fetchTypesForSchema();
     const rows = pgwire.pgwireRows(results);
