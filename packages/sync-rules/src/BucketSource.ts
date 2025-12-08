@@ -15,7 +15,55 @@ import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, Source
  * There are two ways to define bucket sources: Via sync rules made up of parameter and data queries, and via stream
  * definitions that only consist of a single query.
  */
-export interface BucketSource {
+export interface BucketDataSource {
+  readonly name: string;
+  readonly type: BucketSourceType;
+
+  readonly subscribedToByDefault: boolean;
+
+  /**
+   * Given a row as it appears in a table that affects sync data, return buckets, logical table names and transformed
+   * data for rows to add to buckets.
+   */
+  evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
+
+  /**
+   * Reports {@link BucketParameterQuerier}s resolving buckets that a specific stream request should have access to.
+   *
+   * @param result The target array to insert queriers and errors into.
+   * @param options Options, including parameters that may affect the buckets loaded by this source.
+   */
+  pushBucketParameterQueriers(result: PendingQueriers, options: GetQuerierOptions): void;
+
+  getSourceTables(): Set<TablePattern>;
+
+  /** Whether the table possibly affects the contents of buckets resolved by this source. */
+  tableSyncsData(table: SourceTableInterface): boolean;
+
+  /**
+   * Given a static schema, infer all logical tables and associated columns that appear in buckets defined by this
+   * source.
+   *
+   * This is use to generate the client-side schema.
+   */
+  resolveResultSets(schema: SourceSchema, tables: Record<string, Record<string, ColumnDefinition>>): void;
+
+  debugWriteOutputTables(result: Record<string, { query: string }[]>): void;
+
+  debugRepresentation(): any;
+}
+
+/**
+ * An interface declaring
+ *
+ *  - which buckets the sync service should create when processing change streams from the database.
+ *  - how data in source tables maps to data in buckets (e.g. when we're not selecting all columns).
+ *  - which buckets a given connection has access to.
+ *
+ * There are two ways to define bucket sources: Via sync rules made up of parameter and data queries, and via stream
+ * definitions that only consist of a single query.
+ */
+export interface BucketParameterSource {
   readonly name: string;
   readonly type: BucketSourceType;
 
@@ -29,12 +77,6 @@ export interface BucketSource {
    * system to find buckets.
    */
   evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[];
-
-  /**
-   * Given a row as it appears in a table that affects sync data, return buckets, logical table names and transformed
-   * data for rows to add to buckets.
-   */
-  evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
 
   /**
    * Reports {@link BucketParameterQuerier}s resolving buckets that a specific stream request should have access to.
@@ -56,17 +98,6 @@ export interface BucketSource {
 
   /** Whether the table possibly affects the buckets resolved by this source. */
   tableSyncsParameters(table: SourceTableInterface): boolean;
-
-  /** Whether the table possibly affects the contents of buckets resolved by this source. */
-  tableSyncsData(table: SourceTableInterface): boolean;
-
-  /**
-   * Given a static schema, infer all logical tables and associated columns that appear in buckets defined by this
-   * source.
-   *
-   * This is use to generate the client-side schema.
-   */
-  resolveResultSets(schema: SourceSchema, tables: Record<string, Record<string, ColumnDefinition>>): void;
 
   debugWriteOutputTables(result: Record<string, { query: string }[]>): void;
 

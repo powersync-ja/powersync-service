@@ -1,7 +1,7 @@
 import { BaseSqlDataQuery } from '../BaseSqlDataQuery.js';
 import { BucketInclusionReason, BucketPriority, DEFAULT_BUCKET_PRIORITY } from '../BucketDescription.js';
 import { BucketParameterQuerier, PendingQueriers } from '../BucketParameterQuerier.js';
-import { BucketSource, BucketSourceType, ResultSetDescription } from '../BucketSource.js';
+import { BucketDataSource, BucketParameterSource, BucketSourceType, ResultSetDescription } from '../BucketSource.js';
 import { ColumnDefinition } from '../ExpressionType.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { GetQuerierOptions, RequestedStream } from '../SqlSyncRules.js';
@@ -18,7 +18,7 @@ import {
 } from '../types.js';
 import { StreamVariant } from './variant.js';
 
-export class SyncStream implements BucketSource {
+export class SyncStream implements BucketDataSource, BucketParameterSource {
   name: string;
   subscribedToByDefault: boolean;
   priority: BucketPriority;

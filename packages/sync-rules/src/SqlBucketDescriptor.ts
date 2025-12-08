@@ -1,6 +1,6 @@
 import { BucketInclusionReason, ResolvedBucket } from './BucketDescription.js';
 import { BucketParameterQuerier, mergeBucketParameterQueriers, PendingQueriers } from './BucketParameterQuerier.js';
-import { BucketSource, BucketSourceType, ResultSetDescription } from './BucketSource.js';
+import { BucketDataSource, BucketParameterSource, BucketSourceType, ResultSetDescription } from './BucketSource.js';
 import { ColumnDefinition } from './ExpressionType.js';
 import { IdSequence } from './IdSequence.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
@@ -32,7 +32,7 @@ export interface QueryParseResult {
   errors: SqlRuleError[];
 }
 
-export class SqlBucketDescriptor implements BucketSource {
+export class SqlBucketDescriptor implements BucketDataSource, BucketParameterSource {
   name: string;
   bucketParameters?: string[];
 
