@@ -515,9 +515,9 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
     try {
       await clearTestDb(db);
       await db.query(`CREATE DOMAIN rating_value AS FLOAT CHECK (VALUE BETWEEN 0 AND 5);`);
-      await db.query(`CREATE TYPE composite AS (foo rating_value[], bar TEXT);`);
-      await db.query(`CREATE TYPE nested_composite AS (a BOOLEAN, b composite);`);
       await db.query(`CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy')`);
+      await db.query(`CREATE TYPE composite AS (foo rating_value[], bar TEXT, mood mood);`);
+      await db.query(`CREATE TYPE nested_composite AS (a BOOLEAN, b composite);`);
 
       await db.query(`CREATE TABLE test_custom(
         id serial primary key,
@@ -525,7 +525,8 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
         composite composite,
         nested_composite nested_composite,
         boxes box[],
-        mood mood
+        mood mood,
+        moods mood[]
       );`);
 
       const slotName = 'test_slot';
@@ -542,13 +543,14 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
 
       await db.query(`
         INSERT INTO test_custom
-          (rating, composite, nested_composite, boxes, mood)
+          (rating, composite, nested_composite, boxes, mood, moods)
         VALUES (
           1,
-          (ARRAY[2,3], 'bar'),
-          (TRUE, (ARRAY[2,3], 'bar')),
+          (ARRAY[2,3], 'bar', 'sad'::mood),
+          (TRUE, (ARRAY[2,3], 'bar', 'sad'::mood)),
           ARRAY[box(point '(1,2)', point '(3,4)'), box(point '(5, 6)', point '(7,8)')],
-          'happy'
+          'happy',
+          ARRAY['sad'::mood, 'happy'::mood]
         );
       `);
 
@@ -562,27 +564,53 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
       });
 
       const [transformed] = await getReplicationTx(db, replicationStream);
+      const [queried] = await queryAll(db, `SELECT * FROM test_custom`);
       await pg.end();
 
-      const oldFormat = applyRowContext(transformed, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
-      expect(oldFormat).toMatchObject({
+      const oldFormatStreamed = applyRowContext(transformed, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+      expect(oldFormatStreamed).toMatchObject({
         rating: '1',
-        composite: '("{2,3}",bar)',
-        nested_composite: '(t,"(""{2,3}"",bar)")',
+        composite: '("{2,3}",bar,sad)',
+        nested_composite: '(t,"(""{2,3}"",bar,sad)")',
         boxes: '["(3","4)","(1","2);(7","8)","(5","6)"]',
-        mood: 'happy'
+        mood: 'happy',
+        moods: '{sad,happy}'
       });
 
-      const newFormat = applyRowContext(
+      const oldFormatQueried = applyRowContext(queried, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+      expect(oldFormatQueried).toMatchObject({
+        rating: '1',
+        composite: '("{2,3}",bar,sad)',
+        nested_composite: '(t,"(""{2,3}"",bar,sad)")',
+        boxes: '["(3","4)","(1","2);(7","8)","(5","6)"]',
+        mood: 'happy',
+        moods: '{sad,happy}'
+      });
+
+      const newFormatStreamed = applyRowContext(
         transformed,
         new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS })
       );
-      expect(newFormat).toMatchObject({
+      expect(newFormatStreamed).toMatchObject({
         rating: 1,
-        composite: '{"foo":[2.0,3.0],"bar":"bar"}',
-        nested_composite: '{"a":1,"b":{"foo":[2.0,3.0],"bar":"bar"}}',
+        composite: '{"foo":[2.0,3.0],"bar":"bar","mood":"sad"}',
+        nested_composite: '{"a":1,"b":{"foo":[2.0,3.0],"bar":"bar","mood":"sad"}}',
         boxes: JSON.stringify(['(3,4),(1,2)', '(7,8),(5,6)']),
-        mood: 'happy'
+        mood: 'happy',
+        moods: '["sad","happy"]'
+      });
+
+      const newFormatQueried = applyRowContext(
+        queried,
+        new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS })
+      );
+      expect(newFormatQueried).toMatchObject({
+        rating: 1,
+        composite: '{"foo":[2.0,3.0],"bar":"bar","mood":"sad"}',
+        nested_composite: '{"a":1,"b":{"foo":[2.0,3.0],"bar":"bar","mood":"sad"}}',
+        boxes: JSON.stringify(['(3,4),(1,2)', '(7,8),(5,6)']),
+        mood: 'happy',
+        moods: '["sad","happy"]'
       });
     } finally {
       await db.end();
@@ -635,18 +663,36 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
       });
 
       const [transformed] = await getReplicationTx(db, replicationStream);
+      const [queried] = await queryAll(db, `SELECT ranges FROM test_custom`);
       await pg.end();
 
-      const oldFormat = applyRowContext(transformed, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
-      expect(oldFormat).toMatchObject({
+      const oldFormatStreamed = applyRowContext(transformed, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+      expect(oldFormatStreamed).toMatchObject({
+        ranges: '{"{[2,4),[6,8)}"}'
+      });
+      const oldFormatQueried = applyRowContext(queried, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+      expect(oldFormatQueried).toMatchObject({
         ranges: '{"{[2,4),[6,8)}"}'
       });
 
-      const newFormat = applyRowContext(
+      const newFormatStreamed = applyRowContext(
         transformed,
         new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS })
       );
-      expect(newFormat).toMatchObject({
+      expect(newFormatStreamed).toMatchObject({
+        ranges: JSON.stringify([
+          [
+            { lower: 2, upper: 4, lower_exclusive: 0, upper_exclusive: 1 },
+            { lower: 6, upper: 8, lower_exclusive: 0, upper_exclusive: 1 }
+          ]
+        ])
+      });
+
+      const newFormatQueried = applyRowContext(
+        queried,
+        new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS })
+      );
+      expect(newFormatQueried).toMatchObject({
         ranges: JSON.stringify([
           [
             { lower: 2, upper: 4, lower_exclusive: 0, upper_exclusive: 1 },
@@ -678,4 +724,15 @@ async function getReplicationTx(db: pgwire.PgClient, replicationStream: pgwire.R
     }
   }
   return transformed;
+}
+
+/**
+ * Simulates what WalStream does for initial snapshots.
+ */
+async function queryAll(db: pgwire.PgClient, sql: string) {
+  const raw = await db.query(sql);
+  const typeCache = new PostgresTypeResolver(db);
+  await typeCache.fetchTypesForSchema();
+  const columns = Object.fromEntries(raw.columns.map((col) => [col.name, col.typeOid]));
+  return [...WalStream.getQueryData(pgwire.pgwireRows(raw))].map((row) => typeCache.constructRowRecord(columns, row));
 }
