@@ -1,5 +1,13 @@
 # @powersync/service-module-core
 
+## 0.2.15
+
+### Patch Changes
+
+- @powersync/lib-services-framework@0.7.13
+- @powersync/service-core@1.18.1
+- @powersync/service-rsocket-router@0.2.10
+
 ## 0.2.14
 
 ### Patch Changes
