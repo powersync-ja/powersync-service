@@ -571,17 +571,8 @@ export class PostgresBucketBatch
       }
     });
     return tables.map((table) => {
-      const copy = new storage.SourceTable({
-        id: table.id,
-        connectionTag: table.connectionTag,
-        objectId: table.objectId,
-        schema: table.schema,
-        name: table.name,
-        replicaIdColumns: table.replicaIdColumns,
-        snapshotComplete: table.snapshotComplete
-      });
-      copy.syncData = table.syncData;
-      copy.syncParameters = table.syncParameters;
+      const copy = table.clone();
+      copy.snapshotComplete = true;
       return copy;
     });
   }
