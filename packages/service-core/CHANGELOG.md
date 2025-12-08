@@ -1,5 +1,21 @@
 # @powersync/service-core
 
+## 1.18.0
+
+### Minor Changes
+
+- b77bb2c: - First iteration of MSSQL replication using Change Data Capture (CDC).
+  - Supports resumable snapshot replication
+  - Uses CDC polling for replication
+
+### Patch Changes
+
+- dc696b1: Clear replication errors when any replication progress has been made.
+- Updated dependencies [dc696b1]
+  - @powersync/service-types@0.13.3
+  - @powersync/lib-services-framework@0.7.12
+  - @powersync/service-rsocket-router@0.2.9
+
 ## 1.17.0
 
 ### Minor Changes

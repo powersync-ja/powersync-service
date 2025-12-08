@@ -1,5 +1,18 @@
 # @powersync/service-module-mysql
 
+## 0.9.14
+
+### Patch Changes
+
+- b77bb2c: - First iteration of MSSQL replication using Change Data Capture (CDC).
+  - Supports resumable snapshot replication
+  - Uses CDC polling for replication
+- Updated dependencies [dc696b1]
+- Updated dependencies [b77bb2c]
+  - @powersync/service-core@1.18.0
+  - @powersync/service-types@0.13.3
+  - @powersync/lib-services-framework@0.7.12
+
 ## 0.9.13
 
 ### Patch Changes
