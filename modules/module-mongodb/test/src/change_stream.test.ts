@@ -21,7 +21,9 @@ describe('change stream', () => {
   describeWithStorage({ timeout: 20_000 }, defineChangeStreamTests);
 });
 
-function defineChangeStreamTests(factory: storage.TestStorageFactory) {
+function defineChangeStreamTests(config: storage.TestStorageConfig) {
+  const factory = config.factory;
+
   test('replicating basic values', async () => {
     await using context = await ChangeStreamTestContext.open(factory, {
       mongoOptions: { postImages: PostImagesOption.READ_ONLY }

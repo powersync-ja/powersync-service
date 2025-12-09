@@ -1,5 +1,5 @@
 import { storage } from '@powersync/service-core';
-import { register, TEST_TABLE, test_utils } from '@powersync/service-core-tests';
+import { register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { POSTGRES_STORAGE_FACTORY } from './util.js';
 
@@ -32,11 +32,11 @@ describe('Postgres Sync Bucket Storage - pg-specific', () => {
           - SELECT id, description FROM "%"
     `
     );
-    await using factory = await POSTGRES_STORAGE_FACTORY();
+    await using factory = await POSTGRES_STORAGE_FACTORY.factory();
     const bucketStorage = factory.getInstance(sync_rules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      const sourceTable = TEST_TABLE;
+      const sourceTable = test_utils.makeTestTable('test', ['id'], POSTGRES_STORAGE_FACTORY);
 
       const largeDescription = '0123456789'.repeat(2_000_00);
 

@@ -2,7 +2,7 @@ import { PostgresRouteAPIAdapter } from '@module/api/PostgresRouteAPIAdapter.js'
 import * as types from '@module/types/types.js';
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { logger } from '@powersync/lib-services-framework';
-import { BucketStorageFactory, InternalOpId, TestStorageFactory } from '@powersync/service-core';
+import { BucketStorageFactory, InternalOpId, TestStorageConfig, TestStorageFactory } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
@@ -16,11 +16,11 @@ export const INITIALIZED_MONGO_STORAGE_FACTORY = mongo_storage.test_utils.mongoT
   isCI: env.CI
 });
 
-export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.test_utils.postgresTestStorageFactoryGenerator({
+export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.test_utils.postgresTestSetup({
   url: env.PG_STORAGE_TEST_URL
 });
 
-export function describeWithStorage(options: TestOptions, fn: (factory: TestStorageFactory) => void) {
+export function describeWithStorage(options: TestOptions, fn: (factory: TestStorageConfig) => void) {
   describe.skipIf(!env.TEST_MONGO_STORAGE)(`mongodb storage`, options, function () {
     fn(INITIALIZED_MONGO_STORAGE_FACTORY);
   });

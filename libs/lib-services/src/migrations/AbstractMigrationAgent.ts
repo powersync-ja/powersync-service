@@ -1,11 +1,12 @@
 import { LockManager } from '../locks/LockManager.js';
-import { logger } from '../logger/Logger.js';
+import { logger as defaultLogger, Logger } from '../logger/logger-index.js';
 import * as defs from './migration-definitions.js';
 
 export type MigrationParams<Generics extends MigrationAgentGenerics = MigrationAgentGenerics> = {
   count?: number;
   direction: defs.Direction;
   migrationContext?: Generics['MIGRATION_CONTEXT'];
+  logger?: Logger;
 };
 
 type WriteLogsParams = {
@@ -20,10 +21,12 @@ export type MigrationAgentGenerics = {
 export type RunMigrationParams<Generics extends MigrationAgentGenerics = MigrationAgentGenerics> = MigrationParams & {
   migrations: defs.Migration<Generics['MIGRATION_CONTEXT']>[];
   maxLockWaitMs?: number;
+  logger?: Logger;
 };
 
 type ExecuteParams = RunMigrationParams & {
   state?: defs.MigrationState;
+  logger: Logger;
 };
 
 export const DEFAULT_MAX_LOCK_WAIT_MS = 3 * 60 * 1000; // 3 minutes
@@ -46,9 +49,11 @@ export abstract class AbstractMigrationAgent<Generics extends MigrationAgentGene
   async run(params: RunMigrationParams) {
     await this.init();
 
+    const logger = params.logger ?? defaultLogger;
+
     const { direction, migrations, migrationContext } = params;
     // Only one process should execute this at a time.
-    logger.info('Acquiring lock for migrations');
+    logger.debug('Acquiring lock for migrations');
     const lockHandle = await this.locks.acquire({ max_wait_ms: params.maxLockWaitMs ?? DEFAULT_MAX_LOCK_WAIT_MS });
 
     if (!lockHandle) {
@@ -75,7 +80,8 @@ export abstract class AbstractMigrationAgent<Generics extends MigrationAgentGene
         direction,
         migrations,
         state,
-        migrationContext
+        migrationContext,
+        logger
       });
 
       await this.writeLogsToStore({
@@ -83,14 +89,15 @@ export abstract class AbstractMigrationAgent<Generics extends MigrationAgentGene
         state
       });
     } finally {
-      logger.info('Releasing migration lock');
+      logger.debug('Releasing migration lock');
       await releaseLock();
       process.removeListener('beforeExit', releaseLock);
-      logger.info('Done with migrations');
+      logger.debug('Done with migrations');
     }
   }
 
   protected async *execute(params: ExecuteParams): AsyncGenerator<defs.ExecutedMigration> {
+    const logger = params.logger;
     const internalMigrations = await this.loadInternalMigrations();
     let migrations = [...internalMigrations, ...params.migrations];
 

@@ -7,7 +7,6 @@ import {
   utils
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { BucketSourceType, RequestParameters } from '@powersync/service-sync-rules';
 import path from 'path';
 import * as timers from 'timers/promises';
 import { fileURLToPath } from 'url';
@@ -17,8 +16,6 @@ import { METRICS_HELPER } from '../test-utils/test-utils-index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-const TEST_TABLE = test_utils.makeTestTable('test', ['id']);
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -37,7 +34,9 @@ export const SYNC_SNAPSHOT_PATH = path.resolve(__dirname, '../__snapshots/sync.t
  * });
  * ```
  */
-export function registerSyncTests(factory: storage.TestStorageFactory) {
+export function registerSyncTests(config: storage.TestStorageConfig) {
+  const factory = config.factory;
+
   createCoreAPIMetrics(METRICS_HELPER.metricsEngine);
   const tracker = new sync.RequestTracker(METRICS_HELPER.metricsEngine);
   const syncContext = new sync.SyncContext({
@@ -45,6 +44,8 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
     maxParameterQueryResults: 10,
     maxDataFetchConcurrency: 2
   });
+
+  const TEST_TABLE = test_utils.makeTestTable('test', ['id'], config);
 
   test('sync global data', async () => {
     await using f = await factory();
@@ -55,7 +56,9 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
 
     const bucketStorage = f.getInstance(syncRules);
 
-    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
+
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -119,7 +122,8 @@ bucket_definitions:
 
     const bucketStorage = f.getInstance(syncRules);
 
-    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -184,6 +188,7 @@ bucket_definitions:
     const bucketStorage = f.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       // Initial data: Add one priority row and 10k low-priority rows.
       await batch.save({
         sourceTable: TEST_TABLE,
@@ -297,6 +302,7 @@ bucket_definitions:
     const bucketStorage = f.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       // Initial data: Add one priority row and 10k low-priority rows.
       await batch.save({
         sourceTable: TEST_TABLE,
@@ -441,6 +447,7 @@ bucket_definitions:
     const bucketStorage = f.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       // Initial data: Add one priority row and 10k low-priority rows.
       await batch.save({
         sourceTable: TEST_TABLE,
@@ -573,6 +580,7 @@ bucket_definitions:
     const bucketStorage = f.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -640,6 +648,7 @@ bucket_definitions:
     const bucketStorage = await f.getInstance(syncRules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -717,6 +726,7 @@ bucket_definitions:
     const bucketStorage = await f.getInstance(syncRules);
     // Activate
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/0');
       await batch.keepalive('0/0');
     });
 
@@ -788,12 +798,13 @@ bucket_definitions:
 `
     });
 
-    const usersTable = test_utils.makeTestTable('users', ['id']);
-    const listsTable = test_utils.makeTestTable('lists', ['id']);
+    const usersTable = test_utils.makeTestTable('users', ['id'], config);
+    const listsTable = test_utils.makeTestTable('lists', ['id'], config);
 
     const bucketStorage = await f.getInstance(syncRules);
     // Activate
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/0');
       await batch.keepalive('0/0');
     });
 
@@ -857,12 +868,13 @@ bucket_definitions:
 `
     });
 
-    const usersTable = test_utils.makeTestTable('users', ['id']);
-    const listsTable = test_utils.makeTestTable('lists', ['id']);
+    const usersTable = test_utils.makeTestTable('users', ['id'], config);
+    const listsTable = test_utils.makeTestTable('lists', ['id'], config);
 
     const bucketStorage = await f.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       await batch.save({
         sourceTable: usersTable,
         tag: storage.SaveOperationTag.INSERT,
@@ -937,12 +949,13 @@ bucket_definitions:
 `
     });
 
-    const usersTable = test_utils.makeTestTable('users', ['id']);
-    const listsTable = test_utils.makeTestTable('lists', ['id']);
+    const usersTable = test_utils.makeTestTable('users', ['id'], config);
+    const listsTable = test_utils.makeTestTable('lists', ['id'], config);
 
     const bucketStorage = await f.getInstance(syncRules);
     // Activate
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/0');
       await batch.keepalive('0/0');
     });
 
@@ -971,6 +984,7 @@ bucket_definitions:
     expect(await getCheckpointLines(iter)).toMatchSnapshot();
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       await batch.save({
         sourceTable: listsTable,
         tag: storage.SaveOperationTag.INSERT,
@@ -1012,6 +1026,7 @@ bucket_definitions:
     const bucketStorage = await f.getInstance(syncRules);
     // Activate
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/0');
       await batch.keepalive('0/0');
     });
 
@@ -1060,6 +1075,7 @@ bucket_definitions:
     const bucketStorage = await f.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -1118,6 +1134,7 @@ bucket_definitions:
     // This invalidates the checkpoint we've received above.
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.UPDATE,
@@ -1205,6 +1222,7 @@ bucket_definitions:
     const bucketStorage = f.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       // <= the managed write checkpoint LSN below
       await batch.commit('0/1');
     });
@@ -1243,6 +1261,7 @@ bucket_definitions:
     });
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       // must be >= the managed write checkpoint LSN
       await batch.commit('1/0');
     });
@@ -1278,6 +1297,7 @@ config:
       const bucketStorage = f.getInstance(syncRules);
 
       await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+        await batch.markAllSnapshotDone('0/1');
         await batch.save({
           sourceTable: TEST_TABLE,
           tag: storage.SaveOperationTag.INSERT,
