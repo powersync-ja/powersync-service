@@ -5,6 +5,7 @@ import { checkUnsupportedFeatures, isClauseError, isParameterValueClause, sqlite
 import { generateTableValuedFunctions, TableValuedFunction } from './TableValuedFunctions.js';
 import {
   BucketIdTransformer,
+  EvaluatedParametersResult,
   ParameterValueClause,
   ParameterValueSet,
   QueryParseOptions,
@@ -13,8 +14,17 @@ import {
   SqliteRow
 } from './types.js';
 import { getBucketId, isJsonValue } from './utils.js';
-import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY } from './BucketDescription.js';
+import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY, ResolvedBucket } from './BucketDescription.js';
 import { DetectRequestParameters } from './validators.js';
+import { TablePattern } from './TablePattern.js';
+import {
+  BucketParameterSource,
+  BucketParameterSourceDefinition,
+  BucketSourceType,
+  CreateSourceParams
+} from './BucketSource.js';
+import { SourceTableInterface } from './SourceTableInterface.js';
+import { BucketParameterQuerier, GetQuerierOptions, mergeBucketParameterQueriers, PendingQueriers } from './index.js';
 
 export interface TableValuedFunctionSqlParameterQueryOptions {
   sql: string;
@@ -41,7 +51,7 @@ export interface TableValuedFunctionSqlParameterQueryOptions {
  *
  * This can currently not be combined with parameter table queries or multiple table-valued functions.
  */
-export class TableValuedFunctionSqlParameterQuery {
+export class TableValuedFunctionSqlParameterQuery implements BucketParameterSourceDefinition {
   static fromSql(
     descriptorName: string,
     sql: string,
@@ -191,6 +201,9 @@ export class TableValuedFunctionSqlParameterQuery {
 
   readonly errors: SqlRuleError[];
 
+  readonly subscribedToByDefault = true;
+  readonly type = BucketSourceType.SYNC_RULE;
+
   constructor(options: TableValuedFunctionSqlParameterQueryOptions) {
     this.sql = options.sql;
     this.parameterExtractors = options.parameterExtractors;
@@ -205,6 +218,62 @@ export class TableValuedFunctionSqlParameterQuery {
     this.callTable = options.callTable;
 
     this.errors = options.errors;
+  }
+
+  get name() {
+    return this.descriptorName;
+  }
+
+  getSourceTables() {
+    return new Set<TablePattern>();
+  }
+
+  tableSyncsParameters(_table: SourceTableInterface): boolean {
+    return false;
+  }
+
+  createParameterSource(params: CreateSourceParams): BucketParameterSource {
+    return {
+      definition: this,
+
+      evaluateParameterRow: (sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[] => {
+        return [];
+      },
+
+      pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {
+        const staticBuckets = this.getStaticBucketDescriptions(
+          options.globalParameters,
+          params.bucketIdTransformer
+        ).map((desc) => {
+          return {
+            ...desc,
+            definition: this.name,
+            inclusion_reasons: ['default']
+          } satisfies ResolvedBucket;
+        });
+
+        if (staticBuckets.length == 0) {
+          return;
+        }
+        const staticQuerier = {
+          staticBuckets,
+          hasDynamicBuckets: false,
+          parameterQueryLookups: [],
+          queryDynamicBucketDescriptions: async () => []
+        } satisfies BucketParameterQuerier;
+        result.queriers.push(staticQuerier);
+      },
+
+      /**
+       * @deprecated Use `pushBucketParameterQueriers` instead and merge at the top-level.
+       */
+      getBucketParameterQuerier(options: GetQuerierOptions): BucketParameterQuerier {
+        const queriers: BucketParameterQuerier[] = [];
+        this.pushBucketParameterQueriers({ queriers, errors: [] }, options);
+
+        return mergeBucketParameterQueriers(queriers);
+      }
+    };
   }
 
   getStaticBucketDescriptions(parameters: RequestParameters, transformer: BucketIdTransformer): BucketDescription[] {

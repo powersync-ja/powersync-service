@@ -1,17 +1,29 @@
 import { SelectedColumn, SelectFromStatement } from 'pgsql-ast-parser';
-import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY } from './BucketDescription.js';
+import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY, ResolvedBucket } from './BucketDescription.js';
 import { SqlRuleError } from './errors.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, isParameterValueClause, sqliteBool } from './sql_support.js';
 import {
   BucketIdTransformer,
+  EvaluatedParametersResult,
   ParameterValueClause,
   QueryParseOptions,
   RequestParameters,
-  SqliteJsonValue
+  SqliteJsonValue,
+  SqliteRow
 } from './types.js';
 import { getBucketId, isJsonValue } from './utils.js';
 import { DetectRequestParameters } from './validators.js';
+import {
+  BucketParameterSource,
+  BucketParameterSourceDefinition,
+  BucketSourceType,
+  CreateSourceParams
+} from './BucketSource.js';
+import { SourceTableInterface } from './SourceTableInterface.js';
+import { TablePattern } from './TablePattern.js';
+import { BucketParameterQuerier, mergeBucketParameterQueriers, PendingQueriers } from './BucketParameterQuerier.js';
+import { GetQuerierOptions } from './index.js';
 
 export interface StaticSqlParameterQueryOptions {
   sql: string;
@@ -30,7 +42,7 @@ export interface StaticSqlParameterQueryOptions {
  *    SELECT token_parameters.user_id
  *    SELECT token_parameters.user_id as user_id WHERE token_parameters.is_admin
  */
-export class StaticSqlParameterQuery {
+export class StaticSqlParameterQuery implements BucketParameterSourceDefinition {
   static fromSql(
     descriptorName: string,
     sql: string,
@@ -148,6 +160,9 @@ export class StaticSqlParameterQuery {
    */
   readonly filter: ParameterValueClause | undefined;
 
+  readonly subscribedToByDefault = true;
+  readonly type = BucketSourceType.SYNC_RULE;
+
   readonly errors: SqlRuleError[];
 
   constructor(options: StaticSqlParameterQueryOptions) {
@@ -159,6 +174,62 @@ export class StaticSqlParameterQuery {
     this.queryId = options.queryId;
     this.filter = options.filter;
     this.errors = options.errors ?? [];
+  }
+
+  get name() {
+    return this.descriptorName;
+  }
+
+  getSourceTables() {
+    return new Set<TablePattern>();
+  }
+
+  tableSyncsParameters(_table: SourceTableInterface): boolean {
+    return false;
+  }
+
+  createParameterSource(params: CreateSourceParams): BucketParameterSource {
+    return {
+      definition: this,
+
+      evaluateParameterRow: (sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[] => {
+        return [];
+      },
+
+      pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {
+        const staticBuckets = this.getStaticBucketDescriptions(
+          options.globalParameters,
+          params.bucketIdTransformer
+        ).map((desc) => {
+          return {
+            ...desc,
+            definition: this.name,
+            inclusion_reasons: ['default']
+          } satisfies ResolvedBucket;
+        });
+
+        if (staticBuckets.length == 0) {
+          return;
+        }
+        const staticQuerier = {
+          staticBuckets,
+          hasDynamicBuckets: false,
+          parameterQueryLookups: [],
+          queryDynamicBucketDescriptions: async () => []
+        } satisfies BucketParameterQuerier;
+        result.queriers.push(staticQuerier);
+      },
+
+      /**
+       * @deprecated Use `pushBucketParameterQueriers` instead and merge at the top-level.
+       */
+      getBucketParameterQuerier(options: GetQuerierOptions): BucketParameterQuerier {
+        const queriers: BucketParameterQuerier[] = [];
+        this.pushBucketParameterQueriers({ queriers, errors: [] }, options);
+
+        return mergeBucketParameterQueriers(queriers);
+      }
+    };
   }
 
   getStaticBucketDescriptions(parameters: RequestParameters, transformer: BucketIdTransformer): BucketDescription[] {

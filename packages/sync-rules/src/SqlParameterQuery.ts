@@ -5,7 +5,13 @@ import {
   BucketPriority,
   DEFAULT_BUCKET_PRIORITY
 } from './BucketDescription.js';
-import { BucketParameterQuerier, ParameterLookup, ParameterLookupSource } from './BucketParameterQuerier.js';
+import {
+  BucketParameterQuerier,
+  mergeBucketParameterQueriers,
+  ParameterLookup,
+  ParameterLookupSource,
+  PendingQueriers
+} from './BucketParameterQuerier.js';
 import { SqlRuleError } from './errors.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
@@ -31,6 +37,13 @@ import {
 } from './types.js';
 import { filterJsonRow, getBucketId, isJsonValue, isSelectStatement, normalizeParameterValue } from './utils.js';
 import { DetectRequestParameters } from './validators.js';
+import {
+  BucketParameterSource,
+  BucketParameterSourceDefinition,
+  BucketSourceType,
+  CreateSourceParams
+} from './BucketSource.js';
+import { GetQuerierOptions } from './index.js';
 
 export interface SqlParameterQueryOptions {
   sourceTable: TablePattern;
@@ -55,7 +68,7 @@ export interface SqlParameterQueryOptions {
  *  SELECT id as user_id FROM users WHERE users.user_id = token_parameters.user_id
  *  SELECT id as user_id, token_parameters.is_admin as is_admin FROM users WHERE users.user_id = token_parameters.user_id
  */
-export class SqlParameterQuery {
+export class SqlParameterQuery implements BucketParameterSourceDefinition {
   static fromSql(
     descriptorName: string,
     sql: string,
@@ -282,6 +295,10 @@ export class SqlParameterQuery {
   readonly queryId: string;
   readonly tools: SqlTools;
 
+  readonly type: BucketSourceType = BucketSourceType.SYNC_RULE;
+
+  readonly subscribedToByDefault: boolean = true;
+
   readonly errors: SqlRuleError[];
 
   constructor(options: SqlParameterQueryOptions) {
@@ -301,8 +318,44 @@ export class SqlParameterQuery {
     this.errors = options.errors ?? [];
   }
 
-  applies(table: SourceTableInterface) {
+  tableSyncsParameters(table: SourceTableInterface): boolean {
     return this.sourceTable.matches(table);
+  }
+
+  get name(): string {
+    return this.descriptorName;
+  }
+
+  getSourceTables(): Set<TablePattern> {
+    return new Set([this.sourceTable]);
+  }
+
+  createParameterSource(params: CreateSourceParams): BucketParameterSource {
+    return {
+      definition: this,
+
+      evaluateParameterRow: (sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[] => {
+        if (this.tableSyncsParameters(sourceTable)) {
+          return this.evaluateParameterRow(row);
+        } else {
+          return [];
+        }
+      },
+      pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {
+        const q = this.getBucketParameterQuerier(options.globalParameters, ['default'], params.bucketIdTransformer);
+        result.queriers.push(q);
+      },
+
+      /**
+       * @deprecated Use `pushBucketParameterQueriers` instead and merge at the top-level.
+       */
+      getBucketParameterQuerier(options: GetQuerierOptions): BucketParameterQuerier {
+        const queriers: BucketParameterQuerier[] = [];
+        this.pushBucketParameterQueriers({ queriers, errors: [] }, options);
+
+        return mergeBucketParameterQueriers(queriers);
+      }
+    };
   }
 
   /**

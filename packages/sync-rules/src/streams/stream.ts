@@ -159,10 +159,6 @@ export class SyncStream implements BucketDataSourceDefinition, BucketParameterSo
     }
   }
 
-  hasDynamicBucketQueries(): boolean {
-    return this.variants.some((v) => v.hasDynamicBucketQueries);
-  }
-
   tableSyncsData(table: SourceTableInterface): boolean {
     return this.data.applies(table);
   }

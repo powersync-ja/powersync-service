@@ -48,24 +48,18 @@ export interface BucketParameterSourceDefinition {
   readonly name: string;
   readonly type: BucketSourceType;
   readonly subscribedToByDefault: boolean;
+  /**
+   * For debug use only.
+   */
+  readonly bucketParameters: string[];
 
   getSourceTables(): Set<TablePattern>;
   createParameterSource(params: CreateSourceParams): BucketParameterSource;
-
-  /**
-   * Whether {@link pushBucketParameterQueriers} may include a querier where
-   * {@link BucketParameterQuerier.hasDynamicBuckets} is true.
-   *
-   * This is mostly used for testing.
-   */
-  hasDynamicBucketQueries(): boolean;
 
   getSourceTables(): Set<TablePattern>;
 
   /** Whether the table possibly affects the buckets resolved by this source. */
   tableSyncsParameters(table: SourceTableInterface): boolean;
-
-  debugRepresentation(): any;
 }
 
 /**

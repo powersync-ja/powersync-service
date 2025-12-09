@@ -114,10 +114,6 @@ export class StreamVariant {
     return [...cartesianProduct(...instantiations)];
   }
 
-  get hasDynamicBucketQueries(): boolean {
-    return this.requestFilters.some((f) => f.type == 'dynamic');
-  }
-
   querier(
     stream: SyncStream,
     reason: BucketInclusionReason,

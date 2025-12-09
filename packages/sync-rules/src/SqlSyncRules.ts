@@ -232,7 +232,7 @@ export class SqlSyncRules {
         });
       }
       rules.bucketDataSources.push(descriptor);
-      rules.bucketParameterSources.push(descriptor);
+      rules.bucketParameterSources.push(...descriptor.getParameterSourceDefinitions());
     }
 
     for (const entry of streamMap?.items ?? []) {
@@ -398,10 +398,6 @@ export class SqlSyncRules {
     source: SqliteRow<SqliteInputValue | MaybeToast>
   ): SqliteRow<SqliteValue | MaybeToast> {
     return applyRowContext(source, this.compatibility);
-  }
-
-  hasDynamicBucketQueries() {
-    return this.bucketParameterSources.some((s) => s.hasDynamicBucketQueries());
   }
 
   getSourceTables(): TablePattern[] {
