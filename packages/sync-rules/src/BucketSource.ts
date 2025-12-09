@@ -44,7 +44,32 @@ export interface BucketDataSourceDefinition {
   debugRepresentation(): any;
 }
 
-export interface BucketParameterSourceDefinition {
+/**
+ * A parameter lookup source defines how to extract parameter lookup values from parameter queries.
+ *
+ * This is only relevant for parameter queries that query tables.
+ */
+export interface BucketParameterLookupSourceDefinition {
+  readonly name: string;
+  readonly type: BucketSourceType;
+  /**
+   * For debug use only.
+   */
+  readonly bucketParameters: string[];
+
+  getSourceTables(): Set<TablePattern>;
+  createParameterLookupSource(params: CreateSourceParams): BucketParameterLookupSource;
+
+  /** Whether the table possibly affects the buckets resolved by this source. */
+  tableSyncsParameters(table: SourceTableInterface): boolean;
+}
+
+/**
+ * Parameter querier source definitions define how to bucket parameter queries are evaluated.
+ *
+ * This may use request data only, or it may use parameter lookup data persisted by a BucketParameterLookupSourceDefinition.
+ */
+export interface BucketParameterQuerierSourceDefinition {
   readonly name: string;
   readonly type: BucketSourceType;
   readonly subscribedToByDefault: boolean;
@@ -53,11 +78,7 @@ export interface BucketParameterSourceDefinition {
    */
   readonly bucketParameters: string[];
 
-  getSourceTables(): Set<TablePattern>;
-  createParameterSource(params: CreateSourceParams): BucketParameterSource;
-
-  /** Whether the table possibly affects the buckets resolved by this source. */
-  tableSyncsParameters(table: SourceTableInterface): boolean;
+  createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource;
 }
 
 /**
@@ -80,18 +101,8 @@ export interface BucketDataSource {
   evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
 }
 
-/**
- * An interface declaring
- *
- *  - which buckets the sync service should create when processing change streams from the database.
- *  - how data in source tables maps to data in buckets (e.g. when we're not selecting all columns).
- *  - which buckets a given connection has access to.
- *
- * There are two ways to define bucket sources: Via sync rules made up of parameter and data queries, and via stream
- * definitions that only consist of a single query.
- */
-export interface BucketParameterSource {
-  readonly definition: BucketParameterSourceDefinition;
+export interface BucketParameterLookupSource {
+  readonly definition: BucketParameterLookupSourceDefinition;
   /**
    * Given a row in a source table that affects sync parameters, returns a structure to index which buckets rows should
    * be associated with.
@@ -100,6 +111,10 @@ export interface BucketParameterSource {
    * system to find buckets.
    */
   evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[];
+}
+
+export interface BucketParameterQuerierSource {
+  readonly definition: BucketParameterQuerierSourceDefinition;
 
   /**
    * Reports {@link BucketParameterQuerier}s resolving buckets that a specific stream request should have access to.

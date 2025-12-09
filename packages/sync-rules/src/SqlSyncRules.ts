@@ -1,7 +1,11 @@
 import { isScalar, LineCounter, parseDocument, Scalar, YAMLMap, YAMLSeq } from 'yaml';
 import { isValidPriority } from './BucketDescription.js';
 import { BucketParameterQuerier, QuerierError } from './BucketParameterQuerier.js';
-import { BucketDataSourceDefinition, BucketParameterSourceDefinition } from './BucketSource.js';
+import {
+  BucketDataSourceDefinition,
+  BucketParameterLookupSourceDefinition,
+  BucketParameterQuerierSourceDefinition
+} from './BucketSource.js';
 import { CompatibilityContext, CompatibilityEdition, CompatibilityOption } from './compatibility.js';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
@@ -79,7 +83,8 @@ export interface GetBucketParameterQuerierResult {
 
 export class SqlSyncRules {
   bucketDataSources: BucketDataSourceDefinition[] = [];
-  bucketParameterSources: BucketParameterSourceDefinition[] = [];
+  bucketParameterLookupSources: BucketParameterLookupSourceDefinition[] = [];
+  bucketParameterQuerierSources: BucketParameterQuerierSourceDefinition[] = [];
 
   eventDescriptors: SqlEventDescriptor[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
@@ -232,7 +237,8 @@ export class SqlSyncRules {
         });
       }
       rules.bucketDataSources.push(descriptor);
-      rules.bucketParameterSources.push(...descriptor.getParameterSourceDefinitions());
+      rules.bucketParameterLookupSources.push(...descriptor.getParameterLookupSourceDefinitions());
+      rules.bucketParameterQuerierSources.push(...descriptor.getParameterQuerierSourceDefinitions());
     }
 
     for (const entry of streamMap?.items ?? []) {
@@ -258,7 +264,8 @@ export class SqlSyncRules {
         rules.withScalar(data, (q) => {
           const [parsed, errors] = syncStreamFromSql(key, q, queryOptions);
           rules.bucketDataSources.push(parsed);
-          rules.bucketParameterSources.push(parsed);
+          rules.bucketParameterLookupSources.push(parsed);
+          rules.bucketParameterQuerierSources.push(parsed);
           return {
             parsed: true,
             errors
@@ -388,7 +395,12 @@ export class SqlSyncRules {
     return new HydratedSyncRules({
       definition: this,
       bucketDataSources: this.bucketDataSources.map((d) => d.createDataSource({ bucketIdTransformer })),
-      bucketParameterSources: this.bucketParameterSources.map((d) => d.createParameterSource({ bucketIdTransformer })),
+      bucketParameterQuerierSources: this.bucketParameterQuerierSources.map((d) =>
+        d.createParameterQuerierSource({ bucketIdTransformer })
+      ),
+      bucketParameterLookupSources: this.bucketParameterLookupSources.map((d) =>
+        d.createParameterLookupSource({ bucketIdTransformer })
+      ),
       eventDescriptors: this.eventDescriptors,
       compatibility: this.compatibility
     });
@@ -408,7 +420,7 @@ export class SqlSyncRules {
         sourceTables.set(key, r);
       }
     }
-    for (const bucket of this.bucketParameterSources) {
+    for (const bucket of this.bucketParameterLookupSources) {
       for (const r of bucket.getSourceTables()) {
         const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
         sourceTables.set(key, r);
@@ -446,7 +458,7 @@ export class SqlSyncRules {
   }
 
   tableSyncsParameters(table: SourceTableInterface): boolean {
-    return this.bucketParameterSources.some((b) => b.tableSyncsParameters(table));
+    return this.bucketParameterLookupSources.some((b) => b.tableSyncsParameters(table));
   }
 
   debugGetOutputTables() {

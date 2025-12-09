@@ -15,8 +15,9 @@ import {
 import { getBucketId, isJsonValue } from './utils.js';
 import { DetectRequestParameters } from './validators.js';
 import {
-  BucketParameterSource,
-  BucketParameterSourceDefinition,
+  BucketParameterLookupSource,
+  BucketParameterQuerierSource,
+  BucketParameterQuerierSourceDefinition,
   BucketSourceType,
   CreateSourceParams
 } from './BucketSource.js';
@@ -42,7 +43,7 @@ export interface StaticSqlParameterQueryOptions {
  *    SELECT token_parameters.user_id
  *    SELECT token_parameters.user_id as user_id WHERE token_parameters.is_admin
  */
-export class StaticSqlParameterQuery implements BucketParameterSourceDefinition {
+export class StaticSqlParameterQuery implements BucketParameterQuerierSourceDefinition {
   static fromSql(
     descriptorName: string,
     sql: string,
@@ -188,13 +189,9 @@ export class StaticSqlParameterQuery implements BucketParameterSourceDefinition 
     return false;
   }
 
-  createParameterSource(params: CreateSourceParams): BucketParameterSource {
+  createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
     return {
       definition: this,
-
-      evaluateParameterRow: (sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[] => {
-        return [];
-      },
 
       pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {
         const staticBuckets = this.getStaticBucketDescriptions(

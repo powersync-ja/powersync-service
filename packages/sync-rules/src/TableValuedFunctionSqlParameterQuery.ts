@@ -1,11 +1,20 @@
 import { FromCall, SelectFromStatement } from 'pgsql-ast-parser';
+import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY, ResolvedBucket } from './BucketDescription.js';
+import {
+  BucketParameterQuerierSource,
+  BucketParameterQuerierSourceDefinition,
+  BucketSourceType,
+  CreateSourceParams
+} from './BucketSource.js';
 import { SqlRuleError } from './errors.js';
+import { BucketParameterQuerier, GetQuerierOptions, PendingQueriers } from './index.js';
+import { SourceTableInterface } from './SourceTableInterface.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
-import { checkUnsupportedFeatures, isClauseError, isParameterValueClause, sqliteBool } from './sql_support.js';
+import { checkUnsupportedFeatures, isClauseError, sqliteBool } from './sql_support.js';
+import { TablePattern } from './TablePattern.js';
 import { generateTableValuedFunctions, TableValuedFunction } from './TableValuedFunctions.js';
 import {
   BucketIdTransformer,
-  EvaluatedParametersResult,
   ParameterValueClause,
   ParameterValueSet,
   QueryParseOptions,
@@ -14,17 +23,7 @@ import {
   SqliteRow
 } from './types.js';
 import { getBucketId, isJsonValue } from './utils.js';
-import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY, ResolvedBucket } from './BucketDescription.js';
 import { DetectRequestParameters } from './validators.js';
-import { TablePattern } from './TablePattern.js';
-import {
-  BucketParameterSource,
-  BucketParameterSourceDefinition,
-  BucketSourceType,
-  CreateSourceParams
-} from './BucketSource.js';
-import { SourceTableInterface } from './SourceTableInterface.js';
-import { BucketParameterQuerier, GetQuerierOptions, mergeBucketParameterQueriers, PendingQueriers } from './index.js';
 
 export interface TableValuedFunctionSqlParameterQueryOptions {
   sql: string;
@@ -51,7 +50,7 @@ export interface TableValuedFunctionSqlParameterQueryOptions {
  *
  * This can currently not be combined with parameter table queries or multiple table-valued functions.
  */
-export class TableValuedFunctionSqlParameterQuery implements BucketParameterSourceDefinition {
+export class TableValuedFunctionSqlParameterQuery implements BucketParameterQuerierSourceDefinition {
   static fromSql(
     descriptorName: string,
     sql: string,
@@ -232,13 +231,9 @@ export class TableValuedFunctionSqlParameterQuery implements BucketParameterSour
     return false;
   }
 
-  createParameterSource(params: CreateSourceParams): BucketParameterSource {
+  createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
     return {
       definition: this,
-
-      evaluateParameterRow: (sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[] => {
-        return [];
-      },
 
       pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {
         const staticBuckets = this.getStaticBucketDescriptions(

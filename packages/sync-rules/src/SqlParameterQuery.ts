@@ -38,8 +38,10 @@ import {
 import { filterJsonRow, getBucketId, isJsonValue, isSelectStatement, normalizeParameterValue } from './utils.js';
 import { DetectRequestParameters } from './validators.js';
 import {
-  BucketParameterSource,
-  BucketParameterSourceDefinition,
+  BucketParameterLookupSource,
+  BucketParameterLookupSourceDefinition,
+  BucketParameterQuerierSource,
+  BucketParameterQuerierSourceDefinition,
   BucketSourceType,
   CreateSourceParams
 } from './BucketSource.js';
@@ -68,7 +70,9 @@ export interface SqlParameterQueryOptions {
  *  SELECT id as user_id FROM users WHERE users.user_id = token_parameters.user_id
  *  SELECT id as user_id, token_parameters.is_admin as is_admin FROM users WHERE users.user_id = token_parameters.user_id
  */
-export class SqlParameterQuery implements BucketParameterSourceDefinition {
+export class SqlParameterQuery
+  implements BucketParameterLookupSourceDefinition, BucketParameterQuerierSourceDefinition
+{
   static fromSql(
     descriptorName: string,
     sql: string,
@@ -330,7 +334,18 @@ export class SqlParameterQuery implements BucketParameterSourceDefinition {
     return new Set([this.sourceTable]);
   }
 
-  createParameterSource(params: CreateSourceParams): BucketParameterSource {
+  createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
+    return {
+      definition: this,
+
+      pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {
+        const q = this.getBucketParameterQuerier(options.globalParameters, ['default'], params.bucketIdTransformer);
+        result.queriers.push(q);
+      }
+    };
+  }
+
+  createParameterLookupSource(params: CreateSourceParams): BucketParameterLookupSource {
     return {
       definition: this,
 
@@ -340,10 +355,6 @@ export class SqlParameterQuery implements BucketParameterSourceDefinition {
         } else {
           return [];
         }
-      },
-      pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {
-        const q = this.getBucketParameterQuerier(options.globalParameters, ['default'], params.bucketIdTransformer);
-        result.queriers.push(q);
       }
     };
   }

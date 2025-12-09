@@ -1,7 +1,8 @@
 import {
   BucketDataSource,
   BucketDataSourceDefinition,
-  BucketParameterSourceDefinition,
+  BucketParameterLookupSourceDefinition,
+  BucketParameterQuerierSourceDefinition,
   BucketSourceType,
   CreateSourceParams
 } from './BucketSource.js';
@@ -111,8 +112,12 @@ export class SqlBucketDescriptor implements BucketDataSourceDefinition {
     };
   }
 
-  getParameterSourceDefinitions(): BucketParameterSourceDefinition[] {
+  getParameterQuerierSourceDefinitions(): BucketParameterQuerierSourceDefinition[] {
     return [...this.parameterQueries, ...this.globalParameterQueries];
+  }
+
+  getParameterLookupSourceDefinitions(): BucketParameterLookupSourceDefinition[] {
+    return [...this.parameterQueries];
   }
 
   getSourceTables(): Set<TablePattern> {

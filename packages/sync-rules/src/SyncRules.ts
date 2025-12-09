@@ -1,4 +1,4 @@
-import { BucketDataSource, BucketParameterSource } from './BucketSource.js';
+import { BucketDataSource, BucketParameterLookupSource, BucketParameterQuerierSource } from './BucketSource.js';
 import {
   BucketParameterQuerier,
   CompatibilityContext,
@@ -25,8 +25,9 @@ import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, Sqlite
  * specifically affects bucket names.
  */
 export class HydratedSyncRules {
-  bucketDataSources: BucketDataSource[] = [];
-  bucketParameterSources: BucketParameterSource[] = [];
+  bucketDataSources: BucketDataSource[];
+  bucketParameterQuerierSources: BucketParameterQuerierSource[];
+  bucketParameterLookupSources: BucketParameterLookupSource[];
 
   eventDescriptors: SqlEventDescriptor[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
@@ -36,12 +37,14 @@ export class HydratedSyncRules {
   constructor(params: {
     definition: SqlSyncRules;
     bucketDataSources: BucketDataSource[];
-    bucketParameterSources: BucketParameterSource[];
+    bucketParameterQuerierSources: BucketParameterQuerierSource[];
+    bucketParameterLookupSources: BucketParameterLookupSource[];
     eventDescriptors?: SqlEventDescriptor[];
     compatibility?: CompatibilityContext;
   }) {
     this.bucketDataSources = params.bucketDataSources;
-    this.bucketParameterSources = params.bucketParameterSources;
+    this.bucketParameterQuerierSources = params.bucketParameterQuerierSources;
+    this.bucketParameterLookupSources = params.bucketParameterLookupSources;
     this.definition = params.definition;
     if (params.eventDescriptors) {
       this.eventDescriptors = params.eventDescriptors;
@@ -114,7 +117,7 @@ export class HydratedSyncRules {
     row: SqliteRow
   ): { results: EvaluatedParameters[]; errors: EvaluationError[] } {
     let rawResults: EvaluatedParametersResult[] = [];
-    for (let source of this.bucketParameterSources) {
+    for (let source of this.bucketParameterLookupSources) {
       rawResults.push(...source.evaluateParameterRow(table, row));
     }
 
@@ -128,7 +131,7 @@ export class HydratedSyncRules {
     const errors: QuerierError[] = [];
     const pending = { queriers, errors };
 
-    for (const source of this.bucketParameterSources) {
+    for (const source of this.bucketParameterQuerierSources) {
       if (
         (source.definition.subscribedToByDefault && options.hasDefaultStreams) ||
         source.definition.name in options.streams

@@ -4,8 +4,10 @@ import { BucketParameterQuerier, mergeBucketParameterQueriers, PendingQueriers }
 import {
   BucketDataSource,
   BucketDataSourceDefinition,
-  BucketParameterSource,
-  BucketParameterSourceDefinition,
+  BucketParameterLookupSource,
+  BucketParameterLookupSourceDefinition,
+  BucketParameterQuerierSource,
+  BucketParameterQuerierSourceDefinition,
   BucketSourceType,
   CreateSourceParams
 } from '../BucketSource.js';
@@ -24,7 +26,9 @@ import {
 } from '../types.js';
 import { StreamVariant } from './variant.js';
 
-export class SyncStream implements BucketDataSourceDefinition, BucketParameterSourceDefinition {
+export class SyncStream
+  implements BucketDataSourceDefinition, BucketParameterLookupSourceDefinition, BucketParameterQuerierSourceDefinition
+{
   name: string;
   subscribedToByDefault: boolean;
   priority: BucketPriority;
@@ -80,7 +84,23 @@ export class SyncStream implements BucketDataSourceDefinition, BucketParameterSo
     };
   }
 
-  createParameterSource(params: CreateSourceParams): BucketParameterSource {
+  createParameterLookupSource(params: CreateSourceParams): BucketParameterLookupSource {
+    return {
+      definition: this,
+
+      evaluateParameterRow: (sourceTable, row) => {
+        const result: EvaluatedParametersResult[] = [];
+
+        for (const variant of this.variants) {
+          variant.pushParameterRowEvaluation(result, sourceTable, row);
+        }
+
+        return result;
+      }
+    };
+  }
+
+  createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
     return {
       definition: this,
 
@@ -109,15 +129,6 @@ export class SyncStream implements BucketDataSourceDefinition, BucketParameterSo
         if (this.subscribedToByDefault && !hasExplicitDefaultSubscription) {
           this.queriersForSubscription(result, null, options.globalParameters, params.bucketIdTransformer);
         }
-      },
-      evaluateParameterRow: (sourceTable, row) => {
-        const result: EvaluatedParametersResult[] = [];
-
-        for (const variant of this.variants) {
-          variant.pushParameterRowEvaluation(result, sourceTable, row);
-        }
-
-        return result;
       }
     };
   }
