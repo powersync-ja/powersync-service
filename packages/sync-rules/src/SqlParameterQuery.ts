@@ -344,16 +344,6 @@ export class SqlParameterQuery implements BucketParameterSourceDefinition {
       pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {
         const q = this.getBucketParameterQuerier(options.globalParameters, ['default'], params.bucketIdTransformer);
         result.queriers.push(q);
-      },
-
-      /**
-       * @deprecated Use `pushBucketParameterQueriers` instead and merge at the top-level.
-       */
-      getBucketParameterQuerier(options: GetQuerierOptions): BucketParameterQuerier {
-        const queriers: BucketParameterQuerier[] = [];
-        this.pushBucketParameterQueriers({ queriers, errors: [] }, options);
-
-        return mergeBucketParameterQueriers(queriers);
       }
     };
   }

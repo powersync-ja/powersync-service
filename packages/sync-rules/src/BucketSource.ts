@@ -56,8 +56,6 @@ export interface BucketParameterSourceDefinition {
   getSourceTables(): Set<TablePattern>;
   createParameterSource(params: CreateSourceParams): BucketParameterSource;
 
-  getSourceTables(): Set<TablePattern>;
-
   /** Whether the table possibly affects the buckets resolved by this source. */
   tableSyncsParameters(table: SourceTableInterface): boolean;
 }
@@ -110,11 +108,6 @@ export interface BucketParameterSource {
    * @param options Options, including parameters that may affect the buckets loaded by this source.
    */
   pushBucketParameterQueriers(result: PendingQueriers, options: GetQuerierOptions): void;
-
-  /**
-   * @deprecated Use `pushBucketParameterQueriers` instead and merge at the top-level.
-   */
-  getBucketParameterQuerier(options: GetQuerierOptions): BucketParameterQuerier;
 }
 
 export enum BucketSourceType {

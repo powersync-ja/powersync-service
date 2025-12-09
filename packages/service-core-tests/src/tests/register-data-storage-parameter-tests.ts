@@ -1,11 +1,5 @@
 import { storage } from '@powersync/service-core';
-import {
-  mergeBucketParameterQueriers,
-  ParameterLookup,
-  PendingQueriers,
-  RequestParameters
-} from '@powersync/service-sync-rules';
-import { SqlBucketDescriptor } from '@powersync/service-sync-rules/src/SqlBucketDescriptor.js';
+import { ParameterLookup, RequestParameters } from '@powersync/service-sync-rules';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { TEST_TABLE } from './util.js';

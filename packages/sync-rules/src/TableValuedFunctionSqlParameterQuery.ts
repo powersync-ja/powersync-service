@@ -262,16 +262,6 @@ export class TableValuedFunctionSqlParameterQuery implements BucketParameterSour
           queryDynamicBucketDescriptions: async () => []
         } satisfies BucketParameterQuerier;
         result.queriers.push(staticQuerier);
-      },
-
-      /**
-       * @deprecated Use `pushBucketParameterQueriers` instead and merge at the top-level.
-       */
-      getBucketParameterQuerier(options: GetQuerierOptions): BucketParameterQuerier {
-        const queriers: BucketParameterQuerier[] = [];
-        this.pushBucketParameterQueriers({ queriers, errors: [] }, options);
-
-        return mergeBucketParameterQueriers(queriers);
       }
     };
   }
