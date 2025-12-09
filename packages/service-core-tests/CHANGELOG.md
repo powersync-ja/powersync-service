@@ -1,5 +1,13 @@
 # @powersync/service-core-tests
 
+## 0.12.15
+
+### Patch Changes
+
+- Updated dependencies [21b3a41]
+  - @powersync/service-sync-rules@0.29.9
+  - @powersync/service-core@1.18.1
+
 ## 0.12.14
 
 ### Patch Changes

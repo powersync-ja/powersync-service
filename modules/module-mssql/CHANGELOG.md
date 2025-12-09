@@ -1,5 +1,15 @@
 # @powersync/service-module-mssql
 
+## 0.1.1
+
+### Patch Changes
+
+- 21b3a41: Fixed sync rule validation query for mssql
+- Updated dependencies [21b3a41]
+  - @powersync/service-sync-rules@0.29.9
+  - @powersync/lib-services-framework@0.7.13
+  - @powersync/service-core@1.18.1
+
 ## 0.1.0
 
 ### Minor Changes
