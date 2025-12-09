@@ -10,12 +10,6 @@ import { CustomSqliteValue } from './types/custom_sqlite_value.js';
 import { CompatibilityContext } from './compatibility.js';
 import { RequestFunctionCall } from './request_functions.js';
 
-export interface SyncRules {
-  evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
-
-  evaluateParameterRow(table: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[];
-}
-
 export interface QueryParseOptions extends SyncRulesOptions {
   accept_potentially_dangerous_queries?: boolean;
   priority?: BucketPriority;
@@ -305,9 +299,7 @@ export interface InputParameter {
  */
 export type BucketIdTransformer = (regularId: string) => string;
 
-export interface EvaluateRowOptions extends TableRow {
-  bucketIdTransformer: BucketIdTransformer;
-}
+export interface EvaluateRowOptions extends TableRow {}
 
 /**
  * A row associated with the table it's coming from.

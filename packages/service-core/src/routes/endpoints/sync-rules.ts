@@ -202,7 +202,7 @@ async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
 
     return {
       valid: true,
-      bucket_definitions: rules.bucketSources.map((source) => source.debugRepresentation()),
+      bucket_definitions: rules.debugRepresentation(),
       source_tables: resolved_tables,
       data_tables: rules.debugGetOutputTables()
     };

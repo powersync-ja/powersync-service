@@ -1,4 +1,4 @@
-import { BucketDescription, ResolvedBucket } from './BucketDescription.js';
+import { ResolvedBucket } from './BucketDescription.js';
 import { RequestedStream } from './SqlSyncRules.js';
 import { RequestParameters, SqliteJsonRow, SqliteJsonValue } from './types.js';
 import { normalizeParameterValue } from './utils.js';

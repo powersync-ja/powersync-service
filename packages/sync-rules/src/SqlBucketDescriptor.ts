@@ -1,6 +1,14 @@
 import { BucketInclusionReason, ResolvedBucket } from './BucketDescription.js';
 import { BucketParameterQuerier, mergeBucketParameterQueriers, PendingQueriers } from './BucketParameterQuerier.js';
-import { BucketDataSource, BucketParameterSource, BucketSourceType, ResultSetDescription } from './BucketSource.js';
+import {
+  BucketDataSource,
+  BucketDataSourceDefinition,
+  BucketParameterSource,
+  BucketParameterSourceDefinition,
+  BucketSourceType,
+  CreateSourceParams,
+  ResultSetDescription
+} from './BucketSource.js';
 import { ColumnDefinition } from './ExpressionType.js';
 import { IdSequence } from './IdSequence.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
@@ -32,9 +40,9 @@ export interface QueryParseResult {
   errors: SqlRuleError[];
 }
 
-export class SqlBucketDescriptor implements BucketDataSource, BucketParameterSource {
+export class SqlBucketDescriptor implements BucketDataSourceDefinition, BucketParameterSourceDefinition {
   name: string;
-  bucketParameters?: string[];
+  private bucketParametersInternal: string[] | null = null;
 
   constructor(name: string) {
     this.name = name;
@@ -48,6 +56,10 @@ export class SqlBucketDescriptor implements BucketDataSource, BucketParameterSou
     return true;
   }
 
+  public get bucketParameters(): string[] {
+    return this.bucketParametersInternal ?? [];
+  }
+
   /**
    * source table -> queries
    */
@@ -58,10 +70,10 @@ export class SqlBucketDescriptor implements BucketDataSource, BucketParameterSou
   parameterIdSequence = new IdSequence();
 
   addDataQuery(sql: string, options: SyncRulesOptions, compatibility: CompatibilityContext): QueryParseResult {
-    if (this.bucketParameters == null) {
+    if (this.bucketParametersInternal == null) {
       throw new Error('Bucket parameters must be defined');
     }
-    const dataRows = SqlDataQuery.fromSql(this.name, this.bucketParameters, sql, options, compatibility);
+    const dataRows = SqlDataQuery.fromSql(this.name, this.bucketParametersInternal, sql, options, compatibility);
 
     this.dataQueries.push(dataRows);
 
@@ -73,11 +85,12 @@ export class SqlBucketDescriptor implements BucketDataSource, BucketParameterSou
 
   addParameterQuery(sql: string, options: QueryParseOptions): QueryParseResult {
     const parameterQuery = SqlParameterQuery.fromSql(this.name, sql, options, this.parameterIdSequence.nextId());
-    if (this.bucketParameters == null) {
-      this.bucketParameters = parameterQuery.bucketParameters;
+    if (this.bucketParametersInternal == null) {
+      this.bucketParametersInternal = parameterQuery.bucketParameters;
     } else {
       if (
-        new Set([...parameterQuery.bucketParameters!, ...this.bucketParameters]).size != this.bucketParameters.length
+        new Set([...parameterQuery.bucketParameters!, ...this.bucketParametersInternal]).size !=
+        this.bucketParametersInternal.length
       ) {
         throw new Error('Bucket parameters must match for each parameter query within a bucket');
       }
@@ -94,61 +107,71 @@ export class SqlBucketDescriptor implements BucketDataSource, BucketParameterSou
     };
   }
 
-  evaluateRow(options: EvaluateRowOptions): EvaluationResult[] {
-    let results: EvaluationResult[] = [];
-    for (let query of this.dataQueries) {
-      if (!query.applies(options.sourceTable)) {
-        continue;
+  createDataSource(params: CreateSourceParams): BucketDataSource {
+    return {
+      definition: this,
+      evaluateRow: (options) => {
+        let results: EvaluationResult[] = [];
+        for (let query of this.dataQueries) {
+          if (!query.applies(options.sourceTable)) {
+            continue;
+          }
+
+          results.push(...query.evaluateRow(options.sourceTable, options.record, params.bucketIdTransformer));
+        }
+        return results;
       }
-
-      results.push(...query.evaluateRow(options.sourceTable, options.record, options.bucketIdTransformer));
-    }
-    return results;
+    };
   }
 
-  evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[] {
-    let results: EvaluatedParametersResult[] = [];
-    for (let query of this.parameterQueries) {
-      if (query.applies(sourceTable)) {
-        results.push(...query.evaluateParameterRow(row));
+  createParameterSource(params: CreateSourceParams): BucketParameterSource {
+    return {
+      definition: this,
+
+      evaluateParameterRow: (sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[] => {
+        let results: EvaluatedParametersResult[] = [];
+        for (let query of this.parameterQueries) {
+          if (query.applies(sourceTable)) {
+            results.push(...query.evaluateParameterRow(row));
+          }
+        }
+        return results;
+      },
+      pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {
+        const reasons = [this.bucketInclusionReason()];
+        const staticBuckets = this.getStaticBucketDescriptions(
+          options.globalParameters,
+          reasons,
+          params.bucketIdTransformer
+        );
+        const staticQuerier = {
+          staticBuckets,
+          hasDynamicBuckets: false,
+          parameterQueryLookups: [],
+          queryDynamicBucketDescriptions: async () => []
+        } satisfies BucketParameterQuerier;
+        result.queriers.push(staticQuerier);
+
+        if (this.parameterQueries.length == 0) {
+          return;
+        }
+
+        const dynamicQueriers = this.parameterQueries.map((query) =>
+          query.getBucketParameterQuerier(options.globalParameters, reasons, params.bucketIdTransformer)
+        );
+        result.queriers.push(...dynamicQueriers);
+      },
+
+      /**
+       * @deprecated Use `pushBucketParameterQueriers` instead and merge at the top-level.
+       */
+      getBucketParameterQuerier(options: GetQuerierOptions): BucketParameterQuerier {
+        const queriers: BucketParameterQuerier[] = [];
+        this.pushBucketParameterQueriers({ queriers, errors: [] }, options);
+
+        return mergeBucketParameterQueriers(queriers);
       }
-    }
-    return results;
-  }
-
-  /**
-   * @deprecated Use `pushBucketParameterQueriers` instead and merge at the top-level.
-   */
-  getBucketParameterQuerier(options: GetQuerierOptions): BucketParameterQuerier {
-    const queriers: BucketParameterQuerier[] = [];
-    this.pushBucketParameterQueriers({ queriers, errors: [] }, options);
-
-    return mergeBucketParameterQueriers(queriers);
-  }
-
-  pushBucketParameterQueriers(result: PendingQueriers, options: GetQuerierOptions) {
-    const reasons = [this.bucketInclusionReason()];
-    const staticBuckets = this.getStaticBucketDescriptions(
-      options.globalParameters,
-      reasons,
-      options.bucketIdTransformer
-    );
-    const staticQuerier = {
-      staticBuckets,
-      hasDynamicBuckets: false,
-      parameterQueryLookups: [],
-      queryDynamicBucketDescriptions: async () => []
-    } satisfies BucketParameterQuerier;
-    result.queriers.push(staticQuerier);
-
-    if (this.parameterQueries.length == 0) {
-      return;
-    }
-
-    const dynamicQueriers = this.parameterQueries.map((query) =>
-      query.getBucketParameterQuerier(options.globalParameters, reasons, options.bucketIdTransformer)
-    );
-    result.queriers.push(...dynamicQueriers);
+    };
   }
 
   getStaticBucketDescriptions(

@@ -1,7 +1,14 @@
 import { BaseSqlDataQuery } from '../BaseSqlDataQuery.js';
 import { BucketInclusionReason, BucketPriority, DEFAULT_BUCKET_PRIORITY } from '../BucketDescription.js';
-import { BucketParameterQuerier, PendingQueriers } from '../BucketParameterQuerier.js';
-import { BucketDataSource, BucketParameterSource, BucketSourceType, ResultSetDescription } from '../BucketSource.js';
+import { BucketParameterQuerier, mergeBucketParameterQueriers, PendingQueriers } from '../BucketParameterQuerier.js';
+import {
+  BucketDataSource,
+  BucketDataSourceDefinition,
+  BucketParameterSource,
+  BucketParameterSourceDefinition,
+  BucketSourceType,
+  CreateSourceParams
+} from '../BucketSource.js';
 import { ColumnDefinition } from '../ExpressionType.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { GetQuerierOptions, RequestedStream } from '../SqlSyncRules.js';
@@ -13,12 +20,11 @@ import {
   EvaluationResult,
   RequestParameters,
   SourceSchema,
-  SqliteRow,
   TableRow
 } from '../types.js';
 import { StreamVariant } from './variant.js';
 
-export class SyncStream implements BucketDataSource, BucketParameterSource {
+export class SyncStream implements BucketDataSourceDefinition, BucketParameterSourceDefinition {
   name: string;
   subscribedToByDefault: boolean;
   priority: BucketPriority;
@@ -37,31 +43,93 @@ export class SyncStream implements BucketDataSource, BucketParameterSource {
     return BucketSourceType.SYNC_STREAM;
   }
 
-  pushBucketParameterQueriers(result: PendingQueriers, options: GetQuerierOptions): void {
-    const subscriptions = options.streams[this.name] ?? [];
+  public get bucketParameters(): string[] {
+    // FIXME: check whether this is correct.
+    // Could there be multiple variants with different bucket parameters?
+    return this.data.bucketParameters;
+  }
 
-    if (!this.subscribedToByDefault && !subscriptions.length) {
-      // The client is not subscribing to this stream, so don't query buckets related to it.
-      return;
-    }
+  createDataSource(params: CreateSourceParams): BucketDataSource {
+    return {
+      definition: this,
 
-    let hasExplicitDefaultSubscription = false;
-    for (const subscription of subscriptions) {
-      let subscriptionParams = options.globalParameters;
-      if (subscription.parameters != null) {
-        subscriptionParams = subscriptionParams.withAddedStreamParameters(subscription.parameters);
-      } else {
-        hasExplicitDefaultSubscription = true;
+      evaluateRow: (options: EvaluateRowOptions): EvaluationResult[] => {
+        if (!this.data.applies(options.sourceTable)) {
+          return [];
+        }
+
+        const stream = this;
+        const row: TableRow = {
+          sourceTable: options.sourceTable,
+          record: options.record
+        };
+
+        return this.data.evaluateRowWithOptions({
+          table: options.sourceTable,
+          row: options.record,
+          bucketIds() {
+            const bucketIds: string[] = [];
+            for (const variant of stream.variants) {
+              bucketIds.push(...variant.bucketIdsForRow(stream.name, row, params.bucketIdTransformer));
+            }
+
+            return bucketIds;
+          }
+        });
       }
+    };
+  }
 
-      this.queriersForSubscription(result, subscription, subscriptionParams, options.bucketIdTransformer);
-    }
+  createParameterSource(params: CreateSourceParams): BucketParameterSource {
+    return {
+      definition: this,
 
-    // If the stream is subscribed to by default and there is no explicit subscription that would match the default
-    // subscription, also include the default querier.
-    if (this.subscribedToByDefault && !hasExplicitDefaultSubscription) {
-      this.queriersForSubscription(result, null, options.globalParameters, options.bucketIdTransformer);
-    }
+      pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions): void => {
+        const subscriptions = options.streams[this.name] ?? [];
+
+        if (!this.subscribedToByDefault && !subscriptions.length) {
+          // The client is not subscribing to this stream, so don't query buckets related to it.
+          return;
+        }
+
+        let hasExplicitDefaultSubscription = false;
+        for (const subscription of subscriptions) {
+          let subscriptionParams = options.globalParameters;
+          if (subscription.parameters != null) {
+            subscriptionParams = subscriptionParams.withAddedStreamParameters(subscription.parameters);
+          } else {
+            hasExplicitDefaultSubscription = true;
+          }
+
+          this.queriersForSubscription(result, subscription, subscriptionParams, params.bucketIdTransformer);
+        }
+
+        // If the stream is subscribed to by default and there is no explicit subscription that would match the default
+        // subscription, also include the default querier.
+        if (this.subscribedToByDefault && !hasExplicitDefaultSubscription) {
+          this.queriersForSubscription(result, null, options.globalParameters, params.bucketIdTransformer);
+        }
+      },
+      evaluateParameterRow: (sourceTable, row) => {
+        const result: EvaluatedParametersResult[] = [];
+
+        for (const variant of this.variants) {
+          variant.pushParameterRowEvaluation(result, sourceTable, row);
+        }
+
+        return result;
+      },
+
+      /**
+       * @deprecated Use `pushBucketParameterQueriers` instead and merge at the top-level.
+       */
+      getBucketParameterQuerier(options: GetQuerierOptions): BucketParameterQuerier {
+        const queriers: BucketParameterQuerier[] = [];
+        this.pushBucketParameterQueriers({ queriers, errors: [] }, options);
+
+        return mergeBucketParameterQueriers(queriers);
+      }
+    };
   }
 
   private queriersForSubscription(
@@ -148,40 +216,5 @@ export class SyncStream implements BucketDataSource, BucketParameterSource {
     };
 
     result[this.data.table!.sqlName].push(r);
-  }
-
-  evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[] {
-    const result: EvaluatedParametersResult[] = [];
-
-    for (const variant of this.variants) {
-      variant.pushParameterRowEvaluation(result, sourceTable, row);
-    }
-
-    return result;
-  }
-
-  evaluateRow(options: EvaluateRowOptions): EvaluationResult[] {
-    if (!this.data.applies(options.sourceTable)) {
-      return [];
-    }
-
-    const stream = this;
-    const row: TableRow = {
-      sourceTable: options.sourceTable,
-      record: options.record
-    };
-
-    return this.data.evaluateRowWithOptions({
-      table: options.sourceTable,
-      row: options.record,
-      bucketIds() {
-        const bucketIds: string[] = [];
-        for (const variant of stream.variants) {
-          bucketIds.push(...variant.bucketIdsForRow(stream.name, row, options.bucketIdTransformer));
-        }
-
-        return bucketIds;
-      }
-    });
   }
 }

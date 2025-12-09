@@ -3,41 +3,32 @@ import { ColumnDefinition } from './ExpressionType.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { GetQuerierOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
-import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, SourceSchema, SqliteRow } from './types.js';
+import {
+  BucketIdTransformer,
+  EvaluatedParametersResult,
+  EvaluateRowOptions,
+  EvaluationResult,
+  SourceSchema,
+  SqliteRow
+} from './types.js';
+
+export interface CreateSourceParams {
+  bucketIdTransformer: BucketIdTransformer;
+}
 
 /**
- * An interface declaring
- *
- *  - which buckets the sync service should create when processing change streams from the database.
- *  - how data in source tables maps to data in buckets (e.g. when we're not selecting all columns).
- *  - which buckets a given connection has access to.
- *
- * There are two ways to define bucket sources: Via sync rules made up of parameter and data queries, and via stream
- * definitions that only consist of a single query.
+ * Encodes a static definition of a bucket source, as parsed from sync rules or stream definitions.
  */
-export interface BucketDataSource {
+export interface BucketDataSourceDefinition {
   readonly name: string;
   readonly type: BucketSourceType;
-
   readonly subscribedToByDefault: boolean;
-
   /**
-   * Given a row as it appears in a table that affects sync data, return buckets, logical table names and transformed
-   * data for rows to add to buckets.
+   * For debug use only.
    */
-  evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
-
-  /**
-   * Reports {@link BucketParameterQuerier}s resolving buckets that a specific stream request should have access to.
-   *
-   * @param result The target array to insert queriers and errors into.
-   * @param options Options, including parameters that may affect the buckets loaded by this source.
-   */
-  pushBucketParameterQueriers(result: PendingQueriers, options: GetQuerierOptions): void;
-
+  readonly bucketParameters: string[];
   getSourceTables(): Set<TablePattern>;
-
-  /** Whether the table possibly affects the contents of buckets resolved by this source. */
+  createDataSource(params: CreateSourceParams): BucketDataSource;
   tableSyncsData(table: SourceTableInterface): boolean;
 
   /**
@@ -53,6 +44,50 @@ export interface BucketDataSource {
   debugRepresentation(): any;
 }
 
+export interface BucketParameterSourceDefinition {
+  readonly name: string;
+  readonly type: BucketSourceType;
+  readonly subscribedToByDefault: boolean;
+
+  getSourceTables(): Set<TablePattern>;
+  createParameterSource(params: CreateSourceParams): BucketParameterSource;
+
+  /**
+   * Whether {@link pushBucketParameterQueriers} may include a querier where
+   * {@link BucketParameterQuerier.hasDynamicBuckets} is true.
+   *
+   * This is mostly used for testing.
+   */
+  hasDynamicBucketQueries(): boolean;
+
+  getSourceTables(): Set<TablePattern>;
+
+  /** Whether the table possibly affects the buckets resolved by this source. */
+  tableSyncsParameters(table: SourceTableInterface): boolean;
+
+  debugRepresentation(): any;
+}
+
+/**
+ * An interface declaring
+ *
+ *  - which buckets the sync service should create when processing change streams from the database.
+ *  - how data in source tables maps to data in buckets (e.g. when we're not selecting all columns).
+ *  - which buckets a given connection has access to.
+ *
+ * There are two ways to define bucket sources: Via sync rules made up of parameter and data queries, and via stream
+ * definitions that only consist of a single query.
+ */
+export interface BucketDataSource {
+  readonly definition: BucketDataSourceDefinition;
+
+  /**
+   * Given a row as it appears in a table that affects sync data, return buckets, logical table names and transformed
+   * data for rows to add to buckets.
+   */
+  evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
+}
+
 /**
  * An interface declaring
  *
@@ -64,11 +99,7 @@ export interface BucketDataSource {
  * definitions that only consist of a single query.
  */
 export interface BucketParameterSource {
-  readonly name: string;
-  readonly type: BucketSourceType;
-
-  readonly subscribedToByDefault: boolean;
-
+  readonly definition: BucketParameterSourceDefinition;
   /**
    * Given a row in a source table that affects sync parameters, returns a structure to index which buckets rows should
    * be associated with.
@@ -87,21 +118,9 @@ export interface BucketParameterSource {
   pushBucketParameterQueriers(result: PendingQueriers, options: GetQuerierOptions): void;
 
   /**
-   * Whether {@link pushBucketParameterQueriers} may include a querier where
-   * {@link BucketParameterQuerier.hasDynamicBuckets} is true.
-   *
-   * This is mostly used for testing.
+   * @deprecated Use `pushBucketParameterQueriers` instead and merge at the top-level.
    */
-  hasDynamicBucketQueries(): boolean;
-
-  getSourceTables(): Set<TablePattern>;
-
-  /** Whether the table possibly affects the buckets resolved by this source. */
-  tableSyncsParameters(table: SourceTableInterface): boolean;
-
-  debugWriteOutputTables(result: Record<string, { query: string }[]>): void;
-
-  debugRepresentation(): any;
+  getBucketParameterQuerier(options: GetQuerierOptions): BucketParameterQuerier;
 }
 
 export enum BucketSourceType {
