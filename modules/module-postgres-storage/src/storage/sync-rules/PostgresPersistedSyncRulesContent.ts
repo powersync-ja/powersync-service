@@ -35,7 +35,12 @@ export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncR
     return {
       id: this.id,
       slot_name: this.slot_name,
-      sync_rules: SqlSyncRules.fromYaml(this.sync_rules_content, options)
+      sync_rules: SqlSyncRules.fromYaml(this.sync_rules_content, options),
+      hydratedSyncRules() {
+        return this.sync_rules.hydrate({
+          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(`${this.id}`)
+        });
+      }
     };
   }
 

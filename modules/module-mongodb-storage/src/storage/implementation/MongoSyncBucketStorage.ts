@@ -25,7 +25,7 @@ import {
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { ParameterLookup, SqliteJsonRow, SqlSyncRules } from '@powersync/service-sync-rules';
+import { ParameterLookup, SqliteJsonRow, SqlSyncRules, HydratedSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
@@ -61,7 +61,7 @@ export class MongoSyncBucketStorage
   private readonly db: PowerSyncMongo;
   readonly checksums: MongoChecksums;
 
-  private parsedSyncRulesCache: { parsed: SqlSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
+  private parsedSyncRulesCache: { parsed: HydratedSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
 
   constructor(
@@ -101,14 +101,14 @@ export class MongoSyncBucketStorage
     });
   }
 
-  getParsedSyncRules(options: storage.ParseSyncRulesOptions): SqlSyncRules {
+  getParsedSyncRules(options: storage.ParseSyncRulesOptions): HydratedSyncRules {
     const { parsed, options: cachedOptions } = this.parsedSyncRulesCache ?? {};
     /**
      * Check if the cached sync rules, if present, had the same options.
      * Parse sync rules if the options are different or if there is no cached value.
      */
     if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
-      this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).sync_rules, options };
+      this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).hydratedSyncRules(), options };
     }
 
     return this.parsedSyncRulesCache!.parsed;
@@ -170,7 +170,7 @@ export class MongoSyncBucketStorage
     await using batch = new MongoBucketBatch({
       logger: options.logger,
       db: this.db,
-      syncRules: this.sync_rules.parsed(options).sync_rules,
+      syncRules: this.sync_rules.parsed(options).hydratedSyncRules(),
       groupId: this.group_id,
       slotName: this.slot_name,
       lastCheckpointLsn: checkpoint_lsn,

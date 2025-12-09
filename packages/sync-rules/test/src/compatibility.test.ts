@@ -16,12 +16,11 @@ bucket_definitions:
       - SELECT id, description FROM assets
     `,
         PARSE_OPTIONS
-      );
+      ).hydrate();
 
       expect(
         rules.evaluateRow({
           sourceTable: ASSETS,
-          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(''),
           record: rules.applyRowContext<never>({
             id: 'id',
             description: value
@@ -44,12 +43,11 @@ config:
   timestamps_iso8601: true
     `,
         PARSE_OPTIONS
-      );
+      ).hydrate();
 
       expect(
         rules.evaluateRow({
           sourceTable: ASSETS,
-          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(''),
           record: rules.applyRowContext<never>({
             id: 'id',
             description: value
@@ -72,11 +70,10 @@ config:
   edition: 2
     `,
         PARSE_OPTIONS
-      );
+      ).hydrate({ bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1') });
 
       expect(
         rules.evaluateRow({
-          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1'),
           sourceTable: ASSETS,
           record: rules.applyRowContext<never>({
             id: 'id',
@@ -87,11 +84,7 @@ config:
         { bucket: '1#stream|0[]', data: { description: '2025-08-19T09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
       ]);
 
-      expect(
-        rules.getBucketParameterQuerier(
-          normalizeQuerierOptions({}, {}, {}, SqlSyncRules.versionedBucketIdTransformer('1'))
-        ).querier.staticBuckets
-      ).toStrictEqual([
+      expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {})).querier.staticBuckets).toStrictEqual([
         {
           bucket: '1#stream|0[]',
           definition: 'stream',
@@ -115,11 +108,10 @@ config:
   versioned_bucket_ids: false
     `,
         PARSE_OPTIONS
-      );
+      ).hydrate({ bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1') });
 
       expect(
         rules.evaluateRow({
-          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1'),
           sourceTable: ASSETS,
           record: rules.applyRowContext<never>({
             id: 'id',
@@ -129,11 +121,7 @@ config:
       ).toStrictEqual([
         { bucket: 'stream|0[]', data: { description: '2025-08-19 09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
       ]);
-      expect(
-        rules.getBucketParameterQuerier(
-          normalizeQuerierOptions({}, {}, {}, SqlSyncRules.versionedBucketIdTransformer('1'))
-        ).querier.staticBuckets
-      ).toStrictEqual([
+      expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {})).querier.staticBuckets).toStrictEqual([
         {
           bucket: 'stream|0[]',
           definition: 'stream',
@@ -157,12 +145,11 @@ config:
   versioned_bucket_ids: true
     `,
       PARSE_OPTIONS
-    );
+    ).hydrate({ bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1') });
 
     expect(
       rules.evaluateRow({
         sourceTable: ASSETS,
-        bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1'),
         record: {
           id: 'id',
           description: 'desc'
@@ -182,12 +169,11 @@ config:
   edition: 2
     `,
       PARSE_OPTIONS
-    );
+    ).hydrate({ bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1') });
 
     expect(
       rules.evaluateRow({
         sourceTable: ASSETS,
-        bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1'),
         record: rules.applyRowContext<never>({
           id: 'id',
           description: new DateTimeValue('2025-08-19T09:21:00Z')
@@ -210,7 +196,7 @@ bucket_definitions:
       - SELECT id, description ->> 'foo.bar' AS "desc" FROM assets
     `,
         PARSE_OPTIONS
-      );
+      ).hydrate();
 
       expect(
         rules.evaluateRow({
@@ -218,8 +204,7 @@ bucket_definitions:
           record: {
             id: 'id',
             description: description
-          },
-          bucketIdTransformer: identityBucketTransformer
+          }
         })
       ).toStrictEqual([{ bucket: 'a[]', data: { desc: 'baz', id: 'id' }, id: 'id', table: 'assets' }]);
     });
@@ -235,7 +220,7 @@ config:
   fixed_json_extract: true
     `,
         PARSE_OPTIONS
-      );
+      ).hydrate();
 
       expect(
         rules.evaluateRow({
@@ -243,8 +228,7 @@ config:
           record: {
             id: 'id',
             description: description
-          },
-          bucketIdTransformer: identityBucketTransformer
+          }
         })
       ).toStrictEqual([{ bucket: 'a[]', data: { desc: null, id: 'id' }, id: 'id', table: 'assets' }]);
     });
@@ -285,11 +269,12 @@ config:
         `;
       }
 
-      const rules = SqlSyncRules.fromYaml(syncRules, PARSE_OPTIONS);
+      const rules = SqlSyncRules.fromYaml(syncRules, PARSE_OPTIONS).hydrate({
+        bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1')
+      });
       expect(
         rules.evaluateRow({
           sourceTable: ASSETS,
-          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1'),
           record: rules.applyRowContext<never>({
             id: 'id',
             description: data
@@ -309,11 +294,7 @@ config:
         }
       ]);
 
-      expect(
-        rules.getBucketParameterQuerier(
-          normalizeQuerierOptions({}, {}, {}, SqlSyncRules.versionedBucketIdTransformer('1'))
-        ).querier.staticBuckets
-      ).toStrictEqual([
+      expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {})).querier.staticBuckets).toStrictEqual([
         {
           bucket: withFixedQuirk ? '1#mybucket[]' : 'mybucket[]',
           definition: 'mybucket',

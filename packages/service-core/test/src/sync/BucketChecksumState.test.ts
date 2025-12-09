@@ -12,13 +12,7 @@ import {
   WatchFilterEvent
 } from '@/index.js';
 import { JSONBig } from '@powersync/service-jsonbig';
-import {
-  SqliteJsonRow,
-  ParameterLookup,
-  SqlSyncRules,
-  RequestJwtPayload,
-  BucketSource
-} from '@powersync/service-sync-rules';
+import { SqliteJsonRow, ParameterLookup, SqlSyncRules, RequestJwtPayload } from '@powersync/service-sync-rules';
 import { describe, expect, test, beforeEach } from 'vitest';
 
 describe('BucketChecksumState', () => {
@@ -31,7 +25,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  );
+  ).hydrate({ bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1') });
 
   // global[1] and global[2]
   const SYNC_RULES_GLOBAL_TWO = SqlSyncRules.fromYaml(
@@ -44,7 +38,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  );
+  ).hydrate({ bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('2') });
 
   // by_project[n]
   const SYNC_RULES_DYNAMIC = SqlSyncRules.fromYaml(
@@ -55,7 +49,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  );
+  ).hydrate({ bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('3') });
 
   const syncContext = new SyncContext({
     maxBuckets: 100,
@@ -75,10 +69,7 @@ bucket_definitions:
       syncContext,
       syncRequest,
       tokenPayload,
-      syncRules: {
-        syncRules: SYNC_RULES_GLOBAL,
-        version: 1
-      },
+      syncRules: SYNC_RULES_GLOBAL,
       bucketStorage: storage
     });
 
@@ -148,10 +139,7 @@ bucket_definitions:
       tokenPayload,
       // Client sets the initial state here
       syncRequest: { buckets: [{ name: 'global[]', after: '1' }] },
-      syncRules: {
-        syncRules: SYNC_RULES_GLOBAL,
-        version: 1
-      },
+      syncRules: SYNC_RULES_GLOBAL,
       bucketStorage: storage
     });
 
@@ -189,10 +177,7 @@ bucket_definitions:
       syncContext,
       tokenPayload,
       syncRequest,
-      syncRules: {
-        syncRules: SYNC_RULES_GLOBAL_TWO,
-        version: 2
-      },
+      syncRules: SYNC_RULES_GLOBAL_TWO,
       bucketStorage: storage
     });
 
@@ -260,10 +245,7 @@ bucket_definitions:
       tokenPayload,
       // Client sets the initial state here
       syncRequest: { buckets: [{ name: 'something_here[]', after: '1' }] },
-      syncRules: {
-        syncRules: SYNC_RULES_GLOBAL,
-        version: 1
-      },
+      syncRules: SYNC_RULES_GLOBAL,
       bucketStorage: storage
     });
 
@@ -304,10 +286,7 @@ bucket_definitions:
       syncContext,
       tokenPayload,
       syncRequest,
-      syncRules: {
-        syncRules: SYNC_RULES_GLOBAL_TWO,
-        version: 1
-      },
+      syncRules: SYNC_RULES_GLOBAL_TWO,
       bucketStorage: storage
     });
 
@@ -360,10 +339,7 @@ bucket_definitions:
       syncContext,
       tokenPayload,
       syncRequest,
-      syncRules: {
-        syncRules: SYNC_RULES_GLOBAL_TWO,
-        version: 2
-      },
+      syncRules: SYNC_RULES_GLOBAL_TWO,
       bucketStorage: storage
     });
 
@@ -418,10 +394,7 @@ bucket_definitions:
       syncContext,
       tokenPayload,
       syncRequest,
-      syncRules: {
-        syncRules: SYNC_RULES_GLOBAL_TWO,
-        version: 2
-      },
+      syncRules: SYNC_RULES_GLOBAL_TWO,
       bucketStorage: storage
     });
 
@@ -525,10 +498,7 @@ bucket_definitions:
       syncContext,
       tokenPayload: { sub: 'u1' },
       syncRequest,
-      syncRules: {
-        syncRules: SYNC_RULES_DYNAMIC,
-        version: 1
-      },
+      syncRules: SYNC_RULES_DYNAMIC,
       bucketStorage: storage
     });
 
@@ -627,7 +597,6 @@ bucket_definitions:
   });
 
   describe('streams', () => {
-    let source: { -readonly [P in keyof BucketSource]: BucketSource[P] };
     let storage: MockBucketChecksumStateStorage;
 
     function checksumState(source: string | boolean, options?: Partial<BucketChecksumStateOptions>) {
@@ -645,13 +614,13 @@ config:
 
       const rules = SqlSyncRules.fromYaml(source, {
         defaultSchema: 'public'
-      });
+      }).hydrate({ bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1') });
 
       return new BucketChecksumState({
         syncContext,
         syncRequest,
         tokenPayload,
-        syncRules: { syncRules: rules, version: 1 },
+        syncRules: rules,
         bucketStorage: storage,
         ...options
       });

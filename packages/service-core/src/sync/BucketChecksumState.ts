@@ -1,38 +1,33 @@
 import {
+  BucketDataSourceDefinition,
   BucketDescription,
   BucketPriority,
-  BucketSource,
+  HydratedSyncRules,
   RequestedStream,
   RequestJwtPayload,
   RequestParameters,
-  ResolvedBucket,
-  SqlSyncRules
+  ResolvedBucket
 } from '@powersync/service-sync-rules';
 
 import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
 import {
+  logger as defaultLogger,
   ErrorCode,
   Logger,
   ServiceAssertionError,
-  ServiceError,
-  logger as defaultLogger
+  ServiceError
 } from '@powersync/lib-services-framework';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { BucketParameterQuerier, QuerierError } from '@powersync/service-sync-rules/src/BucketParameterQuerier.js';
 import { SyncContext } from './SyncContext.js';
 import { getIntersection, hasIntersection } from './util.js';
 
-export interface VersionedSyncRules {
-  syncRules: SqlSyncRules;
-  version: number;
-}
-
 export interface BucketChecksumStateOptions {
   syncContext: SyncContext;
   bucketStorage: BucketChecksumStateStorage;
-  syncRules: VersionedSyncRules;
+  syncRules: HydratedSyncRules;
   tokenPayload: RequestJwtPayload;
   syncRequest: util.StreamingSyncRequest;
   logger?: Logger;
@@ -253,15 +248,15 @@ export class BucketChecksumState {
       const streamNameToIndex = new Map<string, number>();
       this.streamNameToIndex = streamNameToIndex;
 
-      for (const source of this.parameterState.syncRules.syncRules.bucketSources) {
-        if (this.parameterState.isSubscribedToStream(source)) {
-          streamNameToIndex.set(source.name, subscriptions.length);
+      for (const source of this.parameterState.syncRules.bucketDataSources) {
+        if (this.parameterState.isSubscribedToStream(source.definition)) {
+          streamNameToIndex.set(source.definition.name, subscriptions.length);
 
           subscriptions.push({
-            name: source.name,
-            is_default: source.subscribedToByDefault,
+            name: source.definition.name,
+            is_default: source.definition.subscribedToByDefault,
             errors:
-              this.parameterState.streamErrors[source.name]?.map((e) => ({
+              this.parameterState.streamErrors[source.definition.name]?.map((e) => ({
                 subscription: e.subscription?.opaque_id ?? 'default',
                 message: e.message
               })) ?? []
@@ -381,7 +376,7 @@ export interface CheckpointUpdate {
 export class BucketParameterState {
   private readonly context: SyncContext;
   public readonly bucketStorage: BucketChecksumStateStorage;
-  public readonly syncRules: VersionedSyncRules;
+  public readonly syncRules: HydratedSyncRules;
   public readonly syncParams: RequestParameters;
   private readonly querier: BucketParameterQuerier;
   /**
@@ -404,7 +399,7 @@ export class BucketParameterState {
   constructor(
     context: SyncContext,
     bucketStorage: BucketChecksumStateStorage,
-    syncRules: VersionedSyncRules,
+    syncRules: HydratedSyncRules,
     tokenPayload: RequestJwtPayload,
     request: util.StreamingSyncRequest,
     logger: Logger
@@ -436,11 +431,10 @@ export class BucketParameterState {
     this.includeDefaultStreams = subscriptions?.include_defaults ?? true;
     this.explicitStreamSubscriptions = explicitStreamSubscriptions;
 
-    const { querier, errors } = syncRules.syncRules.getBucketParameterQuerier({
+    const { querier, errors } = syncRules.getBucketParameterQuerier({
       globalParameters: this.syncParams,
       hasDefaultStreams: this.includeDefaultStreams,
-      streams: streamsByName,
-      bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(`${syncRules.version}`)
+      streams: streamsByName
     });
     this.querier = querier;
     this.streamErrors = Object.groupBy(errors, (e) => e.descriptor) as Record<string, QuerierError[]>;
@@ -490,7 +484,7 @@ export class BucketParameterState {
     };
   }
 
-  isSubscribedToStream(desc: BucketSource): boolean {
+  isSubscribedToStream(desc: BucketDataSourceDefinition): boolean {
     return (desc.subscribedToByDefault && this.includeDefaultStreams) || this.subscribedStreamNames.has(desc.name);
   }
 

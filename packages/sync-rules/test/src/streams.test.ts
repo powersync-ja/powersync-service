@@ -37,7 +37,9 @@ describe('streams', () => {
 
     expect(desc.variants).toHaveLength(1);
     expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo' })).toStrictEqual(['1#stream|0[]']);
-    expect(desc.evaluateRow({ sourceTable: USERS, bucketIdTransformer, record: { id: 'foo' } })).toHaveLength(0);
+    expect(
+      desc.createDataSource({ bucketIdTransformer }).evaluateRow({ sourceTable: USERS, record: { id: 'foo' } })
+    ).toHaveLength(0);
   });
 
   test('row condition', () => {
@@ -71,15 +73,12 @@ describe('streams', () => {
     const queriers: BucketParameterQuerier[] = [];
     const errors: QuerierError[] = [];
     const pending = { queriers, errors };
-    desc.pushBucketParameterQueriers(
-      pending,
-      normalizeQuerierOptions(
-        { test: 'foo' },
-        {},
-        { stream: [{ opaque_id: 0, parameters: null }] },
-        bucketIdTransformer
-      )
-    );
+    desc
+      .createParameterSource({ bucketIdTransformer })
+      .pushBucketParameterQueriers(
+        pending,
+        normalizeQuerierOptions({ test: 'foo' }, {}, { stream: [{ opaque_id: 0, parameters: null }] })
+      );
 
     expect(mergeBucketParameterQueriers(queriers).staticBuckets).toEqual([
       {
@@ -220,7 +219,9 @@ describe('streams', () => {
         '1#stream|1[]'
       ]);
 
-      expect(desc.evaluateParameterRow(ISSUES, { id: 'i1', owner_id: 'u1' })).toStrictEqual([
+      expect(
+        desc.createParameterSource({ bucketIdTransformer }).evaluateParameterRow(ISSUES, { id: 'i1', owner_id: 'u1' })
+      ).toStrictEqual([
         {
           lookup: ParameterLookup.normalized('stream', '0', ['u1']),
           bucketParameters: [
@@ -253,7 +254,11 @@ describe('streams', () => {
       );
 
       expect(desc.tableSyncsParameters(ISSUES)).toBe(true);
-      expect(desc.evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })).toStrictEqual([
+      expect(
+        desc
+          .createParameterSource({ bucketIdTransformer })
+          .evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })
+      ).toStrictEqual([
         {
           lookup: ParameterLookup.normalized('stream', '0', ['user1']),
           bucketParameters: [
@@ -285,7 +290,9 @@ describe('streams', () => {
       expect(desc.tableSyncsParameters(ISSUES)).toBe(false);
       expect(desc.tableSyncsParameters(USERS)).toBe(true);
 
-      expect(desc.evaluateParameterRow(USERS, { id: 'u', is_admin: 1n })).toStrictEqual([
+      expect(
+        desc.createParameterSource({ bucketIdTransformer }).evaluateParameterRow(USERS, { id: 'u', is_admin: 1n })
+      ).toStrictEqual([
         {
           lookup: ParameterLookup.normalized('stream', '0', ['u']),
           bucketParameters: [
@@ -295,7 +302,9 @@ describe('streams', () => {
           ]
         }
       ]);
-      expect(desc.evaluateParameterRow(USERS, { id: 'u', is_admin: 0n })).toStrictEqual([]);
+      expect(
+        desc.createParameterSource({ bucketIdTransformer }).evaluateParameterRow(USERS, { id: 'u', is_admin: 0n })
+      ).toStrictEqual([]);
 
       // Should return bucket id for admin users
       expect(
@@ -331,7 +340,9 @@ describe('streams', () => {
         '1#stream|1["a"]'
       ]);
 
-      expect(desc.evaluateParameterRow(FRIENDS, { user_a: 'a', user_b: 'b' })).toStrictEqual([
+      expect(
+        desc.createParameterSource({ bucketIdTransformer }).evaluateParameterRow(FRIENDS, { user_a: 'a', user_b: 'b' })
+      ).toStrictEqual([
         {
           lookup: ParameterLookup.normalized('stream', '0', ['b']),
           bucketParameters: [
@@ -437,7 +448,9 @@ describe('streams', () => {
       );
 
       expect(desc.tableSyncsParameters(FRIENDS)).toBe(true);
-      expect(desc.evaluateParameterRow(FRIENDS, { user_a: 'a', user_b: 'b' })).toStrictEqual([
+      expect(
+        desc.createParameterSource({ bucketIdTransformer }).evaluateParameterRow(FRIENDS, { user_a: 'a', user_b: 'b' })
+      ).toStrictEqual([
         {
           lookup: ParameterLookup.normalized('stream', '0', ['b']),
           bucketParameters: [
@@ -592,7 +605,11 @@ describe('streams', () => {
         'select * from comments where NOT (issue_id not in (select id from issues where owner_id = auth.user_id()))'
       );
 
-      expect(desc.evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })).toStrictEqual([
+      expect(
+        desc
+          .createParameterSource({ bucketIdTransformer })
+          .evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })
+      ).toStrictEqual([
         {
           lookup: ParameterLookup.normalized('stream', '0', ['user1']),
           bucketParameters: [
@@ -719,7 +736,9 @@ describe('streams', () => {
       expect(stream.tableSyncsParameters(accountMember)).toBeTruthy();
 
       // Ensure lookup steps work.
-      expect(stream.evaluateParameterRow(accountMember, row)).toStrictEqual([
+      expect(
+        stream.createParameterSource({ bucketIdTransformer }).evaluateParameterRow(accountMember, row)
+      ).toStrictEqual([
         {
           lookup: ParameterLookup.normalized('account_member', '0', ['id']),
           bucketParameters: [
@@ -800,7 +819,7 @@ WHERE
       expect(evaluateBucketIds(desc, scene, { _id: 'scene', project: 'foo' })).toStrictEqual(['1#stream|0["foo"]']);
 
       expect(
-        desc.evaluateParameterRow(projectInvitation, {
+        desc.createParameterSource({ bucketIdTransformer }).evaluateParameterRow(projectInvitation, {
           project: 'foo',
           appliedTo: '[1,2]',
           status: 'CLAIMED'
@@ -899,13 +918,16 @@ const options: StreamParseOptions = {
 const bucketIdTransformer = SqlSyncRules.versionedBucketIdTransformer('1');
 
 function evaluateBucketIds(stream: SyncStream, sourceTable: SourceTableInterface, record: SqliteRow) {
-  return stream.evaluateRow({ sourceTable, record, bucketIdTransformer }).map((r) => {
-    if ('error' in r) {
-      throw new Error(`Unexpected error evaluating row: ${r.error}`);
-    }
+  return stream
+    .createDataSource({ bucketIdTransformer })
+    .evaluateRow({ sourceTable, record })
+    .map((r) => {
+      if ('error' in r) {
+        throw new Error(`Unexpected error evaluating row: ${r.error}`);
+      }
 
-    return r.bucket;
-  });
+      return r.bucket;
+    });
 }
 
 async function createQueriers(
@@ -929,11 +951,10 @@ async function createQueriers(
       },
       {}
     ),
-    streams: { [stream.name]: [{ opaque_id: 0, parameters: options?.parameters ?? null }] },
-    bucketIdTransformer
+    streams: { [stream.name]: [{ opaque_id: 0, parameters: options?.parameters ?? null }] }
   };
 
-  stream.pushBucketParameterQueriers(pending, querierOptions);
+  stream.createParameterSource({ bucketIdTransformer }).pushBucketParameterQueriers(pending, querierOptions);
 
   return { querier: mergeBucketParameterQueriers(queriers), errors };
 }

@@ -9,7 +9,7 @@ import { validateSyncRulesSchema } from './json_schema.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js';
 import { syncStreamFromSql } from './streams/from_sql.js';
-import { SyncRules } from './SyncRules.js';
+import { HydratedSyncRules } from './SyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import {
   BucketIdTransformer,
@@ -373,11 +373,20 @@ export class SqlSyncRules {
     this.content = content;
   }
 
-  compile(params?: { bucketIdTransformer?: BucketIdTransformer }): SyncRules {
+  /**
+   * Hydrate the sync rule definitions with persisted state into runnable sync rules.
+   *
+   * Right now this is just the bucketIdTransformer, but this is expected to expand in the future to support
+   * incremental sync rule reprocessing.
+   *
+   * @param params.bucketIdTransformer A function that transforms bucket ids based on persisted state. May omit for tests.
+   */
+  hydrate(params?: { bucketIdTransformer?: BucketIdTransformer }): HydratedSyncRules {
     const bucketIdTransformer = this.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)
       ? (params?.bucketIdTransformer ?? ((id: string) => id))
       : (id: string) => id;
-    return new SyncRules({
+    return new HydratedSyncRules({
+      definition: this,
       bucketDataSources: this.bucketDataSources.map((d) => d.createDataSource({ bucketIdTransformer })),
       bucketParameterSources: this.bucketParameterSources.map((d) => d.createParameterSource({ bucketIdTransformer })),
       eventDescriptors: this.eventDescriptors,

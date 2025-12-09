@@ -1,13 +1,7 @@
-import {
-  BucketDataSource,
-  BucketDataSourceDefinition,
-  BucketParameterSource,
-  BucketParameterSourceDefinition
-} from './BucketSource.js';
+import { BucketDataSource, BucketParameterSource } from './BucketSource.js';
 import {
   BucketParameterQuerier,
   CompatibilityContext,
-  CompatibilityOption,
   EvaluatedParameters,
   EvaluatedRow,
   EvaluationError,
@@ -18,19 +12,29 @@ import {
   isEvaluationError,
   mergeBucketParameterQueriers,
   QuerierError,
-  SqlEventDescriptor
+  SqlEventDescriptor,
+  SqliteInputValue,
+  SqliteValue,
+  SqlSyncRules
 } from './index.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, SqliteRow } from './types.js';
 
-export class SyncRules {
+/**
+ * Hydrated sync rules is sync rule definitions along with persisted state. Currently, the persisted state
+ * specifically affects bucket names.
+ */
+export class HydratedSyncRules {
   bucketDataSources: BucketDataSource[] = [];
   bucketParameterSources: BucketParameterSource[] = [];
 
   eventDescriptors: SqlEventDescriptor[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
 
+  private definition: SqlSyncRules;
+
   constructor(params: {
+    definition: SqlSyncRules;
     bucketDataSources: BucketDataSource[];
     bucketParameterSources: BucketParameterSource[];
     eventDescriptors?: SqlEventDescriptor[];
@@ -38,12 +42,37 @@ export class SyncRules {
   }) {
     this.bucketDataSources = params.bucketDataSources;
     this.bucketParameterSources = params.bucketParameterSources;
+    this.definition = params.definition;
     if (params.eventDescriptors) {
       this.eventDescriptors = params.eventDescriptors;
     }
     if (params.compatibility) {
       this.compatibility = params.compatibility;
     }
+  }
+
+  // These methods do not depend on hydration, so we can just forward them to the definition.
+
+  getSourceTables() {
+    return this.definition.getSourceTables();
+  }
+
+  tableTriggersEvent(table: SourceTableInterface): boolean {
+    return this.definition.tableTriggersEvent(table);
+  }
+
+  tableSyncsData(table: SourceTableInterface): boolean {
+    return this.definition.tableSyncsData(table);
+  }
+
+  tableSyncsParameters(table: SourceTableInterface): boolean {
+    return this.definition.tableSyncsParameters(table);
+  }
+
+  applyRowContext<MaybeToast extends undefined = never>(
+    source: SqliteRow<SqliteInputValue | MaybeToast>
+  ): SqliteRow<SqliteValue | MaybeToast> {
+    return this.definition.applyRowContext(source);
   }
 
   /**

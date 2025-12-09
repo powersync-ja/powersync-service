@@ -25,7 +25,10 @@ export function testRules(content: string): storage.PersistedSyncRulesContent {
       return {
         id: 1,
         sync_rules: SqlSyncRules.fromYaml(content, options),
-        slot_name: 'test'
+        slot_name: 'test',
+        hydratedSyncRules() {
+          return this.sync_rules.hydrate({ bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1') });
+        }
       };
     },
     lock() {
@@ -107,7 +110,6 @@ export function querierOptions(globalParameters: RequestParameters): GetQuerierO
   return {
     globalParameters,
     hasDefaultStreams: true,
-    streams: {},
-    bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1')
+    streams: {}
   };
 }

@@ -1,4 +1,4 @@
-import { SqlSyncRules } from '@powersync/service-sync-rules';
+import { SqlSyncRules, HydratedSyncRules } from '@powersync/service-sync-rules';
 
 import { storage } from '@powersync/service-core';
 
@@ -12,5 +12,9 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
     slot_name: string | null
   ) {
     this.slot_name = slot_name ?? `powersync_${id}`;
+  }
+
+  hydratedSyncRules(): HydratedSyncRules {
+    return this.sync_rules.hydrate({ bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(`${this.id}`) });
   }
 }
