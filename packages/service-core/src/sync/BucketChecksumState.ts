@@ -1,5 +1,4 @@
 import {
-  BucketDataSourceDefinition,
   BucketDescription,
   BucketPriority,
   BucketSource,

@@ -1,4 +1,4 @@
-import { parse, SelectedColumn } from 'pgsql-ast-parser';
+import { parse } from 'pgsql-ast-parser';
 import {
   BucketDescription,
   BucketInclusionReason,
@@ -7,15 +7,22 @@ import {
 } from './BucketDescription.js';
 import {
   BucketParameterQuerier,
-  mergeBucketParameterQueriers,
   ParameterLookup,
   ParameterLookupSource,
   PendingQueriers
 } from './BucketParameterQuerier.js';
+import {
+  BucketParameterLookupSource,
+  BucketParameterLookupSourceDefinition,
+  BucketParameterQuerierSource,
+  BucketParameterQuerierSourceDefinition,
+  CreateSourceParams
+} from './BucketSource.js';
 import { SqlRuleError } from './errors.js';
+import { GetQuerierOptions } from './index.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
-import { checkUnsupportedFeatures, isClauseError, isParameterValueClause } from './sql_support.js';
+import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
 import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
 import { TablePattern } from './TablePattern.js';
 import { TableQuerySchema } from './TableQuerySchema.js';
@@ -37,15 +44,6 @@ import {
 } from './types.js';
 import { filterJsonRow, getBucketId, isJsonValue, isSelectStatement, normalizeParameterValue } from './utils.js';
 import { DetectRequestParameters } from './validators.js';
-import {
-  BucketParameterLookupSource,
-  BucketParameterLookupSourceDefinition,
-  BucketParameterQuerierSource,
-  BucketParameterQuerierSourceDefinition,
-  BucketSourceType,
-  CreateSourceParams
-} from './BucketSource.js';
-import { GetQuerierOptions } from './index.js';
 
 export interface SqlParameterQueryOptions {
   sourceTable: TablePattern;

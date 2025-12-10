@@ -3,7 +3,6 @@ import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY, ResolvedBuc
 import {
   BucketParameterQuerierSource,
   BucketParameterQuerierSourceDefinition,
-  BucketSourceType,
   CreateSourceParams
 } from './BucketSource.js';
 import { SqlRuleError } from './errors.js';

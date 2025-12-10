@@ -1,6 +1,6 @@
 import { BaseSqlDataQuery } from '../BaseSqlDataQuery.js';
 import { BucketInclusionReason, BucketPriority, DEFAULT_BUCKET_PRIORITY } from '../BucketDescription.js';
-import { BucketParameterQuerier, mergeBucketParameterQueriers, PendingQueriers } from '../BucketParameterQuerier.js';
+import { BucketParameterQuerier, PendingQueriers } from '../BucketParameterQuerier.js';
 import {
   BucketDataSource,
   BucketDataSourceDefinition,
