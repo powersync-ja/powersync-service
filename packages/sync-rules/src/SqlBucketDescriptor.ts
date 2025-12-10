@@ -3,10 +3,7 @@ import {
   BucketDataSourceDefinition,
   BucketSource,
   BucketSourceType,
-  CreateSourceParams,
-  DebugMergedSource,
-  mergeParameterLookupSources,
-  mergeParameterQuerierSources
+  CreateSourceParams
 } from './BucketSource.js';
 import { ColumnDefinition } from './ExpressionType.js';
 import { IdSequence } from './IdSequence.js';
@@ -30,11 +27,13 @@ export interface QueryParseResult {
   errors: SqlRuleError[];
 }
 
-export class SqlBucketDescriptor implements BucketDataSourceDefinition, BucketSource {
+export class SqlBucketDescriptor implements BucketSource {
   name: string;
   private bucketParametersInternal: string[] | null = null;
 
   public readonly subscribedToByDefault: boolean = true;
+
+  private readonly dataSource = new BucketDefinitionDataSource(this);
 
   /**
    * source table -> queries
@@ -58,7 +57,7 @@ export class SqlBucketDescriptor implements BucketDataSourceDefinition, BucketSo
   }
 
   get dataSources() {
-    return [this];
+    return [this.dataSource];
   }
 
   get parameterLookupSources() {
@@ -107,62 +106,6 @@ export class SqlBucketDescriptor implements BucketDataSourceDefinition, BucketSo
     };
   }
 
-  createDataSource(params: CreateSourceParams): BucketDataSource {
-    return {
-      evaluateRow: (options) => {
-        let results: EvaluationResult[] = [];
-        for (let query of this.dataQueries) {
-          if (!query.applies(options.sourceTable)) {
-            continue;
-          }
-
-          results.push(...query.evaluateRow(options.sourceTable, options.record, params.bucketIdTransformer));
-        }
-        return results;
-      }
-    };
-  }
-
-  getSourceTables(): Set<TablePattern> {
-    let result = new Set<TablePattern>();
-    for (let query of this.parameterQueries) {
-      result.add(query.sourceTable);
-    }
-    for (let query of this.dataQueries) {
-      result.add(query.sourceTable);
-    }
-
-    // Note: No physical tables for global_parameter_queries
-
-    return result;
-  }
-
-  tableSyncsData(table: SourceTableInterface): boolean {
-    for (let query of this.dataQueries) {
-      if (query.applies(table)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  resolveResultSets(schema: SourceSchema, tables: Record<string, Record<string, ColumnDefinition>>) {
-    for (let query of this.dataQueries) {
-      query.resolveResultSets(schema, tables);
-    }
-  }
-
-  debugWriteOutputTables(result: Record<string, { query: string }[]>): void {
-    for (let q of this.dataQueries) {
-      result[q.table!.sqlName] ??= [];
-      const r = {
-        query: q.sql
-      };
-
-      result[q.table!.sqlName].push(r);
-    }
-  }
-
   debugRepresentation() {
     let all_parameter_queries = [...this.parameterQueries.values()].flat();
     let all_data_queries = [...this.dataQueries.values()].flat();
@@ -190,5 +133,66 @@ export class SqlBucketDescriptor implements BucketDataSourceDefinition, BucketSo
         };
       })
     };
+  }
+}
+
+export class BucketDefinitionDataSource implements BucketDataSourceDefinition {
+  constructor(private descriptor: SqlBucketDescriptor) {}
+
+  /**
+   * For debug use only.
+   */
+  get bucketParameters() {
+    return this.descriptor.bucketParameters;
+  }
+
+  createDataSource(params: CreateSourceParams): BucketDataSource {
+    return {
+      evaluateRow: (options) => {
+        let results: EvaluationResult[] = [];
+        for (let query of this.descriptor.dataQueries) {
+          if (!query.applies(options.sourceTable)) {
+            continue;
+          }
+
+          results.push(...query.evaluateRow(options.sourceTable, options.record, params.bucketIdTransformer));
+        }
+        return results;
+      }
+    };
+  }
+
+  getSourceTables(): Set<TablePattern> {
+    let result = new Set<TablePattern>();
+    for (let query of this.descriptor.dataQueries) {
+      result.add(query.sourceTable);
+    }
+    return result;
+  }
+
+  tableSyncsData(table: SourceTableInterface): boolean {
+    for (let query of this.descriptor.dataQueries) {
+      if (query.applies(table)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  resolveResultSets(schema: SourceSchema, tables: Record<string, Record<string, ColumnDefinition>>) {
+    for (let query of this.descriptor.dataQueries) {
+      query.resolveResultSets(schema, tables);
+    }
+  }
+
+  debugWriteOutputTables(result: Record<string, { query: string }[]>): void {
+    for (let q of this.descriptor.dataQueries) {
+      result[q.table!.sqlName] ??= [];
+      const r = {
+        query: q.sql
+      };
+
+      result[q.table!.sqlName].push(r);
+    }
   }
 }

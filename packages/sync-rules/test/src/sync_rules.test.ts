@@ -34,7 +34,7 @@ bucket_definitions:
       PARSE_OPTIONS
     );
     const hydrated = rules.hydrate({ bucketIdTransformer });
-    const bucket = rules.bucketDataSources[0] as SqlBucketDescriptor;
+    const bucket = rules.bucketSources[0] as SqlBucketDescriptor;
     expect(bucket.name).toEqual('mybucket');
     expect(bucket.bucketParameters).toEqual([]);
     const dataQuery = bucket.dataQueries[0];
