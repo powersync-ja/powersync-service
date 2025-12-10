@@ -161,9 +161,6 @@ export class StaticSqlParameterQuery implements BucketParameterQuerierSourceDefi
    */
   readonly filter: ParameterValueClause | undefined;
 
-  readonly subscribedToByDefault = true;
-  readonly type = BucketSourceType.SYNC_RULE;
-
   readonly errors: SqlRuleError[];
 
   constructor(options: StaticSqlParameterQueryOptions) {
@@ -175,10 +172,6 @@ export class StaticSqlParameterQuery implements BucketParameterQuerierSourceDefi
     this.queryId = options.queryId;
     this.filter = options.filter;
     this.errors = options.errors ?? [];
-  }
-
-  get name() {
-    return this.descriptorName;
   }
 
   getSourceTables() {
@@ -200,7 +193,7 @@ export class StaticSqlParameterQuery implements BucketParameterQuerierSourceDefi
         ).map((desc) => {
           return {
             ...desc,
-            definition: this.name,
+            definition: this.descriptorName,
             inclusion_reasons: ['default']
           } satisfies ResolvedBucket;
         });

@@ -299,10 +299,6 @@ export class SqlParameterQuery
   readonly queryId: string;
   readonly tools: SqlTools;
 
-  readonly type: BucketSourceType = BucketSourceType.SYNC_RULE;
-
-  readonly subscribedToByDefault: boolean = true;
-
   readonly errors: SqlRuleError[];
 
   constructor(options: SqlParameterQueryOptions) {
@@ -324,10 +320,6 @@ export class SqlParameterQuery
 
   tableSyncsParameters(table: SourceTableInterface): boolean {
     return this.sourceTable.matches(table);
-  }
-
-  get name(): string {
-    return this.descriptorName;
   }
 
   getSourceTables(): Set<TablePattern> {

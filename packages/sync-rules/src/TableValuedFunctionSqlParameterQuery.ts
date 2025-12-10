@@ -200,9 +200,6 @@ export class TableValuedFunctionSqlParameterQuery implements BucketParameterQuer
 
   readonly errors: SqlRuleError[];
 
-  readonly subscribedToByDefault = true;
-  readonly type = BucketSourceType.SYNC_RULE;
-
   constructor(options: TableValuedFunctionSqlParameterQueryOptions) {
     this.sql = options.sql;
     this.parameterExtractors = options.parameterExtractors;
@@ -217,10 +214,6 @@ export class TableValuedFunctionSqlParameterQuery implements BucketParameterQuer
     this.callTable = options.callTable;
 
     this.errors = options.errors;
-  }
-
-  get name() {
-    return this.descriptorName;
   }
 
   getSourceTables() {
@@ -242,7 +235,7 @@ export class TableValuedFunctionSqlParameterQuery implements BucketParameterQuer
         ).map((desc) => {
           return {
             ...desc,
-            definition: this.name,
+            definition: this.descriptorName,
             inclusion_reasons: ['default']
           } satisfies ResolvedBucket;
         });
