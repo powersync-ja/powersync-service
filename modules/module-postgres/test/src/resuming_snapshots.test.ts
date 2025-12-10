@@ -89,16 +89,16 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
 
   // This delete should be using one of the ids already replicated
   const {
-    rows: [[id1]]
+    rows: [delete1]
   } = await context2.pool.query(`DELETE FROM test_data2 WHERE id = (SELECT id FROM test_data2 LIMIT 1) RETURNING id`);
   // This update should also be using one of the ids already replicated
   const {
-    rows: [[id2]]
+    rows: [delete2]
   } = await context2.pool.query(
     `UPDATE test_data2 SET description = 'update1' WHERE id = (SELECT id FROM test_data2 LIMIT 1) RETURNING id`
   );
   const {
-    rows: [[id3]]
+    rows: [delete3]
   } = await context2.pool.query(`INSERT INTO test_data2(description) SELECT 'insert1' RETURNING id`);
 
   await context2.loadNextSyncRules();
@@ -107,9 +107,15 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
   context2.startStreaming();
   const data = await context2.getBucketData('global[]', undefined, {});
 
-  const deletedRowOps = data.filter((row) => row.object_type == 'test_data2' && row.object_id === String(id1));
-  const updatedRowOps = data.filter((row) => row.object_type == 'test_data2' && row.object_id === String(id2));
-  const insertedRowOps = data.filter((row) => row.object_type == 'test_data2' && row.object_id === String(id3));
+  const deletedRowOps = data.filter(
+    (row) => row.object_type == 'test_data2' && row.object_id === String(delete1.decodeWithoutCustomTypes(0))
+  );
+  const updatedRowOps = data.filter(
+    (row) => row.object_type == 'test_data2' && row.object_id === String(delete2.decodeWithoutCustomTypes(0))
+  );
+  const insertedRowOps = data.filter(
+    (row) => row.object_type == 'test_data2' && row.object_id === String(delete3.decodeWithoutCustomTypes(0))
+  );
 
   if (deletedRowOps.length != 0) {
     // The deleted row was part of the first replication batch,

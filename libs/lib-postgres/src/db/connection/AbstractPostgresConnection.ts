@@ -84,7 +84,7 @@ export abstract class AbstractPostgresConnection<Listener = {}> extends framewor
       yield chunk.rows.map((row) => {
         let q: Partial<T> = {};
         for (const [index, c] of columns.entries()) {
-          q[c.name as keyof T] = pgwire.PgType.decode(row.raw[index], c.typeOid) as any;
+          q[c.name as keyof T] = row.decodeWithoutCustomTypes(index);
         }
         return q as T;
       });

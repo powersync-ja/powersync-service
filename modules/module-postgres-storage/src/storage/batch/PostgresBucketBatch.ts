@@ -197,12 +197,6 @@ export class PostgresBucketBatch
           lastBatchCount += rows.length;
           processedCount += rows.length;
 
-          try {
-            rows.map((row) => codec.decode(row));
-          } catch (e) {
-            debugger;
-          }
-
           const decodedRows = rows.map((row) => codec.decode(row));
           for (const value of decodedRows) {
             persistedBatch.saveBucketData({
