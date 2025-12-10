@@ -225,8 +225,6 @@ export class TableValuedFunctionSqlParameterQuery implements BucketParameterQuer
 
   createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
     return {
-      definition: this,
-
       pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {
         const staticBuckets = this.getStaticBucketDescriptions(
           options.globalParameters,

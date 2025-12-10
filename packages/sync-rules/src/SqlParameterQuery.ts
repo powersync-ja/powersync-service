@@ -326,8 +326,6 @@ export class SqlParameterQuery
 
   createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
     return {
-      definition: this,
-
       pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {
         const q = this.getBucketParameterQuerier(options.globalParameters, ['default'], params.bucketIdTransformer);
         result.queriers.push(q);
@@ -337,8 +335,6 @@ export class SqlParameterQuery
 
   createParameterLookupSource(params: CreateSourceParams): BucketParameterLookupSource {
     return {
-      definition: this,
-
       evaluateParameterRow: (sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[] => {
         if (this.tableSyncsParameters(sourceTable)) {
           return this.evaluateParameterRow(row);

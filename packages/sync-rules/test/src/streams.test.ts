@@ -4,6 +4,7 @@ import {
   BucketParameterQuerier,
   CompatibilityContext,
   CompatibilityEdition,
+  debugHydratedMergedSource,
   DEFAULT_TAG,
   GetBucketParameterQuerierResult,
   GetQuerierOptions,
@@ -71,16 +72,15 @@ describe('streams', () => {
 
   test('legacy token parameter', async () => {
     const desc = parseStream(`SELECT * FROM issues WHERE owner_id = auth.parameter('$.parameters.test')`);
+    const source = debugHydratedMergedSource(desc, { bucketIdTransformer });
 
     const queriers: BucketParameterQuerier[] = [];
     const errors: QuerierError[] = [];
     const pending = { queriers, errors };
-    desc.parameterQuerierSources[0]
-      .createParameterQuerierSource({ bucketIdTransformer })
-      .pushBucketParameterQueriers(
-        pending,
-        normalizeQuerierOptions({ test: 'foo' }, {}, { stream: [{ opaque_id: 0, parameters: null }] })
-      );
+    source.pushBucketParameterQueriers(
+      pending,
+      normalizeQuerierOptions({ test: 'foo' }, {}, { stream: [{ opaque_id: 0, parameters: null }] })
+    );
 
     expect(mergeBucketParameterQueriers(queriers).staticBuckets).toEqual([
       {
@@ -222,9 +222,10 @@ describe('streams', () => {
       ]);
 
       expect(
-        desc.parameterLookupSources[0]
-          .createParameterLookupSource({ bucketIdTransformer })
-          .evaluateParameterRow(ISSUES, { id: 'i1', owner_id: 'u1' })
+        debugHydratedMergedSource(desc, { bucketIdTransformer }).evaluateParameterRow(ISSUES, {
+          id: 'i1',
+          owner_id: 'u1'
+        })
       ).toStrictEqual([
         {
           lookup: ParameterLookup.normalized('stream', '0', ['u1']),
@@ -350,11 +351,9 @@ describe('streams', () => {
         '1#stream|1["a"]'
       ]);
 
-      expect(
-        desc.parameterLookupSources[0]
-          .createParameterLookupSource({ bucketIdTransformer })
-          .evaluateParameterRow(FRIENDS, { user_a: 'a', user_b: 'b' })
-      ).toStrictEqual([
+      const source = debugHydratedMergedSource(desc, { bucketIdTransformer });
+
+      expect(source.evaluateParameterRow(FRIENDS, { user_a: 'a', user_b: 'b' })).toStrictEqual([
         {
           lookup: ParameterLookup.normalized('stream', '0', ['b']),
           bucketParameters: [
@@ -937,20 +936,15 @@ const options: StreamParseOptions = {
 const bucketIdTransformer = SqlSyncRules.versionedBucketIdTransformer('1');
 
 function evaluateBucketIds(stream: SyncStream, sourceTable: SourceTableInterface, record: SqliteRow) {
-  return stream.dataSources
-    .map((s) =>
-      s
-        .createDataSource({ bucketIdTransformer })
-        .evaluateRow({ sourceTable, record })
-        .map((r) => {
-          if ('error' in r) {
-            throw new Error(`Unexpected error evaluating row: ${r.error}`);
-          }
+  return debugHydratedMergedSource(stream, { bucketIdTransformer })
+    .evaluateRow({ sourceTable, record })
+    .map((r) => {
+      if ('error' in r) {
+        throw new Error(`Unexpected error evaluating row: ${r.error}`);
+      }
 
-          return r.bucket;
-        })
-    )
-    .flat();
+      return r.bucket;
+    });
 }
 
 async function createQueriers(

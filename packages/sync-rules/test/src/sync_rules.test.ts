@@ -107,7 +107,6 @@ bucket_definitions:
       PARSE_OPTIONS
     );
     const hydrated = rules.hydrate({ bucketIdTransformer });
-    const parameterLookupSource = rules.bucketParameterLookupSources[0];
     expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 1 })).toEqual([
       {
         bucketParameters: [{}],

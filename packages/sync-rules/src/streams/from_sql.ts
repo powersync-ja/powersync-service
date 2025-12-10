@@ -100,14 +100,13 @@ class SyncStreamCompiler {
     let filter = this.whereClauseToFilters(tools, query.where);
     filter = filter.toDisjunctiveNormalForm(tools);
 
+    const variants = filter.isValid(tools) ? filter.compileVariants(this.descriptorName) : [];
     const stream = new SyncStream(
       this.descriptorName,
-      new BaseSqlDataQuery(this.compileDataQuery(tools, query, alias, sourceTable))
+      new BaseSqlDataQuery(this.compileDataQuery(tools, query, alias, sourceTable)),
+      variants
     );
     stream.subscribedToByDefault = this.options.auto_subscribe ?? false;
-    if (filter.isValid(tools)) {
-      stream.variants = filter.compileVariants(this.descriptorName);
-    }
 
     this.errors.push(...tools.errors);
     if (this.parameterDetector.usesStreamParameters && stream.subscribedToByDefault) {

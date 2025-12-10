@@ -399,10 +399,8 @@ export class SqlSyncRules {
       : (id: string) => id;
     return new HydratedSyncRules({
       definition: this,
+      createParams: { bucketIdTransformer },
       bucketDataSources: this.bucketDataSources.map((d) => d.createDataSource({ bucketIdTransformer })),
-      bucketParameterQuerierSources: this.bucketParameterQuerierSources.map((d) =>
-        d.createParameterQuerierSource({ bucketIdTransformer })
-      ),
       bucketParameterLookupSources: this.bucketParameterLookupSources.map((d) =>
         d.createParameterLookupSource({ bucketIdTransformer })
       ),

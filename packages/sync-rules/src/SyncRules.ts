@@ -3,6 +3,7 @@ import {
   BucketParameterLookupSource,
   BucketParameterQuerierSource,
   BucketParameterQuerierSourceDefinition,
+  CreateSourceParams,
   HydratedBucketSource
 } from './BucketSource.js';
 import {
@@ -33,7 +34,6 @@ import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, Sqlite
 export class HydratedSyncRules {
   bucketSources: HydratedBucketSource[] = [];
   bucketDataSources: BucketDataSource[];
-  bucketParameterQuerierSources: BucketParameterQuerierSource[];
   bucketParameterLookupSources: BucketParameterLookupSource[];
 
   eventDescriptors: SqlEventDescriptor[] = [];
@@ -43,14 +43,13 @@ export class HydratedSyncRules {
 
   constructor(params: {
     definition: SqlSyncRules;
+    createParams: CreateSourceParams;
     bucketDataSources: BucketDataSource[];
-    bucketParameterQuerierSources: BucketParameterQuerierSource[];
     bucketParameterLookupSources: BucketParameterLookupSource[];
     eventDescriptors?: SqlEventDescriptor[];
     compatibility?: CompatibilityContext;
   }) {
     this.bucketDataSources = params.bucketDataSources;
-    this.bucketParameterQuerierSources = params.bucketParameterQuerierSources;
     this.bucketParameterLookupSources = params.bucketParameterLookupSources;
     this.definition = params.definition;
 
@@ -61,20 +60,12 @@ export class HydratedSyncRules {
       this.compatibility = params.compatibility;
     }
 
-    let querierMap = new Map<BucketParameterQuerierSourceDefinition, HydratedBucketSource>();
     for (let definition of this.definition.bucketSources) {
       const hydratedBucketSource: HydratedBucketSource = { definition: definition, parameterQuerierSources: [] };
       this.bucketSources.push(hydratedBucketSource);
       for (let querier of definition.parameterQuerierSources) {
-        querierMap.set(querier, hydratedBucketSource);
+        hydratedBucketSource.parameterQuerierSources.push(querier.createParameterQuerierSource(params.createParams));
       }
-    }
-    for (let querier of params.bucketParameterQuerierSources) {
-      const bucketSource = querierMap.get(querier.definition);
-      if (bucketSource == null) {
-        throw new Error('Cannot find BucketSource for BucketParameterQuerierSource');
-      }
-      bucketSource.parameterQuerierSources.push(querier);
     }
   }
 

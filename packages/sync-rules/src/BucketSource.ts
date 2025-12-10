@@ -16,6 +16,12 @@ export interface CreateSourceParams {
   bucketIdTransformer: BucketIdTransformer;
 }
 
+/**
+ * A BucketSource is a _logical_ bucket or sync stream definition. It is primarily used to group together
+ * related BucketDataSource, BucketParameterLookupSource and BucketParameterQuerierSource definitions,
+ * for the purpose of subscribing to specific streams. It does not directly define the implementation
+ * or replication process.
+ */
 export interface BucketSource {
   readonly name: string;
   readonly type: BucketSourceType;
@@ -116,8 +122,6 @@ export interface BucketParameterQuerierSourceDefinition {
  * definitions that only consist of a single query.
  */
 export interface BucketDataSource {
-  readonly definition: BucketDataSourceDefinition;
-
   /**
    * Given a row as it appears in a table that affects sync data, return buckets, logical table names and transformed
    * data for rows to add to buckets.
@@ -126,7 +130,6 @@ export interface BucketDataSource {
 }
 
 export interface BucketParameterLookupSource {
-  readonly definition: BucketParameterLookupSourceDefinition;
   /**
    * Given a row in a source table that affects sync parameters, returns a structure to index which buckets rows should
    * be associated with.
@@ -138,8 +141,6 @@ export interface BucketParameterLookupSource {
 }
 
 export interface BucketParameterQuerierSource {
-  readonly definition: BucketParameterQuerierSourceDefinition;
-
   /**
    * Reports {@link BucketParameterQuerier}s resolving buckets that a specific stream request should have access to.
    *
@@ -149,9 +150,70 @@ export interface BucketParameterQuerierSource {
   pushBucketParameterQueriers(result: PendingQueriers, options: GetQuerierOptions): void;
 }
 
+export interface DebugMergedSource
+  extends BucketDataSource,
+    BucketParameterLookupSource,
+    BucketParameterQuerierSource {}
+
 export enum BucketSourceType {
   SYNC_RULE,
   SYNC_STREAM
 }
 
 export type ResultSetDescription = { name: string; columns: ColumnDefinition[] };
+
+export function mergeDataSources(sources: BucketDataSource[]): BucketDataSource {
+  return {
+    evaluateRow(options: EvaluateRowOptions): EvaluationResult[] {
+      let results: EvaluationResult[] = [];
+      for (let source of sources) {
+        results.push(...source.evaluateRow(options));
+      }
+      return results;
+    }
+  };
+}
+
+export function mergeParameterLookupSources(sources: BucketParameterLookupSource[]): BucketParameterLookupSource {
+  return {
+    evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[] {
+      let results: EvaluatedParametersResult[] = [];
+      for (let source of sources) {
+        results.push(...source.evaluateParameterRow(sourceTable, row));
+      }
+      return results;
+    }
+  };
+}
+
+export function mergeParameterQuerierSources(sources: BucketParameterQuerierSource[]): BucketParameterQuerierSource {
+  return {
+    pushBucketParameterQueriers(result: PendingQueriers, options: GetQuerierOptions): void {
+      for (let source of sources) {
+        source.pushBucketParameterQueriers(result, options);
+      }
+    }
+  };
+}
+
+/**
+ * For production purposes, we typically need to operate on the different sources separately. However, for debugging,
+ * it is useful to have a single merged source that can evaluate everything.
+ */
+export function debugHydratedMergedSource(bucketSource: BucketSource, params?: CreateSourceParams): DebugMergedSource {
+  const resolvedParams = params ?? { bucketIdTransformer: (id: string) => id };
+  const dataSource = mergeDataSources(
+    bucketSource.dataSources.map((source) => source.createDataSource(resolvedParams))
+  );
+  const parameterLookupSource = mergeParameterLookupSources(
+    bucketSource.parameterLookupSources.map((source) => source.createParameterLookupSource(resolvedParams))
+  );
+  const parameterQuerierSource = mergeParameterQuerierSources(
+    bucketSource.parameterQuerierSources.map((source) => source.createParameterQuerierSource(resolvedParams))
+  );
+  return {
+    evaluateParameterRow: parameterLookupSource.evaluateParameterRow.bind(parameterLookupSource),
+    evaluateRow: dataSource.evaluateRow.bind(dataSource),
+    pushBucketParameterQueriers: parameterQuerierSource.pushBucketParameterQueriers.bind(parameterQuerierSource)
+  };
+}

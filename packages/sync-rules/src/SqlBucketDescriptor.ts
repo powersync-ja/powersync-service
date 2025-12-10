@@ -3,7 +3,10 @@ import {
   BucketDataSourceDefinition,
   BucketSource,
   BucketSourceType,
-  CreateSourceParams
+  CreateSourceParams,
+  DebugMergedSource,
+  mergeParameterLookupSources,
+  mergeParameterQuerierSources
 } from './BucketSource.js';
 import { ColumnDefinition } from './ExpressionType.js';
 import { IdSequence } from './IdSequence.js';
@@ -106,7 +109,6 @@ export class SqlBucketDescriptor implements BucketDataSourceDefinition, BucketSo
 
   createDataSource(params: CreateSourceParams): BucketDataSource {
     return {
-      definition: this,
       evaluateRow: (options) => {
         let results: EvaluationResult[] = [];
         for (let query of this.dataQueries) {

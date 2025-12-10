@@ -1,6 +1,6 @@
 import { BaseSqlDataQuery } from '../BaseSqlDataQuery.js';
 import { BucketInclusionReason, BucketPriority, DEFAULT_BUCKET_PRIORITY } from '../BucketDescription.js';
-import { BucketParameterQuerier, PendingQueriers } from '../BucketParameterQuerier.js';
+import { PendingQueriers } from '../BucketParameterQuerier.js';
 import {
   BucketDataSource,
   BucketDataSourceDefinition,
@@ -38,16 +38,16 @@ export class SyncStream implements BucketSource {
   public readonly parameterLookupSources: BucketParameterLookupSourceDefinition[];
   public readonly parameterQuerierSources: BucketParameterQuerierSourceDefinition[];
 
-  constructor(name: string, data: BaseSqlDataQuery) {
+  constructor(name: string, data: BaseSqlDataQuery, variants: StreamVariant[]) {
     this.name = name;
     this.subscribedToByDefault = false;
     this.priority = DEFAULT_BUCKET_PRIORITY;
-    this.variants = [];
+    this.variants = variants;
     this.data = data;
 
-    this.dataSources = [new SyncStreamDataSource(this, data)];
-    this.parameterQuerierSources = [new SyncStreamParameterQuerierSource(this)];
-    this.parameterLookupSources = [new SyncStreamParameterLookupSource(this)];
+    this.dataSources = variants.map((variant) => new SyncStreamDataSource(this, data, variant));
+    this.parameterQuerierSources = variants.map((variant) => new SyncStreamParameterQuerierSource(this, variant));
+    this.parameterLookupSources = variants.map((variant) => new SyncStreamParameterLookupSource(this, variant));
   }
 
   public get type(): BucketSourceType {
@@ -58,13 +58,15 @@ export class SyncStream implements BucketSource {
 export class SyncStreamDataSource implements BucketDataSourceDefinition {
   constructor(
     private stream: SyncStream,
-    private data: BaseSqlDataQuery
+    private data: BaseSqlDataQuery,
+    private variant: StreamVariant
   ) {}
 
+  /**
+   * Not relevant for sync streams.
+   */
   get bucketParameters() {
-    // FIXME: check whether this is correct.
-    // Could there be multiple variants with different bucket parameters?
-    return this.data.bucketParameters;
+    return [];
   }
 
   getSourceTables(): Set<TablePattern> {
@@ -102,8 +104,6 @@ export class SyncStreamDataSource implements BucketDataSourceDefinition {
 
   createDataSource(params: CreateSourceParams): BucketDataSource {
     return {
-      definition: this,
-
       evaluateRow: (options: EvaluateRowOptions): EvaluationResult[] => {
         if (!this.data.applies(options.sourceTable)) {
           return [];
@@ -115,16 +115,14 @@ export class SyncStreamDataSource implements BucketDataSourceDefinition {
           record: options.record
         };
 
+        // There is some duplication in work here when there are multiple variants on a stream:
+        // Each variant does the same row transformation (only the filters / bucket ids differ).
+        // However, architecturally we do need to be able to evaluate each variant separately.
         return this.data.evaluateRowWithOptions({
           table: options.sourceTable,
           row: options.record,
-          bucketIds() {
-            const bucketIds: string[] = [];
-            for (const variant of stream.variants) {
-              bucketIds.push(...variant.bucketIdsForRow(stream.name, row, params.bucketIdTransformer));
-            }
-
-            return bucketIds;
+          bucketIds: () => {
+            return this.variant.bucketIdsForRow(stream.name, row, params.bucketIdTransformer);
           }
         });
       }
@@ -135,19 +133,21 @@ export class SyncStreamDataSource implements BucketDataSourceDefinition {
 export class SyncStreamParameterQuerierSource implements BucketParameterQuerierSourceDefinition {
   // We could eventually split this into a separate source per variant.
 
-  constructor(private stream: SyncStream) {}
+  constructor(
+    private stream: SyncStream,
+    private variant: StreamVariant
+  ) {}
 
-  get bucketParameters(): string[] {
-    // FIXME: check whether this is correct.
-    // Could there be multiple variants with different bucket parameters?
-    return this.stream.data.bucketParameters;
+  /**
+   * Not relevant for sync streams.
+   */
+  get bucketParameters() {
+    return [];
   }
 
   createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
     const stream = this.stream;
     return {
-      definition: this,
-
       pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions): void => {
         const subscriptions = options.streams[stream.name] ?? [];
 
@@ -184,17 +184,12 @@ export class SyncStreamParameterQuerierSource implements BucketParameterQuerierS
     bucketIdTransformer: BucketIdTransformer
   ) {
     const reason: BucketInclusionReason = subscription != null ? { subscription: subscription.opaque_id } : 'default';
-    const queriers: BucketParameterQuerier[] = [];
 
     try {
-      for (const variant of this.stream.variants) {
-        const querier = variant.querier(this.stream, reason, params, bucketIdTransformer);
-        if (querier) {
-          queriers.push(querier);
-        }
+      const querier = this.variant.querier(this.stream, reason, params, bucketIdTransformer);
+      if (querier) {
+        result.queriers.push(querier);
       }
-
-      result.queriers.push(...queriers);
     } catch (e) {
       result.errors.push({
         descriptor: this.stream.name,
@@ -206,16 +201,15 @@ export class SyncStreamParameterQuerierSource implements BucketParameterQuerierS
 }
 
 export class SyncStreamParameterLookupSource implements BucketParameterLookupSourceDefinition {
-  // We could eventually split this into a separate source per variant.
-
-  constructor(private stream: SyncStream) {}
+  constructor(
+    private stream: SyncStream,
+    private variant: StreamVariant
+  ) {}
 
   getSourceTables(): Set<TablePattern> {
     let result = new Set<TablePattern>();
-    for (let variant of this.stream.variants) {
-      for (const subquery of variant.subqueries) {
-        result.add(subquery.parameterTable);
-      }
+    for (const subquery of this.variant.subqueries) {
+      result.add(subquery.parameterTable);
     }
 
     return result;
@@ -223,26 +217,18 @@ export class SyncStreamParameterLookupSource implements BucketParameterLookupSou
 
   createParameterLookupSource(params: CreateSourceParams): BucketParameterLookupSource {
     return {
-      definition: this,
-
       evaluateParameterRow: (sourceTable, row) => {
         const result: EvaluatedParametersResult[] = [];
-
-        for (const variant of this.stream.variants) {
-          variant.pushParameterRowEvaluation(result, sourceTable, row);
-        }
-
+        this.variant.pushParameterRowEvaluation(result, sourceTable, row);
         return result;
       }
     };
   }
 
   tableSyncsParameters(table: SourceTableInterface): boolean {
-    for (const variant of this.stream.variants) {
-      for (const subquery of variant.subqueries) {
-        if (subquery.parameterTable.matches(table)) {
-          return true;
-        }
+    for (const subquery of this.variant.subqueries) {
+      if (subquery.parameterTable.matches(table)) {
+        return true;
       }
     }
 

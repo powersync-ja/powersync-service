@@ -180,8 +180,6 @@ export class StaticSqlParameterQuery implements BucketParameterQuerierSourceDefi
 
   createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
     return {
-      definition: this,
-
       pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {
         const staticBuckets = this.getStaticBucketDescriptions(
           options.globalParameters,

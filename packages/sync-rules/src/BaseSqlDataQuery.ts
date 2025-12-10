@@ -182,6 +182,10 @@ export class BaseSqlDataQuery {
 
       const tables = { [this.table.nameInSchema]: this.addSpecialParameters(table, row) };
       const resolvedBucketIds = bucketIds(tables);
+      if (resolvedBucketIds.length == 0) {
+        // Short-circuit: No need to transform the row if there are no matching buckets.
+        return [];
+      }
 
       const data = this.transformRow(tables);
       let id = data.id;
