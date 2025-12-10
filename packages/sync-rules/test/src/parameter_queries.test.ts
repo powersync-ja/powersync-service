@@ -2,8 +2,13 @@ import { describe, expect, test } from 'vitest';
 import { ParameterLookup, SqlParameterQuery } from '../../src/index.js';
 import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
 import { BASIC_SCHEMA, EMPTY_DATA_SOURCE, normalizeTokenParameters, PARSE_OPTIONS } from './util.js';
+import { ParameterLookupScope } from '../../src/HydrationState.js';
 
 describe('parameter queries', () => {
+  const MYBUCKET_1: ParameterLookupScope = {
+    lookupName: 'mybucket',
+    queryId: '1'
+  };
   test('token_parameters IN query', function () {
     const sql = 'SELECT id as group_id FROM groups WHERE token_parameters.user_id IN groups.user_ids';
     const query = SqlParameterQuery.fromSql(
@@ -14,9 +19,11 @@ describe('parameter queries', () => {
       EMPTY_DATA_SOURCE
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
-    expect(query.evaluateParameterRow({ id: 'group1', user_ids: JSON.stringify(['user1', 'user2']) })).toEqual([
+    expect(
+      query.evaluateParameterRow(MYBUCKET_1, { id: 'group1', user_ids: JSON.stringify(['user1', 'user2']) })
+    ).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', ['user1']),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, ['user1']),
         bucketParameters: [
           {
             group_id: 'group1'
@@ -24,7 +31,7 @@ describe('parameter queries', () => {
         ]
       },
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', ['user2']),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, ['user2']),
         bucketParameters: [
           {
             group_id: 'group1'
@@ -34,11 +41,12 @@ describe('parameter queries', () => {
     ]);
     expect(
       query.getLookups(
+        MYBUCKET_1,
         normalizeTokenParameters({
           user_id: 'user1'
         })
       )
-    ).toEqual([ParameterLookup.normalized('mybucket', '1', ['user1'])]);
+    ).toEqual([ParameterLookup.normalized(MYBUCKET_1, ['user1'])]);
   });
 
   test('IN token_parameters query', function () {
@@ -51,9 +59,9 @@ describe('parameter queries', () => {
       EMPTY_DATA_SOURCE
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
-    expect(query.evaluateParameterRow({ id: 'region1', name: 'colorado' })).toEqual([
+    expect(query.evaluateParameterRow(MYBUCKET_1, { id: 'region1', name: 'colorado' })).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', ['colorado']),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, ['colorado']),
         bucketParameters: [
           {
             region_id: 'region1'
@@ -63,13 +71,14 @@ describe('parameter queries', () => {
     ]);
     expect(
       query.getLookups(
+        MYBUCKET_1,
         normalizeTokenParameters({
           region_names: JSON.stringify(['colorado', 'texas'])
         })
       )
     ).toEqual([
-      ParameterLookup.normalized('mybucket', '1', ['colorado']),
-      ParameterLookup.normalized('mybucket', '1', ['texas'])
+      ParameterLookup.normalized(MYBUCKET_1, ['colorado']),
+      ParameterLookup.normalized(MYBUCKET_1, ['texas'])
     ]);
   });
 
@@ -85,9 +94,9 @@ describe('parameter queries', () => {
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
     // Note: We don't need to worry about numeric vs decimal types in the lookup - JSONB handles normalization for us.
-    expect(query.evaluateParameterRow({ int1: 314n, float1: 3.14, float2: 314 })).toEqual([
+    expect(query.evaluateParameterRow(MYBUCKET_1, { int1: 314n, float1: 3.14, float2: 314 })).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', [314n, 3.14, 314]),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, [314n, 3.14, 314]),
 
         bucketParameters: [{ int1: 314n, float1: 3.14, float2: 314 }]
       }
@@ -95,8 +104,8 @@ describe('parameter queries', () => {
 
     // Similarly, we don't need to worry about the types here.
     // This test just checks the current behavior.
-    expect(query.getLookups(normalizeTokenParameters({ int1: 314n, float1: 3.14, float2: 314 }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', [314n, 3.14, 314n])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ int1: 314n, float1: 3.14, float2: 314 }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, [314n, 3.14, 314n])
     ]);
 
     // We _do_ need to care about the bucket string representation.
@@ -128,16 +137,17 @@ describe('parameter queries', () => {
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateParameterRow({ id: 'test_id', filter_param: 'test_param' })).toEqual([
+    MYBUCKET_1;
+    expect(query.evaluateParameterRow(MYBUCKET_1, { id: 'test_id', filter_param: 'test_param' })).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', ['test_param']),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, ['test_param']),
 
         bucketParameters: [{ id: 'test_id' }]
       }
     ]);
 
-    expect(query.getLookups(normalizeTokenParameters({ user_id: 'test' }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', ['test'])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ user_id: 'test' }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, ['test'])
     ]);
   });
 
@@ -152,16 +162,16 @@ describe('parameter queries', () => {
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateParameterRow({ id: 'test_id', filter_param: 'test_param' })).toEqual([
+    expect(query.evaluateParameterRow(MYBUCKET_1, { id: 'test_id', filter_param: 'test_param' })).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', ['test_param']),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, ['test_param']),
 
         bucketParameters: [{ id: 'test_id' }]
       }
     ]);
 
-    expect(query.getLookups(normalizeTokenParameters({ user_id: 'test' }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', ['TEST'])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ user_id: 'test' }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, ['TEST'])
     ]);
   });
 
@@ -176,17 +186,17 @@ describe('parameter queries', () => {
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateParameterRow({ id: 'test_id', filter_param: 'test_param' })).toEqual([
+    expect(query.evaluateParameterRow(MYBUCKET_1, { id: 'test_id', filter_param: 'test_param' })).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', ['test_param']),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, ['test_param']),
 
         bucketParameters: [{ id: 'test_id' }]
       }
     ]);
 
-    expect(query.getLookups(normalizeTokenParameters({ some_param: { description: 'test_description' } }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', ['test_description'])
-    ]);
+    expect(
+      query.getLookups(MYBUCKET_1, normalizeTokenParameters({ some_param: { description: 'test_description' } }))
+    ).toEqual([ParameterLookup.normalized(MYBUCKET_1, ['test_description'])]);
   });
 
   test('token parameter and binary operator', () => {
@@ -200,8 +210,8 @@ describe('parameter queries', () => {
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
 
-    expect(query.getLookups(normalizeTokenParameters({ some_param: 3 }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', [5n])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ some_param: 3 }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, [5n])
     ]);
   });
 
@@ -216,11 +226,11 @@ describe('parameter queries', () => {
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
 
-    expect(query.getLookups(normalizeTokenParameters({ some_param: null }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', [1n])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ some_param: null }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, [1n])
     ]);
-    expect(query.getLookups(normalizeTokenParameters({ some_param: 'test' }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', [0n])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ some_param: 'test' }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, [0n])
     ]);
   });
 
@@ -235,18 +245,18 @@ describe('parameter queries', () => {
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
+    expect(query.evaluateParameterRow(MYBUCKET_1, { id: 'user1' })).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', [1n]),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, [1n]),
         bucketParameters: [{}]
       }
     ]);
 
-    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: null }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', [0n])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ user_id: 'user1', some_param: null }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, [0n])
     ]);
-    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: 123 }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', [1n])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ user_id: 'user1', some_param: 123 }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, [1n])
     ]);
   });
 
@@ -261,18 +271,18 @@ describe('parameter queries', () => {
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
+    expect(query.evaluateParameterRow(MYBUCKET_1, { id: 'user1' })).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', [1n]),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, [1n]),
         bucketParameters: [{}]
       }
     ]);
 
-    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: null }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', [1n])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ user_id: 'user1', some_param: null }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, [1n])
     ]);
-    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: 123 }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', [0n])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ user_id: 'user1', some_param: 123 }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, [0n])
     ]);
   });
 
@@ -287,18 +297,18 @@ describe('parameter queries', () => {
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
+    expect(query.evaluateParameterRow(MYBUCKET_1, { id: 'user1' })).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', [1n]),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, [1n]),
         bucketParameters: [{}]
       }
     ]);
 
-    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: null }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', [0n])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ user_id: 'user1', some_param: null }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, [0n])
     ]);
-    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: 123 }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', [1n])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ user_id: 'user1', some_param: 123 }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, [1n])
     ]);
   });
 
@@ -313,18 +323,18 @@ describe('parameter queries', () => {
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
+    expect(query.evaluateParameterRow(MYBUCKET_1, { id: 'user1' })).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', [1n]),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, [1n]),
         bucketParameters: [{}]
       }
     ]);
 
-    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', is_admin: false }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', [1n])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ user_id: 'user1', is_admin: false }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, [1n])
     ]);
-    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', is_admin: 123 }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', [0n])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ user_id: 'user1', is_admin: 123 }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, [0n])
     ]);
   });
 
@@ -339,18 +349,18 @@ describe('parameter queries', () => {
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
+    expect(query.evaluateParameterRow(MYBUCKET_1, { id: 'user1' })).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', ['user1', 1n]),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, ['user1', 1n]),
         bucketParameters: [{}]
       }
     ]);
 
-    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: null }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', ['user1', 1n])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ user_id: 'user1', some_param: null }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, ['user1', 1n])
     ]);
-    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: 123 }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', ['user1', 0n])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ user_id: 'user1', some_param: 123 }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, ['user1', 0n])
     ]);
   });
 
@@ -365,18 +375,18 @@ describe('parameter queries', () => {
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
+    expect(query.evaluateParameterRow(MYBUCKET_1, { id: 'user1' })).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', ['user1', 1n]),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, ['user1', 1n]),
         bucketParameters: [{}]
       }
     ]);
 
-    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: 123 }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', ['user1', 1n])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ user_id: 'user1', some_param: 123 }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, ['user1', 1n])
     ]);
-    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', some_param: null }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', ['user1', 0n])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ user_id: 'user1', some_param: null }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, ['user1', 0n])
     ]);
   });
 
@@ -391,11 +401,11 @@ describe('parameter queries', () => {
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
 
-    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', ['user1'])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, ['user1'])
     ]);
-    expect(query.getLookups(normalizeTokenParameters({ user_id: 123 }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', ['123'])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ user_id: 123 }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, ['123'])
     ]);
   });
 
@@ -410,15 +420,15 @@ describe('parameter queries', () => {
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateParameterRow({ id: 'user1', role: null })).toEqual([
+    expect(query.evaluateParameterRow(MYBUCKET_1, { id: 'user1', role: null })).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', []),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, []),
         bucketParameters: [{ id: 'user1' }]
       }
     ]);
 
-    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', [])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ user_id: 'user1' }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, [])
     ]);
   });
 
@@ -436,19 +446,19 @@ describe('parameter queries', () => {
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
+    expect(query.evaluateParameterRow(MYBUCKET_1, { id: 'user1' })).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', ['user1', 1n]),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, ['user1', 1n]),
         bucketParameters: [{}]
       }
     ]);
 
-    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', is_admin: true }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', ['user1', 1n])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ user_id: 'user1', is_admin: true }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, ['user1', 1n])
     ]);
     // Would not match any actual lookups
-    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', is_admin: false }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', ['user1', 0n])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ user_id: 'user1', is_admin: false }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, ['user1', 0n])
     ]);
   });
 
@@ -464,16 +474,16 @@ describe('parameter queries', () => {
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
+    expect(query.evaluateParameterRow(MYBUCKET_1, { id: 'user1' })).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', ['user1', 1n]),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, ['user1', 1n]),
 
         bucketParameters: [{ user_id: 'user1' }]
       }
     ]);
 
-    expect(query.getLookups(normalizeTokenParameters({ user_id: 'user1', is_admin: true }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', ['user1', 1n])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ user_id: 'user1', is_admin: true }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, ['user1', 1n])
     ]);
 
     expect(
@@ -496,9 +506,9 @@ describe('parameter queries', () => {
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateParameterRow({ userId: 'user1' })).toEqual([
+    expect(query.evaluateParameterRow(MYBUCKET_1, { userId: 'user1' })).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', ['user1']),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, ['user1']),
 
         bucketParameters: [{ user_id: 'user1' }]
       }
@@ -522,10 +532,10 @@ describe('parameter queries', () => {
       { message: `Unquoted identifiers are converted to lower-case. Use "userId" instead.` }
     ]);
 
-    expect(query.evaluateParameterRow({ userId: 'user1' })).toEqual([]);
-    expect(query.evaluateParameterRow({ userid: 'user1' })).toEqual([
+    expect(query.evaluateParameterRow(MYBUCKET_1, { userId: 'user1' })).toEqual([]);
+    expect(query.evaluateParameterRow(MYBUCKET_1, { userid: 'user1' })).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', ['user1']),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, ['user1']),
 
         bucketParameters: [{ user_id: 'user1' }]
       }
@@ -613,15 +623,15 @@ describe('parameter queries', () => {
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateParameterRow({ id: 'workspace1', visibility: 'public' })).toEqual([
+    expect(query.evaluateParameterRow(MYBUCKET_1, { id: 'workspace1', visibility: 'public' })).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', []),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, []),
 
         bucketParameters: [{ workspace_id: 'workspace1' }]
       }
     ]);
 
-    expect(query.evaluateParameterRow({ id: 'workspace1', visibility: 'private' })).toEqual([]);
+    expect(query.evaluateParameterRow(MYBUCKET_1, { id: 'workspace1', visibility: 'private' })).toEqual([]);
   });
 
   test('multiple different functions on token_parameter with AND', () => {
@@ -637,16 +647,16 @@ describe('parameter queries', () => {
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateParameterRow({ id: 'test_id', filter_param: 'test_param' })).toEqual([
+    expect(query.evaluateParameterRow(MYBUCKET_1, { id: 'test_id', filter_param: 'test_param' })).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', ['test_param', 'test_param']),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, ['test_param', 'test_param']),
 
         bucketParameters: [{ id: 'test_id' }]
       }
     ]);
 
-    expect(query.getLookups(normalizeTokenParameters({ user_id: 'test' }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', ['TEST', 'test'])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ user_id: 'test' }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, ['TEST', 'test'])
     ]);
   });
 
@@ -663,19 +673,21 @@ describe('parameter queries', () => {
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateParameterRow({ id: 'test_id', filter_param1: 'test1', filter_param2: 'test2' })).toEqual([
+    expect(
+      query.evaluateParameterRow(MYBUCKET_1, { id: 'test_id', filter_param1: 'test1', filter_param2: 'test2' })
+    ).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', ['test1']),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, ['test1']),
         bucketParameters: [{ id: 'test_id' }]
       },
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', ['test2']),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, ['test2']),
         bucketParameters: [{ id: 'test_id' }]
       }
     ]);
 
-    expect(query.getLookups(normalizeTokenParameters({ user_id: 'test' }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', ['TEST'])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({ user_id: 'test' }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, ['TEST'])
     ]);
   });
 
@@ -692,14 +704,14 @@ describe('parameter queries', () => {
       EMPTY_DATA_SOURCE
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
-    expect(query.evaluateParameterRow({ id: 'group1', category: 'red' })).toEqual([
+    expect(query.evaluateParameterRow(MYBUCKET_1, { id: 'group1', category: 'red' })).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', ['red']),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, ['red']),
         bucketParameters: [{}]
       }
     ]);
-    expect(query.getLookups(normalizeTokenParameters({}, { category_id: 'red' }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', ['red'])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({}, { category_id: 'red' }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, ['red'])
     ]);
   });
 
@@ -716,8 +728,8 @@ describe('parameter queries', () => {
       EMPTY_DATA_SOURCE
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
-    expect(query.getLookups(normalizeTokenParameters({}, { details: { category: 'red' } }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', ['red'])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({}, { details: { category: 'red' } }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, ['red'])
     ]);
   });
 
@@ -734,8 +746,8 @@ describe('parameter queries', () => {
       EMPTY_DATA_SOURCE
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
-    expect(query.getLookups(normalizeTokenParameters({}, { details: { category: 'red' } }))).toEqual([
-      ParameterLookup.normalized('mybucket', '1', ['red'])
+    expect(query.getLookups(MYBUCKET_1, normalizeTokenParameters({}, { details: { category: 'red' } }))).toEqual([
+      ParameterLookup.normalized(MYBUCKET_1, ['red'])
     ]);
   });
 
@@ -753,9 +765,9 @@ describe('parameter queries', () => {
       EMPTY_DATA_SOURCE
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
-    expect(query.evaluateParameterRow({ id: 'region1', name: 'colorado' })).toEqual([
+    expect(query.evaluateParameterRow(MYBUCKET_1, { id: 'region1', name: 'colorado' })).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', ['colorado']),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, ['colorado']),
         bucketParameters: [
           {
             region_id: 'region1'
@@ -765,6 +777,7 @@ describe('parameter queries', () => {
     ]);
     expect(
       query.getLookups(
+        MYBUCKET_1,
         normalizeTokenParameters(
           {},
           {
@@ -773,8 +786,8 @@ describe('parameter queries', () => {
         )
       )
     ).toEqual([
-      ParameterLookup.normalized('mybucket', '1', ['colorado']),
-      ParameterLookup.normalized('mybucket', '1', ['texas'])
+      ParameterLookup.normalized(MYBUCKET_1, ['colorado']),
+      ParameterLookup.normalized(MYBUCKET_1, ['texas'])
     ]);
   });
 
@@ -788,14 +801,14 @@ describe('parameter queries', () => {
       EMPTY_DATA_SOURCE
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
-    expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
+    expect(query.evaluateParameterRow(MYBUCKET_1, { id: 'user1' })).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', ['user1']),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, ['user1']),
         bucketParameters: [{ id: 'user1' }]
       }
     ]);
     const requestParams = normalizeTokenParameters({ user_id: 'user1' }, { other_id: 'red' });
-    expect(query.getLookups(requestParams)).toEqual([ParameterLookup.normalized('mybucket', '1', ['user1'])]);
+    expect(query.getLookups(MYBUCKET_1, requestParams)).toEqual([ParameterLookup.normalized(MYBUCKET_1, ['user1'])]);
   });
 
   test('request.parameters() in SELECT', function () {
@@ -809,14 +822,14 @@ describe('parameter queries', () => {
       EMPTY_DATA_SOURCE
     ) as SqlParameterQuery;
     expect(query.errors).toEqual([]);
-    expect(query.evaluateParameterRow({ id: 'user1' })).toEqual([
+    expect(query.evaluateParameterRow(MYBUCKET_1, { id: 'user1' })).toEqual([
       {
-        lookup: ParameterLookup.normalized('mybucket', '1', ['user1']),
+        lookup: ParameterLookup.normalized(MYBUCKET_1, ['user1']),
         bucketParameters: [{ id: 'user1' }]
       }
     ]);
     const requestParams = normalizeTokenParameters({ user_id: 'user1' }, { other_id: 'red' });
-    expect(query.getLookups(requestParams)).toEqual([ParameterLookup.normalized('mybucket', '1', ['user1'])]);
+    expect(query.getLookups(MYBUCKET_1, requestParams)).toEqual([ParameterLookup.normalized(MYBUCKET_1, ['user1'])]);
   });
 
   test('request.jwt()', function () {
@@ -831,7 +844,7 @@ describe('parameter queries', () => {
     expect(query.errors).toEqual([]);
 
     const requestParams = normalizeTokenParameters({ user_id: 'user1' });
-    expect(query.getLookups(requestParams)).toEqual([ParameterLookup.normalized('mybucket', '1', ['user1'])]);
+    expect(query.getLookups(MYBUCKET_1, requestParams)).toEqual([ParameterLookup.normalized(MYBUCKET_1, ['user1'])]);
   });
 
   test('request.user_id()', function () {
@@ -846,7 +859,7 @@ describe('parameter queries', () => {
     expect(query.errors).toEqual([]);
 
     const requestParams = normalizeTokenParameters({ user_id: 'user1' });
-    expect(query.getLookups(requestParams)).toEqual([ParameterLookup.normalized('mybucket', '1', ['user1'])]);
+    expect(query.getLookups(MYBUCKET_1, requestParams)).toEqual([ParameterLookup.normalized(MYBUCKET_1, ['user1'])]);
   });
 
   test('invalid OR in parameter queries', () => {

@@ -1,5 +1,6 @@
 import { ParameterLookup } from '../BucketParameterQuerier.js';
 import { BucketParameterLookupSource, BucketParameterLookupSourceDefinition } from '../BucketSource.js';
+import { HydrationState } from '../HydrationState.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { TablePattern } from '../TablePattern.js';
 import {
@@ -39,9 +40,8 @@ export interface BucketParameter {
 export interface SubqueryEvaluator {
   parameterTable: TablePattern;
 
-  lookupsForRequest(params: RequestParameters): ParameterLookup[];
-
-  lookupSources(streamName: string): BucketParameterLookupSourceDefinition[];
+  lookupSources(): BucketParameterLookupSourceDefinition[];
+  hydrateLookupsForRequest(hydrationState: HydrationState): (params: RequestParameters) => ParameterLookup[];
 }
 
 export interface SubqueryLookups {

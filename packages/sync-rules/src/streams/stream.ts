@@ -47,14 +47,16 @@ export class SyncStream implements BucketSource {
     this.data = data;
 
     this.dataSources = [];
+    this.parameterLookupSources = [];
     this.parameterQuerierSources = [];
 
     for (let variant of variants) {
       const dataSource = new SyncStreamDataSource(this, data, variant);
       this.dataSources.push(dataSource);
-      this.parameterQuerierSources.push(new SyncStreamParameterQuerierSource(this, variant, dataSource));
+      const lookupSources = variant.lookupSources();
+      this.parameterQuerierSources.push(variant.querierSource(this, dataSource));
+      this.parameterLookupSources.push(...lookupSources);
     }
-    this.parameterLookupSources = variants.flatMap((variant) => variant.lookupSources(name));
   }
 
   public get type(): BucketSourceType {
@@ -140,78 +142,5 @@ export class SyncStreamDataSource implements BucketDataSourceDefinition {
         });
       }
     };
-  }
-}
-
-export class SyncStreamParameterQuerierSource implements BucketParameterQuerierSourceDefinition {
-  // We could eventually split this into a separate source per variant.
-
-  constructor(
-    private stream: SyncStream,
-    private variant: StreamVariant,
-    public readonly querierDataSource: BucketDataSourceDefinition
-  ) {}
-
-  /**
-   * Not relevant for sync streams.
-   */
-  get bucketParameters() {
-    return [];
-  }
-
-  createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
-    const hydrationState = resolveHydrationState(params);
-    const bucketPrefix = hydrationState.getBucketSourceState(this.querierDataSource).bucketPrefix;
-    const stream = this.stream;
-    return {
-      pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions): void => {
-        const subscriptions = options.streams[stream.name] ?? [];
-
-        if (!stream.subscribedToByDefault && !subscriptions.length) {
-          // The client is not subscribing to this stream, so don't query buckets related to it.
-          return;
-        }
-
-        let hasExplicitDefaultSubscription = false;
-        for (const subscription of subscriptions) {
-          let subscriptionParams = options.globalParameters;
-          if (subscription.parameters != null) {
-            subscriptionParams = subscriptionParams.withAddedStreamParameters(subscription.parameters);
-          } else {
-            hasExplicitDefaultSubscription = true;
-          }
-
-          this.queriersForSubscription(result, subscription, subscriptionParams, bucketPrefix);
-        }
-
-        // If the stream is subscribed to by default and there is no explicit subscription that would match the default
-        // subscription, also include the default querier.
-        if (stream.subscribedToByDefault && !hasExplicitDefaultSubscription) {
-          this.queriersForSubscription(result, null, options.globalParameters, bucketPrefix);
-        }
-      }
-    };
-  }
-
-  private queriersForSubscription(
-    result: PendingQueriers,
-    subscription: RequestedStream | null,
-    params: RequestParameters,
-    bucketPrefix: string
-  ) {
-    const reason: BucketInclusionReason = subscription != null ? { subscription: subscription.opaque_id } : 'default';
-
-    try {
-      const querier = this.variant.querier(this.stream, reason, params, bucketPrefix);
-      if (querier) {
-        result.queriers.push(querier);
-      }
-    } catch (e) {
-      result.errors.push({
-        descriptor: this.stream.name,
-        message: `Error evaluating bucket ids: ${e.message}`,
-        subscription: subscription ?? undefined
-      });
-    }
   }
 }

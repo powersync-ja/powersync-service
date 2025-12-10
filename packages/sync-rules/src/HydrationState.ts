@@ -6,7 +6,7 @@ export interface BucketSourceState {
   bucketPrefix: string;
 }
 
-export interface BucketParameterLookupSourceState {
+export interface ParameterLookupScope {
   /** The lookup name + queryid is used to reference the parameter lookup record. */
   lookupName: string;
   queryId: string;
@@ -20,7 +20,7 @@ export interface BucketParameterLookupSourceState {
  */
 export interface HydrationState<
   T extends BucketSourceState = BucketSourceState,
-  U extends BucketParameterLookupSourceState = BucketParameterLookupSourceState
+  U extends ParameterLookupScope = ParameterLookupScope
 > {
   /**
    * Given a bucket data source definition, get the bucket prefix to use for it.
@@ -30,7 +30,7 @@ export interface HydrationState<
   /**
    * Given a bucket parameter lookup definition, get the persistence name to use.
    */
-  getParameterLookupState(source: BucketParameterLookupSourceDefinition): U;
+  getParameterLookupScope(source: BucketParameterLookupSourceDefinition): U;
 }
 
 /**
@@ -44,7 +44,7 @@ export const DEFAULT_HYDRATION_STATE: HydrationState = {
       bucketPrefix: source.defaultBucketPrefix
     };
   },
-  getParameterLookupState(source) {
+  getParameterLookupScope(source) {
     return {
       lookupName: source.defaultLookupName,
       queryId: source.defaultQueryId
@@ -67,7 +67,7 @@ export class VersionedHydrationState implements HydrationState {
     };
   }
 
-  getParameterLookupState(source: BucketParameterLookupSourceDefinition): BucketParameterLookupSourceState {
+  getParameterLookupScope(source: BucketParameterLookupSourceDefinition): ParameterLookupScope {
     // No transformations applied here
     return {
       lookupName: source.defaultLookupName,
@@ -85,7 +85,7 @@ export class BucketIdTransformerHydrationState implements HydrationState {
     };
   }
 
-  getParameterLookupState(source: BucketParameterLookupSourceDefinition): BucketParameterLookupSourceState {
+  getParameterLookupScope(source: BucketParameterLookupSourceDefinition): ParameterLookupScope {
     // No transformations applied here
     return {
       lookupName: source.defaultLookupName,

@@ -110,7 +110,7 @@ bucket_definitions:
     expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 1 })).toEqual([
       {
         bucketParameters: [{}],
-        lookup: ParameterLookup.normalized('mybucket', '1', ['user1'])
+        lookup: ParameterLookup.normalized({ lookupName: 'mybucket', queryId: '1' }, ['user1'])
       }
     ]);
     expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 0 })).toEqual([]);
@@ -962,10 +962,10 @@ bucket_definitions:
     expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ user_id: 'user1' })).querier).toMatchObject({
       hasDynamicBuckets: true,
       parameterQueryLookups: [
-        ParameterLookup.normalized('mybucket', '2', ['user1']),
-        ParameterLookup.normalized('by_list', '1', ['user1']),
+        ParameterLookup.normalized({ lookupName: 'mybucket', queryId: '2' }, ['user1']),
+        ParameterLookup.normalized({ lookupName: 'by_list', queryId: '1' }, ['user1']),
         // These are not filtered out yet, due to how the lookups are structured internally
-        ParameterLookup.normalized('admin_only', '1', [1])
+        ParameterLookup.normalized({ lookupName: 'admin_only', queryId: '1' }, [1])
       ],
       staticBuckets: [
         {

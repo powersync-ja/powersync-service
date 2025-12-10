@@ -44,7 +44,7 @@ import {
 } from './types.js';
 import { filterJsonRow, getBucketId, isJsonValue, isSelectStatement, normalizeParameterValue } from './utils.js';
 import { DetectRequestParameters } from './validators.js';
-import { HydrationState, resolveHydrationState } from './HydrationState.js';
+import { ParameterLookupScope, HydrationState, resolveHydrationState } from './HydrationState.js';
 
 export interface SqlParameterQueryOptions {
   sourceTable: TablePattern;
@@ -350,9 +350,11 @@ export class SqlParameterQuery
   createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
     const hydrationState = resolveHydrationState(params);
     const bucketPrefix = hydrationState.getBucketSourceState(this.querierDataSource).bucketPrefix;
+    const lookupState = hydrationState.getParameterLookupScope(this);
+
     return {
       pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {
-        const q = this.getBucketParameterQuerier(options.globalParameters, ['default'], bucketPrefix);
+        const q = this.getBucketParameterQuerier(options.globalParameters, ['default'], bucketPrefix, lookupState);
         result.queriers.push(q);
       }
     };
@@ -360,10 +362,12 @@ export class SqlParameterQuery
 
   createParameterLookupSource(params: CreateSourceParams): BucketParameterLookupSource {
     // FIXME: Use HydrationState for lookups.
+    const hydrationState = resolveHydrationState(params);
+    const lookupState = hydrationState.getParameterLookupScope(this);
     return {
       evaluateParameterRow: (sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[] => {
         if (this.tableSyncsParameters(sourceTable)) {
-          return this.evaluateParameterRow(row);
+          return this.evaluateParameterRow(lookupState, row);
         } else {
           return [];
         }
@@ -374,7 +378,7 @@ export class SqlParameterQuery
   /**
    * Given a replicated row, results an array of bucket parameter rows to persist.
    */
-  evaluateParameterRow(row: SqliteRow): EvaluatedParametersResult[] {
+  evaluateParameterRow(scope: ParameterLookupScope, row: SqliteRow): EvaluatedParametersResult[] {
     const tables = {
       [this.table.nameInSchema]: row
     };
@@ -382,8 +386,8 @@ export class SqlParameterQuery
       const filterParameters = this.filter.filterRow(tables);
       let result: EvaluatedParametersResult[] = [];
       for (let filterParamSet of filterParameters) {
-        let lookup: SqliteJsonValue[] = [this.descriptorName, this.queryId];
-        lookup.push(
+        let lookupValues: SqliteJsonValue[] = [];
+        lookupValues.push(
           ...this.inputParameters.map((param) => {
             return normalizeParameterValue(param.filteredRowToLookupValue(filterParamSet));
           })
@@ -393,7 +397,7 @@ export class SqlParameterQuery
 
         const role: EvaluatedParameters = {
           bucketParameters: data.map((row) => filterJsonRow(row)),
-          lookup: new ParameterLookup(lookup)
+          lookup: ParameterLookup.normalized(scope, lookupValues)
         };
         result.push(role);
       }
@@ -458,12 +462,12 @@ export class SqlParameterQuery
    *
    * Each lookup is [bucket definition name, parameter query index, ...lookup values]
    */
-  getLookups(parameters: RequestParameters): ParameterLookup[] {
+  getLookups(scope: ParameterLookupScope, parameters: RequestParameters): ParameterLookup[] {
     if (!this.expandedInputParameter) {
-      let lookup: SqliteJsonValue[] = [this.descriptorName, this.queryId];
+      let lookupValues: SqliteJsonValue[] = [];
 
       let valid = true;
-      lookup.push(
+      lookupValues.push(
         ...this.inputParameters.map((param): SqliteJsonValue => {
           // Scalar value
           const value = param.parametersToLookupValue(parameters);
@@ -479,7 +483,7 @@ export class SqlParameterQuery
       if (!valid) {
         return [];
       }
-      return [new ParameterLookup(lookup)];
+      return [ParameterLookup.normalized(scope, lookupValues)];
     } else {
       const arrayString = this.expandedInputParameter.parametersToLookupValue(parameters);
 
@@ -498,10 +502,10 @@ export class SqlParameterQuery
 
       return values
         .map((expandedValue) => {
-          let lookup: SqliteJsonValue[] = [this.descriptorName, this.queryId];
+          let lookupValues: SqliteJsonValue[] = [];
           let valid = true;
           const normalizedExpandedValue = normalizeParameterValue(expandedValue);
-          lookup.push(
+          lookupValues.push(
             ...this.inputParameters.map((param): SqliteJsonValue => {
               if (param == this.expandedInputParameter) {
                 // Expand array value
@@ -523,7 +527,7 @@ export class SqlParameterQuery
             return null;
           }
 
-          return new ParameterLookup(lookup);
+          return ParameterLookup.normalized(scope, lookupValues);
         })
         .filter((lookup) => lookup != null) as ParameterLookup[];
     }
@@ -532,9 +536,10 @@ export class SqlParameterQuery
   getBucketParameterQuerier(
     requestParameters: RequestParameters,
     reasons: BucketInclusionReason[],
-    bucketPrefix: string
+    bucketPrefix: string,
+    scope: ParameterLookupScope
   ): BucketParameterQuerier {
-    const lookups = this.getLookups(requestParameters);
+    const lookups = this.getLookups(scope, requestParameters);
     if (lookups.length == 0) {
       // This typically happens when the query is pre-filtered using a where clause
       // on the parameters, and does not depend on the database state.

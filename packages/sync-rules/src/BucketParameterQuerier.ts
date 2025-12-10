@@ -1,4 +1,5 @@
 import { ResolvedBucket } from './BucketDescription.js';
+import { ParameterLookupScope } from './HydrationState.js';
 import { RequestedStream } from './SqlSyncRules.js';
 import { RequestParameters, SqliteJsonRow, SqliteJsonValue } from './types.js';
 import { normalizeParameterValue } from './utils.js';
@@ -92,15 +93,15 @@ export class ParameterLookup {
   // bucket definition name, parameter query index, ...lookup values
   readonly values: SqliteJsonValue[];
 
-  static normalized(bucketDefinitionName: string, queryIndex: string, values: SqliteJsonValue[]): ParameterLookup {
-    return new ParameterLookup([bucketDefinitionName, queryIndex, ...values.map(normalizeParameterValue)]);
+  static normalized(scope: ParameterLookupScope, values: SqliteJsonValue[]): ParameterLookup {
+    return new ParameterLookup([scope.lookupName, scope.queryId, ...values.map(normalizeParameterValue)]);
   }
 
   /**
    *
    * @param values must be pre-normalized (any integer converted into bigint)
    */
-  constructor(values: SqliteJsonValue[]) {
+  private constructor(values: SqliteJsonValue[]) {
     this.values = values;
   }
 }

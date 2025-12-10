@@ -1,10 +1,15 @@
 import { BucketInclusionReason, ResolvedBucket } from '../BucketDescription.js';
-import { BucketParameterQuerier, ParameterLookup } from '../BucketParameterQuerier.js';
+import { BucketParameterQuerier, ParameterLookup, PendingQueriers } from '../BucketParameterQuerier.js';
 import {
+  BucketDataSourceDefinition,
   BucketParameterLookupSource,
   BucketParameterLookupSourceDefinition,
+  BucketParameterQuerierSource,
+  BucketParameterQuerierSourceDefinition,
   CreateSourceParams
 } from '../BucketSource.js';
+import { resolveHydrationState } from '../HydrationState.js';
+import { GetQuerierOptions, RequestedStream } from '../index.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { TablePattern } from '../TablePattern.js';
 import {
@@ -18,7 +23,7 @@ import {
 } from '../types.js';
 import { isJsonValue, JSONBucketNameSerialize, normalizeParameterValue } from '../utils.js';
 import { BucketParameter, SubqueryEvaluator } from './parameter.js';
-import { SyncStream } from './stream.js';
+import { SyncStream, SyncStreamDataSource } from './stream.js';
 import { cartesianProduct } from './utils.js';
 
 /**
@@ -75,8 +80,12 @@ export class StreamVariant {
     return `${streamName}|${this.id}`;
   }
 
-  lookupSources(streamName: string): BucketParameterLookupSourceDefinition[] {
-    return this.subqueries.flatMap((subquery) => subquery.lookupSources(streamName));
+  lookupSources(): BucketParameterLookupSourceDefinition[] {
+    return this.subqueries.flatMap((subquery) => subquery.lookupSources());
+  }
+
+  querierSource(stream: SyncStream, dataSource: SyncStreamDataSource): BucketParameterQuerierSourceDefinition {
+    return new SyncStreamParameterQuerierSource(stream, this, dataSource);
   }
 
   /**
@@ -132,7 +141,8 @@ export class StreamVariant {
     stream: SyncStream,
     reason: BucketInclusionReason,
     params: RequestParameters,
-    bucketPrefix: string
+    bucketPrefix: string,
+    hydratedSubqueries: HydratedSubqueries
   ): BucketParameterQuerier | null {
     const instantiation = this.partiallyEvaluateParameters(params);
     if (instantiation == null) {
@@ -161,7 +171,11 @@ export class StreamVariant {
     }
 
     for (const subquery of this.subqueries) {
-      subqueryToLookups.set(subquery, subquery.lookupsForRequest(params));
+      const subqueryLookup = hydratedSubqueries.get(subquery);
+      if (subqueryLookup == null) {
+        throw new Error('Internal error, missing subquery lookup');
+      }
+      subqueryToLookups.set(subquery, subqueryLookup(params));
     }
 
     const staticBuckets: ResolvedBucket[] = [];
@@ -331,3 +345,82 @@ export interface SubqueryRequestFilter {
   matches(params: RequestParameters, results: SqliteJsonValue[]): boolean;
 }
 export type RequestFilter = StaticRequestFilter | SubqueryRequestFilter;
+
+export class SyncStreamParameterQuerierSource implements BucketParameterQuerierSourceDefinition {
+  constructor(
+    private stream: SyncStream,
+    private variant: StreamVariant,
+    public readonly querierDataSource: BucketDataSourceDefinition
+  ) {}
+
+  /**
+   * Not relevant for sync streams.
+   */
+  get bucketParameters() {
+    return [];
+  }
+
+  createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
+    const hydrationState = resolveHydrationState(params);
+    const bucketPrefix = hydrationState.getBucketSourceState(this.querierDataSource).bucketPrefix;
+    const stream = this.stream;
+
+    const hydratedSubqueries: HydratedSubqueries = new Map(
+      this.variant.subqueries.map((s) => [s, s.hydrateLookupsForRequest(hydrationState)])
+    );
+
+    return {
+      pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions): void => {
+        const subscriptions = options.streams[stream.name] ?? [];
+
+        if (!stream.subscribedToByDefault && !subscriptions.length) {
+          // The client is not subscribing to this stream, so don't query buckets related to it.
+          return;
+        }
+
+        let hasExplicitDefaultSubscription = false;
+        for (const subscription of subscriptions) {
+          let subscriptionParams = options.globalParameters;
+          if (subscription.parameters != null) {
+            subscriptionParams = subscriptionParams.withAddedStreamParameters(subscription.parameters);
+          } else {
+            hasExplicitDefaultSubscription = true;
+          }
+
+          this.queriersForSubscription(result, subscription, subscriptionParams, bucketPrefix, hydratedSubqueries);
+        }
+
+        // If the stream is subscribed to by default and there is no explicit subscription that would match the default
+        // subscription, also include the default querier.
+        if (stream.subscribedToByDefault && !hasExplicitDefaultSubscription) {
+          this.queriersForSubscription(result, null, options.globalParameters, bucketPrefix, hydratedSubqueries);
+        }
+      }
+    };
+  }
+
+  private queriersForSubscription(
+    result: PendingQueriers,
+    subscription: RequestedStream | null,
+    params: RequestParameters,
+    bucketPrefix: string,
+    hydratedSubqueries: HydratedSubqueries
+  ) {
+    const reason: BucketInclusionReason = subscription != null ? { subscription: subscription.opaque_id } : 'default';
+
+    try {
+      const querier = this.variant.querier(this.stream, reason, params, bucketPrefix, hydratedSubqueries);
+      if (querier) {
+        result.queriers.push(querier);
+      }
+    } catch (e) {
+      result.errors.push({
+        descriptor: this.stream.name,
+        message: `Error evaluating bucket ids: ${e.message}`,
+        subscription: subscription ?? undefined
+      });
+    }
+  }
+}
+
+type HydratedSubqueries = Map<SubqueryEvaluator, (params: RequestParameters) => ParameterLookup[]>;
