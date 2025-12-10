@@ -80,11 +80,6 @@ export interface BucketDataSourceDefinition {
  * This is only relevant for parameter queries that query tables.
  */
 export interface BucketParameterLookupSourceDefinition {
-  /**
-   * For debug use only.
-   */
-  readonly bucketParameters: string[];
-
   getSourceTables(): Set<TablePattern>;
   createParameterLookupSource(params: CreateSourceParams): BucketParameterLookupSource;
 

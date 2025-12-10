@@ -27,18 +27,16 @@ import {
 } from '../types.js';
 import { StreamVariant } from './variant.js';
 
-export class SyncStream
-  implements
-    BucketDataSourceDefinition,
-    BucketParameterLookupSourceDefinition,
-    BucketParameterQuerierSourceDefinition,
-    BucketSource
-{
+export class SyncStream implements BucketSource {
   name: string;
   subscribedToByDefault: boolean;
   priority: BucketPriority;
   variants: StreamVariant[];
   data: BaseSqlDataQuery;
+
+  public readonly dataSource: BucketDataSourceDefinition;
+  public readonly parameterLookupSources: BucketParameterLookupSourceDefinition[];
+  public readonly parameterQuerierSources: BucketParameterQuerierSourceDefinition[];
 
   constructor(name: string, data: BaseSqlDataQuery) {
     this.name = name;
@@ -46,28 +44,60 @@ export class SyncStream
     this.priority = DEFAULT_BUCKET_PRIORITY;
     this.variants = [];
     this.data = data;
+
+    this.dataSource = new SyncStreamDataSource(this, data);
+    this.parameterQuerierSources = [new SyncStreamParameterQuerierSource(this)];
+    this.parameterLookupSources = [new SyncStreamParameterLookupSource(this)];
   }
 
   public get type(): BucketSourceType {
     return BucketSourceType.SYNC_STREAM;
   }
+}
 
-  public get bucketParameters(): string[] {
+export class SyncStreamDataSource implements BucketDataSourceDefinition {
+  constructor(
+    private stream: SyncStream,
+    private data: BaseSqlDataQuery
+  ) {}
+
+  get bucketParameters() {
     // FIXME: check whether this is correct.
     // Could there be multiple variants with different bucket parameters?
     return this.data.bucketParameters;
   }
 
-  public get dataSource() {
-    return this;
+  getSourceTables(): Set<TablePattern> {
+    return new Set<TablePattern>([this.data.sourceTable]);
   }
 
-  public get parameterLookupSources() {
-    return [this];
+  tableSyncsData(table: SourceTableInterface): boolean {
+    return this.data.applies(table);
   }
 
-  public get parameterQuerierSources() {
-    return [this];
+  resolveResultSets(schema: SourceSchema, tables: Record<string, Record<string, ColumnDefinition>>): void {
+    return this.data.resolveResultSets(schema, tables);
+  }
+
+  debugWriteOutputTables(result: Record<string, { query: string }[]>): void {
+    result[this.data.table!.sqlName] ??= [];
+    const r = {
+      query: this.data.sql
+    };
+
+    result[this.data.table!.sqlName].push(r);
+  }
+
+  debugRepresentation() {
+    return {
+      name: this.stream.name,
+      type: BucketSourceType[BucketSourceType.SYNC_STREAM],
+      variants: this.stream.variants.map((v) => v.debugRepresentation()),
+      data: {
+        table: this.data.sourceTable,
+        columns: this.data.columnOutputNames()
+      }
+    };
   }
 
   createDataSource(params: CreateSourceParams): BucketDataSource {
@@ -79,7 +109,7 @@ export class SyncStream
           return [];
         }
 
-        const stream = this;
+        const stream = this.stream;
         const row: TableRow = {
           sourceTable: options.sourceTable,
           record: options.record
@@ -100,31 +130,28 @@ export class SyncStream
       }
     };
   }
+}
 
-  createParameterLookupSource(params: CreateSourceParams): BucketParameterLookupSource {
-    return {
-      definition: this,
+export class SyncStreamParameterQuerierSource implements BucketParameterQuerierSourceDefinition {
+  // We could eventually split this into a separate source per variant.
 
-      evaluateParameterRow: (sourceTable, row) => {
-        const result: EvaluatedParametersResult[] = [];
+  constructor(private stream: SyncStream) {}
 
-        for (const variant of this.variants) {
-          variant.pushParameterRowEvaluation(result, sourceTable, row);
-        }
-
-        return result;
-      }
-    };
+  get bucketParameters(): string[] {
+    // FIXME: check whether this is correct.
+    // Could there be multiple variants with different bucket parameters?
+    return this.stream.data.bucketParameters;
   }
 
   createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
+    const stream = this.stream;
     return {
       definition: this,
 
       pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions): void => {
-        const subscriptions = options.streams[this.name] ?? [];
+        const subscriptions = options.streams[stream.name] ?? [];
 
-        if (!this.subscribedToByDefault && !subscriptions.length) {
+        if (!stream.subscribedToByDefault && !subscriptions.length) {
           // The client is not subscribing to this stream, so don't query buckets related to it.
           return;
         }
@@ -143,7 +170,7 @@ export class SyncStream
 
         // If the stream is subscribed to by default and there is no explicit subscription that would match the default
         // subscription, also include the default querier.
-        if (this.subscribedToByDefault && !hasExplicitDefaultSubscription) {
+        if (stream.subscribedToByDefault && !hasExplicitDefaultSubscription) {
           this.queriersForSubscription(result, null, options.globalParameters, params.bucketIdTransformer);
         }
       }
@@ -160,8 +187,8 @@ export class SyncStream
     const queriers: BucketParameterQuerier[] = [];
 
     try {
-      for (const variant of this.variants) {
-        const querier = variant.querier(this, reason, params, bucketIdTransformer);
+      for (const variant of this.stream.variants) {
+        const querier = variant.querier(this.stream, reason, params, bucketIdTransformer);
         if (querier) {
           queriers.push(querier);
         }
@@ -170,19 +197,48 @@ export class SyncStream
       result.queriers.push(...queriers);
     } catch (e) {
       result.errors.push({
-        descriptor: this.name,
+        descriptor: this.stream.name,
         message: `Error evaluating bucket ids: ${e.message}`,
         subscription: subscription ?? undefined
       });
     }
   }
+}
 
-  tableSyncsData(table: SourceTableInterface): boolean {
-    return this.data.applies(table);
+export class SyncStreamParameterLookupSource implements BucketParameterLookupSourceDefinition {
+  // We could eventually split this into a separate source per variant.
+
+  constructor(private stream: SyncStream) {}
+
+  getSourceTables(): Set<TablePattern> {
+    let result = new Set<TablePattern>();
+    for (let variant of this.stream.variants) {
+      for (const subquery of variant.subqueries) {
+        result.add(subquery.parameterTable);
+      }
+    }
+
+    return result;
+  }
+
+  createParameterLookupSource(params: CreateSourceParams): BucketParameterLookupSource {
+    return {
+      definition: this,
+
+      evaluateParameterRow: (sourceTable, row) => {
+        const result: EvaluatedParametersResult[] = [];
+
+        for (const variant of this.stream.variants) {
+          variant.pushParameterRowEvaluation(result, sourceTable, row);
+        }
+
+        return result;
+      }
+    };
   }
 
   tableSyncsParameters(table: SourceTableInterface): boolean {
-    for (const variant of this.variants) {
+    for (const variant of this.stream.variants) {
       for (const subquery of variant.subqueries) {
         if (subquery.parameterTable.matches(table)) {
           return true;
@@ -191,44 +247,5 @@ export class SyncStream
     }
 
     return false;
-  }
-
-  getSourceTables(): Set<TablePattern> {
-    let result = new Set<TablePattern>();
-    result.add(this.data.sourceTable);
-    for (let variant of this.variants) {
-      for (const subquery of variant.subqueries) {
-        result.add(subquery.parameterTable);
-      }
-    }
-
-    // Note: No physical tables for global_parameter_queries
-
-    return result;
-  }
-
-  resolveResultSets(schema: SourceSchema, tables: Record<string, Record<string, ColumnDefinition>>) {
-    this.data.resolveResultSets(schema, tables);
-  }
-
-  debugRepresentation() {
-    return {
-      name: this.name,
-      type: BucketSourceType[this.type],
-      variants: this.variants.map((v) => v.debugRepresentation()),
-      data: {
-        table: this.data.sourceTable,
-        columns: this.data.columnOutputNames()
-      }
-    };
-  }
-
-  debugWriteOutputTables(result: Record<string, { query: string }[]>): void {
-    result[this.data.table!.sqlName] ??= [];
-    const r = {
-      query: this.data.sql
-    };
-
-    result[this.data.table!.sqlName].push(r);
   }
 }

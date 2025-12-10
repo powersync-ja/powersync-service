@@ -26,7 +26,6 @@ export interface EvaluateRowOptions {
   table: SourceTableInterface;
   row: SqliteRow;
   bucketIds: (params: QueryParameters) => string[];
-  bucketIdTransformer: BucketIdTransformer | null;
 }
 
 export interface BaseSqlDataQueryOptions {
@@ -177,7 +176,7 @@ export class BaseSqlDataQuery {
     }
   }
 
-  evaluateRowWithOptions(options: Omit<EvaluateRowOptions, 'bucketIdTransformer'>): EvaluationResult[] {
+  evaluateRowWithOptions(options: EvaluateRowOptions): EvaluationResult[] {
     try {
       const { table, row, bucketIds } = options;
 

@@ -124,10 +124,10 @@ export class SqlBucketDescriptor implements BucketDataSourceDefinition, BucketSo
   getSourceTables(): Set<TablePattern> {
     let result = new Set<TablePattern>();
     for (let query of this.parameterQueries) {
-      result.add(query.sourceTable!);
+      result.add(query.sourceTable);
     }
     for (let query of this.dataQueries) {
-      result.add(query.sourceTable!);
+      result.add(query.sourceTable);
     }
 
     // Note: No physical tables for global_parameter_queries

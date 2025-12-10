@@ -38,7 +38,9 @@ describe('streams', () => {
     expect(desc.variants).toHaveLength(1);
     expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo' })).toStrictEqual(['1#stream|0[]']);
     expect(
-      desc.createDataSource({ bucketIdTransformer }).evaluateRow({ sourceTable: USERS, record: { id: 'foo' } })
+      desc.dataSource
+        .createDataSource({ bucketIdTransformer })
+        .evaluateRow({ sourceTable: USERS, record: { id: 'foo' } })
     ).toHaveLength(0);
   });
 
@@ -73,7 +75,7 @@ describe('streams', () => {
     const queriers: BucketParameterQuerier[] = [];
     const errors: QuerierError[] = [];
     const pending = { queriers, errors };
-    desc
+    desc.parameterQuerierSources[0]
       .createParameterQuerierSource({ bucketIdTransformer })
       .pushBucketParameterQueriers(
         pending,
@@ -220,7 +222,7 @@ describe('streams', () => {
       ]);
 
       expect(
-        desc
+        desc.parameterLookupSources[0]
           .createParameterLookupSource({ bucketIdTransformer })
           .evaluateParameterRow(ISSUES, { id: 'i1', owner_id: 'u1' })
       ).toStrictEqual([
@@ -254,10 +256,11 @@ describe('streams', () => {
       const desc = parseStream(
         'SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id())'
       );
+      const lookup = desc.parameterLookupSources[0];
 
-      expect(desc.tableSyncsParameters(ISSUES)).toBe(true);
+      expect(lookup.tableSyncsParameters(ISSUES)).toBe(true);
       expect(
-        desc
+        lookup
           .createParameterLookupSource({ bucketIdTransformer })
           .evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })
       ).toStrictEqual([
@@ -288,12 +291,15 @@ describe('streams', () => {
 
     test('parameter value in subquery', async () => {
       const desc = parseStream('SELECT * FROM issues WHERE auth.user_id() IN (SELECT id FROM users WHERE is_admin)');
+      const lookup = desc.parameterLookupSources[0];
 
-      expect(desc.tableSyncsParameters(ISSUES)).toBe(false);
-      expect(desc.tableSyncsParameters(USERS)).toBe(true);
+      expect(lookup.tableSyncsParameters(ISSUES)).toBe(false);
+      expect(lookup.tableSyncsParameters(USERS)).toBe(true);
 
       expect(
-        desc.createParameterLookupSource({ bucketIdTransformer }).evaluateParameterRow(USERS, { id: 'u', is_admin: 1n })
+        lookup
+          .createParameterLookupSource({ bucketIdTransformer })
+          .evaluateParameterRow(USERS, { id: 'u', is_admin: 1n })
       ).toStrictEqual([
         {
           lookup: ParameterLookup.normalized('stream', '0', ['u']),
@@ -305,7 +311,9 @@ describe('streams', () => {
         }
       ]);
       expect(
-        desc.createParameterLookupSource({ bucketIdTransformer }).evaluateParameterRow(USERS, { id: 'u', is_admin: 0n })
+        lookup
+          .createParameterLookupSource({ bucketIdTransformer })
+          .evaluateParameterRow(USERS, { id: 'u', is_admin: 0n })
       ).toStrictEqual([]);
 
       // Should return bucket id for admin users
@@ -343,7 +351,7 @@ describe('streams', () => {
       ]);
 
       expect(
-        desc
+        desc.parameterLookupSources[0]
           .createParameterLookupSource({ bucketIdTransformer })
           .evaluateParameterRow(FRIENDS, { user_a: 'a', user_b: 'b' })
       ).toStrictEqual([
@@ -450,10 +458,11 @@ describe('streams', () => {
       const desc = parseStream(
         'SELECT * FROM comments WHERE tagged_users && (SELECT user_a FROM friends WHERE user_b = auth.user_id())'
       );
+      const lookup = desc.parameterLookupSources[0];
 
-      expect(desc.tableSyncsParameters(FRIENDS)).toBe(true);
+      expect(lookup.tableSyncsParameters(FRIENDS)).toBe(true);
       expect(
-        desc
+        lookup
           .createParameterLookupSource({ bucketIdTransformer })
           .evaluateParameterRow(FRIENDS, { user_a: 'a', user_b: 'b' })
       ).toStrictEqual([
@@ -612,7 +621,7 @@ describe('streams', () => {
       );
 
       expect(
-        desc
+        desc.parameterLookupSources[0]
           .createParameterLookupSource({ bucketIdTransformer })
           .evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })
       ).toStrictEqual([
@@ -738,12 +747,14 @@ describe('streams', () => {
       );
       const row = { id: 'id', account_id: 'account_id' };
 
-      expect(stream.tableSyncsData(accountMember)).toBeTruthy();
-      expect(stream.tableSyncsParameters(accountMember)).toBeTruthy();
+      expect(stream.dataSource.tableSyncsData(accountMember)).toBeTruthy();
+      expect(stream.parameterLookupSources[0].tableSyncsParameters(accountMember)).toBeTruthy();
 
       // Ensure lookup steps work.
       expect(
-        stream.createParameterLookupSource({ bucketIdTransformer }).evaluateParameterRow(accountMember, row)
+        stream.parameterLookupSources[0]
+          .createParameterLookupSource({ bucketIdTransformer })
+          .evaluateParameterRow(accountMember, row)
       ).toStrictEqual([
         {
           lookup: ParameterLookup.normalized('account_member', '0', ['id']),
@@ -768,7 +779,7 @@ describe('streams', () => {
 
       // And that the data alias is respected for generated schemas.
       const outputSchema = {};
-      stream.resolveResultSets(schema, outputSchema);
+      stream.dataSource.resolveResultSets(schema, outputSchema);
       expect(Object.keys(outputSchema)).toStrictEqual(['outer']);
     });
 
@@ -825,11 +836,13 @@ WHERE
       expect(evaluateBucketIds(desc, scene, { _id: 'scene', project: 'foo' })).toStrictEqual(['1#stream|0["foo"]']);
 
       expect(
-        desc.createParameterLookupSource({ bucketIdTransformer }).evaluateParameterRow(projectInvitation, {
-          project: 'foo',
-          appliedTo: '[1,2]',
-          status: 'CLAIMED'
-        })
+        desc.parameterLookupSources[0]
+          .createParameterLookupSource({ bucketIdTransformer })
+          .evaluateParameterRow(projectInvitation, {
+            project: 'foo',
+            appliedTo: '[1,2]',
+            status: 'CLAIMED'
+          })
       ).toStrictEqual([
         {
           lookup: ParameterLookup.normalized('stream', '0', [1n, 'foo']),
@@ -924,7 +937,7 @@ const options: StreamParseOptions = {
 const bucketIdTransformer = SqlSyncRules.versionedBucketIdTransformer('1');
 
 function evaluateBucketIds(stream: SyncStream, sourceTable: SourceTableInterface, record: SqliteRow) {
-  return stream
+  return stream.dataSource
     .createDataSource({ bucketIdTransformer })
     .evaluateRow({ sourceTable, record })
     .map((r) => {
@@ -960,7 +973,9 @@ async function createQueriers(
     streams: { [stream.name]: [{ opaque_id: 0, parameters: options?.parameters ?? null }] }
   };
 
-  stream.createParameterQuerierSource({ bucketIdTransformer }).pushBucketParameterQueriers(pending, querierOptions);
+  for (let querier of stream.parameterQuerierSources) {
+    querier.createParameterQuerierSource({ bucketIdTransformer }).pushBucketParameterQueriers(pending, querierOptions);
+  }
 
   return { querier: mergeBucketParameterQueriers(queriers), errors };
 }
