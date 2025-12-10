@@ -53,6 +53,18 @@ export class SyncStream implements BucketSource {
   public get type(): BucketSourceType {
     return BucketSourceType.SYNC_STREAM;
   }
+
+  debugRepresentation() {
+    return {
+      name: this.name,
+      type: BucketSourceType[BucketSourceType.SYNC_STREAM],
+      variants: this.variants.map((v) => v.debugRepresentation()),
+      data: {
+        table: this.data.sourceTable,
+        columns: this.data.columnOutputNames()
+      }
+    };
+  }
 }
 
 export class SyncStreamDataSource implements BucketDataSourceDefinition {
@@ -88,18 +100,6 @@ export class SyncStreamDataSource implements BucketDataSourceDefinition {
     };
 
     result[this.data.table!.sqlName].push(r);
-  }
-
-  debugRepresentation() {
-    return {
-      name: this.stream.name,
-      type: BucketSourceType[BucketSourceType.SYNC_STREAM],
-      variants: this.stream.variants.map((v) => v.debugRepresentation()),
-      data: {
-        table: this.data.sourceTable,
-        columns: this.data.columnOutputNames()
-      }
-    };
   }
 
   createDataSource(params: CreateSourceParams): BucketDataSource {

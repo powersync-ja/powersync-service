@@ -51,6 +51,8 @@ export interface BucketSource {
    * The same source could in theory be present in multiple stream definitions.
    */
   readonly parameterLookupSources: BucketParameterLookupSourceDefinition[];
+
+  debugRepresentation(): any;
 }
 
 export interface HydratedBucketSource {
@@ -80,8 +82,6 @@ export interface BucketDataSourceDefinition {
   resolveResultSets(schema: SourceSchema, tables: Record<string, Record<string, ColumnDefinition>>): void;
 
   debugWriteOutputTables(result: Record<string, { query: string }[]>): void;
-
-  debugRepresentation(): any;
 }
 
 /**

@@ -473,7 +473,7 @@ export class SqlSyncRules {
   }
 
   debugRepresentation() {
-    return this.bucketDataSources.map((rules) => rules.debugRepresentation());
+    return this.bucketSources.map((rules) => rules.debugRepresentation());
   }
 
   private parsePriority(value: YAMLMap) {
