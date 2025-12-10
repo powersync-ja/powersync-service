@@ -41,6 +41,11 @@ export interface SubqueryEvaluator {
   parameterTable: TablePattern;
 
   lookupSources(): BucketParameterLookupSourceDefinition[];
+  // TODO: Is there a better design here?
+  // This is used for parameter _queries_. But the queries need to know which lookup scopes to
+  // use, and each querier may use multiple lookup sources, each with their own scope.
+  // This implementation here does "hydration" on each subquery, which gives us hydrated function call.
+  // Should this maybe be part of a higher-level class instead of just a function, i.e. a hydrated subquery?
   hydrateLookupsForRequest(hydrationState: HydrationState): (params: RequestParameters) => ParameterLookup[];
 }
 

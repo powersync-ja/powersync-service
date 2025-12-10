@@ -360,7 +360,6 @@ export class SqlParameterQuery
   }
 
   createParameterLookupSource(params: CreateSourceParams): BucketParameterLookupSource {
-    // FIXME: Use HydrationState for lookups.
     const hydrationState = resolveHydrationState(params);
     const lookupState = hydrationState.getParameterLookupScope(this);
     return {
