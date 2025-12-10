@@ -88,12 +88,15 @@ export async function ensurePowerSyncCheckpointsTable(connectionManager: MSSQLCo
   const errors: string[] = [];
   try {
     // check if the dbo_powersync_checkpoints table exists
-    const { recordset: checkpointsResult } = await connectionManager.query(`
+    const { recordset: checkpointsResult } = await connectionManager.query(
+      `
     SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = @schema AND TABLE_NAME = @tableName;
-  `, [
-    { name: 'schema', type: sql.VarChar(sql.MAX), value: connectionManager.schema },
-    { name: 'tableName', type: sql.VarChar(sql.MAX), value: POWERSYNC_CHECKPOINTS_TABLE },
-  ]);
+  `,
+      [
+        { name: 'schema', type: sql.VarChar(sql.MAX), value: connectionManager.schema },
+        { name: 'tableName', type: sql.VarChar(sql.MAX), value: POWERSYNC_CHECKPOINTS_TABLE }
+      ]
+    );
     if (checkpointsResult.length > 0) {
       // Table already exists, check if CDC is enabled
       const isEnabled = await isTableEnabledForCDC({
@@ -117,7 +120,7 @@ export async function ensurePowerSyncCheckpointsTable(connectionManager: MSSQLCo
   // Try to create the table
   try {
     await connectionManager.query(`
-  CREATE TABLE ${escapeIdentifier(connectionManager.schema)}.${escapeIdentifier(POWERSYNC_CHECKPOINTS_TABLE)} (
+  CREATE TABLE ${toQualifiedTableName(connectionManager.schema, POWERSYNC_CHECKPOINTS_TABLE)} (
     id INT IDENTITY PRIMARY KEY,
     last_updated DATETIME NOT NULL DEFAULT (GETDATE())
   )`);
@@ -140,7 +143,7 @@ export async function ensurePowerSyncCheckpointsTable(connectionManager: MSSQLCo
 
 export async function createCheckpoint(connectionManager: MSSQLConnectionManager): Promise<void> {
   await connectionManager.query(`
-    MERGE ${escapeIdentifier(connectionManager.schema)}.${escapeIdentifier(POWERSYNC_CHECKPOINTS_TABLE)} AS target
+    MERGE ${toQualifiedTableName(connectionManager.schema, POWERSYNC_CHECKPOINTS_TABLE)} AS target
     USING (SELECT 1 AS id) AS source
     ON target.id = source.id
     WHEN MATCHED THEN 
@@ -169,10 +172,12 @@ export async function isTableEnabledForCDC(options: IsTableEnabledForCDCOptions)
          JOIN sys.schemas   AS sch ON sch.schema_id = tbl.schema_id
       WHERE sch.name = @schema
         AND tbl.name = @tableName
-      `, [
-        { name: 'schema', type: sql.VarChar(sql.MAX), value: schema },
-        { name: 'tableName', type: sql.VarChar(sql.MAX), value: table },
-      ]);
+      `,
+    [
+      { name: 'schema', type: sql.VarChar(sql.MAX), value: schema },
+      { name: 'tableName', type: sql.VarChar(sql.MAX), value: table }
+    ]
+  );
   return checkResult.length > 0;
 }
 
@@ -267,10 +272,12 @@ export async function getCaptureInstance(options: GetCaptureInstanceOptions): Pr
       WHERE sch.name = @schema
         AND tbl.name = @tableName
         AND ct.end_lsn IS NULL;
-      `, [
-        { name: 'schema', type: sql.VarChar(sql.MAX), value: schema },
-        { name: 'tableName', type: sql.VarChar(sql.MAX), value: tableName },
-      ]);
+      `,
+    [
+      { name: 'schema', type: sql.VarChar(sql.MAX), value: schema },
+      { name: 'tableName', type: sql.VarChar(sql.MAX), value: tableName }
+    ]
+  );
 
   if (result.length === 0) {
     return null;
@@ -394,9 +401,7 @@ export async function getDebugTableInfo(options: GetDebugTableInfoOptions): Prom
 
   let selectError: service_types.ReplicationError | null = null;
   try {
-    await connectionManager.query(`SELECT TOP 1 * FROM @tableName`, [
-      { name: 'tableName', type: sql.VarChar(sql.MAX), value: toQualifiedTableName(schema, table.name) },
-    ]);
+    await connectionManager.query(`SELECT TOP 1 * FROM ${toQualifiedTableName(schema, table.name)}`);
   } catch (e) {
     selectError = { level: 'fatal', message: e.message };
   }

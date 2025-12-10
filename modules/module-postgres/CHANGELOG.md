@@ -1,5 +1,30 @@
 # @powersync/service-module-postgres
 
+## 0.16.15
+
+### Patch Changes
+
+- Updated dependencies [21b3a41]
+  - @powersync/service-sync-rules@0.29.9
+  - @powersync/lib-services-framework@0.7.13
+  - @powersync/service-jpgwire@0.21.8
+  - @powersync/service-core@1.18.1
+  - @powersync/lib-service-postgres@0.4.17
+
+## 0.16.14
+
+### Patch Changes
+
+- b77bb2c: - First iteration of MSSQL replication using Change Data Capture (CDC).
+  - Supports resumable snapshot replication
+  - Uses CDC polling for replication
+- Updated dependencies [dc696b1]
+- Updated dependencies [b77bb2c]
+  - @powersync/service-core@1.18.0
+  - @powersync/service-types@0.13.3
+  - @powersync/lib-service-postgres@0.4.16
+  - @powersync/lib-services-framework@0.7.12
+
 ## 0.16.13
 
 ### Patch Changes

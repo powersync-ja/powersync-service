@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.29.9
+
+### Patch Changes
+
+- 21b3a41: Exported sql lite helper values
+
 ## 0.29.8
 
 ### Patch Changes
