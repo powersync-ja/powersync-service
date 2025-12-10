@@ -1,6 +1,12 @@
 import { BucketInclusionReason, ResolvedBucket } from '../BucketDescription.js';
 import { BucketParameterQuerier, ParameterLookup } from '../BucketParameterQuerier.js';
+import {
+  BucketParameterLookupSource,
+  BucketParameterLookupSourceDefinition,
+  CreateSourceParams
+} from '../BucketSource.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
+import { TablePattern } from '../TablePattern.js';
 import {
   BucketIdTransformer,
   EvaluatedParametersResult,
@@ -63,6 +69,14 @@ export class StreamVariant {
     this.subqueries = [];
     this.additionalRowFilters = [];
     this.requestFilters = [];
+  }
+
+  defaultBucketPrefix(streamName: string): string {
+    return `${streamName}|${this.id}`;
+  }
+
+  lookupSources(streamName: string): BucketParameterLookupSourceDefinition[] {
+    return this.subqueries.flatMap((subquery) => subquery.lookupSources(streamName));
   }
 
   /**
@@ -214,41 +228,6 @@ export class StreamVariant {
       // This will be an array of values (i.e. a total evaluation) because there are no dynamic parameters.
       this.partiallyEvaluateParameters(params) as SqliteJsonValue[][]
     );
-  }
-
-  /**
-   * Creates lookup indices for dynamically-resolved parameters.
-   *
-   * Resolving dynamic parameters is a two-step process: First, for tables referenced in subqueries, we create an index
-   * to resolve which request parameters would match rows in subqueries. Then, when resolving bucket ids for a request,
-   * we compute subquery results by looking up results in that index.
-   *
-   * This implements the first step of that process.
-   *
-   * @param result The array into which evaluation results should be written to.
-   * @param sourceTable A table we depend on in a subquery.
-   * @param row Row data to index.
-   */
-  pushParameterRowEvaluation(result: EvaluatedParametersResult[], sourceTable: SourceTableInterface, row: SqliteRow) {
-    for (const subquery of this.subqueries) {
-      if (subquery.parameterTable.matches(sourceTable)) {
-        const lookups = subquery.lookupsForParameterRow(sourceTable, row);
-        if (lookups == null) {
-          continue;
-        }
-
-        // The row of the subquery. Since we only support subqueries with a single column, we unconditionally name the
-        // column `result` for simplicity.
-        const resultRow = { result: lookups.value };
-
-        result.push(
-          ...lookups.lookups.map((l) => ({
-            lookup: l,
-            bucketParameters: [resultRow]
-          }))
-        );
-      }
-    }
   }
 
   debugRepresentation(): any {

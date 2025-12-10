@@ -316,6 +316,14 @@ export class SqlParameterQuery
     this.errors = options.errors ?? [];
   }
 
+  public get defaultLookupName(): string {
+    return this.descriptorName;
+  }
+
+  public get defaultQueryId(): string {
+    return this.queryId;
+  }
+
   tableSyncsParameters(table: SourceTableInterface): boolean {
     return this.sourceTable.matches(table);
   }

@@ -1,6 +1,13 @@
 import { isParameterValueClause, isRowValueClause, SQLITE_TRUE, sqliteBool } from '../sql_support.js';
 import { TablePattern } from '../TablePattern.js';
-import { ParameterMatchClause, ParameterValueClause, RowValueClause, SqliteJsonValue } from '../types.js';
+import {
+  EvaluatedParametersResult,
+  ParameterMatchClause,
+  ParameterValueClause,
+  RowValueClause,
+  SqliteJsonValue,
+  SqliteRow
+} from '../types.js';
 import { isJsonValue, normalizeParameterValue } from '../utils.js';
 import { SqlTools } from '../sql_filters.js';
 import { checkJsonArray, OPERATOR_NOT } from '../sql_functions.js';
@@ -10,6 +17,12 @@ import { StreamVariant } from './variant.js';
 import { SubqueryEvaluator } from './parameter.js';
 import { cartesianProduct } from './utils.js';
 import { NodeLocation } from 'pgsql-ast-parser';
+import {
+  BucketParameterLookupSource,
+  BucketParameterLookupSourceDefinition,
+  CreateSourceParams
+} from '../BucketSource.js';
+import { SourceTableInterface } from '../SourceTableInterface.js';
 
 /**
  * An intermediate representation of a `WHERE` clause for stream queries.
@@ -253,19 +266,10 @@ export class Subquery {
 
     const evaluator: SubqueryEvaluator = {
       parameterTable: this.table,
-      lookupsForParameterRow(sourceTable, row) {
-        const value = column.evaluate({ [sourceTable.name]: row });
-        if (!isJsonValue(value)) {
-          return null;
-        }
-
-        const lookups: ParameterLookup[] = [];
-        for (const [variant, id] of innerVariants) {
-          for (const instantiation of variant.instantiationsForRow({ sourceTable, record: row })) {
-            lookups.push(ParameterLookup.normalized(context.streamName, id, instantiation));
-          }
-        }
-        return { value, lookups };
+      lookupSources(streamName) {
+        return innerVariants.map(([variant, id]) => {
+          return new SubqueryParameterLookupSource(evaluator, column, variant, id, streamName);
+        });
       },
       lookupsForRequest(parameters) {
         const lookups: ParameterLookup[] = [];
@@ -508,5 +512,77 @@ export class EvaluateSimpleCondition extends FilterOperator {
       this.location,
       tools.composeFunction(OPERATOR_NOT, [this.expression], []) as ScalarExpression
     );
+  }
+}
+
+export class SubqueryParameterLookupSource implements BucketParameterLookupSourceDefinition {
+  constructor(
+    private subquery: SubqueryEvaluator,
+    private column: RowValueClause,
+    private innerVariant: StreamVariant,
+    public readonly defaultQueryId: string,
+    private streamName: string
+  ) {}
+
+  get defaultLookupName() {
+    return this.streamName;
+  }
+
+  getSourceTables(): Set<TablePattern> {
+    let result = new Set<TablePattern>();
+    result.add(this.subquery.parameterTable);
+    return result;
+  }
+
+  /**
+   * Creates lookup indices for dynamically-resolved parameters.
+   *
+   * Resolving dynamic parameters is a two-step process: First, for tables referenced in subqueries, we create an index
+   * to resolve which request parameters would match rows in subqueries. Then, when resolving bucket ids for a request,
+   * we compute subquery results by looking up results in that index.
+   *
+   * This implements the first step of that process.
+   *
+   * @param result The array into which evaluation results should be written to.
+   * @param sourceTable A table we depend on in a subquery.
+   * @param row Row data to index.
+   */
+  evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[] {
+    if (this.subquery.parameterTable.matches(sourceTable)) {
+      // Theoretically we're doing duplicate work by doing this for each innerVariant in a subquery.
+      // In practice, we don't have more than one innerVariant per subquery right now, so this is fine.
+      const value = this.column.evaluate({ [sourceTable.name]: row });
+      if (!isJsonValue(value)) {
+        return [];
+      }
+
+      const lookups: ParameterLookup[] = [];
+      for (const instantiation of this.innerVariant.instantiationsForRow({ sourceTable, record: row })) {
+        // TODO: dynamic lookup name and query id
+        lookups.push(ParameterLookup.normalized(this.defaultLookupName, this.defaultQueryId, instantiation));
+      }
+
+      // The row of the subquery. Since we only support subqueries with a single column, we unconditionally name the
+      // column `result` for simplicity.
+      const resultRow = { result: value };
+
+      return lookups.map((l) => ({
+        lookup: l,
+        bucketParameters: [resultRow]
+      }));
+    }
+    return [];
+  }
+
+  createParameterLookupSource(params: CreateSourceParams): BucketParameterLookupSource {
+    return {
+      evaluateParameterRow: (sourceTable, row) => {
+        return this.evaluateParameterRow(sourceTable, row);
+      }
+    };
+  }
+
+  tableSyncsParameters(table: SourceTableInterface): boolean {
+    return this.subquery.parameterTable.matches(table);
   }
 }

@@ -146,6 +146,10 @@ export class BucketDefinitionDataSource implements BucketDataSourceDefinition {
     return this.descriptor.bucketParameters;
   }
 
+  public get defaultBucketPrefix(): string {
+    return this.descriptor.name;
+  }
+
   createDataSource(params: CreateSourceParams): BucketDataSource {
     return {
       evaluateRow: (options) => {

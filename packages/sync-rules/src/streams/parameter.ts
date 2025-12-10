@@ -1,4 +1,5 @@
 import { ParameterLookup } from '../BucketParameterQuerier.js';
+import { BucketParameterLookupSource, BucketParameterLookupSourceDefinition } from '../BucketSource.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { TablePattern } from '../TablePattern.js';
 import {
@@ -38,8 +39,9 @@ export interface BucketParameter {
 export interface SubqueryEvaluator {
   parameterTable: TablePattern;
 
-  lookupsForParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): SubqueryLookups | null;
   lookupsForRequest(params: RequestParameters): ParameterLookup[];
+
+  lookupSources(streamName: string): BucketParameterLookupSourceDefinition[];
 }
 
 export interface SubqueryLookups {

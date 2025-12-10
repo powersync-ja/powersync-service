@@ -66,6 +66,13 @@ export interface HydratedBucketSource {
  */
 export interface BucketDataSourceDefinition {
   /**
+   * Bucket prefix if no transformations are defined.
+   *
+   * Transformations may use this as a base, or may generate an entirely different prefix.
+   */
+  readonly defaultBucketPrefix: string;
+
+  /**
    * For debug use only.
    */
   readonly bucketParameters: string[];
@@ -90,6 +97,14 @@ export interface BucketDataSourceDefinition {
  * This is only relevant for parameter queries that query tables.
  */
 export interface BucketParameterLookupSourceDefinition {
+  /**
+   * lookupName + queryId is used to uniquely identify parameter queries for parameter storage.
+   *
+   * This defines the default values if no transformations are applied.
+   */
+  defaultLookupName: string;
+  defaultQueryId: string;
+
   getSourceTables(): Set<TablePattern>;
   createParameterLookupSource(params: CreateSourceParams): BucketParameterLookupSource;
 

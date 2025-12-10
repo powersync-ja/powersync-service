@@ -47,7 +47,7 @@ export class SyncStream implements BucketSource {
 
     this.dataSources = variants.map((variant) => new SyncStreamDataSource(this, data, variant));
     this.parameterQuerierSources = variants.map((variant) => new SyncStreamParameterQuerierSource(this, variant));
-    this.parameterLookupSources = variants.map((variant) => new SyncStreamParameterLookupSource(this, variant));
+    this.parameterLookupSources = variants.flatMap((variant) => variant.lookupSources(name));
   }
 
   public get type(): BucketSourceType {
@@ -79,6 +79,10 @@ export class SyncStreamDataSource implements BucketDataSourceDefinition {
    */
   get bucketParameters() {
     return [];
+  }
+
+  public get defaultBucketPrefix(): string {
+    return this.variant.defaultBucketPrefix(this.stream.name);
   }
 
   getSourceTables(): Set<TablePattern> {
@@ -197,41 +201,5 @@ export class SyncStreamParameterQuerierSource implements BucketParameterQuerierS
         subscription: subscription ?? undefined
       });
     }
-  }
-}
-
-export class SyncStreamParameterLookupSource implements BucketParameterLookupSourceDefinition {
-  constructor(
-    private stream: SyncStream,
-    private variant: StreamVariant
-  ) {}
-
-  getSourceTables(): Set<TablePattern> {
-    let result = new Set<TablePattern>();
-    for (const subquery of this.variant.subqueries) {
-      result.add(subquery.parameterTable);
-    }
-
-    return result;
-  }
-
-  createParameterLookupSource(params: CreateSourceParams): BucketParameterLookupSource {
-    return {
-      evaluateParameterRow: (sourceTable, row) => {
-        const result: EvaluatedParametersResult[] = [];
-        this.variant.pushParameterRowEvaluation(result, sourceTable, row);
-        return result;
-      }
-    };
-  }
-
-  tableSyncsParameters(table: SourceTableInterface): boolean {
-    for (const subquery of this.variant.subqueries) {
-      if (subquery.parameterTable.matches(table)) {
-        return true;
-      }
-    }
-
-    return false;
   }
 }
