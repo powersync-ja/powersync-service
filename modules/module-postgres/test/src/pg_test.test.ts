@@ -12,7 +12,6 @@ import { describe, expect, test } from 'vitest';
 import { clearTestDb, connectPgPool, connectPgWire, TEST_URI } from './util.js';
 import { WalStream } from '@module/replication/WalStream.js';
 import { PostgresTypeResolver } from '@module/types/resolver.js';
-import { CustomTypeRegistry } from '@module/types/registry.js';
 
 describe('pg data types', () => {
   async function setupTable(db: pgwire.PgClient) {

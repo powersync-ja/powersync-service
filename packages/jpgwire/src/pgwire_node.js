@@ -5,7 +5,7 @@
 import { createHash, pbkdf2 as _pbkdf2, randomFillSync } from 'crypto';
 
 import { promisify } from 'util';
-import { _net, SaslScramSha256 } from 'pgwire/mod.js';
+import { _net, SaslScramSha256 } from 'pgwire';
 import { SocketAdapter } from './socket_adapter.js';
 
 const pbkdf2 = promisify(_pbkdf2);
@@ -50,3 +50,5 @@ Object.assign(_net, {
     return sockadapt.close();
   }
 });
+
+export * from 'pgwire';

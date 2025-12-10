@@ -126,28 +126,8 @@ export async function connectPgWire(
   connectOptions.tlsOptions = tlsOptions;
   connectOptions.lookup = config.lookup;
 
-  // HACK: Replace row decoding with our own implementation
-  (connection as any)._recvDataRow = _recvDataRow;
-
   await (connection as any).start();
   return connection;
-}
-
-function _recvDataRow(this: any, _message: any, row: (Uint8Array | DatabaseInputValue)[], batch: any) {
-  for (let i = 0; i < this._rowColumns.length; i++) {
-    const valbuf = row[i];
-    if (valbuf == null) {
-      continue;
-    }
-    const { binary, typeOid } = this._rowColumns[i];
-    // TODO avoid this._clientTextDecoder.decode for bytea
-    row[i] = binary
-      ? // do not valbuf.slice() because nodejs Buffer .slice does not copy
-        // TODO but we not going to receive Buffer here ?
-        Uint8Array.prototype.slice.call(valbuf)
-      : PgType.decode(this._rowTextDecoder.decode(valbuf), typeOid);
-  }
-  batch.rows.push(row);
 }
 
 export interface PgPoolOptions {
@@ -209,9 +189,6 @@ export function connectPgWirePool(config: PgWireConnectionOptions, options?: PgP
     const connectOptions = (con as any)._connectOptions as ConnectOptions;
     connectOptions.tlsOptions = tlsOptions;
     connectOptions.lookup = config.lookup;
-
-    // HACK: Replace row decoding with our own implementation
-    (con as any)._recvDataRow = _recvDataRow;
     return con;
   };
   return pool;
