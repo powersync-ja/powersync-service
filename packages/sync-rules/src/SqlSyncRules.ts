@@ -240,7 +240,7 @@ export class SqlSyncRules {
       }
 
       rules.bucketSources.push(descriptor);
-      rules.bucketDataSources.push(descriptor.dataSource);
+      rules.bucketDataSources.push(...descriptor.dataSources);
       rules.bucketParameterLookupSources.push(...descriptor.parameterLookupSources);
       rules.bucketParameterQuerierSources.push(...descriptor.parameterQuerierSources);
     }
@@ -268,7 +268,7 @@ export class SqlSyncRules {
         rules.withScalar(data, (q) => {
           const [parsed, errors] = syncStreamFromSql(key, q, queryOptions);
           rules.bucketSources.push(parsed);
-          rules.bucketDataSources.push(parsed.dataSource);
+          rules.bucketDataSources.push(...parsed.dataSources);
           rules.bucketParameterLookupSources.push(...parsed.parameterLookupSources);
           rules.bucketParameterQuerierSources.push(...parsed.parameterQuerierSources);
           return {

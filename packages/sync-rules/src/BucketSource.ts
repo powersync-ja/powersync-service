@@ -25,8 +25,12 @@ export interface BucketSource {
    * BucketDataSource describing the data in this bucket/stream definition.
    *
    * The same data source could in theory be present in multiple stream definitions.
+   *
+   * Sources must _only_ be split into multiple ones if they will result in different buckets being created.
+   * Specifically, bucket definitions would always have a single data source, while stream definitions may have
+   * one per variant.
    */
-  readonly dataSource: BucketDataSourceDefinition;
+  readonly dataSources: BucketDataSourceDefinition[];
 
   /**
    * BucketParameterQuerierSource describing the parameter queries / stream subqueries in this bucket/stream definition.

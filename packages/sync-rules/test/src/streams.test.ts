@@ -38,7 +38,7 @@ describe('streams', () => {
     expect(desc.variants).toHaveLength(1);
     expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo' })).toStrictEqual(['1#stream|0[]']);
     expect(
-      desc.dataSource
+      desc.dataSources[0]
         .createDataSource({ bucketIdTransformer })
         .evaluateRow({ sourceTable: USERS, record: { id: 'foo' } })
     ).toHaveLength(0);
@@ -747,7 +747,7 @@ describe('streams', () => {
       );
       const row = { id: 'id', account_id: 'account_id' };
 
-      expect(stream.dataSource.tableSyncsData(accountMember)).toBeTruthy();
+      expect(stream.dataSources[0].tableSyncsData(accountMember)).toBeTruthy();
       expect(stream.parameterLookupSources[0].tableSyncsParameters(accountMember)).toBeTruthy();
 
       // Ensure lookup steps work.
@@ -779,7 +779,7 @@ describe('streams', () => {
 
       // And that the data alias is respected for generated schemas.
       const outputSchema = {};
-      stream.dataSource.resolveResultSets(schema, outputSchema);
+      stream.dataSources[0].resolveResultSets(schema, outputSchema);
       expect(Object.keys(outputSchema)).toStrictEqual(['outer']);
     });
 
@@ -937,16 +937,20 @@ const options: StreamParseOptions = {
 const bucketIdTransformer = SqlSyncRules.versionedBucketIdTransformer('1');
 
 function evaluateBucketIds(stream: SyncStream, sourceTable: SourceTableInterface, record: SqliteRow) {
-  return stream.dataSource
-    .createDataSource({ bucketIdTransformer })
-    .evaluateRow({ sourceTable, record })
-    .map((r) => {
-      if ('error' in r) {
-        throw new Error(`Unexpected error evaluating row: ${r.error}`);
-      }
+  return stream.dataSources
+    .map((s) =>
+      s
+        .createDataSource({ bucketIdTransformer })
+        .evaluateRow({ sourceTable, record })
+        .map((r) => {
+          if ('error' in r) {
+            throw new Error(`Unexpected error evaluating row: ${r.error}`);
+          }
 
-      return r.bucket;
-    });
+          return r.bucket;
+        })
+    )
+    .flat();
 }
 
 async function createQueriers(

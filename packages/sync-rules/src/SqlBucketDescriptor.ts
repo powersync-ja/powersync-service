@@ -54,8 +54,8 @@ export class SqlBucketDescriptor implements BucketDataSourceDefinition, BucketSo
     return this.bucketParametersInternal ?? [];
   }
 
-  get dataSource() {
-    return this;
+  get dataSources() {
+    return [this];
   }
 
   get parameterLookupSources() {

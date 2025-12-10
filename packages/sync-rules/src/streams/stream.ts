@@ -34,7 +34,7 @@ export class SyncStream implements BucketSource {
   variants: StreamVariant[];
   data: BaseSqlDataQuery;
 
-  public readonly dataSource: BucketDataSourceDefinition;
+  public readonly dataSources: BucketDataSourceDefinition[];
   public readonly parameterLookupSources: BucketParameterLookupSourceDefinition[];
   public readonly parameterQuerierSources: BucketParameterQuerierSourceDefinition[];
 
@@ -45,7 +45,7 @@ export class SyncStream implements BucketSource {
     this.variants = [];
     this.data = data;
 
-    this.dataSource = new SyncStreamDataSource(this, data);
+    this.dataSources = [new SyncStreamDataSource(this, data)];
     this.parameterQuerierSources = [new SyncStreamParameterQuerierSource(this)];
     this.parameterLookupSources = [new SyncStreamParameterLookupSource(this)];
   }
