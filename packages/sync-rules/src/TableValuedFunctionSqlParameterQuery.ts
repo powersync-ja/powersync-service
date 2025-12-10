@@ -6,6 +6,7 @@ import {
   CreateSourceParams
 } from './BucketSource.js';
 import { SqlRuleError } from './errors.js';
+import { resolveHydrationState } from './HydrationState.js';
 import { BucketDataSourceDefinition, BucketParameterQuerier, GetQuerierOptions, PendingQueriers } from './index.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
@@ -13,7 +14,6 @@ import { checkUnsupportedFeatures, isClauseError, sqliteBool } from './sql_suppo
 import { TablePattern } from './TablePattern.js';
 import { generateTableValuedFunctions, TableValuedFunction } from './TableValuedFunctions.js';
 import {
-  BucketIdTransformer,
   ParameterValueClause,
   ParameterValueSet,
   QueryParseOptions,
@@ -23,7 +23,6 @@ import {
 } from './types.js';
 import { getBucketId, isJsonValue } from './utils.js';
 import { DetectRequestParameters } from './validators.js';
-import { resolveHydrationState } from './HydrationState.js';
 
 export interface TableValuedFunctionSqlParameterQueryOptions {
   sql: string;

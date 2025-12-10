@@ -1,5 +1,5 @@
-import { BucketDataSource, BucketDataSourceDefinition, BucketParameterLookupSourceDefinition } from './BucketSource.js';
-import { BucketIdTransformer, CompatibilityContext, CompatibilityOption, CreateSourceParams } from './index.js';
+import { BucketDataSourceDefinition, BucketParameterLookupSourceDefinition } from './BucketSource.js';
+import { BucketIdTransformer, CreateSourceParams } from './index.js';
 
 export interface BucketSourceState {
   /** The prefix is the bucket name before the parameters. */

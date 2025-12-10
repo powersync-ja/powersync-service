@@ -1,17 +1,8 @@
 import { ParameterLookup } from '../BucketParameterQuerier.js';
-import { BucketParameterLookupSource, BucketParameterLookupSourceDefinition } from '../BucketSource.js';
+import { BucketParameterLookupSourceDefinition } from '../BucketSource.js';
 import { HydrationState } from '../HydrationState.js';
-import { SourceTableInterface } from '../SourceTableInterface.js';
 import { TablePattern } from '../TablePattern.js';
-import {
-  EvaluateRowOptions,
-  ParameterValueSet,
-  RequestParameters,
-  SqliteJsonValue,
-  SqliteRow,
-  SqliteValue,
-  TableRow
-} from '../types.js';
+import { ParameterValueSet, RequestParameters, SqliteJsonValue, SqliteValue, TableRow } from '../types.js';
 
 /**
  * A source of parameterization, causing data from the source table to be distributed into multiple buckets instead of

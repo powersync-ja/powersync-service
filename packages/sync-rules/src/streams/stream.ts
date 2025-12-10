@@ -1,12 +1,9 @@
 import { BaseSqlDataQuery } from '../BaseSqlDataQuery.js';
-import { BucketInclusionReason, BucketPriority, DEFAULT_BUCKET_PRIORITY } from '../BucketDescription.js';
-import { PendingQueriers } from '../BucketParameterQuerier.js';
+import { BucketPriority, DEFAULT_BUCKET_PRIORITY } from '../BucketDescription.js';
 import {
   BucketDataSource,
   BucketDataSourceDefinition,
-  BucketParameterLookupSource,
   BucketParameterLookupSourceDefinition,
-  BucketParameterQuerierSource,
   BucketParameterQuerierSourceDefinition,
   BucketSource,
   BucketSourceType,
@@ -15,17 +12,8 @@ import {
 import { ColumnDefinition } from '../ExpressionType.js';
 import { resolveHydrationState } from '../HydrationState.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
-import { GetQuerierOptions, RequestedStream } from '../SqlSyncRules.js';
 import { TablePattern } from '../TablePattern.js';
-import {
-  BucketIdTransformer,
-  EvaluatedParametersResult,
-  EvaluateRowOptions,
-  EvaluationResult,
-  RequestParameters,
-  SourceSchema,
-  TableRow
-} from '../types.js';
+import { EvaluateRowOptions, EvaluationResult, SourceSchema, TableRow } from '../types.js';
 import { StreamVariant } from './variant.js';
 
 export class SyncStream implements BucketSource {

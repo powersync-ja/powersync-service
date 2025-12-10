@@ -2,7 +2,6 @@ import { BucketInclusionReason, ResolvedBucket } from '../BucketDescription.js';
 import { BucketParameterQuerier, ParameterLookup, PendingQueriers } from '../BucketParameterQuerier.js';
 import {
   BucketDataSourceDefinition,
-  BucketParameterLookupSource,
   BucketParameterLookupSourceDefinition,
   BucketParameterQuerierSource,
   BucketParameterQuerierSourceDefinition,
@@ -10,18 +9,8 @@ import {
 } from '../BucketSource.js';
 import { resolveHydrationState } from '../HydrationState.js';
 import { GetQuerierOptions, RequestedStream } from '../index.js';
-import { SourceTableInterface } from '../SourceTableInterface.js';
-import { TablePattern } from '../TablePattern.js';
-import {
-  BucketIdTransformer,
-  EvaluatedParametersResult,
-  EvaluateRowOptions,
-  RequestParameters,
-  SqliteJsonValue,
-  SqliteRow,
-  TableRow
-} from '../types.js';
-import { isJsonValue, JSONBucketNameSerialize, normalizeParameterValue } from '../utils.js';
+import { RequestParameters, SqliteJsonValue, TableRow } from '../types.js';
+import { isJsonValue, JSONBucketNameSerialize } from '../utils.js';
 import { BucketParameter, SubqueryEvaluator } from './parameter.js';
 import { SyncStream, SyncStreamDataSource } from './stream.js';
 import { cartesianProduct } from './utils.js';
